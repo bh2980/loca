@@ -75,7 +75,8 @@ export function TranslationEditor({
   const project = useQuery(q.project(projectId));
   const editorAi = project.data?.editorAi;
   // Each button has its own model (설정 › 에디터); the continuation only when it is on with a model.
-  const hasModel = (mode: 'translate' | 'refine') => Boolean(editorAi?.[mode].model.model);
+  // AI 번역 and 다듬기 share one model.
+  const hasModel = Boolean(editorAi?.model.model);
   const completes = Boolean(editorAi?.complete.enabled && editorAi.complete.model);
   const [ai, setAi] = useState<{ text?: string; loading?: boolean; message?: string; dismissed?: boolean }>(() => ({ text: continuations.get(unit.id) }));
   const pending = useRef<AbortController>(null);
@@ -109,7 +110,7 @@ export function TranslationEditor({
   const [assist, setAssist] = useState<{ loading?: 'translate' | 'refine'; done?: 'translate' | 'refine' | 'unchanged'; message?: string; from?: string; text?: string; reasons?: string[] }>({});
   const assistPending = useRef<AbortController>(null);
   const runAssist = (mode: 'translate' | 'refine') => {
-    if (assist.loading || !hasModel(mode) || (mode === 'refine' && !draft.trim())) return;
+    if (assist.loading || !hasModel || (mode === 'refine' && !draft.trim())) return;
     assistPending.current?.abort();
     const controller = (assistPending.current = new AbortController());
     const sent = draft;
@@ -180,7 +181,7 @@ export function TranslationEditor({
       toast.info('편집기 AI 설정을 확인하고 있습니다.');
       return;
     }
-    if (!hasModel(mode)) {
+    if (!hasModel) {
       openAssistSettings();
       return;
     }
@@ -254,10 +255,10 @@ export function TranslationEditor({
             저장
           </EditorAction> : null}
           ai={<>
-            <EditorAction icon={Languages} variant="ghost" disabled={!!assist.loading || project.isPending} onClick={() => requestAssist('translate')} title={!project.isPending && !hasModel('translate') ? '모델 설정으로 이동합니다. 작성 중인 초안은 유지됩니다.' : undefined}>
+            <EditorAction icon={Languages} variant="ghost" disabled={!!assist.loading || project.isPending} onClick={() => requestAssist('translate')} title={!project.isPending && !hasModel ? '모델 설정으로 이동합니다. 작성 중인 초안은 유지됩니다.' : undefined}>
               {draft.trim() ? 'AI 다시' : 'AI 번역'}
             </EditorAction>
-            <EditorAction icon={WandSparkles} variant="ghost" disabled={!!assist.loading || project.isPending || Boolean(hasModel('refine') && !draft.trim())} onClick={() => requestAssist('refine')} title={!project.isPending && !hasModel('refine') ? '모델 설정으로 이동합니다. 작성 중인 초안은 유지됩니다.' : keyLabel('Alt+.')}>
+            <EditorAction icon={WandSparkles} variant="ghost" disabled={!!assist.loading || project.isPending || Boolean(hasModel && !draft.trim())} onClick={() => requestAssist('refine')} title={!project.isPending && !hasModel ? '모델 설정으로 이동합니다. 작성 중인 초안은 유지됩니다.' : keyLabel('Alt+.')}>
               다듬기
             </EditorAction>
           </>}

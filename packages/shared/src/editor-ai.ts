@@ -7,35 +7,31 @@ import { aiNodeConfigSchema, contextConfigSchema } from './workflow.ts';
 export const COMPLETE_SYSTEM =
   'You continue a Korean game translation in a translator\'s editor. Reply with nothing but the Korean translation of the line: if the translator has started it (the text between <started> and </started>), your reply begins with exactly that text and goes on. Copy the format tokens exactly. Follow the glossary and the speech level. No labels, quotes, notes or explanations.';
 
-/**
- * An editor button's AI: an ordinary AI node configuration of its own (model, instructions, context,
- * call time limit), filled from a preset until a person changes it. It is not a workflow's node:
- * changing one does not change the other.
- */
-function editorNodeSchema(preset: AiPresetId) {
+/** An editor button's own part: its instructions and what of the line it shows the model, from its preset until changed. */
+function editorButtonSchema(preset: AiPresetId) {
   const filled = AI_PRESETS[preset];
-  return aiNodeConfigSchema
-    .extend({
+  return z
+    .object({
       instructions: z.string().default(filled.instructions),
-      output: aiNodeConfigSchema.shape.output.default(filled.output),
-      fields: aiNodeConfigSchema.shape.fields.default(structuredClone(filled.fields)),
       include: aiNodeConfigSchema.shape.include.default(filled.include),
-      context: contextConfigSchema.prefault((filled as { context?: object }).context ?? {}),
-      preset: z.string().default(preset),
-      // A person waits for the answer: a single line should not take minutes.
-      timeoutMinutes: aiNodeConfigSchema.shape.timeoutMinutes.default(2),
     })
     .prefault({});
 }
 
 /**
- * The editor's AI, per project: the 'AI 번역' and '다듬기' buttons (each its own AI node settings, any
- * connection, a CLI too), the continuation (off by default; an API connection's model: it answers as
- * the person types), and 자연어로 정규식 만들기's time limit.
+ * The editor's AI, per project. 'AI 번역' and '다듬기' share one model (any connection, a CLI too), one
+ * context and one call time limit, and each has its instructions (from the AI 번역 / AI 다듬기 presets
+ * until changed); together they make an ordinary AI node configuration, not a workflow's node. The
+ * continuation (off by default) has its own API model, as it answers while the person types; then
+ * 자연어로 정규식 만들기's time limit.
  */
 export const editorAiSchema = z.object({
-  translate: editorNodeSchema('translate'),
-  refine: editorNodeSchema('refine'),
+  model: aiNodeConfigSchema.shape.model.default({ connectionId: '', model: '' }),
+  context: contextConfigSchema.prefault({}),
+  // A person waits for the answer: a single line should not take minutes.
+  timeoutMinutes: aiNodeConfigSchema.shape.timeoutMinutes.default(2),
+  translate: editorButtonSchema('translate'),
+  refine: editorButtonSchema('refine'),
   complete: z
     .object({
       enabled: z.boolean().default(false),
@@ -54,5 +50,21 @@ export const editorAiSchema = z.object({
     .prefault({}),
   regex: z.object({ timeoutSeconds: z.number().int().min(10).max(600).default(120) }).prefault({}),
 });
+export type EditorButton = 'translate' | 'refine';
+
+/** A button's settings as the AI node they make: its preset's output, the shared model, context and time limit. */
+export function editorNodeConfig(settings: z.infer<typeof editorAiSchema>, button: EditorButton) {
+  const preset = AI_PRESETS[button];
+  return aiNodeConfigSchema.parse({
+    model: settings.model,
+    instructions: settings[button].instructions,
+    output: preset.output,
+    fields: structuredClone(preset.fields),
+    include: settings[button].include,
+    context: settings.context,
+    preset: button,
+    timeoutMinutes: settings.timeoutMinutes,
+  });
+}
 export type EditorAi = z.infer<typeof editorAiSchema>;
 export const DEFAULT_EDITOR_AI: EditorAi = editorAiSchema.parse({});

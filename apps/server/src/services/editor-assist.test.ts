@@ -21,7 +21,7 @@ function setup(assistModel = true) {
   });
   const { projectId } = importProject(db, file);
   const model = { connectionId: connection.id, model: 'm' };
-  if (assistModel) db.update(s.projects).set({ editorAi: { translate: { model }, refine: { model } } as never }).where(eq(s.projects.id, projectId)).run();
+  if (assistModel) db.update(s.projects).set({ editorAi: { model } as never }).where(eq(s.projects.id, projectId)).run();
   const unit = db.select().from(s.units).where(eq(s.units.projectId, projectId)).get()!;
   return { db, unit };
 }
@@ -59,10 +59,10 @@ describe('the editor AI assist', () => {
     expect(db.select().from(s.candidates).where(eq(s.candidates.id, translated.candidateId)).get()!.note).toBe('AI 번역');
   });
 
-  it('uses each button\'s own settings: its instructions and call time limit', async () => {
+  it('uses the button\'s instructions and the shared call time limit', async () => {
     const { db, unit } = setup();
     const project = db.select().from(s.projects).where(eq(s.projects.id, unit.projectId)).get()!;
-    db.update(s.projects).set({ editorAi: { ...(project.editorAi as object), translate: { model: (project.editorAi as { translate: { model: unknown } }).translate.model, instructions: 'Translate like a pirate.', timeoutMinutes: 1 } } as never }).where(eq(s.projects.id, unit.projectId)).run();
+    db.update(s.projects).set({ editorAi: { ...(project.editorAi as object), timeoutMinutes: 1, translate: { instructions: 'Translate like a pirate.' } } as never }).where(eq(s.projects.id, unit.projectId)).run();
     const seen: { system?: string; timeoutMs?: number } = {};
     const generate = (async (_route: unknown, request: { system: string; timeoutMs: number }) => {
       Object.assign(seen, { system: request.system, timeoutMs: request.timeoutMs });

@@ -547,6 +547,13 @@
       "when": 1792489266557,
       "tag": "0077_connection_drop_concurrency",
       "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "6",
+      "when": 1792491279623,
+      "tag": "0078_editor_ai_shared_model",
+      "breakpoints": true
     }
   ]
 }

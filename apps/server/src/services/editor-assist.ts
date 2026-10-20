@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import * as ai from '@tw/ai';
-import { aiNodeConfigSchema, editorAiSchema, type AiNode } from '@tw/shared';
+import { editorAiSchema, editorNodeConfig, type AiNode } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { buildPrompt, outputSchema, promptLineId } from '../engine/prompts.ts';
@@ -20,8 +20,8 @@ export const REFINE_KINDS = ['meaning', 'rule', 'language'] as const;
 const KIND_LABELS: Record<string, string> = { meaning: '의미', rule: '규칙', language: '표현' };
 
 /**
- * The editor's 'AI 번역' and '다듬기' for one line: each button's own AI node settings (설정 › 에디터:
- * model, instructions, context, call time limit; filled from the AI 번역 / AI 다듬기 presets), the same
+ * The editor's 'AI 번역' and '다듬기' for one line: the AI node their settings make (설정 › 에디터: one
+ * model, context and time limit for both, each button's instructions from the AI 번역 / AI 다듬기 presets), the same
  * prompt and context as a workflow's AI node. The answer becomes an AI candidate of the line (with
  * 다듬기's "changes" as its note); the line's translation does not change. 다듬기 with nothing to fix
  * makes no candidate (`unchanged`).
@@ -32,12 +32,12 @@ export async function assistLine(db: Db, secrets: SecretStore, unitId: string, r
   const project = db.select().from(s.projects).where(eq(s.projects.id, unit.projectId)).get()!;
   const settings = editorAiSchema.parse(project.editorAi ?? {});
   const refine = request.mode === 'refine';
-  const config = settings[request.mode];
-  if (!config.model.model) throw new CompleteRefused(`설정 › 에디터에서 ${refine ? '다듬기' : 'AI 번역'} 모델을 고르세요.`, 400);
+  const config = editorNodeConfig(settings, request.mode);
+  if (!config.model.model) throw new CompleteRefused('설정 › 에디터에서 AI 번역·다듬기 모델을 고르세요.', 400);
   if (refine && !request.draft.trim()) throw new CompleteRefused('다듬을 번역이 없습니다.', 400);
   const { snapshot, routes } = liveChoice(db, config.model, secrets, 'generate');
 
-  const node = { id: 'editor', type: 'ai', position: { x: 0, y: 0 }, config: aiNodeConfigSchema.parse(config) } as AiNode;
+  const node = { id: 'editor', type: 'ai', position: { x: 0, y: 0 }, config } as AiNode;
   // The context cap follows the button's model window (auto), like an AI node's.
   const context = buildContext(db, unit.projectId, [unit], resolveNodeBudgets(node, modelLimitsOf(db, config.model)).config.context);
   const line = { id: promptLineId(0), unitId: unit.id, groupId: unit.groupId, key: unit.key, kind: unit.kind, speaker: unit.speaker, source: unit.source, candidate: node.config.include.candidate ? request.draft || unit.translation || undefined : undefined };

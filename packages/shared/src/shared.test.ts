@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { editorAiSchema } from './editor-ai.ts';
+import { editorAiSchema, editorNodeConfig } from './editor-ai.ts';
 import { chatTitle } from './agent.ts';
 import { checkFormat, compileFormatRules, matchTokens } from './format-check.ts';
 import { importFileSchema, importWarnings, summarizeImport } from './import-format.ts';
@@ -379,15 +379,19 @@ describe('printf placeholders', () => {
 });
 
 describe('editor AI settings', () => {
-  it('fills each button from its preset until changed, and keeps what a person set', () => {
+  it('shares one model, context and time limit between AI 번역 and 다듬기, each with its preset instructions until changed', () => {
     const empty = editorAiSchema.parse({});
-    expect(empty.translate).toMatchObject({ preset: 'translate', output: 'text', instructions: AI_PRESETS.translate.instructions, timeoutMinutes: 2 });
-    expect(empty.refine).toMatchObject({ preset: 'refine', output: 'json', include: { candidate: true } });
-    expect(empty.refine.fields.map((field) => field.name)).toEqual(['text', 'changes']);
+    expect(empty).toMatchObject({ model: { connectionId: '', model: '' }, timeoutMinutes: 2, translate: { instructions: AI_PRESETS.translate.instructions } });
+    expect(empty.refine.include).toMatchObject({ candidate: true });
     expect(empty.complete).toMatchObject({ enabled: false, model: null, precedingLines: 3, glossary: true, speech: true, timeoutSeconds: 15, dailyCap: 200 });
-    const moved = editorAiSchema.parse({ translate: { model: { connectionId: 'c', model: 'm' }, instructions: 'Mine.' }, complete: { enabled: true, model: { connectionId: 'c', model: 'fast' } } });
-    expect(moved.translate).toMatchObject({ model: { connectionId: 'c', model: 'm' }, instructions: 'Mine.', output: 'text' });
-    expect(moved.complete).toMatchObject({ enabled: true, model: { connectionId: 'c', model: 'fast' }, timeoutSeconds: 15 });
+    // The node a button makes: its preset's output with the shared settings.
+    const refine = editorNodeConfig(empty, 'refine');
+    expect(refine).toMatchObject({ preset: 'refine', output: 'json', timeoutMinutes: 2 });
+    expect(refine.fields.map((field) => field.name)).toEqual(['text', 'changes']);
+    const set = editorAiSchema.parse({ model: { connectionId: 'c', model: 'm' }, translate: { instructions: 'Mine.' }, complete: { enabled: true, model: { connectionId: 'c', model: 'fast' } } });
+    expect(editorNodeConfig(set, 'translate')).toMatchObject({ model: { connectionId: 'c', model: 'm' }, instructions: 'Mine.', output: 'text' });
+    expect(editorNodeConfig(set, 'refine').model).toEqual({ connectionId: 'c', model: 'm' });
+    expect(set.complete).toMatchObject({ enabled: true, model: { connectionId: 'c', model: 'fast' }, timeoutSeconds: 15 });
   });
 });
 
