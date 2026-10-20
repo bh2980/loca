@@ -22,7 +22,7 @@ function setup() {
   const workflow = db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).get()!;
   const definition = { ...workflow.definition, nodes: workflow.definition.nodes.map((node) => (node.type === 'ai' ? { ...node, config: { ...node.config, batch: { mode: 'count' as const, size: 1, maxTokens: 6_000 } } } : node)) };
   db.update(s.workflows).set({ definition }).where(eq(s.workflows.id, workflow.id)).run();
-  const runId = createRun(db, { projectId, workflow: { ...workflow, definition }, models: snapshotWorkflowModels(db, definition), scope: { ignoreStatus: true } }).runId;
+  const runId = createRun(db, { projectId, workflow: { ...workflow, definition }, models: snapshotWorkflowModels(db, definition), scope: {} }).runId;
   const run = () => db.select().from(s.runs).where(eq(s.runs.id, runId)).get()!;
   return { db, a, b, workflow, runId, run };
 }

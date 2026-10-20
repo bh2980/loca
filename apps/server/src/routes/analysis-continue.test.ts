@@ -18,7 +18,7 @@ function setup() {
   const { projectId } = importProject(db, file, choice);
   const analysis = (name: string) => {
     const workflow = db.insert(s.workflows).values({ projectId, name, definition: analysisTemplate({ model: choice }) }).returning().get();
-    return createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: { ignoreStatus: true } }).runId;
+    return createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: {} }).runId;
   };
   const setStatus = (id: string, status: 'running' | 'paused' | 'completed') => db.update(s.runs).set({ status, notice: null }).where(eq(s.runs.id, id)).run();
   const calls: string[] = [];

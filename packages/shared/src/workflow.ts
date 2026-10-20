@@ -2,8 +2,6 @@ import { z } from 'zod';
 import Graph from 'graphology';
 import { APPLY_TARGETS, FUNCTIONS, functionPorts, functionTakes, jsonFieldSchema, type ApplyFunctionName, type ApplyParams, type FunctionName, type JsonField, type Port } from './functions.ts';
 import { stronglyConnectedComponents } from 'graphology-components';
-import { KNOWLEDGE_STATUSES } from './knowledge.ts';
-import { TERM_MARK_IDS, type AutoMark } from './marks.ts';
 import { choiceKey, draftModelChoiceSchema, EMPTY_MODEL_CHOICE, modelChoiceSchema, type ModelChoice } from './model-choice.ts';
 
 /**
@@ -183,18 +181,9 @@ export const INPUT_TYPES = {
 /** Context settings that belong to one input (shown and used only there); the rest is core. */
 export const INPUT_CONTEXT_FIELDS = new Set<string>([...INPUT_TYPES.lines.contextFields, ...INPUT_TYPES.terms.contextFields]);
 
-/**
- * The entry node: what the workflow takes in (`input`), and what a run takes when its scope names no
- * items: lines in `statusIds` (empty = any); terms in `termStatuses` carrying every mark in `termMarks`
- * (default: candidates without a Korean form yet), most used first.
- */
+/** The entry node: what the workflow takes in. Which items a run takes is the run's scope (the run dialog), not the workflow's. */
 export const entryConfigSchema = z
-  .object({
-    input: z.enum(WORKFLOW_SUBJECT_IDS as [WorkflowSubject, ...WorkflowSubject[]]).default('lines'),
-    statusIds: z.array(z.string()).default([]),
-    termStatuses: z.array(z.enum(KNOWLEDGE_STATUSES)).default(['candidate']),
-    termMarks: z.array(z.enum(TERM_MARK_IDS as [AutoMark, ...AutoMark[]])).default(['emptyTarget']),
-  })
+  .object({ input: z.enum(WORKFLOW_SUBJECT_IDS as [WorkflowSubject, ...WorkflowSubject[]]).default('lines') })
   .prefault({});
 export type EntryConfig = z.infer<typeof entryConfigSchema>;
 /** How the editor names batch modes. */
@@ -516,8 +505,6 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
       }
       if (!input.lines && !(input.previous && node.config.output === 'json' && node.config.scope === 'batch')) error('대사 없이 보내려면 앞 단계 결과를 넣고, 출력을 JSON · 묶음 전체로 하세요.', { nodeId: node.id });
     }
-    if (node.type === 'entry' && input === 'lines')
-      for (const id of node.config.statusIds) if (!refs.statusIds.has(id)) error('삭제된 상태가 있습니다.', { nodeId: node.id });
     if (node.type === 'gather') {
       const steps = previousSteps(definition, node.id);
       if (!steps.length) error('모으기 앞 단계에 결과를 내는 AI·스크립트 노드가 없습니다.', { nodeId: node.id });
@@ -621,12 +608,8 @@ export function readinessUses(definition: WorkflowDefinition) {
   };
 }
 
-/** Whether a run picks its lines by status (its entry names statuses and the scope does not ignore them): such a run never overwrites a translation a person saved (#51). */
-export const filtersByStatus = (definition: WorkflowDefinition, scope: { statusIds?: string[]; ignoreStatus?: boolean }) => {
-  const entry = definition.nodes.find((node) => node.type === 'entry');
-  const statusIds = scope.statusIds ?? (entry?.type === 'entry' ? entry.config.statusIds : []);
-  return statusIds.length > 0 && !scope.ignoreStatus;
-};
+/** Whether a run picks its lines by status (the run dialog's status filter): such a run never overwrites a translation a person saved (#51). */
+export const filtersByStatus = (scope: { statusIds?: string[] }) => Boolean(scope.statusIds?.length);
 
 /**
  * Keeps the entry node and its connections to the root work node(s) in sync:

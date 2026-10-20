@@ -486,12 +486,10 @@ export interface RunScope {
   unitIds?: string[];
   /** Lines carrying every one of these tags. */
   tagIds?: string[];
-  /** Automatic marks (services/line-marks.ts): lines must have every one of them. */
+  /** Automatic marks the items must all have: line marks (services/line-marks.ts) or term marks. */
   marks?: LineMark[];
-  /** Specific status IDs to run on (overriding or supplementing entry node statusIds). */
+  /** Statuses the items must be in: a lines workflow's status ids, a terms workflow's candidate / confirmed / rejected. None = any. */
   statusIds?: string[];
-  /** Run the picked lines even if their status is not one the entry node accepts. */
-  ignoreStatus?: boolean;
   /** A run of a terms workflow: these terms (instead of the entry node's term statuses and marks). */
   termIds?: string[];
 }

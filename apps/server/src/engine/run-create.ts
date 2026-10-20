@@ -1,6 +1,6 @@
 import { and, count, eq, inArray, ne, notInArray, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
-import { batchConfigSchema, entryConfigSchema, isWholeScriptWorkflow, termMarksOf, workflowInput, type AiNode, type WorkflowDefinition } from '@tw/shared';
+import { batchConfigSchema, isWholeScriptWorkflow, termMarksOf, workflowInput, type AiNode, type AutoMark, type WorkflowDefinition } from '@tw/shared';
 import { fillTermUsage } from '../services/term-usage.ts';
 import { inChunks, inList } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
@@ -19,15 +19,14 @@ type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
  * run without importing the scheduler (and the scheduler can use preflight's overhead estimate).
  */
 
-/** The scope ∩ entry status filter, before 번역 제외 is taken out. */
-function scopeConditions(db: Db, projectId: string, definition: WorkflowDefinition, scope: s.RunScope) {
-  const entry = definition.nodes.find((node) => node.type === 'entry');
-  const statusIds = scope.statusIds !== undefined ? scope.statusIds : (entry?.type === 'entry' ? entry.config.statusIds : []);
+/** The lines a scope names, before 번역 제외 is taken out. */
+function scopeConditions(db: Db, projectId: string, scope: s.RunScope) {
+  const statusIds = scope.statusIds ?? [];
   const conditions = [eq(s.units.projectId, projectId)];
-  if (statusIds.length && !scope.ignoreStatus) {
+  if (statusIds.length) {
     conditions.push(inArray(s.units.statusId, statusIds));
     // A line a person translated is not "untranslated", even while it still sits in an initial status:
-    // the entry filter must not pick it again and overwrite what they wrote.
+    // the status filter must not pick it again and overwrite what they wrote.
     const initial = db.select({ id: s.statuses.id }).from(s.statuses).where(eq(s.statuses.kind, 'initial'));
     conditions.push(or(notInArray(s.units.statusId, initial), ne(s.units.statusBy, 'human'), sql`coalesce(trim(${s.units.translation}), '') = ''`)!);
   }
@@ -40,33 +39,34 @@ function scopeConditions(db: Db, projectId: string, definition: WorkflowDefiniti
   return conditions;
 }
 
-/** Selects the lines a run starts with: scope ∩ entry status filter. 번역 제외 lines never enter a run, whatever the scope names. */
-export function selectRunUnits(db: Db, projectId: string, definition: WorkflowDefinition, scope: s.RunScope): string[] {
-  return db.select({ id: s.units.id }).from(s.units).where(and(...scopeConditions(db, projectId, definition, scope), translatableSql(projectId))).all().map((row) => row.id);
+/** Selects the lines a run starts with: what the scope names. 번역 제외 lines never enter a run, whatever the scope names. */
+export function selectRunUnits(db: Db, projectId: string, scope: s.RunScope): string[] {
+  return db.select({ id: s.units.id }).from(s.units).where(and(...scopeConditions(db, projectId, scope), translatableSql(projectId))).all().map((row) => row.id);
 }
 
 /**
- * The terms a term run starts with, most used first: the scope's termIds, or the entry node's
- * statuses and marks (default: candidates with no Korean form yet). Usage counts are filled first,
- * so "most used" and the 미사용 mark are current.
+ * The terms a run of a terms workflow starts with, most used first: the scope's termIds, narrowed by its
+ * statuses and marks. Rejected terms are hidden like in the glossary: only a scope that asks for them
+ * (statuses include rejected) takes them. Usage counts are filled first, so "most used" and the 미사용 mark are current.
  */
-export function selectRunTerms(db: Db, projectId: string, definition: WorkflowDefinition, scope: s.RunScope): string[] {
+export function selectRunTerms(db: Db, projectId: string, scope: s.RunScope): string[] {
   fillTermUsage(db, projectId);
-  const entry = entryConfigSchema.parse(definition.nodes.find((node) => node.type === 'entry')?.config ?? {});
   const named = scope.termIds?.length ? new Set(scope.termIds) : null;
+  const statuses = scope.statusIds ?? [];
+  const marks = scope.marks ?? [];
   return db
     .select()
     .from(s.terms)
     .where(eq(s.terms.projectId, projectId))
     .all()
-    .filter((term) => (named ? named.has(term.id) : entry.termStatuses.includes(term.status) && entry.termMarks.every((mark) => termMarksOf(term).includes(mark))))
+    .filter((term) => (!named || named.has(term.id)) && (statuses.length ? statuses.includes(term.status) : term.status !== 'rejected') && marks.every((mark) => termMarksOf(term).includes(mark as AutoMark)))
     .sort((a, b) => (b.lines ?? 0) - (a.lines ?? 0) || a.source.localeCompare(b.source))
     .map((term) => term.id);
 }
 
 /** Lines the scope names that 번역 제외 keeps out of the run (the run dialog says how many). */
-export function excludedInScope(db: Db, projectId: string, definition: WorkflowDefinition, scope: s.RunScope): number {
-  return db.select({ count: count() }).from(s.units).where(and(...scopeConditions(db, projectId, definition, scope), excludedSql(projectId))).get()!.count;
+export function excludedInScope(db: Db, projectId: string, scope: s.RunScope): number {
+  return db.select({ count: count() }).from(s.units).where(and(...scopeConditions(db, projectId, scope), excludedSql(projectId))).get()!.count;
 }
 
 /**
@@ -145,7 +145,7 @@ function runRows(db: Db, input: RunInput) {
   const entry = definition.nodes.find((node) => node.type === 'entry');
   if (!entry) throw new Error('진입 노드가 없습니다.');
   const subject = workflowInput(definition);
-  const unitIds = subject === 'terms' ? selectRunTerms(db, input.projectId, definition, input.scope) : selectRunUnits(db, input.projectId, definition, input.scope);
+  const unitIds = subject === 'terms' ? selectRunTerms(db, input.projectId, input.scope) : selectRunUnits(db, input.projectId, input.scope);
   if (!unitIds.length) throw new Error(subject === 'terms' ? '조건에 맞는 용어가 없습니다.' : '조건에 맞는 대사가 없습니다.');
   const runId = crypto.randomUUID();
   // Terms have no scenes to plan by: the runner batches them as they wait (count / one by one).

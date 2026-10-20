@@ -45,7 +45,7 @@ function setup(scenes: number, size: (scene: number) => number) {
     }),
   }).returning().get();
   const start = (limits?: s.RunLimits) =>
-    createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: { ignoreStatus: true }, limits }).runId;
+    createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: {}, limits }).runId;
   return { db, workflow, start };
 }
 
@@ -81,7 +81,7 @@ describe('runner at scale', () => {
     // Windows can take over a minute for the 34,000 lines; assert every item finishes below.
     const definition = { ...workflow.definition, nodes: workflow.definition.nodes.map((node) => (node.type === 'ai' ? { ...node, config: { ...node.config, batch: { mode: 'count' as const, size: 200, maxTokens: 6_000 } } } : node)) };
     db.update(s.workflows).set({ definition }).where(eq(s.workflows.id, workflow.id)).run();
-    const runId = createRun(db, { projectId: workflow.projectId, workflow: { ...workflow, definition }, models: snapshotWorkflowModels(db, definition), scope: { ignoreStatus: true } }).runId;
+    const runId = createRun(db, { projectId: workflow.projectId, workflow: { ...workflow, definition }, models: snapshotWorkflowModels(db, definition), scope: {} }).runId;
     const runner = new Runner(db, memoryStore(), model());
     await runner.drain(5_000);
     expect(runOf(db, runId).status).toBe('completed');
@@ -390,7 +390,7 @@ describe('slots per node', () => {
     const definition = { ...workflow.definition, nodes: workflow.definition.nodes.map((node) => (node.type === 'ai' && node.config.instructions.includes('Review each') ? { ...node, config: { ...node.config, model: reviewer, concurrency: 1 } } : node)) };
     db.update(s.workflows).set({ definition }).where(eq(s.workflows.id, workflow.id)).run();
     void start;
-    createRun(db, { projectId: workflow.projectId, workflow: { ...workflow, definition }, models: snapshotWorkflowModels(db, definition), scope: { ignoreStatus: true } });
+    createRun(db, { projectId: workflow.projectId, workflow: { ...workflow, definition }, models: snapshotWorkflowModels(db, definition), scope: {} });
     const { port, peak, order } = timedModel((review) => (review ? 40 : 5));
     await new Runner(db, memoryStore(), port).drain();
     expect(peak.get('http://slow/v1')).toBe(1);
@@ -409,7 +409,7 @@ describe('sharing and branching', () => {
     const definition = { ...workflow.definition, nodes: workflow.definition.nodes.map((node) => (node.type === 'ai' ? { ...node, config: { ...node.config, extraModels: [second], concurrency: 2, batch: { mode: 'count' as const, size: 5, maxTokens: 6_000 } } } : node)) };
     db.update(s.workflows).set({ definition }).where(eq(s.workflows.id, workflow.id)).run();
     const fresh = db.select().from(s.workflows).where(eq(s.workflows.id, workflow.id)).get()!;
-    const runId = createRun(db, { projectId: fresh.projectId, workflow: fresh, models: snapshotWorkflowModels(db, fresh.definition), scope: { ignoreStatus: true } }).runId;
+    const runId = createRun(db, { projectId: fresh.projectId, workflow: fresh, models: snapshotWorkflowModels(db, fresh.definition), scope: {} }).runId;
     const models: string[] = [];
     const base = model();
     // Calls take a moment, so both accounts are busy at once.
@@ -431,7 +431,7 @@ describe('sharing and branching', () => {
     const definition = { ...workflow.definition, nodes: [...workflow.definition.nodes, end], edges: [...workflow.definition.edges, { id: 'side', source: entry.id, sourceHandle: firstEdge.sourceHandle, target: 'side-end' }] };
     db.update(s.workflows).set({ definition }).where(eq(s.workflows.id, workflow.id)).run();
     const fresh = db.select().from(s.workflows).where(eq(s.workflows.id, workflow.id)).get()!;
-    const runId = createRun(db, { projectId: fresh.projectId, workflow: fresh, models: snapshotWorkflowModels(db, fresh.definition), scope: { ignoreStatus: true } }).runId;
+    const runId = createRun(db, { projectId: fresh.projectId, workflow: fresh, models: snapshotWorkflowModels(db, fresh.definition), scope: {} }).runId;
     await new Runner(db, memoryStore(), model()).drain();
     const items = db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all();
     // Six lines, each with an item on the main path and a copy that went straight to the side end.
@@ -444,7 +444,7 @@ describe('sharing and branching', () => {
 describe('creating a large run', () => {
   it('stores the lines in steps, waits paused meanwhile, and starts once all are in', async () => {
     const { db, workflow } = setup(5, () => 1_000);
-    const pending = createRunInSteps(db, { projectId: workflow.projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: { ignoreStatus: true } });
+    const pending = createRunInSteps(db, { projectId: workflow.projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: {} });
     // Before the first step yields, the run exists paused and cannot be resumed early.
     const early = db.select().from(s.runs).all()[0];
     expect(early).toMatchObject({ status: 'paused', notice: expect.stringContaining('넣는 중') });

@@ -65,7 +65,7 @@ const at = (row: number, column = 0) => ({ x: column * 320, y: row * ROW });
 
 type Model = { model: DraftModelChoice };
 
-const entryNode = (statusIds: string[] = [], config: Partial<EntryConfig> = {}): WorkflowNode => ({ id: 'entry', type: 'entry', position: at(0), config: entryConfigSchema.parse({ statusIds, ...config }) });
+const entryNode = (input: EntryConfig['input'] = 'lines'): WorkflowNode => ({ id: 'entry', type: 'entry', position: at(0), config: entryConfigSchema.parse({ input }) });
 
 const aiNode = (id: string, preset: AiPresetId, model: DraftModelChoice, row: number, column = 0, label: string = AI_PRESETS[preset].label): WorkflowNode => ({
   id,
@@ -180,7 +180,7 @@ export function translationTemplate(ids: {
     {
       settings: { ...SETTINGS },
       nodes: [
-        entryNode([ids.untranslated]),
+        entryNode(),
         aiNode('translate', 'translate', ids.model, 1),
         writeTranslation('save', 2),
         statusNode('draft', '초벌로', ids.draft, 3),
@@ -219,7 +219,7 @@ export function draftTranslationTemplate(ids: { model: DraftModelChoice; untrans
   return withRetries(
     {
       settings: { ...SETTINGS },
-      nodes: [entryNode([ids.untranslated]), aiNode('translate', 'translate', ids.model, 1), writeTranslation('save', 2), formatCheckNode(3), statusNode('draft', '초벌로', ids.draft, 4)],
+      nodes: [entryNode(), aiNode('translate', 'translate', ids.model, 1), writeTranslation('save', 2), formatCheckNode(3), statusNode('draft', '초벌로', ids.draft, 4)],
       edges: [...chain('entry', 'translate', 'save', 'check'), edge('check', 'pass', 'draft')],
     },
     [['translate', 1]],
@@ -253,7 +253,7 @@ export function termTranslationTemplate(ids: Model): WorkflowDefinition {
     {
       settings: { ...SETTINGS },
       nodes: [
-        entryNode([], { input: 'terms' }),
+        entryNode('terms'),
         aiNode('translate', 'termTranslate', ids.model, 1),
         { id: 'is-term', type: 'condition', position: at(2), label: '용어인가?', config: { expression: { '==': [{ var: 'outputs.translate.isTerm' }, true] }, description: 'AI가 용어라고 답한 것만 표기를 적습니다.' } },
         applyNode('save-term', 'saveTermEntry', 3, { map: { target: 'target', note: 'note' }, propose: false }),

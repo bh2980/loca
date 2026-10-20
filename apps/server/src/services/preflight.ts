@@ -54,7 +54,7 @@ export async function preflight(db: Db, workflow: Pick<typeof s.workflows.$infer
   const definition: WorkflowDefinition = resolveBudgets(db, workflow.definition);
   const projectId = workflow.projectId;
   if (workflowInput(definition) === 'terms') return termPreflight(db, workflow, definition, scope);
-  const unitIds = selectRunUnits(db, projectId, definition, scope);
+  const unitIds = selectRunUnits(db, projectId, scope);
   const columns = { id: s.units.id, key: s.units.key, groupId: s.units.groupId, seq: s.units.seq, kind: s.units.kind, speaker: s.units.speaker, source: s.units.source, translation: s.units.translation, listener: s.units.listener, listenerOrigin: s.units.listenerOrigin, listenerConfidence: s.units.listenerConfidence, tokens: sql<number>`(length(cast(${s.units.source} as blob)) + 3) / 4` };
   // Most of a project: one scan kept by id is faster than ids in chunks (see planLines).
   const wanted = new Set(unitIds);
@@ -125,7 +125,7 @@ export async function preflight(db: Db, workflow: Pick<typeof s.workflows.$infer
     readiness,
     pace,
     load: aiLoad(db, definition),
-    lines: { total: units.length, excluded: excludedInScope(db, projectId, definition, scope), translated: units.filter((unit) => unit.translation).length, untranslated: units.filter((unit) => !unit.translation).length },
+    lines: { total: units.length, excluded: excludedInScope(db, projectId, scope), translated: units.filter((unit) => unit.translation).length, untranslated: units.filter((unit) => !unit.translation).length },
     plan: {
       batches: sizes.length,
       linesPerBatch: sizes.length ? { min: sizes[0], median: sizes[Math.floor(sizes.length / 2)], max: sizes.at(-1)! } : null,
@@ -158,7 +158,7 @@ function termBatch(node: AiNode) {
 
 async function termPreflight(db: Db, workflow: { id: string | null; projectId: string }, definition: WorkflowDefinition, scope: s.RunScope) {
   const projectId = workflow.projectId;
-  const ids = selectRunTerms(db, projectId, definition, scope);
+  const ids = selectRunTerms(db, projectId, scope);
   const { terms } = loadTerms(db, ids);
   const rows = ids.flatMap((id, seq) => {
     const term = terms.get(id);

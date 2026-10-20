@@ -45,7 +45,7 @@ describe('preflight', () => {
   const choice = { connectionId: connection.id, model: 'm' };
     const { projectId } = importProject(db, importFileSchema.parse(realistic(3000).file), choice);
     const workflow = db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).all().find((row) => row.name === '초벌 번역')!;
-    const scope = { ignoreStatus: true };
+    const scope = {};
 
     // First run: no history yet, so only nodes every line passes have an expectation.
     const first = await preflight(db, workflow, scope);

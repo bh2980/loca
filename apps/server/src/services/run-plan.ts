@@ -1,5 +1,5 @@
 import { and, eq, inArray, ne, or } from 'drizzle-orm';
-import { nodeName, withRunModels, workflowInput, type LineMark, type RunModels, type WorkflowDefinition, type WorkflowSubject } from '@tw/shared';
+import { KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, nodeName, withRunModels, workflowInput, type LineMark, type RunModels, type WorkflowDefinition, type WorkflowSubject } from '@tw/shared';
 import { z } from 'zod';
 import { inChunks, inList } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
@@ -17,10 +17,12 @@ export interface PlanInput {
   keys?: string[];
   /** Tag names or ids; a line must carry all of them. */
   tags?: string[];
-  marks?: LineMark[];
-  /** Terms by id or source: the scope of a terms workflow (none = the entry's term statuses and marks). */
+  /** Automatic marks the items must all have (line marks, or term marks for a terms workflow). */
+  marks?: string[];
+  /** Terms by id or source: the scope of a terms workflow. */
   terms?: string[];
-  ignoreStatus?: boolean;
+  /** Statuses the items must be in (none = any): a lines workflow's status names or ids, a terms workflow's 후보 / 확정 / 버림 (or candidate / confirmed / rejected). */
+  statuses?: string[];
   /** Models for this run instead of the nodes' own (see runModelInput). */
   models?: RunModelInput;
 }
@@ -51,7 +53,7 @@ export function resolveRunModels(db: Db, definition: WorkflowDefinition, input: 
 }
 
 /** The run dialog's scope (groupIds, unitIds, tagIds, marks) from names, keys and tag names; whatever did not resolve is returned as `unknown`. */
-export function resolveRunScope(db: Db, projectId: string, input: Omit<PlanInput, 'workflow'>) {
+export function resolveRunScope(db: Db, projectId: string, input: Omit<PlanInput, 'workflow'>, kind: WorkflowSubject = 'lines') {
   const unknown: string[] = [];
   const scope: s.RunScope = {};
   if (input.groups?.length) {
@@ -72,20 +74,28 @@ export function resolveRunScope(db: Db, projectId: string, input: Omit<PlanInput
     unknown.push(...input.tags.filter((_, index) => !known.has(ids[index]!)).map((tag) => `태그 ${tag}`));
     scope.tagIds = ids.filter((id) => known.has(id));
   }
-  if (input.marks?.length) scope.marks = input.marks;
+  if (input.marks?.length) scope.marks = input.marks as LineMark[];
+  if (input.statuses?.length) {
+    // Terms: their three statuses by label or id; lines: the project's statuses by name or id.
+    const known = kind === 'terms'
+      ? KNOWLEDGE_STATUSES.map((id) => ({ id, names: [id, KNOWLEDGE_STATUS_LABELS[id]] }))
+      : db.select({ id: s.statuses.id, name: s.statuses.name }).from(s.statuses).where(eq(s.statuses.projectId, projectId)).all().map((row) => ({ id: row.id, names: [row.id, row.name] }));
+    const found = input.statuses.map((value) => ({ value, row: known.find((row) => row.names.includes(value)) }));
+    unknown.push(...found.filter((entry) => !entry.row).map((entry) => `상태 ${entry.value}`));
+    scope.statusIds = [...new Set(found.flatMap((entry) => (entry.row ? [entry.row.id] : [])))];
+  }
   if (input.terms?.length) {
     const found = input.terms.map((term) => ({ term, row: findTerm(db, projectId, term) }));
     unknown.push(...found.filter((entry) => !entry.row).map((entry) => `용어 ${entry.term}`));
     scope.termIds = [...new Set(found.flatMap((entry) => (entry.row ? [entry.row.id] : [])))];
   }
-  if (input.ignoreStatus) scope.ignoreStatus = true;
   return { scope, unknown };
 }
 
 /** Why a scope does not fit the workflow's input (line conditions for a terms workflow, terms for a lines workflow), or null. */
 export function scopeMismatch(input: WorkflowSubject, scope: s.RunScope): string | null {
-  const lineScope = Boolean(scope.groupIds?.length || scope.unitIds?.length || scope.tagIds?.length || scope.marks?.length || scope.statusIds?.length);
-  if (input === 'terms' && lineScope) return '용어 입력 워크플로에는 대사 범위(묶음·대사 키·태그·표시·상태)를 쓸 수 없습니다. 용어로 범위를 정하세요.';
+  const lineScope = Boolean(scope.groupIds?.length || scope.unitIds?.length || scope.tagIds?.length);
+  if (input === 'terms' && lineScope) return '용어 입력 워크플로에는 대사 범위(묶음·대사 키·태그)를 쓸 수 없습니다. 용어·상태·표시로 범위를 정하세요.';
   if (input === 'lines' && scope.termIds?.length) return '대사 입력 워크플로에는 용어를 고를 수 없습니다.';
   return null;
 }
@@ -100,7 +110,7 @@ export async function planRun(db: Db, projectId: string, input: PlanInput) {
   const wanted = input.workflow.toLowerCase();
   const workflow = workflows.find((row) => row.id === input.workflow) ?? workflows.find((row) => row.name.toLowerCase() === wanted) ?? workflows.filter((row) => row.name.toLowerCase().includes(wanted))[0];
   if (!workflow) return { ok: false as const, error: `워크플로를 찾을 수 없습니다: ${input.workflow}. 있는 것: ${workflows.map((row) => row.name).join(', ') || '(없음)'}` };
-  const { scope, unknown } = resolveRunScope(db, projectId, input);
+  const { scope, unknown } = resolveRunScope(db, projectId, input, workflowInput(workflow.definition));
   const mismatch = scopeMismatch(workflowInput(workflow.definition), scope);
   if (mismatch) return { ok: false as const, error: mismatch };
   if (unknown.length) return { ok: false as const, error: `찾지 못함: ${unknown.slice(0, 10).join(', ')}` };

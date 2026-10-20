@@ -52,7 +52,7 @@ describe("a run's own models", () => {
   it('go into the run started from the chat, not into the workflow', async () => {
     const { db, projectId, workflow, other } = setup();
     const start = agentCatalog(db, projectId).find((tool) => tool.name === 'start_run')!;
-    const result = (await start.run({ workflowId: workflow.id, ignoreStatus: true, models: { '*': { connection: other.id, model: 'other-model' } } })) as { ok: boolean; runId?: string };
+    const result = (await start.run({ workflowId: workflow.id, models: { '*': { connection: other.id, model: 'other-model' } } })) as { ok: boolean; runId?: string };
     expect(result.ok).toBe(true);
     const run = db.select().from(s.runs).where(eq(s.runs.id, result.runId!)).get()!;
     expect(Object.values(run.models).flatMap((snapshot) => snapshot.routes.map((route) => route.model))).toEqual(expect.arrayContaining(['other-model']));

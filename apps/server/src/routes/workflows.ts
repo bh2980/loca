@@ -35,11 +35,10 @@ function refuseWhileAnotherWholeScript(db: Db, run: typeof s.runs.$inferSelect) 
   }
 }
 
-function blankWorkflow(db: Db, projectId: string): WorkflowDefinition {
-  const initial = db.select({ id: s.statuses.id }).from(s.statuses).where(and(eq(s.statuses.projectId, projectId), eq(s.statuses.kind, 'initial'))).get();
+function blankWorkflow(): WorkflowDefinition {
   return workflowDefinitionSchema.parse({
     nodes: [
-      { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: { statusIds: initial ? [initial.id] : [] } },
+      { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: { input: 'lines' } },
     ],
     edges: [],
   });
@@ -62,11 +61,8 @@ export const workflowRoutes = new Hono<Env>()
     return c.json(
       rows.map(({ definition, ...row }) => ({
         ...row,
-        // The start's 대상 상태: the run dialog's default status filter.
-        entryStatusIds: (() => { const entry = definition.nodes.find((node) => node.type === 'entry'); return entry?.type === 'entry' ? entry.config.statusIds : []; })(),
-        // What it takes in, and for terms which ones when none are picked (the entry's term statuses and marks).
+        // What it takes in (lines or terms): the run dialog's scope fields follow it.
         input: workflowInput(definition),
-        termScope: (() => { const entry = definition.nodes.find((node) => node.type === 'entry'); return entry?.type === 'entry' ? { statuses: entry.config.termStatuses, marks: entry.config.termMarks } : null; })(),
         nodeCount: definition.nodes.length,
         errorCount: workflowIssues(db, projectId, definition).filter((issue) => issue.level === 'error').length,
       })),
@@ -79,7 +75,7 @@ export const workflowRoutes = new Hono<Env>()
       const { db } = c.var.deps;
       const projectId = c.req.param('projectId');
       const name = c.req.valid('json').name ?? freeWorkflowName(db, projectId);
-      const definition = blankWorkflow(db, projectId);
+      const definition = blankWorkflow();
       const row = saveWorkflow(db, projectId, { name, description: '', definition });
       return c.json(row, 201);
     },
@@ -124,7 +120,7 @@ export const workflowRoutes = new Hono<Env>()
     const { db } = c.var.deps;
     const workflow = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
     const select = workflowInput(workflow.definition) === 'terms' ? selectRunTerms : selectRunUnits;
-    return c.json({ count: select(db, workflow.projectId, workflow.definition, c.req.valid('json')).length });
+    return c.json({ count: select(db, workflow.projectId, c.req.valid('json')).length });
   })
   /** The run plan and its cost estimate, computed without calling a model (see services/preflight.ts). */
   .post('/workflows/:id/preflight', validate('json', runSchema), async (c) => {

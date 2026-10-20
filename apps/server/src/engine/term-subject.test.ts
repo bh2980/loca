@@ -68,10 +68,12 @@ function termWorkflow(choice: unknown, propose = false) {
 }
 
 describe('a workflow whose input is terms', () => {
-  it('starts with the candidates without a Korean form, most used first', () => {
-    const { db, projectId, choice, gate, hesk } = setup();
-    expect(selectRunTerms(db, projectId, termWorkflow(choice), {})).toEqual([gate.id, hesk.id]);
-    expect(selectRunTerms(db, projectId, termWorkflow(choice), { termIds: [hesk.id] })).toEqual([hesk.id]);
+  it('takes the terms its scope names (statuses, marks or ids), most used first', () => {
+    const { db, projectId, gate, hesk } = setup();
+    const candidatesWithoutForm = { statusIds: ['candidate'], marks: ['emptyTarget'] } as never;
+    expect(selectRunTerms(db, projectId, candidatesWithoutForm)).toEqual([gate.id, hesk.id]);
+    expect(selectRunTerms(db, projectId, {})).toHaveLength(3);
+    expect(selectRunTerms(db, projectId, { termIds: [hesk.id] })).toEqual([hesk.id]);
   });
 
   it('sends each term with its example lines, saves the Korean form of terms and rejects the rest', async () => {
@@ -79,7 +81,7 @@ describe('a workflow whose input is terms', () => {
     const definition = termWorkflow(choice);
     expect(validateWorkflow(definition, { statusIds: new Set(), connections: new Set([choice.connectionId]) } as never).filter((issue) => issue.level === 'error')).toEqual([]);
     const workflow = db.insert(s.workflows).values({ projectId, name: '용어 번역', definition }).returning().get();
-    const { runId } = createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, definition), scope: {} });
+    const { runId } = createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, definition), scope: { statusIds: ['candidate'], marks: ['emptyTarget'] } as never });
     expect(db.select().from(s.runs).where(eq(s.runs.id, runId)).get()!.subject).toBe('terms');
     const seen: { system: string; prompt: string }[] = [];
     const port: ModelPort = {
@@ -109,7 +111,7 @@ describe('a workflow whose input is terms', () => {
     const { db, projectId, choice, gate } = setup();
     const definition = termWorkflow(choice, true);
     const workflow = db.insert(s.workflows).values({ projectId, name: '용어 번역', definition }).returning().get();
-    createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, definition), scope: {} });
+    createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, definition), scope: { statusIds: ['candidate'], marks: ['emptyTarget'] } as never });
     const port: ModelPort = {
       judge: async () => {
         throw new Error('unused');

@@ -6,7 +6,7 @@ import { Link, useNavigate } from '@tanstack/react-router';
 import { ChevronRight, Play } from 'lucide-react';
 import { SearchInput, Button, Checkbox, Label, RadioGroup, RadioGroupItem, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Skeleton, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue, Spinner, StatusIcon, SectionHeading, FieldRows, FieldRow } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
-import { INPUT_TYPES, KNOWLEDGE_STATUS_LABELS, WORKFLOW_SUBJECT_IDS, LINE_MARK_IDS, type AutoMark, type LineMark, UNREVIEWED_MARKS } from '@tw/shared';
+import { INPUT_TYPES, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, TERM_MARK_IDS, WORKFLOW_SUBJECT_IDS, LINE_MARK_IDS, type AutoMark, type LineMark, UNREVIEWED_MARKS } from '@tw/shared';
 import { MarkChip } from '@/components/status';
 import type { ModelValue } from '@/components/model-picker';
 import { Pace, RunModels } from './run-estimate';
@@ -105,12 +105,30 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   const groups = useQuery({ ...q.groups(projectId), enabled: open });
   const here = groupIds?.length ? groups.data?.filter((group) => groupIds.includes(group.id)) : undefined;
 
-  // The workflow's own start (대상 상태) picks the statuses; opened for named lines, none are.
-  const entryStatuses = defaultIgnoreStatus ? '' : (workflow?.entryStatusIds ?? []).join(',');
+  const termList = useQuery({ ...q.terms(projectId), enabled: open && terms });
+  const [pickedTerms, setPickedTerms] = useState<Set<string>>(new Set());
+
+  // The filters start as they were the last time this workflow ran from here (this browser only).
+  const filtersKey = workflowId && `run-filters:${projectId}:${workflowId}`;
   useEffect(() => {
     if (!open) return;
-    setPickedStatuses(new Set(entryStatuses ? entryStatuses.split(',') : []));
-  }, [open, workflowId, entryStatuses]);
+    let saved: { statuses?: string[]; marks?: string[]; tags?: string[] } = {};
+    try {
+      saved = filtersKey && !defaultIgnoreStatus ? JSON.parse(localStorage.getItem(filtersKey) ?? '{}') : {};
+    } catch {
+      // A blocked or broken storage starts with no filters.
+    }
+    setPickedStatuses(new Set(saved.statuses ?? []));
+    setPickedMarks(new Set(saved.marks ?? []));
+    setPickedTags(new Set(saved.tags ?? []));
+  }, [open, filtersKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const rememberFilters = () => {
+    try {
+      if (filtersKey) localStorage.setItem(filtersKey, JSON.stringify({ statuses: [...pickedStatuses], marks: [...pickedMarks], tags: [...pickedTags] }));
+    } catch {
+      // Not remembered: the next run starts without filters.
+    }
+  };
 
   // Opened from the UI strings or documents view: every group of that kind starts picked.
   // The table starts with everything ticked (the whole project), or only the kind of the view it was opened from.
@@ -121,8 +139,28 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
     preselected.current = true;
     setPickedScenes(startPicks());
   }, [groups.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Every term starts picked once the glossary is in.
+  const termsPreselected = useRef(false);
+  useEffect(() => {
+    if (termsPreselected.current || !termList.data) return;
+    termsPreselected.current = true;
+    setPickedTerms(new Set(termList.data.map((term) => term.id)));
+  }, [termList.data]);
   const allGroups = (groups.data ?? []).length;
   const wholeProject = scopeTarget === 'groups' && allGroups > 0 && pickedScenes.size === allGroups;
+  const allTerms = scopeTarget === 'groups' && (termList.data?.length ?? 0) > 0 && pickedTerms.size === termList.data!.length;
+  // What the picker lists: scenes by kind for lines, terms by status for terms.
+  const sections: PickSection[] = terms
+    ? KNOWLEDGE_STATUSES.filter((status) => status !== 'rejected').map((status) => ({
+        key: status,
+        label: KNOWLEDGE_STATUS_LABELS[status],
+        items: (termList.data ?? []).filter((term) => term.status === status).map((term) => ({ id: term.id, title: term.source, search: `${term.source} ${term.target}`, total: 1, detail: term.target || '—' })),
+      }))
+    : KIND_ORDER.map((kind) => ({
+        key: kind,
+        label: SCRIPT_VIEW[kind],
+        items: (groups.data ?? []).filter((group) => group.kind === kind).map((group) => ({ id: group.id, title: group.title, search: `${group.title} ${group.key}`, total: group.total, detail: `${group.total}줄` })),
+      }));
 
   let computedUnitIds: string[] | undefined;
   let computedGroupIds: string[] | undefined;
@@ -130,24 +168,27 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   else if (scopeTarget === 'here') computedGroupIds = groupIds;
   else if (!wholeProject) computedGroupIds = pickedScenes.size ? [...pickedScenes] : ['__none__'];
 
-  const statusScope =
-    pickedStatuses.size > 0
-      ? { statusIds: [...pickedStatuses], ignoreStatus: false }
-      : { statusIds: [], ignoreStatus: true };
-
-  const scope = terms ? (termIds?.length ? { termIds } : {}) : {
-    ...(computedUnitIds ? { unitIds: computedUnitIds } : {}),
-    ...(computedGroupIds ? { groupIds: computedGroupIds } : {}),
-    ...statusScope,
-    ...(pickedTags.size ? { tagIds: [...pickedTags] } : {}),
+  // The filters mean the same for both inputs: statuses and automatic marks (and tags, for lines).
+  const filters = {
+    ...(pickedStatuses.size ? { statusIds: [...pickedStatuses] } : {}),
     ...(pickedMarks.size ? { marks: [...pickedMarks] as LineMark[] } : {}),
   };
+  const pickedTermIds = scopeTarget === 'units' ? termIds : allTerms ? undefined : [...pickedTerms];
+  const scope = terms
+    ? { ...(pickedTermIds?.length ? { termIds: pickedTermIds } : {}), ...filters }
+    : {
+        ...(computedUnitIds ? { unitIds: computedUnitIds } : {}),
+        ...(computedGroupIds ? { groupIds: computedGroupIds } : {}),
+        ...filters,
+        ...(pickedTags.size ? { tagIds: [...pickedTags] } : {}),
+      };
 
   const ready =
-    terms ||
-    (scopeTarget === 'units' && Boolean(unitIds?.length)) ||
-    (scopeTarget === 'here' && Boolean(groupIds?.length)) ||
-    (scopeTarget === 'groups' && pickedScenes.size > 0);
+    (terms && scopeTarget === 'units' && Boolean(termIds?.length)) ||
+    (terms && scopeTarget === 'groups' && pickedTerms.size > 0) ||
+    (!terms && scopeTarget === 'units' && Boolean(unitIds?.length)) ||
+    (!terms && scopeTarget === 'here' && Boolean(groupIds?.length)) ||
+    (!terms && scopeTarget === 'groups' && pickedScenes.size > 0);
   // Only finished picks go out; one still missing its model stays in the picker meanwhile.
   const chosenModels = Object.fromEntries(Object.entries(runModels).filter(([, value]) => value.connectionId && value.model));
   const request = { ...scope, ...(Object.keys(chosenModels).length ? { models: chosenModels } : {}) };
@@ -178,6 +219,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
       return unwrap(client.workflows[':id'].runs.$post({ param: { id: workflowId! }, json: { ...request, ...(Object.keys(limits).length ? { limits } : {}) } }));
     },
     onSuccess: (run) => {
+      rememberFilters();
       setOpen(false);
       void navigate({ to: '/p/$projectId/runs/$runId', params: { projectId, runId: run.runId } });
     },
@@ -189,8 +231,9 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   useEffect(() => {
     if (open && !wasOpen.current) {
       setOpened({ unitIds: givenUnitIds, groupIds: givenGroupIds, termIds: givenTermIds });
-      setScopeTarget(givenUnitIds?.length ? 'units' : givenGroupIds?.length ? 'here' : 'groups');
+      setScopeTarget(givenUnitIds?.length || givenTermIds?.length ? 'units' : givenGroupIds?.length ? 'here' : 'groups');
       setPickedScenes(startPicks());
+      if (termList.data) setPickedTerms(new Set(termList.data.map((term) => term.id)));
       setSceneFilter('');
       setPickedTags(new Set());
       setPickedMarks(new Set());
@@ -250,38 +293,24 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
           )}
 
           <section className="space-y-4">
-            {terms && (
-              <div className="space-y-1">
-                <SectionHeading>대상</SectionHeading>
-                {termIds?.length ? (
-                  <p className="text-sm">고른 용어 {termIds.length.toLocaleString()}개</p>
-                ) : (
-                  // The workflow's own 대상 용어 (its entry node): which statuses, carrying which automatic tags.
-                  <div className="flex flex-wrap items-center gap-1.5 text-sm">
-                    {(workflow?.termScope?.statuses ?? []).map((status) => KNOWLEDGE_STATUS_LABELS[status]).join('·') || '모든'} 용어
-                    {(workflow?.termScope?.marks ?? []).length > 0 && (
-                      <>
-                        <span className="text-muted-foreground">중</span>
-                        {workflow!.termScope!.marks.map((mark) => <MarkChip key={mark} mark={mark as AutoMark} projectId={projectId} />)}
-                        <span className="text-muted-foreground">{workflow!.termScope!.marks.length > 1 ? '이 모두 붙은 것' : '이 붙은 것'}</span>
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-            {!terms && <fieldset className="space-y-2">
+            <fieldset className="space-y-2">
               <SectionHeading as="legend" className="mb-2">대상</SectionHeading>
-              {/* A choice only when the dialog came with lines or groups picked; otherwise the table is the whole choice. */}
-              {unitIds?.length || groupIds?.length ? (
+              {/* A choice only when the dialog came with items picked; otherwise the list is the whole choice. */}
+              {(terms ? termIds?.length : unitIds?.length || groupIds?.length) ? (
                 <RadioGroup value={scopeTarget} onValueChange={(value) => setScopeTarget(value as ScopeTarget)} className="gap-2">
-                  {unitIds?.length ? (
+                  {terms && termIds?.length ? (
+                    <Label className="text-sm font-normal">
+                      <RadioGroupItem value="units" />
+                      고른 용어 {termIds.length.toLocaleString()}개
+                    </Label>
+                  ) : null}
+                  {!terms && unitIds?.length ? (
                     <Label className="text-sm font-normal">
                       <RadioGroupItem value="units" />
                       {unitsLabel ?? '고른 대사'} {unitIds.length.toLocaleString()}줄
                     </Label>
                   ) : null}
-                  {groupIds?.length ? (
+                  {!terms && groupIds?.length ? (
                     <Label className="text-sm font-normal">
                       <RadioGroupItem value="here" />
                       {here?.length === 1 ? `지금 연 묶음 (${here[0].title})` : `지금 연 묶음 ${groupIds.length}개`}
@@ -294,35 +323,42 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
                 </RadioGroup>
               ) : null}
               {scopeTarget === 'groups' && (
-                <div className={cn((unitIds?.length || groupIds?.length) && 'ml-6')}>
-                  <GroupPicker groups={groups.data ?? []} picked={pickedScenes} setPicked={setPickedScenes} filter={sceneFilter} setFilter={setSceneFilter} />
+                <div className={cn((terms ? termIds?.length : unitIds?.length || groupIds?.length) && 'ml-6')}>
+                  <ScopePicker sections={sections} unit={unit} picked={terms ? pickedTerms : pickedScenes} setPicked={terms ? setPickedTerms : setPickedScenes} filter={sceneFilter} setFilter={setSceneFilter} />
                 </div>
               )}
-            </fieldset>}
+            </fieldset>
 
-            {!terms && <fieldset className="space-y-2">
+            <fieldset className="space-y-2">
               <SectionHeading as="legend" className="mb-2">필터</SectionHeading>
               <FieldRows>
                 <FieldRow label="상태">
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                    {(statuses.data?.statuses ?? []).map((status) => (
-                      <Label key={status.id} className="text-sm font-normal">
-                        <Checkbox checked={pickedStatuses.has(status.id)} onCheckedChange={(checked) => toggled(setPickedStatuses, status.id, checked === true)} />
-                        <StatusIcon status={status} />
-                        {status.name}
-                      </Label>
-                    ))}
+                    {terms
+                      ? KNOWLEDGE_STATUSES.filter((status) => status !== 'rejected').map((status) => (
+                          <Label key={status} className="text-sm font-normal">
+                            <Checkbox checked={pickedStatuses.has(status)} onCheckedChange={(checked) => toggled(setPickedStatuses, status, checked === true)} />
+                            {KNOWLEDGE_STATUS_LABELS[status]}
+                          </Label>
+                        ))
+                      : (statuses.data?.statuses ?? []).map((status) => (
+                          <Label key={status.id} className="text-sm font-normal">
+                            <Checkbox checked={pickedStatuses.has(status.id)} onCheckedChange={(checked) => toggled(setPickedStatuses, status.id, checked === true)} />
+                            <StatusIcon status={status} />
+                            {status.name}
+                          </Label>
+                        ))}
                   </div>
                 </FieldRow>
                 <FieldRow label="태그">
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                    {LINE_MARK_IDS.map((mark) => (
+                    {(terms ? TERM_MARK_IDS : LINE_MARK_IDS).map((mark) => (
                       <Label key={mark} className="text-sm font-normal">
                         <Checkbox checked={pickedMarks.has(mark)} onCheckedChange={(checked) => toggled(setPickedMarks, mark, checked === true)} />
-                        <MarkChip mark={mark} />
+                        <MarkChip mark={mark as AutoMark} />
                       </Label>
                     ))}
-                    {tags.map((tag) => (
+                    {!terms && tags.map((tag) => (
                       <Label key={tag.id} className="text-sm font-normal">
                         <Checkbox checked={pickedTags.has(tag.id)} onCheckedChange={(checked) => toggled(setPickedTags, tag.id, checked === true)} />
                         #{tag.name}
@@ -331,7 +367,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
                   </div>
                 </FieldRow>
               </FieldRows>
-            </fieldset>}
+            </fieldset>
 
             <p className="text-sm">
               {!ready ? null : total === undefined && plan.isError ? (
@@ -415,66 +451,72 @@ type ScopeTarget = 'units' | 'here' | 'groups';
  * Every group of the project as one table: 전체, then each kind (대사 · UI · 문서) with its own
  * checkbox and fold, then its groups. Kinds start folded; a search opens them.
  */
-function GroupPicker({ groups, picked, setPicked, filter, setFilter }: { groups: { id: string; key: string; kind: GroupKind; title: string; total: number }[]; picked: Set<string>; setPicked: SetPicked; filter: string; setFilter: (value: string) => void }) {
-  const [open, setOpen] = useState<Set<GroupKind>>(new Set());
+/** One section of the picker: a fold with its items (scenes of a kind, or terms of a status). */
+interface PickSection {
+  key: string;
+  label: string;
+  items: { id: string; title: string; search: string; total: number; detail: string }[];
+}
+
+/** The run's items to pick: 전체 → sections → items, with a search; the same for lines (scenes) and terms. */
+function ScopePicker({ sections, unit, picked, setPicked, filter, setFilter }: { sections: PickSection[]; unit: string; picked: Set<string>; setPicked: SetPicked; filter: string; setFilter: (value: string) => void }) {
+  const [open, setOpen] = useState<Set<string>>(new Set());
   const needle = filter.trim().toLowerCase();
-  const sections = KIND_ORDER.map((kind) => ({ kind, all: groups.filter((group) => group.kind === kind) }))
-    .filter((section) => section.all.length)
-    .map((section) => ({ ...section, shown: needle ? section.all.filter((group) => `${group.title} ${group.key}`.toLowerCase().includes(needle)) : section.all }));
-  const lines = (list: typeof groups) => list.reduce((sum, group) => sum + group.total, 0);
-  const pickedLines = lines(groups.filter((group) => picked.has(group.id)));
-  const state = (list: typeof groups) => {
-    const count = list.filter((group) => picked.has(group.id)).length;
+  const all = sections.flatMap((section) => section.items);
+  const shownOf = (section: PickSection) => (needle ? section.items.filter((item) => item.search.toLowerCase().includes(needle)) : section.items);
+  const total = (list: PickSection['items']) => list.reduce((sum, item) => sum + item.total, 0);
+  const state = (list: PickSection['items']) => {
+    const count = list.filter((item) => picked.has(item.id)).length;
     return count === list.length ? true : count > 0 ? ('indeterminate' as const) : false;
   };
-  const setMany = (list: typeof groups, on: boolean) =>
+  const setMany = (list: PickSection['items'], on: boolean) =>
     setPicked((previous) => {
       const next = new Set(previous);
-      for (const group of list) on ? next.add(group.id) : next.delete(group.id);
+      for (const item of list) on ? next.add(item.id) : next.delete(item.id);
       return next;
     });
   const row = 'flex min-w-0 items-center gap-2 rounded px-2 py-1 text-sm hover:bg-muted';
   return (
     <div className="min-w-0 overflow-hidden rounded-md border">
       <div className="border-b p-1">
-        <SearchInput value={filter} onChange={(value) => setFilter(value ?? '')} placeholder="찾기" className="w-full" end={`${pickedLines.toLocaleString()}줄`} />
+        <SearchInput value={filter} onChange={(value) => setFilter(value ?? '')} placeholder="찾기" className="w-full" end={`${total(all.filter((item) => picked.has(item.id))).toLocaleString()}${unit}`} />
       </div>
       <div className="max-h-64 overflow-auto p-1">
         <label className={cn(row, 'font-medium')}>
-          <Checkbox checked={state(groups)} onCheckedChange={(checked) => setMany(groups, checked === true)} />
+          <Checkbox checked={state(all)} onCheckedChange={(checked) => setMany(all, checked === true)} />
           <span className="min-w-0 flex-1">전체</span>
-          <span className="shrink-0 text-xs font-normal text-muted-foreground tabular-nums">{lines(groups).toLocaleString()}줄</span>
+          <span className="shrink-0 text-xs font-normal text-muted-foreground tabular-nums">{total(all).toLocaleString()}{unit}</span>
         </label>
-        {sections.map(({ kind, all, shown }) => {
-          const expanded = Boolean(needle) || open.has(kind);
+        {sections.filter((section) => section.items.length).map((section) => {
+          const expanded = Boolean(needle) || open.has(section.key);
           return (
-            <div key={kind}>
-              {/* Each level steps in by 16px: 전체 → kind → its groups. The fold arrow sits in that step. */}
+            <div key={section.key}>
+              {/* Each level steps in by 16px: 전체 → section → its items. The fold arrow sits in that step. */}
               <div className="flex min-w-0 items-center pl-2">
                 <Button
                   variant="ghost"
                   size="icon-xs"
                   className="w-4"
-                  aria-label={`${SCRIPT_VIEW[kind]} ${expanded ? '접기' : '펼치기'}`}
+                  aria-label={`${section.label} ${expanded ? '접기' : '펼치기'}`}
                   aria-expanded={expanded}
-                  onClick={() => toggled(setOpen as SetPicked, kind, !open.has(kind))}
+                  onClick={() => toggled(setOpen as SetPicked, section.key, !open.has(section.key))}
                 >
                   <ChevronRight className={cn('transition-transform', expanded && 'rotate-90')} />
                 </Button>
                 <label className={cn(row, 'min-w-0 flex-1 pl-0')}>
-                  <Checkbox checked={state(all)} onCheckedChange={(checked) => setMany(all, checked === true)} />
-                  <span className="min-w-0 flex-1 truncate">{SCRIPT_VIEW[kind]}</span>
-                  <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{all.length.toLocaleString()}개 · {lines(all).toLocaleString()}줄</span>
+                  <Checkbox checked={state(section.items)} onCheckedChange={(checked) => setMany(section.items, checked === true)} />
+                  <span className="min-w-0 flex-1 truncate">{section.label}</span>
+                  <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{section.items.length.toLocaleString()}개{unit === '줄' && ` · ${total(section.items).toLocaleString()}줄`}</span>
                 </label>
               </div>
               {expanded && (
                 <ul className="ml-8">
-                  {shown.map((group) => (
-                    <li key={group.id}>
+                  {shownOf(section).map((item) => (
+                    <li key={item.id}>
                       <label className={row}>
-                        <Checkbox checked={picked.has(group.id)} onCheckedChange={(checked) => toggled(setPicked, group.id, checked === true)} />
-                        <span className="min-w-0 flex-1 truncate">{group.title}</span>
-                        <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{group.total}줄</span>
+                        <Checkbox checked={picked.has(item.id)} onCheckedChange={(checked) => toggled(setPicked, item.id, checked === true)} />
+                        <span className="min-w-0 flex-1 truncate">{item.title}</span>
+                        <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{item.detail}</span>
                       </label>
                     </li>
                   ))}

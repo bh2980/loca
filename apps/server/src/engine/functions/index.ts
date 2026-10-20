@@ -77,7 +77,7 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     // (말투만 고치기, '상태 무시') is asked to rewrite them, so its status change goes through.
     const current = tx.select({ translation: s.units.translation, statusBy: s.units.statusBy }).from(s.units).where(eq(s.units.id, unit.id)).get();
     const run = tx.select({ definition: s.runs.definition, scope: s.runs.scope }).from(s.runs).where(eq(s.runs.id, input.runId)).get();
-    const humanOwns = personOwns(current, input.item.data.candidateText, !run || filtersByStatus(run.definition, run.scope));
+    const humanOwns = personOwns(current, input.item.data.candidateText, !run || filtersByStatus(run.scope));
     const patch: Partial<typeof s.units.$inferInsert> = {};
     const issues: string[] = [];
     if (humanOwns) {

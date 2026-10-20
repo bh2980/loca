@@ -25,7 +25,7 @@ describe('run scope by marks', () => {
     const tag = db.insert(s.tags).values({ projectId, name: '시험', color: '#888888' }).returning().get();
     db.insert(s.unitTags).values([{ unitId: noted.id, tagId: tag.id }, { unitId: plain.id, tagId: tag.id }]).run();
 
-    const pick = (scope: s.RunScope) => selectRunUnits(db, projectId, workflow.definition, { ignoreStatus: true, ...scope }).sort();
+    const pick = (scope: s.RunScope) => selectRunUnits(db, projectId, { ...scope }).sort();
     expect(pick({ marks: ['noted'] })).toEqual([noted.id, notedByAi.id].sort());
     // Marks are ANDed with each other.
     expect(pick({ marks: ['noted', 'ai'] })).toEqual([notedByAi.id]);
@@ -36,7 +36,7 @@ describe('run scope by marks', () => {
     expect(pick({ marks: [] })).toEqual(translatable(db, projectId).sort());
   });
 
-  it('skips a 미번역 line a person translated, unless the scope ignores the status filter', () => {
+  it('skips a 미번역 line a person translated when the scope filters by status, not when it names the line', () => {
     const db = openDatabase(':memory:');
     const connection = db.insert(s.connections).values({ kind: 'openai', name: 'mock', baseUrl: 'http://mock/v1' }).returning().get();
     const { projectId } = importProject(db, importFileSchema.parse(realistic(200).file), { connectionId: connection.id, model: 'm' });
@@ -46,12 +46,12 @@ describe('run scope by marks', () => {
     db.update(s.units).set({ translation: '사람 번역', statusBy: 'human' }).where(eq(s.units.id, written.id)).run();
     db.update(s.units).set({ translation: null, statusBy: 'human' }).where(eq(s.units.id, blank.id)).run();
 
-    const picked = selectRunUnits(db, projectId, workflow.definition, {});
+    const picked = selectRunUnits(db, projectId, { statusIds: [initial.id] });
     expect(picked).not.toContain(written.id);
     // A person's line with nothing written yet is still untranslated.
     expect(picked).toContain(blank.id);
     // A scope that names lines on purpose is unaffected.
-    expect(selectRunUnits(db, projectId, workflow.definition, { unitIds: [written.id], ignoreStatus: true })).toEqual([written.id]);
+    expect(selectRunUnits(db, projectId, { unitIds: [written.id] })).toEqual([written.id]);
   });
 
   it('runs exactly the named lines, however many, and never another project\'s', () => {
@@ -64,7 +64,7 @@ describe('run scope by marks', () => {
     const foreign = db.select().from(s.units).where(eq(s.units.projectId, other.projectId)).all()[0];
     // A route's untranslated lines: more than the 500 ids an IN list binds one by one.
     const route = units.slice(100, 900).map((unit) => unit.id);
-    const picked = selectRunUnits(db, first.projectId, workflow.definition, { unitIds: [...route, foreign.id], ignoreStatus: true });
+    const picked = selectRunUnits(db, first.projectId, { unitIds: [...route, foreign.id] });
     const forTranslation = new Set(translatable(db, first.projectId));
     expect(picked.sort()).toEqual(route.filter((id) => forTranslation.has(id)).sort());
   });
@@ -78,9 +78,9 @@ describe('run scope by marks', () => {
     const untranslated = statuses.find((s) => s.kind === 'initial')!;
     const draft = statuses.find((s) => s.kind === 'normal')!;
 
-    const untranslatedUnits = selectRunUnits(db, projectId, workflow.definition, { statusIds: [untranslated.id] });
-    const draftUnits = selectRunUnits(db, projectId, workflow.definition, { statusIds: [draft.id] });
-    const bothUnits = selectRunUnits(db, projectId, workflow.definition, { statusIds: [untranslated.id, draft.id] });
+    const untranslatedUnits = selectRunUnits(db, projectId, { statusIds: [untranslated.id] });
+    const draftUnits = selectRunUnits(db, projectId, { statusIds: [draft.id] });
+    const bothUnits = selectRunUnits(db, projectId, { statusIds: [untranslated.id, draft.id] });
     expect(untranslatedUnits.length).toBeGreaterThan(0);
     expect(draftUnits.length).toBeGreaterThan(0);
     expect(bothUnits.length).toBe(untranslatedUnits.length + draftUnits.length);

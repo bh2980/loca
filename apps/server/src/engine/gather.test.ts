@@ -47,7 +47,7 @@ describe('모으기', () => {
     const definition = flow(choice);
     expect(validateWorkflow(definition, refs(choice)).filter((issue) => issue.level === 'error')).toEqual([]);
     const workflow = db.insert(s.workflows).values({ projectId, name: 'g', definition }).returning().get();
-    const { runId } = createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, definition), scope: { ignoreStatus: true } });
+    const { runId } = createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, definition), scope: {} });
     const seen: { system: string; prompt: string }[] = [];
     const port: ModelPort = {
       judge: async () => {
@@ -98,7 +98,7 @@ describe('모으기', () => {
     // A request budget of one scene: three parts.
     const definition = workflowDefinitionSchema.parse({ ...template, nodes: template.nodes.map((node) => (node.id === 'analysis' && node.type === 'ai' ? { ...node, config: { ...node.config, batch: { ...node.config.batch, maxTokens: 500 } } } : node)) });
     const workflow = db.insert(s.workflows).values({ projectId, name: '작품 분석', definition }).returning().get();
-    createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, definition), scope: { ignoreStatus: true } });
+    createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, definition), scope: {} });
     const merged: string[] = [];
     const port: ModelPort = {
       judge: async () => {

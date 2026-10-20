@@ -1,6 +1,6 @@
 /** What the editor and a run's graph share: a node's one-line summary and the edges as React Flow draws them. */
 import { MarkerType } from '@xyflow/react';
-import { APPLY_TARGETS, FUNCTIONS, nodeModels, nodeName, nodePorts, previousSteps, type FunctionName, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+import { APPLY_TARGETS, FUNCTIONS, WORKFLOW_SUBJECTS, nodeModels, nodeName, nodePorts, previousSteps, type FunctionName, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
 import type { FlowEdge } from '@/components/workflow/workflow-edge';
 
 export interface SummaryNames {
@@ -20,7 +20,7 @@ const stepsLabel = (definition: WorkflowDefinition, nodeId: string) => {
 export function nodeSummary(node: WorkflowNode, definition: WorkflowDefinition, names: SummaryNames): string {
   switch (node.type) {
     case 'entry':
-      return node.config.statusIds.length ? node.config.statusIds.map((id) => names.status.get(id) ?? '삭제된 상태').join(', ') : '범위 안의 모든 대사';
+      return `${WORKFLOW_SUBJECTS[node.config.input]} 입력`;
     case 'ai': {
       const model = node.config.model.model ? [names.connection.get(node.config.model.connectionId) ?? (names.connectionsLoaded ? '삭제된 연결' : undefined), node.config.model.model].filter(Boolean).join(' · ') : '모델 없음';
       return `${model}${nodeModels(node).length > 1 ? ` 외 ${nodeModels(node).length - 1}개` : ''}`;
@@ -60,7 +60,7 @@ export function nodeSummary(node: WorkflowNode, definition: WorkflowDefinition, 
 export function entryStarts(definition: WorkflowDefinition, names: SummaryNames) {
   const entry = definition.nodes.find((node) => node.type === 'entry');
   const starts = new Set(definition.edges.filter((edge) => edge.source === entry?.id).map((edge) => edge.target));
-  const label = entry && entry.type === 'entry' && entry.config.statusIds.length ? `시작 · ${nodeSummary(entry, definition, names)}` : '시작';
+  const label = entry && entry.type === 'entry' ? `시작 · ${nodeSummary(entry, definition, names)}` : '시작';
   return { entry, starts, label };
 }
 

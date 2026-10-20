@@ -48,6 +48,6 @@ export async function continuePreflight(db: Db, run: Run, models: RunModels | un
   if (!switched.ok) return switched;
   const unitIds = remainingLines(db, run.id, retryFailed);
   // The run's items as they are: lines by id regardless of status, or terms by id.
-  const scope = run.subject === 'terms' ? { termIds: unitIds } : { unitIds, ignoreStatus: true };
+  const scope = run.subject === 'terms' ? { termIds: unitIds } : { unitIds };
   return { ok: true as const, lines: unitIds.length, plan: await preflight(db, { id: run.workflowId, projectId: run.projectId, definition: switched.definition }, scope) };
 }
