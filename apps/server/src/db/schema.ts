@@ -482,6 +482,8 @@ export const workflows = sqliteTable('workflows', {
 
 export type RunStatus = 'running' | 'paused' | 'cancelled' | 'completed';
 export interface RunScope {
+  /** What the run takes: script lines (default) or glossary terms; any workflow runs on either. */
+  subject?: WorkflowSubject;
   groupIds?: string[];
   unitIds?: string[];
   /** Lines carrying every one of these tags. */
@@ -492,7 +494,7 @@ export interface RunScope {
   statusIds?: string[];
   /** Run the picked lines even if their status is not one the entry node accepts. */
   ignoreStatus?: boolean;
-  /** Term workflows: these terms (instead of the entry node's statuses and marks). */
+  /** A term run: these terms (instead of the entry node's term statuses and marks). */
   termIds?: string[];
 }
 /** One connection + model a call can go to, frozen with the connection's details. */

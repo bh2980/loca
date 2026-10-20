@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import Graph from 'graphology';
-import { APPLY_TARGETS, FUNCTIONS, functionPorts, functionTakes, jsonFieldSchema, type ApplyFunctionName, type ApplyParams, type FunctionName, type JsonField, type Port } from './functions.ts';
+import { APPLY_TARGETS, FUNCTIONS, functionPorts, jsonFieldSchema, type ApplyFunctionName, type ApplyParams, type FunctionName, type JsonField, type Port } from './functions.ts';
 import { stronglyConnectedComponents } from 'graphology-components';
 import { KNOWLEDGE_STATUSES } from './knowledge.ts';
 import { TERM_MARK_IDS, type AutoMark } from './marks.ts';
@@ -151,34 +151,28 @@ export function pickPaths(value: unknown, paths: string[]): unknown {
   );
 }
 
-/** What a workflow's items are: script lines, or glossary terms. The entry node decides; a workflow has one. */
+/** What a run's items are: script lines, or glossary terms. The run's scope decides (the run dialog's 대사 / 용어), not the workflow: a workflow takes whatever comes in. */
 export const WORKFLOW_SUBJECTS = { lines: '대사', terms: '용어' } as const;
 export type WorkflowSubject = keyof typeof WORKFLOW_SUBJECTS;
 export const WORKFLOW_SUBJECT_IDS = Object.keys(WORKFLOW_SUBJECTS) as WorkflowSubject[];
 
 /**
- * Where a workflow's items come from. Lines: those in `statusIds` (empty = any). Terms: glossary
- * terms in `termStatuses` that carry every mark in `termMarks` (default: candidates without a
- * Korean form yet), most used first.
+ * What a run takes when its scope names no items: lines in `statusIds` (empty = any) when it runs on
+ * lines; glossary terms in `termStatuses` carrying every mark in `termMarks` (default: candidates
+ * without a Korean form yet), most used first, when it runs on terms.
  */
 export const entryConfigSchema = z
   .object({
-    subject: z.enum(WORKFLOW_SUBJECT_IDS as [WorkflowSubject, ...WorkflowSubject[]]).default('lines'),
     statusIds: z.array(z.string()).default([]),
     termStatuses: z.array(z.enum(KNOWLEDGE_STATUSES)).default(['candidate']),
     termMarks: z.array(z.enum(TERM_MARK_IDS as [AutoMark, ...AutoMark[]])).default(['emptyTarget']),
   })
   .prefault({});
 export type EntryConfig = z.infer<typeof entryConfigSchema>;
-/** A workflow's subject: what its entry node takes. */
-export const workflowSubject = (definition: Pick<WorkflowDefinition, 'nodes'>): WorkflowSubject => {
-  const entry = definition.nodes.find((node) => node.type === 'entry');
-  return entry?.type === 'entry' ? entryConfigSchema.parse(entry.config ?? {}).subject : 'lines';
-};
 /** How the editor names batch modes. */
 export const BATCH_MODE_LABELS: Record<BatchConfig['mode'], string> = { group: '장면별', count: '개수별', unit: '하나씩', whole: '대본 전체' };
-/** Batch modes a subject can use: terms have no scenes or script order to read whole. */
-export const SUBJECT_BATCH_MODES: Record<WorkflowSubject, readonly BatchConfig['mode'][]> = { lines: ['group', 'count', 'unit', 'whole'], terms: ['count', 'unit'] };
+/** Batch modes terms can use: terms have no scenes or script order, so a scene or whole-script batch takes them by count. */
+export const TERM_BATCH_MODES: readonly BatchConfig['mode'][] = ['count', 'unit'];
 
 /**
  * 모으기: waits until no item of the run is still open before it (every request of the nodes upstream
@@ -211,6 +205,8 @@ export const ITEM_ERROR_KINDS = {
   'too-long': '요청이 너무 김',
   'cut-off': '출력 잘림',
   refused: '거절',
+  /** The node does not work on this kind of item (a line-only node given a term, or the reverse). */
+  unsupported: '맞지 않는 항목',
   other: '기타',
 } as const;
 export type ItemErrorKind = keyof typeof ITEM_ERROR_KINDS;
@@ -372,7 +368,7 @@ export interface ConditionData {
   issues: string[];
   /** marks: the line's automatic marks right now (lineMarksOf in marks.ts; diverged is only known to the list filter). Line workflows. */
   unit?: { kind: string; speaker: string | null; listener: string | null; statusId: string; tagIds: string[]; marks: string[] };
-  /** The term (term workflows): its status, who decided it, whether it has a Korean form, lines it appears in, marks (termMarksOf), tags. */
+  /** The term (runs on terms): its status, who decided it, whether it has a Korean form, lines it appears in, marks (termMarksOf), tags. */
   term?: { status: string; statusBy: string; hasTarget: boolean; lines: number | null; marks: string[]; tagIds: string[] };
   /** The last failure that sent the line out through an "error" exit (null once a node handles it). */
   error: { kind: ItemErrorKind; message: string; nodeId: string } | null;
@@ -398,8 +394,6 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
   const issues: WorkflowIssue[] = [];
   const error = (message: string, at: Pick<WorkflowIssue, 'nodeId' | 'edgeId'> = {}) => issues.push({ level: 'error', message, ...at });
   const warn = (message: string, at: Pick<WorkflowIssue, 'nodeId' | 'edgeId'> = {}) => issues.push({ level: 'warning', message, ...at });
-  const subject = workflowSubject(definition);
-
   const graph = new Graph({ type: 'directed', multi: true, allowSelfLoops: true });
   for (const node of definition.nodes) {
     if (graph.hasNode(node.id)) error(`노드 ID가 중복됩니다: ${node.id}`, { nodeId: node.id });
@@ -470,7 +464,6 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
     }
     if (node.type === 'ai') {
       const { model, extraModels } = node.config;
-      if (!SUBJECT_BATCH_MODES[subject].includes(node.config.batch.mode)) error(`${WORKFLOW_SUBJECTS[subject]} 워크플로의 AI 노드는 묶음을 ${SUBJECT_BATCH_MODES[subject].map((mode) => BATCH_MODE_LABELS[mode]).join('·')}(으)로만 정할 수 있습니다.`, { nodeId: node.id });
       if (!model.connectionId || !model.model) error('AI 연결과 모델을 고르세요.', { nodeId: node.id });
       else if (!refs.connections.has(model.connectionId)) error('고른 AI 연결이 삭제되었습니다. 다시 고르세요.', { nodeId: node.id });
       if (extraModels.some((choice) => !choice.connectionId || !choice.model)) error('추가한 모델을 고르거나 그 칸을 지우세요.', { nodeId: node.id });
@@ -486,7 +479,7 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
       }
       if (!input.lines && !(input.previous && node.config.output === 'json' && node.config.scope === 'batch')) error('대사 없이 보내려면 앞 단계 결과를 넣고, 출력을 JSON · 묶음 전체로 하세요.', { nodeId: node.id });
     }
-    if (node.type === 'entry' && subject === 'lines')
+    if (node.type === 'entry')
       for (const id of node.config.statusIds) if (!refs.statusIds.has(id)) error('삭제된 상태가 있습니다.', { nodeId: node.id });
     if (node.type === 'gather') {
       const steps = previousSteps(definition, node.id);
@@ -502,7 +495,6 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
         if (next.type === 'ai' && next.config.input.lines) error('모으기 뒤의 AI 노드는 입력에서 대사를 빼고(대사도 넣기 끔) 모은 결과를 읽어야 합니다.', { nodeId: next.id });
       }
     }
-    if (node.type === 'function' && !functionTakes(node.config.fn, subject)) error(`'${nodeName(node)}' 노드는 ${WORKFLOW_SUBJECTS[subject]} 워크플로에서 쓸 수 없습니다.`, { nodeId: node.id });
     if (node.type === 'function') {
       const info = FUNCTIONS[node.config.fn as FunctionName];
       if (!info) {

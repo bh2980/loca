@@ -239,7 +239,7 @@ export const AI_PRESETS = {
   },
   termTranslate: {
     label: 'AI 용어 번역',
-    description: '용어 후보마다 용어인지 가리고, 용어면 한국어 표기와 메모를 냅니다(용어 워크플로).',
+    description: '용어 후보마다 용어인지 가리고, 용어면 한국어 표기와 메모를 냅니다(용어로 실행).',
     output: 'json',
     scope: 'line',
     include: { candidate: false, issues: false },

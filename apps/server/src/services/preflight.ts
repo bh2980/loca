@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray, isNotNull, ne, sql } from 'drizzle-orm';
-import { batchConfigSchema, readinessUses, CONNECTION_KIND_INFO, estimateTokens, isFreeModel, isUnknownListener, isUnreviewed, needsListener, nodeName, termMatcher, workflowSubject, type AiNode, type WorkflowDefinition } from '@tw/shared';
+import { batchConfigSchema, TERM_BATCH_MODES, readinessUses, CONNECTION_KIND_INFO, estimateTokens, isFreeModel, isUnknownListener, isUnreviewed, needsListener, nodeName, termMatcher, type AiNode, type WorkflowDefinition } from '@tw/shared';
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -7,7 +7,7 @@ import { packGroups } from '../engine/batches.ts';
 import { buildPrompt, promptLineId } from '../engine/prompts.ts';
 import { wholeScriptRequest } from '../engine/whole-script.ts';
 import { resolveChoiceOptions } from './choice-options.ts';
-import { excludedInScope, planRun, sceneLinks, selectRunTerms, selectRunUnits } from '../engine/run-create.ts';
+import { excludedInScope, planRun, runSubject, sceneLinks, selectRunTerms, selectRunUnits } from '../engine/run-create.ts';
 import { loadTerms, TERM_GROUP, termPrompt } from '../engine/subjects.ts';
 import { resolveBudgets } from './budgets.ts';
 import { buildContext } from './context.ts';
@@ -53,7 +53,7 @@ export interface NodeEstimate {
 export async function preflight(db: Db, workflow: Pick<typeof s.workflows.$inferSelect, 'projectId' | 'definition'> & { id: string | null }, scope: s.RunScope) {
   const definition: WorkflowDefinition = resolveBudgets(db, workflow.definition);
   const projectId = workflow.projectId;
-  if (workflowSubject(definition) === 'terms') return termPreflight(db, workflow, definition, scope);
+  if (runSubject(scope) === 'terms') return termPreflight(db, workflow, definition, scope);
   const unitIds = selectRunUnits(db, projectId, definition, scope);
   const columns = { id: s.units.id, key: s.units.key, groupId: s.units.groupId, seq: s.units.seq, kind: s.units.kind, speaker: s.units.speaker, source: s.units.source, translation: s.units.translation, listener: s.units.listener, listenerOrigin: s.units.listenerOrigin, listenerConfidence: s.units.listenerConfidence, tokens: sql<number>`(length(cast(${s.units.source} as blob)) + 3) / 4` };
   // Most of a project: one scan kept by id is faster than ids in chunks (see planLines).
@@ -146,10 +146,16 @@ export async function preflight(db: Db, workflow: Pick<typeof s.workflows.$infer
 }
 
 /**
- * preflight for a term workflow: the terms in scope, packed as the runner would (one by one or in
+ * preflight for a term run: the terms in scope, packed as the runner would (one by one or in
  * fixed counts, no scenes), with each AI node's requests and a sampled prompt size. Line readiness
  * (listeners, speech rules) does not apply.
  */
+/** A term run's batching (as the runner does it): a scene or whole-script batch takes terms by count. */
+function termBatch(node: AiNode) {
+  const config = batchConfigSchema.parse(node.config.batch ?? {});
+  return TERM_BATCH_MODES.includes(config.mode) ? config : { ...config, mode: 'count' as const };
+}
+
 async function termPreflight(db: Db, workflow: { id: string | null; projectId: string }, definition: WorkflowDefinition, scope: s.RunScope) {
   const projectId = workflow.projectId;
   const ids = selectRunTerms(db, projectId, definition, scope);
@@ -164,7 +170,7 @@ async function termPreflight(db: Db, workflow: { id: string | null; projectId: s
   const estimates: NodeEstimate[] = definition.nodes
     .filter((node): node is AiNode => node.type === 'ai')
     .map((node) => {
-      const requests = !node.config.input.lines ? (rows.length ? [rows.slice(0, 1)] : []) : packGroups(rows.length ? [rows] : [], batchConfigSchema.parse(node.config.batch ?? {}));
+      const requests = !node.config.input.lines ? (rows.length ? [rows.slice(0, 1)] : []) : packGroups(rows.length ? [rows] : [], termBatch(node));
       const connection = node.config.model.connectionId ? db.select().from(s.connections).where(eq(s.connections.id, node.config.model.connectionId)).get() : undefined;
       const all = everyLine.has(node.id);
       const historyRate = workflow.id ? rateFromHistory(db, workflow.id, node.id) : null;

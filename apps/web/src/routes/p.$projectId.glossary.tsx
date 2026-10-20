@@ -130,7 +130,7 @@ function Glossary() {
   const promotable = pickedTerms.filter((term) => !isSettled(term) && term.target.trim());
   const discardable = pickedTerms.filter((term) => !isSettled(term));
   const afterBulk = { onSuccess: clearPicked };
-  // A term workflow runs on the picked terms, else on what the filters leave; with neither, on the terms its own 대상 picks.
+  // A run on terms takes the picked terms, else on what the filters leave; with neither, on the terms its own 대상 picks.
   const narrowed = Boolean(needle || search.ids || search.source || search.marks?.length || search.tags?.length || search.hideMarks?.length || search.hideTags?.length);
   const runTermIds = pickedTerms.length ? pickedTerms.map((term) => term.id) : narrowed ? rows.map((term) => term.id) : undefined;
 

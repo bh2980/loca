@@ -25,7 +25,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import { ArrowLeftRight, ArrowUpDown, ChevronRight, Copy, Focus, LayoutGrid, Maximize, Pencil, Plus, SlidersHorizontal, Trash2, Unlink } from 'lucide-react';
 import { toast } from 'sonner';
-import { AI_PRESETS, APPLY_FUNCTION_NAMES, APPLY_TARGETS, FUNCTIONS, FUNCTION_NAMES, functionTakes, workflowSubject, PALETTE_FUNCTION_NAMES, nodeModels, nodeName, nodePorts, syncEntryEdges, workflowNodeSchema, type FunctionName, type WorkflowDefinition, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
+import { AI_PRESETS, APPLY_FUNCTION_NAMES, APPLY_TARGETS, FUNCTIONS, FUNCTION_NAMES, PALETTE_FUNCTION_NAMES, nodeModels, nodeName, nodePorts, syncEntryEdges, workflowNodeSchema, type FunctionName, type WorkflowDefinition, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
 import { Page, StatusBarItem } from '@/components/page';
 import { autoLayout } from '@/components/workflow/auto-layout';
 import { NodeConfig } from '@/components/workflow/node-config';
@@ -469,7 +469,6 @@ function WorkflowEditor() {
     );
 
   const errorCount = issues.filter((issue) => issue.level === 'error').length;
-  const subject = workflowSubject(current.definition);
   const palette: NodeLibraryGroup[] = [
     {
       id: 'ai',
@@ -487,12 +486,12 @@ function WorkflowEditor() {
     {
       id: 'apply',
       label: '반영',
-      items: APPLY_FUNCTION_NAMES.filter((fn) => functionTakes(fn, subject)).map((fn) => ({ id: fn, label: FUNCTIONS[fn].label, kind: 'function' as const, icon: null })),
+      items: APPLY_FUNCTION_NAMES.map((fn) => ({ id: fn, label: FUNCTIONS[fn].label, kind: 'function' as const, icon: null })),
     },
     {
       id: 'function',
       label: '함수',
-      items: PALETTE_FUNCTION_NAMES.filter((fn) => functionTakes(fn, subject)).map((fn) => ({
+      items: PALETTE_FUNCTION_NAMES.map((fn) => ({
         id: fn,
         label: FUNCTIONS[fn].label,
         kind: (fn === 'setStatus' ? 'status' : 'function') as 'status' | 'function',

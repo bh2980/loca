@@ -73,9 +73,9 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   // This run's models by AI node, where the person picked another than the node's own (the workflow is not changed).
   const [runModels, setRunModels] = useState<Record<string, ModelValue>>({});
   const workflows = useQuery({ ...q.workflows(projectId), enabled: open });
-  // 대사 or 용어, picked in the dialog (it starts on the page's); a fixed workflow runs on its own 대상.
+  // 대사 or 용어: what the run takes, picked in the dialog (it starts on the page's). Any workflow runs on either.
   const [pickedSubject, setPickedSubject] = useState<'lines' | 'terms'>(givenSubject);
-  const subject = fixedWorkflowId ? (workflows.data?.find((item) => item.id === fixedWorkflowId)?.subject ?? givenSubject) : pickedSubject;
+  const subject = pickedSubject;
   const terms = subject === 'terms';
   const unit = terms ? '개' : '줄';
   const rememberKey = remember && `run-dialog:${projectId}:${remember}`;
@@ -97,8 +97,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
       }
     }
   };
-  // Only workflows of this subject can be picked (a list entry without a subject is a line workflow).
-  const pickable = workflows.data?.filter((item) => item.subject === subject);
+  const pickable = workflows.data;
   const valid = (id: string | undefined) => (id && pickable?.some((workflow) => workflow.id === id && !workflow.errorCount) ? id : undefined);
   // A remembered button never falls back to some other workflow: the person picks one.
   const workflowId = fixedWorkflowId ?? valid(chosen) ?? (rememberKey ? undefined : pickable?.find((workflow) => !workflow.errorCount)?.id);
@@ -136,7 +135,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
       ? { statusIds: [...pickedStatuses], ignoreStatus: false }
       : { statusIds: [], ignoreStatus: true };
 
-  const scope = terms ? (termIds?.length ? { termIds } : {}) : {
+  const scope = terms ? { subject: 'terms' as const, ...(termIds?.length ? { termIds } : {}) } : {
     ...(computedUnitIds ? { unitIds: computedUnitIds } : {}),
     ...(computedGroupIds ? { groupIds: computedGroupIds } : {}),
     ...statusScope,
@@ -224,16 +223,6 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
         <div className="-mx-1 max-h-[70svh] space-y-5 overflow-auto px-1 py-0.5">
           {!fixedWorkflowId && (
             <div className="space-y-2">
-            <RadioGroup value={subject} onValueChange={(value) => setPickedSubject(value as 'lines' | 'terms')} className="flex gap-4" aria-label="실행할 대상">
-              <Label className="text-sm font-normal">
-                <RadioGroupItem value="lines" />
-                대사
-              </Label>
-              <Label className="text-sm font-normal">
-                <RadioGroupItem value="terms" />
-                용어
-              </Label>
-            </RadioGroup>
             <Select value={workflowId ?? ''} onValueChange={choose}>
               <SelectTrigger className="w-full" aria-label="워크플로">
                 <SelectValue placeholder="워크플로 선택" />
@@ -247,13 +236,23 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
-              {!pickable?.length && (terms ? '용어 워크플로가 없습니다. ' : '저장된 워크플로가 없습니다. ')}
+              {!pickable?.length && '저장된 워크플로가 없습니다. '}
               <Link to="/p/$projectId/workflows" params={{ projectId }} className="underline underline-offset-2">워크플로 관리</Link>
             </p>
             </div>
           )}
 
           <section className="space-y-4">
+            <RadioGroup value={subject} onValueChange={(value) => setPickedSubject(value as 'lines' | 'terms')} className="flex gap-4" aria-label="무엇으로 실행할지">
+              <Label className="text-sm font-normal">
+                <RadioGroupItem value="lines" />
+                대사로 실행
+              </Label>
+              <Label className="text-sm font-normal">
+                <RadioGroupItem value="terms" />
+                용어로 실행
+              </Label>
+            </RadioGroup>
             {terms && (
               <div className="space-y-1">
                 <SectionHeading>대상</SectionHeading>

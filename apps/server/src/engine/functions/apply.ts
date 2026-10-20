@@ -332,7 +332,7 @@ function runLine(fn: 'saveCandidate' | 'setListener' | 'tagLines', context: Cont
  */
 function runTerm(context: Context, item: Item, base: { projectId: string; runId: string; nodeId: string }): FunctionResult {
   const { tx, input, params } = context;
-  if (input.subject !== 'terms') throw new Error('용어 표기 저장은 용어 워크플로에서만 쓸 수 있습니다.');
+  if (input.subject !== 'terms') throw new Error('용어 표기 저장은 용어에만 쓸 수 있습니다.');
   const current = tx.select().from(s.terms).where(eq(s.terms.id, input.term.id)).get();
   if (!current) return { port: 'out', output: { applied: false, reason: '용어가 없습니다.' } };
   const target = typeof item.target === 'string' ? item.target.trim() : '';

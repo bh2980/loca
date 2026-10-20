@@ -6,7 +6,7 @@ import { MarkChip } from '@/components/status';
 import { Button, cn, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Input, InspectorFields, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, StatusIcon, Switch, TagChip, Textarea } from '@loca/ui';
 import { comparableFields, conditionExpression, parseCondition, type Clause, type Condition, type FieldOperator, type Join } from '@/components/workflow/node-config/condition-clauses';
 import { AiButton } from '@/components/ai-button';
-import { Field, refsSubject, type ConditionNode, type NodeRefs } from '@/components/workflow/node-config/shared';
+import { Field, type ConditionNode, type NodeRefs } from '@/components/workflow/node-config/shared';
 
 // ── condition node ────────────────────────────────────────────────────
 
@@ -25,7 +25,6 @@ const FIELD_OPERATORS: Record<FieldOperator, string> = { '>=': '≥', '<=': '≤
 const ADDABLE = { status: '상태', lineKind: '종류', tag: '태그', mark: '자동 태그', listener: '청자', candidate: '번역문', field: '노드 결과', visits: '방문 횟수', error: '실패 종류' } as const;
 type Addable = keyof typeof ADDABLE;
 
-const TERM_ONLY: Addable[] = ['field', 'visits', 'error', 'candidate'];
 
 function Pick({ value, onChange, label, className, children }: { value: string; onChange: (value: string) => void; label: string; className?: string; children: React.ReactNode }) {
   return (
@@ -58,7 +57,6 @@ export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { nod
 
   const parsed = parseCondition(node.config.expression);
   const json = asJson || !parsed;
-  const terms = refs ? refsSubject(refs) === 'terms' : false;
   const statuses = refs?.statuses ?? [];
   const tags = refs?.tags ?? [];
   const others = nodes.filter((other) => other.id !== node.id && other.type !== 'entry' && other.type !== 'end');
@@ -92,7 +90,7 @@ export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { nod
       case 'error': return { kind, errorKind: 'missing' };
     }
   };
-  const addable = (Object.keys(ADDABLE) as Addable[]).filter((kind) => (!terms || TERM_ONLY.includes(kind)) && fresh(kind));
+  const addable = (Object.keys(ADDABLE) as Addable[]).filter((kind) => fresh(kind));
 
   const row = (clause: Clause, index: number) => {
     const set = (next: Clause) => setClause(index, next);

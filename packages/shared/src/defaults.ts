@@ -253,7 +253,7 @@ export function termTranslationTemplate(ids: Model): WorkflowDefinition {
     {
       settings: { ...SETTINGS },
       nodes: [
-        entryNode([], { subject: 'terms' }),
+        entryNode(),
         aiNode('translate', 'termTranslate', ids.model, 1),
         { id: 'is-term', type: 'condition', position: at(2), label: '용어인가?', config: { expression: { '==': [{ var: 'outputs.translate.isTerm' }, true] }, description: 'AI가 용어라고 답한 것만 표기를 적습니다.' } },
         applyNode('save-term', 'saveTermEntry', 3, { map: { target: 'target', note: 'note' }, propose: false }),

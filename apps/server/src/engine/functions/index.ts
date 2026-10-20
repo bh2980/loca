@@ -96,7 +96,7 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
   /** 용어 상태 변경: candidate, confirmed or rejected (rejected terms are not proposed again); proposed by default. */
   setTermStatus(tx, raw, input) {
     const params = FUNCTIONS.setTermStatus.params.parse(raw);
-    if (input.subject !== 'terms') throw new Error('용어 상태 변경은 용어 워크플로에서만 쓸 수 있습니다.');
+    if (input.subject !== 'terms') throw new Error('용어 상태 변경은 용어에만 쓸 수 있습니다.');
     if (params.propose) {
       addToRunProposal(tx, { projectId: input.projectId, runId: input.runId, nodeId: input.item.nodeId, tool: 'save_terms', input: {} }, 'terms', { id: input.term.id, status: params.status });
       return { port: 'out', output: { proposed: true, status: params.status } };

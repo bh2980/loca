@@ -30,7 +30,7 @@ interface Common {
 /** What a function gets for one item: a line, or a term (the run's subject). */
 export type FunctionInput = (Common & { subject: 'lines'; unit: Unit; term?: undefined }) | (Common & { subject: 'terms'; term: Term; unit?: undefined });
 
-/** The line of a line-only function's input (validation keeps these nodes out of term workflows). */
+/** The line of a line-only function's input (the runner sends terms past these nodes through "error"). */
 export function lineOf(input: FunctionInput): Unit {
   if (input.subject !== 'lines') throw new Error('이 노드는 대사 워크플로에서만 쓸 수 있습니다.');
   return input.unit;

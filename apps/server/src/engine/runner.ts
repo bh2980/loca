@@ -1,7 +1,7 @@
 import { and, asc, count, desc, eq, gte, inArray, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
 import jsonLogic from 'json-logic-js';
 import * as ai from '@tw/ai';
-import { estimateTokens, batchConfigSchema, batchTokens, lineCostIn, FUNCTIONS, choiceKey, lineMarksOf, nodeModels, nodeName, type AiNode, type ConditionData, type FunctionName, type ItemErrorKind, pickPaths, previousStepId, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+import { estimateTokens, batchConfigSchema, batchTokens, lineCostIn, FUNCTIONS, functionTakes, TERM_BATCH_MODES, choiceKey, lineMarksOf, nodeModels, nodeName, type AiNode, type ConditionData, type FunctionName, type ItemErrorKind, pickPaths, previousStepId, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
 type GatherNode = Extract<WorkflowNode, { type: 'gather' }>;
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
@@ -104,6 +104,15 @@ const withPrevious = (lines: PromptLine[], items: Item[], definition: WorkflowDe
 const MISSING_WHAT: Record<AiNode['config']['output'], string> = { text: '번역', verdict: '판정', choice: '선택', json: '결과' };
 const attemptsOf = (error: unknown): ai.Attempt[] => ((error as { attempts?: ai.Attempt[] }).attempts ?? []);
 
+
+/** Why a node that only works on the other kind of item sends this one out through "error". */
+const unsupported = (node: WorkflowNode, subject: Run['subject']) => `'${nodeName(node)}'는 ${subject === 'terms' ? '용어' : '대사'}에는 쓸 수 없는 노드라 오류 출구로 보냈습니다.`;
+
+/** An AI node's batching for this run: terms have no scenes or script, so a scene or whole-script batch takes them by count. */
+const runBatch = (run: Run, node: AiNode) => {
+  const config = batchConfigSchema.parse(node.config.batch ?? {});
+  return run.subject === 'terms' && !TERM_BATCH_MODES.includes(config.mode) ? { ...config, mode: 'count' as const } : config;
+};
 
 /** AI calls and slow functions leave the instant pass; everything else settles immediately. */
 const isAsync = (node: WorkflowNode) =>
@@ -539,7 +548,7 @@ export class Runner {
       const node = this.node(run, nodeId);
       if (!node) continue;
       held.set(nodeId, { node, lines });
-      const config = node.type === 'ai' ? batchConfigSchema.parse(node.config.batch ?? {}) : null;
+      const config = node.type === 'ai' ? runBatch(run, node) : null;
       const before = [...(upstream.get(nodeId) ?? [])].filter((id) => id !== nodeId);
       let batches: Waiting[][];
       if (!config) batches = lines.map((line) => [line]);
@@ -579,7 +588,7 @@ export class Runner {
     // loop whose members sit at both ends). Send the most downstream node's lines as they are.
     if (!(this.inflight.get(run.id)?.size ?? 0) && held.size) {
       const [, { node, lines }] = [...held.entries()].sort(([a], [b]) => depth(b) - depth(a))[0];
-      const config = node.type === 'ai' ? batchConfigSchema.parse(node.config.batch ?? {}) : null;
+      const config = node.type === 'ai' ? runBatch(run, node) : null;
       const first = config ? (packGroups([...Map.groupBy(lines, (line) => line.plan ?? -1).values()], config)[0] ?? []) : lines.slice(0, 1);
       if (first.length && canSend(node)) {
         this.dispatch(run, node, first);
@@ -650,6 +659,7 @@ export class Runner {
         }
       }
       case 'function': {
+        if (!functionTakes(node.config.fn, run.subject)) return this.route(tx, run, item, 'error', unsupported(node, run.subject), 'unsupported');
         const fn = syncFunctions[node.config.fn as FunctionName];
         if (!fn) return this.route(tx, run, item, 'error', `알 수 없는 함수입니다: ${node.config.fn}`);
         try {
