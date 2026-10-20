@@ -648,6 +648,7 @@ workflows
       : node.type === 'ai' ? `${node.config.output}·${node.config.scope ?? 'line'}${node.config.preset ? ` · 프리셋 ${node.config.preset}` : ''} · ${node.config.model?.model || '모델 없음'}${node.config.fields?.length ? ` · 필드 ${node.config.fields.map((field: { name: string }) => field.name).join(', ')}` : ''}`
       : node.type === 'function' ? `${node.config.fn}`
       : node.type === 'condition' ? JSON.stringify(node.config.expression)
+      : node.type === 'gather' ? `모으기 ← ${node.config.from || '(앞 노드 없음)'}${node.config.fields?.length ? ` · 필드 ${node.config.fields.join(', ')}` : ''}`
       : '';
     console.log(`${data.name}  (${data.id})${data.description ? `\n${data.description}` : ''}\n`);
     for (const node of data.definition.nodes) {

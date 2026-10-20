@@ -1,6 +1,6 @@
 import { memo, useEffect } from 'react';
 import { Handle, Position, useUpdateNodeInternals, type Node, type NodeProps } from '@xyflow/react';
-import { BookPlus, Braces, CircleDot, Code, Flag, GitFork, Globe, ListChecks, MessageCircleQuestion, NotebookPen, ScanSearch, Sparkles, SpellCheck, Tag, UserCheck } from 'lucide-react';
+import { BookPlus, Braces, CircleDot, Code, Combine, Flag, GitFork, Globe, ListChecks, MessageCircleQuestion, NotebookPen, ScanSearch, Sparkles, SpellCheck, Tag, UserCheck } from 'lucide-react';
 import { nodeName, nodePorts, type WorkflowNode } from '@tw/shared';
 import { NodeCard, type CanvasDirection } from '@loca/ui';
 
@@ -24,6 +24,7 @@ export function nodeIcon(node: WorkflowNode): Icon {
     case 'ai': return AI_ICON[node.config.output] ?? Sparkles;
     case 'function': return FUNCTION_ICON[node.config.fn] ?? Code;
     case 'condition': return GitFork;
+    case 'gather': return Combine;
     case 'end': return Flag;
   }
 }

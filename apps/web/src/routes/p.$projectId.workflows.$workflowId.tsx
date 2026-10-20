@@ -264,6 +264,10 @@ function WorkflowEditor() {
       }
       case 'condition':
         return node.config.description || '조건식';
+      case 'gather': {
+        const from = current?.definition.nodes.find((other) => other.id === node.config.from);
+        return from ? `← ${nodeName(from)}` : '모을 노드를 고르세요';
+      }
       default:
         return '';
     }
@@ -593,6 +597,7 @@ function WorkflowEditor() {
       label: '조건',
       items: [
         { id: 'condition', label: '조건', kind: 'condition' as const, icon: null },
+        { id: 'gather', label: '모으기', kind: 'gather' as const, icon: null },
       ],
     },
   ];
@@ -604,6 +609,7 @@ function WorkflowEditor() {
     }
     else if (FUNCTION_NAMES.includes(id as FunctionName)) addNode({ type: 'function', config: { fn: id, params: {} } }, id, position);
     else if (id === 'ai') addNode({ type: 'ai', config: { model: newNodeModel(), output: 'json', scope: 'line', fields: [{ name: 'note', type: 'string', description: '' }] } } as never, id, position);
+    else if (id === 'gather') addNode({ type: 'gather', config: { from: '', fields: [] } }, id, position);
     else if (id === 'condition') addNode({ type: 'condition', config: { expression: true, description: '' } }, id, position);
   };
   const deleteNode = (nodeId: string) => {

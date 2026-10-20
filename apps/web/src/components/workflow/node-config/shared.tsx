@@ -50,3 +50,29 @@ export function ToggleRow({ label, checked, onChange }: { label: string; checked
 
 /** The subject of the workflow these nodes belong to (set on its entry node). */
 export const refsSubject = (refs: Pick<NodeRefs, 'nodes'>): WorkflowSubject => workflowSubject({ nodes: refs.nodes });
+
+/** Fields of a node's output an input can keep (top level; a list keeps its items whole). */
+export function outputFieldNames(node: WorkflowNode): string[] {
+  if (node.type === 'ai') {
+    if (node.config.output === 'json') return node.config.fields.map((field) => field.name);
+    if (node.config.output === 'verdict') return ['passed', 'issues'];
+    if (node.config.output === 'choice') return ['value', 'confidence', 'reason'];
+    return ['text'];
+  }
+  if (node.type === 'function' && node.config.fn === 'script') return ((node.config.params as { fields?: { name: string }[] }).fields ?? []).map((field) => field.name);
+  return [];
+}
+
+/** Nodes before this one that leave an output: AI and script nodes (and gathers, for an AI node's input). */
+export function upstreamSources(node: WorkflowNode, refs: Pick<NodeRefs, 'nodes' | 'edges'>, withGather = false): WorkflowNode[] {
+  const into = Map.groupBy(refs.edges ?? [], (edge) => edge.target);
+  const before = new Set<string>();
+  const stack = [node.id];
+  while (stack.length)
+    for (const edge of into.get(stack.pop()!) ?? [])
+      if (!before.has(edge.source)) {
+        before.add(edge.source);
+        stack.push(edge.source);
+      }
+  return refs.nodes.filter((other) => other.id !== node.id && before.has(other.id) && (other.type === 'ai' || (withGather && other.type === 'gather') || (other.type === 'function' && other.config.fn === 'script')));
+}

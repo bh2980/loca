@@ -78,7 +78,8 @@ export async function preflight(db: Db, workflow: Pick<typeof s.workflows.$infer
   }
   function estimateNode(node: AiNode): NodeEstimate {
     const config = batchConfigSchema.parse(node.config.batch ?? {});
-    const requests = packGroups(groups, config);
+    // A node that reads only an earlier node's result (after a gather) makes one request, not one per batch.
+    const requests = node.config.input.lines ? packGroups(groups, config) : groups.length ? [groups.flat().slice(0, 1)] : [];
     const label = (choice: { connectionId: string; model: string; effort?: string }) => {
       const row = choice.connectionId && choice.model ? db.select({ name: s.connections.name }).from(s.connections).where(eq(s.connections.id, choice.connectionId)).get() : undefined;
       return row ? choiceLabel(row.name, choice) : null;
@@ -159,7 +160,7 @@ async function termPreflight(db: Db, workflow: { id: string | null; projectId: s
   const estimates: NodeEstimate[] = definition.nodes
     .filter((node): node is AiNode => node.type === 'ai')
     .map((node) => {
-      const requests = packGroups(rows.length ? [rows] : [], batchConfigSchema.parse(node.config.batch ?? {}));
+      const requests = !node.config.input.lines ? (rows.length ? [rows.slice(0, 1)] : []) : packGroups(rows.length ? [rows] : [], batchConfigSchema.parse(node.config.batch ?? {}));
       const connection = node.config.model.connectionId ? db.select().from(s.connections).where(eq(s.connections.id, node.config.model.connectionId)).get() : undefined;
       const all = everyLine.has(node.id);
       const historyRate = workflow.id ? rateFromHistory(db, workflow.id, node.id) : null;

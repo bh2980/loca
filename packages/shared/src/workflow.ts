@@ -146,6 +146,19 @@ export const BATCH_MODE_LABELS: Record<BatchConfig['mode'], string> = { group: '
 /** Batch modes a subject can use: terms have no scenes or script order to read whole. */
 export const SUBJECT_BATCH_MODES: Record<WorkflowSubject, readonly BatchConfig['mode'][]> = { lines: ['group', 'count', 'unit', 'whole'], terms: ['count', 'unit'] };
 
+/**
+ * 모으기: waits until no item of the run is still open before it (every request of the nodes upstream
+ * has answered), then passes ONE item on, carrying what `from` produced across all of them:
+ * outputs.<gather> = { parts: [one per answer, trimmed to `fields`], count, failed }. The other items
+ * end there. After a gather the flow is "the combined result", not items: nodes that change an item
+ * are refused, and an AI node reads the parts with input { from: <gather>, lines: false }.
+ */
+export const gatherConfigSchema = z.object({ from: z.string().default(''), fields: z.array(z.string().trim().min(1)).default([]) }).prefault({});
+export type GatherConfig = z.infer<typeof gatherConfigSchema>;
+
+/** Functions that write the item itself (its status, translation, listener, tags, a term's form or status). */
+export const ITEM_CHANGING_FUNCTIONS = new Set(['setStatus', 'saveCandidate', 'setListener', 'tagLines', 'saveTermEntry', 'setTermStatus']);
+
 /** An AI node's call time limit when it does not set one, in minutes. */
 export const DEFAULT_CALL_MINUTES = 10;
 
@@ -205,6 +218,7 @@ export const workflowNodeSchema = z.discriminatedUnion('type', [
     config: z.object({ expression: z.unknown(), description: z.string().default('') }),
   }),
   z.object({ ...base, type: z.literal('end'), config: z.object({}).default({}) }),
+  z.object({ ...base, type: z.literal('gather'), config: gatherConfigSchema }),
 ]);
 
 export const workflowEdgeSchema = z.object({
@@ -280,6 +294,7 @@ export const NODE_TYPES: Record<WorkflowNodeType, NodeTypeInfo> = {
   function: { label: '함수', description: '형식 검사·상태 변경·HTTP 호출·스크립트 등 정해진 동작을 실행합니다.', hasInput: true },
   condition: { label: '조건', description: '방문 횟수·앞 노드의 출력·대사 속성 등으로 분기합니다.', hasInput: true },
   end: { label: '종료', description: '대사의 흐름을 마칩니다.', hasInput: true },
+  gather: { label: '모으기', description: '앞 노드의 결과를 모든 요청이 끝날 때까지 모았다가, 합친 결과 하나를 다음 노드로 넘깁니다.', hasInput: true },
 };
 
 const OUT: Port[] = [{ id: 'out', label: '완료' }];
@@ -298,6 +313,8 @@ export function nodePorts(node: WorkflowNode): Port[] {
       return [{ id: 'true', label: '참' }, { id: 'false', label: '거짓' }];
     case 'end':
       return [];
+    case 'gather':
+      return [{ id: 'out', label: '다음' }];
   }
 }
 
@@ -429,7 +446,7 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
       if (input.from) {
         const from = definition.nodes.find((other) => other.id === input.from);
         if (!from) error('입력으로 고른 앞 노드가 없습니다.', { nodeId: node.id });
-        else if (!(from.type === 'ai' || (from.type === 'function' && from.config.fn === 'script'))) error('앞 노드 결과는 AI 노드나 스크립트 노드에서만 가져옵니다.', { nodeId: node.id });
+        else if (!(from.type === 'ai' || from.type === 'gather' || (from.type === 'function' && from.config.fn === 'script'))) error('앞 노드 결과는 AI·스크립트·모으기 노드에서만 가져옵니다.', { nodeId: node.id });
         else if (from.id === node.id || !reach(from.id).has(node.id)) error(`'${nodeName(from)}'는 이 노드보다 앞에 있어야 합니다.`, { nodeId: node.id });
         if (node.config.batch.mode === 'whole') error('대본 전체로 읽는 노드에는 앞 노드 결과를 넣을 수 없습니다.', { nodeId: node.id });
       }
@@ -437,6 +454,21 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
     }
     if (node.type === 'entry' && subject === 'lines')
       for (const id of node.config.statusIds) if (!refs.statusIds.has(id)) error('삭제된 상태가 있습니다.', { nodeId: node.id });
+    if (node.type === 'gather') {
+      const from = definition.nodes.find((other) => other.id === node.config.from);
+      if (!from) error('모을 노드를 고르세요.', { nodeId: node.id });
+      else if (!(from.type === 'ai' || (from.type === 'function' && from.config.fn === 'script'))) error('모으기는 AI 노드나 스크립트 노드의 결과를 모읍니다.', { nodeId: node.id });
+      else if (!reach(from.id).has(node.id)) error(`'${nodeName(from)}'는 이 노드보다 앞에 있어야 합니다.`, { nodeId: node.id });
+      const after = [...reach(node.id)].filter((id) => id !== node.id);
+      // A gather inside a loop would close more than once per pass and never know when it is done.
+      if ((graph.outNeighbors(node.id) as string[]).some((next) => reach(next).has(node.id))) error('모으기는 되돌아가는 고리 안에 둘 수 없습니다.', { nodeId: node.id });
+      for (const id of after) {
+        const next = definition.nodes.find((other) => other.id === id)!;
+        // After a gather one item carries the combined result: nothing may change "the item".
+        if (next.type === 'function' && ITEM_CHANGING_FUNCTIONS.has(next.config.fn)) error(`'${nodeName(next)}'는 모으기 뒤에 둘 수 없습니다. 모은 뒤에는 대사·용어가 아니라 합친 결과 하나가 흐릅니다.`, { nodeId: next.id });
+        if (next.type === 'ai' && next.config.input.lines) error('모으기 뒤의 AI 노드는 입력에서 대사를 빼고(대사도 넣기 끔) 모은 결과를 읽어야 합니다.', { nodeId: next.id });
+      }
+    }
     if (node.type === 'function' && !functionTakes(node.config.fn, subject)) error(`'${nodeName(node)}' 노드는 ${WORKFLOW_SUBJECTS[subject]} 워크플로에서 쓸 수 없습니다.`, { nodeId: node.id });
     if (node.type === 'function') {
       const info = FUNCTIONS[node.config.fn as FunctionName];

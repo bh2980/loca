@@ -7,6 +7,7 @@ import { Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, 
 import { nodeIcon } from '../node-view';
 import { AiConfig } from '@/components/workflow/node-config/ai';
 import { ConditionEditor } from '@/components/workflow/node-config/condition';
+import { GatherConfig } from '@/components/workflow/node-config/gather';
 import { FunctionConfig } from '@/components/workflow/node-config/function';
 import { Field, type NodeRefs } from '@/components/workflow/node-config/shared';
 
@@ -105,9 +106,10 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
 
           {node.type === 'ai' ? (
             <AiConfig part="rest" node={node} refs={refs} onChange={onChange} />
-          ) : node.type === 'function' || node.type === 'condition' ? (
+          ) : node.type === 'function' || node.type === 'condition' || node.type === 'gather' ? (
             <InspectorSection title={NODE_TYPES[node.type].label}>
               {node.type === 'function' && <FunctionConfig node={node} refs={refs} readOnly={readOnly} onChange={onChange} />}
+              {node.type === 'gather' && <GatherConfig node={node} refs={refs} onChange={onChange} />}
               {node.type === 'condition' && <ConditionEditor node={node} nodes={refs.nodes} refs={refs} readOnly={readOnly} onChange={onChange} />}
             </InspectorSection>
           ) : null}

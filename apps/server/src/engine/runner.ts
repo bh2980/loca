@@ -1,7 +1,8 @@
-import { and, asc, desc, eq, gte, inArray, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, inArray, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
 import jsonLogic from 'json-logic-js';
 import * as ai from '@tw/ai';
 import { estimateTokens, batchConfigSchema, batchTokens, lineCostIn, FUNCTIONS, choiceKey, lineMarksOf, nodeModels, nodeName, type AiNode, type ConditionData, type FunctionName, type ItemErrorKind, pickPaths, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+type GatherNode = Extract<WorkflowNode, { type: 'gather' }>;
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -327,6 +328,42 @@ export class Runner {
     for (const edge of edges.slice(1)) tx.insert(s.runItems).values({ runId: run.id, subjectId: item.subjectId, plan: item.plan, ...moved(edge.target) }).run();
   }
 
+  /**
+   * Closes every gather whose upstream nodes have nothing open left: the answers its items carry
+   * from `from` (batch answers once, from their first item) become outputs.<gather> = { parts,
+   * count, failed } on one item, which leaves through "out"; the others end at the gather.
+   * True when one closed.
+   */
+  private closeGathers(run: Run, gathers: GatherNode[]) {
+    const open = this.openByNode(run.id);
+    const upstream = this.upstream(run);
+    let closed = false;
+    for (const gather of gathers) {
+      if (!(open.get(gather.id) ?? 0)) continue;
+      const before = [...(upstream.get(gather.id) ?? [])].filter((id) => id !== gather.id);
+      if (before.some((id) => (open.get(id) ?? 0) > 0)) continue;
+      this.db.transaction((tx) => {
+        const items = tx.select().from(s.runItems).where(and(eq(s.runItems.runId, run.id), eq(s.runItems.nodeId, gather.id), eq(s.runItems.state, 'queued'))).orderBy(asc(sql`rowid`)).all();
+        const { from, fields } = gather.config;
+        const parts = items.flatMap((item) => {
+          const output = item.data.outputs?.[from];
+          if (!output || (output as { batchLeader?: boolean }).batchLeader === false) return [];
+          const { batchLeader: _leader, ...answer } = output as Record<string, unknown>;
+          return [pickPaths(answer, fields)];
+        });
+        // Items that ended failed on the way here: a condition after the gather can stop on them.
+        const failed = tx.select({ count: count() }).from(s.runItems).where(and(eq(s.runItems.runId, run.id), eq(s.runItems.state, 'failed'), inArray(s.runItems.nodeId, before.length ? before : ['']))).get()!.count;
+        const [carrier, ...rest] = items;
+        if (!carrier) return;
+        for (const item of rest)
+          tx.update(s.runItems).set({ state: 'done', data: { ...item.data, path: [...item.data.path, { nodeId: gather.id, port: 'gathered', at: Date.now() }].slice(-200) } }).where(eq(s.runItems.id, item.id)).run();
+        this.record(tx, run, carrier, { port: 'out', output: { parts, count: parts.length, failed, batchLeader: true } });
+      });
+      closed = true;
+    }
+    return closed;
+  }
+
   /** Lines still queued or running, per node. */
   private openByNode(runId: string) {
     const rows = this.db
@@ -430,19 +467,25 @@ export class Runner {
 
   private advance(run: Run): boolean {
     const slowIds = run.definition.nodes.filter(isAsync).map((node) => node.id);
+    const gathers = run.definition.nodes.filter((node): node is GatherNode => node.type === 'gather');
     // Instant nodes settle first, possibly several hops, before slow work is handed out; a bounded
-    // number per tick so a 50,000-line run never holds the event loop.
+    // number per tick so a 50,000-line run never holds the event loop. Items at a gather wait for it.
     let changed = false;
     let settled = 0;
     const touched = new Set<Topic>();
     while (settled < SETTLE_PER_TICK) {
-      const instant = this.queuedInstant(run, slowIds, SETTLE_PER_TICK - settled);
+      const instant = this.queuedInstant(run, [...slowIds, ...gathers.map((node) => node.id)], SETTLE_PER_TICK - settled);
       if (!instant.length) break;
       for (const topic of this.settle(run, instant)) touched.add(topic);
       settled += instant.length;
       changed = true;
     }
     if (settled >= SETTLE_PER_TICK) {
+      this.notify(run.id, ...touched);
+      return true;
+    }
+    // A gather whose upstream is done closes now; its one item moves on with the next tick's instant pass.
+    if (gathers.length && this.closeGathers(run, gathers)) {
       this.notify(run.id, ...touched);
       return true;
     }

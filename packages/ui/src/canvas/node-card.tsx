@@ -3,7 +3,7 @@ import { AlertCircle, AlertTriangle } from "lucide-react"
 import { cn } from "../lib/utils"
 import type { CanvasDirection } from "./canvas-direction-control"
 
-export type NodeCardKind = "entry" | "ai" | "function" | "condition" | "status" | "end"
+export type NodeCardKind = "entry" | "ai" | "function" | "condition" | "gather" | "status" | "end"
 
 export interface NodeCardPort {
   id: string
@@ -38,6 +38,7 @@ export const NODE_CARD_KIND_APPEARANCE: Record<NodeCardKind, { label: string; ic
   ai: { label: "AI", icon: "text-ai", header: "bg-node-header-ai text-ai", dot: "bg-ai" },
   function: { label: "함수", icon: "text-primary", header: "bg-node-header-check text-primary", dot: "bg-primary" },
   condition: { label: "조건", icon: "text-review-ink", header: "bg-node-header-flow text-review-ink", dot: "bg-review" },
+  gather: { label: "모으기", icon: "text-primary", header: "bg-node-header-flow text-primary", dot: "bg-primary" },
   status: { label: "상태 변경", icon: "text-success", header: "bg-node-header-status text-success", dot: "bg-success" },
   end: { label: "종료", icon: "text-muted-foreground", header: "", dot: "bg-muted-foreground", capsule: true },
 }
@@ -80,7 +81,7 @@ export function NodeCard({ kind, icon, title, summary, inputHandle, outputs = []
         {hasLive && <div className="flex gap-2 border-t border-border-subtle px-2.5 py-1 text-xs tabular-nums">
           {live.limit !== undefined && (live.calls ?? 0) > 0 && <span className="font-medium text-foreground" title="동시에 보낸 요청 / 이 노드가 한 번에 보낼 수 있는 요청(연결의 동시 호출 한도)">요청 {live.calls}/{live.limit}</span>}
           {live.running > 0 && <span className="font-medium text-foreground">처리 {live.running}</span>}
-          {live.queued > 0 && <span className="text-muted-foreground">대기 {live.queued}</span>}
+          {live.queued > 0 && <span className="text-muted-foreground">{kind === "gather" ? "기다리는 중" : "대기"} {live.queued}</span>}
           {live.failed > 0 && <span className="text-destructive">실패 {live.failed}</span>}
         </div>}
       </div>

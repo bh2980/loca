@@ -373,7 +373,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
           scope: 'start_run / plan_run: a term workflow takes terms (ids or sources; none = the entry node\'s own pick); a line workflow takes groups/lines/tags/marks. A scope of the other kind is refused.',
           usage: 'Typical use: fill the empty Korean forms of the glossary with a term workflow: entry subject terms → AI node (json: target, note, kind, meaning) → 용어 표기 저장; terms the AI says are not terms → 용어 상태 변경 (rejected).',
         },
-        definitionShape: 'nodes: [{id, type: entry|ai|function|condition|end, position:{x,y}, label?, config}], edges: [{id, source, sourceHandle (exit id), target}], settings: {maxVisitsPerNode, concurrency, maxConsecutiveFailures}',
+        definitionShape: 'nodes: [{id, type: entry|ai|function|condition|gather|end, position:{x,y}, label?, config}], edges: [{id, source, sourceHandle (exit id), target}], settings: {maxVisitsPerNode, concurrency, maxConsecutiveFailures}',
         aiNode: {
           // From the schema itself, so new fields reach the agent without editing this text.
           config: zod.toJSONSchema(aiNodeConfigSchema, { io: 'input' }),
@@ -393,6 +393,14 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
             targets: Object.fromEntries(Object.entries(APPLY_TARGETS).map(([name, target]) => [name, { label: target.label, shape: target.shape, files: target.tool, fields: target.fields.map((field) => `${field.name}${'required' in field && field.required ? '*' : ''}:${field.type}`) }])),
           },
           scriptContract: 'export default function run(input) where input = {unit, candidate, issues, outputs, visits, error}; return {port?, candidate?, data?, issues?}. Runs in a sandbox without network.',
+        },
+        gatherNode: {
+          what: 'Node type "gather" (모으기): waits until every request of the nodes before it has answered, then passes ONE item on; the other items end there (their path shows port "gathered"). Use it to combine what an AI node found in several requests.',
+          config: '{ from (an earlier AI or script node id), fields (paths kept from each answer, e.g. ["characters.name"]; empty = all) }',
+          outputs: 'outputs.<gather> = { parts: [one per answer of `from`, trimmed to `fields`; a batch answer counts once], count, failed (items that failed upstream) }',
+          exits: 'out',
+          rulesAfter: 'After a gather, nodes that change an item (apply/status/save nodes and other item-changing functions) are refused; an AI node must use input { from: <gather id>, lines: false } and then gets "previous": [{ parts, count, failed }] (json, scope batch). A gather may not sit inside a loop.',
+          typical: 'entry → AI node (reads the script in several requests, batch by count or scene, json output) → 모으기 (from: that AI node, fields as needed) → AI node (input { from: gather, lines: false }, batch scope, combines the parts into one result) → end.',
         },
         conditionData: `JSON Logic over {visits: {[nodeId]: count}, outputs: {[nodeId]: output}, candidate, issues, unit: {kind, speaker, listener, statusId, tagIds, marks} (line workflows only), term: {status, statusBy, hasTarget, lines, marks, tagIds} (term workflows only; lines = how many script lines use it), error: {kind, message, nodeId} | null} (marks: any of ${CONDITION_MARK_IDS.join(', ')}; test with {"in": ["ai", {"var": "unit.marks"}]}; error is the last failure that sent the line out through an "error" exit, kind one of ${ITEM_ERROR_KIND_IDS.join(', ')}; it survives conditions and is cleared when a working node succeeds). Example: {"<": [{"var": "visits.review"}, 3]}, {"==": [{"var": "outputs.review.passed"}, true]} or {"==": [{"var": "error.kind"}, "missing"]}`,
         failures: 'The engine never splits or re-sends a request on its own (only rate limits and dropped connections wait for a later request; the run pauses after settings.maxConsecutiveFailures failed requests in a row). Lines an answer left out, a malformed answer, a timeout (the AI node\'s timeoutMinutes, default 10) or a request too large for the model leave through the node\'s "error" exit with error.kind; route them: a condition back to the node, a node that reads smaller batches, or function "fail" (실패로 끝내기, no exits) to end the line as failed. The templates draw error → 다시 시도? (visits.<node> < 2 and error.kind not too-long/cut-off) → the node, else fail.',
