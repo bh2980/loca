@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from '@tanstack/react-router';
 import { ArrowDown, Check, CircleAlert, Languages, MoreHorizontal, Save, Sparkles, Undo2, WandSparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { checkFormat, listenerLabel, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatIssue, type FormatRules } from '@tw/shared';
@@ -142,7 +141,6 @@ export function TranslationEditor({
   const placeMissing = () => tags.inserts.length > 0 && proposeInLine(unit.id, tags.inserts);
 
   const queryClient = useQueryClient();
-  const navigate = useNavigate();
   const save = useSaveLine();
   // Everything sent is what was typed when saving began: typing goes on while it is on its way.
   const run = (advance: boolean) => {
@@ -172,19 +170,13 @@ export function TranslationEditor({
 
   const offerSame = (text: string) => offerSameSource(queryClient, unit.id, text);
 
-  const openAssistSettings = () => {
-    toast.info('편집기 AI 모델이 설정되지 않아 설정으로 이동합니다. 작성 중인 초안은 브라우저에 보관됩니다.');
-    void navigate({ to: '/p/$projectId/settings/editor', params: { projectId } });
-  };
   const requestAssist = (mode: 'translate' | 'refine') => {
     if (project.isPending) {
       toast.info('편집기 AI 설정을 확인하고 있습니다.');
       return;
     }
-    if (!hasModel) {
-      openAssistSettings();
-      return;
-    }
+    // No model in 설정 › 에디터: the buttons are not shown, and their shortcut does nothing.
+    if (!hasModel) return;
     if (mode === 'refine' && !draft.trim()) {
       toast.info('다듬을 번역이 없습니다.');
       return;
@@ -254,11 +246,11 @@ export function TranslationEditor({
           </EditorAction> : dirty ? <EditorAction icon={Save} disabled={save.isPending} onClick={() => run(false)} title={keyLabel('Mod+S')}>
             저장
           </EditorAction> : null}
-          ai={<>
-            <EditorAction icon={Languages} variant="ghost" disabled={!!assist.loading || project.isPending} onClick={() => requestAssist('translate')} title={!project.isPending && !hasModel ? '모델 설정으로 이동합니다. 작성 중인 초안은 유지됩니다.' : undefined}>
+          ai={hasModel && <>
+            <EditorAction icon={Languages} variant="ghost" disabled={!!assist.loading} onClick={() => requestAssist('translate')}>
               {draft.trim() ? 'AI 다시' : 'AI 번역'}
             </EditorAction>
-            <EditorAction icon={WandSparkles} variant="ghost" disabled={!!assist.loading || project.isPending || Boolean(hasModel && !draft.trim())} onClick={() => requestAssist('refine')} title={!project.isPending && !hasModel ? '모델 설정으로 이동합니다. 작성 중인 초안은 유지됩니다.' : keyLabel('Alt+.')}>
+            <EditorAction icon={WandSparkles} variant="ghost" disabled={!!assist.loading || !draft.trim()} onClick={() => requestAssist('refine')} title={keyLabel('Alt+.')}>
               다듬기
             </EditorAction>
           </>}

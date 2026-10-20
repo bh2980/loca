@@ -173,7 +173,7 @@ export function EditorAiSection({ projectId }: { projectId: string }) {
             <Field>
               <FieldLabel>모델</FieldLabel>
               <ModelPicker value={complete.model} onChange={(model) => setComplete({ model })} kinds={['openai']} />
-              <FieldDescription>입력하는 동안 바로 답해야 해서 API 연결만 고를 수 있습니다.</FieldDescription>
+              <FieldDescription>API 연결만 됩니다.</FieldDescription>
             </Field>
             <Field>
               <FieldLabel>함께 보낼 것</FieldLabel>
