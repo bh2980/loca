@@ -1,13 +1,13 @@
 import { eq } from 'drizzle-orm';
 import { get } from 'es-toolkit/compat';
-import { AGE_BANDS, APPLY_FUNCTION_NAMES, APPLY_TARGETS, applyParams, CHARACTER_ROLES, DOCUMENT_KINDS, GENDERS, previousStepId, SPEECH_LEVELS, tagScope, TERM_KIND_LABELS, TERM_KINDS, UNKNOWN_LISTENER, type AiConfirm, type ApplyField, type ApplyFunctionName, type ApplyParams } from '@tw/shared';
+import { AGE_BANDS, APPLY_FUNCTION_NAMES, APPLY_TARGETS, applyParams, CHARACTER_ROLES, DOCUMENT_KINDS, GENDERS, previousStepId, SPEECH_LEVELS, tagScope, TERM_KIND_LABELS, TERM_KINDS, UNKNOWN_LISTENER, type ApplyField, type ApplyFunctionName, type ApplyParams } from '@tw/shared';
 import type { Db } from '../../db/index.ts';
 import * as s from '../../db/schema.ts';
 import type { Topic } from '../../events.ts';
 import { aiSaveCharacters, aiSaveDocument, aiSaveEvents, aiSaveRelationships, aiSaveSpeechRules, aiSaveTerms, aiSetLineListeners, aiSetSceneListeners, type AiWrite } from '../../services/ai-knowledge.ts';
 import { addCandidate } from '../../services/candidates.ts';
 import { addToRunProposal, fileRunProposal } from '../../services/proposals.ts';
-import { aiConfirmOf } from '../../services/status-by.ts';
+import { aiAutoConfirmOf } from '../../services/status-by.ts';
 import { attachUnitTags } from '../../services/tag-scope.ts';
 import { applyRunCandidate, HUMAN_OWNED_NOTE } from '../apply-candidate.ts';
 import { lineOf, type FunctionInput, type FunctionResult } from './types.ts';
@@ -225,9 +225,6 @@ function characterInput(item: Item) {
   return { ...rest, ...(known(GENDERS, gender) ? { gender } : {}), ...(known(AGE_BANDS, ageBand) ? { ageBand } : {}), ...(known(CHARACTER_ROLES, role) ? { role } : {}) };
 }
 
-/** The apply node's run row and AI-confirm policy for direct writes (as candidates when asked: ✦). */
-const policyOf = (tx: Tx, projectId: string, asCandidate: boolean): AiConfirm =>
-  asCandidate ? { terms: 'candidate', documents: 'candidate', characters: 'candidate', relationships: 'candidate', events: 'candidate', speechRules: 'candidate' } : aiConfirmOf(tx as unknown as Db, projectId);
 
 /**
  * Topics an apply node's writes reach, for the runner to notify (it does not know the node's `propose`
@@ -267,7 +264,7 @@ function run(fn: ApplyFunctionName, tx: Tx, raw: unknown, input: FunctionInput):
     input,
     params,
     run,
-    write: { projectId: input.projectId, runId: input.runId, policy: policyOf(tx, input.projectId, params.asCandidate) },
+    write: { projectId: input.projectId, runId: input.runId, autoConfirm: aiAutoConfirmOf(tx as unknown as Db, input.projectId) },
   };
   const nodeId = input.item.nodeId;
   const base = { projectId: input.projectId, runId: input.runId, nodeId };
@@ -297,8 +294,7 @@ function runLine(fn: 'saveCandidate' | 'setListener' | 'tagLines', context: Cont
       return { port: 'out', candidate: text, output: { proposed: true } };
     }
     const candidateId = addCandidate(tx, { unitId: unit.id, text, origin: 'ai', runId: input.runId, nodeId: base.nodeId });
-    // 후보(✦)로 넣기: the candidate only; the translation column stays.
-    if (params.asCandidate || !runRow) return { port: 'out', candidate: text, output: { applied: false, candidateId, asCandidate: true } };
+    if (!runRow) return { port: 'out', candidate: text, output: { applied: false, candidateId } };
     const { applied } = applyRunCandidate(tx, runRow, unit.id, candidateId, text);
     return { port: 'out', candidate: text, output: { applied, candidateId }, ...(!applied ? { issues: [HUMAN_OWNED_NOTE] } : {}) };
   }

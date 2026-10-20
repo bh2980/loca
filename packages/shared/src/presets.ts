@@ -123,7 +123,7 @@ const sceneListenerFields: JsonField[] = [
 
 const listField = (name: string, description: string, fields: JsonField[]) => field(name, 'list', description, fields);
 
-const READING_CONTEXT: Partial<ContextConfig> = { glossary: false, speech: false, documents: false, characters: false, relationships: false, cast: true, humanOnly: true, precedingLines: 0, previousScenes: 0 };
+const READING_CONTEXT: Partial<ContextConfig> = { glossary: false, speech: false, documents: false, characters: false, relationships: false, cast: true, precedingLines: 0, previousScenes: 0 };
 
 export const AI_PRESETS = {
   translate: {

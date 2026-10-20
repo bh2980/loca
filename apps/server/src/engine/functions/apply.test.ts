@@ -50,7 +50,7 @@ const proposals = (ctx: Ctx) => ctx.db.select().from(s.proposals).all();
 
 describe('apply node mapping', () => {
   it('reads list items by the field map, drops items missing a required field and takes the first of a lines field', () => {
-    const { items, skipped } = applyItems('saveSpeechRules', { list: 'rules', propose: true, asCandidate: false, onlyEmpty: true, map: { fromName: 'speaker', toName: 'listener', level: 'level', startKey: 'at' } }, {
+    const { items, skipped } = applyItems('saveSpeechRules', { list: 'rules', propose: true, onlyEmpty: true, map: { fromName: 'speaker', toName: 'listener', level: 'level', startKey: 'at' } }, {
       rules: [{ speaker: 'Bob', listener: 'Alice', level: 'hae', at: ['a2'] }, { speaker: 'Bob', listener: '', level: 'hae' }],
     });
     expect(items).toEqual([{ fromName: 'Bob', toName: 'Alice', level: 'hae', startKey: ['a2'] }]);
@@ -58,7 +58,7 @@ describe('apply node mapping', () => {
   });
 
   it('reads nested list fields by sub-field', () => {
-    const { items } = applyItems('saveRelationships', { list: 'rels', propose: true, asCandidate: false, onlyEmpty: true, map: { from: 'a', to: 'b', kind: 'kind', changes: 'shifts', 'changes.change': 'what' } }, {
+    const { items } = applyItems('saveRelationships', { list: 'rels', propose: true, onlyEmpty: true, map: { from: 'a', to: 'b', kind: 'kind', changes: 'shifts', 'changes.change': 'what' } }, {
       rels: [{ a: 'Bob', b: 'Alice', kind: '부하', shifts: [{ at: ['a2'], what: '긴장' }, { at: [], what: '무시' }] }],
     });
     expect(items[0].changes).toEqual([{ at: ['a2'], change: '긴장' }]);
@@ -100,8 +100,9 @@ describe('apply nodes', () => {
     expect(result.output).toMatchObject({ applied: true, added: 1, filled: 1 });
     expect(proposals(ctx)).toHaveLength(0);
     expect(ctx.db.select().from(s.terms).all().map((t) => [t.source, t.target, t.origin])).toEqual([['boss', '선장님', 'script'], ['mast', '돛대', 'ai']]);
-    // Candidates (✦) when asked.
-    apply(ctx, 'saveTerms', { propose: false, asCandidate: true, list: 'terms', map: { source: 'source', target: 'target' } }, { terms: [{ source: 'sail', target: '돛' }], batchLeader: true });
+    // Candidates when the project's AI 문맥 switch is off.
+    ctx.db.update(s.projects).set({ aiAutoConfirm: false }).run();
+    apply(ctx, 'saveTerms', { propose: false, list: 'terms', map: { source: 'source', target: 'target' } }, { terms: [{ source: 'sail', target: '돛' }], batchLeader: true });
     expect(ctx.db.select().from(s.terms).where(eq(s.terms.source, 'sail')).get()?.status).toBe('candidate');
   });
 
@@ -179,10 +180,6 @@ describe('apply nodes', () => {
     expect(owned.issues).toEqual([HUMAN_OWNED_NOTE]);
     expect(ctx.db.select().from(s.units).where(eq(s.units.key, 'a2')).get()?.translation).toBe('사람이 씀');
     expect(ctx.db.select().from(s.candidates).all()).toHaveLength(2);
-    // 후보(✦)로 넣기 leaves the translation column alone.
-    const only = apply(ctx, 'saveCandidate', { ...params, asCandidate: true }, { text: '또' }, 'a1');
-    expect(only.output).toMatchObject({ applied: false, asCandidate: true });
-    expect(ctx.db.select().from(s.units).where(eq(s.units.key, 'a1')).get()?.translation).toBe('늦었군.');
   });
 
   it('sets a listener as an AI guess, never over a person\'s, and proposes through set_listeners', async () => {

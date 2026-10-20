@@ -1,5 +1,5 @@
 import { and, eq, inArray, ne, or } from 'drizzle-orm';
-import { KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, nodeName, withRunModels, workflowInput, type LineMark, type RunModels, type WorkflowDefinition, type WorkflowSubject } from '@tw/shared';
+import { KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, AUTO_MARKS, marksOn, nodeName, withRunModels, workflowInput, type AutoMark, type RunModels, type WorkflowDefinition, type WorkflowSubject } from '@tw/shared';
 import { z } from 'zod';
 import { inChunks, inList } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
@@ -74,7 +74,7 @@ export function resolveRunScope(db: Db, projectId: string, input: Omit<PlanInput
     unknown.push(...input.tags.filter((_, index) => !known.has(ids[index]!)).map((tag) => `태그 ${tag}`));
     scope.tagIds = ids.filter((id) => known.has(id));
   }
-  if (input.marks?.length) scope.marks = input.marks as LineMark[];
+  if (input.marks?.length) scope.marks = input.marks as AutoMark[];
   if (input.statuses?.length) {
     // Terms: their three statuses by label or id; lines: the project's statuses by name or id.
     const known = kind === 'terms'
@@ -94,9 +94,11 @@ export function resolveRunScope(db: Db, projectId: string, input: Omit<PlanInput
 
 /** Why a scope does not fit the workflow's input (line conditions for a terms workflow, terms for a lines workflow), or null. */
 export function scopeMismatch(input: WorkflowSubject, scope: s.RunScope): string | null {
-  const lineScope = Boolean(scope.groupIds?.length || scope.unitIds?.length || scope.tagIds?.length);
-  if (input === 'terms' && lineScope) return '용어 입력 워크플로에는 대사 범위(묶음·대사 키·태그)를 쓸 수 없습니다. 용어·상태·표시로 범위를 정하세요.';
+  const lineScope = Boolean(scope.groupIds?.length || scope.unitIds?.length);
+  if (input === 'terms' && lineScope) return '용어 입력 워크플로에는 대사 범위(묶음·대사 키)를 쓸 수 없습니다. 용어·상태·표시·태그로 범위를 정하세요.';
   if (input === 'lines' && scope.termIds?.length) return '대사 입력 워크플로에는 용어를 고를 수 없습니다.';
+  const foreign = (scope.marks ?? []).filter((mark) => !marksOn(input).includes(mark));
+  if (foreign.length) return `${input === 'terms' ? '용어' : '대사'}에 없는 표시입니다: ${foreign.map((mark) => AUTO_MARKS[mark].name).join(', ')}`;
   return null;
 }
 
@@ -117,8 +119,8 @@ export async function planRun(db: Db, projectId: string, input: PlanInput) {
   const picked = resolveRunModels(db, workflow.definition, input.models);
   if (picked.unknown.length) return { ok: false as const, error: `찾지 못함: ${picked.unknown.join(', ')}` };
   const { plan, readiness, ...rest } = await preflight(db, { ...workflow, definition: withRunModels(workflow.definition, picked.models) }, scope);
-  const termNames = inChunks(readiness.unreviewedTerms.ids, (ids) => db.select({ id: s.terms.id, source: s.terms.source }).from(s.terms).where(inArray(s.terms.id, ids)).all());
-  const ruleNames = inChunks(readiness.unreviewedRules.ids, (ids) => db.select({ id: s.speechRules.id, from: s.speechRules.fromName, to: s.speechRules.toName }).from(s.speechRules).where(inArray(s.speechRules.id, ids)).all());
+  const termNames = inChunks(readiness.candidateTerms.ids, (ids) => db.select({ id: s.terms.id, source: s.terms.source }).from(s.terms).where(inArray(s.terms.id, ids)).all());
+  const ruleNames = inChunks(readiness.candidateRules.ids, (ids) => db.select({ id: s.speechRules.id, from: s.speechRules.fromName, to: s.speechRules.toName }).from(s.speechRules).where(inArray(s.speechRules.id, ids)).all());
   return {
     ok: true as const,
     workflow: { id: workflow.id, name: workflow.name },
@@ -128,8 +130,8 @@ export async function planRun(db: Db, projectId: string, input: PlanInput) {
     plan: { batches: plan.batches, linesPerBatch: plan.linesPerBatch },
     readiness: {
       ...readiness,
-      unreviewedRules: { ...readiness.unreviewedRules, names: ruleNames.map((rule) => `${rule.from} → ${rule.to}`) },
-      unreviewedTerms: { ...readiness.unreviewedTerms, names: termNames.map((term) => term.source) },
+      candidateRules: { ...readiness.candidateRules, names: ruleNames.map((rule) => `${rule.from} → ${rule.to}`) },
+      candidateTerms: { ...readiness.candidateTerms, names: termNames.map((term) => term.source) },
     },
   };
 }

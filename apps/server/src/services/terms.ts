@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray, like, ne, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { aiStatus, type AiConfirm, matchesMarks, termMarksOf, TERM_MARK_IDS, type AutoMark } from '@tw/shared';
+import { aiStatus, matchesMarks, termMarksOf, TERM_MARK_IDS, type AutoMark } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
@@ -58,7 +58,7 @@ export function upsertAiTerm(
   tx: Tx,
   projectId: string,
   term: { source: string; target?: string; note?: string; examples?: string[] },
-  options: { policy: AiConfirm; runId?: string },
+  options: { autoConfirm: boolean; runId?: string },
 ): 'added' | 'filled' | 'unchanged' {
   const source = term.source.trim();
   const target = term.target?.trim() ?? '';
@@ -72,7 +72,7 @@ export function upsertAiTerm(
     tx.update(s.terms).set(fill).where(eq(s.terms.id, known.id)).run();
     return 'filled';
   }
-  tx.insert(s.terms).values({ projectId, source, target, note, examples, status: target ? aiStatus(options.policy, 'terms') : 'candidate', statusBy: 'ai', origin: 'ai', runId: options.runId ?? null }).run();
+  tx.insert(s.terms).values({ projectId, source, target, note, examples, status: target ? aiStatus(options.autoConfirm) : 'candidate', statusBy: 'ai', origin: 'ai', runId: options.runId ?? null }).run();
   return 'added';
 }
 

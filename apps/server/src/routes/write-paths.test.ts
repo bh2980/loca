@@ -189,9 +189,9 @@ describe('a person\'s first text', () => {
     expect(statusOf(line.id)).toBe('초벌');
     const confirmed = db.select().from(s.statuses).where(and(eq(s.statuses.projectId, mine.projectId), eq(s.statuses.kind, 'final'))).get()!;
     await send('POST', `/units/${line.id}/save`, { text: '안녕하세요', statusId: confirmed.id });
-    expect(statusOf(line.id)).toBe('확정');
+    expect(statusOf(line.id)).toBe('완료');
     await send('POST', `/units/${line.id}/save`, { text: '안녕!' });
-    expect(statusOf(line.id)).toBe('확정');
+    expect(statusOf(line.id)).toBe('완료');
   });
 });
 

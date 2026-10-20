@@ -5,7 +5,7 @@ description: Build and maintain the glossary of a loca project — find where te
 
 # loca 용어집 다루기
 
-공통 규칙(연결, 제안, 권한, 표시, 작업 폴더)은 README를 따릅니다. 확정 용어만 번역 문맥에 들어가고, 후보는 들어가지 않습니다.
+공통 규칙(연결, 제안, 권한, 표시, 작업 폴더)은 README를 따릅니다. 확정 용어만 번역 문맥에 들어가고, 후보는 들어가지 않습니다. AI가 만든 용어가 바로 확정될지는 프로젝트 설정 `aiAutoConfirm` 하나가 정합니다(`loca-project`).
 
 ## 읽기
 ```
@@ -30,10 +30,10 @@ loca check terms                   # 확정 용어를 어긴 번역
 5. 확정 용어가 바뀌면 그 용어가 쓰인 줄(`loca terms usage`)을 `loca-review` 순서로 고칩니다.
 
 ## 비어 있는 번역어 채우기
-번역어가 없는 용어(`loca terms --mark emptyTarget`)를 한꺼번에 채우는 일은 용어 입력 워크플로(진입 `input: "terms"`, 기본 "용어 번역")를 `--status 후보 --mark emptyTarget` 범위로 실행해서 합니다. AI 노드(json: `target`, `note`, `kind`, `meaning`; 문맥 `examples`로 용어가 나온 대사를 함께 보냄) → `용어 표기 저장`(`saveTermEntry`, 사람이 채운 칸은 건드리지 않음)으로 잇고, 용어가 아니라고 본 것은 `용어 상태 변경`(`setTermStatus`, rejected)으로 보냅니다. 만드는 법은 `loca-workflows`.
+번역어가 없는 용어(`loca terms --mark emptyTarget`)를 한꺼번에 채우는 일은 용어 입력 워크플로(진입 `input: "terms"`, 기본 "용어 번역")를 `--mark candidate emptyTarget` 범위로 실행해서 합니다. AI 노드(json: `target`, `note`, `kind`, `meaning`; 문맥 `examples`로 용어가 나온 대사를 함께 보냄) → `용어 표기 저장`(`saveTermEntry`, 사람이 채운 칸은 건드리지 않음)으로 잇고, 용어가 아니라고 본 것은 `용어 상태 변경`(`setTermStatus`, rejected)으로 보냅니다. 만드는 법은 `loca-workflows`.
 ```
-loca runs plan 용어 번역 --status 후보 --mark emptyTarget    # 대상 용어 수와 요청 수 (모델은 부르지 않음)
+loca runs plan 용어 번역 --mark candidate emptyTarget    # 대상 용어 수와 요청 수 (모델은 부르지 않음)
 loca runs plan 용어 번역 --term Guild                        # 특정 용어만
-loca runs start 용어 번역 --status 후보 --mark emptyTarget   # 시작 제안 (앱에서 수락)
+loca runs start 용어 번역 --mark candidate emptyTarget   # 시작 제안 (앱에서 수락)
 ```
 반영은 제안으로 올라가고(`propose` 기본), 수락한 뒤 `loca terms --unreviewed`로 AI가 채운 것을 사람이 확인합니다.

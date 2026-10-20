@@ -9,6 +9,7 @@ import { memoryStore } from '../services/secrets.ts';
 import { promptEntries } from './prompts.ts';
 import { Runner, type ModelPort } from './runner.ts';
 import { createRun, selectRunTerms } from './run-create.ts';
+import { scopeMismatch } from '../services/run-plan.ts';
 
 /** A project whose script mentions Varn Gate (twice) and Hesk (once), with both as candidate terms without a Korean form, and one confirmed term. */
 function setup() {
@@ -74,6 +75,20 @@ describe('a workflow whose input is terms', () => {
     expect(selectRunTerms(db, projectId, candidatesWithoutForm)).toEqual([gate.id, hesk.id]);
     expect(selectRunTerms(db, projectId, {})).toHaveLength(3);
     expect(selectRunTerms(db, projectId, { termIds: [hesk.id] })).toEqual([hesk.id]);
+  });
+
+  it('filters terms like the glossary: #후보 picks their status, #후보 with #AI 초안 means either, and term tags must all be on', () => {
+    const { db, projectId, gate, hesk } = setup();
+    expect(selectRunTerms(db, projectId, { marks: ['candidate', 'emptyTarget'] } as never)).toEqual([gate.id, hesk.id]);
+    const kai = db.select().from(s.terms).where(eq(s.terms.source, 'Kai')).get()!;
+    db.update(s.terms).set({ statusBy: 'ai' }).where(eq(s.terms.id, kai.id)).run();
+    expect(selectRunTerms(db, projectId, { marks: ['candidate', 'ai'] } as never)).toHaveLength(3);
+    const place = db.insert(s.tags).values({ projectId, name: '지명', color: '#000000', scope: ['terms'] }).returning().get();
+    db.insert(s.knowledgeTags).values({ kind: 'terms', itemId: gate.id, tagId: place.id }).run();
+    expect(selectRunTerms(db, projectId, { tagIds: [place.id] })).toEqual([gate.id]);
+    // Marks of the other input are refused before anything is counted or run.
+    expect(scopeMismatch('lines', { marks: ['emptyTarget'] })).toContain('번역 누락');
+    expect(scopeMismatch('terms', { marks: ['candidate', 'emptyTarget'] })).toBeNull();
   });
 
   it('sends each term with its example lines, saves the Korean form of terms and rejects the rest', async () => {

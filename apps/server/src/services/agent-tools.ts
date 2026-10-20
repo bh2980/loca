@@ -387,7 +387,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
           functions: Object.fromEntries(Object.entries(FUNCTIONS).map(([name, info]) => [name, { label: info.label, description: info.description, params: zod.toJSONSchema(info.params) }])),
           applyNodes: {
             what: 'Apply nodes (反映) put the result of the step before them (the AI/script node they are drawn after; conditions and other save nodes in between pass it on) into the project: they are the workflow form of the write tools below and go through the same services. AI nodes only produce answers (text / verdict / choice / json); saving them is an apply node\'s job.',
-            config: 'params = { list (shape "list": the list field in its json output), map (target field → field of the source; nested list fields use "<list>.<sub>" or the same name), propose (default true: file a proposal the person accepts in the app, source "run"; false: write now), asCandidate (written now: as a candidate ✦ instead of confirmed) }',
+            config: 'params = { list (shape "list": the list field in its json output), map (target field → field of the source; nested list fields use "<list>.<sub>" or the same name), propose (default true: file a proposal the person accepts in the app, source "run"; false: write now) }; written knowledge and terms are confirmed or candidates as the project setting aiAutoConfirm says',
             batchOutputs: 'A json output with scope "batch" is carried by the batch\'s first line only; apply nodes skip the other lines, so a batch is applied once.',
             targets: Object.fromEntries(Object.entries(APPLY_TARGETS).map(([name, target]) => [name, { label: target.label, shape: target.shape, files: target.tool, fields: target.fields.map((field) => `${field.name}${'required' in field && field.required ? '*' : ''}:${field.type}`) }])),
           },
@@ -817,12 +817,12 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       execute: ({ kind, ids }) => deleteItems(db, projectId, kind, ids),
     }),
     read_project_settings: tool({
-      description: "The project's settings: name, description, format rules (placeholder presets and custom patterns the format check keeps), exclusion rules (번역 제외: which sources are not for translation — blank, format tokens only, no letters, no letter of the source language, patterns), AI confirmation (aiConfirm), editor AI, mark colours, and the agent settings (switched-off tools, default permission mode; read-only for you).",
+      description: "The project's settings: name, description, format rules (placeholder presets and custom patterns the format check keeps), exclusion rules (번역 제외: which sources are not for translation — blank, format tokens only, no letters, no letter of the source language, patterns), AI 문맥 (aiAutoConfirm: true = AI results that are knowledge or terms are confirmed right away and so used as AI context; false = they are candidates a person confirms; lines are never affected), editor AI, mark colours, and the agent settings (switched-off tools, default permission mode; read-only for you).",
       inputSchema: z.object({}),
       execute: () => readProjectSettings(db, projectId) ?? { error: '프로젝트를 찾을 수 없습니다.' },
     }),
     update_project_settings: tool({
-      description: 'Change project settings: name, description, formatRules, exclusionRules, aiConfirm, editorAi, markColors (send only what changes; each object replaces the stored one, so read_project_settings first and send it whole with your edit). Agent settings (tools, permission mode) cannot be changed by you.',
+      description: 'Change project settings: name, description, formatRules, exclusionRules, aiAutoConfirm, editorAi, markColors (send only what changes; each object replaces the stored one, so read_project_settings first and send it whole with your edit). Agent settings (tools, permission mode) cannot be changed by you.',
       inputSchema: projectSettingsInput,
       needsApproval: true,
       execute: (patch) => (updateProjectSettings(db, projectId, patch) ? { ok: true } : { ok: false, error: '프로젝트를 찾을 수 없습니다.' }),

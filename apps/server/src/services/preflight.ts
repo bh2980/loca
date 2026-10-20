@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray, isNotNull, ne, sql } from 'drizzle-orm';
-import { batchConfigSchema, INPUT_TYPES, workflowInput, readinessUses, CONNECTION_KIND_INFO, estimateTokens, isFreeModel, isUnknownListener, isUnreviewed, needsListener, nodeName, termMatcher, type AiNode, type WorkflowDefinition } from '@tw/shared';
+import { batchConfigSchema, INPUT_TYPES, workflowInput, readinessUses, CONNECTION_KIND_INFO, estimateTokens, isFreeModel, isUnknownListener, needsListener, nodeName, termMatcher, type AiNode, type WorkflowDefinition } from '@tw/shared';
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -198,7 +198,7 @@ async function termPreflight(db: Db, workflow: { id: string | null; projectId: s
   const inputTokens = { min: sum((e) => e.requests.min * perRequest(e))!, expected: sum((e) => (e.requests.expected === null ? null : e.requests.expected * perRequest(e))), max: sum((e) => e.requests.max * perRequest(e))! };
   const none = { count: 0, examples: [] as string[], ids: [] as string[], more: false };
   return {
-    readiness: { dialogueLines: 0, unknownListenerLines: 0, unreviewedRules: none, unreviewedTerms: none, pairsWithoutRule: { count: 0, examples: [] as string[] }, applies: readinessUses(definition) },
+    readiness: { dialogueLines: 0, unknownListenerLines: 0, candidateRules: none, candidateTerms: none, pairsWithoutRule: { count: 0, examples: [] as string[] }, applies: readinessUses(definition) },
     pace: paceOf(db, estimates),
     load: aiLoad(db, definition),
     lines: { total: rows.length, excluded: 0, translated: rows.filter((row) => row.target).length, untranslated: rows.filter((row) => !row.target).length },
@@ -215,9 +215,8 @@ const idList = (ids: string[]) => ({ ids: ids.slice(0, IDS_CAP), more: ids.lengt
 
 /**
  * What in this run's own lines would make the translation worse, for a person to fix first:
- * dialogue whose listener is unknown, speech rules its speaker → listener pairs use that no person
- * has looked at (isUnreviewed in shared: candidates, or set by AI), and glossary terms its lines mention that are not
- * confirmed by a person.
+ * dialogue whose listener is unknown, and speech rules its speaker → listener pairs use and glossary
+ * terms its lines mention that are still candidates (only confirmed ones reach the prompt).
  */
 function readinessOf(db: Db, projectId: string, units: { kind: string; speaker: string | null; source: string; listener: string | null; listenerOrigin: string | null; listenerConfidence: number | null }[], index: ReturnType<typeof speechRuleIndex>) {
   // Lines said to someone (needsListener: not narration, not format tokens only): the ones a listener matters for.
@@ -236,9 +235,9 @@ function readinessOf(db: Db, projectId: string, units: { kind: string; speaker: 
     .from(s.speechRules)
     .where(eq(s.speechRules.projectId, projectId))
     .all()
-    .filter(isUnreviewed)
+    .filter((rule) => rule.status === 'candidate')
     .filter((rule) => pairs.has(`${index.norm(rule.from)}|${index.norm(rule.to)}`));
-  const unreviewedRules = [...new Map(rules.map((rule) => [`${index.norm(rule.from)}|${index.norm(rule.to)}`, rule])).values()];
+  const candidateRules = [...new Map(rules.map((rule) => [`${index.norm(rule.from)}|${index.norm(rule.to)}`, rule])).values()];
   // Pairs that speak often in these lines (5+) with no rule at all: their speech level is the model's guess.
   const ruled = new Set(db.select({ from: s.speechRules.fromName, to: s.speechRules.toName }).from(s.speechRules).where(and(eq(s.speechRules.projectId, projectId), ne(s.speechRules.status, 'rejected'))).all().map((rule) => `${index.norm(rule.from)}|${index.norm(rule.to)}`));
   const withoutRule = [...pairs].filter(([key, lines]) => lines >= 5 && !ruled.has(key)).sort((a, b) => b[1] - a[1]);
@@ -247,14 +246,14 @@ function readinessOf(db: Db, projectId: string, units: { kind: string; speaker: 
     .from(s.terms)
     .where(eq(s.terms.projectId, projectId))
     .all()
-    .filter(isUnreviewed);
+    .filter((term) => term.status === 'candidate');
   const mentioned = terms.length ? termMatcher(terms, (term) => term.source) : null;
-  const unreviewedTerms = new Map<string, string>(mentioned ? units.flatMap((unit) => mentioned.find(unit.source).map((term) => [term.source, term.id] as const)) : []);
+  const candidateTerms = new Map<string, string>(mentioned ? units.flatMap((unit) => mentioned.find(unit.source).map((term) => [term.source, term.id] as const)) : []);
   return {
     dialogueLines: dialogue.length,
     unknownListenerLines: unknownListener,
-    unreviewedRules: { count: unreviewedRules.length, examples: unreviewedRules.slice(0, 3).map((rule) => `${rule.from} → ${rule.to}`), ...idList(unreviewedRules.map((rule) => rule.id)) },
-    unreviewedTerms: { count: unreviewedTerms.size, examples: [...unreviewedTerms.keys()].slice(0, 3), ...idList([...unreviewedTerms.values()]) },
+    candidateRules: { count: candidateRules.length, examples: candidateRules.slice(0, 3).map((rule) => `${rule.from} → ${rule.to}`), ...idList(candidateRules.map((rule) => rule.id)) },
+    candidateTerms: { count: candidateTerms.size, examples: [...candidateTerms.keys()].slice(0, 3), ...idList([...candidateTerms.values()]) },
     pairsWithoutRule: { count: withoutRule.length, examples: withoutRule.slice(0, 3).map(([key]) => names.get(key)!) },
   };
 }

@@ -9,6 +9,7 @@ import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { changedFields, useFormFrom } from '@/lib/use-form-from';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
+import { AiAutoConfirmSetting } from '@/components/settings/ai-confirm';
 import type { FormatRules } from '@tw/shared';
 
 export const Route = createFileRoute('/p/$projectId/settings/project')({
@@ -90,6 +91,10 @@ function ProjectForm({ projectId, project }: { projectId: string; project: { nam
                 </FieldDescription>
               </Field>
             </FieldGroup>
+          </SettingsSection>
+
+          <SettingsSection title="AI 문맥" description="AI에게 문맥으로 보내는 용어·자료는 확정된 것만입니다. 확정은 사람이 하거나, 아래가 켜져 있으면 AI가 합니다.">
+            <AiAutoConfirmSetting projectId={projectId} />
           </SettingsSection>
 
           <SettingsSection title="번역 결과">

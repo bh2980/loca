@@ -5,6 +5,7 @@ import { Play, Plus, Trash2 } from 'lucide-react';
 import { APPLY_FUNCTION_NAMES, APPLY_TARGETS, applyIssues, DEFAULT_PARTICLE_PATTERN, formatPatternError, FUNCTIONS, functionTakes, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, JSON_FIELD_TYPE_LABELS, nodeName, PALETTE_FUNCTION_NAMES, previousSteps, type ApplyField, type ApplyFunctionName, type ApplyParams, type CustomFormatRule, type JsonFieldType, type WorkflowDefinition, type FunctionName, type JsonField, type WorkflowNode } from '@tw/shared';
 import { Button, Input, InspectorActionRow, InspectorFields, InspectorList, InspectorResult, InspectorToggle, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, StatusIcon, TagChip } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
+import { AiConfirmNote } from '@/components/settings/ai-confirm';
 import { cn } from '@/lib/utils';
 import { AiRegexInput } from '@/components/ai-regex-input';
 import { client, unwrap } from '@/lib/api';
@@ -505,19 +506,15 @@ function ApplyConfig({ node, fn, params, refs, setMany }: { node: FunctionNode; 
 
       <Field
         label="반영 방식"
-        hint={params.propose ? '사용자가 제안을 수락해야 반영됩니다.' : params.asCandidate ? '바로 쓰지만 후보(✦)로 두어 사람이 확정합니다.' : '바로 반영하고 확정합니다.'}
+        hint={params.propose ? '사용자가 제안을 수락해야 반영됩니다.' : target.shape === 'line' ? '바로 반영합니다.' : <AiConfirmNote projectId={refs.projectId} />}
       >
-        <Select
-          value={params.propose ? 'propose' : params.asCandidate ? 'candidate' : 'confirmed'}
-          onValueChange={(value) => setMany({ propose: value === 'propose', asCandidate: value === 'candidate' })}
-        >
+        <Select value={params.propose ? 'propose' : 'write'} onValueChange={(value) => setMany({ propose: value === 'propose' })}>
           <SelectTrigger className="w-full">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="propose">제안</SelectItem>
-            <SelectItem value="confirmed">바로 확정</SelectItem>
-            <SelectItem value="candidate">바로 후보</SelectItem>
+            <SelectItem value="write">바로 반영</SelectItem>
           </SelectContent>
         </Select>
       </Field>

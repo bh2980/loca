@@ -1,5 +1,6 @@
 /** The detail editor for one knowledge item: fields, unsaved edits that survive navigation, decide/discard. */
 import { cloneElement, isValidElement, useState } from 'react';
+import { AI_CONFIRMED_NOTE } from '@/components/settings/ai-confirm';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -204,7 +205,7 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
         <span className="flex items-center gap-1.5">
           <SourceBadge row={row} />
           <span>·</span>
-          {row.status === 'candidate' ? <span>후보</span> : <span className="inline-flex items-center gap-1">확정 <AiMark by={row.statusBy} /></span>}
+          {row.status === 'candidate' ? <span>후보</span> : <span className="inline-flex items-center gap-1">확정 <AiMark by={row.statusBy} note={AI_CONFIRMED_NOTE} /></span>}
         </span>
       } onClose={onClose} />}
       footer={dirty ? dirtyBar : !official ? confirm() : null}

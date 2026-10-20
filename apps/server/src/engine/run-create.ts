@@ -1,6 +1,7 @@
 import { and, count, eq, inArray, ne, notInArray, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
-import { batchConfigSchema, isWholeScriptWorkflow, termMarksOf, workflowInput, type AiNode, type AutoMark, type WorkflowDefinition } from '@tw/shared';
+import { batchConfigSchema, isWholeScriptWorkflow, matchesMarks, termMarksOf, workflowInput, type AiNode, type AutoMark, type LineMark, type WorkflowDefinition } from '@tw/shared';
+import { tagsOf } from '../services/knowledge-tags.ts';
 import { fillTermUsage } from '../services/term-usage.ts';
 import { inChunks, inList } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
@@ -35,7 +36,8 @@ function scopeConditions(db: Db, projectId: string, scope: s.RunScope) {
   if (scope.unitIds?.length) conditions.push(inList(s.units.id, scope.unitIds));
   // Tags and marks combine with AND, like the line list's filter: a line must carry every one picked.
   for (const tagId of scope.tagIds ?? []) conditions.push(inArray(s.units.id, db.select({ id: s.unitTags.unitId }).from(s.unitTags).where(eq(s.unitTags.tagId, tagId))));
-  conditions.push(...markConditions(projectId, scope.marks));
+  // A lines run only carries line marks (scopeMismatch refuses the others before a run or preview).
+  conditions.push(...markConditions(projectId, scope.marks as LineMark[] | undefined));
   return conditions;
 }
 
@@ -46,20 +48,18 @@ export function selectRunUnits(db: Db, projectId: string, scope: s.RunScope): st
 
 /**
  * The terms a run of a terms workflow starts with, most used first: the scope's termIds, narrowed by its
- * statuses and marks. Rejected terms are hidden like in the glossary: only a scope that asks for them
+ * statuses, marks (the glossary's rules: matchesMarks) and tags (all of them). Rejected terms are hidden like in the glossary: only a scope that asks for them
  * (statuses include rejected) takes them. Usage counts are filled first, so "most used" and the 미사용 mark are current.
  */
 export function selectRunTerms(db: Db, projectId: string, scope: s.RunScope): string[] {
   fillTermUsage(db, projectId);
   const named = scope.termIds?.length ? new Set(scope.termIds) : null;
   const statuses = scope.statusIds ?? [];
-  const marks = scope.marks ?? [];
-  return db
-    .select()
-    .from(s.terms)
-    .where(eq(s.terms.projectId, projectId))
-    .all()
-    .filter((term) => (!named || named.has(term.id)) && (statuses.length ? statuses.includes(term.status) : term.status !== 'rejected') && marks.every((mark) => termMarksOf(term).includes(mark as AutoMark)))
+  const marks = (scope.marks ?? []) as AutoMark[];
+  const rows = db.select().from(s.terms).where(eq(s.terms.projectId, projectId)).all();
+  const tags = scope.tagIds?.length ? tagsOf(db, 'terms', rows.map((term) => term.id)) : null;
+  return rows
+    .filter((term) => (!named || named.has(term.id)) && (statuses.length ? statuses.includes(term.status) : term.status !== 'rejected') && matchesMarks(termMarksOf(term), marks) && (!tags || scope.tagIds!.every((id) => tags.get(term.id)?.some((tag) => tag.id === id))))
     .sort((a, b) => (b.lines ?? 0) - (a.lines ?? 0) || a.source.localeCompare(b.source))
     .map((term) => term.id);
 }

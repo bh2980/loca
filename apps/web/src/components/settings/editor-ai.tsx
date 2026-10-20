@@ -134,7 +134,7 @@ export function EditorAiSection({ projectId }: { projectId: string }) {
               <ContextCheck id="editor-ai-glossary" label="용어집" checked={context.glossary} onChange={(glossary) => setContext({ glossary })} />
               <ContextCheck id="editor-ai-speech" label="청자·말투" checked={context.speech} onChange={(speech) => setContext({ speech })} />
               <ContextCheck id="editor-ai-preceding" label="앞 대사" checked={context.precedingLines > 0} onChange={(on) => setContext({ precedingLines: on ? 8 : 0 })} count={{ value: context.precedingLines, max: 50, unit: '줄', storage: key('preceding'), onSave: (precedingLines) => setContext({ precedingLines }) }} />
-              {context.precedingLines > 0 && <ContextCheck id="editor-ai-preceding-translations" label="앞 대사의 번역" checked={context.precedingTranslations} onChange={(precedingTranslations) => setContext({ precedingTranslations })} />}
+              {context.precedingLines > 0 && <ContextCheck id="editor-ai-preceding-translations" label="앞 대사의 번역 (상태 무관)" checked={context.precedingTranslations} onChange={(precedingTranslations) => setContext({ precedingTranslations })} />}
               <ContextCheck id="editor-ai-scenes" label="이전 장면" checked={context.previousScenes > 0} onChange={(on) => setContext({ previousScenes: on ? 1 : 0 })} count={{ value: context.previousScenes, max: 10, unit: '개', storage: key('scenes'), onSave: (previousScenes) => setContext({ previousScenes }) }} />
               <ContextCheck id="editor-ai-cast" label="인물 명단" checked={context.cast} onChange={(cast) => setContext({ cast })} />
               <ContextCheck id="editor-ai-characters" label="인물 프로필" checked={context.characters} onChange={(characters) => setContext({ characters })} />

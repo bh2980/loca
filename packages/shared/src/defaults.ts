@@ -47,7 +47,7 @@ export const DEFAULT_TAG_COLOR = PALETTE[6].hex;
 export const DEFAULT_STATUSES: { key: string; name: string; color: string; kind: StatusKind; inReview: boolean }[] = [
   { key: 'untranslated', name: '미번역', color: PALETTE[0].hex, kind: 'initial', inReview: false },
   { key: 'draft', name: '초벌', color: PALETTE[8].hex, kind: 'normal', inReview: false },
-  { key: 'confirmed', name: '확정', color: PALETTE[5].hex, kind: 'final', inReview: false },
+  { key: 'confirmed', name: '완료', color: PALETTE[5].hex, kind: 'final', inReview: false },
 ];
 
 export const HEX_COLOR = /^#[0-9a-f]{6}$/i;
@@ -90,7 +90,6 @@ interface ApplyOptions {
   map: Record<string, string>;
   /** Default on: a proposal a person accepts in the app. */
   propose?: boolean;
-  asCandidate?: boolean;
 }
 /** An apply node: it applies the result of the step before it (the AI or script node it is drawn after). */
 const applyNode = (id: string, fn: ApplyFunctionName, row: number, options: ApplyOptions, column = 0): WorkflowNode => ({
@@ -98,7 +97,7 @@ const applyNode = (id: string, fn: ApplyFunctionName, row: number, options: Appl
   type: 'function',
   position: at(row, column),
   label: APPLY_TARGETS[fn].label,
-  config: { fn, params: { list: options.list ?? '', map: options.map, propose: options.propose ?? true, asCandidate: options.asCandidate ?? false } },
+  config: { fn, params: { list: options.list ?? '', map: options.map, propose: options.propose ?? true } },
 });
 /** An apply node for one list of a preset's JSON output, mapped by field name. */
 const saveList = (id: string, fn: ApplyFunctionName, preset: AiPresetId, list: string, row: number, column = 0): WorkflowNode =>
@@ -158,7 +157,7 @@ const formatCheckNode = (row: number, column = 0): WorkflowNode => ({
   config: { fn: 'formatCheck', params: { placeholders: true, tags: true, newlines: true, emptyText: true } },
 });
 /** Writes the translation now (no proposal, confirmed as a draft): what the default flows always did. */
-const writeTranslation = (id: string, row: number, column = 0, label = '번역 후보 기록') => ({ ...applyNode(id, 'saveCandidate', row, { map: { text: 'text' }, propose: false, asCandidate: false }, column), label });
+const writeTranslation = (id: string, row: number, column = 0, label = '번역 후보 기록') => ({ ...applyNode(id, 'saveCandidate', row, { map: { text: 'text' }, propose: false }, column), label });
 
 /**
  * The default translation flow, expressed as an ordinary user workflow:

@@ -6,11 +6,11 @@ import { Link, useNavigate } from '@tanstack/react-router';
 import { ChevronRight, Play } from 'lucide-react';
 import { SearchInput, Button, Checkbox, Label, RadioGroup, RadioGroupItem, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Skeleton, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue, Spinner, StatusIcon, SectionHeading, FieldRows, FieldRow } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
-import { INPUT_TYPES, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, TERM_MARK_IDS, WORKFLOW_SUBJECT_IDS, LINE_MARK_IDS, type AutoMark, type LineMark, UNREVIEWED_MARKS } from '@tw/shared';
+import { INPUT_TYPES, TERM_MARK_IDS, WORKFLOW_SUBJECT_IDS, LINE_MARK_IDS, type AutoMark, type LineMark } from '@tw/shared';
 import { MarkChip } from '@/components/status';
 import type { ModelValue } from '@/components/model-picker';
 import { Pace, RunModels } from './run-estimate';
-import { lineTags, q } from '@/lib/queries';
+import { tagsIn, q } from '@/lib/queries';
 import { SCRIPT_VIEW } from '@/lib/labels';
 import { cn } from '@/lib/utils';
 
@@ -69,7 +69,6 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   const [pickedStatuses, setPickedStatuses] = useState<Set<string>>(new Set());
 
   const statuses = useQuery({ ...q.statuses(projectId), enabled: open });
-  const tags = lineTags(statuses.data?.tags);
   // This run's models by AI node, where the person picked another than the node's own (the workflow is not changed).
   const [runModels, setRunModels] = useState<Record<string, ModelValue>>({});
   const workflows = useQuery({ ...q.workflows(projectId), enabled: open });
@@ -101,6 +100,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   // What the run takes is the workflow's input (its entry node); the scope fields below follow it.
   const subject = workflow?.input ?? givenSubject;
   const terms = subject === 'terms';
+  const tags = tagsIn(statuses.data?.tags, terms ? 'terms' : 'lines');
   const unit = terms ? '개' : '줄';
   const groups = useQuery({ ...q.groups(projectId), enabled: open });
   const here = groupIds?.length ? groups.data?.filter((group) => groupIds.includes(group.id)) : undefined;
@@ -149,13 +149,9 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   const allGroups = (groups.data ?? []).length;
   const wholeProject = scopeTarget === 'groups' && allGroups > 0 && pickedScenes.size === allGroups;
   const allTerms = scopeTarget === 'groups' && (termList.data?.length ?? 0) > 0 && pickedTerms.size === termList.data!.length;
-  // What the picker lists: scenes by kind for lines, terms by status for terms.
+  // What the picker lists: scenes by kind for lines; terms as one flat list (their status is a filter, like in the glossary).
   const sections: PickSection[] = terms
-    ? KNOWLEDGE_STATUSES.filter((status) => status !== 'rejected').map((status) => ({
-        key: status,
-        label: KNOWLEDGE_STATUS_LABELS[status],
-        items: (termList.data ?? []).filter((term) => term.status === status).map((term) => ({ id: term.id, title: term.source, search: `${term.source} ${term.target}`, total: 1, detail: term.target || '—' })),
-      }))
+    ? [{ key: 'terms', items: (termList.data ?? []).filter((term) => term.status !== 'rejected').map((term) => ({ id: term.id, title: term.source, search: `${term.source} ${term.target}`, total: 1, detail: term.target || '—' })) }]
     : KIND_ORDER.map((kind) => ({
         key: kind,
         label: SCRIPT_VIEW[kind],
@@ -168,10 +164,12 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   else if (scopeTarget === 'here') computedGroupIds = groupIds;
   else if (!wholeProject) computedGroupIds = pickedScenes.size ? [...pickedScenes] : ['__none__'];
 
-  // The filters mean the same for both inputs: statuses and automatic marks (and tags, for lines).
+  // The filters: automatic marks and tags for both inputs (the list pages' rules); lines also have their statuses
+  // (a term's status is one of its marks, #후보, as in the glossary).
   const filters = {
-    ...(pickedStatuses.size ? { statusIds: [...pickedStatuses] } : {}),
+    ...(!terms && pickedStatuses.size ? { statusIds: [...pickedStatuses] } : {}),
     ...(pickedMarks.size ? { marks: [...pickedMarks] as LineMark[] } : {}),
+    ...(pickedTags.size ? { tagIds: [...pickedTags] } : {}),
   };
   const pickedTermIds = scopeTarget === 'units' ? termIds : allTerms ? undefined : [...pickedTerms];
   const scope = terms
@@ -180,7 +178,6 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
         ...(computedUnitIds ? { unitIds: computedUnitIds } : {}),
         ...(computedGroupIds ? { groupIds: computedGroupIds } : {}),
         ...filters,
-        ...(pickedTags.size ? { tagIds: [...pickedTags] } : {}),
       };
 
   const ready =
@@ -332,24 +329,19 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
             <fieldset className="space-y-2">
               <SectionHeading as="legend" className="mb-2">필터</SectionHeading>
               <FieldRows>
-                <FieldRow label="상태">
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                    {terms
-                      ? KNOWLEDGE_STATUSES.filter((status) => status !== 'rejected').map((status) => (
-                          <Label key={status} className="text-sm font-normal">
-                            <Checkbox checked={pickedStatuses.has(status)} onCheckedChange={(checked) => toggled(setPickedStatuses, status, checked === true)} />
-                            {KNOWLEDGE_STATUS_LABELS[status]}
-                          </Label>
-                        ))
-                      : (statuses.data?.statuses ?? []).map((status) => (
-                          <Label key={status.id} className="text-sm font-normal">
-                            <Checkbox checked={pickedStatuses.has(status.id)} onCheckedChange={(checked) => toggled(setPickedStatuses, status.id, checked === true)} />
-                            <StatusIcon status={status} />
-                            {status.name}
-                          </Label>
-                        ))}
-                  </div>
-                </FieldRow>
+                {!terms && (
+                  <FieldRow label="상태">
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                      {(statuses.data?.statuses ?? []).map((status) => (
+                        <Label key={status.id} className="text-sm font-normal">
+                          <Checkbox checked={pickedStatuses.has(status.id)} onCheckedChange={(checked) => toggled(setPickedStatuses, status.id, checked === true)} />
+                          <StatusIcon status={status} />
+                          {status.name}
+                        </Label>
+                      ))}
+                    </div>
+                  </FieldRow>
+                )}
                 <FieldRow label="태그">
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
                     {(terms ? TERM_MARK_IDS : LINE_MARK_IDS).map((mark) => (
@@ -358,7 +350,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
                         <MarkChip mark={mark as AutoMark} />
                       </Label>
                     ))}
-                    {!terms && tags.map((tag) => (
+                    {tags.map((tag) => (
                       <Label key={tag.id} className="text-sm font-normal">
                         <Checkbox checked={pickedTags.has(tag.id)} onCheckedChange={(checked) => toggled(setPickedTags, tag.id, checked === true)} />
                         #{tag.name}
@@ -390,7 +382,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
                   )}
                 </span>
               ) : total === 0 ? (
-                <span className="text-muted-foreground">{terms ? (termIds?.length ? '고른 용어 중 실행할 것이 없습니다.' : '조건에 맞는 용어가 없습니다. 워크플로 진입 노드에서 대상을 바꾸거나, 용어집에서 용어를 골라 실행하세요.') : '이 범위에는 실행할 대사가 없습니다.'}</span>
+                <span className="text-muted-foreground">{terms ? (termIds?.length ? '고른 용어 중 실행할 것이 없습니다.' : '조건에 맞는 용어가 없습니다. 필터를 줄이거나 용어집에서 용어를 골라 실행하세요.') : '이 범위에는 실행할 대사가 없습니다.'}</span>
               ) : (
                 <>
                   <b className="font-medium tabular-nums">{total.toLocaleString()}{unit}</b>{terms ? '를' : '을'} 실행합니다
@@ -454,7 +446,8 @@ type ScopeTarget = 'units' | 'here' | 'groups';
 /** One section of the picker: a fold with its items (scenes of a kind, or terms of a status). */
 interface PickSection {
   key: string;
-  label: string;
+  /** None: the items sit right under 전체 (terms have no grouping). */
+  label?: string;
   items: { id: string; title: string; search: string; total: number; detail: string }[];
 }
 
@@ -476,6 +469,15 @@ function ScopePicker({ sections, unit, picked, setPicked, filter, setFilter }: {
       return next;
     });
   const row = 'flex min-w-0 items-center gap-2 rounded px-2 py-1 text-sm hover:bg-muted';
+  const itemRow = (item: PickSection['items'][number]) => (
+    <li key={item.id}>
+      <label className={row}>
+        <Checkbox checked={picked.has(item.id)} onCheckedChange={(checked) => toggled(setPicked, item.id, checked === true)} />
+        <span className="min-w-0 flex-1 truncate">{item.title}</span>
+        <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{item.detail}</span>
+      </label>
+    </li>
+  );
   return (
     <div className="min-w-0 overflow-hidden rounded-md border">
       <div className="border-b p-1">
@@ -488,6 +490,12 @@ function ScopePicker({ sections, unit, picked, setPicked, filter, setFilter }: {
           <span className="shrink-0 text-xs font-normal text-muted-foreground tabular-nums">{total(all).toLocaleString()}{unit}</span>
         </label>
         {sections.filter((section) => section.items.length).map((section) => {
+          if (!section.label)
+            return (
+              <ul key={section.key} className="ml-4">
+                {shownOf(section).map(itemRow)}
+              </ul>
+            );
           const expanded = Boolean(needle) || open.has(section.key);
           return (
             <div key={section.key}>
@@ -511,15 +519,7 @@ function ScopePicker({ sections, unit, picked, setPicked, filter, setFilter }: {
               </div>
               {expanded && (
                 <ul className="ml-8">
-                  {shownOf(section).map((item) => (
-                    <li key={item.id}>
-                      <label className={row}>
-                        <Checkbox checked={picked.has(item.id)} onCheckedChange={(checked) => toggled(setPicked, item.id, checked === true)} />
-                        <span className="min-w-0 flex-1 truncate">{item.title}</span>
-                        <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{item.detail}</span>
-                      </label>
-                    </li>
-                  ))}
+                  {shownOf(section).map(itemRow)}
                 </ul>
               )}
             </div>
@@ -556,11 +556,11 @@ function Readiness({ projectId, readiness, oneScene, onLeave }: { projectId: str
     },
     {
       uses: 'speech',
-      ok: readiness.unreviewedRules.count === 0,
-      text: readiness.unreviewedRules.count ? `확인 안 한 말투 규칙 ${readiness.unreviewedRules.count}개 (${readiness.unreviewedRules.examples.join(', ')}${readiness.unreviewedRules.count > readiness.unreviewedRules.examples.length ? ' 등' : ''})` : '쓰이는 말투 규칙은 모두 확인됨',
-      link: readiness.unreviewedRules.count > 0 && (
-        <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', marks: [...UNREVIEWED_MARKS], ...(!readiness.unreviewedRules.more && { ids: readiness.unreviewedRules.ids }) }} onClick={onLeave}>
-          확인하기
+      ok: readiness.candidateRules.count === 0,
+      text: readiness.candidateRules.count ? `문맥에 안 들어가는 후보 말투 규칙 ${readiness.candidateRules.count}개 (${readiness.candidateRules.examples.join(', ')}${readiness.candidateRules.count > readiness.candidateRules.examples.length ? ' 등' : ''})` : '쓰이는 말투 규칙은 모두 확정됨',
+      link: readiness.candidateRules.count > 0 && (
+        <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', marks: ['candidate'], ...(!readiness.candidateRules.more && { ids: readiness.candidateRules.ids }) }} onClick={onLeave}>
+          후보 보기
         </Link>
       ),
     },
@@ -576,11 +576,11 @@ function Readiness({ projectId, readiness, oneScene, onLeave }: { projectId: str
     },
     {
       uses: 'glossary',
-      ok: readiness.unreviewedTerms.count === 0,
-      text: readiness.unreviewedTerms.count ? `확인 안 한 용어 ${readiness.unreviewedTerms.count}개 (${readiness.unreviewedTerms.examples.join(', ')}${readiness.unreviewedTerms.count > readiness.unreviewedTerms.examples.length ? ' 등' : ''})` : '나오는 용어는 모두 확인됨',
-      link: readiness.unreviewedTerms.count > 0 && (
-        <Link to="/p/$projectId/glossary" params={{ projectId }} search={{ marks: [...UNREVIEWED_MARKS], ...(!readiness.unreviewedTerms.more && { ids: readiness.unreviewedTerms.ids }) }} onClick={onLeave}>
-          확인하기
+      ok: readiness.candidateTerms.count === 0,
+      text: readiness.candidateTerms.count ? `문맥에 안 들어가는 후보 용어 ${readiness.candidateTerms.count}개 (${readiness.candidateTerms.examples.join(', ')}${readiness.candidateTerms.count > readiness.candidateTerms.examples.length ? ' 등' : ''})` : '나오는 용어는 모두 확정됨',
+      link: readiness.candidateTerms.count > 0 && (
+        <Link to="/p/$projectId/glossary" params={{ projectId }} search={{ marks: ['candidate'], ...(!readiness.candidateTerms.more && { ids: readiness.candidateTerms.ids }) }} onClick={onLeave}>
+          후보 보기
         </Link>
       ),
     },

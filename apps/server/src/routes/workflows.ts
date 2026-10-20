@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
+import { scopeMismatch } from '../services/run-plan.ts';
 import { and, asc, count, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { choiceKey, FUNCTIONS, type FunctionName, isWholeScriptWorkflow, nodeModels, CONNECTION_KIND_INFO, workflowInput, lineMarksSchema, scriptParams, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels } from '@tw/shared';
+import { choiceKey, FUNCTIONS, type FunctionName, isWholeScriptWorkflow, nodeModels, CONNECTION_KIND_INFO, workflowInput, AUTO_MARK_IDS, type AutoMark, scriptParams, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -15,8 +16,13 @@ import { choiceLabel, snapshotWorkflowModels } from '../services/routes.ts';
 import { continuePreflight, switchedRun } from '../services/run-continue.ts';
 import { deleteWorkflow, saveWorkflow, WorkflowMutationError } from '../services/workflow-mutations.ts';
 
-const scopeSchema = z.object({ groupIds: z.array(z.string()).optional(), unitIds: z.array(z.string()).optional(), tagIds: z.array(z.string()).optional(), marks: lineMarksSchema.optional(), statusIds: z.array(z.string()).optional(), ignoreStatus: z.boolean().optional(), termIds: z.array(z.string()).optional() });
+const scopeSchema = z.object({ groupIds: z.array(z.string()).optional(), unitIds: z.array(z.string()).optional(), tagIds: z.array(z.string()).optional(), marks: z.array(z.enum(AUTO_MARK_IDS as [AutoMark, ...AutoMark[]])).optional(), statusIds: z.array(z.string()).optional(), termIds: z.array(z.string()).optional() });
 /** A run's scope and, optionally, the models it uses instead of its nodes' own (by AI node id). */
+/** A scope that does not fit the workflow's input (line scenes for terms, the other input's marks…) is refused. */
+const fitScope = (definition: WorkflowDefinition, scope: s.RunScope) => {
+  const mismatch = scopeMismatch(workflowInput(definition), scope);
+  if (mismatch) badRequest(mismatch);
+};
 const runSchema = scopeSchema.extend({ models: runModelsSchema.optional() });
 const continueSchema = z.object({ models: runModelsSchema.optional(), retryFailed: z.boolean().default(false) });
 
@@ -119,6 +125,7 @@ export const workflowRoutes = new Hono<Env>()
   .post('/workflows/:id/preview', validate('json', scopeSchema), (c) => {
     const { db } = c.var.deps;
     const workflow = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
+    fitScope(workflow.definition, c.req.valid('json'));
     const select = workflowInput(workflow.definition) === 'terms' ? selectRunTerms : selectRunUnits;
     return c.json({ count: select(db, workflow.projectId, c.req.valid('json')).length });
   })
@@ -127,12 +134,14 @@ export const workflowRoutes = new Hono<Env>()
     const { db } = c.var.deps;
     const workflow = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
     const { models, ...scope } = c.req.valid('json');
+    fitScope(workflow.definition, scope);
     return c.json(await preflight(db, { ...workflow, definition: withRunModels(workflow.definition, models) }, scope));
   })
   .post('/workflows/:id/runs', validate('json', runSchema.extend({ limits: z.object({ maxCalls: z.number().int().min(1).optional(), maxInputTokens: z.number().int().min(1).optional() }).optional() })), async (c) => {
     const { db } = c.var.deps;
     const stored = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
     const { limits, models, ...scope } = c.req.valid('json');
+    fitScope(stored.definition, scope);
     // This run's models (the dialog's picks) stand in for the nodes' own; the workflow is not changed.
     const workflow = { ...stored, definition: withRunModels(stored.definition, models) };
     const errors = workflowIssues(db, workflow.projectId, workflow.definition).filter((issue) => issue.level === 'error');

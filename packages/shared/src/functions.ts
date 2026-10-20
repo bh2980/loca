@@ -298,10 +298,8 @@ export const applyParams = z.object({
   list: z.string().default(''),
   /** Target field → source field (inside the list item for `list`, inside the output otherwise). */
   map: z.record(z.string(), z.string()).default({}),
-  /** On (default): file a proposal a person accepts in the app. Off: write now. */
+  /** On (default): file a proposal a person accepts in the app. Off: write now (knowledge and terms land as the project's AI 문맥 rule says: aiStatus). */
   propose: z.boolean().default(true),
-  /** Written now: as a candidate (✦, a person confirms it) instead of confirmed. */
-  asCandidate: z.boolean().default(false),
   /** 용어 표기 저장: fill the term's Korean form only while it is empty (a person's is kept). */
   onlyEmpty: z.boolean().default(true),
 });

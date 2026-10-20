@@ -42,12 +42,12 @@ loca call read_project_settings                     # exclusionRules: empty, for
 
 ## 서식 규칙과 프로젝트 설정
 ```
-loca call read_project_settings                  # 이름, 설명, formatRules, aiConfirm, editorAi, markColors
+loca call read_project_settings                  # 이름, 설명, formatRules, aiAutoConfirm, editorAi, markColors
 loca call update_project_settings @"$W/settings.json"
 ```
 - 보낸 항목은 **통째로 바뀝니다.** 먼저 읽고, 바꿀 객체(예: `formatRules`) 전체를 고쳐서 보냅니다.
 - `formatRules`: 형식 검사가 지키는 자리표시자 프리셋(중괄호 변수, printf, 마크업 태그 등)과 직접 만든 패턴. 바꾼 뒤 `loca check format`으로 결과가 기대대로인지 봅니다.
-- `aiConfirm`: AI 결과를 사람 확인 없이 확정할지. 사용자가 정하는 설정이니 묻고 바꿉니다.
+- `aiAutoConfirm`(앱: 설정 › 프로젝트 › AI 문맥): AI가 만든 용어·자료를 바로 확정할지(true, 기본) 후보로 둘지(false). 문맥에는 확정된 용어·자료만 들어갑니다. 대사의 상태는 바꾸지 않습니다(대사 상태는 사람이나 워크플로의 상태 변경 노드만 바꿈). 사용자가 정하는 설정이니 묻고 바꿉니다.
 - `editorAi`: 편집기 AI. AI 번역·다듬기 버튼은 `model`(CLI 연결도 됨), `context`(함께 보낼 것)를 같이 쓰고, `translate`·`refine`에는 각자의 `instructions`·`include`만 있습니다(빈 값은 AI 번역·AI 다듬기 프리셋으로 채움, 워크플로 노드와 따로). `complete`는 자동완성(`enabled`, API 연결 `model`, `instructions`, `precedingLines`, `glossary`, `speech`, `timeoutSeconds`, `delayMs`(대사를 열고 기다린 뒤 자동 요청, 기본 500), `dailyCap`). `timeoutSeconds`(기본 60)는 AI 번역·다듬기·자연어로 정규식 만들기의 제한 시간.
 - 채팅 설정(권한 모드, 도구 권한, 새 대화 모델)은 에이전트가 바꿀 수 없습니다.
 

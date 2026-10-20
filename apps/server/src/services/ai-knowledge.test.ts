@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { DEFAULT_AI_CONFIRM, importFileSchema } from '@tw/shared';
+import { importFileSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { aiSaveCharacters, aiSaveDocument, aiSaveEvents, aiSaveRelationships, aiSaveSpeechRules, aiSaveTerms, aiSetLineListeners, aiSetSceneListeners, canonicalNames } from './ai-knowledge.ts';
@@ -23,7 +23,7 @@ function setup() {
     ],
   });
   const { projectId } = importProject(db, file);
-  const write = { projectId, runId: undefined as string | undefined, policy: DEFAULT_AI_CONFIRM };
+  const write = { projectId, runId: undefined as string | undefined, autoConfirm: true };
   return { db, projectId, write };
 }
 const lines = (db: ReturnType<typeof setup>['db'], projectId: string) => new Map(db.select().from(s.units).where(eq(s.units.projectId, projectId)).all().map((unit) => [unit.key, unit]));
@@ -58,7 +58,7 @@ describe('AI knowledge writes', () => {
 
   it('writes AI candidates under the candidate switch', () => {
     const { db, projectId, write } = setup();
-    aiSaveCharacters(db as never, { ...write, policy: { ...DEFAULT_AI_CONFIRM, characters: 'candidate' } }, [{ name: 'Guard' }]);
+    aiSaveCharacters(db as never, { ...write, autoConfirm: false }, [{ name: 'Guard' }]);
     expect(db.select().from(s.characters).where(eq(s.characters.name, 'Guard')).get()).toMatchObject({ status: 'candidate', origin: 'ai' });
     expect(projectId).toBeTruthy();
   });

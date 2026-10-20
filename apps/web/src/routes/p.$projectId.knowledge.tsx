@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { AiConfirmNote } from '@/components/settings/ai-confirm';
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import { ArrowLeftRight, GanttChart, Network, Plus, Table2, Users } from 'lucide-react';
@@ -550,7 +551,7 @@ function Knowledge() {
           {!pairsView && spec.create && <Button variant={graph ? 'outline' : 'default'} disabled={create.isPending} onClick={() => create.mutate()}><Plus /> {KINDS[tableKind]}</Button>}
           <RunDialog projectId={projectId} trigger={<Button variant="ghost"><Play /> 워크플로 실행</Button>} />
         </HeaderActions>
-        <FilterBar end={<span className="text-2xs font-medium text-subtle-foreground tabular-nums">{count}</span>}>
+        <FilterBar end={<><AiConfirmNote projectId={projectId} /><span className="text-2xs font-medium text-subtle-foreground tabular-nums">{count}</span></>}>
           {(graph || timeline) && <KnowledgeFilters {...filters} />}
           <FilterChips chips={chips} />
         </FilterBar>

@@ -234,7 +234,7 @@ describe('templates', () => {
   it('writes translations itself in the translation templates and keeps the listener flow explicit', () => {
     expect(kinds(draftTranslationTemplate({ model, untranslated: 's0', draft: 's1' }))).toEqual(['entry', 'ai', 'saveCandidate', 'formatCheck', 'setStatus', 'condition', 'fail']);
     const saved = translationTemplate(ids).nodes.find((node) => node.id === 'save');
-    expect(saved).toMatchObject({ config: { fn: 'saveCandidate', params: { propose: false, asCandidate: false, map: { text: 'text' } } } });
+    expect(saved).toMatchObject({ config: { fn: 'saveCandidate', params: { propose: false, map: { text: 'text' } } } });
     const listener = listenerTemplate({ model });
     expect(kinds(listener)).toEqual(['entry', 'condition', 'ai', 'condition', 'setListener', 'condition', 'fail']);
     expect(listener.nodes.find((node) => node.id === 'set-listener')).toMatchObject({ config: { params: { map: { listener: 'value', confidence: 'confidence' } } } });

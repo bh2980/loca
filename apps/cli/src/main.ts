@@ -728,7 +728,7 @@ runs
       totals: { calls: { min: number; expected: number | null; max: number }; inputTokens: { min: number; expected: number | null; max: number } };
       pace: { seconds: number | null; costUsd: number | null; subscription: boolean };
       load: { runs: number; max: number; added: number };
-      readiness: { dialogueLines: number; unknownListenerLines: number; unreviewedRules: Names; unreviewedTerms: Names; pairsWithoutRule: { count: number; examples: string[] } };
+      readiness: { dialogueLines: number; unknownListenerLines: number; candidateRules: Names; candidateTerms: Names; pairsWithoutRule: { count: number; examples: string[] } };
     }>('plan_run', { workflow, groups: options.group, keys: options.key, tags: options.tag, marks: options.mark, terms: options.term, statuses: options.status, models: runModels(options.model) });
     if (globals().json) return print(data);
     const range = (value: { min: number; expected: number | null; max: number }) => (value.expected !== null ? `약 ${value.expected.toLocaleString()} (${value.min.toLocaleString()}~${value.max.toLocaleString()})` : `${value.min.toLocaleString()}~${value.max.toLocaleString()}`);
@@ -745,8 +745,8 @@ runs
     console.log('\n준비 상태');
     console.log(`  청자 미상 대사 ${ready.unknownListenerLines.toLocaleString()} / 청자가 필요한 대사 ${ready.dialogueLines.toLocaleString()}${ready.unknownListenerLines ? '   → loca lines --mark unknownListener' : ''}`);
     const list = (entry: Names) => `${entry.names.slice(0, 8).join(', ')}${entry.count > Math.min(8, entry.names.length) ? ` 외 ${entry.count - Math.min(8, entry.names.length)}개` : ''}`;
-    console.log(`  확인 안 한 말투 규칙 ${ready.unreviewedRules.count}개${ready.unreviewedRules.count ? `: ${list(ready.unreviewedRules)}   → loca knowledge speech-rules --unreviewed` : ''}`);
-    console.log(`  확인 안 한 용어 ${ready.unreviewedTerms.count}개${ready.unreviewedTerms.count ? `: ${list(ready.unreviewedTerms)}   → loca terms --unreviewed` : ''}`);
+    console.log(`  문맥에 안 들어가는 후보 말투 규칙 ${ready.candidateRules.count}개${ready.candidateRules.count ? `: ${list(ready.candidateRules)}   → loca knowledge speech-rules --mark candidate` : ''}`);
+    console.log(`  문맥에 안 들어가는 후보 용어 ${ready.candidateTerms.count}개${ready.candidateTerms.count ? `: ${list(ready.candidateTerms)}   → loca terms --mark candidate` : ''}`);
     console.log(`  말투 규칙 없는 화자 쌍 ${ready.pairsWithoutRule.count}개${ready.pairsWithoutRule.count ? `: ${ready.pairsWithoutRule.examples.join(', ')}${ready.pairsWithoutRule.count > ready.pairsWithoutRule.examples.length ? ' …' : ''}` : ''}`);
   });
 

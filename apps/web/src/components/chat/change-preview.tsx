@@ -91,7 +91,7 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
       );
     }
     case 'update_project_settings': {
-      const labels: Record<string, string> = { name: '이름', description: '설명', formatRules: '서식 규칙', aiConfirm: 'AI 확인', editorAi: '편집기 AI', markColors: '표시 색' };
+      const labels: Record<string, string> = { name: '이름', description: '설명', formatRules: '서식 규칙', aiAutoConfirm: 'AI 문맥', editorAi: '편집기 AI', markColors: '표시 색' };
       return (
         <dl className="space-y-1">
           {Object.entries(input).map(([key, value]) => (

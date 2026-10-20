@@ -1,0 +1,1 @@
+ALTER TABLE `projects` ADD `ai_auto_confirm` integer DEFAULT true NOT NULL;

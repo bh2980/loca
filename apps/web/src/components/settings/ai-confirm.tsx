@@ -1,47 +1,41 @@
 import { Link } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { AI_CONFIRM_KINDS, DEFAULT_AI_CONFIRM, type AiConfirm, type AiConfirmKind } from '@tw/shared';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@loca/ui';
+import { Checkbox, Label } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { optimistic } from '@/lib/optimistic';
 import { q } from '@/lib/queries';
 
-const AI_CONFIRM_LABELS = { auto: '자동 확정', candidate: '후보로만' } as const;
+/** The ✦ tooltip on a term or knowledge item AI confirmed: what it already means for prompts. */
+export const AI_CONFIRMED_NOTE = 'AI가 확정함 · 이미 문맥에 쓰이고 있습니다. 확인함을 누르면 사람이 본 것으로 기록됩니다.';
 
 /**
- * Where an AI step that writes knowledge or terms says how its results land: the project's
- * AI 결과 반영 (there is no switch of its own), with a link there.
+ * Where AI results that are knowledge or terms are written or listed: how they land under the
+ * project's one AI 문맥 switch (it is changed only in 설정 › 프로젝트), with a link there.
  */
-export function AiConfirmNote({ projectId, kinds }: { projectId: string; kinds: AiConfirmKind[] }) {
+export function AiConfirmNote({ projectId }: { projectId: string }) {
   const project = useQuery(q.project(projectId));
-  const policy: AiConfirm = project.data?.aiConfirm ?? DEFAULT_AI_CONFIRM;
-  const group = (mode: 'auto' | 'candidate') => kinds.filter((kind) => policy[kind] === mode).map((kind) => AI_CONFIRM_KINDS[kind]);
-  const auto = group('auto');
-  const candidate = group('candidate');
-  // One line: the usual case (all auto) says just that; only the exceptions are named.
-  const summary = !candidate.length ? '자동 확정' : !auto.length ? '후보로만' : `자동 확정 (후보로만: ${candidate.join('·')})`;
+  if (!project.data) return null;
   return (
     <p className="text-xs text-muted-foreground">
-      결과: {summary} ·{' '}
-      <Link to="/p/$projectId/settings/chat" params={{ projectId }} className="underline underline-offset-2 hover:text-foreground">
-        채팅 설정
+      AI 결과: {project.data.aiAutoConfirm ? '바로 확정 (문맥에 쓰임)' : '후보 (사람이 확정해야 문맥에 쓰임)'} ·{' '}
+      <Link to="/p/$projectId/settings/project" params={{ projectId }} className="underline underline-offset-2 hover:text-foreground">
+        설정
       </Link>
     </p>
   );
 }
 
 /**
- * One choice per kind of knowledge for what AI results become: used right away (✦ until a person
- * looks) or candidates a person confirms. Every AI step that writes these follows it.
+ * The project's AI 문맥 switch: AI results that are knowledge or terms are confirmed right away
+ * (✦ until a person looks) or land as candidates a person confirms. Lines are not touched by it.
  */
-export function AiConfirmList({ projectId }: { projectId: string }) {
+export function AiAutoConfirmSetting({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient();
   const project = useQuery(q.project(projectId));
-  const policy: AiConfirm = project.data?.aiConfirm ?? DEFAULT_AI_CONFIRM;
   const save = useMutation({
-    mutationFn: (next: AiConfirm) => unwrap(client.projects[':projectId'].$patch({ param: { projectId }, json: { aiConfirm: next } })),
-    onMutate: async (next) => ({ undo: await optimistic(queryClient, [{ key: q.project(projectId).queryKey, update: (data: object) => ({ ...data, aiConfirm: next }) }]) }),
+    mutationFn: (aiAutoConfirm: boolean) => unwrap(client.projects[':projectId'].$patch({ param: { projectId }, json: { aiAutoConfirm } })),
+    onMutate: async (aiAutoConfirm) => ({ undo: await optimistic(queryClient, [{ key: q.project(projectId).queryKey, update: (data: object) => ({ ...data, aiAutoConfirm }) }]) }),
     onSuccess: () => toast.success('저장했습니다.'),
     onError: (error, _next, context) => {
       context?.undo();
@@ -49,25 +43,12 @@ export function AiConfirmList({ projectId }: { projectId: string }) {
     },
   });
   return (
-    <ul className="rounded-lg border">
-      {(Object.keys(AI_CONFIRM_KINDS) as AiConfirmKind[]).map((kind) => (
-        <li key={kind} className="flex items-center gap-3 px-4 py-2">
-          <span className="min-w-0 flex-1 text-sm">{AI_CONFIRM_KINDS[kind]}</span>
-          <Select value={policy[kind]} disabled={!project.data || save.isPending} onValueChange={(value) => save.mutate({ ...policy, [kind]: value as 'auto' | 'candidate' })}>
-            <SelectTrigger size="sm" className="w-32" aria-label={`${AI_CONFIRM_KINDS[kind]} AI 결과`}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {(['auto', 'candidate'] as const).map((mode) => (
-                <SelectItem key={mode} value={mode}>
-                  {AI_CONFIRM_LABELS[mode]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </li>
-      ))}
-    </ul>
+    <div className="space-y-1">
+      <Label className="text-sm font-normal">
+        <Checkbox checked={project.data?.aiAutoConfirm ?? true} disabled={!project.data || save.isPending} onCheckedChange={(checked) => save.mutate(checked === true)} />
+        AI가 만든 용어·자료를 바로 확정
+      </Label>
+      <p className="pl-6 text-xs text-muted-foreground">끄면 후보로 들어가고, 사람이 확정해야 문맥에 쓰입니다. 대사의 상태는 바꾸지 않습니다.</p>
+    </div>
   );
 }
-

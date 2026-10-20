@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, asc, count, desc, eq, notInArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { agentSettingsSchema, aiConfirmSchema, detectFormatRules, editorAiSchema, exclusionRulesSchema, formatRulesSchema, importFileSchema, importWarnings, markColorsSchema, patchOf, summarizeImport } from '@tw/shared';
+import { agentSettingsSchema, detectFormatRules, editorAiSchema, exclusionRulesSchema, formatRulesSchema, importFileSchema, importWarnings, markColorsSchema, patchOf, summarizeImport } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
@@ -81,7 +81,7 @@ export const projectRoutes = new Hono<Env>()
       terms: aiConfirmed(s.terms),
       knowledge: { documents: aiConfirmed(s.documents), characters: aiConfirmed(s.characters), pairs: aiConfirmed(s.relationships, s.speechRules), events: aiConfirmed(s.storyEvents) },
     };
-    return c.json({ ...project, aiConfirm: aiConfirmSchema.parse(project.aiConfirm), exclusionRules: exclusionRulesSchema.parse(project.exclusionRules), editorAi: editorAiSchema.parse(project.editorAi), editorCallsToday: editorCallsToday(db, projectId), byStatus, excludedCount, groupCount, reviewCount, aiDecided });
+    return c.json({ ...project, exclusionRules: exclusionRulesSchema.parse(project.exclusionRules), editorAi: editorAiSchema.parse(project.editorAi), editorCallsToday: editorCallsToday(db, projectId), byStatus, excludedCount, groupCount, reviewCount, aiDecided });
   })
   .get('/:projectId/detect-format-rules', (c) => {
     const { db } = c.var.deps;

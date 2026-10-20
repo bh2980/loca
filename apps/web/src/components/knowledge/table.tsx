@@ -1,5 +1,6 @@
 /** The knowledge tables: row types, cells, filters and bulk decisions shared by the knowledge, glossary and pairs screens. */
 import { type ReactNode } from 'react';
+import { AI_CONFIRMED_NOTE } from '@/components/settings/ai-confirm';
 import { Check, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { InferResponseType } from 'hono/client';
@@ -169,7 +170,7 @@ export function StateCell({ row }: { row: Draft }) {
   return (
     <span className="inline-flex items-center gap-1 text-muted-foreground">
       {KNOWLEDGE_STATUS_LABELS.confirmed}
-      <AiMark by={row.statusBy} />
+      <AiMark by={row.statusBy} note={AI_CONFIRMED_NOTE} />
     </span>
   );
 }

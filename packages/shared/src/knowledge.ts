@@ -35,21 +35,13 @@ export const sourceOf = (item: { origin: KnowledgeOrigin }): KnowledgeSource => 
 /** Nothing left to decide: confirmed by a person. Everything else can be confirmed or discarded. */
 export const isSettled = (item: { status: KnowledgeStatus; statusBy: StatusBy }) => item.status === 'confirmed' && item.statusBy === 'human';
 
-/** What becomes of AI results per knowledge kind (AI 결과 반영): used right away, or a candidate. */
-export const AI_CONFIRM_KINDS = { terms: '용어', documents: '문서', characters: '인물', relationships: '관계', events: '사건', speechRules: '말투 규칙' } as const;
-export type AiConfirmKind = keyof typeof AI_CONFIRM_KINDS;
-export const aiConfirmSchema = z.object({
-  terms: z.enum(['auto', 'candidate']).default('auto'),
-  documents: z.enum(['auto', 'candidate']).default('auto'),
-  characters: z.enum(['auto', 'candidate']).default('auto'),
-  relationships: z.enum(['auto', 'candidate']).default('auto'),
-  events: z.enum(['auto', 'candidate']).default('auto'),
-  speechRules: z.enum(['auto', 'candidate']).default('auto'),
-});
-export type AiConfirm = z.infer<typeof aiConfirmSchema>;
-export const DEFAULT_AI_CONFIRM: AiConfirm = aiConfirmSchema.parse({});
-/** The status an AI result of this kind lands in. */
-export const aiStatus = (policy: AiConfirm, kind: AiConfirmKind) => (policy[kind] === 'auto' ? ('confirmed' as const) : ('candidate' as const));
+/**
+ * The project's one rule for AI results that are knowledge or terms (설정 › 프로젝트 › AI 문맥):
+ * on (default), they are confirmed right away and so used as AI context (✦ until a person looks);
+ * off, they are candidates a person confirms. Lines are not touched by it: a line's status moves
+ * only by a person or a set-status node in a workflow.
+ */
+export const aiStatus = (autoConfirm: boolean) => (autoConfirm ? ('confirmed' as const) : ('candidate' as const));
 
 /**
  * Where a line's listener came from. A person's choice always wins over the AI's. "scene": the work

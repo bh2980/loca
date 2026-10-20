@@ -191,21 +191,6 @@ describe('context builder', () => {
     expect(context.documents.map((d) => d.title)).toContain('사람 설정');
     expect(context.documents.map((d) => d.title)).not.toContain('AI 설정');
     expect(context.aiNotes.documents.map((d) => d.title)).toEqual(['AI 설정']);
-
-    // '사람이 확정한 것만': nothing AI confirmed reaches the prompt, not even as a note.
-    db.insert(s.terms).values([
-      { projectId, source: 'Ghost', target: '유령', origin: 'ai', statusBy: 'ai' },
-      { projectId, source: 'Vera', target: '베라' },
-    ]).run();
-    const strict = buildContext(db, projectId, batch, config({ characters: true, relationships: true, documents: true, glossary: true, humanOnly: true }));
-    expect(strict.characters.map((c) => c.name)).toContain('Vera');
-    expect(strict.characters.map((c) => c.name)).not.toContain('Ghost Rider');
-    expect(strict.aiNotes).toEqual({ characters: [], relationships: [], documents: [] });
-    expect(strict.relationships.map((r) => r.kind)).toEqual(['fact']);
-    expect(strict.documents.map((d) => d.title)).toContain('사람 설정');
-    expect(strict.documents.map((d) => d.title)).not.toContain('AI 설정');
-    expect(strict.terms.map((term) => term.source)).toContain('Vera');
-    expect(strict.terms.map((term) => term.source)).not.toContain('Ghost');
   });
 
   it('does not match a character through a generic alias, only through its name or a real alias', () => {

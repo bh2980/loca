@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { AiConfirmNote } from '@/components/settings/ai-confirm';
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Play, ScanSearch } from 'lucide-react';
@@ -221,7 +222,7 @@ function Glossary() {
           ]} />
         </HeaderActions>
         <RunDialog projectId={projectId} subject="terms" termIds={runTermIds} hideTrigger open={runOpen} onOpenChange={setRunOpen} />
-        <FilterBar end={terms.data && <span className="text-2xs font-medium text-subtle-foreground tabular-nums">{rows.length.toLocaleString()}개{needle ? ` / 전체 ${all.length.toLocaleString()}개` : ''}</span>}>
+        <FilterBar end={terms.data && <><AiConfirmNote projectId={projectId} /><span className="text-2xs font-medium text-subtle-foreground tabular-nums">{rows.length.toLocaleString()}개{needle ? ` / 전체 ${all.length.toLocaleString()}개` : ''}</span></>}>
           <SearchInput value={search.q} placeholder="원문·번역·메모 검색" onChange={(value) => void navigate({ search: (previous) => ({ ...previous, q: value }), replace: true })} />
           <FilterChips chips={chips} />
         </FilterBar>

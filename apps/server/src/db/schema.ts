@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { customType, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import { AGE_BANDS, CHARACTER_ROLES, GENDERS, KNOWLEDGE_TAG_KINDS, TAG_ROLES, type TagRole, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, PERMISSION_MODES, type AiConfirm, type CharacterStyle, type EditorAi, type ExclusionRules, type ModelLimits, LINE_TRANSLATE, type LineMark, type MarkColors, type ModelChoice, type ContextItem, type FormatRules, type ItemErrorKind, type NodeType, type RelationshipChange, type WorkflowDefinition, workflowDefinitionSchema, WORKFLOW_SUBJECT_IDS, type WorkflowSubject } from '@tw/shared';
+import { AGE_BANDS, CHARACTER_ROLES, GENDERS, KNOWLEDGE_TAG_KINDS, TAG_ROLES, type TagRole, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, PERMISSION_MODES, type CharacterStyle, type EditorAi, type ExclusionRules, type ModelLimits, LINE_TRANSLATE, type AutoMark, type MarkColors, type ModelChoice, type ContextItem, type FormatRules, type ItemErrorKind, type NodeType, type RelationshipChange, type WorkflowDefinition, workflowDefinitionSchema, WORKFLOW_SUBJECT_IDS, type WorkflowSubject } from '@tw/shared';
 import type { Usage } from '@tw/ai';
 
 const id = () => text('id').primaryKey().$defaultFn(() => crypto.randomUUID());
@@ -47,8 +47,8 @@ export const projects = sqliteTable('projects', {
   /** Which agent tools this project's chat (and the CLI) may use. */
   agentSettings: json<AgentSettings>('agent_settings').notNull().default(sql`'{"disabledTools":[]}'`),
   formatRules: json<FormatRules>('format_rules').notNull().default(sql`'{"presets":["brace","printf","angleTag"],"custom":[]}'`),
-  /** What becomes of AI results per knowledge kind (AI › 사용 방식). Absent kinds: auto. */
-  aiConfirm: json<Partial<AiConfirm>>('ai_confirm').notNull().default(sql`'{}'`),
+  /** 설정 › 프로젝트 › AI 문맥: AI results that are knowledge or terms are confirmed right away (on) or candidates (off); see aiStatus. */
+  aiAutoConfirm: integer('ai_auto_confirm', { mode: 'boolean' }).notNull().default(true),
   /** 번역 제외: which sources are not for translation (exclusionRulesSchema; {} = the defaults). */
   exclusionRules: json<Partial<ExclusionRules>>('exclusion_rules').notNull().default(sql`'{}'`),
   /** The editor's AI continuation (off by default; see editorAiSchema). */
@@ -487,7 +487,7 @@ export interface RunScope {
   /** Lines carrying every one of these tags. */
   tagIds?: string[];
   /** Automatic marks the items must all have: line marks (services/line-marks.ts) or term marks. */
-  marks?: LineMark[];
+  marks?: AutoMark[];
   /** Statuses the items must be in: a lines workflow's status ids, a terms workflow's candidate / confirmed / rejected. None = any. */
   statusIds?: string[];
   /** A run of a terms workflow: these terms (instead of the entry node's term statuses and marks). */
