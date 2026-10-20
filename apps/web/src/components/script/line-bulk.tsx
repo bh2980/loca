@@ -72,10 +72,10 @@ export function useLineBulk({ projectId, pickKey, rows, selectionRows, tagName, 
   });
   // 번역 제외 by hand for the picked lines (null = the project's rules decide again).
   const setTranslate = useMutation({
-    mutationFn: (translate: 'include' | 'exclude' | null) => unwrap(client.projects[':projectId'].units.$patch({ param: { projectId }, json: { unitIds: [...picked], translate } })),
+    mutationFn: (translate: 'include' | 'exclude') => unwrap(client.projects[':projectId'].units.$patch({ param: { projectId }, json: { unitIds: [...picked], translate } })),
     onMutate: async (translate) => ({ undo: await optimistic(queryClient, unitChanges(picked, patchedLine({ translate }))) }),
     onError: undoOnError,
-    onSuccess: (_data, translate) => toast.success(`${picked.size}개 대사를 ${translate === 'exclude' ? '번역에서 뺐습니다' : translate === 'include' ? '번역 대상으로 정했습니다' : '규칙대로 되돌렸습니다'}.`),
+    onSuccess: (_data, translate) => toast.success(`${picked.size}개 대사를 ${translate === 'exclude' ? '번역에서 뺐습니다' : '번역 대상으로 정했습니다'}.`),
   });
   return { picked, pick, stopPicking, pickedByAi, tagState, setStatus, setListener, check, setTag, setTranslate };
 }
@@ -134,14 +134,13 @@ export function LineHeadRow({ projectId, rows, bulk, statusList, tags }: { proje
                 state={tagState}
                 onToggle={(tagId, add) => setTag.mutate({ tagId, add })}
               />
-              <Select value="" onValueChange={(value) => setTranslate.mutate(value === 'auto' ? null : (value as 'include' | 'exclude'))}>
+              <Select value="" onValueChange={(value) => setTranslate.mutate(value as 'include' | 'exclude')}>
                 <SelectTrigger size="sm" className="w-28 shrink-0" aria-label="번역 대상 바꾸기">
                   <SelectValue placeholder="번역 대상" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="exclude">번역 제외</SelectItem>
-                  <SelectItem value="include">번역함</SelectItem>
-                  <SelectItem value="auto">규칙대로</SelectItem>
+                  <SelectItem value="include">번역 대상</SelectItem>
+                  <SelectItem value="exclude">제외</SelectItem>
                 </SelectContent>
               </Select>
             </SelectionBar>

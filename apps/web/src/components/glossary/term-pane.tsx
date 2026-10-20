@@ -1,4 +1,5 @@
 /** Detail panes for a glossary term: edit one, or add a new one. */
+import { CopyButton } from '@/components/copy-button';
 import { useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -33,10 +34,10 @@ export const NEW_TERM = 'new';
 function TermFields({ form, onChange }: { form: { source: string; target: string; note: string }; onChange: (form: { source: string; target: string; note: string }) => void }) {
   return (
     <InspectorFields>
-      <InspectorField label="원문">
+      <InspectorField label="원문" action={form.source ? <CopyButton value={form.source} label="원문 복사" /> : undefined}>
         <Input value={form.source} onChange={(event) => onChange({ ...form, source: event.target.value })} />
       </InspectorField>
-      <InspectorField label="번역">
+      <InspectorField label="번역" action={form.target ? <CopyButton value={form.target} label="번역 복사" /> : undefined}>
         <Input value={form.target} onChange={(event) => onChange({ ...form, target: event.target.value })} />
       </InspectorField>
       <InspectorField label="메모">

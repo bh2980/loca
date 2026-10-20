@@ -84,7 +84,7 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
 
       {activeTab === 'io' && (
         <div className="min-w-0">
-          {node.type === 'ai' && <RequestPreview workflowId={refs.workflowId} node={node} />}
+          {node.type === 'ai' && <RequestPreview projectId={refs.projectId} workflowId={refs.workflowId} node={node} />}
           <InspectorSection title="입력">
             {node.type === 'entry' && (
               <PropertyGrid>

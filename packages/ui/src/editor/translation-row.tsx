@@ -38,7 +38,7 @@ export function TranslationRow({ checkbox, speaker, status, source, translation,
         <div className={cn("min-w-0", compact ? "text-sm leading-5" : "text-sm leading-relaxed")}>{source}</div>
       </div>
       <div className="min-w-0 pl-1.5">
-        {(status || meta) && <div className="mb-1 flex min-h-4 items-center gap-2">{status}{meta}</div>}
+        {(status || meta) && <div className="mb-1 flex min-h-4 items-center gap-2">{status}{meta && <span className="ml-auto flex items-center gap-1">{meta}</span>}</div>}
         <div className={cn("min-w-0", compact ? "text-sm leading-5" : "text-sm leading-relaxed")}>{translation}</div>
         {actions && <div className="mt-2">{actions}</div>}
       </div>

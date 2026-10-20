@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { CopyButton } from '@/components/copy-button';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { useMutation, useQuery } from '@tanstack/react-query';
@@ -239,6 +240,11 @@ function RunDetail() {
               <AlertDescription>{data.notice}</AlertDescription>
             </Alert>
           )}
+          <p className="flex items-center gap-1 text-xs text-muted-foreground">
+            <span className="shrink-0">실행 ID</span>
+            <code className="truncate font-mono">{runId}</code>
+            <CopyButton value={runId} label="실행 ID 복사" />
+          </p>
           <p className="truncate text-xs text-muted-foreground">
             {dateTime(data.createdAt)} 시작 · 모델 {data.models.map((model) => (model.routes.length > 1 ? `${model.label} (막히면 → ${model.routes.slice(1).map((route) => `${route.name} · ${route.model}`).join(' → ')})` : model.label)).join(', ') || '없음'}
           </p>

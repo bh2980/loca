@@ -1,7 +1,7 @@
 /** One row of the line list, with the hints and links that open under the picked line. */
 import { useMemo, type ComponentProps, type ReactNode, type RefObject } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, CircleAlert } from 'lucide-react';
+import { Check, CircleAlert, Ellipsis, PanelRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { AUTO_MARKS, compileFormatRules, isUnknownListener, lineExclusion, listenerLabel, needsListener, PALETTE, SPECIAL_LISTENERS, TAG_SCOPES, type FormatRules, type LineMark, type ListenerOrigin, mentions, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
 import { MarkChip } from '@/components/status';
@@ -16,7 +16,17 @@ import {
   AiMark,
   StatusIcon,
   TagChip,
-  TagListEditor,
+  TagSubMenu,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
   SpeakerIdentity,
   TranslationRow,
   SceneSectionHeader,
@@ -234,7 +244,7 @@ export function LineRow({
 
   const queryClient = useQueryClient();
   const patch = useMutation({
-    mutationFn: (json: { tagIds?: string[] }) => unwrap(client.units[':unitId'].$patch({ param: { unitId: line.id }, json })),
+    mutationFn: (json: { tagIds?: string[]; translate?: 'include' | 'exclude' }) => unwrap(client.units[':unitId'].$patch({ param: { unitId: line.id }, json })),
     onMutate: async (json) => ({ undo: await optimistic(queryClient, unitChanges([line.id], patchedLine(json))) }),
     onError: (error, _json, context) => {
       context?.undo();
@@ -265,23 +275,6 @@ export function LineRow({
       toast.error(err instanceof Error ? err.message : '태그를 만들지 못했습니다.');
     }
   };
-
-  const editorMarks = (
-    <div className="mt-1 flex flex-wrap items-center gap-1" role="group" aria-label="이 줄의 태그" onClick={(event) => event.stopPropagation()}>
-      {marks.map((mark) => (
-        <Button key={mark} variant="ghost" size="inline" className="h-auto p-0 hover:bg-transparent" title={`#${AUTO_MARKS[mark].name} 줄만 보기`} onClick={() => onFilterMark(mark)}>
-          <MarkChip mark={mark} projectId={projectId} />
-        </Button>
-      ))}
-      <TagListEditor
-        tags={orderedTags}
-        allTags={tags}
-        onToggle={handleToggleTag}
-        onCreate={handleCreateTag}
-        heading="태그"
-      />
-    </div>
-  );
 
   const tagRow = marks.length || orderedTags.length ? (
     <div className="mt-1 flex flex-wrap gap-1" role="group" aria-label="이 줄의 태그" onClick={(event) => event.stopPropagation()}>
@@ -331,11 +324,54 @@ export function LineRow({
       <AiMark by="ai" />
     </Button>
   ) : null;
-  // The details pane opens only from here or the row's menu; picking a line never opens it.
-  const detailButton = selected && onOpenDetail ? (
-    <Button variant="ghost" size="inline" className="text-muted-foreground" onClick={(event) => (event.stopPropagation(), onOpenDetail())}>
-      상세
-    </Button>
+  // The line's actions sit at the right end of the header of the picked row: the details pane, and everything else in ⋯.
+  const actions = selected ? (
+    <span className="flex items-center gap-0.5" onClick={(event) => event.stopPropagation()}>
+      {onOpenDetail && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button type="button" variant="ghost" size="icon-xs" className="text-muted-foreground" aria-label="상세 열기" onClick={onOpenDetail}>
+              <PanelRight />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>상세 열기</TooltipContent>
+        </Tooltip>
+      )}
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <Button type="button" variant="ghost" size="icon-xs" className="text-muted-foreground" aria-label="줄 동작">
+                <Ellipsis />
+              </Button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>줄 동작</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent align="end" className="w-52" onClick={(event) => event.stopPropagation()}>
+          <TagSubMenu
+            tags={tags.filter((tag) => !tag.role)}
+            state={(tagId) => (line.tagIds.includes(tagId) ? 'all' : 'none')}
+            onToggle={handleToggleTag}
+            onCreate={handleCreateTag}
+            heading="태그"
+          />
+          <DropdownMenuSeparator />
+          <DropdownMenuRadioGroup value={excluded ? 'exclude' : 'include'} onValueChange={(value) => patch.mutate({ translate: value as 'include' | 'exclude' })}>
+            <DropdownMenuRadioItem value="include">번역 대상</DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="exclude">제외</DropdownMenuRadioItem>
+          </DropdownMenuRadioGroup>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={() => { void navigator.clipboard.writeText(line.source); toast.success('원문을 복사했습니다.'); }}>원문 복사</DropdownMenuItem>
+          {line.translation && <DropdownMenuItem onClick={() => { void navigator.clipboard.writeText(line.translation!); toast.success('번역을 복사했습니다.'); }}>번역 복사</DropdownMenuItem>}
+          <DropdownMenuItem onClick={() => { void navigator.clipboard.writeText(line.key); toast.success('대사 키를 복사했습니다.'); }}>키 복사</DropdownMenuItem>
+          {onShowInGraph && <DropdownMenuItem onClick={onShowInGraph}>그래프에서 보기</DropdownMenuItem>}
+          {(onInsertAfter || onDelete) && <DropdownMenuSeparator />}
+          {onInsertAfter && <DropdownMenuItem onClick={onInsertAfter}>아래에 대사 추가</DropdownMenuItem>}
+          {onDelete && <DropdownMenuItem variant="destructive" onClick={onDelete}>대사 삭제</DropdownMenuItem>}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </span>
   ) : null;
   const source = selected ? (
     <>
@@ -346,7 +382,7 @@ export function LineRow({
   ) : <MarkedSourceText projectId={projectId} text={line.source} pattern={tokenPattern} className={cn(sourceClass)} />;
   const translation = selected ? (
     <>
-      <TranslationEditor key={`editor-${line.id}`} projectId={projectId} unit={line} statuses={statusList} focusKey={focusTick} marks={editorMarks} onEscape={onEscape} onDone={onDone} />
+      <TranslationEditor key={`editor-${line.id}`} projectId={projectId} unit={line} statuses={statusList} focusKey={focusTick} marks={tagRow} onEscape={onEscape} onDone={onDone} />
       {review && !!line.lastRun?.issues.length && <ReviewIssue issue={line.lastRun.issues[0]} />}
     </>
   ) : (
@@ -362,7 +398,7 @@ export function LineRow({
       checkbox={checkbox}
       speaker={identity}
       status={statusContent}
-      meta={aiMeta || detailButton ? <>{aiMeta}{detailButton}</> : null}
+      meta={aiMeta || actions ? <>{aiMeta}{actions}</> : null}
       source={source}
       translation={translation}
       selected={selected}

@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { scopeMismatch } from '../services/run-plan.ts';
 import { and, asc, count, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { choiceKey, FUNCTIONS, type FunctionName, isWholeScriptWorkflow, nodeModels, CONNECTION_KIND_INFO, workflowInput, AUTO_MARK_IDS, type AutoMark, scriptParams, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels } from '@tw/shared';
+import { choiceKey, nodeName, FUNCTIONS, type FunctionName, isWholeScriptWorkflow, nodeModels, CONNECTION_KIND_INFO, workflowInput, AUTO_MARK_IDS, type AutoMark, scriptParams, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -71,6 +71,8 @@ export const workflowRoutes = new Hono<Env>()
         // What it takes in (lines or terms): the run dialog's scope fields follow it.
         input: workflowInput(definition),
         nodeCount: definition.nodes.length,
+        // Its AI nodes, for pickers that show what one of them sends (대사 상세 › AI 프롬프트).
+        aiNodes: definition.nodes.filter((node) => node.type === 'ai').map((node) => ({ id: node.id, name: nodeName(node) })),
         errorCount: workflowIssues(db, projectId, definition).filter((issue) => issue.level === 'error').length,
       })),
     );
