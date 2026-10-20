@@ -290,8 +290,10 @@ function Table<T>({
     // A fixed-layout table wider than its columns hands the spare width to every column in proportion, so
     // moving one edge moved the others. Freeze every column at the width it shows now; the table is then
     // exactly as wide as its columns (see `width` below) and only the dragged one changes.
+    // The last column is left out: it takes whatever width is left (fillerId below).
     const shown: ColumnSizingState = {}
     for (const th of cell.parentElement?.querySelectorAll<HTMLElement>("th[data-col]") ?? []) {
+      if (th.dataset.col === fillerId) continue
       shown[th.dataset.col!] = Math.max(MIN_WIDTH, Math.round(th.getBoundingClientRect().width))
     }
     table.setColumnSizing((previous) => ({ ...previous, ...shown }))
@@ -334,6 +336,7 @@ function Table<T>({
   const pickable = Boolean(onPick && picked) && (!canPick || pickableIds.length > 0)
   const bulking = Boolean(bulk && picked && picked.size > 0)
   const visibleColumns = table.getVisibleLeafColumns()
+  const fillerId = visibleColumns.at(-1)?.id
   const menuWidth = id ? 32 : 0
   const sortable = Boolean(onReorder)
   // One leading cell holds the checkbox, with the drag grip in its left padding (no column of its own).
@@ -361,12 +364,15 @@ function Table<T>({
     }
   }, [selected, virtualize, tableRows, rowVirtualizer])
 
+  // The last column fills the row, so the table is never narrower than its pane (no blank strip on
+  // the right after narrowing a column); it has no width of its own and no drag handle, and is at
+  // least its starting width (or FLEX_MIN) when the others take the room.
   const widthOf = (column: { id: string; columnDef: ColumnDef<T, unknown> }) =>
-    sizing[column.id] ?? column.columnDef.meta?.width
+    column.id === fillerId ? undefined : (sizing[column.id] ?? column.columnDef.meta?.width)
   const minWidth =
     (pickable ? 36 : sortable ? 20 : 0) +
     menuWidth +
-    visibleColumns.reduce((sum, column) => sum + (widthOf(column) ?? FLEX_MIN), 0)
+    visibleColumns.reduce((sum, column) => sum + (widthOf(column) ?? (column.id === fillerId ? (column.columnDef.meta?.width ?? FLEX_MIN) : FLEX_MIN)), 0)
 
   // One ContextMenu for the whole table: its pointer anchor span must not
   // live inside <tbody>, so rows only render a trigger around the <tr>.
@@ -471,7 +477,7 @@ function Table<T>({
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
         <table
           className="w-full table-fixed border-separate border-spacing-0 text-sm"
-          style={{ minWidth, ...(Object.keys(sizing).length ? { width: minWidth } : {}) }}
+          style={{ minWidth, width: `max(${minWidth}px, 100%)` }}
         >
           <colgroup>
             {lead && <col className={pickable ? "w-9" : "w-5"} />}
@@ -530,7 +536,8 @@ function Table<T>({
                         ? null
                         : flexRender(header.column.columnDef.header, header.getContext())}
                       {!header.isPlaceholder &&
-                        header.column.columnDef.meta?.resizable !== false && (
+                        header.column.columnDef.meta?.resizable !== false &&
+                        header.column.id !== fillerId && (
                           <span
                             role="separator"
                             aria-orientation="vertical"
