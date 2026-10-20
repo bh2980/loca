@@ -1,6 +1,5 @@
-import { Button } from '@loca/ui';
+import { CanvasToolbar } from '@loca/ui';
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode, type Ref } from 'react';
-import { Map as MapIcon, Minimize2 } from 'lucide-react';
 import { select } from 'd3-selection';
 import 'd3-transition';
 import { zoom as d3zoom, zoomIdentity, type ZoomBehavior, type ZoomTransform } from 'd3-zoom';
@@ -141,6 +140,8 @@ interface Props {
   /** Real edges left out of the layout (they touch a hub); drawn as faint straight lines. */
   looseEdges?: LooseEdge[];
   direction?: 'vertical' | 'horizontal';
+  /** 가로·세로 in the canvas toolbar (as in the other graphs); without it the toolbar has no direction. */
+  onDirectionChange?: (direction: 'vertical' | 'horizontal') => void;
   /** Hub nodes by id; drawn as quiet pills instead of the usual node shapes. */
   hubs?: Map<string, HubInfo>;
   info: Map<string, NodeInfo>;
@@ -180,7 +181,7 @@ interface Props {
  * Draws a precomputed ELK layout. d3-zoom owns pan/zoom, Flatbush owns spatial queries,
  * so each frame only touches what is on screen. One <canvas>, no per-node DOM.
  */
-export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, direction = 'vertical', hubs, info, width, height, selectedId, selectedIds, onSelectMany, highlight, endpointMarkers, highlightEdges, initialViewport, initialFocus, initialFocusAlign = 'center', onViewportChange, onSelect, onContextMenu, onOpen, anchor, handle }: Props) {
+export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, direction = 'vertical', onDirectionChange, hubs, info, width, height, selectedId, selectedIds, onSelectMany, highlight, endpointMarkers, highlightEdges, initialViewport, initialFocus, initialFocusAlign = 'center', onViewportChange, onSelect, onContextMenu, onOpen, anchor, handle }: Props) {
   const theme = useTheme();
   const canvas = useRef<HTMLCanvasElement>(null);
   const minimap = useRef<HTMLCanvasElement>(null);
@@ -205,6 +206,8 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
       /* ignore */
     }
   };
+  // The toolbar's zoom reading, updated when a zoom or pan settles.
+  const [zoomK, setZoomK] = useState(1);
   useEffect(() => {
     if (minimapOpen) schedule();
   }, [minimapOpen]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -596,7 +599,10 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
         transform.current = event.transform;
         schedule();
       })
-      .on('end', (event: { transform: ZoomTransform }) => props.current.onViewportChange?.({ x: event.transform.x, y: event.transform.y, k: event.transform.k }));
+      .on('end', (event: { transform: ZoomTransform }) => {
+        setZoomK(event.transform.k);
+        props.current.onViewportChange?.({ x: event.transform.x, y: event.transform.y, k: event.transform.k });
+      });
     behavior.current = zoom;
     const selection = select(element).call(zoom).on('dblclick.zoom', null);
     const focusBox = () => {
@@ -820,29 +826,35 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
           {anchor.content}
         </div>
       )}
-      {minimapOpen ? (
+      {minimapOpen && (
         <div className="absolute bottom-3 left-3 rounded-md border bg-background/90 shadow-sm">
-          <Button variant="outline" size="icon-xs" onClick={() => toggleMinimap(false)} className="absolute -top-2.5 -right-2.5 rounded-full text-muted-foreground" aria-label="미니맵 접기">
-            <Minimize2 />
-          </Button>
-      <canvas
-        ref={minimap}
-        className="block cursor-pointer rounded-md"
-        aria-label="미니맵"
-        onClick={(event) => {
-          const rect = event.currentTarget.getBoundingClientRect();
-          const x = (event.clientX - rect.left - overview.offX) / overview.scale + index.bounds.minX;
-          const y = (event.clientY - rect.top - overview.offY) / overview.scale + index.bounds.minY;
-          const k = transform.current.k;
-          animateTo(zoomIdentity.translate(width / 2 - x * k, height / 2 - y * k).scale(k));
-        }}
-      />
+          <canvas
+            ref={minimap}
+            className="block cursor-pointer rounded-md"
+            aria-label="미니맵"
+            onClick={(event) => {
+              const rect = event.currentTarget.getBoundingClientRect();
+              const x = (event.clientX - rect.left - overview.offX) / overview.scale + index.bounds.minX;
+              const y = (event.clientY - rect.top - overview.offY) / overview.scale + index.bounds.minY;
+              const k = transform.current.k;
+              animateTo(zoomIdentity.translate(width / 2 - x * k, height / 2 - y * k).scale(k));
+            }}
+          />
         </div>
-      ) : (
-        <Button variant="outline" onClick={() => toggleMinimap(true)} className="absolute bottom-3 left-3 text-muted-foreground shadow-sm">
-          <MapIcon /> 미니맵
-        </Button>
       )}
+      {/* The same canvas toolbar as the other graphs: zoom, fit, 가로·세로, minimap. */}
+      <CanvasToolbar
+        zoomPercent={zoomK * 100}
+        onZoomIn={() => behavior.current && select(canvas.current!).transition().duration(200).call(behavior.current.scaleBy, 1.25)}
+        onZoomOut={() => behavior.current && select(canvas.current!).transition().duration(200).call(behavior.current.scaleBy, 0.8)}
+        onFit={() => animateTo(fitTransform())}
+        onResetZoom={() => behavior.current && select(canvas.current!).transition().duration(180).call(behavior.current.scaleTo, 1)}
+        direction={onDirectionChange ? direction : undefined}
+        onDirectionChange={onDirectionChange}
+        minimapVisible={minimapOpen}
+        onToggleMinimap={() => toggleMinimap(!minimapOpen)}
+        className="absolute right-3 bottom-3 z-30"
+      />
     </div>
   );
 }
