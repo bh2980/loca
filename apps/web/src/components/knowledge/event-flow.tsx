@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Background, Handle, MarkerType, NodeToolbar, Panel, Position, ReactFlow, SelectionMode, type Edge, type Node, type NodeChange, type NodeProps, type ReactFlowInstance } from '@xyflow/react';
+import { Background, Handle, MarkerType, useConnection, NodeToolbar, Panel, Position, ReactFlow, SelectionMode, type Edge, type Node, type NodeChange, type NodeProps, type ReactFlowInstance } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { Copy, Trash2 } from 'lucide-react';
 import { CanvasToolbar, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger, EmptyState, SelectionToolbox } from '@loca/ui';
@@ -31,14 +31,16 @@ type SectionNode = Node<{ title: string }, 'section'>;
 let eventClipboard: string[] = [];
 
 /** A connecting dot as in the other graphs (with a wider grab area); none where the flow only shows. */
-const dot = (connectable: boolean) => (connectable ? "!size-2.5 !border-2 !border-card !bg-muted-foreground after:absolute after:-inset-2 after:content-[''] hover:!bg-primary group-hover/event:!bg-primary" : '!opacity-0')
+const dot = (connectable: boolean) => (connectable ? "!size-3 !border-2 !border-card !bg-muted-foreground after:absolute after:-inset-3 after:content-[''] hover:!bg-primary group-hover/event:!bg-primary" : '!opacity-0')
 
 function EventCard({ data, selected, isConnectable }: NodeProps<EventNode>) {
   const { event } = data;
+  // While a line is being drawn, the card under the pointer is framed: that is where it lands.
+  const drawing = useConnection((connection) => connection.inProgress);
   const target = data.direction === 'vertical' ? Position.Top : Position.Left;
   const source = data.direction === 'vertical' ? Position.Bottom : Position.Right;
   return (
-    <div className={cn('group/event flex flex-col rounded-md border bg-background px-3 py-2 text-left shadow-xs', (selected || data.target) && 'border-primary ring-2 ring-primary/30', event.status === 'candidate' && 'border-dashed')} style={CARD}>
+    <div className={cn('group/event flex flex-col rounded-md border bg-background px-3 py-2 text-left shadow-xs', (selected || data.target) && 'border-primary ring-2 ring-primary/30', drawing && 'hover:border-primary hover:ring-2 hover:ring-primary/30', event.status === 'candidate' && 'border-dashed')} style={CARD}>
       {/* Two dots, since a line has a before and an after: the top (left) one takes a line from the event
           before, the bottom (right) one draws to the event after. Dots only start lines: a drag ends on
           whichever card it is dropped on (EventFlow's onConnectEnd), never snapping to that card's dots. */}
@@ -323,7 +325,17 @@ export function EventFlow({ projectId, events, selected, onOpen, badge, filtered
       onConnectEnd={(event, state) => {
         if (!edits || !state.fromNode) return;
         const point = 'changedTouches' in event ? event.changedTouches[0]! : event;
-        const id = document.elementFromPoint(point.clientX, point.clientY)?.closest('.react-flow__node')?.getAttribute('data-id');
+        // The card under the pointer, or else the nearest one within a short reach (a drop just beside a card).
+        const reach = 40 / (flow?.getZoom() ?? 1);
+        const at = flow?.screenToFlowPosition({ x: point.clientX, y: point.clientY });
+        const nearest = () => {
+          if (!at) return undefined;
+          const gap = (node: Node) => Math.hypot(Math.max(node.position.x - at.x, 0, at.x - node.position.x - CARD.width), Math.max(node.position.y - at.y, 0, at.y - node.position.y - CARD.height));
+          const near = flowNodes.filter((node) => node.type === 'event' && node.id !== state.fromNode!.id && gap(node) <= reach).sort((a, b) => gap(a) - gap(b));
+          return near[0]?.id;
+        };
+        const hit = document.elementFromPoint(point.clientX, point.clientY)?.closest('.react-flow__node')?.getAttribute('data-id');
+        const id = hit && byId.has(hit) ? hit : nearest();
         if (!id || id === state.fromNode.id || !byId.has(id)) return;
         // From the bottom (right) dot the line goes out to the card; from the top (left) one it comes in from it.
         const out = state.fromHandle?.type === 'source';
