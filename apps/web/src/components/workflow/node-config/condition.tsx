@@ -27,10 +27,6 @@ type Addable = keyof typeof ADDABLE;
 
 const TERM_ONLY: Addable[] = ['field', 'visits', 'error', 'candidate'];
 
-const variablesHint = (terms: boolean) => terms
-  ? `읽을 수 있는 값: visits.<노드ID>, outputs.<노드ID>.<필드>, candidate, issues, error.kind (${ITEM_ERROR_KIND_IDS.join(' · ')}), error.message, error.nodeId, term.status, term.hasTarget, term.lines, term.marks, term.tagIds`
-  : `읽을 수 있는 값: visits.<노드ID>, outputs.<노드ID>.<필드>, candidate, issues, error.kind (${ITEM_ERROR_KIND_IDS.join(' · ')}), error.message, error.nodeId, unit.kind, unit.speaker, unit.listener, unit.statusId, unit.tagIds, unit.marks (${CONDITION_MARK_IDS.join(' · ')})`;
-
 function Pick({ value, onChange, label, className, children }: { value: string; onChange: (value: string) => void; label: string; className?: string; children: React.ReactNode }) {
   return (
     <Select value={value} onValueChange={onChange}>
@@ -40,10 +36,10 @@ function Pick({ value, onChange, label, className, children }: { value: string; 
   );
 }
 
-/** 임/아님 or 있음/없음 after a line property. */
+/** = / ≠ between a property and its value, or 있음/없음 after one. */
 function Negate({ not, words, onChange }: { not?: boolean; words: [string, string]; onChange: (not: boolean) => void }) {
   return (
-    <Pick label="조건 방향" value={not ? 'not' : 'is'} onChange={(value) => onChange(value === 'not')} className="w-20">
+    <Pick label="조건 방향" value={not ? 'not' : 'is'} onChange={(value) => onChange(value === 'not')} className={words[0] === '=' ? 'w-16' : 'w-20'}>
       <SelectItem value="is">{words[0]}</SelectItem>
       <SelectItem value="not">{words[1]}</SelectItem>
     </Pick>
@@ -102,9 +98,9 @@ export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { nod
     const set = (next: Clause) => setClause(index, next);
     switch (clause.kind) {
       case 'status':
-        return <>상태 <Pick label="상태" value={clause.statusId} onChange={(statusId) => set({ ...clause, statusId })} className="w-36">{statuses.map((st) => <SelectItem key={st.id} value={st.id}><StatusIcon status={st} /> {st.name}</SelectItem>)}</Pick> <Negate not={clause.not} words={['임', '아님']} onChange={(not) => set({ ...clause, not })} /></>;
+        return <>상태 <Negate not={clause.not} words={['=', '≠']} onChange={(not) => set({ ...clause, not })} /> <Pick label="상태" value={clause.statusId} onChange={(statusId) => set({ ...clause, statusId })} className="w-36">{statuses.map((st) => <SelectItem key={st.id} value={st.id}><StatusIcon status={st} /> {st.name}</SelectItem>)}</Pick></>;
       case 'lineKind':
-        return <>종류 <Pick label="종류" value={clause.value} onChange={(value) => set({ ...clause, value })} className="w-32">{Object.entries(KIND_LABELS).map(([key, name]) => <SelectItem key={key} value={key}>{name}</SelectItem>)}</Pick> <Negate not={clause.not} words={['임', '아님']} onChange={(not) => set({ ...clause, not })} /></>;
+        return <>종류 <Negate not={clause.not} words={['=', '≠']} onChange={(not) => set({ ...clause, not })} /> <Pick label="종류" value={clause.value} onChange={(value) => set({ ...clause, value })} className="w-32">{Object.entries(KIND_LABELS).map(([key, name]) => <SelectItem key={key} value={key}>{name}</SelectItem>)}</Pick></>;
       case 'tag':
         return <>태그 <Pick label="태그" value={clause.tagId} onChange={(tagId) => set({ ...clause, tagId })} className="w-36">{tags.map((tg) => <SelectItem key={tg.id} value={tg.id}><TagChip tag={tg} /></SelectItem>)}</Pick> <Negate not={clause.not} words={['있음', '없음']} onChange={(not) => set({ ...clause, not })} /></>;
       case 'mark':
@@ -137,7 +133,7 @@ export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { nod
         );
       }
       case 'error':
-        return <>실패 종류 <Pick label="실패 종류" value={clause.errorKind} onChange={(errorKind) => set({ ...clause, errorKind: errorKind as typeof clause.errorKind })} className="w-36">{ITEM_ERROR_KIND_IDS.map((id) => <SelectItem key={id} value={id}>{ITEM_ERROR_KINDS[id]}</SelectItem>)}</Pick> <Negate not={clause.not} words={['임', '아님']} onChange={(not) => set({ ...clause, not })} /></>;
+        return <>실패 종류 <Negate not={clause.not} words={['=', '≠']} onChange={(not) => set({ ...clause, not })} /> <Pick label="실패 종류" value={clause.errorKind} onChange={(errorKind) => set({ ...clause, errorKind: errorKind as typeof clause.errorKind })} className="w-36">{ITEM_ERROR_KIND_IDS.map((id) => <SelectItem key={id} value={id}>{ITEM_ERROR_KINDS[id]}</SelectItem>)}</Pick></>;
       case 'listener':
         return <>청자 <Negate not={clause.not} words={['있음', '없음']} onChange={(not) => set({ ...clause, not })} /></>;
       case 'candidate':
@@ -161,7 +157,6 @@ export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { nod
       </Field>
       <Field
         label="조건"
-        hint={json ? variablesHint(terms) : undefined}
         action={
           <div className="flex shrink-0 items-center gap-2">
             {!json && condition.clauses.length > 1 && (
