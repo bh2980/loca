@@ -55,7 +55,7 @@ loca check speech --speaker Alice --listener Bob # 규칙과 번역 어미가 �
 loca lines --mark unknownListener -g "<장면>"
 ```
 - 사람이 확정한 청자: import 파일 줄에 `{"key":"<키>","rev":<rev>,"listener":"Bob"}`(모르면 `null`).
-- 근거로 추정한 AI의 추측: `loca call set_listeners`로 확신도(0–1)와 함께 제안합니다. 줄마다(`lines`) 또는 한 장면에서 한 화자의 청자 전체(`scenes`, 예외인 줄만 따로)로 줄 수 있고, 사람이 정했거나 가져오기로 들어온 청자는 바꾸지 않습니다. 이런 줄은 #AI 초안으로 남아 사람이 확인합니다. 형식은 `loca tools set_listeners`.
+- 근거로 추정한 AI의 추측: `loca call set_listeners`로 확신도(0–1)와 함께 제안합니다. 줄마다(`lines`) 주고, 사람이 정했거나 가져오기로 들어온 청자는 바꾸지 않습니다. 이런 줄은 #AI 초안으로 남아 사람이 확인합니다. 형식은 `loca tools set_listeners`.
 - 특별한 청자: 여럿(`group`) · 불특정 다수(`public`) · 혼잣말(`self`) · 그 밖의 사람(`others`).
 
 ## 사건·문서·장면 설명

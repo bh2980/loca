@@ -31,14 +31,14 @@ export function setHumanListener(tx: Tx, unitIds: readonly string[], listener: s
 }
 
 /**
- * An AI guess (`origin` 'ai' = for this line, 'scene' = the scene's default for the speaker). Never
+ * An AI guess for this line. Never
  * over a person's listener or an imported one, and only on lines said to someone (needsListener:
  * not narration, not format tokens only, by the project's format `rules`), so the AI makes up no
  * listener for the rest. Returns whether it was stored.
  */
-export function setAiListener(tx: Tx, unit: { id: string; kind: string; speaker: string | null; source: string; listener: string | null; listenerOrigin: string | null }, listener: string | null, confidence: number, origin: 'ai' | 'scene', rules: FormatRules | undefined) {
+export function setAiListener(tx: Tx, unit: { id: string; kind: string; speaker: string | null; source: string; listener: string | null; listenerOrigin: string | null }, listener: string | null, confidence: number, rules: FormatRules | undefined) {
   if (unit.listenerOrigin === 'human' || (unit.listenerOrigin === 'import' && unit.listener)) return false;
   if (!needsListener(unit, rules)) return false;
-  tx.update(s.units).set({ listener: cleanListener(listener), listenerOrigin: origin, listenerConfidence: clampConfidence(confidence) }).where(eq(s.units.id, unit.id)).run();
+  tx.update(s.units).set({ listener: cleanListener(listener), listenerOrigin: 'ai', listenerConfidence: clampConfidence(confidence) }).where(eq(s.units.id, unit.id)).run();
   return true;
 }

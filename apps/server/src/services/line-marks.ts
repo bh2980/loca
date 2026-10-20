@@ -16,7 +16,7 @@ export const sameSource = (column: SQL) => sql`trim(lower(${column}), ' .,!?…"
  * isUnsureListener / isUnknownListener in shared, nulls included (no origin = not a guess, no
  * confidence = 0). line-marks.test.ts checks the two agree.
  */
-export const knownListenerSql = sql`(${s.units.listener} is not null and (coalesce(${s.units.listenerOrigin}, '') not in ('ai', 'scene') or coalesce(${s.units.listenerConfidence}, 0) >= ${LISTENER_MIN_CONFIDENCE}))`;
+export const knownListenerSql = sql`(${s.units.listener} is not null and (coalesce(${s.units.listenerOrigin}, '') not in ('ai') or coalesce(${s.units.listenerConfidence}, 0) >= ${LISTENER_MIN_CONFIDENCE}))`;
 
 /**
  * 번역 제외 (exclusionReason / lineExclusion in shared, through the exclusion_reason SQL function):

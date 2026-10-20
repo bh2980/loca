@@ -14,7 +14,7 @@ describe('unknown listener', () => {
       for (const speaker of ['Ann', null, ' ', '\t', '\u00a0', ''])
         for (const source of ['Line', '<b></b>', '{0} %s', '<b>{name}</b>!'])
           for (const listener of [null, 'Hank'])
-            for (const origin of [null, 'import', 'scene', 'ai', 'human'] as const)
+            for (const origin of [null, 'import', 'ai', 'human'] as const)
               for (const confidence of [null, 0.5, 0.95]) cases.push({ kind, speaker, source, listener, origin, confidence });
     const file = importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'g', title: 'G' }], units: cases.map((item, index) => ({ key: `u${index}`, group: 'g', source: item.source })) });
     const { projectId } = importProject(db, file, null as never);

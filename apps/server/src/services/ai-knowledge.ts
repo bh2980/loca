@@ -285,46 +285,9 @@ export function aiSetLineListeners(tx: Tx, projectId: string, items: LineListene
     if (!unit) skipped.push({ key: item.key, reason: '없는 대사 키' });
     else if (unit.listenerOrigin === 'human') skipped.push({ key: item.key, reason: '사람이 정한 청자가 있습니다.' });
     else if (unit.listenerOrigin === 'import' && unit.listener) skipped.push({ key: item.key, reason: '가져온 청자가 있습니다.' });
-    else if (setAiListener(tx, unit, cleanListener(item.listener), clampConfidence(item.confidence), 'ai', rules)) set.push(item.key);
+    else if (setAiListener(tx, unit, cleanListener(item.listener), clampConfidence(item.confidence), rules)) set.push(item.key);
     else skipped.push({ key: item.key, reason: '청자가 필요 없는 줄입니다(지문·서식만 있는 줄).' });
   }
   return { set: set.length, skipped };
 }
 
-export interface SceneListenerItem { scene: string; speaker: string; listener: string | null; confidence?: number; exceptions?: { line: string; listener: string | null; confidence?: number }[] }
-/**
- * Fills, per scene (the group's key), the listener of a speaker's lines for dialogue lines whose listener
- * nobody set (none, or an earlier scene guess). It is stored as a scene guess: below the bar it says "mostly X
- * here" and the line still counts as unknown. Imported, human and per-line AI listeners are never touched.
- * An exception names the listener of one line (a per-line guess). Returns the number of lines changed.
- */
-export function aiSetSceneListeners(tx: Tx, projectId: string, entries: SceneListenerItem[]) {
-  if (!entries.length) return { changed: 0 };
-  const { live, canon } = cast(tx, projectId, entries.flatMap((entry) => [{ name: entry.speaker ?? '', aliases: [] }, { name: entry.listener ?? '', aliases: [] }]).filter((p) => p.name));
-  const person = personKey(live);
-  const groupByKey = new Map(tx.select({ id: s.groups.id, key: s.groups.key }).from(s.groups).where(eq(s.groups.projectId, projectId)).all().map((group) => [group.key, group.id]));
-  const wanted = new Map<string, { listener: string | null; confidence: number }>();
-  const resolve = (name: string | null) => (name && !isSpecialListener(name) ? canon(name) : name);
-  for (const entry of entries) {
-    const groupId = groupByKey.get(entry.scene.trim());
-    if (!groupId) continue;
-    wanted.set(`${groupId}|${person(canon(entry.speaker))}`, { listener: resolve(entry.listener), confidence: clampConfidence(entry.confidence) });
-  }
-  const changed = new Set<string>();
-  const rules = tx.select({ rules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, projectId)).get()?.rules;
-  const lines = tx.select({ id: s.units.id, kind: s.units.kind, groupId: s.units.groupId, speaker: s.units.speaker, source: s.units.source, listener: s.units.listener, listenerOrigin: s.units.listenerOrigin }).from(s.units).where(and(eq(s.units.projectId, projectId), eq(s.units.kind, 'dialogue'))).all();
-  for (const line of lines) {
-    // A per-line AI guess stays over the scene's default.
-    if (!line.speaker || line.listenerOrigin === 'ai') continue;
-    const found = wanted.get(`${line.groupId}|${person(line.speaker)}`);
-    if (!found || found.listener === null) continue;
-    if (setAiListener(tx, line, found.listener, found.confidence, 'scene', rules)) changed.add(line.id);
-  }
-  for (const entry of entries) {
-    for (const exception of entry.exceptions ?? []) {
-      const line = tx.select({ id: s.units.id, kind: s.units.kind, speaker: s.units.speaker, source: s.units.source, listener: s.units.listener, listenerOrigin: s.units.listenerOrigin }).from(s.units).where(and(eq(s.units.projectId, projectId), eq(s.units.key, exception.line.trim()))).get();
-      if (line && setAiListener(tx, line, resolve(exception.listener), clampConfidence(exception.confidence), 'ai', rules)) changed.add(line.id);
-    }
-  }
-  return { changed: changed.size };
-}

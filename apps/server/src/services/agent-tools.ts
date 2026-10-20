@@ -26,7 +26,7 @@ import { deleteItems, DELETABLE_KINDS } from './item-delete.ts';
 import { projectSettingsInput, readProjectSettings, updateProjectSettings } from './project-settings.ts';
 import { pickNodes, saveView, sectionWithMost, viewSection, VIEW_LIMIT } from './graph-views.ts';
 import { asNew, characterByName as characterByNameOf, saveCharacterItem, saveKnowledgeItem, saveRelationshipItem, sent } from './knowledge-save.ts';
-import { aiSetLineListeners, aiSetSceneListeners } from './ai-knowledge.ts';
+import { aiSetLineListeners } from './ai-knowledge.ts';
 import { listTerms, saveTerm, termFilterInput } from './terms.ts';
 import { annotateKnowledge, knowledgeFilterInput } from './knowledge-list.ts';
 import { findTerm, termUsage } from './term-usage.ts';
@@ -540,18 +540,17 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
     }),
     set_listeners: tool({
       description:
-        'Set who lines are addressed to, as an AI guess (origin ai, with a 0..1 confidence; a listener a person set or the import brought is never changed, and only lines said to someone take one). lines: per line (key, listener name or null, confidence). scenes: a speaker\'s listener for a whole scene (scene = the group key; stored as a scene guess that fills the scene\'s lines with no listener; exceptions name single lines). Names as stored (character name or alias), or a special listener (group, self…).',
+        'Set who lines are addressed to, as an AI guess (origin ai, with a 0..1 confidence; a listener a person set or the import brought is never changed, and only lines said to someone take one). lines: per line (key, listener name or null, confidence). Names as stored (character name or alias), or a special listener (group, self…).',
       inputSchema: z
         .object({
           lines: z.array(z.object({ key: z.string().min(1), listener: z.string().nullable(), confidence: z.number().min(0).max(1).default(1) })).max(5_000).default([]),
-          scenes: z.array(z.object({ scene: z.string().min(1), speaker: z.string().min(1), listener: z.string().nullable(), confidence: z.number().min(0).max(1).default(1), exceptions: z.array(z.object({ line: z.string().min(1), listener: z.string().nullable(), confidence: z.number().min(0).max(1).default(1) })).default([]) })).max(2_000).default([]),
         })
-        .refine((input) => input.lines.length + input.scenes.length > 0, '청자를 하나 이상 넣으세요.'),
+        .refine((input) => input.lines.length > 0, '청자를 하나 이상 넣으세요.'),
       needsApproval: true,
-      execute: ({ lines, scenes }) => {
-        const result = db.transaction((tx) => ({ lines: aiSetLineListeners(tx, projectId, lines), scenes: aiSetSceneListeners(tx, projectId, scenes) }));
+      execute: ({ lines }) => {
+        const result = db.transaction((tx) => aiSetLineListeners(tx, projectId, lines));
         changed('units');
-        return { ok: true, lines: result.lines.set, skipped: result.lines.skipped, sceneLines: result.scenes.changed };
+        return { ok: true, lines: result.set, skipped: result.skipped };
       },
     }),
     save_group_summary: tool({

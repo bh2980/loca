@@ -9,7 +9,7 @@ interface LineLike {
   key: string;
   speaker: string | null;
   listener: string | null;
-  listenerOrigin: 'import' | 'scene' | 'ai' | 'human' | null;
+  listenerOrigin: 'import' | 'ai' | 'human' | null;
   listenerConfidence: number | null;
 }
 

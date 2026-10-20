@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { importFileSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { aiSaveCharacters, aiSaveDocument, aiSaveEvents, aiSaveRelationships, aiSaveSpeechRules, aiSaveTerms, aiSetLineListeners, aiSetSceneListeners, canonicalNames } from './ai-knowledge.ts';
+import { aiSaveCharacters, aiSaveDocument, aiSaveEvents, aiSaveRelationships, aiSaveSpeechRules, aiSaveTerms, aiSetLineListeners, canonicalNames } from './ai-knowledge.ts';
 import { importProject } from './importer.ts';
 import { tagsOf } from './knowledge-tags.ts';
 
@@ -132,11 +132,6 @@ describe('AI knowledge writes', () => {
     expect(result.set).toBe(1);
     expect(result.skipped.map((entry) => entry.key)).toEqual(['a2', 'a3', 'zz']);
     expect(lines(db, projectId).get('a1')).toMatchObject({ listener: 'Bob', listenerOrigin: 'ai', listenerConfidence: 0.9 });
-    const scene = aiSetSceneListeners(db as never, projectId, [{ scene: 'g1', speaker: 'Alice', listener: 'Bob', confidence: 0.95, exceptions: [{ line: 'a1', listener: 'Crowd', confidence: 0.4 }] }]);
-    const after = lines(db, projectId);
-    // The per-line AI guess stays over the scene default (the exception then replaces it); the import stays.
-    expect(after.get('a3')).toMatchObject({ listener: 'Captain', listenerOrigin: 'import' });
-    expect(after.get('a1')).toMatchObject({ listener: 'Crowd', listenerOrigin: 'ai' });
-    expect(scene.changed).toBe(1);
+    expect(lines(db, projectId).get('a3')).toMatchObject({ listener: 'Captain', listenerOrigin: 'import' });
   });
 });

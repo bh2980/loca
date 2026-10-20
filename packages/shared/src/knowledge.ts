@@ -43,21 +43,14 @@ export const isSettled = (item: { status: KnowledgeStatus; statusBy: StatusBy })
  */
 export const aiStatus = (autoConfirm: boolean) => (autoConfirm ? ('confirmed' as const) : ('candidate' as const));
 
-/**
- * Where a line's listener came from. A person's choice always wins over the AI's. "scene": the work
- * analysis's whom-a-speaker-mostly-addresses for a whole scene, copied to the speaker's lines there;
- * "ai": a guess for this very line (a listener workflow node).
- */
-export const LISTENER_ORIGINS = ['import', 'scene', 'ai', 'human'] as const;
+/** Where a line's listener came from. A person's choice always wins over the AI's; "ai" is a guess for that line (a listener workflow node, the chat or CLI). */
+export const LISTENER_ORIGINS = ['import', 'ai', 'human'] as const;
 export type ListenerOrigin = (typeof LISTENER_ORIGINS)[number];
 /** AI listeners below this confidence count as unknown (experiment sample: 99% right at >= 0.9). */
 export const LISTENER_MIN_CONFIDENCE = 0.9;
-/**
- * A guess that does not count: below the bar, by line or by scene. A low scene guess means the
- * speaker addresses several people there ("mostly X"), so it is a hint about the scene, not the line.
- */
+/** An AI guess that does not count: below the bar. */
 export const isUnsureListener = (line: { listenerOrigin: ListenerOrigin | null; listenerConfidence: number | null }) =>
-  (line.listenerOrigin === 'ai' || line.listenerOrigin === 'scene') && (line.listenerConfidence ?? 0) < LISTENER_MIN_CONFIDENCE;
+  line.listenerOrigin === 'ai' && (line.listenerConfidence ?? 0) < LISTENER_MIN_CONFIDENCE;
 /**
  * Listeners that are not one person: everyone present, an unspecified audience (broadcasts,
  * notices, posts), and the speaker themself (thinking aloud). Speech rules can name them as the
