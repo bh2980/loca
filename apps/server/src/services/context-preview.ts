@@ -3,7 +3,7 @@ import { batchConfigSchema, contextConfigSchema, estimateTokens, nodeName, type 
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { planBatches } from '../engine/batches.ts';
-import { buildPrompt } from '../engine/prompts.ts';
+import { buildPrompt, promptLineId } from '../engine/prompts.ts';
 import { wholeScriptRequest } from '../engine/whole-script.ts';
 import { resolveChoiceOptions } from './choice-options.ts';
 import { buildContext } from './context.ts';
@@ -45,7 +45,7 @@ export function previewContext(db: Db, projectId: string, unitKey: string, pick:
   // A node reading the script whole sends the script text with the project-wide context only.
   const whole = config.mode === 'whole' ? wholeScriptRequest(db, projectId, node, languages, batch, choiceOptions) : null;
   const context = whole?.context ?? buildContext(db, projectId, batch, node.config.context);
-  const lines = batch.map((row, index) => ({ id: String(index + 1), unitId: row.id, groupId: row.groupId, key: row.key, kind: row.kind, speaker: row.speaker, source: row.source, candidate: row.translation ?? undefined }));
+  const lines = batch.map((row, index) => ({ id: promptLineId(index), unitId: row.id, groupId: row.groupId, key: row.key, kind: row.kind, speaker: row.speaker, source: row.source, candidate: row.translation ?? undefined }));
   const { system, prompt } = whole ?? buildPrompt(node, languages, context, lines, choiceOptions);
   return {
     unitKey,

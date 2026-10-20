@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, gte, inArray, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
 import jsonLogic from 'json-logic-js';
 import * as ai from '@tw/ai';
-import { estimateTokens, batchConfigSchema, batchTokens, lineCost, FUNCTIONS, choiceKey, lineMarksOf, nodeModels, nodeName, type AiNode, type ConditionData, type FunctionName, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+import { estimateTokens, batchConfigSchema, batchTokens, lineCostIn, FUNCTIONS, choiceKey, lineMarksOf, nodeModels, nodeName, type AiNode, type ConditionData, type FunctionName, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -14,7 +14,7 @@ import { runAsyncFunction, syncFunctions, type FunctionInput } from './functions
 import { APPLY_TOPICS } from './functions/apply.ts';
 import { packGroups, planBatches } from './batches.ts';
 import { readAiOutput, type Outcome } from './ai-output.ts';
-import { buildPrompt, isBatchScope, outputSchema, type PromptLine } from './prompts.ts';
+import { buildPrompt, isBatchScope, outputSchema, promptLineId, type PromptLine } from './prompts.ts';
 import { wholeScriptRequest } from './whole-script.ts';
 import { resolveChoiceOptions } from '../services/choice-options.ts';
 import { applyIssueTags } from '../services/issue-tags.ts';
@@ -461,7 +461,7 @@ export class Runner {
         batches = packGroups(ready.map(([, members]) => members), config);
       } else batches = planBatches(lines, config);
       for (const [index, batch] of batches.entries()) {
-        const tokens = () => batch.reduce((sum, line) => sum + lineCost(line), 0);
+        const tokens = () => batch.reduce((sum, line) => sum + lineCostIn(config?.mode ?? 'group')(line), 0);
         // A full request: "count" by its line count, the others by tokens (no line-count cap).
         const complete = !config || config.mode === 'unit' || (config.mode === 'count' ? batch.length >= config.size : tokens() >= batchTokens(config));
         const target = index < batches.length - 1 || complete ? full : short;
@@ -634,7 +634,7 @@ export class Runner {
     const rows = items.map((item) => units.get(item.unitId)!);
     const lines: PromptLine[] = items.map((item, index) => {
       const unit = units.get(item.unitId)!;
-      return { id: String(index + 1), unitId: unit.id, groupId: unit.groupId, key: unit.key, kind: unit.kind, speaker: unit.speaker, source: unit.source, candidate: item.data.candidateText ?? unit.translation ?? undefined, issues: item.data.issues };
+      return { id: promptLineId(index), unitId: unit.id, groupId: unit.groupId, key: unit.key, kind: unit.kind, speaker: unit.speaker, source: unit.source, candidate: item.data.candidateText ?? unit.translation ?? undefined, issues: item.data.issues };
     });
     return { rows, lines };
   }

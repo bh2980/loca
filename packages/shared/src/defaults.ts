@@ -185,9 +185,9 @@ export function draftTranslationTemplate(ids: { model: DraftModelChoice; untrans
 }
 
 /**
- * 용어 추출: scene groups are read for names and recurring terms that the glossary lacks, and they are
- * saved to the glossary (as a proposal). Statuses and translations are not touched; terms reach AI
- * context only after a person accepts them, which is why extraction runs before translation.
+ * 용어 추출: scene groups of translated lines are read for names and recurring terms that the glossary
+ * lacks, each paired with the Korean form the translations use, and saved to the glossary (as a
+ * proposal). Statuses and translations are not touched; terms reach AI context only after a person accepts them.
  */
 export function termExtractionTemplate(ids: Model): WorkflowDefinition {
   return {
@@ -326,7 +326,7 @@ export function defaultWorkflows(ids: { model: DraftModelChoice; untranslated?: 
       ? [{ name: '초벌 번역', description: '미번역 대사를 AI로 번역하고 형식을 검사해 초벌 상태로 바꿉니다.', definition: draftTranslationTemplate({ model: ids.model, untranslated: ids.untranslated, draft: ids.draft }) }]
       : []),
     { name: '청자 추정', description: '청자가 아직 없는 대사만 장면별로 누구에게 하는 말인지 추정해 적습니다. 번역·상태는 바꾸지 않습니다.', definition: listenerTemplate({ model: ids.model }) },
-    { name: '용어 추출', description: '장면별로 고유명사·반복 용어를 뽑아 용어집에 넣습니다.', definition: termExtractionTemplate({ model: ids.model }) },
+    { name: '용어 추출', description: '번역된 대사에서 고유명사·반복 용어와 번역에 쓰인 표기를 짝지어 용어집에 넣습니다.', definition: termExtractionTemplate({ model: ids.model }) },
     { name: '인물·관계 추출', description: '등장인물, 인물 사이의 관계와 변화, 화자·청자 말투 규칙을 장면별로 뽑아 자료에 넣습니다.', definition: peopleRelationsTemplate({ model: ids.model }) },
     { name: '사건 추출', description: '사건의 원인·결과와 관련 인물을 장면별로 뽑아 자료에 넣습니다.', definition: eventExtractionTemplate({ model: ids.model }) },
     { name: ANALYSIS_WORKFLOW, description: ANALYSIS_WORKFLOW_DESCRIPTION, definition: analysisTemplate({ model: ids.model }) },

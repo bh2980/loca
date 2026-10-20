@@ -4,7 +4,7 @@ import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { packGroups } from '../engine/batches.ts';
-import { buildPrompt } from '../engine/prompts.ts';
+import { buildPrompt, promptLineId } from '../engine/prompts.ts';
 import { wholeScriptRequest } from '../engine/whole-script.ts';
 import { resolveChoiceOptions } from './choice-options.ts';
 import { excludedInScope, planRun, sceneLinks, selectRunUnits } from '../engine/run-create.ts';
@@ -286,7 +286,7 @@ function samplePrompt(db: Db, projectId: string, node: AiNode, languages: { sour
       return estimateTokens(`${system}\n\n${prompt}`);
     }
     const context = buildContext(db, projectId, rows, node.config.context);
-    const lines = rows.map((row, index) => ({ id: String(index + 1), unitId: row.id, groupId: row.groupId, key: row.key, kind: row.kind, speaker: row.speaker, source: row.source, candidate: row.translation ?? undefined }));
+    const lines = rows.map((row, index) => ({ id: promptLineId(index), unitId: row.id, groupId: row.groupId, key: row.key, kind: row.kind, speaker: row.speaker, source: row.source, candidate: row.translation ?? undefined }));
     const { system, prompt } = buildPrompt(node, languages, context, lines, choiceOptions);
     return estimateTokens(`${system}\n\n${prompt}`);
   });

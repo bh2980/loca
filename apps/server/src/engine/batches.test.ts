@@ -14,6 +14,14 @@ describe('planBatches', () => {
     expect(batches.map((batch) => batch.length)).toEqual([7, 6]);
   });
 
+  it('counts a whole-script line as compact script text, not per-line JSON', () => {
+    seq = 0;
+    // 10 + 5 tokens a line: 20 lines of 10 tokens fit 300 whole, where per-line JSON (10 + 20) would need two requests.
+    const lines = [...scene('s1', 10), ...scene('s2', 10)];
+    expect(planBatches(lines, { ...config, mode: 'whole' }).map((batch) => batch.length)).toEqual([20]);
+    expect(planBatches(lines, config).map((batch) => batch.length)).toEqual([10, 10]);
+  });
+
   it('never mixes dialogue with UI text', () => {
     seq = 0;
     const batches = planBatches([...scene('s1', 2), ...scene('ui', 2, { kind: 'ui', speaker: null }), ...scene('s2', 2)], config);

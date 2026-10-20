@@ -46,6 +46,8 @@ const RULE_SPEECH_RULES = `- speechRules: for every speaker → listener directi
 const RULE_SCENE_LISTENERS =
   '- sceneListeners: for each scene and each speaker in it, whom that speaker mostly addresses there ("scene" is the key in [brackets]; "listener" a character name, or for an extra outside the cast (a SWAT officer, a passer-by) their name exactly as it appears as a speaker; "group" when the speaker addresses several people present at once (a meeting, a group call); "public" for an unspecified audience (a broadcast, announcement, speech, post or advert); "self" for thinking aloud, a diary or muttering; or empty when you cannot tell) and your confidence from 0 to 1. In "exceptions", list each line of that speaker in the scene that addresses someone else (an extra, a third person, the group, themself), with its line id, its listener (same names as above) and your confidence; "confidence" then says how sure you are that every OTHER line of that speaker there addresses "listener". Name listeners by name, never by a role ("the negotiator", "the suspect") when the script shows who that is. List exceptions only where the text shows it (a vocative, an order to someone else, an answer to another speaker); do not list a line just because you are unsure. In a group scene where a speaker mostly talks to everyone, "group" is right and the few lines answering one person are exceptions. Skip scenes with a single obvious speaker talking to nobody in particular.';
 const RULE_TERMS = `- terms: names and words whose Korean form must stay the same across the whole translation: people, places, organizations, products and technology, coined words and in-world concepts (also lower-case ones, such as a slang word, a species or a drug), ranks and titles, and interface words that recur. Not ordinary words. Skip what the glossary already has. "source" exactly as the script writes it, "kind" one of ${TERM_KINDS.join(', ')}, "meaning" one short Korean sentence, "target" the Korean form a translator should use (names by Korean loanword convention), "evidence" a few lines where it appears. At most about 150, the most important first.`;
+/** The terms rule for reading translated lines: the Korean form is taken from the translations, never made up. */
+const RULE_TERMS_FROM_TRANSLATIONS = `- terms: names and words whose Korean form must stay the same across the whole translation: people, places, organizations, products and technology, coined words and in-world concepts (also lower-case ones, such as a slang word, a species or a drug), ranks and titles, and interface words that recur. Not ordinary words. Skip what the glossary already has. "source" exactly as the script writes it, "kind" one of ${TERM_KINDS.join(', ')}, "meaning" one short Korean sentence, "target" the Korean form the translations of those lines use for it; when the lines have no translation, or their translations render it in different ways, leave "target" empty and say so in "meaning". "evidence" a few lines where it appears.`;
 const RULE_OVERVIEW =
   '- overview: one document about the work so far, with the headings 배경 (setting), 주요 갈등 (main conflict) and 줄거리 (plot so far); "overviewTitle" is its short title.';
 
@@ -98,6 +100,10 @@ const termFields: JsonField[] = [
   field('meaning', 'string', 'What it refers to, in one short Korean sentence.'),
   evidence('where it appears (a few lines)'),
 ];
+/** Term fields for reading translated lines: the target is what the translations use. */
+const translatedTermFields: JsonField[] = termFields.map((entry) =>
+  entry.name === 'target' ? field('target', 'string', "The Korean form the lines' translations use for it; empty when they have none or disagree.") : entry,
+);
 const sceneListenerFields: JsonField[] = [
   field('scene', 'string', 'The scene key shown in [brackets] in the script header.'),
   field('speaker', 'string', 'The speaker in that scene.'),
@@ -125,7 +131,7 @@ export const AI_PRESETS = {
     fields: [],
     instructions:
       'Translate each line. Keep every placeholder ({name}, %s), rich-text tag and line break exactly. ' +
-      "Match each speaker's voice and relationships. Use glossary targets when the term is used in that sense.",
+      "Match each speaker's voice, and the listener and speech rule a line gives. Use glossary targets when the term is used in that sense.",
   },
   review: {
     label: 'AI 검수',
@@ -192,16 +198,17 @@ export const AI_PRESETS = {
   },
   terms: {
     label: 'AI 용어 추출',
-    description: '장면 묶음마다 용어집에 없는 고유명사·반복 용어를 뽑습니다.',
+    description: '번역된 대사에서 용어집에 없는 고유명사·반복 용어와 번역에 쓰인 표기를 짝지어 뽑습니다.',
     output: 'json',
     scope: 'batch',
-    include: { candidate: false, issues: false },
+    // The lines' current translations are where the Korean forms come from.
+    include: { candidate: true, issues: false },
     context: { characters: true, documents: true, speech: false, precedingLines: 0, previousScenes: 0 },
     batch: { mode: 'group' },
-    fields: [listField('terms', 'Terms found across all lines of the request; empty when there are none.', termFields)],
+    fields: [listField('terms', 'Terms found across all lines of the request; empty when there are none.', translatedTermFields)],
     instructions: [
-      'Find proper nouns, coined words and recurring game terms in the source lines that are not already in the glossary.',
-      RULE_TERMS,
+      'Find proper nouns, coined words and recurring game terms in the source lines that are not already in the glossary, and pair each with the Korean form the lines\' translations ("candidate") use for it.',
+      RULE_TERMS_FROM_TRANSLATIONS,
       '- Use only what the lines say. Every term cites the lines where it appears as evidence line ids. Return an empty list when there are none.',
     ].join('\n'),
   },

@@ -31,11 +31,12 @@ function fieldSchema(field: JsonField): z.ZodType<unknown> {
         : field.type === 'strings'
           ? z.array(z.string())
           : field.type === 'lines'
-            ? z.array(z.string()).describe('ids of the request\'s lines that show this')
+            ? z.array(z.string())
             : field.type === 'list'
               ? z.array(fieldsSchema(field.fields ?? []))
               : z.string();
-  const text = limitsText(field);
+  // A field's own description would replace the schema's, so what a "lines" value is goes after it.
+  const text = [limitsText(field), field.type === 'lines' ? `Values are ids of the request's lines, like ${promptLineId(11)}.` : ''].filter(Boolean).join(' ');
   return text ? type.describe(text) : type;
 }
 const fieldsSchema = (fields: JsonField[]) => z.object(Object.fromEntries(fields.map((field) => [field.name, fieldSchema(field)])));
@@ -118,6 +119,12 @@ function kindGuide(lines: PromptLine[]) {
   ].filter(Boolean);
   return parts.length ? `A line's "kind" says what it is when it is not spoken dialogue: ${parts.join('; ')}.` : '';
 }
+
+/**
+ * The id a request shows for its n-th line (0-based `index`): "L1", "L2"… — the same form a
+ * whole-script request uses, so instructions and evidence fields can say "line ids like L12" for every mode.
+ */
+export const promptLineId = (index: number) => `L${index + 1}`;
 
 export interface PromptLine {
   id: string;

@@ -224,7 +224,7 @@ describe('json output', () => {
         const entries = promptEntries(request.prompt) as { id: string }[];
         // The first call leaves the last line out.
         const answered = calls === 1 ? entries.slice(0, -1) : entries;
-        return { object: { results: answered.map((entry) => ({ id: entry.id, tone: `t${entry.id}`, because: ['1', 'x'] })) }, usage: {} } as never;
+        return { object: { results: answered.map((entry) => ({ id: entry.id, tone: `t${entry.id}`, because: ['L1', 'x'] })) }, usage: {} } as never;
       },
     });
     const { runId } = start(db, projectId, workflow);
@@ -234,9 +234,9 @@ describe('json output', () => {
     expect(items.every((item) => item.state === 'done')).toBe(true);
     const units = db.select().from(s.units).where(eq(s.units.projectId, projectId)).orderBy(s.units.sort).all();
     const byUnit = new Map(items.map((item) => [item.unitId, item.data.outputs!.tone]));
-    // "1" is the first line of the request each time; its key is that request's first line's.
-    expect(byUnit.get(units[0].id)).toEqual({ tone: 't1', because: [units[0].key] });
-    expect(byUnit.get(units[1].id)).toMatchObject({ tone: 't2' });
+    // "L1" is the first line of the request each time; its key is that request's first line's.
+    expect(byUnit.get(units[0].id)).toEqual({ tone: 'tL1', because: [units[0].key] });
+    expect(byUnit.get(units[1].id)).toMatchObject({ tone: 'tL2' });
   });
 
   it('batch scope: one answer for the request, carried by the first line only (batchLeader)', async () => {
@@ -260,7 +260,7 @@ describe('json output', () => {
       },
       generate: (async (_route: unknown, request: { system: string }) => {
         seen.push(request);
-        return { object: { terms: [{ source: 'artifact', evidence: ['2'] }] }, usage: {} };
+        return { object: { terms: [{ source: 'artifact', evidence: ['L2'] }] }, usage: {} };
       }) as never,
     });
     const { runId } = start(db, projectId, workflow);

@@ -4,7 +4,7 @@ import * as ai from '@tw/ai';
 import { AI_PRESETS, aiNodeConfigSchema, editorAiSchema, type AiNode } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { buildPrompt, outputSchema } from '../engine/prompts.ts';
+import { buildPrompt, outputSchema, promptLineId } from '../engine/prompts.ts';
 import { events } from '../events.ts';
 import { logged } from './ai-calls.ts';
 import { buildContext } from './context.ts';
@@ -36,7 +36,7 @@ export const REFINE_KINDS = ['meaning', 'rule', 'language'] as const;
 const refineSchema = z.object({
   results: z
     .array(z.object({ id: z.string(), text: z.string(), changes: z.array(z.object({ kind: z.enum(REFINE_KINDS), why: z.string() })).default([]) }))
-    .describe('Exactly 1 entry, for line id 1.'),
+    .describe(`Exactly 1 entry, for line id ${promptLineId(0)}.`),
 });
 const KIND_LABELS: Record<(typeof REFINE_KINDS)[number], string> = { meaning: '의미', rule: '규칙', language: '표현' };
 
@@ -69,17 +69,17 @@ export async function assistLine(db: Db, secrets: SecretStore, unitId: string, r
   } as AiNode;
   // The context cap follows the assist model's window (auto), like an AI node's.
   const context = buildContext(db, unit.projectId, [unit], resolveNodeBudgets(node, modelLimitsOf(db, settings.assistModel)).config.context);
-  const line = { id: '1', unitId: unit.id, groupId: unit.groupId, key: unit.key, kind: unit.kind, speaker: unit.speaker, source: unit.source, candidate: refine ? request.draft : undefined };
+  const line = { id: promptLineId(0), unitId: unit.id, groupId: unit.groupId, key: unit.key, kind: unit.kind, speaker: unit.speaker, source: unit.source, candidate: refine ? request.draft : undefined };
   const { system, prompt } = buildPrompt(node, { source: project.sourceLanguage, target: project.targetLanguage }, context, [line]);
   const label = `편집기 ${refine ? '다듬기' : 'AI 번역'}`;
   const call = { projectId: unit.projectId, kind: 'editor' as const, refId: unitId, label, request: `${system}\n\n---\n\n${prompt}` };
   const result = await ai
-    .withFallback(routes, snapshot.maxAttempts, (route) => logged(db, call, route, () => generate(route, { system, prompt, schema: refine ? refineSchema : outputSchema(node, ['1']), maxOutputTokens: snapshot.maxOutputTokens, timeoutMs: snapshot.timeoutSeconds * 1000, signal })), signal)
+    .withFallback(routes, snapshot.maxAttempts, (route) => logged(db, call, route, () => generate(route, { system, prompt, schema: refine ? refineSchema : outputSchema(node, [promptLineId(0)]), maxOutputTokens: snapshot.maxOutputTokens, timeoutMs: snapshot.timeoutSeconds * 1000, signal })), signal)
     .catch((error: unknown) => {
       if (error instanceof ai.ModelError && error.code === 'rate-limit') throw new CompleteRefused('모델 요청 한도에 걸렸습니다. 잠시 뒤 다시.', 429, 60);
       throw error;
     });
-  const entry = (result.result.object as { results?: { id: string; text: string; changes?: { kind: (typeof REFINE_KINDS)[number]; why: string }[] }[] }).results?.find((item) => item.id === '1');
+  const entry = (result.result.object as { results?: { id: string; text: string; changes?: { kind: (typeof REFINE_KINDS)[number]; why: string }[] }[] }).results?.find((item) => item.id === promptLineId(0));
   const text = entry?.text?.trim();
   if (!text) throw new CompleteRefused('모델이 번역을 돌려주지 않았습니다. 다시 해 보세요.', 400);
   // Whitespace alone is not a change worth a candidate.
