@@ -11,6 +11,7 @@ import { byPerson } from './status-by.ts';
 import { inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
+import { linkEvents, projectEventFlow } from './event-routes.ts';
 import { characterInput, documentInput, eventInput, relationshipInput, speechRuleInput, termInput } from '../schemas/knowledge.ts';
 import { describeRule, knownListener, speechRuleIndex } from './speech.ts';
 import { workflowIssues } from './workflow-issues.ts';
@@ -319,12 +320,14 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
           .map(({ id, fromName, toName, level, address, note, startKey, status, origin, statusBy, evidence, marks, tags }) => ({ id, from: fromName, to: toName, level, address, note, startKey, status, statusBy, source: sourceOf({ origin }), evidence, marks, tags })),
     }),
     list_events: tool({
-      description: 'Stored story events: summary, cause, outcome, participants and the lines that show them, with status, statusBy, source, marks (ai, noEvidence) and tags. Filter with status / marks / unreviewed / tags.',
+      description: 'Stored story events: summary, cause, outcome, participants and the lines that show them, with status, statusBy, source, marks (ai, noEvidence) and tags, and next: the events it leads to in the 사건 흐름 (source "graph" = derived from the dialogue graph, "added" = drawn by hand or by link_events). Filter with status / marks / unreviewed / tags.',
       inputSchema: z.object(knowledgeFilterInput),
-      execute: (filter) =>
-        annotateKnowledge(db, projectId, 'events', db.select().from(s.storyEvents).where(and(eq(s.storyEvents.projectId, projectId), ne(s.storyEvents.status, 'rejected'))).all(), filter).map(
-          ({ id, title, summary, cause, outcome, participants, evidence, status, origin, statusBy, marks, tags }) => ({ id, title, summary, cause, outcome, participants, evidence, status, statusBy, source: sourceOf({ origin }), marks, tags }),
-        ),
+      execute: (filter) => {
+        const next = new Map(projectEventFlow(db, projectId).map((event) => [event.id, event.next]));
+        return annotateKnowledge(db, projectId, 'events', db.select().from(s.storyEvents).where(and(eq(s.storyEvents.projectId, projectId), ne(s.storyEvents.status, 'rejected'))).all(), filter).map(
+          ({ id, title, summary, cause, outcome, participants, evidence, status, origin, statusBy, marks, tags }) => ({ id, title, summary, cause, outcome, participants, evidence, status, statusBy, source: sourceOf({ origin }), marks, tags, next: next.get(id) ?? [] }),
+        );
+      },
     }),
     read_documents: tool({
       description: 'Story, world-building, style and note documents (full text) with status, statusBy, marks (ai, noEvidence) and tags. Filter with ids / status / marks / unreviewed / tags.',
@@ -468,6 +471,12 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       inputSchema: upsert(eventInput),
       needsApproval: true,
       execute: (input) => saveKnowledgeItem(db, projectId, 'events', input),
+    }),
+    link_events: tool({
+      description: 'Correct a line of the 사건 흐름 (list_events shows each event\'s next). link draws a line from one event to another where the flow shows none, or brings back a derived line that was dropped; unlink takes a line away (a drawn one is removed, a line derived from the dialogue graph stays dropped when the flow is computed again). Only where the dialogue graph cannot show it (a cause in a scene opened side by side) or shows it wrongly; when an event sits in the wrong place, fix its evidence with save_event instead. Use event ids from list_events.',
+      inputSchema: z.object({ fromId: z.string().min(1), toId: z.string().min(1), action: z.enum(['link', 'unlink']) }),
+      needsApproval: true,
+      execute: (input) => linkEvents(db, projectId, { ...input, origin: 'ai' }),
     }),
     save_document: tool({
       description: 'Create a reference document (story / world / style / note), or update it when id is given. alwaysInclude (shown as 번역 문맥에 넣기) puts its full text into the prompts of AI nodes that have the 작품 문서 context on.',

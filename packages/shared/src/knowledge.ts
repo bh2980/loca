@@ -7,6 +7,9 @@ import { z } from 'zod';
 export const KNOWLEDGE_STATUSES = ['candidate', 'confirmed', 'rejected'] as const;
 /** Who made the content. "script": found in the script by code (glossary candidates). */
 export const KNOWLEDGE_ORIGINS = ['human', 'ai', 'import', 'script'] as const;
+/** A correction to the 사건 흐름's derived lines: a line drawn by hand, or a derived line dropped. */
+export const EVENT_LINK_KINDS = ['added', 'hidden'] as const;
+export type EventLinkKind = (typeof EVENT_LINK_KINDS)[number];
 export type KnowledgeStatus = (typeof KNOWLEDGE_STATUSES)[number];
 export type KnowledgeOrigin = (typeof KNOWLEDGE_ORIGINS)[number];
 export const KNOWLEDGE_STATUS_LABELS: Record<KnowledgeStatus, string> = { candidate: '후보', confirmed: '확정', rejected: '버림' };

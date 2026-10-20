@@ -14,6 +14,7 @@ export const DELETABLE = {
   relationships: { table: s.relationships, what: '관계', topic: 'knowledge' },
   speechRules: { table: s.speechRules, what: '말투 규칙', topic: 'knowledge' },
   events: { table: s.storyEvents, what: '사건', topic: 'knowledge' },
+  eventLinks: { table: s.eventLinks, what: '사건 연결', topic: 'knowledge' },
   documents: { table: s.documents, what: '문서', topic: 'knowledge' },
   terms: { table: s.terms, what: '용어', topic: 'terms' },
   tags: { table: s.tags, what: '태그', topic: 'statuses' },
@@ -40,12 +41,14 @@ const removed = new Map<string, Removed>();
 const KEEP_MS = 60 * 60 * 1000;
 const KEEP_MAX = 200;
 
-/** Rows of `ids` and, for characters, the relationships the cascade takes with them. */
+/** Rows of `ids` and what the cascade takes with them: a character's relationships, an event's lines. */
 function rowsOf(db: Db, projectId: string, kind: DeletableKind, ids: string[]) {
   const { table } = DELETABLE[kind];
   const parts = [{ kind, rows: inChunks(ids, (slice) => db.select().from(table).where(and(eq(table.projectId, projectId), inArray(table.id, slice))).all()) as Record<string, unknown>[] }];
   if (kind === 'characters')
     parts.push({ kind: 'relationships', rows: inChunks(ids, (slice) => db.select().from(s.relationships).where(and(eq(s.relationships.projectId, projectId), or(inArray(s.relationships.fromId, slice), inArray(s.relationships.toId, slice)))).all()) as Record<string, unknown>[] });
+  if (kind === 'events')
+    parts.push({ kind: 'eventLinks', rows: inChunks(ids, (slice) => db.select().from(s.eventLinks).where(and(eq(s.eventLinks.projectId, projectId), or(inArray(s.eventLinks.fromId, slice), inArray(s.eventLinks.toId, slice)))).all()) as Record<string, unknown>[] });
   return parts;
 }
 
@@ -67,8 +70,8 @@ export function restoreItems(db: Db, projectId: string, token: string): boolean 
   const entry = removed.get(token);
   if (!entry || entry.projectId !== projectId) return false;
   removed.delete(token);
-  // People before the relationships that point at them.
-  const order: DeletableKind[] = ['characters', 'relationships', 'speechRules', 'events', 'documents', 'terms', 'tags'];
+  // People before the relationships that point at them, events before their lines.
+  const order: DeletableKind[] = ['characters', 'relationships', 'speechRules', 'events', 'eventLinks', 'documents', 'terms', 'tags'];
   db.transaction((tx) => {
     for (const kind of order)
       for (const part of entry.parts.filter((candidate) => candidate.kind === kind))

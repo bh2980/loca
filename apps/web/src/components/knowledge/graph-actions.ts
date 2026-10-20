@@ -1,16 +1,8 @@
-import { useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
-import { client, unwrap } from '@/lib/api';
+import { unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
+import { freeName, useGraphHistory, type DeleteItem } from './graph-history';
 import { pairKey, type Pair } from './pairs';
-
-type Item = { kind: 'characters' | 'relationships' | 'speechRules'; ids: string[] };
-/** One undoable change: both directions go through the server (a delete keeps what it removed under a token). */
-interface Step {
-  undo: () => Promise<unknown>;
-  redo: () => Promise<unknown>;
-}
 
 interface Character {
   id: string;
@@ -34,12 +26,6 @@ interface Relationship {
   changes: unknown[];
 }
 
-/** A name no person has yet: "새 인물", "새 인물 2"… */
-const freeName = (base: string, taken: Set<string>) => {
-  if (!taken.has(base.toLowerCase())) return base;
-  for (let n = 2; ; n++) if (!taken.has(`${base} ${n}`.toLowerCase())) return `${base} ${n}`;
-};
-
 /**
  * What the relationship graph does, as the page's actions: draw a line (a relationship), add a
  * person, delete people or lines (a line takes its pair's relationship and speech rules), copy
@@ -47,41 +33,17 @@ const freeName = (base: string, taken: Set<string>) => {
  */
 export function useRelationshipGraphActions({ projectId, characters, relationships, pairs, open }: { projectId: string; characters: Character[]; relationships: Relationship[]; pairs: { current: Pair[] }; open: (item: string) => void }) {
   const queryClient = useQueryClient();
-  const api = client.projects[':projectId'];
-  const param = { projectId };
-  const history = useRef<{ past: Step[]; future: Step[] }>({ past: [], future: [] });
-  const refresh = () => {
+  const { api, param, remove, restore, run, record, created, undo, redo } = useGraphHistory(projectId, () => {
     void queryClient.invalidateQueries({ queryKey: q.characters(projectId).queryKey });
     void queryClient.invalidateQueries({ queryKey: q.speechRules(projectId).queryKey });
-  };
-  const remove = async (items: Item[]) => (await unwrap(api['knowledge-delete'].$post({ param, json: { items } }))).token;
-  const restore = (token: string) => unwrap(api['knowledge-restore'].$post({ param, json: { token } }));
-  const run = async (work: () => Promise<void>) => {
-    try {
-      await work();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : String(error));
-    } finally {
-      refresh();
-    }
-  };
-  /** Something just created: undo deletes it (keeping it), redo puts it back. */
-  const created = (items: Item[]): Step => {
-    let token = '';
-    return { undo: async () => (token = await remove(items)), redo: () => restore(token) };
-  };
-  const record = (step: Step) => {
-    history.current.past.push(step);
-    if (history.current.past.length > 100) history.current.past.shift();
-    history.current.future = [];
-  };
+  });
 
   return {
     /** Deletes people and lines (pair keys) at once. */
     remove: (target: { characterIds: string[]; pairIds: string[] }) =>
       run(async () => {
         const lines = pairs.current.filter((pair) => target.pairIds.includes(pair.key));
-        const items: Item[] = [
+        const items: DeleteItem[] = [
           { kind: 'characters' as const, ids: target.characterIds },
           { kind: 'relationships' as const, ids: lines.flatMap((pair) => (pair.relationship ? [pair.relationship.id] : [])) },
           { kind: 'speechRules' as const, ids: lines.flatMap((pair) => pair.rules.map((rule) => rule.id)) },
@@ -135,20 +97,8 @@ export function useRelationshipGraphActions({ projectId, characters, relationshi
       });
       return made;
     },
-    undo: () =>
-      run(async () => {
-        const step = history.current.past.pop();
-        if (!step) return;
-        await step.undo();
-        history.current.future.push(step);
-      }),
-    redo: () =>
-      run(async () => {
-        const step = history.current.future.pop();
-        if (!step) return;
-        await step.redo();
-        history.current.past.push(step);
-      }),
+    undo,
+    redo,
   };
 }
 

@@ -13,8 +13,6 @@ import {
   FilterChips,
   FilterBar,
   ViewSwitch,
-  CanvasDirectionControl,
-  Separator,
   Badge,
   Button,
   Skeleton,
@@ -45,6 +43,8 @@ import { BulkDecide, fail, parseStatusFilter, type StatusFilter, KINDS, Knowledg
 import { pairKey, buildPairs, PairDetail, pairItems, pairMatches, pairSummary, PairTable, type Pair, type SpeechRuleCreate } from '@/components/knowledge/pairs';
 import { AddPairPopover } from '@/components/knowledge/add-pair-popover';
 import { EventFlow } from '@/components/knowledge/event-flow';
+import { lineKey, parseLineKey, useEventFlowActions } from '@/components/knowledge/event-actions';
+import { LineDetail } from '@/components/knowledge/line-detail';
 import { splitList } from '@/components/chip-input';
 import { client, unwrap } from '@/lib/api';
 import { DOCUMENT_KIND } from '@/lib/labels';
@@ -251,6 +251,10 @@ function Knowledge() {
   const addRule = (json: SpeechRuleCreate) => unwrap(api['speech-rules'].$post({ param: { projectId }, json }));
 
   const characters = people.data?.characters ?? [];
+  const eventActions = useEventFlowActions({ projectId, events: storyEvents.data ?? [], open: (item) => set({ item }) });
+  // A line of the 사건 흐름 opens in the pane by its key (event-actions: lineKey).
+  const line = timeline ? parseLineKey(search.item) : null;
+  const lineEnds = line && storyEvents.data ? { from: storyEvents.data.find((event) => event.id === line.fromId), to: storyEvents.data.find((event) => event.id === line.toId) } : null;
   const graphActions = useRelationshipGraphActions({ projectId, characters, relationships: people.data?.relationships ?? [], pairs: pairsForGraph, open: (item) => set({ item }) });
   const inScope = (id: string) => !search.ids || search.ids.includes(id);
   const shown = (row: Row) => inScope(row.id) && matches(row, search.source, search.marks, search.tags, search.status) && !rowHidden(row, search);
@@ -537,6 +541,18 @@ function Knowledge() {
               onClose={() => set({ item: undefined })}
               onDecide={(kind, ids, action) => decide.mutate({ items: [{ kind, ids }], action })}
             />
+          ) : line && lineEnds?.from && lineEnds.to ? (
+            <LineDetail
+              key={lineKey(line)}
+              from={lineEnds.from}
+              to={lineEnds.to}
+              onOpen={(id) => set({ item: id })}
+              onRemove={() => {
+                void eventActions.remove({ eventIds: [], lines: [line] });
+                set({ item: undefined });
+              }}
+              onClose={() => set({ item: undefined })}
+            />
           ) : null
         }
       >
@@ -550,13 +566,9 @@ function Knowledge() {
             ] : [{ value: 'timeline', label: '흐름', icon: <GanttChart /> }, { value: 'table', label: '표', icon: <Table2 />}]} />
         </HeaderViews>}
         <HeaderActions>
-          {timeline && <>
-            <CanvasDirectionControl direction={direction} onDirectionChange={(next) => set({ direction: next }, false)} disabled={storyEvents.isPending} />
-            <Separator orientation="vertical" className="mx-1 h-4" />
-          </>}
-          {/* In the graph, people and relationships are made on the canvas itself (right-click, drawing a line). */}
+          {/* In the graph and the 사건 흐름, items and lines are made on the canvas itself (right-click, drawing a line). */}
           {pairsView && <AddPairPopover projectId={projectId} characters={characters} pairs={pairs} onCreated={(key) => set({ item: key, source: undefined, marks: undefined, ids: undefined })} />}
-          {!pairsView && !graph && spec.create && <Button disabled={create.isPending} onClick={() => create.mutate()}><Plus /> {KINDS[tableKind]}</Button>}
+          {!pairsView && !graph && !timeline && spec.create && <Button disabled={create.isPending} onClick={() => create.mutate()}><Plus /> {KINDS[tableKind]}</Button>}
           <RunDialog projectId={projectId} trigger={<Button variant="ghost"><Play /> 워크플로 실행</Button>} />
         </HeaderActions>
         <FilterBar end={<><AiConfirmNote projectId={projectId} /><span className="text-2xs font-medium text-subtle-foreground tabular-nums">{count}</span></>}>
@@ -593,6 +605,8 @@ function Knowledge() {
                 filtered={filtered}
                 events={specs.events.rows.filter(shown)}
                 direction={direction}
+                onDirectionChange={(next) => set({ direction: next }, false)}
+                actions={eventActions}
                 selected={search.item}
                 onOpen={(id) => set({ item: id })}
                 badge={(event) => <SourceBadge row={rows.find((row) => row.id === event.id)!} />}

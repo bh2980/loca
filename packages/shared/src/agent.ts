@@ -57,6 +57,7 @@ export const AGENT_TOOLS: Record<string, { target: AgentToolTarget; action: Agen
   save_relationship: tool('knowledge', 'change', '관계 저장'),
   save_speech_rule: tool('knowledge', 'change', '말투 규칙 저장'),
   save_event: tool('knowledge', 'change', '사건 저장'),
+  link_events: tool('knowledge', 'change', '사건 잇기'),
   save_document: tool('knowledge', 'change', '참조 문서 저장'),
   save_knowledge: tool('knowledge', 'change', '자료 일괄 저장'),
   delete_items: tool('items', 'delete', '항목 삭제'),

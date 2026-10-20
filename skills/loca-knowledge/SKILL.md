@@ -67,6 +67,7 @@ loca call save_group_summary '{"groupId":"…","description":"…"}'   # 장면�
 - 문서 `kind`: `story` 스토리 · `world` 세계관 · `style` 문체 · `note` 메모. `alwaysInclude`(번역 문맥에 넣기)는 작품 문서 문맥을 켠 AI 노드에 전문이 들어가니 짧고 꼭 필요한 것만 켭니다.
 - 장면 설명은 AI 번역 노드가 장면 문맥으로 받습니다: 누가 있는지, 무슨 일이 있는지, 분위기.
 - 사건의 `evidence`는 그 사건을 보여 주는 대사 키입니다. 근거가 없으면 #근거 부재가 붙습니다.
+- 사건 흐름의 선: `loca knowledge events --json`의 `next`가 사건이 이어지는 사건입니다(`source` `graph` = 대사 그래프에서 계산, `added` = 직접 이음). 대사 그래프로는 안 보이는 인과(나란히 열리는 장면)만 `loca call link_events '{"fromId":"…","toId":"…","action":"link"}'`로 잇고, 틀린 선은 `"action":"unlink"`로 뺍니다(계산된 선은 다시 계산해도 빠진 채). 사건이 엉뚱한 곳에 있어서 선이 틀렸다면 잇지 말고 `save_event`로 `evidence`를 고칩니다.
 
 ## 여러 개를 한 번에
 같은 종류든 섞였든 많으면 `save_knowledge`로 한 제안에 묶습니다(최대 200개, 인물이 먼저 저장되어 새 관계가 새 인물을 이름으로 부를 수 있음). 하나라도 실패하면 아무것도 저장되지 않으니 고쳐서 전체를 다시 보냅니다. 태그는 `loca call tag_items '{"kind":"speechRules","ids":["…"],"add":["확인 필요"],"remove":[]}'`로 붙이고, 붙는 곳은 `loca tags`로 먼저 확인합니다.

@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { customType, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import { AGE_BANDS, CHARACTER_ROLES, GENDERS, KNOWLEDGE_TAG_KINDS, TAG_ROLES, type TagRole, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, PERMISSION_MODES, type CharacterStyle, type EditorAi, type ExclusionRules, type ModelLimits, LINE_TRANSLATE, type AutoMark, type MarkColors, type ModelChoice, type ContextItem, type FormatRules, type ItemErrorKind, type NodeType, type RelationshipChange, type WorkflowDefinition, workflowDefinitionSchema, WORKFLOW_SUBJECT_IDS, type WorkflowSubject } from '@tw/shared';
+import { AGE_BANDS, CHARACTER_ROLES, GENDERS, KNOWLEDGE_TAG_KINDS, TAG_ROLES, type TagRole, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, EVENT_LINK_KINDS, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, PERMISSION_MODES, type CharacterStyle, type EditorAi, type ExclusionRules, type ModelLimits, LINE_TRANSLATE, type AutoMark, type MarkColors, type ModelChoice, type ContextItem, type FormatRules, type ItemErrorKind, type NodeType, type RelationshipChange, type WorkflowDefinition, workflowDefinitionSchema, WORKFLOW_SUBJECT_IDS, type WorkflowSubject } from '@tw/shared';
 import type { Usage } from '@tw/ai';
 
 const id = () => text('id').primaryKey().$defaultFn(() => crypto.randomUUID());
@@ -423,6 +423,25 @@ export const storyEvents = sqliteTable('story_events', {
   ...knowledge(),
   updatedAt: updatedAt(),
 });
+
+/**
+ * A person's (or the AI's) correction to the 사건 흐름's lines, which are otherwise derived from the
+ * dialogue graph: "added" draws a line the graph does not show, "hidden" drops one it does (and keeps
+ * it dropped when the flow is computed again). One row per ordered pair.
+ */
+export const eventLinks = sqliteTable(
+  'event_links',
+  {
+    id: id(),
+    projectId: projectId(),
+    fromId: text('from_id').notNull().references(() => storyEvents.id, { onDelete: 'cascade' }),
+    toId: text('to_id').notNull().references(() => storyEvents.id, { onDelete: 'cascade' }),
+    kind: text('kind', { enum: EVENT_LINK_KINDS }).notNull(),
+    origin: text('origin', { enum: KNOWLEDGE_ORIGINS }).notNull().default('human'),
+    updatedAt: updatedAt(),
+  },
+  (table) => [uniqueIndex('event_links_pair').on(table.fromId, table.toId)],
+);
 
 /**
  * A Korean speech rule for one speaker → listener direction. Several rules for the same pair are
