@@ -1,7 +1,7 @@
 import { and, asc, count, desc, eq, gte, inArray, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
 import jsonLogic from 'json-logic-js';
 import * as ai from '@tw/ai';
-import { estimateTokens, batchConfigSchema, batchTokens, lineCostIn, FUNCTIONS, choiceKey, lineMarksOf, nodeModels, nodeName, type AiNode, type ConditionData, type FunctionName, type ItemErrorKind, pickPaths, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+import { estimateTokens, batchConfigSchema, batchTokens, lineCostIn, FUNCTIONS, choiceKey, lineMarksOf, nodeModels, nodeName, type AiNode, type ConditionData, type FunctionName, type ItemErrorKind, pickPaths, leavesResult, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
 type GatherNode = Extract<WorkflowNode, { type: 'gather' }>;
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
@@ -81,19 +81,24 @@ export function errorKindOf(error: unknown): ItemErrorKind {
 const SMALLER = ' 오류 출구에서 더 작은 묶음(장면별·개수별)으로 읽는 노드로 보내세요.';
 
 /**
- * What a node's input.from produced for an item, trimmed to input.fields; undefined when it has none
- * (a batch answer rides on its first item only: the others have nothing to pass on).
+ * The result of the step before `node` on the item's way here (input.previous), trimmed to input.fields:
+ * the last node it passed that leaves a result (leavesResult), not through that node's error exit.
+ * Undefined when there is none, or when that step answered for a whole batch and the answer rides on
+ * another item (only a batch's first item carries it).
  */
-function previousOf(item: Item, node?: AiNode) {
+function previousOf(item: Item, definition: WorkflowDefinition, node?: AiNode) {
   const input = node?.config.input;
-  if (!input?.from) return undefined;
-  const { batchLeader, ...output } = item.data.outputs?.[input.from] ?? { batchLeader: false };
+  if (!input?.previous) return undefined;
+  const byId = new Map(definition.nodes.map((other) => [other.id, other]));
+  const step = item.data.path.findLast((visit) => visit.port !== 'error' && leavesResult(byId.get(visit.nodeId)));
+  if (!step) return undefined;
+  const { batchLeader, ...output } = item.data.outputs?.[step.nodeId] ?? { batchLeader: false };
   return batchLeader === false ? undefined : pickPaths(output, input.fields);
 }
-/** Prompt items with what input.from produced for them. */
-const withPrevious = (lines: PromptLine[], items: Item[], node: AiNode) =>
+/** Prompt items with the previous step's result for them. */
+const withPrevious = (lines: PromptLine[], items: Item[], definition: WorkflowDefinition, node: AiNode) =>
   lines.map((line, index) => {
-    const previous = previousOf(items[index]!, node);
+    const previous = previousOf(items[index]!, definition, node);
     return previous === undefined ? line : { ...line, previous };
   });
 
@@ -729,12 +734,12 @@ export class Runner {
   }
 
   /** The lines of `items` as the prompt numbers them, in batch (script) order. */
-  private promptLines(items: Item[], node?: AiNode) {
+  private promptLines(items: Item[], definition: WorkflowDefinition, node?: AiNode) {
     const units = new Map(this.db.select().from(s.units).where(inArray(s.units.id, items.map((item) => item.subjectId))).all().map((unit) => [unit.id, unit]));
     const rows = items.map((item) => units.get(item.subjectId)!);
     const lines: PromptLine[] = items.map((item, index) => {
       const unit = units.get(item.subjectId)!;
-      const previous = previousOf(item, node);
+      const previous = previousOf(item, definition, node);
       return {
         id: promptLineId(index),
         unitId: unit.id,
@@ -791,7 +796,7 @@ export class Runner {
     const project = this.db.select().from(s.projects).where(eq(s.projects.id, run.projectId)).get()!;
     // Terms: the term items and the context their example lines call for (engine/subjects.ts).
     const terms = run.subject === 'terms' ? termPrompt(this.db, run.projectId, items, node) : null;
-    const { rows, lines } = terms ? { rows: [], lines: withPrevious(terms.lines, items, node) } : this.promptLines(items, node);
+    const { rows, lines } = terms ? { rows: [], lines: withPrevious(terms.lines, items, run.definition, node) } : this.promptLines(items, run.definition, node);
     const round = Math.max(0, ...items.map((item) => item.data.retries?.[node.id] ?? 0));
     const step: StepRecord = { runId: run.id, nodeId: node.id, connectionId: routes[0]?.connectionId ?? null, model: routes[0]?.model ?? null, subjectIds: items.map((item) => item.subjectId), startedAt: new Date(), round };
     const languages = { source: project.sourceLanguage, target: project.targetLanguage };
@@ -865,7 +870,7 @@ export class Runner {
   private async judgeLines(run: Run, node: AiNode, batch: Item[], model: s.AiSnapshot, routes: ai.ResolvedRoute[], signal: AbortSignal) {
     const step: StepRecord = { runId: run.id, nodeId: node.id, connectionId: routes[0]?.connectionId ?? null, model: routes[0]?.model ?? null, subjectIds: batch.map((item) => item.subjectId), startedAt: new Date() };
     if (node.config.output !== 'verdict') return this.failBatch(run, batch, step, new Error('System One 연결은 출력 형태가 "판정"인 AI 노드에서만 쓸 수 있습니다.'));
-    const { rows, lines } = this.promptLines(batch, node);
+    const { rows, lines } = this.promptLines(batch, run.definition, node);
     const context = buildContext(this.db, run.projectId, rows, node.config.context);
     step.context = context.items;
     try {

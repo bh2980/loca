@@ -7,7 +7,7 @@ import { politenessOf, speechLevelOf, styleInstruction, styleNames } from './kno
 import { ANALYSIS_WORKFLOW, analysisTemplate, defaultWorkflows, draftTranslationTemplate, eventExtractionTemplate, listenerTemplate, MODEL_TEMPLATES, peopleRelationsTemplate, speechFixTemplate, termExtractionTemplate, translationTemplate } from './defaults.ts';
 import { APPLY_TARGETS } from './functions.ts';
 import { AI_PRESETS, presetConfig } from './presets.ts';
-import { applyIssues, nodePorts, pickPaths, readinessUses, validateWorkflow, workflowDefinitionSchema, workflowNodeSchema, type WorkflowDefinition } from './workflow.ts';
+import { applyIssues, nodePorts, pickPaths, previousSteps, readinessUses, validateWorkflow, workflowDefinitionSchema, workflowNodeSchema, type WorkflowDefinition } from './workflow.ts';
 
 const model = { connectionId: 'c', model: 'm' };
 const ids = { model, untranslated: 's0', draft: 's1', needsReview: 's2', confirmed: 's3' };
@@ -337,7 +337,7 @@ describe('analysis workflow and presets', () => {
     expect(definition.nodes.map((node) => (node.type === 'function' ? node.config.fn : node.type))).toEqual(['entry', 'ai', 'saveRelationships', 'saveSpeechRules', 'saveEvents', 'saveTerms', 'saveSceneListeners', 'gather', 'ai', 'saveCharacters', 'saveDocument', 'condition', 'fail', 'condition', 'fail']);
     // Per-part saves in a chain; people and the overview through 모으기 → 결과 합치기; a retry path behind each AI node.
     expect(definition.edges.filter((edge) => edge.source === 'analysis').map((edge) => [edge.sourceHandle, edge.target])).toEqual([['out', 'save-relationships'], ['out', 'gather'], ['error', 'analysis-again']]);
-    expect(definition.nodes.find((node) => node.id === 'merge')).toMatchObject({ config: { preset: 'analysisMerge', input: { from: 'gather', lines: false } } });
+    expect(definition.nodes.find((node) => node.id === 'merge')).toMatchObject({ config: { preset: 'analysisMerge', input: { previous: true, lines: false } } });
     expect(validateWorkflow(definition, { statusIds: new Set(), connections: new Set(['c']) } as never).filter((issue) => issue.level === 'error').map((issue) => issue.message)).toEqual([]);
     expect(definition.nodes.find((node) => node.id === 'save-overview')).toMatchObject({ config: { params: { fromNodeId: 'merge', map: { title: 'overviewTitle', body: 'overview' } } } });
   });
@@ -403,15 +403,31 @@ describe('AI node input', () => {
     expect(pickPaths(output, ['characters'])).toEqual({ characters: output.characters });
   });
 
-  it('takes only an earlier AI or script node, and sends no lines only for a json answer of the whole request', () => {
+  it('needs a step with a result before it, and sends no lines only for a json answer of the whole request', () => {
     const model = { connectionId: 'c', model: 'm' };
     const ai = (id: string, config: Record<string, unknown>) => ({ id, type: 'ai', position: { x: 0, y: 0 }, config: { model, instructions: 'x', ...config } });
     const check = (nodes: object[], edges: [string, string][]) =>
       validateWorkflow(workflowDefinitionSchema.parse({ nodes: [{ id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: {} }, ...nodes], edges: edges.map(([source, target], i) => ({ id: String(i), source, sourceHandle: 'out', target })) }), { statusIds: new Set(), connections: new Set(['c']) } as never)
         .filter((issue) => issue.level === 'error')
         .map((issue) => issue.message);
-    expect(check([ai('a', {}), ai('b', { input: { from: 'a' } })], [['entry', 'a'], ['a', 'b']])).toEqual([]);
-    expect(check([ai('a', { input: { from: 'b' } }), ai('b', {})], [['entry', 'a'], ['a', 'b']])).toContainEqual(expect.stringContaining('앞에 있어야'));
-    expect(check([ai('a', {}), ai('b', { input: { from: 'a', lines: false } })], [['entry', 'a'], ['a', 'b']])).toContainEqual(expect.stringContaining('대사 없이'));
+    expect(check([ai('a', {}), ai('b', { input: { previous: true } })], [['entry', 'a'], ['a', 'b']])).toEqual([]);
+    expect(check([ai('a', { input: { previous: true } }), ai('b', {})], [['entry', 'a'], ['a', 'b']])).toContainEqual(expect.stringContaining('결과를 내는 노드'));
+    expect(check([ai('a', {}), ai('b', { input: { previous: true, lines: false } })], [['entry', 'a'], ['a', 'b']])).toContainEqual(expect.stringContaining('대사 없이'));
+  });
+
+  it('finds the previous step back along the edges, past nodes without a result and a result node’s error exit', () => {
+    const at = { x: 0, y: 0 };
+    const definition = workflowDefinitionSchema.parse({
+      nodes: [
+        { id: 'entry', type: 'entry', position: at, config: {} },
+        { id: 'who', type: 'ai', position: at, config: { model: { connectionId: 'c', model: 'm' }, instructions: 'x' } },
+        { id: 'sure', type: 'condition', position: at, config: { expression: true } },
+        { id: 'save', type: 'function', position: at, config: { fn: 'setStatus', params: {} } },
+        { id: 'tr', type: 'ai', position: at, config: { model: { connectionId: 'c', model: 'm' }, instructions: 'x' } },
+        { id: 'again', type: 'condition', position: at, config: { expression: true } },
+      ],
+      edges: [['entry', 'out', 'who'], ['who', 'out', 'sure'], ['sure', 'true', 'save'], ['save', 'out', 'tr'], ['tr', 'error', 'again'], ['again', 'true', 'tr']].map(([source, sourceHandle, target], i) => ({ id: String(i), source, sourceHandle, target })),
+    });
+    expect(previousSteps(definition, 'tr').map((node) => node.id)).toEqual(['who']);
   });
 });

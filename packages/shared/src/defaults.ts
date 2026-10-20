@@ -382,7 +382,7 @@ export function analysisTemplate(ids: Model): WorkflowDefinition {
         saveList('save-scene-listeners', 'saveSceneListeners', analysis, 'analysis', 'sceneListeners', 6),
         // People and the overview need every part at once: gathered, combined, then saved once.
         { id: 'gather', type: 'gather', position: at(2, 1), label: '모든 조각 모으기', config: { from: analysis, fields: [...MERGED_CHARACTER_PATHS, 'overviewTitle', 'overview'] } },
-        { id: 'merge', type: 'ai', position: at(3, 1), label: AI_PRESETS.analysisMerge.label, config: presetConfig('analysisMerge', ids.model, { input: { from: 'gather', lines: false, fields: [] } }) },
+        { id: 'merge', type: 'ai', position: at(3, 1), label: AI_PRESETS.analysisMerge.label, config: presetConfig('analysisMerge', ids.model, { input: { previous: true, lines: false, fields: [] } }) },
         saveList('save-characters', 'saveCharacters', 'merge', 'analysisMerge', 'characters', 4, 1),
         applyNode('save-overview', 'saveDocument', 'merge', 5, { map: { title: 'overviewTitle', body: 'overview' } }, 1),
       ],

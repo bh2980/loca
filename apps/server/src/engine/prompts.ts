@@ -142,7 +142,7 @@ export interface PromptLine {
   source: string;
   candidate?: string;
   issues?: string[];
-  /** What the node's input.from produced for this line (trimmed to input.fields). */
+  /** The previous step's result for this line (input.previous, trimmed to input.fields). */
   previous?: unknown;
   /** A term item (kind "term"): its current form, note, how many lines use it, some of those lines. */
   term?: { target?: string; note?: string; uses?: number; examples: { speaker?: string; source: string; translation?: string }[] };

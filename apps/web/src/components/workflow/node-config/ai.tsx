@@ -2,14 +2,14 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Plus, X } from 'lucide-react';
-import { AI_OUTPUTS, AI_PRESETS, AI_SCOPES, CHOICE_SOURCES, CONNECTION_KIND_INFO, BATCH_MODE_LABELS, contextConfigSchema, nodeName, SUBJECT_BATCH_MODES, type WorkflowSubject, type AiOutput, type AiScope, type BatchConfig, type Capability, type ChoiceSource, type WorkflowNode } from '@tw/shared';
+import { AI_OUTPUTS, AI_PRESETS, AI_SCOPES, CHOICE_SOURCES, CONNECTION_KIND_INFO, BATCH_MODE_LABELS, contextConfigSchema, nodeName, previousSteps, SUBJECT_BATCH_MODES, type WorkflowSubject, type AiOutput, type AiScope, type BatchConfig, type Capability, type ChoiceSource, type WorkflowNode } from '@tw/shared';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Button, Dialog, DialogContent, DialogHeader, DialogTitle, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, InspectorActionRow, InspectorResult, InspectorSection } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
 import { AiContextPanel } from '@/components/ai-context';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
 import { client, unwrap } from '@/lib/api';
 import { JsonFieldsEditor } from '@/components/workflow/node-config/json-fields-editor';
-import { Field, CountRow, ToggleRow, refsSubject, outputFieldNames, upstreamSources, type AiNode, type NodeRefs } from '@/components/workflow/node-config/shared';
+import { Field, CountRow, ToggleRow, refsSubject, outputFieldNames, type AiNode, type NodeRefs } from '@/components/workflow/node-config/shared';
 
 /** The fields a preset fills into a node (a full AI node config minus the model). */
 type PresetFill = Partial<Pick<AiNode['config'], 'instructions' | 'output' | 'scope' | 'fields' | 'choice'>>;
@@ -325,27 +325,24 @@ export function AiContextFields({ config, set, subject = 'lines' }: { config: Pi
 }
 
 
-/** 입력: what an earlier node produced for each line, as the line's "previous"; or that alone, without the lines. */
+/**
+ * 입력: the previous step's result for each line, as the line's "previous" (the last node before it on the
+ * line's way that leaves a result; conditions, checks and save nodes pass it on), or that alone without the lines.
+ */
 function AiInputSection({ node, refs, set }: { node: AiNode; refs: NodeRefs; set: (patch: Partial<AiNode['config']>) => void }) {
   const input = node.config.input;
-  const sources = upstreamSources(node, refs, true);
-  const from = sources.find((other) => other.id === input.from);
-  const names = from ? outputFieldNames(from) : [];
-  const gathered = from?.type === 'gather';
+  const steps = previousSteps({ nodes: refs.nodes, edges: refs.edges ?? [] }, node.id);
+  const names = [...new Set(steps.flatMap(outputFieldNames))];
+  const gathered = steps.some((step) => step.type === 'gather');
   const batch = node.config.output === 'json' && node.config.scope === 'batch';
   const setInput = (patch: Partial<AiNode['config']['input']>) => set({ input: { ...input, ...patch } });
+  const from = steps.length ? `← ${steps.map(nodeName).join(', ')}` : '앞 단계에 결과를 내는 노드가 없습니다';
   return (
-    <InspectorSection title={from ? `입력 · ${nodeName(from)}` : '입력'} defaultOpen={Boolean(input.from)}>
-      <Field label="앞 노드 결과" hint="고른 노드가 이 대사에 낸 결과를 대사마다 previous로 넣습니다.">
-        <Select value={input.from ?? 'none'} onValueChange={(value) => setInput({ from: value === 'none' ? null : value, fields: [], ...(value === 'none' ? { lines: true } : refs.nodes.find((other) => other.id === value)?.type === 'gather' && batch ? { lines: false } : {}) })}>
-          <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="none">넣지 않음</SelectItem>
-            {sources.map((other) => <SelectItem key={other.id} value={other.id}>{nodeName(other)}</SelectItem>)}
-          </SelectContent>
-        </Select>
+    <InspectorSection title={input.previous ? `입력 · 앞 단계 결과` : '입력'} defaultOpen={input.previous}>
+      <Field label="앞 단계 결과" hint="선으로 이어진 앞 단계(AI·스크립트·모으기)의 결과를 대사마다 previous로 넣습니다. 조건·검사·저장 노드는 건너뜁니다.">
+        <ToggleRow label={`넣기 · ${from}`} checked={input.previous} onChange={(previous) => setInput({ previous, fields: [], ...(previous ? (gathered && batch ? { lines: false } : {}) : { lines: true }) })} />
       </Field>
-      {from && names.length > 0 && (
+      {input.previous && names.length > 0 && (
         <Field label="남길 필드" hint="하나도 고르지 않으면 결과 전체를 넣습니다.">
           <div className="space-y-2">
             {names.map((name) => (
@@ -354,7 +351,7 @@ function AiInputSection({ node, refs, set }: { node: AiNode; refs: NodeRefs; set
           </div>
         </Field>
       )}
-      {from && (batch || gathered) && <ToggleRow label="대사도 넣기" checked={input.lines} onChange={(lines) => setInput({ lines })} />}
+      {input.previous && (batch || gathered) && <ToggleRow label="대사도 넣기" checked={input.lines} onChange={(lines) => setInput({ lines })} />}
     </InspectorSection>
   );
 }

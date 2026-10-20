@@ -395,15 +395,16 @@ describe('who set the status', () => {
   });
 });
 
-describe('an AI node reading an earlier node’s output', () => {
-  it('sends each line what the earlier node produced for it, trimmed to the chosen fields, as "previous"', async () => {
+describe('an AI node reading the previous step’s result', () => {
+  it('sends each line the previous step’s result, trimmed to the chosen fields, as "previous": nodes without a result in between pass it on', async () => {
     const { db, projectId, choice } = setup(2);
     const definition = flow(
       {
         who: ai(choice, { output: 'json', instructions: 'Who is addressed?', fields: [{ name: 'listener', type: 'string' }, { name: 'reason', type: 'string' }] }),
-        translate: ai(choice, { output: 'text', instructions: 'Translate.', input: { from: 'who', fields: ['listener'] } }),
+        sure: { type: 'condition', position: at, config: { expression: true } },
+        translate: ai(choice, { output: 'text', instructions: 'Translate.', input: { previous: true, fields: ['listener'] } }),
       },
-      ['entry -> who', 'who -> translate', 'translate -> end'],
+      ['entry -> who', 'who -> sure', 'sure.true -> translate', 'sure.false -> translate', 'translate -> end'],
     );
     const seen: { system: string; prompt: string }[] = [];
     const runner = new Runner(db, memoryStore(), {
@@ -424,12 +425,12 @@ describe('an AI node reading an earlier node’s output', () => {
     expect((promptEntries(translate.prompt) as { previous?: unknown }[]).map((line) => line.previous)).toEqual([{ listener: 'PL1' }, { listener: 'PL2' }]);
   });
 
-  it('without lines sends only what the earlier node produced, for one answer', async () => {
+  it('without lines sends only the previous results, for one answer', async () => {
     const { db, projectId, choice } = setup(2);
     const definition = flow(
       {
         part: ai(choice, { output: 'json', scope: 'batch', instructions: 'Read.', fields: [{ name: 'people', type: 'strings' }] }),
-        combine: ai(choice, { output: 'json', scope: 'batch', instructions: 'Combine.', fields: [{ name: 'people', type: 'strings' }], input: { from: 'part', lines: false } }),
+        combine: ai(choice, { output: 'json', scope: 'batch', instructions: 'Combine.', fields: [{ name: 'people', type: 'strings' }], input: { previous: true, lines: false } }),
       },
       ['entry -> part', 'part -> combine', 'combine -> end'],
     );

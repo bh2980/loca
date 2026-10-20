@@ -90,14 +90,42 @@ export type ChoiceConfig = z.infer<typeof choiceConfigSchema>;
 export { jsonFieldSchema, type JsonField };
 
 /**
- * An AI node's input. `from`: an earlier node (AI or script) whose output each line carries goes into
- * the prompt as that line's "previous", trimmed to `fields` (paths like "characters.name"; empty =
- * all of it). `lines: false` sends no lines at all, only what `from` produced (one answer for the
- * request: json, 묶음 전체), e.g. a node that combines the parts another node read.
+ * An AI node's input. `previous`: the result of the step before it goes into the prompt as each line's
+ * "previous", trimmed to `fields` (paths like "characters.name"; empty = all of it). The step before is
+ * the last node on the line's way here that leaves a result (see leavesResult): conditions, checks and
+ * save nodes pass it on, so 청자 추정 → 확신도? → 청자 설정 → 번역 gives 번역 the 청자 추정 result.
+ * `lines: false` sends no lines at all, only the previous results (one answer for the request: json,
+ * 묶음 전체), e.g. a node after a gather that combines the parts.
  */
 export const aiInputSchema = z
-  .object({ lines: z.boolean().default(true), from: z.string().nullable().default(null), fields: z.array(z.string().trim().min(1)).default([]) })
+  .object({ lines: z.boolean().default(true), previous: z.boolean().default(false), fields: z.array(z.string().trim().min(1)).default([]) })
   .prefault({});
+
+/** Nodes whose result the next AI node can read as "previous": AI, script and gather nodes. Others pass the line on. */
+export const leavesResult = (node: WorkflowNode | undefined) =>
+  node?.type === 'ai' || node?.type === 'gather' || (node?.type === 'function' && node.config.fn === 'script');
+
+/**
+ * The nodes whose result can reach `nodeId` as "previous": going back along the edges, the first node on
+ * each way that leaves a result; a result node's error exit carries no result, so the way goes on behind it.
+ */
+export function previousSteps(definition: Pick<WorkflowDefinition, 'nodes' | 'edges'>, nodeId: string): WorkflowNode[] {
+  const byId = new Map(definition.nodes.map((node) => [node.id, node]));
+  const into = Map.groupBy(definition.edges, (edge) => edge.target);
+  const found = new Set<string>();
+  const seen = new Set<string>([nodeId]);
+  const stack = [nodeId];
+  while (stack.length)
+    for (const edge of into.get(stack.pop()!) ?? []) {
+      const source = byId.get(edge.source);
+      if (leavesResult(source) && edge.sourceHandle !== 'error' && edge.source !== nodeId) found.add(edge.source);
+      else if (!seen.has(edge.source)) {
+        seen.add(edge.source);
+        stack.push(edge.source);
+      }
+    }
+  return definition.nodes.filter((node) => found.has(node.id));
+}
 
 /**
  * `value` trimmed to `paths` ("a", "a.b"; a path through a list applies to each of its items), or
@@ -151,7 +179,7 @@ export const SUBJECT_BATCH_MODES: Record<WorkflowSubject, readonly BatchConfig['
  * has answered), then passes ONE item on, carrying what `from` produced across all of them:
  * outputs.<gather> = { parts: [one per answer, trimmed to `fields`], count, failed }. The other items
  * end there. After a gather the flow is "the combined result", not items: nodes that change an item
- * are refused, and an AI node reads the parts with input { from: <gather>, lines: false }.
+ * are refused, and an AI node right after it reads the parts with input { previous: true, lines: false }.
  */
 export const gatherConfigSchema = z.object({ from: z.string().default(''), fields: z.array(z.string().trim().min(1)).default([]) }).prefault({});
 export type GatherConfig = z.infer<typeof gatherConfigSchema>;
@@ -445,14 +473,11 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
       if (node.config.output === 'choice' && node.config.choice.source === 'custom' && !node.config.choice.values.length) error('선택지를 하나 이상 적으세요.', { nodeId: node.id });
       if (node.config.scope === 'batch' && node.config.output !== 'json') error("'묶음 전체' 출력은 JSON에서만 쓸 수 있습니다.", { nodeId: node.id });
       const input = aiInputSchema.parse(node.config.input ?? {});
-      if (input.from) {
-        const from = definition.nodes.find((other) => other.id === input.from);
-        if (!from) error('입력으로 고른 앞 노드가 없습니다.', { nodeId: node.id });
-        else if (!(from.type === 'ai' || from.type === 'gather' || (from.type === 'function' && from.config.fn === 'script'))) error('앞 노드 결과는 AI·스크립트·모으기 노드에서만 가져옵니다.', { nodeId: node.id });
-        else if (from.id === node.id || !reach(from.id).has(node.id)) error(`'${nodeName(from)}'는 이 노드보다 앞에 있어야 합니다.`, { nodeId: node.id });
-        if (node.config.batch.mode === 'whole') error('대본 전체로 읽는 노드에는 앞 노드 결과를 넣을 수 없습니다.', { nodeId: node.id });
+      if (input.previous) {
+        if (!previousSteps(definition, node.id).length) error('앞 단계에 결과를 내는 노드(AI·스크립트·모으기)가 없습니다.', { nodeId: node.id });
+        if (node.config.batch.mode === 'whole') error('대본 전체로 읽는 노드에는 앞 단계 결과를 넣을 수 없습니다.', { nodeId: node.id });
       }
-      if (!input.lines && !(input.from && node.config.output === 'json' && node.config.scope === 'batch')) error('대사 없이 보내려면 앞 노드 결과를 고르고, 출력을 JSON · 묶음 전체로 하세요.', { nodeId: node.id });
+      if (!input.lines && !(input.previous && node.config.output === 'json' && node.config.scope === 'batch')) error('대사 없이 보내려면 앞 단계 결과를 넣고, 출력을 JSON · 묶음 전체로 하세요.', { nodeId: node.id });
     }
     if (node.type === 'entry' && subject === 'lines')
       for (const id of node.config.statusIds) if (!refs.statusIds.has(id)) error('삭제된 상태가 있습니다.', { nodeId: node.id });

@@ -63,8 +63,8 @@ export function outputFieldNames(node: WorkflowNode): string[] {
   return [];
 }
 
-/** Nodes before this one that leave an output: AI and script nodes (and gathers, for an AI node's input). */
-export function upstreamSources(node: WorkflowNode, refs: Pick<NodeRefs, 'nodes' | 'edges'>, withGather = false): WorkflowNode[] {
+/** Nodes before this one that leave an output: AI and script nodes. */
+export function upstreamSources(node: WorkflowNode, refs: Pick<NodeRefs, 'nodes' | 'edges'>): WorkflowNode[] {
   const into = Map.groupBy(refs.edges ?? [], (edge) => edge.target);
   const before = new Set<string>();
   const stack = [node.id];
@@ -74,5 +74,5 @@ export function upstreamSources(node: WorkflowNode, refs: Pick<NodeRefs, 'nodes'
         before.add(edge.source);
         stack.push(edge.source);
       }
-  return refs.nodes.filter((other) => other.id !== node.id && before.has(other.id) && (other.type === 'ai' || (withGather && other.type === 'gather') || (other.type === 'function' && other.config.fn === 'script')));
+  return refs.nodes.filter((other) => other.id !== node.id && before.has(other.id) && (other.type === 'ai' || (other.type === 'function' && other.config.fn === 'script')));
 }

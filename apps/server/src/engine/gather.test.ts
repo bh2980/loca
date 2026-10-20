@@ -28,7 +28,7 @@ function flow(choice: unknown, extra: { nodes?: object[]; edges?: object[] } = {
       { id: 'entry', type: 'entry', position: at, config: {} },
       { id: 'read', type: 'ai', position: at, config: { model: choice, instructions: 'Read.', output: 'json', scope: 'batch', fields: people, batch: { mode: 'count', size: 2 } } },
       { id: 'all', type: 'gather', position: at, config: { from: 'read', fields: ['people.name'] } },
-      { id: 'combine', type: 'ai', position: at, config: { model: choice, instructions: 'Combine.', output: 'json', scope: 'batch', fields: people, input: { from: 'all', lines: false } } },
+      { id: 'combine', type: 'ai', position: at, config: { model: choice, instructions: 'Combine.', output: 'json', scope: 'batch', fields: people, input: { previous: true, lines: false } } },
       ...(extra.nodes ?? []),
     ],
     edges: [
@@ -84,7 +84,7 @@ describe('모으기', () => {
     const status = flow(choice, { nodes: [{ id: 'mark', type: 'function', position: at, config: { fn: 'setStatus', params: {} } }], edges: [{ id: '4', source: 'combine', sourceHandle: 'out', target: 'mark' }] });
     expect(messages(status)).toContainEqual(expect.stringContaining('모으기 뒤에 둘 수 없습니다'));
     const lines = flow(choice);
-    const withLines = workflowDefinitionSchema.parse({ ...lines, nodes: lines.nodes.map((node) => (node.id === 'combine' && node.type === 'ai' ? { ...node, config: { ...node.config, input: { from: 'all', lines: true, fields: [] } } } : node)) });
+    const withLines = workflowDefinitionSchema.parse({ ...lines, nodes: lines.nodes.map((node) => (node.id === 'combine' && node.type === 'ai' ? { ...node, config: { ...node.config, input: { previous: true, lines: true, fields: [] } } } : node)) });
     expect(messages(withLines)).toContainEqual(expect.stringContaining('대사를 빼고'));
     const loop = flow(choice, { edges: [{ id: '4', source: 'combine', sourceHandle: 'error', target: 'read' }] });
     expect(messages(loop)).toContainEqual(expect.stringContaining('고리 안에'));
