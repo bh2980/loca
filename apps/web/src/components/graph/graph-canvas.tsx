@@ -155,6 +155,8 @@ interface Props {
   selectedEdgeId?: string;
   onSelectEdge?: (edgeId: string) => void;
   onEdgeContextMenu?: (edgeId: string, event: { clientX: number; clientY: number }) => void;
+  /** Small actions over one node (복제 · 삭제, as the other graphs' toolbox), centred above it; hidden while the node is off screen. */
+  toolbar?: { id: string; content: ReactNode };
   /** Hub nodes by id; drawn as quiet pills instead of the usual node shapes. */
   hubs?: Map<string, HubInfo>;
   info: Map<string, NodeInfo>;
@@ -194,7 +196,7 @@ interface Props {
  * Draws a precomputed ELK layout. d3-zoom owns pan/zoom, Flatbush owns spatial queries,
  * so each frame only touches what is on screen. One <canvas>, no per-node DOM.
  */
-export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, direction = 'vertical', onDirectionChange, editable, onConnect, selectedEdgeId, onSelectEdge, onEdgeContextMenu, hubs, info, width, height, selectedId, selectedIds, onSelectMany, highlight, endpointMarkers, highlightEdges, initialViewport, initialFocus, initialFocusAlign = 'center', onViewportChange, onSelect, onContextMenu, onOpen, anchor, handle }: Props) {
+export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, direction = 'vertical', onDirectionChange, editable, onConnect, selectedEdgeId, onSelectEdge, onEdgeContextMenu, toolbar, hubs, info, width, height, selectedId, selectedIds, onSelectMany, highlight, endpointMarkers, highlightEdges, initialViewport, initialFocus, initialFocusAlign = 'center', onViewportChange, onSelect, onContextMenu, onOpen, anchor, handle }: Props) {
   const theme = useTheme();
   const canvas = useRef<HTMLCanvasElement>(null);
   const minimap = useRef<HTMLCanvasElement>(null);
@@ -204,6 +206,7 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
   const drawRef = useRef<() => void>(() => {});
   const previousSize = useRef<{ width: number; height: number } | null>(null);
   const anchorBox = useRef<HTMLDivElement>(null);
+  const toolbarBox = useRef<HTMLDivElement>(null);
   const [minimapOpen, setMinimapOpen] = useState(() => {
     try {
       return localStorage.getItem('tw.graph.minimap') !== '0';
@@ -228,8 +231,8 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
   const edges = laidOut;
   // Which of the drawn edges are emphasised, by position.
   const emphasised = useMemo(() => new Set(highlightEdges?.size ? edges.flatMap((edge, i) => (highlightEdges.has(`${edge.from}|${edge.to}`) ? [i] : [])) : []), [edges, highlightEdges]);
-  const props = useRef({ selectedId, selectedIds, onSelectMany, highlight, endpointMarkers, emphasised, onViewportChange, onSelect, onOpen, hubs, anchorId: anchor?.id, onContextMenu, editable, onConnect, selectedEdgeId, onSelectEdge, onEdgeContextMenu });
-  props.current = { selectedId, selectedIds, onSelectMany, highlight, endpointMarkers, emphasised, onViewportChange, onSelect, onOpen, hubs, anchorId: anchor?.id, onContextMenu, editable, onConnect, selectedEdgeId, onSelectEdge, onEdgeContextMenu };
+  const props = useRef({ selectedId, selectedIds, onSelectMany, highlight, endpointMarkers, emphasised, onViewportChange, onSelect, onOpen, hubs, anchorId: anchor?.id, toolbarId: toolbar?.id, onContextMenu, editable, onConnect, selectedEdgeId, onSelectEdge, onEdgeContextMenu });
+  props.current = { selectedId, selectedIds, onSelectMany, highlight, endpointMarkers, emphasised, onViewportChange, onSelect, onOpen, hubs, anchorId: anchor?.id, toolbarId: toolbar?.id, onContextMenu, editable, onConnect, selectedEdgeId, onSelectEdge, onEdgeContextMenu };
   /** A line being drawn from a node's dot: where it starts and where the pointer is (graph coordinates). */
   const connecting = useRef<{ from: string; out: boolean; px: number; py: number; x: number; y: number } | null>(null);
   const boxSelect = Boolean(onSelectMany);
@@ -346,9 +349,22 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
     card.style.opacity = '1';
   };
 
+  const placeToolbar = () => {
+    const box = toolbarBox.current;
+    const node = props.current.toolbarId ? index.byId.get(props.current.toolbarId) : undefined;
+    if (!box || !node) return;
+    const t = transform.current;
+    const x = (node.x + node.width / 2) * t.k + t.x, y = node.y * t.k + t.y;
+    const onScreen = x > 0 && x < width && y > box.offsetHeight + 8 && y < height;
+    box.style.transform = `translate(${Math.round(x - box.offsetWidth / 2)}px, ${Math.round(y - box.offsetHeight - 10)}px)`;
+    box.style.opacity = onScreen ? '1' : '0';
+    box.style.pointerEvents = onScreen ? 'auto' : 'none';
+  };
+
   const draw = () => {
     frame.current = 0;
     placeAnchor();
+    placeToolbar();
     const element = canvas.current;
     if (!element) return;
     const context = element.getContext('2d')!;
@@ -702,6 +718,10 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
   }, [theme]); // redraw with the active semantic palette
 
   useEffect(() => {
+    schedule();
+  }, [toolbar?.id]); // eslint-disable-line react-hooks/exhaustive-deps -- place the toolbar over its node
+
+  useEffect(() => {
     const element = canvas.current!;
     const previous = previousSize.current;
     previousSize.current = { width, height };
@@ -954,6 +974,11 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
         }}
       />
       {box && <div aria-hidden className="pointer-events-none absolute rounded-sm border border-primary bg-primary/10" style={box} />}
+      {toolbar && (
+        <div key={toolbar.id} ref={toolbarBox} className="absolute top-0 left-0 z-20 opacity-0">
+          {toolbar.content}
+        </div>
+      )}
       {anchor && (
         <div ref={anchorBox} className="absolute top-0 left-0 z-20 opacity-0">
           {anchor.content}

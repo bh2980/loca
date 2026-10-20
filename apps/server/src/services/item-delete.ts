@@ -3,6 +3,7 @@ import type { Db } from '../db/index.ts';
 import { inChunks } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
+import { aliasNote } from './terms.ts';
 
 /**
  * Deleting project items, for the app's delete buttons and the agent's delete_items (#45): one
@@ -41,12 +42,39 @@ const removed = new Map<string, Removed>();
 const KEEP_MS = 60 * 60 * 1000;
 const KEEP_MAX = 200;
 
-/** Rows of `ids` and what the cascade takes with them: a character's relationships, an event's lines. */
+/**
+ * A character's name terms nobody has touched: the candidates saving it wrote (addNameTerms: its name
+ * and aliases, note "인물 이름" / "X의 별칭"), still without a translation and with that note, whose
+ * spelling no remaining character has. They go with the character (and come back with it).
+ */
+function untouchedNameTerms(db: Db, projectId: string, characterIds: string[]) {
+  if (!characterIds.length) return [];
+  const all = db.select({ id: s.characters.id, name: s.characters.name, aliases: s.characters.aliases }).from(s.characters).where(eq(s.characters.projectId, projectId)).all();
+  const gone = new Set(characterIds);
+  const kept = new Set(all.filter((row) => !gone.has(row.id)).flatMap((row) => [row.name, ...row.aliases]).map((name) => name.trim().toLowerCase()));
+  const notes = new Map<string, Set<string>>();
+  for (const row of all.filter((item) => gone.has(item.id)))
+    for (const name of [row.name, ...row.aliases]) {
+      const spelling = name.trim().toLowerCase();
+      if (!spelling || kept.has(spelling)) continue;
+      (notes.get(spelling) ?? notes.set(spelling, new Set()).get(spelling)!).add(name.trim().toLowerCase() === row.name.trim().toLowerCase() ? '인물 이름' : aliasNote(row.name.trim()));
+    }
+  if (!notes.size) return [];
+  return db
+    .select()
+    .from(s.terms)
+    .where(and(eq(s.terms.projectId, projectId), eq(s.terms.origin, 'script'), eq(s.terms.status, 'candidate'), eq(s.terms.target, '')))
+    .all()
+    .filter((term) => notes.get(term.source.trim().toLowerCase())?.has(term.note.trim()));
+}
+
+/** Rows of `ids` and what goes with them: a character's relationships and untouched name terms, an event's lines. */
 function rowsOf(db: Db, projectId: string, kind: DeletableKind, ids: string[]) {
   const { table } = DELETABLE[kind];
   const parts = [{ kind, rows: inChunks(ids, (slice) => db.select().from(table).where(and(eq(table.projectId, projectId), inArray(table.id, slice))).all()) as Record<string, unknown>[] }];
   if (kind === 'characters')
     parts.push({ kind: 'relationships', rows: inChunks(ids, (slice) => db.select().from(s.relationships).where(and(eq(s.relationships.projectId, projectId), or(inArray(s.relationships.fromId, slice), inArray(s.relationships.toId, slice)))).all()) as Record<string, unknown>[] });
+  if (kind === 'characters') parts.push({ kind: 'terms', rows: untouchedNameTerms(db, projectId, ids) as Record<string, unknown>[] });
   if (kind === 'events')
     parts.push({ kind: 'eventLinks', rows: inChunks(ids, (slice) => db.select().from(s.eventLinks).where(and(eq(s.eventLinks.projectId, projectId), or(inArray(s.eventLinks.fromId, slice), inArray(s.eventLinks.toId, slice)))).all()) as Record<string, unknown>[] });
   return parts;
@@ -84,6 +112,9 @@ export function restoreItems(db: Db, projectId: string, token: string): boolean 
 export function deleteItems(db: Db, projectId: string, kind: DeletableKind, ids: string[]) {
   const { table, topic } = DELETABLE[kind];
   const { ids: gone, missing, locked } = deletable(db, projectId, kind, ids);
+  // A deleted character's untouched name candidates go with it (untouchedNameTerms).
+  const nameTerms = kind === 'characters' ? untouchedNameTerms(db, projectId, gone).map((term) => term.id) : [];
+  if (nameTerms.length) deleteItems(db, projectId, 'terms', nameTerms);
   if (gone.length) {
     db.transaction((tx) => {
       for (const slice of inChunks(gone, (part) => [part])) {

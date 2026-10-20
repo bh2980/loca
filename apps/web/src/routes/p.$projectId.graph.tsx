@@ -17,7 +17,7 @@ import { LineMenuFor } from '@/components/script/line-menu';
 import { GRAPH_KEYS, useGraphShortcuts } from '@/lib/graph-shortcuts';
 import { keyLabel } from '@/lib/keys';
 
-import { SearchInput, SplitPane, PaneHeader, Button, CanvasOverlay, CanvasSurface, Empty, EmptyDescription, EmptyHeader, EmptyTitle, ScrollArea, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue, Input, Popover, PopoverContent, PopoverTrigger, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, Spinner, Switch, ViewSwitch, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuShortcut, useRevealDock, GraphEndpointBar } from '@loca/ui';
+import { SearchInput, SplitPane, PaneHeader, Button, CanvasOverlay, CanvasSurface, Empty, EmptyDescription, EmptyHeader, EmptyTitle, ScrollArea, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue, Input, Popover, PopoverContent, PopoverTrigger, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, Spinner, Switch, ViewSwitch, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuShortcut, SelectionToolbox, useRevealDock, GraphEndpointBar } from '@loca/ui';
 import { useSize } from '@/hooks/use-size';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
@@ -883,6 +883,14 @@ function GraphPage() {
                 if (nodeId && !picked.has(nodeId)) setPicked(new Set());
                 setContextMenu({ nodeId, x: pos.clientX, y: pos.clientY });
               }}
+              // One picked card has the toolbox the other graphs show over a picked item: 복제 · 삭제.
+              toolbar={editing && search.node && !picked.size && layout?.nodes.some((node) => node.id === shown(search.node!)) ? {
+                id: shown(search.node),
+                content: <SelectionToolbox actions={[
+                  { id: 'copy', label: '복제', icon: <CopyPlus />, onSelect: () => void paste([search.node!]) },
+                  { id: 'delete', label: '삭제', icon: <Trash2 />, onSelect: removePicked },
+                ]} />,
+              } : undefined}
               editable={editing}
               onConnect={(fromId, toId) => void edits.connect(fromId, toId)}
               selectedEdgeId={search.edge}
