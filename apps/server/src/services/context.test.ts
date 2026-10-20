@@ -36,6 +36,16 @@ describe('context builder', () => {
     expect(cast.find((person) => person.name === 'JONAS')).not.toHaveProperty('gender');
   });
 
+  it('sends a previous scene only when it has a description (a title alone says nothing)', () => {
+    const { db, projectId, rows } = setup();
+    db.update(s.groups).set({ description: '앞 장면 요약' }).where(eq(s.groups.projectId, projectId)).run();
+    // A line whose scene has a scene before it in the graph.
+    const late = rows.find((row) => buildContext(db, projectId, [row], config({ previousScenes: 1 })).previousScenes.length > 0)!;
+    expect(late).toBeDefined();
+    db.update(s.groups).set({ description: '' }).where(eq(s.groups.projectId, projectId)).run();
+    expect(buildContext(db, projectId, [late], config({ previousScenes: 3 })).previousScenes).toEqual([]);
+  });
+
   it('follows one path back while there is one', () => {
     const { db, projectId, unit } = setup();
     const context = buildContext(db, projectId, [unit('panel.2')], config({ precedingLines: 3 }));

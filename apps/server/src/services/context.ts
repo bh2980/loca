@@ -413,7 +413,8 @@ export function buildContext(
   if (config.previousScenes > 0) {
     const ids = [...new Set(groupIds.flatMap((id) => index.previousScenes.get(id) ?? []))].filter((id) => !groupIds.includes(id)).slice(0, config.previousScenes);
     const rows = ids.length ? db.select({ title: groups.title, description: groups.description }).from(groups).where(inArray(groups.id, ids)).all() : [];
-    for (const scene of rows)
+    // A scene with no description would add only its title: it is left out.
+    for (const scene of rows.filter((row) => row.description.trim()))
       candidates.previousScene.push({ item: { kind: 'previousScene', label: scene.title, reason: '대사 그래프에서 파생한 장면 연결상 바로 앞' }, payload: scene, keep: () => result.previousScenes.push(scene) });
   }
 
