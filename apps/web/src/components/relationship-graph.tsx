@@ -69,16 +69,18 @@ type PersonNode = Node<{ label: string; role: GraphCharacter['role']; dim: boole
 type LabelRow = { id: string; text: string; selected: boolean };
 type RelationEdge = Edge<{ offset: number; rows: LabelRow[]; dim: boolean; focus: boolean; dashed?: boolean; showLabel: boolean; onPick: (id: string) => void }, 'relation'>;
 
-function PersonNodeView({ data, selected }: NodeProps<PersonNode>) {
+function PersonNodeView({ data, selected, isConnectable }: NodeProps<PersonNode>) {
   return (
     <div
       className={cn('group/person flex items-center justify-center rounded-md border border-border bg-background px-3 text-xs font-medium shadow-none transition-opacity', data.role === 'main' && 'border-2 border-foreground/70 font-semibold', data.role === 'minor' && 'border-dashed text-muted-foreground', (selected || data.target) && 'border-primary ring-1 ring-primary/40', data.dim && !data.target && 'opacity-30')}
       style={{ width: NODE_WIDTH, height: NODE_HEIGHT }}
     >
       <span className="truncate">{data.label}</span>
-      {/* Edges are floating (they attach to the node border). Dragging from the dot draws a new relationship; a drop anywhere on another person ends it there (connectionRadius). */}
+      {/* Edges are floating (they attach to the node border). Dragging from the dot (always shown, as the
+          workflow editor's ports, with a wider grab area) draws a new relationship; a drop anywhere on
+          another person ends it there (connectionRadius). */}
       <Handle type="target" position={Position.Top} isConnectableStart={false} className="!top-1/2 !size-1 !border-0 !opacity-0" />
-      <Handle type="source" position={Position.Bottom} title="끌어서 관계 잇기" className="!size-2.5 !border-0 !bg-primary opacity-0 transition-opacity group-hover/person:opacity-100" />
+      {isConnectable && <Handle type="source" position={Position.Bottom} title="끌어서 관계 잇기" className="!size-2.5 !border-2 !border-card !bg-muted-foreground after:absolute after:-inset-2 after:content-[''] hover:!bg-primary group-hover/person:!bg-primary" />}
     </div>
   );
 }
