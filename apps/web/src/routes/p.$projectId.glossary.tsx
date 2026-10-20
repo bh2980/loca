@@ -1,15 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, CircleStop, Play, ScanSearch, Sparkles } from 'lucide-react';
+import { Plus, Play, ScanSearch } from 'lucide-react';
 import { toast } from 'sonner';
-import { DataTable, type ColumnDef, EmptyState, TagMenu, SplitPane, FilterChips, SearchInput, FilterBar, ActionBar, type FilterChip, Button, StatusBarItem, useRevealDock, ContextMenuItem, ContextMenuSeparator, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Spinner } from '@loca/ui';
+import { DataTable, type ColumnDef, EmptyState, TagMenu, SplitPane, FilterChips, SearchInput, FilterBar, ActionBar, type FilterChip, Button, useRevealDock, ContextMenuItem, ContextMenuSeparator, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Spinner } from '@loca/ui';
 import { HeaderFilter, MarkFilter, markTagGroups, togglePick, type FilterPick } from '@/components/header-filter';
-import { FillDialog } from '@/components/glossary/fill-dialog';
 import { NEW_TERM, NewTermPane, TermEditor, type Term } from '@/components/glossary/term-pane';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { HeaderActions, Page } from '@/components/page';
-import { JobProgress } from '@/components/job-progress';
 import { BulkDecide, matches, SourceBadge, TagCell } from '@/components/knowledge/table';
 import { AUTO_MARKS, markColor, type AutoMark, isSettled, matchesMarks, parseMarks, TERM_MARK_IDS, termMarksOf, KNOWLEDGE_SOURCES, SOURCE_LABELS, type KnowledgeSource, aiDecided } from '@tw/shared';
 import { client, unwrap } from '@/lib/api';
@@ -53,14 +51,7 @@ function Glossary() {
   const navigate = Route.useNavigate();
   const terms = useQuery(q.terms(projectId));
   const { picked, pick, clear: clearPicked } = usePicked(`glossary.${projectId}`);
-  const suggest = useQuery(q.termSuggest(projectId));
-  const fill = suggest.data?.state;
-  const [fillOpen, setFillOpen] = useState(false);
   const [runOpen, setRunOpen] = useState(false);
-  const cancelFill = useMutation({
-    mutationFn: () => unwrap(client.projects[':projectId'].terms.suggest.cancel.$post({ param: { projectId } })),
-    onError: (error) => toast.error(error.message),
-  });
   const discover = useMutation({
     mutationFn: () => unwrap(client.projects[':projectId'].terms.discover.$post({ param: { projectId } })),
     onSuccess: ({ found, added, updated }) => {
@@ -69,15 +60,6 @@ function Glossary() {
     },
     onError: (error) => toast.error(error.message),
   });
-  // A finished fill reports its error once; the muted text below stays until the next run.
-  const reported = useRef<string | undefined>(undefined);
-  useEffect(() => {
-    if (fill && !fill.running && fill.error && reported.current !== fill.error) {
-      reported.current = fill.error;
-      toast.error(fill.error);
-    }
-  }, [fill]);
-
   // Who wrote a term (출처) and who set its status (✦ when AI confirmed it and no person has looked yet).
   const asDraft = (term: Term) => ({ ...term, evidence: [] });
   const hidden = (term: Term) => termMarksOf(term).some((mark) => search.hideMarks?.includes(mark)) || Boolean(term.tags?.some((tag) => search.hideTags?.includes(tag.id)));
@@ -236,30 +218,9 @@ function Glossary() {
               priority: 9,
               onSelect: () => setRunOpen(true),
             },
-            ...(fill?.running ? [{
-              id: 'cancel-fill',
-              label: '채우기 중단',
-              icon: cancelFill.isPending ? <Spinner className="size-3.5" /> : <CircleStop />,
-              disabled: cancelFill.isPending,
-              priority: 8,
-              overflow: 'never' as const,
-              onSelect: () => cancelFill.mutate(),
-            }] : []),
-            ...(!fill?.running && suggest.data?.pending ? [{
-              id: 'fill',
-              label: `AI로 채우기 (${suggest.data.pending})`,
-              icon: <Sparkles />,
-              priority: 5,
-              onSelect: () => setFillOpen(true),
-            }] : []),
           ]} />
         </HeaderActions>
         <RunDialog projectId={projectId} subject="terms" termIds={runTermIds} hideTrigger open={runOpen} onOpenChange={setRunOpen} />
-        {!!suggest.data?.pending && !fill?.running && <FillDialog projectId={projectId} pending={suggest.data.pending} calls={suggest.data.calls} batch={suggest.data.batch} hideTrigger open={fillOpen} onOpenChange={setFillOpen} />}
-        {(fill?.running || fill?.error || fill?.done) && <StatusBarItem>
-          {fill.running ? <span className="flex min-w-0 items-center gap-2 tabular-nums"><JobProgress done={fill.done} total={fill.total} running className="w-20 shrink-0" /><span className="truncate">용어 번역 채우는 중 {fill.done.toLocaleString()}/{fill.total.toLocaleString()}</span></span>
-            : fill.error ? <span className="truncate">용어 번역 채우기 실패: {fill.error}</span> : fill.done > 0 ? <span>{fill.done.toLocaleString()}개 채움</span> : null}
-        </StatusBarItem>}
         <FilterBar end={terms.data && <span className="text-2xs font-medium text-subtle-foreground tabular-nums">{rows.length.toLocaleString()}개{needle ? ` / 전체 ${all.length.toLocaleString()}개` : ''}</span>}>
           <SearchInput value={search.q} placeholder="원문·번역·메모 검색" onChange={(value) => void navigate({ search: (previous) => ({ ...previous, q: value }), replace: true })} />
           <FilterChips chips={chips} />

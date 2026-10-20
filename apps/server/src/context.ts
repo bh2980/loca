@@ -5,13 +5,11 @@ import type { z } from 'zod';
 import type { Db } from './db/index.ts';
 import type { Runner } from './engine/runner.ts';
 import type { SecretStore } from './services/secrets.ts';
-import type { TermService } from './services/terms.ts';
 
 export interface Deps {
   db: Db;
   secrets: SecretStore;
   runner: Runner;
-  terms: TermService;
 }
 
 export type Env = { Variables: { deps: Deps } };

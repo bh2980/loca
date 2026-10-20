@@ -15,7 +15,7 @@ import { SCRIPT_VIEW } from '@/lib/labels';
 
 export const Route = createFileRoute('/p/$projectId/')({ component: Home });
 
-const JOB_KIND = { run: '워크플로', terms: '용어집' } as const;
+const JOB_KIND = { run: '워크플로' } as const;
 const SCRIPT_KINDS = ['scene', 'ui', 'document'] as const;
 const LINE_KIND_LABEL = { scene: '대사', ui: 'UI 문자열', document: '문서' } as const;
 
@@ -45,8 +45,6 @@ function Home() {
   const reviewTag = useReviewTagId(projectId);
   const terms = useQuery(q.terms(projectId));
   const runs = useQuery(q.runs(projectId));
-  // Work analyses and glossary fills run beside workflows; the list shows them together, newest first.
-  const jobs = useQuery(q.jobs(projectId));
 
   const { counts, total, done, statuses: statusList } = progress;
   const initial = statusList.find((status) => status.kind === 'initial');
@@ -60,7 +58,6 @@ function Home() {
   const stopped = runs.data?.filter((run) => run.status === 'paused') ?? [];
   const recent = [
     ...(runs.data ?? []).map((run) => ({ kind: 'run' as const, id: run.id, title: run.workflowName, status: run.status, done: (run.states.done ?? 0) + (run.states.failed ?? 0) + (run.states.cancelled ?? 0), total: run.total, at: new Date(run.createdAt) })),
-    ...(jobs.data?.jobs ?? []).map((job) => ({ kind: job.kind, id: job.id, title: job.title, status: job.status, done: job.done ?? 0, total: job.total ?? 1, at: new Date(job.createdAt) })),
   ]
     .sort((a, b) => b.at.getTime() - a.at.getTime())
     .slice(0, 5);
@@ -205,7 +202,7 @@ function Home() {
             </Link>
           </Button>
         </div>
-        {runs.data?.length === 0 && jobs.data?.jobs.length === 0 ? (
+        {runs.data?.length === 0 ? (
           <p className="rounded-md border border-border px-4 py-6 text-sm text-muted-foreground">아직 실행한 적이 없습니다.</p>
         ) : (
           <ul className="rounded-md border border-border">

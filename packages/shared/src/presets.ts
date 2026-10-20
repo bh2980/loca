@@ -237,6 +237,27 @@ export const AI_PRESETS = {
       '- Use only what the lines say. Every term cites the lines where it appears as evidence line ids. Return an empty list when there are none.',
     ].join('\n'),
   },
+  termTranslate: {
+    label: 'AI 용어 번역',
+    description: '용어 후보마다 용어인지 가리고, 용어면 한국어 표기와 메모를 냅니다(용어 워크플로).',
+    output: 'json',
+    scope: 'line',
+    include: { candidate: false, issues: false },
+    fields: [
+      { ...field('isTerm', 'boolean', 'true for proper nouns (people, places, organizations, products, titles) and game-specific concepts whose Korean form must stay the same everywhere; false for ordinary words or phrases that only happen to be capitalized.'), required: true },
+      field('target', 'string', 'The Korean form to use everywhere; empty when isTerm is false.'),
+      field('note', 'string', 'A few Korean words on what it is (e.g. "단체 이름", "지명", "인물 호칭"); empty when isTerm is false.'),
+    ],
+    context: { glossary: true, cast: true, characters: false, relationships: false, documents: false, speech: false, precedingLines: 0, previousScenes: 0, examples: 2 },
+    batch: { mode: 'count', size: 100 },
+    instructions: [
+      'Each item is a candidate for the Korean localization glossary of a video game: the term, what the glossary has for it so far, how many script lines use it and some of those lines (with their current Korean translation when there is one). For each candidate decide:',
+      '- isTerm: true for proper nouns (people, places, organizations, products, titles) and game-specific concepts whose Korean form must stay the same everywhere. False for ordinary words or phrases that happen to be capitalized ("Thank God", "This Nina").',
+      '- target: the Korean form to use everywhere (names transliterated the way Korean localizations usually do; follow the examples\' current translations when they agree). Empty when isTerm is false.',
+      '- note: a few Korean words on what it is; when the same word means different things in different lines, say so.',
+      'Keep consistent with the glossary when given.',
+    ].join('\n'),
+  },
   knowledge: {
     label: 'AI 인물·관계 추출',
     description: '장면 묶음마다 새 인물, 관계와 그 변화, 말투 규칙을 이미 아는 자료와 견주어 뽑습니다.',
@@ -310,7 +331,7 @@ export type AiPresetId = keyof typeof AI_PRESETS;
 export const AI_PRESET_IDS = Object.keys(AI_PRESETS) as AiPresetId[];
 
 /** Core AI presets offered in the workflow node library. */
-export const PALETTE_AI_PRESET_IDS = ['translate', 'review', 'revise', 'refine', 'speechFix', 'listener', 'terms', 'knowledge', 'events', 'analysis'] as const satisfies readonly AiPresetId[];
+export const PALETTE_AI_PRESET_IDS = ['translate', 'review', 'revise', 'refine', 'speechFix', 'listener', 'terms', 'termTranslate', 'knowledge', 'events', 'analysis'] as const satisfies readonly AiPresetId[];
 export type PaletteAiPresetId = (typeof PALETTE_AI_PRESET_IDS)[number];
 
 /** The configuration of an AI node filled from a preset (what choosing the preset in the editor writes). */

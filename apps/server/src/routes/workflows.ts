@@ -213,42 +213,21 @@ export const workflowRoutes = new Hono<Env>()
     const rates = rows.map((row) => (row.finished!.getTime() - row.started.getTime()) / 1000 / (row.input! / 1000)).sort((a, b) => a - b);
     return c.json({ samples: rates.length, secondsPer1k: rates.length ? rates[Math.floor(rates.length / 2)] : null });
   })
-  /**
-   * AI jobs that are not workflow runs (glossary fill), for 실행 기록 to list beside the runs, each
-   * with its model requests from the AI log.
-   */
+  /** Each run's model requests and tokens from the AI log, for 실행 기록. */
   .get('/projects/:projectId/jobs', (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
-    const fills = db.select().from(s.termJobs).where(eq(s.termJobs.projectId, projectId)).orderBy(desc(s.termJobs.createdAt)).limit(100).all();
     const runIds = db.select({ id: s.runs.id }).from(s.runs).where(eq(s.runs.projectId, projectId)).orderBy(desc(s.runs.createdAt)).limit(200).all().map((run) => run.id);
-    const ids = fills.map((job) => job.id).concat(runIds);
-    const stats = new Map(
-      (ids.length
-        ? db
-            .select({ refId: s.aiCalls.refId, calls: sql<number>`count(*)`, inputTokens: sql<number>`coalesce(sum(${s.aiCalls.inputTokens}), 0)`, outputTokens: sql<number>`coalesce(sum(${s.aiCalls.outputTokens}), 0)` })
-            .from(s.aiCalls)
-            .where(and(eq(s.aiCalls.projectId, projectId), inArray(s.aiCalls.refId, ids)))
-            .groupBy(s.aiCalls.refId)
-            .all()
-        : []
-      ).map((row) => [row.refId!, row]),
-    );
-    const names = connectionNames(db);
-    const used = (job: { connectionId: string | null; model: string | null; effort: string | null }) => (job.model ? choiceLabel(connectionName(names, job.connectionId, null) ?? '', { model: job.model, effort: job.effort }) : null);
-    // Jobs from before the AI log have their own usage totals; the log adds the request count.
-    const usage = (id: string, own: { inputTokens?: number; outputTokens?: number } | null) => ({
-      calls: stats.get(id)?.calls ?? null,
-      inputTokens: stats.get(id)?.inputTokens || own?.inputTokens || 0,
-      outputTokens: stats.get(id)?.outputTokens || own?.outputTokens || 0,
-    });
-    return c.json({
-      /** Model requests per workflow run, from the AI log (runs started before it have none). */
-      runCalls: Object.fromEntries(runIds.flatMap((id) => (stats.has(id) ? [[id, stats.get(id)!] as const] : []))),
-      jobs: [
-      ...fills.map((job) => ({ kind: 'terms' as const, id: job.id, title: '용어 AI 채우기', model: used(job), status: job.status, error: job.error, done: job.done, total: job.total, createdAt: job.createdAt, finishedAt: job.finishedAt, ...usage(job.id, job.usage) })),
-      ],
-    });
+    const stats = runIds.length
+      ? db
+          .select({ refId: s.aiCalls.refId, calls: sql<number>`count(*)`, inputTokens: sql<number>`coalesce(sum(${s.aiCalls.inputTokens}), 0)`, outputTokens: sql<number>`coalesce(sum(${s.aiCalls.outputTokens}), 0)` })
+          .from(s.aiCalls)
+          .where(and(eq(s.aiCalls.projectId, projectId), inArray(s.aiCalls.refId, runIds)))
+          .groupBy(s.aiCalls.refId)
+          .all()
+      : [];
+    /** Model requests per workflow run, from the AI log (runs started before it have none). */
+    return c.json({ runCalls: Object.fromEntries(stats.map((row) => [row.refId!, row])) });
   })
   .get('/projects/:projectId/runs', (c) => {
     const { db } = c.var.deps;

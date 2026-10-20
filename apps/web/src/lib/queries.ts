@@ -93,8 +93,6 @@ export const q = {
     })),
   }),
   terms: (projectId: string) => queryOptions({ queryKey: ['terms', projectId], queryFn: () => unwrap(client.projects[':projectId'].terms.$get({ param: { projectId } })) }),
-  termSuggest: (projectId: string) =>
-    queryOptions({ queryKey: ['terms', 'suggest', projectId], queryFn: () => unwrap(client.projects[':projectId'].terms.suggest.$get({ param: { projectId } })) }),
   termUsage: (projectId: string, id: string) =>
     queryOptions({ queryKey: ['terms', 'usage', id], queryFn: () => unwrap(client.projects[':projectId'].terms[':id'].usage.$get({ param: { projectId, id } })) }),
   documents: (projectId: string) => queryOptions({ queryKey: ['knowledge', 'documents', projectId], queryFn: () => unwrap(client.projects[':projectId'].documents.$get({ param: { projectId } })) }),

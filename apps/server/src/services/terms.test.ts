@@ -6,7 +6,7 @@ import * as s from '../db/schema.ts';
 import { importProject } from './importer.ts';
 import { memoryStore } from './secrets.ts';
 import { fillTermUsage } from './term-usage.ts';
-import { addNameTerms, discoverAndSave, NOT_A_TERM, TermService } from './terms.ts';
+import { addNameTerms, discoverAndSave } from './terms.ts';
 
 function setup() {
   const db = openDatabase(':memory:');
@@ -81,46 +81,6 @@ describe('glossary', () => {
       { source: 'Nin', note: 'Nina의 별칭', status: 'candidate' },
       { source: 'Thought', note: '사람 메모', status: 'candidate' },
     ]);
-  });
-
-  it('fills empty candidates from the model with example lines, marks ordinary words and leaves a person’s edits alone', async () => {
-    const { db, projectId, choice } = setup();
-    seed(db, projectId);
-    db.update(s.terms).set({ target: '니나' }).where(eq(s.terms.source, 'Nina')).run();
-    const prompts: string[] = [];
-    const service = new TermService(db, memoryStore(), {
-      generate: async (_route, request) => {
-        prompts.push(request.prompt);
-        return {
-          object: {
-            terms: [
-              { source: 'Freedom Plaza', isTerm: true, target: '자유 광장', note: '지명' },
-              { source: 'God', isTerm: false, target: '신', note: '감탄' },
-              { source: 'Thought', isTerm: true, target: '사상', note: '단체 이름' },
-            ],
-          },
-          usage: { inputTokens: 100, outputTokens: 20 },
-        } as never;
-      },
-    });
-    expect(service.pending(projectId).map((term) => term.source)).toEqual(['Freedom Plaza', 'God', 'Thought']);
-    service.start(projectId, choice);
-    for (let i = 0; i < 50 && service.state(projectId)?.running; i++) await new Promise((resolve) => setTimeout(resolve, 5));
-    expect(service.state(projectId)).toMatchObject({ running: false, done: 3, total: 3, usage: { inputTokens: 100, outputTokens: 20 } });
-    // The job is kept for 실행 기록, and its request is in the AI log under it.
-    const job = db.select().from(s.termJobs).get()!;
-    expect(job).toMatchObject({ projectId, status: 'completed', done: 3, total: 3, usage: { inputTokens: 100, outputTokens: 20 } });
-    expect(db.select().from(s.aiCalls).all()).toMatchObject([{ kind: 'terms', refId: job.id, status: 'ok', inputTokens: 100 }]);
-    const input = JSON.parse(prompts[0]);
-    expect(input.candidates[0]).toEqual({ source: 'Freedom Plaza', lines: 2, examples: [{ speaker: 'Symes', source: 'They met at Freedom Plaza.', translation: '그들은 자유 광장에서 만났다.' }, { speaker: 'Symes', source: 'Was Freedom Plaza busy? Thank God it was not.' }] });
-    expect(terms(db, projectId).map(({ source, target, note, origin, status }) => ({ source, target, note, origin, status }))).toEqual([
-      { source: 'Freedom Plaza', target: '자유 광장', note: '지명', origin: 'ai', status: 'candidate' },
-      { source: 'God', target: '', note: NOT_A_TERM, origin: 'ai', status: 'candidate' },
-      { source: 'Nina', target: '니나', note: '인물 이름', origin: 'script', status: 'candidate' },
-      { source: 'Thought', target: '사상', note: '단체 이름', origin: 'ai', status: 'candidate' },
-    ]);
-    // Ordinary words are not sent again.
-    expect(service.pending(projectId)).toEqual([]);
   });
 
   it('discovers terms across the script and saves them as candidates', () => {

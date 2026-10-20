@@ -432,25 +432,6 @@ export const speechRules = sqliteTable(
   (t) => [index('speech_rules_pair').on(t.projectId, t.fromName, t.toName)],
 );
 
-/** "빈 번역 AI로 채우기" jobs on the glossary: kept so 실행 기록 lists them beside runs and analyses. */
-export const termJobs = sqliteTable(
-  'term_jobs',
-  {
-    id: id(),
-    projectId: projectId(),
-    connectionId: text('connection_id'),
-    model: text('model'),
-    effort: text('effort'),
-    status: text('status', { enum: ['running', 'completed', 'failed', 'cancelled'] }).notNull(),
-    done: integer('done').notNull().default(0),
-    total: integer('total').notNull(),
-    usage: json<{ inputTokens: number; outputTokens: number }>('usage'),
-    error: text('error'),
-    createdAt: createdAt(),
-    finishedAt: integer('finished_at', { mode: 'timestamp_ms' }),
-  },
-  (t) => [index('term_jobs_project').on(t.projectId, t.createdAt)],
-);
 
 /** App-wide: connections are shared by every project. Secrets live in the OS keyring. */
 export const connections = sqliteTable('connections', {

@@ -20,7 +20,7 @@ export const Route = createFileRoute('/p/$projectId/runs/')({
   component: Runs,
 });
 
-const JOB_KIND = { run: '워크플로', terms: '용어집' } as const;
+const JOB_KIND = { run: '워크플로' } as const;
 type Stats = { calls: number | null; inputTokens: number; outputTokens: number };
 
 const seconds = (from: Date | string, to: Date | string | null) => {
@@ -103,8 +103,7 @@ const columns: ColumnDef<Row, unknown>[] = [
 
 
 /**
- * Everything AI did in the project, one row per job: workflow runs, work analyses, glossary fills,
- * newest first. A workflow run opens its detail page; other jobs open their model requests in the right-hand pane.
+ * Everything AI did in the project, one row per workflow run, newest first. A run opens its detail page.
  */
 function Runs() {
   const { projectId } = Route.useParams();
@@ -128,17 +127,6 @@ function Runs() {
             stats: jobs.data.runCalls[run.id] ?? null,
             at: new Date(run.createdAt),
             workflowId: run.workflowId,
-          })),
-          ...jobs.data.jobs.map((job) => ({
-            id: job.id,
-            kind: job.kind,
-            title: job.title,
-            sub: job.model ?? '',
-            status: job.status,
-            error: job.error,
-            progress: job.total != null && job.done != null ? { done: job.done, total: job.total, unit: '개' } : null,
-            stats: job,
-            at: new Date(job.createdAt),
           })),
         ].sort((a, b) => b.at.getTime() - a.at.getTime())
       : undefined;
@@ -210,13 +198,6 @@ function JobCalls({ projectId, job, onClose }: { projectId: string; job: { id: s
             <Button asChild variant="ghost">
               <Link to="/p/$projectId/runs/$runId" params={{ projectId, runId: job.id }}>
                 실행 상세
-              </Link>
-            </Button>
-          )}
-          {job.kind === 'terms' && (
-            <Button asChild variant="ghost">
-              <Link to="/p/$projectId/glossary" params={{ projectId }}>
-                용어집 보기
               </Link>
             </Button>
           )}

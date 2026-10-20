@@ -241,6 +241,29 @@ export function termExtractionTemplate(ids: Model): WorkflowDefinition {
   );
 }
 
+/**
+ * 용어 번역: glossary candidates with no Korean form yet, most used first, 100 to a request with two
+ * example lines each; a term gets its form and note (only while still empty), anything else is
+ * rejected as an AI decision (a person can bring it back). Both are written as AI decisions, not
+ * confirmed: a person still confirms the terms in the glossary.
+ */
+export function termTranslationTemplate(ids: Model): WorkflowDefinition {
+  return withRetries(
+    {
+      settings: { ...SETTINGS },
+      nodes: [
+        entryNode([], { subject: 'terms' }),
+        aiNode('translate', 'termTranslate', ids.model, 1),
+        { id: 'is-term', type: 'condition', position: at(2), label: '용어인가?', config: { expression: { '==': [{ var: 'outputs.translate.isTerm' }, true] }, description: 'AI가 용어라고 답한 것만 표기를 적습니다.' } },
+        applyNode('save-term', 'saveTermEntry', 'translate', 3, { map: { target: 'target', note: 'note' }, propose: false }),
+        { id: 'not-term', type: 'function', position: at(3, 1), label: '거절', config: { fn: 'setTermStatus', params: { status: 'rejected', propose: false } } },
+      ],
+      edges: [...chain('entry', 'translate', 'is-term'), edge('is-term', 'true', 'save-term'), edge('is-term', 'false', 'not-term')],
+    },
+    [['translate', 1]],
+  );
+}
+
 /** 인물·관계 추출: scene groups are read against what is known; new people, relationships and speech rules are saved. */
 export function peopleRelationsTemplate(ids: Model): WorkflowDefinition {
   return withRetries(
@@ -368,6 +391,7 @@ export function analysisTemplate(ids: Model): WorkflowDefinition {
 /** Single-purpose templates that only need a model (the `from` of creating a workflow). */
 export const MODEL_TEMPLATES = {
   terms: termExtractionTemplate,
+  termTranslate: termTranslationTemplate,
   listener: listenerTemplate,
   people: peopleRelationsTemplate,
   events: eventExtractionTemplate,
@@ -386,6 +410,7 @@ export function defaultWorkflows(ids: { model: DraftModelChoice; untranslated?: 
       : []),
     { name: '청자 추정', description: '청자가 아직 없는 대사만 장면별로 누구에게 하는 말인지 추정해 적습니다. 번역·상태는 바꾸지 않습니다.', definition: listenerTemplate({ model: ids.model }) },
     { name: '용어 추출', description: '번역된 대사에서 고유명사·반복 용어와 번역에 쓰인 표기를 짝지어 용어집에 넣습니다.', definition: termExtractionTemplate({ model: ids.model }) },
+    { name: '용어 번역', description: '표기가 빈 용어 후보마다 용어인지 가리고, 용어면 한국어 표기와 메모를 적습니다(확정은 사람이). 용어가 아니면 거절합니다.', definition: termTranslationTemplate({ model: ids.model }) },
     { name: '인물·관계 추출', description: '등장인물, 인물 사이의 관계와 변화, 화자·청자 말투 규칙을 장면별로 뽑아 자료에 넣습니다.', definition: peopleRelationsTemplate({ model: ids.model }) },
     { name: '사건 추출', description: '사건의 원인·결과와 관련 인물을 장면별로 뽑아 자료에 넣습니다.', definition: eventExtractionTemplate({ model: ids.model }) },
     { name: ANALYSIS_WORKFLOW, description: ANALYSIS_WORKFLOW_DESCRIPTION, definition: analysisTemplate({ model: ids.model }) },

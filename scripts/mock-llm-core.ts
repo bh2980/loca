@@ -96,14 +96,13 @@ export function usageFor(promptChars: number, completionChars: number, options: 
   return { prompt_tokens: prompt, completion_tokens: completion, total_tokens: prompt + completion, prompt_tokens_details: { cached_tokens: Math.min(options.cachedTokens, prompt) } };
 }
 
-export type MockKind = 'complete' | 'test' | 'regex' | 'glossary' | 'text' | 'revise' | 'refine' | 'verdict' | 'choice' | 'json' | 'jsonBatch';
+export type MockKind = 'complete' | 'test' | 'regex' | 'text' | 'revise' | 'refine' | 'verdict' | 'choice' | 'json' | 'jsonBatch';
 
 /** Which answer the prompt asks for. The server's FORMAT sentences (engine/format-sentences.ts) name the output form; instructions tell translate from revise. */
 export function detectKind(system: string): MockKind {
   if (system.startsWith('Translate the text into')) return 'test';
   if (system.includes('JavaScript 정규식 전문가')) return 'regex';
   if (system.includes('continue a Korean game translation')) return 'complete';
-  if (system.includes('Korean localization glossary')) return 'glossary';
   // AI 다듬기 answers per line as json (text + changes): read before the generic json forms.
   if (system.includes('Do not rephrase what is already correct')) return 'refine';
   if (system.includes(FORMAT_JSON_BATCH)) return 'jsonBatch';
@@ -177,7 +176,7 @@ const fillObject = (def: JsonDef, ctx: { ids: string[]; speakers: string[]; sour
 /** Lines mentioning "orders" never pass review, so they end up waiting for a person. */
 const stubborn = (source: string) => /orders/i.test(source);
 
-function structured(kind: Exclude<MockKind, 'glossary' | 'test' | 'complete' | 'regex'>, rows: Row[], schema: unknown): { body: unknown; entries?: { key: string; textKey?: string } } {
+function structured(kind: Exclude<MockKind, 'test' | 'complete' | 'regex'>, rows: Row[], schema: unknown): { body: unknown; entries?: { key: string; textKey?: string } } {
   const properties = (schema as JsonDef | undefined)?.properties ?? {};
   switch (kind) {
     // The editor's 다듬기: a "[KO] " draft is marked checked (one reasoned change); anything else has nothing to fix.
@@ -288,16 +287,6 @@ export function respond(request: MockRequest, options: MockOptions, rand: () => 
     // A model test (AI 연결 › 모델 시험): one plain sentence, not a JSON batch.
     body = { text: `[KO] ${request.user}` };
     lines = 1;
-  } else if (kind === 'glossary') {
-    // "빈 번역 AI로 채우기": every candidate gets a form, except phrases opening with an ordinary word.
-    const input = JSON.parse(request.user) as { candidates: { source: string }[] };
-    lines = input.candidates.length;
-    body = {
-      terms: input.candidates.map(({ source }) => {
-        const isTerm = !/^(This|Thank|That|Dear)\b/.test(source);
-        return { source, isTerm, target: isTerm ? `[KO] ${source}` : '', note: isTerm ? '모의 용어' : '' };
-      }),
-    };
   } else {
     // The server groups a batch's lines by scene; a whole-script request is the script as text.
     if (script) rows = scriptRows(request.user);

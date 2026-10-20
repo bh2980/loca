@@ -12,7 +12,7 @@ describe('default workflows of a new project', () => {
     const { projectId } = importProject(db, file);
     const names = db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).all().map((workflow) => workflow.name);
     expect(names).not.toContain('자료 갱신');
-    expect(names).toEqual(['초벌 번역', '청자 추정', '용어 추출', '인물·관계 추출', '사건 추출', '작품 분석']);
+    expect(names).toEqual(['초벌 번역', '청자 추정', '용어 추출', '용어 번역', '인물·관계 추출', '사건 추출', '작품 분석']);
   });
 });
 

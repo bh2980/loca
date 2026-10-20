@@ -11,7 +11,7 @@ import { graphOrder, ruleLines } from '../services/speech.ts';
 import { eventFlow, forks } from '../services/event-routes.ts';
 import { fillTermUsage, termUsage } from '../services/term-usage.ts';
 import { saveCharacter } from '../services/characters.ts';
-import { discoverAndSave, saveTerm, SUGGEST_BATCH } from '../services/terms.ts';
+import { discoverAndSave, saveTerm } from '../services/terms.ts';
 import { byPerson } from '../services/status-by.ts';
 import { clearReview, setKnowledgeTag, withTags } from '../services/knowledge-tags.ts';
 import { characterInput, documentInput, eventInput, relationshipInput, speechRuleInput, termInput } from '../schemas/knowledge.ts';
@@ -31,22 +31,6 @@ export const knowledgeRoutes = new Hono<Env>()
     const projectId = c.req.param('projectId')!;
     fillTermUsage(db, projectId);
     return c.json(withTags(db, 'terms', db.select().from(s.terms).where(visible(s.terms, projectId)).orderBy(asc(s.terms.source)).all()));
-  })
-  .get('/terms/suggest', (c) => {
-    const projectId = c.req.param('projectId')!;
-    const pending = c.var.deps.terms.pending(projectId).length;
-    return c.json({ state: c.var.deps.terms.state(projectId), pending, calls: Math.ceil(pending / SUGGEST_BATCH), batch: SUGGEST_BATCH });
-  })
-  .post('/terms/suggest', validate('json', modelChoiceSchema), (c) => {
-    try {
-      return c.json(c.var.deps.terms.start(c.req.param('projectId')!, c.req.valid('json')));
-    } catch (error) {
-      badRequest(error instanceof Error ? error.message : String(error));
-    }
-  })
-  .post('/terms/suggest/cancel', (c) => {
-    c.var.deps.terms.cancel(c.req.param('projectId')!);
-    return c.json({ ok: true });
   })
   .post('/terms/discover', (c) => {
     const { db } = c.var.deps;

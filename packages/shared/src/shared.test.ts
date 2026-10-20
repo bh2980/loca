@@ -216,7 +216,7 @@ describe('templates', () => {
       expect(errors(definition)).toEqual([]);
       for (const node of definition.nodes) if (node.type === 'function' && node.config.fn in APPLY_TARGETS) expect(applyIssues(definition, node.config.fn as keyof typeof APPLY_TARGETS, node.config.params as never)).toEqual([]);
     }
-    expect(defaultWorkflows({ model }).map((row) => row.name)).toEqual(['청자 추정', '용어 추출', '인물·관계 추출', '사건 추출', ANALYSIS_WORKFLOW]);
+    expect(defaultWorkflows({ model }).map((row) => row.name)).toEqual(['청자 추정', '용어 추출', '용어 번역', '인물·관계 추출', '사건 추출', ANALYSIS_WORKFLOW]);
   });
 
   it('maps every field an analysis list produces that its save node accepts', () => {
