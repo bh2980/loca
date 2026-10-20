@@ -42,6 +42,7 @@ export function LineList({
   dockEditor,
   dockSelectionKey,
   emptyAction,
+  lineActions,
   withSpeakers = true,
 }: {
   projectId: string;
@@ -59,6 +60,8 @@ export function LineList({
   runKind?: 'scene' | 'ui' | 'document';
   /** Opens a line in its own scene, without this list's filters. */
   onOpenScene?: (groupId: string, lineId: string) => void;
+  /** A line's right-click: its source in the editor, a new line in its scene, its scene in the graph. */
+  lineActions?: { editSource: (line: { id: string; groupId: string; groupKind: 'scene' | 'ui' | 'document' }) => void; addLine: (line: { id: string; groupId: string; groupKind: 'scene' | 'ui' | 'document' }) => void; showInGraph: (line: { groupId: string }) => void };
   /** Walking a filter inside this scene: every line shows, the matching ones are marked. */
   find?: { ids: Set<string>; label: string };
   /** Shown between the toolbar and the lines (the find bar). */
@@ -328,6 +331,9 @@ export function LineList({
                   onSelect={() => select(line.id, true)}
                   onOpenDetail={() => { revealDock?.(); onSearch({ line: line.id, detail: true }, { replace: true }); }}
                   onOpenScene={onOpenScene}
+                  onEditSource={lineActions && (() => lineActions.editSource(line))}
+                  onAddLine={lineActions && (() => lineActions.addLine(line))}
+                  onShowInGraph={lineActions && line.kind === 'dialogue' ? () => lineActions.showInGraph(line) : undefined}
                   onArrivedEnd={() => setArrived(undefined)}
                   onNoting={setNoting}
                   onEscape={() => setEditing(false)}

@@ -1,8 +1,8 @@
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { LineMark } from '@tw/shared';
 import { Link } from '@tanstack/react-router';
-import { AppWindow, Check, FileText, Inbox, MessageSquareText } from 'lucide-react';
-import { SearchInput, NavigationBranch, NavigationItem, NavigationPane, StatusBar, commonNavigationItem, type StatusLike } from '@loca/ui';
+import { AppWindow, Check, FileText, Inbox, MessageSquareText, Plus } from 'lucide-react';
+import { Button, ContextMenu, ContextMenuContent, ContextMenuTrigger, SearchInput, NavigationBranch, NavigationItem, NavigationPane, StatusBar, Tooltip, TooltipContent, TooltipTrigger, commonNavigationItem, type StatusLike } from '@loca/ui';
 import { GROUP_KIND, SCRIPT_VIEW, SOURCE_GROUP_LABEL } from '@/lib/labels';
 import { cn } from '@/lib/utils';
 
@@ -47,7 +47,7 @@ const VIEW_ICON = { scene: <MessageSquareText />, ui: <AppWindow />, document: <
  * Source kinds and chapter navigation down the left of the translation screen, with review pinned below.
  * Each scene shows only how many of its lines are done (in a final status), or a check when all are.
  */
-export function GroupList({ projectId, groups, finalIds, initialIds, scope, reviewCount, gq, onFilter, marks, views, statuses }: {
+export function GroupList({ projectId, groups, finalIds, initialIds, scope, reviewCount, gq, onFilter, marks, views, statuses, onCreate, menu }: {
   projectId: string;
   groups: GroupRow[] | undefined;
   /** Statuses that count as done. */
@@ -64,6 +64,10 @@ export function GroupList({ projectId, groups, finalIds, initialIds, scope, revi
   views?: { kind: GroupRow['kind']; lines: number }[];
   /** Project status definitions used to color each scene's actual per-status counts. */
   statuses?: StatusLike[];
+  /** + beside the search: a new scene (UI group, document group) of the open view. */
+  onCreate?: () => void;
+  /** A scene's right-click menu items (edit, add a line, graph, AI summary). */
+  menu?: (group: GroupRow) => ReactNode;
 }) {
   const sections = useMemo(() => sectionsOf(groups ?? []), [groups]);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set(readExpanded(projectId)));
@@ -86,7 +90,20 @@ export function GroupList({ projectId, groups, finalIds, initialIds, scope, revi
     return { translated: lines.reduce((sum, [id, n]) => sum + (initialIds.has(id) ? 0 : n), 0), final: lines.reduce((sum, [id, n]) => sum + (finalIds.has(id) ? n : 0), 0) };
   };
 
-  const search = <SearchInput value={gq} onChange={onFilter} placeholder={`${SOURCE_GROUP_LABEL[scope.kind ?? 'scene']} 찾기`} className="w-full" />;
+  const noun = SOURCE_GROUP_LABEL[scope.kind ?? 'scene'];
+  const search = (
+    <div className="flex items-center gap-1">
+      <SearchInput value={gq} onChange={onFilter} placeholder={`${noun} 찾기`} className="w-full" />
+      {onCreate && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" size="icon-sm" aria-label={`${noun} 추가`} onClick={onCreate}><Plus /></Button>
+          </TooltipTrigger>
+          <TooltipContent>{noun} 추가</TooltipContent>
+        </Tooltip>
+      )}
+    </div>
+  );
   const kindsNav = (
     <nav aria-label="원본 종류" className="space-y-1">
       {views?.map((view) => <ScopeLink key={view.kind} projectId={projectId} scope={{ kind: view.kind }} clearPeopleFilters={view.kind !== scope.kind} active={!scope.group && !scope.section && !scope.review && scope.kind === view.kind} icon={VIEW_ICON[view.kind]} label={`전체 ${SCRIPT_VIEW[view.kind]}`} count={view.lines} />)}
@@ -101,7 +118,7 @@ export function GroupList({ projectId, groups, finalIds, initialIds, scope, revi
         {sections.map((section) => {
           // A scene search shows its matches wherever they are; otherwise sections default to closed unless opened or active.
           const open = Boolean(gq) || !section.name || expanded.has(section.name);
-          const items = section.groups.map((group) => <GroupItem key={group.id} projectId={projectId} group={group} progress={progressOf(group)} statuses={statuses} active={group.id === scope.group} indent={Boolean(section.name)} marks={marks} />);
+          const items = section.groups.map((group) => <GroupItem key={group.id} menu={menu?.(group)} projectId={projectId} group={group} progress={progressOf(group)} statuses={statuses} active={group.id === scope.group} indent={Boolean(section.name)} marks={marks} />);
           if (!section.name) return <Fragment key={section.key}>{items}</Fragment>;
           const count = section.groups.reduce((sum, group) => sum + group.total, 0);
           const active = scope.section === section.name;
@@ -164,10 +181,10 @@ function ScopeLink({ projectId, scope, active, icon, label, count, highlight, cl
   );
 }
 
-function GroupItem({ projectId, group, progress, statuses, active, indent, marks }: { projectId: string; group: GroupRow; progress: { translated: number; final: number }; statuses?: StatusLike[]; active: boolean; indent: boolean; marks?: Map<string, number> }) {
+function GroupItem({ projectId, group, progress, statuses, active, indent, marks, menu }: { menu?: ReactNode; projectId: string; group: GroupRow; progress: { translated: number; final: number }; statuses?: StatusLike[]; active: boolean; indent: boolean; marks?: Map<string, number> }) {
   const complete = group.total > 0 && progress.final === group.total;
   const marked = marks?.get(group.id) ?? 0;
-  return (
+  const link = (
     <ScriptLink
       projectId={projectId}
       scope={{ group: group.id }}
@@ -193,5 +210,12 @@ function GroupItem({ projectId, group, progress, statuses, active, indent, marks
       </span>
       {!marks && statuses?.length ? <StatusBar statuses={statuses} counts={group.statuses} className="h-1 w-full" /> : null}
     </ScriptLink>
+  );
+  if (!menu) return link;
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>{link}</ContextMenuTrigger>
+      <ContextMenuContent className="w-48">{menu}</ContextMenuContent>
+    </ContextMenu>
   );
 }

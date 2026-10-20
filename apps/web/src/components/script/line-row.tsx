@@ -43,7 +43,7 @@ import {
 } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
-import { SOURCE_GROUP_LABEL } from '@/lib/labels';
+import { SOURCE_GROUP_LABEL, SOURCE_UNIT_LABEL } from '@/lib/labels';
 import { cn } from '@/lib/utils';
 import { SpeakerCard } from '@/components/script/speaker-card';
 import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
@@ -187,8 +187,8 @@ export function LineRow({
   onSelect,
   onOpenDetail,
   onShowInGraph,
-  onInsertAfter,
-  onDelete,
+  onAddLine,
+  onEditSource,
   onOpenScene,
   onArrivedEnd,
   onNoting,
@@ -220,8 +220,10 @@ export function LineRow({
   onSelect: () => void;
   onOpenDetail?: () => void;
   onShowInGraph?: () => void;
-  onInsertAfter?: () => void;
-  onDelete?: () => void;
+  /** Adds a line at the end of this line's scene (its source editor opens). */
+  onAddLine?: () => void;
+  /** Opens this line's source (text, speaker, key) in the editor. */
+  onEditSource?: () => void;
   onOpenScene?: (groupId: string, lineId: string) => void;
   onArrivedEnd: () => void;
   onNoting: (noting: boolean) => void;
@@ -308,6 +310,7 @@ export function LineRow({
   );
   const checkbox = <Checkbox aria-label={`${line.key} 선택`} checked={isPicked} onClick={(event) => event.stopPropagation()} onCheckedChange={(checked) => onPick(Boolean(checked))} />;
   const colorOf = usePersonColors(projectId);
+  const addLineLabel = `이 ${SOURCE_GROUP_LABEL[line.groupKind]}에 ${SOURCE_UNIT_LABEL[line.groupKind]} 추가`;
   // Lines without a speaker (UI strings, documents) show their key in its place, level with the status opposite.
   const speaker = line.kind === 'ui' || line.kind === 'document' ? (
     <span className="truncate font-mono text-xs text-muted-foreground" title={line.key}>{line.key}</span>
@@ -368,9 +371,9 @@ export function LineRow({
           {line.translation && <DropdownMenuItem onClick={() => { void navigator.clipboard.writeText(line.translation!); toast.success('번역을 복사했습니다.'); }}>번역 복사</DropdownMenuItem>}
           <DropdownMenuItem onClick={() => { void navigator.clipboard.writeText(line.key); toast.success('대사 키를 복사했습니다.'); }}>키 복사</DropdownMenuItem>
           {onShowInGraph && <DropdownMenuItem onClick={onShowInGraph}>그래프에서 보기</DropdownMenuItem>}
-          {(onInsertAfter || onDelete) && <DropdownMenuSeparator />}
-          {onInsertAfter && <DropdownMenuItem onClick={onInsertAfter}>아래에 대사 추가</DropdownMenuItem>}
-          {onDelete && <DropdownMenuItem variant="destructive" onClick={onDelete}>대사 삭제</DropdownMenuItem>}
+          {(onEditSource || onAddLine) && <DropdownMenuSeparator />}
+          {onEditSource && <DropdownMenuItem onClick={onEditSource}>원문 편집</DropdownMenuItem>}
+          {onAddLine && <DropdownMenuItem onClick={onAddLine}>{addLineLabel}</DropdownMenuItem>}
         </DropdownMenuContent>
       </DropdownMenu>
     </span>
@@ -507,17 +510,9 @@ export function LineRow({
                 그래프에서 보기
               </ContextMenuItem>
             )}
-            {(onInsertAfter || onDelete) && <ContextMenuSeparator />}
-            {onInsertAfter && (
-              <ContextMenuItem onClick={onInsertAfter}>
-                아래에 대사 추가
-              </ContextMenuItem>
-            )}
-            {onDelete && (
-              <ContextMenuItem variant="destructive" onClick={onDelete}>
-                대사 삭제
-              </ContextMenuItem>
-            )}
+            {(onEditSource || onAddLine) && <ContextMenuSeparator />}
+            {onEditSource && <ContextMenuItem onClick={onEditSource}>원문 편집</ContextMenuItem>}
+            {onAddLine && <ContextMenuItem onClick={onAddLine}>{addLineLabel}</ContextMenuItem>}
           </ContextMenuContent>
         </ContextMenu>
       </li>
