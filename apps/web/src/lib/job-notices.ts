@@ -33,7 +33,7 @@ export function useJobNotices(projectId: string) {
     }
     function runNotice(run: NonNullable<typeof runs.data>[number]) {
       const open = { label: '실행 보기', onClick: () => void navigate({ to: '/p/$projectId/runs/$runId', params: { projectId, runId: run.id } }) };
-      if (run.status === 'completed') toast.success(`‘${run.workflowName}’ 실행이 끝났습니다`, { description: `${run.total.toLocaleString()}줄`, action: open, duration: 15_000 });
+      if (run.status === 'completed') toast.success(`‘${run.workflowName}’ 실행이 끝났습니다`, { description: `${run.total.toLocaleString()}${run.subject === 'terms' ? '개' : '줄'}`, action: open, duration: 15_000 });
       else if (run.status === 'paused') toast.warning(`‘${run.workflowName}’ 실행이 멈췄습니다`, { description: run.notice ?? undefined, action: open, duration: 15_000 });
     }
   }, [jobs.data, runs.data, navigate, projectId]);

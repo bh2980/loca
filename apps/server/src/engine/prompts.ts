@@ -109,13 +109,17 @@ export function formatSentences(node: AiNode, choiceOptions: string[] = node.con
   }
 }
 
+/** What an item of a request is: a line's kind (narration for dialogue nobody says), or "term". */
+const itemKindOf = (line: { kind: string; speaker: string | null }) => (line.kind === 'term' ? 'term' : lineKindOf(line));
+
 /** How to read lines that are not spoken dialogue, for the kinds this batch has. */
 function kindGuide(lines: PromptLine[]) {
-  const kinds = new Set(lines.map(lineKindOf));
+  const kinds = new Set<string>(lines.map(itemKindOf));
   const parts = [
     kinds.has('narration') && '"narration" is text nobody says (stage directions, descriptions): no speaker, no listener, no spoken speech level',
     kinds.has('ui') && '"ui" is an interface string shown on screen (menus, buttons, labels, its "key" says where): keep it short, in the plain style of game interfaces, no spoken endings',
     kinds.has('document') && '"document" is written text read in the game (letters, logs, books, notes): keep a written register and its form',
+    kinds.has('term') && '"term" is a glossary entry, not a line: "source" is the term, "target" and "note" what the glossary has for it so far, "uses" how many script lines contain it and "examples" some of them (with their current translation)',
   ].filter(Boolean);
   return parts.length ? `A line's "kind" says what it is when it is not spoken dialogue: ${parts.join('; ')}.` : '';
 }
@@ -124,7 +128,7 @@ function kindGuide(lines: PromptLine[]) {
  * The id a request shows for its n-th line (0-based `index`): "L1", "L2"… — the same form a
  * whole-script request uses, so instructions and evidence fields can say "line ids like L12" for every mode.
  */
-export const promptLineId = (index: number) => `L${index + 1}`;
+export const promptLineId = (index: number, prefix: 'L' | 'T' = 'L') => `${prefix}${index + 1}`;
 
 export interface PromptLine {
   id: string;
@@ -140,6 +144,8 @@ export interface PromptLine {
   issues?: string[];
   /** What the node's input.from produced for this line (trimmed to input.fields). */
   previous?: unknown;
+  /** A term item (kind "term"): its current form, note, how many lines use it, some of those lines. */
+  term?: { target?: string; note?: string; uses?: number; examples: { speaker?: string; source: string; translation?: string }[] };
 }
 
 /** The parts of a request's context that belong to the project, not to a line (also the context of a whole-script request). */
@@ -191,7 +197,7 @@ export function buildPrompt(
   const promptLine = (line: PromptLine) => {
     // Context only lists lines outside the batch, each once (the batch itself is visible in order).
     const before = context.preceding[line.unitId];
-    const kind = lineKindOf(line);
+    const kind = itemKindOf(line);
     return {
       id: line.id,
       // Spoken dialogue is the default and goes unmarked; the rest says what it is (a UI string with its key).
@@ -205,6 +211,7 @@ export function buildPrompt(
       candidate: node.config.include.candidate || node.config.output === 'verdict' ? line.candidate : undefined,
       issues: node.config.include.issues && line.issues?.length ? line.issues : undefined,
       previous: line.previous,
+      ...(line.term && { target: line.term.target, note: line.term.note, uses: line.term.uses, examples: line.term.examples.length ? line.term.examples : undefined }),
       precedingLines: before?.lines.length ? show(before.lines) : undefined,
       precedingBranches: before?.branches.length
         ? before.branches.map((branch) => ({ path: branch.label, lines: show(branch.lines) })).concat(before.moreBranches ? [{ path: `(${before.moreBranches} more paths not shown)`, lines: [] }] : [])

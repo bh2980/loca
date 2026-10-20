@@ -6,11 +6,12 @@ import * as s from '../../db/schema.ts';
 import type { SecretStore } from '../../services/secrets.ts';
 import { attachUnitTags } from '../../services/tag-scope.ts';
 import { runScript } from './sandbox.ts';
+import { addToRunProposal } from '../../services/proposals.ts';
 import { knowledgeOf } from '../../services/speech.ts';
 import type { IssueTagChange } from '../../services/issue-tags.ts';
 import { HUMAN_OWNED_NOTE, personOwns } from '../apply-candidate.ts';
 import { applyFunctions } from './apply.ts';
-import type { FunctionInput, FunctionResult } from './types.ts';
+import { lineOf, type FunctionInput, type FunctionResult } from './types.ts';
 
 export type { FunctionInput, FunctionResult };
 
@@ -21,12 +22,14 @@ type Unit = typeof s.units.$inferSelect;
 type Item = typeof s.runItems.$inferSelect;
 
 const NEEDS_CANDIDATE = '검사할 번역 후보가 없습니다.';
-const candidateOf = (input: FunctionInput) => input.item.data.candidateText ?? input.unit.translation ?? null;
+const candidateOf = (input: FunctionInput) => input.item.data.candidateText ?? (input.subject === 'lines' ? input.unit.translation : input.term.target || null) ?? null;
 
-/** What a script or HTTP template can see about a line. */
+/** What a script or HTTP template can see about an item: `unit` for a line, `term` for a term. */
 export function lineView(input: FunctionInput) {
   return {
-    unit: { key: input.unit.key, kind: input.unit.kind, speaker: input.unit.speaker, source: input.unit.source, translation: input.unit.translation },
+    ...(input.subject === 'lines'
+      ? { unit: { key: input.unit.key, kind: input.unit.kind, speaker: input.unit.speaker, source: input.unit.source, translation: input.unit.translation } }
+      : { term: { source: input.term.source, target: input.term.target, note: input.term.note, status: input.term.status, lines: input.term.lines } }),
     candidate: candidateOf(input),
     issues: input.item.data.issues ?? [],
     outputs: input.item.data.outputs ?? {},
@@ -48,7 +51,7 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     const params = formatCheckParams.parse(raw);
     const text = candidateOf(input);
     const rules = tx.select({ formatRules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, input.projectId)).get()?.formatRules;
-    const issues = text === null ? [NEEDS_CANDIDATE] : checkFormat(input.unit.source, text, params, rules).map((issue) => issue.message);
+    const issues = text === null ? [NEEDS_CANDIDATE] : checkFormat(lineOf(input).source, text, params, rules).map((issue) => issue.message);
     return { port: issues.length ? 'fail' : 'pass', issues, output: { passed: !issues.length, issues }, ...(text !== null && { issueTags: issues.length ? { add: ['format'] } : { clear: ['format'] } }) };
   },
 
@@ -57,7 +60,7 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     if (text === null) return { port: 'fail', issues: [NEEDS_CANDIDATE], output: { passed: false, issues: [NEEDS_CANDIDATE] } };
     const issues = knowledgeOf(tx as unknown as Db, input.projectId)
       .glossary()
-      .matcher.find(input.unit.source)
+      .matcher.find(lineOf(input).source)
       .filter((term) => !text.toLowerCase().includes(term.target.toLowerCase()))
       .map((term) => `용어 "${term.source}"은(는) "${term.target}"(으)로 옮겨야 합니다.`);
     return { port: issues.length ? 'fail' : 'pass', issues, output: { passed: !issues.length, issues }, issueTags: issues.length ? { add: ['term'] } : { clear: ['term'] } };
@@ -65,13 +68,14 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
 
   setStatus(tx, raw, input) {
     const params = setStatusParams.parse(raw);
+    const unit = lineOf(input);
     // Translations now go into the line when a node produces them (engine/apply-candidate.ts, #42);
     // this node only sets the status and tags. A run sets the line's status, so AI set it;
     // a person's change later makes it theirs. A run that picks lines by status
     // never replaces a translation a person wrote (#51): its entry skips such lines, and one a person
     // saved while the run was on it keeps its status here. A run on lines named regardless of status
     // (말투만 고치기, '상태 무시') is asked to rewrite them, so its status change goes through.
-    const current = tx.select({ translation: s.units.translation, statusBy: s.units.statusBy }).from(s.units).where(eq(s.units.id, input.unit.id)).get();
+    const current = tx.select({ translation: s.units.translation, statusBy: s.units.statusBy }).from(s.units).where(eq(s.units.id, unit.id)).get();
     const run = tx.select({ definition: s.runs.definition, scope: s.runs.scope }).from(s.runs).where(eq(s.runs.id, input.runId)).get();
     const humanOwns = personOwns(current, input.item.data.candidateText, !run || filtersByStatus(run.definition, run.scope));
     const patch: Partial<typeof s.units.$inferInsert> = {};
@@ -81,12 +85,24 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
       issues.push(HUMAN_OWNED_NOTE);
     } else {
       if (params.statusId) Object.assign(patch, { statusId: params.statusId, statusBy: 'ai', statusRunId: input.runId });
-      if (Object.keys(patch).length) tx.update(s.units).set(patch).where(eq(s.units.id, input.unit.id)).run();
+      if (Object.keys(patch).length) tx.update(s.units).set(patch).where(eq(s.units.id, unit.id)).run();
     }
     // A tag that no longer belongs on lines (its places were narrowed after the node was set up) is skipped, with a notice.
-    const { skipped } = attachUnitTags(tx, input.projectId, [input.unit.id], { add: params.addTagIds, remove: params.removeTagIds }, { onMisplaced: 'skip' });
+    const { skipped } = attachUnitTags(tx, input.projectId, [unit.id], { add: params.addTagIds, remove: params.removeTagIds }, { onMisplaced: 'skip' });
     for (const tag of skipped) issues.push(`‘${tag.name}’ 태그는 대사에 붙일 수 없어 붙이지 않았습니다.`);
     return issues.length ? { port: 'out', issues } : { port: 'out' };
+  },
+
+  /** 용어 상태 변경: candidate, confirmed or rejected (rejected terms are not proposed again); proposed by default. */
+  setTermStatus(tx, raw, input) {
+    const params = FUNCTIONS.setTermStatus.params.parse(raw);
+    if (input.subject !== 'terms') throw new Error('용어 상태 변경은 용어 워크플로에서만 쓸 수 있습니다.');
+    if (params.propose) {
+      addToRunProposal(tx, { projectId: input.projectId, runId: input.runId, nodeId: input.item.nodeId, tool: 'save_terms', input: {} }, 'terms', { id: input.term.id, status: params.status });
+      return { port: 'out', output: { proposed: true, status: params.status } };
+    }
+    tx.update(s.terms).set({ status: params.status, statusBy: 'ai', runId: input.runId }).where(eq(s.terms.id, input.term.id)).run();
+    return { port: 'out', output: { status: params.status } };
   },
 
   ...applyFunctions,

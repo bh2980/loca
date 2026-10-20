@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, CircleStop, ScanSearch, Sparkles } from 'lucide-react';
+import { Plus, CircleStop, Play, ScanSearch, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { DataTable, type ColumnDef, EmptyState, TagMenu, SplitPane, FilterChips, SearchInput, FilterBar, ActionBar, type FilterChip, Button, StatusBarItem, useRevealDock, ContextMenuItem, ContextMenuSeparator, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Spinner } from '@loca/ui';
 import { HeaderFilter, MarkFilter, markTagGroups, togglePick, type FilterPick } from '@/components/header-filter';
 import { FillDialog } from '@/components/glossary/fill-dialog';
 import { NEW_TERM, NewTermPane, TermEditor, type Term } from '@/components/glossary/term-pane';
+import { RunDialog } from '@/components/workflow/run-dialog';
 import { HeaderActions, Page } from '@/components/page';
 import { JobProgress } from '@/components/job-progress';
 import { BulkDecide, matches, SourceBadge, TagCell } from '@/components/knowledge/table';
@@ -55,6 +56,7 @@ function Glossary() {
   const suggest = useQuery(q.termSuggest(projectId));
   const fill = suggest.data?.state;
   const [fillOpen, setFillOpen] = useState(false);
+  const [runOpen, setRunOpen] = useState(false);
   const cancelFill = useMutation({
     mutationFn: () => unwrap(client.projects[':projectId'].terms.suggest.cancel.$post({ param: { projectId } })),
     onError: (error) => toast.error(error.message),
@@ -146,6 +148,9 @@ function Glossary() {
   const promotable = pickedTerms.filter((term) => !isSettled(term) && term.target.trim());
   const discardable = pickedTerms.filter((term) => !isSettled(term));
   const afterBulk = { onSuccess: clearPicked };
+  // A term workflow runs on the picked terms, else on what the filters leave; with neither, on the terms its own 대상 picks.
+  const narrowed = Boolean(needle || search.ids || search.source || search.marks?.length || search.tags?.length || search.hideMarks?.length || search.hideTags?.length);
+  const runTermIds = pickedTerms.length ? pickedTerms.map((term) => term.id) : narrowed ? rows.map((term) => term.id) : undefined;
 
   const chips: FilterChip[] = [
     ...(search.ids ? [{ key: 'ids', label: `실행 범위 ${search.ids.length}`, clear: () => setFilter({ ids: undefined }) }] : []),
@@ -224,6 +229,13 @@ function Glossary() {
               overflow: 'never',
               onSelect: () => discover.mutate(),
             },
+            {
+              id: 'run',
+              label: pickedTerms.length ? `선택 ${pickedTerms.length}개로 워크플로 실행` : narrowed ? '보이는 용어로 워크플로 실행' : '워크플로 실행',
+              icon: <Play />,
+              priority: 9,
+              onSelect: () => setRunOpen(true),
+            },
             ...(fill?.running ? [{
               id: 'cancel-fill',
               label: '채우기 중단',
@@ -242,6 +254,7 @@ function Glossary() {
             }] : []),
           ]} />
         </HeaderActions>
+        <RunDialog projectId={projectId} subject="terms" termIds={runTermIds} hideTrigger open={runOpen} onOpenChange={setRunOpen} />
         {!!suggest.data?.pending && !fill?.running && <FillDialog projectId={projectId} pending={suggest.data.pending} calls={suggest.data.calls} batch={suggest.data.batch} hideTrigger open={fillOpen} onOpenChange={setFillOpen} />}
         {(fill?.running || fill?.error || fill?.done) && <StatusBarItem>
           {fill.running ? <span className="flex min-w-0 items-center gap-2 tabular-nums"><JobProgress done={fill.done} total={fill.total} running className="w-20 shrink-0" /><span className="truncate">용어 번역 채우는 중 {fill.done.toLocaleString()}/{fill.total.toLocaleString()}</span></span>

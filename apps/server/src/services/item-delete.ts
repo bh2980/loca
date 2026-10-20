@@ -35,7 +35,11 @@ export function deleteItems(db: Db, projectId: string, kind: DeletableKind, ids:
   const { ids: gone, missing, locked } = deletable(db, projectId, kind, ids);
   if (gone.length) {
     db.transaction((tx) => {
-      for (const slice of inChunks(gone, (part) => [part])) tx.delete(table).where(and(eq(table.projectId, projectId), inArray(table.id, slice))).run();
+      for (const slice of inChunks(gone, (part) => [part])) {
+        // A term's run items name it without a foreign key (run_items.subject_id): they go with it.
+        if (kind === 'terms') tx.delete(s.runItems).where(inArray(s.runItems.subjectId, slice)).run();
+        tx.delete(table).where(and(eq(table.projectId, projectId), inArray(table.id, slice))).run();
+      }
     });
     events.changed(projectId, topic, ...(kind === 'tags' ? (['units', 'workflows'] as const) : []));
   }

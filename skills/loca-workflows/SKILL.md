@@ -21,6 +21,14 @@ description: Build, change, run and debug loca workflows — the user-defined au
 
 AI 노드는 결과를 **만들기만** 하고, 프로젝트에 넣는 건 반영 노드입니다. AI 노드에 프리셋(번역·검수·수정·말투 맞추기·청자 추정·용어/인물·관계/사건 추출·작품 분석)을 고르면 지시문·출력·문맥이 채워지고, 고쳐 쓸 수 있습니다.
 
+## 대상: 대사 또는 용어
+진입 노드의 `subject`가 워크플로의 대상을 정합니다: `lines`(대사, 기본) 또는 `terms`(용어집의 용어). 실행의 항목, 묶음, 범위, 개수가 모두 그 대상의 단위(대사/용어)로 바뀝니다.
+- 진입 설정(용어): `termStatuses`(기본 `["candidate"]`), `termMarks`(자동 표시가 모두 붙은 용어, 기본 `["emptyTarget"]` = 번역어가 아직 없음). 대사의 `statusIds`는 대사 워크플로용입니다. 용어는 많이 쓰인 순으로 처리됩니다.
+- 용어 전용 노드: `saveTermEntry`(용어 표기 저장: `target`·`note`·`kind`·`meaning`을 용어에 넣음, `applyParams.onlyEmpty` 기본 true라 사람이 채운 칸은 유지)와 `setTermStatus`(용어 상태 변경: `params.status` = `candidate`·`confirmed`·`rejected`, `propose`). 대사 전용 노드(형식 검사, 번역 후보 반영 등)는 용어 워크플로에 놓을 수 없고, 검증 오류로 나옵니다. 어느 쪽에서 쓰이는지는 reference의 `subjects`.
+- AI 노드의 묶음은 용어에서 `count`·`unit`만 됩니다(장면·대본 전체 없음). 문맥 `examples`(0~5, 기본 2)는 그 용어가 나온 대사를 번역과 함께 프롬프트에 넣습니다.
+- 조건 데이터는 `unit` 대신 `term`: `{status, statusBy, hasTarget, lines(나온 대사 수), marks, tagIds}`. 예: `{"==": [{"var": "outputs.review.isTerm"}, false]}`.
+- 전형적인 흐름: 진입(subject terms) → AI(json: `target`, `note`, `kind`, `meaning`, 용어가 아니라는 판단) → 조건 → `saveTermEntry` / `setTermStatus`(rejected). `loca-glossary` 참고.
+
 ## 먼저 읽기
 ```
 loca workflows list                       # 워크플로, 노드 수, 오류 수, 진입의 대상 상태
@@ -46,7 +54,7 @@ loca workflows reference <프리셋 id>       # 그 프리셋의 지시문·출�
    - `timeoutMinutes`(기본 10, 작품 분석 프리셋 30): 요청 하나가 이 시간을 넘으면 그 줄들은 `error`(`timeout`)로 나갑니다. 연결에는 제한 시간이 없습니다.
    - 실패는 워크플로가 다룹니다. 엔진은 요청을 나누거나 다시 보내지 않습니다(요청 한도·네트워크 끊김만 잠시 뒤 다시 보내고, 연속 실패가 `settings.maxConsecutiveFailures`회면 실행을 멈춤). 기본 템플릿은 AI 노드마다 `error` → 조건 "다시 시도?"(`visits.<노드> < 2`이고 `error.kind`가 `too-long`·`cut-off`가 아님) → 같은 노드 / 아니면 함수 `fail`("실패로 끝내기")을 둡니다. 요청이 너무 크면(`too-long`·`cut-off`) 더 작은 묶음(장면별·개수별)으로 읽는 노드로 보내세요.
    - 문맥(용어집·말투 규칙·앞 대사·문서·인물 등)은 노드마다 켜고 끕니다. 무엇이 실제로 들어가는지는 `loca context <키> -n <노드 id>`로 봅니다(모델은 부르지 않음).
-5. 조건 노드는 JSON Logic입니다. 읽는 값: `visits`(노드별 방문 횟수), `outputs`(앞 노드 출력), `candidate`, `issues`, `unit`(`kind`, `speaker`, `listener`, `statusId`, `tagIds`, `marks`), `error`(마지막으로 `error` 출구로 보낸 실패: `kind` = `missing`·`invalid-output`·`timeout`·`too-long`·`cut-off`·`refused`·`other`, `message`, `nodeId`; 조건을 지나도 남고, 작업 노드가 성공하면 지워짐). 예: `{"in": ["unknownListener", {"var": "unit.marks"}]}`, `{"<": [{"var": "visits.review"}, 3]}`, `{"==": [{"var": "error.kind"}, "missing"]}`. 노드 id와 상태 id는 reference·show에서 확인합니다.
+5. 조건 노드는 JSON Logic입니다. 읽는 값: `visits`(노드별 방문 횟수), `outputs`(앞 노드 출력), `candidate`, `issues`, `unit`(`kind`, `speaker`, `listener`, `statusId`, `tagIds`, `marks`; 대사 워크플로만, 용어 워크플로는 `term`), `error`(마지막으로 `error` 출구로 보낸 실패: `kind` = `missing`·`invalid-output`·`timeout`·`too-long`·`cut-off`·`refused`·`other`, `message`, `nodeId`; 조건을 지나도 남고, 작업 노드가 성공하면 지워짐). 예: `{"in": ["unknownListener", {"var": "unit.marks"}]}`, `{"<": [{"var": "visits.review"}, 3]}`, `{"==": [{"var": "error.kind"}, "missing"]}`. 노드 id와 상태 id는 reference·show에서 확인합니다.
 6. 올리기:
    ```
    loca workflows save "$W/wf.json"         # id가 있으면 그 워크플로를 바꾸고, 없으면 새로 만드는 제안
@@ -59,14 +67,15 @@ AI 호출은 비용이 들어 시작도 제안이고, 사용자가 수락해야 
 loca runs plan <워크플로> -g <장면>        # 읽기만: 대사 수, 묶음·요청 수 추정, 준비 상태
 loca runs start <워크플로> -g <장면>       # 시작 제안. 범위와 옵션은 plan과 같음
 ```
-- 범위: `-g` 장면·묶음, `--key` 대사, `--mark` 표시, `--tag` 태그 (모두 만족). `--ignore-status`는 진입이 받지 않는 상태의 대사도 넣습니다.
+- 범위(대사 워크플로): `-g` 장면·묶음, `--key` 대사, `--mark` 표시, `--tag` 태그 (모두 만족). `--ignore-status`는 진입이 받지 않는 상태의 대사도 넣습니다.
+- 범위(용어 워크플로): `--term <원문|id...>`로 용어를 직접 고르고, 없으면 진입의 `termStatuses`·`termMarks`가 고릅니다. 대사 범위 옵션은 용어 워크플로에, `--term`은 대사 워크플로에 쓸 수 없고 서버가 거절합니다. plan의 개수는 용어 수이고 청자·말투 규칙 준비 상태는 나오지 않습니다.
 - `--model "연결:모델"`(모든 AI 단계) 또는 `--model "노드=연결:모델"`(한 단계)로 이번 실행만 다른 모델을 씁니다. 워크플로는 바뀌지 않습니다.
 - plan의 **준비 상태**(청자 미상 대사, 확인 안 한 말투 규칙·용어, 규칙 없는 화자 쌍)에 걸린 것은 시작 전에 사용자에게 알립니다. 고치는 법은 `loca-knowledge`, `loca-glossary`.
 
 ## 실행 보기와 실패 원인
 ```
-loca runs list --since 24                 # 최근 실행: 상태, 대사 수, 토큰, 실패가 많은 노드
-loca runs show <id>                       # 노드별 진행(상태별 대사 수)과 최근 실패
+loca runs list --since 24                 # 최근 실행: 상태, 대사(용어 실행은 용어) 수, 토큰, 실패가 많은 노드
+loca runs show <id>                       # 노드별 진행(상태별 대사·용어 수)과 최근 실패
 loca proposals list --status pending      # 실행이 올린 제안 중 기다리는 것
 ```
 실패가 한 노드에 몰리면 그 노드의 설정(모델, 출력 필드, 지시문)과 연결 상태를 봅니다. 모델이 출력 형식을 못 지키면 필드 설명을 구체적으로 쓰거나 `required`·`min`·`max`를 점검하고, 연결이 막히면 `extraModels`로 대체 모델을 둡니다.

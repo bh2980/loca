@@ -1,8 +1,9 @@
 /** Edits one workflow node's config; the node kinds live beside this file. */
 import { useState } from 'react';
 import { Trash2 } from 'lucide-react';
-import { AI_OUTPUTS, AI_SCOPES, CHOICE_SOURCES, JSON_FIELD_TYPE_LABELS, NODE_TYPES, nodeName, nodePorts, type JsonField, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
-import { Button, Inspector, InspectorHeader, InspectorBlock, InspectorList, InspectorSection, InspectorTabs, PropertyGrid, PropertyRow, StatusIcon, Checkbox, Input, GroupHeading } from '@loca/ui';
+import { AI_OUTPUTS, AI_SCOPES, CHOICE_SOURCES, JSON_FIELD_TYPE_LABELS, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, NODE_TYPES, nodeName, nodePorts, TERM_MARK_IDS, WORKFLOW_SUBJECTS, WORKFLOW_SUBJECT_IDS, type AutoMark, type JsonField, type WorkflowSubject, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
+import { MarkChip } from '@/components/status';
+import { Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Inspector, InspectorHeader, InspectorBlock, InspectorList, InspectorSection, InspectorTabs, PropertyGrid, PropertyRow, StatusIcon, Checkbox, Input, GroupHeading } from '@loca/ui';
 import { nodeIcon } from '../node-view';
 import { AiConfig } from '@/components/workflow/node-config/ai';
 import { ConditionEditor } from '@/components/workflow/node-config/condition';
@@ -56,16 +57,49 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
             </Field>
             {node.type === 'ai' && <AiConfig part="model" node={node} refs={refs} onChange={onChange} />}
             {node.type === 'entry' && (
-              <Field label="대상 상태">
-                <div className="space-y-1.5">
-                  {refs.statuses.map((status) => (
-                    <label key={status.id} className="flex items-center gap-2 text-sm">
-                      <Checkbox checked={node.config.statusIds.includes(status.id)} onCheckedChange={(checked) => onChange({ ...node, config: { statusIds: checked ? [...node.config.statusIds, status.id] : node.config.statusIds.filter((id) => id !== status.id) } })} />
-                      <StatusIcon status={status} /> {status.name}
-                    </label>
-                  ))}
-                </div>
-              </Field>
+              <>
+                <Field label="대상">
+                  <Select value={node.config.subject} onValueChange={(subject) => onChange({ ...node, config: { ...node.config, subject: subject as WorkflowSubject } })}>
+                    <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                    <SelectContent>{WORKFLOW_SUBJECT_IDS.map((id) => <SelectItem key={id} value={id}>{WORKFLOW_SUBJECTS[id]}</SelectItem>)}</SelectContent>
+                  </Select>
+                </Field>
+                {node.config.subject === 'terms' ? (
+                  <>
+                    <Field label="대상 용어 상태">
+                      <div className="space-y-1.5">
+                        {KNOWLEDGE_STATUSES.map((status) => (
+                          <label key={status} className="flex items-center gap-2 text-sm">
+                            <Checkbox checked={node.config.termStatuses.includes(status)} onCheckedChange={(checked) => onChange({ ...node, config: { ...node.config, termStatuses: checked ? [...node.config.termStatuses, status] : node.config.termStatuses.filter((item) => item !== status) } })} />
+                            {KNOWLEDGE_STATUS_LABELS[status]}
+                          </label>
+                        ))}
+                      </div>
+                    </Field>
+                    <Field label="대상 자동 태그" hint="고른 자동 태그가 모두 붙은 용어만 받습니다. 비우면 가리지 않습니다.">
+                      <div className="space-y-1.5">
+                        {TERM_MARK_IDS.map((mark) => (
+                          <label key={mark} className="flex items-center gap-2 text-sm">
+                            <Checkbox checked={node.config.termMarks.includes(mark)} onCheckedChange={(checked) => onChange({ ...node, config: { ...node.config, termMarks: checked ? [...node.config.termMarks, mark] : node.config.termMarks.filter((item) => item !== mark) } })} />
+                            <MarkChip mark={mark as AutoMark} />
+                          </label>
+                        ))}
+                      </div>
+                    </Field>
+                  </>
+                ) : (
+                  <Field label="대상 상태">
+                    <div className="space-y-1.5">
+                      {refs.statuses.map((status) => (
+                        <label key={status.id} className="flex items-center gap-2 text-sm">
+                          <Checkbox checked={node.config.statusIds.includes(status.id)} onCheckedChange={(checked) => onChange({ ...node, config: { ...node.config, statusIds: checked ? [...node.config.statusIds, status.id] : node.config.statusIds.filter((id) => id !== status.id) } })} />
+                          <StatusIcon status={status} /> {status.name}
+                        </label>
+                      ))}
+                    </div>
+                  </Field>
+                )}
+              </>
             )}
           </InspectorSection>
 
@@ -83,7 +117,16 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
       {activeTab === 'io' && (
         <div className="min-w-0">
           <InspectorSection title="입력">
-            {node.type === 'entry' && <PropertyGrid><PropertyRow label="대상 상태">{node.config.statusIds.length ? node.config.statusIds.map((id) => refs.statuses.find((status) => status.id === id)?.name ?? '삭제된 상태').join(' · ') : '범위 안의 모든 대사'}</PropertyRow></PropertyGrid>}
+            {node.type === 'entry' && (
+              <PropertyGrid>
+                <PropertyRow label="대상">{WORKFLOW_SUBJECTS[node.config.subject]}</PropertyRow>
+                {node.config.subject === 'terms' ? (
+                  <PropertyRow label="대상 용어 상태">{node.config.termStatuses.length ? node.config.termStatuses.map((status) => KNOWLEDGE_STATUS_LABELS[status]).join(' · ') : '범위 안의 모든 용어'}</PropertyRow>
+                ) : (
+                  <PropertyRow label="대상 상태">{node.config.statusIds.length ? node.config.statusIds.map((id) => refs.statuses.find((status) => status.id === id)?.name ?? '삭제된 상태').join(' · ') : '범위 안의 모든 대사'}</PropertyRow>
+                )}
+              </PropertyGrid>
+            )}
             {refs.edges ? incoming.length ? (
               <PropertyGrid>
                 {incoming.map((edge) => {

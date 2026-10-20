@@ -1,6 +1,7 @@
 import { and, count, eq, inArray, ne, notInArray, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
-import { batchConfigSchema, isWholeScriptWorkflow, type AiNode, type WorkflowDefinition } from '@tw/shared';
+import { batchConfigSchema, entryConfigSchema, isWholeScriptWorkflow, termMarksOf, workflowSubject, type AiNode, type WorkflowDefinition } from '@tw/shared';
+import { fillTermUsage } from '../services/term-usage.ts';
 import { inChunks, inList } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -42,6 +43,25 @@ function scopeConditions(db: Db, projectId: string, definition: WorkflowDefiniti
 /** Selects the lines a run starts with: scope ∩ entry status filter. 번역 제외 lines never enter a run, whatever the scope names. */
 export function selectRunUnits(db: Db, projectId: string, definition: WorkflowDefinition, scope: s.RunScope): string[] {
   return db.select({ id: s.units.id }).from(s.units).where(and(...scopeConditions(db, projectId, definition, scope), translatableSql(projectId))).all().map((row) => row.id);
+}
+
+/**
+ * The terms a term workflow starts with, most used first: the scope's termIds, or the entry node's
+ * statuses and marks (default: candidates with no Korean form yet). Usage counts are filled first,
+ * so "most used" and the 미사용 mark are current.
+ */
+export function selectRunTerms(db: Db, projectId: string, definition: WorkflowDefinition, scope: s.RunScope): string[] {
+  fillTermUsage(db, projectId);
+  const entry = entryConfigSchema.parse(definition.nodes.find((node) => node.type === 'entry')?.config ?? {});
+  const named = scope.termIds?.length ? new Set(scope.termIds) : null;
+  return db
+    .select()
+    .from(s.terms)
+    .where(eq(s.terms.projectId, projectId))
+    .all()
+    .filter((term) => (named ? named.has(term.id) : entry.termStatuses.includes(term.status) && entry.termMarks.every((mark) => termMarksOf(term).includes(mark))))
+    .sort((a, b) => (b.lines ?? 0) - (a.lines ?? 0) || a.source.localeCompare(b.source))
+    .map((term) => term.id);
 }
 
 /** Lines the scope names that 번역 제외 keeps out of the run (the run dialog says how many). */
@@ -124,10 +144,12 @@ function runRows(db: Db, input: RunInput) {
   const definition = resolveBudgets(db, input.workflow.definition);
   const entry = definition.nodes.find((node) => node.type === 'entry');
   if (!entry) throw new Error('진입 노드가 없습니다.');
-  const unitIds = selectRunUnits(db, input.projectId, definition, input.scope);
-  if (!unitIds.length) throw new Error('조건에 맞는 대사가 없습니다.');
+  const subject = workflowSubject(definition);
+  const unitIds = subject === 'terms' ? selectRunTerms(db, input.projectId, definition, input.scope) : selectRunUnits(db, input.projectId, definition, input.scope);
+  if (!unitIds.length) throw new Error(subject === 'terms' ? '조건에 맞는 용어가 없습니다.' : '조건에 맞는 대사가 없습니다.');
   const runId = crypto.randomUUID();
-  const plan = planRun(db, definition, unitIds);
+  // Terms have no scenes to plan by: the runner batches them as they wait (count / one by one).
+  const plan = subject === 'terms' ? new Map<string, number>() : planRun(db, definition, unitIds);
   const run = {
     id: runId,
     projectId: input.projectId,
@@ -136,6 +158,7 @@ function runRows(db: Db, input: RunInput) {
     workflowVersion: input.workflow.version,
     definition,
     models: input.models,
+    subject,
     scope: input.scope,
     status: 'running' as s.RunStatus,
     total: unitIds.length,

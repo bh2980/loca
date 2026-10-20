@@ -499,6 +499,8 @@ export interface RunScope {
   statusIds?: string[];
   /** Run the picked lines even if their status is not one the entry node accepts. */
   ignoreStatus?: boolean;
+  /** Term workflows: these terms (instead of the entry node's statuses and marks). */
+  termIds?: string[];
 }
 /** One connection + model a call can go to, frozen with the connection's details. */
 export interface RouteSnapshot {

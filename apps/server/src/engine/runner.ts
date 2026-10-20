@@ -20,6 +20,7 @@ import { resolveChoiceOptions } from '../services/choice-options.ts';
 import { applyIssueTags } from '../services/issue-tags.ts';
 import { logged } from '../services/ai-calls.ts';
 import { outputCutOff } from '../services/whole-script-limits.ts';
+import { loadTerms, termCondition, termInput, termPrompt, waitingTerms } from './subjects.ts';
 import { overheadOf } from '../services/preflight.ts';
 import type { ModelPort } from './model-port.ts';
 export type { ModelPort } from './model-port.ts';
@@ -34,7 +35,7 @@ type StepRecord = Omit<typeof s.runSteps.$inferInsert, 'ok' | 'finishedAt'>;
 type Waiting = { id: string; unitId: string; nodeId: string; groupId: string; seq: number; kind: string; tokens: number; since: Date; plan: number | null };
 
 /** Functions that write beyond the line itself, and the change topic they touch. */
-const FUNCTION_TOPICS: Record<string, Topic[]> = APPLY_TOPICS;
+const FUNCTION_TOPICS: Record<string, Topic[]> = { ...APPLY_TOPICS, setTermStatus: ['proposals', 'terms'] };
 /** A partial batch waits this long for more lines from upstream before it is sent anyway. */
 const GATHER_MS = 5_000;
 /** Lines passed through instant nodes per tick; the rest wait for the next tick, so a tick never blocks for long. */
@@ -77,6 +78,23 @@ export function errorKindOf(error: unknown): ItemErrorKind {
 }
 /** What a person can do about a request that was too large for the model. */
 const SMALLER = ' 오류 출구에서 더 작은 묶음(장면별·개수별)으로 읽는 노드로 보내세요.';
+
+/**
+ * What a node's input.from produced for an item, trimmed to input.fields; undefined when it has none
+ * (a batch answer rides on its first item only: the others have nothing to pass on).
+ */
+function previousOf(item: Item, node?: AiNode) {
+  const input = node?.config.input;
+  if (!input?.from) return undefined;
+  const { batchLeader, ...output } = item.data.outputs?.[input.from] ?? { batchLeader: false };
+  return batchLeader === false ? undefined : pickPaths(output, input.fields);
+}
+/** Prompt items with what input.from produced for them. */
+const withPrevious = (lines: PromptLine[], items: Item[], node: AiNode) =>
+  lines.map((line, index) => {
+    const previous = previousOf(items[index]!, node);
+    return previous === undefined ? line : { ...line, previous };
+  });
 
 const MISSING_WHAT: Record<AiNode['config']['output'], string> = { text: '번역', verdict: '판정', choice: '선택', json: '결과' };
 const attemptsOf = (error: unknown): ai.Attempt[] => ((error as { attempts?: ai.Attempt[] }).attempts ?? []);
@@ -248,8 +266,8 @@ export class Runner {
 
   /** Run progress always changes lines; nodes that write terms or story data add their topic. */
   private notify(runId: string, ...topics: Topic[]) {
-    const run = this.db.select({ projectId: s.runs.projectId }).from(s.runs).where(eq(s.runs.id, runId)).get();
-    events.changed(run?.projectId, 'runs', 'units', ...topics);
+    const run = this.db.select({ projectId: s.runs.projectId, subject: s.runs.subject }).from(s.runs).where(eq(s.runs.id, runId)).get();
+    events.changed(run?.projectId, 'runs', run?.subject === 'terms' ? 'terms' : 'units', ...topics);
   }
 
   private node(run: Run, nodeId: string): WorkflowNode | undefined {
@@ -266,7 +284,7 @@ export class Runner {
       data.issues = []; // a new text answers the previous issues
     }
     if (outcome.issues?.length) data.issues = outcome.issues;
-    if (outcome.issueTags) applyIssueTags(tx, run.projectId, item.subjectId, outcome.issueTags);
+    if (outcome.issueTags && run.subject === 'lines') applyIssueTags(tx, run.projectId, item.subjectId, outcome.issueTags);
     this.route(tx, run, { ...item, data }, outcome.port, outcome.error);
   }
 
@@ -389,6 +407,7 @@ export class Runner {
   /** Queued lines at slow nodes, light rows in script order (scene order, then line order). */
   private waiting(run: Run, slowIds: string[]): Waiting[] {
     if (!slowIds.length) return [];
+    if (run.subject === 'terms') return waitingTerms(this.db, run.id, slowIds);
     return this.db
       .select({
         id: s.runItems.id,
@@ -537,6 +556,19 @@ export class Runner {
       for (const topic of node?.type === 'function' ? (FUNCTION_TOPICS[node.config.fn] ?? []) : []) topics.add(topic);
     }
     this.db.transaction((tx) => {
+      if (run.subject === 'terms') {
+        const { terms, tagsOf } = loadTerms(tx, items.map((item) => item.subjectId));
+        for (const item of items) {
+          const node = this.node(run, item.nodeId);
+          const term = terms.get(item.subjectId);
+          if (!node || !term) {
+            tx.update(s.runItems).set({ state: 'failed', error: '노드 또는 용어가 없습니다.' }).where(eq(s.runItems.id, item.id)).run();
+            continue;
+          }
+          this.runInstant(tx, run, node, item, termInput(run, item, term, tagsOf(term.id)));
+        }
+        return;
+      }
       const unitRows = new Map(inChunks(items.map((item) => item.subjectId), (ids) => tx.select().from(s.units).where(inArray(s.units.id, ids)).all()).map((unit) => [unit.id, unit]));
       const tagRows = Map.groupBy(inChunks([...unitRows.keys()], (ids) => tx.select().from(s.unitTags).where(inArray(s.unitTags.unitId, ids)).all()), (row) => row.unitId);
       for (const item of items) {
@@ -546,30 +578,29 @@ export class Runner {
           tx.update(s.runItems).set({ state: 'failed', error: '노드 또는 원문이 없습니다.' }).where(eq(s.runItems.id, item.id)).run();
           continue;
         }
-        this.runInstant(tx, run, node, item, unit, (tagRows.get(unit.id) ?? []).map((row) => row.tagId));
+        this.runInstant(tx, run, node, item, { subject: 'lines', unit, item, tagIds: (tagRows.get(unit.id) ?? []).map((row) => row.tagId), projectId: run.projectId, runId: run.id });
       }
     });
     return topics;
   }
 
-  private runInstant(tx: Tx, run: Run, node: WorkflowNode, item: Item, unit: Unit, tagIds: string[]) {
+  private runInstant(tx: Tx, run: Run, node: WorkflowNode, item: Item, input: FunctionInput) {
     switch (node.type) {
       case 'entry':
         return this.route(tx, run, item, 'out');
       case 'end':
         return tx.update(s.runItems).set({ state: 'done' }).where(eq(s.runItems.id, item.id)).run();
       case 'condition': {
-        const finalStatus = tx.select({ kind: s.statuses.kind }).from(s.statuses).where(eq(s.statuses.id, unit.statusId)).get()?.kind === 'final';
-        const rules = tx.select({ rules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, run.projectId)).get()?.rules;
-        const marks = lineMarksOf(unit, finalStatus, rules);
-        const data: ConditionData = {
-          visits: item.visits,
-          outputs: item.data.outputs ?? {},
-          candidate: item.data.candidateText ?? unit.translation,
-          issues: item.data.issues ?? [],
-          unit: { kind: unit.kind, speaker: unit.speaker, listener: unit.listener, statusId: unit.statusId, tagIds, marks },
-          error: item.data.error ?? null,
-        };
+        const common = { visits: item.visits, outputs: item.data.outputs ?? {}, issues: item.data.issues ?? [], error: item.data.error ?? null };
+        let data: ConditionData;
+        if (input.subject === 'terms') data = { ...common, candidate: item.data.candidateText ?? (input.term.target || null), term: termCondition(input.term, input.tagIds) };
+        else {
+          const unit = input.unit;
+          const finalStatus = tx.select({ kind: s.statuses.kind }).from(s.statuses).where(eq(s.statuses.id, unit.statusId)).get()?.kind === 'final';
+          const rules = tx.select({ rules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, run.projectId)).get()?.rules;
+          const marks = lineMarksOf(unit, finalStatus, rules);
+          data = { ...common, candidate: item.data.candidateText ?? unit.translation, unit: { kind: unit.kind, speaker: unit.speaker, listener: unit.listener, statusId: unit.statusId, tagIds: input.tagIds, marks } };
+        }
         try {
           return this.route(tx, run, item, jsonLogic.apply(node.config.expression as jsonLogic.RulesLogic, data) ? 'true' : 'false');
         } catch (error) {
@@ -580,7 +611,7 @@ export class Runner {
         const fn = syncFunctions[node.config.fn as FunctionName];
         if (!fn) return this.route(tx, run, item, 'error', `알 수 없는 함수입니다: ${node.config.fn}`);
         try {
-          return this.record(tx, run, item, fn(tx, node.config.params, { unit, item, tagIds, projectId: run.projectId, runId: run.id }));
+          return this.record(tx, run, item, fn(tx, node.config.params, input));
         } catch (error) {
           return this.route(tx, run, item, 'error', error instanceof Error ? error.message : String(error));
         }
@@ -633,11 +664,19 @@ export class Runner {
 
   private async executeFunction(run: Run, node: FunctionNode, item: Item, signal: AbortSignal) {
     const startedAt = new Date();
-    const unit = this.db.select().from(s.units).where(eq(s.units.id, item.subjectId)).get();
     const step: StepRecord = { runId: run.id, nodeId: node.id, subjectIds: [item.subjectId], startedAt };
-    if (!unit) return this.failBatch(run, [item], step, new Error('원문이 없습니다.'));
-    const tagIds = this.db.select({ tagId: s.unitTags.tagId }).from(s.unitTags).where(eq(s.unitTags.unitId, unit.id)).all().map((row) => row.tagId);
-    const input: FunctionInput = { unit, item, tagIds, projectId: run.projectId, runId: run.id };
+    let input: FunctionInput;
+    if (run.subject === 'terms') {
+      const { terms, tagsOf } = loadTerms(this.db, [item.subjectId]);
+      const term = terms.get(item.subjectId);
+      if (!term) return this.failBatch(run, [item], step, new Error('용어가 없습니다.'));
+      input = termInput(run, item, term, tagsOf(term.id));
+    } else {
+      const unit = this.db.select().from(s.units).where(eq(s.units.id, item.subjectId)).get();
+      if (!unit) return this.failBatch(run, [item], step, new Error('원문이 없습니다.'));
+      const tagIds = this.db.select({ tagId: s.unitTags.tagId }).from(s.unitTags).where(eq(s.unitTags.unitId, unit.id)).all().map((row) => row.tagId);
+      input = { subject: 'lines', unit, item, tagIds, projectId: run.projectId, runId: run.id };
+    }
     try {
       const outcome = await runAsyncFunction(node.config.fn as FunctionName, node.config.params, input, { db: this.db, secrets: this.secrets, signal });
       this.db.transaction((tx) => {
@@ -656,7 +695,10 @@ export class Runner {
     const model = run.models[modelKey];
     if (!model) return this.failBatch(run, batch, { runId: run.id, nodeId: node.id, subjectIds: batch.map((item) => item.subjectId), startedAt: new Date() }, new Error('이 노드의 AI 연결이 실행을 시작할 때 없었습니다. 노드에서 연결과 모델을 다시 고르고 새로 실행하세요.'));
     const routes = resolveRoutes(model, this.secrets);
-    if (routes[0]?.kind === 'systemone') return this.judgeLines(run, node, batch, model, routes, signal);
+    if (routes[0]?.kind === 'systemone') {
+      if (run.subject !== 'lines') return this.failBatch(run, batch, { runId: run.id, nodeId: node.id, subjectIds: batch.map((item) => item.subjectId), startedAt: new Date() }, new Error('System One 연결은 대사 워크플로에서만 쓸 수 있습니다.'));
+      return this.judgeLines(run, node, batch, model, routes, signal);
+    }
     await this.callLines(run, node, model, routes, batch, signal);
   }
 
@@ -664,12 +706,9 @@ export class Runner {
   private promptLines(items: Item[], node?: AiNode) {
     const units = new Map(this.db.select().from(s.units).where(inArray(s.units.id, items.map((item) => item.subjectId))).all().map((unit) => [unit.id, unit]));
     const rows = items.map((item) => units.get(item.subjectId)!);
-    const input = node?.config.input ?? null;
     const lines: PromptLine[] = items.map((item, index) => {
       const unit = units.get(item.subjectId)!;
-      // A batch answer rides on its first line only (batchLeader): the others have nothing to pass on.
-      const { batchLeader, ...output } = (input?.from ? item.data.outputs?.[input.from] : undefined) ?? { batchLeader: false };
-      const previous = batchLeader === false ? undefined : output;
+      const previous = previousOf(item, node);
       return {
         id: promptLineId(index),
         unitId: unit.id,
@@ -680,7 +719,7 @@ export class Runner {
         source: unit.source,
         candidate: item.data.candidateText ?? unit.translation ?? undefined,
         issues: item.data.issues,
-        ...(previous !== undefined && { previous: pickPaths(previous, input!.fields) }),
+        ...(previous !== undefined && { previous }),
       };
     });
     return { rows, lines };
@@ -724,21 +763,23 @@ export class Runner {
    */
   private async callLines(run: Run, node: AiNode, model: s.AiSnapshot, routes: ai.ResolvedRoute[], items: Item[], signal: AbortSignal): Promise<void> {
     const project = this.db.select().from(s.projects).where(eq(s.projects.id, run.projectId)).get()!;
-    const { rows, lines } = this.promptLines(items, node);
+    // Terms: the term items and the context their example lines call for (engine/subjects.ts).
+    const terms = run.subject === 'terms' ? termPrompt(this.db, run.projectId, items, node) : null;
+    const { rows, lines } = terms ? { rows: [], lines: withPrevious(terms.lines, items, node) } : this.promptLines(items, node);
     const round = Math.max(0, ...items.map((item) => item.data.retries?.[node.id] ?? 0));
     const step: StepRecord = { runId: run.id, nodeId: node.id, connectionId: routes[0]?.connectionId ?? null, model: routes[0]?.model ?? null, subjectIds: items.map((item) => item.subjectId), startedAt: new Date(), round };
     const languages = { source: project.sourceLanguage, target: project.targetLanguage };
     const choiceOptions = node.config.output === 'choice' ? resolveChoiceOptions(this.db, run.projectId, node.config.choice) : undefined;
     // A node reading the script whole sends it as compact script text (engine/whole-script.ts), its
     // lines numbered L1…; every other node gets the batch prompt with the context it asks for.
-    const whole = node.config.batch.mode === 'whole' ? wholeScriptRequest(this.db, run.projectId, node, languages, rows, choiceOptions) : null;
+    const whole = !terms && node.config.batch.mode === 'whole' ? wholeScriptRequest(this.db, run.projectId, node, languages, rows, choiceOptions) : null;
     let built: { system: string; prompt: string };
     if (whole) {
       for (const line of lines) line.id = whole.idOf.get(line.key) ?? line.id;
       step.context = whole.context.items;
       built = whole;
     } else {
-      const context = buildContext(this.db, run.projectId, rows, node.config.context);
+      const context = terms?.context ?? buildContext(this.db, run.projectId, rows, node.config.context);
       step.context = context.items;
       built = buildPrompt(node, languages, context, lines, choiceOptions);
     }

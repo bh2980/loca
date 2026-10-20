@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import Graph from 'graphology';
-import { APPLY_TARGETS, FUNCTIONS, functionPorts, jsonFieldSchema, type ApplyFunctionName, type ApplyParams, type FunctionName, type JsonField, type Port } from './functions.ts';
+import { APPLY_TARGETS, FUNCTIONS, functionPorts, functionTakes, jsonFieldSchema, type ApplyFunctionName, type ApplyParams, type FunctionName, type JsonField, type Port } from './functions.ts';
 import { stronglyConnectedComponents } from 'graphology-components';
+import { KNOWLEDGE_STATUSES } from './knowledge.ts';
+import { TERM_MARK_IDS, type AutoMark } from './marks.ts';
 import { choiceKey, draftModelChoiceSchema, EMPTY_MODEL_CHOICE, modelChoiceSchema, type ModelChoice } from './model-choice.ts';
 
 /**
@@ -31,6 +33,8 @@ export const contextConfigSchema = z.object({
    * get preceding lines at all, and in experiment E9 it reached 6 of 407 lines with no measurable effect.
    */
   precedingTranslations: z.boolean().default(false),
+  /** Term workflows: lines a term appears in (with their translations) sent with it. */
+  examples: z.number().int().min(0).max(5).default(2),
   /** Estimated token cap for everything besides the lines themselves; what does not fit is dropped and recorded. Null = auto, from the model's limits (autoBudgets). */
   maxTokens: z.number().int().min(500).max(1_000_000).nullable().default(null),
 });
@@ -118,6 +122,30 @@ export const WORKFLOW_SUBJECTS = { lines: '대사', terms: '용어' } as const;
 export type WorkflowSubject = keyof typeof WORKFLOW_SUBJECTS;
 export const WORKFLOW_SUBJECT_IDS = Object.keys(WORKFLOW_SUBJECTS) as WorkflowSubject[];
 
+/**
+ * Where a workflow's items come from. Lines: those in `statusIds` (empty = any). Terms: glossary
+ * terms in `termStatuses` that carry every mark in `termMarks` (default: candidates without a
+ * Korean form yet), most used first.
+ */
+export const entryConfigSchema = z
+  .object({
+    subject: z.enum(WORKFLOW_SUBJECT_IDS as [WorkflowSubject, ...WorkflowSubject[]]).default('lines'),
+    statusIds: z.array(z.string()).default([]),
+    termStatuses: z.array(z.enum(KNOWLEDGE_STATUSES)).default(['candidate']),
+    termMarks: z.array(z.enum(TERM_MARK_IDS as [AutoMark, ...AutoMark[]])).default(['emptyTarget']),
+  })
+  .prefault({});
+export type EntryConfig = z.infer<typeof entryConfigSchema>;
+/** A workflow's subject: what its entry node takes. */
+export const workflowSubject = (definition: Pick<WorkflowDefinition, 'nodes'>): WorkflowSubject => {
+  const entry = definition.nodes.find((node) => node.type === 'entry');
+  return entry?.type === 'entry' ? entryConfigSchema.parse(entry.config ?? {}).subject : 'lines';
+};
+/** How the editor names batch modes. */
+export const BATCH_MODE_LABELS: Record<BatchConfig['mode'], string> = { group: '장면별', count: '개수별', unit: '하나씩', whole: '대본 전체' };
+/** Batch modes a subject can use: terms have no scenes or script order to read whole. */
+export const SUBJECT_BATCH_MODES: Record<WorkflowSubject, readonly BatchConfig['mode'][]> = { lines: ['group', 'count', 'unit', 'whole'], terms: ['count', 'unit'] };
+
 /** An AI node's call time limit when it does not set one, in minutes. */
 export const DEFAULT_CALL_MINUTES = 10;
 
@@ -167,7 +195,7 @@ export const aiNodeConfigSchema = z.object({
 });
 
 export const workflowNodeSchema = z.discriminatedUnion('type', [
-  z.object({ ...base, type: z.literal('entry'), config: z.object({ statusIds: z.array(z.string()).default([]) }) }),
+  z.object({ ...base, type: z.literal('entry'), config: entryConfigSchema }),
   z.object({ ...base, type: z.literal('ai'), config: aiNodeConfigSchema }),
   z.object({ ...base, type: z.literal('function'), config: z.object({ fn: z.string(), params: z.record(z.string(), z.unknown()).default({}) }) }),
   z.object({
@@ -288,8 +316,10 @@ export interface ConditionData {
   outputs: Record<string, Record<string, unknown>>;
   candidate: string | null;
   issues: string[];
-  /** marks: the line's automatic marks right now (lineMarksOf in marks.ts; diverged is only known to the list filter). */
-  unit: { kind: string; speaker: string | null; listener: string | null; statusId: string; tagIds: string[]; marks: string[] };
+  /** marks: the line's automatic marks right now (lineMarksOf in marks.ts; diverged is only known to the list filter). Line workflows. */
+  unit?: { kind: string; speaker: string | null; listener: string | null; statusId: string; tagIds: string[]; marks: string[] };
+  /** The term (term workflows): its status, who decided it, whether it has a Korean form, lines it appears in, marks (termMarksOf), tags. */
+  term?: { status: string; statusBy: string; hasTarget: boolean; lines: number | null; marks: string[]; tagIds: string[] };
   /** The last failure that sent the line out through an "error" exit (null once a node handles it). */
   error: { kind: ItemErrorKind; message: string; nodeId: string } | null;
 }
@@ -314,6 +344,7 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
   const issues: WorkflowIssue[] = [];
   const error = (message: string, at: Pick<WorkflowIssue, 'nodeId' | 'edgeId'> = {}) => issues.push({ level: 'error', message, ...at });
   const warn = (message: string, at: Pick<WorkflowIssue, 'nodeId' | 'edgeId'> = {}) => issues.push({ level: 'warning', message, ...at });
+  const subject = workflowSubject(definition);
 
   const graph = new Graph({ type: 'directed', multi: true, allowSelfLoops: true });
   for (const node of definition.nodes) {
@@ -385,6 +416,7 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
     }
     if (node.type === 'ai') {
       const { model, extraModels } = node.config;
+      if (!SUBJECT_BATCH_MODES[subject].includes(node.config.batch.mode)) error(`${WORKFLOW_SUBJECTS[subject]} 워크플로의 AI 노드는 묶음을 ${SUBJECT_BATCH_MODES[subject].map((mode) => BATCH_MODE_LABELS[mode]).join('·')}(으)로만 정할 수 있습니다.`, { nodeId: node.id });
       if (!model.connectionId || !model.model) error('AI 연결과 모델을 고르세요.', { nodeId: node.id });
       else if (!refs.connections.has(model.connectionId)) error('고른 AI 연결이 삭제되었습니다. 다시 고르세요.', { nodeId: node.id });
       if (extraModels.some((choice) => !choice.connectionId || !choice.model)) error('추가한 모델을 고르거나 그 칸을 지우세요.', { nodeId: node.id });
@@ -403,8 +435,9 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
       }
       if (!input.lines && !(input.from && node.config.output === 'json' && node.config.scope === 'batch')) error('대사 없이 보내려면 앞 노드 결과를 고르고, 출력을 JSON · 묶음 전체로 하세요.', { nodeId: node.id });
     }
-    if (node.type === 'entry')
+    if (node.type === 'entry' && subject === 'lines')
       for (const id of node.config.statusIds) if (!refs.statusIds.has(id)) error('삭제된 상태가 있습니다.', { nodeId: node.id });
+    if (node.type === 'function' && !functionTakes(node.config.fn, subject)) error(`'${nodeName(node)}' 노드는 ${WORKFLOW_SUBJECTS[subject]} 워크플로에서 쓸 수 없습니다.`, { nodeId: node.id });
     if (node.type === 'function') {
       const info = FUNCTIONS[node.config.fn as FunctionName];
       if (!info) {
@@ -514,7 +547,7 @@ export function syncEntryEdges(definition: WorkflowDefinition): WorkflowDefiniti
 
   let entry = nodes.find((node) => node.type === 'entry');
   if (!entry) {
-    entry = { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: { statusIds: [] } };
+    entry = { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: entryConfigSchema.parse({}) };
     nodes = [entry, ...nodes];
   }
 

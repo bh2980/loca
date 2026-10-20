@@ -682,58 +682,62 @@ const runs = program.command('runs').description('워크플로 실행: 목록, �
 
 runs
   .command('list')
-  .description('최근 실행 (id, 상태, 대사 수, AI 호출·토큰)과 실패가 많은 노드')
+  .description('최근 실행 (id, 상태, 대사·용어 수, AI 호출·토큰)과 실패가 많은 노드')
   .option('--since <시간>', '몇 시간 전부터', '24')
   .action(async (options: { since: string }) => {
     const data = (await unwrap(api().projects[':projectId'].stats[':of{groups|sections|runs}'].$get({ param: { projectId: await projectId(), of: 'runs' }, query: { sinceHours: options.since } }))) as {
-      runs: { id: string; workflow: string; status: string; lines: number; calls: number; failedCalls: number; inputTokens: number; outputTokens: number; createdAt: string }[];
+      runs: { id: string; workflow: string; status: string; subject?: 'lines' | 'terms'; lines: number; calls: number; failedCalls: number; inputTokens: number; outputTokens: number; createdAt: string }[];
       failingNodes: { workflow: string; node: string; failedLines: number }[];
     };
     if (globals().json) return print({ total: data.runs.length, rows: data.runs, failingNodes: data.failingNodes });
     for (const run of data.runs)
-      console.log(`${new Date(run.createdAt).toLocaleString()}  ${run.workflow} [${run.status}] 대사 ${run.lines}, 호출 ${run.calls}(실패 ${run.failedCalls}), 토큰 ${(run.inputTokens + run.outputTokens).toLocaleString()}  (${run.id})`);
+      console.log(`${new Date(run.createdAt).toLocaleString()}  ${run.workflow} [${run.status}] ${run.subject === 'terms' ? `용어 ${run.lines}개` : `대사 ${run.lines}`}, 호출 ${run.calls}(실패 ${run.failedCalls}), 토큰 ${(run.inputTokens + run.outputTokens).toLocaleString()}  (${run.id})`);
     if (data.failingNodes.length) console.log(`\n실패가 많은 노드:\n${data.failingNodes.map((node) => `  ${node.workflow} › ${node.node}: ${node.failedLines}줄`).join('\n')}`);
   });
 
 runs
   .command('show <id>')
-  .description('한 실행의 노드별 진행(상태별 대사 수)과 최근 실패')
+  .description('한 실행의 노드별 진행(상태별 대사·용어 수)과 최근 실패')
   .action(async (id: string) => {
-    const data = await readTool<{ id: string; workflow: string; status: string; total: number; nodes: { nodeId: string; state: string; count: number }[]; failures: { key?: string; nodeId?: string; error?: string }[] }>('read_run', { runId: id });
+    const data = await readTool<{ id: string; workflow: string; status: string; subject?: 'lines' | 'terms'; total: number; nodes: { nodeId: string; state: string; count: number }[]; failures: { key?: string; unitId?: string; nodeId?: string; error?: string }[] }>('read_run', { runId: id });
     if (globals().json) return print(data);
-    console.log(`${data.workflow} [${data.status}] 대사 ${data.total.toLocaleString()}줄\n${appLink(`/p/${await projectId()}/runs/${data.id}`)}`);
+    console.log(`${data.workflow} [${data.status}] ${data.subject === 'terms' ? `용어 ${data.total.toLocaleString()}개` : `대사 ${data.total.toLocaleString()}줄`}\n${appLink(`/p/${await projectId()}/runs/${data.id}`)}`);
     for (const node of data.nodes) console.log(`  ${node.nodeId.padEnd(16)} ${node.state.padEnd(9)} ${node.count.toLocaleString()}`);
-    if (data.failures.length) console.log(`\n최근 실패:\n${data.failures.map((failure) => `  ${failure.key ?? ''} ${failure.nodeId ? `[${failure.nodeId}] ` : ''}${short(failure.error ?? '', 120)}`).join('\n')}`);
+    if (data.failures.length) console.log(`\n최근 실패:\n${data.failures.map((failure) => `  ${failure.key ?? failure.unitId ?? ''} ${failure.nodeId ? `[${failure.nodeId}] ` : ''}${short(failure.error ?? '', 120)}`).join('\n')}`);
   });
 
 runs
   .command('plan <워크플로>')
-  .description('실행 전 미리보기(실행 대화상자와 같은 계산, 모델은 부르지 않고 아무것도 시작하지 않음). 워크플로는 이름·id: 범위의 대사 수, 묶음·요청 수 추정, 준비 상태(청자 미상, 확인 안 한 말투 규칙·용어, 말투 규칙 없는 쌍). 범위 조건은 모두 만족해야 합니다')
+  .description('실행 전 미리보기(실행 대화상자와 같은 계산, 모델은 부르지 않고 아무것도 시작하지 않음). 워크플로는 이름·id: 범위의 대사 수(용어 워크플로는 용어 수), 묶음·요청 수 추정, 준비 상태(청자 미상, 확인 안 한 말투 규칙·용어, 말투 규칙 없는 쌍). 범위 조건은 모두 만족해야 합니다. 용어 워크플로(진입 subject가 terms)는 --term으로 범위를 정하고 대사 범위 옵션은 쓸 수 없습니다')
   .option('-g, --group <groups...>', '장면·묶음 (키·id·제목)')
   .option('--key <keys...>', '대사 키')
   .addOption(new Option('--mark <marks...>', '자동 표시가 모두 붙은 대사').choices(LINE_MARK_IDS))
   .option('--tag <tags...>', '태그 이름 (모두 붙은 대사)')
+  .option('--term <terms...>', '용어 워크플로만: 이 용어(원문·id)만. 없으면 진입 노드가 고르는 용어(상태·표시 조건, 많이 쓰인 순)')
   .option('--ignore-status', '진입 노드가 받지 않는 상태의 대사도 포함')
   .option('--model <specs...>', '이번 실행만 다른 모델로: "연결:모델"(모든 AI 단계) 또는 "노드=연결:모델" (연결·노드는 이름이나 id). 워크플로는 바뀌지 않습니다')
-  .action(async (workflow: string, options: { group?: string[]; key?: string[]; mark?: string[]; tag?: string[]; ignoreStatus?: boolean; model?: string[] }) => {
+  .action(async (workflow: string, options: { group?: string[]; key?: string[]; mark?: string[]; tag?: string[]; term?: string[]; ignoreStatus?: boolean; model?: string[] }) => {
     type Names = { count: number; examples: string[]; names: string[]; more: boolean };
     const data = await readTool<{
       workflow: { id: string; name: string };
       lines: { total: number; translated: number; untranslated: number };
+      subject?: 'lines' | 'terms';
       plan: { batches: number; linesPerBatch: { min: number; median: number; max: number } | null };
       nodes: { name: string; model: string | null; requests: { min: number; expected: number | null; max: number }; promptTokens: number }[];
       totals: { calls: { min: number; expected: number | null; max: number }; inputTokens: { min: number; expected: number | null; max: number } };
       pace: { seconds: number | null; costUsd: number | null; subscription: boolean };
       readiness: { dialogueLines: number; unknownListenerLines: number; unreviewedRules: Names; unreviewedTerms: Names; pairsWithoutRule: { count: number; examples: string[] } };
-    }>('plan_run', { workflow, groups: options.group, keys: options.key, tags: options.tag, marks: options.mark, ignoreStatus: options.ignoreStatus, models: runModels(options.model) });
+    }>('plan_run', { workflow, groups: options.group, keys: options.key, tags: options.tag, marks: options.mark, terms: options.term, ignoreStatus: options.ignoreStatus, models: runModels(options.model) });
     if (globals().json) return print(data);
     const range = (value: { min: number; expected: number | null; max: number }) => (value.expected !== null ? `약 ${value.expected.toLocaleString()} (${value.min.toLocaleString()}~${value.max.toLocaleString()})` : `${value.min.toLocaleString()}~${value.max.toLocaleString()}`);
     console.log(`${data.workflow.name} 실행 미리보기`);
-    console.log(`  대사 ${data.lines.total.toLocaleString()}개 (번역 있음 ${data.lines.translated.toLocaleString()} · 없음 ${data.lines.untranslated.toLocaleString()})`);
+    const terms = data.subject === 'terms';
+    console.log(`  ${terms ? '용어' : '대사'} ${data.lines.total.toLocaleString()}개 (번역${terms ? '어' : ''} 있음 ${data.lines.translated.toLocaleString()} · 없음 ${data.lines.untranslated.toLocaleString()})`);
     const per = data.plan.linesPerBatch;
-    console.log(`  묶음 ${data.plan.batches.toLocaleString()}개${per ? ` (묶음당 ${per.min}~${per.max}줄, 중간 ${per.median})` : ''}`);
+    if (!terms) console.log(`  묶음 ${data.plan.batches.toLocaleString()}개${per ? ` (묶음당 ${per.min}~${per.max}줄, 중간 ${per.median})` : ''}`);
     console.log(`  AI 요청 ${range(data.totals.calls)} · 입력 토큰 ${range(data.totals.inputTokens)}${data.pace.seconds !== null ? ` · 약 ${Math.round(data.pace.seconds / 60)}분` : ''}${data.pace.subscription ? ' · 구독' : data.pace.costUsd !== null ? ` · 약 $${data.pace.costUsd.toFixed(2)}` : ''}`);
     for (const node of data.nodes) console.log(`    ${node.name}  ${node.model ?? '(모델 없음)'}  요청 ${range(node.requests)} · 프롬프트 약 ${node.promptTokens.toLocaleString()}토큰`);
+    if (terms) return console.log('\n용어 워크플로는 청자·말투 규칙 준비 상태를 보지 않습니다. 시작 전 loca terms로 대상 용어를 확인하세요.');
     const ready = data.readiness;
     console.log('\n준비 상태');
     console.log(`  청자 미상 대사 ${ready.unknownListenerLines.toLocaleString()} / 청자가 필요한 대사 ${ready.dialogueLines.toLocaleString()}${ready.unknownListenerLines ? '   → loca lines --mark unknownListener' : ''}`);
@@ -745,21 +749,22 @@ runs
 
 runs
   .command('start <워크플로>')
-  .description('실행 시작을 제안으로 올리기 (AI 호출에 비용이 들어 앱에서 수락해야 시작합니다). 범위는 plan과 같고, 먼저 plan으로 확인하세요')
+  .description('실행 시작을 제안으로 올리기 (AI 호출에 비용이 들어 앱에서 수락해야 시작합니다). 범위는 plan과 같고(대사 워크플로는 대사 범위, 용어 워크플로는 --term), 먼저 plan으로 확인하세요')
   .option('-g, --group <groups...>', '장면·묶음 (키·id·제목)')
   .option('--key <keys...>', '대사 키')
   .addOption(new Option('--mark <marks...>', '자동 표시가 모두 붙은 대사').choices(LINE_MARK_IDS))
   .option('--tag <tags...>', '태그 이름 (모두 붙은 대사)')
+  .option('--term <terms...>', '용어 워크플로만: 이 용어(원문·id)만. 없으면 진입 노드가 고르는 용어(상태·표시 조건, 많이 쓰인 순)')
   .option('--ignore-status', '시작의 대상 상태가 아닌 대사도 포함')
   .option('--model <specs...>', 'plan과 같은 "연결:모델" 또는 "노드=연결:모델"')
-  .action(async (ref: string, options: { group?: string[]; key?: string[]; mark?: string[]; tag?: string[]; ignoreStatus?: boolean; model?: string[] }) => {
+  .action(async (ref: string, options: { group?: string[]; key?: string[]; mark?: string[]; tag?: string[]; term?: string[]; ignoreStatus?: boolean; model?: string[] }) => {
     const workflow = await resolveWorkflow(ref);
     const groups = await resolveGroups(options.group);
     const unitIds = options.key?.length ? (await unwrap(api().projects[':projectId'].lines.find.$post({ param: { projectId: await projectId() }, json: { keys: options.key, limit: 1000 } }))).rows.map((row) => row.id) : undefined;
     const tagIds = options.tag?.length
       ? (await readTool<{ tags: { id: string; name: string }[] }>('list_tags')).tags.filter((tag) => options.tag!.includes(tag.name)).map((tag) => tag.id)
       : undefined;
-    const { proposalId } = await proposeTool('start_run', { workflowId: workflow.id, groupIds: groups?.map((group) => group.id), unitIds, tagIds, marks: options.mark, ignoreStatus: options.ignoreStatus, models: runModels(options.model) });
+    const { proposalId } = await proposeTool('start_run', { workflowId: workflow.id, groupIds: groups?.map((group) => group.id), unitIds, tagIds, marks: options.mark, termIds: options.term, ignoreStatus: options.ignoreStatus, models: runModels(options.model) });
     if (globals().json) return print({ proposalId });
     console.log(`실행 요청을 올렸습니다 (${proposalId}). ${ACCEPT_HINT}. 시작한 뒤에는 loca runs list로 봅니다.`);
   });

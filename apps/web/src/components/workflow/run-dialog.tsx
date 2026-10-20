@@ -24,12 +24,15 @@ const KIND_ORDER: GroupKind[] = ['scene', 'ui', 'document'];
  * project, never preselected), what in those lines would spoil the translation and where to fix it,
  * how long and how much in plain words, and which models.
  */
-export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: givenGroupIds, unitIds: givenUnitIds, unitsLabel, viewKind, dirty, disabled, trigger, defaultIgnoreStatus = false, remember, open: controlledOpen, onOpenChange, hideTrigger = false }: {
+export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: givenGroupIds, unitIds: givenUnitIds, termIds: givenTermIds, subject = 'lines', unitsLabel, viewKind, dirty, disabled, trigger, defaultIgnoreStatus = false, remember, open: controlledOpen, onOpenChange, hideTrigger = false }: {
   projectId: string;
   /** Omit to let the user pick a workflow (when starting from a scene or a line selection). */
   workflowId?: string;
   groupIds?: string[];
   unitIds?: string[];
+  /** What the workflows run on: 'terms' lists only term workflows and takes the glossary terms in `termIds` (none = the workflow's own 대상 용어). */
+  subject?: 'lines' | 'terms';
+  termIds?: string[];
   /** What the named lines are, when they are not simply picked ('이번 길 번역 안 한 줄'); the scope button reads it with the count. */
   unitsLabel?: string;
   /** Opened from the script's UI or documents view: every line of that kind is the scope to start from. */
@@ -50,9 +53,12 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   const setOpen = (next: boolean) => { setLocalOpen(next); onOpenChange?.(next); };
   // The lines and scenes it was opened with stay its scope while it is open: picks cleared or changed
   // behind it (another tab, a refresh of the list) must not turn '고른 대사' into the whole project.
-  const [opened, setOpened] = useState<{ unitIds?: string[]; groupIds?: string[] }>({});
+  const [opened, setOpened] = useState<{ unitIds?: string[]; groupIds?: string[]; termIds?: string[] }>({});
   const unitIds = open ? opened.unitIds : givenUnitIds;
   const groupIds = open ? opened.groupIds : givenGroupIds;
+  const termIds = open ? opened.termIds : givenTermIds;
+  const terms = subject === 'terms';
+  const unit = terms ? '개' : '줄';
   // Dialogue is nearly the whole project, so like the whole project it is never preselected.
   const preselectKind = viewKind && viewKind !== 'scene' ? viewKind : undefined;
 
@@ -88,9 +94,11 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
       }
     }
   };
-  const valid = (id: string | undefined) => (id && workflows.data?.some((workflow) => workflow.id === id && !workflow.errorCount) ? id : undefined);
+  // Only workflows of this subject can be picked (a list entry without a subject is a line workflow).
+  const pickable = workflows.data?.filter((item) => item.subject === subject);
+  const valid = (id: string | undefined) => (id && pickable?.some((workflow) => workflow.id === id && !workflow.errorCount) ? id : undefined);
   // A remembered button never falls back to some other workflow: the person picks one.
-  const workflowId = fixedWorkflowId ?? (rememberKey ? valid(chosen) : (chosen ?? workflows.data?.find((workflow) => !workflow.errorCount)?.id));
+  const workflowId = fixedWorkflowId ?? (rememberKey ? valid(chosen) : (chosen ?? pickable?.find((workflow) => !workflow.errorCount)?.id));
   const workflow = workflows.data?.find((item) => item.id === workflowId);
   const groups = useQuery({ ...q.groups(projectId), enabled: open });
   const here = groupIds?.length ? groups.data?.filter((group) => groupIds.includes(group.id)) : undefined;
@@ -125,7 +133,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
       ? { statusIds: [...pickedStatuses], ignoreStatus: false }
       : { statusIds: [], ignoreStatus: true };
 
-  const scope = {
+  const scope = terms ? (termIds?.length ? { termIds } : {}) : {
     ...(computedUnitIds ? { unitIds: computedUnitIds } : {}),
     ...(computedGroupIds ? { groupIds: computedGroupIds } : {}),
     ...statusScope,
@@ -134,6 +142,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   };
 
   const ready =
+    terms ||
     (scopeTarget === 'units' && Boolean(unitIds?.length)) ||
     (scopeTarget === 'here' && Boolean(groupIds?.length)) ||
     (scopeTarget === 'groups' && pickedScenes.size > 0);
@@ -173,21 +182,25 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   });
   const total = data?.lines.total;
 
+  // Opened by its trigger or by the page (controlled `open`): the scope it opens with is taken then.
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (open && !wasOpen.current) {
+      setOpened({ unitIds: givenUnitIds, groupIds: givenGroupIds, termIds: givenTermIds });
+      setScopeTarget(givenUnitIds?.length ? 'units' : givenGroupIds?.length ? 'here' : 'groups');
+      setPickedScenes(startPicks());
+      setSceneFilter('');
+      setPickedTags(new Set());
+      setPickedMarks(new Set());
+      setRunModels({});
+    }
+    wasOpen.current = open;
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <Dialog
       open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (next) {
-          setOpened({ unitIds: givenUnitIds, groupIds: givenGroupIds });
-          setScopeTarget(givenUnitIds?.length ? 'units' : givenGroupIds?.length ? 'here' : 'groups');
-          setPickedScenes(startPicks());
-          setSceneFilter('');
-          setPickedTags(new Set());
-          setPickedMarks(new Set());
-          setRunModels({});
-        }
-      }}
+      onOpenChange={setOpen}
     >
       {!hideTrigger && <DialogTrigger asChild>
         {trigger ?? (
@@ -212,7 +225,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
                 <SelectValue placeholder="워크플로 선택" />
               </SelectTrigger>
               <SelectContent>
-                {workflows.data?.map((item) => (
+                {pickable?.map((item) => (
                   <SelectItem key={item.id} value={item.id} disabled={item.errorCount > 0}>
                     {item.name} {item.errorCount > 0 && <span className="text-muted-foreground">· 오류 있음</span>}
                   </SelectItem>
@@ -220,14 +233,20 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
-              {!workflows.data?.length && '저장된 워크플로가 없습니다. '}
+              {!pickable?.length && (terms ? '용어 워크플로가 없습니다. ' : '저장된 워크플로가 없습니다. ')}
               <Link to="/p/$projectId/workflows" params={{ projectId }} className="underline underline-offset-2">워크플로 관리</Link>
             </p>
             </div>
           )}
 
           <section className="space-y-4">
-            <fieldset className="space-y-2">
+            {terms && (
+              <div className="space-y-1">
+                <SectionHeading>대상</SectionHeading>
+                <p className="text-sm">{termIds?.length ? `고른 용어 ${termIds.length.toLocaleString()}개` : '워크플로의 대상 용어 상태·자동 태그에 맞는 용어'}</p>
+              </div>
+            )}
+            {!terms && <fieldset className="space-y-2">
               <SectionHeading as="legend" className="mb-2">대상</SectionHeading>
               {/* A choice only when the dialog came with lines or groups picked; otherwise the table is the whole choice. */}
               {unitIds?.length || groupIds?.length ? (
@@ -255,9 +274,9 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
                   <GroupPicker groups={groups.data ?? []} picked={pickedScenes} setPicked={setPickedScenes} filter={sceneFilter} setFilter={setSceneFilter} />
                 </div>
               )}
-            </fieldset>
+            </fieldset>}
 
-            <fieldset className="space-y-2">
+            {!terms && <fieldset className="space-y-2">
               <SectionHeading as="legend" className="mb-2">필터</SectionHeading>
               <FieldRows>
                 <FieldRow label="상태">
@@ -288,12 +307,12 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
                   </div>
                 </FieldRow>
               </FieldRows>
-            </fieldset>
+            </fieldset>}
 
             <p className="text-sm">
               {!ready ? null : total === undefined && plan.isError ? (
                 <span className="text-destructive">
-                  줄 수를 세지 못했습니다: {plan.error.message}{' '}
+                  {terms ? '용어' : '줄'} 수를 세지 못했습니다: {plan.error.message}{' '}
                   <Button variant="ghost" size="inline" onClick={() => void plan.refetch()}>
                     다시 시도
                   </Button>
@@ -311,21 +330,22 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
                   )}
                 </span>
               ) : total === 0 ? (
-                <span className="text-muted-foreground">이 범위에는 실행할 대사가 없습니다.</span>
+                <span className="text-muted-foreground">{terms ? '이 범위에는 실행할 용어가 없습니다.' : '이 범위에는 실행할 대사가 없습니다.'}</span>
               ) : (
                 <>
-                  <b className="font-medium tabular-nums">{total.toLocaleString()}줄</b>을 실행합니다
-                  {data!.lines.translated > 0 && <span className="text-muted-foreground"> (그중 이미 번역 있는 줄 {data!.lines.translated.toLocaleString()})</span>}
+                  <b className="font-medium tabular-nums">{total.toLocaleString()}{unit}</b>{terms ? '를' : '을'} 실행합니다
+                  {data!.lines.translated > 0 && <span className="text-muted-foreground"> (그중 이미 {terms ? '표기가 있는 용어' : '번역 있는 줄'} {data!.lines.translated.toLocaleString()})</span>}
                 </>
               )}
               {data && data.lines.excluded > 0 && <span className="text-muted-foreground"> · 번역 제외 {data.lines.excluded.toLocaleString()}줄은 빠집니다</span>}
             </p>
-            {wholeProject && Boolean(total) && (
+            {!terms && wholeProject && Boolean(total) && (
               <p className="text-xs text-warning">프로젝트 전체입니다. 처음이면 장면 하나로 먼저 시험해 보세요.</p>
             )}
           </section>
 
-          {data && total ? (
+          {/* Listeners, speech rules and glossary checks are about lines: a term run has none of them. */}
+          {data && total && !terms ? (
             <Readiness
               projectId={projectId}
               readiness={data.readiness}
@@ -354,7 +374,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
           </Button>
           {/* A model picked without its model yet would quietly run on the node's own: finish or undo it first. */}
           <Button disabled={!total || !workflowId || stale || start.isPending || Object.keys(chosenModels).length !== Object.keys(runModels).length} onClick={() => start.mutate()}>
-            {start.isPending ? <Spinner /> : <Play />} {total ? `${total.toLocaleString()}줄 실행` : '실행 시작'}
+            {start.isPending ? <Spinner /> : <Play />} {total ? `${total.toLocaleString()}${unit} 실행` : '실행 시작'}
           </Button>
         </DialogFooter>
       </DialogContent>

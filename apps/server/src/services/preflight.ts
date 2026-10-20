@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray, isNotNull, ne, sql } from 'drizzle-orm';
-import { batchConfigSchema, readinessUses, CONNECTION_KIND_INFO, estimateTokens, isFreeModel, isUnknownListener, isUnreviewed, needsListener, nodeName, termMatcher, type AiNode, type WorkflowDefinition } from '@tw/shared';
+import { batchConfigSchema, readinessUses, CONNECTION_KIND_INFO, estimateTokens, isFreeModel, isUnknownListener, isUnreviewed, needsListener, nodeName, termMatcher, workflowSubject, type AiNode, type WorkflowDefinition } from '@tw/shared';
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -7,7 +7,8 @@ import { packGroups } from '../engine/batches.ts';
 import { buildPrompt, promptLineId } from '../engine/prompts.ts';
 import { wholeScriptRequest } from '../engine/whole-script.ts';
 import { resolveChoiceOptions } from './choice-options.ts';
-import { excludedInScope, planRun, sceneLinks, selectRunUnits } from '../engine/run-create.ts';
+import { excludedInScope, planRun, sceneLinks, selectRunTerms, selectRunUnits } from '../engine/run-create.ts';
+import { loadTerms, TERM_GROUP, termPrompt } from '../engine/subjects.ts';
 import { resolveBudgets } from './budgets.ts';
 import { buildContext } from './context.ts';
 import { choiceLabel } from './routes.ts';
@@ -50,6 +51,7 @@ export interface NodeEstimate {
 export async function preflight(db: Db, workflow: Pick<typeof s.workflows.$inferSelect, 'projectId' | 'definition'> & { id: string | null }, scope: s.RunScope) {
   const definition: WorkflowDefinition = resolveBudgets(db, workflow.definition);
   const projectId = workflow.projectId;
+  if (workflowSubject(definition) === 'terms') return termPreflight(db, workflow, definition, scope);
   const unitIds = selectRunUnits(db, projectId, definition, scope);
   const columns = { id: s.units.id, key: s.units.key, groupId: s.units.groupId, seq: s.units.seq, kind: s.units.kind, speaker: s.units.speaker, source: s.units.source, translation: s.units.translation, listener: s.units.listener, listenerOrigin: s.units.listenerOrigin, listenerConfidence: s.units.listenerConfidence, tokens: sql<number>`(length(cast(${s.units.source} as blob)) + 3) / 4` };
   // Most of a project: one scan kept by id is faster than ids in chunks (see planLines).
@@ -135,6 +137,62 @@ export async function preflight(db: Db, workflow: Pick<typeof s.workflows.$infer
       maxCalls: Math.ceil((calls.expected ?? calls.max) * 1.3) || undefined,
       maxInputTokens: unmeasured ? undefined : Math.ceil((inputTokens.expected ?? inputTokens.max) * 1.3) || undefined,
     },
+  };
+}
+
+/**
+ * preflight for a term workflow: the terms in scope, packed as the runner would (one by one or in
+ * fixed counts, no scenes), with each AI node's requests and a sampled prompt size. Line readiness
+ * (listeners, speech rules) does not apply.
+ */
+async function termPreflight(db: Db, workflow: { id: string | null; projectId: string }, definition: WorkflowDefinition, scope: s.RunScope) {
+  const projectId = workflow.projectId;
+  const ids = selectRunTerms(db, projectId, definition, scope);
+  const { terms } = loadTerms(db, ids);
+  const rows = ids.flatMap((id, seq) => {
+    const term = terms.get(id);
+    return term ? [{ id, groupId: TERM_GROUP, seq, kind: 'term', tokens: estimateTokens(term.source) + 40, target: term.target }] : [];
+  });
+  const project = db.select().from(s.projects).where(eq(s.projects.id, projectId)).get()!;
+  const languages = { source: project.sourceLanguage, target: project.targetLanguage };
+  const everyLine = linesThrough(definition);
+  const estimates: NodeEstimate[] = definition.nodes
+    .filter((node): node is AiNode => node.type === 'ai')
+    .map((node) => {
+      const requests = packGroups(rows.length ? [rows] : [], batchConfigSchema.parse(node.config.batch ?? {}));
+      const connection = node.config.model.connectionId ? db.select().from(s.connections).where(eq(s.connections.id, node.config.model.connectionId)).get() : undefined;
+      const all = everyLine.has(node.id);
+      const historyRate = workflow.id ? rateFromHistory(db, workflow.id, node.id) : null;
+      const sample = requests[0] ?? [];
+      const prompt = sample.length ? termPrompt(db, projectId, sample.map((row) => ({ subjectId: row.id, data: { path: [], outputs: {} } }) as never), node) : null;
+      return {
+        nodeId: node.id,
+        name: nodeName(node),
+        model: connection && node.config.model.model ? choiceLabel(connection.name, node.config.model) : null,
+        choice: node.config.model,
+        sharedWith: [],
+        connection: connection ? { id: connection.id, name: connection.name, kind: connection.kind, cli: CONNECTION_KIND_INFO[connection.kind].transport === 'cli' } : null,
+        full: requests.length,
+        requests: { min: all ? requests.length : 0, expected: all ? requests.length : historyRate === null ? null : Math.round(historyRate * rows.length), max: requests.length * (all ? 1 : definition.settings.maxVisitsPerNode) },
+        everyLine: all,
+        promptTokens: prompt ? estimateTokens(Object.values(buildPrompt(node, languages, prompt.context, prompt.lines)).join('\n\n')) : 0,
+        overheadTokens: connection ? overheadOf(db, connection.id) : null,
+        historyRate,
+      };
+    });
+  const sum = (pick: (estimate: NodeEstimate) => number | null) => estimates.reduce<number | null>((total, estimate) => (total === null || pick(estimate) === null ? null : total + pick(estimate)!), 0);
+  const perRequest = (estimate: NodeEstimate) => estimate.promptTokens + (estimate.overheadTokens ?? 0);
+  const calls = { min: sum((e) => e.requests.min)!, expected: sum((e) => e.requests.expected), max: sum((e) => e.requests.max)! };
+  const inputTokens = { min: sum((e) => e.requests.min * perRequest(e))!, expected: sum((e) => (e.requests.expected === null ? null : e.requests.expected * perRequest(e))), max: sum((e) => e.requests.max * perRequest(e))! };
+  const none = { count: 0, examples: [] as string[], ids: [] as string[], more: false };
+  return {
+    readiness: { dialogueLines: 0, unknownListenerLines: 0, unreviewedRules: none, unreviewedTerms: none, pairsWithoutRule: { count: 0, examples: [] as string[] }, applies: readinessUses(definition) },
+    pace: paceOf(db, estimates),
+    lines: { total: rows.length, excluded: 0, translated: rows.filter((row) => row.target).length, untranslated: rows.filter((row) => !row.target).length },
+    plan: { batches: 0, linesPerBatch: null, list: listBatches(db, []) },
+    nodes: estimates,
+    totals: { calls, inputTokens },
+    suggestedLimits: { maxCalls: Math.ceil((calls.expected ?? calls.max) * 1.3) || undefined, maxInputTokens: estimates.some((e) => e.connection && e.overheadTokens === null) ? undefined : Math.ceil((inputTokens.expected ?? inputTokens.max) * 1.3) || undefined },
   };
 }
 

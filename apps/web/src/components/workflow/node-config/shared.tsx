@@ -1,6 +1,6 @@
 /** Pieces shared by the node-kind configs: shared field primitives and the node/ref types. */
 import { Input, InspectorField, InspectorToggle, Switch } from '@loca/ui';
-import { CONNECTION_KIND_INFO, type WorkflowEdge, type WorkflowNode } from '@tw/shared';
+import { CONNECTION_KIND_INFO, workflowSubject, type WorkflowEdge, type WorkflowNode, type WorkflowSubject } from '@tw/shared';
 
 export type AiNode = Extract<WorkflowNode, { type: 'ai' }>;
 export type FunctionNode = Extract<WorkflowNode, { type: 'function' }>;
@@ -47,3 +47,6 @@ export function CountRow({ label, unit, value, fallback, max, onChange }: { labe
 export function ToggleRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
   return <InspectorToggle label={label} checked={checked} onChange={onChange} />;
 }
+
+/** The subject of the workflow these nodes belong to (set on its entry node). */
+export const refsSubject = (refs: Pick<NodeRefs, 'nodes'>): WorkflowSubject => workflowSubject({ nodes: refs.nodes });

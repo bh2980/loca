@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
+import { toast } from 'sonner';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, OctagonAlert, Pause, Play, CircleStop } from 'lucide-react';
 import { nodeName as nameOf, type WorkflowNode } from '@tw/shared';
 import { ContextItemList } from '@/components/ai-context';
 import { LineDetail } from '@/components/line-detail';
+import { TermEditor } from '@/components/glossary/term-pane';
 import { HeaderActions, Page } from '@/components/page';
 import { EmptyState, SectionHeading, DataTable, type ColumnDef, Pager, FilterBar, ActionBar, Separator, SplitPane, JobStatusBadge, StatusBarItem, Alert, AlertDescription, AlertTitle, Badge, Button, Collapsible, CollapsibleContent, CollapsibleTrigger, Progress, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Tabs, TabsList, TabsTrigger, Skeleton } from '@loca/ui';
 import { HeaderFilter } from '@/components/header-filter';
@@ -51,6 +53,13 @@ function RunDetail() {
   const navigate = Route.useNavigate();
   const run = useQuery(q.run(runId));
   const items = useQuery(q.runItems(runId, { state: search.state, nodeId: search.node, offset: (search.page ?? 0) * PAGE }));
+  const terms = items.data?.subject === 'terms';
+  const termList = useQuery({ ...q.terms(projectId), enabled: terms && Boolean(search.line) });
+  const selectedTerm = terms ? termList.data?.find((term) => term.id === search.line) : undefined;
+  const decide = useMutation({
+    mutationFn: (accept: boolean) => unwrap(client.projects[':projectId'].drafts.$post({ param: { projectId }, json: { kind: 'terms', ids: [search.line!], action: accept ? 'confirm' : 'discard' } })),
+    onError: (error) => toast.error(error.message),
+  });
   const steps = useQuery({ ...q.runSteps(runId), enabled: search.tab === 'steps' });
   const plan = useQuery({ ...q.runPlan(runId), enabled: search.tab === 'plan' });
   const control = useMutation({ mutationFn: (action: 'pause' | 'resume' | 'cancel') => unwrap(client.runs[':id'][':action{pause|resume|cancel}'].$post({ param: { id: runId, action } })) });
@@ -83,8 +92,9 @@ function RunDetail() {
   const filtered = Boolean(search.state || search.node);
 
   const columns: ColumnDef<Item, unknown>[] = [
-    { id: 'speaker', header: '화자', meta: { width: 112 }, cell: ({ row }) => row.original.speaker ?? '—' },
+    ...(terms ? [] : [{ id: 'speaker', header: '화자', meta: { width: 112 }, cell: ({ row }) => row.original.speaker ?? '—' } satisfies ColumnDef<Item, unknown>]),
     { id: 'source', header: '원문', meta: { wrap: true, hideable: false }, cell: ({ row }) => row.original.source },
+    ...(terms ? [{ id: 'target', header: '현재 표기', meta: { wrap: true }, cell: ({ row }) => row.original.target || '—' } satisfies ColumnDef<Item, unknown>] : []),
     { id: 'candidate', header: '최신 후보', meta: { wrap: true, className: 'text-muted-foreground' }, cell: ({ row }) => row.original.data.candidateText ?? '—' },
     {
       id: 'node',
@@ -154,7 +164,7 @@ function RunDetail() {
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>실행을 취소할까요?</AlertDialogTitle>
-          <AlertDialogDescription>아직 처리하지 않은 대사는 이 실행에서 빠집니다. 이미 반영된 번역·상태는 그대로입니다.</AlertDialogDescription>
+          <AlertDialogDescription>아직 처리하지 않은 {data.subject === 'terms' ? '용어' : '대사'}는 이 실행에서 빠집니다. 이미 반영된 번역·상태는 그대로입니다.</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>계속 실행</AlertDialogCancel>
@@ -171,7 +181,13 @@ function RunDetail() {
         defaultWidth="400px"
         className="h-full min-h-0"
         pane={
-          search.line && (
+          search.line && (terms ? (
+            selectedTerm ? (
+              <TermEditor key={selectedTerm.id} projectId={projectId} term={selectedTerm} onClose={() => setSearch({ line: undefined }, true)} onDecide={(accept) => decide.mutate(accept)} deciding={decide.isPending} />
+            ) : (
+              <p className="p-4 text-sm text-muted-foreground">{termList.isSuccess ? '용어집에서 사라진 용어입니다.' : '용어를 불러오는 중…'}</p>
+            )
+          ) : (
             <LineDetail
               projectId={projectId}
               unitId={search.line}
@@ -181,15 +197,16 @@ function RunDetail() {
               aiNode={search.aiNode}
               onAiNode={(aiNode) => setSearch({ aiNode }, true)}
             />
-          )
+          ))
         }
       >
         <HeaderActions>
           <Tabs value={view} onValueChange={(value) => setSearch({ tab: value === 'steps' || value === 'plan' ? value : undefined }, true)} className="self-stretch">
             <TabsList variant="line" className="h-full border-b-0" aria-label="보기">
-              <TabsTrigger value="items">대사별</TabsTrigger>
+              <TabsTrigger value="items">{terms ? '용어별' : '대사별'}</TabsTrigger>
               <TabsTrigger value="steps">AI 호출</TabsTrigger>
-              <TabsTrigger value="plan">번역 계획</TabsTrigger>
+              {/* Terms are not planned in scene batches: there is no plan to show. */}
+              {data.subject !== 'terms' && <TabsTrigger value="plan">번역 계획</TabsTrigger>}
             </TabsList>
           </Tabs>
           <Separator orientation="vertical" className="mx-1 h-4" />
@@ -204,7 +221,7 @@ function RunDetail() {
         {data.status === 'paused' && !data.filling && <ContinueRun runId={runId} failed={totals.failed ?? 0} paused hideTrigger open={continueOpen} onOpenChange={setContinueOpen} />}
         {active && stop}
         <StatusBarItem><JobStatusBadge status={data.status} /></StatusBarItem>
-        <FilterBar end={view === 'items' && items.data ? <span className="text-2xs tabular-nums">{total.toLocaleString()}줄</span> : undefined}>
+        <FilterBar end={view === 'items' && items.data ? <span className="text-2xs tabular-nums">{total.toLocaleString()}{terms ? '개' : '줄'}</span> : undefined}>
           {filtered && view === 'items' && (
             <Button variant="ghost" onClick={() => setSearch({ state: undefined, node: undefined, page: undefined, line: undefined }, true)}>
               필터 지우기
@@ -238,7 +255,7 @@ function RunDetail() {
             <div className="flex flex-wrap items-baseline justify-between gap-x-4 text-sm">
               <span>
                 <b className="tabular-nums">{finished.toLocaleString()}</b>
-                <span className="text-muted-foreground tabular-nums"> / {data.total.toLocaleString()} 대사 처리 · {data.total ? Math.round((finished / data.total) * 100) : 0}%</span>
+                <span className="text-muted-foreground tabular-nums"> / {data.total.toLocaleString()} {terms ? '용어' : '대사'} 처리 · {data.total ? Math.round((finished / data.total) * 100) : 0}%</span>
               </span>
               {data.usage && (
                 <span className="text-xs text-muted-foreground tabular-nums">
@@ -262,7 +279,7 @@ function RunDetail() {
             loading={!items.data}
             selected={items.data?.rows.find((item) => item.unitId === search.line)?.id}
             onRowClick={(item) => setSearch({ line: search.line === item.unitId ? undefined : item.unitId }, true)}
-            empty={<EmptyState noun="대사" filtered={filtered} />}
+            empty={<EmptyState noun={terms ? '용어' : '대사'} filtered={filtered} />}
             footer={<Pager page={search.page ?? 0} total={total} pageSize={PAGE} onPage={(page) => setSearch({ page: page || undefined })} />}
           />
         ) : view === 'plan' ? (
@@ -301,7 +318,7 @@ function RunDetail() {
                           {/* The spaces keep the row's words apart when read or copied (#48); the flex gap already spaces them on screen. */}
                           <span className="w-32 truncate text-left font-medium">{nodeName(step.nodeId)}</span>{' '}
                           <Badge variant={step.ok ? 'outline' : 'destructive'}>{step.ok ? '성공' : '실패'}</Badge>{' '}
-                          <span className="text-muted-foreground">대사 {step.subjectIds.length}</span>{' '}
+                          <span className="text-muted-foreground">{terms ? '용어' : '대사'} {step.subjectIds.length}</span>{' '}
                           <span className="min-w-0 truncate text-muted-foreground">{[data.models.flatMap((model) => model.routes).find((route) => route.connectionId === step.connectionId)?.name, step.model].filter(Boolean).join(' · ')}</span>
                           {' '}
                           <span className="ml-auto text-xs text-muted-foreground tabular-nums">

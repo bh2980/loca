@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, asc, count, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { choiceKey, FUNCTIONS, type FunctionName, isWholeScriptWorkflow, nodeModels, CONNECTION_KIND_INFO, lineMarksSchema, scriptParams, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels } from '@tw/shared';
+import { choiceKey, FUNCTIONS, type FunctionName, isWholeScriptWorkflow, nodeModels, workflowSubject, CONNECTION_KIND_INFO, lineMarksSchema, scriptParams, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -9,13 +9,13 @@ import { workflowIssues } from '../services/workflow-issues.ts';
 import { events } from '../events.ts';
 import { lineView, validateScriptData } from '../engine/functions/index.ts';
 import { runScript } from '../engine/functions/sandbox.ts';
-import { WHOLE_SCRIPT_BUSY, createRunInSteps, FILLING, refuseSecondWholeScript, selectRunUnits } from '../engine/run-create.ts';
+import { WHOLE_SCRIPT_BUSY, createRunInSteps, FILLING, refuseSecondWholeScript, selectRunTerms, selectRunUnits } from '../engine/run-create.ts';
 import { listBatches, preflight } from '../services/preflight.ts';
 import { choiceLabel, snapshotWorkflowModels } from '../services/routes.ts';
 import { continuePreflight, switchedRun } from '../services/run-continue.ts';
 import { deleteWorkflow, saveWorkflow, WorkflowMutationError } from '../services/workflow-mutations.ts';
 
-const scopeSchema = z.object({ groupIds: z.array(z.string()).optional(), unitIds: z.array(z.string()).optional(), tagIds: z.array(z.string()).optional(), marks: lineMarksSchema.optional(), statusIds: z.array(z.string()).optional(), ignoreStatus: z.boolean().optional() });
+const scopeSchema = z.object({ groupIds: z.array(z.string()).optional(), unitIds: z.array(z.string()).optional(), tagIds: z.array(z.string()).optional(), marks: lineMarksSchema.optional(), statusIds: z.array(z.string()).optional(), ignoreStatus: z.boolean().optional(), termIds: z.array(z.string()).optional() });
 /** A run's scope and, optionally, the models it uses instead of its nodes' own (by AI node id). */
 const runSchema = scopeSchema.extend({ models: runModelsSchema.optional() });
 const continueSchema = z.object({ models: runModelsSchema.optional(), retryFailed: z.boolean().default(false) });
@@ -64,6 +64,7 @@ export const workflowRoutes = new Hono<Env>()
         ...row,
         // The start's 대상 상태: the run dialog's default status filter.
         entryStatusIds: (() => { const entry = definition.nodes.find((node) => node.type === 'entry'); return entry?.type === 'entry' ? entry.config.statusIds : []; })(),
+        subject: workflowSubject(definition),
         nodeCount: definition.nodes.length,
         errorCount: workflowIssues(db, projectId, definition).filter((issue) => issue.level === 'error').length,
       })),
@@ -120,7 +121,8 @@ export const workflowRoutes = new Hono<Env>()
   .post('/workflows/:id/preview', validate('json', scopeSchema), (c) => {
     const { db } = c.var.deps;
     const workflow = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
-    return c.json({ count: selectRunUnits(db, workflow.projectId, workflow.definition, c.req.valid('json')).length });
+    const select = workflowSubject(workflow.definition) === 'terms' ? selectRunTerms : selectRunUnits;
+    return c.json({ count: select(db, workflow.projectId, workflow.definition, c.req.valid('json')).length });
   })
   /** The run plan and its cost estimate, computed without calling a model (see services/preflight.ts). */
   .post('/workflows/:id/preflight', validate('json', runSchema), async (c) => {
@@ -152,7 +154,7 @@ export const workflowRoutes = new Hono<Env>()
       ? db.select().from(s.units).where(and(eq(s.units.id, unitId), eq(s.units.projectId, c.req.param('projectId')))).get()
       : db.select().from(s.units).where(eq(s.units.projectId, c.req.param('projectId'))).orderBy(asc(s.units.seq)).limit(1).get();
     if (!unit) badRequest('시험할 대사가 없습니다.');
-    const input = lineView({ unit, item: { data: { path: [], outputs: {} }, visits: {} } as never, tagIds: [], projectId: unit.projectId, runId: 'test' });
+    const input = lineView({ subject: 'lines', unit, item: { data: { path: [], outputs: {} }, visits: {} } as never, tagIds: [], projectId: unit.projectId, runId: 'test' });
     const started = Date.now();
     try {
       const result = await runScript(code, input);
@@ -252,7 +254,7 @@ export const workflowRoutes = new Hono<Env>()
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     const runs = db
-      .select({ id: s.runs.id, workflowId: s.runs.workflowId, workflowName: s.runs.workflowName, workflowVersion: s.runs.workflowVersion, status: s.runs.status, notice: s.runs.notice, total: s.runs.total, createdAt: s.runs.createdAt, finishedAt: s.runs.finishedAt })
+      .select({ id: s.runs.id, workflowId: s.runs.workflowId, workflowName: s.runs.workflowName, workflowVersion: s.runs.workflowVersion, subject: s.runs.subject, status: s.runs.status, notice: s.runs.notice, total: s.runs.total, createdAt: s.runs.createdAt, finishedAt: s.runs.finishedAt })
       .from(s.runs)
       .where(eq(s.runs.projectId, projectId))
       .orderBy(desc(s.runs.createdAt))
@@ -339,6 +341,20 @@ export const workflowRoutes = new Hono<Env>()
     if (nodeId) conditions.push(eq(s.runItems.nodeId, nodeId));
     const where = and(...conditions);
     const total = db.select({ count: count() }).from(s.runItems).where(where).get()!.count;
+    const run = db.select({ subject: s.runs.subject }).from(s.runs).where(eq(s.runs.id, c.req.param('id'))).get();
+    // Term runs list the term (source, current form) where line runs list the line; most used first.
+    if (run?.subject === 'terms') {
+      const rows = db
+        .select({ id: s.runItems.id, unitId: s.runItems.subjectId, key: s.terms.source, speaker: sql<string | null>`null`, source: s.terms.source, target: s.terms.target, nodeId: s.runItems.nodeId, state: s.runItems.state, visits: s.runItems.visits, data: s.runItems.data, error: s.runItems.error, updatedAt: s.runItems.updatedAt, statusName: sql<string | null>`null`, statusColor: sql<string | null>`null` })
+        .from(s.runItems)
+        .innerJoin(s.terms, eq(s.terms.id, s.runItems.subjectId))
+        .where(where)
+        .orderBy(desc(sql`coalesce(${s.terms.lines}, 0)`), asc(s.terms.source))
+        .limit(limit)
+        .offset(offset)
+        .all();
+      return c.json({ total, subject: 'terms' as const, rows });
+    }
     const rows = db
       .select({ id: s.runItems.id, unitId: s.runItems.subjectId, key: s.units.key, speaker: s.units.speaker, source: s.units.source, nodeId: s.runItems.nodeId, state: s.runItems.state, visits: s.runItems.visits, data: s.runItems.data, error: s.runItems.error, updatedAt: s.runItems.updatedAt, statusName: s.statuses.name, statusColor: s.statuses.color })
       .from(s.runItems)
@@ -349,7 +365,7 @@ export const workflowRoutes = new Hono<Env>()
       .limit(limit)
       .offset(offset)
       .all();
-    return c.json({ total, rows });
+    return c.json({ total, subject: 'lines' as const, rows: rows.map((row) => ({ ...row, target: null as string | null })) });
   })
   .get('/runs/:id/steps', (c) => {
     const { db } = c.var.deps;

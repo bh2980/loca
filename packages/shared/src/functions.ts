@@ -21,6 +21,8 @@ export interface FunctionInfo<P extends z.ZodType = z.ZodType> {
   ends?: boolean;
   /** Runs outside the instant pass (network, sandbox); the runner dispatches it like an AI call. */
   async: boolean;
+  /** The workflow items it works on (unset: lines and terms). */
+  subjects?: readonly Subject[];
 }
 
 /**
@@ -108,6 +110,8 @@ export interface ApplyField {
   /** Item fields of a `list` field (e.g. a relationship's changes); mapped as "<field>.<sub>" or by the same name. */
   fields?: ApplyField[];
 }
+/** What a workflow's items are (WORKFLOW_SUBJECTS in workflow.ts). */
+export type Subject = 'lines' | 'terms';
 export interface ApplyTarget {
   label: string;
   description: string;
@@ -115,6 +119,8 @@ export interface ApplyTarget {
   fields: ApplyField[];
   /** The chat/CLI tool a proposal is filed as (proposals.tool), and whose service writes it. */
   tool: string;
+  /** The workflow items it applies to; a `line` shape writes the item itself, so only its subject. */
+  subjects: readonly Subject[];
 }
 const evidenceField = { name: 'evidence', label: '근거 대사', type: 'lines' } as const satisfies ApplyField;
 export const APPLY_TARGETS = {
@@ -124,6 +130,7 @@ export const APPLY_TARGETS = {
     shape: 'line',
     fields: [{ name: 'text', label: '번역문', type: 'string', required: true }],
     tool: 'propose_changes',
+    subjects: ['lines'],
   },
   setListener: {
     label: '청자 설정',
@@ -134,6 +141,7 @@ export const APPLY_TARGETS = {
       { name: 'confidence', label: '확신도', type: 'number' },
     ],
     tool: 'set_listeners',
+    subjects: ['lines'],
   },
   tagLines: {
     label: '태그 붙이기',
@@ -141,6 +149,20 @@ export const APPLY_TARGETS = {
     shape: 'line',
     fields: [{ name: 'tag', label: '태그 이름', type: 'string', required: true }],
     tool: 'propose_changes',
+    subjects: ['lines'],
+  },
+  saveTermEntry: {
+    label: '용어 표기 저장',
+    description: '이 용어의 한국어 표기와 메모를 적습니다. 기본은 표기가 비어 있을 때만 채우고(사람이 그사이 채웠으면 그대로), 끄면 덮어씁니다.',
+    shape: 'line',
+    fields: [
+      { name: 'target', label: '번역', type: 'string', required: true },
+      { name: 'note', label: '메모', type: 'string' },
+      { name: 'kind', label: '종류', type: 'string' },
+      { name: 'meaning', label: '뜻', type: 'string' },
+    ],
+    tool: 'save_terms',
+    subjects: ['terms'],
   },
   saveTerms: {
     label: '용어 저장',
@@ -155,6 +177,7 @@ export const APPLY_TARGETS = {
       evidenceField,
     ],
     tool: 'save_terms',
+    subjects: ['lines', 'terms'],
   },
   saveCharacters: {
     label: '인물 저장',
@@ -172,6 +195,7 @@ export const APPLY_TARGETS = {
       evidenceField,
     ],
     tool: 'save_knowledge',
+    subjects: ['lines', 'terms'],
   },
   saveRelationships: {
     label: '관계 저장',
@@ -196,6 +220,7 @@ export const APPLY_TARGETS = {
       evidenceField,
     ],
     tool: 'save_knowledge',
+    subjects: ['lines', 'terms'],
   },
   saveSpeechRules: {
     label: '말투 규칙 저장',
@@ -211,6 +236,7 @@ export const APPLY_TARGETS = {
       evidenceField,
     ],
     tool: 'save_knowledge',
+    subjects: ['lines', 'terms'],
   },
   saveEvents: {
     label: '사건 저장',
@@ -225,6 +251,7 @@ export const APPLY_TARGETS = {
       evidenceField,
     ],
     tool: 'save_knowledge',
+    subjects: ['lines', 'terms'],
   },
   saveDocument: {
     label: '문서 저장',
@@ -237,6 +264,7 @@ export const APPLY_TARGETS = {
       evidenceField,
     ],
     tool: 'save_document',
+    subjects: ['lines', 'terms'],
   },
   saveSceneListeners: {
     label: '장면 청자 저장',
@@ -259,6 +287,7 @@ export const APPLY_TARGETS = {
       },
     ],
     tool: 'set_listeners',
+    subjects: ['lines', 'terms'],
   },
 } as const satisfies Record<string, ApplyTarget>;
 export type ApplyFunctionName = keyof typeof APPLY_TARGETS;
@@ -275,6 +304,8 @@ export const applyParams = z.object({
   propose: z.boolean().default(true),
   /** Written now: as a candidate (✦, a person confirms it) instead of confirmed. */
   asCandidate: z.boolean().default(false),
+  /** 용어 표기 저장: fill the term's Korean form only while it is empty (a person's is kept). */
+  onlyEmpty: z.boolean().default(true),
 });
 export type ApplyParams = z.infer<typeof applyParams>;
 
@@ -319,6 +350,7 @@ export const FUNCTIONS = {
     params: formatCheckParams,
     ports: () => pass,
     async: false,
+    subjects: ['lines'],
   },
   glossaryCheck: {
     label: '용어 검사',
@@ -326,6 +358,7 @@ export const FUNCTIONS = {
     params: z.object({}),
     ports: () => pass,
     async: false,
+    subjects: ['lines'],
   },
   setStatus: {
     label: '상태 변경',
@@ -333,9 +366,18 @@ export const FUNCTIONS = {
     params: setStatusParams,
     ports: () => out,
     async: false,
+    subjects: ['lines'],
+  },
+  setTermStatus: {
+    label: '용어 상태 변경',
+    description: '이 용어를 후보·확정·거절로 바꿉니다(AI가 정한 것으로 표시). 거절한 용어는 다시 제안되지 않습니다. 기본은 제안으로 남깁니다.',
+    params: z.object({ status: z.enum(['candidate', 'confirmed', 'rejected']).default('rejected'), propose: z.boolean().default(true) }),
+    ports: () => out,
+    async: false,
+    subjects: ['terms'],
   },
   ...(Object.fromEntries(
-    Object.entries(APPLY_TARGETS).map(([name, target]) => [name, { label: target.label, description: target.description, params: applyParams, ports: () => out, async: false }]),
+    Object.entries(APPLY_TARGETS).map(([name, target]) => [name, { label: target.label, description: target.description, params: applyParams, ports: () => out, async: false, subjects: target.subjects }]),
   ) as unknown as Record<ApplyFunctionName, FunctionInfo<typeof applyParams>>),
   fail: {
     label: '실패로 끝내기',
@@ -367,6 +409,7 @@ export const FUNCTION_NAMES = Object.keys(FUNCTIONS) as FunctionName[];
 /** Standalone deterministic functions exposed in the workflow node library under '함수 동작'. */
 export const PALETTE_FUNCTION_NAMES: FunctionName[] = [
   'setStatus',
+  'setTermStatus',
   'formatCheck',
   'glossaryCheck',
   'fail',
@@ -381,3 +424,6 @@ export function functionPorts(fn: string, params: unknown): Port[] {
   const ports = info.ports(parsed.success ? parsed.data : info.params.parse({}));
   return info.ends ? ports : [...ports, { id: 'error', label: '오류' }];
 }
+
+/** Whether a function node can work on a workflow's items. */
+export const functionTakes = (fn: string, subject: Subject) => ((FUNCTIONS[fn as FunctionName] as FunctionInfo | undefined)?.subjects ?? ['lines', 'terms']).includes(subject);

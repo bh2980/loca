@@ -369,7 +369,7 @@ describe('who set the status', () => {
     const initial = statuses.find((status) => status.kind === 'initial')!;
     const final = statuses.find((status) => status.kind === 'final')!;
     const call = (data: Record<string, unknown>) =>
-      db.transaction((tx) => syncFunctions.setStatus!(tx as never, { statusId: final.id }, { unit, item: { data }, tagIds: [], projectId, runId: 'r' } as never));
+      db.transaction((tx) => syncFunctions.setStatus!(tx as never, { statusId: final.id }, { subject: 'lines', unit, item: { data }, tagIds: [], projectId, runId: 'r' } as never));
 
     // A person saved '내 번역' after the run started: the run keeps their text and status (#51).
     db.update(s.units).set({ translation: '내 번역', statusBy: 'human' }).where(eq(s.units.id, unit.id)).run();

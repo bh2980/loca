@@ -28,3 +28,12 @@ loca check terms                   # 확정 용어를 어긴 번역
 3. 이미 있는 용어는 `{"terms":[{"id":"…","target":"새 번역"}]}`처럼 **바꿀 필드만** 넣습니다.
 4. 태그: `loca call tag_items '{"kind":"terms","ids":["…"],"add":["<용어 태그>"],"remove":[]}'`. 용어집에 붙는 태그만 붙습니다(`loca tags`). 새 태그 만들기는 `loca-project`.
 5. 확정 용어가 바뀌면 그 용어가 쓰인 줄(`loca terms usage`)을 `loca-review` 순서로 고칩니다.
+
+## 비어 있는 번역어 채우기
+번역어가 없는 용어(`loca terms --mark emptyTarget`)를 한꺼번에 채우는 일은 용어 워크플로가 합니다. 진입의 `subject`를 `terms`로 두고(기본 대상: 후보이면서 번역어가 없는 용어), AI 노드(json: `target`, `note`, `kind`, `meaning`; 문맥 `examples`로 용어가 나온 대사를 함께 보냄) → `용어 표기 저장`(`saveTermEntry`, 사람이 채운 칸은 건드리지 않음)으로 잇고, 용어가 아니라고 본 것은 `용어 상태 변경`(`setTermStatus`, rejected)으로 보냅니다. 만드는 법은 `loca-workflows`.
+```
+loca runs plan <용어 워크플로>                 # 대상 용어 수와 요청 수 (모델은 부르지 않음)
+loca runs plan <용어 워크플로> --term Guild    # 특정 용어만
+loca runs start <용어 워크플로>                # 시작 제안 (앱에서 수락)
+```
+반영은 제안으로 올라가고(`propose` 기본), 수락한 뒤 `loca terms --unreviewed`로 AI가 채운 것을 사람이 확인합니다.

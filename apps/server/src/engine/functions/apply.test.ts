@@ -40,14 +40,14 @@ function apply(ctx: Ctx, fn: ApplyFunctionName, params: Record<string, unknown>,
   const unit = ctx.db.select().from(s.units).where(eq(s.units.key, key)).get()!;
   const item = ctx.db.select().from(s.runItems).where(eq(s.runItems.subjectId, unit.id)).get()!;
   const data = { ...item.data, outputs: output ? { ai: output } : ({} as Record<string, Record<string, unknown>>) };
-  const input: FunctionInput = { unit, item: { ...item, nodeId: 'apply', data }, tagIds: [], projectId: ctx.projectId, runId: ctx.runId };
+  const input: FunctionInput = { subject: 'lines', unit, item: { ...item, nodeId: 'apply', data }, tagIds: [], projectId: ctx.projectId, runId: ctx.runId };
   return ctx.db.transaction((tx) => applyFunctions[fn](tx, { fromNodeId: 'ai', ...params }, input));
 }
 const proposals = (ctx: Ctx) => ctx.db.select().from(s.proposals).all();
 
 describe('apply node mapping', () => {
   it('reads list items by the field map, drops items missing a required field and takes the first of a lines field', () => {
-    const { items, skipped } = applyItems('saveSpeechRules', { fromNodeId: 'ai', list: 'rules', propose: true, asCandidate: false, map: { fromName: 'speaker', toName: 'listener', level: 'level', startKey: 'at' } }, {
+    const { items, skipped } = applyItems('saveSpeechRules', { fromNodeId: 'ai', list: 'rules', propose: true, asCandidate: false, onlyEmpty: true, map: { fromName: 'speaker', toName: 'listener', level: 'level', startKey: 'at' } }, {
       rules: [{ speaker: 'Bob', listener: 'Alice', level: 'hae', at: ['a2'] }, { speaker: 'Bob', listener: '', level: 'hae' }],
     });
     expect(items).toEqual([{ fromName: 'Bob', toName: 'Alice', level: 'hae', startKey: ['a2'] }]);
@@ -55,7 +55,7 @@ describe('apply node mapping', () => {
   });
 
   it('reads nested list fields by sub-field', () => {
-    const { items } = applyItems('saveRelationships', { fromNodeId: 'ai', list: 'rels', propose: true, asCandidate: false, map: { from: 'a', to: 'b', kind: 'kind', changes: 'shifts', 'changes.change': 'what' } }, {
+    const { items } = applyItems('saveRelationships', { fromNodeId: 'ai', list: 'rels', propose: true, asCandidate: false, onlyEmpty: true, map: { from: 'a', to: 'b', kind: 'kind', changes: 'shifts', 'changes.change': 'what' } }, {
       rels: [{ a: 'Bob', b: 'Alice', kind: '부하', shifts: [{ at: ['a2'], what: '긴장' }, { at: [], what: '무시' }] }],
     });
     expect(items[0].changes).toEqual([{ at: ['a2'], change: '긴장' }]);

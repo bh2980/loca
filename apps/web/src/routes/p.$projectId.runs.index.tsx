@@ -124,7 +124,7 @@ function Runs() {
             sub: '',
             status: run.status,
             error: run.status === 'paused' ? run.notice : null,
-            progress: { done: (run.states.done ?? 0) + (run.states.failed ?? 0) + (run.states.cancelled ?? 0), total: run.total, unit: '줄' },
+            progress: { done: (run.states.done ?? 0) + (run.states.failed ?? 0) + (run.states.cancelled ?? 0), total: run.total, unit: run.subject === 'terms' ? '개' : '줄' },
             stats: jobs.data.runCalls[run.id] ?? null,
             at: new Date(run.createdAt),
             workflowId: run.workflowId,

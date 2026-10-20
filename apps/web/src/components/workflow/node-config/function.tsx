@@ -2,14 +2,14 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Play, Plus, Trash2 } from 'lucide-react';
-import { APPLY_FUNCTION_NAMES, APPLY_TARGETS, applyIssues, DEFAULT_PARTICLE_PATTERN, formatPatternError, FUNCTIONS, JSON_FIELD_TYPE_LABELS, nodeName, PALETTE_FUNCTION_NAMES, type ApplyField, type ApplyFunctionName, type ApplyParams, type CustomFormatRule, type JsonFieldType, type WorkflowDefinition, type FunctionName, type JsonField, type WorkflowNode } from '@tw/shared';
+import { APPLY_FUNCTION_NAMES, APPLY_TARGETS, applyIssues, DEFAULT_PARTICLE_PATTERN, formatPatternError, FUNCTIONS, functionTakes, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, JSON_FIELD_TYPE_LABELS, nodeName, PALETTE_FUNCTION_NAMES, type ApplyField, type ApplyFunctionName, type ApplyParams, type CustomFormatRule, type JsonFieldType, type WorkflowDefinition, type FunctionName, type JsonField, type WorkflowNode } from '@tw/shared';
 import { Button, Input, InspectorActionRow, InspectorFields, InspectorList, InspectorResult, InspectorToggle, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, StatusIcon, TagChip } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
 import { cn } from '@/lib/utils';
 import { AiRegexInput } from '@/components/ai-regex-input';
 import { client, unwrap } from '@/lib/api';
 import { JsonFieldsEditor } from '@/components/workflow/node-config/json-fields-editor';
-import { Field, type FunctionNode, type NodeRefs } from '@/components/workflow/node-config/shared';
+import { Field, refsSubject, type FunctionNode, type NodeRefs } from '@/components/workflow/node-config/shared';
 
 // ── function node ─────────────────────────────────────────────────────
 
@@ -23,7 +23,8 @@ export function FunctionConfig({ node, refs, readOnly, onChange }: { node: Funct
   const setMany = (patch: Record<string, unknown>) => onChange({ ...node, config: { ...node.config, params: { ...params, ...patch } } });
   const set = (key: string, value: unknown) => setMany({ [key]: value });
   const availableFns = PALETTE_FUNCTION_NAMES.includes(fn) ? PALETTE_FUNCTION_NAMES : [fn, ...PALETTE_FUNCTION_NAMES];
-  const switchable = fn in APPLY_TARGETS ? APPLY_FUNCTION_NAMES : availableFns;
+  const subject = refsSubject(refs);
+  const switchable = (fn in APPLY_TARGETS ? APPLY_FUNCTION_NAMES : availableFns).filter((name) => name === fn || functionTakes(name, subject));
 
   const renderBody = () => {
     switch (fn) {
@@ -39,6 +40,8 @@ export function FunctionConfig({ node, refs, readOnly, onChange }: { node: Funct
         );
       case 'setStatus':
         return <SetStatusConfig params={params} refs={refs} set={set} setMany={setMany} />;
+      case 'setTermStatus':
+        return <SetTermStatusConfig params={params} set={set} />;
       case 'http':
         return <HttpConfig params={params} refs={refs} set={set} />;
       case 'script':
@@ -234,6 +237,20 @@ function SetStatusConfig({ params, refs, set, setMany }: { params: Record<string
           </div>
         </Field>
       )}
+    </>
+  );
+}
+
+function SetTermStatusConfig({ params, set }: { params: Record<string, unknown>; set: (key: string, value: unknown) => void }) {
+  return (
+    <>
+      <Field label="바꿀 상태">
+        <Select value={params.status as string} onValueChange={(value) => set('status', value)}>
+          <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+          <SelectContent>{KNOWLEDGE_STATUSES.map((status) => <SelectItem key={status} value={status}>{KNOWLEDGE_STATUS_LABELS[status]}</SelectItem>)}</SelectContent>
+        </Select>
+      </Field>
+      <InspectorToggle label="제안으로 남기기" description="켜면 사용자가 제안을 수락해야 바뀝니다. 끄면 바로 바꿉니다." checked={Boolean(params.propose)} onChange={(value) => set('propose', value)} />
     </>
   );
 }
@@ -536,6 +553,10 @@ function ApplyConfig({ node, fn, params, refs, setMany }: { node: FunctionNode; 
           </SelectContent>
         </Select>
       </Field>
+
+      {fn === 'saveTermEntry' && (
+        <InspectorToggle label="비어 있을 때만 채우기" description="용어에 이미 표기가 있으면 덮어쓰지 않습니다." checked={(params as { onlyEmpty?: boolean }).onlyEmpty !== false} onChange={(value) => setMany({ onlyEmpty: value })} />
+      )}
 
       {issues.map((message) => (
         <InspectorResult key={message} tone="info">

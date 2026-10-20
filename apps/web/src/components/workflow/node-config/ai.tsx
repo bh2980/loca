@@ -2,14 +2,14 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Plus, X } from 'lucide-react';
-import { AI_OUTPUTS, AI_PRESETS, AI_SCOPES, CHOICE_SOURCES, CONNECTION_KIND_INFO, contextConfigSchema, nodeName, type AiOutput, type AiScope, type BatchConfig, type Capability, type ChoiceSource, type WorkflowNode } from '@tw/shared';
+import { AI_OUTPUTS, AI_PRESETS, AI_SCOPES, CHOICE_SOURCES, CONNECTION_KIND_INFO, BATCH_MODE_LABELS, contextConfigSchema, nodeName, SUBJECT_BATCH_MODES, type WorkflowSubject, type AiOutput, type AiScope, type BatchConfig, type Capability, type ChoiceSource, type WorkflowNode } from '@tw/shared';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Button, Dialog, DialogContent, DialogHeader, DialogTitle, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, InspectorActionRow, InspectorResult, InspectorSection } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
 import { AiContextPanel } from '@/components/ai-context';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
 import { client, unwrap } from '@/lib/api';
 import { JsonFieldsEditor } from '@/components/workflow/node-config/json-fields-editor';
-import { Field, CountRow, ToggleRow, type AiNode, type NodeRefs } from '@/components/workflow/node-config/shared';
+import { Field, CountRow, ToggleRow, refsSubject, type AiNode, type NodeRefs } from '@/components/workflow/node-config/shared';
 
 /** The fields a preset fills into a node (a full AI node config minus the model). */
 type PresetFill = Partial<Pick<AiNode['config'], 'instructions' | 'output' | 'scope' | 'fields' | 'choice'>>;
@@ -53,6 +53,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
   const [previewing, setPreviewing] = useState(false);
   const [refilling, setRefilling] = useState(false);
   const config = node.config;
+  const subject = refsSubject(refs);
   // Saved workflows may predate a context setting; show its default.
   const context = contextConfigSchema.parse(config.context ?? {});
   const set = (patch: Partial<AiNode['config']>) => onChange({ ...node, config: { ...config, ...patch } });
@@ -178,7 +179,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
       </InspectorSection>
 
       <InspectorSection title={`문맥 · ${contextOn}개 켬`} defaultOpen={false}>
-        <AiContextFields config={config} set={set} />
+        <AiContextFields config={config} set={set} subject={subject} />
       </InspectorSection>
 
       <InspectorSection title="고급" defaultOpen={false}>
@@ -241,15 +242,12 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="group">장면별</SelectItem>
-                  <SelectItem value="count">개수별</SelectItem>
-                  <SelectItem value="unit">대사 하나씩</SelectItem>
-                  <SelectItem value="whole">대본 전체</SelectItem>
+                  {SUBJECT_BATCH_MODES[subject].map((mode) => <SelectItem key={mode} value={mode}>{subject === 'terms' && mode === 'unit' ? '용어 하나씩' : mode === 'unit' ? '대사 하나씩' : BATCH_MODE_LABELS[mode]}</SelectItem>)}
                 </SelectContent>
               </Select>
             </Field>
             {config.batch.mode === 'count' && (
-              <Field label="요청당 줄 수">
+              <Field label={subject === 'terms' ? '요청당 용어 수' : '요청당 줄 수'}>
                 <Input
                   type="number"
                   min={1}
@@ -279,28 +277,36 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
 }
 
 /** What an AI node (or an editor button, which is one) sends besides the lines: the context switches. */
-export function AiContextFields({ config, set }: { config: Pick<AiNode['config'], 'context' | 'include'>; set: (patch: Partial<AiNode['config']>) => void }) {
+export function AiContextFields({ config, set, subject = 'lines' }: { config: Pick<AiNode['config'], 'context' | 'include'>; set: (patch: Partial<AiNode['config']>) => void; subject?: WorkflowSubject }) {
   const context = contextConfigSchema.parse(config.context ?? {});
+  const terms = subject === 'terms';
+  const setContext = (patch: Partial<typeof context>) => set({ context: { ...context, ...patch } });
   return (
     <>
-      <ToggleRow label="확정된 것만" checked={context.humanOnly} onChange={(value) => set({ context: { ...context, humanOnly: value } })} />
+      <ToggleRow label="확정된 것만" checked={context.humanOnly} onChange={(value) => setContext({ humanOnly: value })} />
       <div className="space-y-2.5 border-t border-border-subtle pt-3">
-        <CountRow label="앞 대사" unit="줄" value={context.precedingLines} fallback={8} max={50} onChange={(value) => set({ context: { ...context, precedingLines: value } })} />
-        {context.precedingLines > 0 && (
-          <div className="pl-4">
-            <ToggleRow label="앞 대사 번역" checked={context.precedingTranslations} onChange={(value) => set({ context: { ...context, precedingTranslations: value } })} />
-          </div>
+        {terms ? (
+          <CountRow label="용례" unit="줄" value={context.examples} fallback={2} max={5} onChange={(value) => setContext({ examples: value })} />
+        ) : (
+          <>
+            <CountRow label="앞 대사" unit="줄" value={context.precedingLines} fallback={8} max={50} onChange={(value) => setContext({ precedingLines: value })} />
+            {context.precedingLines > 0 && (
+              <div className="pl-4">
+                <ToggleRow label="앞 대사 번역" checked={context.precedingTranslations} onChange={(value) => setContext({ precedingTranslations: value })} />
+              </div>
+            )}
+            <CountRow label="이전 장면" unit="개" value={context.previousScenes} fallback={1} max={10} onChange={(value) => setContext({ previousScenes: value })} />
+            <ToggleRow label="앞 단계 지적" checked={config.include.issues} onChange={(value) => set({ include: { ...config.include, issues: value } })} />
+          </>
         )}
-        <CountRow label="이전 장면" unit="개" value={context.previousScenes} fallback={1} max={10} onChange={(value) => set({ context: { ...context, previousScenes: value } })} />
-        <ToggleRow label="앞 단계 지적" checked={config.include.issues} onChange={(value) => set({ include: { ...config.include, issues: value } })} />
       </div>
       <div className="space-y-2.5 border-t border-border-subtle pt-3">
-        <ToggleRow label="용어집" checked={context.glossary} onChange={(value) => set({ context: { ...context, glossary: value } })} />
-        <ToggleRow label="청자·말투" checked={context.speech} onChange={(value) => set({ context: { ...context, speech: value } })} />
-        <ToggleRow label="인물 명단" checked={context.cast} onChange={(value) => set({ context: { ...context, cast: value } })} />
-        <ToggleRow label="인물 프로필" checked={context.characters} onChange={(value) => set({ context: { ...context, characters: value } })} />
-        <ToggleRow label="인물 관계" checked={context.relationships} onChange={(value) => set({ context: { ...context, relationships: value } })} />
-        <ToggleRow label="문서" checked={context.documents} onChange={(value) => set({ context: { ...context, documents: value } })} />
+        <ToggleRow label="용어집" checked={context.glossary} onChange={(value) => setContext({ glossary: value })} />
+        {!terms && <ToggleRow label="청자·말투" checked={context.speech} onChange={(value) => setContext({ speech: value })} />}
+        <ToggleRow label="인물 명단" checked={context.cast} onChange={(value) => setContext({ cast: value })} />
+        <ToggleRow label="인물 프로필" checked={context.characters} onChange={(value) => setContext({ characters: value })} />
+        <ToggleRow label="인물 관계" checked={context.relationships} onChange={(value) => setContext({ relationships: value })} />
+        <ToggleRow label="문서" checked={context.documents} onChange={(value) => setContext({ documents: value })} />
       </div>
     </>
   );

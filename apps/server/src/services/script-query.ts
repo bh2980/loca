@@ -322,7 +322,7 @@ export function runStats(db: Db, projectId: string, since: Date) {
   return {
     runs: runs.map((run) => {
       const usage = steps.find((step) => step.runId === run.id);
-      return { id: run.id, workflow: run.workflowName, status: run.status, lines: run.total, createdAt: run.createdAt, calls: usage?.calls ?? 0, failedCalls: Number(usage?.failed ?? 0), inputTokens: Number(usage?.input ?? 0), outputTokens: Number(usage?.output ?? 0) };
+      return { id: run.id, workflow: run.workflowName, status: run.status, subject: run.subject, lines: run.total, createdAt: run.createdAt, calls: usage?.calls ?? 0, failedCalls: Number(usage?.failed ?? 0), inputTokens: Number(usage?.input ?? 0), outputTokens: Number(usage?.output ?? 0) };
     }),
     failingNodes: [...Map.groupBy(failing, (row) => `${row.runId}\u0000${row.nodeId}`)]
       .map(([, list]) => ({ workflow: runs.find((run) => run.id === list[0].runId)!.workflowName, node: nodeName(list[0].runId, list[0].nodeId), failedLines: list.reduce((sum, row) => sum + row.failed, 0) }))

@@ -10,7 +10,7 @@ import { addToRunProposal, fileRunProposal } from '../../services/proposals.ts';
 import { aiConfirmOf } from '../../services/status-by.ts';
 import { attachUnitTags } from '../../services/tag-scope.ts';
 import { applyRunCandidate, HUMAN_OWNED_NOTE } from '../apply-candidate.ts';
-import type { FunctionInput, FunctionResult } from './types.ts';
+import { lineOf, type FunctionInput, type FunctionResult } from './types.ts';
 
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 type Item = Record<string, unknown>;
@@ -120,7 +120,9 @@ const knowledgeOf = (tx: Tx, projectId: string) => ({
   characters: tx.select({ name: s.characters.name, aliases: s.characters.aliases, status: s.characters.status }).from(s.characters).where(eq(s.characters.projectId, projectId)).all(),
 });
 
-const HANDLERS: Record<Exclude<ApplyFunctionName, 'saveCandidate' | 'tagLines' | 'setListener'>, Handler> = {
+/** Targets that write the item itself (shape `line`): one item per visit. */
+type ItemTarget = 'saveCandidate' | 'tagLines' | 'setListener' | 'saveTermEntry';
+const HANDLERS: Record<Exclude<ApplyFunctionName, ItemTarget>, Handler> = {
   saveTerms: {
     propose: (items) => ({
       input: {
@@ -235,6 +237,7 @@ export const APPLY_TOPICS: Record<ApplyFunctionName, Topic[]> = {
   saveCandidate: ['proposals'],
   setListener: ['proposals'],
   tagLines: ['proposals'],
+  saveTermEntry: ['proposals', 'terms'],
   saveTerms: ['proposals', 'terms'],
   saveCharacters: ['proposals', 'knowledge'],
   saveRelationships: ['proposals', 'knowledge'],
@@ -267,6 +270,7 @@ function run(fn: ApplyFunctionName, tx: Tx, raw: unknown, input: FunctionInput):
   const nodeId = input.item.nodeId;
   const base = { projectId: input.projectId, runId: input.runId, nodeId };
 
+  if (fn === 'saveTermEntry') return runTerm(context, items[0], base);
   if (fn === 'saveCandidate' || fn === 'setListener' || fn === 'tagLines') return runLine(fn, context, items[0], base);
 
   const handler = HANDLERS[fn];
@@ -283,7 +287,7 @@ function run(fn: ApplyFunctionName, tx: Tx, raw: unknown, input: FunctionInput):
 function runLine(fn: 'saveCandidate' | 'setListener' | 'tagLines', context: Context, item: Item, base: { projectId: string; runId: string; nodeId: string }): FunctionResult {
   const { tx, input, params, run: runRow } = context;
   const target = APPLY_TARGETS[fn];
-  const unit = input.unit;
+  const unit = lineOf(input);
   if (fn === 'saveCandidate') {
     const text = item.text as string;
     if (params.propose) {
@@ -318,6 +322,28 @@ function runLine(fn: 'saveCandidate' | 'setListener' | 'tagLines', context: Cont
   if (!tag) return { port: 'out', output: { tagged: false, reason: '같은 이름의 대사 태그가 없습니다.' } };
   attachUnitTags(tx, input.projectId, [unit.id], { add: [tag.id] }, { onMisplaced: 'skip' });
   return { port: 'out', output: { tagged: true, tag: tag.name } };
+}
+
+/**
+ * 용어 표기 저장: the term's Korean form and note from the answer. With onlyEmpty (default) a term a
+ * person (or an earlier answer) already gave a form is left as it is; a proposal collects the run's terms.
+ */
+function runTerm(context: Context, item: Item, base: { projectId: string; runId: string; nodeId: string }): FunctionResult {
+  const { tx, input, params } = context;
+  if (input.subject !== 'terms') throw new Error('용어 표기 저장은 용어 워크플로에서만 쓸 수 있습니다.');
+  const current = tx.select().from(s.terms).where(eq(s.terms.id, input.term.id)).get();
+  if (!current) return { port: 'out', output: { applied: false, reason: '용어가 없습니다.' } };
+  const target = typeof item.target === 'string' ? item.target.trim() : '';
+  if (!target) return { port: 'out', output: { applied: false, reason: '표기가 비어 있습니다.' } };
+  if (params.onlyEmpty && current.target.trim()) return { port: 'out', output: { applied: false, reason: '이미 표기가 있습니다.' } };
+  const kind = typeof item.kind === 'string' && (TERM_KINDS as readonly string[]).includes(item.kind) ? TERM_KIND_LABELS[item.kind as (typeof TERM_KINDS)[number]] : '';
+  const note = [kind, item.meaning, item.note].filter((part): part is string => typeof part === 'string' && Boolean(part.trim())).join(' · ') || current.note;
+  if (params.propose) {
+    addToRunProposal(tx, { ...base, tool: APPLY_TARGETS.saveTermEntry.tool, input: {} }, 'terms', { id: current.id, target, note });
+    return { port: 'out', candidate: target, output: { proposed: true } };
+  }
+  tx.update(s.terms).set({ target, note, origin: 'ai', statusBy: 'ai', runId: input.runId }).where(eq(s.terms.id, current.id)).run();
+  return { port: 'out', candidate: target, output: { applied: true } };
 }
 
 export const applyFunctions = Object.fromEntries(APPLY_FUNCTION_NAMES.map((fn) => [fn, (tx: Tx, raw: unknown, input: FunctionInput) => run(fn, tx, raw, input)])) as Record<ApplyFunctionName, (tx: Tx, raw: unknown, input: FunctionInput) => FunctionResult>;

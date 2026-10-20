@@ -25,7 +25,7 @@ export interface TermSave {
   source?: string;
   target?: string;
   note?: string;
-  status?: 'candidate' | 'confirmed';
+  status?: 'candidate' | 'confirmed' | 'rejected';
 }
 
 /**

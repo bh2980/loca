@@ -1,7 +1,7 @@
 import { APPLY_TARGETS, type ApplyFunctionName, type JsonField } from './functions.ts';
 import { AI_PRESETS, presetConfig, type AiPresetId } from './presets.ts';
 import type { DraftModelChoice } from './model-choice.ts';
-import type { WorkflowDefinition, WorkflowEdge, WorkflowNode } from './workflow.ts';
+import { entryConfigSchema, type EntryConfig, type WorkflowDefinition, type WorkflowEdge, type WorkflowNode } from './workflow.ts';
 
 export type StatusKind = 'initial' | 'normal' | 'final';
 
@@ -65,7 +65,7 @@ const at = (row: number, column = 0) => ({ x: column * 320, y: row * ROW });
 
 type Model = { model: DraftModelChoice };
 
-const entryNode = (statusIds: string[] = []): WorkflowNode => ({ id: 'entry', type: 'entry', position: at(0), config: { statusIds } });
+const entryNode = (statusIds: string[] = [], subject: Partial<EntryConfig> = {}): WorkflowNode => ({ id: 'entry', type: 'entry', position: at(0), config: entryConfigSchema.parse({ statusIds, ...subject }) });
 
 const aiNode = (id: string, preset: AiPresetId, model: DraftModelChoice, row: number, column = 0, label: string = AI_PRESETS[preset].label): WorkflowNode => ({
   id,

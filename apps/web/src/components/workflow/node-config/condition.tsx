@@ -6,7 +6,7 @@ import { MarkChip } from '@/components/status';
 import { Button, cn, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Input, InspectorFields, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, StatusIcon, Switch, TagChip, Textarea } from '@loca/ui';
 import { comparableFields, conditionExpression, parseCondition, type Clause, type Condition, type FieldOperator, type Join } from '@/components/workflow/node-config/condition-clauses';
 import { AiButton } from '@/components/ai-button';
-import { Field, type ConditionNode, type NodeRefs } from '@/components/workflow/node-config/shared';
+import { Field, refsSubject, type ConditionNode, type NodeRefs } from '@/components/workflow/node-config/shared';
 
 // ── condition node ────────────────────────────────────────────────────
 
@@ -25,7 +25,11 @@ const FIELD_OPERATORS: Record<FieldOperator, string> = { '>=': '≥', '<=': '≤
 const ADDABLE = { status: '상태', lineKind: '종류', tag: '태그', mark: '자동 태그', listener: '청자', candidate: '번역문', field: '노드 결과', visits: '방문 횟수', error: '실패 종류' } as const;
 type Addable = keyof typeof ADDABLE;
 
-const VARIABLES = `읽을 수 있는 값: visits.<노드ID>, outputs.<노드ID>.<필드>, candidate, issues, error.kind (${ITEM_ERROR_KIND_IDS.join(' · ')}), error.message, error.nodeId, unit.kind, unit.speaker, unit.listener, unit.statusId, unit.tagIds, unit.marks (${CONDITION_MARK_IDS.join(' · ')})`;
+const TERM_ONLY: Addable[] = ['field', 'visits', 'error', 'candidate'];
+
+const variablesHint = (terms: boolean) => terms
+  ? `읽을 수 있는 값: visits.<노드ID>, outputs.<노드ID>.<필드>, candidate, issues, error.kind (${ITEM_ERROR_KIND_IDS.join(' · ')}), error.message, error.nodeId, term.status, term.hasTarget, term.lines, term.marks, term.tagIds`
+  : `읽을 수 있는 값: visits.<노드ID>, outputs.<노드ID>.<필드>, candidate, issues, error.kind (${ITEM_ERROR_KIND_IDS.join(' · ')}), error.message, error.nodeId, unit.kind, unit.speaker, unit.listener, unit.statusId, unit.tagIds, unit.marks (${CONDITION_MARK_IDS.join(' · ')})`;
 
 function Pick({ value, onChange, label, className, children }: { value: string; onChange: (value: string) => void; label: string; className?: string; children: React.ReactNode }) {
   return (
@@ -58,6 +62,7 @@ export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { nod
 
   const parsed = parseCondition(node.config.expression);
   const json = asJson || !parsed;
+  const terms = refs ? refsSubject(refs) === 'terms' : false;
   const statuses = refs?.statuses ?? [];
   const tags = refs?.tags ?? [];
   const others = nodes.filter((other) => other.id !== node.id && other.type !== 'entry' && other.type !== 'end');
@@ -91,7 +96,7 @@ export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { nod
       case 'error': return { kind, errorKind: 'missing' };
     }
   };
-  const addable = (Object.keys(ADDABLE) as Addable[]).filter((kind) => fresh(kind));
+  const addable = (Object.keys(ADDABLE) as Addable[]).filter((kind) => (!terms || TERM_ONLY.includes(kind)) && fresh(kind));
 
   const row = (clause: Clause, index: number) => {
     const set = (next: Clause) => setClause(index, next);
@@ -156,7 +161,7 @@ export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { nod
       </Field>
       <Field
         label="조건"
-        hint={json ? VARIABLES : undefined}
+        hint={json ? variablesHint(terms) : undefined}
         action={
           <div className="flex shrink-0 items-center gap-2">
             {!json && condition.clauses.length > 1 && (

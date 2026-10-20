@@ -6,8 +6,8 @@ export const termInput = z.object({
   source: z.string().trim().min(1),
   target: z.string().default(''),
   note: z.string().default(''),
-  /** candidate = proposed (not used as context yet), confirmed = used by AI nodes. */
-  status: z.enum(['candidate', 'confirmed']).default('confirmed'),
+  /** candidate = proposed (not used as context yet), confirmed = used by AI nodes, rejected = not a term (not proposed again). */
+  status: z.enum(['candidate', 'confirmed', 'rejected']).default('confirmed'),
 });
 /** Editing a draft keeps it a candidate; confirming is a separate, explicit step. */
 const status = z.enum(KNOWLEDGE_STATUSES).default('confirmed');
