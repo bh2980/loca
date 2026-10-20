@@ -125,15 +125,15 @@ export interface ApplyTarget {
 const evidenceField = { name: 'evidence', label: '근거 대사', type: 'lines' } as const satisfies ApplyField;
 export const APPLY_TARGETS = {
   saveCandidate: {
-    label: '번역 후보 기록',
-    description: '대사의 번역 후보로 남기고 번역 칸에 넣습니다. 사람이 저장한 번역은 덮어쓰지 않습니다.',
+    label: '번역 저장',
+    description: '번역문을 대사에 넣습니다(번역 기록에도 남음). 사람이 저장한 번역은 덮어쓰지 않습니다.',
     shape: 'line',
     fields: [{ name: 'text', label: '번역문', type: 'string', required: true }],
     tool: 'propose_changes',
     inputs: ['lines'],
   },
   setListener: {
-    label: '청자 설정',
+    label: '청자 저장',
     description: '대사의 청자를 적습니다(출처: AI). ‘unknown’이면 아무것도 적지 않습니다(청자 미상). 사람이 정했거나 가져온 청자는 바꾸지 않습니다.',
     shape: 'line',
     fields: [

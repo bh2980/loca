@@ -47,7 +47,7 @@ export const AGENT_TOOLS: Record<string, { target: AgentToolTarget; action: Agen
   delete_group: tool('scenes', 'delete', '장면 삭제'),
   propose_translation: tool('script', 'change', '번역 후보 추가'),
   propose_changes: tool('script', 'change', '대사 일괄 변경'),
-  set_listeners: tool('script', 'change', '청자 설정'),
+  set_listeners: tool('script', 'change', '청자 저장'),
   save_group_summary: tool('scenes', 'change', '장면 요약 저장'),
   list_characters: tool('knowledge', 'read', '인물 조회'),
   list_speech_rules: tool('knowledge', 'read', '말투 규칙 조회'),

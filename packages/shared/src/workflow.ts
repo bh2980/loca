@@ -86,7 +86,7 @@ export { jsonFieldSchema, type JsonField };
  * An AI node's input. `previous`: the result of the step before it goes into the prompt as each line's
  * "previous", trimmed to `fields` (paths like "characters.name"; empty = all of it). The step before is
  * the last node on the line's way here that leaves a result (see leavesResult): conditions, checks and
- * save nodes pass it on, so 청자 추정 → 확신도? → 청자 설정 → 번역 gives 번역 the 청자 추정 result.
+ * save nodes pass it on, so 청자 추정 → 확신도? → 청자 저장 → 번역 gives 번역 the 청자 추정 result.
  * `lines: false` sends no lines at all, only the previous results (one answer for the request: json,
  * 묶음 전체), e.g. a node after a gather that combines the parts.
  */

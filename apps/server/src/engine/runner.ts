@@ -293,7 +293,7 @@ export class Runner {
     const data: ItemData = { ...item.data, outputs: { ...item.data.outputs } };
     if (outcome.output) data.outputs![item.nodeId] = outcome.output;
     if (outcome.candidate !== undefined) {
-      // The run's working text only; the line itself changes in an apply node ("번역 후보 기록").
+      // The run's working text only; the line itself changes in an apply node ("번역 저장").
       data.candidateText = outcome.candidate;
       data.issues = []; // a new text answers the previous issues
     }

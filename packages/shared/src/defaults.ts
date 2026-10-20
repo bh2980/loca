@@ -121,11 +121,11 @@ const formatCheckNode = (row: number, column = 0): WorkflowNode => ({
   config: { fn: 'formatCheck', params: { placeholders: true, tags: true, newlines: true, emptyText: true } },
 });
 /** Writes the translation into the line (a person's saved translation is kept). */
-const writeTranslation = (id: string, row: number, column = 0, label = '번역 후보 기록') => ({ ...applyNode(id, 'saveCandidate', row, { map: { text: 'text' } }, column), label });
+const writeTranslation = (id: string, row: number, column = 0, label = '번역 저장') => ({ ...applyNode(id, 'saveCandidate', row, { map: { text: 'text' } }, column), label });
 
 /**
  * Not offered to users (templates stay basic): a larger example flow the tests run, with a review loop:
- * untranslated → AI 번역 → 번역 후보 기록 → 초벌로 → 형식 검사 → AI 검수 → 확정으로;
+ * untranslated → AI 번역 → 번역 저장 → 초벌로 → 형식 검사 → AI 검수 → 확정으로;
  * a failing line is revised (each revision written as the translation again) while review has run fewer
  * than 3 times, then is set to "needs review", a status shown in the review inbox. People take it from
  * there; the run itself ends. Translations are written, not proposed, because a translation flow
@@ -167,7 +167,7 @@ export function translationTemplate(ids: {
         config: { expression: { '<': [{ var: 'visits.review' }, 3] }, description: "'AI 검수' 방문이 3회 미만이면 다시 수정합니다." },
       },
       aiNode('revise', 'translate', ids.model, 4, 2, 'AI 수정'),
-      writeTranslation('save-revision', 5, 2, '수정 번역 기록'),
+      writeTranslation('save-revision', 5, 2, '수정 번역 저장'),
       statusNode('escalate', '사람 확인 필요로', ids.needsReview, 6, 1),
     ],
     edges: [
@@ -185,7 +185,7 @@ export function translationTemplate(ids: {
   };
 }
 
-/** 초벌 번역: AI 번역 → 번역 후보 기록 → 초벌로. */
+/** 초벌 번역: AI 번역 → 번역 저장 → 초벌로. */
 export function draftTranslationTemplate(ids: { model: DraftModelChoice; untranslated: string; draft: string }): WorkflowDefinition {
   return {
     settings: { ...SETTINGS },
@@ -269,7 +269,7 @@ export function listenerTemplate(ids: Model): WorkflowDefinition {
 export function speechFixTemplate(ids: Model): WorkflowDefinition {
   return {
     settings: { ...SETTINGS },
-    nodes: [entryNode(), aiNode('fit', 'speechFix', ids.model, 1), writeTranslation('save', 2, 0, '말투 맞춘 번역 기록')],
+    nodes: [entryNode(), aiNode('fit', 'speechFix', ids.model, 1), writeTranslation('save', 2, 0, '번역 저장')],
     edges: chain('entry', 'fit', 'save'),
   };
 }

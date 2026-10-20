@@ -25,7 +25,7 @@ AI 노드는 결과를 **만들기만** 하고, 프로젝트에 넣는 건 반�
 ## 입력: 대사 또는 용어
 워크플로는 진입 노드의 `input`(`lines` 대사, 기본 / `terms` 용어집의 용어)으로 무엇이 들어오는지 선언합니다. 실행의 항목, 묶음, 범위, 개수가 그 단위가 됩니다. 노드는 코어 + 그 입력의 확장입니다. 입력마다 다른 것은 reference의 `inputs.table` 하나에만 있습니다(묶음 방식, 문맥 칸, 조건 행, 그 입력에만 있는 노드·프리셋).
 - 진입 설정: `input` 하나뿐입니다. 어떤 대사·용어를 넣을지(상태, 표시, 장면, 고른 항목)는 실행 창·`loca runs plan/start`·`start_run`의 범위가 정합니다.
-- 입력에만 있는 노드: 용어는 `saveTermEntry`(용어 표기 저장, `applyParams.onlyEmpty` 기본 true)·`setTermStatus`(용어 상태 변경), 대사는 형식·용어 검사·번역 후보 기록·청자 설정·상태 변경·태그 붙이기. 다른 입력의 노드나 그 입력에 없는 묶음 방식(용어: 장면별·대본 전체)은 검증 오류입니다.
+- 입력에만 있는 노드: 용어는 `saveTermEntry`(용어 표기 저장, `applyParams.onlyEmpty` 기본 true)·`setTermStatus`(용어 상태 변경), 대사는 형식·용어 검사·번역 저장·청자 저장·상태 변경·태그 붙이기. 다른 입력의 노드나 그 입력에 없는 묶음 방식(용어: 장면별·대본 전체)은 검증 오류입니다.
 - AI 문맥: 대사는 앞 대사(번역)·이전 장면·청자·말투, 용어는 `examples`(0~5, 기본 2: 용어가 나온 대사를 번역과 함께).
 - 조건: 대사는 `unit`(상태·종류·태그·자동 태그·청자), 용어는 `term`(`status`, `statusBy`, `hasTarget`, `lines` = 나온 대사 수, `marks`, `tagIds`).
 - 전형적인 용어 입력 흐름: AI(`termTranslate` 프리셋: `target`, `note`) → `saveTermEntry`. `loca-glossary` 참고.
