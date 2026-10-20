@@ -298,8 +298,6 @@ export const applyParams = z.object({
   list: z.string().default(''),
   /** Target field → source field (inside the list item for `list`, inside the output otherwise). */
   map: z.record(z.string(), z.string()).default({}),
-  /** On (default): file a proposal a person accepts in the app. Off: write now (knowledge and terms land as the project's AI 문맥 rule says: aiStatus). */
-  propose: z.boolean().default(true),
   /** 용어 표기 저장: fill the term's Korean form only while it is empty (a person's is kept). */
   onlyEmpty: z.boolean().default(true),
 });
@@ -366,8 +364,8 @@ export const FUNCTIONS = {
   },
   setTermStatus: {
     label: '용어 상태 변경',
-    description: '이 용어를 후보·확정·거절로 바꿉니다(AI가 정한 것으로 표시). 거절한 용어는 다시 제안되지 않습니다. 기본은 제안으로 남깁니다.',
-    params: z.object({ status: z.enum(['candidate', 'confirmed', 'rejected']).default('rejected'), propose: z.boolean().default(true) }),
+    description: '이 용어를 후보·확정·거절로 바꿉니다(AI가 정한 것으로 표시). 거절한 용어는 다시 제안되지 않습니다.',
+    params: z.object({ status: z.enum(['candidate', 'confirmed', 'rejected']).default('rejected') }),
     ports: () => out,
     async: false,
     inputs: ['terms'],

@@ -37,8 +37,8 @@ function setup() {
 }
 
 const at = { x: 0, y: 0 };
-/** 용어 번역 as a workflow (input terms): one AI answer per term, 용어 표기 저장 for terms, 용어 상태 변경 (rejected) for the rest. */
-function termWorkflow(choice: unknown, propose = false) {
+/** 용어 번역 as a workflow (input terms): one AI answer per term, then 용어 표기 저장. */
+function termWorkflow(choice: unknown) {
   return workflowDefinitionSchema.parse({
     nodes: [
       { id: 'entry', type: 'entry', position: at, config: { input: 'terms' } },
@@ -51,20 +51,13 @@ function termWorkflow(choice: unknown, propose = false) {
           instructions: 'Decide each term.',
           output: 'json',
           scope: 'line',
-          fields: [{ name: 'isTerm', type: 'boolean' }, { name: 'target', type: 'string' }, { name: 'note', type: 'string' }],
+          fields: [{ name: 'target', type: 'string' }, { name: 'note', type: 'string' }],
           batch: { mode: 'count', size: 10 },
         },
       },
-      { id: 'is-term', type: 'condition', position: at, config: { expression: { '==': [{ var: 'outputs.translate.isTerm' }, true] } } },
-      { id: 'save', type: 'function', position: at, config: { fn: 'saveTermEntry', params: { map: { target: 'target', note: 'note' }, propose } } },
-      { id: 'reject', type: 'function', position: at, config: { fn: 'setTermStatus', params: { status: 'rejected', propose } } },
+      { id: 'save', type: 'function', position: at, config: { fn: 'saveTermEntry', params: { map: { target: 'target', note: 'note' } } } },
     ],
-    edges: [
-      { id: '1', source: 'entry', sourceHandle: 'out', target: 'translate' },
-      { id: '2', source: 'translate', sourceHandle: 'out', target: 'is-term' },
-      { id: '3', source: 'is-term', sourceHandle: 'true', target: 'save' },
-      { id: '4', source: 'is-term', sourceHandle: 'false', target: 'reject' },
-    ],
+    edges: [{ id: '1', source: 'entry', sourceHandle: 'out', target: 'translate' }, { id: '2', source: 'translate', sourceHandle: 'out', target: 'save' }],
   });
 }
 
@@ -91,7 +84,7 @@ describe('a workflow whose input is terms', () => {
     expect(scopeMismatch('terms', { marks: ['candidate', 'emptyTarget'] })).toBeNull();
   });
 
-  it('sends each term with its example lines, saves the Korean form of terms and rejects the rest', async () => {
+  it('sends each term with its example lines, saves the Korean form of each candidate and confirms it', async () => {
     const { db, projectId, choice, gate, hesk } = setup();
     const definition = termWorkflow(choice);
     expect(validateWorkflow(definition, { statusIds: new Set(), connections: new Set([choice.connectionId]) } as never).filter((issue) => issue.level === 'error')).toEqual([]);
@@ -106,7 +99,7 @@ describe('a workflow whose input is terms', () => {
       generate: async (_route, request) => {
         seen.push(request);
         const items = promptEntries(request.prompt) as { id: string; source: string }[];
-        return { object: { results: items.map((item) => (item.source === 'Varn Gate' ? { id: item.id, isTerm: true, target: '바른 게이트', note: '지명' } : { id: item.id, isTerm: false, target: '', note: '' })) }, usage: {} } as never;
+        return { object: { results: items.map((item) => (item.source === 'Varn Gate' ? { id: item.id, target: '바른 게이트', note: '지명' } : { id: item.id, target: '헤스크', note: '' })) }, usage: {} } as never;
       },
     };
     await new Runner(db, memoryStore(), port).drain();
@@ -117,27 +110,28 @@ describe('a workflow whose input is terms', () => {
     expect(items.map((item) => [item.id, item.kind, item.source])).toEqual([['T1', 'term', 'Varn Gate'], ['T2', 'term', 'Hesk']]);
     expect(items[0]!.examples).toEqual([{ speaker: 'MIRA', source: 'Meet me at Varn Gate.', translation: '바른 게이트에서 봐.' }, { speaker: 'KAI', source: 'Varn Gate is closed.' }]);
 
-    expect(db.select().from(s.terms).where(eq(s.terms.id, gate.id)).get()).toMatchObject({ target: '바른 게이트', note: '지명', status: 'candidate', statusBy: 'ai' });
-    expect(db.select().from(s.terms).where(eq(s.terms.id, hesk.id)).get()).toMatchObject({ target: '', status: 'rejected', statusBy: 'ai' });
+    expect(db.select().from(s.terms).where(eq(s.terms.id, gate.id)).get()).toMatchObject({ target: '바른 게이트', note: '지명', status: 'confirmed', statusBy: 'ai' });
+    expect(db.select().from(s.terms).where(eq(s.terms.id, hesk.id)).get()).toMatchObject({ target: '헤스크', status: 'confirmed', statusBy: 'ai' });
+    expect(db.select().from(s.terms).where(eq(s.terms.status, 'rejected')).all()).toHaveLength(0);
     expect(db.select({ state: s.runItems.state }).from(s.runItems).where(eq(s.runItems.runId, runId)).all().every((item) => item.state === 'done')).toBe(true);
   });
 
-  it('proposes by default: the run collects its terms into proposals instead of writing', async () => {
-    const { db, projectId, choice, gate } = setup();
-    const definition = termWorkflow(choice, true);
+  it('keeps the term a candidate when the project\'s AI 문맥 switch is off, and files no proposal', async () => {
+    const { db, projectId, choice, gate, hesk } = setup();
+    db.update(s.projects).set({ aiAutoConfirm: false }).run();
+    const definition = termWorkflow(choice);
     const workflow = db.insert(s.workflows).values({ projectId, name: '용어 번역', definition }).returning().get();
     createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, definition), scope: { statusIds: ['candidate'], marks: ['emptyTarget'] } as never });
     const port: ModelPort = {
       judge: async () => {
         throw new Error('unused');
       },
-      generate: async (_route, request) => ({ object: { results: (promptEntries(request.prompt) as { id: string; source: string }[]).map((item) => ({ id: item.id, isTerm: item.source === 'Varn Gate', target: '바른 게이트', note: '' })) }, usage: {} }) as never,
+      generate: async (_route, request) => ({ object: { results: (promptEntries(request.prompt) as { id: string }[]).map((item) => ({ id: item.id, target: '바른 게이트', note: '' })) }, usage: {} }) as never,
     };
     await new Runner(db, memoryStore(), port).drain();
-    expect(db.select().from(s.terms).where(eq(s.terms.id, gate.id)).get()!.target).toBe('');
-    const proposals = db.select().from(s.proposals).all();
-    expect(proposals.map((proposal) => proposal.tool)).toEqual(['save_terms', 'save_terms']);
-    expect(proposals.flatMap((proposal) => (proposal.input as { terms: unknown[] }).terms)).toEqual(expect.arrayContaining([expect.objectContaining({ id: gate.id, target: '바른 게이트' }), expect.objectContaining({ status: 'rejected' })]));
+    expect(db.select().from(s.terms).where(eq(s.terms.id, gate.id)).get()).toMatchObject({ target: '바른 게이트', status: 'candidate' });
+    expect(db.select().from(s.terms).where(eq(s.terms.id, hesk.id)).get()).toMatchObject({ target: '바른 게이트', status: 'candidate' });
+    expect(db.select().from(s.proposals).all()).toHaveLength(0);
   });
 
   it('shows a node of the other input or a batch mode terms do not have as a validation error', () => {
@@ -145,7 +139,7 @@ describe('a workflow whose input is terms', () => {
     const definition = termWorkflow(choice);
     const bad = workflowDefinitionSchema.parse({
       ...definition,
-      nodes: definition.nodes.map((node) => (node.id === 'translate' && node.type === 'ai' ? { ...node, config: { ...node.config, batch: { ...node.config.batch, mode: 'group' } } } : node.id === 'reject' ? { ...node, config: { fn: 'setStatus', params: {} } } : node)),
+      nodes: definition.nodes.map((node) => (node.id === 'translate' && node.type === 'ai' ? { ...node, config: { ...node.config, batch: { ...node.config.batch, mode: 'group' } } } : node.id === 'save' ? { ...node, config: { fn: 'setStatus', params: {} } } : node)),
     });
     const messages = validateWorkflow(bad, { statusIds: new Set(), connections: new Set([choice.connectionId]) } as never).filter((issue) => issue.level === 'error').map((issue) => issue.message);
     expect(messages).toContainEqual(expect.stringContaining('용어 입력에서는 묶음을'));

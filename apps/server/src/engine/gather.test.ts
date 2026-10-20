@@ -90,7 +90,7 @@ describe('모으기', () => {
     expect(messages(loop)).toContainEqual(expect.stringContaining('고리 안에'));
   });
 
-  it('작품 분석 read in parts saves one combined cast and overview, and each part\'s other lists', async () => {
+  it('작품 분석 read in parts saves each part\'s lists, with people of the same name merged', async () => {
     const { db, projectId, choice } = setup();
     // Lines of ~180 tokens: a scene (two lines) fits a 500-token request, two scenes do not — three parts.
     for (const unit of db.select().from(s.units).where(eq(s.units.projectId, projectId)).all()) db.update(s.units).set({ source: `${unit.source} ${'word '.repeat(140)}` }).where(eq(s.units.id, unit.id)).run();
@@ -99,16 +99,13 @@ describe('모으기', () => {
     const definition = workflowDefinitionSchema.parse({ ...template, nodes: template.nodes.map((node) => (node.id === 'analysis' && node.type === 'ai' ? { ...node, config: { ...node.config, batch: { ...node.config.batch, maxTokens: 500 } } } : node)) });
     const workflow = db.insert(s.workflows).values({ projectId, name: '작품 분석', definition }).returning().get();
     createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, definition), scope: {} });
-    const merged: string[] = [];
+    let requests = 0;
     const port: ModelPort = {
       judge: async () => {
         throw new Error('unused');
       },
       generate: async (_route, request) => {
-        if (request.system.includes('read the script in several requests')) {
-          merged.push(request.prompt);
-          return { object: { overviewTitle: '작품 개요', overview: '## 줄거리\n전체', characters: [{ name: 'Mira', aliases: ['Corporal Mira'], profile: '하사', player: false, gender: 'female', ageBand: 'young', role: 'main' }] }, usage: {} } as never;
-        }
+        requests += 1;
         const scene = /\[g(\d)\]/.exec(request.prompt)![1];
         return {
           object: {
@@ -126,13 +123,9 @@ describe('모으기', () => {
       },
     };
     await new Runner(db, memoryStore(), port).drain();
-    expect(merged).toHaveLength(1);
-    expect((JSON.parse(merged[0]!) as { previous: { count: number }[] }).previous[0]!.count).toBe(3);
-    const proposals = db.select().from(s.proposals).all();
-    const characters = proposals.filter((proposal) => proposal.nodeId === 'save-characters');
-    expect(characters).toHaveLength(1);
-    expect(characters[0]!.input).toMatchObject({ characters: [expect.objectContaining({ name: 'Mira', aliases: ['Corporal Mira'] })] });
-    expect(proposals.filter((proposal) => proposal.nodeId === 'save-overview')).toHaveLength(1);
-    expect(proposals.filter((proposal) => proposal.nodeId === 'save-relationships')).toHaveLength(3);
+    expect(requests).toBe(3);
+    expect(db.select().from(s.proposals).all()).toHaveLength(0);
+    expect(db.select().from(s.characters).all().map((c) => c.name)).toEqual(['Mira']);
+    expect(db.select().from(s.documents).all()).toHaveLength(1);
   });
 });

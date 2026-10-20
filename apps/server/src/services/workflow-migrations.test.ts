@@ -41,8 +41,7 @@ describe('replacing the old built-in workflows', () => {
     db.insert(s.projects).values({ id: projectId, name: 'P', sourceLanguage: 'en', targetLanguage: 'ko' }).run();
     const current = listenerTemplate({ model });
     const old = structuredClone(current);
-    const needs = old.nodes.find((node) => node.id === 'needs')!;
-    if (needs.type === 'condition') needs.config.expression = { var: 'listenerKnown' };
+    old.nodes.push({ id: 'needs', type: 'condition', position: { x: 0, y: 0 }, config: { expression: { var: 'listenerKnown' }, description: '' } });
     db.insert(s.workflows).values({ projectId, name: '청자 추정', definition: old }).run();
     expect(isLegacyDefinition(old)).toBe(true);
     expect(isLegacyDefinition(current)).toBe(false);

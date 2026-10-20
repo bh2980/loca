@@ -370,7 +370,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
           table: Object.fromEntries(Object.entries(INPUT_TYPES).map(([input, type]) => [input, { batchModes: type.batchModes, contextFields: type.contextFields, conditionRows: type.conditionRows, nodes: Object.keys(FUNCTIONS).filter((name) => functionTakes(name, input as 'lines' | 'terms') && !functionTakes(name, input === 'lines' ? 'terms' : 'lines')), presets: Object.entries(AI_PRESETS).filter(([, preset]) => ((preset as { input?: string }).input ?? 'lines') === input).map(([id]) => id) }])),
           rules: 'A node of the other input, or a batch mode the input does not have, is a validation error (the table above is the only source). Conditions read unit.* for lines and term.* for terms.',
           scope: 'start_run / plan_run: a lines workflow takes groups/lines/tags/marks; a terms workflow takes terms (ids or sources), term statuses and term marks. A scope of the other kind is refused.',
-          usage: 'Typical terms workflow: entry input terms → AI node (json: isTerm, target, note) → condition → 용어 표기 저장 / 용어 상태 변경 (rejected).',
+          usage: 'Typical terms workflow: entry input terms → AI node (json: target, note) → 용어 표기 저장.',
         },
         definitionShape: 'nodes: [{id, type: entry|ai|function|condition|gather|end, position:{x,y}, label?, config}], edges: [{id, source, sourceHandle (exit id), target}], settings: {maxVisitsPerNode, concurrency, maxConsecutiveFailures}',
         aiNode: {
@@ -387,7 +387,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
           functions: Object.fromEntries(Object.entries(FUNCTIONS).map(([name, info]) => [name, { label: info.label, description: info.description, params: zod.toJSONSchema(info.params) }])),
           applyNodes: {
             what: 'Apply nodes (反映) put the result of the step before them (the AI/script node they are drawn after; conditions and other save nodes in between pass it on) into the project: they are the workflow form of the write tools below and go through the same services. AI nodes only produce answers (text / verdict / choice / json); saving them is an apply node\'s job.',
-            config: 'params = { list (shape "list": the list field in its json output), map (target field → field of the source; nested list fields use "<list>.<sub>" or the same name), propose (default true: file a proposal the person accepts in the app, source "run"; false: write now) }; written knowledge and terms are confirmed or candidates as the project setting aiAutoConfirm says',
+            config: 'params = { list (shape "list": the list field in its json output), map (target field → field of the source; nested list fields use "<list>.<sub>" or the same name) }; written now, and knowledge and terms land confirmed or as candidates as the project setting aiAutoConfirm says',
             batchOutputs: 'A json output with scope "batch" is carried by the batch\'s first line only; apply nodes skip the other lines, so a batch is applied once.',
             targets: Object.fromEntries(Object.entries(APPLY_TARGETS).map(([name, target]) => [name, { label: target.label, shape: target.shape, files: target.tool, fields: target.fields.map((field) => `${field.name}${'required' in field && field.required ? '*' : ''}:${field.type}`) }])),
           },

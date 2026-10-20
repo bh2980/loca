@@ -27,7 +27,7 @@ AI 노드는 결과를 **만들기만** 하고, 프로젝트에 넣는 건 반�
 - 입력에만 있는 노드: 용어는 `saveTermEntry`(용어 표기 저장, `applyParams.onlyEmpty` 기본 true)·`setTermStatus`(용어 상태 변경), 대사는 형식·용어 검사·번역 후보 기록·청자 설정·상태 변경·태그 붙이기. 다른 입력의 노드나 그 입력에 없는 묶음 방식(용어: 장면별·대본 전체)은 검증 오류입니다.
 - AI 문맥: 대사는 앞 대사(번역)·이전 장면·청자·말투, 용어는 `examples`(0~5, 기본 2: 용어가 나온 대사를 번역과 함께).
 - 조건: 대사는 `unit`(상태·종류·태그·자동 태그·청자), 용어는 `term`(`status`, `statusBy`, `hasTarget`, `lines` = 나온 대사 수, `marks`, `tagIds`).
-- 전형적인 용어 입력 흐름: AI(`termTranslate` 프리셋: `isTerm`, `target`, `note`) → 조건 → `saveTermEntry` / `setTermStatus`(rejected). `loca-glossary` 참고.
+- 전형적인 용어 입력 흐름: AI(`termTranslate` 프리셋: `target`, `note`) → `saveTermEntry`. `loca-glossary` 참고.
 
 ## 먼저 읽기
 ```

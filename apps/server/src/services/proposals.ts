@@ -13,39 +13,6 @@ export function propose(db: Pick<Db, 'insert'>, input: { projectId: string; sess
   return row;
 }
 
-type Writer = Pick<Db, 'select' | 'insert' | 'update'>;
-interface RunProposal { projectId: string; runId: string; nodeId: string; tool: string; input: Record<string, unknown> }
-
-/** A workflow apply node's proposal (source 'run'): one per node run and batch, for the person to accept in the app. */
-export function fileRunProposal(db: Writer, proposal: RunProposal) {
-  return propose(db, { ...proposal, sessionId: null, source: 'run' });
-}
-
-/** Lines one pending run proposal collects before the next one starts (a 9,000-line run is ~45 proposals, not 9,000). */
-export const RUN_LINE_CHUNK = 200;
-
-/**
- * Line-by-line apply nodes (one line per node visit) add their entry to the node's pending proposal for
- * this run, `list` being the input array that tool takes (propose_changes → changes, set_listeners → lines);
- * a full one, or one already decided, starts the next. Returns the proposal's id.
- */
-export function addToRunProposal(db: Writer, proposal: RunProposal, list: string, entry: Record<string, unknown>) {
-  const open = db
-    .select()
-    .from(s.proposals)
-    .where(and(eq(s.proposals.runId, proposal.runId), eq(s.proposals.nodeId, proposal.nodeId), eq(s.proposals.tool, proposal.tool), eq(s.proposals.status, 'pending')))
-    .orderBy(desc(s.proposals.createdAt))
-    .limit(1)
-    .get();
-  const entries = open && Array.isArray(open.input[list]) ? (open.input[list] as unknown[]) : null;
-  if (open && entries && entries.length < RUN_LINE_CHUNK) {
-    db.update(s.proposals).set({ input: { ...open.input, [list]: [...entries, entry] } }).where(eq(s.proposals.id, open.id)).run();
-    events.changed(proposal.projectId, 'proposals');
-    return open.id;
-  }
-  return fileRunProposal(db, { ...proposal, input: { ...proposal.input, [list]: [entry] } }).id;
-}
-
 /** Lines of a batch proposal sent with the list; the panel previews these and shows the counts. */
 const PREVIEW_CHANGES = 50;
 type PreviewChange = { translation?: string; status?: string; addTags?: string[]; removeTags?: string[] };

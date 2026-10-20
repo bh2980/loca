@@ -251,7 +251,6 @@ function SetTermStatusConfig({ params, set }: { params: Record<string, unknown>;
           <SelectContent>{KNOWLEDGE_STATUSES.map((status) => <SelectItem key={status} value={status}>{KNOWLEDGE_STATUS_LABELS[status]}</SelectItem>)}</SelectContent>
         </Select>
       </Field>
-      <InspectorToggle label="제안으로 남기기" description="켜면 사용자가 제안을 수락해야 바뀝니다. 끄면 바로 바꿉니다." checked={Boolean(params.propose)} onChange={(value) => set('propose', value)} />
     </>
   );
 }
@@ -504,20 +503,7 @@ function ApplyConfig({ node, fn, params, refs, setMany }: { node: FunctionNode; 
         </Field>
       )}
 
-      <Field
-        label="반영 방식"
-        hint={params.propose ? '사용자가 제안을 수락해야 반영됩니다.' : target.shape === 'line' ? undefined : <AiConfirmNote projectId={refs.projectId} />}
-      >
-        <Select value={params.propose ? 'propose' : 'write'} onValueChange={(value) => setMany({ propose: value === 'propose' })}>
-          <SelectTrigger className="w-full">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="propose">제안</SelectItem>
-            <SelectItem value="write">바로 반영</SelectItem>
-          </SelectContent>
-        </Select>
-      </Field>
+      {(target.shape !== 'line' || fn === 'saveTermEntry') && <AiConfirmNote projectId={refs.projectId} />}
 
       {fn === 'saveTermEntry' && (
         <InspectorToggle label="비어 있을 때만 채우기" description="용어에 이미 표기가 있으면 덮어쓰지 않습니다." checked={(params as { onlyEmpty?: boolean }).onlyEmpty !== false} onChange={(value) => setMany({ onlyEmpty: value })} />

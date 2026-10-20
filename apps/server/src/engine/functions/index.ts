@@ -6,7 +6,6 @@ import * as s from '../../db/schema.ts';
 import type { SecretStore } from '../../services/secrets.ts';
 import { attachUnitTags } from '../../services/tag-scope.ts';
 import { runScript } from './sandbox.ts';
-import { addToRunProposal } from '../../services/proposals.ts';
 import { knowledgeOf } from '../../services/speech.ts';
 import type { IssueTagChange } from '../../services/issue-tags.ts';
 import { HUMAN_OWNED_NOTE, personOwns } from '../apply-candidate.ts';
@@ -93,14 +92,10 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     return issues.length ? { port: 'out', issues } : { port: 'out' };
   },
 
-  /** 용어 상태 변경: candidate, confirmed or rejected (rejected terms are not proposed again); proposed by default. */
+  /** 용어 상태 변경: candidate, confirmed or rejected (rejected terms are not proposed again). */
   setTermStatus(tx, raw, input) {
     const params = FUNCTIONS.setTermStatus.params.parse(raw);
     if (input.subject !== 'terms') throw new Error('용어 상태 변경은 용어에만 쓸 수 있습니다.');
-    if (params.propose) {
-      addToRunProposal(tx, { projectId: input.projectId, runId: input.runId, nodeId: input.item.nodeId, tool: 'save_terms', input: {} }, 'terms', { id: input.term.id, status: params.status });
-      return { port: 'out', output: { proposed: true, status: params.status } };
-    }
     tx.update(s.terms).set({ status: params.status, statusBy: 'ai', runId: input.runId }).where(eq(s.terms.id, input.term.id)).run();
     return { port: 'out', output: { status: params.status } };
   },

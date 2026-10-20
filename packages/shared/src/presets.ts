@@ -211,7 +211,6 @@ export const AI_PRESETS = {
     fields: [
       { ...field('value', 'string', 'Who the line is addressed to: a cast name, an extra as the lines name them, group / public / self, or unknown when you cannot tell.'), required: true },
       { ...field('confidence', 'number', 'How sure you are.'), min: 0, max: 1 },
-      field('reason', 'string', 'One short line on why.'),
     ],
     // Not the lines' own listeners and speech rules: those are what this node decides.
     context: { glossary: false, speech: false, cast: true, characters: true, relationships: true, documents: true, precedingLines: 8, previousScenes: 1 },
@@ -241,22 +240,20 @@ export const AI_PRESETS = {
   },
   termTranslate: {
     label: 'AI 용어 번역',
-    description: '용어 후보마다 용어인지 가리고, 용어면 한국어 표기와 메모를 냅니다.',
+    description: '용어마다 한국어 표기와 메모를 냅니다.',
     input: 'terms',
     output: 'json',
     scope: 'line',
     include: { candidate: false, issues: false },
     fields: [
-      { ...field('isTerm', 'boolean', 'true for proper nouns (people, places, organizations, products, titles) and game-specific concepts whose Korean form must stay the same everywhere; false for ordinary words or phrases that only happen to be capitalized.'), required: true },
-      field('target', 'string', 'The Korean form to use everywhere; empty when isTerm is false.'),
-      field('note', 'string', 'A few Korean words on what it is (e.g. "단체 이름", "지명", "인물 호칭"); empty when isTerm is false.'),
+      { ...field('target', 'string', 'The Korean form to use everywhere.'), required: true },
+      field('note', 'string', 'A few Korean words on what it is (e.g. "단체 이름", "지명", "인물 호칭").'),
     ],
     context: { glossary: true, cast: true, characters: false, relationships: false, documents: false, speech: false, precedingLines: 0, previousScenes: 0, examples: 2 },
     batch: { mode: 'count', size: 100 },
     instructions: [
-      'Each item is a candidate for the Korean localization glossary of a video game: the term, what the glossary has for it so far, how many script lines use it and some of those lines (with their current Korean translation when there is one). For each candidate decide:',
-      '- isTerm: true for proper nouns (people, places, organizations, products, titles) and game-specific concepts whose Korean form must stay the same everywhere. False for ordinary words or phrases that happen to be capitalized ("Thank God", "This Nina").',
-      '- target: the Korean form to use everywhere (names transliterated the way Korean localizations usually do; follow the examples\' current translations when they agree). Empty when isTerm is false.',
+      'Each item is a term of the Korean localization glossary of a video game: the term, what the glossary has for it so far, how many script lines use it and some of those lines (with their current Korean translation when there is one). For each term give:',
+      '- target: the Korean form to use everywhere (names transliterated the way Korean localizations usually do; follow the examples\' current translations when they agree).',
       '- note: a few Korean words on what it is; when the same word means different things in different lines, say so.',
       'Keep consistent with the glossary when given.',
     ].join('\n'),

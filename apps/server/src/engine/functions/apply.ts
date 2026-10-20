@@ -1,12 +1,11 @@
 import { eq } from 'drizzle-orm';
 import { get } from 'es-toolkit/compat';
-import { AGE_BANDS, APPLY_FUNCTION_NAMES, APPLY_TARGETS, applyParams, CHARACTER_ROLES, DOCUMENT_KINDS, GENDERS, previousStepId, SPEECH_LEVELS, tagScope, TERM_KIND_LABELS, TERM_KINDS, UNKNOWN_LISTENER, type ApplyField, type ApplyFunctionName, type ApplyParams } from '@tw/shared';
+import { AGE_BANDS, APPLY_FUNCTION_NAMES, APPLY_TARGETS, applyParams, DOCUMENT_KINDS, previousStepId, tagScope, aiStatus, TERM_KIND_LABELS, TERM_KINDS, UNKNOWN_LISTENER, type ApplyField, type ApplyFunctionName, type ApplyParams } from '@tw/shared';
 import type { Db } from '../../db/index.ts';
 import * as s from '../../db/schema.ts';
 import type { Topic } from '../../events.ts';
 import { aiSaveCharacters, aiSaveDocument, aiSaveEvents, aiSaveRelationships, aiSaveSpeechRules, aiSaveTerms, aiSetLineListeners, aiSetSceneListeners, type AiWrite } from '../../services/ai-knowledge.ts';
 import { addCandidate } from '../../services/candidates.ts';
-import { addToRunProposal, fileRunProposal } from '../../services/proposals.ts';
 import { aiAutoConfirmOf } from '../../services/status-by.ts';
 import { attachUnitTags } from '../../services/tag-scope.ts';
 import { applyRunCandidate, HUMAN_OWNED_NOTE } from '../apply-candidate.ts';
@@ -16,11 +15,9 @@ type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 type Item = Record<string, unknown>;
 
 /**
- * 반영 노드: put a node's output into the project, through the same services as the chat/CLI write
- * tools (APPLY_TARGETS names each one's tool). With "제안으로 남기기" (the default) nothing is written:
- * the tool's input is filed as a proposal (source 'run') a person accepts in the app, and accepting
- * runs that very tool. Without it the result is written now by services/ai-knowledge.ts (AI origin;
- * nothing a person set is changed).
+ * 반영 노드: put a node's output into the project now, through services/ai-knowledge.ts (AI origin;
+ * nothing a person set is changed). Knowledge and terms land confirmed or as candidates as the
+ * project's AI 문맥 switch says (aiAutoConfirm).
  */
 
 const BLANK = new Set<unknown>([undefined, null, '']);
@@ -105,66 +102,21 @@ interface Context {
   write: AiWrite;
 }
 
-/** A proposal's input item for a knowledge list: the item without fields the tool does not take. */
-const without = (item: Item, ...names: string[]): Item => Object.fromEntries(Object.entries(item).filter(([key]) => !names.includes(key)));
-
-/** What each target does: the tool input it files, and how it writes now. Line targets get one item. */
+/** How each list target writes its items; the counts it reports. Line targets get one item. */
 interface Handler {
-  /** The tool's input for these items, or null when nothing is left to propose. For a `line` target it is one entry of `list`. */
-  propose(items: Item[], context: Context): { input: Record<string, unknown>; kept?: number } | null;
-  /** Written now; the counts it reports. */
   write(items: Item[], context: Context): Record<string, unknown>;
 }
-
-const knowledgeOf = (tx: Tx, projectId: string) => ({
-  characters: tx.select({ name: s.characters.name, aliases: s.characters.aliases, status: s.characters.status }).from(s.characters).where(eq(s.characters.projectId, projectId)).all(),
-});
 
 /** Targets that write the item itself (shape `line`): one item per visit. */
 type ItemTarget = 'saveCandidate' | 'tagLines' | 'setListener' | 'saveTermEntry';
 const HANDLERS: Record<Exclude<ApplyFunctionName, ItemTarget>, Handler> = {
   saveTerms: {
-    propose: (items) => ({
-      input: {
-        terms: items.map((item) => {
-          const kind = TERM_KINDS.includes(item.kind as never) ? TERM_KIND_LABELS[item.kind as keyof typeof TERM_KIND_LABELS] : '';
-          const label = [kind, item.meaning, item.note].filter((part) => typeof part === 'string' && part).join(' · ');
-          return { source: item.source, target: item.target ?? '', note: label, status: item.target ? 'confirmed' : 'candidate' };
-        }),
-      },
-    }),
     write: (items, { tx, write }) => aiSaveTerms(tx, write, items as never),
   },
   saveCharacters: {
-    propose(items, { tx, input }) {
-      // Creating a name that is already stored is refused by the tool (and would undo the whole batch): they are left out.
-      const known = new Set(knowledgeOf(tx, input.projectId).characters.flatMap((c) => [c.name, ...c.aliases].map(lower)));
-      const fresh = items.filter((item) => ![item.name, ...((item.aliases as string[]) ?? [])].some((name) => known.has(lower(name))));
-      return fresh.length ? { input: { characters: fresh.map((item) => characterInput(item)) }, kept: items.length - fresh.length } : null;
-    },
     write: (items, { tx, write }) => aiSaveCharacters(tx, write, items as never),
   },
   saveRelationships: {
-    propose(items, { tx, input }) {
-      const people = tx.select().from(s.characters).where(eq(s.characters.projectId, input.projectId)).all();
-      const idOf = (name: unknown) => people.find((c) => [c.name, ...c.aliases].some((alias) => lower(alias) === lower(name)))?.id;
-      const stored = tx.select().from(s.relationships).where(eq(s.relationships.projectId, input.projectId)).all();
-      const out: Item[] = [];
-      for (const item of items) {
-        const fromId = idOf(item.from);
-        const toId = idOf(item.to);
-        const pair = fromId && toId ? stored.filter((rel) => rel.fromId === fromId && rel.toId === toId && rel.status !== 'rejected') : [];
-        const changes = ((item.changes as Item[]) ?? []).map((change) => ({ at: first(change.at), change: change.change, cause: change.cause ?? '' })).filter((change) => change.at && change.change);
-        // A pair already stored: new changes are added to it; otherwise nothing is proposed. (An unresolved name is still proposed: accept the characters first.)
-        if (pair.length) {
-          const fresh = changes.filter((change) => !pair.some((rel) => rel.changes.some((known) => known.at === change.at)));
-          if (fresh.length) out.push({ id: pair[0].id, changes: [...pair[0].changes, ...fresh] });
-          continue;
-        }
-        out.push({ ...without(item, 'changes'), ...(changes.length ? { changes } : {}) });
-      }
-      return out.length ? { input: { relationships: out } } : null;
-    },
     write: (items, { tx, write }) => {
       const mapped = items.map((item) => ({ ...item, changes: ((item.changes as Item[]) ?? []).map((change) => ({ at: first(change.at), change: change.change as string, cause: change.cause as string })) }));
       const { unresolved, ...counts } = aiSaveRelationships(tx, write, mapped as never);
@@ -172,76 +124,36 @@ const HANDLERS: Record<Exclude<ApplyFunctionName, ItemTarget>, Handler> = {
     },
   },
   saveSpeechRules: {
-    propose(items, { tx, input }) {
-      const stored = tx.select().from(s.speechRules).where(eq(s.speechRules.projectId, input.projectId)).all();
-      const fresh = items
-        .map((item): Item => ({ ...without(item, 'startKey'), startKey: first(item.startKey) ?? null }))
-        .filter((item) => (SPEECH_LEVELS as readonly string[]).includes(item.level as string))
-        .filter((item) => !stored.some((rule) => lower(rule.fromName) === lower(item.fromName) && lower(rule.toName) === lower(item.toName) && rule.startKey === item.startKey && rule.level === item.level));
-      return fresh.length ? { input: { speechRules: fresh }, kept: items.length - fresh.length } : null; // a level the tool does not know is left out too
-    },
     write: (items, { tx, write }) => {
       const { skipped, ...counts } = aiSaveSpeechRules(tx, write, items.map((item) => ({ ...item, startKey: first(item.startKey) ?? null })) as never);
       return { ...counts, ...(skipped.length ? { skipped } : {}) };
     },
   },
   saveEvents: {
-    propose(items, { tx, input }) {
-      const titles = new Set(tx.select({ title: s.storyEvents.title }).from(s.storyEvents).where(eq(s.storyEvents.projectId, input.projectId)).all().map((event) => lower(event.title)));
-      const fresh = items.filter((item) => !titles.has(lower(item.title)));
-      return fresh.length ? { input: { events: fresh }, kept: items.length - fresh.length } : null;
-    },
     write: (items, { tx, write }) => aiSaveEvents(tx, write, items as never),
   },
   saveDocument: {
-    propose(items, { tx, input }) {
-      const [item] = items;
-      if (!item) return null;
-      // Same title: the proposal changes that document (the tool updates by id), as the write does for AI drafts.
-      const old = tx.select({ id: s.documents.id, title: s.documents.title, status: s.documents.status }).from(s.documents).where(eq(s.documents.projectId, input.projectId)).all().find((doc) => lower(doc.title) === lower(item.title) && doc.status !== 'rejected');
-      const kind = DOCUMENT_KINDS.includes(item.kind as never) ? item.kind : undefined;
-      return { input: { ...(old ? { id: old.id } : {}), title: item.title, body: item.body, ...(kind ? { kind } : {}), ...(item.evidence ? { evidence: item.evidence } : {}) } };
-    },
     write: (items, { tx, write }) => ({ document: items[0] ? aiSaveDocument(tx, write, items[0] as never) : 'none' }),
   },
   saveSceneListeners: {
-    propose: (items) => ({
-      input: {
-        scenes: items.map((item) => ({
-          ...item,
-          exceptions: ((item.exceptions as Item[]) ?? []).map((exception) => ({ ...exception, line: first(exception.line) })).filter((exception) => exception.line),
-        })),
-      },
-    }),
     write: (items, { tx, input }) =>
       aiSetSceneListeners(tx, input.projectId, items.map((item) => ({ ...item, exceptions: ((item.exceptions as Item[]) ?? []).map((exception) => ({ ...exception, line: first(exception.line) ?? '' })) })) as never),
   },
 };
 
-/** A character as the save tool takes it: an enum value it does not know is left out (the tool's default 'unknown' stays), so one odd answer does not undo the batch. */
-function characterInput(item: Item) {
-  const known = (values: readonly string[], value: unknown) => (values.includes(value as string) ? value : undefined);
-  const { gender, ageBand, role, ...rest } = item;
-  return { ...rest, ...(known(GENDERS, gender) ? { gender } : {}), ...(known(AGE_BANDS, ageBand) ? { ageBand } : {}), ...(known(CHARACTER_ROLES, role) ? { role } : {}) };
-}
-
-
-/**
- * Topics an apply node's writes reach, for the runner to notify (it does not know the node's `propose`
- * setting there, so each lists both the proposal and the direct write). The run's own `units` come anyway.
- */
+/** Topics an apply node's writes reach besides the run's own `units`, for the runner to notify. */
 export const APPLY_TOPICS: Record<ApplyFunctionName, Topic[]> = {
-  saveCandidate: ['proposals'],
-  setListener: ['proposals'],
-  tagLines: ['proposals'],
-  saveTermEntry: ['proposals', 'terms'],
-  saveTerms: ['proposals', 'terms'],
-  saveCharacters: ['proposals', 'knowledge'],
-  saveRelationships: ['proposals', 'knowledge'],
-  saveSpeechRules: ['proposals', 'knowledge'],
-  saveEvents: ['proposals', 'knowledge'],
-  saveDocument: ['proposals', 'knowledge'],
-  saveSceneListeners: ['proposals'],
+  saveCandidate: [],
+  setListener: [],
+  tagLines: [],
+  saveTermEntry: ['terms'],
+  saveTerms: ['terms'],
+  saveCharacters: ['knowledge'],
+  saveRelationships: ['knowledge'],
+  saveSpeechRules: ['knowledge'],
+  saveEvents: ['knowledge'],
+  saveDocument: ['knowledge'],
+  saveSceneListeners: [],
 };
 
 function run(fn: ApplyFunctionName, tx: Tx, raw: unknown, input: FunctionInput): FunctionResult {
@@ -272,27 +184,16 @@ function run(fn: ApplyFunctionName, tx: Tx, raw: unknown, input: FunctionInput):
   if (fn === 'saveTermEntry') return runTerm(context, items[0], base);
   if (fn === 'saveCandidate' || fn === 'setListener' || fn === 'tagLines') return runLine(fn, context, items[0], base);
 
-  const handler = HANDLERS[fn];
-  if (params.propose) {
-    const proposal = handler.propose(items, context);
-    if (!proposal) return { port: 'out', output: { proposed: false, items: items.length, reason: '이미 있는 항목이라 제안할 것이 없습니다.' } };
-    const filed = fileRunProposal(tx, { ...base, tool: target.tool, input: proposal.input });
-    return { port: 'out', output: { proposed: true, proposalId: filed.id, items: items.length, ...(skipped ? { skipped } : {}), ...(proposal.kept ? { alreadyStored: proposal.kept } : {}) } };
-  }
-  return { port: 'out', output: { applied: true, items: items.length, ...(skipped ? { skipped } : {}), ...handler.write(items, context) } };
+  return { port: 'out', output: { applied: true, items: items.length, ...(skipped ? { skipped } : {}), ...HANDLERS[fn].write(items, context) } };
 }
 
-/** The line targets: one line per visit, so a proposal collects the run's lines (services/proposals.ts addToRunProposal). */
+/** The line targets: one line per visit. */
 function runLine(fn: 'saveCandidate' | 'setListener' | 'tagLines', context: Context, item: Item, base: { projectId: string; runId: string; nodeId: string }): FunctionResult {
   const { tx, input, params, run: runRow } = context;
   const target = APPLY_TARGETS[fn];
   const unit = lineOf(input);
   if (fn === 'saveCandidate') {
     const text = item.text as string;
-    if (params.propose) {
-      addToRunProposal(tx, { ...base, tool: target.tool, input: { origin: 'ai' } }, 'changes', { key: unit.key, translation: text });
-      return { port: 'out', candidate: text, output: { proposed: true } };
-    }
     const candidateId = addCandidate(tx, { unitId: unit.id, text, origin: 'ai', runId: input.runId, nodeId: base.nodeId });
     if (!runRow) return { port: 'out', candidate: text, output: { applied: false, candidateId } };
     const { applied } = applyRunCandidate(tx, runRow, unit.id, candidateId, text);
@@ -303,19 +204,11 @@ function runLine(fn: 'saveCandidate' | 'setListener' | 'tagLines', context: Cont
     const listener = typeof item.listener === 'string' ? item.listener.trim() : '';
     if (!listener || listener === UNKNOWN_LISTENER) return { port: 'out', output: { recorded: false, reason: '청자 미상' } };
     const entry = { key: unit.key, listener, confidence: (item.confidence as number | undefined) ?? 1 };
-    if (params.propose) {
-      addToRunProposal(tx, { ...base, tool: target.tool, input: {} }, 'lines', entry);
-      return { port: 'out', output: { proposed: true } };
-    }
     const result = aiSetLineListeners(tx, input.projectId, [entry]);
     return { port: 'out', output: { recorded: result.set === 1, listener: entry.listener, confidence: entry.confidence, ...(result.skipped[0] ? { reason: result.skipped[0].reason } : {}) } };
   }
   // tagLines: the line tag named like the value; a name that is no line tag does nothing, tags are never created here.
   const name = item.tag as string;
-  if (params.propose) {
-    addToRunProposal(tx, { ...base, tool: target.tool, input: { origin: 'ai' } }, 'changes', { key: unit.key, addTags: [name] });
-    return { port: 'out', output: { proposed: true } };
-  }
   const tag = tx.select({ id: s.tags.id, name: s.tags.name, role: s.tags.role, scope: s.tags.scope }).from(s.tags).where(eq(s.tags.projectId, input.projectId)).all().find((candidate) => lower(candidate.name) === lower(name) && tagScope(candidate).includes('lines'));
   if (!tag) return { port: 'out', output: { tagged: false, reason: '같은 이름의 대사 태그가 없습니다.' } };
   attachUnitTags(tx, input.projectId, [unit.id], { add: [tag.id] }, { onMisplaced: 'skip' });
@@ -324,7 +217,7 @@ function runLine(fn: 'saveCandidate' | 'setListener' | 'tagLines', context: Cont
 
 /**
  * 용어 표기 저장: the term's Korean form and note from the answer. With onlyEmpty (default) a term a
- * person (or an earlier answer) already gave a form is left as it is; a proposal collects the run's terms.
+ * person (or an earlier answer) already gave a form is left as it is.
  */
 function runTerm(context: Context, item: Item, base: { projectId: string; runId: string; nodeId: string }): FunctionResult {
   const { tx, input, params } = context;
@@ -336,11 +229,9 @@ function runTerm(context: Context, item: Item, base: { projectId: string; runId:
   if (params.onlyEmpty && current.target.trim()) return { port: 'out', output: { applied: false, reason: '이미 표기가 있습니다.' } };
   const kind = typeof item.kind === 'string' && (TERM_KINDS as readonly string[]).includes(item.kind) ? TERM_KIND_LABELS[item.kind as (typeof TERM_KINDS)[number]] : '';
   const note = [kind, item.meaning, item.note].filter((part): part is string => typeof part === 'string' && Boolean(part.trim())).join(' · ') || current.note;
-  if (params.propose) {
-    addToRunProposal(tx, { ...base, tool: APPLY_TARGETS.saveTermEntry.tool, input: {} }, 'terms', { id: current.id, target, note });
-    return { port: 'out', candidate: target, output: { proposed: true } };
-  }
-  tx.update(s.terms).set({ target, note, origin: 'ai', statusBy: 'ai', runId: input.runId }).where(eq(s.terms.id, current.id)).run();
+  // A candidate that gets its form lands as the AI 문맥 switch says; a term already decided keeps its status.
+  const status = current.status === 'candidate' ? aiStatus(context.write.autoConfirm) : current.status;
+  tx.update(s.terms).set({ target, note, status, origin: 'ai', statusBy: 'ai', runId: input.runId }).where(eq(s.terms.id, current.id)).run();
   return { port: 'out', candidate: target, output: { applied: true } };
 }
 
