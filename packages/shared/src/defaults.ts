@@ -92,16 +92,17 @@ interface ApplyOptions {
   propose?: boolean;
   asCandidate?: boolean;
 }
-const applyNode = (id: string, fn: ApplyFunctionName, fromNodeId: string, row: number, options: ApplyOptions, column = 0): WorkflowNode => ({
+/** An apply node: it applies the result of the step before it (the AI or script node it is drawn after). */
+const applyNode = (id: string, fn: ApplyFunctionName, row: number, options: ApplyOptions, column = 0): WorkflowNode => ({
   id,
   type: 'function',
   position: at(row, column),
   label: APPLY_TARGETS[fn].label,
-  config: { fn, params: { fromNodeId, list: options.list ?? '', map: options.map, propose: options.propose ?? true, asCandidate: options.asCandidate ?? false } },
+  config: { fn, params: { list: options.list ?? '', map: options.map, propose: options.propose ?? true, asCandidate: options.asCandidate ?? false } },
 });
 /** An apply node for one list of a preset's JSON output, mapped by field name. */
-const saveList = (id: string, fn: ApplyFunctionName, fromNodeId: string, preset: AiPresetId, list: string, row: number, column = 0): WorkflowNode =>
-  applyNode(id, fn, fromNodeId, row, { list, map: mapByName(fn, itemFields(preset, list)) }, column);
+const saveList = (id: string, fn: ApplyFunctionName, preset: AiPresetId, list: string, row: number, column = 0): WorkflowNode =>
+  applyNode(id, fn, row, { list, map: mapByName(fn, itemFields(preset, list)) }, column);
 
 const edge = (source: string, sourceHandle: string, target: string): WorkflowEdge => ({ id: `${source}-${sourceHandle}-${target}`, source, sourceHandle, target });
 
@@ -157,7 +158,7 @@ const formatCheckNode = (row: number, column = 0): WorkflowNode => ({
   config: { fn: 'formatCheck', params: { placeholders: true, tags: true, newlines: true, emptyText: true } },
 });
 /** Writes the translation now (no proposal, confirmed as a draft): what the default flows always did. */
-const writeTranslation = (id: string, fromNodeId: string, row: number, column = 0, label = '번역 후보 기록') => ({ ...applyNode(id, 'saveCandidate', fromNodeId, row, { map: { text: 'text' }, propose: false, asCandidate: false }, column), label });
+const writeTranslation = (id: string, row: number, column = 0, label = '번역 후보 기록') => ({ ...applyNode(id, 'saveCandidate', row, { map: { text: 'text' }, propose: false, asCandidate: false }, column), label });
 
 /**
  * The default translation flow, expressed as an ordinary user workflow:
@@ -181,7 +182,7 @@ export function translationTemplate(ids: {
       nodes: [
         entryNode([ids.untranslated]),
         aiNode('translate', 'translate', ids.model, 1),
-        writeTranslation('save', 'translate', 2),
+        writeTranslation('save', 2),
         statusNode('draft', '초벌로', ids.draft, 3),
         formatCheckNode(4),
         aiNode('review', 'review', ids.model, 5),
@@ -194,7 +195,7 @@ export function translationTemplate(ids: {
           config: { expression: { '<': [{ var: 'visits.review' }, 3] }, description: "'AI 검수' 방문이 3회 미만이면 다시 수정합니다." },
         },
         aiNode('revise', 'revise', ids.model, 4, 2),
-        writeTranslation('save-revision', 'revise', 5, 2, '수정 번역 기록'),
+        writeTranslation('save-revision', 5, 2, '수정 번역 기록'),
         statusNode('escalate', '사람 확인 필요로', ids.needsReview, 6, 1),
       ],
       edges: [
@@ -218,7 +219,7 @@ export function draftTranslationTemplate(ids: { model: DraftModelChoice; untrans
   return withRetries(
     {
       settings: { ...SETTINGS },
-      nodes: [entryNode([ids.untranslated]), aiNode('translate', 'translate', ids.model, 1), writeTranslation('save', 'translate', 2), formatCheckNode(3), statusNode('draft', '초벌로', ids.draft, 4)],
+      nodes: [entryNode([ids.untranslated]), aiNode('translate', 'translate', ids.model, 1), writeTranslation('save', 2), formatCheckNode(3), statusNode('draft', '초벌로', ids.draft, 4)],
       edges: [...chain('entry', 'translate', 'save', 'check'), edge('check', 'pass', 'draft')],
     },
     [['translate', 1]],
@@ -234,7 +235,7 @@ export function termExtractionTemplate(ids: Model): WorkflowDefinition {
   return withRetries(
     {
       settings: { ...SETTINGS },
-      nodes: [entryNode(), aiNode('terms', 'terms', ids.model, 1), saveList('save-terms', 'saveTerms', 'terms', 'terms', 'terms', 2)],
+      nodes: [entryNode(), aiNode('terms', 'terms', ids.model, 1), saveList('save-terms', 'saveTerms', 'terms', 'terms', 2)],
       edges: chain('entry', 'terms', 'save-terms'),
     },
     [['terms', 1]],
@@ -255,7 +256,7 @@ export function termTranslationTemplate(ids: Model): WorkflowDefinition {
         entryNode([], { subject: 'terms' }),
         aiNode('translate', 'termTranslate', ids.model, 1),
         { id: 'is-term', type: 'condition', position: at(2), label: '용어인가?', config: { expression: { '==': [{ var: 'outputs.translate.isTerm' }, true] }, description: 'AI가 용어라고 답한 것만 표기를 적습니다.' } },
-        applyNode('save-term', 'saveTermEntry', 'translate', 3, { map: { target: 'target', note: 'note' }, propose: false }),
+        applyNode('save-term', 'saveTermEntry', 3, { map: { target: 'target', note: 'note' }, propose: false }),
         { id: 'not-term', type: 'function', position: at(3, 1), label: '거절', config: { fn: 'setTermStatus', params: { status: 'rejected', propose: false } } },
       ],
       edges: [...chain('entry', 'translate', 'is-term'), edge('is-term', 'true', 'save-term'), edge('is-term', 'false', 'not-term')],
@@ -272,9 +273,9 @@ export function peopleRelationsTemplate(ids: Model): WorkflowDefinition {
       nodes: [
         entryNode(),
         aiNode('people', 'knowledge', ids.model, 1),
-        saveList('save-characters', 'saveCharacters', 'people', 'knowledge', 'characters', 2),
-        saveList('save-relationships', 'saveRelationships', 'people', 'knowledge', 'relationships', 3),
-        saveList('save-speech-rules', 'saveSpeechRules', 'people', 'knowledge', 'speechRules', 4),
+        saveList('save-characters', 'saveCharacters', 'knowledge', 'characters', 2),
+        saveList('save-relationships', 'saveRelationships', 'knowledge', 'relationships', 3),
+        saveList('save-speech-rules', 'saveSpeechRules', 'knowledge', 'speechRules', 4),
       ],
       edges: chain('entry', 'people', 'save-characters', 'save-relationships', 'save-speech-rules'),
     },
@@ -287,7 +288,7 @@ export function eventExtractionTemplate(ids: Model): WorkflowDefinition {
   return withRetries(
     {
       settings: { ...SETTINGS },
-      nodes: [entryNode(), aiNode('events', 'events', ids.model, 1), saveList('save-events', 'saveEvents', 'events', 'events', 'events', 2)],
+      nodes: [entryNode(), aiNode('events', 'events', ids.model, 1), saveList('save-events', 'saveEvents', 'events', 'events', 2)],
       edges: chain('entry', 'events', 'save-events'),
     },
     [['events', 1]],
@@ -327,7 +328,7 @@ export function listenerTemplate(ids: Model): WorkflowDefinition {
             description: `확신도가 ${LISTENER_CONFIDENCE} 이상일 때만 적습니다.`,
           },
         },
-        applyNode('set-listener', 'setListener', 'listener', 4, { map: { listener: 'value', confidence: 'confidence' } }),
+        applyNode('set-listener', 'setListener', 4, { map: { listener: 'value', confidence: 'confidence' } }),
       ],
       edges: [edge('entry', 'out', 'needs'), edge('needs', 'true', 'listener'), edge('listener', 'out', 'sure'), edge('sure', 'true', 'set-listener')],
     },
@@ -344,7 +345,7 @@ export function speechFixTemplate(ids: Model): WorkflowDefinition {
   return withRetries(
     {
       settings: { ...SETTINGS },
-      nodes: [entryNode(), aiNode('fit', 'speechFix', ids.model, 1), writeTranslation('save', 'fit', 2, 0, '말투 맞춘 번역 기록')],
+      nodes: [entryNode(), aiNode('fit', 'speechFix', ids.model, 1), writeTranslation('save', 2, 0, '말투 맞춘 번역 기록')],
       edges: chain('entry', 'fit', 'save'),
     },
     [['fit', 1]],
@@ -375,16 +376,16 @@ export function analysisTemplate(ids: Model): WorkflowDefinition {
         entryNode(),
         aiNode(analysis, 'analysis', ids.model, 1, 0, '작품 분석'),
         // Lists that each part can save on its own (a duplicate name is merged when saved).
-        saveList('save-relationships', 'saveRelationships', analysis, 'analysis', 'relationships', 2),
-        saveList('save-speech-rules', 'saveSpeechRules', analysis, 'analysis', 'speechRules', 3),
-        saveList('save-events', 'saveEvents', analysis, 'analysis', 'events', 4),
-        saveList('save-terms', 'saveTerms', analysis, 'analysis', 'terms', 5),
-        saveList('save-scene-listeners', 'saveSceneListeners', analysis, 'analysis', 'sceneListeners', 6),
+        saveList('save-relationships', 'saveRelationships', 'analysis', 'relationships', 2),
+        saveList('save-speech-rules', 'saveSpeechRules', 'analysis', 'speechRules', 3),
+        saveList('save-events', 'saveEvents', 'analysis', 'events', 4),
+        saveList('save-terms', 'saveTerms', 'analysis', 'terms', 5),
+        saveList('save-scene-listeners', 'saveSceneListeners', 'analysis', 'sceneListeners', 6),
         // People and the overview need every part at once: gathered, combined, then saved once.
-        { id: 'gather', type: 'gather', position: at(2, 1), label: '모든 조각 모으기', config: { from: analysis, fields: [...MERGED_CHARACTER_PATHS, 'overviewTitle', 'overview'] } },
+        { id: 'gather', type: 'gather', position: at(2, 1), label: '모든 조각 모으기', config: { fields: [...MERGED_CHARACTER_PATHS, 'overviewTitle', 'overview'] } },
         { id: 'merge', type: 'ai', position: at(3, 1), label: AI_PRESETS.analysisMerge.label, config: presetConfig('analysisMerge', ids.model, { input: { previous: true, lines: false, fields: [] } }) },
-        saveList('save-characters', 'saveCharacters', 'merge', 'analysisMerge', 'characters', 4, 1),
-        applyNode('save-overview', 'saveDocument', 'merge', 5, { map: { title: 'overviewTitle', body: 'overview' } }, 1),
+        saveList('save-characters', 'saveCharacters', 'analysisMerge', 'characters', 4, 1),
+        applyNode('save-overview', 'saveDocument', 5, { map: { title: 'overviewTitle', body: 'overview' } }, 1),
       ],
       edges: [
         ...chain('entry', analysis, 'save-relationships', 'save-speech-rules', 'save-events', 'save-terms', 'save-scene-listeners'),

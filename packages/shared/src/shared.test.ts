@@ -35,7 +35,7 @@ describe('workflow validation', () => {
   it('lets an exit send lines down several branches that end apart, with one changing the line', () => {
     const template = workflowDefinitionSchema.parse(translationTemplate(ids));
     const node = (id: string, config: Record<string, unknown>, type = 'function') => workflowNodeSchema.parse({ id, type, position: { x: 0, y: 0 }, config });
-    const side = [node('terms', { output: 'json', scope: 'batch', fields: [{ name: 'terms', type: 'list', fields: [{ name: 'source', type: 'string' }] }], model }, 'ai'), node('add', { fn: 'saveTerms', params: { fromNodeId: 'terms', list: 'terms', map: { source: 'source' } } })];
+    const side = [node('terms', { output: 'json', scope: 'batch', fields: [{ name: 'terms', type: 'list', fields: [{ name: 'source', type: 'string' }] }], model }, 'ai'), node('add', { fn: 'saveTerms', params: { list: 'terms', map: { source: 'source' } } })];
     const sideEdges = [
       { id: 's1', source: 'review', sourceHandle: 'pass', target: 'terms' },
       { id: 's2', source: 'terms', sourceHandle: 'out', target: 'add' },
@@ -200,10 +200,10 @@ describe('templates', () => {
     const definition = workflowDefinitionSchema.parse(termExtractionTemplate({ model }));
     expect(errors(definition)).toEqual([]);
     expect(kinds(definition)).toEqual(['entry', 'ai', 'saveTerms', 'condition', 'fail']);
-    expect(definition.nodes[2]).toMatchObject({ config: { params: { fromNodeId: 'terms', list: 'terms', propose: true, map: { source: 'source', target: 'target', kind: 'kind', meaning: 'meaning', evidence: 'evidence' } } } });
+    expect(definition.nodes[2]).toMatchObject({ config: { params: { list: 'terms', propose: true, map: { source: 'source', target: 'target', kind: 'kind', meaning: 'meaning', evidence: 'evidence' } } } });
   });
 
-  it('every default workflow and template is valid, with every apply node mapped from the AI node it names', () => {
+  it('every default workflow and template is valid, with every apply node mapped from the step before it', () => {
     const all = [
       ...defaultWorkflows({ model, untranslated: 's0', draft: 's1' }).map((row) => row.definition),
       ...Object.values(MODEL_TEMPLATES).map((make) => make({ model })),
@@ -214,7 +214,7 @@ describe('templates', () => {
     ];
     for (const definition of all) {
       expect(errors(definition)).toEqual([]);
-      for (const node of definition.nodes) if (node.type === 'function' && node.config.fn in APPLY_TARGETS) expect(applyIssues(definition, node.config.fn as keyof typeof APPLY_TARGETS, node.config.params as never)).toEqual([]);
+      for (const node of definition.nodes) if (node.type === 'function' && node.config.fn in APPLY_TARGETS) expect(applyIssues(definition, node.id, node.config.fn as keyof typeof APPLY_TARGETS, node.config.params as never)).toEqual([]);
     }
     expect(defaultWorkflows({ model }).map((row) => row.name)).toEqual(['청자 추정', '용어 추출', '용어 번역', '인물·관계 추출', '사건 추출', ANALYSIS_WORKFLOW]);
   });
@@ -223,8 +223,8 @@ describe('templates', () => {
     const analysis = analysisTemplate({ model });
     for (const node of analysis.nodes) {
       if (node.type !== 'function' || !(node.config.fn in APPLY_TARGETS) || !node.config.params.list) continue;
-      // Each save reads its own source: the analysis itself, or the node that combines its parts.
-      const fields = node.config.params.fromNodeId === 'merge' ? AI_PRESETS.analysisMerge.fields : AI_PRESETS.analysis.fields;
+      // Each save reads the step before it: the analysis itself, or the node that combines its parts.
+      const fields = previousSteps(analysis, node.id)[0]?.id === 'merge' ? AI_PRESETS.analysisMerge.fields : AI_PRESETS.analysis.fields;
       const items = fields.find((field) => field.name === node.config.params.list)?.fields?.map((field) => field.name) ?? [];
       const accepted = APPLY_TARGETS[node.config.fn as keyof typeof APPLY_TARGETS].fields.map((field) => field.name).filter((name) => items.includes(name));
       expect(Object.keys(node.config.params.map as object)).toEqual(expect.arrayContaining(accepted));
@@ -339,7 +339,8 @@ describe('analysis workflow and presets', () => {
     expect(definition.edges.filter((edge) => edge.source === 'analysis').map((edge) => [edge.sourceHandle, edge.target])).toEqual([['out', 'save-relationships'], ['out', 'gather'], ['error', 'analysis-again']]);
     expect(definition.nodes.find((node) => node.id === 'merge')).toMatchObject({ config: { preset: 'analysisMerge', input: { previous: true, lines: false } } });
     expect(validateWorkflow(definition, { statusIds: new Set(), connections: new Set(['c']) } as never).filter((issue) => issue.level === 'error').map((issue) => issue.message)).toEqual([]);
-    expect(definition.nodes.find((node) => node.id === 'save-overview')).toMatchObject({ config: { params: { fromNodeId: 'merge', map: { title: 'overviewTitle', body: 'overview' } } } });
+    expect(previousSteps(definition, 'save-overview').map((node) => node.id)).toEqual(['merge']);
+    expect(definition.nodes.find((node) => node.id === 'save-overview')).toMatchObject({ config: { params: { map: { title: 'overviewTitle', body: 'overview' } } } });
   });
 
   it('fills an analysis AI node from its preset: json, whole script, every rule in the visible instructions', () => {

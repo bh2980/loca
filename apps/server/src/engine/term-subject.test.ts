@@ -55,7 +55,7 @@ function termWorkflow(choice: unknown, propose = false) {
         },
       },
       { id: 'is-term', type: 'condition', position: at, config: { expression: { '==': [{ var: 'outputs.translate.isTerm' }, true] } } },
-      { id: 'save', type: 'function', position: at, config: { fn: 'saveTermEntry', params: { fromNodeId: 'translate', map: { target: 'target', note: 'note' }, propose } } },
+      { id: 'save', type: 'function', position: at, config: { fn: 'saveTermEntry', params: { map: { target: 'target', note: 'note' }, propose } } },
       { id: 'reject', type: 'function', position: at, config: { fn: 'setTermStatus', params: { status: 'rejected', propose } } },
     ],
     edges: [

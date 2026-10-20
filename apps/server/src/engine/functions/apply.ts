@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { get } from 'es-toolkit/compat';
-import { AGE_BANDS, APPLY_FUNCTION_NAMES, APPLY_TARGETS, applyParams, CHARACTER_ROLES, DOCUMENT_KINDS, GENDERS, SPEECH_LEVELS, tagScope, TERM_KIND_LABELS, TERM_KINDS, UNKNOWN_LISTENER, type AiConfirm, type ApplyField, type ApplyFunctionName, type ApplyParams } from '@tw/shared';
+import { AGE_BANDS, APPLY_FUNCTION_NAMES, APPLY_TARGETS, applyParams, CHARACTER_ROLES, DOCUMENT_KINDS, GENDERS, previousStepId, SPEECH_LEVELS, tagScope, TERM_KIND_LABELS, TERM_KINDS, UNKNOWN_LISTENER, type AiConfirm, type ApplyField, type ApplyFunctionName, type ApplyParams } from '@tw/shared';
 import type { Db } from '../../db/index.ts';
 import * as s from '../../db/schema.ts';
 import type { Topic } from '../../events.ts';
@@ -251,10 +251,12 @@ function run(fn: ApplyFunctionName, tx: Tx, raw: unknown, input: FunctionInput):
   const params = applyParams.parse(raw);
   const target = APPLY_TARGETS[fn];
   const missing = (target.fields as readonly ApplyField[]).filter((field) => field.required && !params.map[field.name]);
-  if (!params.fromNodeId || missing.length || (target.shape === 'list' && !params.list))
-    throw new Error(`'${target.label}' 노드의 가져올 노드와 필드 연결이 비어 있습니다.`);
-  const output = input.item.data.outputs?.[params.fromNodeId];
-  if (!output) return { port: 'out', output: { applied: false, reason: '가져올 노드의 결과가 이 대사에 없습니다.' } };
+  if (missing.length || (target.shape === 'list' && !params.list)) throw new Error(`'${target.label}' 노드의 필드 연결이 비어 있습니다.`);
+  const run = tx.select().from(s.runs).where(eq(s.runs.id, input.runId)).get();
+  // The result of the step before this node on the item's way here (the AI or script node it is drawn after).
+  const from = run && previousStepId(run.definition, input.item.data.path);
+  const output = from ? input.item.data.outputs?.[from] : undefined;
+  if (!output) return { port: 'out', output: { applied: false, reason: '앞 단계의 결과가 이 대사에 없습니다.' } };
   // A batch's answer rides on its first line; the others have nothing to apply (H7).
   if (target.shape !== 'line' && (output as { batchLeader?: boolean }).batchLeader === false) return { port: 'out', output: { batchSkipped: true } };
 
@@ -264,7 +266,7 @@ function run(fn: ApplyFunctionName, tx: Tx, raw: unknown, input: FunctionInput):
     tx,
     input,
     params,
-    run: tx.select().from(s.runs).where(eq(s.runs.id, input.runId)).get(),
+    run,
     write: { projectId: input.projectId, runId: input.runId, policy: policyOf(tx, input.projectId, params.asCandidate) },
   };
   const nodeId = input.item.nodeId;

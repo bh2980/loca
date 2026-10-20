@@ -101,9 +101,15 @@ export const aiInputSchema = z
   .object({ lines: z.boolean().default(true), previous: z.boolean().default(false), fields: z.array(z.string().trim().min(1)).default([]) })
   .prefault({});
 
-/** Nodes whose result the next AI node can read as "previous": AI, script and gather nodes. Others pass the line on. */
+/** Nodes whose result the next step reads (an AI node's "previous", an apply node, a gather): AI, script and gather nodes. Others pass the line on. */
 export const leavesResult = (node: WorkflowNode | undefined) =>
   node?.type === 'ai' || node?.type === 'gather' || (node?.type === 'function' && node.config.fn === 'script');
+
+/** The id of the previous step on an item's way (`path`): the last node it passed that leaves a result, not through its error exit. */
+export function previousStepId(definition: Pick<WorkflowDefinition, 'nodes'>, path: { nodeId: string; port: string }[]): string | undefined {
+  const byId = new Map(definition.nodes.map((node) => [node.id, node]));
+  return path.findLast((visit) => visit.port !== 'error' && leavesResult(byId.get(visit.nodeId)))?.nodeId;
+}
 
 /**
  * The nodes whose result can reach `nodeId` as "previous": going back along the edges, the first node on
@@ -176,12 +182,13 @@ export const SUBJECT_BATCH_MODES: Record<WorkflowSubject, readonly BatchConfig['
 
 /**
  * 모으기: waits until no item of the run is still open before it (every request of the nodes upstream
- * has answered), then passes ONE item on, carrying what `from` produced across all of them:
+ * has answered), then passes ONE item on, carrying the previous step's results of all of them (the
+ * result node before it on each item's way, see previousStepId):
  * outputs.<gather> = { parts: [one per answer, trimmed to `fields`], count, failed }. The other items
  * end there. After a gather the flow is "the combined result", not items: nodes that change an item
  * are refused, and an AI node right after it reads the parts with input { previous: true, lines: false }.
  */
-export const gatherConfigSchema = z.object({ from: z.string().default(''), fields: z.array(z.string().trim().min(1)).default([]) }).prefault({});
+export const gatherConfigSchema = z.object({ fields: z.array(z.string().trim().min(1)).default([]) }).prefault({});
 export type GatherConfig = z.infer<typeof gatherConfigSchema>;
 
 /** Functions that write the item itself (its status, translation, listener, tags, a term's form or status). */
@@ -482,10 +489,9 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
     if (node.type === 'entry' && subject === 'lines')
       for (const id of node.config.statusIds) if (!refs.statusIds.has(id)) error('삭제된 상태가 있습니다.', { nodeId: node.id });
     if (node.type === 'gather') {
-      const from = definition.nodes.find((other) => other.id === node.config.from);
-      if (!from) error('모을 노드를 고르세요.', { nodeId: node.id });
-      else if (!(from.type === 'ai' || (from.type === 'function' && from.config.fn === 'script'))) error('모으기는 AI 노드나 스크립트 노드의 결과를 모읍니다.', { nodeId: node.id });
-      else if (!reach(from.id).has(node.id)) error(`'${nodeName(from)}'는 이 노드보다 앞에 있어야 합니다.`, { nodeId: node.id });
+      const steps = previousSteps(definition, node.id);
+      if (!steps.length) error('모으기 앞 단계에 결과를 내는 AI·스크립트 노드가 없습니다.', { nodeId: node.id });
+      else if (steps.some((step) => step.type === 'gather')) error('모으기 바로 앞 단계가 또 모으기일 수는 없습니다.', { nodeId: node.id });
       const after = [...reach(node.id)].filter((id) => id !== node.id);
       // A gather inside a loop would close more than once per pass and never know when it is done.
       if ((graph.outNeighbors(node.id) as string[]).some((next) => reach(next).has(node.id))) error('모으기는 되돌아가는 고리 안에 둘 수 없습니다.', { nodeId: node.id });
@@ -518,7 +524,7 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
         if (!/^https?:\/\//.test(String(params.url).trim())) error('HTTP 호출할 주소(https://…)를 입력하세요.', { nodeId: node.id });
         if (params.connectionId && !refs.toolConnectionIds.has(params.connectionId as string)) error('삭제된 API 키입니다.', { nodeId: node.id });
       }
-      if (node.config.fn in APPLY_TARGETS) for (const message of applyIssues(definition, node.config.fn as ApplyFunctionName, params as ApplyParams)) error(message, { nodeId: node.id });
+      if (node.config.fn in APPLY_TARGETS) for (const message of applyIssues(definition, node.id, node.config.fn as ApplyFunctionName, params as ApplyParams)) error(message, { nodeId: node.id });
     }
     if (node.type === 'condition' && (node.config.expression === undefined || node.config.expression === null))
       error('조건식을 입력하세요.', { nodeId: node.id });
@@ -552,14 +558,13 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
 }
 
 /**
- * What is wrong with an apply node's source and mapping: the source must be an AI or script node
- * before it, a `list` target needs the list field, and every required field must be mapped.
+ * What is wrong with an apply node's source and mapping: the previous step (along the edges) must be an
+ * AI or script node, a `list` target needs the list field, and every required field must be mapped.
  */
-export function applyIssues(definition: WorkflowDefinition, fn: ApplyFunctionName, params: ApplyParams): string[] {
+export function applyIssues(definition: Pick<WorkflowDefinition, 'nodes' | 'edges'>, nodeId: string, fn: ApplyFunctionName, params: ApplyParams): string[] {
   const target = APPLY_TARGETS[fn];
-  const from = definition.nodes.find((other) => other.id === params.fromNodeId);
-  if (!params.fromNodeId) return ['결과를 가져올 노드를 고르세요.'];
-  if (!from || !(from.type === 'ai' || (from.type === 'function' && from.config.fn === 'script'))) return ['결과를 가져올 AI·스크립트 노드를 고르세요.'];
+  const steps = previousSteps(definition, nodeId);
+  if (!steps.length || steps.some((step) => step.type === 'gather')) return ['앞 단계에 결과를 내는 AI·스크립트 노드가 없습니다. 반영할 결과를 내는 노드 뒤에 이으세요.'];
   const issues: string[] = [];
   if (target.shape === 'list' && !params.list) issues.push('항목을 가져올 목록 필드를 고르세요.');
   const missing = target.fields.filter((field) => 'required' in field && field.required && !params.map[field.name]);

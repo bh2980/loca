@@ -31,6 +31,9 @@ function setup() {
   const workflow = db.insert(s.workflows).values({ projectId, name: 'wf', definition }).returning().get();
   const run = createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: {} });
   const runId = (run as { id?: string }).id ?? db.select().from(s.runs).get()!.id;
+  // The step before the apply node: an AI node "ai" whose output the items carry (apply() puts it on their way).
+  const ai = { id: 'ai', type: 'ai', position: at, config: { model: { connectionId: 'c', model: 'm' }, instructions: 'x' } };
+  db.update(s.runs).set({ definition: workflowDefinitionSchema.parse({ ...definition, nodes: [...definition.nodes, ai] }) }).where(eq(s.runs.id, runId)).run();
   return { db, projectId, runId };
 }
 type Ctx = ReturnType<typeof setup>;
@@ -39,15 +42,15 @@ type Ctx = ReturnType<typeof setup>;
 function apply(ctx: Ctx, fn: ApplyFunctionName, params: Record<string, unknown>, output: Record<string, unknown> | undefined, key = 'a1') {
   const unit = ctx.db.select().from(s.units).where(eq(s.units.key, key)).get()!;
   const item = ctx.db.select().from(s.runItems).where(eq(s.runItems.subjectId, unit.id)).get()!;
-  const data = { ...item.data, outputs: output ? { ai: output } : ({} as Record<string, Record<string, unknown>>) };
+  const data = { ...item.data, path: [{ nodeId: 'entry', port: 'out', at: 0 }, { nodeId: 'ai', port: 'out', at: 0 }], outputs: output ? { ai: output } : ({} as Record<string, Record<string, unknown>>) };
   const input: FunctionInput = { subject: 'lines', unit, item: { ...item, nodeId: 'apply', data }, tagIds: [], projectId: ctx.projectId, runId: ctx.runId };
-  return ctx.db.transaction((tx) => applyFunctions[fn](tx, { fromNodeId: 'ai', ...params }, input));
+  return ctx.db.transaction((tx) => applyFunctions[fn](tx, params, input));
 }
 const proposals = (ctx: Ctx) => ctx.db.select().from(s.proposals).all();
 
 describe('apply node mapping', () => {
   it('reads list items by the field map, drops items missing a required field and takes the first of a lines field', () => {
-    const { items, skipped } = applyItems('saveSpeechRules', { fromNodeId: 'ai', list: 'rules', propose: true, asCandidate: false, onlyEmpty: true, map: { fromName: 'speaker', toName: 'listener', level: 'level', startKey: 'at' } }, {
+    const { items, skipped } = applyItems('saveSpeechRules', { list: 'rules', propose: true, asCandidate: false, onlyEmpty: true, map: { fromName: 'speaker', toName: 'listener', level: 'level', startKey: 'at' } }, {
       rules: [{ speaker: 'Bob', listener: 'Alice', level: 'hae', at: ['a2'] }, { speaker: 'Bob', listener: '', level: 'hae' }],
     });
     expect(items).toEqual([{ fromName: 'Bob', toName: 'Alice', level: 'hae', startKey: ['a2'] }]);
@@ -55,7 +58,7 @@ describe('apply node mapping', () => {
   });
 
   it('reads nested list fields by sub-field', () => {
-    const { items } = applyItems('saveRelationships', { fromNodeId: 'ai', list: 'rels', propose: true, asCandidate: false, onlyEmpty: true, map: { from: 'a', to: 'b', kind: 'kind', changes: 'shifts', 'changes.change': 'what' } }, {
+    const { items } = applyItems('saveRelationships', { list: 'rels', propose: true, asCandidate: false, onlyEmpty: true, map: { from: 'a', to: 'b', kind: 'kind', changes: 'shifts', 'changes.change': 'what' } }, {
       rels: [{ a: 'Bob', b: 'Alice', kind: '부하', shifts: [{ at: ['a2'], what: '긴장' }, { at: [], what: '무시' }] }],
     });
     expect(items[0].changes).toEqual([{ at: ['a2'], change: '긴장' }]);
@@ -63,10 +66,10 @@ describe('apply node mapping', () => {
 });
 
 describe('apply nodes', () => {
-  it('refuses a node whose source or required mapping is empty', () => {
+  it('refuses a node whose required mapping is empty', () => {
     const ctx = setup();
     expect(() => apply(ctx, 'saveTerms', { list: 'terms', map: {} }, { terms: [] })).toThrow('연결이 비어');
-    expect(() => apply(ctx, 'setListener', { map: { listener: 'value' }, fromNodeId: '' }, {})).toThrow('연결이 비어');
+    expect(() => apply(ctx, 'setListener', { map: {} }, {})).toThrow('연결이 비어');
   });
 
   it('files one proposal per batch with the run id, skips non-leader lines, and accepting it saves the terms', async () => {

@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Play, Plus, Trash2 } from 'lucide-react';
-import { APPLY_FUNCTION_NAMES, APPLY_TARGETS, applyIssues, DEFAULT_PARTICLE_PATTERN, formatPatternError, FUNCTIONS, functionTakes, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, JSON_FIELD_TYPE_LABELS, nodeName, PALETTE_FUNCTION_NAMES, type ApplyField, type ApplyFunctionName, type ApplyParams, type CustomFormatRule, type JsonFieldType, type WorkflowDefinition, type FunctionName, type JsonField, type WorkflowNode } from '@tw/shared';
+import { APPLY_FUNCTION_NAMES, APPLY_TARGETS, applyIssues, DEFAULT_PARTICLE_PATTERN, formatPatternError, FUNCTIONS, functionTakes, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, JSON_FIELD_TYPE_LABELS, nodeName, PALETTE_FUNCTION_NAMES, previousSteps, type ApplyField, type ApplyFunctionName, type ApplyParams, type CustomFormatRule, type JsonFieldType, type WorkflowDefinition, type FunctionName, type JsonField, type WorkflowNode } from '@tw/shared';
 import { Button, Input, InspectorActionRow, InspectorFields, InspectorList, InspectorResult, InspectorToggle, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, StatusIcon, TagChip } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
 import { cn } from '@/lib/utils';
@@ -415,18 +415,6 @@ const ACCEPTS: Record<JsonFieldType, JsonFieldType[]> = {
   list: ['list'],
 };
 
-/** Nodes whose output can reach this one: AI and script nodes upstream (any AI/script node when no lines are drawn yet). */
-function upstreamSources(node: WorkflowNode, refs: NodeRefs) {
-  const edges = refs.edges ?? [];
-  const before = new Set<string>();
-  const queue = [node.id];
-  while (queue.length) {
-    const id = queue.pop()!;
-    for (const edge of edges) if (edge.target === id && !before.has(edge.source)) { before.add(edge.source); queue.push(edge.source); }
-  }
-  return refs.nodes.filter((other) => other.id !== node.id && (before.has(other.id) || !edges.length) && (other.type === 'ai' || (other.type === 'function' && other.config.fn === 'script')));
-}
-
 function autoMap(targets: ApplyField[], sources: SourceField[]) {
   const map: Record<string, string> = {};
   for (const target of targets) if (sources.some((source) => source.name === target.name && ACCEPTS[target.type].includes(source.type))) map[target.name] = target.name;
@@ -436,22 +424,14 @@ function autoMap(targets: ApplyField[], sources: SourceField[]) {
 function ApplyConfig({ node, fn, params, refs, setMany }: { node: FunctionNode; fn: ApplyFunctionName; params: ApplyParams; refs: NodeRefs; setMany: (patch: Record<string, unknown>) => void }) {
   const target = APPLY_TARGETS[fn];
   const targetFields: ApplyField[] = target.fields;
-  const sources = upstreamSources(node, refs);
-  const from = refs.nodes.find((other) => other.id === params.fromNodeId);
-  const topFields = from ? outputFields(from) : [];
+  const definition = { nodes: refs.nodes, edges: refs.edges ?? [] } as unknown as WorkflowDefinition;
+  // The result applied is the previous step's: the AI or script node this one is drawn after.
+  const steps = previousSteps(definition, node.id).filter((step) => step.type !== 'gather');
+  const from = steps[0];
+  const topFields = [...new Map(steps.flatMap(outputFields).map((field) => [field.name, field])).values()];
   const lists = topFields.filter((field) => field.type === 'list');
   const rowSources = target.shape === 'list' ? (lists.find((field) => field.name === params.list)?.fields ?? []) : topFields;
-  const definition = { nodes: refs.nodes, edges: refs.edges ?? [] } as unknown as WorkflowDefinition;
-  const issues = applyIssues(definition, fn, params);
-
-  const pickFrom = (id: string) => {
-    const next = refs.nodes.find((other) => other.id === id);
-    const nextTop = next ? outputFields(next) : [];
-    const nextLists = nextTop.filter((field) => field.type === 'list');
-    const list = target.shape === 'list' ? (nextLists.length === 1 ? nextLists[0]!.name : '') : '';
-    const rows = target.shape === 'list' ? (nextLists.find((field) => field.name === list)?.fields ?? []) : nextTop;
-    setMany({ fromNodeId: id, list, map: autoMap(targetFields, rows) });
-  };
+  const issues = applyIssues(definition, node.id, fn, params);
   const pickList = (list: string) => setMany({ list, map: autoMap(targetFields, lists.find((field) => field.name === list)?.fields ?? []) });
   const setMap = (name: string, source: string) => {
     const { [name]: _dropped, ...rest } = params.map;
@@ -460,20 +440,8 @@ function ApplyConfig({ node, fn, params, refs, setMany }: { node: FunctionNode; 
 
   return (
     <>
-      <Field label="결과 노드" hint="이 노드의 결과를 반영합니다.">
-        <Select value={params.fromNodeId || 'none'} onValueChange={(value) => pickFrom(value === 'none' ? '' : value)}>
-          <SelectTrigger className="w-full">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="none">고르지 않음</SelectItem>
-            {sources.map((other) => (
-              <SelectItem key={other.id} value={other.id}>
-                {nodeName(other)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      <Field label="반영할 결과" hint="선으로 이어진 앞 단계(AI·스크립트 노드)의 결과를 반영합니다. 조건·저장 노드는 건너뜁니다.">
+        <p className="text-sm">{steps.length ? `← ${steps.map(nodeName).join(', ')}` : '앞 단계에 결과를 내는 노드가 없습니다. AI·스크립트 노드 뒤에 이으세요.'}</p>
       </Field>
 
       {from && target.shape === 'list' && (
@@ -497,7 +465,7 @@ function ApplyConfig({ node, fn, params, refs, setMany }: { node: FunctionNode; 
       {from && (target.shape !== 'list' || params.list) && (
         <Field
           label="필드 연결"
-          hint="반영할 항목마다 결과 노드의 어느 필드를 쓸지 고릅니다."
+          hint="반영할 항목마다 앞 단계 결과의 어느 필드를 쓸지 고릅니다."
           action={
             <Button variant="ghost" size="inline" onClick={() => setMany({ map: { ...autoMap(targetFields, rowSources), ...params.map } })}>
               자동 연결

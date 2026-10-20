@@ -1,7 +1,7 @@
 import { and, asc, count, desc, eq, gte, inArray, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
 import jsonLogic from 'json-logic-js';
 import * as ai from '@tw/ai';
-import { estimateTokens, batchConfigSchema, batchTokens, lineCostIn, FUNCTIONS, choiceKey, lineMarksOf, nodeModels, nodeName, type AiNode, type ConditionData, type FunctionName, type ItemErrorKind, pickPaths, leavesResult, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+import { estimateTokens, batchConfigSchema, batchTokens, lineCostIn, FUNCTIONS, choiceKey, lineMarksOf, nodeModels, nodeName, type AiNode, type ConditionData, type FunctionName, type ItemErrorKind, pickPaths, previousStepId, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
 type GatherNode = Extract<WorkflowNode, { type: 'gather' }>;
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
@@ -89,10 +89,9 @@ const SMALLER = ' 오류 출구에서 더 작은 묶음(장면별·개수별)으
 function previousOf(item: Item, definition: WorkflowDefinition, node?: AiNode) {
   const input = node?.config.input;
   if (!input?.previous) return undefined;
-  const byId = new Map(definition.nodes.map((other) => [other.id, other]));
-  const step = item.data.path.findLast((visit) => visit.port !== 'error' && leavesResult(byId.get(visit.nodeId)));
+  const step = previousStepId(definition, item.data.path);
   if (!step) return undefined;
-  const { batchLeader, ...output } = item.data.outputs?.[step.nodeId] ?? { batchLeader: false };
+  const { batchLeader, ...output } = item.data.outputs?.[step] ?? { batchLeader: false };
   return batchLeader === false ? undefined : pickPaths(output, input.fields);
 }
 /** Prompt items with the previous step's result for them. */
@@ -335,7 +334,7 @@ export class Runner {
 
   /**
    * Closes every gather whose upstream nodes have nothing open left: the answers its items carry
-   * from `from` (batch answers once, from their first item) become outputs.<gather> = { parts,
+   * from the previous step (each item's result node before it; batch answers once, from their first item) become outputs.<gather> = { parts,
    * count, failed } on one item, which leaves through "out"; the others end at the gather.
    * True when one closed.
    */
@@ -349,9 +348,11 @@ export class Runner {
       if (before.some((id) => (open.get(id) ?? 0) > 0)) continue;
       this.db.transaction((tx) => {
         const items = tx.select().from(s.runItems).where(and(eq(s.runItems.runId, run.id), eq(s.runItems.nodeId, gather.id), eq(s.runItems.state, 'queued'))).orderBy(asc(sql`rowid`)).all();
-        const { from, fields } = gather.config;
+        const { fields } = gather.config;
+        // Each item's previous step: the result node before the gather on its way here.
         const parts = items.flatMap((item) => {
-          const output = item.data.outputs?.[from];
+          const from = previousStepId(run.definition, item.data.path);
+          const output = from ? item.data.outputs?.[from] : undefined;
           if (!output || (output as { batchLeader?: boolean }).batchLeader === false) return [];
           const { batchLeader: _leader, ...answer } = output as Record<string, unknown>;
           return [pickPaths(answer, fields)];

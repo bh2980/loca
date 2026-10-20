@@ -1,6 +1,6 @@
 /** What the editor and a run's graph share: a node's one-line summary and the edges as React Flow draws them. */
 import { MarkerType } from '@xyflow/react';
-import { APPLY_TARGETS, FUNCTIONS, nodeModels, nodeName, nodePorts, type FunctionName, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+import { APPLY_TARGETS, FUNCTIONS, nodeModels, nodeName, nodePorts, previousSteps, type FunctionName, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
 import type { FlowEdge } from '@/components/workflow/workflow-edge';
 
 export interface SummaryNames {
@@ -9,6 +9,12 @@ export interface SummaryNames {
   /** Connections are known: a missing one reads as deleted rather than not loaded yet. */
   connectionsLoaded: boolean;
 }
+
+/** "← 앞 단계" for a node that takes the previous step's result (apply nodes, a gather). */
+const stepsLabel = (definition: WorkflowDefinition, nodeId: string) => {
+  const steps = previousSteps(definition, nodeId);
+  return steps.length ? `← ${steps.map(nodeName).join(', ')}` : '앞 단계 결과 없음';
+};
 
 /** The line under a node's title: its model, target status, checks, condition or source node. */
 export function nodeSummary(node: WorkflowNode, definition: WorkflowDefinition, names: SummaryNames): string {
@@ -25,10 +31,7 @@ export function nodeSummary(node: WorkflowNode, definition: WorkflowDefinition, 
         return [params.statusId && `→ ${names.status.get(params.statusId as string) ?? '삭제된 상태'}`].filter(Boolean).join(' · ') || '변경 없음';
       if (node.config.fn === 'http') return `${(params.method as string) ?? 'POST'} ${names.connection.get(params.connectionId as string) ?? '연결 없음'}/${(params.path as string) ?? ''}`;
       if (node.config.fn === 'script') return `출구: ${((params.ports as string[]) ?? ['out']).join(', ')}`;
-      if (node.config.fn in APPLY_TARGETS) {
-        const from = definition.nodes.find((other) => other.id === params.fromNodeId);
-        return from ? `← ${nodeName(from)}` : '가져올 노드 없음';
-      }
+      if (node.config.fn in APPLY_TARGETS) return stepsLabel(definition, node.id);
       if (node.config.fn === 'formatCheck') {
         const checks = [
           params.placeholders !== false && '자리표시자',
@@ -46,10 +49,8 @@ export function nodeSummary(node: WorkflowNode, definition: WorkflowDefinition, 
     }
     case 'condition':
       return node.config.description || '조건식';
-    case 'gather': {
-      const from = definition.nodes.find((other) => other.id === node.config.from);
-      return from ? `← ${nodeName(from)}` : '모을 노드를 고르세요';
-    }
+    case 'gather':
+      return stepsLabel(definition, node.id);
     default:
       return '';
   }

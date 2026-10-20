@@ -15,7 +15,7 @@ description: Build, change, run and debug loca workflows — the user-defined au
 | 진입(entry) | 고른 상태의 대사가 들어옴. 워크플로마다 하나 | `out` |
 | AI(ai) | 모델·지시문·문맥으로 호출해 결과를 냄. 출력 종류: `text` 글 · `verdict` 판정 · `choice` 선택 · `json` 필드가 있는 JSON | verdict는 `pass`/`fail`/`error`, 나머지는 `out`/`error` |
 | 함수(function) | 형식 검사, 용어 검사, 상태 변경, HTTP, 스크립트 | 함수마다 다름 (reference) |
-| 반영(apply, 함수의 한 갈래) | AI·스크립트 노드의 결과를 번역 후보·청자·태그·용어·인물·관계·말투 규칙·사건·문서로 프로젝트에 넣음 | `out`/`error` |
+| 반영(apply, 함수의 한 갈래) | 선으로 이어진 앞 단계(AI·스크립트 노드; 조건·다른 반영 노드는 건너뜀)의 결과를 번역 후보·청자·태그·용어·인물·관계·말투 규칙·사건·문서로 프로젝트에 넣음 | `out`/`error` |
 | 조건(condition) | 대사의 데이터로 갈래를 나눔 | 조건식에 따라 |
 | 종료(end) | 흐름을 마침 | — |
 
@@ -54,7 +54,7 @@ loca workflows reference <프리셋 id>       # 그 프리셋의 지시문·출�
    - `timeoutMinutes`(기본 10, 작품 분석 프리셋 30): 요청 하나가 이 시간을 넘으면 그 줄들은 `error`(`timeout`)로 나갑니다. 연결에는 제한 시간이 없습니다.
    - 실패는 워크플로가 다룹니다. 엔진은 요청을 나누거나 다시 보내지 않습니다(요청 한도·네트워크 끊김만 잠시 뒤 다시 보내고, 연속 실패가 `settings.maxConsecutiveFailures`회면 실행을 멈춤). 기본 템플릿은 AI 노드마다 `error` → 조건 "다시 시도?"(`visits.<노드> < 2`이고 `error.kind`가 `too-long`·`cut-off`가 아님) → 같은 노드 / 아니면 함수 `fail`("실패로 끝내기")을 둡니다. 요청이 너무 크면(`too-long`·`cut-off`) 더 작은 묶음(장면별·개수별)으로 읽는 노드로 보내세요.
    - 문맥(용어집·말투 규칙·앞 대사·문서·인물 등)은 노드마다 켜고 끕니다. 무엇이 실제로 들어가는지는 `loca context <키> -n <노드 id>`로 봅니다(모델은 부르지 않음).
-   - 모으기(`gather`, 노드 종류 "모으기"): 앞 노드의 요청이 **모두** 끝날 때까지 기다렸다가 합친 결과 하나만 다음 노드로 넘깁니다(나머지 항목은 거기서 끝나고 경로에 `gathered`로 보임). 설정 `{from, fields}`: `from`은 앞의 AI·스크립트 노드 id, `fields`는 답마다 남길 경로(비면 전체). 결과는 `outputs.<모으기 id> = {parts: [from의 답마다 하나(묶음 답은 한 번), fields로 추림], count, failed(앞에서 실패한 항목 수)}`. 대사를 여러 요청으로 나눠 읽는 AI 노드 → 모으기 → 그 조각들을 합치는 AI 노드가 전형적인 모양입니다. 모으기 뒤에서는 항목을 바꾸는 노드(반영·상태 변경 등)가 거부되고, 모으기 바로 뒤의 AI 노드는 `input: {previous: true, lines: false}`로만 읽으며(`previous: [{parts, count, failed}]`로 들어옴), 고리 안에는 둘 수 없습니다.
+   - 모으기(`gather`, 노드 종류 "모으기"): 앞 노드의 요청이 **모두** 끝날 때까지 기다렸다가 합친 결과 하나만 다음 노드로 넘깁니다(나머지 항목은 거기서 끝나고 경로에 `gathered`로 보임). 설정 `{fields}`: 모으는 결과는 선으로 이어진 앞 단계(AI·스크립트 노드)의 답이고, `fields`는 답마다 남길 경로(비면 전체). 결과는 `outputs.<모으기 id> = {parts: [앞 단계의 답마다 하나(묶음 답은 한 번), fields로 추림], count, failed(앞에서 실패한 항목 수)}`. 대사를 여러 요청으로 나눠 읽는 AI 노드 → 모으기 → 그 조각들을 합치는 AI 노드가 전형적인 모양입니다. 모으기 뒤에서는 항목을 바꾸는 노드(반영·상태 변경 등)가 거부되고, 모으기 바로 뒤의 AI 노드는 `input: {previous: true, lines: false}`로만 읽으며(`previous: [{parts, count, failed}]`로 들어옴), 고리 안에는 둘 수 없습니다.
 5. 조건 노드는 JSON Logic입니다. 읽는 값: `visits`(노드별 방문 횟수), `outputs`(앞 노드 출력), `candidate`, `issues`, `unit`(`kind`, `speaker`, `listener`, `statusId`, `tagIds`, `marks`; 대사 워크플로만, 용어 워크플로는 `term`), `error`(마지막으로 `error` 출구로 보낸 실패: `kind` = `missing`·`invalid-output`·`timeout`·`too-long`·`cut-off`·`refused`·`other`, `message`, `nodeId`; 조건을 지나도 남고, 작업 노드가 성공하면 지워짐). 예: `{"in": ["unknownListener", {"var": "unit.marks"}]}`, `{"<": [{"var": "visits.review"}, 3]}`, `{"==": [{"var": "error.kind"}, "missing"]}`. 노드 id와 상태 id는 reference·show에서 확인합니다.
 6. 올리기:
    ```

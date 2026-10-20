@@ -294,8 +294,6 @@ export type ApplyFunctionName = keyof typeof APPLY_TARGETS;
 export const APPLY_FUNCTION_NAMES = Object.keys(APPLY_TARGETS) as ApplyFunctionName[];
 
 export const applyParams = z.object({
-  /** The node whose output is applied. */
-  fromNodeId: z.string().default(''),
   /** shape `list`: the list field in that output whose items are applied. */
   list: z.string().default(''),
   /** Target field → source field (inside the list item for `list`, inside the output otherwise). */
