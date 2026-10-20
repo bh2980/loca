@@ -23,7 +23,8 @@ export interface NodeCardProps {
   outputs?: NodeCardPort[]
   errors?: number
   warnings?: number
-  live?: { queued: number; running: number; failed: number }
+  /** Lines waiting, being worked on and failed here; `calls`/`limit`: requests in flight and how many can be at once. */
+  live?: { queued: number; running: number; failed: number; calls?: number; limit?: number }
   selected?: boolean
   disabled?: boolean
   direction?: CanvasDirection
@@ -77,6 +78,7 @@ export function NodeCard({ kind, icon, title, summary, inputHandle, outputs = []
         </div>
         {summary && <p className={cn("px-2.5 py-1.5 text-xs text-muted-foreground", isHorizontal ? "line-clamp-2" : "min-h-7 truncate")}>{summary}</p>}
         {hasLive && <div className="flex gap-2 border-t border-border-subtle px-2.5 py-1 text-xs tabular-nums">
+          {live.limit !== undefined && (live.calls ?? 0) > 0 && <span className="font-medium text-foreground" title="동시에 보낸 요청 / 이 노드가 한 번에 보낼 수 있는 요청(연결의 동시 호출 한도)">요청 {live.calls}/{live.limit}</span>}
           {live.running > 0 && <span className="font-medium text-foreground">처리 {live.running}</span>}
           {live.queued > 0 && <span className="text-muted-foreground">대기 {live.queued}</span>}
           {live.failed > 0 && <span className="text-destructive">실패 {live.failed}</span>}

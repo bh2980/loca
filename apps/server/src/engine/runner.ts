@@ -335,6 +335,13 @@ export class Runner {
   private callsByAccount = new Map<string, number>();
   /** HTTP / script function calls in flight per run. */
   private functionsByRun = new Map<string, number>();
+  /** Requests in flight per run and node: how many of a node's batches are being worked on at once. */
+  private callsByNode = new Map<string, Map<string, number>>();
+
+  /** Requests in flight per node of a run (only nodes with one). */
+  liveCalls(runId: string): Record<string, number> {
+    return Object.fromEntries([...(this.callsByNode.get(runId) ?? [])].filter(([, count]) => count > 0));
+  }
 
   /** The account a model choice's calls count against: its picked route's connection. */
   private accountOf(run: Run, key: string) {
@@ -612,10 +619,14 @@ export class Runner {
     const counts = account ? this.callsByAccount : this.functionsByRun;
     const key = account ?? run.id;
     counts.set(key, (counts.get(key) ?? 0) + 1);
+    const byNode = this.callsByNode.get(run.id) ?? new Map<string, number>();
+    this.callsByNode.set(run.id, byNode);
+    byNode.set(node.id, (byNode.get(node.id) ?? 0) + 1);
     const work = node.type === 'ai' ? this.executeAi(run, node, modelKey!, batch, controller.signal) : this.executeFunction(run, node as FunctionNode, batch[0], controller.signal);
     const task = work.finally(() => {
       set.delete(task);
       counts.set(key, (counts.get(key) ?? 1) - 1);
+      byNode.set(node.id, (byNode.get(node.id) ?? 1) - 1);
     });
     set.add(task);
   }

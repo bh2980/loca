@@ -323,6 +323,31 @@ describe('slots per account', () => {
     return { port, peak, order };
   }
 
+  it('reports the requests a node has in flight while they run', async () => {
+    const { db, start } = setup(40, () => 20);
+    db.update(s.connections).set({ concurrency: 3 }).run();
+    const runId = start();
+    const seen: Record<string, number>[] = [];
+    let runner: Runner;
+    const port: ModelPort = {
+      judge: async () => {
+        throw new Error('unused');
+      },
+      generate: async (_route, request) => {
+        seen.push(runner.liveCalls(runId));
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        const lines = promptEntries(request.prompt) as { id: string; source: string }[];
+        if (request.system.includes('Review each')) return { object: { results: lines.map((line) => ({ id: line.id, passed: true, issues: [] })) }, usage: {} } as never;
+        return { object: { results: lines.map((line) => ({ id: line.id, text: `[ko] ${line.source}` })) }, usage: {} } as never;
+      },
+    };
+    runner = new Runner(db, memoryStore(), port);
+    await runner.drain();
+    // Never more than the account's 3 slots across the run's nodes; nothing left in flight at the end.
+    expect(Math.max(...seen.map((calls) => Object.values(calls).reduce((sum, n) => sum + n, 0)))).toBe(3);
+    expect(runner.liveCalls(runId)).toEqual({});
+  });
+
   it('two runs on one account never exceed its slots together', async () => {
     const { db, start } = setup(40, () => 20);
     db.update(s.connections).set({ concurrency: 3 }).run();

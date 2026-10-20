@@ -49,7 +49,7 @@ export type FlowNode = Node<{
   warnings: string[];
   /** Target status of a status-change node, shown in that status's colour. */
   status?: { name: string; color: string };
-  live?: { queued: number; running: number; failed: number };
+  live?: { queued: number; running: number; failed: number; calls?: number; limit?: number };
   direction: CanvasDirection;
   /** Lines enter here (the hidden entry node points at it): its 시작 mark, which opens the start settings. */
   start?: { label: string; onOpen: () => void };

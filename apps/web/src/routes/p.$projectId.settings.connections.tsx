@@ -493,7 +493,7 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
               )}
             />
             )}
-            <InspectorField label="동시 실행 수" error={errors.concurrency?.message}>
+            <InspectorField label="동시 호출 한도" description="이 연결로 한꺼번에 보낼 수 있는 요청 수입니다. 이 연결을 쓰는 모든 실행·노드·채팅이 함께 씁니다. 노드 하나는 묶음 여러 개를 이 한도만큼 동시에 처리합니다." error={errors.concurrency?.message}>
               <Input type="number" min={1} max={32} step={1} {...form.register('concurrency', number)} aria-invalid={!!errors.concurrency} />
             </InspectorField>
             <InspectorField label="최대 시도 횟수" error={errors.maxAttempts?.message}>

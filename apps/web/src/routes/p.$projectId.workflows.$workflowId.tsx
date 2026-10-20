@@ -270,11 +270,16 @@ function WorkflowEditor() {
   };
 
   const liveCounts = useMemo(() => {
-    const counts = new Map<string, { queued: number; running: number; failed: number }>();
+    const counts = new Map<string, { queued: number; running: number; failed: number; calls?: number; limit?: number }>();
     for (const row of live.data?.nodes ?? []) {
       const entry = counts.get(row.nodeId) ?? { queued: 0, running: 0, failed: 0 };
-      if (row.state in entry) entry[row.state as keyof typeof entry] += row.count;
+      if (row.state === 'queued' || row.state === 'running' || row.state === 'failed') entry[row.state] += row.count;
       counts.set(row.nodeId, entry);
+    }
+    // Requests in flight against how many the node can have at once (its connections' 동시 호출 한도).
+    for (const [nodeId, limit] of Object.entries(live.data?.callLimits ?? {})) {
+      const entry = counts.get(nodeId);
+      if (entry) Object.assign(entry, { calls: live.data?.calls[nodeId] ?? 0, limit });
     }
     return counts;
   }, [live.data]);

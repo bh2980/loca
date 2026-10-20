@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, asc, count, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { isWholeScriptWorkflow, CONNECTION_KIND_INFO, lineMarksSchema, scriptParams, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels } from '@tw/shared';
+import { choiceKey, FUNCTIONS, type FunctionName, isWholeScriptWorkflow, nodeModels, CONNECTION_KIND_INFO, lineMarksSchema, scriptParams, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -293,7 +293,7 @@ export const workflowRoutes = new Hono<Env>()
     return c.json(listBatches(db, batches));
   })
   .get('/runs/:id', (c) => {
-    const { db } = c.var.deps;
+    const { db, runner } = c.var.deps;
     const run = found(db.select().from(s.runs).where(eq(s.runs.id, c.req.param('id'))).get(), '실행');
     const nodes = db
       .select({ nodeId: s.runItems.nodeId, state: s.runItems.state, count: count() })
@@ -316,8 +316,20 @@ export const workflowRoutes = new Hono<Env>()
       .all()
       .map((row) => ({ ...row, name: connectionName(names, row.connectionId, null) }));
     const { models, ...rest } = run;
+    // Requests a node has in flight now, and how many it can have at once: an AI node's connections'
+    // 동시 호출 한도 (shared with every run and chat using them), an HTTP or script node's workflow setting.
+    const limits = new Map(db.select({ id: s.connections.id, concurrency: s.connections.concurrency }).from(s.connections).all().map((row) => [row.id, row.concurrency]));
+    const callLimits = Object.fromEntries(
+      run.definition.nodes.flatMap((node) => {
+        if (node.type === 'ai') {
+          const accounts = new Set(nodeModels(node).flatMap((choice) => models[choiceKey(choice)]?.routes[0]?.connectionId ?? []));
+          return [[node.id, [...accounts].reduce((sum, account) => sum + (limits.get(account) ?? 2), 0)]];
+        }
+        return node.type === 'function' && FUNCTIONS[node.config.fn as FunctionName]?.async ? [[node.id, run.definition.settings.concurrency]] : [];
+      }),
+    );
     // What each model choice resolved to when the run started, its fallbacks after it.
-    return c.json({ ...rest, models: Object.values(models).map((model) => ({ label: model.label, routes: model.routes.map((route) => ({ connectionId: route.connectionId, name: route.name, model: route.model })) })), nodes, usage, byModel, filling: run.notice === FILLING });
+    return c.json({ ...rest, models: Object.values(models).map((model) => ({ label: model.label, routes: model.routes.map((route) => ({ connectionId: route.connectionId, name: route.name, model: route.model })) })), nodes, calls: runner.liveCalls(run.id), callLimits, usage, byModel, filling: run.notice === FILLING });
   })
   .get('/runs/:id/items', validate('query', z.object({ state: z.string().optional(), nodeId: z.string().optional(), offset: z.coerce.number().default(0), limit: z.coerce.number().max(500).default(100) })), (c) => {
     const { db } = c.var.deps;
