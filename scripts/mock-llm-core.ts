@@ -104,11 +104,12 @@ export function detectKind(system: string): MockKind {
   if (system.includes('JavaScript 정규식 전문가')) return 'regex';
   if (system.includes('continue a Korean game translation')) return 'complete';
   if (system.includes('Korean localization glossary')) return 'glossary';
+  // AI 다듬기 answers per line as json (text + changes): read before the generic json forms.
+  if (system.includes('Do not rephrase what is already correct')) return 'refine';
   if (system.includes(FORMAT_JSON_BATCH)) return 'jsonBatch';
   if (system.includes(FORMAT_JSON_LINE)) return 'json';
   if (system.includes(FORMAT_CHOICE)) return 'choice';
   if (system.includes(FORMAT_VERDICT_HEAD)) return 'verdict';
-  if (system.includes('Do not rephrase what is already correct')) return 'refine';
   return system.includes('Revise each') ? 'revise' : 'text';
 }
 

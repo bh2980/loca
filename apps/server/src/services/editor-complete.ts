@@ -8,11 +8,6 @@ import { liveChoice } from './routes.ts';
 import type { SecretStore } from './secrets.ts';
 import { speechRuleIndex } from './speech.ts';
 
-export const COMPLETE_SYSTEM =
-  'You continue a Korean game translation in a translator\'s editor. Reply with nothing but the Korean translation of the line: if the translator has started it (the text between <started> and </started>), your reply begins with exactly that text and goes on. Copy the format tokens exactly. Follow the glossary and the speech level. No labels, quotes, notes or explanations.';
-
-/** A continuation later than this is no help while typing. */
-const COMPLETE_TIMEOUT_MS = 15_000;
 
 /** Why a continuation was not made, for the editor to show quietly. */
 export class CompleteRefused extends Error {
@@ -34,16 +29,16 @@ export function editorCallsToday(db: Db, projectId: string) {
 }
 
 /**
- * The editor's continuation of one line: the whole line's translation
- * from a small context (the line, who says it to whom and how, the three lines before, the
- * glossary terms it uses, its format tokens), starting with what the translator has typed.
+ * The editor's continuation of one line: the whole line's translation from a small context set in
+ * 설정 › 에디터 (the line and its format tokens always; who says it to whom and how, the lines before
+ * it, the glossary terms it uses when turned on), starting with what the translator has typed.
  * One call per request; the editor asks once per line and follows typing itself.
  */
 export async function completeLine(db: Db, secrets: SecretStore, unitId: string, prefix: string, signal?: AbortSignal) {
   const unit = db.select().from(s.units).where(eq(s.units.id, unitId)).get();
   if (!unit) throw new CompleteRefused('대사가 없습니다.', 400);
   const project = db.select({ editorAi: s.projects.editorAi, formatRules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, unit.projectId)).get()!;
-  const settings = editorAiSchema.parse(project.editorAi ?? {});
+  const settings = editorAiSchema.parse(project.editorAi ?? {}).complete;
   if (!settings.enabled || !settings.model) throw new CompleteRefused('편집기 자동완성이 꺼져 있습니다.', 400);
   if (editorCallsToday(db, unit.projectId) >= settings.dailyCap) {
     const midnight = new Date();
@@ -60,10 +55,10 @@ export async function completeLine(db: Db, secrets: SecretStore, unitId: string,
     .from(s.units)
     .where(and(eq(s.units.groupId, unit.groupId), lt(s.units.seq, unit.seq)))
     .orderBy(desc(s.units.seq))
-    .limit(3)
+    .limit(settings.precedingLines)
     .all()
     .reverse();
-  const rule = speechRuleIndex(db, unit.projectId).resolve([unit]).get(unit.key);
+  const rule = settings.speech ? speechRuleIndex(db, unit.projectId).resolve([unit]).get(unit.key) : undefined;
   const compiled = compileFormatRules(project.formatRules ?? undefined);
   const tokens = [compiled.placeholder, compiled.tag].flatMap((pattern) => (pattern ? (unit.source.match(pattern) ?? []) : []));
   const plain = [compiled.placeholder, compiled.tag].reduce((text, pattern) => (pattern ? text.replace(pattern, ' ') : text), unit.source);
@@ -72,9 +67,9 @@ export async function completeLine(db: Db, secrets: SecretStore, unitId: string,
     .from(s.terms)
     .where(and(eq(s.terms.projectId, unit.projectId), eq(s.terms.status, 'confirmed')))
     .all()
-    .filter((term) => term.target && mentions(plain, term.source));
+    .filter((term) => settings.glossary && term.target && mentions(plain, term.source));
 
-  const who = [unit.speaker ?? '(narration)', unit.listener && `→ ${listenerLabel(unit.listener)}`, rule && `(speech level: ${SPEECH_LEVEL_LABELS[rule.rule.level]}${rule.rule.address ? `, addresses them as "${rule.rule.address}"` : ''})`].filter(Boolean).join(' ');
+  const who = [unit.speaker ?? '(narration)', settings.speech && unit.listener && `→ ${listenerLabel(unit.listener)}`, rule && `(speech level: ${SPEECH_LEVEL_LABELS[rule.rule.level]}${rule.rule.address ? `, addresses them as "${rule.rule.address}"` : ''})`].filter(Boolean).join(' ');
   const prompt = [
     'LINE',
     `speaker: ${who}`,
@@ -88,11 +83,11 @@ export async function completeLine(db: Db, secrets: SecretStore, unitId: string,
 
   const call = (target: ai.ResolvedRoute) =>
     logged(db, { projectId: unit.projectId, kind: 'editor', refId: unitId, label: COMPLETE_LABEL, request: prompt }, target, () =>
-      ai.complete(target, { system: COMPLETE_SYSTEM, prompt, maxOutputTokens: 400, timeoutMs: COMPLETE_TIMEOUT_MS, signal }),
+      ai.complete(target, { system: settings.instructions, prompt, maxOutputTokens: 400, timeoutMs: settings.timeoutSeconds * 1000, signal }),
     );
   const result = await call(route).catch((error: unknown) => {
     if (error instanceof ai.ModelError && error.code === 'rate-limit') throw new CompleteRefused('모델 요청 한도에 걸렸습니다. 잠시 뒤 다시.', 429, 60);
-    if (error instanceof ai.ModelError && error.code === 'timeout') throw new CompleteRefused(`응답이 ${COMPLETE_TIMEOUT_MS / 1000}초 안에 오지 않아 그만뒀습니다. 더 빠른 모델을 고르세요.`, 400);
+    if (error instanceof ai.ModelError && error.code === 'timeout') throw new CompleteRefused(`응답이 ${settings.timeoutSeconds}초 안에 오지 않아 그만뒀습니다. 더 빠른 모델을 고르거나 설정 › 에디터에서 제한 시간을 늘리세요.`, 400);
     throw error;
   });
   // The line as a whole; models sometimes wrap it in quotes or add the prefix twice.

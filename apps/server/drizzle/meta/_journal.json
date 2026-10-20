@@ -519,6 +519,13 @@
       "when": 1792471452561,
       "tag": "0073_drop_connection_timeout",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "6",
+      "when": 1792473006241,
+      "tag": "0074_editor_ai_buttons",
+      "breakpoints": true
     }
   ]
 }

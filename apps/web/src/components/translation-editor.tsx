@@ -74,6 +74,9 @@ export function TranslationEditor({
   // The AI continuation: asked once when the line opens empty, or with ⌥/.
   const project = useQuery(q.project(projectId));
   const editorAi = project.data?.editorAi;
+  // Each button has its own model (설정 › 에디터); the continuation only when it is on with a model.
+  const hasModel = (mode: 'translate' | 'refine') => Boolean(editorAi?.[mode].model.model);
+  const completes = Boolean(editorAi?.complete.enabled && editorAi.complete.model);
   const [ai, setAi] = useState<{ text?: string; loading?: boolean; message?: string; dismissed?: boolean }>(() => ({ text: continuations.get(unit.id) }));
   const pending = useRef<AbortController>(null);
   const ask = (prefix: string, focus = true) => {
@@ -99,14 +102,14 @@ export function TranslationEditor({
   };
   useEffect(() => {
     // Asked by itself when the line opens: it does not take the focus (↑↓ may still be moving through lines).
-    if (editorAi?.enabled && editorAi.model && !draft.trim() && !continuations.has(unit.id)) ask('', false);
+    if (completes && !draft.trim() && !continuations.has(unit.id)) ask('', false);
     return () => pending.current?.abort();
-  }, [unit.id, editorAi?.enabled]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [unit.id, completes]); // eslint-disable-line react-hooks/exhaustive-deps
   // AI 번역 / 다듬기: waited for, then a new AI candidate of the line (the text itself does not change).
   const [assist, setAssist] = useState<{ loading?: 'translate' | 'refine'; done?: 'translate' | 'refine' | 'unchanged'; message?: string; from?: string; text?: string; reasons?: string[] }>({});
   const assistPending = useRef<AbortController>(null);
   const runAssist = (mode: 'translate' | 'refine') => {
-    if (assist.loading || !editorAi?.assistModel || (mode === 'refine' && !draft.trim())) return;
+    if (assist.loading || !hasModel(mode) || (mode === 'refine' && !draft.trim())) return;
     assistPending.current?.abort();
     const controller = (assistPending.current = new AbortController());
     const sent = draft;
@@ -177,7 +180,7 @@ export function TranslationEditor({
       toast.info('편집기 AI 설정을 확인하고 있습니다.');
       return;
     }
-    if (!editorAi?.assistModel) {
+    if (!hasModel(mode)) {
       openAssistSettings();
       return;
     }
@@ -207,7 +210,7 @@ export function TranslationEditor({
         onPlaceTags={placeMissing}
         continuation={continuation}
         onAssist={() => requestAssist(draft.trim() ? 'refine' : 'translate')}
-        onContinue={editorAi?.enabled ? () => ask(draft) : undefined}
+        onContinue={completes ? () => ask(draft) : undefined}
         continuing={ai.loading}
         onDismissContinuation={() => (pending.current?.abort(), setAi((state) => ({ ...state, loading: false, dismissed: true })))}
         focusKey={focusKey}
@@ -251,10 +254,10 @@ export function TranslationEditor({
             저장
           </EditorAction> : null}
           ai={<>
-            <EditorAction icon={Languages} variant="ghost" disabled={!!assist.loading || project.isPending} onClick={() => requestAssist('translate')} title={!project.isPending && !editorAi?.assistModel ? '모델 설정으로 이동합니다. 작성 중인 초안은 유지됩니다.' : undefined}>
+            <EditorAction icon={Languages} variant="ghost" disabled={!!assist.loading || project.isPending} onClick={() => requestAssist('translate')} title={!project.isPending && !hasModel('translate') ? '모델 설정으로 이동합니다. 작성 중인 초안은 유지됩니다.' : undefined}>
               {draft.trim() ? 'AI 다시' : 'AI 번역'}
             </EditorAction>
-            <EditorAction icon={WandSparkles} variant="ghost" disabled={!!assist.loading || project.isPending || Boolean(editorAi?.assistModel && !draft.trim())} onClick={() => requestAssist('refine')} title={!project.isPending && !editorAi?.assistModel ? '모델 설정으로 이동합니다. 작성 중인 초안은 유지됩니다.' : keyLabel('Alt+.')}>
+            <EditorAction icon={WandSparkles} variant="ghost" disabled={!!assist.loading || project.isPending || Boolean(hasModel('refine') && !draft.trim())} onClick={() => requestAssist('refine')} title={!project.isPending && !hasModel('refine') ? '모델 설정으로 이동합니다. 작성 중인 초안은 유지됩니다.' : keyLabel('Alt+.')}>
               다듬기
             </EditorAction>
           </>}
@@ -265,8 +268,8 @@ export function TranslationEditor({
                 <DropdownMenuItem disabled={save.isPending} onSelect={() => run(false)}><Save /> 저장만 <span className="ml-auto text-xs text-muted-foreground">{keyLabel('Mod+S')}</span></DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => clearDraft()}><Undo2 /> 되돌리기</DropdownMenuItem>
               </>}
-              {dirty && editorAi?.enabled && editorAi.model && <DropdownMenuSeparator />}
-              {editorAi?.enabled && editorAi.model && <DropdownMenuItem disabled={!!ai.loading} onSelect={() => ask(draft)}><Sparkles /> AI 자동완성 <span className="ml-auto text-xs text-muted-foreground">{keyLabel('Alt+/')}</span></DropdownMenuItem>}
+              {dirty && completes && <DropdownMenuSeparator />}
+              {completes && <DropdownMenuItem disabled={!!ai.loading} onSelect={() => ask(draft)}><Sparkles /> AI 자동완성 <span className="ml-auto text-xs text-muted-foreground">{keyLabel('Alt+/')}</span></DropdownMenuItem>}
             </DropdownMenuContent>
           </DropdownMenu>}
         />

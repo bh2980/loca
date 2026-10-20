@@ -176,25 +176,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
       </InspectorSection>
 
       <InspectorSection title={`문맥 · ${contextOn}개 켬`} defaultOpen={false}>
-        <ToggleRow label="확정된 것만" checked={context.humanOnly} onChange={(value) => set({ context: { ...context, humanOnly: value } })} />
-        <div className="space-y-2.5 border-t border-border-subtle pt-3">
-          <CountRow label="앞 대사" unit="줄" value={context.precedingLines} fallback={8} max={50} onChange={(value) => set({ context: { ...context, precedingLines: value } })} />
-          {context.precedingLines > 0 && (
-            <div className="pl-4">
-              <ToggleRow label="앞 대사 번역" checked={context.precedingTranslations} onChange={(value) => set({ context: { ...context, precedingTranslations: value } })} />
-            </div>
-          )}
-          <CountRow label="이전 장면" unit="개" value={context.previousScenes} fallback={1} max={10} onChange={(value) => set({ context: { ...context, previousScenes: value } })} />
-          <ToggleRow label="앞 단계 지적" checked={config.include.issues} onChange={(value) => set({ include: { ...config.include, issues: value } })} />
-        </div>
-        <div className="space-y-2.5 border-t border-border-subtle pt-3">
-          <ToggleRow label="용어집" checked={context.glossary} onChange={(value) => set({ context: { ...context, glossary: value } })} />
-          <ToggleRow label="청자·말투" checked={context.speech} onChange={(value) => set({ context: { ...context, speech: value } })} />
-          <ToggleRow label="인물 명단" checked={context.cast} onChange={(value) => set({ context: { ...context, cast: value } })} />
-          <ToggleRow label="인물 프로필" checked={context.characters} onChange={(value) => set({ context: { ...context, characters: value } })} />
-          <ToggleRow label="인물 관계" checked={context.relationships} onChange={(value) => set({ context: { ...context, relationships: value } })} />
-          <ToggleRow label="문서" checked={context.documents} onChange={(value) => set({ context: { ...context, documents: value } })} />
-        </div>
+        <AiContextFields config={config} set={set} />
       </InspectorSection>
 
       <InspectorSection title="고급" defaultOpen={false}>
@@ -290,6 +272,34 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
           </Field>
         </>
       </InspectorSection>
+    </>
+  );
+}
+
+/** What an AI node (or an editor button, which is one) sends besides the lines: the context switches. */
+export function AiContextFields({ config, set }: { config: Pick<AiNode['config'], 'context' | 'include'>; set: (patch: Partial<AiNode['config']>) => void }) {
+  const context = contextConfigSchema.parse(config.context ?? {});
+  return (
+    <>
+      <ToggleRow label="확정된 것만" checked={context.humanOnly} onChange={(value) => set({ context: { ...context, humanOnly: value } })} />
+      <div className="space-y-2.5 border-t border-border-subtle pt-3">
+        <CountRow label="앞 대사" unit="줄" value={context.precedingLines} fallback={8} max={50} onChange={(value) => set({ context: { ...context, precedingLines: value } })} />
+        {context.precedingLines > 0 && (
+          <div className="pl-4">
+            <ToggleRow label="앞 대사 번역" checked={context.precedingTranslations} onChange={(value) => set({ context: { ...context, precedingTranslations: value } })} />
+          </div>
+        )}
+        <CountRow label="이전 장면" unit="개" value={context.previousScenes} fallback={1} max={10} onChange={(value) => set({ context: { ...context, previousScenes: value } })} />
+        <ToggleRow label="앞 단계 지적" checked={config.include.issues} onChange={(value) => set({ include: { ...config.include, issues: value } })} />
+      </div>
+      <div className="space-y-2.5 border-t border-border-subtle pt-3">
+        <ToggleRow label="용어집" checked={context.glossary} onChange={(value) => set({ context: { ...context, glossary: value } })} />
+        <ToggleRow label="청자·말투" checked={context.speech} onChange={(value) => set({ context: { ...context, speech: value } })} />
+        <ToggleRow label="인물 명단" checked={context.cast} onChange={(value) => set({ context: { ...context, cast: value } })} />
+        <ToggleRow label="인물 프로필" checked={context.characters} onChange={(value) => set({ context: { ...context, characters: value } })} />
+        <ToggleRow label="인물 관계" checked={context.relationships} onChange={(value) => set({ context: { ...context, relationships: value } })} />
+        <ToggleRow label="문서" checked={context.documents} onChange={(value) => set({ context: { ...context, documents: value } })} />
+      </div>
     </>
   );
 }

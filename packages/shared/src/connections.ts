@@ -92,8 +92,8 @@ export type ConnectionInput = z.infer<typeof connectionInputSchema>;
 export const CONNECTION_CALL_DEFAULTS = { maxAttempts: 2 } as const;
 
 /**
- * Time limits of calls that are not a workflow node's (a node sets its own, timeoutMinutes): how long
- * a call may take depends on the work, not on the connection. A chat turn has no overall limit: it
- * stops when the model goes quiet for `chatIdle` (or on 중단).
+ * Time limits of calls that have no settings of their own (a workflow node and the editor's AI set
+ * theirs): how long a call may take depends on the work, not on the connection. A chat turn has no
+ * overall limit: it stops when the model goes quiet for `chatIdle` (or on 중단).
  */
-export const CALL_TIMEOUT_MS = { assist: 120_000, regex: 120_000, connectionTest: 120_000, chatIdle: 120_000 } as const;
+export const CALL_TIMEOUT_MS = { connectionTest: 120_000, chatIdle: 120_000 } as const;

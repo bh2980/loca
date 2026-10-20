@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { editorAiSchema } from './editor-ai.ts';
 import { chatTitle } from './agent.ts';
 import { checkFormat, compileFormatRules, matchTokens } from './format-check.ts';
 import { importFileSchema, importWarnings, summarizeImport } from './import-format.ts';
@@ -372,5 +373,18 @@ describe('printf placeholders', () => {
     const pattern = compileFormatRules({ presets: ['printf'], custom: [] }).placeholder;
     expect(matchTokens('Got %s and %d, %1$s at %.2f', pattern)).toEqual(['%s', '%d', '%1$s', '%.2f']);
     expect(matchTokens('A 50% interest rate, 100% done', pattern)).toEqual([]);
+  });
+});
+
+describe('editor AI settings', () => {
+  it('fills each button from its preset until changed, and keeps what a person set', () => {
+    const empty = editorAiSchema.parse({});
+    expect(empty.translate).toMatchObject({ preset: 'translate', output: 'text', instructions: AI_PRESETS.translate.instructions, timeoutMinutes: 2 });
+    expect(empty.refine).toMatchObject({ preset: 'refine', output: 'json', include: { candidate: true } });
+    expect(empty.refine.fields.map((field) => field.name)).toEqual(['text', 'changes']);
+    expect(empty.complete).toMatchObject({ enabled: false, model: null, precedingLines: 3, glossary: true, speech: true, timeoutSeconds: 15, dailyCap: 200 });
+    const moved = editorAiSchema.parse({ translate: { model: { connectionId: 'c', model: 'm' }, instructions: 'Mine.' }, complete: { enabled: true, model: { connectionId: 'c', model: 'fast' } } });
+    expect(moved.translate).toMatchObject({ model: { connectionId: 'c', model: 'm' }, instructions: 'Mine.', output: 'text' });
+    expect(moved.complete).toMatchObject({ enabled: true, model: { connectionId: 'c', model: 'fast' }, timeoutSeconds: 15 });
   });
 });

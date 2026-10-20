@@ -162,6 +162,29 @@ export const AI_PRESETS = {
       'Revise each candidate translation so it resolves every listed issue while keeping what was already correct. ' +
       'Keep every placeholder, rich-text tag and line break exactly.',
   },
+  refine: {
+    label: 'AI 다듬기',
+    description: '번역문을 의미·규칙·표현 순서로 필요한 곳만 고치고, 고친 이유를 남깁니다.',
+    // json, not text: each change says why (the editor shows it on the candidate); "text" is the line's new translation.
+    output: 'json',
+    scope: 'line',
+    include: { candidate: true, issues: false },
+    fields: [
+      { ...field('text', 'string', 'The translation after your changes: the candidate exactly as it is when nothing needs fixing.'), required: true },
+      field('changes', 'list', 'One entry per change; empty when nothing changed.', [
+        field('kind', 'string', 'meaning, rule or language: the check that required the change.'),
+        field('why', 'string', 'One short Korean phrase naming what changed, e.g. "용어: 펜 항구 → 쿠헤스마", "말투: 상관에게 존댓말".'),
+      ]),
+    ],
+    instructions: [
+      'The candidate translation ("candidate") is the translator\'s own draft. Keep their wording, word choice and style; change only what one of these requires, checked in this order:',
+      '1. meaning: something of the source is missing, added or mistranslated (negation, numbers, who does what);',
+      '2. rule: a confirmed glossary term, the speech level and address the speech rules give for this speaker and listener, a placeholder or rich-text tag of the source that is missing, extra or misplaced, a particle after a variable;',
+      '3. language: translationese, an unnatural particle or word order, spacing or spelling in the target language.',
+      'Do not rephrase what is already correct. If nothing needs fixing, return the candidate exactly as it is with no changes.',
+      'Keep every placeholder, rich-text tag and line break the source has.',
+    ].join('\n'),
+  },
   speechFix: {
     label: 'AI 말투 맞추기',
     description: '번역의 어미·호칭만 말투 규칙에 맞게 고칩니다.',
@@ -287,7 +310,7 @@ export type AiPresetId = keyof typeof AI_PRESETS;
 export const AI_PRESET_IDS = Object.keys(AI_PRESETS) as AiPresetId[];
 
 /** Core AI presets offered in the workflow node library. */
-export const PALETTE_AI_PRESET_IDS = ['translate', 'review', 'revise', 'speechFix', 'listener', 'terms', 'knowledge', 'events', 'analysis'] as const satisfies readonly AiPresetId[];
+export const PALETTE_AI_PRESET_IDS = ['translate', 'review', 'revise', 'refine', 'speechFix', 'listener', 'terms', 'knowledge', 'events', 'analysis'] as const satisfies readonly AiPresetId[];
 export type PaletteAiPresetId = (typeof PALETTE_AI_PRESET_IDS)[number];
 
 /** The configuration of an AI node filled from a preset (what choosing the preset in the editor writes). */
