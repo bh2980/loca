@@ -24,6 +24,7 @@ import { cn } from '@/lib/utils';
 import { useReportView } from '@/lib/view-context';
 import { editorChecks, tokenPatternOf } from '@/lib/line-context';
 import { dateTime } from '@/lib/datetime';
+import { usePersonColors } from '@/lib/person-colors';
 
 const ORIGIN = { ai: 'AI', human: '사람', import: '가져옴', tool: '도구' } as const;
 const STATE = { queued: '대기', running: '실행 중', done: '완료', failed: '실패', cancelled: '취소됨' } as const;
@@ -52,6 +53,7 @@ export function LineDetail({
   const statuses = useQuery(q.statuses(projectId));
   const project = useQuery(q.project(projectId));
   const people = useQuery(q.characters(projectId));
+  const colorOf = usePersonColors(projectId);
   const group = useQuery({ ...q.group(unit.data?.group.id ?? ''), enabled: Boolean(unit.data?.group.id) });
   const [draft, setDraft] = useDraft(`line:${unitId}`, unit.data?.translation ?? '');
   const [noting, setNoting] = useState(false);
@@ -234,7 +236,7 @@ export function LineDetail({
                   )}
                 </PropertyRow>
               )}
-              {line.speaker && <PropertyRow label="화자"><SpeakerCard projectId={projectId} name={line.speaker}><SpeakerIdentity speaker={line.speaker} /></SpeakerCard></PropertyRow>}
+              {line.speaker && <PropertyRow label="화자"><SpeakerCard projectId={projectId} name={line.speaker}><SpeakerIdentity speaker={line.speaker} color={colorOf(line.speaker)} /></SpeakerCard></PropertyRow>}
               {line.speech && <PropertyRow label="말투 규칙"><Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', item: line.speech.ruleId }} className="block truncate hover:underline" title={line.speech.rule}>{line.speech.rule}</Link></PropertyRow>}
               {line.speaker && <PropertyRow label="인물"><Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'characters', ...(speakerPerson && { item: speakerPerson.id }) }} className="block truncate hover:underline">보기</Link></PropertyRow>}
             </PropertyGrid>

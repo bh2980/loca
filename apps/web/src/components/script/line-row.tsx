@@ -50,6 +50,7 @@ import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
 import { useDraft } from '@/lib/drafts';
 import { useSaveLine } from '@/lib/line-save';
 import type { InferResponseType } from '@/lib/api';
+import { usePersonColors } from '@/lib/person-colors';
 
 /** Who the line is addressed to. Unsure AI guesses count as unknown. */
 function listenerText(line: { kind: string; speaker: string | null; source: string; listener: string | null; listenerOrigin: ListenerOrigin | null; listenerConfidence: number | null }, rules: FormatRules | undefined) {
@@ -306,11 +307,12 @@ export function LineRow({
     </li>
   );
   const checkbox = <Checkbox aria-label={`${line.key} 선택`} checked={isPicked} onClick={(event) => event.stopPropagation()} onCheckedChange={(checked) => onPick(Boolean(checked))} />;
+  const colorOf = usePersonColors(projectId);
   // Lines without a speaker (UI strings, documents) show their key in its place, level with the status opposite.
   const speaker = line.kind === 'ui' || line.kind === 'document' ? (
     <span className="truncate font-mono text-xs text-muted-foreground" title={line.key}>{line.key}</span>
   ) : line.speaker ? (
-    <SpeakerCard projectId={projectId} name={line.speaker}><SpeakerIdentity speaker={line.speaker} listener={said ? (who.unknown ? null : who.text) : undefined} listenerIsPerson={!line.listener || !Object.hasOwn(SPECIAL_LISTENERS, line.listener) && !who.unknown} /></SpeakerCard>
+    <SpeakerCard projectId={projectId} name={line.speaker}><SpeakerIdentity speaker={line.speaker} color={colorOf(line.speaker)} listener={said ? (who.unknown ? null : who.text) : undefined} listenerIsPerson={!line.listener || !Object.hasOwn(SPECIAL_LISTENERS, line.listener) && !who.unknown} /></SpeakerCard>
   ) : line.kind === 'dialogue' ? <SpeakerIdentity speaker={null} /> : null;
   const identity = (
     <div className="flex min-w-0 items-center gap-1.5">

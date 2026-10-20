@@ -66,7 +66,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
           </Button>
         </div>
       </Field>
-      <Field label="동시 처리 수" hint="요청을 한꺼번에 몇 개까지 보낼지. CLI 연결이면 그만큼 모델 프로세스가 뜹니다. 실행마다 따로 셉니다.">
+      <Field label="동시 처리 수" help="AI에 동시에 보내는 요청 수입니다. 늘리면 빨라지지만, API는 요청 한도에 걸리기 쉽고 CLI 연결은 그 수만큼 프로그램이 떠서 컴퓨터가 무거워집니다.">
         <NumberInput min={1} max={16} className="w-28" value={config.concurrency} onValueChange={(concurrency) => concurrency !== undefined && set({ concurrency })} />
       </Field>
       </>
@@ -172,7 +172,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
               </Field>
             )}
           </>
-          <Field label="호출 제한 시간 (분)" hint="요청 하나가 이 시간을 넘으면 그 대사들은 오류(시간 초과) 출구로 나갑니다.">
+          <Field label="호출 제한 시간 (분)" help="요청 하나가 이 시간을 넘기면 그 요청의 항목들은 오류(시간 초과) 출구로 나갑니다.">
             <NumberInput min={1} max={240} className="w-28" value={config.timeoutMinutes} onValueChange={(timeoutMinutes) => timeoutMinutes !== undefined && set({ timeoutMinutes })} />
           </Field>
         </>

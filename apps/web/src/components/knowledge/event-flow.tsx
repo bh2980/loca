@@ -4,6 +4,7 @@ import '@xyflow/react/dist/style.css';
 import { Copy, Trash2 } from 'lucide-react';
 import { CanvasToolbar, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger, EmptyState, SelectionToolbox } from '@loca/ui';
 import { cn } from '@/lib/utils';
+import { personStyle, usePersonColors } from '@/lib/person-colors';
 import { useIsDark } from '@/lib/theme';
 import { GRAPH_KEYS, useGraphShortcuts } from '@/lib/graph-shortcuts';
 import { keyLabel } from '@/lib/keys';
@@ -24,7 +25,7 @@ export interface FlowEvent {
   next: ({ id: string; label: string | null; source: 'graph' } | { id: string; label: null; source: 'added'; origin: string })[];
 }
 
-type EventNode = Node<{ event: FlowEvent; badge: ReactNode; elsewhere: string | null; direction: EventFlowDirection; target: boolean }, 'event'>;
+type EventNode = Node<{ event: FlowEvent; badge: ReactNode; elsewhere: string | null; direction: EventFlowDirection; target: boolean; colorOf: (name: string) => string | undefined }, 'event'>;
 type SectionNode = Node<{ title: string }, 'section'>;
 
 /** Events copied with ⌘/Ctrl+C or 복사, pasted as copies ("제목 (복사)"). */
@@ -49,7 +50,16 @@ function EventCard({ data, selected, isConnectable }: NodeProps<EventNode>) {
         <span className="truncate text-sm font-medium">{event.title}</span>
         <span className="ml-auto shrink-0">{data.badge}</span>
       </span>
-      <span className="truncate text-xs text-muted-foreground">{[event.at?.scene, event.participants.join(' · ')].filter(Boolean).join(' — ')}</span>
+      <span className="truncate text-xs text-muted-foreground">
+        {event.at?.scene}
+        {event.at?.scene && event.participants.length > 0 && ' — '}
+        {event.participants.map((name, index) => (
+          <span key={`${name}-${index}`}>
+            {index > 0 && ' · '}
+            <span style={personStyle(data.colorOf(name))}>{name}</span>
+          </span>
+        ))}
+      </span>
       {event.summary && <span className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{event.summary}</span>}
       {data.elsewhere && <span className="mt-auto truncate text-xs text-muted-foreground">→ {data.elsewhere}</span>}
       <Handle type="source" position={source} isConnectable={isConnectable} isConnectableEnd={false} title="끌어서 다음 사건과 잇기" className={dot(isConnectable)} />
@@ -87,6 +97,7 @@ export function EventFlow({ projectId, events, selected, onOpen, badge, filtered
   actions?: EventFlowActions;
 }) {
   const dark = useIsDark();
+  const colorOf = usePersonColors(projectId);
   const placed = useMemo(() => events.filter((event) => event.at).sort((a, b) => a.at!.seq - b.at!.seq), [events]);
   const sections = useMemo(() => [...Map.groupBy(placed, (event) => event.at!.section ?? '').entries()], [placed]);
   const unplaced = useMemo(() => events.filter((event) => !event.at), [events]);
@@ -208,14 +219,14 @@ export function EventFlow({ projectId, events, selected, onOpen, badge, filtered
           id: event.id,
           type: 'event',
           position: moved[event.id] ?? layout.positions[event.id] ?? { x: 0, y: 0 },
-          data: { event, badge: badge(event), elsewhere: elsewhere.length ? elsewhere.map((step) => `${sectionOf.get(step.id) || '다른 구역'}: ${byId.get(step.id)?.title}`).join(', ') : null, direction, target: Boolean(menuFor?.includes(event.id)) },
+          data: { event, badge: badge(event), colorOf, elsewhere: elsewhere.length ? elsewhere.map((step) => `${sectionOf.get(step.id) || '다른 구역'}: ${byId.get(step.id)?.title}`).join(', ') : null, direction, target: Boolean(menuFor?.includes(event.id)) },
           selected: picked.size ? picked.has(event.id) : event.id === selectedEvent,
           width: CARD.width,
           height: CARD.height,
         };
       }),
     ];
-  }, [layout, events, moved, selectedEvent, sectionOf, byId, badge, direction, picked, menuFor]);
+  }, [layout, events, moved, selectedEvent, sectionOf, byId, badge, direction, picked, menuFor, colorOf]);
   // Positions while dragging sit on top of the memoized nodes; the drop is kept in `moved`.
   const frame = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState<Record<string, { x: number; y: number }>>({});

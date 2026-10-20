@@ -6,6 +6,7 @@ import { Badge, Button, CommandDialog, CommandEmpty, CommandGroup, CommandInput,
 import { q } from '@/lib/queries';
 import { keyLabel } from '@/lib/keys';
 import { chatDock } from '@/lib/chat-dock';
+import { PersonName } from '@/lib/person-colors';
 
 export type SearchScope = 'all' | 'lines' | 'scenes' | 'terms' | 'people' | 'docs' | 'chat';
 
@@ -172,7 +173,7 @@ export function CommandSearch({ projectId, compact = false }: { projectId: strin
                   <FileText />
                   <div className="min-w-0">
                     <p className="truncate">
-                      {line.speaker && <span className="text-muted-foreground">{line.speaker}: </span>}
+                      {line.speaker && <span className="text-muted-foreground"><PersonName projectId={projectId} name={line.speaker} />: </span>}
                       {line.source}
                     </p>
                     <p className="truncate text-xs text-muted-foreground">

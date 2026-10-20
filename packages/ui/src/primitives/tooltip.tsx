@@ -58,7 +58,9 @@ function HelpTip({ children, label = "설명" }: { children: React.ReactNode; la
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span role="img" aria-label={label} tabIndex={0} className="inline-flex shrink-0 cursor-help text-subtle-foreground outline-none hover:text-muted-foreground focus-visible:text-foreground">
+        <span role="img" aria-label={label} tabIndex={0} className="inline-flex shrink-0 cursor-help text-subtle-foreground outline-none hover:text-muted-foreground focus-visible:text-foreground"
+          // Inside a toggle row's <label>, a click on the ? must not flip the switch.
+          onClick={(event) => event.preventDefault()}>
           <CircleHelp className="size-3.5" />
         </span>
       </TooltipTrigger>

@@ -50,10 +50,10 @@ export function CheckItem({ id, label, checked, onChange, title }: { id: string;
   );
 }
 
-/** A node setting: the panes' one field shape (InspectorField), `hint` as its description. */
-export function Field({ label, hint, action, children }: { label: React.ReactNode; hint?: React.ReactNode; action?: React.ReactNode; children: React.ReactNode }) {
+/** A node setting: the panes' one field shape (InspectorField): `hint` how to fill it in (shown), `help` what it is (?). */
+export function Field({ label, hint, help, action, children }: { label: React.ReactNode; hint?: React.ReactNode; help?: React.ReactNode; action?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <InspectorField label={label} description={hint} action={action}>
+    <InspectorField label={label} description={hint} help={help} action={action}>
       {children}
     </InspectorField>
   );

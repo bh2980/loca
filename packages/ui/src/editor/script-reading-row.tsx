@@ -4,8 +4,10 @@ import { AiMark, StatusIcon, type StatusLike } from "../tokens/status"
 import { cn } from "../lib/utils"
 
 /** One continuous reading surface for source and translation, with the same speaker/status language as the editor. */
-export function ScriptReadingRow({ speaker, listener, listenerIsPerson, status, statusBy, source, translation, selected = false, className }: {
+export function ScriptReadingRow({ speaker, speakerColor, listener, listenerIsPerson, status, statusBy, source, translation, selected = false, className }: {
   speaker: string | null
+  /** The color a person gave the speaker (none: muted). */
+  speakerColor?: string | null
   listener?: string | null
   listenerIsPerson?: boolean
   status?: StatusLike
@@ -18,7 +20,7 @@ export function ScriptReadingRow({ speaker, listener, listenerIsPerson, status, 
   return (
     <article className={cn("min-w-0 border-b border-border-subtle px-4 py-3 sm:px-6", selected && "bg-selection/60", className)}>
       <div className="mb-1.5 flex min-w-0 items-center justify-between gap-2">
-        <SpeakerIdentity speaker={speaker} listener={listener} listenerIsPerson={listenerIsPerson} />
+        <SpeakerIdentity speaker={speaker} color={speakerColor} listener={listener} listenerIsPerson={listenerIsPerson} />
         <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
           <StatusIcon status={status} />
           {status?.name ?? "상태 없음"}

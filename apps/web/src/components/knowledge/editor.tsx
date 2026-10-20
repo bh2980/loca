@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { DOCUMENT_KINDS, STYLE_AXES, type StyleAxis, type CharacterRole, type Gender, type AgeBand, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, isSettled, AGE_BAND_LABELS, CHARACTER_ROLE_LABELS, GENDER_LABELS, PALETTE, knowledgeKindScope, type TagScope, type KnowledgeTagKind } from '@tw/shared';
 import { Inspector, InspectorHeader, InspectorBlock, InspectorSection, InspectorFields, InspectorField, InspectorToggle, useControlId, TagListEditor, DirtyBar, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, AiMark } from '@loca/ui';
 import { ChipInput, joinList, splitList } from '@/components/chip-input';
+import { Swatches } from '@/components/settings/swatches';
 import { useDraft } from '@/lib/drafts';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
 import { DOCUMENT_KIND } from '@/lib/labels';
@@ -105,11 +106,11 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
   const fieldView = (field: Field) => {
     const value = form[field.name];
     const change = (next: Value) => update(field.name, next);
-    if (field.type === 'bool') return <InspectorToggle key={field.name} label={field.label} description={field.description} checked={Boolean(value)} onChange={change} />;
+    if (field.type === 'bool') return <InspectorToggle key={field.name} label={field.label} description={field.description} help={field.help} checked={Boolean(value)} onChange={change} />;
     if (field.type === 'key')
       return <StartKeyField key={field.name} projectId={projectId} field={field} value={text(value)} from={text(form.fromName)} to={text(form.toName)} onChange={change} />;
     return (
-      <InspectorField key={field.name} label={field.label} description={field.description}>
+      <InspectorField key={field.name} label={field.label} description={field.description} help={field.help}>
         <FieldInput field={field} value={value} characters={characters} onChange={change} />
       </InspectorField>
     );
@@ -284,6 +285,7 @@ function FieldInput({ field, value, characters, onChange }: { field: Field; valu
   // The control takes the id of the InspectorField around it (see ControlIdContext).
   const id = useControlId();
   if (field.type === 'long') return <Textarea rows={field.name === 'body' ? 6 : 3} className={field.name === 'body' ? 'font-mono text-sm leading-relaxed' : 'text-sm leading-relaxed'} value={text(value)} onChange={(event) => onChange(event.target.value)} />;
+  if (field.type === 'color') return <Swatches value={text(value)} onChange={onChange} onClear={() => onChange('')} />;
   if (field.type === 'list') return <ChipInput id={id} value={(value as string[] | null) ?? []} onChange={onChange} suggestions={field.suggestions} placeholder="쉼표나 Enter로 추가" />;
   if (field.type === 'chips') return <ChipInput id={id} value={splitList(value)} onChange={(chips) => onChange(joinList(chips))} suggestions={field.suggestions} placeholder="쉼표나 Enter로 추가" />;
   const options =

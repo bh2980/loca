@@ -11,6 +11,7 @@ import { q } from '@/lib/queries';
 import { chatDock } from '@/lib/chat-dock';
 import { dateTime } from '@/lib/datetime';
 import type { LayoutEdge } from './graph-canvas';
+import { PersonName } from '@/lib/person-colors';
 
 /** How many omitted nodes the pane reads lines for; the rest are counted. */
 const OMITTED_SHOWN = 40;
@@ -187,7 +188,7 @@ export function OmittedPane({ projectId, edge, sections, onOpenSource, onClose }
               result.data.units.length ? (
                 result.data.units.map((unit) => (
                   <li key={unit.id} className="grid grid-cols-[5rem_minmax(0,1fr)] gap-3 py-2 text-sm first:pt-0">
-                    <span className="truncate text-xs text-muted-foreground">{unit.speaker ?? '지문·화면 문구'}</span>
+                    {unit.speaker ? <PersonName projectId={projectId} name={unit.speaker} className="truncate text-xs text-muted-foreground" /> : <span className="truncate text-xs text-muted-foreground">지문·화면 문구</span>}
                     <span className="min-w-0 break-words">{unit.source}</span>
                   </li>
                 ))

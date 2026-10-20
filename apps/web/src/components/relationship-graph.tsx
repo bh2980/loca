@@ -10,12 +10,15 @@ import ELK from 'elkjs/lib/elk.bundled.js';
 import '@xyflow/react/dist/style.css';
 import type { CharacterRole } from '@tw/shared';
 import { cn } from '@/lib/utils';
+import { personStyle } from '@/lib/person-colors';
 import { useIsDark } from '@/lib/theme';
 
 export interface GraphCharacter {
   id: string;
   name: string;
   role: CharacterRole;
+  /** The color a person gave the character (palette hex, '' = none): the name is shown in it. */
+  color?: string;
 }
 export interface GraphRelationship {
   id: string;
@@ -64,7 +67,7 @@ function keepLayout(storageKey: string, layout: Layout, store = true) {
 }
 
 /** `target`: the person the open context menu acts on, ringed like a selection while the selection itself stays (as in the scene graph). */
-type PersonNode = Node<{ label: string; role: GraphCharacter['role']; dim: boolean; target: boolean }, 'person'>;
+type PersonNode = Node<{ label: string; role: GraphCharacter['role']; color?: string; dim: boolean; target: boolean }, 'person'>;
 /** A line's label: one row per relationship it stands for (two when the pair goes both ways). */
 type LabelRow = { id: string; text: string; selected: boolean };
 type RelationEdge = Edge<{ offset: number; rows: LabelRow[]; dim: boolean; focus: boolean; dashed?: boolean; showLabel: boolean; onPick: (id: string) => void }, 'relation'>;
@@ -75,7 +78,7 @@ function PersonNodeView({ data, selected, isConnectable }: NodeProps<PersonNode>
       className={cn('group/person flex items-center justify-center rounded-md border border-border bg-background px-3 text-xs font-medium shadow-none transition-opacity', data.role === 'main' && 'border-2 border-foreground/70 font-semibold', data.role === 'minor' && 'border-dashed text-muted-foreground', (selected || data.target) && 'border-primary ring-1 ring-primary/40', data.dim && !data.target && 'opacity-30')}
       style={{ width: NODE_WIDTH, height: NODE_HEIGHT }}
     >
-      <span className="truncate">{data.label}</span>
+      <span className="truncate" style={personStyle(data.color)}>{data.label}</span>
       {/* Edges are floating (they attach to the node border). Dragging from the dot (always shown, as the
           workflow editor's ports, with a wider grab area) draws a new relationship; a drop anywhere on
           another person ends it there (connectionRadius). */}
@@ -296,7 +299,7 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
         id: character.id,
         type: 'person',
         position: placed[character.id] ?? positions?.byId[character.id] ?? { x: 0, y: 0 },
-        data: { label: character.name, role: character.role, dim: emphasis.active && !emphasis.nodeIds.has(character.id) && !picked.has(character.id), target: Boolean(menuFor?.includes(character.id)) },
+        data: { label: character.name, role: character.role, color: character.color, dim: emphasis.active && !emphasis.nodeIds.has(character.id) && !picked.has(character.id), target: Boolean(menuFor?.includes(character.id)) },
         selected: picked.size ? picked.has(character.id) : character.id === selectedCharacterId,
         width: NODE_WIDTH,
         height: NODE_HEIGHT,

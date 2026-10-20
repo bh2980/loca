@@ -1,0 +1,1 @@
+ALTER TABLE `characters` ADD `color` text DEFAULT '' NOT NULL;

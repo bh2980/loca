@@ -10,6 +10,7 @@ import { DraftEditor } from '@/components/knowledge/editor';
 import { StretchPicker } from '@/components/knowledge/evidence';
 import { candidateRow, fail, isHidden, matches, metaColumns, SourceBadge, type Draft, type KnowledgeFilterState, type KindSpec, type RelationshipRow, type SourceFilter, type StatusFilter, type SpeechRuleRow } from '@/components/knowledge/table';
 import { splitList } from '@/components/chip-input';
+import { personStyle } from '@/lib/person-colors';
 import { client, unwrap } from '@/lib/api';
 import { q, tagsIn, useReviewTagId } from '@/lib/queries';
 import { cn } from '@/lib/utils';
@@ -87,8 +88,10 @@ const ReviewBadge = ({ reasons }: { reasons: string }) => (
 const levelsText = (rules: SpeechRuleRow[]) => rules.map((rule) => SPEECH_LEVEL_LABELS[rule.level]).join(' → ');
 
 /** The speaker → listener pairs as a table; 출처 filters through its header, 후보 and AI가 정함 through the 태그 column. */
-export function PairTable({ pairs, loading, selected, picked, onPick, onOpen, bulk, filters }: {
+export function PairTable({ pairs, loading, selected, picked, onPick, onOpen, bulk, filters, colorOf }: {
   pairs: Pair[] | undefined;
+  /** A person's color by name (usePersonColors). */
+  colorOf?: (name: string) => string | undefined;
   loading: boolean;
   selected?: string;
   picked: ReadonlySet<string>;
@@ -98,7 +101,7 @@ export function PairTable({ pairs, loading, selected, picked, onPick, onOpen, bu
   filters: KnowledgeFilterState;
 }) {
   const columns: ColumnDef<Pair, unknown>[] = [
-    { id: 'pair', header: '화자 → 청자', meta: { width: 240, className: 'font-medium', hideable: false }, cell: ({ row: { original: pair } }) => `${pair.from} → ${listenerLabel(pair.to)}` },
+    { id: 'pair', header: '화자 → 청자', meta: { width: 240, className: 'font-medium', hideable: false }, cell: ({ row: { original: pair } }) => <><span style={personStyle(colorOf?.(pair.from))}>{pair.from}</span> → <span style={personStyle(colorOf?.(pair.to))}>{listenerLabel(pair.to)}</span></> },
     { id: 'relationship', header: '관계', meta: { width: 200 }, cell: ({ row: { original: pair } }) => (pair.relationship ? pair.relationship.kind : <span className="text-muted-foreground">—</span>) },
     { id: 'speech', header: '말투', cell: ({ row: { original: pair } }) => (pair.rules.length ? levelsText(pair.rules) : <span className="text-muted-foreground">—</span>) },
     ...metaColumns<Pair>(pairSummary, filters, pairMarks),
@@ -210,7 +213,7 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
     <Inspector header={<InspectorHeader kind="관계·말투" name={`${pair.from} → ${listenerLabel(pair.to)}`} onClose={onClose} />}>
       {pairItemsList.length > 0 && (
         <InspectorBlock>
-          <InspectorField label="태그" description="이 쌍의 관계와 말투 규칙 모두에 붙습니다.">
+          <InspectorField label="태그" help="이 쌍의 관계와 말투 규칙 모두에 붙습니다.">
             <TagListEditor tags={attachedPairTags} allTags={knowledgeTags} onToggle={(tagId, add) => pairTagMutation.mutate({ tagId, add })} onCreate={handleCreatePairTag} heading="태그" />
           </InspectorField>
         </InspectorBlock>

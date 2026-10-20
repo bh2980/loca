@@ -78,7 +78,7 @@ export function KeyPane({ row, onClose, onCreated }: { row?: KeyRow; onClose: ()
           <InspectorField label="헤더" description="{key}는 저장한 키로 바뀝니다.">
             <Input className="font-mono text-sm" value={header} onChange={(event) => setHeader(event.target.value)} />
           </InspectorField>
-          <InspectorField label={row ? `키 · ${row.hasKey ? '저장됨' : '없음'}` : '키'} description="OS 키체인에 저장되며 DB·내보내기에 들어가지 않습니다.">
+          <InspectorField label={row ? `키 · ${row.hasKey ? '저장됨' : '없음'}` : '키'} help="OS 키체인에 저장되며 DB·내보내기에 들어가지 않습니다.">
             <Input type="password" autoComplete="off" value={secret} placeholder={row ? '바꿀 때만 입력' : undefined} onChange={(event) => setSecret(event.target.value)} />
           </InspectorField>
         </InspectorFields>

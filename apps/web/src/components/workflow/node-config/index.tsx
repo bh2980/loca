@@ -60,7 +60,7 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
             {node.type === 'ai' && <AiConfig part="model" node={node} refs={refs} onChange={onChange} />}
             {node.type === 'entry' && (
               <>
-                <Field label="입력" hint="이 워크플로에 들어오는 것. 노드마다 이 입력에 맞는 칸과 노드만 보입니다. 어떤 대사·용어를 넣을지는 실행할 때 고릅니다.">
+                <Field label="입력" help="이 워크플로가 다루는 것입니다. 노드마다 이 입력에 맞는 칸과 노드만 보입니다. 어떤 대사·용어를 넣을지는 실행할 때 고릅니다.">
                   <Select value={node.config.input} onValueChange={(input) => onChange({ ...node, config: { ...node.config, input: input as WorkflowSubject } })}>
                     <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                     <SelectContent>{WORKFLOW_SUBJECT_IDS.map((id) => <SelectItem key={id} value={id}>{INPUT_TYPES[id].label}</SelectItem>)}</SelectContent>

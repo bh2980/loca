@@ -14,6 +14,7 @@ import { keyLabel } from '@/lib/keys';
 import { SpeakerCard } from '@/components/script/speaker-card';
 import { LineNote } from '@/components/script/line-note';
 import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
+import { PersonName } from '@/lib/person-colors';
 
 /** The card's width; the graph keeps this much room beside the node when it opens. */
 export const LINE_CARD_WIDTH = 384;
@@ -119,7 +120,7 @@ export function LineCard({ projectId, unitId, choice, position, onStep, onClose 
         <span className="min-w-0 flex-1 truncate text-sm font-medium">
           {choice ? '선택지' : line && (
             <SpeakerCard projectId={projectId} name={line.speaker}>
-              <span>{line.speaker ?? '지문·문구'}</span>
+              {line.speaker ? <PersonName projectId={projectId} name={line.speaker} /> : <span>지문·문구</span>}
             </SpeakerCard>
           )}
         </span>

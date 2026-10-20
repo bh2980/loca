@@ -394,6 +394,8 @@ export const characters = sqliteTable('characters', {
   role: text('role', { enum: CHARACTER_ROLES }).notNull().default('unknown'),
   /** The player character: may be addressed even if it never speaks. */
   player: integer('player', { mode: 'boolean' }).notNull().default(false),
+  /** The color a person gave the character (a palette hex, as tags), shown wherever its name is; '' = none. */
+  color: text('color').notNull().default(''),
   ...knowledge(),
   updatedAt: updatedAt(),
 });

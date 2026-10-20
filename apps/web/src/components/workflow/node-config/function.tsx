@@ -99,13 +99,13 @@ function FormatCheckConfig({ params, refs, set }: { params: Record<string, unkno
 
   return (
     <>
-      <InspectorToggle label="치환자 보존" description="원문의 {이름} 같은 치환자가 번역에 그대로 있어야 합니다." checked={params.placeholders as boolean} onChange={(value) => set('placeholders', value)} />
-      <InspectorToggle label="서식 태그 보존" description="원문의 서식 태그가 번역에 그대로 있어야 합니다." checked={params.tags as boolean} onChange={(value) => set('tags', value)} />
-      <InspectorToggle label="줄바꿈 수 일치" description="원문과 번역의 줄바꿈 수가 같아야 합니다." checked={params.newlines as boolean} onChange={(value) => set('newlines', value)} />
-      <InspectorToggle label="빈 번역 금지" description="번역이 비어 있으면 통과하지 못합니다." checked={params.emptyText as boolean} onChange={(value) => set('emptyText', value)} />
-      <InspectorToggle label="숫자 누락" description="원문의 숫자가 번역에 빠졌는지 봅니다." checked={Boolean(params.numbers)} onChange={(value) => set('numbers', value)} />
-      <InspectorToggle label="공백 불일치" description="앞뒤 공백이 원문과 다른지 봅니다." checked={Boolean(params.spaces)} onChange={(value) => set('spaces', value)} />
-      <InspectorToggle label="변수 뒤 조사" description="치환자 바로 뒤 조사를 확인합니다." checked={Boolean(params.particles)} onChange={(value) => set('particles', value)} />
+      <InspectorToggle label="치환자 보존" help="원문의 {이름} 같은 치환자가 번역에 그대로 있어야 합니다." checked={params.placeholders as boolean} onChange={(value) => set('placeholders', value)} />
+      <InspectorToggle label="서식 태그 보존" help="원문의 서식 태그가 번역에 그대로 있어야 합니다." checked={params.tags as boolean} onChange={(value) => set('tags', value)} />
+      <InspectorToggle label="줄바꿈 수 일치" help="원문과 번역의 줄바꿈 수가 같아야 합니다." checked={params.newlines as boolean} onChange={(value) => set('newlines', value)} />
+      <InspectorToggle label="빈 번역 금지" help="번역이 비어 있으면 통과하지 못합니다." checked={params.emptyText as boolean} onChange={(value) => set('emptyText', value)} />
+      <InspectorToggle label="숫자 누락" help="원문의 숫자가 번역에 빠졌는지 봅니다." checked={Boolean(params.numbers)} onChange={(value) => set('numbers', value)} />
+      <InspectorToggle label="공백 불일치" help="앞뒤 공백이 원문과 다른지 봅니다." checked={Boolean(params.spaces)} onChange={(value) => set('spaces', value)} />
+      <InspectorToggle label="변수 뒤 조사" help="치환자 바로 뒤의 조사(이/가, 을/를 등)가 맞는지 봅니다." checked={Boolean(params.particles)} onChange={(value) => set('particles', value)} />
 
       {Boolean(params.particles) && (
         <Field label="조사 정규식" hint="비우면 기본 패턴을 씁니다.">
@@ -125,11 +125,11 @@ function FormatCheckConfig({ params, refs, set }: { params: Record<string, unkno
         </Field>
       ))}
 
-      <Field label="금칙어" hint="쉼표로 구분합니다. 번역에 들어 있으면 걸립니다.">
+      <Field label="금칙어" hint="쉼표로 구분합니다." help="번역에 이 말이 들어 있으면 검사에 걸립니다.">
         <Input value={(params.forbiddenWords as string) ?? ''} placeholder="예: 암튼, 대충" onChange={(event) => set('forbiddenWords', event.target.value)} />
       </Field>
 
-      <Field label="정규식 규칙" hint="금지: 걸리면 안 되는 패턴 · 보존: 원문과 번역에 같이 있어야 하는 패턴 · 필수: 번역에 있어야 하는 패턴">
+      <Field label="정규식 규칙" help="금지: 번역에 나오면 안 되는 패턴 · 보존: 원문에 있으면 번역에도 있어야 하는 패턴 · 필수: 번역에 꼭 있어야 하는 패턴">
         <div className="space-y-2">
           <AiRegexInput
             projectId={refs.projectId}
@@ -254,10 +254,10 @@ function HttpConfig({ params, refs, set }: { params: Record<string, unknown>; re
           </SelectContent>
         </Select>
       </Field>
-      <Field label="주소" hint="대사마다 바뀌는 값을 주소에도 쓸 수 있습니다.">
+      <Field label="주소" help="대사마다 바뀌는 값을 주소에 넣을 수도 있습니다.">
         <Input className="font-mono text-xs" value={params.url as string} placeholder="https://api.example.com/spell" onChange={(event) => set('url', event.target.value)} />
       </Field>
-      <Field label="API 키" hint={tools.length ? '요청에 인증 정보를 붙일 때 고릅니다.' : '등록된 API 키가 없습니다. 워크플로 › API 키에서 추가하세요.'}>
+      <Field label="API 키" help={tools.length ? '요청에 붙일 인증 정보입니다.' : undefined} hint={tools.length ? undefined : '등록된 API 키가 없습니다. 워크플로 › API 키에서 추가하세요.'}>
         <Select value={(params.connectionId as string) || 'none'} onValueChange={(value) => set('connectionId', value === 'none' ? '' : value)}>
           <SelectTrigger className="w-full">
             <SelectValue />
@@ -344,7 +344,7 @@ function ScriptConfig({ params, projectId, readOnly, set }: { params: Record<str
   const sampledScript = test.data?.ok ? fieldsFromSample(test.data.raw) : [];
   return (
     <>
-      <Field label="출구" hint="쉼표로 구분합니다. 코드가 이 중 하나를 반환합니다.">
+      <Field label="출구" hint="쉼표로 구분합니다." help="코드가 이 중 하나를 port로 반환하면 그 출구로 나갑니다.">
         <Input
           className="font-mono text-xs"
           value={portsText}
@@ -363,7 +363,7 @@ function ScriptConfig({ params, projectId, readOnly, set }: { params: Record<str
             AI로 작성
           </AiButton>
         }
-        hint="샌드박스: 네트워크·파일 접근 없음, 2초·32MB 제한.">
+        help="격리된 곳에서 돌아갑니다. 네트워크·파일에 접근할 수 없고, 한 번에 2초·32MB까지 씁니다.">
         <Textarea className="min-h-56 font-mono text-xs leading-relaxed" spellCheck={false} value={params.code as string} onChange={(event) => set('code', event.target.value)} />
       </Field>
       <JsonFieldsEditor label="출력 필드" fields={fields} descriptionPlaceholder="설명" onChange={(next) => set('fields', next)} />
@@ -475,7 +475,7 @@ function ApplyConfig({ node, fn, params, refs, setMany }: { node: FunctionNode; 
       {from && (target.shape !== 'list' || params.list) && (
         <Field
           label="필드 연결"
-          hint="반영할 항목마다 앞 단계 결과의 어느 필드를 쓸지 고릅니다."
+          help="반영할 항목마다 앞 단계 결과의 어느 필드를 쓸지 고릅니다."
           action={
             <Button variant="ghost" size="inline" onClick={() => setMany({ map: { ...autoMap(targetFields, rowSources), ...params.map } })}>
               자동 연결

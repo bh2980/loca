@@ -65,13 +65,18 @@ interface FieldValues {
   gender: Gender;
   ageBand: AgeBand;
   role: CharacterRole;
+  /** A palette hex, '' = none (a person's color). */
+  color: string;
 }
 export type FieldType = keyof FieldValues;
 export interface Field {
   name: string;
   label: string;
   type: FieldType;
+  /** How to fill it in, shown under the field. */
   description?: string;
+  /** What it is, behind a ? beside the label. */
+  help?: string;
   /** Values offered while typing a 'list' or 'chips' field. */
   suggestions?: string[];
 }

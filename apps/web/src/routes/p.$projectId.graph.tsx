@@ -10,6 +10,7 @@ import { FlowPane, SceneNodeDetail } from '@/components/graph/node-detail';
 import { KIND_LABEL } from '@/components/graph/shapes';
 import { TypeLegend } from '@/components/graph/type-legend';
 import { HeaderActions, HeaderViews, Page } from '@/components/page';
+import { usePersonColors } from '@/lib/person-colors';
 import { SearchInput, SplitPane, PaneHeader, Button, CanvasOverlay, CanvasSurface, Empty, EmptyDescription, EmptyHeader, EmptyTitle, ScrollArea, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue, Input, Popover, PopoverContent, PopoverTrigger, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, Spinner, Switch, ViewSwitch, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, useRevealDock, GraphEndpointBar } from '@loca/ui';
 import { useSize } from '@/hooks/use-size';
 import { q } from '@/lib/queries';
@@ -228,12 +229,13 @@ function GraphPage() {
   const find = search.q ?? '';
   const setFind = (q: string | undefined) => void navigate({ search: (previous) => ({ ...previous, q }), replace: true });
 
+  const colorOf = usePersonColors(projectId);
   const info = useMemo(() => {
     const types = graph.data?.nodeTypes ?? {};
     // Control nodes are labelled by what the game's node class means, not by its raw name.
     // A line card leads with who speaks and shows the line; the node key is in the side pane.
     const lineCard = (node: { speaker?: string | null; text?: string | null; total?: number }) =>
-      node.text ? { title: `${node.speaker ?? '지문·화면 문구'}${(node.total ?? 0) > 1 ? ` · ${node.total}줄` : ''}`, body: node.text } : {};
+      node.text ? { title: `${node.speaker ?? '지문·화면 문구'}${(node.total ?? 0) > 1 ? ` · ${node.total}줄` : ''}`, titleColor: colorOf(node.speaker), body: node.text } : {};
     const map = new Map<string, NodeInfo>(
       (graph.data?.nodes ?? []).map((node) => [node.id, { ...node, label: node.label ?? (node.type ? (types[node.type]?.label ?? node.type) : null), ...(node.kind === 'script' && lineCard(node)), ...(node.kind === 'choice' && { title: `▶ ${node.text ?? ''} 고르면`, body: node.text }) }]),
     );
@@ -257,7 +259,7 @@ function GraphPage() {
       });
     }
     return map;
-  }, [graph.data]);
+  }, [graph.data, colorOf]);
   // Nodes inside a folded run are shown, selected and highlighted through their block.
   const chainOf = useMemo(() => new Map((graph.data?.layout?.chains ?? []).flatMap((chain) => chain.nodeIds.map((id) => [id, chain.id] as const))), [graph.data]);
   const shown = (id: string) => chainOf.get(id) ?? id;

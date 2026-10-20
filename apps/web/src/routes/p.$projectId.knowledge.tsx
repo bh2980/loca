@@ -45,6 +45,7 @@ import { AddPairPopover } from '@/components/knowledge/add-pair-popover';
 import { EventFlow } from '@/components/knowledge/event-flow';
 import { lineKey, parseLineKey, useEventFlowActions } from '@/components/knowledge/event-actions';
 import { LineDetail } from '@/components/knowledge/line-detail';
+import { personStyle, usePersonColors } from '@/lib/person-colors';
 import { splitList } from '@/components/chip-input';
 import { client, unwrap } from '@/lib/api';
 import { DOCUMENT_KIND } from '@/lib/labels';
@@ -146,7 +147,7 @@ function Knowledge() {
       fields: [
         { name: 'title', label: '제목', type: 'text' },
         { name: 'kind', label: '종류', type: 'docKind' },
-        { name: 'alwaysInclude', label: '문맥에 넣기', description: '켜면 모든 AI 호출의 문맥에 들어갑니다.', type: 'bool' },
+        { name: 'alwaysInclude', label: '문맥에 넣기', help: '켜면 노트 문맥을 켠 AI 노드에 이 노트의 전문이 들어갑니다.', type: 'bool' },
         { name: 'body', label: '본문', type: 'long' },
       ],
       create: () => unwrap(api.documents.$post({ param: { projectId }, json: { title: '새 노트', kind: 'note', body: '', alwaysInclude: false } })),
@@ -157,7 +158,7 @@ function Knowledge() {
     characters: defineKind({
       rows: people.data?.characters ?? [],
       columns: [
-        { head: '이름', cell: (row) => <span className="font-medium">{row.name}{row.player ? <Badge variant="outline" className="ml-2">플레이어</Badge> : null}</span>, width: 220 },
+        { head: '이름', cell: (row) => <span className="font-medium"><span style={personStyle(row.color)}>{row.name}</span>{row.player ? <Badge variant="outline" className="ml-2">플레이어</Badge> : null}</span>, width: 220 },
         { head: '별칭', cell: (row) => row.aliases.join(', '), width: 180 },
         { head: '성별·나이', cell: (row) => <span className="text-muted-foreground">{personLabel(row)}</span>, width: 120 },
         { head: '역할', cell: (row) => row.role === 'unknown' ? null : CHARACTER_ROLE_LABELS[row.role], width: 90 },
@@ -168,6 +169,7 @@ function Knowledge() {
         { name: 'name', label: '이름', type: 'text' },
         { name: 'aliases', label: '별칭', type: 'list' },
         { name: 'player', label: '플레이어', type: 'bool' },
+        { name: 'color', label: '색', help: '이 인물의 이름이 나오는 곳(대사·그래프·사건)에 이 색으로 보입니다.', type: 'color' },
         { name: 'gender', label: '성별', type: 'gender' },
         { name: 'ageBand', label: '나이대', type: 'ageBand' },
         { name: 'role', label: '역할', type: 'role' },
@@ -192,7 +194,7 @@ function Knowledge() {
         { name: 'fromId', label: '누가', type: 'character' },
         { name: 'toId', label: '누구에게', type: 'character' },
         { name: 'kind', label: '관계', type: 'text' },
-        { name: 'mutual', label: '쌍방', description: '반대 방향에도 같은 관계입니다.', type: 'bool' },
+        { name: 'mutual', label: '쌍방', help: '반대 방향에도 같은 관계입니다.', type: 'bool' },
         { name: 'description', label: '설명', type: 'long' },
       ],
       label: (row) => `${nameOf.get(row.fromId) ?? '?'} → ${nameOf.get(row.toId) ?? '?'}`,
@@ -251,6 +253,7 @@ function Knowledge() {
   const addRule = (json: SpeechRuleCreate) => unwrap(api['speech-rules'].$post({ param: { projectId }, json }));
 
   const characters = people.data?.characters ?? [];
+  const colorOf = usePersonColors(projectId);
   const eventActions = useEventFlowActions({ projectId, events: storyEvents.data ?? [], open: (item) => set({ item }) });
   // A line of the 사건 흐름 opens in the pane by its key (event-actions: lineKey).
   const line = timeline ? parseLineKey(search.item) : null;
@@ -615,6 +618,7 @@ function Knowledge() {
           </div>
         ) : pairsView ? (
           <PairTable
+            colorOf={colorOf}
             pairs={pending ? undefined : visiblePairs}
             loading={pending}
             selected={pair?.key}

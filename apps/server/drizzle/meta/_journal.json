@@ -596,6 +596,13 @@
       "when": 1792513595116,
       "tag": "0084_event_links",
       "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "6",
+      "when": 1792516078400,
+      "tag": "0085_character_color",
+      "breakpoints": true
     }
   ]
 }

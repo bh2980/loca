@@ -1,4 +1,5 @@
 import { CanvasToolbar } from '@loca/ui';
+import { paletteIndex } from '@tw/shared';
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode, type Ref } from 'react';
 import { select } from 'd3-selection';
 import 'd3-transition';
@@ -93,6 +94,8 @@ export interface NodeInfo {
   key: string;
   /** A card's first line (who speaks, or what a folded run holds) and the text under it. */
   title?: string;
+  /** The color a person gave the speaker in `title` (a palette hex): the title is drawn in it. */
+  titleColor?: string;
   body?: string | null;
 }
 export interface Viewport {
@@ -933,6 +936,10 @@ function drawLabel(context: CanvasRenderingContext2D, meta: NodeInfo, node: Layo
     context.rect(node.x + 10, node.y + 6, node.width - 20, node.height - 12);
     context.clip();
     context.font = '600 14px Pretendard, system-ui, sans-serif';
+    if (meta.titleColor) {
+      const index = paletteIndex(meta.titleColor);
+      context.fillStyle = index >= 0 ? colors.hues[index]! : meta.titleColor;
+    }
     context.fillText(meta.title ?? (meta.kind === 'scene' || meta.kind === 'chain' ? (meta.label ?? meta.key) : meta.key), node.x + 12, node.y + 23);
     context.font = '14px Pretendard, system-ui, sans-serif';
     context.fillStyle = colors.mutedForeground;
