@@ -65,6 +65,8 @@ export const workflowRoutes = new Hono<Env>()
         // The start's 대상 상태: the run dialog's default status filter.
         entryStatusIds: (() => { const entry = definition.nodes.find((node) => node.type === 'entry'); return entry?.type === 'entry' ? entry.config.statusIds : []; })(),
         subject: workflowSubject(definition),
+        // A term workflow's 대상 용어 (its entry's statuses and marks): the run dialog says what it will take.
+        termScope: (() => { const entry = definition.nodes.find((node) => node.type === 'entry'); return entry?.type === 'entry' && entry.config.subject === 'terms' ? { statuses: entry.config.termStatuses, marks: entry.config.termMarks } : null; })(),
         nodeCount: definition.nodes.length,
         errorCount: workflowIssues(db, projectId, definition).filter((issue) => issue.level === 'error').length,
       })),

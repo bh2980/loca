@@ -6,7 +6,7 @@ import { Link, useNavigate } from '@tanstack/react-router';
 import { ChevronRight, Play } from 'lucide-react';
 import { SearchInput, Button, Checkbox, Label, RadioGroup, RadioGroupItem, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Skeleton, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner, StatusIcon, SectionHeading, FieldRows, FieldRow } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
-import { LINE_MARK_IDS, type LineMark, UNREVIEWED_MARKS } from '@tw/shared';
+import { KNOWLEDGE_STATUS_LABELS, LINE_MARK_IDS, type AutoMark, type LineMark, UNREVIEWED_MARKS } from '@tw/shared';
 import { MarkChip } from '@/components/status';
 import type { ModelValue } from '@/components/model-picker';
 import { Pace, RunModels } from './run-estimate';
@@ -24,13 +24,13 @@ const KIND_ORDER: GroupKind[] = ['scene', 'ui', 'document'];
  * project, never preselected), what in those lines would spoil the translation and where to fix it,
  * how long and how much in plain words, and which models.
  */
-export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: givenGroupIds, unitIds: givenUnitIds, termIds: givenTermIds, subject = 'lines', unitsLabel, viewKind, dirty, disabled, trigger, defaultIgnoreStatus = false, remember, open: controlledOpen, onOpenChange, hideTrigger = false }: {
+export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: givenGroupIds, unitIds: givenUnitIds, termIds: givenTermIds, subject: givenSubject = 'lines', unitsLabel, viewKind, dirty, disabled, trigger, defaultIgnoreStatus = false, remember, open: controlledOpen, onOpenChange, hideTrigger = false }: {
   projectId: string;
   /** Omit to let the user pick a workflow (when starting from a scene or a line selection). */
   workflowId?: string;
   groupIds?: string[];
   unitIds?: string[];
-  /** What the workflows run on: 'terms' lists only term workflows and takes the glossary terms in `termIds` (none = the workflow's own 대상 용어). */
+  /** What the workflows run on: 'terms' lists only term workflows and takes the glossary terms in `termIds` (none = the workflow's own 대상 용어). With `workflowId` the workflow's own 대상 decides. */
   subject?: 'lines' | 'terms';
   termIds?: string[];
   /** What the named lines are, when they are not simply picked ('이번 길 번역 안 한 줄'); the scope button reads it with the count. */
@@ -57,8 +57,6 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   const unitIds = open ? opened.unitIds : givenUnitIds;
   const groupIds = open ? opened.groupIds : givenGroupIds;
   const termIds = open ? opened.termIds : givenTermIds;
-  const terms = subject === 'terms';
-  const unit = terms ? '개' : '줄';
   // Dialogue is nearly the whole project, so like the whole project it is never preselected.
   const preselectKind = viewKind && viewKind !== 'scene' ? viewKind : undefined;
 
@@ -75,6 +73,10 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   // This run's models by AI node, where the person picked another than the node's own (the workflow is not changed).
   const [runModels, setRunModels] = useState<Record<string, ModelValue>>({});
   const workflows = useQuery({ ...q.workflows(projectId), enabled: open });
+  // Opened for one workflow (its editor): what it runs on is its own 대상, not the caller's default.
+  const subject = (fixedWorkflowId && workflows.data?.find((item) => item.id === fixedWorkflowId)?.subject) || givenSubject;
+  const terms = subject === 'terms';
+  const unit = terms ? '개' : '줄';
   const rememberKey = remember && `run-dialog:${projectId}:${remember}`;
   const [chosen, setChosen] = useState<string | undefined>(() => {
     if (!rememberKey) return undefined;
@@ -243,7 +245,21 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
             {terms && (
               <div className="space-y-1">
                 <SectionHeading>대상</SectionHeading>
-                <p className="text-sm">{termIds?.length ? `고른 용어 ${termIds.length.toLocaleString()}개` : '워크플로의 대상 용어 상태·자동 태그에 맞는 용어'}</p>
+                {termIds?.length ? (
+                  <p className="text-sm">고른 용어 {termIds.length.toLocaleString()}개</p>
+                ) : (
+                  // The workflow's own 대상 용어 (its entry node): which statuses, carrying which automatic tags.
+                  <div className="flex flex-wrap items-center gap-1.5 text-sm">
+                    {(workflow?.termScope?.statuses ?? []).map((status) => KNOWLEDGE_STATUS_LABELS[status]).join('·') || '모든'} 용어
+                    {(workflow?.termScope?.marks ?? []).length > 0 && (
+                      <>
+                        <span className="text-muted-foreground">중</span>
+                        {workflow!.termScope!.marks.map((mark) => <MarkChip key={mark} mark={mark as AutoMark} projectId={projectId} />)}
+                        <span className="text-muted-foreground">{workflow!.termScope!.marks.length > 1 ? '이 모두 붙은 것' : '이 붙은 것'}</span>
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
             )}
             {!terms && <fieldset className="space-y-2">
@@ -330,7 +346,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
                   )}
                 </span>
               ) : total === 0 ? (
-                <span className="text-muted-foreground">{terms ? '이 범위에는 실행할 용어가 없습니다.' : '이 범위에는 실행할 대사가 없습니다.'}</span>
+                <span className="text-muted-foreground">{terms ? (termIds?.length ? '고른 용어 중 실행할 것이 없습니다.' : '조건에 맞는 용어가 없습니다. 워크플로 진입 노드에서 대상을 바꾸거나, 용어집에서 용어를 골라 실행하세요.') : '이 범위에는 실행할 대사가 없습니다.'}</span>
               ) : (
                 <>
                   <b className="font-medium tabular-nums">{total.toLocaleString()}{unit}</b>{terms ? '를' : '을'} 실행합니다
