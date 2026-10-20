@@ -506,7 +506,7 @@ function ApplyConfig({ node, fn, params, refs, setMany }: { node: FunctionNode; 
 
       <Field
         label="반영 방식"
-        hint={params.propose ? '사용자가 제안을 수락해야 반영됩니다.' : target.shape === 'line' ? '바로 반영합니다.' : <AiConfirmNote projectId={refs.projectId} />}
+        hint={params.propose ? '사용자가 제안을 수락해야 반영됩니다.' : target.shape === 'line' ? undefined : <AiConfirmNote projectId={refs.projectId} />}
       >
         <Select value={params.propose ? 'propose' : 'write'} onValueChange={(value) => setMany({ propose: value === 'propose' })}>
           <SelectTrigger className="w-full">

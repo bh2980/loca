@@ -133,9 +133,8 @@ export function StatusBar({ statuses, counts, className }: { statuses: StatusLik
 /**
  * ✦ beside a status or 확정 that AI set and no person has looked at since.
  * The same mark everywhere: lines, knowledge, terms. Renders nothing when a person set it.
- * `note` replaces the tooltip where the mark means more (a confirmed term or knowledge item is already used as context).
  */
-export function AiMark({ by, className, note }: { by: "ai" | "human" | null | undefined; className?: string; note?: string }) {
+export function AiMark({ by, className }: { by: "ai" | "human" | null | undefined; className?: string }) {
   if (by !== "ai") return null
   return (
     <Tooltip>
@@ -144,7 +143,7 @@ export function AiMark({ by, className, note }: { by: "ai" | "human" | null | un
           <Sparkles className="size-3" />
         </span>
       </TooltipTrigger>
-      <TooltipContent>{note ?? "AI 초안 · 아직 사람이 확인하지 않음"}</TooltipContent>
+      <TooltipContent>AI 초안 · 아직 사람이 확인하지 않음</TooltipContent>
     </Tooltip>
   )
 }

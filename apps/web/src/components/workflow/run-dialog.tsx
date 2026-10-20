@@ -557,7 +557,7 @@ function Readiness({ projectId, readiness, oneScene, onLeave }: { projectId: str
     {
       uses: 'speech',
       ok: readiness.candidateRules.count === 0,
-      text: readiness.candidateRules.count ? `문맥에 안 들어가는 후보 말투 규칙 ${readiness.candidateRules.count}개 (${readiness.candidateRules.examples.join(', ')}${readiness.candidateRules.count > readiness.candidateRules.examples.length ? ' 등' : ''})` : '쓰이는 말투 규칙은 모두 확정됨',
+      text: readiness.candidateRules.count ? `후보 말투 규칙 ${readiness.candidateRules.count}개 (${readiness.candidateRules.examples.join(', ')}${readiness.candidateRules.count > readiness.candidateRules.examples.length ? ' 등' : ''})` : '쓰이는 말투 규칙은 모두 확정됨',
       link: readiness.candidateRules.count > 0 && (
         <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', marks: ['candidate'], ...(!readiness.candidateRules.more && { ids: readiness.candidateRules.ids }) }} onClick={onLeave}>
           후보 보기
@@ -577,7 +577,7 @@ function Readiness({ projectId, readiness, oneScene, onLeave }: { projectId: str
     {
       uses: 'glossary',
       ok: readiness.candidateTerms.count === 0,
-      text: readiness.candidateTerms.count ? `문맥에 안 들어가는 후보 용어 ${readiness.candidateTerms.count}개 (${readiness.candidateTerms.examples.join(', ')}${readiness.candidateTerms.count > readiness.candidateTerms.examples.length ? ' 등' : ''})` : '나오는 용어는 모두 확정됨',
+      text: readiness.candidateTerms.count ? `후보 용어 ${readiness.candidateTerms.count}개 (${readiness.candidateTerms.examples.join(', ')}${readiness.candidateTerms.count > readiness.candidateTerms.examples.length ? ' 등' : ''})` : '나오는 용어는 모두 확정됨',
       link: readiness.candidateTerms.count > 0 && (
         <Link to="/p/$projectId/glossary" params={{ projectId }} search={{ marks: ['candidate'], ...(!readiness.candidateTerms.more && { ids: readiness.candidateTerms.ids }) }} onClick={onLeave}>
           후보 보기

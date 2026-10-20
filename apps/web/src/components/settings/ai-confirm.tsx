@@ -6,9 +6,6 @@ import { client, unwrap } from '@/lib/api';
 import { optimistic } from '@/lib/optimistic';
 import { q } from '@/lib/queries';
 
-/** The ✦ tooltip on a term or knowledge item AI confirmed: what it already means for prompts. */
-export const AI_CONFIRMED_NOTE = 'AI가 확정함 · 이미 문맥에 쓰이고 있습니다. 확인함을 누르면 사람이 본 것으로 기록됩니다.';
-
 /**
  * Where AI results that are knowledge or terms are written or listed: how they land under the
  * project's one AI 문맥 switch (it is changed only in 설정 › 프로젝트), with a link there.
@@ -18,7 +15,7 @@ export function AiConfirmNote({ projectId }: { projectId: string }) {
   if (!project.data) return null;
   return (
     <p className="text-xs text-muted-foreground">
-      AI 결과: {project.data.aiAutoConfirm ? '바로 확정 (문맥에 쓰임)' : '후보 (사람이 확정해야 문맥에 쓰임)'} ·{' '}
+      AI 결과: {project.data.aiAutoConfirm ? '바로 확정' : '후보'} ·{' '}
       <Link to="/p/$projectId/settings/project" params={{ projectId }} className="underline underline-offset-2 hover:text-foreground">
         설정
       </Link>
@@ -48,7 +45,7 @@ export function AiAutoConfirmSetting({ projectId }: { projectId: string }) {
         <Checkbox checked={project.data?.aiAutoConfirm ?? true} disabled={!project.data || save.isPending} onCheckedChange={(checked) => save.mutate(checked === true)} />
         AI가 만든 용어·자료를 바로 확정
       </Label>
-      <p className="pl-6 text-xs text-muted-foreground">끄면 후보로 들어가고, 사람이 확정해야 문맥에 쓰입니다. 대사의 상태는 바꾸지 않습니다.</p>
+      <p className="pl-6 text-xs text-muted-foreground">끄면 후보로 들어가고, 사람이 확정해야 문맥에 쓰입니다.</p>
     </div>
   );
 }

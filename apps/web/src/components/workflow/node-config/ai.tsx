@@ -300,7 +300,7 @@ export function AiContextFields({ config, set, input }: { config: Pick<AiNode['c
             <CountRow label="앞 대사" unit="줄" value={context.precedingLines} fallback={8} max={50} onChange={(value) => setContext({ precedingLines: value })} />
             {context.precedingLines > 0 && (
               <div className="pl-4">
-                <ToggleRow label="앞 대사 번역 (상태 무관)" checked={context.precedingTranslations} onChange={(value) => setContext({ precedingTranslations: value })} />
+                <ToggleRow label="앞 대사 번역" checked={context.precedingTranslations} onChange={(value) => setContext({ precedingTranslations: value })} />
               </div>
             )}
             <CountRow label="이전 장면" unit="개" value={context.previousScenes} fallback={1} max={10} onChange={(value) => setContext({ previousScenes: value })} />
@@ -310,7 +310,6 @@ export function AiContextFields({ config, set, input }: { config: Pick<AiNode['c
         )}
       </div>
       <div className="space-y-2.5 border-t border-border-subtle pt-3">
-        <p className="text-xs text-muted-foreground">용어·자료는 확정된 것만 들어갑니다.</p>
         <ToggleRow label="용어집" checked={context.glossary} onChange={(value) => setContext({ glossary: value })} />
         {lines && <ToggleRow label="청자·말투" checked={context.speech} onChange={(value) => setContext({ speech: value })} />}
         <ToggleRow label="인물 명단" checked={context.cast} onChange={(value) => setContext({ cast: value })} />

@@ -93,7 +93,7 @@ function ProjectForm({ projectId, project }: { projectId: string; project: { nam
             </FieldGroup>
           </SettingsSection>
 
-          <SettingsSection title="AI 문맥" description="AI에게 문맥으로 보내는 용어·자료는 확정된 것만입니다. 확정은 사람이 하거나, 아래가 켜져 있으면 AI가 합니다.">
+          <SettingsSection title="AI 문맥">
             <AiAutoConfirmSetting projectId={projectId} />
           </SettingsSection>
 
