@@ -203,6 +203,8 @@ export const aiNodeConfigSchema = z.object({
   batch: batchConfigSchema.default(batchConfigSchema.parse({})),
   /** How long one request of this node may take before it fails with error kind "timeout". */
   timeoutMinutes: z.number().int().min(1).max(240).default(DEFAULT_CALL_MINUTES),
+  /** How many of this node's requests a run sends at once (each one a model process for a CLI connection). */
+  concurrency: z.number().int().min(1).max(16).default(1),
   /** What the request reads besides the context: the lines, and what an earlier node produced for them. */
   input: aiInputSchema,
 });

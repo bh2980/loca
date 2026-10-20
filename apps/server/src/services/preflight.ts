@@ -28,6 +28,8 @@ export interface NodeEstimate {
   choice: { connectionId: string; model: string; effort?: string };
   /** Other models sharing this node's requests (their accounts take whatever is free). */
   sharedWith: string[];
+  /** Requests the node sends at once (its 동시 처리 수). */
+  concurrency: number;
   connection: { id: string; name: string; kind: string; cli: boolean } | null;
   /** Requests if every planned line reaches this node once. */
   full: number;
@@ -94,6 +96,7 @@ export async function preflight(db: Db, workflow: Pick<typeof s.workflows.$infer
       model: label(node.config.model),
       choice: node.config.model,
       sharedWith: node.config.extraModels.flatMap((choice) => label(choice) ?? []),
+      concurrency: node.config.concurrency,
       connection: connection ? { id: connection.id, name: connection.name, kind: connection.kind, cli: CONNECTION_KIND_INFO[connection.kind].transport === 'cli' } : null,
       full: requests.length,
       requests: { min: all ? requests.length : 0, expected: all ? requests.length : historyRate === null ? null : Math.round(historyRate * units.length), max },
@@ -121,6 +124,7 @@ export async function preflight(db: Db, workflow: Pick<typeof s.workflows.$infer
   return {
     readiness,
     pace,
+    load: aiLoad(db, definition),
     lines: { total: units.length, excluded: excludedInScope(db, projectId, definition, scope), translated: units.filter((unit) => unit.translation).length, untranslated: units.filter((unit) => !unit.translation).length },
     plan: {
       batches: sizes.length,
@@ -172,6 +176,7 @@ async function termPreflight(db: Db, workflow: { id: string | null; projectId: s
         model: connection && node.config.model.model ? choiceLabel(connection.name, node.config.model) : null,
         choice: node.config.model,
         sharedWith: [],
+        concurrency: node.config.concurrency,
         connection: connection ? { id: connection.id, name: connection.name, kind: connection.kind, cli: CONNECTION_KIND_INFO[connection.kind].transport === 'cli' } : null,
         full: requests.length,
         requests: { min: all ? requests.length : 0, expected: all ? requests.length : historyRate === null ? null : Math.round(historyRate * rows.length), max: requests.length * (all ? 1 : definition.settings.maxVisitsPerNode) },
@@ -189,6 +194,7 @@ async function termPreflight(db: Db, workflow: { id: string | null; projectId: s
   return {
     readiness: { dialogueLines: 0, unknownListenerLines: 0, unreviewedRules: none, unreviewedTerms: none, pairsWithoutRule: { count: 0, examples: [] as string[] }, applies: readinessUses(definition) },
     pace: paceOf(db, estimates),
+    load: aiLoad(db, definition),
     lines: { total: rows.length, excluded: 0, translated: rows.filter((row) => row.target).length, untranslated: rows.filter((row) => !row.target).length },
     plan: { batches: 0, linesPerBatch: null, list: listBatches(db, []) },
     nodes: estimates,
@@ -247,9 +253,22 @@ function readinessOf(db: Db, projectId: string, units: { kind: string; speaker: 
   };
 }
 
+/** The most AI requests a definition sends at once: its AI nodes' 동시 처리 수 together. */
+const aiSlots = (definition: WorkflowDefinition) => definition.nodes.reduce((sum, node) => sum + (node.type === 'ai' ? node.config.concurrency : 0), 0);
+
+/**
+ * AI requests already going out from this computer: the runs sending now (any project; a paused run
+ * sends nothing) and the most they send at once, with what this run would add. The run dialog and
+ * `loca runs plan` warn with it; nothing is held back.
+ */
+function aiLoad(db: Db, definition: WorkflowDefinition) {
+  const running = db.select({ definition: s.runs.definition }).from(s.runs).where(eq(s.runs.status, 'running')).all();
+  return { runs: running.length, max: running.reduce((sum, run) => sum + aiSlots(run.definition), 0), added: aiSlots(definition) };
+}
+
 /**
  * How long and how much, from the connections' own recent calls in runs: the median seconds per
- * request, spread over the connection's parallel requests, and the average cost a provider
+ * request, spread over the node's parallel requests (동시 처리 수), and the average cost a provider
  * reported. CLI connections run on a subscription. null where there is no history yet.
  */
 function paceOf(db: Db, estimates: NodeEstimate[]) {
@@ -272,7 +291,7 @@ function paceOf(db: Db, estimates: NodeEstimate[]) {
         .filter((call) => call.finished);
     const own = estimate.choice.model ? recent(estimate.choice.model) : [];
     const calls = own.length >= 3 ? own : recent();
-    const parallel = db.select({ concurrency: s.connections.concurrency }).from(s.connections).where(eq(s.connections.id, estimate.connection.id)).get()?.concurrency ?? 1;
+    const parallel = estimate.concurrency;
     if (!calls.length) seconds = null;
     else if (seconds !== null) {
       const durations = calls.map((call) => (call.finished!.getTime() - call.started.getTime()) / 1000).sort((a, b) => a - b);

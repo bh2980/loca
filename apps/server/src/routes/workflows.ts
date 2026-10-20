@@ -297,20 +297,22 @@ export const workflowRoutes = new Hono<Env>()
       .all()
       .map((row) => ({ ...row, name: connectionName(names, row.connectionId, null) }));
     const { models, ...rest } = run;
-    // Requests a node has in flight now, and how many it can have at once: an AI node's connections'
-    // 동시 호출 한도 (shared with every run and chat using them), an HTTP or script node's workflow setting.
-    const limits = new Map(db.select({ id: s.connections.id, concurrency: s.connections.concurrency }).from(s.connections).all().map((row) => [row.id, row.concurrency]));
+    // Requests a node has in flight now, and how many it can have at once: an AI node's 동시 처리 수,
+    // an HTTP or script node's workflow setting.
     const callLimits = Object.fromEntries(
       run.definition.nodes.flatMap((node) => {
-        if (node.type === 'ai') {
-          const accounts = new Set(nodeModels(node).flatMap((choice) => models[choiceKey(choice)]?.routes[0]?.connectionId ?? []));
-          return [[node.id, [...accounts].reduce((sum, account) => sum + (limits.get(account) ?? 2), 0)]];
-        }
+        if (node.type === 'ai') return [[node.id, node.config.concurrency]];
         return node.type === 'function' && FUNCTIONS[node.config.fn as FunctionName]?.async ? [[node.id, run.definition.settings.concurrency]] : [];
       }),
     );
+    // Items that went through each node (a line that visited a node twice counts once): the run graph's "지나감".
+    const passed = Object.fromEntries(
+      db
+        .all<{ nodeId: string; count: number }>(sql`select json_extract(step.value, '$.nodeId') as nodeId, count(distinct item.id) as count from ${s.runItems} item, json_each(item.data, '$.path') step where item.run_id = ${run.id} group by nodeId`)
+        .map((row) => [row.nodeId, row.count]),
+    );
     // What each model choice resolved to when the run started, its fallbacks after it.
-    return c.json({ ...rest, models: Object.values(models).map((model) => ({ label: model.label, routes: model.routes.map((route) => ({ connectionId: route.connectionId, name: route.name, model: route.model })) })), nodes, calls: runner.liveCalls(run.id), callLimits, usage, byModel, filling: run.notice === FILLING });
+    return c.json({ ...rest, passed, models: Object.values(models).map((model) => ({ label: model.label, routes: model.routes.map((route) => ({ connectionId: route.connectionId, name: route.name, model: route.model })) })), nodes, calls: runner.liveCalls(run.id), callLimits, usage, byModel, filling: run.notice === FILLING });
   })
   .get('/runs/:id/items', validate('query', z.object({ state: z.string().optional(), nodeId: z.string().optional(), offset: z.coerce.number().default(0), limit: z.coerce.number().max(500).default(100) })), (c) => {
     const { db } = c.var.deps;

@@ -68,6 +68,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
 
   if (part === 'model') {
     return (
+      <>
       <Field label="모델">
         {/* More than one model splits the work between them. */}
         <div className="space-y-1.5">
@@ -86,6 +87,17 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
           </Button>
         </div>
       </Field>
+      <Field label="동시 처리 수" hint="요청을 한꺼번에 몇 개까지 보낼지. CLI 연결이면 그만큼 모델 프로세스가 뜹니다. 실행마다 따로 셉니다.">
+        <Input
+          type="number"
+          min={1}
+          max={16}
+          className="w-28"
+          value={config.concurrency}
+          onChange={(event) => set({ concurrency: Math.min(16, Math.max(1, Math.round(Number(event.target.value) || 1))) })}
+        />
+      </Field>
+      </>
     );
   }
 

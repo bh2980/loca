@@ -1,4 +1,5 @@
 import type { InferResponseType } from 'hono/client';
+import { Link } from '@tanstack/react-router';
 import { Button, SectionHeading } from '@loca/ui';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
 import type { client } from '@/lib/api';
@@ -8,8 +9,11 @@ export type PlanData = InferResponseType<(typeof client.workflows)[':id']['prefl
 
 const duration = (seconds: number) => (seconds < 90 ? `${Math.max(1, Math.round(seconds / 10) * 10)}초` : seconds < 5400 ? `${Math.round(seconds / 60)}분` : `${(seconds / 3600).toFixed(1)}시간`);
 
-/** How long and how much, in plain words (for the models picked below). */
-export function Pace({ data }: { data: PlanData }) {
+/**
+ * How long and how much, in plain words (for the models picked below). With `projectId`, also how
+ * many AI requests other runs already send at once and what this one adds: a notice, never a block.
+ */
+export function Pace({ data, projectId }: { data: PlanData; projectId?: string }) {
   const calls = data.totals.calls;
   const callText = calls.expected !== null ? `${calls.expected.toLocaleString()}회` : `${calls.min.toLocaleString()}~${calls.max.toLocaleString()}회`;
   const { seconds, costUsd, subscription } = data.pace;
@@ -28,6 +32,14 @@ export function Pace({ data }: { data: PlanData }) {
         )}
         {money && ` · ${money}`}
       </p>
+      {projectId && data.load.runs > 0 && (
+        <p className="text-xs text-warning" role="status">
+          다른 실행 {data.load.runs}개가 AI 요청을 최대 {data.load.max}개까지 동시에 보내는 중입니다. 이 실행을 시작하면 최대 {data.load.max + data.load.added}개가 됩니다.{' '}
+          <Link to="/p/$projectId/runs" params={{ projectId }} className="underline underline-offset-2">
+            실행 기록 보기
+          </Link>
+        </p>
+      )}
     </section>
   );
 }

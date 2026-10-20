@@ -50,10 +50,10 @@ export type FlowNode = Node<{
   warnings: string[];
   /** Target status of a status-change node, shown in that status's colour. */
   status?: { name: string; color: string };
-  live?: { queued: number; running: number; failed: number; calls?: number; limit?: number };
+  live?: { queued: number; running: number; failed: number; calls?: number; limit?: number; passed?: number };
   direction: CanvasDirection;
   /** Lines enter here (the hidden entry node points at it): its 시작 mark, which opens the start settings. */
-  start?: { label: string; onOpen: () => void };
+  start?: { label: string; onOpen?: () => void };
   /** Exits with no line leaving them: drawn with an end mark. */
   open: string[];
 }, 'workflow'>;
@@ -101,6 +101,7 @@ export const WorkflowNodeView = memo(function WorkflowNodeView({ id, data, selec
     errors={errors.length}
     warnings={warnings.length}
     live={live}
+    parallel={node.type === 'ai' ? node.config.concurrency : undefined}
     selected={selected}
     start={start}
     className={isEntry ? 'w-48' : isVertical ? 'w-56' : 'w-72'}

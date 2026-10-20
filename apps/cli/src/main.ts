@@ -645,7 +645,7 @@ workflows
     if (globals().json) return print({ id: data.id, name: data.name, description: data.description, definition: data.definition, issues: data.issues });
     const summary = (node: Node) =>
       node.type === 'entry' ? `대상 상태 ${node.config.statusIds?.length ?? 0}개`
-      : node.type === 'ai' ? `${node.config.output}·${node.config.scope ?? 'line'}${node.config.preset ? ` · 프리셋 ${node.config.preset}` : ''} · ${node.config.model?.model || '모델 없음'}${node.config.fields?.length ? ` · 필드 ${node.config.fields.map((field: { name: string }) => field.name).join(', ')}` : ''}`
+      : node.type === 'ai' ? `${node.config.output}·${node.config.scope ?? 'line'}${node.config.preset ? ` · 프리셋 ${node.config.preset}` : ''} · ${node.config.model?.model || '모델 없음'} · 동시 ${node.config.concurrency ?? 1}${node.config.fields?.length ? ` · 필드 ${node.config.fields.map((field: { name: string }) => field.name).join(', ')}` : ''}`
       : node.type === 'function' ? `${node.config.fn}`
       : node.type === 'condition' ? JSON.stringify(node.config.expression)
       : node.type === 'gather' ? `모으기 ← ${node.config.from || '(앞 노드 없음)'}${node.config.fields?.length ? ` · 필드 ${node.config.fields.join(', ')}` : ''}`
@@ -724,9 +724,10 @@ runs
       lines: { total: number; translated: number; untranslated: number };
       subject?: 'lines' | 'terms';
       plan: { batches: number; linesPerBatch: { min: number; median: number; max: number } | null };
-      nodes: { name: string; model: string | null; requests: { min: number; expected: number | null; max: number }; promptTokens: number }[];
+      nodes: { name: string; model: string | null; concurrency: number; requests: { min: number; expected: number | null; max: number }; promptTokens: number }[];
       totals: { calls: { min: number; expected: number | null; max: number }; inputTokens: { min: number; expected: number | null; max: number } };
       pace: { seconds: number | null; costUsd: number | null; subscription: boolean };
+      load: { runs: number; max: number; added: number };
       readiness: { dialogueLines: number; unknownListenerLines: number; unreviewedRules: Names; unreviewedTerms: Names; pairsWithoutRule: { count: number; examples: string[] } };
     }>('plan_run', { workflow, groups: options.group, keys: options.key, tags: options.tag, marks: options.mark, terms: options.term, ignoreStatus: options.ignoreStatus, models: runModels(options.model) });
     if (globals().json) return print(data);
@@ -737,7 +738,8 @@ runs
     const per = data.plan.linesPerBatch;
     if (!terms) console.log(`  묶음 ${data.plan.batches.toLocaleString()}개${per ? ` (묶음당 ${per.min}~${per.max}줄, 중간 ${per.median})` : ''}`);
     console.log(`  AI 요청 ${range(data.totals.calls)} · 입력 토큰 ${range(data.totals.inputTokens)}${data.pace.seconds !== null ? ` · 약 ${Math.round(data.pace.seconds / 60)}분` : ''}${data.pace.subscription ? ' · 구독' : data.pace.costUsd !== null ? ` · 약 $${data.pace.costUsd.toFixed(2)}` : ''}`);
-    for (const node of data.nodes) console.log(`    ${node.name}  ${node.model ?? '(모델 없음)'}  요청 ${range(node.requests)} · 프롬프트 약 ${node.promptTokens.toLocaleString()}토큰`);
+    for (const node of data.nodes) console.log(`    ${node.name}  ${node.model ?? '(모델 없음)'}  요청 ${range(node.requests)} · 동시 ${node.concurrency} · 프롬프트 약 ${node.promptTokens.toLocaleString()}토큰`);
+    if (data.load.runs) console.log(`  주의: 다른 실행 ${data.load.runs}개가 AI 요청을 최대 ${data.load.max}개까지 동시에 보내는 중입니다. 이 실행을 시작하면 최대 ${data.load.max + data.load.added}개가 됩니다.   → loca runs list`);
     if (terms) return console.log('\n용어 워크플로는 청자·말투 규칙 준비 상태를 보지 않습니다. 시작 전 loca terms로 대상 용어를 확인하세요.');
     const ready = data.readiness;
     console.log('\n준비 상태');

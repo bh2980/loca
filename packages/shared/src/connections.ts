@@ -72,7 +72,6 @@ export const connectionInputSchema = z.object({
   /** HTTP tools: how the stored key is sent, e.g. "Authorization: Bearer {key}" or "X-API-Key: {key}". */
   headerTemplate: z.string().trim().optional(),
   /** Model calls this account takes at once, shared by every run. */
-  concurrency: z.number().int().min(1).max(32).optional(),
   /** Filled in when this connection is picked somewhere (and for templates and imported workflows). */
   defaultModel: z.string().trim().nullable().optional(),
   defaultEffort: z.string().nullable().optional(),

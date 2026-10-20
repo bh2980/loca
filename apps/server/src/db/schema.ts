@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
-import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import { AGE_BANDS, CHARACTER_ROLES, GENDERS, KNOWLEDGE_TAG_KINDS, TAG_ROLES, type TagRole, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, PERMISSION_MODES, type AiConfirm, type CharacterStyle, type EditorAi, type ExclusionRules, type ModelLimits, LINE_TRANSLATE, type LineMark, type MarkColors, type ModelChoice, type ContextItem, type FormatRules, type ItemErrorKind, type NodeType, type RelationshipChange, type WorkflowDefinition, WORKFLOW_SUBJECT_IDS, type WorkflowSubject } from '@tw/shared';
+import { customType, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { AGE_BANDS, CHARACTER_ROLES, GENDERS, KNOWLEDGE_TAG_KINDS, TAG_ROLES, type TagRole, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, PERMISSION_MODES, type AiConfirm, type CharacterStyle, type EditorAi, type ExclusionRules, type ModelLimits, LINE_TRANSLATE, type LineMark, type MarkColors, type ModelChoice, type ContextItem, type FormatRules, type ItemErrorKind, type NodeType, type RelationshipChange, type WorkflowDefinition, workflowDefinitionSchema, WORKFLOW_SUBJECT_IDS, type WorkflowSubject } from '@tw/shared';
 import type { Usage } from '@tw/ai';
 
 const id = () => text('id').primaryKey().$defaultFn(() => crypto.randomUUID());
@@ -8,6 +8,20 @@ const createdAt = () => integer('created_at', { mode: 'timestamp_ms' }).notNull(
 const updatedAt = () =>
   integer('updated_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()).$onUpdateFn(() => new Date());
 const json = <T>(name: string) => text(name, { mode: 'json' }).$type<T>();
+/**
+ * A workflow definition, read with the schema's defaults filled in (a setting added later, such as an
+ * AI node's 동시 처리 수, reads as its default in a definition saved before it). One the schema no
+ * longer accepts (an old built-in, see workflow-migrations) is read as stored.
+ */
+const definitionJson = customType<{ data: WorkflowDefinition; driverData: string }>({
+  dataType: () => 'text',
+  toDriver: (value) => JSON.stringify(value),
+  fromDriver: (value) => {
+    const raw = JSON.parse(value);
+    const parsed = workflowDefinitionSchema.safeParse(raw);
+    return parsed.success ? parsed.data : raw;
+  },
+});
 const projectId = () => text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' });
 /**
  * Shared by every knowledge table. AI drafts land as candidates and are not used as context until
@@ -442,8 +456,6 @@ export const connections = sqliteTable('connections', {
   executable: text('executable'),
   headerTemplate: text('header_template'),
   createdAt: createdAt(),
-  /** Model calls this account takes at once, shared by every run. */
-  concurrency: integer('concurrency').notNull().default(2),
   /** Filled in when the connection is picked somewhere; templates and imported workflows use it. */
   defaultModel: text('default_model'),
   defaultEffort: text('default_effort'),
@@ -464,7 +476,7 @@ export const workflows = sqliteTable('workflows', {
   name: text('name').notNull(),
   description: text('description').notNull().default(''),
   version: integer('version').notNull().default(1),
-  definition: json<WorkflowDefinition>('definition').notNull(),
+  definition: definitionJson('definition').notNull(),
   updatedAt: updatedAt(),
 });
 
@@ -516,7 +528,7 @@ export const runs = sqliteTable(
     workflowId: text('workflow_id').references(() => workflows.id, { onDelete: 'set null' }),
     workflowName: text('workflow_name').notNull(),
     workflowVersion: integer('workflow_version').notNull(),
-    definition: json<WorkflowDefinition>('definition').notNull(),
+    definition: definitionJson('definition').notNull(),
     /** Every model the run's AI nodes picked, resolved, keyed by choiceKey. */
     models: json<Record<string, AiSnapshot>>('models').notNull().default(sql`'{}'`),
     /** What the run's items are (WORKFLOW_SUBJECTS): lines or terms. */

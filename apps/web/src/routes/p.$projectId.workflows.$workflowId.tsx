@@ -31,6 +31,7 @@ import { autoLayout } from '@/components/workflow/auto-layout';
 import { NodeConfig } from '@/components/workflow/node-config';
 import { WorkflowNodeView, type FlowNode } from '@/components/workflow/node-view';
 import { WorkflowEdgeView, type FlowEdge } from '@/components/workflow/workflow-edge';
+import { entryStarts, flowEdges, nodeSummary, openPorts, targetStatus } from '@/components/workflow/flow-graph';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { SplitPane, PageHeading, HeaderActions, NodeLibrary, CanvasToolbar, CanvasSurface, SelectionToolbox, type CanvasDirection, type NodeLibraryGroup, Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent, DropdownMenuLabel, Input, Skeleton } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
@@ -135,7 +136,6 @@ function WorkflowEditor() {
   const connections = useQuery(q.connections());
   const runs = useQuery(q.runs(projectId));
   const activeRun = runs.data?.find((run) => run.workflowId === workflowId && (run.status === 'running' || run.status === 'paused'));
-  const live = useQuery({ ...q.run(activeRun?.id ?? ''), enabled: Boolean(activeRun) });
 
   // The draft survives navigation and reloads; it is dropped only on save or explicit discard.
   const [draft, setDraftState] = useState<Draft | null>(() => readDraft(workflowId));
@@ -220,8 +220,6 @@ function WorkflowEditor() {
     return () => clearTimeout(timer);
   }, [draft, stale, save.isPending, save.isError, save.mutate]);
 
-  const statusName = new Map(statuses.data?.statuses.map((status) => [status.id, status.name]));
-  const connectionName = new Map(connections.data?.map((connection) => [connection.id, connection.name]));
   // A new AI node starts with the model the workflow already uses, else the first connection's default.
   const newNodeModel = () => {
     const used = current?.definition.nodes.find((node) => node.type === 'ai' && node.config.model.model);
@@ -229,64 +227,8 @@ function WorkflowEditor() {
     const connection = connections.data?.find((item) => item.defaultModel && item.kind !== 'http' && item.kind !== 'systemone');
     return connection ? { connectionId: connection.id, model: connection.defaultModel!, ...(connection.defaultEffort && { effort: connection.defaultEffort }) } : { connectionId: '', model: '' };
   };
-  const summary = (node: WorkflowNode): string => {
-    switch (node.type) {
-      case 'entry':
-        return node.config.statusIds.length ? node.config.statusIds.map((id) => statusName.get(id) ?? '삭제된 상태').join(', ') : '범위 안의 모든 대사';
-      case 'ai': {
-        const model = node.config.model.model ? [connectionName.get(node.config.model.connectionId) ?? (connections.data ? '삭제된 연결' : undefined), node.config.model.model].filter(Boolean).join(' · ') : '모델 없음';
-        return `${model}${nodeModels(node).length > 1 ? ` 외 ${nodeModels(node).length - 1}개` : ''}`;
-      }
-      case 'function': {
-        const params = node.config.params as Record<string, unknown>;
-        if (node.config.fn === 'setStatus')
-          return [params.statusId && `→ ${statusName.get(params.statusId as string) ?? '삭제된 상태'}`].filter(Boolean).join(' · ') || '변경 없음';
-        if (node.config.fn === 'http') return `${(params.method as string) ?? 'POST'} ${connectionName.get(params.connectionId as string) ?? '연결 없음'}/${(params.path as string) ?? ''}`;
-        if (node.config.fn === 'script') return `출구: ${((params.ports as string[]) ?? ['out']).join(', ')}`;
-        if (node.config.fn in APPLY_TARGETS) {
-          const from = current?.definition.nodes.find((other) => other.id === params.fromNodeId);
-          return from ? `← ${nodeName(from)}` : '가져올 노드 없음';
-        }
-        if (node.config.fn === 'formatCheck') {
-          const checks = [
-            params.placeholders !== false && '자리표시자',
-            params.tags !== false && '서식 태그',
-            params.newlines !== false && '줄바꿈',
-            params.emptyText !== false && '빈 번역',
-            params.numbers && '숫자',
-            params.spaces && '공백',
-            params.particles && '조사',
-            Array.isArray(params.customRules) && params.customRules.length > 0 && `규칙 ${params.customRules.length}개`,
-          ].filter(Boolean);
-          return checks.length ? `검사: ${checks.join('·')}` : '켠 검사 항목 없음 (항상 통과)';
-        }
-        return FUNCTIONS[node.config.fn as FunctionName]?.label ?? node.config.fn;
-      }
-      case 'condition':
-        return node.config.description || '조건식';
-      case 'gather': {
-        const from = current?.definition.nodes.find((other) => other.id === node.config.from);
-        return from ? `← ${nodeName(from)}` : '모을 노드를 고르세요';
-      }
-      default:
-        return '';
-    }
-  };
-
-  const liveCounts = useMemo(() => {
-    const counts = new Map<string, { queued: number; running: number; failed: number; calls?: number; limit?: number }>();
-    for (const row of live.data?.nodes ?? []) {
-      const entry = counts.get(row.nodeId) ?? { queued: 0, running: 0, failed: 0 };
-      if (row.state === 'queued' || row.state === 'running' || row.state === 'failed') entry[row.state] += row.count;
-      counts.set(row.nodeId, entry);
-    }
-    // Requests in flight against how many the node can have at once (its connections' 동시 호출 한도).
-    for (const [nodeId, limit] of Object.entries(live.data?.callLimits ?? {})) {
-      const entry = counts.get(nodeId);
-      if (entry) Object.assign(entry, { calls: live.data?.calls[nodeId] ?? 0, limit });
-    }
-    return counts;
-  }, [live.data]);
+  const summaryNames = { status: new Map(statuses.data?.statuses.map((status) => [status.id, status.name])), connection: new Map(connections.data?.map((connection) => [connection.id, connection.name])), connectionsLoaded: Boolean(connections.data) };
+  const summary = (node: WorkflowNode) => (current ? nodeSummary(node, current.definition, summaryNames) : '');
 
   // React Flow measures each node and reports it as a 'dimensions' change; nodes rebuilt without
   // those sizes stay hidden (and their edges undrawn) until measured again, which never happens
@@ -300,10 +242,8 @@ function WorkflowEditor() {
   );
   const nodes: FlowNode[] = useMemo(
     () => {
-      const all = current?.definition ?? { nodes: [], edges: [] };
-      const entry = all.nodes.find((node) => node.type === 'entry');
-      const starts = new Set(all.edges.filter((edge) => edge.source === entry?.id).map((edge) => edge.target));
-      const startLabel = entry && entry.type === 'entry' && entry.config.statusIds.length ? `시작 · ${summary(entry)}` : '시작';
+      if (!current) return [];
+      const { entry, starts, label: startLabel } = entryStarts(current.definition, summaryNames);
       return definitions.map((node) => ({
         id: node.id,
         type: 'workflow',
@@ -317,50 +257,17 @@ function WorkflowEditor() {
           summary: summary(node),
           errors: issues.filter((issue) => issue.nodeId === node.id && issue.level === 'error').map((issue) => issue.message),
           warnings: issues.filter((issue) => issue.nodeId === node.id && issue.level === 'warning').map((issue) => issue.message),
-          live: liveCounts.get(node.id),
           start: starts.has(node.id) && entry ? { label: startLabel, onOpen: () => select(entry.id) } : undefined,
-          open: nodePorts(node).map((port) => port.id).filter((port) => !all.edges.some((edge) => edge.source === node.id && edge.sourceHandle === port)),
-          status: (() => {
-            const statusId = node.type === 'function' && node.config.fn === 'setStatus' ? (node.config.params as { statusId?: string }).statusId : undefined;
-            const status = statusId ? statuses.data?.statuses.find((item) => item.id === statusId) : undefined;
-            return status && { name: status.name, color: status.color };
-          })(),
+          open: openPorts(node, current.definition),
+          status: targetStatus(node, statuses.data?.statuses),
         },
       }));
     },
-    [definitions, current?.definition, search.node, multi, direction, issues, liveCounts, statuses.data, connections.data, measured], // eslint-disable-line react-hooks/exhaustive-deps
+    [definitions, current?.definition, search.node, multi, direction, issues, statuses.data, connections.data, measured], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const edges: FlowEdge[] = useMemo(
-    () => {
-      const hiddenNodeIds = new Set(
-        (current?.definition.nodes ?? [])
-          .filter((node) => node.type === 'entry' || node.type === 'end')
-          .map((node) => node.id),
-      );
-      const all = (current?.definition.edges ?? []).filter(
-        (edge) => !hiddenNodeIds.has(edge.source) && !hiddenNodeIds.has(edge.target),
-      );
-      return all.map((edge) => {
-        const branches = all.filter((other) => other.source === edge.source && other.sourceHandle === edge.sourceHandle).length;
-        const source = current?.definition.nodes.find((node) => node.id === edge.source);
-        const port = source && nodePorts(source).find((item) => item.id === edge.sourceHandle);
-        const tone = edge.sourceHandle === 'error' ? 'var(--destructive)' : ['fail', 'false', 'rejected'].includes(edge.sourceHandle) ? 'var(--warning)' : 'var(--graph-edge)';
-        return {
-          id: edge.id,
-          source: edge.source,
-          sourceHandle: edge.sourceHandle,
-          target: edge.target,
-          targetHandle: 'in',
-          type: 'workflow',
-          interactionWidth: 24,
-          markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
-          selected: edge.id === edgeId,
-          data: { points: edge.layout?.points, label: port && (branches > 1 ? `${port.label} · 모두 보냄` : port.label), labelPosition: edge.layout?.labelPosition },
-          style: { stroke: edge.id === edgeId ? 'var(--primary)' : tone, strokeWidth: edge.id === edgeId || edge.id === hoveredEdgeId ? 3 : 2 },
-        };
-      });
-    },
-    [current?.definition, edgeId, hoveredEdgeId],
+    () => (current ? flowEdges(current.definition, { selected: edgeId, hovered: hoveredEdgeId }) : []),
+    [current?.definition, edgeId, hoveredEdgeId], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const select = (id: string | undefined) => void navigate({ search: (previous) => ({ ...previous, node: id }) });
@@ -681,6 +588,15 @@ function WorkflowEditor() {
           편집하는 동안 다른 곳에서 이 워크플로를 저장했습니다({savedAt(workflow.data.updatedAt)}). 이 편집은 그 전 내용을 바탕으로 합니다.
           <Button variant="outline" onClick={discard}>
             최신 불러오기
+          </Button>
+        </div>
+      )}
+      {/* The editor only edits: how a run is going is on its own page (실행 기록 › 그래프). */}
+      {activeRun && (
+        <div role="status" className="flex items-center gap-3 border-b bg-muted px-4 py-2 text-xs text-muted-foreground">
+          이 워크플로가 {activeRun.status === 'paused' ? '멈춘 채 실행 중' : '실행 중'}입니다. 실행이 끝날 때까지 바뀐 내용은 저장되지 않고 이 브라우저에 보관됩니다.
+          <Button variant="outline" asChild>
+            <Link to="/p/$projectId/runs/$runId" params={{ projectId, runId: activeRun.id }} search={{ tab: 'graph' }}>진행 보기</Link>
           </Button>
         </div>
       )}

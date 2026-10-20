@@ -297,7 +297,12 @@ describe('run plan', () => {
   });
 });
 
-describe('slots per account', () => {
+/** Sets every AI node's 동시 처리 수 (or only the ones `pick` keeps) in the workflow a test starts runs from. */
+function setConcurrency(workflow: { definition: { nodes: { type: string; config: unknown }[] } }, n: number, pick: (instructions: string) => boolean = () => true) {
+  for (const node of workflow.definition.nodes) if (node.type === 'ai' && pick((node.config as { instructions: string }).instructions)) (node.config as { concurrency: number }).concurrency = n;
+}
+
+describe('slots per node', () => {
   /** Counts calls in flight per connection and remembers the peak; each call takes `ms(kind)`. */
   function timedModel(ms: (review: boolean) => number) {
     const now = new Map<string, number>();
@@ -324,8 +329,8 @@ describe('slots per account', () => {
   }
 
   it('reports the requests a node has in flight while they run', async () => {
-    const { db, start } = setup(40, () => 20);
-    db.update(s.connections).set({ concurrency: 3 }).run();
+    const { workflow, db, start } = setup(40, () => 20);
+    setConcurrency(workflow, 3);
     const runId = start();
     const seen: Record<string, number>[] = [];
     let runner: Runner;
@@ -343,28 +348,46 @@ describe('slots per account', () => {
     };
     runner = new Runner(db, memoryStore(), port);
     await runner.drain();
-    // Never more than the account's 3 slots across the run's nodes; nothing left in flight at the end.
-    expect(Math.max(...seen.map((calls) => Object.values(calls).reduce((sum, n) => sum + n, 0)))).toBe(3);
+    // Never more than a node's 3 slots; nothing left in flight at the end.
+    expect(Math.max(...seen.flatMap((calls) => Object.values(calls)))).toBe(3);
     expect(runner.liveCalls(runId)).toEqual({});
   });
 
-  it('two runs on one account never exceed its slots together', async () => {
-    const { db, start } = setup(40, () => 20);
-    db.update(s.connections).set({ concurrency: 3 }).run();
+  it('a node sends up to its 동시 처리 수 at once, in every run on its own', async () => {
+    const { workflow, db, start } = setup(40, () => 20);
+    // Translate takes 2 at once, review keeps the default 1; two runs of it go side by side.
+    setConcurrency(workflow, 2, (instructions) => !instructions.includes('Review each'));
     start();
     start();
-    const { port, peak } = timedModel(() => 5);
+    const now = { T: 0, R: 0 };
+    const peak = { T: 0, R: 0 };
+    const port: ModelPort = {
+      judge: async () => {
+        throw new Error('unused');
+      },
+      generate: async (_route, request) => {
+        const kind = request.system.includes('Review each') ? 'R' : 'T';
+        peak[kind] = Math.max(peak[kind], ++now[kind]);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        now[kind]--;
+        const lines = promptEntries(request.prompt);
+        if (kind === 'R') return { object: { results: lines.map((line) => ({ id: line.id, passed: true, issues: [] })) }, usage: {} } as never;
+        return { object: { results: lines.map((line) => ({ id: line.id, text: `[ko] ${line.source}` })) }, usage: {} } as never;
+      },
+    };
     await new Runner(db, memoryStore(), port).drain();
-    expect(Math.max(...peak.values())).toBe(3);
+    expect(peak.T).toBe(4);
+    expect(peak.R).toBeLessThanOrEqual(2);
   });
 
-  it('a slow account does not hold up nodes on another account', async () => {
+  it('a slow node does not hold up the others', async () => {
     const { db, workflow, start } = setup(40, () => 20);
-    // Review on a second, slow account with one slot; translate keeps its own two.
-    const slow = db.insert(s.connections).values({ kind: 'openai', name: 'slow', baseUrl: 'http://slow/v1', concurrency: 1 }).returning().get();
+    // Review on a second, slow connection with one slot; translate keeps its own two.
+    setConcurrency(workflow, 2);
+    const slow = db.insert(s.connections).values({ kind: 'openai', name: 'slow', baseUrl: 'http://slow/v1' }).returning().get();
     db.update(s.connections).set({ outputTokens: 1000, maxAttempts: 1 }).where(eq(s.connections.id, slow.id)).run();
     const reviewer = { connectionId: slow.id, model: 'm' };
-    const definition = { ...workflow.definition, nodes: workflow.definition.nodes.map((node) => (node.type === 'ai' && node.config.instructions.includes('Review each') ? { ...node, config: { ...node.config, model: reviewer } } : node)) };
+    const definition = { ...workflow.definition, nodes: workflow.definition.nodes.map((node) => (node.type === 'ai' && node.config.instructions.includes('Review each') ? { ...node, config: { ...node.config, model: reviewer, concurrency: 1 } } : node)) };
     db.update(s.workflows).set({ definition }).where(eq(s.workflows.id, workflow.id)).run();
     void start;
     createRun(db, { projectId: workflow.projectId, workflow: { ...workflow, definition }, models: snapshotWorkflowModels(db, definition), scope: { ignoreStatus: true } });
@@ -378,12 +401,12 @@ describe('slots per account', () => {
 });
 
 describe('sharing and branching', () => {
-  it('spreads a node over the accounts of its models', async () => {
+  it('spreads a node over its models', async () => {
     const { db, workflow } = setup(12, () => 5);
-    const other = db.insert(s.connections).values({ kind: 'openai', name: 'second', baseUrl: 'http://localhost:2/v1', concurrency: 1 }).returning().get();
+    const other = db.insert(s.connections).values({ kind: 'openai', name: 'second', baseUrl: 'http://localhost:2/v1' }).returning().get();
     db.update(s.connections).set({ outputTokens: 1000, maxAttempts: 1 }).where(eq(s.connections.id, other.id)).run();
     const second = { connectionId: other.id, model: 'm2' };
-    const definition = { ...workflow.definition, nodes: workflow.definition.nodes.map((node) => (node.type === 'ai' ? { ...node, config: { ...node.config, extraModels: [second], batch: { mode: 'count' as const, size: 5, maxTokens: 6_000 } } } : node)) };
+    const definition = { ...workflow.definition, nodes: workflow.definition.nodes.map((node) => (node.type === 'ai' ? { ...node, config: { ...node.config, extraModels: [second], concurrency: 2, batch: { mode: 'count' as const, size: 5, maxTokens: 6_000 } } } : node)) };
     db.update(s.workflows).set({ definition }).where(eq(s.workflows.id, workflow.id)).run();
     const fresh = db.select().from(s.workflows).where(eq(s.workflows.id, workflow.id)).get()!;
     const runId = createRun(db, { projectId: fresh.projectId, workflow: fresh, models: snapshotWorkflowModels(db, fresh.definition), scope: { ignoreStatus: true } }).runId;

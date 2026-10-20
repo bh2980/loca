@@ -17,6 +17,7 @@ import { useReportView } from '@/lib/view-context';
 import type { InferResponseType } from 'hono/client';
 import { BatchList } from '@/components/workflow/batch-list';
 import { ContinueRun } from '@/components/workflow/continue-run';
+import { RunGraph } from '@/components/workflow/run-graph';
 import { dateTime } from '@/lib/datetime';
 
 type State = keyof typeof ITEM_STATE;
@@ -25,7 +26,7 @@ interface RunSearch {
   node?: string;
   page?: number;
   line?: string;
-  tab?: 'steps' | 'plan';
+  tab?: 'steps' | 'plan' | 'graph';
   aiNode?: string;
 }
 
@@ -35,7 +36,7 @@ export const Route = createFileRoute('/p/$projectId/runs/$runId')({
     node: typeof raw.node === 'string' ? raw.node : undefined,
     page: typeof raw.page === 'number' && raw.page > 0 ? raw.page : undefined,
     line: typeof raw.line === 'string' ? raw.line : undefined,
-    tab: raw.tab === 'steps' || raw.tab === 'plan' ? raw.tab : undefined,
+    tab: raw.tab === 'steps' || raw.tab === 'plan' || raw.tab === 'graph' ? raw.tab : undefined,
     aiNode: typeof raw.aiNode === 'string' && raw.aiNode.includes(':') ? raw.aiNode : undefined,
   }),
   component: RunDetail,
@@ -201,9 +202,10 @@ function RunDetail() {
         }
       >
         <HeaderActions>
-          <Tabs value={view} onValueChange={(value) => setSearch({ tab: value === 'steps' || value === 'plan' ? value : undefined }, true)} className="self-stretch">
+          <Tabs value={view} onValueChange={(value) => setSearch({ tab: value === 'steps' || value === 'plan' || value === 'graph' ? value : undefined }, true)} className="self-stretch">
             <TabsList variant="line" className="h-full border-b-0" aria-label="보기">
               <TabsTrigger value="items">{terms ? '용어별' : '대사별'}</TabsTrigger>
+              <TabsTrigger value="graph">그래프</TabsTrigger>
               <TabsTrigger value="steps">AI 호출</TabsTrigger>
               {/* Terms are not planned in scene batches: there is no plan to show. */}
               {data.subject !== 'terms' && <TabsTrigger value="plan">번역 계획</TabsTrigger>}
@@ -221,13 +223,13 @@ function RunDetail() {
         {data.status === 'paused' && !data.filling && <ContinueRun runId={runId} failed={totals.failed ?? 0} paused hideTrigger open={continueOpen} onOpenChange={setContinueOpen} />}
         {active && stop}
         <StatusBarItem><JobStatusBadge status={data.status} /></StatusBarItem>
-        <FilterBar end={view === 'items' && items.data ? <span className="text-2xs tabular-nums">{total.toLocaleString()}{terms ? '개' : '줄'}</span> : undefined}>
-          {filtered && view === 'items' && (
+        {view === 'items' && <FilterBar end={items.data ? <span className="text-2xs tabular-nums">{total.toLocaleString()}{terms ? '개' : '줄'}</span> : undefined}>
+          {filtered && (
             <Button variant="ghost" onClick={() => setSearch({ state: undefined, node: undefined, page: undefined, line: undefined }, true)}>
               필터 지우기
             </Button>
           )}
-        </FilterBar>
+        </FilterBar>}
 
         <div className="shrink-0 space-y-3 border-b px-4 py-3">
           {data.status === 'paused' && data.notice && (
@@ -282,6 +284,10 @@ function RunDetail() {
             empty={<EmptyState noun={terms ? '용어' : '대사'} filtered={filtered} />}
             footer={<Pager page={search.page ?? 0} total={total} pageSize={PAGE} onPage={(page) => setSearch({ page: page || undefined })} />}
           />
+        ) : view === 'graph' ? (
+          <div className="min-h-0 flex-1">
+            <RunGraph projectId={projectId} run={data} selected={search.node} onOpenNode={(node) => setSearch({ tab: undefined, node, state: undefined, page: undefined, line: undefined })} />
+          </div>
         ) : view === 'plan' ? (
           <div className="min-h-0 flex-1 overflow-auto p-4">
             {plan.data ? (

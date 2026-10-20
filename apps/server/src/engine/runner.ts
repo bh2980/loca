@@ -386,8 +386,8 @@ export class Runner {
     return new Map(rows.map((row) => [`${row.plan}|${row.nodeId}`, row.count]));
   }
 
-  /** Model calls in flight per account (connection id), across runs. */
-  private callsByAccount = new Map<string, number>();
+  /** Model calls in flight per run, node and model choice: a node with several models spreads its requests over them. */
+  private callsByModel = new Map<string, number>();
   /** HTTP / script function calls in flight per run. */
   private functionsByRun = new Map<string, number>();
   /** Requests in flight per run and node: how many of a node's batches are being worked on at once. */
@@ -396,11 +396,6 @@ export class Runner {
   /** Requests in flight per node of a run (only nodes with one). */
   liveCalls(runId: string): Record<string, number> {
     return Object.fromEntries([...(this.callsByNode.get(runId) ?? [])].filter(([, count]) => count > 0));
-  }
-
-  /** The account a model choice's calls count against: its picked route's connection. */
-  private accountOf(run: Run, key: string) {
-    return run.models[key]?.routes[0]?.connectionId ?? null;
   }
 
   private upstreams = new Map<string, Map<string, Set<string>>>();
@@ -490,13 +485,11 @@ export class Runner {
       return true;
     }
 
-    // Slots: model calls are limited per account (connection), shared by every run; HTTP and
-    // script functions by the workflow's own setting. A full account does not hold up nodes
-    // that use another one.
+    // Slots: an AI node sends up to its own 동시 처리 수 at once (other runs and chats do not count);
+    // HTTP and script functions share the workflow's setting. A full node does not hold up the others.
     const busy = this.inflight.get(run.id)?.size ?? 0;
-    const accounts = new Map(this.db.select({ id: s.connections.id, concurrency: s.connections.concurrency }).from(s.connections).all().map((row) => [row.id, row.concurrency]));
     const canSend = (node: WorkflowNode) => {
-      if (node.type === 'ai') return this.freeModel(run, node, accounts) !== null;
+      if (node.type === 'ai') return (this.callsByNode.get(run.id)?.get(node.id) ?? 0) < node.config.concurrency;
       return (this.functionsByRun.get(run.id) ?? 0) < run.definition.settings.concurrency;
     };
     const slow = run.definition.nodes.filter(isAsync);
@@ -569,7 +562,7 @@ export class Runner {
         for (const nodeId of order) {
           const queue = queues.get(nodeId)!;
           if (!queue.requests.length || !canSend(queue.node)) continue;
-          this.dispatch(run, queue.node, queue.requests.shift()!, accounts);
+          this.dispatch(run, queue.node, queue.requests.shift()!);
           changed = sent = true;
         }
       }
@@ -583,7 +576,7 @@ export class Runner {
       const config = node.type === 'ai' ? batchConfigSchema.parse(node.config.batch ?? {}) : null;
       const first = config ? (packGroups([...Map.groupBy(lines, (line) => line.plan ?? -1).values()], config)[0] ?? []) : lines.slice(0, 1);
       if (first.length && canSend(node)) {
-        this.dispatch(run, node, first, accounts);
+        this.dispatch(run, node, first);
         changed = true;
       }
     }
@@ -664,22 +657,13 @@ export class Runner {
     }
   }
 
-  /**
-   * The model an AI node's next request goes to (its choiceKey): of the node's models whose account
-   * has a free slot, the one with the most room left (so work spreads over the accounts). Null when none has.
-   */
-  private freeModel(run: Run, node: AiNode, accounts: Map<string, number>) {
-    let best: { key: string; room: number } | null = null;
-    for (const key of nodeModels(node).map(choiceKey)) {
-      const account = this.accountOf(run, key);
-      // A model without a connection (missing from the snapshot) fails the request visibly.
-      const room = account ? (accounts.get(account) ?? 2) - (this.callsByAccount.get(account) ?? 0) : 1;
-      if (room > 0 && (!best || room > best.room)) best = { key, room };
-    }
-    return best?.key ?? null;
+  /** The model an AI node's next request goes to (its choiceKey): of the node's models, the one with the fewest of its requests in flight. */
+  private nextModel(run: Run, node: AiNode) {
+    const keys = nodeModels(node).map(choiceKey);
+    return keys.reduce((best, key) => ((this.callsByModel.get(`${run.id}|${node.id}|${key}`) ?? 0) < (this.callsByModel.get(`${run.id}|${node.id}|${best}`) ?? 0) ? key : best), keys[0]!);
   }
 
-  private dispatch(run: Run, node: WorkflowNode, lines: Waiting[], accounts: Map<string, number>) {
+  private dispatch(run: Run, node: WorkflowNode, lines: Waiting[]) {
     const ids = lines.map((line) => line.id);
     const byId = new Map(this.db.select().from(s.runItems).where(inArray(s.runItems.id, ids)).all().map((item) => [item.id, item]));
     const batch = ids.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : []));
@@ -688,10 +672,9 @@ export class Runner {
     if (!controller || controller.signal.aborted) this.aborts.set(run.id, (controller = new AbortController()));
     const set = this.inflight.get(run.id) ?? new Set();
     this.inflight.set(run.id, set);
-    const modelKey = node.type === 'ai' ? (this.freeModel(run, node, accounts) ?? choiceKey(node.config.model)) : null;
-    const account = modelKey ? this.accountOf(run, modelKey) : null;
-    const counts = account ? this.callsByAccount : this.functionsByRun;
-    const key = account ?? run.id;
+    const modelKey = node.type === 'ai' ? this.nextModel(run, node) : null;
+    const counts = modelKey ? this.callsByModel : this.functionsByRun;
+    const key = modelKey ? `${run.id}|${node.id}|${modelKey}` : run.id;
     counts.set(key, (counts.get(key) ?? 0) + 1);
     const byNode = this.callsByNode.get(run.id) ?? new Map<string, number>();
     this.callsByNode.set(run.id, byNode);
