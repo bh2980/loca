@@ -100,10 +100,15 @@ export function TranslationEditor({
       })
       .catch((error: unknown) => !controller.signal.aborted && setAi({ message: error instanceof Error ? error.message : String(error) }));
   };
+  const delayMs = editorAi?.complete.delayMs ?? 500;
   useEffect(() => {
-    // Asked by itself when the line opens: it does not take the focus (↑↓ may still be moving through lines).
-    if (completes && !draft.trim() && !continuations.has(unit.id)) ask('', false);
-    return () => pending.current?.abort();
+    // Asked by itself once the line has stayed open a moment (lines passed with ↑↓ are not asked); it does
+    // not take the focus. Alt+/ asks at once.
+    const timer = completes && !draft.trim() && !continuations.has(unit.id) ? setTimeout(() => ask('', false), delayMs) : undefined;
+    return () => {
+      clearTimeout(timer);
+      pending.current?.abort();
+    };
   }, [unit.id, completes]); // eslint-disable-line react-hooks/exhaustive-deps
   // AI 번역 / 다듬기: waited for, then a new AI candidate of the line (the text itself does not change).
   const [assist, setAssist] = useState<{ loading?: 'translate' | 'refine'; done?: 'translate' | 'refine' | 'unchanged'; message?: string; from?: string; text?: string; reasons?: string[] }>({});

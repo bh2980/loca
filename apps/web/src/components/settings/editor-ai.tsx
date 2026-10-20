@@ -210,6 +210,11 @@ export function EditorAiSection({ projectId }: { projectId: string }) {
                 <FieldDescription>이보다 늦은 답은 입력에 도움이 되지 않아 버립니다.</FieldDescription>
               </Field>
               <Field>
+                <FieldLabel htmlFor="editor-ai-complete-delay">자동완성 대기 시간 (밀리초)</FieldLabel>
+                <SavedNumber id="editor-ai-complete-delay" value={complete.delayMs} min={0} max={5000} storage={key('complete-delay')} onSave={(delayMs) => setComplete({ delayMs })} />
+                <FieldDescription>대사를 열고 이만큼 머물러야 자동완성을 요청합니다. ↑↓로 지나가는 대사에는 요청하지 않습니다.</FieldDescription>
+              </Field>
+              <Field>
                 <FieldLabel htmlFor="editor-ai-cap">자동완성 하루 최대 호출</FieldLabel>
                 <SavedNumber id="editor-ai-cap" value={complete.dailyCap} min={1} max={100_000} storage={key('cap')} onSave={(dailyCap) => setComplete({ dailyCap })} />
               </Field>

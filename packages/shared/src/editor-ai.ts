@@ -46,6 +46,8 @@ export const editorAiSchema = z.object({
       speech: z.boolean().default(true),
       /** A continuation later than this is no help while typing. */
       timeoutSeconds: z.number().int().min(3).max(120).default(15),
+      /** How long a line must stay open before it is asked by itself: lines passed with ↑↓ are not asked. */
+      delayMs: z.number().int().min(0).max(5000).default(500),
     })
     .prefault({}),
 });
