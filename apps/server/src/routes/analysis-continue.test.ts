@@ -12,7 +12,7 @@ import { workflowRoutes } from './workflows.ts';
 
 function setup() {
   const db = openDatabase(':memory:');
-  const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1', outputTokens: 1000, timeoutSeconds: 30, maxAttempts: 1 }).returning().get();
+  const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1', outputTokens: 1000, maxAttempts: 1 }).returning().get();
   const choice = { connectionId: connection.id, model: 'm' };
   const file = importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', speaker: 'A', source: 'Hi' }] });
   const { projectId } = importProject(db, file, choice);

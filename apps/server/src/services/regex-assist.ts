@@ -1,7 +1,7 @@
 import { asc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import * as ai from '@tw/ai';
-import { formatPatternError } from '@tw/shared';
+import { CALL_TIMEOUT_MS, formatPatternError } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { badRequest } from '../http-errors.ts';
@@ -43,7 +43,7 @@ export async function generateRegex(db: Db, secrets: SecretStore, projectId: str
   const result = await ai.withFallback(
     routes,
     snapshot.maxAttempts,
-    (route) => logged(db, call, route, () => generate(route, { system, prompt, schema, maxOutputTokens: snapshot.maxOutputTokens, timeoutMs: snapshot.timeoutSeconds * 1000, signal })),
+    (route) => logged(db, call, route, () => generate(route, { system, prompt, schema, maxOutputTokens: snapshot.maxOutputTokens, timeoutMs: CALL_TIMEOUT_MS.regex, signal })),
     signal,
   );
   const rule = schema.parse(result.result.object);

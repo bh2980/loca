@@ -15,7 +15,7 @@ import { createRun, createRunInSteps } from './run-create.ts';
 function setup(scenes: number, size: (scene: number) => number) {
   const db = openDatabase(':memory:');
   const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1' }).returning().get();
-  db.update(s.connections).set({ outputTokens: 1000, timeoutSeconds: 30, maxAttempts: 1 }).where(eq(s.connections.id, connection.id)).run();
+  db.update(s.connections).set({ outputTokens: 1000, maxAttempts: 1 }).where(eq(s.connections.id, connection.id)).run();
   const choice = { connectionId: connection.id, model: 'm' };
   const groups = Array.from({ length: scenes }, (_, index) => ({ key: `g${String(scenes - index).padStart(6, '0')}`, title: `Scene ${index}` }));
   const units = groups.flatMap((group, scene) => Array.from({ length: size(scene) }, (_, index) => ({ key: `${group.key}-${index}`, group: group.key, source: `S${scene} L${index}` })));
@@ -184,7 +184,7 @@ describe('runner guards', () => {
 });
 
 describe('incomplete answers', () => {
-  it('asks again only for the lines an answer left out, then moves every line on', async () => {
+  it('sends lines an answer left out through "error" (missing); the template asks again for just those', async () => {
     const { db, start } = setup(1, () => 10);
     const runId = start();
     let call = 0;
@@ -205,13 +205,12 @@ describe('incomplete answers', () => {
     await new Runner(db, memoryStore(), fake).drain();
     const items = db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all();
     expect(items.every((item) => item.state === 'done')).toBe(true);
-    const steps = db.select().from(s.runSteps).where(eq(s.runSteps.runId, runId)).all();
-    const rerequest = steps.find((step) => step.round === 1)!;
-    expect(rerequest.unitIds).toHaveLength(3);
-    expect(steps.find((step) => step.round === 0 && step.returnedLines === 7)).toBeTruthy();
+    const translations = db.select().from(s.runSteps).where(eq(s.runSteps.runId, runId)).all().filter((step) => step.nodeId === 'translate');
+    // 10 lines, 7 answered; the 3 left out came back through 다시 시도? on their own.
+    expect(translations.map((step) => [step.unitIds.length, step.returnedLines])).toEqual([[10, 7], [3, 3]]);
   });
 
-  it('splits a malformed answer for many lines into halves instead of failing them all', async () => {
+  it('never splits a malformed answer: its lines leave through "error" (invalid-output), the template retries once, then ends them as failed', async () => {
     const { db, start } = setup(1, () => 8);
     const runId = start();
     const fake: ModelPort = {
@@ -228,13 +227,15 @@ describe('incomplete answers', () => {
       },
     };
     await new Runner(db, memoryStore(), fake).drain();
-    const items = db.select({ state: s.runItems.state }).from(s.runItems).where(eq(s.runItems.runId, runId)).all();
-    // 8 lines → 4+4 → 2+2: only the 2-line part that holds L5 fails.
-    expect(items.filter((item) => item.state === 'failed')).toHaveLength(2);
-    expect(items.filter((item) => item.state === 'done')).toHaveLength(6);
+    const items = db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all();
+    expect(items.every((item) => item.state === 'failed' && item.error === 'bad JSON')).toBe(true);
+    expect(items[0]!.data.error).toMatchObject({ kind: 'invalid-output', nodeId: 'translate' });
+    const translations = db.select().from(s.runSteps).where(eq(s.runSteps.runId, runId)).all().filter((step) => step.nodeId === 'translate');
+    expect(translations.map((step) => step.unitIds.length)).toEqual([8, 8]);
+    expect(runOf(db, runId).status).toBe('completed');
   });
 
-  it('splits a request longer than the model window, and does not pause the run for it', async () => {
+  it('ends the lines of a request longer than the model window as failed (too-long) with what to do, without pausing the run', async () => {
     const { db, start } = setup(1, () => 8);
     const runId = start();
     const fake: ModelPort = {
@@ -249,9 +250,11 @@ describe('incomplete answers', () => {
       },
     };
     await new Runner(db, memoryStore(), fake).drain();
+    const items = db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all();
     expect(runOf(db, runId).status).toBe('completed');
-    const items = db.select({ state: s.runItems.state }).from(s.runItems).where(eq(s.runItems.runId, runId)).all();
-    expect(items.every((item) => item.state === 'done')).toBe(true);
+    expect(items.every((item) => item.state === 'failed' && item.data.error?.kind === 'too-long')).toBe(true);
+    expect(items[0]!.error).toContain('더 작은 묶음');
+    expect(db.select().from(s.runSteps).where(eq(s.runSteps.runId, runId)).all()).toHaveLength(1);
   });
 });
 
@@ -327,7 +330,7 @@ describe('slots per account', () => {
     const { db, workflow, start } = setup(40, () => 20);
     // Review on a second, slow account with one slot; translate keeps its own two.
     const slow = db.insert(s.connections).values({ kind: 'openai', name: 'slow', baseUrl: 'http://slow/v1', concurrency: 1 }).returning().get();
-    db.update(s.connections).set({ outputTokens: 1000, timeoutSeconds: 30, maxAttempts: 1 }).where(eq(s.connections.id, slow.id)).run();
+    db.update(s.connections).set({ outputTokens: 1000, maxAttempts: 1 }).where(eq(s.connections.id, slow.id)).run();
     const reviewer = { connectionId: slow.id, model: 'm' };
     const definition = { ...workflow.definition, nodes: workflow.definition.nodes.map((node) => (node.type === 'ai' && node.config.instructions.includes('Review each') ? { ...node, config: { ...node.config, model: reviewer } } : node)) };
     db.update(s.workflows).set({ definition }).where(eq(s.workflows.id, workflow.id)).run();
@@ -346,7 +349,7 @@ describe('sharing and branching', () => {
   it('spreads a node over the accounts of its models', async () => {
     const { db, workflow } = setup(12, () => 5);
     const other = db.insert(s.connections).values({ kind: 'openai', name: 'second', baseUrl: 'http://localhost:2/v1', concurrency: 1 }).returning().get();
-    db.update(s.connections).set({ outputTokens: 1000, timeoutSeconds: 30, maxAttempts: 1 }).where(eq(s.connections.id, other.id)).run();
+    db.update(s.connections).set({ outputTokens: 1000, maxAttempts: 1 }).where(eq(s.connections.id, other.id)).run();
     const second = { connectionId: other.id, model: 'm2' };
     const definition = { ...workflow.definition, nodes: workflow.definition.nodes.map((node) => (node.type === 'ai' ? { ...node, config: { ...node.config, extraModels: [second], batch: { mode: 'count' as const, size: 5, maxTokens: 6_000 } } } : node)) };
     db.update(s.workflows).set({ definition }).where(eq(s.workflows.id, workflow.id)).run();

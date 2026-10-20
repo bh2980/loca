@@ -313,9 +313,9 @@ export class AcpAgent {
 
   /**
    * One prompt turn. Updates go to `listener` while it runs; the signal cancels it. A turn that
-   * reports nothing for `idleMs` is cancelled as stuck.
+   * reports nothing for `idleMs` is cancelled as stuck; one past `timeoutMs` (when given) as too long.
    */
-  async prompt(sessionId: string, text: string, listener: SessionListener, options: { signal?: AbortSignal; timeoutMs: number; idleMs?: number }): Promise<{ stopReason: acp.StopReason; usage: Usage }> {
+  async prompt(sessionId: string, text: string, listener: SessionListener, options: { signal?: AbortSignal; timeoutMs?: number; idleMs?: number }): Promise<{ stopReason: acp.StopReason; usage: Usage }> {
     this.active++;
     this.lastUsed = Date.now();
     this.sessions.set(sessionId, this.lastUsed);
@@ -340,10 +340,13 @@ export class AcpAgent {
       },
     });
     arm();
-    const total = setTimeout(() => {
-      timedOut = 'total';
-      cancel();
-    }, options.timeoutMs);
+    const total =
+      options.timeoutMs === undefined
+        ? undefined
+        : setTimeout(() => {
+            timedOut = 'total';
+            cancel();
+          }, options.timeoutMs);
     options.signal?.addEventListener('abort', cancel, { once: true });
     try {
       if (options.signal?.aborted) throw new ModelError('cancelled', '중단했습니다.', false);

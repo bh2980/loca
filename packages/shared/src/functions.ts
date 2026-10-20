@@ -17,6 +17,8 @@ export interface FunctionInfo<P extends z.ZodType = z.ZodType> {
   params: P;
   /** Exits can depend on the parameters (e.g. a script declares its own). `error` is always added. */
   ports: (params: z.infer<P>) => Port[];
+  /** The line ends here (as failed): no exits, not even "error". */
+  ends?: boolean;
   /** Runs outside the instant pass (network, sandbox); the runner dispatches it like an AI call. */
   async: boolean;
 }
@@ -335,6 +337,14 @@ export const FUNCTIONS = {
   ...(Object.fromEntries(
     Object.entries(APPLY_TARGETS).map(([name, target]) => [name, { label: target.label, description: target.description, params: applyParams, ports: () => out, async: false }]),
   ) as unknown as Record<ApplyFunctionName, FunctionInfo<typeof applyParams>>),
+  fail: {
+    label: '실패로 끝내기',
+    description: '대사를 실패로 끝내고 이유를 남깁니다. 비워 두면 앞 노드의 오류를 그대로 남깁니다. 다시 시도해도 안 될 때 씁니다.',
+    params: z.object({ message: z.string().default('') }),
+    ports: () => [],
+    async: false,
+    ends: true,
+  },
   http: {
     label: 'HTTP 호출',
     description: '외부 API(맞춤법·사전 등)를 주소로 호출하고 결과를 후보·판정·데이터로 받습니다. 키가 필요하면 설정의 API 키를 고릅니다.',
@@ -359,6 +369,7 @@ export const PALETTE_FUNCTION_NAMES: FunctionName[] = [
   'setStatus',
   'formatCheck',
   'glossaryCheck',
+  'fail',
   'script',
   'http',
 ];
@@ -367,5 +378,6 @@ export function functionPorts(fn: string, params: unknown): Port[] {
   const info = FUNCTIONS[fn as FunctionName] as unknown as FunctionInfo | undefined;
   if (!info) return [{ id: 'error', label: '오류' }];
   const parsed = info.params.safeParse(params ?? {});
-  return [...info.ports(parsed.success ? parsed.data : info.params.parse({})), { id: 'error', label: '오류' }];
+  const ports = info.ports(parsed.success ? parsed.data : info.params.parse({}));
+  return info.ends ? ports : [...ports, { id: 'error', label: '오류' }];
 }

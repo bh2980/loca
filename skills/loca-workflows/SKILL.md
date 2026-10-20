@@ -39,10 +39,12 @@ loca workflows reference <프리셋 id>       # 그 프리셋의 지시문·출�
    - 같은 출구에서 같은 노드로 간선 두 개 금지. 되돌아가는 고리에는 출구가 둘 이상인 노드가 있어야 합니다.
 4. AI 노드:
    - `model`은 `{connectionId, model, effort?}`, `extraModels`는 막혔을 때 넘길 대체 모델(같은 연결의 다른 모델도 됨).
-   - `output: "json"`이면 `fields`로 형태를 정합니다: `name`(영문·숫자·_), `type`, `description`, 목록은 `fields`로 하위 필드, `required`(빠지면 그 줄을 다시 물음), 숫자는 `min`·`max`(예: 확신도 0–1). 모델이 지키지 못한 줄은 그 줄만 다시 묻습니다.
+   - `output: "json"`이면 `fields`로 형태를 정합니다: `name`(영문·숫자·_), `type`, `description`, 목록은 `fields`로 하위 필드, `required`(비면 그 줄은 답이 없는 것으로 침), 숫자는 `min`·`max`(예: 확신도 0–1). 모델이 지키지 못하거나 답에서 빠진 줄은 `error` 출구로 나갑니다(`error.kind` = `missing`).
    - `scope: "batch"`는 여러 줄을 한 번에 보냅니다(추출용). batch의 json 결과는 묶음의 첫 줄에만 실려 반영이 한 번만 됩니다.
+   - `timeoutMinutes`(기본 10, 작품 분석 프리셋 30): 요청 하나가 이 시간을 넘으면 그 줄들은 `error`(`timeout`)로 나갑니다. 연결에는 제한 시간이 없습니다.
+   - 실패는 워크플로가 다룹니다. 엔진은 요청을 나누거나 다시 보내지 않습니다(요청 한도·네트워크 끊김만 잠시 뒤 다시 보내고, 연속 실패가 `settings.maxConsecutiveFailures`회면 실행을 멈춤). 기본 템플릿은 AI 노드마다 `error` → 조건 "다시 시도?"(`visits.<노드> < 2`이고 `error.kind`가 `too-long`·`cut-off`가 아님) → 같은 노드 / 아니면 함수 `fail`("실패로 끝내기")을 둡니다. 요청이 너무 크면(`too-long`·`cut-off`) 더 작은 묶음(장면별·개수별)으로 읽는 노드로 보내세요.
    - 문맥(용어집·말투 규칙·앞 대사·문서·인물 등)은 노드마다 켜고 끕니다. 무엇이 실제로 들어가는지는 `loca context <키> -n <노드 id>`로 봅니다(모델은 부르지 않음).
-5. 조건 노드는 JSON Logic입니다. 읽는 값: `visits`(노드별 방문 횟수), `outputs`(앞 노드 출력), `candidate`, `issues`, `unit`(`kind`, `speaker`, `listener`, `statusId`, `tagIds`, `marks`). 예: `{"in": ["unknownListener", {"var": "unit.marks"}]}`, `{"<": [{"var": "visits.review"}, 3]}`. 노드 id와 상태 id는 reference·show에서 확인합니다.
+5. 조건 노드는 JSON Logic입니다. 읽는 값: `visits`(노드별 방문 횟수), `outputs`(앞 노드 출력), `candidate`, `issues`, `unit`(`kind`, `speaker`, `listener`, `statusId`, `tagIds`, `marks`), `error`(마지막으로 `error` 출구로 보낸 실패: `kind` = `missing`·`invalid-output`·`timeout`·`too-long`·`cut-off`·`refused`·`other`, `message`, `nodeId`; 조건을 지나도 남고, 작업 노드가 성공하면 지워짐). 예: `{"in": ["unknownListener", {"var": "unit.marks"}]}`, `{"<": [{"var": "visits.review"}, 3]}`, `{"==": [{"var": "error.kind"}, "missing"]}`. 노드 id와 상태 id는 reference·show에서 확인합니다.
 6. 올리기:
    ```
    loca workflows save "$W/wf.json"         # id가 있으면 그 워크플로를 바꾸고, 없으면 새로 만드는 제안

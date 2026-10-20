@@ -85,6 +85,28 @@ export type ChoiceConfig = z.infer<typeof choiceConfigSchema>;
 
 export { jsonFieldSchema, type JsonField };
 
+/** An AI node's call time limit when it does not set one, in minutes. */
+export const DEFAULT_CALL_MINUTES = 10;
+
+/**
+ * Why a line left a node through its "error" exit, as conditions read it (error.kind). The runner
+ * never splits or re-sends a failed request on its own: a workflow routes these (a retry loop, a
+ * smaller-batch node, "실패로 끝내기"). Rate limits and dropped connections are not the line's
+ * fault: those lines wait for a later request, and the run pauses after the workflow's
+ * "연속 실패" count.
+ */
+export const ITEM_ERROR_KINDS = {
+  missing: '답에서 빠짐',
+  'invalid-output': '형식 오류',
+  timeout: '시간 초과',
+  'too-long': '요청이 너무 김',
+  'cut-off': '출력 잘림',
+  refused: '거절',
+  other: '기타',
+} as const;
+export type ItemErrorKind = keyof typeof ITEM_ERROR_KINDS;
+export const ITEM_ERROR_KIND_IDS = Object.keys(ITEM_ERROR_KINDS) as ItemErrorKind[];
+
 export const aiNodeConfigSchema = z.object({
   model: draftModelChoiceSchema.default({ ...EMPTY_MODEL_CHOICE }),
   /** More models sharing this node's work: each request goes to whichever account has a free slot. */
@@ -105,6 +127,8 @@ export const aiNodeConfigSchema = z.object({
     .default({ candidate: true, issues: true }),
   context: contextConfigSchema.default(contextConfigSchema.parse({})),
   batch: batchConfigSchema.default(batchConfigSchema.parse({})),
+  /** How long one request of this node may take before it fails with error kind "timeout". */
+  timeoutMinutes: z.number().int().min(1).max(240).default(DEFAULT_CALL_MINUTES),
 });
 
 export const workflowNodeSchema = z.discriminatedUnion('type', [
@@ -231,6 +255,8 @@ export interface ConditionData {
   issues: string[];
   /** marks: the line's automatic marks right now (lineMarksOf in marks.ts; diverged is only known to the list filter). */
   unit: { kind: string; speaker: string | null; listener: string | null; statusId: string; tagIds: string[]; marks: string[] };
+  /** The last failure that sent the line out through an "error" exit (null once a node handles it). */
+  error: { kind: ItemErrorKind; message: string; nodeId: string } | null;
 }
 
 export interface WorkflowIssue {

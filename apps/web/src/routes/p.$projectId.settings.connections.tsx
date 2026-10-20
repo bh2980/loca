@@ -291,7 +291,6 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
     concurrency: isTool ? undefined : (connection.concurrency ?? 2),
     defaultModel: connection.defaultModel,
     defaultEffort: connection.defaultEffort,
-    timeoutSeconds: connection.timeoutSeconds,
     maxAttempts: connection.maxAttempts,
     inputTokens: connection.inputTokens,
     outputTokens: connection.outputTokens,
@@ -329,7 +328,6 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
               concurrency: values.concurrency,
               defaultModel: values.defaultModel ?? null,
               defaultEffort: values.defaultEffort ?? null,
-              timeoutSeconds: values.timeoutSeconds,
               maxAttempts: values.maxAttempts,
               inputTokens: values.inputTokens,
               outputTokens: values.outputTokens,
@@ -497,9 +495,6 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
             )}
             <InspectorField label="동시 실행 수" error={errors.concurrency?.message}>
               <Input type="number" min={1} max={32} step={1} {...form.register('concurrency', number)} aria-invalid={!!errors.concurrency} />
-            </InspectorField>
-            <InspectorField label="제한 시간 (초)" error={errors.timeoutSeconds?.message}>
-              <Input type="number" min={5} max={600} {...form.register('timeoutSeconds', number)} aria-invalid={!!errors.timeoutSeconds} />
             </InspectorField>
             <InspectorField label="최대 시도 횟수" error={errors.maxAttempts?.message}>
               <Input type="number" {...form.register('maxAttempts', number)} aria-invalid={!!errors.maxAttempts} />

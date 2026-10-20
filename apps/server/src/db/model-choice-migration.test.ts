@@ -52,8 +52,8 @@ describe('model profiles → model choices (0035/0036)', () => {
 
     const db = openDatabase(file, drizzleFolder);
     const connections = new Map(db.select().from(s.connections).all().map((row) => [row.id, row]));
-    expect(connections.get('c1')).toMatchObject({ defaultModel: 'gpt-x', defaultEffort: 'low', timeoutSeconds: 120, maxAttempts: 3, outputTokens: 12000, fallback: { connectionId: 'c2', model: 'gpt-5', effort: 'high' } });
-    expect(connections.get('c2')).toMatchObject({ defaultModel: 'gpt-5', defaultEffort: null, timeoutSeconds: 600, maxAttempts: 1, fallback: null });
+    expect(connections.get('c1')).toMatchObject({ defaultModel: 'gpt-x', defaultEffort: 'low', maxAttempts: 3, outputTokens: 12000, fallback: { connectionId: 'c2', model: 'gpt-5', effort: 'high' } });
+    expect(connections.get('c2')).toMatchObject({ defaultModel: 'gpt-5', defaultEffort: null, maxAttempts: 1, fallback: null });
 
     const workflow = db.select().from(s.workflows).get()!;
     // Still a valid definition: the app reads it with the same schema.
@@ -67,6 +67,7 @@ describe('model profiles → model choices (0035/0036)', () => {
 
     const run = db.select().from(s.runs).get()!;
     expect(run.definition.nodes[1]).toMatchObject({ config: { model: { connectionId: 'c1', model: 'gpt-x', effort: 'low' }, temperature: 0.3 } });
+    // A frozen run keeps what its snapshot had (the connection column is gone since 0073).
     expect(run.models).toEqual({ 'c1|gpt-x|low': { label: 'A fast', maxOutputTokens: 12000, timeoutSeconds: 120, maxAttempts: 3, routes: [{ connectionId: 'c1', name: 'Main', kind: 'openai', baseUrl: null, executable: null, model: 'gpt-x', effort: 'low' }] } });
 
     expect(db.select().from(s.chatSessions).get()).toMatchObject({ connectionId: 'c2', model: 'gpt-5', effort: null });

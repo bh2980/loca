@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, gte, inArray, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
 import jsonLogic from 'json-logic-js';
 import * as ai from '@tw/ai';
-import { estimateTokens, batchConfigSchema, batchTokens, lineCostIn, FUNCTIONS, choiceKey, lineMarksOf, nodeModels, nodeName, type AiNode, type ConditionData, type FunctionName, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+import { estimateTokens, batchConfigSchema, batchTokens, lineCostIn, FUNCTIONS, choiceKey, lineMarksOf, nodeModels, nodeName, type AiNode, type ConditionData, type FunctionName, type ItemErrorKind, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -19,7 +19,7 @@ import { wholeScriptRequest } from './whole-script.ts';
 import { resolveChoiceOptions } from '../services/choice-options.ts';
 import { applyIssueTags } from '../services/issue-tags.ts';
 import { logged } from '../services/ai-calls.ts';
-import { MIN_WHOLE_SCRIPT_TIMEOUT_MS, outputCutOff } from '../services/whole-script-limits.ts';
+import { outputCutOff } from '../services/whole-script-limits.ts';
 import { overheadOf } from '../services/preflight.ts';
 import type { ModelPort } from './model-port.ts';
 export type { ModelPort } from './model-port.ts';
@@ -59,26 +59,23 @@ const usageColumns = (usage: ai.Usage) => ({
   costUsd: usage.costUsd,
 });
 /**
- * How many times a line goes back to its node's queue after a call left it out or failed
- * transiently. It then rides in a later batch with other lines: on an agent CLI every request
- * carries a large fixed overhead, so asking again for one or two lines alone would cost far more.
+ * Failures that are not the lines' fault (the provider's rate limit, a dropped connection): the lines
+ * wait for a later request. The run pauses after the workflow's 연속 실패 count, so this cannot spin.
+ * Everything else leaves through the node's "error" exit with its kind (ConditionData.error) for the
+ * workflow to route: the runner does not split or re-send a request on its own.
  */
-const MAX_REREQUESTS = 2;
-/** Failures worth trying again later; anything else ends the lines through `error`. */
-const TRANSIENT = new Set(['rate-limit', 'network', 'timeout']);
-/** How many times a malformed answer for several lines is retried as halves. */
-const MAX_SPLITS = 2;
-/** A script read in halves at scene boundaries: up to 2⁶ parts of the request the model refused. */
-const MAX_WHOLE_SCRIPT_SPLITS = 6;
+const TRANSIENT = new Set(['rate-limit', 'network']);
 
-/** Where to cut a request between scenes, nearest its middle (the middle itself when it is one scene). */
-export function sceneHalf(groupIds: string[]) {
-  const middle = Math.ceil(groupIds.length / 2);
-  let best = -1;
-  for (let index = 1; index < groupIds.length; index++)
-    if (groupIds[index] !== groupIds[index - 1] && (best < 0 || Math.abs(index - middle) < Math.abs(best - middle))) best = index;
-  return best > 0 ? best : middle;
+/** The kind a failed call gives its lines, as conditions read it. */
+export function errorKindOf(error: unknown): ItemErrorKind {
+  if (outputCutOff(error)) return 'cut-off';
+  const code = (error as { code?: string }).code;
+  if (code === 'invalid-output' || code === 'too-long' || code === 'timeout') return code;
+  return 'other';
 }
+/** What a person can do about a request that was too large for the model. */
+const SMALLER = ' 오류 출구에서 더 작은 묶음(장면별·개수별)으로 읽는 노드로 보내세요.';
+
 const MISSING_WHAT: Record<AiNode['config']['output'], string> = { text: '번역', verdict: '판정', choice: '선택', json: '결과' };
 const attemptsOf = (error: unknown): ai.Attempt[] => ((error as { attempts?: ai.Attempt[] }).attempts ?? []);
 
@@ -172,10 +169,24 @@ export class Runner {
       if (run.notice === FILLING) return { ok: false as const, error: '아직 대사를 넣는 중입니다.' };
       let retried = 0;
       if (next.retryFailed) {
-        const failed = tx.select().from(s.runItems).where(and(eq(s.runItems.runId, runId), eq(s.runItems.state, 'failed'))).all();
+        // Failed lines, and lines a pause caught on their way through an error path (queued with a failure).
+        const failed = tx
+          .select()
+          .from(s.runItems)
+          .where(and(eq(s.runItems.runId, runId), inArray(s.runItems.state, ['failed', 'queued'])))
+          .all()
+          .filter((item) => item.state === 'failed' || item.data.error);
+        // A line goes back to the node that failed it (not to 실패로 끝내기, which only ended it),
+        // arriving there as for the first time so the workflow's retry path applies again.
+        const known = new Set(next.definition.nodes.map((node) => node.id));
         for (const item of failed) {
-          const { [item.nodeId]: _, ...retries } = item.data.retries ?? {};
-          tx.update(s.runItems).set({ state: 'queued', error: null, data: { ...item.data, retries } }).where(eq(s.runItems.id, item.id)).run();
+          const failedAt = item.data.error?.nodeId;
+          const nodeId = failedAt && known.has(failedAt) ? failedAt : item.nodeId;
+          const { [nodeId]: _, ...retries } = item.data.retries ?? {};
+          tx.update(s.runItems)
+            .set({ state: 'queued', nodeId, error: null, visits: { ...item.visits, [nodeId]: 1 }, data: { ...item.data, retries, error: undefined } })
+            .where(eq(s.runItems.id, item.id))
+            .run();
         }
         retried = failed.length;
       }
@@ -262,14 +273,22 @@ export class Runner {
    * exit with several edges sends the line down each of them: the item takes the first, and a copy
    * of it each of the others (validation keeps those branches apart until they end).
    */
-  private route(tx: Tx, run: Run, item: Item, port: string, error?: string) {
+  private route(tx: Tx, run: Run, item: Item, port: string, error?: string, kind?: ItemErrorKind) {
     const definition: WorkflowDefinition = run.definition;
+    // What conditions read as error: set by an "error" exit (a node without its own kind, such as
+    // 실패로 끝내기, keeps the failure it was sent with), kept through conditions (they only route the
+    // line), cleared once a working node handles it.
+    const previous = item.data.error;
+    const routing = this.node(run, item.nodeId)?.type === 'condition';
+    const failure =
+      port === 'error' ? (kind || !previous ? { kind: kind ?? 'other', message: error ?? '', nodeId: item.nodeId } : { ...previous, message: error || previous.message }) : routing ? previous : undefined;
+    item = { ...item, data: { ...item.data, error: failure } };
     const edges = definition.edges.filter((candidate) => candidate.source === item.nodeId && candidate.sourceHandle === port);
     const path = [...item.data.path, { nodeId: item.nodeId, port, at: Date.now() }].slice(-200);
     const moved = (target: string | undefined) => {
       let state: ItemState = 'queued';
       let nodeId = item.nodeId;
-      let message = error ?? null;
+      let message = failure?.message || error || null;
       const visits = { ...item.visits };
       if (!target) {
         state = port === 'error' ? 'failed' : 'done';
@@ -343,10 +362,9 @@ export class Runner {
   }
 
   /** Queued lines at instant nodes (anything not slow, unknown nodes included so they fail visibly). */
-  /** Sends a line back to the queue of the node it is at, or out through `error` once it has been back too often. */
+  /** Sends a line back to the queue of the node it is at (a failure that was not the line's fault). */
   private retryLater(tx: Tx, run: Run, item: Item, reason: string) {
     const count = (item.data.retries?.[item.nodeId] ?? 0) + 1;
-    if (count > MAX_REREQUESTS) return this.route(tx, run, item, 'error', `${reason} (다시 시도 ${MAX_REREQUESTS}번 뒤)`);
     tx.update(s.runItems)
       .set({ state: 'queued', data: { ...item.data, retries: { ...item.data.retries, [item.nodeId]: count } }, error: reason })
       .where(eq(s.runItems.id, item.id))
@@ -541,6 +559,7 @@ export class Runner {
           candidate: item.data.candidateText ?? unit.translation,
           issues: item.data.issues ?? [],
           unit: { kind: unit.kind, speaker: unit.speaker, listener: unit.listener, statusId: unit.statusId, tagIds, marks },
+          error: item.data.error ?? null,
         };
         try {
           return this.route(tx, run, item, jsonLogic.apply(node.config.expression as jsonLogic.RulesLogic, data) ? 'true' : 'false');
@@ -625,7 +644,7 @@ export class Runner {
     if (!model) return this.failBatch(run, batch, { runId: run.id, nodeId: node.id, unitIds: batch.map((item) => item.unitId), startedAt: new Date() }, new Error('이 노드의 AI 연결이 실행을 시작할 때 없었습니다. 노드에서 연결과 모델을 다시 고르고 새로 실행하세요.'));
     const routes = resolveRoutes(model, this.secrets);
     if (routes[0]?.kind === 'systemone') return this.judgeLines(run, node, batch, model, routes, signal);
-    await this.callLines(run, node, model, routes, batch, signal, 0);
+    await this.callLines(run, node, model, routes, batch, signal);
   }
 
   /** The lines of `items` as the prompt numbers them, in batch (script) order. */
@@ -648,12 +667,6 @@ export class Runner {
     return false;
   }
 
-  /**
-   * One model request for `items`. Lines a per-line answer left out (or answered empty) go back to
-   * the node's queue for a later batch (see MAX_REREQUESTS); answered lines move on at once. A
-   * malformed answer for several lines is retried right away as two halves, MAX_SPLITS levels deep,
-   * so one bad line does not fail a whole batch. Every request is recorded as its own step.
-   */
   /** Input tokens of calls sent and not yet recorded, by run (estimated), for the pre-call cap check. */
   private inFlight = new Map<string, number>();
 
@@ -676,7 +689,12 @@ export class Runner {
     return `입력 토큰 상한(${cap.toLocaleString()})을 넘지 않도록 멈췄습니다: 지금까지 ${used.toLocaleString()}${pending ? `, 진행 중 약 ${pending.toLocaleString()}` : ''}, 다음 요청 약 ${estimate.toLocaleString()}.`;
   }
 
-  private async callLines(run: Run, node: AiNode, model: s.AiSnapshot, routes: ai.ResolvedRoute[], items: Item[], signal: AbortSignal, depth: number): Promise<void> {
+  /**
+   * One model request for `items`, recorded as its own step. Answered lines move on at once; a line
+   * a per-line answer left out (or answered empty) leaves through "error" with kind "missing", and a
+   * failed request sends all its lines there with the failure's kind (errorKindOf).
+   */
+  private async callLines(run: Run, node: AiNode, model: s.AiSnapshot, routes: ai.ResolvedRoute[], items: Item[], signal: AbortSignal): Promise<void> {
     const project = this.db.select().from(s.projects).where(eq(s.projects.id, run.projectId)).get()!;
     const { rows, lines } = this.promptLines(items);
     const round = Math.max(0, ...items.map((item) => item.data.retries?.[node.id] ?? 0));
@@ -698,8 +716,7 @@ export class Runner {
     }
     const { system, prompt } = built;
     const perLine = !isBatchScope(node);
-    // A whole-script read takes minutes; the connection's per-call timeout is for single scenes.
-    const timeoutMs = whole ? Math.max(model.timeoutSeconds * 1000, MIN_WHOLE_SCRIPT_TIMEOUT_MS) : model.timeoutSeconds * 1000;
+    const timeoutMs = node.config.timeoutMinutes * 60_000;
     const request = { system, prompt, schema: outputSchema(node, perLine && !whole ? lines.map((line) => line.id) : undefined, choiceOptions), maxOutputTokens: model.maxOutputTokens, temperature: node.config.temperature, timeoutMs, signal };
     step.prompt = `${system}\n\n${prompt}`;
     // The input cap is checked before sending, counting calls still in flight, so a run stops short
@@ -735,7 +752,7 @@ export class Runner {
           const outcome = outcomes[index];
           if (outcome) {
             this.record(tx, run, item, outcome);
-          } else this.retryLater(tx, run, item, `모델 응답에 이 대사의 ${MISSING_WHAT[node.config.output]}이(가) 없습니다.`);
+          } else this.route(tx, run, item, 'error', `모델 응답에 이 대사의 ${MISSING_WHAT[node.config.output]}이(가) 없습니다.`, 'missing');
         });
         tx.insert(s.runSteps)
           .values({ ...step, ok: true, connectionId: result.route.connectionId ?? step.connectionId, model: result.route.model, output: raw, attempts: result.attempts, returnedLines: perLine ? answered : null, ...usageColumns(stepUsage(result.attempts, result.result.usage)), finishedAt: new Date() })
@@ -745,21 +762,7 @@ export class Runner {
       this.guard(run.id);
     } catch (error) {
       if (signal.aborted) return;
-      // A malformed answer or a request longer than the model's window: smaller requests may pass.
-      const code = (error as { code?: string }).code;
-      // A whole-script read whose answer was cut off at the model's output limit (a whole game's listeners
-      // and terms can be as long as the script) is read again in halves too, cut between scenes.
-      const splittable = code === 'invalid-output' || code === 'too-long' || (whole !== null && outputCutOff(error));
-      if (!(splittable && items.length > 1 && depth < (whole ? MAX_WHOLE_SCRIPT_SPLITS : MAX_SPLITS))) return this.failBatch(run, items, { ...step, attempts: attemptsOf(error) }, error);
-      // Record the failed request, then try each half on its own.
-      const message = error instanceof Error ? error.message : String(error);
-      this.db.insert(s.runSteps).values({ ...step, ok: false, error: `${message} (반으로 나눠 다시 보냄)`, attempts: attemptsOf(error), ...usageColumns(stepUsage(attemptsOf(error), (error as { usage?: ai.Usage }).usage)), finishedAt: new Date() }).run();
-      this.guard(run.id, { code, message });
-      const half = whole ? sceneHalf(rows.map((row) => row.groupId)) : Math.ceil(items.length / 2);
-      for (const part of [items.slice(0, half), items.slice(half)]) {
-        if (!this.stillRunning(run.id, part)) return;
-        await this.callLines(run, node, model, routes, part, signal, depth + 1);
-      }
+      this.failBatch(run, items, { ...step, attempts: attemptsOf(error) }, error);
     }
   }
 
@@ -782,7 +785,7 @@ export class Runner {
             logged(this.db, { projectId: run.projectId, kind: 'run', refId: run.id, label: `${nodeName(node)} · 판정 1줄` }, route, () => this.model.judge(route, {
               state: { source: line.source, translation: line.candidate ?? '', speaker: line.speaker, context: { scene: context.scenes[line.groupId] ?? null, characters: context.characters, glossary: context.terms } },
               instructions: node.config.instructions.trim() || 'Is this translation acceptable as is?',
-              timeoutMs: model.timeoutSeconds * 1000,
+              timeoutMs: node.config.timeoutMinutes * 60_000,
               signal,
             })),
           signal,
@@ -812,9 +815,11 @@ export class Runner {
     const message = error instanceof Error ? error.message : String(error);
     const usage = stepUsage(attemptsOf(error), (error as { usage?: ai.Usage }).usage);
     const transient = TRANSIENT.has((error as { code?: string }).code ?? '');
+    const kind = errorKindOf(error);
+    const shown = kind === 'too-long' || kind === 'cut-off' ? `${message}${SMALLER}` : message;
     this.db.transaction((tx) => {
       // A rate limit or a dropped connection is not the lines' fault: they wait for a later batch.
-      for (const item of batch) transient ? this.retryLater(tx, run, item, message) : this.route(tx, run, item, 'error', message);
+      for (const item of batch) transient ? this.retryLater(tx, run, item, message) : this.route(tx, run, item, 'error', shown, kind);
       tx.insert(s.runSteps).values({ ...step, ok: false, error: message, ...usageColumns(usage), finishedAt: new Date() }).run();
     });
     this.notify(run.id);

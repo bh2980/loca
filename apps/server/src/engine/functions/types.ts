@@ -15,6 +15,8 @@ export interface FunctionResult {
   issues?: string[];
   /** Problem-type tags this check puts on the line or takes off (services/issue-tags.ts). */
   issueTags?: IssueTagChange;
+  /** Why the line leaves through "error" (with that port). */
+  error?: string;
 }
 
 export interface FunctionInput {

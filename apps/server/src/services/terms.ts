@@ -1,7 +1,7 @@
 import { and, asc, eq, inArray, like, ne, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import * as ai from '@tw/ai';
-import { aiStatus, type AiConfirm, type ModelChoice, matchesMarks, termMarksOf, TERM_MARK_IDS, type AutoMark } from '@tw/shared';
+import { aiStatus, DEFAULT_CALL_MINUTES, type AiConfirm, type ModelChoice, matchesMarks, termMarksOf, TERM_MARK_IDS, type AutoMark } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import { eachChunk } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
@@ -289,7 +289,7 @@ export class TermService {
             prompt,
             schema: suggestSchema,
             maxOutputTokens: model.maxOutputTokens,
-            timeoutMs: model.timeoutSeconds * 1000,
+            timeoutMs: DEFAULT_CALL_MINUTES * 60_000,
             signal,
           })),
         signal,

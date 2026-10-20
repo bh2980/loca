@@ -13,7 +13,7 @@ import { createRun } from './run-create.ts';
 function setup(lines = 30) {
   const db = openDatabase(':memory:');
   const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1' }).returning().get();
-  db.update(s.connections).set({ outputTokens: 1000, timeoutSeconds: 30, maxAttempts: 1 }).where(eq(s.connections.id, connection.id)).run();
+  db.update(s.connections).set({ outputTokens: 1000, maxAttempts: 1 }).where(eq(s.connections.id, connection.id)).run();
   const choice = { connectionId: connection.id, model: 'm' };
   const file = importFileSchema.parse({
     format: 'loca/v1',
@@ -207,11 +207,11 @@ describe('choice output', () => {
 });
 
 describe('json output', () => {
-  it('line scope: fields per line, evidence as line keys; a line the answer left out is asked again', async () => {
+  it('line scope: fields per line, evidence as line keys; a line the answer left out leaves through "error", and the workflow sends it back', async () => {
     const { db, projectId, choice } = setup(3);
     const definition = flow(
       { tone: ai(choice, { output: 'json', instructions: 'Describe.', fields: [{ name: 'tone', type: 'string' }, { name: 'because', type: 'lines' }], batch: { mode: 'count', size: 3, maxTokens: 6000 } }) },
-      ['entry -> tone', 'tone -> end'],
+      ['entry -> tone', 'tone -> end', 'tone.error -> tone'],
     );
     const workflow = save(db, projectId, definition);
     let calls = 0;

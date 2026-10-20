@@ -8,13 +8,13 @@ import { importProject } from '../services/importer.ts';
 import { snapshotWorkflowModels } from '../services/routes.ts';
 import { memoryStore } from '../services/secrets.ts';
 import { INPUT_SCRIPT } from './format-sentences.ts';
-import { Runner, sceneHalf, type ModelPort } from './runner.ts';
+import { Runner, type ModelPort } from './runner.ts';
 import { createRun, createRunInSteps } from './run-create.ts';
 
 /** Two scenes, three lines, a labelled branch: the whole-script tests' script. */
 function setup() {
   const db = openDatabase(':memory:');
-  const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1', outputTokens: 1000, timeoutSeconds: 30, maxAttempts: 1 }).returning().get();
+  const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1', outputTokens: 1000, maxAttempts: 1 }).returning().get();
   const choice = { connectionId: connection.id, model: 'm' };
   const file = importFileSchema.parse({
     format: 'loca/v1',
@@ -78,7 +78,8 @@ describe('a node reading the script whole', () => {
     expect(request.system).toContain(INPUT_SCRIPT);
     expect(request.system).toContain('Answer as one JSON object');
     expect(request.system).not.toMatch(/prior knowledge|KNOWN CHARACTERS|under about 15,000/);
-    expect(request.timeoutMs).toBeGreaterThanOrEqual(30 * 60_000);
+    // The node's own call limit (default 10 minutes; the 작품 분석 preset sets 30): no hidden floor for whole-script reads.
+    expect(request.timeoutMs).toBe(10 * 60_000);
     expect(db.select({ kind: s.aiCalls.kind }).from(s.aiCalls).where(eq(s.aiCalls.refId, runId)).all().map((call) => call.kind)).toEqual(['whole']);
 
     const items = db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all();
@@ -115,7 +116,7 @@ describe('a node reading the script whole', () => {
     expect(items.map((item) => item.data.candidateText).sort()).toEqual(['one', 'three', 'two']);
   });
 
-  it('reads a request the model refuses as too long again in halves, cut between scenes', async () => {
+  it('never splits a request on its own: lines of a read refused as too long leave through "error" (too-long), and the workflow can send them to a node that reads scene by scene', async () => {
     const { db, projectId, choice } = setup();
     const prompts: string[] = [];
     const runner = new Runner(db, memoryStore(), {
@@ -126,32 +127,35 @@ describe('a node reading the script whole', () => {
         return { object: { people: [{ name: 'Alice', evidence: ['L1'] }] }, usage: { inputTokens: 1, outputTokens: 1 } } as never;
       },
     });
-    const { runId } = run(db, projectId, wholeFlow(choice, peopleNode));
+    const base = wholeFlow(choice, peopleNode);
+    const definition = workflowDefinitionSchema.parse({
+      ...base,
+      nodes: [...base.nodes, { id: 'scenes', type: 'ai', position: at, config: { model: choice, instructions: 'Read the script.', batch: { mode: 'group', size: 1, maxTokens: 500 }, ...peopleNode } }],
+      edges: [...base.edges, { id: '3', source: 'read', sourceHandle: 'error', target: 'scenes' }, { id: '4', source: 'scenes', sourceHandle: 'out', target: 'end' }],
+    });
+    const { runId } = run(db, projectId, definition);
     await runner.drain();
-    expect(prompts).toHaveLength(3);
-    expect(prompts[1]).toContain('[g1]');
-    expect(prompts[1]).not.toContain('[g2]');
+    // The whole read once, then the scene-batch node's own requests (JSON per scene, not script text).
+    expect(prompts.length).toBeGreaterThan(1);
+    expect(prompts.slice(1).every((prompt) => prompt.startsWith('{'))).toBe(true);
     expect(db.select().from(s.runs).where(eq(s.runs.id, runId)).get()!.status).toBe('completed');
-    // Each half has its own leader.
-    const leaders = db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all().filter((item) => (item.data.outputs?.read as { batchLeader: boolean }).batchLeader);
-    expect(leaders).toHaveLength(2);
+    const items = db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all();
+    expect(items.every((item) => item.state === 'done' && item.data.path.some((step) => step.nodeId === 'read' && step.port === 'error'))).toBe(true);
+    expect(items.filter((item) => (item.data.outputs?.scenes as { batchLeader: boolean }).batchLeader)).toHaveLength(prompts.length - 1);
   });
 
-  it('splits an answer cut off at the output limit like one that is too long', async () => {
+  it('calls an answer cut off at the output limit "cut-off"', async () => {
     const { db, projectId, choice } = setup();
-    const prompts: string[] = [];
     const runner = new Runner(db, memoryStore(), {
       ...port(() => answer),
-      generate: async (_route, request) => {
-        prompts.push(request.prompt);
-        if ((request.prompt.match(/^## /gm) ?? []).length > 1) throw new ModelError('cli', 'CLI가 실패를 반환했습니다: Your previous response was cut off because it exceeded the output token limit', false);
-        return { object: { people: [] }, usage: { inputTokens: 1, outputTokens: 1 } } as never;
+      generate: async () => {
+        throw new ModelError('cli', 'CLI가 실패를 반환했습니다: Your previous response was cut off because it exceeded the output token limit', false);
       },
     });
     const { runId } = run(db, projectId, wholeFlow(choice, peopleNode));
     await runner.drain();
-    expect(prompts).toHaveLength(3);
-    expect(db.select().from(s.runs).where(eq(s.runs.id, runId)).get()!.status).toBe('completed');
+    const items = db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all();
+    expect(items.every((item) => item.state === 'failed' && item.data.error?.kind === 'cut-off')).toBe(true);
   });
 
   it('refuses a second whole-script run while one is active', async () => {
@@ -161,11 +165,5 @@ describe('a node reading the script whole', () => {
     const input = { projectId, workflow, models: snapshotWorkflowModels(db, definition), scope: {} };
     await createRunInSteps(db, input);
     await expect(createRunInSteps(db, input)).rejects.toThrow('이미 진행 중');
-  });
-
-  it('cuts between scenes near the middle', () => {
-    expect(sceneHalf(['a', 'a', 'b', 'c', 'c', 'c'])).toBe(3);
-    expect(sceneHalf(['a', 'a', 'a', 'a', 'b'])).toBe(4);
-    expect(sceneHalf(['a', 'a', 'a'])).toBe(2);
   });
 });

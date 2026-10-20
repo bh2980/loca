@@ -512,6 +512,13 @@
       "when": 1792427071119,
       "tag": "0072_chat_compaction",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "6",
+      "when": 1792471452561,
+      "tag": "0073_drop_connection_timeout",
+      "breakpoints": true
     }
   ]
 }

@@ -126,12 +126,13 @@ function expectLabelsStayClear(result: WorkflowDefinition, direction: 'vertical'
 }
 
 describe('workflow auto layout direction on the relay retry pipeline', () => {
-  it.each(['vertical', 'horizontal'] as const)('keeps all 11 nodes readable and routes their declared ports in %s mode', async (direction) => {
+  it.each(['vertical', 'horizontal'] as const)('keeps all 17 nodes readable and routes their declared ports in %s mode', async (direction) => {
     const result = await autoLayout(definition, sizesFor(direction), direction);
 
     expect(result.direction).toBe(direction);
-    expect(result.nodes).toHaveLength(11);
-    expect(result.edges).toHaveLength(12);
+    // The translation template with a retry condition and 실패로 끝내기 behind each of its three AI nodes.
+    expect(result.nodes).toHaveLength(17);
+    expect(result.edges).toHaveLength(21);
     expectNoNodeOverlap(result, direction);
     expectForwardSpacing(result, direction);
     expectEdgesUseTheirDeclaredPorts(result, direction);

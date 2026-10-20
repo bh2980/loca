@@ -21,6 +21,8 @@ export interface AiPreset {
   include: { candidate: boolean; issues: boolean };
   context?: Partial<ContextConfig>;
   batch?: Partial<BatchConfig>;
+  /** The node's call time limit when it is not the default (DEFAULT_CALL_MINUTES). */
+  timeoutMinutes?: number;
 }
 
 const field = (name: string, type: JsonFieldType, description: string, fields?: JsonField[]): JsonField => ({ name, type, description, ...(fields && { fields }) });
@@ -254,6 +256,8 @@ export const AI_PRESETS = {
     // The script itself is the context; stored knowledge would only bias the reading. Only the names people fixed are sent (cast).
     context: READING_CONTEXT,
     batch: { mode: 'whole' },
+    // One request reads a large part of the script and writes thousands of words.
+    timeoutMinutes: 30,
     fields: [
       field('overviewTitle', 'string', 'A short Korean title for the overview document, e.g. "작품 개요".'),
       field('overview', 'string', 'Markdown document in Korean with the headings 배경 (the setting), 주요 갈등 (the main conflict) and 줄거리 (the plot so far). Use only what the text says.'),
@@ -301,6 +305,7 @@ export function presetConfig(id: AiPresetId, model: DraftModelChoice | null | un
     include: preset.include,
     context: preset.context,
     batch: preset.batch,
+    timeoutMinutes: preset.timeoutMinutes,
     ...overrides,
   });
 }

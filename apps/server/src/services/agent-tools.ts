@@ -4,7 +4,7 @@ import { tool } from 'ai';
 import { HTTPException } from 'hono/http-exception';
 import { and, asc, count, desc, eq, inArray, like, ne, or } from 'drizzle-orm';
 import { z } from 'zod';
-import { APPLY_TARGETS, AI_OUTPUTS, DEFAULT_TAG_COLOR, AI_PRESETS, AI_PRESET_IDS, type AiPresetId, aiNodeConfigSchema, KNOWLEDGE_TAG_KINDS, patchOf, TAG_SCOPES, withRunModels, AUTO_MARKS, batchChangeSchema, CONDITION_MARK_IDS, CONNECTION_KIND_INFO, createGroupSchema, createUnitSchema, deleteUnitsSchema, findReadingRouteInputSchema, FUNCTIONS, LINE_MARK_IDS, lineFilterSchema, lineMarksSchema, NODE_TYPES, sourceOf, updateGroupSchema, updateUnitSchema, workflowDefinitionSchema } from '@tw/shared';
+import { APPLY_TARGETS, AI_OUTPUTS, DEFAULT_TAG_COLOR, AI_PRESETS, AI_PRESET_IDS, type AiPresetId, aiNodeConfigSchema, KNOWLEDGE_TAG_KINDS, patchOf, TAG_SCOPES, withRunModels, AUTO_MARKS, batchChangeSchema, CONDITION_MARK_IDS, CONNECTION_KIND_INFO, ITEM_ERROR_KIND_IDS, createGroupSchema, createUnitSchema, deleteUnitsSchema, findReadingRouteInputSchema, FUNCTIONS, LINE_MARK_IDS, lineFilterSchema, lineMarksSchema, NODE_TYPES, sourceOf, updateGroupSchema, updateUnitSchema, workflowDefinitionSchema } from '@tw/shared';
 import { z as zod } from 'zod';
 import type { Db } from '../db/index.ts';
 import { byPerson } from './status-by.ts';
@@ -383,9 +383,10 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
             batchOutputs: 'A json output with scope "batch" is carried by the batch\'s first line only; apply nodes skip the other lines, so a batch is applied once.',
             targets: Object.fromEntries(Object.entries(APPLY_TARGETS).map(([name, target]) => [name, { label: target.label, shape: target.shape, files: target.tool, fields: target.fields.map((field) => `${field.name}${'required' in field && field.required ? '*' : ''}:${field.type}`) }])),
           },
-          scriptContract: 'export default function run(input) where input = {unit, candidate, issues, outputs, visits}; return {port?, candidate?, data?, issues?}. Runs in a sandbox without network.',
+          scriptContract: 'export default function run(input) where input = {unit, candidate, issues, outputs, visits, error}; return {port?, candidate?, data?, issues?}. Runs in a sandbox without network.',
         },
-        conditionData: `JSON Logic over {visits: {[nodeId]: count}, outputs: {[nodeId]: output}, candidate, issues, unit: {kind, speaker, listener, statusId, tagIds, marks}} (marks: any of ${CONDITION_MARK_IDS.join(', ')}; test with {"in": ["ai", {"var": "unit.marks"}]}). Example: {"<": [{"var": "visits.review"}, 3]} or {"==": [{"var": "outputs.review.passed"}, true]}`,
+        conditionData: `JSON Logic over {visits: {[nodeId]: count}, outputs: {[nodeId]: output}, candidate, issues, unit: {kind, speaker, listener, statusId, tagIds, marks}, error: {kind, message, nodeId} | null} (marks: any of ${CONDITION_MARK_IDS.join(', ')}; test with {"in": ["ai", {"var": "unit.marks"}]}; error is the last failure that sent the line out through an "error" exit, kind one of ${ITEM_ERROR_KIND_IDS.join(', ')}; it survives conditions and is cleared when a working node succeeds). Example: {"<": [{"var": "visits.review"}, 3]}, {"==": [{"var": "outputs.review.passed"}, true]} or {"==": [{"var": "error.kind"}, "missing"]}`,
+        failures: 'The engine never splits or re-sends a request on its own (only rate limits and dropped connections wait for a later request; the run pauses after settings.maxConsecutiveFailures failed requests in a row). Lines an answer left out, a malformed answer, a timeout (the AI node\'s timeoutMinutes, default 10) or a request too large for the model leave through the node\'s "error" exit with error.kind; route them: a condition back to the node, a node that reads smaller batches, or function "fail" (실패로 끝내기, no exits) to end the line as failed. The templates draw error → 다시 시도? (visits.<node> < 2 and error.kind not too-long/cut-off) → the node, else fail.',
         rules: [
           'Exactly one entry node.',
           'Every exit except "error" must be connected; an unconnected "out" only warns (the line stops there).',

@@ -1,6 +1,6 @@
 import { and, asc, eq } from 'drizzle-orm';
 import { get } from 'es-toolkit/compat';
-import { checkFormat, formatCheckParams, httpParams, scriptParams, setStatusParams, type FunctionName, type JsonField, filtersByStatus } from '@tw/shared';
+import { checkFormat, formatCheckParams, FUNCTIONS, httpParams, scriptParams, setStatusParams, type FunctionName, type JsonField, filtersByStatus } from '@tw/shared';
 import type { Db } from '../../db/index.ts';
 import * as s from '../../db/schema.ts';
 import type { SecretStore } from '../../services/secrets.ts';
@@ -31,6 +31,7 @@ export function lineView(input: FunctionInput) {
     issues: input.item.data.issues ?? [],
     outputs: input.item.data.outputs ?? {},
     visits: input.item.visits,
+    error: input.item.data.error ?? null,
   };
 }
 
@@ -38,6 +39,11 @@ export function lineView(input: FunctionInput) {
 
 /** Whether a run picks its lines by the entry node's statuses (rather than lines named regardless of status). */
 export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknown, input: FunctionInput) => FunctionResult>> = {
+  /** 실패로 끝내기: the line ends as failed; with no message it keeps the failure it was sent with. */
+  fail(_tx, raw, input) {
+    const { message } = FUNCTIONS.fail.params.parse(raw);
+    return { port: 'error', error: message.trim() || input.item.data.error?.message || '워크플로가 실패로 끝냈습니다.' };
+  },
   formatCheck(tx, raw, input) {
     const params = formatCheckParams.parse(raw);
     const text = candidateOf(input);

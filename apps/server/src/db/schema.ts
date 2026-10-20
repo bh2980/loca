@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import { AGE_BANDS, CHARACTER_ROLES, GENDERS, KNOWLEDGE_TAG_KINDS, TAG_ROLES, type TagRole, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, PERMISSION_MODES, type AiConfirm, type CharacterStyle, type EditorAi, type ExclusionRules, type ModelLimits, LINE_TRANSLATE, type LineMark, type MarkColors, type ModelChoice, type ContextItem, type FormatRules, type NodeType, type RelationshipChange, type WorkflowDefinition } from '@tw/shared';
+import { AGE_BANDS, CHARACTER_ROLES, GENDERS, KNOWLEDGE_TAG_KINDS, TAG_ROLES, type TagRole, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, PERMISSION_MODES, type AiConfirm, type CharacterStyle, type EditorAi, type ExclusionRules, type ModelLimits, LINE_TRANSLATE, type LineMark, type MarkColors, type ModelChoice, type ContextItem, type FormatRules, type ItemErrorKind, type NodeType, type RelationshipChange, type WorkflowDefinition } from '@tw/shared';
 import type { Usage } from '@tw/ai';
 
 const id = () => text('id').primaryKey().$defaultFn(() => crypto.randomUUID());
@@ -467,7 +467,6 @@ export const connections = sqliteTable('connections', {
   defaultModel: text('default_model'),
   defaultEffort: text('default_effort'),
   /** How every call through this connection is made, wherever it is picked. */
-  timeoutSeconds: integer('timeout_seconds').notNull().default(300),
   maxAttempts: integer('max_attempts').notNull().default(2),
   /** Tokens a call may take in (the window) and give out; null = the model's own (from its model list, modelLimits). Output is also sent as each call's cap. */
   inputTokens: integer('input_tokens'),
@@ -522,7 +521,6 @@ export interface AiSnapshot {
   /** Unset: the model's own limit. */
   /** The connection's 출력 토큰, sent as each call's cap; unset = the model's own limit. */
   maxOutputTokens?: number;
-  timeoutSeconds: number;
   maxAttempts: number;
   routes: RouteSnapshot[];
 }
@@ -580,8 +578,10 @@ export interface ItemData {
   outputs?: Record<string, Record<string, unknown>>;
   /** Nodes and exits taken, for display. */
   path: { nodeId: string; port: string; at: number }[];
-  /** Times the line went back to a node's queue because a call left it out or failed transiently, by node id. */
+  /** Times the line went back to a node's queue because a call failed transiently (rate limit, network), by node id. */
   retries?: Record<string, number>;
+  /** The last failure that sent the line out through an "error" exit; cleared when a node handles it (ConditionData.error). */
+  error?: { kind: ItemErrorKind; message: string; nodeId: string };
 }
 
 export const runItems = sqliteTable(

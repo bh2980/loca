@@ -198,7 +198,7 @@ describe('templates', () => {
   it('term extraction template is entry → AI → save terms, proposing', () => {
     const definition = workflowDefinitionSchema.parse(termExtractionTemplate({ model }));
     expect(errors(definition)).toEqual([]);
-    expect(kinds(definition)).toEqual(['entry', 'ai', 'saveTerms']);
+    expect(kinds(definition)).toEqual(['entry', 'ai', 'saveTerms', 'condition', 'fail']);
     expect(definition.nodes[2]).toMatchObject({ config: { params: { fromNodeId: 'terms', list: 'terms', propose: true, map: { source: 'source', target: 'target', kind: 'kind', meaning: 'meaning', evidence: 'evidence' } } } });
   });
 
@@ -230,12 +230,12 @@ describe('templates', () => {
   });
 
   it('writes translations itself in the translation templates and keeps the listener flow explicit', () => {
-    expect(kinds(draftTranslationTemplate({ model, untranslated: 's0', draft: 's1' }))).toEqual(['entry', 'ai', 'saveCandidate', 'formatCheck', 'setStatus']);
+    expect(kinds(draftTranslationTemplate({ model, untranslated: 's0', draft: 's1' }))).toEqual(['entry', 'ai', 'saveCandidate', 'formatCheck', 'setStatus', 'condition', 'fail']);
     const saved = translationTemplate(ids).nodes.find((node) => node.id === 'save');
     expect(saved).toMatchObject({ config: { fn: 'saveCandidate', params: { propose: false, asCandidate: false, map: { text: 'text' } } } });
     const listener = listenerTemplate({ model });
-    expect(kinds(listener)).toEqual(['entry', 'condition', 'ai', 'condition', 'setListener']);
-    expect(listener.nodes.at(-1)).toMatchObject({ config: { params: { map: { listener: 'value', confidence: 'confidence' } } } });
+    expect(kinds(listener)).toEqual(['entry', 'condition', 'ai', 'condition', 'setListener', 'condition', 'fail']);
+    expect(listener.nodes.find((node) => node.id === 'set-listener')).toMatchObject({ config: { params: { map: { listener: 'value', confidence: 'confidence' } } } });
   });
 
   it('checkFormat supports customRules and particlesPattern', () => {
@@ -332,8 +332,10 @@ describe('analysis workflow and presets', () => {
 
   it('builds the work analysis as entry → AI → one save node per list, in a chain', () => {
     const definition = workflowDefinitionSchema.parse(analysisTemplate({ model }));
-    expect(definition.nodes.map((node) => (node.type === 'function' ? node.config.fn : node.type))).toEqual(['entry', 'ai', 'saveDocument', 'saveCharacters', 'saveRelationships', 'saveSpeechRules', 'saveEvents', 'saveTerms', 'saveSceneListeners']);
-    expect(definition.edges).toHaveLength(definition.nodes.length - 1);
+    expect(definition.nodes.map((node) => (node.type === 'function' ? node.config.fn : node.type))).toEqual(['entry', 'ai', 'saveDocument', 'saveCharacters', 'saveRelationships', 'saveSpeechRules', 'saveEvents', 'saveTerms', 'saveSceneListeners', 'condition', 'fail']);
+    // The save chain, plus the AI node's error exit → 다시 시도? → back to it or 실패로 끝내기.
+    expect(definition.edges).toHaveLength(8 + 3);
+    expect(definition.edges.filter((edge) => edge.source === 'analysis-again').map((edge) => [edge.sourceHandle, edge.target])).toEqual([['true', 'analysis'], ['false', 'analysis-fail']]);
     expect(definition.nodes[2]).toMatchObject({ config: { params: { map: { title: 'overviewTitle', body: 'overview' } } } });
   });
 

@@ -26,8 +26,6 @@ import type { ChatTurn } from './chat-turns.ts';
 const RESULT_LIMIT = 20_000;
 /** What a CLI adds to every request on its own (its system prompt and tools; Grok's is about 21k tokens). */
 const CLI_OVERHEAD = 25_000;
-/** A turn with tool calls can run long; it is stopped when the CLI goes quiet for the call timeout, or after this. */
-const TURN_LIMIT_MS = 60 * 60_000;
 
 /** The running turn of each chat: what its MCP tools write into and run as. */
 interface LiveTurn {
@@ -113,7 +111,8 @@ export async function cliChatResponse(input: {
   /** The conversation record with the new user message last (the server's, not the browser's). */
   messages: UIMessage[];
   answeredBy: AnsweredBy;
-  timeoutMs: number;
+  /** A turn has no overall limit (tool calls can run long): it is stopped when the CLI reports nothing for this long. */
+  idleMs: number;
   /** The conversation's running turn (chat-turns startTurn): its signal, end and closing mark. */
   turn: Pick<ChatTurn, 'signal' | 'end' | 'record' | 'markClosing'>;
 }): Promise<Response> {
@@ -191,7 +190,7 @@ export async function cliChatResponse(input: {
                   writer.write({ type: 'text-delta', id: textId, delta: update.content.text });
                 },
               },
-              { signal: input.turn.signal, timeoutMs: TURN_LIMIT_MS, idleMs: input.timeoutMs },
+              { signal: input.turn.signal, idleMs: input.idleMs },
             ),
           );
           breakText();

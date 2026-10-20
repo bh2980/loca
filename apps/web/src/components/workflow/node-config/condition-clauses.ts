@@ -2,7 +2,7 @@
  * A condition node's JSON Logic as rows people can read and edit: one clause per row, joined by
  * "all" or "any". Expressions these rows cannot say stay JSON (parseCondition returns null).
  */
-import type { JsonField, WorkflowNode } from '@tw/shared';
+import type { ItemErrorKind, JsonField, WorkflowNode } from '@tw/shared';
 
 export type FieldOperator = '>=' | '<=' | '==' | '!=' | 'filled';
 /** `not` turns a line property around: 상태가 … 아님, 태그 … 없음, 청자 없음. */
@@ -13,6 +13,8 @@ export type Clause =
   | { kind: 'mark'; mark: string; not?: boolean }
   | { kind: 'listener'; not?: boolean }
   | { kind: 'candidate'; not?: boolean }
+  /** Why the line came out of an "error" exit (ConditionData.error.kind). */
+  | { kind: 'error'; errorKind: ItemErrorKind; not?: boolean }
   | { kind: 'visits'; nodeId: string; limit: number }
   | { kind: 'field'; nodeId: string; field: string; op: FieldOperator; value: string | number | boolean };
 export type Join = 'and' | 'or';
@@ -61,6 +63,7 @@ function parseClause(rule: unknown): Clause | null {
   if (!COMPARE.has(name)) return null;
   if (name === '==' && target === 'unit.statusId' && typeof right === 'string') return { kind: 'status', statusId: right };
   if (name === '==' && target === 'unit.kind' && typeof right === 'string') return { kind: 'lineKind', value: right };
+  if (name === '==' && target === 'error.kind' && typeof right === 'string') return { kind: 'error', errorKind: right as ItemErrorKind };
   const output = target.match(/^outputs\.([^.]+)\.(.+)$/);
   if (output && (typeof right === 'string' || typeof right === 'number' || typeof right === 'boolean')) {
     return { kind: 'field', nodeId: output[1]!, field: output[2]!, op: name as FieldOperator, value: right };
@@ -90,6 +93,8 @@ function baseRule(clause: Clause): unknown {
       return { '==': [{ var: 'unit.statusId' }, clause.statusId] };
     case 'lineKind':
       return { '==': [{ var: 'unit.kind' }, clause.value] };
+    case 'error':
+      return { '==': [{ var: 'error.kind' }, clause.errorKind] };
     case 'tag':
       return { in: [clause.tagId, { var: 'unit.tagIds' }] };
     case 'mark':

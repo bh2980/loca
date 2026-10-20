@@ -278,6 +278,16 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
               </Field>
             )}
           </>
+          <Field label="호출 제한 시간 (분)" hint="요청 하나가 이 시간을 넘으면 그 대사들은 오류(시간 초과) 출구로 나갑니다.">
+            <Input
+              type="number"
+              min={1}
+              max={240}
+              className="w-28"
+              value={config.timeoutMinutes}
+              onChange={(event) => set({ timeoutMinutes: Math.min(240, Math.max(1, Math.round(Number(event.target.value) || 1))) })}
+            />
+          </Field>
         </>
       </InspectorSection>
     </>

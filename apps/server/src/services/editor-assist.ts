@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import * as ai from '@tw/ai';
-import { AI_PRESETS, aiNodeConfigSchema, editorAiSchema, type AiNode } from '@tw/shared';
+import { AI_PRESETS, aiNodeConfigSchema, CALL_TIMEOUT_MS, editorAiSchema, type AiNode } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { buildPrompt, outputSchema, promptLineId } from '../engine/prompts.ts';
@@ -74,7 +74,7 @@ export async function assistLine(db: Db, secrets: SecretStore, unitId: string, r
   const label = `편집기 ${refine ? '다듬기' : 'AI 번역'}`;
   const call = { projectId: unit.projectId, kind: 'editor' as const, refId: unitId, label, request: `${system}\n\n---\n\n${prompt}` };
   const result = await ai
-    .withFallback(routes, snapshot.maxAttempts, (route) => logged(db, call, route, () => generate(route, { system, prompt, schema: refine ? refineSchema : outputSchema(node, [promptLineId(0)]), maxOutputTokens: snapshot.maxOutputTokens, timeoutMs: snapshot.timeoutSeconds * 1000, signal })), signal)
+    .withFallback(routes, snapshot.maxAttempts, (route) => logged(db, call, route, () => generate(route, { system, prompt, schema: refine ? refineSchema : outputSchema(node, [promptLineId(0)]), maxOutputTokens: snapshot.maxOutputTokens, timeoutMs: CALL_TIMEOUT_MS.assist, signal })), signal)
     .catch((error: unknown) => {
       if (error instanceof ai.ModelError && error.code === 'rate-limit') throw new CompleteRefused('모델 요청 한도에 걸렸습니다. 잠시 뒤 다시.', 429, 60);
       throw error;
