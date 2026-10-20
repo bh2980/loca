@@ -709,16 +709,15 @@ runs
 
 runs
   .command('plan <워크플로>')
-  .description('실행 전 미리보기(실행 대화상자와 같은 계산, 모델은 부르지 않고 아무것도 시작하지 않음). 워크플로는 이름·id: 범위의 대사 수(용어로 실행하면 용어 수), 묶음·요청 수 추정, 준비 상태(청자 미상, 확인 안 한 말투 규칙·용어, 말투 규칙 없는 쌍). 범위 조건은 모두 만족해야 합니다. 어느 워크플로든 --terms·--term이면 용어로 돌고, 이때 대사 범위 옵션은 쓸 수 없습니다')
+  .description('실행 전 미리보기(실행 대화상자와 같은 계산, 모델은 부르지 않고 아무것도 시작하지 않음). 워크플로는 이름·id: 범위의 대사 수(용어 입력이면 용어 수), 묶음·요청 수 추정, 준비 상태(청자 미상, 확인 안 한 말투 규칙·용어, 말투 규칙 없는 쌍). 범위 조건은 모두 만족해야 합니다. 용어 입력 워크플로(진입 input이 terms)는 --term으로 범위를 정하고 대사 범위 옵션은 쓸 수 없습니다')
   .option('-g, --group <groups...>', '장면·묶음 (키·id·제목)')
   .option('--key <keys...>', '대사 키')
   .addOption(new Option('--mark <marks...>', '자동 표시가 모두 붙은 대사').choices(LINE_MARK_IDS))
   .option('--tag <tags...>', '태그 이름 (모두 붙은 대사)')
-  .option('--terms', '대사 대신 용어로 실행 (용어를 안 고르면 진입 노드의 용어 상태·표시 조건, 많이 쓰인 순)')
-  .option('--term <terms...>', '이 용어(원문·id)로 실행 (--terms를 함께 쓴 것과 같음)')
+  .option('--term <terms...>', '용어 입력 워크플로만: 이 용어(원문·id)만. 없으면 진입 노드의 용어 상태·표시 조건(많이 쓰인 순)')
   .option('--ignore-status', '진입 노드가 받지 않는 상태의 대사도 포함')
   .option('--model <specs...>', '이번 실행만 다른 모델로: "연결:모델"(모든 AI 단계) 또는 "노드=연결:모델" (연결·노드는 이름이나 id). 워크플로는 바뀌지 않습니다')
-  .action(async (workflow: string, options: { group?: string[]; key?: string[]; mark?: string[]; tag?: string[]; term?: string[]; terms?: boolean; ignoreStatus?: boolean; model?: string[] }) => {
+  .action(async (workflow: string, options: { group?: string[]; key?: string[]; mark?: string[]; tag?: string[]; term?: string[]; ignoreStatus?: boolean; model?: string[] }) => {
     type Names = { count: number; examples: string[]; names: string[]; more: boolean };
     const data = await readTool<{
       workflow: { id: string; name: string };
@@ -729,9 +728,8 @@ runs
       totals: { calls: { min: number; expected: number | null; max: number }; inputTokens: { min: number; expected: number | null; max: number } };
       pace: { seconds: number | null; costUsd: number | null; subscription: boolean };
       load: { runs: number; max: number; added: number };
-      unsupported: string[];
       readiness: { dialogueLines: number; unknownListenerLines: number; unreviewedRules: Names; unreviewedTerms: Names; pairsWithoutRule: { count: number; examples: string[] } };
-    }>('plan_run', { workflow, subject: options.terms || options.term?.length ? 'terms' : undefined, groups: options.group, keys: options.key, tags: options.tag, marks: options.mark, terms: options.term, ignoreStatus: options.ignoreStatus, models: runModels(options.model) });
+    }>('plan_run', { workflow, groups: options.group, keys: options.key, tags: options.tag, marks: options.mark, terms: options.term, ignoreStatus: options.ignoreStatus, models: runModels(options.model) });
     if (globals().json) return print(data);
     const range = (value: { min: number; expected: number | null; max: number }) => (value.expected !== null ? `약 ${value.expected.toLocaleString()} (${value.min.toLocaleString()}~${value.max.toLocaleString()})` : `${value.min.toLocaleString()}~${value.max.toLocaleString()}`);
     console.log(`${data.workflow.name} 실행 미리보기`);
@@ -741,9 +739,8 @@ runs
     if (!terms) console.log(`  묶음 ${data.plan.batches.toLocaleString()}개${per ? ` (묶음당 ${per.min}~${per.max}줄, 중간 ${per.median})` : ''}`);
     console.log(`  AI 요청 ${range(data.totals.calls)} · 입력 토큰 ${range(data.totals.inputTokens)}${data.pace.seconds !== null ? ` · 약 ${Math.round(data.pace.seconds / 60)}분` : ''}${data.pace.subscription ? ' · 구독' : data.pace.costUsd !== null ? ` · 약 $${data.pace.costUsd.toFixed(2)}` : ''}`);
     for (const node of data.nodes) console.log(`    ${node.name}  ${node.model ?? '(모델 없음)'}  요청 ${range(node.requests)} · 동시 ${node.concurrency} · 프롬프트 약 ${node.promptTokens.toLocaleString()}토큰`);
-    if (data.unsupported.length) console.log(`  주의: ${data.unsupported.map((name) => `'${name}'`).join('·')} 노드는 ${terms ? '용어' : '대사'}에 쓸 수 없어, 여기 닿은 ${terms ? '용어' : '대사'}는 오류 출구로 나갑니다.`);
     if (data.load.runs) console.log(`  주의: 다른 실행 ${data.load.runs}개가 AI 요청을 최대 ${data.load.max}개까지 동시에 보내는 중입니다. 이 실행을 시작하면 최대 ${data.load.max + data.load.added}개가 됩니다.   → loca runs list`);
-    if (terms) return console.log('\n용어로 실행할 때는 청자·말투 규칙 준비 상태를 보지 않습니다. 시작 전 loca terms로 대상 용어를 확인하세요.');
+    if (terms) return console.log('\n용어 입력 워크플로는 청자·말투 규칙 준비 상태를 보지 않습니다. 시작 전 loca terms로 대상 용어를 확인하세요.');
     const ready = data.readiness;
     console.log('\n준비 상태');
     console.log(`  청자 미상 대사 ${ready.unknownListenerLines.toLocaleString()} / 청자가 필요한 대사 ${ready.dialogueLines.toLocaleString()}${ready.unknownListenerLines ? '   → loca lines --mark unknownListener' : ''}`);
@@ -755,23 +752,22 @@ runs
 
 runs
   .command('start <워크플로>')
-  .description('실행 시작을 제안으로 올리기 (AI 호출에 비용이 들어 앱에서 수락해야 시작합니다). 범위는 plan과 같고(대사 범위, 또는 --terms·--term으로 용어), 먼저 plan으로 확인하세요')
+  .description('실행 시작을 제안으로 올리기 (AI 호출에 비용이 들어 앱에서 수락해야 시작합니다). 범위는 plan과 같고(대사 입력 워크플로는 대사 범위, 용어 입력 워크플로는 --term), 먼저 plan으로 확인하세요')
   .option('-g, --group <groups...>', '장면·묶음 (키·id·제목)')
   .option('--key <keys...>', '대사 키')
   .addOption(new Option('--mark <marks...>', '자동 표시가 모두 붙은 대사').choices(LINE_MARK_IDS))
   .option('--tag <tags...>', '태그 이름 (모두 붙은 대사)')
-  .option('--terms', '대사 대신 용어로 실행 (용어를 안 고르면 진입 노드의 용어 상태·표시 조건, 많이 쓰인 순)')
-  .option('--term <terms...>', '이 용어(원문·id)로 실행 (--terms를 함께 쓴 것과 같음)')
+  .option('--term <terms...>', '용어 입력 워크플로만: 이 용어(원문·id)만. 없으면 진입 노드의 용어 상태·표시 조건(많이 쓰인 순)')
   .option('--ignore-status', '시작의 대상 상태가 아닌 대사도 포함')
   .option('--model <specs...>', 'plan과 같은 "연결:모델" 또는 "노드=연결:모델"')
-  .action(async (ref: string, options: { group?: string[]; key?: string[]; mark?: string[]; tag?: string[]; term?: string[]; terms?: boolean; ignoreStatus?: boolean; model?: string[] }) => {
+  .action(async (ref: string, options: { group?: string[]; key?: string[]; mark?: string[]; tag?: string[]; term?: string[]; ignoreStatus?: boolean; model?: string[] }) => {
     const workflow = await resolveWorkflow(ref);
     const groups = await resolveGroups(options.group);
     const unitIds = options.key?.length ? (await unwrap(api().projects[':projectId'].lines.find.$post({ param: { projectId: await projectId() }, json: { keys: options.key, limit: 1000 } }))).rows.map((row) => row.id) : undefined;
     const tagIds = options.tag?.length
       ? (await readTool<{ tags: { id: string; name: string }[] }>('list_tags')).tags.filter((tag) => options.tag!.includes(tag.name)).map((tag) => tag.id)
       : undefined;
-    const { proposalId } = await proposeTool('start_run', { workflowId: workflow.id, subject: options.terms || options.term?.length ? 'terms' : undefined, groupIds: groups?.map((group) => group.id), unitIds, tagIds, marks: options.mark, termIds: options.term, ignoreStatus: options.ignoreStatus, models: runModels(options.model) });
+    const { proposalId } = await proposeTool('start_run', { workflowId: workflow.id, groupIds: groups?.map((group) => group.id), unitIds, tagIds, marks: options.mark, termIds: options.term, ignoreStatus: options.ignoreStatus, models: runModels(options.model) });
     if (globals().json) return print({ proposalId });
     console.log(`실행 요청을 올렸습니다 (${proposalId}). ${ACCEPT_HINT}. 시작한 뒤에는 loca runs list로 봅니다.`);
   });

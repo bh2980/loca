@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, asc, count, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { choiceKey, FUNCTIONS, type FunctionName, isWholeScriptWorkflow, nodeModels, CONNECTION_KIND_INFO, WORKFLOW_SUBJECT_IDS, type WorkflowSubject, lineMarksSchema, scriptParams, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels } from '@tw/shared';
+import { choiceKey, FUNCTIONS, type FunctionName, isWholeScriptWorkflow, nodeModels, CONNECTION_KIND_INFO, workflowInput, lineMarksSchema, scriptParams, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -9,13 +9,13 @@ import { workflowIssues } from '../services/workflow-issues.ts';
 import { events } from '../events.ts';
 import { lineView, validateScriptData } from '../engine/functions/index.ts';
 import { runScript } from '../engine/functions/sandbox.ts';
-import { WHOLE_SCRIPT_BUSY, createRunInSteps, FILLING, refuseSecondWholeScript, runSubject, selectRunTerms, selectRunUnits } from '../engine/run-create.ts';
+import { WHOLE_SCRIPT_BUSY, createRunInSteps, FILLING, refuseSecondWholeScript, selectRunTerms, selectRunUnits } from '../engine/run-create.ts';
 import { listBatches, preflight } from '../services/preflight.ts';
 import { choiceLabel, snapshotWorkflowModels } from '../services/routes.ts';
 import { continuePreflight, switchedRun } from '../services/run-continue.ts';
 import { deleteWorkflow, saveWorkflow, WorkflowMutationError } from '../services/workflow-mutations.ts';
 
-const scopeSchema = z.object({ subject: z.enum(WORKFLOW_SUBJECT_IDS as [WorkflowSubject, ...WorkflowSubject[]]).optional(), groupIds: z.array(z.string()).optional(), unitIds: z.array(z.string()).optional(), tagIds: z.array(z.string()).optional(), marks: lineMarksSchema.optional(), statusIds: z.array(z.string()).optional(), ignoreStatus: z.boolean().optional(), termIds: z.array(z.string()).optional() });
+const scopeSchema = z.object({ groupIds: z.array(z.string()).optional(), unitIds: z.array(z.string()).optional(), tagIds: z.array(z.string()).optional(), marks: lineMarksSchema.optional(), statusIds: z.array(z.string()).optional(), ignoreStatus: z.boolean().optional(), termIds: z.array(z.string()).optional() });
 /** A run's scope and, optionally, the models it uses instead of its nodes' own (by AI node id). */
 const runSchema = scopeSchema.extend({ models: runModelsSchema.optional() });
 const continueSchema = z.object({ models: runModelsSchema.optional(), retryFailed: z.boolean().default(false) });
@@ -64,7 +64,8 @@ export const workflowRoutes = new Hono<Env>()
         ...row,
         // The start's 대상 상태: the run dialog's default status filter.
         entryStatusIds: (() => { const entry = definition.nodes.find((node) => node.type === 'entry'); return entry?.type === 'entry' ? entry.config.statusIds : []; })(),
-        // The terms a term run takes when none are picked (the entry's term statuses and marks): the run dialog says which.
+        // What it takes in, and for terms which ones when none are picked (the entry's term statuses and marks).
+        input: workflowInput(definition),
         termScope: (() => { const entry = definition.nodes.find((node) => node.type === 'entry'); return entry?.type === 'entry' ? { statuses: entry.config.termStatuses, marks: entry.config.termMarks } : null; })(),
         nodeCount: definition.nodes.length,
         errorCount: workflowIssues(db, projectId, definition).filter((issue) => issue.level === 'error').length,
@@ -122,7 +123,7 @@ export const workflowRoutes = new Hono<Env>()
   .post('/workflows/:id/preview', validate('json', scopeSchema), (c) => {
     const { db } = c.var.deps;
     const workflow = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
-    const select = runSubject(c.req.valid('json')) === 'terms' ? selectRunTerms : selectRunUnits;
+    const select = workflowInput(workflow.definition) === 'terms' ? selectRunTerms : selectRunUnits;
     return c.json({ count: select(db, workflow.projectId, workflow.definition, c.req.valid('json')).length });
   })
   /** The run plan and its cost estimate, computed without calling a model (see services/preflight.ts). */

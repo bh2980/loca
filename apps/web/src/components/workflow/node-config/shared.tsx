@@ -1,6 +1,6 @@
 /** Pieces shared by the node-kind configs: shared field primitives and the node/ref types. */
 import { Button, Checkbox, Input, InspectorField, InspectorToggle, NODE_CARD_KIND_APPEARANCE, Switch, cn } from '@loca/ui';
-import { CONNECTION_KIND_INFO, nodeName, type WorkflowEdge, type WorkflowNode } from '@tw/shared';
+import { CONNECTION_KIND_INFO, nodeName, workflowInput, type WorkflowEdge, type WorkflowNode, type WorkflowSubject } from '@tw/shared';
 import { nodeIcon } from '@/components/workflow/node-view';
 
 export type AiNode = Extract<WorkflowNode, { type: 'ai' }>;
@@ -81,6 +81,9 @@ export function ToggleRow({ label, checked, onChange }: { label: string; checked
   return <InspectorToggle label={label} checked={checked} onChange={onChange} />;
 }
 
+
+/** The workflow's input (its entry node), which decides each node's extension. */
+export const refsInput = (refs: Pick<NodeRefs, 'nodes'>): WorkflowSubject => workflowInput({ nodes: refs.nodes });
 
 /** Fields of a node's output an input can keep (top level; a list keeps its items whole). */
 export function outputFieldNames(node: WorkflowNode): string[] {

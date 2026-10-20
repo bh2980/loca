@@ -2,14 +2,14 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Plus, X } from 'lucide-react';
-import { AI_OUTPUTS, AI_PRESETS, AI_SCOPES, CHOICE_SOURCES, CONNECTION_KIND_INFO, BATCH_MODE_LABELS, contextConfigSchema, nodeName, previousSteps, type AiOutput, type AiScope, type BatchConfig, type Capability, type ChoiceSource, type WorkflowNode } from '@tw/shared';
+import { AI_OUTPUTS, AI_PRESETS, AI_SCOPES, CHOICE_SOURCES, CONNECTION_KIND_INFO, BATCH_MODE_LABELS, contextConfigSchema, INPUT_TYPES, nodeName, previousSteps, type WorkflowSubject, type AiOutput, type AiScope, type BatchConfig, type Capability, type ChoiceSource, type WorkflowNode } from '@tw/shared';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Button, Dialog, DialogContent, DialogHeader, DialogTitle, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, InspectorActionRow, InspectorResult, InspectorSection } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
 import { AiContextPanel } from '@/components/ai-context';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
 import { client, unwrap } from '@/lib/api';
 import { JsonFieldsEditor } from '@/components/workflow/node-config/json-fields-editor';
-import { Field, CheckItem, CountRow, StepChips, ToggleRow, outputFieldNames, type AiNode, type NodeRefs } from '@/components/workflow/node-config/shared';
+import { Field, CheckItem, CountRow, StepChips, ToggleRow, outputFieldNames, refsInput, type AiNode, type NodeRefs } from '@/components/workflow/node-config/shared';
 
 /** The fields a preset fills into a node (a full AI node config minus the model). */
 type PresetFill = Partial<Pick<AiNode['config'], 'instructions' | 'output' | 'scope' | 'fields' | 'choice'>>;
@@ -53,6 +53,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
   const [previewing, setPreviewing] = useState(false);
   const [refilling, setRefilling] = useState(false);
   const config = node.config;
+  const input = refsInput(refs);
   // Saved workflows may predate a context setting; show its default.
   const context = contextConfigSchema.parse(config.context ?? {});
   const set = (patch: Partial<AiNode['config']>) => onChange({ ...node, config: { ...config, ...patch } });
@@ -165,7 +166,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
             <Field label="출력 단위">
               <Select value={config.scope} onValueChange={(value) => set({ scope: value as AiScope })}>
                 <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>{(Object.keys(AI_SCOPES) as AiScope[]).map((scope) => <SelectItem key={scope} value={scope}>{AI_SCOPES[scope]}</SelectItem>)}</SelectContent>
+                <SelectContent>{(Object.keys(AI_SCOPES) as AiScope[]).map((scope) => <SelectItem key={scope} value={scope}>{scope === 'line' ? `${INPUT_TYPES[input].label}마다` : AI_SCOPES[scope]}</SelectItem>)}</SelectContent>
               </Select>
             </Field>
             <JsonFieldsEditor label="출력 필드" fields={config.fields} descriptionPlaceholder="AI에게 주는 설명" onChange={(fields) => set({ fields })} />
@@ -190,7 +191,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
       </InspectorSection>
 
       <InspectorSection title={`문맥 · ${contextOn}개 켬`} defaultOpen={false}>
-        <AiContextFields config={config} set={set} />
+        <AiContextFields config={config} set={set} input={input} />
       </InspectorSection>
 
       <InspectorSection title="고급" defaultOpen={false}>
@@ -253,12 +254,12 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {(Object.keys(BATCH_MODE_LABELS) as BatchConfig['mode'][]).map((mode) => <SelectItem key={mode} value={mode}>{mode === 'unit' ? '하나씩' : BATCH_MODE_LABELS[mode]}</SelectItem>)}
+                  {INPUT_TYPES[input].batchModes.map((mode) => <SelectItem key={mode} value={mode}>{mode === 'unit' ? `${INPUT_TYPES[input].label} 하나씩` : BATCH_MODE_LABELS[mode]}</SelectItem>)}
                 </SelectContent>
               </Select>
             </Field>
             {config.batch.mode === 'count' && (
-              <Field label="요청당 개수">
+              <Field label={`요청당 ${INPUT_TYPES[input].label} 수`}>
                 <Input
                   type="number"
                   min={1}
@@ -287,18 +288,16 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
   );
 }
 
-/**
- * What an AI node (or an editor button, which is one) sends besides the items: the context switches.
- * Line-only ones (preceding lines, scenes, speech) are skipped for terms, 용례 only goes with terms.
- */
-export function AiContextFields({ config, set }: { config: Pick<AiNode['config'], 'context' | 'include'>; set: (patch: Partial<AiNode['config']>) => void }) {
+/** What an AI node sends besides the items: the core context switches and those of the workflow's input (INPUT_TYPES). */
+export function AiContextFields({ config, set, input }: { config: Pick<AiNode['config'], 'context' | 'include'>; set: (patch: Partial<AiNode['config']>) => void; input: WorkflowSubject }) {
   const context = contextConfigSchema.parse(config.context ?? {});
+  const lines = input === 'lines';
   const setContext = (patch: Partial<typeof context>) => set({ context: { ...context, ...patch } });
   return (
     <>
       <ToggleRow label="확정된 것만" checked={context.humanOnly} onChange={(value) => setContext({ humanOnly: value })} />
       <div className="space-y-2.5 border-t border-border-subtle pt-3">
-        <>
+        {lines ? <>
             <CountRow label="앞 대사" unit="줄" value={context.precedingLines} fallback={8} max={50} onChange={(value) => setContext({ precedingLines: value })} />
             {context.precedingLines > 0 && (
               <div className="pl-4">
@@ -307,12 +306,13 @@ export function AiContextFields({ config, set }: { config: Pick<AiNode['config']
             )}
             <CountRow label="이전 장면" unit="개" value={context.previousScenes} fallback={1} max={10} onChange={(value) => setContext({ previousScenes: value })} />
             <ToggleRow label="앞 단계 지적" checked={config.include.issues} onChange={(value) => set({ include: { ...config.include, issues: value } })} />
-            <CountRow label="용례 (용어일 때)" unit="줄" value={context.examples} fallback={2} max={5} onChange={(value) => setContext({ examples: value })} />
-        </>
+        </> : (
+            <CountRow label="용례" unit="줄" value={context.examples} fallback={2} max={5} onChange={(value) => setContext({ examples: value })} />
+        )}
       </div>
       <div className="space-y-2.5 border-t border-border-subtle pt-3">
         <ToggleRow label="용어집" checked={context.glossary} onChange={(value) => setContext({ glossary: value })} />
-        <ToggleRow label="청자·말투" checked={context.speech} onChange={(value) => setContext({ speech: value })} />
+        {lines && <ToggleRow label="청자·말투" checked={context.speech} onChange={(value) => setContext({ speech: value })} />}
         <ToggleRow label="인물 명단" checked={context.cast} onChange={(value) => setContext({ cast: value })} />
         <ToggleRow label="인물 프로필" checked={context.characters} onChange={(value) => setContext({ characters: value })} />
         <ToggleRow label="인물 관계" checked={context.relationships} onChange={(value) => setContext({ relationships: value })} />

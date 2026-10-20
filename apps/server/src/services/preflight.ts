@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray, isNotNull, ne, sql } from 'drizzle-orm';
-import { batchConfigSchema, functionTakes, TERM_BATCH_MODES, readinessUses, CONNECTION_KIND_INFO, estimateTokens, isFreeModel, isUnknownListener, isUnreviewed, needsListener, nodeName, termMatcher, type AiNode, type WorkflowDefinition, type WorkflowSubject } from '@tw/shared';
+import { batchConfigSchema, INPUT_TYPES, workflowInput, readinessUses, CONNECTION_KIND_INFO, estimateTokens, isFreeModel, isUnknownListener, isUnreviewed, needsListener, nodeName, termMatcher, type AiNode, type WorkflowDefinition } from '@tw/shared';
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -7,7 +7,7 @@ import { packGroups } from '../engine/batches.ts';
 import { buildPrompt, promptLineId } from '../engine/prompts.ts';
 import { wholeScriptRequest } from '../engine/whole-script.ts';
 import { resolveChoiceOptions } from './choice-options.ts';
-import { excludedInScope, planRun, runSubject, sceneLinks, selectRunTerms, selectRunUnits } from '../engine/run-create.ts';
+import { excludedInScope, planRun, sceneLinks, selectRunTerms, selectRunUnits } from '../engine/run-create.ts';
 import { loadTerms, TERM_GROUP, termPrompt } from '../engine/subjects.ts';
 import { resolveBudgets } from './budgets.ts';
 import { buildContext } from './context.ts';
@@ -53,7 +53,7 @@ export interface NodeEstimate {
 export async function preflight(db: Db, workflow: Pick<typeof s.workflows.$inferSelect, 'projectId' | 'definition'> & { id: string | null }, scope: s.RunScope) {
   const definition: WorkflowDefinition = resolveBudgets(db, workflow.definition);
   const projectId = workflow.projectId;
-  if (runSubject(scope) === 'terms') return termPreflight(db, workflow, definition, scope);
+  if (workflowInput(definition) === 'terms') return termPreflight(db, workflow, definition, scope);
   const unitIds = selectRunUnits(db, projectId, definition, scope);
   const columns = { id: s.units.id, key: s.units.key, groupId: s.units.groupId, seq: s.units.seq, kind: s.units.kind, speaker: s.units.speaker, source: s.units.source, translation: s.units.translation, listener: s.units.listener, listenerOrigin: s.units.listenerOrigin, listenerConfidence: s.units.listenerConfidence, tokens: sql<number>`(length(cast(${s.units.source} as blob)) + 3) / 4` };
   // Most of a project: one scan kept by id is faster than ids in chunks (see planLines).
@@ -125,7 +125,6 @@ export async function preflight(db: Db, workflow: Pick<typeof s.workflows.$infer
     readiness,
     pace,
     load: aiLoad(db, definition),
-    unsupported: unsupportedNodes(definition, 'lines'),
     lines: { total: units.length, excluded: excludedInScope(db, projectId, definition, scope), translated: units.filter((unit) => unit.translation).length, untranslated: units.filter((unit) => !unit.translation).length },
     plan: {
       batches: sizes.length,
@@ -151,10 +150,10 @@ export async function preflight(db: Db, workflow: Pick<typeof s.workflows.$infer
  * fixed counts, no scenes), with each AI node's requests and a sampled prompt size. Line readiness
  * (listeners, speech rules) does not apply.
  */
-/** A term run's batching (as the runner does it): a scene or whole-script batch takes terms by count. */
+/** A terms run's batching (as the runner does it, within the input's batch modes). */
 function termBatch(node: AiNode) {
   const config = batchConfigSchema.parse(node.config.batch ?? {});
-  return TERM_BATCH_MODES.includes(config.mode) ? config : { ...config, mode: 'count' as const };
+  return (INPUT_TYPES.terms.batchModes as readonly string[]).includes(config.mode) ? config : { ...config, mode: 'count' as const };
 }
 
 async function termPreflight(db: Db, workflow: { id: string | null; projectId: string }, definition: WorkflowDefinition, scope: s.RunScope) {
@@ -202,7 +201,6 @@ async function termPreflight(db: Db, workflow: { id: string | null; projectId: s
     readiness: { dialogueLines: 0, unknownListenerLines: 0, unreviewedRules: none, unreviewedTerms: none, pairsWithoutRule: { count: 0, examples: [] as string[] }, applies: readinessUses(definition) },
     pace: paceOf(db, estimates),
     load: aiLoad(db, definition),
-    unsupported: unsupportedNodes(definition, 'terms'),
     lines: { total: rows.length, excluded: 0, translated: rows.filter((row) => row.target).length, untranslated: rows.filter((row) => !row.target).length },
     plan: { batches: 0, linesPerBatch: null, list: listBatches(db, []) },
     nodes: estimates,
@@ -260,10 +258,6 @@ function readinessOf(db: Db, projectId: string, units: { kind: string; speaker: 
     pairsWithoutRule: { count: withoutRule.length, examples: withoutRule.slice(0, 3).map(([key]) => names.get(key)!) },
   };
 }
-
-/** Nodes that do not work on this kind of item: the items leave them through "error" (a notice before starting, nothing is refused). */
-const unsupportedNodes = (definition: WorkflowDefinition, subject: WorkflowSubject) =>
-  definition.nodes.flatMap((node) => (node.type === 'function' && !functionTakes(node.config.fn, subject) ? [nodeName(node)] : []));
 
 /** The most AI requests a definition sends at once: its AI nodes' 동시 처리 수 together. */
 const aiSlots = (definition: WorkflowDefinition) => definition.nodes.reduce((sum, node) => sum + (node.type === 'ai' ? node.config.concurrency : 0), 0);

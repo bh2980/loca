@@ -25,7 +25,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import { ArrowLeftRight, ArrowUpDown, ChevronRight, Copy, Focus, LayoutGrid, Maximize, Pencil, Plus, SlidersHorizontal, Trash2, Unlink } from 'lucide-react';
 import { toast } from 'sonner';
-import { AI_PRESETS, APPLY_FUNCTION_NAMES, APPLY_TARGETS, FUNCTIONS, FUNCTION_NAMES, PALETTE_FUNCTION_NAMES, nodeModels, nodeName, nodePorts, syncEntryEdges, workflowNodeSchema, type FunctionName, type WorkflowDefinition, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
+import { AI_PRESETS, APPLY_FUNCTION_NAMES, APPLY_TARGETS, FUNCTIONS, FUNCTION_NAMES, functionTakes, presetTakes, workflowInput, PALETTE_FUNCTION_NAMES, nodeModels, nodeName, nodePorts, syncEntryEdges, workflowNodeSchema, type FunctionName, type WorkflowDefinition, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
 import { Page, StatusBarItem } from '@/components/page';
 import { autoLayout } from '@/components/workflow/auto-layout';
 import { NodeConfig } from '@/components/workflow/node-config';
@@ -81,7 +81,7 @@ function NameField({ name, onRename }: { name: string; onRename: (name: string) 
 }
 
 /** A preset as the palette reads it: label/description for the list, the rest is the AI node config it fills. */
-type PresetEntry = { label: string; description?: string; output: string } & Record<string, unknown>;
+type PresetEntry = { label: string; description?: string; output: string; input?: 'lines' | 'terms' } & Record<string, unknown>;
 
 export const Route = createFileRoute('/p/$projectId/workflows/$workflowId')({
   validateSearch: (raw: Record<string, unknown>): { node?: string; nodeTab?: 'io' | 'errors'; direction?: CanvasDirection } => ({
@@ -469,12 +469,14 @@ function WorkflowEditor() {
     );
 
   const errorCount = issues.filter((issue) => issue.level === 'error').length;
+  // The palette offers the core nodes and those of the workflow's input (INPUT_TYPES via functionTakes / presetTakes).
+  const input = workflowInput(current.definition);
   const palette: NodeLibraryGroup[] = [
     {
       id: 'ai',
       label: 'AI',
       items: [
-        ...Object.entries(AI_PRESETS as Record<string, PresetEntry>).map(([id, preset]) => ({
+        ...Object.entries(AI_PRESETS as Record<string, PresetEntry>).filter(([, preset]) => presetTakes(preset, input)).map(([id, preset]) => ({
           id,
           label: preset.label,
           kind: 'ai' as const,
@@ -486,12 +488,12 @@ function WorkflowEditor() {
     {
       id: 'apply',
       label: '반영',
-      items: APPLY_FUNCTION_NAMES.map((fn) => ({ id: fn, label: FUNCTIONS[fn].label, kind: 'function' as const, icon: null })),
+      items: APPLY_FUNCTION_NAMES.filter((fn) => functionTakes(fn, input)).map((fn) => ({ id: fn, label: FUNCTIONS[fn].label, kind: 'function' as const, icon: null })),
     },
     {
       id: 'function',
       label: '함수',
-      items: PALETTE_FUNCTION_NAMES.map((fn) => ({
+      items: PALETTE_FUNCTION_NAMES.filter((fn) => functionTakes(fn, input)).map((fn) => ({
         id: fn,
         label: FUNCTIONS[fn].label,
         kind: (fn === 'setStatus' ? 'status' : 'function') as 'status' | 'function',

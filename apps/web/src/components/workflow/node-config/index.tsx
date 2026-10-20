@@ -1,7 +1,7 @@
 /** Edits one workflow node's config; the node kinds live beside this file. */
 import { useState } from 'react';
 import { Trash2 } from 'lucide-react';
-import { AI_OUTPUTS, AI_SCOPES, CHOICE_SOURCES, JSON_FIELD_TYPE_LABELS, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, NODE_TYPES, nodeName, nodePorts, TERM_MARK_IDS, WORKFLOW_SUBJECTS, WORKFLOW_SUBJECT_IDS, type AutoMark, type JsonField, type WorkflowSubject, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
+import { AI_OUTPUTS, AI_SCOPES, CHOICE_SOURCES, INPUT_TYPES, JSON_FIELD_TYPE_LABELS, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, NODE_TYPES, nodeName, nodePorts, TERM_MARK_IDS, WORKFLOW_SUBJECT_IDS, type AutoMark, type JsonField, type WorkflowSubject, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
 import { MarkChip } from '@/components/status';
 import { Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Inspector, InspectorHeader, InspectorBlock, InspectorList, InspectorSection, InspectorTabs, PropertyGrid, PropertyRow, StatusIcon, Checkbox, Input, GroupHeading } from '@loca/ui';
 import { nodeIcon } from '../node-view';
@@ -59,8 +59,14 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
             {node.type === 'ai' && <AiConfig part="model" node={node} refs={refs} onChange={onChange} />}
             {node.type === 'entry' && (
               <>
-                <p className="text-xs text-muted-foreground">실행할 때 대사·용어를 따로 고르지 않으면 아래 조건으로 가져옵니다.</p>
-                <Field label="대사로 실행할 때 · 대상 상태">
+                <Field label="입력" hint="이 워크플로에 들어오는 것. 노드마다 이 입력에 맞는 칸과 노드만 보입니다.">
+                  <Select value={node.config.input} onValueChange={(input) => onChange({ ...node, config: { ...node.config, input: input as WorkflowSubject } })}>
+                    <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                    <SelectContent>{WORKFLOW_SUBJECT_IDS.map((id) => <SelectItem key={id} value={id}>{INPUT_TYPES[id].label}</SelectItem>)}</SelectContent>
+                  </Select>
+                </Field>
+                {node.config.input === 'lines' ? (
+                <Field label="대상 상태" hint="실행할 때 대사를 따로 고르지 않으면 이 상태의 대사를 가져옵니다.">
                   <div className="space-y-1.5">
                     {refs.statuses.map((status) => (
                       <label key={status.id} className="flex items-center gap-2 text-sm">
@@ -70,8 +76,9 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
                     ))}
                   </div>
                 </Field>
+                ) : (
                   <>
-                    <Field label="용어로 실행할 때 · 대상 용어 상태">
+                    <Field label="대상 용어 상태" hint="실행할 때 용어를 따로 고르지 않으면 이 조건의 용어를 가져옵니다.">
                       <div className="space-y-1.5">
                         {KNOWLEDGE_STATUSES.map((status) => (
                           <label key={status} className="flex items-center gap-2 text-sm">
@@ -81,7 +88,7 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
                         ))}
                       </div>
                     </Field>
-                    <Field label="용어로 실행할 때 · 대상 자동 태그" hint="고른 자동 태그가 모두 붙은 용어만 받습니다. 비우면 가리지 않습니다.">
+                    <Field label="대상 자동 태그" hint="고른 자동 태그가 모두 붙은 용어만 받습니다. 비우면 가리지 않습니다.">
                       <div className="space-y-1.5">
                         {TERM_MARK_IDS.map((mark) => (
                           <label key={mark} className="flex items-center gap-2 text-sm">
@@ -92,6 +99,7 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
                       </div>
                     </Field>
                   </>
+                )}
               </>
             )}
           </InspectorSection>
@@ -113,8 +121,12 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
           <InspectorSection title="입력">
             {node.type === 'entry' && (
               <PropertyGrid>
-                <PropertyRow label="대사 · 대상 상태">{node.config.statusIds.length ? node.config.statusIds.map((id) => refs.statuses.find((status) => status.id === id)?.name ?? '삭제된 상태').join(' · ') : '범위 안의 모든 대사'}</PropertyRow>
-                <PropertyRow label="용어 · 대상 용어 상태">{node.config.termStatuses.length ? node.config.termStatuses.map((status) => KNOWLEDGE_STATUS_LABELS[status]).join(' · ') : '범위 안의 모든 용어'}</PropertyRow>
+                <PropertyRow label="입력">{INPUT_TYPES[node.config.input].label}</PropertyRow>
+                {node.config.input === 'terms' ? (
+                  <PropertyRow label="대상 용어 상태">{node.config.termStatuses.length ? node.config.termStatuses.map((status) => KNOWLEDGE_STATUS_LABELS[status]).join(' · ') : '범위 안의 모든 용어'}</PropertyRow>
+                ) : (
+                  <PropertyRow label="대상 상태">{node.config.statusIds.length ? node.config.statusIds.map((id) => refs.statuses.find((status) => status.id === id)?.name ?? '삭제된 상태').join(' · ') : '범위 안의 모든 대사'}</PropertyRow>
+                )}
               </PropertyGrid>
             )}
             {refs.edges ? incoming.length ? (

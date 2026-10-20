@@ -4,9 +4,9 @@ import { keepPreviousData, useMutation, useQuery, type UseQueryResult } from '@t
 import type { InferResponseType } from 'hono/client';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { ChevronRight, Play } from 'lucide-react';
-import { SearchInput, Button, Checkbox, Label, RadioGroup, RadioGroupItem, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Skeleton, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner, StatusIcon, SectionHeading, FieldRows, FieldRow } from '@loca/ui';
+import { SearchInput, Button, Checkbox, Label, RadioGroup, RadioGroupItem, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Skeleton, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue, Spinner, StatusIcon, SectionHeading, FieldRows, FieldRow } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
-import { KNOWLEDGE_STATUS_LABELS, LINE_MARK_IDS, type AutoMark, type LineMark, UNREVIEWED_MARKS } from '@tw/shared';
+import { INPUT_TYPES, KNOWLEDGE_STATUS_LABELS, WORKFLOW_SUBJECT_IDS, LINE_MARK_IDS, type AutoMark, type LineMark, UNREVIEWED_MARKS } from '@tw/shared';
 import { MarkChip } from '@/components/status';
 import type { ModelValue } from '@/components/model-picker';
 import { Pace, RunModels } from './run-estimate';
@@ -30,7 +30,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   workflowId?: string;
   groupIds?: string[];
   unitIds?: string[];
-  /** What the run starts on (the dialog's 대사 / 용어 choice, which the person can change): 'terms' takes the glossary terms in `termIds` (none = the workflow's own 대상 용어). With `workflowId` the workflow's own 대상 decides. */
+  /** What the page holds: a workflow of this input is picked first, and the page's lines or `termIds` are its scope. The picked workflow's input decides the scope fields. */
   subject?: 'lines' | 'terms';
   termIds?: string[];
   /** What the named lines are, when they are not simply picked ('이번 길 번역 안 한 줄'); the scope button reads it with the count. */
@@ -73,11 +73,6 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   // This run's models by AI node, where the person picked another than the node's own (the workflow is not changed).
   const [runModels, setRunModels] = useState<Record<string, ModelValue>>({});
   const workflows = useQuery({ ...q.workflows(projectId), enabled: open });
-  // 대사 or 용어: what the run takes, picked in the dialog (it starts on the page's). Any workflow runs on either.
-  const [pickedSubject, setPickedSubject] = useState<'lines' | 'terms'>(givenSubject);
-  const subject = pickedSubject;
-  const terms = subject === 'terms';
-  const unit = terms ? '개' : '줄';
   const rememberKey = remember && `run-dialog:${projectId}:${remember}`;
   const [chosen, setChosen] = useState<string | undefined>(() => {
     if (!rememberKey) return undefined;
@@ -100,8 +95,13 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   const pickable = workflows.data;
   const valid = (id: string | undefined) => (id && pickable?.some((workflow) => workflow.id === id && !workflow.errorCount) ? id : undefined);
   // A remembered button never falls back to some other workflow: the person picks one.
-  const workflowId = fixedWorkflowId ?? valid(chosen) ?? (rememberKey ? undefined : pickable?.find((workflow) => !workflow.errorCount)?.id);
+  // With none chosen, the first workflow whose input is what the page holds (scenes, lines or terms).
+  const workflowId = fixedWorkflowId ?? valid(chosen) ?? (rememberKey ? undefined : (pickable?.find((workflow) => !workflow.errorCount && workflow.input === givenSubject) ?? pickable?.find((workflow) => !workflow.errorCount))?.id);
   const workflow = workflows.data?.find((item) => item.id === workflowId);
+  // What the run takes is the workflow's input (its entry node); the scope fields below follow it.
+  const subject = workflow?.input ?? givenSubject;
+  const terms = subject === 'terms';
+  const unit = terms ? '개' : '줄';
   const groups = useQuery({ ...q.groups(projectId), enabled: open });
   const here = groupIds?.length ? groups.data?.filter((group) => groupIds.includes(group.id)) : undefined;
 
@@ -135,7 +135,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
       ? { statusIds: [...pickedStatuses], ignoreStatus: false }
       : { statusIds: [], ignoreStatus: true };
 
-  const scope = terms ? { subject: 'terms' as const, ...(termIds?.length ? { termIds } : {}) } : {
+  const scope = terms ? (termIds?.length ? { termIds } : {}) : {
     ...(computedUnitIds ? { unitIds: computedUnitIds } : {}),
     ...(computedGroupIds ? { groupIds: computedGroupIds } : {}),
     ...statusScope,
@@ -189,7 +189,6 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   useEffect(() => {
     if (open && !wasOpen.current) {
       setOpened({ unitIds: givenUnitIds, groupIds: givenGroupIds, termIds: givenTermIds });
-      setPickedSubject(givenSubject);
       setScopeTarget(givenUnitIds?.length ? 'units' : givenGroupIds?.length ? 'here' : 'groups');
       setPickedScenes(startPicks());
       setSceneFilter('');
@@ -228,11 +227,19 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
                 <SelectValue placeholder="워크플로 선택" />
               </SelectTrigger>
               <SelectContent>
-                {pickable?.map((item) => (
-                  <SelectItem key={item.id} value={item.id} disabled={item.errorCount > 0}>
-                    {item.name} {item.errorCount > 0 && <span className="text-muted-foreground">· 오류 있음</span>}
-                  </SelectItem>
-                ))}
+                {WORKFLOW_SUBJECT_IDS.map((input) => {
+                  const rows = pickable?.filter((item) => item.input === input) ?? [];
+                  return rows.length ? (
+                    <SelectGroup key={input}>
+                      <SelectLabel>{INPUT_TYPES[input].label} 입력</SelectLabel>
+                      {rows.map((item) => (
+                        <SelectItem key={item.id} value={item.id} disabled={item.errorCount > 0}>
+                          {item.name} {item.errorCount > 0 && <span className="text-muted-foreground">· 오류 있음</span>}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  ) : null;
+                })}
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
@@ -243,16 +250,6 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
           )}
 
           <section className="space-y-4">
-            <RadioGroup value={subject} onValueChange={(value) => setPickedSubject(value as 'lines' | 'terms')} className="flex gap-4" aria-label="무엇으로 실행할지">
-              <Label className="text-sm font-normal">
-                <RadioGroupItem value="lines" />
-                대사로 실행
-              </Label>
-              <Label className="text-sm font-normal">
-                <RadioGroupItem value="terms" />
-                용어로 실행
-              </Label>
-            </RadioGroup>
             {terms && (
               <div className="space-y-1">
                 <SectionHeading>대상</SectionHeading>
@@ -380,7 +377,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
               onLeave={() => setOpen(false)}
             />
           ) : null}
-          {data && total ? <Pace data={data} projectId={projectId} items={terms ? '용어' : '대사'} /> : null}
+          {data && total ? <Pace data={data} projectId={projectId} /> : null}
           {data && total ? (
             <RunModels
               nodes={data.nodes}

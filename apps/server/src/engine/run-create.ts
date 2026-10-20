@@ -1,6 +1,6 @@
 import { and, count, eq, inArray, ne, notInArray, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
-import { batchConfigSchema, entryConfigSchema, isWholeScriptWorkflow, termMarksOf, type AiNode, type WorkflowDefinition, type WorkflowSubject } from '@tw/shared';
+import { batchConfigSchema, entryConfigSchema, isWholeScriptWorkflow, termMarksOf, workflowInput, type AiNode, type WorkflowDefinition } from '@tw/shared';
 import { fillTermUsage } from '../services/term-usage.ts';
 import { inChunks, inList } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
@@ -136,9 +136,6 @@ export function planRun(db: Db | Tx, definition: WorkflowDefinition, unitIds: st
   return new Map(batches.flatMap((batch, index) => batch.map((line) => [line.id, index] as const)));
 }
 
-/** What a run takes, from its scope: terms when it says so or names terms, else lines. */
-export const runSubject = (scope: Pick<s.RunScope, 'subject' | 'termIds'>): WorkflowSubject => scope.subject ?? (scope.termIds?.length ? 'terms' : 'lines');
-
 type RunInput = { projectId: string; workflow: typeof s.workflows.$inferSelect; models: Record<string, s.AiSnapshot>; scope: s.RunScope; limits?: s.RunLimits };
 
 /** The run's lines and their plan batches, and the run row to store. */
@@ -147,7 +144,7 @@ function runRows(db: Db, input: RunInput) {
   const definition = resolveBudgets(db, input.workflow.definition);
   const entry = definition.nodes.find((node) => node.type === 'entry');
   if (!entry) throw new Error('진입 노드가 없습니다.');
-  const subject = runSubject(input.scope);
+  const subject = workflowInput(definition);
   const unitIds = subject === 'terms' ? selectRunTerms(db, input.projectId, definition, input.scope) : selectRunUnits(db, input.projectId, definition, input.scope);
   if (!unitIds.length) throw new Error(subject === 'terms' ? '조건에 맞는 용어가 없습니다.' : '조건에 맞는 대사가 없습니다.');
   const runId = crypto.randomUUID();

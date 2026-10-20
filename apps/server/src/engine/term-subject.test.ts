@@ -36,11 +36,11 @@ function setup() {
 }
 
 const at = { x: 0, y: 0 };
-/** 용어 번역 as a workflow (run on terms): one AI answer per term, 용어 표기 저장 for terms, 용어 상태 변경 (rejected) for the rest. */
+/** 용어 번역 as a workflow (input terms): one AI answer per term, 용어 표기 저장 for terms, 용어 상태 변경 (rejected) for the rest. */
 function termWorkflow(choice: unknown, propose = false) {
   return workflowDefinitionSchema.parse({
     nodes: [
-      { id: 'entry', type: 'entry', position: at, config: {} },
+      { id: 'entry', type: 'entry', position: at, config: { input: 'terms' } },
       {
         id: 'translate',
         type: 'ai',
@@ -67,7 +67,7 @@ function termWorkflow(choice: unknown, propose = false) {
   });
 }
 
-describe('a workflow run on terms', () => {
+describe('a workflow whose input is terms', () => {
   it('starts with the candidates without a Korean form, most used first', () => {
     const { db, projectId, choice, gate, hesk } = setup();
     expect(selectRunTerms(db, projectId, termWorkflow(choice), {})).toEqual([gate.id, hesk.id]);
@@ -79,7 +79,7 @@ describe('a workflow run on terms', () => {
     const definition = termWorkflow(choice);
     expect(validateWorkflow(definition, { statusIds: new Set(), connections: new Set([choice.connectionId]) } as never).filter((issue) => issue.level === 'error')).toEqual([]);
     const workflow = db.insert(s.workflows).values({ projectId, name: '용어 번역', definition }).returning().get();
-    const { runId } = createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, definition), scope: { subject: 'terms' } });
+    const { runId } = createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, definition), scope: {} });
     expect(db.select().from(s.runs).where(eq(s.runs.id, runId)).get()!.subject).toBe('terms');
     const seen: { system: string; prompt: string }[] = [];
     const port: ModelPort = {
@@ -109,7 +109,7 @@ describe('a workflow run on terms', () => {
     const { db, projectId, choice, gate } = setup();
     const definition = termWorkflow(choice, true);
     const workflow = db.insert(s.workflows).values({ projectId, name: '용어 번역', definition }).returning().get();
-    createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, definition), scope: { subject: 'terms' } });
+    createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, definition), scope: {} });
     const port: ModelPort = {
       judge: async () => {
         throw new Error('unused');
@@ -123,33 +123,15 @@ describe('a workflow run on terms', () => {
     expect(proposals.flatMap((proposal) => (proposal.input as { terms: unknown[] }).terms)).toEqual(expect.arrayContaining([expect.objectContaining({ id: gate.id, target: '바른 게이트' }), expect.objectContaining({ status: 'rejected' })]));
   });
 
-  it('runs any workflow on terms: a scene batch takes them by count, a line-only node sends them out through "error"', async () => {
-    const { db, projectId, choice } = setup();
+  it('shows a node of the other input or a batch mode terms do not have as a validation error', () => {
+    const { choice } = setup();
     const definition = termWorkflow(choice);
-    const lineOnly = workflowDefinitionSchema.parse({
+    const bad = workflowDefinitionSchema.parse({
       ...definition,
       nodes: definition.nodes.map((node) => (node.id === 'translate' && node.type === 'ai' ? { ...node, config: { ...node.config, batch: { ...node.config.batch, mode: 'group' } } } : node.id === 'reject' ? { ...node, config: { fn: 'setStatus', params: {} } } : node)),
     });
-    // Nothing is refused up front: the workflow does not say what it runs on.
-    expect(validateWorkflow(lineOnly, { statusIds: new Set(), connections: new Set([choice.connectionId]) } as never).filter((issue) => issue.level === 'error')).toEqual([]);
-    const workflow = db.insert(s.workflows).values({ projectId, name: '섞인 워크플로', definition: lineOnly }).returning().get();
-    const { runId } = createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, lineOnly), scope: { subject: 'terms' } });
-    let calls = 0;
-    const port: ModelPort = {
-      judge: async () => {
-        throw new Error('unused');
-      },
-      generate: async (_route, request) => {
-        calls++;
-        return { object: { results: (promptEntries(request.prompt) as { id: string; source: string }[]).map((item) => ({ id: item.id, isTerm: item.source === 'Varn Gate', target: '바른 게이트', note: '' })) }, usage: {} } as never;
-      },
-    };
-    await new Runner(db, memoryStore(), port).drain();
-    expect(calls).toBe(1);
-    const items = db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all();
-    // Hesk is not a term: it reached 상태 변경, a line-only node, and left through its error exit.
-    const failed = items.filter((item) => item.state === 'failed');
-    expect(failed).toHaveLength(1);
-    expect(failed[0]!.data.error).toMatchObject({ kind: 'unsupported', nodeId: 'reject' });
+    const messages = validateWorkflow(bad, { statusIds: new Set(), connections: new Set([choice.connectionId]) } as never).filter((issue) => issue.level === 'error').map((issue) => issue.message);
+    expect(messages).toContainEqual(expect.stringContaining('용어 입력에서는 묶음을'));
+    expect(messages).toContainEqual(expect.stringContaining('용어 입력 워크플로에 쓸 수 없는 노드'));
   });
 });

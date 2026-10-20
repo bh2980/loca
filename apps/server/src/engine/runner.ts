@@ -1,7 +1,7 @@
 import { and, asc, count, desc, eq, gte, inArray, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
 import jsonLogic from 'json-logic-js';
 import * as ai from '@tw/ai';
-import { estimateTokens, batchConfigSchema, batchTokens, lineCostIn, FUNCTIONS, functionTakes, TERM_BATCH_MODES, choiceKey, lineMarksOf, nodeModels, nodeName, type AiNode, type ConditionData, type FunctionName, type ItemErrorKind, pickPaths, previousStepId, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+import { estimateTokens, batchConfigSchema, batchTokens, lineCostIn, FUNCTIONS, functionTakes, INPUT_TYPES, choiceKey, lineMarksOf, nodeModels, nodeName, type AiNode, type ConditionData, type FunctionName, type ItemErrorKind, pickPaths, previousStepId, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
 type GatherNode = Extract<WorkflowNode, { type: 'gather' }>;
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
@@ -105,13 +105,13 @@ const MISSING_WHAT: Record<AiNode['config']['output'], string> = { text: '번역
 const attemptsOf = (error: unknown): ai.Attempt[] => ((error as { attempts?: ai.Attempt[] }).attempts ?? []);
 
 
-/** Why a node that only works on the other kind of item sends this one out through "error". */
+/** Why a node of the other input sends an item out through "error" (validation keeps such nodes out; a safety net). */
 const unsupported = (node: WorkflowNode, subject: Run['subject']) => `'${nodeName(node)}' 노드는 ${subject === 'terms' ? '용어' : '대사'}에 쓸 수 없어 오류 출구로 보냈습니다.`;
 
-/** An AI node's batching for this run: terms have no scenes or script, so a scene or whole-script batch takes them by count. */
+/** An AI node's batching for this run, within the batch modes of its input (validation keeps others out; a safety net). */
 const runBatch = (run: Run, node: AiNode) => {
   const config = batchConfigSchema.parse(node.config.batch ?? {});
-  return run.subject === 'terms' && !TERM_BATCH_MODES.includes(config.mode) ? { ...config, mode: 'count' as const } : config;
+  return (INPUT_TYPES[run.subject].batchModes as readonly string[]).includes(config.mode) ? config : { ...config, mode: 'count' as const };
 };
 
 /** AI calls and slow functions leave the instant pass; everything else settles immediately. */

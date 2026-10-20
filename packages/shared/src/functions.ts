@@ -21,8 +21,8 @@ export interface FunctionInfo<P extends z.ZodType = z.ZodType> {
   ends?: boolean;
   /** Runs outside the instant pass (network, sandbox); the runner dispatches it like an AI call. */
   async: boolean;
-  /** The workflow items it works on (unset: lines and terms). */
-  subjects?: readonly Subject[];
+  /** The workflow inputs it is a node of (unset: both). */
+  inputs?: readonly Subject[];
 }
 
 /**
@@ -110,7 +110,7 @@ export interface ApplyField {
   /** Item fields of a `list` field (e.g. a relationship's changes); mapped as "<field>.<sub>" or by the same name. */
   fields?: ApplyField[];
 }
-/** What a workflow's items are (WORKFLOW_SUBJECTS in workflow.ts). */
+/** A workflow's input: what its items are (INPUT_TYPES in workflow.ts). */
 export type Subject = 'lines' | 'terms';
 export interface ApplyTarget {
   label: string;
@@ -119,8 +119,8 @@ export interface ApplyTarget {
   fields: ApplyField[];
   /** The chat/CLI tool a proposal is filed as (proposals.tool), and whose service writes it. */
   tool: string;
-  /** The workflow items it applies to; a `line` shape writes the item itself, so only its subject. */
-  subjects: readonly Subject[];
+  /** The workflow inputs it is a node of; a `line` shape writes the item itself, so only its kind. */
+  inputs: readonly Subject[];
 }
 const evidenceField = { name: 'evidence', label: '근거 대사', type: 'lines' } as const satisfies ApplyField;
 export const APPLY_TARGETS = {
@@ -130,7 +130,7 @@ export const APPLY_TARGETS = {
     shape: 'line',
     fields: [{ name: 'text', label: '번역문', type: 'string', required: true }],
     tool: 'propose_changes',
-    subjects: ['lines'],
+    inputs: ['lines'],
   },
   setListener: {
     label: '청자 설정',
@@ -141,7 +141,7 @@ export const APPLY_TARGETS = {
       { name: 'confidence', label: '확신도', type: 'number' },
     ],
     tool: 'set_listeners',
-    subjects: ['lines'],
+    inputs: ['lines'],
   },
   tagLines: {
     label: '태그 붙이기',
@@ -149,7 +149,7 @@ export const APPLY_TARGETS = {
     shape: 'line',
     fields: [{ name: 'tag', label: '태그 이름', type: 'string', required: true }],
     tool: 'propose_changes',
-    subjects: ['lines'],
+    inputs: ['lines'],
   },
   saveTermEntry: {
     label: '용어 표기 저장',
@@ -162,7 +162,7 @@ export const APPLY_TARGETS = {
       { name: 'meaning', label: '뜻', type: 'string' },
     ],
     tool: 'save_terms',
-    subjects: ['terms'],
+    inputs: ['terms'],
   },
   saveTerms: {
     label: '용어 저장',
@@ -177,7 +177,7 @@ export const APPLY_TARGETS = {
       evidenceField,
     ],
     tool: 'save_terms',
-    subjects: ['lines', 'terms'],
+    inputs: ['lines', 'terms'],
   },
   saveCharacters: {
     label: '인물 저장',
@@ -195,7 +195,7 @@ export const APPLY_TARGETS = {
       evidenceField,
     ],
     tool: 'save_knowledge',
-    subjects: ['lines', 'terms'],
+    inputs: ['lines', 'terms'],
   },
   saveRelationships: {
     label: '관계 저장',
@@ -220,7 +220,7 @@ export const APPLY_TARGETS = {
       evidenceField,
     ],
     tool: 'save_knowledge',
-    subjects: ['lines', 'terms'],
+    inputs: ['lines', 'terms'],
   },
   saveSpeechRules: {
     label: '말투 규칙 저장',
@@ -236,7 +236,7 @@ export const APPLY_TARGETS = {
       evidenceField,
     ],
     tool: 'save_knowledge',
-    subjects: ['lines', 'terms'],
+    inputs: ['lines', 'terms'],
   },
   saveEvents: {
     label: '사건 저장',
@@ -251,7 +251,7 @@ export const APPLY_TARGETS = {
       evidenceField,
     ],
     tool: 'save_knowledge',
-    subjects: ['lines', 'terms'],
+    inputs: ['lines', 'terms'],
   },
   saveDocument: {
     label: '문서 저장',
@@ -264,7 +264,7 @@ export const APPLY_TARGETS = {
       evidenceField,
     ],
     tool: 'save_document',
-    subjects: ['lines', 'terms'],
+    inputs: ['lines', 'terms'],
   },
   saveSceneListeners: {
     label: '장면 청자 저장',
@@ -287,7 +287,7 @@ export const APPLY_TARGETS = {
       },
     ],
     tool: 'set_listeners',
-    subjects: ['lines', 'terms'],
+    inputs: ['lines', 'terms'],
   },
 } as const satisfies Record<string, ApplyTarget>;
 export type ApplyFunctionName = keyof typeof APPLY_TARGETS;
@@ -348,7 +348,7 @@ export const FUNCTIONS = {
     params: formatCheckParams,
     ports: () => pass,
     async: false,
-    subjects: ['lines'],
+    inputs: ['lines'],
   },
   glossaryCheck: {
     label: '용어 검사',
@@ -356,7 +356,7 @@ export const FUNCTIONS = {
     params: z.object({}),
     ports: () => pass,
     async: false,
-    subjects: ['lines'],
+    inputs: ['lines'],
   },
   setStatus: {
     label: '상태 변경',
@@ -364,7 +364,7 @@ export const FUNCTIONS = {
     params: setStatusParams,
     ports: () => out,
     async: false,
-    subjects: ['lines'],
+    inputs: ['lines'],
   },
   setTermStatus: {
     label: '용어 상태 변경',
@@ -372,10 +372,10 @@ export const FUNCTIONS = {
     params: z.object({ status: z.enum(['candidate', 'confirmed', 'rejected']).default('rejected'), propose: z.boolean().default(true) }),
     ports: () => out,
     async: false,
-    subjects: ['terms'],
+    inputs: ['terms'],
   },
   ...(Object.fromEntries(
-    Object.entries(APPLY_TARGETS).map(([name, target]) => [name, { label: target.label, description: target.description, params: applyParams, ports: () => out, async: false, subjects: target.subjects }]),
+    Object.entries(APPLY_TARGETS).map(([name, target]) => [name, { label: target.label, description: target.description, params: applyParams, ports: () => out, async: false, inputs: target.inputs }]),
   ) as unknown as Record<ApplyFunctionName, FunctionInfo<typeof applyParams>>),
   fail: {
     label: '실패로 끝내기',
@@ -424,4 +424,5 @@ export function functionPorts(fn: string, params: unknown): Port[] {
 }
 
 /** Whether a function node can work on a workflow's items. */
-export const functionTakes = (fn: string, subject: Subject) => ((FUNCTIONS[fn as FunctionName] as FunctionInfo | undefined)?.subjects ?? ['lines', 'terms']).includes(subject);
+/** Whether a function is a node of workflows with this input. */
+export const functionTakes = (fn: string, input: Subject) => ((FUNCTIONS[fn as FunctionName] as FunctionInfo | undefined)?.inputs ?? ['lines', 'terms']).includes(input);

@@ -1,12 +1,11 @@
 import { and, eq, inArray, ne, or } from 'drizzle-orm';
-import { nodeName, withRunModels, type LineMark, type RunModels, type WorkflowDefinition, type WorkflowSubject } from '@tw/shared';
+import { nodeName, withRunModels, workflowInput, type LineMark, type RunModels, type WorkflowDefinition, type WorkflowSubject } from '@tw/shared';
 import { z } from 'zod';
 import { inChunks, inList } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { tagIdsOf } from './knowledge-list.ts';
 import { preflight } from './preflight.ts';
-import { runSubject } from '../engine/run-create.ts';
 import { findTerm } from './term-usage.ts';
 
 export interface PlanInput {
@@ -19,9 +18,7 @@ export interface PlanInput {
   /** Tag names or ids; a line must carry all of them. */
   tags?: string[];
   marks?: LineMark[];
-  /** What the run takes: lines (default) or terms. Terms named in `terms` make it a term run. */
-  subject?: WorkflowSubject;
-  /** Terms by id or source (a term run; none = the entry's term statuses and marks). */
+  /** Terms by id or source: the scope of a terms workflow (none = the entry's term statuses and marks). */
   terms?: string[];
   ignoreStatus?: boolean;
   /** Models for this run instead of the nodes' own (see runModelInput). */
@@ -56,7 +53,7 @@ export function resolveRunModels(db: Db, definition: WorkflowDefinition, input: 
 /** The run dialog's scope (groupIds, unitIds, tagIds, marks) from names, keys and tag names; whatever did not resolve is returned as `unknown`. */
 export function resolveRunScope(db: Db, projectId: string, input: Omit<PlanInput, 'workflow'>) {
   const unknown: string[] = [];
-  const scope: s.RunScope = input.subject ? { subject: input.subject } : {};
+  const scope: s.RunScope = {};
   if (input.groups?.length) {
     const rows = inChunks(input.groups, (slice) => db.select({ id: s.groups.id, key: s.groups.key, title: s.groups.title }).from(s.groups).where(and(eq(s.groups.projectId, projectId), or(inList(s.groups.key, slice), inList(s.groups.id, slice), inList(s.groups.title, slice)))).all());
     const seen = new Set(rows.flatMap((row) => [row.key, row.id, row.title]));
@@ -85,12 +82,11 @@ export function resolveRunScope(db: Db, projectId: string, input: Omit<PlanInput
   return { scope, unknown };
 }
 
-/** Why a scope contradicts itself (line conditions for a term run, terms for a line run), or null. Any workflow runs on either. */
-export function scopeMismatch(scope: s.RunScope): string | null {
+/** Why a scope does not fit the workflow's input (line conditions for a terms workflow, terms for a lines workflow), or null. */
+export function scopeMismatch(input: WorkflowSubject, scope: s.RunScope): string | null {
   const lineScope = Boolean(scope.groupIds?.length || scope.unitIds?.length || scope.tagIds?.length || scope.marks?.length || scope.statusIds?.length);
-  const subject = runSubject(scope);
-  if (subject === 'terms' && lineScope) return '용어로 실행할 때는 대사 범위(묶음·대사 키·태그·표시·상태)를 쓸 수 없습니다.';
-  if (subject === 'lines' && scope.termIds?.length) return '대사로 실행할 때는 용어를 고를 수 없습니다.';
+  if (input === 'terms' && lineScope) return '용어 입력 워크플로에는 대사 범위(묶음·대사 키·태그·표시·상태)를 쓸 수 없습니다. 용어로 범위를 정하세요.';
+  if (input === 'lines' && scope.termIds?.length) return '대사 입력 워크플로에는 용어를 고를 수 없습니다.';
   return null;
 }
 
@@ -105,7 +101,7 @@ export async function planRun(db: Db, projectId: string, input: PlanInput) {
   const workflow = workflows.find((row) => row.id === input.workflow) ?? workflows.find((row) => row.name.toLowerCase() === wanted) ?? workflows.filter((row) => row.name.toLowerCase().includes(wanted))[0];
   if (!workflow) return { ok: false as const, error: `워크플로를 찾을 수 없습니다: ${input.workflow}. 있는 것: ${workflows.map((row) => row.name).join(', ') || '(없음)'}` };
   const { scope, unknown } = resolveRunScope(db, projectId, input);
-  const mismatch = scopeMismatch(scope);
+  const mismatch = scopeMismatch(workflowInput(workflow.definition), scope);
   if (mismatch) return { ok: false as const, error: mismatch };
   if (unknown.length) return { ok: false as const, error: `찾지 못함: ${unknown.slice(0, 10).join(', ')}` };
   const picked = resolveRunModels(db, workflow.definition, input.models);
@@ -116,7 +112,7 @@ export async function planRun(db: Db, projectId: string, input: PlanInput) {
   return {
     ok: true as const,
     workflow: { id: workflow.id, name: workflow.name },
-    subject: runSubject(scope),
+    subject: workflowInput(workflow.definition),
     scope,
     ...rest,
     plan: { batches: plan.batches, linesPerBatch: plan.linesPerBatch },

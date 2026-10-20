@@ -4,7 +4,7 @@ import { tool } from 'ai';
 import { HTTPException } from 'hono/http-exception';
 import { and, asc, count, desc, eq, inArray, like, ne, or } from 'drizzle-orm';
 import { z } from 'zod';
-import { APPLY_TARGETS, TERM_BATCH_MODES, AI_OUTPUTS, DEFAULT_TAG_COLOR, AI_PRESETS, AI_PRESET_IDS, type AiPresetId, aiNodeConfigSchema, KNOWLEDGE_TAG_KINDS, patchOf, TAG_SCOPES, withRunModels, AUTO_MARKS, batchChangeSchema, CONDITION_MARK_IDS, CONNECTION_KIND_INFO, ITEM_ERROR_KIND_IDS, createGroupSchema, createUnitSchema, deleteUnitsSchema, findReadingRouteInputSchema, FUNCTIONS, LINE_MARK_IDS, lineFilterSchema, lineMarksSchema, NODE_TYPES, sourceOf, updateGroupSchema, updateUnitSchema, workflowDefinitionSchema, functionTakes } from '@tw/shared';
+import { APPLY_TARGETS, INPUT_TYPES, workflowInput, AI_OUTPUTS, DEFAULT_TAG_COLOR, AI_PRESETS, AI_PRESET_IDS, type AiPresetId, aiNodeConfigSchema, KNOWLEDGE_TAG_KINDS, patchOf, TAG_SCOPES, withRunModels, AUTO_MARKS, batchChangeSchema, CONDITION_MARK_IDS, CONNECTION_KIND_INFO, ITEM_ERROR_KIND_IDS, createGroupSchema, createUnitSchema, deleteUnitsSchema, findReadingRouteInputSchema, FUNCTIONS, LINE_MARK_IDS, lineFilterSchema, lineMarksSchema, NODE_TYPES, sourceOf, updateGroupSchema, updateUnitSchema, workflowDefinitionSchema, functionTakes } from '@tw/shared';
 import { z as zod } from 'zod';
 import type { Db } from '../db/index.ts';
 import { byPerson } from './status-by.ts';
@@ -19,7 +19,7 @@ import { createStatus, createTag, deleteStatuses, deleteTags, TaxonomyMutationEr
 import { deleteWorkflow, saveWorkflow, WorkflowMutationError } from './workflow-mutations.ts';
 import { createGroup, createUnit, deleteGroup, deleteUnits, updateGroup, updateUnit } from './source-mutations.ts';
 import { mentions } from './context.ts';
-import { createRunInSteps, runSubject, selectRunTerms, selectRunUnits } from '../engine/run-create.ts';
+import { createRunInSteps, selectRunTerms, selectRunUnits } from '../engine/run-create.ts';
 import { snapshotWorkflowModels } from './routes.ts';
 import { readWebPage, webSearch } from './web.ts';
 import { deleteItems, DELETABLE_KINDS } from './item-delete.ts';
@@ -355,8 +355,8 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
     }),
     plan_run: tool({
       description:
-        'The run dialog\'s preview for a workflow and scope, without starting anything or calling a model: lines in scope, batches, requests and tokens per AI node, and readiness (dialogue lines with unknown listener, speech rules and glossary terms no person has confirmed, with their names, and frequent speaker pairs without a rule). workflow is an id or name; scope of a line workflow: groups (key/id/title), keys (line keys), tags (all), marks (all) — combined with AND like the dialog; none = every line the entry node accepts. A run on terms (subject "terms", or terms given) counts glossary terms instead (the totals under lines are terms) and takes terms (ids or sources) as its scope; none = the terms the entry node picks (its termStatuses and termMarks, most used first). Any workflow runs on either; a scope mixing line conditions and terms is refused. Use it before proposing start_run.',
-      inputSchema: z.object({ workflow: z.string().min(1), groups: z.array(z.string()).optional(), keys: z.array(z.string()).optional(), tags: z.array(z.string()).optional(), marks: lineMarksSchema.optional(), subject: z.enum(['lines', 'terms']).optional().describe('What the run takes: lines (default) or terms.'), terms: z.array(z.string()).optional().describe('A term run: glossary terms by id or source (none = the entry\'s term pick).'), ignoreStatus: z.boolean().optional(), models: runModelInput.optional().describe(MODELS_HELP) }),
+        'The run dialog\'s preview for a workflow and scope, without starting anything or calling a model: lines in scope, batches, requests and tokens per AI node, and readiness (dialogue lines with unknown listener, speech rules and glossary terms no person has confirmed, with their names, and frequent speaker pairs without a rule). workflow is an id or name; scope of a line workflow: groups (key/id/title), keys (line keys), tags (all), marks (all) — combined with AND like the dialog; none = every line the entry node accepts. A terms workflow (entry input "terms") counts glossary terms instead (the totals under lines are terms) and takes terms (ids or sources) as its scope; none = the terms the entry node picks (its termStatuses and termMarks, most used first); line scopes are refused for it and terms for a lines workflow. Use it before proposing start_run.',
+      inputSchema: z.object({ workflow: z.string().min(1), groups: z.array(z.string()).optional(), keys: z.array(z.string()).optional(), tags: z.array(z.string()).optional(), marks: lineMarksSchema.optional(), terms: z.array(z.string()).optional().describe('A terms workflow: glossary terms by id or source (none = the entry\'s term pick).'), ignoreStatus: z.boolean().optional(), models: runModelInput.optional().describe(MODELS_HELP) }),
       execute: (input) => planRun(db, projectId, input),
     }),
     harness_reference: tool({
@@ -364,14 +364,13 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       inputSchema: z.object({ preset: z.enum(AI_PRESET_IDS as [AiPresetId, ...AiPresetId[]]).optional() }),
       execute: ({ preset }) => preset ? { preset, ...AI_PRESETS[preset] } : ({
         nodeTypes: NODE_TYPES,
-        subjects: {
-          what: 'A workflow takes whatever its run puts in: script lines (default) or glossary terms; the run\'s scope decides (the run dialog\'s 대사 / 용어, start_run subject or termIds), not the workflow. Everything a run carries (items, batches, counts) is then lines or terms.',
-          entry: 'Entry config { statusIds (a line run without picked lines: the statuses it takes), termStatuses (a term run without picked terms; default ["candidate"]), termMarks (automatic marks such a term must all have, default ["emptyTarget"] = no Korean form yet) }.',
-          nodes: `Nodes that only work on one kind: ${Object.entries(FUNCTIONS).flatMap(([name]) => (functionTakes(name, 'lines') && functionTakes(name, 'terms') ? [] : [`${name} (${functionTakes(name, 'terms') ? 'terms' : 'lines'})`])).join(', ')}. An item of the other kind leaves such a node through "error" with error.kind "unsupported"; nothing is refused up front.`,
-          batches: `A term run batches by count or one by one (${TERM_BATCH_MODES.join(', ')}): an AI node set to scenes or the whole script takes terms by count.`,
-          context: 'For terms an AI node also has the context option "examples" (0-5, default 2: script lines where the term appears, with their translations); line-only contexts (preceding lines, speech) are skipped for terms.',
-          scope: 'start_run / plan_run: subject "terms" (or termIds) runs on terms (ids or sources; none = the entry\'s term pick); otherwise groups/lines/tags/marks pick lines. A scope mixing both is refused.',
-          usage: 'Typical use: fill the empty Korean forms of the glossary: run a workflow on terms → AI node (json: isTerm, target, note) → 용어 표기 저장; terms the AI says are not terms → 용어 상태 변경 (rejected).',
+        inputs: {
+          what: 'A workflow declares what it takes in on its entry node: config.input "lines" (script lines, default) or "terms" (glossary terms). Its runs carry that kind (items, batches, counts). A node is core plus the extension of that input (below); values of the other input\'s extension are kept but unused.',
+          entry: 'Entry config { input, statusIds (lines: the statuses a run takes when no lines are picked), termStatuses (terms; default ["candidate"]), termMarks (terms; automatic marks a term must all have, default ["emptyTarget"] = no Korean form yet) }.',
+          table: Object.fromEntries(Object.entries(INPUT_TYPES).map(([input, type]) => [input, { batchModes: type.batchModes, contextFields: type.contextFields, conditionRows: type.conditionRows, nodes: Object.keys(FUNCTIONS).filter((name) => functionTakes(name, input as 'lines' | 'terms') && !functionTakes(name, input === 'lines' ? 'terms' : 'lines')), presets: Object.entries(AI_PRESETS).filter(([, preset]) => ((preset as { input?: string }).input ?? 'lines') === input).map(([id]) => id) }])),
+          rules: 'A node of the other input, or a batch mode the input does not have, is a validation error (the table above is the only source). Conditions read unit.* for lines and term.* for terms.',
+          scope: 'start_run / plan_run: a lines workflow takes groups/lines/tags/marks; a terms workflow takes terms (ids or sources; none = the entry\'s term pick). A scope of the other kind is refused.',
+          usage: 'Typical terms workflow: entry input terms → AI node (json: isTerm, target, note) → condition → 용어 표기 저장 / 용어 상태 변경 (rejected).',
         },
         definitionShape: 'nodes: [{id, type: entry|ai|function|condition|gather|end, position:{x,y}, label?, config}], edges: [{id, source, sourceHandle (exit id), target}], settings: {maxVisitsPerNode, concurrency, maxConsecutiveFailures}',
         aiNode: {
@@ -581,15 +580,14 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
     }),
     start_run: tool({
       description:
-        'Start a workflow run (AI calls cost money/quota, so the user approves it first). Any workflow runs on lines (default) or terms (subject). Lines: groupIds (scenes/groups), unitIds (lines), tagIds (lines with all of these tags), marks (automatic marks the lines must all have: ' + LINE_MARK_IDS.map((id) => `${id} = ${AUTO_MARKS[id].description}`).join(', ') + '); none = every line the entry node accepts. A term workflow (entry subject "terms") takes termIds (term ids or sources) instead; none = the terms the entry node picks. Line scopes are refused for a term workflow and termIds for a line workflow. ignoreStatus also runs lines whose status the entry does not accept. Read project_overview for workflow ids; tell the user how many lines (or terms) it will run.',
+        'Start a workflow run (AI calls cost money/quota, so the user approves it first). Scope of a lines workflow: groupIds (scenes/groups), unitIds (lines), tagIds (lines with all of these tags), marks (automatic marks the lines must all have: ' + LINE_MARK_IDS.map((id) => `${id} = ${AUTO_MARKS[id].description}`).join(', ') + '); none = every line the entry node accepts. A term workflow (entry subject "terms") takes termIds (term ids or sources) instead; none = the terms the entry node picks. Line scopes are refused for a term workflow and termIds for a line workflow. ignoreStatus also runs lines whose status the entry does not accept. Read project_overview for workflow ids; tell the user how many lines (or terms) it will run.',
       inputSchema: z.object({
         workflowId: z.string(),
         groupIds: z.array(z.string()).optional(),
         unitIds: z.array(z.string()).optional(),
         tagIds: z.array(z.string()).optional(),
         marks: lineMarksSchema.optional(),
-        subject: z.enum(['lines', 'terms']).optional().describe('What the run takes: lines (default) or terms. termIds make it terms.'),
-        termIds: z.array(z.string()).optional().describe('A term run: glossary terms by id or source (none = the entry\'s term pick).'),
+        termIds: z.array(z.string()).optional().describe('A terms workflow: glossary terms by id or source (none = the entry\'s term pick).'),
         ignoreStatus: z.boolean().optional(),
         models: runModelInput.optional().describe(MODELS_HELP),
       }),
@@ -605,8 +603,8 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         const found = (termIds ?? []).map((term) => ({ term, row: findTerm(db, projectId, term) }));
         if (found.some((entry) => !entry.row)) return { ok: false, error: `찾지 못함: ${found.filter((entry) => !entry.row).map((entry) => `용어 ${entry.term}`).join(', ')}` };
         const scope: s.RunScope = { ...lineScope, ...(found.length && { termIds: [...new Set(found.map((entry) => entry.row!.id))] }) };
-        const subject = runSubject(scope);
-        const mismatch = scopeMismatch(scope);
+        const subject = workflowInput(workflow.definition);
+        const mismatch = scopeMismatch(subject, scope);
         if (mismatch) return { ok: false, error: mismatch };
         if (subject === 'terms' ? !selectRunTerms(db, projectId, workflow.definition, scope).length : !selectRunUnits(db, projectId, workflow.definition, scope).length) return { ok: false, error: subject === 'terms' ? '조건에 맞는 용어가 없습니다.' : '조건에 맞는 대사가 없습니다.' };
         try {

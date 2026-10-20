@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
 import { AiRegexInput } from '@/components/ai-regex-input';
 import { client, unwrap } from '@/lib/api';
 import { JsonFieldsEditor } from '@/components/workflow/node-config/json-fields-editor';
-import { Field, StepChips, type FunctionNode, type NodeRefs } from '@/components/workflow/node-config/shared';
+import { Field, StepChips, refsInput, type FunctionNode, type NodeRefs } from '@/components/workflow/node-config/shared';
 
 // ── function node ─────────────────────────────────────────────────────
 
@@ -23,7 +23,8 @@ export function FunctionConfig({ node, refs, readOnly, onChange }: { node: Funct
   const setMany = (patch: Record<string, unknown>) => onChange({ ...node, config: { ...node.config, params: { ...params, ...patch } } });
   const set = (key: string, value: unknown) => setMany({ [key]: value });
   const availableFns = PALETTE_FUNCTION_NAMES.includes(fn) ? PALETTE_FUNCTION_NAMES : [fn, ...PALETTE_FUNCTION_NAMES];
-  const switchable = fn in APPLY_TARGETS ? APPLY_FUNCTION_NAMES : availableFns;
+  const input = refsInput(refs);
+  const switchable = (fn in APPLY_TARGETS ? APPLY_FUNCTION_NAMES : availableFns).filter((name) => name === fn || functionTakes(name, input));
 
   const renderBody = () => {
     switch (fn) {

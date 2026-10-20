@@ -1,12 +1,12 @@
 /** Config of a condition node: the condition as rows, anything rows cannot say as JSON Logic. */
 import { useEffect, useState } from 'react';
 import { Plus, X } from 'lucide-react';
-import { type AutoMark, CONDITION_MARK_IDS, ITEM_ERROR_KIND_IDS, ITEM_ERROR_KINDS, nodeName, type WorkflowNode } from '@tw/shared';
+import { type AutoMark, CONDITION_MARK_IDS, INPUT_TYPES, ITEM_ERROR_KIND_IDS, ITEM_ERROR_KINDS, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, nodeName, type WorkflowNode } from '@tw/shared';
 import { MarkChip } from '@/components/status';
 import { Button, cn, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Input, InspectorFields, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, StatusIcon, Switch, TagChip, Textarea } from '@loca/ui';
 import { comparableFields, conditionExpression, parseCondition, type Clause, type Condition, type FieldOperator, type Join } from '@/components/workflow/node-config/condition-clauses';
 import { AiButton } from '@/components/ai-button';
-import { Field, type ConditionNode, type NodeRefs } from '@/components/workflow/node-config/shared';
+import { Field, refsInput, type ConditionNode, type NodeRefs } from '@/components/workflow/node-config/shared';
 
 // ── condition node ────────────────────────────────────────────────────
 
@@ -22,8 +22,10 @@ const KIND_LABELS: Record<string, string> = {
 };
 
 const FIELD_OPERATORS: Record<FieldOperator, string> = { '>=': '≥', '<=': '≤', '==': '=', '!=': '≠', filled: '비어 있지 않음' };
-const ADDABLE = { status: '상태', lineKind: '종류', tag: '태그', mark: '자동 태그', listener: '청자', candidate: '번역문', field: '노드 결과', visits: '방문 횟수', error: '실패 종류' } as const;
+/** Rows a condition can add: the core ones and, from INPUT_TYPES, those of the workflow's input. */
+const ADDABLE = { status: '상태', lineKind: '종류', tag: '태그', mark: '자동 태그', listener: '청자', termStatus: '용어 상태', hasTarget: '표기', uses: '쓰인 대사 수', candidate: '번역문', field: '노드 결과', visits: '방문 횟수', error: '실패 종류' } as const;
 type Addable = keyof typeof ADDABLE;
+const INPUT_ROWS = new Set<string>([...INPUT_TYPES.lines.conditionRows, ...INPUT_TYPES.terms.conditionRows]);
 
 
 function Pick({ value, onChange, label, className, children }: { value: string; onChange: (value: string) => void; label: string; className?: string; children: React.ReactNode }) {
@@ -88,9 +90,13 @@ export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { nod
       case 'listener': return { kind };
       case 'candidate': return { kind };
       case 'error': return { kind, errorKind: 'missing' };
+      case 'termStatus': return { kind, status: 'candidate' };
+      case 'hasTarget': return { kind };
+      case 'uses': return { kind, op: '>=', value: 3 };
     }
   };
-  const addable = (Object.keys(ADDABLE) as Addable[]).filter((kind) => fresh(kind));
+  const inputRows = new Set<string>(INPUT_TYPES[refs ? refsInput(refs) : 'lines'].conditionRows);
+  const addable = (Object.keys(ADDABLE) as Addable[]).filter((kind) => (!INPUT_ROWS.has(kind) || inputRows.has(kind)) && fresh(kind));
 
   const row = (clause: Clause, index: number) => {
     const set = (next: Clause) => setClause(index, next);
@@ -132,6 +138,12 @@ export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { nod
       }
       case 'error':
         return <>실패 종류 <Negate not={clause.not} words={['=', '≠']} onChange={(not) => set({ ...clause, not })} /> <Pick label="실패 종류" value={clause.errorKind} onChange={(errorKind) => set({ ...clause, errorKind: errorKind as typeof clause.errorKind })} className="w-36">{ITEM_ERROR_KIND_IDS.map((id) => <SelectItem key={id} value={id}>{ITEM_ERROR_KINDS[id]}</SelectItem>)}</Pick></>;
+      case 'termStatus':
+        return <>용어 상태 <Negate not={clause.not} words={['=', '≠']} onChange={(not) => set({ ...clause, not })} /> <Pick label="용어 상태" value={clause.status} onChange={(status) => set({ ...clause, status })} className="w-28">{KNOWLEDGE_STATUSES.map((status) => <SelectItem key={status} value={status}>{KNOWLEDGE_STATUS_LABELS[status]}</SelectItem>)}</Pick></>;
+      case 'hasTarget':
+        return <>표기 <Negate not={clause.not} words={['있음', '없음']} onChange={(not) => set({ ...clause, not })} /></>;
+      case 'uses':
+        return <>쓰인 대사 <Pick label="비교" value={clause.op} onChange={(value) => set({ ...clause, op: value as '>=' | '<=' })} className="w-16"><SelectItem value=">=">≥</SelectItem><SelectItem value="<=">≤</SelectItem></Pick> <Input type="number" min={0} className="h-8 w-20" aria-label="쓰인 대사 수" value={clause.value} onChange={(event) => set({ ...clause, value: Number(event.target.value) })} /> 줄</>;
       case 'listener':
         return <>청자 <Negate not={clause.not} words={['있음', '없음']} onChange={(not) => set({ ...clause, not })} /></>;
       case 'candidate':

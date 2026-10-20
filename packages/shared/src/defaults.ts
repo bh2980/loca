@@ -65,7 +65,7 @@ const at = (row: number, column = 0) => ({ x: column * 320, y: row * ROW });
 
 type Model = { model: DraftModelChoice };
 
-const entryNode = (statusIds: string[] = [], subject: Partial<EntryConfig> = {}): WorkflowNode => ({ id: 'entry', type: 'entry', position: at(0), config: entryConfigSchema.parse({ statusIds, ...subject }) });
+const entryNode = (statusIds: string[] = [], config: Partial<EntryConfig> = {}): WorkflowNode => ({ id: 'entry', type: 'entry', position: at(0), config: entryConfigSchema.parse({ statusIds, ...config }) });
 
 const aiNode = (id: string, preset: AiPresetId, model: DraftModelChoice, row: number, column = 0, label: string = AI_PRESETS[preset].label): WorkflowNode => ({
   id,
@@ -253,7 +253,7 @@ export function termTranslationTemplate(ids: Model): WorkflowDefinition {
     {
       settings: { ...SETTINGS },
       nodes: [
-        entryNode(),
+        entryNode([], { input: 'terms' }),
         aiNode('translate', 'termTranslate', ids.model, 1),
         { id: 'is-term', type: 'condition', position: at(2), label: '용어인가?', config: { expression: { '==': [{ var: 'outputs.translate.isTerm' }, true] }, description: 'AI가 용어라고 답한 것만 표기를 적습니다.' } },
         applyNode('save-term', 'saveTermEntry', 3, { map: { target: 'target', note: 'note' }, propose: false }),

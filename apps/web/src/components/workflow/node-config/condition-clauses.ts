@@ -13,6 +13,12 @@ export type Clause =
   | { kind: 'mark'; mark: string; not?: boolean }
   | { kind: 'listener'; not?: boolean }
   | { kind: 'candidate'; not?: boolean }
+  /** A term's status (terms input). */
+  | { kind: 'termStatus'; status: string; not?: boolean }
+  /** Whether a term has a Korean form (terms input). */
+  | { kind: 'hasTarget'; not?: boolean }
+  /** How many script lines use a term (terms input). */
+  | { kind: 'uses'; op: '>=' | '<='; value: number }
   /** Why the line came out of an "error" exit (ConditionData.error.kind). */
   | { kind: 'error'; errorKind: ItemErrorKind; not?: boolean }
   | { kind: 'visits'; nodeId: string; limit: number }
@@ -38,12 +44,13 @@ function parseClause(rule: unknown): Clause | null {
   if (name === '!') {
     // Only a line property can be turned around ({"!": …}); results and visits have their own operators.
     const inner = parseClause(left);
-    return inner && inner.kind !== 'field' && inner.kind !== 'visits' && !inner.not ? { ...inner, not: true } : null;
+    return inner && inner.kind !== 'field' && inner.kind !== 'visits' && inner.kind !== 'uses' && !inner.not ? { ...inner, not: true } : null;
   }
   if (name === '!!') {
     const target = varOf(left);
     if (target === 'candidate') return { kind: 'candidate' };
     if (target === 'unit.listener') return { kind: 'listener' };
+    if (target === 'term.hasTarget') return { kind: 'hasTarget' };
     const output = target?.match(/^outputs\.([^.]+)\.(.+)$/);
     return output ? { kind: 'field', nodeId: output[1]!, field: output[2]!, op: 'filled', value: '' } : null;
   }
@@ -64,6 +71,8 @@ function parseClause(rule: unknown): Clause | null {
   if (name === '==' && target === 'unit.statusId' && typeof right === 'string') return { kind: 'status', statusId: right };
   if (name === '==' && target === 'unit.kind' && typeof right === 'string') return { kind: 'lineKind', value: right };
   if (name === '==' && target === 'error.kind' && typeof right === 'string') return { kind: 'error', errorKind: right as ItemErrorKind };
+  if (name === '==' && target === 'term.status' && typeof right === 'string') return { kind: 'termStatus', status: right };
+  if ((name === '>=' || name === '<=') && target === 'term.lines' && typeof right === 'number') return { kind: 'uses', op: name, value: right };
   const output = target.match(/^outputs\.([^.]+)\.(.+)$/);
   if (output && (typeof right === 'string' || typeof right === 'number' || typeof right === 'boolean')) {
     return { kind: 'field', nodeId: output[1]!, field: output[2]!, op: name as FieldOperator, value: right };
@@ -109,6 +118,12 @@ function baseRule(clause: Clause): unknown {
       return { '!!': [{ var: 'unit.listener' }] };
     case 'candidate':
       return { '!!': [{ var: 'candidate' }] };
+    case 'termStatus':
+      return { '==': [{ var: 'term.status' }, clause.status] };
+    case 'hasTarget':
+      return { '!!': [{ var: 'term.hasTarget' }] };
+    case 'uses':
+      return { [clause.op]: [{ var: 'term.lines' }, clause.value] };
   }
 }
 

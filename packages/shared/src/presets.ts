@@ -23,6 +23,8 @@ export interface AiPreset {
   batch?: Partial<BatchConfig>;
   /** The node's call time limit when it is not the default (DEFAULT_CALL_MINUTES). */
   timeoutMinutes?: number;
+  /** The workflow input it is written for (default lines): the palette offers it there. */
+  input?: 'lines' | 'terms';
 }
 
 const field = (name: string, type: JsonFieldType, description: string, fields?: JsonField[]): JsonField => ({ name, type, description, ...(fields && { fields }) });
@@ -239,7 +241,8 @@ export const AI_PRESETS = {
   },
   termTranslate: {
     label: 'AI 용어 번역',
-    description: '용어 후보마다 용어인지 가리고, 용어면 한국어 표기와 메모를 냅니다(용어로 실행).',
+    description: '용어 후보마다 용어인지 가리고, 용어면 한국어 표기와 메모를 냅니다.',
+    input: 'terms',
     output: 'json',
     scope: 'line',
     include: { candidate: false, issues: false },

@@ -21,13 +21,13 @@ description: Build, change, run and debug loca workflows — the user-defined au
 
 AI 노드는 결과를 **만들기만** 하고, 프로젝트에 넣는 건 반영 노드입니다. AI 노드에 프리셋(번역·검수·수정·말투 맞추기·청자 추정·용어/인물·관계/사건 추출·작품 분석)을 고르면 지시문·출력·문맥이 채워지고, 고쳐 쓸 수 있습니다.
 
-## 대사로 실행, 용어로 실행
-워크플로는 들어온 것을 처리합니다. 무엇을 넣을지는 실행할 때 정합니다: 대사(기본) 또는 용어집의 용어(실행 창의 "대사로 실행 / 용어로 실행", CLI `--terms`·`--term`). 실행의 항목, 묶음, 개수가 그 단위(대사/용어)가 됩니다. 워크플로에 "대상" 설정은 없습니다.
-- 진입 설정: 대사·용어를 따로 고르지 않으면 대사는 `statusIds`(받는 상태), 용어는 `termStatuses`(기본 `["candidate"]`)·`termMarks`(자동 표시가 모두 붙은 것, 기본 `["emptyTarget"]` = 번역어 없음)로 가져옵니다. 용어는 많이 쓰인 순.
-- 한쪽에서만 동작하는 노드: 용어 전용 `saveTermEntry`(용어 표기 저장, `applyParams.onlyEmpty` 기본 true)·`setTermStatus`(용어 상태 변경), 대사 전용 형식 검사·번역 후보 기록·청자 설정·상태 변경 등(reference의 `subjects`). 미리 막지 않습니다: 다른 쪽 항목이 오면 그 노드의 `error` 출구로 나가고 `error.kind`는 `unsupported`입니다.
-- 용어는 장면·대본이 없어 AI 노드 묶음이 장면별·대본 전체여도 개수별로 묶입니다. 앞 대사·이전 장면·청자·말투 문맥은 용어에서 건너뛰고, 문맥 `examples`(0~5, 기본 2)는 용어가 나온 대사를 번역과 함께 넣습니다.
-- 조건 데이터는 대사면 `unit`, 용어면 `term`: `{status, statusBy, hasTarget, lines(나온 대사 수), marks, tagIds}`.
-- 전형적인 흐름(용어로 실행): AI(json: `isTerm`, `target`, `note`) → 조건 → `saveTermEntry` / `setTermStatus`(rejected). `loca-glossary` 참고.
+## 입력: 대사 또는 용어
+워크플로는 진입 노드의 `input`(`lines` 대사, 기본 / `terms` 용어집의 용어)으로 무엇이 들어오는지 선언합니다. 실행의 항목, 묶음, 범위, 개수가 그 단위가 됩니다. 노드는 코어 + 그 입력의 확장입니다. 입력마다 다른 것은 reference의 `inputs.table` 하나에만 있습니다(묶음 방식, 문맥 칸, 조건 행, 그 입력에만 있는 노드·프리셋).
+- 진입 설정: `input`, 대사면 `statusIds`(범위를 고르지 않을 때 받는 상태), 용어면 `termStatuses`(기본 `["candidate"]`)·`termMarks`(자동 표시가 모두 붙은 것, 기본 `["emptyTarget"]` = 번역어 없음; 많이 쓰인 순).
+- 입력에만 있는 노드: 용어는 `saveTermEntry`(용어 표기 저장, `applyParams.onlyEmpty` 기본 true)·`setTermStatus`(용어 상태 변경), 대사는 형식·용어 검사·번역 후보 기록·청자 설정·상태 변경·태그 붙이기. 다른 입력의 노드나 그 입력에 없는 묶음 방식(용어: 장면별·대본 전체)은 검증 오류입니다.
+- AI 문맥: 대사는 앞 대사(번역)·이전 장면·청자·말투, 용어는 `examples`(0~5, 기본 2: 용어가 나온 대사를 번역과 함께).
+- 조건: 대사는 `unit`(상태·종류·태그·자동 태그·청자), 용어는 `term`(`status`, `statusBy`, `hasTarget`, `lines` = 나온 대사 수, `marks`, `tagIds`).
+- 전형적인 용어 입력 흐름: AI(`termTranslate` 프리셋: `isTerm`, `target`, `note`) → 조건 → `saveTermEntry` / `setTermStatus`(rejected). `loca-glossary` 참고.
 
 ## 먼저 읽기
 ```
@@ -55,7 +55,7 @@ loca workflows reference <프리셋 id>       # 그 프리셋의 지시문·출�
    - 실패는 워크플로가 다룹니다. 엔진은 요청을 나누거나 다시 보내지 않습니다(요청 한도·네트워크 끊김만 잠시 뒤 다시 보내고, 연속 실패가 `settings.maxConsecutiveFailures`회면 실행을 멈춤). 기본 템플릿은 AI 노드마다 `error` → 조건 "다시 시도?"(`visits.<노드> < 2`이고 `error.kind`가 `too-long`·`cut-off`가 아님) → 같은 노드 / 아니면 함수 `fail`("실패로 끝내기")을 둡니다. 요청이 너무 크면(`too-long`·`cut-off`) 더 작은 묶음(장면별·개수별)으로 읽는 노드로 보내세요.
    - 문맥(용어집·말투 규칙·앞 대사·문서·인물 등)은 노드마다 켜고 끕니다. 무엇이 실제로 들어가는지는 `loca context <키> -n <노드 id>`로 봅니다(모델은 부르지 않음).
    - 모으기(`gather`, 노드 종류 "모으기"): 앞 노드의 요청이 **모두** 끝날 때까지 기다렸다가 합친 결과 하나만 다음 노드로 넘깁니다(나머지 항목은 거기서 끝나고 경로에 `gathered`로 보임). 설정 `{fields}`: 모으는 결과는 선으로 이어진 앞 단계(AI·스크립트 노드)의 답이고, `fields`는 답마다 남길 경로(비면 전체). 결과는 `outputs.<모으기 id> = {parts: [앞 단계의 답마다 하나(묶음 답은 한 번), fields로 추림], count, failed(앞에서 실패한 항목 수)}`. 대사를 여러 요청으로 나눠 읽는 AI 노드 → 모으기 → 그 조각들을 합치는 AI 노드가 전형적인 모양입니다. 모으기 뒤에서는 항목을 바꾸는 노드(반영·상태 변경 등)가 거부되고, 모으기 바로 뒤의 AI 노드는 `input: {previous: true, lines: false}`로만 읽으며(`previous: [{parts, count, failed}]`로 들어옴), 고리 안에는 둘 수 없습니다.
-5. 조건 노드는 JSON Logic입니다. 읽는 값: `visits`(노드별 방문 횟수), `outputs`(앞 노드 출력), `candidate`, `issues`, `unit`(`kind`, `speaker`, `listener`, `statusId`, `tagIds`, `marks`; 대사로 실행할 때, 용어면 `term`), `error`(마지막으로 `error` 출구로 보낸 실패: `kind` = `missing`·`invalid-output`·`timeout`·`too-long`·`cut-off`·`refused`·`unsupported`(그 노드가 이 항목 종류에 맞지 않음)·`other`, `message`, `nodeId`; 조건을 지나도 남고, 작업 노드가 성공하면 지워짐). 예: `{"in": ["unknownListener", {"var": "unit.marks"}]}`, `{"<": [{"var": "visits.review"}, 3]}`, `{"==": [{"var": "error.kind"}, "missing"]}`. 노드 id와 상태 id는 reference·show에서 확인합니다.
+5. 조건 노드는 JSON Logic입니다. 읽는 값: `visits`(노드별 방문 횟수), `outputs`(앞 노드 출력), `candidate`, `issues`, `unit`(`kind`, `speaker`, `listener`, `statusId`, `tagIds`, `marks`; 대사 입력, 용어 입력은 `term`), `error`(마지막으로 `error` 출구로 보낸 실패: `kind` = `missing`·`invalid-output`·`timeout`·`too-long`·`cut-off`·`refused`·`other`, `message`, `nodeId`; 조건을 지나도 남고, 작업 노드가 성공하면 지워짐). 예: `{"in": ["unknownListener", {"var": "unit.marks"}]}`, `{"<": [{"var": "visits.review"}, 3]}`, `{"==": [{"var": "error.kind"}, "missing"]}`. 노드 id와 상태 id는 reference·show에서 확인합니다.
 6. 올리기:
    ```
    loca workflows save "$W/wf.json"         # id가 있으면 그 워크플로를 바꾸고, 없으면 새로 만드는 제안
@@ -68,8 +68,8 @@ AI 호출은 비용이 들어 시작도 제안이고, 사용자가 수락해야 
 loca runs plan <워크플로> -g <장면>        # 읽기만: 대사 수, 묶음·요청 수 추정, 준비 상태
 loca runs start <워크플로> -g <장면>       # 시작 제안. 범위와 옵션은 plan과 같음
 ```
-- 범위(대사로 실행): `-g` 장면·묶음, `--key` 대사, `--mark` 표시, `--tag` 태그 (모두 만족). `--ignore-status`는 진입이 받지 않는 상태의 대사도 넣습니다.
-- 범위(용어로 실행): `--terms`면 진입의 `termStatuses`·`termMarks`가 고르고, `--term <원문|id...>`로 용어를 직접 고를 수도 있습니다. 용어로 실행할 때 대사 범위 옵션은 함께 쓸 수 없습니다. plan의 개수는 용어 수이고 청자·말투 규칙 준비 상태는 나오지 않습니다.
+- 범위(대사 입력): `-g` 장면·묶음, `--key` 대사, `--mark` 표시, `--tag` 태그 (모두 만족). `--ignore-status`는 진입이 받지 않는 상태의 대사도 넣습니다.
+- 범위(용어 입력): `--term <원문|id...>`로 용어를 직접 고르고, 없으면 진입의 `termStatuses`·`termMarks`가 고릅니다. 대사 범위 옵션은 용어 입력 워크플로에, `--term`은 대사 입력 워크플로에 쓸 수 없고 서버가 거절합니다. plan의 개수는 용어 수이고 청자·말투 규칙 준비 상태는 나오지 않습니다.
 - `--model "연결:모델"`(모든 AI 단계) 또는 `--model "노드=연결:모델"`(한 단계)로 이번 실행만 다른 모델을 씁니다. 워크플로는 바뀌지 않습니다.
 - plan의 **준비 상태**(청자 미상 대사, 확인 안 한 말투 규칙·용어, 규칙 없는 화자 쌍)에 걸린 것은 시작 전에 사용자에게 알립니다. 고치는 법은 `loca-knowledge`, `loca-glossary`.
 
