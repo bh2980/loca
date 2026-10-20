@@ -9,7 +9,7 @@ import { LINE_CARD_WIDTH, LineCard } from '@/components/graph/line-card';
 import { FlowPane, SceneNodeDetail } from '@/components/graph/node-detail';
 import { KIND_LABEL } from '@/components/graph/shapes';
 import { TypeLegend } from '@/components/graph/type-legend';
-import { HeaderActions, Page } from '@/components/page';
+import { HeaderActions, HeaderViews, Page } from '@/components/page';
 import { SearchInput, SplitPane, PaneHeader, Button, CanvasDirectionControl, CanvasOverlay, CanvasSurface, Empty, EmptyDescription, EmptyHeader, EmptyTitle, ScrollArea, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue, Input, Popover, PopoverContent, PopoverTrigger, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, Spinner, Switch, ViewSwitch, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, useRevealDock, GraphEndpointBar } from '@loca/ui';
 import { useSize } from '@/hooks/use-size';
 import { q } from '@/lib/queries';
@@ -534,7 +534,7 @@ function GraphPage() {
 
   return (
     <Page title="그래프" flush>
-      <HeaderActions>
+      <HeaderViews>
         <ModeToggle
           value={search.scope}
           onChange={(mode) => void navigate({
@@ -549,6 +549,8 @@ function GraphPage() {
             }),
           })}
         />
+      </HeaderViews>
+      <HeaderActions>
         <CanvasDirectionControl direction={direction} onDirectionChange={(next) => void navigate({ search: (previous) => ({ ...previous, direction: next }) })} />
         {dialogue && (
           <Button

@@ -35,7 +35,7 @@ import {
   AlertDialogCancel,
   AlertDialogAction,
 } from '@loca/ui';
-import { HeaderActions, Page, StatusBarItem } from '@/components/page';
+import { HeaderActions, HeaderViews, Page, StatusBarItem } from '@/components/page';
 import { RelationshipGraph } from '@/components/relationship-graph';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { Play } from 'lucide-react';
@@ -540,17 +540,16 @@ function Knowledge() {
           ) : null
         }
       >
+        {(tab === 'people' || tab === 'events') && <HeaderViews>
+          <ViewSwitch label="보기" value={tab === 'people' ? graph ? 'graph' : search.display === 'characters' ? 'characters' : 'table' : timeline ? 'timeline' : 'table'}
+            onChange={(value) => set({ display: tab === 'people' ? value === 'graph' ? undefined : value === 'characters' ? 'characters' : 'table' : value === 'table' ? 'table' : undefined, item: undefined }, false)}
+            items={tab === 'people' ? [
+              { value: 'graph', label: '그래프', icon: <Network /> },
+              { value: 'characters', label: '인물', icon: <Users /> },
+              { value: 'table', label: '관계', icon: <ArrowLeftRight /> },
+            ] : [{ value: 'timeline', label: '흐름', icon: <GanttChart /> }, { value: 'table', label: '표', icon: <Table2 />}]} />
+        </HeaderViews>}
         <HeaderActions>
-          {(tab === 'people' || tab === 'events') && <>
-            <ViewSwitch label="보기" value={tab === 'people' ? graph ? 'graph' : search.display === 'characters' ? 'characters' : 'table' : timeline ? 'timeline' : 'table'}
-              onChange={(value) => set({ display: tab === 'people' ? value === 'graph' ? undefined : value === 'characters' ? 'characters' : 'table' : value === 'table' ? 'table' : undefined, item: undefined }, false)}
-              items={tab === 'people' ? [
-                { value: 'graph', label: '그래프', icon: <Network /> },
-                { value: 'characters', label: '인물', icon: <Users /> },
-                { value: 'table', label: '관계', icon: <ArrowLeftRight /> },
-              ] : [{ value: 'timeline', label: '흐름', icon: <GanttChart /> }, { value: 'table', label: '표', icon: <Table2 />}]} />
-            <Separator orientation="vertical" className="mx-1 h-4" />
-          </>}
           {timeline && <>
             <CanvasDirectionControl direction={direction} onDirectionChange={(next) => set({ direction: next }, false)} disabled={storyEvents.isPending} />
             <Separator orientation="vertical" className="mx-1 h-4" />
