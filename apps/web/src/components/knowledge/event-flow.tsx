@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Background, ConnectionMode, Handle, MarkerType, NodeToolbar, Panel, Position, ReactFlow, SelectionMode, type Edge, type Node, type NodeChange, type NodeProps, type ReactFlowInstance } from '@xyflow/react';
+import { Background, Handle, MarkerType, NodeToolbar, Panel, Position, ReactFlow, SelectionMode, type Edge, type Node, type NodeChange, type NodeProps, type ReactFlowInstance } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { Copy, Trash2 } from 'lucide-react';
 import { CanvasToolbar, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger, EmptyState, SelectionToolbox } from '@loca/ui';
@@ -32,7 +32,6 @@ let eventClipboard: string[] = [];
 
 /** A connecting dot as in the other graphs (with a wider grab area); none where the flow only shows. */
 const dot = (connectable: boolean) => (connectable ? "!size-2.5 !border-2 !border-card !bg-muted-foreground after:absolute after:-inset-2 after:content-[''] hover:!bg-primary group-hover/event:!bg-primary" : '!opacity-0')
-const MIDDLE = '!pointer-events-none !top-1/2 !left-1/2 !opacity-0';
 
 function EventCard({ data, selected, isConnectable }: NodeProps<EventNode>) {
   const { event } = data;
@@ -41,9 +40,9 @@ function EventCard({ data, selected, isConnectable }: NodeProps<EventNode>) {
   return (
     <div className={cn('group/event flex flex-col rounded-md border bg-background px-3 py-2 text-left shadow-xs', (selected || data.target) && 'border-primary ring-2 ring-primary/30', event.status === 'candidate' && 'border-dashed')} style={CARD}>
       {/* Two dots, since a line has a before and an after: the top (left) one takes a line from the event
-          before, the bottom (right) one draws to the event after. A drag from either lands anywhere on
-          another card (its hidden middle handles, nearer than its dots within connectionRadius). */}
-      <Handle type="target" position={target} isConnectable={isConnectable} title="끌어서 앞 사건과 잇기" className={dot(isConnectable)} />
+          before, the bottom (right) one draws to the event after. Dots only start lines: a drag ends on
+          whichever card it is dropped on (EventFlow's onConnectEnd), never snapping to that card's dots. */}
+      <Handle type="target" position={target} isConnectable={isConnectable} isConnectableEnd={false} title="끌어서 앞 사건과 잇기" className={dot(isConnectable)} />
       <span className="flex items-baseline gap-2">
         <span className="truncate text-sm font-medium">{event.title}</span>
         <span className="ml-auto shrink-0">{data.badge}</span>
@@ -51,9 +50,7 @@ function EventCard({ data, selected, isConnectable }: NodeProps<EventNode>) {
       <span className="truncate text-xs text-muted-foreground">{[event.at?.scene, event.participants.join(' · ')].filter(Boolean).join(' — ')}</span>
       {event.summary && <span className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{event.summary}</span>}
       {data.elsewhere && <span className="mt-auto truncate text-xs text-muted-foreground">→ {data.elsewhere}</span>}
-      <Handle type="source" position={source} isConnectable={isConnectable} title="끌어서 다음 사건과 잇기" className={dot(isConnectable)} />
-      <Handle type="target" id="drop-in" position={target} isConnectableStart={false} className={MIDDLE} />
-      <Handle type="source" id="drop-out" position={source} isConnectableStart={false} className={MIDDLE} />
+      <Handle type="source" position={source} isConnectable={isConnectable} isConnectableEnd={false} title="끌어서 다음 사건과 잇기" className={dot(isConnectable)} />
     </div>
   );
 }
@@ -320,10 +317,18 @@ export function EventFlow({ projectId, events, selected, onOpen, badge, filtered
       minZoom={0.1}
       // Drawing from an event's dot to another event makes a line (the page opens it).
       nodesConnectable={Boolean(actions)}
-      connectionRadius={80}
-      // Loose: a drag from the top dot (a line in) ends on any handle of the other card; the ends keep their meaning (source = the event before).
-      connectionMode={ConnectionMode.Loose}
-      onConnect={(connection) => connection.source && connection.target && void edits?.connect(connection.source, connection.target)}
+      // No snapping: the dots only start lines, and a drag ends on the card under the pointer.
+      connectionRadius={0}
+      connectOnClick={false}
+      onConnectEnd={(event, state) => {
+        if (!edits || !state.fromNode) return;
+        const point = 'changedTouches' in event ? event.changedTouches[0]! : event;
+        const id = document.elementFromPoint(point.clientX, point.clientY)?.closest('.react-flow__node')?.getAttribute('data-id');
+        if (!id || id === state.fromNode.id || !byId.has(id)) return;
+        // From the bottom (right) dot the line goes out to the card; from the top (left) one it comes in from it.
+        const out = state.fromHandle?.type === 'source';
+        void edits.connect(out ? state.fromNode.id : id, out ? id : state.fromNode.id);
+      }}
       // Same as the other graphs: left or middle drag pans, Shift+drag draws a selection box, ⌘/Ctrl+click adds an event.
       panOnDrag={[0, 1]}
       selectionKeyCode="Shift"

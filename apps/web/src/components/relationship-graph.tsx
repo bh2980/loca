@@ -393,6 +393,8 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
       // Drawing from a person's dot to another person makes a relationship (the page opens it to fill in).
       nodesConnectable={Boolean(actions)}
       connectionRadius={80}
+      // Lines are drawn by dragging only: a click on one dot and then another would draw one unasked.
+      connectOnClick={false}
       onConnect={(connection) => connection.source && connection.target && void edits?.connect(connection.source, connection.target)}
       elementsSelectable
       // Same as the other graphs: left or middle drag pans, Shift+drag draws a selection box, ⌘/Ctrl+click adds a person.
