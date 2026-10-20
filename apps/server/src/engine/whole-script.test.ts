@@ -84,7 +84,7 @@ describe('a node reading the script whole', () => {
 
     const items = db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all();
     const units = new Map(db.select().from(s.units).where(eq(s.units.projectId, projectId)).all().map((unit) => [unit.id, unit]));
-    const outputs = items.sort((a, b) => units.get(a.unitId)!.seq - units.get(b.unitId)!.seq).map((item) => item.data.outputs!.read);
+    const outputs = items.sort((a, b) => units.get(a.subjectId)!.seq - units.get(b.subjectId)!.seq).map((item) => item.data.outputs!.read);
     expect(outputs).toEqual([
       { people: [{ name: 'Alice', evidence: ['a1', 'b1'] }, { name: 'Bob', evidence: ['a2'] }], batchLeader: true },
       { batchLeader: false },

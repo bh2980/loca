@@ -301,7 +301,7 @@ function RunDetail() {
                           {/* The spaces keep the row's words apart when read or copied (#48); the flex gap already spaces them on screen. */}
                           <span className="w-32 truncate text-left font-medium">{nodeName(step.nodeId)}</span>{' '}
                           <Badge variant={step.ok ? 'outline' : 'destructive'}>{step.ok ? '성공' : '실패'}</Badge>{' '}
-                          <span className="text-muted-foreground">대사 {step.unitIds.length}</span>{' '}
+                          <span className="text-muted-foreground">대사 {step.subjectIds.length}</span>{' '}
                           <span className="min-w-0 truncate text-muted-foreground">{[data.models.flatMap((model) => model.routes).find((route) => route.connectionId === step.connectionId)?.name, step.model].filter(Boolean).join(' · ')}</span>
                           {' '}
                           <span className="ml-auto text-xs text-muted-foreground tabular-nums">

@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import { AGE_BANDS, CHARACTER_ROLES, GENDERS, KNOWLEDGE_TAG_KINDS, TAG_ROLES, type TagRole, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, PERMISSION_MODES, type AiConfirm, type CharacterStyle, type EditorAi, type ExclusionRules, type ModelLimits, LINE_TRANSLATE, type LineMark, type MarkColors, type ModelChoice, type ContextItem, type FormatRules, type ItemErrorKind, type NodeType, type RelationshipChange, type WorkflowDefinition } from '@tw/shared';
+import { AGE_BANDS, CHARACTER_ROLES, GENDERS, KNOWLEDGE_TAG_KINDS, TAG_ROLES, type TagRole, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, PERMISSION_MODES, type AiConfirm, type CharacterStyle, type EditorAi, type ExclusionRules, type ModelLimits, LINE_TRANSLATE, type LineMark, type MarkColors, type ModelChoice, type ContextItem, type FormatRules, type ItemErrorKind, type NodeType, type RelationshipChange, type WorkflowDefinition, WORKFLOW_SUBJECT_IDS, type WorkflowSubject } from '@tw/shared';
 import type { Usage } from '@tw/ai';
 
 const id = () => text('id').primaryKey().$defaultFn(() => crypto.randomUUID());
@@ -536,6 +536,8 @@ export const runs = sqliteTable(
     definition: json<WorkflowDefinition>('definition').notNull(),
     /** Every model the run's AI nodes picked, resolved, keyed by choiceKey. */
     models: json<Record<string, AiSnapshot>>('models').notNull().default(sql`'{}'`),
+    /** What the run's items are (WORKFLOW_SUBJECTS): lines or terms. */
+    subject: text('subject', { enum: WORKFLOW_SUBJECT_IDS as [WorkflowSubject, ...WorkflowSubject[]] }).notNull().default('lines'),
     scope: json<RunScope>('scope').notNull(),
     status: text('status', { enum: ['running', 'paused', 'cancelled', 'completed'] }).notNull(),
     total: integer('total').notNull(),
@@ -589,7 +591,8 @@ export const runItems = sqliteTable(
   {
     id: id(),
     runId: text('run_id').notNull().references(() => runs.id, { onDelete: 'cascade' }),
-    unitId: text('unit_id').notNull().references(() => units.id, { onDelete: 'cascade' }),
+    /** The item: a line (units.id) or a term (terms.id), as the run's subject says. No foreign key: deleting one cancels its open items (see cancelSubjectItems). */
+    subjectId: text('subject_id').notNull(),
     nodeId: text('node_id').notNull(),
     state: text('state', { enum: ['queued', 'running', 'done', 'failed', 'cancelled'] }).notNull(),
     visits: json<Record<string, number>>('visits').notNull(),
@@ -599,7 +602,7 @@ export const runItems = sqliteTable(
     plan: integer('plan'),
     updatedAt: updatedAt(),
   },
-  (t) => [index('run_items_run').on(t.runId, t.state, t.nodeId), index('run_items_unit').on(t.unitId)],
+  (t) => [index('run_items_run').on(t.runId, t.state, t.nodeId), index('run_items_subject').on(t.subjectId)],
 );
 
 export const runSteps = sqliteTable(
@@ -608,7 +611,8 @@ export const runSteps = sqliteTable(
     id: id(),
     runId: text('run_id').notNull().references(() => runs.id, { onDelete: 'cascade' }),
     nodeId: text('node_id').notNull(),
-    unitIds: json<string[]>('unit_ids').notNull(),
+    /** The items the call was for (lines or terms, as the run's subject says). */
+    subjectIds: json<string[]>('subject_ids').notNull(),
     ok: integer('ok', { mode: 'boolean' }).notNull(),
     /** The connection the call went out through: a node can share its work over several, and a fallback can take over. */
     connectionId: text('connection_id'),
@@ -628,8 +632,8 @@ export const runSteps = sqliteTable(
     reasoningTokens: integer('reasoning_tokens'),
     /** USD the connection reported; never estimated. */
     costUsd: real('cost_usd'),
-    /** Lines a per-line answer covered (non-empty); the request is `unitIds`. */
-    returnedLines: integer('returned_lines'),
+    /** Items a per-item answer covered (non-empty); the request is `subjectIds`. */
+    returnedItems: integer('returned_items'),
     /** 0 for a batch's first request, n for the n-th request for the lines it left out. */
     round: integer('round').notNull().default(0),
     startedAt: integer('started_at', { mode: 'timestamp_ms' }).notNull(),

@@ -144,10 +144,10 @@ function unitRows(db: Db, where: SQL, page?: { limit: number; offset: number }) 
   const lastRun = new Map<string, { runId: string; workflowName: string; issues: string[] }>();
   if (ids.length)
     for (const item of db
-      .select({ unitId: s.runItems.unitId, runId: s.runs.id, workflowName: s.runs.workflowName, data: s.runItems.data })
+      .select({ unitId: s.runItems.subjectId, runId: s.runs.id, workflowName: s.runs.workflowName, data: s.runItems.data })
       .from(s.runItems)
       .innerJoin(s.runs, eq(s.runs.id, s.runItems.runId))
-      .where(inArray(s.runItems.unitId, ids))
+      .where(inArray(s.runItems.subjectId, ids))
       .orderBy(desc(s.runs.createdAt))
       .all())
       if (!lastRun.has(item.unitId)) lastRun.set(item.unitId, { runId: item.runId, workflowName: item.workflowName, issues: item.data.issues ?? [] });
@@ -343,7 +343,7 @@ export const sourceRoutes = new Hono<Env>()
       .select({ id: s.runItems.id, runId: s.runs.id, workflowName: s.runs.workflowName, state: s.runItems.state, nodeId: s.runItems.nodeId, error: s.runItems.error, data: s.runItems.data, createdAt: s.runs.createdAt })
       .from(s.runItems)
       .innerJoin(s.runs, eq(s.runs.id, s.runItems.runId))
-      .where(eq(s.runItems.unitId, unitId))
+      .where(eq(s.runItems.subjectId, unitId))
       .orderBy(desc(s.runs.createdAt))
       .limit(20)
       .all();

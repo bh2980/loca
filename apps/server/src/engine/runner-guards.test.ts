@@ -214,7 +214,7 @@ describe('incomplete answers', () => {
     expect(items.every((item) => item.state === 'done')).toBe(true);
     const translations = db.select().from(s.runSteps).where(eq(s.runSteps.runId, runId)).all().filter((step) => step.nodeId === 'translate');
     // 10 lines, 7 answered; the 3 left out came back through 다시 시도? on their own.
-    expect(translations.map((step) => [step.unitIds.length, step.returnedLines])).toEqual([[10, 7], [3, 3]]);
+    expect(translations.map((step) => [step.subjectIds.length, step.returnedItems])).toEqual([[10, 7], [3, 3]]);
   });
 
   it('never splits a malformed answer: its lines leave through "error" (invalid-output), the template retries once, then ends them as failed', async () => {
@@ -238,7 +238,7 @@ describe('incomplete answers', () => {
     expect(items.every((item) => item.state === 'failed' && item.error === 'bad JSON')).toBe(true);
     expect(items[0]!.data.error).toMatchObject({ kind: 'invalid-output', nodeId: 'translate' });
     const translations = db.select().from(s.runSteps).where(eq(s.runSteps.runId, runId)).all().filter((step) => step.nodeId === 'translate');
-    expect(translations.map((step) => step.unitIds.length)).toEqual([8, 8]);
+    expect(translations.map((step) => step.subjectIds.length)).toEqual([8, 8]);
     expect(runOf(db, runId).status).toBe('completed');
   });
 
@@ -281,7 +281,7 @@ describe('run plan', () => {
       db
         .select({ source: s.units.source, plan: s.runItems.plan })
         .from(s.runItems)
-        .innerJoin(s.units, eq(s.units.id, s.runItems.unitId))
+        .innerJoin(s.units, eq(s.units.id, s.runItems.subjectId))
         .where(eq(s.runItems.runId, runId))
         .all()
         .map((row) => [row.source, row.plan]),

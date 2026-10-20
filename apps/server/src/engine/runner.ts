@@ -266,7 +266,7 @@ export class Runner {
       data.issues = []; // a new text answers the previous issues
     }
     if (outcome.issues?.length) data.issues = outcome.issues;
-    if (outcome.issueTags) applyIssueTags(tx, run.projectId, item.unitId, outcome.issueTags);
+    if (outcome.issueTags) applyIssueTags(tx, run.projectId, item.subjectId, outcome.issueTags);
     this.route(tx, run, { ...item, data }, outcome.port, outcome.error);
   }
 
@@ -306,7 +306,7 @@ export class Runner {
       return { nodeId, state, visits, data: { ...item.data, path }, error: message };
     };
     tx.update(s.runItems).set(moved(edges[0]?.target)).where(eq(s.runItems.id, item.id)).run();
-    for (const edge of edges.slice(1)) tx.insert(s.runItems).values({ runId: run.id, unitId: item.unitId, plan: item.plan, ...moved(edge.target) }).run();
+    for (const edge of edges.slice(1)) tx.insert(s.runItems).values({ runId: run.id, subjectId: item.subjectId, plan: item.plan, ...moved(edge.target) }).run();
   }
 
   /** Lines still queued or running, per node. */
@@ -392,7 +392,7 @@ export class Runner {
     return this.db
       .select({
         id: s.runItems.id,
-        unitId: s.runItems.unitId,
+        unitId: s.runItems.subjectId,
         nodeId: s.runItems.nodeId,
         groupId: s.units.groupId,
         seq: s.units.seq,
@@ -403,7 +403,7 @@ export class Runner {
         plan: s.runItems.plan,
       })
       .from(s.runItems)
-      .innerJoin(s.units, eq(s.units.id, s.runItems.unitId))
+      .innerJoin(s.units, eq(s.units.id, s.runItems.subjectId))
       .where(and(eq(s.runItems.runId, run.id), eq(s.runItems.state, 'queued'), inArray(s.runItems.nodeId, slowIds)))
       .orderBy(asc(s.units.seq))
       .all();
@@ -537,11 +537,11 @@ export class Runner {
       for (const topic of node?.type === 'function' ? (FUNCTION_TOPICS[node.config.fn] ?? []) : []) topics.add(topic);
     }
     this.db.transaction((tx) => {
-      const unitRows = new Map(inChunks(items.map((item) => item.unitId), (ids) => tx.select().from(s.units).where(inArray(s.units.id, ids)).all()).map((unit) => [unit.id, unit]));
+      const unitRows = new Map(inChunks(items.map((item) => item.subjectId), (ids) => tx.select().from(s.units).where(inArray(s.units.id, ids)).all()).map((unit) => [unit.id, unit]));
       const tagRows = Map.groupBy(inChunks([...unitRows.keys()], (ids) => tx.select().from(s.unitTags).where(inArray(s.unitTags.unitId, ids)).all()), (row) => row.unitId);
       for (const item of items) {
         const node = this.node(run, item.nodeId);
-        const unit = unitRows.get(item.unitId);
+        const unit = unitRows.get(item.subjectId);
         if (!node || !unit) {
           tx.update(s.runItems).set({ state: 'failed', error: '노드 또는 원문이 없습니다.' }).where(eq(s.runItems.id, item.id)).run();
           continue;
@@ -633,8 +633,8 @@ export class Runner {
 
   private async executeFunction(run: Run, node: FunctionNode, item: Item, signal: AbortSignal) {
     const startedAt = new Date();
-    const unit = this.db.select().from(s.units).where(eq(s.units.id, item.unitId)).get();
-    const step: StepRecord = { runId: run.id, nodeId: node.id, unitIds: [item.unitId], startedAt };
+    const unit = this.db.select().from(s.units).where(eq(s.units.id, item.subjectId)).get();
+    const step: StepRecord = { runId: run.id, nodeId: node.id, subjectIds: [item.subjectId], startedAt };
     if (!unit) return this.failBatch(run, [item], step, new Error('원문이 없습니다.'));
     const tagIds = this.db.select({ tagId: s.unitTags.tagId }).from(s.unitTags).where(eq(s.unitTags.unitId, unit.id)).all().map((row) => row.tagId);
     const input: FunctionInput = { unit, item, tagIds, projectId: run.projectId, runId: run.id };
@@ -654,7 +654,7 @@ export class Runner {
 
   private async executeAi(run: Run, node: AiNode, modelKey: string, batch: Item[], signal: AbortSignal) {
     const model = run.models[modelKey];
-    if (!model) return this.failBatch(run, batch, { runId: run.id, nodeId: node.id, unitIds: batch.map((item) => item.unitId), startedAt: new Date() }, new Error('이 노드의 AI 연결이 실행을 시작할 때 없었습니다. 노드에서 연결과 모델을 다시 고르고 새로 실행하세요.'));
+    if (!model) return this.failBatch(run, batch, { runId: run.id, nodeId: node.id, subjectIds: batch.map((item) => item.subjectId), startedAt: new Date() }, new Error('이 노드의 AI 연결이 실행을 시작할 때 없었습니다. 노드에서 연결과 모델을 다시 고르고 새로 실행하세요.'));
     const routes = resolveRoutes(model, this.secrets);
     if (routes[0]?.kind === 'systemone') return this.judgeLines(run, node, batch, model, routes, signal);
     await this.callLines(run, node, model, routes, batch, signal);
@@ -662,11 +662,11 @@ export class Runner {
 
   /** The lines of `items` as the prompt numbers them, in batch (script) order. */
   private promptLines(items: Item[], node?: AiNode) {
-    const units = new Map(this.db.select().from(s.units).where(inArray(s.units.id, items.map((item) => item.unitId))).all().map((unit) => [unit.id, unit]));
-    const rows = items.map((item) => units.get(item.unitId)!);
+    const units = new Map(this.db.select().from(s.units).where(inArray(s.units.id, items.map((item) => item.subjectId))).all().map((unit) => [unit.id, unit]));
+    const rows = items.map((item) => units.get(item.subjectId)!);
     const input = node?.config.input ?? null;
     const lines: PromptLine[] = items.map((item, index) => {
-      const unit = units.get(item.unitId)!;
+      const unit = units.get(item.subjectId)!;
       // A batch answer rides on its first line only (batchLeader): the others have nothing to pass on.
       const { batchLeader, ...output } = (input?.from ? item.data.outputs?.[input.from] : undefined) ?? { batchLeader: false };
       const previous = batchLeader === false ? undefined : output;
@@ -726,7 +726,7 @@ export class Runner {
     const project = this.db.select().from(s.projects).where(eq(s.projects.id, run.projectId)).get()!;
     const { rows, lines } = this.promptLines(items, node);
     const round = Math.max(0, ...items.map((item) => item.data.retries?.[node.id] ?? 0));
-    const step: StepRecord = { runId: run.id, nodeId: node.id, connectionId: routes[0]?.connectionId ?? null, model: routes[0]?.model ?? null, unitIds: items.map((item) => item.unitId), startedAt: new Date(), round };
+    const step: StepRecord = { runId: run.id, nodeId: node.id, connectionId: routes[0]?.connectionId ?? null, model: routes[0]?.model ?? null, subjectIds: items.map((item) => item.subjectId), startedAt: new Date(), round };
     const languages = { source: project.sourceLanguage, target: project.targetLanguage };
     const choiceOptions = node.config.output === 'choice' ? resolveChoiceOptions(this.db, run.projectId, node.config.choice) : undefined;
     // A node reading the script whole sends it as compact script text (engine/whole-script.ts), its
@@ -783,7 +783,7 @@ export class Runner {
           } else this.route(tx, run, item, 'error', `모델 응답에 이 대사의 ${MISSING_WHAT[node.config.output]}이(가) 없습니다.`, 'missing');
         });
         tx.insert(s.runSteps)
-          .values({ ...step, ok: true, connectionId: result.route.connectionId ?? step.connectionId, model: result.route.model, output: raw, attempts: result.attempts, returnedLines: perLine ? answered : null, ...usageColumns(stepUsage(result.attempts, result.result.usage)), finishedAt: new Date() })
+          .values({ ...step, ok: true, connectionId: result.route.connectionId ?? step.connectionId, model: result.route.model, output: raw, attempts: result.attempts, returnedItems: perLine ? answered : null, ...usageColumns(stepUsage(result.attempts, result.result.usage)), finishedAt: new Date() })
           .run();
       });
       this.notify(run.id);
@@ -796,7 +796,7 @@ export class Runner {
 
   /** A judge model (System One) answers one line at a time and only supports verdicts. */
   private async judgeLines(run: Run, node: AiNode, batch: Item[], model: s.AiSnapshot, routes: ai.ResolvedRoute[], signal: AbortSignal) {
-    const step: StepRecord = { runId: run.id, nodeId: node.id, connectionId: routes[0]?.connectionId ?? null, model: routes[0]?.model ?? null, unitIds: batch.map((item) => item.unitId), startedAt: new Date() };
+    const step: StepRecord = { runId: run.id, nodeId: node.id, connectionId: routes[0]?.connectionId ?? null, model: routes[0]?.model ?? null, subjectIds: batch.map((item) => item.subjectId), startedAt: new Date() };
     if (node.config.output !== 'verdict') return this.failBatch(run, batch, step, new Error('System One 연결은 출력 형태가 "판정"인 AI 노드에서만 쓸 수 있습니다.'));
     const { rows, lines } = this.promptLines(batch, node);
     const context = buildContext(this.db, run.projectId, rows, node.config.context);
@@ -826,7 +826,7 @@ export class Runner {
       this.db.transaction((tx) => {
         batch.forEach((item, index) => this.record(tx, run, item, outcomes[index]));
         tx.insert(s.runSteps)
-          .values({ ...step, ok: true, model: routes[0]?.model, prompt: null, output: outcomes, attempts, returnedLines: outcomes.length, ...usageColumns(stepUsage(attempts, judged.reduce(ai.addUsage, {}))), finishedAt: new Date() })
+          .values({ ...step, ok: true, model: routes[0]?.model, prompt: null, output: outcomes, attempts, returnedItems: outcomes.length, ...usageColumns(stepUsage(attempts, judged.reduce(ai.addUsage, {}))), finishedAt: new Date() })
           .run();
       });
       this.notify(run.id);

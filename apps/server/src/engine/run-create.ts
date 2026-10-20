@@ -141,7 +141,7 @@ function runRows(db: Db, input: RunInput) {
     total: unitIds.length,
     limits: input.limits ?? null,
   };
-  const items = unitIds.map((unitId) => ({ runId, unitId, nodeId: entry.id, state: 'queued' as const, visits: { [entry.id]: 1 }, data: { path: [], outputs: {} } as ItemData, plan: plan.get(unitId) ?? null }));
+  const items = unitIds.map((unitId) => ({ runId, subjectId: unitId, nodeId: entry.id, state: 'queued' as const, visits: { [entry.id]: 1 }, data: { path: [], outputs: {} } as ItemData, plan: plan.get(unitId) ?? null }));
   return { run, items };
 }
 

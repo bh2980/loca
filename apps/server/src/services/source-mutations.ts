@@ -26,7 +26,7 @@ function refuseBusy(db: Reader, projectId: string, ids: string[]) {
   if (!ids.length) return;
   const busy = db.get<{ n: number }>(sql`select count(*) n from ${s.runs} r where r.project_id = ${projectId}
     and r.status in ('running', 'paused') and (
-      exists (select 1 from ${s.runItems} i where i.run_id = r.id and i.unit_id in (select value from json_each(${JSON.stringify(ids)})))
+      exists (select 1 from ${s.runItems} i where i.run_id = r.id and i.subject_id in (select value from json_each(${JSON.stringify(ids)})))
       or r.notice = ${FILLING})`);
   if (busy?.n) badRequest('실행 중이거나 일시 정지된 워크플로에서 사용하는 원문입니다. 실행을 종료한 뒤 변경하거나 삭제하세요.');
 }
@@ -156,6 +156,8 @@ function removeUnits(tx: Tx, projectId: string, ids: string[]) {
       tx.update(s.graphNodes).set({ unitIds, ...(unitIds.length ? {} : { groupId: null }) }).where(eq(s.graphNodes.id, node.id)).run();
     }
   }
+  // Run items name their line without a foreign key (a run's items can be terms too): they go with it.
+  tx.delete(s.runItems).where(inList(s.runItems.subjectId, ids)).run();
   tx.delete(s.units).where(and(eq(s.units.projectId, projectId), inList(s.units.id, ids))).run();
   refreshNodeGroups(tx, projectId);
   resequence(tx, projectId);

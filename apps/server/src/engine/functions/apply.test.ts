@@ -38,7 +38,7 @@ type Ctx = ReturnType<typeof setup>;
 /** Runs an apply function on a line as the runner would: inside a transaction, with the source node's output in the item. */
 function apply(ctx: Ctx, fn: ApplyFunctionName, params: Record<string, unknown>, output: Record<string, unknown> | undefined, key = 'a1') {
   const unit = ctx.db.select().from(s.units).where(eq(s.units.key, key)).get()!;
-  const item = ctx.db.select().from(s.runItems).where(eq(s.runItems.unitId, unit.id)).get()!;
+  const item = ctx.db.select().from(s.runItems).where(eq(s.runItems.subjectId, unit.id)).get()!;
   const data = { ...item.data, outputs: output ? { ai: output } : ({} as Record<string, Record<string, unknown>>) };
   const input: FunctionInput = { unit, item: { ...item, nodeId: 'apply', data }, tagIds: [], projectId: ctx.projectId, runId: ctx.runId };
   return ctx.db.transaction((tx) => applyFunctions[fn](tx, { fromNodeId: 'ai', ...params }, input));

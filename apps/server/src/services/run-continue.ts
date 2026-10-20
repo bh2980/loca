@@ -35,7 +35,7 @@ export function switchedRun(db: Db, run: Run, models: RunModels | undefined) {
 /** The lines the run still has to do: queued and in flight, plus the failed ones when they go again. */
 export function remainingLines(db: Db, runId: string, retryFailed: boolean) {
   const states: s.ItemState[] = retryFailed ? ['queued', 'running', 'failed'] : ['queued', 'running'];
-  return [...new Set(db.select({ unitId: s.runItems.unitId }).from(s.runItems).where(and(eq(s.runItems.runId, runId), inArray(s.runItems.state, states))).all().map((row) => row.unitId))];
+  return [...new Set(db.select({ unitId: s.runItems.subjectId }).from(s.runItems).where(and(eq(s.runItems.runId, runId), inArray(s.runItems.state, states))).all().map((row) => row.unitId))];
 }
 
 /**

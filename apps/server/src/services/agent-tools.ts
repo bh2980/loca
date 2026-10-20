@@ -420,7 +420,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         return {
           ...run,
           nodes: db.select({ nodeId: s.runItems.nodeId, state: s.runItems.state, count: count() }).from(s.runItems).where(eq(s.runItems.runId, runId)).groupBy(s.runItems.nodeId, s.runItems.state).all(),
-          failures: db.select({ unitId: s.runItems.unitId, nodeId: s.runItems.nodeId, error: s.runItems.error }).from(s.runItems).where(and(eq(s.runItems.runId, runId), eq(s.runItems.state, 'failed'))).limit(20).all(),
+          failures: db.select({ unitId: s.runItems.subjectId, nodeId: s.runItems.nodeId, error: s.runItems.error }).from(s.runItems).where(and(eq(s.runItems.runId, runId), eq(s.runItems.state, 'failed'))).limit(20).all(),
         };
       },
     }),

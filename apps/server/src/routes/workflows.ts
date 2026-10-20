@@ -271,7 +271,7 @@ export const workflowRoutes = new Hono<Env>()
               else 'done' end as state
             from ${s.runItems} i join ${s.runs} r on r.id = i.run_id
             where r.project_id = ${projectId}
-            group by i.run_id, i.unit_id
+            group by i.run_id, i.subject_id
           ) group by run_id, state`)
       : [];
     const byRun = Map.groupBy(counts, (row) => row.runId);
@@ -284,7 +284,7 @@ export const workflowRoutes = new Hono<Env>()
     const lines = db
       .selectDistinct({ plan: s.runItems.plan, groupId: s.units.groupId, speaker: s.units.speaker, seq: s.units.seq, tokens: sql<number>`(length(cast(${s.units.source} as blob)) + 3) / 4` })
       .from(s.runItems)
-      .innerJoin(s.units, eq(s.units.id, s.runItems.unitId))
+      .innerJoin(s.units, eq(s.units.id, s.runItems.subjectId))
       .where(eq(s.runItems.runId, run.id))
       .all()
       .filter((line) => line.plan !== null)
@@ -340,9 +340,9 @@ export const workflowRoutes = new Hono<Env>()
     const where = and(...conditions);
     const total = db.select({ count: count() }).from(s.runItems).where(where).get()!.count;
     const rows = db
-      .select({ id: s.runItems.id, unitId: s.runItems.unitId, key: s.units.key, speaker: s.units.speaker, source: s.units.source, nodeId: s.runItems.nodeId, state: s.runItems.state, visits: s.runItems.visits, data: s.runItems.data, error: s.runItems.error, updatedAt: s.runItems.updatedAt, statusName: s.statuses.name, statusColor: s.statuses.color })
+      .select({ id: s.runItems.id, unitId: s.runItems.subjectId, key: s.units.key, speaker: s.units.speaker, source: s.units.source, nodeId: s.runItems.nodeId, state: s.runItems.state, visits: s.runItems.visits, data: s.runItems.data, error: s.runItems.error, updatedAt: s.runItems.updatedAt, statusName: s.statuses.name, statusColor: s.statuses.color })
       .from(s.runItems)
-      .innerJoin(s.units, eq(s.units.id, s.runItems.unitId))
+      .innerJoin(s.units, eq(s.units.id, s.runItems.subjectId))
       .leftJoin(s.statuses, eq(s.statuses.id, s.units.statusId))
       .where(where)
       .orderBy(asc(s.units.seq))

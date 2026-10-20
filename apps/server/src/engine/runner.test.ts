@@ -126,8 +126,8 @@ describe('workflow runner', () => {
       expect(item.visits.review).toBe(3);
       expect(item.visits.revise).toBe(2);
       expect(item.data.issues).toEqual(['어색함']);
-      expect(item.data.candidateText).toBe(`[revise] ${units.get(item.unitId)!.source}`);
-      expect(statuses.get(units.get(item.unitId)!.statusId)).toBe('사람 확인 필요');
+      expect(item.data.candidateText).toBe(`[revise] ${units.get(item.subjectId)!.source}`);
+      expect(statuses.get(units.get(item.subjectId)!.statusId)).toBe('사람 확인 필요');
     }
     // Batches are per scene (size 30), so each pass over 30 lines is one call.
     expect(model.calls.filter((call) => call === 'translate')).toHaveLength(1);
@@ -233,7 +233,7 @@ describe('json output', () => {
     const items = db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all();
     expect(items.every((item) => item.state === 'done')).toBe(true);
     const units = db.select().from(s.units).where(eq(s.units.projectId, projectId)).orderBy(s.units.sort).all();
-    const byUnit = new Map(items.map((item) => [item.unitId, item.data.outputs!.tone]));
+    const byUnit = new Map(items.map((item) => [item.subjectId, item.data.outputs!.tone]));
     // "L1" is the first line of the request each time; its key is that request's first line's.
     expect(byUnit.get(units[0].id)).toEqual({ tone: 'tL1', because: [units[0].key] });
     expect(byUnit.get(units[1].id)).toMatchObject({ tone: 'tL2' });
@@ -269,7 +269,7 @@ describe('json output', () => {
     expect(seen[0].system).toContain('Answer as one JSON object');
     const items = db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all();
     const units = new Map(db.select().from(s.units).where(eq(s.units.projectId, projectId)).all().map((unit) => [unit.id, unit]));
-    const outputs = items.sort((a, b) => units.get(a.unitId)!.seq - units.get(b.unitId)!.seq).map((item) => item.data.outputs!.terms);
+    const outputs = items.sort((a, b) => units.get(a.subjectId)!.seq - units.get(b.subjectId)!.seq).map((item) => item.data.outputs!.terms);
     expect(outputs).toEqual([
       { terms: [{ source: 'artifact', evidence: [expect.stringMatching(/^u\d$/)] }], batchLeader: true },
       { batchLeader: false },
@@ -327,7 +327,7 @@ describe('function nodes', () => {
     expect(items.map((item) => item.state)).toEqual(['done', 'done', 'done']);
     const units = db.select().from(s.units).where(eq(s.units.projectId, projectId)).all();
     const byKey = new Map(units.map((unit) => [unit.key, unit]));
-    const textOf = (key: string) => items.find((item) => item.unitId === byKey.get(key)!.id)!.data.candidateText;
+    const textOf = (key: string) => items.find((item) => item.subjectId === byKey.get(key)!.id)!.data.candidateText;
     // Only the first line took the "first" exit through the HTTP tool, which appended "!".
     expect(textOf('u0')).toBe('[[translate] Hi {name}]!');
     expect(textOf('u1')).toBe('[[translate] Line 1]');

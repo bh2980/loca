@@ -113,6 +113,11 @@ export function pickPaths(value: unknown, paths: string[]): unknown {
   );
 }
 
+/** What a workflow's items are: script lines, or glossary terms. The entry node decides; a workflow has one. */
+export const WORKFLOW_SUBJECTS = { lines: '대사', terms: '용어' } as const;
+export type WorkflowSubject = keyof typeof WORKFLOW_SUBJECTS;
+export const WORKFLOW_SUBJECT_IDS = Object.keys(WORKFLOW_SUBJECTS) as WorkflowSubject[];
+
 /** An AI node's call time limit when it does not set one, in minutes. */
 export const DEFAULT_CALL_MINUTES = 10;
 
