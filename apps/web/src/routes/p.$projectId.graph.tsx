@@ -302,7 +302,9 @@ function GraphPage() {
   // Arriving from a line: the canvas opens centred on its node (inside a folded run, the run; a
   // choice, what it leads to), then `jump` is forgotten. The line's scene only picks the section; it
   // is not highlighted (the rest of the graph would dim while one only wants to read around the line).
-  const canvasShown = graph.data?.status === 'ready' && !!layout && size.width > 0 && !marking;
+  // A layout being made again (after an edit) keeps the last one on screen until the new one arrives.
+  const relayout = graph.data?.status === 'pending' && Boolean(layout);
+  const canvasShown = (graph.data?.status === 'ready' || relayout) && !!layout && size.width > 0 && !marking;
   useEffect(() => {
     if (!search.jump || !search.node || !layout) return;
     if (search.scene) return void navigate({ search: (previous) => ({ ...previous, section: chosen, scene: undefined }), replace: true });
@@ -1085,9 +1087,14 @@ function GraphPage() {
           {runUnits && (
             <RunDialog projectId={projectId} unitIds={runUnits} unitsLabel="고른 노드" open onOpenChange={(open) => !open && setRunUnits(undefined)} hideTrigger />
           )}
-          {(graph.isPending || graph.data?.status === 'pending') && (
+          {(graph.isPending || graph.data?.status === 'pending') && !relayout && (
             <div className="absolute inset-0 flex items-center justify-center gap-2 text-sm text-muted-foreground">
               <Spinner /> 그래프 배치를 계산하는 중…
+            </div>
+          )}
+          {relayout && (
+            <div className="pointer-events-none absolute top-14 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-md border bg-popover px-3 py-1.5 text-xs text-muted-foreground shadow-sm" role="status">
+              <Spinner /> 바뀐 내용으로 다시 배치하는 중…
             </div>
           )}
           {graph.data?.status === 'failed' && <p className="p-6 text-sm text-destructive">배치에 실패했습니다: {graph.data.error}</p>}

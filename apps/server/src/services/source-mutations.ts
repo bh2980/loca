@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, like, sql } from 'drizzle-orm';
 import { createGroupSchema, updateGroupSchema, createUnitSchema, updateUnitSchema, deleteUnitsSchema } from '@tw/shared';
 import type { z } from 'zod';
 import type { Db } from '../db/index.ts';
@@ -47,12 +47,19 @@ function refreshNodeGroups(tx: Tx, projectId: string) {
   ) where project_id = ${projectId} and json_array_length(unit_ids) > 0`);
 }
 
+/**
+ * The stored layouts are out of date: they stay (the graph keeps showing the last one, marked as
+ * being laid out again) until computeLayouts replaces them. Views are laid out on demand, so theirs go.
+ */
 function invalidate(tx: Tx, projectId: string) {
-  tx.delete(s.graphLayouts).where(eq(s.graphLayouts.projectId, projectId)).run();
+  tx.delete(s.graphLayouts).where(and(eq(s.graphLayouts.projectId, projectId), like(s.graphLayouts.section, 'view:%'))).run();
+  tx.update(s.graphLayouts).set({ status: 'pending', error: null }).where(eq(s.graphLayouts.projectId, projectId)).run();
 }
 function changed(db: Db, projectId: string) {
   events.changed(projectId, 'units', 'graph');
-  void computeLayouts(db, projectId);
+  // Every orientation that has a stored layout is laid out again (one after another, see computeLayouts).
+  const directions = db.selectDistinct({ direction: s.graphLayouts.direction }).from(s.graphLayouts).where(eq(s.graphLayouts.projectId, projectId)).all().map((row) => row.direction);
+  for (const direction of directions.length ? directions : ['vertical' as const]) void computeLayouts(db, projectId, { direction });
 }
 
 export function createGroup(db: Db, projectId: string, raw: z.input<typeof createGroupSchema>) {
