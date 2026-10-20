@@ -121,11 +121,12 @@ export function TagMenu({ tags, state, onToggle, heading, onCreate, triggerLabel
 }
 
 /** The same picker as a submenu of another dropdown menu (a line's ⋯ menu). */
-export function TagSubMenu({ tags, state, onToggle, heading, onCreate, label = "태그 붙이기·떼기" }: Pick<TagMenuProps, "tags" | "state" | "onToggle" | "heading" | "onCreate"> & { label?: string }) {
+/** `icon` false: in a menu whose other items have none. */
+export function TagSubMenu({ tags, state, onToggle, heading, onCreate, label = "태그 붙이기·떼기", icon = true }: Pick<TagMenuProps, "tags" | "state" | "onToggle" | "heading" | "onCreate"> & { label?: string; icon?: boolean }) {
   return (
     <DropdownMenuSub>
       <DropdownMenuSubTrigger>
-        <Tags />
+        {icon && <Tags />}
         {label}
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent className="w-56 p-1">

@@ -1,5 +1,5 @@
 /** One row of the line list, with the hints and links that open under the picked line. */
-import { useMemo, type ComponentProps, type ReactNode, type RefObject } from 'react';
+import { useMemo, useState, type ComponentProps, type ReactNode, type RefObject } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, CircleAlert, Ellipsis, PanelRight } from 'lucide-react';
 import { toast } from 'sonner';
@@ -30,15 +30,10 @@ import {
   SpeakerIdentity,
   TranslationRow,
   SceneSectionHeader,
-  ContextMenu,
-  ContextMenuTrigger,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuCheckboxItem,
-  ContextMenuSeparator,
-  ContextMenuSub,
-  ContextMenuSubTrigger,
-  ContextMenuSubContent,
+  DropdownMenuCheckboxItem,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
   type StatusLike,
 } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
@@ -329,6 +324,57 @@ export function LineRow({
       <AiMark by="ai" />
     </Button>
   ) : null;
+  // One menu for the line, the same from ⋯ and from a right-click on the row (opened at the pointer).
+  const copy = (text: string, what: string) => { void navigator.clipboard.writeText(text); toast.success(`${what}을 복사했습니다.`); };
+  const menuItems = (
+    <>
+      {!selected && <DropdownMenuItem onClick={onSelect}>번역 편집</DropdownMenuItem>}
+      {onOpenDetail && <DropdownMenuItem onClick={onOpenDetail}>상세 열기</DropdownMenuItem>}
+      {(!selected || onOpenDetail) && <DropdownMenuSeparator />}
+      <DropdownMenuSub>
+        <DropdownMenuSubTrigger>상태 변경</DropdownMenuSubTrigger>
+        <DropdownMenuSubContent className="w-44">
+          {statusList.map((item) => (
+            <DropdownMenuCheckboxItem
+              key={item.id}
+              checked={line.statusId === item.id}
+              onCheckedChange={() => line.statusId !== item.id && saveLine.mutate({ unitId: line.id, text: line.translation ?? '', statusId: item.id })}
+            >
+              <StatusIcon status={item} />
+              <span className="truncate">{item.name}</span>
+            </DropdownMenuCheckboxItem>
+          ))}
+        </DropdownMenuSubContent>
+      </DropdownMenuSub>
+      <TagSubMenu
+        tags={tags.filter((tag) => !tag.role)}
+        state={(tagId) => (line.tagIds.includes(tagId) ? 'all' : 'none')}
+        onToggle={handleToggleTag}
+        onCreate={handleCreateTag}
+        heading="태그"
+        label="태그"
+        icon={false}
+      />
+      <DropdownMenuSub>
+        <DropdownMenuSubTrigger>{excluded ? '번역 제외' : '번역 대상'}</DropdownMenuSubTrigger>
+        <DropdownMenuSubContent className="w-36">
+          <DropdownMenuRadioGroup value={excluded ? 'exclude' : 'include'} onValueChange={(value) => patch.mutate({ translate: value as 'include' | 'exclude' })}>
+            <DropdownMenuRadioItem value="include">번역 대상</DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="exclude">제외</DropdownMenuRadioItem>
+          </DropdownMenuRadioGroup>
+        </DropdownMenuSubContent>
+      </DropdownMenuSub>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem onClick={() => copy(line.source, '원문')}>원문 복사</DropdownMenuItem>
+      {line.translation && <DropdownMenuItem onClick={() => copy(line.translation!, '번역')}>번역 복사</DropdownMenuItem>}
+      <DropdownMenuItem onClick={() => copy(line.key, '대사 키')}>키 복사</DropdownMenuItem>
+      {onShowInGraph && <DropdownMenuItem onClick={onShowInGraph}>그래프에서 보기</DropdownMenuItem>}
+      {(onEditSource || onAddLine) && <DropdownMenuSeparator />}
+      {onEditSource && <DropdownMenuItem onClick={onEditSource}>원문 편집</DropdownMenuItem>}
+      {onAddLine && <DropdownMenuItem onClick={onAddLine}>{addLineLabel}</DropdownMenuItem>}
+    </>
+  );
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
   // The line's actions sit at the right end of the header of the picked row: the details pane, and everything else in ⋯.
   const actions = selected ? (
     <span className="flex items-center gap-0.5" onClick={(event) => event.stopPropagation()}>
@@ -354,26 +400,7 @@ export function LineRow({
           <TooltipContent>줄 동작</TooltipContent>
         </Tooltip>
         <DropdownMenuContent align="end" className="w-52" onClick={(event) => event.stopPropagation()}>
-          <TagSubMenu
-            tags={tags.filter((tag) => !tag.role)}
-            state={(tagId) => (line.tagIds.includes(tagId) ? 'all' : 'none')}
-            onToggle={handleToggleTag}
-            onCreate={handleCreateTag}
-            heading="태그"
-          />
-          <DropdownMenuSeparator />
-          <DropdownMenuRadioGroup value={excluded ? 'exclude' : 'include'} onValueChange={(value) => patch.mutate({ translate: value as 'include' | 'exclude' })}>
-            <DropdownMenuRadioItem value="include">번역 대상</DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="exclude">제외</DropdownMenuRadioItem>
-          </DropdownMenuRadioGroup>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => { void navigator.clipboard.writeText(line.source); toast.success('원문을 복사했습니다.'); }}>원문 복사</DropdownMenuItem>
-          {line.translation && <DropdownMenuItem onClick={() => { void navigator.clipboard.writeText(line.translation!); toast.success('번역을 복사했습니다.'); }}>번역 복사</DropdownMenuItem>}
-          <DropdownMenuItem onClick={() => { void navigator.clipboard.writeText(line.key); toast.success('대사 키를 복사했습니다.'); }}>키 복사</DropdownMenuItem>
-          {onShowInGraph && <DropdownMenuItem onClick={onShowInGraph}>그래프에서 보기</DropdownMenuItem>}
-          {(onEditSource || onAddLine) && <DropdownMenuSeparator />}
-          {onEditSource && <DropdownMenuItem onClick={onEditSource}>원문 편집</DropdownMenuItem>}
-          {onAddLine && <DropdownMenuItem onClick={onAddLine}>{addLineLabel}</DropdownMenuItem>}
+          {menuItems}
         </DropdownMenuContent>
       </DropdownMenu>
     </span>
@@ -424,97 +451,25 @@ export function LineRow({
         style={arrived ? { animation: 'line-arrived 2s ease-out' } : undefined}
         onAnimationEnd={onArrivedEnd}
       >
-        <ContextMenu>
-          <ContextMenuTrigger asChild>
-            <div className="w-full">
-              {row}
-            </div>
-          </ContextMenuTrigger>
-          <ContextMenuContent className="w-52">
-            <ContextMenuItem onClick={onSelect}>
-              번역 편집
-            </ContextMenuItem>
-            {onOpenDetail && (
-              <ContextMenuItem onClick={onOpenDetail}>
-                상세 열기
-              </ContextMenuItem>
-            )}
-            <ContextMenuSeparator />
-            <ContextMenuSub>
-              <ContextMenuSubTrigger>상태 변경</ContextMenuSubTrigger>
-              <ContextMenuSubContent className="w-44">
-                {statusList.map((s) => (
-                  <ContextMenuCheckboxItem
-                    key={s.id}
-                    checked={line.statusId === s.id}
-                    onCheckedChange={() => {
-                      if (line.statusId !== s.id) {
-                        saveLine.mutate({ unitId: line.id, text: line.translation ?? '', statusId: s.id });
-                      }
-                    }}
-                  >
-                    <StatusIcon status={s} />
-                    <span className="truncate">{s.name}</span>
-                  </ContextMenuCheckboxItem>
-                ))}
-              </ContextMenuSubContent>
-            </ContextMenuSub>
-            <ContextMenuSub>
-              <ContextMenuSubTrigger>태그</ContextMenuSubTrigger>
-              <ContextMenuSubContent className="w-48">
-                {tags.length === 0 ? (
-                  <div className="px-2 py-1.5 text-xs text-muted-foreground">태그 없음</div>
-                ) : (
-                  tags.map((tag) => (
-                    <ContextMenuCheckboxItem
-                      key={tag.id}
-                      checked={line.tagIds.includes(tag.id)}
-                      onCheckedChange={(checked) => handleToggleTag(tag.id, Boolean(checked))}
-                    >
-                      <span className="size-2 rounded-full shrink-0" style={{ backgroundColor: tag.color }} />
-                      <span className="truncate">{tag.name}</span>
-                    </ContextMenuCheckboxItem>
-                  ))
-                )}
-              </ContextMenuSubContent>
-            </ContextMenuSub>
-            <ContextMenuSeparator />
-            <ContextMenuItem
-              onClick={() => {
-                void navigator.clipboard.writeText(line.source);
-                toast.success('원문을 복사했습니다.');
-              }}
-            >
-              원문 복사
-            </ContextMenuItem>
-            {line.translation && (
-              <ContextMenuItem
-                onClick={() => {
-                  void navigator.clipboard.writeText(line.translation!);
-                  toast.success('번역을 복사했습니다.');
-                }}
-              >
-                번역 복사
-              </ContextMenuItem>
-            )}
-            <ContextMenuItem
-              onClick={() => {
-                void navigator.clipboard.writeText(line.key);
-                toast.success('대사 키를 복사했습니다.');
-              }}
-            >
-              키 복사
-            </ContextMenuItem>
-            {onShowInGraph && (
-              <ContextMenuItem onClick={onShowInGraph}>
-                그래프에서 보기
-              </ContextMenuItem>
-            )}
-            {(onEditSource || onAddLine) && <ContextMenuSeparator />}
-            {onEditSource && <ContextMenuItem onClick={onEditSource}>원문 편집</ContextMenuItem>}
-            {onAddLine && <ContextMenuItem onClick={onAddLine}>{addLineLabel}</ContextMenuItem>}
-          </ContextMenuContent>
-        </ContextMenu>
+        <div
+          className="w-full"
+          onContextMenu={(event) => {
+            event.preventDefault();
+            setMenuAt({ x: event.clientX, y: event.clientY });
+          }}
+        >
+          {row}
+        </div>
+        {menuAt && (
+          <DropdownMenu open onOpenChange={(open) => !open && setMenuAt(null)} modal={false}>
+            <DropdownMenuTrigger asChild>
+              <span aria-hidden className="pointer-events-none fixed size-0" style={{ left: menuAt.x, top: menuAt.y }} />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-52" onClick={(event) => event.stopPropagation()} onCloseAutoFocus={(event) => event.preventDefault()}>
+              {menuItems}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </li>
     </>
   );
