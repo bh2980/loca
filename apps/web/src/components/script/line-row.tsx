@@ -46,6 +46,7 @@ import { useDraft } from '@/lib/drafts';
 import { useSaveLine } from '@/lib/line-save';
 import type { InferResponseType } from '@/lib/api';
 import { usePersonColors } from '@/lib/person-colors';
+import { LineMenuItems } from '@/components/script/line-menu';
 
 /** Who the line is addressed to. Unsure AI guesses count as unknown. */
 function listenerText(line: { kind: string; speaker: string | null; source: string; listener: string | null; listenerOrigin: ListenerOrigin | null; listenerConfidence: number | null }, rules: FormatRules | undefined) {
@@ -324,55 +325,17 @@ export function LineRow({
       <AiMark by="ai" />
     </Button>
   ) : null;
-  // One menu for the line, the same from ⋯ and from a right-click on the row (opened at the pointer).
-  const copy = (text: string, what: string) => { void navigator.clipboard.writeText(text); toast.success(`${what}을 복사했습니다.`); };
+  // One menu for the line, the same from ⋯, from a right-click on the row (opened at the pointer) and on its graph node.
   const menuItems = (
-    <>
-      {!selected && <DropdownMenuItem onClick={onSelect}>번역 편집</DropdownMenuItem>}
-      {onOpenDetail && <DropdownMenuItem onClick={onOpenDetail}>상세 열기</DropdownMenuItem>}
-      {(!selected || onOpenDetail) && <DropdownMenuSeparator />}
-      <DropdownMenuSub>
-        <DropdownMenuSubTrigger>상태 변경</DropdownMenuSubTrigger>
-        <DropdownMenuSubContent className="w-44">
-          {statusList.map((item) => (
-            <DropdownMenuCheckboxItem
-              key={item.id}
-              checked={line.statusId === item.id}
-              onCheckedChange={() => line.statusId !== item.id && saveLine.mutate({ unitId: line.id, text: line.translation ?? '', statusId: item.id })}
-            >
-              <StatusIcon status={item} />
-              <span className="truncate">{item.name}</span>
-            </DropdownMenuCheckboxItem>
-          ))}
-        </DropdownMenuSubContent>
-      </DropdownMenuSub>
-      <TagSubMenu
-        tags={tags.filter((tag) => !tag.role)}
-        state={(tagId) => (line.tagIds.includes(tagId) ? 'all' : 'none')}
-        onToggle={handleToggleTag}
-        onCreate={handleCreateTag}
-        heading="태그"
-        label="태그"
-        icon={false}
-      />
-      <DropdownMenuSub>
-        <DropdownMenuSubTrigger>{excluded ? '번역 제외' : '번역 대상'}</DropdownMenuSubTrigger>
-        <DropdownMenuSubContent className="w-36">
-          <DropdownMenuRadioGroup value={excluded ? 'exclude' : 'include'} onValueChange={(value) => patch.mutate({ translate: value as 'include' | 'exclude' })}>
-            <DropdownMenuRadioItem value="include">번역 대상</DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="exclude">제외</DropdownMenuRadioItem>
-          </DropdownMenuRadioGroup>
-        </DropdownMenuSubContent>
-      </DropdownMenuSub>
-      <DropdownMenuSeparator />
-      <DropdownMenuItem onClick={() => copy(line.source, '원문')}>원문 복사</DropdownMenuItem>
-      {line.translation && <DropdownMenuItem onClick={() => copy(line.translation!, '번역')}>번역 복사</DropdownMenuItem>}
-      <DropdownMenuItem onClick={() => copy(line.key, '대사 키')}>키 복사</DropdownMenuItem>
-      {onShowInGraph && <DropdownMenuItem onClick={onShowInGraph}>그래프에서 보기</DropdownMenuItem>}
-      {(onEditSource || onAddLine) && <DropdownMenuSeparator />}
-      {onEditSource && <DropdownMenuItem onClick={onEditSource}>원문 편집</DropdownMenuItem>}
-      {onAddLine && <DropdownMenuItem onClick={onAddLine}>{addLineLabel}</DropdownMenuItem>}
-    </>
+    <LineMenuItems
+      projectId={projectId}
+      line={{ id: line.id, key: line.key, source: line.source, translation: line.translation, statusId: line.statusId, tagIds: line.tagIds, translate: line.translate, groupKind: line.groupKind }}
+      onEdit={selected ? undefined : onSelect}
+      onOpenDetail={onOpenDetail}
+      onShowInGraph={onShowInGraph}
+      onEditSource={onEditSource}
+      onAddLine={onAddLine}
+    />
   );
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
   // The line's actions sit at the right end of the header of the picked row: the details pane, and everything else in ⋯.

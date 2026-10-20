@@ -659,7 +659,7 @@ export const sourceRoutes = new Hono<Env>()
         status: layoutStatus,
         error: layout?.error ?? null,
         layout: db.select({ data: s.graphLayouts.data }).from(s.graphLayouts).where(where).get()?.data ?? null,
-        nodes: nodes.map((node) => ({ ...node, type: null as string | null, kind: 'scene', groupId: node.id, preview: `${node.total}개 대사`, speaker: null as string | null, text: null as string | null })),
+        nodes: nodes.map((node) => ({ ...node, type: null as string | null, kind: 'scene', groupId: node.id, preview: `${node.total}개 대사`, speaker: null as string | null, text: null as string | null, unitId: null as string | null })),
         nodeTypes: {} as Record<string, NodeType>,
         sections: [] as { name: string; nodes: number; groupIds: string[] }[],
       });
@@ -682,6 +682,8 @@ export const sourceRoutes = new Hono<Env>()
         label: s.graphNodes.label,
         groupId: s.graphNodes.groupId,
         total: sql<number>`json_array_length(${s.graphNodes.unitIds})`,
+        /** The node's first line, for the line menu on its card. */
+        unitId: sql<string | null>`json_extract(${s.graphNodes.unitIds}, '$[0]')`,
         preview: sql<string | null>`(select coalesce(u.speaker || ': ', '') || substr(u.source, 1, 90) from units u where u.id = json_extract("graph_nodes"."unit_ids", '$[0]'))`,
         // The first line apart, so a card can lead with who speaks.
         speaker: sql<string | null>`(select u.speaker from units u where u.id = json_extract("graph_nodes"."unit_ids", '$[0]'))`,

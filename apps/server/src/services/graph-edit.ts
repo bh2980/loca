@@ -111,8 +111,8 @@ export function unlinkEdges(db: Db, projectId: string, ids: string[]) {
 }
 
 /**
- * A new line right after a node, in that node's scene: when the node has one way on (A → B) the new
- * line goes between them (A → new → B, the way's label stays on A's side); when it has none or
+ * A new line right after a node, in that node's scene: when the node has one way on (A → B; links to
+ * hubs do not count) the new line goes between them (A → new → B, the way's label stays on A's side); when it has none or
  * several (a branch) the new line is another way out of A.
  */
 export function insertLineAfter(db: Db, projectId: string, nodeId: string, input: { source: string; speaker?: string | null; listener?: string | null; key?: string; origin: GraphOrigin }) {
@@ -142,7 +142,9 @@ export function insertLineAfter(db: Db, projectId: string, nodeId: string, input
     record.created('units', unit.id);
     const created = tx.insert(s.graphNodes).values({ projectId, key: `entry-${unit.id}`, kind: 'script', groupId: group.id, unitIds: [unit.id], meta: { manualSourceEntry: true }, origin: input.origin }).returning().get();
     record.created('nodes', created.id);
-    const outs = tx.select().from(s.graphEdges).where(eq(s.graphEdges.fromId, node.id)).all();
+    // Its ways on, leaving out links to hubs (connector nodes that tie many lines to a state): those are not the next line.
+    const hubs = new Set(tx.select({ id: s.graphNodes.id }).from(s.graphNodes).where(and(eq(s.graphNodes.projectId, projectId), eq(s.graphNodes.kind, 'connector'))).all().map((row) => row.id));
+    const outs = tx.select().from(s.graphEdges).where(eq(s.graphEdges.fromId, node.id)).all().filter((edge) => !hubs.has(edge.toId));
     const link = (fromId: string, toId: string, label: string | null) => record.created('edges', tx.insert(s.graphEdges).values({ projectId, fromId, toId, label, origin: input.origin }).returning().get().id);
     if (outs.length === 1) {
       const [way] = outs;
@@ -223,7 +225,10 @@ export function duplicateNodes(db: Db, projectId: string, ids: string[]) {
   return edit(db, projectId, (tx, record) => {
     const made = new Map<string, string>();
     const status = initialStatus(tx, projectId);
-    for (const node of nodes) {
+    // In script order, so the copies read in the order of their originals.
+    const seqOf = new Map(inChunks(nodes.flatMap((node) => node.unitIds), (slice) => tx.select({ id: s.units.id, seq: s.units.seq }).from(s.units).where(inArray(s.units.id, slice)).all()).map((row) => [row.id, row.seq]));
+    const first = (node: (typeof nodes)[number]) => Math.min(...node.unitIds.map((id) => seqOf.get(id) ?? Infinity));
+    for (const node of [...nodes].sort((a, b) => first(a) - first(b))) {
       const lines = node.unitIds.length ? tx.select().from(s.units).where(inArray(s.units.id, node.unitIds)).all() : [];
       const copies: string[] = [];
       for (const line of node.unitIds.map((id) => lines.find((row) => row.id === id)).filter((row) => row !== undefined)) {
