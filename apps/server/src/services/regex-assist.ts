@@ -43,7 +43,7 @@ export async function generateRegex(db: Db, secrets: SecretStore, projectId: str
   const result = await ai.withFallback(
     routes,
     snapshot.maxAttempts,
-    (route) => logged(db, call, route, () => generate(route, { system, prompt, schema, maxOutputTokens: snapshot.maxOutputTokens, timeoutMs: editorAiSchema.parse(db.select({ editorAi: s.projects.editorAi }).from(s.projects).where(eq(s.projects.id, projectId)).get()?.editorAi ?? {}).regex.timeoutSeconds * 1000, signal })),
+    (route) => logged(db, call, route, () => generate(route, { system, prompt, schema, maxOutputTokens: snapshot.maxOutputTokens, timeoutMs: editorAiSchema.parse(db.select({ editorAi: s.projects.editorAi }).from(s.projects).where(eq(s.projects.id, projectId)).get()?.editorAi ?? {}).timeoutSeconds * 1000, signal })),
     signal,
   );
   const rule = schema.parse(result.result.object);

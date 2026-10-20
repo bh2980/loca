@@ -62,7 +62,7 @@ describe('the editor AI assist', () => {
   it('uses the button\'s instructions and the shared call time limit', async () => {
     const { db, unit } = setup();
     const project = db.select().from(s.projects).where(eq(s.projects.id, unit.projectId)).get()!;
-    db.update(s.projects).set({ editorAi: { ...(project.editorAi as object), timeoutMinutes: 1, translate: { instructions: 'Translate like a pirate.' } } as never }).where(eq(s.projects.id, unit.projectId)).run();
+    db.update(s.projects).set({ editorAi: { ...(project.editorAi as object), timeoutSeconds: 30, translate: { instructions: 'Translate like a pirate.' } } as never }).where(eq(s.projects.id, unit.projectId)).run();
     const seen: { system?: string; timeoutMs?: number } = {};
     const generate = (async (_route: unknown, request: { system: string; timeoutMs: number }) => {
       Object.assign(seen, { system: request.system, timeoutMs: request.timeoutMs });
@@ -70,7 +70,7 @@ describe('the editor AI assist', () => {
     }) as unknown as typeof ai.generate;
     await assistLine(db, memoryStore(), unit.id, { mode: 'translate', draft: '' }, undefined, generate);
     expect(seen.system).toContain('Translate like a pirate.');
-    expect(seen.timeoutMs).toBe(60_000);
+    expect(seen.timeoutMs).toBe(30_000);
   });
 
   it('makes no candidate when there is nothing to fix', async () => {

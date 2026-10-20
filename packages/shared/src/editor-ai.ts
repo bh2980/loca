@@ -22,14 +22,14 @@ function editorButtonSchema(preset: AiPresetId) {
  * The editor's AI, per project. 'AI 번역' and '다듬기' share one model (any connection, a CLI too), one
  * context and one call time limit, and each has its instructions (from the AI 번역 / AI 다듬기 presets
  * until changed); together they make an ordinary AI node configuration, not a workflow's node. The
- * continuation (off by default) has its own API model, as it answers while the person types; then
- * 자연어로 정규식 만들기's time limit.
+ * continuation (off by default) has its own API model, as it answers while the person types.
+ * One time limit covers AI 번역, 다듬기 and 자연어로 정규식 만들기.
  */
 export const editorAiSchema = z.object({
   model: aiNodeConfigSchema.shape.model.default({ connectionId: '', model: '' }),
   context: contextConfigSchema.prefault({}),
-  // A person waits for the answer: a single line should not take minutes.
-  timeoutMinutes: aiNodeConfigSchema.shape.timeoutMinutes.default(2),
+  /** How long the editor's AI (AI 번역, 다듬기, 자연어로 정규식 만들기) waits for an answer: a person is waiting. */
+  timeoutSeconds: z.number().int().min(10).max(600).default(60),
   translate: editorButtonSchema('translate'),
   refine: editorButtonSchema('refine'),
   complete: z
@@ -48,7 +48,6 @@ export const editorAiSchema = z.object({
       timeoutSeconds: z.number().int().min(3).max(120).default(15),
     })
     .prefault({}),
-  regex: z.object({ timeoutSeconds: z.number().int().min(10).max(600).default(120) }).prefault({}),
 });
 export type EditorButton = 'translate' | 'refine';
 
@@ -63,7 +62,8 @@ export function editorNodeConfig(settings: z.infer<typeof editorAiSchema>, butto
     include: settings[button].include,
     context: settings.context,
     preset: button,
-    timeoutMinutes: settings.timeoutMinutes,
+    // The node's own unit is whole minutes; the call itself waits timeoutSeconds.
+    timeoutMinutes: Math.max(1, Math.ceil(settings.timeoutSeconds / 60)),
   });
 }
 export type EditorAi = z.infer<typeof editorAiSchema>;
