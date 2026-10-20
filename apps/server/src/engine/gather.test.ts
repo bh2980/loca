@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { importFileSchema, validateWorkflow, workflowDefinitionSchema } from '@tw/shared';
+import { analysisTemplate, importFileSchema, validateWorkflow, workflowDefinitionSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
@@ -88,5 +88,51 @@ describe('모으기', () => {
     expect(messages(withLines)).toContainEqual(expect.stringContaining('대사를 빼고'));
     const loop = flow(choice, { edges: [{ id: '4', source: 'combine', sourceHandle: 'error', target: 'read' }] });
     expect(messages(loop)).toContainEqual(expect.stringContaining('고리 안에'));
+  });
+
+  it('작품 분석 read in parts saves one combined cast and overview, and each part\'s other lists', async () => {
+    const { db, projectId, choice } = setup();
+    // Lines of ~180 tokens: a scene (two lines) fits a 500-token request, two scenes do not — three parts.
+    for (const unit of db.select().from(s.units).where(eq(s.units.projectId, projectId)).all()) db.update(s.units).set({ source: `${unit.source} ${'word '.repeat(140)}` }).where(eq(s.units.id, unit.id)).run();
+    const template = analysisTemplate({ model: choice });
+    // A request budget of one scene: three parts.
+    const definition = workflowDefinitionSchema.parse({ ...template, nodes: template.nodes.map((node) => (node.id === 'analysis' && node.type === 'ai' ? { ...node, config: { ...node.config, batch: { ...node.config.batch, maxTokens: 500 } } } : node)) });
+    const workflow = db.insert(s.workflows).values({ projectId, name: '작품 분석', definition }).returning().get();
+    createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, definition), scope: { ignoreStatus: true } });
+    const merged: string[] = [];
+    const port: ModelPort = {
+      judge: async () => {
+        throw new Error('unused');
+      },
+      generate: async (_route, request) => {
+        if (request.system.includes('read the script in several requests')) {
+          merged.push(request.prompt);
+          return { object: { overviewTitle: '작품 개요', overview: '## 줄거리\n전체', characters: [{ name: 'Mira', aliases: ['Corporal Mira'], profile: '하사', player: false, gender: 'female', ageBand: 'young', role: 'main' }] }, usage: {} } as never;
+        }
+        const scene = /\[g(\d)\]/.exec(request.prompt)![1];
+        return {
+          object: {
+            overviewTitle: '작품 개요',
+            overview: `part ${scene}`,
+            characters: [{ name: scene === '2' ? 'Corporal Mira' : 'Mira', aliases: [], profile: '', speech: '', player: false, gender: 'unknown', ageBand: 'unknown', role: 'unknown', evidence: [] }],
+            relationships: [{ from: 'Mira', to: `Kai ${scene}`, kind: '동료', description: '', changes: [], evidence: [] }],
+            events: [],
+            speechRules: [],
+            sceneListeners: [],
+            terms: [],
+          },
+          usage: {},
+        } as never;
+      },
+    };
+    await new Runner(db, memoryStore(), port).drain();
+    expect(merged).toHaveLength(1);
+    expect((JSON.parse(merged[0]!) as { previous: { count: number }[] }).previous[0]!.count).toBe(3);
+    const proposals = db.select().from(s.proposals).all();
+    const characters = proposals.filter((proposal) => proposal.nodeId === 'save-characters');
+    expect(characters).toHaveLength(1);
+    expect(characters[0]!.input).toMatchObject({ characters: [expect.objectContaining({ name: 'Mira', aliases: ['Corporal Mira'] })] });
+    expect(proposals.filter((proposal) => proposal.nodeId === 'save-overview')).toHaveLength(1);
+    expect(proposals.filter((proposal) => proposal.nodeId === 'save-relationships')).toHaveLength(3);
   });
 });

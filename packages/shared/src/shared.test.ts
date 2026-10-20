@@ -221,9 +221,10 @@ describe('templates', () => {
 
   it('maps every field an analysis list produces that its save node accepts', () => {
     const analysis = analysisTemplate({ model });
-    const fields = AI_PRESETS.analysis.fields;
     for (const node of analysis.nodes) {
       if (node.type !== 'function' || !(node.config.fn in APPLY_TARGETS) || !node.config.params.list) continue;
+      // Each save reads its own source: the analysis itself, or the node that combines its parts.
+      const fields = node.config.params.fromNodeId === 'merge' ? AI_PRESETS.analysisMerge.fields : AI_PRESETS.analysis.fields;
       const items = fields.find((field) => field.name === node.config.params.list)?.fields?.map((field) => field.name) ?? [];
       const accepted = APPLY_TARGETS[node.config.fn as keyof typeof APPLY_TARGETS].fields.map((field) => field.name).filter((name) => items.includes(name));
       expect(Object.keys(node.config.params.map as object)).toEqual(expect.arrayContaining(accepted));
@@ -331,13 +332,14 @@ describe('analysis workflow and presets', () => {
     expect(ANALYSIS_WORKFLOW).toBe('작품 분석');
   });
 
-  it('builds the work analysis as entry → AI → one save node per list, in a chain', () => {
+  it('builds the work analysis: per-part saves in a chain, people and the overview gathered and combined once', () => {
     const definition = workflowDefinitionSchema.parse(analysisTemplate({ model }));
-    expect(definition.nodes.map((node) => (node.type === 'function' ? node.config.fn : node.type))).toEqual(['entry', 'ai', 'saveDocument', 'saveCharacters', 'saveRelationships', 'saveSpeechRules', 'saveEvents', 'saveTerms', 'saveSceneListeners', 'condition', 'fail']);
-    // The save chain, plus the AI node's error exit → 다시 시도? → back to it or 실패로 끝내기.
-    expect(definition.edges).toHaveLength(8 + 3);
-    expect(definition.edges.filter((edge) => edge.source === 'analysis-again').map((edge) => [edge.sourceHandle, edge.target])).toEqual([['true', 'analysis'], ['false', 'analysis-fail']]);
-    expect(definition.nodes[2]).toMatchObject({ config: { params: { map: { title: 'overviewTitle', body: 'overview' } } } });
+    expect(definition.nodes.map((node) => (node.type === 'function' ? node.config.fn : node.type))).toEqual(['entry', 'ai', 'saveRelationships', 'saveSpeechRules', 'saveEvents', 'saveTerms', 'saveSceneListeners', 'gather', 'ai', 'saveCharacters', 'saveDocument', 'condition', 'fail', 'condition', 'fail']);
+    // Per-part saves in a chain; people and the overview through 모으기 → 결과 합치기; a retry path behind each AI node.
+    expect(definition.edges.filter((edge) => edge.source === 'analysis').map((edge) => [edge.sourceHandle, edge.target])).toEqual([['out', 'save-relationships'], ['out', 'gather'], ['error', 'analysis-again']]);
+    expect(definition.nodes.find((node) => node.id === 'merge')).toMatchObject({ config: { preset: 'analysisMerge', input: { from: 'gather', lines: false } } });
+    expect(validateWorkflow(definition, { statusIds: new Set(), connections: new Set(['c']) } as never).filter((issue) => issue.level === 'error').map((issue) => issue.message)).toEqual([]);
+    expect(definition.nodes.find((node) => node.id === 'save-overview')).toMatchObject({ config: { params: { fromNodeId: 'merge', map: { title: 'overviewTitle', body: 'overview' } } } });
   });
 
   it('fills an analysis AI node from its preset: json, whole script, every rule in the visible instructions', () => {

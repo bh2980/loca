@@ -100,8 +100,8 @@ const applyNode = (id: string, fn: ApplyFunctionName, fromNodeId: string, row: n
   config: { fn, params: { fromNodeId, list: options.list ?? '', map: options.map, propose: options.propose ?? true, asCandidate: options.asCandidate ?? false } },
 });
 /** An apply node for one list of a preset's JSON output, mapped by field name. */
-const saveList = (id: string, fn: ApplyFunctionName, fromNodeId: string, preset: AiPresetId, list: string, row: number): WorkflowNode =>
-  applyNode(id, fn, fromNodeId, row, { list, map: mapByName(fn, itemFields(preset, list)) });
+const saveList = (id: string, fn: ApplyFunctionName, fromNodeId: string, preset: AiPresetId, list: string, row: number, column = 0): WorkflowNode =>
+  applyNode(id, fn, fromNodeId, row, { list, map: mapByName(fn, itemFields(preset, list)) }, column);
 
 const edge = (source: string, sourceHandle: string, target: string): WorkflowEdge => ({ id: `${source}-${sourceHandle}-${target}`, source, sourceHandle, target });
 
@@ -374,19 +374,30 @@ export function analysisTemplate(ids: Model): WorkflowDefinition {
       nodes: [
         entryNode(),
         aiNode(analysis, 'analysis', ids.model, 1, 0, '작품 분석'),
-        applyNode('save-overview', 'saveDocument', analysis, 2, { map: { title: 'overviewTitle', body: 'overview' } }),
-        saveList('save-characters', 'saveCharacters', analysis, 'analysis', 'characters', 3),
-        saveList('save-relationships', 'saveRelationships', analysis, 'analysis', 'relationships', 4),
-        saveList('save-speech-rules', 'saveSpeechRules', analysis, 'analysis', 'speechRules', 5),
-        saveList('save-events', 'saveEvents', analysis, 'analysis', 'events', 6),
-        saveList('save-terms', 'saveTerms', analysis, 'analysis', 'terms', 7),
-        saveList('save-scene-listeners', 'saveSceneListeners', analysis, 'analysis', 'sceneListeners', 8),
+        // Lists that each part can save on its own (a duplicate name is merged when saved).
+        saveList('save-relationships', 'saveRelationships', analysis, 'analysis', 'relationships', 2),
+        saveList('save-speech-rules', 'saveSpeechRules', analysis, 'analysis', 'speechRules', 3),
+        saveList('save-events', 'saveEvents', analysis, 'analysis', 'events', 4),
+        saveList('save-terms', 'saveTerms', analysis, 'analysis', 'terms', 5),
+        saveList('save-scene-listeners', 'saveSceneListeners', analysis, 'analysis', 'sceneListeners', 6),
+        // People and the overview need every part at once: gathered, combined, then saved once.
+        { id: 'gather', type: 'gather', position: at(2, 1), label: '모든 조각 모으기', config: { from: analysis, fields: [...MERGED_CHARACTER_PATHS, 'overviewTitle', 'overview'] } },
+        { id: 'merge', type: 'ai', position: at(3, 1), label: AI_PRESETS.analysisMerge.label, config: presetConfig('analysisMerge', ids.model, { input: { from: 'gather', lines: false, fields: [] } }) },
+        saveList('save-characters', 'saveCharacters', 'merge', 'analysisMerge', 'characters', 4, 1),
+        applyNode('save-overview', 'saveDocument', 'merge', 5, { map: { title: 'overviewTitle', body: 'overview' } }, 1),
       ],
-      edges: chain('entry', analysis, 'save-overview', 'save-characters', 'save-relationships', 'save-speech-rules', 'save-events', 'save-terms', 'save-scene-listeners'),
+      edges: [
+        ...chain('entry', analysis, 'save-relationships', 'save-speech-rules', 'save-events', 'save-terms', 'save-scene-listeners'),
+        edge(analysis, 'out', 'gather'),
+        ...chain('gather', 'merge', 'save-characters', 'save-overview'),
+      ],
     },
-    [[analysis, 1]],
+    [[analysis, 1, 2], ['merge', 3, 2]],
   );
 }
+
+/** What 작품 분석 passes to the combining node of each person a part found (no evidence: the parts' lines are not shown to it). */
+const MERGED_CHARACTER_PATHS = ['name', 'aliases', 'profile', 'player', 'gender', 'ageBand', 'role'].map((field) => `characters.${field}`);
 
 /** Single-purpose templates that only need a model (the `from` of creating a workflow). */
 export const MODEL_TEMPLATES = {

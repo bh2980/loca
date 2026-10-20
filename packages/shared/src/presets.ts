@@ -51,7 +51,7 @@ const RULE_TERMS = `- terms: names and words whose Korean form must stay the sam
 /** The terms rule for reading translated lines: the Korean form is taken from the translations, never made up. */
 const RULE_TERMS_FROM_TRANSLATIONS = `- terms: names and words whose Korean form must stay the same across the whole translation: people, places, organizations, products and technology, coined words and in-world concepts (also lower-case ones, such as a slang word, a species or a drug), ranks and titles, and interface words that recur. Not ordinary words. Skip what the glossary already has. "source" exactly as the script writes it, "kind" one of ${TERM_KINDS.join(', ')}, "meaning" one short Korean sentence, "target" the Korean form the translations of those lines use for it; when the lines have no translation, or their translations render it in different ways, leave "target" empty and say so in "meaning". "evidence" a few lines where it appears.`;
 const RULE_OVERVIEW =
-  '- overview: one document about the work so far, with the headings 배경 (setting), 주요 갈등 (main conflict) and 줄거리 (plot so far); "overviewTitle" is its short title.';
+  '- overview: one document about the work so far, with the headings 배경 (setting), 주요 갈등 (main conflict) and 줄거리 (plot so far), at most about 1,500 words; "overviewTitle" is its short title.';
 
 // ---- the fields those rules fill ----
 
@@ -324,6 +324,27 @@ export const AI_PRESETS = {
       RULE_SCENE_LISTENERS,
       RULE_TERMS,
       '- Keep the whole answer under about 15,000 words.',
+    ].join('\n'),
+  },
+  analysisMerge: {
+    label: 'AI 결과 합치기',
+    description: '작품 분석이 대본을 여러 요청으로 나눠 읽었을 때, 조각마다 나온 인물과 개요를 하나로 합칩니다(모으기 뒤).',
+    output: 'json',
+    scope: 'batch',
+    include: { candidate: false, issues: false },
+    // Only the parts go in: the cast list keeps the names people fixed.
+    context: { ...READING_CONTEXT, glossary: false },
+    fields: [
+      field('overviewTitle', 'string', 'A short Korean title for the overview document, e.g. "작품 개요".'),
+      field('overview', 'string', 'One Markdown document in Korean for the whole script, with the headings 배경, 주요 갈등 and 줄거리 (the plot of every part, in order); at most about 1,500 words.'),
+      listField('characters', 'Every person of the parts, once.', characterFields.filter((entry) => entry.name !== 'evidence' && entry.name !== 'speech')),
+    ],
+    instructions: [
+      'An earlier node read the script in several requests, in script order; "previous" holds what they found ("parts", one per request): each part\'s characters and overview. Combine them into one answer:',
+      '- characters: one entry per person. The same person under different names (one part calls them by a title or a code name, another by their name) is ONE entry: use the name the parts use most (or the cast list\'s name) as "name" and put every other name in "aliases". Merge the profiles into 1-3 sentences. For gender, ageBand, role and player keep what the parts say when they agree, otherwise "unknown" (player: true if any part says so). Never invent a person no part names.',
+      '- overview: rewrite the parts\' overviews as one document for the whole script; the plot follows the parts in order.',
+      KNOWN_CAST,
+      '- Use only what the parts say. Write in Korean, except names.',
     ].join('\n'),
   },
 } satisfies Record<string, AiPreset>;
