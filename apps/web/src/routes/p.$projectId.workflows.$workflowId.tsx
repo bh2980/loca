@@ -622,6 +622,7 @@ function WorkflowEditor() {
                   connections: connections.data ?? [],
                   nodes: current.definition.nodes,
                   edges: current.definition.edges,
+                  onOpenNode: select,
                 }}
                 onChange={(next) => setDraft((value) => ({ ...value, definition: { ...value.definition, nodes: value.definition.nodes.map((node) => (node.id === next.id ? next : node)), edges: value.definition.edges.map((edge) => ({ ...edge, layout: undefined })) } }))}
                 onDelete={deleteSelected}

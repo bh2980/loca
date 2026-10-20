@@ -9,7 +9,7 @@ import { AiContextPanel } from '@/components/ai-context';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
 import { client, unwrap } from '@/lib/api';
 import { JsonFieldsEditor } from '@/components/workflow/node-config/json-fields-editor';
-import { Field, CountRow, ToggleRow, refsSubject, outputFieldNames, type AiNode, type NodeRefs } from '@/components/workflow/node-config/shared';
+import { Field, CheckItem, CountRow, StepChips, ToggleRow, refsSubject, outputFieldNames, type AiNode, type NodeRefs } from '@/components/workflow/node-config/shared';
 
 /** The fields a preset fills into a node (a full AI node config minus the model). */
 type PresetFill = Partial<Pick<AiNode['config'], 'instructions' | 'output' | 'scope' | 'fields' | 'choice'>>;
@@ -336,22 +336,35 @@ function AiInputSection({ node, refs, set }: { node: AiNode; refs: NodeRefs; set
   const gathered = steps.some((step) => step.type === 'gather');
   const batch = node.config.output === 'json' && node.config.scope === 'batch';
   const setInput = (patch: Partial<AiNode['config']['input']>) => set({ input: { ...input, ...patch } });
-  const from = steps.length ? `← ${steps.map(nodeName).join(', ')}` : '앞 단계에 결과를 내는 노드가 없습니다';
+  const id = (name: string) => `ai-input-${node.id}-${name}`;
   return (
-    <InspectorSection title={input.previous ? `입력 · 앞 단계 결과` : '입력'} defaultOpen={input.previous}>
-      <Field label="앞 단계 결과" hint="선으로 이어진 앞 단계(AI·스크립트·모으기)의 결과를 대사마다 previous로 넣습니다. 조건·검사·저장 노드는 건너뜁니다.">
-        <ToggleRow label={`넣기 · ${from}`} checked={input.previous} onChange={(previous) => setInput({ previous, fields: [], ...(previous ? (gathered && batch ? { lines: false } : {}) : { lines: true }) })} />
-      </Field>
-      {input.previous && names.length > 0 && (
-        <Field label="남길 필드" hint="하나도 고르지 않으면 결과 전체를 넣습니다.">
-          <div className="space-y-2">
-            {names.map((name) => (
-              <ToggleRow key={name} label={name} checked={input.fields.includes(name)} onChange={(on) => setInput({ fields: on ? [...input.fields, name] : input.fields.filter((field) => field !== name) })} />
-            ))}
+    <InspectorSection title="입력" defaultOpen={input.previous}>
+      <div className="space-y-3">
+        <CheckItem
+          id={id('previous')}
+          label="앞 단계 결과도 함께 보내기"
+          title="조건·검사·저장 노드는 건너뛰고, 선으로 이어진 바로 앞 AI·스크립트·모으기 노드의 결과를 대사마다 보냅니다."
+          checked={input.previous}
+          onChange={(previous) => setInput({ previous, fields: [], ...(previous ? (gathered && batch ? { lines: false } : {}) : { lines: true }) })}
+        />
+        {input.previous && (
+          <div className="space-y-3 pl-6">
+            <StepChips steps={steps} refs={refs} suffix="의 결과" />
+            {names.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-xs text-muted-foreground">보낼 항목</p>
+                <div className="flex flex-wrap gap-x-4 gap-y-2">
+                  {names.map((name) => (
+                    <CheckItem key={name} id={id(`field-${name}`)} label={name} checked={input.fields.includes(name)} onChange={(on) => setInput({ fields: on ? [...input.fields, name] : input.fields.filter((field) => field !== name) })} />
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">아무것도 고르지 않으면 전부 보냅니다.</p>
+              </div>
+            )}
+            {(batch || gathered) && <CheckItem id={id('lines')} label="대사도 함께 보내기" checked={input.lines} onChange={(lines) => setInput({ lines })} />}
           </div>
-        </Field>
-      )}
-      {input.previous && (batch || gathered) && <ToggleRow label="대사도 넣기" checked={input.lines} onChange={(lines) => setInput({ lines })} />}
+        )}
+      </div>
     </InspectorSection>
   );
 }

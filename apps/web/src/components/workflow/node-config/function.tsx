@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
 import { AiRegexInput } from '@/components/ai-regex-input';
 import { client, unwrap } from '@/lib/api';
 import { JsonFieldsEditor } from '@/components/workflow/node-config/json-fields-editor';
-import { Field, refsSubject, type FunctionNode, type NodeRefs } from '@/components/workflow/node-config/shared';
+import { Field, StepChips, refsSubject, type FunctionNode, type NodeRefs } from '@/components/workflow/node-config/shared';
 
 // ── function node ─────────────────────────────────────────────────────
 
@@ -440,8 +440,8 @@ function ApplyConfig({ node, fn, params, refs, setMany }: { node: FunctionNode; 
 
   return (
     <>
-      <Field label="반영할 결과" hint="선으로 이어진 앞 단계(AI·스크립트 노드)의 결과를 반영합니다. 조건·저장 노드는 건너뜁니다.">
-        <p className="text-sm">{steps.length ? `← ${steps.map(nodeName).join(', ')}` : '앞 단계에 결과를 내는 노드가 없습니다. AI·스크립트 노드 뒤에 이으세요.'}</p>
+      <Field label="반영할 결과">
+        <StepChips steps={steps} refs={refs} suffix="의 결과" />
       </Field>
 
       {from && target.shape === 'list' && (
