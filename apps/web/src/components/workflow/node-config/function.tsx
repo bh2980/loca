@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Play, Plus, Trash2 } from 'lucide-react';
 import { APPLY_FUNCTION_NAMES, APPLY_TARGETS, applyIssues, DEFAULT_PARTICLE_PATTERN, formatPatternError, FUNCTIONS, functionTakes, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, JSON_FIELD_TYPE_LABELS, nodeName, PALETTE_FUNCTION_NAMES, previousSteps, type ApplyField, type ApplyFunctionName, type ApplyParams, type CustomFormatRule, type JsonFieldType, type WorkflowDefinition, type FunctionName, type JsonField, type WorkflowNode } from '@tw/shared';
-import { Button, Input, InspectorActionRow, InspectorFields, InspectorList, InspectorResult, InspectorToggle, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, StatusIcon, TagChip } from '@loca/ui';
+import { Button, Input, NumberInput, InspectorActionRow, InspectorFields, InspectorList, InspectorResult, InspectorToggle, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, StatusIcon, TagChip } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
 import { AiConfirmNote } from '@/components/settings/ai-confirm';
 import { cn } from '@/lib/utils';
@@ -35,8 +35,6 @@ export function FunctionConfig({ node, refs, readOnly, onChange }: { node: Funct
         return <InspectorResult tone="info">설정 항목이 없습니다.</InspectorResult>;
       case 'setStatus':
         return <SetStatusConfig params={params} refs={refs} set={set} setMany={setMany} />;
-      case 'setTermStatus':
-        return <SetTermStatusConfig params={params} set={set} />;
       case 'http':
         return <HttpConfig params={params} refs={refs} set={set} />;
       case 'script':
@@ -123,7 +121,7 @@ function FormatCheckConfig({ params, refs, set }: { params: Record<string, unkno
 
       {LENGTH_LIMITS.map(({ key, label, step }) => (
         <Field key={key} label={label} hint="비우면 확인하지 않습니다.">
-          <Input type="number" min={0} step={step} placeholder="끔" value={(params[key] as number) || ''} onChange={(event) => set(key, Math.max(0, Number(event.target.value) || 0))} />
+          <NumberInput min={0} step={step} integer={step >= 1} optional placeholder="끔" value={(params[key] as number) || undefined} onValueChange={(next) => set(key, next ?? 0)} />
         </Field>
       ))}
 
@@ -196,11 +194,13 @@ function SetStatusConfig({ params, refs, set, setMany }: { params: Record<string
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="keep">바꾸지 않음</SelectItem>
-            {refs.statuses.map((status) => (
-              <SelectItem key={status.id} value={status.id}>
-                <StatusIcon status={status} /> {status.name}
-              </SelectItem>
-            ))}
+            {refsInput(refs) === 'terms'
+              ? KNOWLEDGE_STATUSES.map((status) => <SelectItem key={status} value={status}>{KNOWLEDGE_STATUS_LABELS[status]}</SelectItem>)
+              : refs.statuses.map((status) => (
+                  <SelectItem key={status.id} value={status.id}>
+                    <StatusIcon status={status} /> {status.name}
+                  </SelectItem>
+                ))}
           </SelectContent>
         </Select>
       </Field>
@@ -236,18 +236,6 @@ function SetStatusConfig({ params, refs, set, setMany }: { params: Record<string
   );
 }
 
-function SetTermStatusConfig({ params, set }: { params: Record<string, unknown>; set: (key: string, value: unknown) => void }) {
-  return (
-    <>
-      <Field label="바꿀 상태">
-        <Select value={params.status as string} onValueChange={(value) => set('status', value)}>
-          <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-          <SelectContent>{KNOWLEDGE_STATUSES.map((status) => <SelectItem key={status} value={status}>{KNOWLEDGE_STATUS_LABELS[status]}</SelectItem>)}</SelectContent>
-        </Select>
-      </Field>
-    </>
-  );
-}
 
 const PLACEHOLDERS = '{{candidate}}, {{unit.source}}, {{unit.speaker}}, {{unit.key}}, {{outputs.<노드ID>.<필드>}}';
 
@@ -305,7 +293,7 @@ function HttpConfig({ params, refs, set }: { params: Record<string, unknown>; re
         </Select>
       </Field>
       <Field label="제한 시간" hint="초 단위, 1–300.">
-        <Input type="number" min={1} max={300} value={params.timeoutSeconds as number} onChange={(event) => set('timeoutSeconds', Number(event.target.value))} />
+        <NumberInput min={1} max={300} value={params.timeoutSeconds as number} onValueChange={(next) => next !== undefined && set('timeoutSeconds', next)} />
       </Field>
     </>
   );
@@ -497,11 +485,8 @@ function ApplyConfig({ node, fn, params, refs, setMany }: { node: FunctionNode; 
         </Field>
       )}
 
-      {(target.shape !== 'line' || fn === 'saveTermEntry') && <AiConfirmNote projectId={refs.projectId} />}
+      {(target.shape !== 'line' || (fn === 'saveCandidate' && refsInput(refs) === 'terms')) && <AiConfirmNote projectId={refs.projectId} />}
 
-      {fn === 'saveTermEntry' && (
-        <InspectorToggle label="비어 있을 때만 채우기" description="용어에 이미 표기가 있으면 덮어쓰지 않습니다." checked={(params as { onlyEmpty?: boolean }).onlyEmpty !== false} onChange={(value) => setMany({ onlyEmpty: value })} />
-      )}
 
       {issues.map((message) => (
         <InspectorResult key={message} tone="info">

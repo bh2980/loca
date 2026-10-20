@@ -13,6 +13,7 @@ import { runScript } from '../engine/functions/sandbox.ts';
 import { WHOLE_SCRIPT_BUSY, createRunInSteps, FILLING, refuseSecondWholeScript, selectRunTerms, selectRunUnits } from '../engine/run-create.ts';
 import { listBatches, preflight } from '../services/preflight.ts';
 import { choiceLabel, snapshotWorkflowModels } from '../services/routes.ts';
+import { previewRequest } from '../services/request-preview.ts';
 import { continuePreflight, switchedRun } from '../services/run-continue.ts';
 import { deleteWorkflow, saveWorkflow, WorkflowMutationError } from '../services/workflow-mutations.ts';
 
@@ -121,6 +122,11 @@ export const workflowRoutes = new Hono<Env>()
       throw error;
     }
     return c.json({ ok: true });
+  })
+  /** 보낼 내용: one request of a saved AI node for a sample item (no model call). */
+  .get('/workflows/:id/nodes/:nodeId/request', validate('query', z.object({ sample: z.string().optional() })), (c) => {
+    const workflow = found(c.var.deps.db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
+    return c.json(found(previewRequest(c.var.deps.db, workflow, c.req.param('nodeId'), c.req.valid('query').sample) ?? undefined, 'AI 노드'));
   })
   .post('/workflows/:id/preview', validate('json', scopeSchema), (c) => {
     const { db } = c.var.deps;

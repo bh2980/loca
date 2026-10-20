@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, ChevronRight, MoreHorizontal, Plus, Trash2 } from 'lucide-react';
 import { z } from 'zod';
 import { JSON_FIELD_TYPES, JSON_FIELD_TYPE_LABELS, jsonFieldSchema, type JsonField, type JsonFieldType } from '@tw/shared';
-import { Button, ControlIdContext, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Switch, Textarea, cn } from '@loca/ui';
+import { Button, ControlIdContext, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, Input, NumberInput, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Switch, Textarea, cn } from '@loca/ui';
 
 const fieldsSchema = z.array(jsonFieldSchema);
 
@@ -93,9 +93,9 @@ function FieldItem({ field, path, first, last, descriptionPlaceholder, editing, 
       {field.type === 'number' ? (
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
           범위
-          <Input type="number" className="h-7 w-20 text-xs" aria-label="최소" placeholder="최소" value={field.min ?? ''} onChange={(event) => onChange({ min: event.target.value === '' ? undefined : Number(event.target.value) })} />
+          <NumberInput integer={false} optional className="h-7 w-20 text-xs" aria-label="최소" placeholder="최소" value={field.min} onValueChange={(min) => onChange({ min })} />
           ~
-          <Input type="number" className="h-7 w-20 text-xs" aria-label="최대" placeholder="최대" value={field.max ?? ''} onChange={(event) => onChange({ max: event.target.value === '' ? undefined : Number(event.target.value) })} />
+          <NumberInput integer={false} optional className="h-7 w-20 text-xs" aria-label="최대" placeholder="최대" value={field.max} onValueChange={(max) => onChange({ max })} />
         </div>
       ) : field.type !== 'boolean' && (
         <label className="flex items-center gap-1.5 text-xs text-muted-foreground">

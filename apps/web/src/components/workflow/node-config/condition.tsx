@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { Plus, X } from 'lucide-react';
 import { type AutoMark, CONDITION_MARK_IDS, INPUT_TYPES, ITEM_ERROR_KIND_IDS, ITEM_ERROR_KINDS, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, nodeName, type WorkflowNode } from '@tw/shared';
 import { MarkChip } from '@/components/status';
-import { Button, cn, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Input, InspectorFields, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, StatusIcon, Switch, TagChip, Textarea } from '@loca/ui';
+import { Button, cn, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Input, NumberInput, InspectorFields, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, StatusIcon, Switch, TagChip, Textarea } from '@loca/ui';
 import { comparableFields, conditionExpression, parseCondition, type Clause, type Condition, type FieldOperator, type Join } from '@/components/workflow/node-config/condition-clauses';
 import { AiButton } from '@/components/ai-button';
 import { Field, refsInput, type ConditionNode, type NodeRefs } from '@/components/workflow/node-config/shared';
@@ -110,7 +110,7 @@ export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { nod
       case 'mark':
         return <>자동 태그 <Pick label="자동 태그" value={clause.mark} onChange={(mark) => set({ ...clause, mark })} className="w-40">{CONDITION_MARK_IDS.map((id) => <SelectItem key={id} value={id}><MarkChip mark={id as AutoMark} /></SelectItem>)}</Pick> <Negate not={clause.not} words={['있음', '없음']} onChange={(not) => set({ ...clause, not })} /></>;
       case 'visits':
-        return <><Pick label="노드" value={clause.nodeId} onChange={(nodeId) => set({ ...clause, nodeId })} className="w-36">{others.map((other) => <SelectItem key={other.id} value={other.id}>{nodeName(other)}</SelectItem>)}</Pick> 방문 <Input type="number" min={1} className="h-8 w-14" aria-label="방문 횟수" value={clause.limit} onChange={(event) => set({ ...clause, limit: Number(event.target.value) })} /> 회 미만</>;
+        return <><Pick label="노드" value={clause.nodeId} onChange={(nodeId) => set({ ...clause, nodeId })} className="w-36">{others.map((other) => <SelectItem key={other.id} value={other.id}>{nodeName(other)}</SelectItem>)}</Pick> 방문 <NumberInput min={1} className="h-8 w-14" aria-label="방문 횟수" value={clause.limit} onValueChange={(limit) => limit !== undefined && set({ ...clause, limit })} /> 회 미만</>;
       case 'field': {
         const fields = fieldsOf(clause.nodeId);
         const field = fields.find((item) => item.name === clause.field);
@@ -143,7 +143,7 @@ export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { nod
       case 'hasTarget':
         return <>표기 <Negate not={clause.not} words={['있음', '없음']} onChange={(not) => set({ ...clause, not })} /></>;
       case 'uses':
-        return <>쓰인 대사 <Pick label="비교" value={clause.op} onChange={(value) => set({ ...clause, op: value as '>=' | '<=' })} className="w-16"><SelectItem value=">=">≥</SelectItem><SelectItem value="<=">≤</SelectItem></Pick> <Input type="number" min={0} className="h-8 w-20" aria-label="쓰인 대사 수" value={clause.value} onChange={(event) => set({ ...clause, value: Number(event.target.value) })} /> 줄</>;
+        return <>쓰인 대사 <Pick label="비교" value={clause.op} onChange={(value) => set({ ...clause, op: value as '>=' | '<=' })} className="w-16"><SelectItem value=">=">≥</SelectItem><SelectItem value="<=">≤</SelectItem></Pick> <NumberInput min={0} className="h-8 w-20" aria-label="쓰인 대사 수" value={clause.value} onValueChange={(value) => value !== undefined && set({ ...clause, value })} /> 줄</>;
       case 'listener':
         return <>청자 <Negate not={clause.not} words={['있음', '없음']} onChange={(not) => set({ ...clause, not })} /></>;
       case 'candidate':

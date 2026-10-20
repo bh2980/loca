@@ -6,7 +6,7 @@ import { Link, useNavigate } from '@tanstack/react-router';
 import { ChevronRight, Play } from 'lucide-react';
 import { SearchInput, Button, Checkbox, Label, RadioGroup, RadioGroupItem, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Skeleton, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue, Spinner, StatusIcon, SectionHeading, FieldRows, FieldRow } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
-import { INPUT_TYPES, TERM_MARK_IDS, WORKFLOW_SUBJECT_IDS, LINE_MARK_IDS, type AutoMark, type LineMark } from '@tw/shared';
+import { INPUT_TYPES, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, TERM_MARK_IDS, WORKFLOW_SUBJECT_IDS, LINE_MARK_IDS, type AutoMark, type LineMark } from '@tw/shared';
 import { MarkChip } from '@/components/status';
 import type { ModelValue } from '@/components/model-picker';
 import { Pace, RunModels } from './run-estimate';
@@ -164,10 +164,9 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   else if (scopeTarget === 'here') computedGroupIds = groupIds;
   else if (!wholeProject) computedGroupIds = pickedScenes.size ? [...pickedScenes] : ['__none__'];
 
-  // The filters: automatic marks and tags for both inputs (the list pages' rules); lines also have their statuses
-  // (a term's status is one of its marks, #후보, as in the glossary).
+  // The filters, the list pages' rules: statuses (a line's project statuses, a term's 후보·확정), automatic marks and tags.
   const filters = {
-    ...(!terms && pickedStatuses.size ? { statusIds: [...pickedStatuses] } : {}),
+    ...(pickedStatuses.size ? { statusIds: [...pickedStatuses] } : {}),
     ...(pickedMarks.size ? { marks: [...pickedMarks] as LineMark[] } : {}),
     ...(pickedTags.size ? { tagIds: [...pickedTags] } : {}),
   };
@@ -329,19 +328,24 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
             <fieldset className="space-y-2">
               <SectionHeading as="legend" className="mb-2">필터</SectionHeading>
               <FieldRows>
-                {!terms && (
-                  <FieldRow label="상태">
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                      {(statuses.data?.statuses ?? []).map((status) => (
+                <FieldRow label="상태">
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                    {terms
+                      ? KNOWLEDGE_STATUSES.filter((status) => status !== 'rejected').map((status) => (
+                          <Label key={status} className="text-sm font-normal">
+                            <Checkbox checked={pickedStatuses.has(status)} onCheckedChange={(checked) => toggled(setPickedStatuses, status, checked === true)} />
+                            {KNOWLEDGE_STATUS_LABELS[status]}
+                          </Label>
+                        ))
+                      : (statuses.data?.statuses ?? []).map((status) => (
                         <Label key={status.id} className="text-sm font-normal">
                           <Checkbox checked={pickedStatuses.has(status.id)} onCheckedChange={(checked) => toggled(setPickedStatuses, status.id, checked === true)} />
                           <StatusIcon status={status} />
                           {status.name}
                         </Label>
                       ))}
-                    </div>
-                  </FieldRow>
-                )}
+                  </div>
+                </FieldRow>
                 <FieldRow label="태그">
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
                     {(terms ? TERM_MARK_IDS : LINE_MARK_IDS).map((mark) => (
@@ -559,7 +563,7 @@ function Readiness({ projectId, readiness, oneScene, onLeave }: { projectId: str
       ok: readiness.candidateRules.count === 0,
       text: readiness.candidateRules.count ? `후보 말투 규칙 ${readiness.candidateRules.count}개 (${readiness.candidateRules.examples.join(', ')}${readiness.candidateRules.count > readiness.candidateRules.examples.length ? ' 등' : ''})` : '쓰이는 말투 규칙은 모두 확정됨',
       link: readiness.candidateRules.count > 0 && (
-        <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', marks: ['candidate'], ...(!readiness.candidateRules.more && { ids: readiness.candidateRules.ids }) }} onClick={onLeave}>
+        <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', status: 'candidate', ...(!readiness.candidateRules.more && { ids: readiness.candidateRules.ids }) }} onClick={onLeave}>
           후보 보기
         </Link>
       ),
@@ -579,7 +583,7 @@ function Readiness({ projectId, readiness, oneScene, onLeave }: { projectId: str
       ok: readiness.candidateTerms.count === 0,
       text: readiness.candidateTerms.count ? `후보 용어 ${readiness.candidateTerms.count}개 (${readiness.candidateTerms.examples.join(', ')}${readiness.candidateTerms.count > readiness.candidateTerms.examples.length ? ' 등' : ''})` : '나오는 용어는 모두 확정됨',
       link: readiness.candidateTerms.count > 0 && (
-        <Link to="/p/$projectId/glossary" params={{ projectId }} search={{ marks: ['candidate'], ...(!readiness.candidateTerms.more && { ids: readiness.candidateTerms.ids }) }} onClick={onLeave}>
+        <Link to="/p/$projectId/glossary" params={{ projectId }} search={{ status: 'candidate', ...(!readiness.candidateTerms.more && { ids: readiness.candidateTerms.ids }) }} onClick={onLeave}>
           후보 보기
         </Link>
       ),

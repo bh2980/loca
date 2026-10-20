@@ -48,7 +48,7 @@ function apply(ctx: Ctx, fn: ApplyFunctionName, params: Record<string, unknown>,
 
 describe('apply node mapping', () => {
   it('reads list items by the field map, drops items missing a required field and takes the first of a lines field', () => {
-    const { items, skipped } = applyItems('saveSpeechRules', { list: 'rules', onlyEmpty: true, map: { fromName: 'speaker', toName: 'listener', level: 'level', startKey: 'at' } }, {
+    const { items, skipped } = applyItems('saveSpeechRules', { list: 'rules', map: { fromName: 'speaker', toName: 'listener', level: 'level', startKey: 'at' } }, {
       rules: [{ speaker: 'Bob', listener: 'Alice', level: 'hae', at: ['a2'] }, { speaker: 'Bob', listener: '', level: 'hae' }],
     });
     expect(items).toEqual([{ fromName: 'Bob', toName: 'Alice', level: 'hae', startKey: ['a2'] }]);
@@ -56,7 +56,7 @@ describe('apply node mapping', () => {
   });
 
   it('reads nested list fields by sub-field', () => {
-    const { items } = applyItems('saveRelationships', { list: 'rels', onlyEmpty: true, map: { from: 'a', to: 'b', kind: 'kind', changes: 'shifts', 'changes.change': 'what' } }, {
+    const { items } = applyItems('saveRelationships', { list: 'rels', map: { from: 'a', to: 'b', kind: 'kind', changes: 'shifts', 'changes.change': 'what' } }, {
       rels: [{ a: 'Bob', b: 'Alice', kind: '부하', shifts: [{ at: ['a2'], what: '긴장' }, { at: [], what: '무시' }] }],
     });
     expect(items[0].changes).toEqual([{ at: ['a2'], change: '긴장' }]);

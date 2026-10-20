@@ -25,7 +25,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import { ArrowLeftRight, ArrowUpDown, ChevronRight, Copy, Focus, LayoutGrid, Maximize, Pencil, Plus, SlidersHorizontal, Trash2, Unlink } from 'lucide-react';
 import { toast } from 'sonner';
-import { AI_PRESETS, APPLY_FUNCTION_NAMES, functionGroup, APPLY_TARGETS, FUNCTIONS, FUNCTION_NAMES, functionTakes, presetTakes, workflowInput, PALETTE_FUNCTION_NAMES, nodeModels, nodeName, nodePorts, syncEntryEdges, workflowNodeSchema, type FunctionName, type WorkflowDefinition, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
+import { AI_PRESETS, APPLY_PALETTE_ORDER, functionGroup, APPLY_TARGETS, FUNCTIONS, FUNCTION_NAMES, functionTakes, presetTakes, workflowInput, PALETTE_FUNCTION_NAMES, nodeModels, nodeName, nodePorts, syncEntryEdges, workflowNodeSchema, type FunctionName, type WorkflowDefinition, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
 import { Page, StatusBarItem } from '@/components/page';
 import { autoLayout } from '@/components/workflow/auto-layout';
 import { NodeConfig } from '@/components/workflow/node-config';
@@ -35,7 +35,7 @@ import { entryStarts, flowEdges, nodeSummary, openPorts, targetStatus } from '@/
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { SplitPane, PageHeading, HeaderActions, NodeLibrary, CanvasToolbar, CanvasSurface, SelectionToolbox, type CanvasDirection, type NodeLibraryGroup, Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent, DropdownMenuLabel, Input, Skeleton } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
-import { lineTags, q } from '@/lib/queries';
+import { tagsIn, q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { workflowEdits } from '@/lib/workflow-edits';
 import { sameWorkflowDraft, reconcileSavedDraft, normalizeWorkflowDraft } from '@/lib/workflow-draft';
@@ -81,7 +81,7 @@ function NameField({ name, onRename }: { name: string; onRename: (name: string) 
 }
 
 /** A preset as the palette reads it: label/description for the list, the rest is the AI node config it fills. */
-type PresetEntry = { label: string; description?: string; output: string; input?: 'lines' | 'terms' } & Record<string, unknown>;
+type PresetEntry = { label: string; description?: string; output: string; inputs?: readonly ('lines' | 'terms')[] } & Record<string, unknown>;
 
 export const Route = createFileRoute('/p/$projectId/workflows/$workflowId')({
   validateSearch: (raw: Record<string, unknown>): { node?: string; nodeTab?: 'io' | 'errors'; direction?: CanvasDirection } => ({
@@ -488,7 +488,7 @@ function WorkflowEditor() {
     {
       id: 'apply',
       label: '반영',
-      items: [...APPLY_FUNCTION_NAMES, ...PALETTE_FUNCTION_NAMES.filter((fn) => functionGroup(fn) === 'apply')].filter((fn) => functionTakes(fn, input)).map((fn) => ({ id: fn, label: FUNCTIONS[fn].label, kind: 'apply' as const, icon: null })),
+      items: APPLY_PALETTE_ORDER.filter((fn) => functionTakes(fn, input)).map((fn) => ({ id: fn, label: FUNCTIONS[fn].label, kind: 'apply' as const, icon: null })),
     },
     {
       id: 'function',
@@ -612,7 +612,8 @@ function WorkflowEditor() {
                 issues={issues.filter((issue) => issue.nodeId === selected.id)}
                 refs={{
                   statuses: statuses.data?.statuses ?? [],
-                  tags: lineTags(statuses.data?.tags),
+                  // The tags of the workflow's input: line tags, or term tags.
+                  tags: tagsIn(statuses.data?.tags, input),
                   projectId,
                   workflowId,
                   connections: connections.data ?? [],

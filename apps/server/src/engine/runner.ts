@@ -36,7 +36,7 @@ type StepRecord = Omit<typeof s.runSteps.$inferInsert, 'ok' | 'finishedAt'>;
 type Waiting = { id: string; unitId: string; nodeId: string; groupId: string; seq: number; kind: string; tokens: number; since: Date; plan: number | null };
 
 /** Functions that write beyond the line itself, and the change topic they touch. */
-const FUNCTION_TOPICS: Record<string, Topic[]> = { ...APPLY_TOPICS, setTermStatus: ['proposals', 'terms'] };
+const FUNCTION_TOPICS: Record<string, Topic[]> = { ...APPLY_TOPICS, setStatus: ['terms'] };
 /** A partial batch waits this long for more lines from upstream before it is sent anyway. */
 const GATHER_MS = 5_000;
 /** Lines passed through instant nodes per tick; the rest wait for the next tick, so a tick never blocks for long. */

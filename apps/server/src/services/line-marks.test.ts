@@ -45,10 +45,9 @@ describe('unknown listener', () => {
 });
 
 describe('mark filters', () => {
-  it('take marks of one field as either, the rest as all', () => {
-    expect(matchesMarks(['candidate'], ['candidate', 'ai'])).toBe(true);
-    expect(matchesMarks(['ai', 'emptyTarget'], ['candidate', 'ai', 'emptyTarget'])).toBe(true);
-    expect(matchesMarks(['ai'], ['candidate', 'ai', 'emptyTarget'])).toBe(false);
+  it('need every picked mark', () => {
+    expect(matchesMarks(['ai', 'emptyTarget'], ['ai', 'emptyTarget'])).toBe(true);
+    expect(matchesMarks(['ai'], ['ai', 'emptyTarget'])).toBe(false);
     expect(matchesMarks(['remaining'], ['remaining', 'noted'])).toBe(false);
     expect(matchesMarks([], undefined)).toBe(true);
   });

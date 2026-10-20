@@ -4,9 +4,10 @@ import { AGE_BANDS, APPLY_FUNCTION_NAMES, APPLY_TARGETS, applyParams, DOCUMENT_K
 import type { Db } from '../../db/index.ts';
 import * as s from '../../db/schema.ts';
 import type { Topic } from '../../events.ts';
-import { aiSaveCharacters, aiSaveDocument, aiSaveEvents, aiSaveRelationships, aiSaveSpeechRules, aiSaveTerms, aiSetLineListeners, aiSetSceneListeners, type AiWrite } from '../../services/ai-knowledge.ts';
+import { aiSaveCharacters, aiSaveDocument, aiSaveEvents, aiSaveRelationships, aiSaveSpeechRules, aiSaveTerms, aiSetLineListeners, type AiWrite } from '../../services/ai-knowledge.ts';
 import { addCandidate } from '../../services/candidates.ts';
 import { aiAutoConfirmOf } from '../../services/status-by.ts';
+import { setKnowledgeTag } from '../../services/knowledge-tags.ts';
 import { attachUnitTags } from '../../services/tag-scope.ts';
 import { applyRunCandidate, HUMAN_OWNED_NOTE } from '../apply-candidate.ts';
 import { lineOf, type FunctionInput, type FunctionResult } from './types.ts';
@@ -108,7 +109,7 @@ interface Handler {
 }
 
 /** Targets that write the item itself (shape `line`): one item per visit. */
-type ItemTarget = 'saveCandidate' | 'tagLines' | 'setListener' | 'saveTermEntry';
+type ItemTarget = 'saveCandidate' | 'tagLines' | 'setListener';
 const HANDLERS: Record<Exclude<ApplyFunctionName, ItemTarget>, Handler> = {
   saveTerms: {
     write: (items, { tx, write }) => aiSaveTerms(tx, write, items as never),
@@ -139,10 +140,9 @@ const HANDLERS: Record<Exclude<ApplyFunctionName, ItemTarget>, Handler> = {
 
 /** Topics an apply node's writes reach besides the run's own `units`, for the runner to notify. */
 export const APPLY_TOPICS: Record<ApplyFunctionName, Topic[]> = {
-  saveCandidate: [],
+  saveCandidate: ['terms'],
   setListener: [],
-  tagLines: [],
-  saveTermEntry: ['terms'],
+  tagLines: ['terms'],
   saveTerms: ['terms'],
   saveCharacters: ['knowledge'],
   saveRelationships: ['knowledge'],
@@ -176,7 +176,7 @@ function run(fn: ApplyFunctionName, tx: Tx, raw: unknown, input: FunctionInput):
   const nodeId = input.item.nodeId;
   const base = { projectId: input.projectId, runId: input.runId, nodeId };
 
-  if (fn === 'saveTermEntry') return runTerm(context, items[0], base);
+  if (input.subject === 'terms' && (fn === 'saveCandidate' || fn === 'tagLines')) return runTerm(fn, context, items[0]);
   if (fn === 'saveCandidate' || fn === 'setListener' || fn === 'tagLines') return runLine(fn, context, items[0], base);
 
   return { port: 'out', output: { applied: true, items: items.length, ...(skipped ? { skipped } : {}), ...HANDLERS[fn].write(items, context) } };
@@ -211,19 +211,25 @@ function runLine(fn: 'saveCandidate' | 'setListener' | 'tagLines', context: Cont
 }
 
 /**
- * 용어 표기 저장: the term's Korean form and note from the answer. With onlyEmpty (default) a term a
- * person (or an earlier answer) already gave a form is left as it is.
+ * 번역 저장 and 태그 붙이기 on a term: its Korean form and note (a form a person saved is kept), or
+ * the term tag named like the value.
  */
-function runTerm(context: Context, item: Item, base: { projectId: string; runId: string; nodeId: string }): FunctionResult {
-  const { tx, input, params } = context;
-  if (input.subject !== 'terms') throw new Error('용어 표기 저장은 용어에만 쓸 수 있습니다.');
+function runTerm(fn: 'saveCandidate' | 'tagLines', context: Context, item: Item): FunctionResult {
+  const { tx, input } = context;
+  if (input.subject !== 'terms') throw new Error('용어 워크플로가 아닙니다.');
   const current = tx.select().from(s.terms).where(eq(s.terms.id, input.term.id)).get();
   if (!current) return { port: 'out', output: { applied: false, reason: '용어가 없습니다.' } };
-  const target = typeof item.target === 'string' ? item.target.trim() : '';
-  if (!target) return { port: 'out', output: { applied: false, reason: '표기가 비어 있습니다.' } };
-  if (params.onlyEmpty && current.target.trim()) return { port: 'out', output: { applied: false, reason: '이미 표기가 있습니다.' } };
-  const kind = typeof item.kind === 'string' && (TERM_KINDS as readonly string[]).includes(item.kind) ? TERM_KIND_LABELS[item.kind as (typeof TERM_KINDS)[number]] : '';
-  const note = [kind, item.meaning, item.note].filter((part): part is string => typeof part === 'string' && Boolean(part.trim())).join(' · ') || current.note;
+  if (fn === 'tagLines') {
+    const name = item.tag as string;
+    const tag = tx.select({ id: s.tags.id, name: s.tags.name, role: s.tags.role, scope: s.tags.scope }).from(s.tags).where(eq(s.tags.projectId, input.projectId)).all().find((candidate) => lower(candidate.name) === lower(name) && tagScope(candidate).includes('terms'));
+    if (!tag) return { port: 'out', output: { tagged: false, reason: '같은 이름의 용어 태그가 없습니다.' } };
+    setKnowledgeTag(tx, input.projectId, 'terms', [current.id], tag.id, true);
+    return { port: 'out', output: { tagged: true, tag: tag.name } };
+  }
+  const target = typeof item.text === 'string' ? item.text.trim() : '';
+  if (!target) return { port: 'out', output: { applied: false, reason: '번역이 비어 있습니다.' } };
+  if (current.statusBy === 'human' && current.target.trim() && current.target !== target) return { port: 'out', candidate: target, output: { applied: false }, issues: [HUMAN_OWNED_NOTE] };
+  const note = typeof item.note === 'string' && item.note.trim() ? item.note.trim() : current.note;
   // A candidate that gets its form lands as the AI 문맥 switch says; a term already decided keeps its status.
   const status = current.status === 'candidate' ? aiStatus(context.write.autoConfirm) : current.status;
   tx.update(s.terms).set({ target, note, status, origin: 'ai', statusBy: 'ai', runId: input.runId }).where(eq(s.terms.id, current.id)).run();

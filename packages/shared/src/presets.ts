@@ -9,7 +9,7 @@ import { aiNodeConfigSchema, type AiNode, type AiOutput, type AiScope, type Batc
  * start from. Each fills a node's instructions, output form, fields and context options; after that
  * it is an ordinary AI node and every field stays editable. Everything the model is told beyond the
  * output format (which the server adds from the node's schema) is in `instructions` or in a field's
- * `description`: nothing is hidden. Only the general ones (AI_PRESETS: 번역, 검수) are offered as
+ * `description`: nothing is hidden. Only the reusable ones (AI_PRESETS: 번역, 검수, 용어 추출) are offered as
  * presets in the workflow editor; the rest live in the one workflow (or editor button) that uses them.
  */
 export interface AiPreset {
@@ -25,8 +25,8 @@ export interface AiPreset {
   batch?: Partial<BatchConfig>;
   /** The node's call time limit when it is not the default (DEFAULT_CALL_MINUTES). */
   timeoutMinutes?: number;
-  /** The workflow input it is written for (default lines): the palette offers it there. */
-  input?: 'lines' | 'terms';
+  /** The workflow inputs it works on (default both: it reads an item's source and translation); the palette offers it there. */
+  inputs?: readonly ('lines' | 'terms')[];
 }
 
 const field = (name: string, type: JsonFieldType, description: string, fields?: JsonField[]): JsonField => ({ name, type, description, ...(fields && { fields }) });
@@ -201,6 +201,8 @@ export const AI_PROMPTS = {
   terms: {
     label: 'AI 용어 추출',
     description: '번역된 대사에서 용어집에 없는 고유명사·반복 용어와 번역에 쓰인 표기를 짝지어 뽑습니다.',
+    // It reads scenes of lines.
+    inputs: ['lines'],
     output: 'json',
     scope: 'batch',
     // The lines' current translations are where the Korean forms come from.
@@ -217,7 +219,7 @@ export const AI_PROMPTS = {
   termTranslate: {
     label: 'AI 용어 번역',
     description: '용어마다 한국어 표기와 메모를 냅니다.',
-    input: 'terms',
+    inputs: ['terms'],
     output: 'json',
     scope: 'line',
     include: { candidate: false, issues: false },
@@ -304,9 +306,9 @@ export const AI_PROMPTS = {
 export type AiPromptId = keyof typeof AI_PROMPTS;
 
 /** The presets the workflow editor offers (palette, AI node): general ones any workflow can use. */
-export const AI_PRESET_IDS = ['translate', 'review'] as const satisfies readonly AiPromptId[];
+export const AI_PRESET_IDS = ['translate', 'review', 'terms'] as const satisfies readonly AiPromptId[];
 export type AiPresetId = (typeof AI_PRESET_IDS)[number];
-export const AI_PRESETS: Record<AiPresetId, AiPreset> = { translate: AI_PROMPTS.translate, review: AI_PROMPTS.review };
+export const AI_PRESETS: Record<AiPresetId, AiPreset> = { translate: AI_PROMPTS.translate, review: AI_PROMPTS.review, terms: AI_PROMPTS.terms };
 const isPreset = (id: string): id is AiPresetId => (AI_PRESET_IDS as readonly string[]).includes(id);
 
 /** An AI node's configuration filled from a built-in prompt; a preset's id is kept on the node (프리셋 · 번역). */

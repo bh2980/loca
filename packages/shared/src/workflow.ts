@@ -3,6 +3,7 @@ import Graph from 'graphology';
 import { APPLY_TARGETS, FUNCTIONS, functionPorts, functionTakes, jsonFieldSchema, type ApplyFunctionName, type ApplyParams, type FunctionName, type JsonField, type Port } from './functions.ts';
 import { stronglyConnectedComponents } from 'graphology-components';
 import { choiceKey, draftModelChoiceSchema, EMPTY_MODEL_CHOICE, modelChoiceSchema, type ModelChoice } from './model-choice.ts';
+import { KNOWLEDGE_STATUSES } from './knowledge.ts';
 
 /**
  * What an AI node pulls into its prompt. Every field maps to stored project data.
@@ -189,7 +190,7 @@ export const workflowInput = (definition: Pick<WorkflowDefinition, 'nodes'>): Wo
   return entry?.type === 'entry' ? entryConfigSchema.parse(entry.config ?? {}).input : 'lines';
 };
 /** Whether an AI preset is written for this input (presets are for lines unless they say terms). */
-export const presetTakes = (preset: { input?: WorkflowSubject }, input: WorkflowSubject) => (preset.input ?? 'lines') === input;
+export const presetTakes = (preset: { inputs?: readonly WorkflowSubject[] }, input: WorkflowSubject) => (preset.inputs ?? WORKFLOW_SUBJECT_IDS).includes(input);
 
 /**
  * 모으기: waits until no item of the run is still open before it (every request of the nodes upstream
@@ -203,7 +204,7 @@ export const gatherConfigSchema = z.object({ fields: z.array(z.string().trim().m
 export type GatherConfig = z.infer<typeof gatherConfigSchema>;
 
 /** Functions that write the item itself (its status, translation, listener, tags, a term's form or status). */
-export const ITEM_CHANGING_FUNCTIONS = new Set(['setStatus', 'saveCandidate', 'setListener', 'tagLines', 'saveTermEntry', 'setTermStatus']);
+export const ITEM_CHANGING_FUNCTIONS = new Set(['setStatus', 'saveCandidate', 'setListener', 'tagLines']);
 
 /** An AI node's call time limit when it does not set one, in minutes. */
 export const DEFAULT_CALL_MINUTES = 10;
@@ -528,7 +529,8 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
       }
       const params = parsed.data as Record<string, unknown>;
       if (node.config.fn === 'setStatus') {
-        if (params.statusId && !refs.statusIds.has(params.statusId as string)) error('삭제된 상태입니다.', { nodeId: node.id });
+        const known = input === 'terms' ? (KNOWLEDGE_STATUSES as readonly string[]).includes(params.statusId as string) : refs.statusIds.has(params.statusId as string);
+        if (params.statusId && !known) error('삭제된 상태입니다.', { nodeId: node.id });
         for (const id of [...(params.addTagIds as string[]), ...(params.removeTagIds as string[])])
           if (!refs.tagIds.has(id)) error('삭제된 태그가 있습니다.', { nodeId: node.id });
       }

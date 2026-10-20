@@ -509,23 +509,28 @@ program
 
 // ── glossary, knowledge, tags, run plan ──────────────────────────────
 
+/** `--status 후보 확정` as the tool's status ids. */
+const STATUS_CHOICES = ['후보', '확정'];
+const statusIds = (picked: string[] | undefined) => picked?.map((label) => (label === '후보' ? 'candidate' : 'confirmed'));
+
 const terms = program
   .command('terms')
   .description('용어집 목록: 원문, 번역어, 상태, 나온 줄(대본에서 쓰이는 대사 수), 표시(#), 태그. 앱 용어집 화면의 필터와 같은 규칙')
   .option('-q, --q <글자>', '원문·번역어에 들어 있는 글자')
-  .addOption(new Option('--mark <marks...>', '자동 표시. 후보와 AI 초안을 함께 주면 둘 중 하나').choices(TERM_MARK_IDS))
-  .option('--unreviewed', '사람이 아직 정하지 않은 용어 (--mark candidate ai와 같음)')
+  .addOption(new Option('--status <status...>', '상태 (앱의 상태 열). 둘을 함께 주면 둘 중 하나').choices(STATUS_CHOICES))
+  .addOption(new Option('--mark <marks...>', '자동 표시. 여러 개면 모두 붙은 것').choices(TERM_MARK_IDS))
+  .option('--unreviewed', '사람이 아직 정하지 않은 용어 (상태가 후보이거나 AI가 정한 것)')
   .option('--tag <tags...>', '태그 이름 (모두 붙은 용어)')
   .option('--limit <n>', '최대 몇 개까지')
   .option('--jsonl', '한 줄에 하나씩 JSON으로 출력')
-  .action(async (options: { q?: string; mark?: string[]; unreviewed?: boolean; tag?: string[]; limit?: string; jsonl?: boolean }) => {
+  .action(async (options: { q?: string; status?: string[]; mark?: string[]; unreviewed?: boolean; tag?: string[]; limit?: string; jsonl?: boolean }) => {
     type Term = { id: string; source: string; target: string; note: string; status: KnowledgeStatus; statusBy: string; lines: number | null; examples: string[]; marks: string[]; tags: string[] };
     const wanted = options.limit ? Number(options.limit) : Infinity;
     const rows: Term[] = [];
     let total = 0;
     // A page the tool had to cut still arrives; continue from what came.
     while (rows.length < wanted) {
-      const page = await readTool<{ total: number; terms: Term[] }>('list_terms', { q: options.q, marks: options.mark, unreviewed: options.unreviewed || undefined, tags: options.tag, offset: rows.length, limit: Math.min(100, wanted - rows.length) });
+      const page = await readTool<{ total: number; terms: Term[] }>('list_terms', { q: options.q, status: statusIds(options.status), marks: options.mark, unreviewed: options.unreviewed || undefined, tags: options.tag, offset: rows.length, limit: Math.min(100, wanted - rows.length) });
       total = page.total;
       rows.push(...page.terms);
       if (!page.terms.length || rows.length >= total) break;
@@ -562,17 +567,18 @@ const KNOWLEDGE_KINDS = {
 program
   .command('knowledge <종류>')
   .description(`작품 자료 목록: ${Object.entries(KNOWLEDGE_KINDS).map(([kind, info]) => `${kind}(${info.label})`).join(', ')}. 상태, 표시(#), 태그 포함. 앱 작품 자료 화면의 필터와 같은 규칙`)
-  .addOption(new Option('--mark <marks...>', '자동 표시. 후보와 AI 초안을 함께 주면 둘 중 하나').choices(KNOWLEDGE_MARK_IDS))
-  .option('--unreviewed', '사람이 아직 정하지 않은 항목 (--mark candidate ai와 같음)')
+  .addOption(new Option('--status <status...>', '상태 (앱의 상태 열). 둘을 함께 주면 둘 중 하나').choices(STATUS_CHOICES))
+  .addOption(new Option('--mark <marks...>', '자동 표시. 여러 개면 모두 붙은 것').choices(KNOWLEDGE_MARK_IDS))
+  .option('--unreviewed', '사람이 아직 정하지 않은 항목 (상태가 후보이거나 AI가 정한 것)')
   .option('--tag <tags...>', '태그 이름 (모두 붙은 항목)')
   .option('--jsonl', '한 줄에 하나씩 JSON으로 출력')
-  .action(async (kind: string, options: { mark?: string[]; unreviewed?: boolean; tag?: string[]; jsonl?: boolean }) => {
+  .action(async (kind: string, options: { status?: string[]; mark?: string[]; unreviewed?: boolean; tag?: string[]; jsonl?: boolean }) => {
     if (!(kind in KNOWLEDGE_KINDS)) throw new CliError(`종류는 ${Object.keys(KNOWLEDGE_KINDS).join(', ')} 중 하나입니다.`);
     const info = KNOWLEDGE_KINDS[kind as keyof typeof KNOWLEDGE_KINDS];
-    const result = await readTool<Record<string, any>>(info.tool, { marks: options.mark, unreviewed: options.unreviewed || undefined, tags: options.tag });
+    const result = await readTool<Record<string, any>>(info.tool, { status: statusIds(options.status), marks: options.mark, unreviewed: options.unreviewed || undefined, tags: options.tag });
     const rows: Record<string, any>[] = info.pick ? result[info.pick] : Array.isArray(result) ? result : (result.items ?? []);
     log(`${info.label} ${rows.length.toLocaleString()}개`);
-    warnTruncated(result, '--mark, --unreviewed, --tag로 좁히세요.');
+    warnTruncated(result, '--status, --mark, --unreviewed, --tag로 좁히세요.');
     if (options.jsonl) return printJsonl(rows);
     if (globals().json) return printList(rows.length, rows);
     const name = (row: Record<string, any>): string =>
@@ -745,8 +751,8 @@ runs
     console.log('\n준비 상태');
     console.log(`  청자 미상 대사 ${ready.unknownListenerLines.toLocaleString()} / 청자가 필요한 대사 ${ready.dialogueLines.toLocaleString()}${ready.unknownListenerLines ? '   → loca lines --mark unknownListener' : ''}`);
     const list = (entry: Names) => `${entry.names.slice(0, 8).join(', ')}${entry.count > Math.min(8, entry.names.length) ? ` 외 ${entry.count - Math.min(8, entry.names.length)}개` : ''}`;
-    console.log(`  후보 말투 규칙 ${ready.candidateRules.count}개${ready.candidateRules.count ? `: ${list(ready.candidateRules)}   → loca knowledge speech-rules --mark candidate` : ''}`);
-    console.log(`  후보 용어 ${ready.candidateTerms.count}개${ready.candidateTerms.count ? `: ${list(ready.candidateTerms)}   → loca terms --mark candidate` : ''}`);
+    console.log(`  후보 말투 규칙 ${ready.candidateRules.count}개${ready.candidateRules.count ? `: ${list(ready.candidateRules)}   → loca knowledge speech-rules --status 후보` : ''}`);
+    console.log(`  후보 용어 ${ready.candidateTerms.count}개${ready.candidateTerms.count ? `: ${list(ready.candidateTerms)}   → loca terms --status 후보` : ''}`);
     console.log(`  말투 규칙 없는 화자 쌍 ${ready.pairsWithoutRule.count}개${ready.pairsWithoutRule.count ? `: ${ready.pairsWithoutRule.examples.join(', ')}${ready.pairsWithoutRule.count > ready.pairsWithoutRule.examples.length ? ' …' : ''}` : ''}`);
   });
 

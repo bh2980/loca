@@ -287,7 +287,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
     }),
     list_characters: tool({
       description:
-        'Stored characters (profile, how they speak, gender, age band, role and whether they are the player character) and their relationships (with changes). Each item says its status (confirmed = used as AI context, candidate = not yet), statusBy (ai = AI set that status and no person has looked yet, human = a person decided), source (who wrote the content: workflow, script, import, human), marks (candidate, ai, noEvidence) and tags. Filter with marks / unreviewed (candidate or AI-decided, i.e. not yet seen by a person) / tags.',
+        'Stored characters (profile, how they speak, gender, age band, role and whether they are the player character) and their relationships (with changes). Each item says its status (confirmed = used as AI context, candidate = not yet), statusBy (ai = AI set that status and no person has looked yet, human = a person decided), source (who wrote the content: workflow, script, import, human), marks (ai, noEvidence) and tags. Filter with status / marks / unreviewed (candidate or AI-decided, i.e. not yet seen by a person) / tags.',
       inputSchema: z.object(knowledgeFilterInput),
       execute: (filter) => {
         const characters = db.select().from(s.characters).where(and(eq(s.characters.projectId, projectId), ne(s.characters.status, 'rejected'))).all();
@@ -311,7 +311,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
     }),
     list_speech_rules: tool({
       description:
-        'Korean speech rules per speaker → listener direction: level (hasoseo 하소서체, hasipsio 하십시오체, hao 하오체, hage 하게체, haera 해라체, haeyo 해요체, hae 해체/반말, other), form of address, and startKey (the rule applies from that line on; null = from the beginning; several rules for a pair are stretches in script order). Only confirmed rules reach translation prompts. Each rule has status, statusBy, marks (candidate, ai, noEvidence) and tags; filter with marks / unreviewed / tags.',
+        'Korean speech rules per speaker → listener direction: level (hasoseo 하소서체, hasipsio 하십시오체, hao 하오체, hage 하게체, haera 해라체, haeyo 해요체, hae 해체/반말, other), form of address, and startKey (the rule applies from that line on; null = from the beginning; several rules for a pair are stretches in script order). Only confirmed rules reach translation prompts. Each rule has status, statusBy, marks (ai, noEvidence) and tags; filter with status / marks / unreviewed / tags.',
       inputSchema: z.object({ speaker: z.string().optional(), listener: z.string().optional(), ...knowledgeFilterInput }),
       execute: ({ speaker, listener, ...filter }) =>
         annotateKnowledge(db, projectId, 'speechRules', db.select().from(s.speechRules).where(and(eq(s.speechRules.projectId, projectId), ne(s.speechRules.status, 'rejected'))).all(), filter)
@@ -319,7 +319,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
           .map(({ id, fromName, toName, level, address, note, startKey, status, origin, statusBy, evidence, marks, tags }) => ({ id, from: fromName, to: toName, level, address, note, startKey, status, statusBy, source: sourceOf({ origin }), evidence, marks, tags })),
     }),
     list_events: tool({
-      description: 'Stored story events: summary, cause, outcome, participants and the lines that show them, with status, statusBy, source, marks (candidate, ai, noEvidence) and tags. Filter with marks / unreviewed / tags.',
+      description: 'Stored story events: summary, cause, outcome, participants and the lines that show them, with status, statusBy, source, marks (ai, noEvidence) and tags. Filter with status / marks / unreviewed / tags.',
       inputSchema: z.object(knowledgeFilterInput),
       execute: (filter) =>
         annotateKnowledge(db, projectId, 'events', db.select().from(s.storyEvents).where(and(eq(s.storyEvents.projectId, projectId), ne(s.storyEvents.status, 'rejected'))).all(), filter).map(
@@ -327,14 +327,14 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         ),
     }),
     read_documents: tool({
-      description: 'Story, world-building, style and note documents (full text) with status, statusBy, marks (candidate, ai, noEvidence) and tags. Filter with ids / marks / unreviewed / tags.',
+      description: 'Story, world-building, style and note documents (full text) with status, statusBy, marks (ai, noEvidence) and tags. Filter with ids / status / marks / unreviewed / tags.',
       inputSchema: z.object({ ids: z.array(z.string()).optional(), ...knowledgeFilterInput }),
       execute: ({ ids, ...filter }) =>
         annotateKnowledge(db, projectId, 'documents', db.select().from(s.documents).where(and(eq(s.documents.projectId, projectId), ne(s.documents.status, 'rejected'), ids?.length ? inList(s.documents.id, ids) : undefined)).all(), filter),
     }),
     list_terms: tool({
       description:
-        'Glossary entries (not rejected ones) as the glossary page lists them: source, target, note, status (candidate = not used yet), statusBy (ai = no person has decided), lines (how many script lines use it, 나온 줄), examples (keys of its first lines), marks (candidate, ai, emptyTarget = no Korean form, unused = not in the script) and tags. Filter with q, marks (candidate + ai = either), unreviewed (candidate or AI-decided), tags (all). Returns total and one page; use offset to page through.',
+        'Glossary entries (not rejected ones) as the glossary page lists them: source, target, note, status (candidate = not used yet), statusBy (ai = no person has decided), lines (how many script lines use it, 나온 줄), examples (keys of its first lines), marks (ai, emptyTarget = no Korean form, unused = not in the script) and tags. Filter with q, status (candidate / confirmed), marks, unreviewed (candidate or AI-decided), tags (all). Returns total and one page; use offset to page through.',
       inputSchema: z.object({ ...termFilterInput, ...page }),
       execute: (input) => listTerms(db, projectId, input),
     }),

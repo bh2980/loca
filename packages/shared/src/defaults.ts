@@ -218,7 +218,7 @@ export function termTranslationTemplate(ids: Model): WorkflowDefinition {
     nodes: [
       entryNode('terms'),
       aiNode('translate', 'termTranslate', ids.model, 1),
-      applyNode('save-term', 'saveTermEntry', 2, { map: { target: 'target', note: 'note' } }),
+      applyNode('save-term', 'saveCandidate', 2, { map: { text: 'target', note: 'note' } }),
     ],
     edges: chain('entry', 'translate', 'save-term'),
   };

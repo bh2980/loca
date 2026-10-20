@@ -6,7 +6,7 @@ import { GettingStarted } from '@/components/getting-started';
 import { JobStatusBadge, Button, SectionHeading, Skeleton, StatusBar, StatusIcon } from '@loca/ui';
 import { Elapsed, JobProgress } from '@/components/job-progress';
 import { Page } from '@/components/page';
-import { AUTO_MARKS, termMarksOf } from '@tw/shared';
+import { AUTO_MARKS } from '@tw/shared';
 import { q, useReviewTagId } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { dateTime } from '@/lib/datetime';
@@ -127,8 +127,8 @@ function Home() {
       key: 'terms',
       icon: <BookMarked />,
       title: '용어 후보',
-      count: terms.data?.filter((term) => termMarksOf(term).includes('candidate')).length ?? 0,
-      link: <Link to="/p/$projectId/glossary" params={{ projectId }} search={{ marks: ['candidate'] }} />,
+      count: terms.data?.filter((term) => term.status === 'candidate').length ?? 0,
+      link: <Link to="/p/$projectId/glossary" params={{ projectId }} search={{ status: 'candidate' }} />,
     },
     ...kindProgress.map(({ kind, statusCounts }) => ({
       key: `untranslated-${kind}`,

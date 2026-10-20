@@ -7,6 +7,7 @@ import { politenessOf, speechLevelOf, styleInstruction, styleNames } from './kno
 import { ANALYSIS_WORKFLOW, analysisTemplate, defaultWorkflows, draftTranslationTemplate, eventExtractionTemplate, listenerTemplate, MODEL_TEMPLATES, peopleRelationsTemplate, speechFixTemplate, termExtractionTemplate, translationTemplate } from './defaults.ts';
 import { APPLY_TARGETS } from './functions.ts';
 import { AI_PRESETS, AI_PROMPTS, presetConfig } from './presets.ts';
+import { APPLY_PALETTE_ORDER, FUNCTION_NAMES, functionGroup } from './functions.ts';
 import { applyIssues, nodePorts, pickPaths, previousSteps, readinessUses, validateWorkflow, workflowDefinitionSchema, workflowNodeSchema, type WorkflowDefinition } from './workflow.ts';
 
 const model = { connectionId: 'c', model: 'm' };
@@ -348,8 +349,10 @@ describe('analysis workflow and presets', () => {
     expect(workflowNodeSchema.parse({ id: 'a', type: 'ai', position: { x: 0, y: 0 }, config }).type).toBe('ai');
   });
 
-  it('built-in prompts match their output forms; only 번역 and 검수 are presets', () => {
-    expect(Object.keys(AI_PRESETS)).toEqual(['translate', 'review']);
+  it('built-in prompts match their output forms; only reusable ones are presets', () => {
+    expect(Object.keys(AI_PRESETS)).toEqual(['translate', 'review', 'terms']);
+    // Every node of the 반영 group is placed in its order once.
+    expect([...APPLY_PALETTE_ORDER].sort()).toEqual(FUNCTION_NAMES.filter((fn) => functionGroup(fn) === 'apply').sort());
     expect(AI_PROMPTS.listener).toMatchObject({ output: 'json', scope: 'line' });
     expect(AI_PROMPTS.listener.fields.map((field) => field.name)).toEqual(['value', 'confidence']);
     for (const id of ['terms', 'knowledge', 'events'] as const) expect(AI_PROMPTS[id]).toMatchObject({ output: 'json', scope: 'batch' });

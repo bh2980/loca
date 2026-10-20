@@ -1,9 +1,11 @@
+import type { z } from 'zod';
 import { and, asc, eq } from 'drizzle-orm';
 import { get } from 'es-toolkit/compat';
-import { checkFormat, formatCheckParams, FUNCTIONS, httpParams, scriptParams, setStatusParams, type FunctionName, type JsonField, filtersByStatus } from '@tw/shared';
+import { checkFormat, formatCheckParams, FUNCTIONS, httpParams, KNOWLEDGE_STATUSES, type KnowledgeStatus, scriptParams, setStatusParams, type FunctionName, type JsonField, filtersByStatus } from '@tw/shared';
 import type { Db } from '../../db/index.ts';
 import * as s from '../../db/schema.ts';
 import type { SecretStore } from '../../services/secrets.ts';
+import { setKnowledgeTag } from '../../services/knowledge-tags.ts';
 import { attachUnitTags } from '../../services/tag-scope.ts';
 import { runScript } from './sandbox.ts';
 import { knowledgeOf } from '../../services/speech.ts';
@@ -21,6 +23,8 @@ type Unit = typeof s.units.$inferSelect;
 type Item = typeof s.runItems.$inferSelect;
 
 const NEEDS_CANDIDATE = '검사할 번역 후보가 없습니다.';
+/** The item's source text: a line's, or a term's. */
+const sourceOf = (input: FunctionInput) => (input.subject === 'lines' ? input.unit.source : input.term.source);
 const candidateOf = (input: FunctionInput) => input.item.data.candidateText ?? (input.subject === 'lines' ? input.unit.translation : input.term.target || null) ?? null;
 
 /** What a script or HTTP template can see about an item: `unit` for a line, `term` for a term. */
@@ -37,6 +41,17 @@ export function lineView(input: FunctionInput) {
   };
 }
 
+/** 상태 변경 on a term: candidate, confirmed or rejected (a rejected term is not proposed again), and its tags. */
+function setTermStatus(tx: Tx, params: z.infer<typeof setStatusParams>, input: Extract<FunctionInput, { subject: 'terms' }>): FunctionResult {
+  if (params.statusId) {
+    if (!(KNOWLEDGE_STATUSES as readonly string[]).includes(params.statusId)) throw new Error('용어의 상태는 후보·확정·버림 중 하나입니다.');
+    tx.update(s.terms).set({ status: params.statusId as KnowledgeStatus, statusBy: 'ai', runId: input.runId }).where(eq(s.terms.id, input.term.id)).run();
+  }
+  for (const tagId of params.addTagIds) setKnowledgeTag(tx, input.projectId, 'terms', [input.term.id], tagId, true);
+  for (const tagId of params.removeTagIds) setKnowledgeTag(tx, input.projectId, 'terms', [input.term.id], tagId, false);
+  return { port: 'out', output: { status: params.statusId ?? input.term.status } };
+}
+
 // ── instant functions (run inside the runner's transaction) ──────────
 
 /** Whether a run picks its lines by the entry node's statuses (rather than lines named regardless of status). */
@@ -45,7 +60,7 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     const params = formatCheckParams.parse(raw);
     const text = candidateOf(input);
     const rules = tx.select({ formatRules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, input.projectId)).get()?.formatRules;
-    const issues = text === null ? [NEEDS_CANDIDATE] : checkFormat(lineOf(input).source, text, params, rules).map((issue) => issue.message);
+    const issues = text === null ? [NEEDS_CANDIDATE] : checkFormat(sourceOf(input), text, params, rules).map((issue) => issue.message);
     return { port: issues.length ? 'fail' : 'pass', issues, output: { passed: !issues.length, issues }, ...(text !== null && { issueTags: issues.length ? { add: ['format'] } : { clear: ['format'] } }) };
   },
 
@@ -54,7 +69,7 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     if (text === null) return { port: 'fail', issues: [NEEDS_CANDIDATE], output: { passed: false, issues: [NEEDS_CANDIDATE] } };
     const issues = knowledgeOf(tx as unknown as Db, input.projectId)
       .glossary()
-      .matcher.find(lineOf(input).source)
+      .matcher.find(sourceOf(input))
       .filter((term) => !text.toLowerCase().includes(term.target.toLowerCase()))
       .map((term) => `용어 "${term.source}"은(는) "${term.target}"(으)로 옮겨야 합니다.`);
     return { port: issues.length ? 'fail' : 'pass', issues, output: { passed: !issues.length, issues }, issueTags: issues.length ? { add: ['term'] } : { clear: ['term'] } };
@@ -62,6 +77,7 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
 
   setStatus(tx, raw, input) {
     const params = setStatusParams.parse(raw);
+    if (input.subject === 'terms') return setTermStatus(tx, params, input);
     const unit = lineOf(input);
     // Translations now go into the line when a node produces them (engine/apply-candidate.ts, #42);
     // this node only sets the status and tags. A run sets the line's status, so AI set it;
@@ -87,13 +103,6 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     return issues.length ? { port: 'out', issues } : { port: 'out' };
   },
 
-  /** 용어 상태 변경: candidate, confirmed or rejected (rejected terms are not proposed again). */
-  setTermStatus(tx, raw, input) {
-    const params = FUNCTIONS.setTermStatus.params.parse(raw);
-    if (input.subject !== 'terms') throw new Error('용어 상태 변경은 용어에만 쓸 수 있습니다.');
-    tx.update(s.terms).set({ status: params.status, statusBy: 'ai', runId: input.runId }).where(eq(s.terms.id, input.term.id)).run();
-    return { port: 'out', output: { status: params.status } };
-  },
 
   ...applyFunctions,
 };

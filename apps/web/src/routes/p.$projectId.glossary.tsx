@@ -9,8 +9,8 @@ import { HeaderFilter, MarkFilter, markTagGroups, togglePick, type FilterPick } 
 import { NEW_TERM, NewTermPane, TermEditor, type Term } from '@/components/glossary/term-pane';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { HeaderActions, Page } from '@/components/page';
-import { BulkDecide, matches, SourceBadge, TagCell } from '@/components/knowledge/table';
-import { AUTO_MARKS, markColor, type AutoMark, isSettled, matchesMarks, parseMarks, TERM_MARK_IDS, termMarksOf, KNOWLEDGE_SOURCES, SOURCE_LABELS, type KnowledgeSource, aiDecided } from '@tw/shared';
+import { BulkDecide, matches, parseStatusFilter, SourceBadge, StateCell, statusOptions, type StatusFilter, TagCell } from '@/components/knowledge/table';
+import { AUTO_MARKS, markColor, type AutoMark, isSettled, matchesMarks, parseMarks, TERM_MARK_IDS, termMarksOf, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, type KnowledgeSource, aiDecided } from '@tw/shared';
 import { client, unwrap } from '@/lib/api';
 import { q, tagsIn, useMarkColors } from '@/lib/queries';
 import { usePicked } from '@/lib/use-picked';
@@ -20,6 +20,7 @@ export const Route = createFileRoute('/p/$projectId/glossary')({
   validateSearch: (raw: Record<string, unknown>): GlossarySearch => ({
     q: typeof raw.q === 'string' && raw.q ? raw.q : undefined,
     source: typeof raw.source === 'string' && (KNOWLEDGE_SOURCES as readonly string[]).includes(raw.source) ? (raw.source as KnowledgeSource) : undefined,
+    status: parseStatusFilter(raw.status),
     marks: parseMarks(raw.marks, TERM_MARK_IDS),
     term: typeof raw.term === 'string' && raw.term ? raw.term : undefined,
     ids: Array.isArray(raw.ids) && raw.ids.length && raw.ids.every((id) => typeof id === 'string') ? (raw.ids as string[]) : undefined,
@@ -34,7 +35,9 @@ interface GlossarySearch {
   q?: string;
   term?: string;
   source?: KnowledgeSource;
-  /** Automatic marks (the marks URL param): #후보 and #AI가 정함 together mean either, the rest all hold (see matchesMarks). */
+  /** 상태 filter (the status URL param): 후보 or 확정; rejected terms are never listed. */
+  status?: StatusFilter;
+  /** Automatic marks (the marks URL param): terms carrying all of them. */
   marks?: AutoMark[];
   /** Tag ids: terms carrying all of them. */
   tags?: string[];
@@ -64,7 +67,7 @@ function Glossary() {
   // Who wrote a term (출처) and who set its status (✦ when AI confirmed it and no person has looked yet).
   const asDraft = (term: Term) => ({ ...term, evidence: [] });
   const hidden = (term: Term) => termMarksOf(term).some((mark) => search.hideMarks?.includes(mark)) || Boolean(term.tags?.some((tag) => search.hideTags?.includes(tag.id)));
-  const all = (terms.data ?? []).filter((term) => matches(asDraft(term), search.source, undefined, search.tags) && matchesMarks(termMarksOf(term), search.marks) && !hidden(term));
+  const all = (terms.data ?? []).filter((term) => matches(asDraft(term), search.source, undefined, search.tags, search.status) && matchesMarks(termMarksOf(term), search.marks) && !hidden(term));
   const queryClient = useQueryClient();
   const decide = useMutation({
     mutationFn: ({ ids, accept }: { ids: string[]; accept: boolean }) => unwrap(client.projects[':projectId'].drafts.$post({ param: { projectId }, json: { kind: 'terms', ids, action: accept ? 'confirm' : 'discard' } })),
@@ -132,11 +135,12 @@ function Glossary() {
   const discardable = pickedTerms.filter((term) => !isSettled(term));
   const afterBulk = { onSuccess: clearPicked };
   // A run on terms takes the picked terms, else on what the filters leave; with neither, on the terms its own 대상 picks.
-  const narrowed = Boolean(needle || search.ids || search.source || search.marks?.length || search.tags?.length || search.hideMarks?.length || search.hideTags?.length);
+  const narrowed = Boolean(needle || search.ids || search.source || search.status || search.marks?.length || search.tags?.length || search.hideMarks?.length || search.hideTags?.length);
   const runTermIds = pickedTerms.length ? pickedTerms.map((term) => term.id) : narrowed ? rows.map((term) => term.id) : undefined;
 
   const chips: FilterChip[] = [
     ...(search.ids ? [{ key: 'ids', label: `실행 범위 ${search.ids.length}`, clear: () => setFilter({ ids: undefined }) }] : []),
+    ...(search.status ? [{ key: 'status', label: KNOWLEDGE_STATUS_LABELS[search.status], clear: () => setFilter({ status: undefined }) }] : []),
     ...(search.source ? [{ key: 'source', label: SOURCE_LABELS[search.source], clear: () => setFilter({ source: undefined }) }] : []),
     ...(search.marks ?? []).map((mark) => ({ key: `mark:${mark}`, label: `#${AUTO_MARKS[mark].name}`, color: markColor(mark, markColors), clear: () => pickMark(mark, 'show') })),
     ...(search.hideMarks ?? []).map((mark) => ({ key: `hide-mark:${mark}`, label: `#${AUTO_MARKS[mark].name}`, color: markColor(mark, markColors), hidden: true, clear: () => pickMark(mark, 'hide') })),
@@ -153,8 +157,14 @@ function Glossary() {
   const columns: ColumnDef<Term, unknown>[] = [
     { id: 'source', header: '원문', meta: { hideable: false }, cell: ({ row }) => <span className="font-medium">{row.original.source}</span> },
     { id: 'target', header: '번역', cell: ({ row }) => row.original.target || <span className="text-muted-foreground">—</span> },
-    { id: 'lines', header: "등장", meta: { width: 72, align: 'end' }, cell: ({ row }) => row.original.lines ?? <span className="text-muted-foreground">—</span> },
+    { id: 'lines', header: "등장", meta: { width: 72 }, cell: ({ row }) => row.original.lines ?? <span className="text-muted-foreground">—</span> },
     { id: 'note', header: '메모', meta: { className: 'text-muted-foreground' }, cell: ({ row }) => row.original.note },
+    {
+      id: 'state',
+      header: () => <HeaderFilter label="상태" value={search.status} options={statusOptions} onChange={(status) => setFilter({ status: status as StatusFilter })} />,
+      meta: { width: 80, label: '상태' },
+      cell: ({ row }) => <StateCell row={asDraft(row.original)} />,
+    },
     {
       id: 'origin',
       header: () => (
@@ -232,7 +242,7 @@ function Glossary() {
           rows={terms.data && rows}
           rowId={(term) => term.id}
           loading={terms.isLoading}
-          empty={<EmptyState noun="용어" filtered={Boolean(needle || search.ids || search.source || search.marks?.length || search.tags?.length)} />}
+          empty={<EmptyState noun="용어" filtered={Boolean(needle || search.ids || search.source || search.status || search.marks?.length || search.tags?.length)} />}
           selected={selected?.id}
           onRowClick={(term) => select(term.id === search.term ? undefined : term.id)}
           picked={picked}

@@ -1,18 +1,13 @@
 /** AI node settings, grouped by the user's task: model, instruction, output, advanced. */
 import { useEffect, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { Plus, X } from 'lucide-react';
-import { AI_OUTPUTS, AI_PRESETS, AI_SCOPES, CHOICE_SOURCES, CONNECTION_KIND_INFO, BATCH_MODE_LABELS, contextConfigSchema, INPUT_TYPES, nodeName, previousSteps, type WorkflowSubject, type AiOutput, type AiScope, type BatchConfig, type Capability, type ChoiceSource, type WorkflowNode } from '@tw/shared';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Button, Dialog, DialogContent, DialogHeader, DialogTitle, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, InspectorActionRow, InspectorResult, InspectorSection } from '@loca/ui';
+import { AI_OUTPUTS, AI_SCOPES, CHOICE_SOURCES, CONNECTION_KIND_INFO, BATCH_MODE_LABELS, contextConfigSchema, INPUT_TYPES, nodeName, previousSteps, type WorkflowSubject, type AiOutput, type AiScope, type BatchConfig, type Capability, type ChoiceSource, type WorkflowNode } from '@tw/shared';
+import { Button, Dialog, DialogContent, DialogHeader, DialogTitle, Input, NumberInput, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, InspectorResult, InspectorSection } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
-import { AiContextPanel } from '@/components/ai-context';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
-import { client, unwrap } from '@/lib/api';
 import { JsonFieldsEditor } from '@/components/workflow/node-config/json-fields-editor';
 import { Field, CheckItem, CountRow, StepChips, ToggleRow, outputFieldNames, refsInput, type AiNode, type NodeRefs } from '@/components/workflow/node-config/shared';
 
-/** The fields a preset fills into a node (a full AI node config minus the model). */
-type PresetFill = Partial<Pick<AiNode['config'], 'instructions' | 'output' | 'scope' | 'fields' | 'choice'>>;
 
 /** Custom choice values, one per line; the text is kept locally so a trailing newline can be typed. */
 function ChoiceValues({ values, onChange }: { values: string[]; onChange: (values: string[]) => void }) {
@@ -34,24 +29,9 @@ function ChoiceValues({ values, onChange }: { values: string[]; onChange: (value
   );
 }
 
-/** The saved node's whole prompt (the read-only format part included) for a sample line. */
-function PromptPreview({ projectId, workflowId, nodeId }: { projectId: string; workflowId?: string; nodeId: string }) {
-  const [aiNode, setAiNode] = useState(workflowId ? `${workflowId}:${nodeId}` : undefined);
-  const sample = useQuery({
-    queryKey: ['units', 'prompt-sample', projectId],
-    queryFn: () => unwrap(client.projects[':projectId'].lines.find.$post({ param: { projectId }, json: { offset: 0, limit: 1 } })),
-  });
-  const key = sample.data?.rows[0]?.key;
-  if (!workflowId) return <p className="text-xs text-muted-foreground">저장된 워크플로에서 볼 수 있습니다.</p>;
-  if (sample.isSuccess && !key) return <p className="text-xs text-muted-foreground">샘플로 쓸 대사가 없습니다.</p>;
-  if (!key) return <p className="text-xs text-muted-foreground">샘플 대사를 불러오는 중…</p>;
-  return <AiContextPanel projectId={projectId} unitKey={key} aiNode={aiNode} onAiNode={setAiNode} />;
-}
 
 export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest'; node: AiNode; refs: NodeRefs; onChange: (node: WorkflowNode) => void }) {
   const [expanded, setExpanded] = useState(false);
-  const [previewing, setPreviewing] = useState(false);
-  const [refilling, setRefilling] = useState(false);
   const config = node.config;
   const input = refsInput(refs);
   // Saved workflows may predate a context setting; show its default.
@@ -64,7 +44,6 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
   const connection = refs.connections.find((item) => item.id === config.model.connectionId);
   const takesTemperature = connection ? CONNECTION_KIND_INFO[connection.kind].transport !== 'cli' && connection.kind !== 'systemone' : false;
   const contextOn = [context.glossary, context.speech, config.include.issues, context.precedingLines > 0, context.previousScenes > 0, context.cast, context.characters, context.relationships, context.documents].filter(Boolean).length;
-  const preset = config.preset ? (AI_PRESETS as Record<string, { label: string } & PresetFill>)[config.preset] : undefined;
 
   if (part === 'model') {
     return (
@@ -88,14 +67,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
         </div>
       </Field>
       <Field label="동시 처리 수" hint="요청을 한꺼번에 몇 개까지 보낼지. CLI 연결이면 그만큼 모델 프로세스가 뜹니다. 실행마다 따로 셉니다.">
-        <Input
-          type="number"
-          min={1}
-          max={16}
-          className="w-28"
-          value={config.concurrency}
-          onChange={(event) => set({ concurrency: Math.min(16, Math.max(1, Math.round(Number(event.target.value) || 1))) })}
-        />
+        <NumberInput min={1} max={16} className="w-28" value={config.concurrency} onValueChange={(concurrency) => concurrency !== undefined && set({ concurrency })} />
       </Field>
       </>
     );
@@ -112,36 +84,6 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
         </>
       }>
         <Textarea aria-label="지시문" value={config.instructions} onChange={(event) => set({ instructions: event.target.value })} className="min-h-28 text-sm" />
-        <InspectorActionRow
-          label="프롬프트"
-          description={config.preset ? (preset ? `프리셋 · ${preset.label}` : `프리셋 · ${config.preset}`) : '프리셋 없음'}
-          action={
-            <>
-              {preset && <Button type="button" variant="ghost" onClick={() => setRefilling(true)}>다시 채우기</Button>}
-              <Button type="button" variant="ghost" onClick={() => setPreviewing(true)}>미리보기</Button>
-            </>
-          }
-        />
-        <AlertDialog open={refilling} onOpenChange={setRefilling}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>프리셋으로 다시 채울까요?</AlertDialogTitle>
-              <AlertDialogDescription>지시문·출력 형태·필드·선택지가 ‘{preset?.label}’ 프리셋의 값으로 바뀝니다. 지금 쓴 내용은 사라집니다.</AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>취소</AlertDialogCancel>
-              <AlertDialogAction onClick={() => preset && set({ instructions: preset.instructions, output: preset.output, scope: preset.scope, fields: preset.fields, choice: preset.choice } as Partial<AiNode['config']>)}>다시 채우기</AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-        <Dialog open={previewing} onOpenChange={setPreviewing}>
-          <DialogContent className="flex h-[80vh] max-w-3xl flex-col">
-            <DialogHeader><DialogTitle>프롬프트 · {nodeName(node)}</DialogTitle></DialogHeader>
-            <div className="min-h-0 flex-1 space-y-2 overflow-auto">
-              <PromptPreview projectId={refs.projectId} workflowId={refs.workflowId} nodeId={node.id} />
-            </div>
-          </DialogContent>
-        </Dialog>
         <Dialog open={expanded} onOpenChange={setExpanded}>
           <DialogContent className="flex h-[75vh] max-w-3xl flex-col">
             <DialogHeader><DialogTitle>지시문 · {nodeName(node)}</DialogTitle></DialogHeader>
@@ -198,23 +140,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
         <>
           {takesTemperature && (
             <Field label="온도">
-              <Input
-                type="number"
-                min={0}
-                max={2}
-                step={0.1}
-                className="w-28"
-                value={config.temperature ?? ''}
-                placeholder="기본값"
-                onChange={(event) =>
-                  set({
-                    temperature:
-                      event.target.value === ''
-                        ? undefined
-                        : Math.min(2, Math.max(0, Number(event.target.value))),
-                  })
-                }
-              />
+              <NumberInput min={0} max={2} step={0.1} integer={false} optional className="w-28" value={config.temperature} placeholder="기본값" onValueChange={(temperature) => set({ temperature })} />
             </Field>
           )}
           {config.output === 'text' && (
@@ -260,27 +186,12 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
             </Field>
             {config.batch.mode === 'count' && (
               <Field label={`요청당 ${INPUT_TYPES[input].label} 수`}>
-                <Input
-                  type="number"
-                  min={1}
-                  max={1000}
-                  value={config.batch.size}
-                  onChange={(event) =>
-                    set({ batch: { ...config.batch, size: Number(event.target.value) } })
-                  }
-                />
+                <NumberInput min={1} max={1000} value={config.batch.size} onValueChange={(size) => size !== undefined && set({ batch: { ...config.batch, size } })} />
               </Field>
             )}
           </>
           <Field label="호출 제한 시간 (분)" hint="요청 하나가 이 시간을 넘으면 그 대사들은 오류(시간 초과) 출구로 나갑니다.">
-            <Input
-              type="number"
-              min={1}
-              max={240}
-              className="w-28"
-              value={config.timeoutMinutes}
-              onChange={(event) => set({ timeoutMinutes: Math.min(240, Math.max(1, Math.round(Number(event.target.value) || 1))) })}
-            />
+            <NumberInput min={1} max={240} className="w-28" value={config.timeoutMinutes} onValueChange={(timeoutMinutes) => timeoutMinutes !== undefined && set({ timeoutMinutes })} />
           </Field>
         </>
       </InspectorSection>

@@ -5,7 +5,7 @@ import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { fillTermUsage } from './term-usage.ts';
-import { annotateKnowledge, knowledgeFilterInput, pickedMarks as pickedMarksOf, type KnowledgeFilter } from './knowledge-list.ts';
+import { annotateKnowledge, knowledgeFilterInput, matchesStatus, type KnowledgeFilter } from './knowledge-list.ts';
 import { byPerson } from './status-by.ts';
 import { discoverTerms } from './term-discovery.ts';
 
@@ -149,10 +149,10 @@ export function discoverAndSave(db: Db, projectId: string) {
   return { found: found.length, added, updated };
 }
 
-/** Filter of the glossary list: the knowledge filter, with the term marks (candidate, ai, emptyTarget, unused). */
+/** Filter of the glossary list: the knowledge filter, with the term marks (ai, emptyTarget, unused). */
 export const termFilterInput = {
   ...knowledgeFilterInput,
-  marks: z.array(z.enum(TERM_MARK_IDS as [AutoMark, ...AutoMark[]])).optional().describe('Term marks: candidate, ai, emptyTarget (no Korean form), unused (not in the script). candidate + ai together mean either one, as in the app.'),
+  marks: z.array(z.enum(TERM_MARK_IDS as [AutoMark, ...AutoMark[]])).optional().describe('Term marks: ai, emptyTarget (no Korean form), unused (not in the script); all given must hold.'),
   q: z.string().optional().describe('Text in the source or the translation.'),
 };
 
@@ -166,7 +166,7 @@ export function listTerms(db: Db, projectId: string, input: KnowledgeFilter & { 
   const rows = db.select().from(s.terms).where(where).orderBy(asc(s.terms.source)).all();
   const matched = annotateKnowledge(db, projectId, 'terms', rows, { tags: input.tags })
     .map(({ marks: _marks, ...row }) => ({ ...row, marks: termMarksOf(row) }))
-    .filter((row) => matchesMarks(row.marks, pickedMarksOf(input)));
+    .filter((row) => matchesMarks(row.marks, input.marks) && matchesStatus(row, input));
   const offset = input.offset ?? 0;
   const page = input.limit === undefined ? matched.slice(offset) : matched.slice(offset, offset + input.limit);
   return {

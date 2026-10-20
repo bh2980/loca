@@ -287,6 +287,14 @@ function Table<T>({
     const handle = event.currentTarget
     const startX = event.clientX
     const startWidth = cell.getBoundingClientRect().width
+    // A fixed-layout table wider than its columns hands the spare width to every column in proportion, so
+    // moving one edge moved the others. Freeze every column at the width it shows now; the table is then
+    // exactly as wide as its columns (see `width` below) and only the dragged one changes.
+    const shown: ColumnSizingState = {}
+    for (const th of cell.parentElement?.querySelectorAll<HTMLElement>("th[data-col]") ?? []) {
+      shown[th.dataset.col!] = Math.max(MIN_WIDTH, Math.round(th.getBoundingClientRect().width))
+    }
+    table.setColumnSizing((previous) => ({ ...previous, ...shown }))
     handle.setPointerCapture(event.pointerId)
     const move = (next: PointerEvent) =>
       table.setColumnSizing((previous) => ({
@@ -463,7 +471,7 @@ function Table<T>({
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
         <table
           className="w-full table-fixed border-separate border-spacing-0 text-sm"
-          style={{ minWidth }}
+          style={{ minWidth, ...(Object.keys(sizing).length ? { width: minWidth } : {}) }}
         >
           <colgroup>
             {lead && <col className={pickable ? "w-9" : "w-5"} />}
@@ -511,6 +519,7 @@ function Table<T>({
                   group.headers.map((header, index) => (
                     <th
                       key={header.id}
+                      data-col={header.column.id}
                       className={cn(
                         "group/th relative h-8  px-3 text-left align-middle text-xs font-normal text-muted-foreground whitespace-nowrap",
                         index === 0 && !lead && "pl-4",

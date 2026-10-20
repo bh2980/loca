@@ -55,7 +55,7 @@ function termWorkflow(choice: unknown) {
           batch: { mode: 'count', size: 10 },
         },
       },
-      { id: 'save', type: 'function', position: at, config: { fn: 'saveTermEntry', params: { map: { target: 'target', note: 'note' } } } },
+      { id: 'save', type: 'function', position: at, config: { fn: 'saveCandidate', params: { map: { text: 'target', note: 'note' } } } },
     ],
     edges: [{ id: '1', source: 'entry', sourceHandle: 'out', target: 'translate' }, { id: '2', source: 'translate', sourceHandle: 'out', target: 'save' }],
   });
@@ -70,18 +70,18 @@ describe('a workflow whose input is terms', () => {
     expect(selectRunTerms(db, projectId, { termIds: [hesk.id] })).toEqual([hesk.id]);
   });
 
-  it('filters terms like the glossary: #후보 picks their status, #후보 with #AI 초안 means either, and term tags must all be on', () => {
+  it('filters terms like the glossary: status, the remaining marks, and term tags that must all be on', () => {
     const { db, projectId, gate, hesk } = setup();
-    expect(selectRunTerms(db, projectId, { marks: ['candidate', 'emptyTarget'] } as never)).toEqual([gate.id, hesk.id]);
+    expect(selectRunTerms(db, projectId, { statusIds: ['candidate'], marks: ['emptyTarget'] } as never)).toEqual([gate.id, hesk.id]);
     const kai = db.select().from(s.terms).where(eq(s.terms.source, 'Kai')).get()!;
     db.update(s.terms).set({ statusBy: 'ai' }).where(eq(s.terms.id, kai.id)).run();
-    expect(selectRunTerms(db, projectId, { marks: ['candidate', 'ai'] } as never)).toHaveLength(3);
+    expect(selectRunTerms(db, projectId, { marks: ['ai'] } as never)).toEqual([kai.id]);
     const place = db.insert(s.tags).values({ projectId, name: '지명', color: '#000000', scope: ['terms'] }).returning().get();
     db.insert(s.knowledgeTags).values({ kind: 'terms', itemId: gate.id, tagId: place.id }).run();
     expect(selectRunTerms(db, projectId, { tagIds: [place.id] })).toEqual([gate.id]);
     // Marks of the other input are refused before anything is counted or run.
     expect(scopeMismatch('lines', { marks: ['emptyTarget'] })).toContain('번역 누락');
-    expect(scopeMismatch('terms', { marks: ['candidate', 'emptyTarget'] })).toBeNull();
+    expect(scopeMismatch('terms', { marks: ['ai', 'emptyTarget'] })).toBeNull();
   });
 
   it('sends each term with its example lines, saves the Korean form of each candidate and confirms it', async () => {
@@ -139,7 +139,7 @@ describe('a workflow whose input is terms', () => {
     const definition = termWorkflow(choice);
     const bad = workflowDefinitionSchema.parse({
       ...definition,
-      nodes: definition.nodes.map((node) => (node.id === 'translate' && node.type === 'ai' ? { ...node, config: { ...node.config, batch: { ...node.config.batch, mode: 'group' } } } : node.id === 'save' ? { ...node, config: { fn: 'setStatus', params: {} } } : node)),
+      nodes: definition.nodes.map((node) => (node.id === 'translate' && node.type === 'ai' ? { ...node, config: { ...node.config, batch: { ...node.config.batch, mode: 'group' } } } : node.id === 'save' ? { ...node, config: { fn: 'setListener', params: { map: { listener: 'target' } } } } : node)),
     });
     const messages = validateWorkflow(bad, { statusIds: new Set(), connections: new Set([choice.connectionId]) } as never).filter((issue) => issue.level === 'error').map((issue) => issue.message);
     expect(messages).toContainEqual(expect.stringContaining('용어 입력에서는 묶음을'));

@@ -1,5 +1,5 @@
 /** Pieces shared by the node-kind configs: shared field primitives and the node/ref types. */
-import { Button, Checkbox, Input, InspectorField, InspectorToggle, NODE_CARD_KIND_APPEARANCE, Switch, cn } from '@loca/ui';
+import { Button, Checkbox, Input, NumberInput, InspectorField, InspectorToggle, NODE_CARD_KIND_APPEARANCE, Switch, cn } from '@loca/ui';
 import { CONNECTION_KIND_INFO, functionGroup, nodeName, workflowInput, type WorkflowEdge, type WorkflowNode, type WorkflowSubject } from '@tw/shared';
 import { nodeIcon } from '@/components/workflow/node-view';
 
@@ -67,7 +67,7 @@ export function CountRow({ label, unit, value, fallback, max, onChange }: { labe
       <span className="flex shrink-0 items-center gap-2">
         {value > 0 && (
           <span className="flex items-center gap-1 text-xs text-muted-foreground">
-            <Input type="number" min={1} max={max} value={value} onChange={(event) => onChange(Math.max(1, Math.min(max, Number(event.target.value) || 1)))} className="h-7 w-14 text-right" aria-label={`${label} 수`} />
+            <NumberInput min={1} max={max} value={value} onValueChange={(next) => next !== undefined && onChange(next)} className="h-7 w-14 text-right" aria-label={`${label} 수`} />
             {unit}
           </span>
         )}

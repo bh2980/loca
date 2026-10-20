@@ -1,5 +1,6 @@
 /** Edits one workflow node's config; the node kinds live beside this file. */
 import { useState } from 'react';
+import { RequestPreview } from './request-preview';
 import { Trash2 } from 'lucide-react';
 import { AI_OUTPUTS, AI_SCOPES, CHOICE_SOURCES, INPUT_TYPES, JSON_FIELD_TYPE_LABELS, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, NODE_TYPES, nodeName, nodePorts, TERM_MARK_IDS, WORKFLOW_SUBJECT_IDS, type AutoMark, type JsonField, type WorkflowSubject, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
 import { MarkChip } from '@/components/status';
@@ -46,7 +47,7 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
                 <Trash2 /> 노드 삭제
               </Button></>) : undefined}
       className="min-w-0 border-l-0"
-      header={<InspectorHeader icon={<Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />} kind={`${NODE_TYPES[node.type].label} · ${node.id}`} name={nodeName(node)} onClose={onClose} />}
+      header={<InspectorHeader icon={<Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />} kind={NODE_TYPES[node.type].label} name={nodeName(node)} onClose={onClose} />}
       tabs={<InspectorTabs<NodeConfigTab> value={activeTab} onChange={changeTab} items={[{ value: 'settings', label: '설정' }, { value: 'io', label: '입출력' }, { value: 'errors', label: issues.length ? `오류 ${issues.length}` : '오류' }]} />}
       bodyClassName="space-y-0 p-0"
     >
@@ -83,6 +84,7 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
 
       {activeTab === 'io' && (
         <div className="min-w-0">
+          {node.type === 'ai' && <RequestPreview workflowId={refs.workflowId} node={node} />}
           <InspectorSection title="입력">
             {node.type === 'entry' && (
               <PropertyGrid>

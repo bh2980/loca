@@ -65,12 +65,8 @@ export function NodeCard({ kind, icon, title, summary, inputHandle, outputs = []
           isCondition && "border-b border-review/30",
           style.header
         )}>
-          <span className={cn(
-            "flex size-6 shrink-0 items-center justify-center [&_svg]:size-3.5",
-            isCondition ? "rotate-45 rounded-xs bg-review text-background shadow-xs" : style.icon
-          )}>
-            <span className={isCondition ? "-rotate-45 [&_svg]:size-3.5 [&_svg]:stroke-[2]" : undefined}>{icon}</span>
-          </span>
+          {/* The header colour already tells the group; the icon stays small and plain for every kind. */}
+          <span className={cn("flex size-4 shrink-0 items-center justify-center [&_svg]:size-3.5", style.icon)}>{icon}</span>
           <span className="min-w-0 flex-1 truncate text-sm font-semibold">{title}</span>
           {parallel !== undefined && parallel > 1 && (
             <span className="shrink-0 rounded-sm bg-background/60 px-1 text-xs font-medium tabular-nums text-foreground" title={`동시 처리 수 ${parallel}: 요청을 ${parallel}개까지 동시에 보냅니다`}>×{parallel}</span>

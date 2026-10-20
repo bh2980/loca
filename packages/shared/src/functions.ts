@@ -88,6 +88,7 @@ export const formatCheckParams = z.object({
 });
 
 export const setStatusParams = z.object({
+  /** A lines workflow: one of the project's statuses; a terms workflow: candidate, confirmed or rejected. */
   statusId: z.string().optional(),
   addTagIds: z.array(z.string()).default([]),
   removeTagIds: z.array(z.string()).default([]),
@@ -126,11 +127,14 @@ const evidenceField = { name: 'evidence', label: '근거 대사', type: 'lines' 
 export const APPLY_TARGETS = {
   saveCandidate: {
     label: '번역 저장',
-    description: '번역문을 대사에 넣습니다(번역 기록에도 남음). 사람이 저장한 번역은 덮어쓰지 않습니다.',
+    description: '이 항목에 번역을 넣습니다: 대사는 번역문(번역 기록에도 남음), 용어는 표기와 메모. 사람이 저장한 번역은 덮어쓰지 않습니다.',
     shape: 'line',
-    fields: [{ name: 'text', label: '번역문', type: 'string', required: true }],
+    fields: [
+      { name: 'text', label: '번역', type: 'string', required: true },
+      { name: 'note', label: '메모', type: 'string' },
+    ],
     tool: 'propose_changes',
-    inputs: ['lines'],
+    inputs: ['lines', 'terms'],
   },
   setListener: {
     label: '청자 저장',
@@ -145,24 +149,11 @@ export const APPLY_TARGETS = {
   },
   tagLines: {
     label: '태그 붙이기',
-    description: '값과 이름이 같은 대사 태그를 붙입니다. 없는 태그는 만들지 않습니다.',
+    description: '값과 이름이 같은 태그를 이 항목에 붙입니다. 없는 태그는 만들지 않습니다.',
     shape: 'line',
     fields: [{ name: 'tag', label: '태그 이름', type: 'string', required: true }],
     tool: 'propose_changes',
-    inputs: ['lines'],
-  },
-  saveTermEntry: {
-    label: '용어 표기 저장',
-    description: '이 용어의 한국어 표기와 메모를 적습니다. 기본은 표기가 비어 있을 때만 채우고(사람이 그사이 채웠으면 그대로), 끄면 덮어씁니다.',
-    shape: 'line',
-    fields: [
-      { name: 'target', label: '번역', type: 'string', required: true },
-      { name: 'note', label: '메모', type: 'string' },
-      { name: 'kind', label: '종류', type: 'string' },
-      { name: 'meaning', label: '뜻', type: 'string' },
-    ],
-    tool: 'save_terms',
-    inputs: ['terms'],
+    inputs: ['lines', 'terms'],
   },
   saveTerms: {
     label: '용어 저장',
@@ -275,8 +266,6 @@ export const applyParams = z.object({
   list: z.string().default(''),
   /** Target field → source field (inside the list item for `list`, inside the output otherwise). */
   map: z.record(z.string(), z.string()).default({}),
-  /** 용어 표기 저장: fill the term's Korean form only while it is empty (a person's is kept). */
-  onlyEmpty: z.boolean().default(true),
 });
 export type ApplyParams = z.infer<typeof applyParams>;
 
@@ -321,7 +310,7 @@ export const FUNCTIONS = {
     params: formatCheckParams,
     ports: () => pass,
     async: false,
-    inputs: ['lines'],
+    inputs: ['lines', 'terms'],
   },
   glossaryCheck: {
     label: '용어 검사',
@@ -329,23 +318,15 @@ export const FUNCTIONS = {
     params: z.object({}),
     ports: () => pass,
     async: false,
-    inputs: ['lines'],
+    inputs: ['lines', 'terms'],
   },
   setStatus: {
     label: '상태 변경',
-    description: '상태·태그를 바꿉니다. (번역은 노드가 낸 즉시 번역 칸에 들어갑니다.)',
+    description: '이 항목의 상태와 태그를 바꿉니다: 대사는 프로젝트의 상태, 용어는 후보·확정·버림(버린 용어는 다시 제안되지 않음).',
     params: setStatusParams,
     ports: () => out,
     async: false,
-    inputs: ['lines'],
-  },
-  setTermStatus: {
-    label: '용어 상태 변경',
-    description: '이 용어를 후보·확정·거절로 바꿉니다(AI가 정한 것으로 표시). 거절한 용어는 다시 제안되지 않습니다.',
-    params: z.object({ status: z.enum(['candidate', 'confirmed', 'rejected']).default('rejected') }),
-    ports: () => out,
-    async: false,
-    inputs: ['terms'],
+    inputs: ['lines', 'terms'],
   },
   ...(Object.fromEntries(
     Object.entries(APPLY_TARGETS).map(([name, target]) => [name, { label: target.label, description: target.description, params: applyParams, ports: () => out, async: false, inputs: target.inputs }]),
@@ -372,7 +353,6 @@ export const FUNCTION_NAMES = Object.keys(FUNCTIONS) as FunctionName[];
 /** Standalone deterministic functions exposed in the workflow node library under '함수 동작'. */
 export const PALETTE_FUNCTION_NAMES: FunctionName[] = [
   'setStatus',
-  'setTermStatus',
   'formatCheck',
   'glossaryCheck',
   'script',
@@ -383,7 +363,10 @@ export const PALETTE_FUNCTION_NAMES: FunctionName[] = [
  * The editor's group of a function node, which also gives its colour: 반영 writes to the project (the
  * apply targets and the status changes), 함수 reads and judges or computes.
  */
-export const functionGroup = (fn: string): 'apply' | 'function' => (fn in APPLY_TARGETS || fn === 'setStatus' || fn === 'setTermStatus' ? 'apply' : 'function');
+export const functionGroup = (fn: string): 'apply' | 'function' => (fn in APPLY_TARGETS || fn === 'setStatus' ? 'apply' : 'function');
+
+/** The 반영 group in the editor: what writes to the item running through first, then what writes to the project's knowledge. */
+export const APPLY_PALETTE_ORDER: FunctionName[] = ['saveCandidate', 'setStatus', 'tagLines', 'setListener', 'saveTerms', 'saveCharacters', 'saveRelationships', 'saveSpeechRules', 'saveEvents', 'saveDocument'];
 
 export function functionPorts(fn: string, params: unknown): Port[] {
   const info = FUNCTIONS[fn as FunctionName] as unknown as FunctionInfo | undefined;
