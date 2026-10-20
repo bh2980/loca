@@ -85,6 +85,34 @@ export type ChoiceConfig = z.infer<typeof choiceConfigSchema>;
 
 export { jsonFieldSchema, type JsonField };
 
+/**
+ * An AI node's input. `from`: an earlier node (AI or script) whose output each line carries goes into
+ * the prompt as that line's "previous", trimmed to `fields` (paths like "characters.name"; empty =
+ * all of it). `lines: false` sends no lines at all, only what `from` produced (one answer for the
+ * request: json, 묶음 전체), e.g. a node that combines the parts another node read.
+ */
+export const aiInputSchema = z
+  .object({ lines: z.boolean().default(true), from: z.string().nullable().default(null), fields: z.array(z.string().trim().min(1)).default([]) })
+  .prefault({});
+
+/**
+ * `value` trimmed to `paths` ("a", "a.b"; a path through a list applies to each of its items), or
+ * the value itself when there are none.
+ */
+export function pickPaths(value: unknown, paths: string[]): unknown {
+  if (!paths.length || value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map((item) => pickPaths(item, paths));
+  const byHead = Map.groupBy(paths.map((path) => path.split('.')), (parts) => parts[0]!);
+  const record = value as Record<string, unknown>;
+  return Object.fromEntries(
+    [...byHead].filter(([head]) => head in record).map(([head, parts]) => {
+      const rest = parts.map((part) => part.slice(1).join('.')).filter(Boolean);
+      // A path that ends here keeps the whole value; longer ones only trim inside it.
+      return [head, parts.some((part) => part.length === 1) ? record[head] : pickPaths(record[head], rest)];
+    }),
+  );
+}
+
 /** An AI node's call time limit when it does not set one, in minutes. */
 export const DEFAULT_CALL_MINUTES = 10;
 
@@ -129,6 +157,8 @@ export const aiNodeConfigSchema = z.object({
   batch: batchConfigSchema.default(batchConfigSchema.parse({})),
   /** How long one request of this node may take before it fails with error kind "timeout". */
   timeoutMinutes: z.number().int().min(1).max(240).default(DEFAULT_CALL_MINUTES),
+  /** What the request reads besides the context: the lines, and what an earlier node produced for them. */
+  input: aiInputSchema,
 });
 
 export const workflowNodeSchema = z.discriminatedUnion('type', [
@@ -358,6 +388,15 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
       if (node.config.output === 'json' && node.config.fields.some((field) => field.type === 'list' && !field.fields?.length)) error('목록 필드에는 항목 필드가 하나 이상 필요합니다.', { nodeId: node.id });
       if (node.config.output === 'choice' && node.config.choice.source === 'custom' && !node.config.choice.values.length) error('선택지를 하나 이상 적으세요.', { nodeId: node.id });
       if (node.config.scope === 'batch' && node.config.output !== 'json') error("'묶음 전체' 출력은 JSON에서만 쓸 수 있습니다.", { nodeId: node.id });
+      const input = aiInputSchema.parse(node.config.input ?? {});
+      if (input.from) {
+        const from = definition.nodes.find((other) => other.id === input.from);
+        if (!from) error('입력으로 고른 앞 노드가 없습니다.', { nodeId: node.id });
+        else if (!(from.type === 'ai' || (from.type === 'function' && from.config.fn === 'script'))) error('앞 노드 결과는 AI 노드나 스크립트 노드에서만 가져옵니다.', { nodeId: node.id });
+        else if (from.id === node.id || !reach(from.id).has(node.id)) error(`'${nodeName(from)}'는 이 노드보다 앞에 있어야 합니다.`, { nodeId: node.id });
+        if (node.config.batch.mode === 'whole') error('대본 전체로 읽는 노드에는 앞 노드 결과를 넣을 수 없습니다.', { nodeId: node.id });
+      }
+      if (!input.lines && !(input.from && node.config.output === 'json' && node.config.scope === 'batch')) error('대사 없이 보내려면 앞 노드 결과를 고르고, 출력을 JSON · 묶음 전체로 하세요.', { nodeId: node.id });
     }
     if (node.type === 'entry')
       for (const id of node.config.statusIds) if (!refs.statusIds.has(id)) error('삭제된 상태가 있습니다.', { nodeId: node.id });

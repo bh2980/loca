@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { importFileSchema, workflowDefinitionSchema } from '@tw/shared';
+import { importFileSchema, validateWorkflow, workflowDefinitionSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
@@ -392,5 +392,63 @@ describe('who set the status', () => {
     // '상태 무시' or a workflow without a status filter (말투만 고치기) is asked to rewrite the lines it names.
     expect(filtersByStatus(entry(['untranslated']), { ignoreStatus: true })).toBe(false);
     expect(filtersByStatus(entry([]), {})).toBe(false);
+  });
+});
+
+describe('an AI node reading an earlier node’s output', () => {
+  it('sends each line what the earlier node produced for it, trimmed to the chosen fields, as "previous"', async () => {
+    const { db, projectId, choice } = setup(2);
+    const definition = flow(
+      {
+        who: ai(choice, { output: 'json', instructions: 'Who is addressed?', fields: [{ name: 'listener', type: 'string' }, { name: 'reason', type: 'string' }] }),
+        translate: ai(choice, { output: 'text', instructions: 'Translate.', input: { from: 'who', fields: ['listener'] } }),
+      },
+      ['entry -> who', 'who -> translate', 'translate -> end'],
+    );
+    const seen: { system: string; prompt: string }[] = [];
+    const runner = new Runner(db, memoryStore(), {
+      judge: async () => {
+        throw new Error('unused');
+      },
+      generate: async (_route, request) => {
+        seen.push(request);
+        const lines = promptEntries(request.prompt) as { id: string }[];
+        if (request.system.includes('Who is addressed?')) return { object: { results: lines.map((line) => ({ id: line.id, listener: `P${line.id}`, reason: 'why' })) }, usage: {} } as never;
+        return { object: { results: lines.map((line) => ({ id: line.id, text: 'ko' })) }, usage: {} } as never;
+      },
+    });
+    start(db, projectId, save(db, projectId, definition));
+    await runner.drain();
+    const translate = seen.find((request) => request.system.includes('Translate.'))!;
+    expect(translate.system).toContain('"previous" is what an earlier node');
+    expect((promptEntries(translate.prompt) as { previous?: unknown }[]).map((line) => line.previous)).toEqual([{ listener: 'PL1' }, { listener: 'PL2' }]);
+  });
+
+  it('without lines sends only what the earlier node produced, for one answer', async () => {
+    const { db, projectId, choice } = setup(2);
+    const definition = flow(
+      {
+        part: ai(choice, { output: 'json', scope: 'batch', instructions: 'Read.', fields: [{ name: 'people', type: 'strings' }] }),
+        combine: ai(choice, { output: 'json', scope: 'batch', instructions: 'Combine.', fields: [{ name: 'people', type: 'strings' }], input: { from: 'part', lines: false } }),
+      },
+      ['entry -> part', 'part -> combine', 'combine -> end'],
+    );
+    expect(validateWorkflow(definition, { statusIds: new Set(), connections: new Set([choice.connectionId]) } as never).filter((issue) => issue.level === 'error')).toEqual([]);
+    const seen: { system: string; prompt: string }[] = [];
+    const runner = new Runner(db, memoryStore(), {
+      judge: async () => {
+        throw new Error('unused');
+      },
+      generate: async (_route, request) => {
+        seen.push(request);
+        return { object: { people: ['Alice'] }, usage: {} } as never;
+      },
+    });
+    start(db, projectId, save(db, projectId, definition));
+    await runner.drain();
+    const combine = JSON.parse(seen.find((request) => request.system.includes('Combine.'))!.prompt);
+    expect(combine.scenes).toBeUndefined();
+    // One part's answer (its first line carries it); the other lines have nothing to pass on.
+    expect(combine.previous).toEqual([{ people: ['Alice'] }]);
   });
 });

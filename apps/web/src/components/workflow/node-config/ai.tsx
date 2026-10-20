@@ -137,6 +137,8 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
         </Dialog>
       </InspectorSection>
 
+      <AiInputSection node={node} refs={refs} set={set} />
+
       <InspectorSection title="출력">
         <Field label="출력 형태">
           <Select value={config.output} onValueChange={(value) => set({ output: value as AiOutput, ...(value !== 'json' && { scope: 'line' as AiScope }) })}>
@@ -301,5 +303,60 @@ export function AiContextFields({ config, set }: { config: Pick<AiNode['config']
         <ToggleRow label="문서" checked={context.documents} onChange={(value) => set({ context: { ...context, documents: value } })} />
       </div>
     </>
+  );
+}
+
+/** Fields of a node's output an input can keep (top level; a list keeps its items whole). */
+function outputFieldNames(node: WorkflowNode): string[] {
+  if (node.type === 'ai') {
+    if (node.config.output === 'json') return node.config.fields.map((field) => field.name);
+    if (node.config.output === 'verdict') return ['passed', 'issues'];
+    if (node.config.output === 'choice') return ['value', 'confidence', 'reason'];
+    return ['text'];
+  }
+  if (node.type === 'function' && node.config.fn === 'script') return ((node.config.params as { fields?: { name: string }[] }).fields ?? []).map((field) => field.name);
+  return [];
+}
+
+/** 입력: what an earlier node produced for each line, as the line's "previous"; or that alone, without the lines. */
+function AiInputSection({ node, refs, set }: { node: AiNode; refs: NodeRefs; set: (patch: Partial<AiNode['config']>) => void }) {
+  const input = node.config.input;
+  // Nodes a line can have passed before this one (AI and script nodes, which leave an output).
+  const into = Map.groupBy(refs.edges ?? [], (edge) => edge.target);
+  const before = new Set<string>();
+  const stack = [node.id];
+  while (stack.length)
+    for (const edge of into.get(stack.pop()!) ?? [])
+      if (!before.has(edge.source)) {
+        before.add(edge.source);
+        stack.push(edge.source);
+      }
+  const sources = refs.nodes.filter((other) => other.id !== node.id && before.has(other.id) && (other.type === 'ai' || (other.type === 'function' && other.config.fn === 'script')));
+  const from = sources.find((other) => other.id === input.from);
+  const names = from ? outputFieldNames(from) : [];
+  const batch = node.config.output === 'json' && node.config.scope === 'batch';
+  const setInput = (patch: Partial<AiNode['config']['input']>) => set({ input: { ...input, ...patch } });
+  return (
+    <InspectorSection title={from ? `입력 · ${nodeName(from)}` : '입력'} defaultOpen={Boolean(input.from)}>
+      <Field label="앞 노드 결과" hint="고른 노드가 이 대사에 낸 결과를 대사마다 previous로 넣습니다.">
+        <Select value={input.from ?? 'none'} onValueChange={(value) => setInput({ from: value === 'none' ? null : value, fields: [], ...(value === 'none' && { lines: true }) })}>
+          <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">넣지 않음</SelectItem>
+            {sources.map((other) => <SelectItem key={other.id} value={other.id}>{nodeName(other)}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </Field>
+      {from && names.length > 0 && (
+        <Field label="남길 필드" hint="하나도 고르지 않으면 결과 전체를 넣습니다.">
+          <div className="space-y-2">
+            {names.map((name) => (
+              <ToggleRow key={name} label={name} checked={input.fields.includes(name)} onChange={(on) => setInput({ fields: on ? [...input.fields, name] : input.fields.filter((field) => field !== name) })} />
+            ))}
+          </div>
+        </Field>
+      )}
+      {from && batch && <ToggleRow label="대사도 넣기" checked={input.lines} onChange={(lines) => setInput({ lines })} />}
+    </InspectorSection>
   );
 }

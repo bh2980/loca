@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, gte, inArray, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
 import jsonLogic from 'json-logic-js';
 import * as ai from '@tw/ai';
-import { estimateTokens, batchConfigSchema, batchTokens, lineCostIn, FUNCTIONS, choiceKey, lineMarksOf, nodeModels, nodeName, type AiNode, type ConditionData, type FunctionName, type ItemErrorKind, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+import { estimateTokens, batchConfigSchema, batchTokens, lineCostIn, FUNCTIONS, choiceKey, lineMarksOf, nodeModels, nodeName, type AiNode, type ConditionData, type FunctionName, type ItemErrorKind, pickPaths, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -661,12 +661,27 @@ export class Runner {
   }
 
   /** The lines of `items` as the prompt numbers them, in batch (script) order. */
-  private promptLines(items: Item[]) {
+  private promptLines(items: Item[], node?: AiNode) {
     const units = new Map(this.db.select().from(s.units).where(inArray(s.units.id, items.map((item) => item.unitId))).all().map((unit) => [unit.id, unit]));
     const rows = items.map((item) => units.get(item.unitId)!);
+    const input = node?.config.input ?? null;
     const lines: PromptLine[] = items.map((item, index) => {
       const unit = units.get(item.unitId)!;
-      return { id: promptLineId(index), unitId: unit.id, groupId: unit.groupId, key: unit.key, kind: unit.kind, speaker: unit.speaker, source: unit.source, candidate: item.data.candidateText ?? unit.translation ?? undefined, issues: item.data.issues };
+      // A batch answer rides on its first line only (batchLeader): the others have nothing to pass on.
+      const { batchLeader, ...output } = (input?.from ? item.data.outputs?.[input.from] : undefined) ?? { batchLeader: false };
+      const previous = batchLeader === false ? undefined : output;
+      return {
+        id: promptLineId(index),
+        unitId: unit.id,
+        groupId: unit.groupId,
+        key: unit.key,
+        kind: unit.kind,
+        speaker: unit.speaker,
+        source: unit.source,
+        candidate: item.data.candidateText ?? unit.translation ?? undefined,
+        issues: item.data.issues,
+        ...(previous !== undefined && { previous: pickPaths(previous, input!.fields) }),
+      };
     });
     return { rows, lines };
   }
@@ -709,7 +724,7 @@ export class Runner {
    */
   private async callLines(run: Run, node: AiNode, model: s.AiSnapshot, routes: ai.ResolvedRoute[], items: Item[], signal: AbortSignal): Promise<void> {
     const project = this.db.select().from(s.projects).where(eq(s.projects.id, run.projectId)).get()!;
-    const { rows, lines } = this.promptLines(items);
+    const { rows, lines } = this.promptLines(items, node);
     const round = Math.max(0, ...items.map((item) => item.data.retries?.[node.id] ?? 0));
     const step: StepRecord = { runId: run.id, nodeId: node.id, connectionId: routes[0]?.connectionId ?? null, model: routes[0]?.model ?? null, unitIds: items.map((item) => item.unitId), startedAt: new Date(), round };
     const languages = { source: project.sourceLanguage, target: project.targetLanguage };
@@ -783,7 +798,7 @@ export class Runner {
   private async judgeLines(run: Run, node: AiNode, batch: Item[], model: s.AiSnapshot, routes: ai.ResolvedRoute[], signal: AbortSignal) {
     const step: StepRecord = { runId: run.id, nodeId: node.id, connectionId: routes[0]?.connectionId ?? null, model: routes[0]?.model ?? null, unitIds: batch.map((item) => item.unitId), startedAt: new Date() };
     if (node.config.output !== 'verdict') return this.failBatch(run, batch, step, new Error('System One 연결은 출력 형태가 "판정"인 AI 노드에서만 쓸 수 있습니다.'));
-    const { rows, lines } = this.promptLines(batch);
+    const { rows, lines } = this.promptLines(batch, node);
     const context = buildContext(this.db, run.projectId, rows, node.config.context);
     step.context = context.items;
     try {

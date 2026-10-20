@@ -7,7 +7,7 @@ import { politenessOf, speechLevelOf, styleInstruction, styleNames } from './kno
 import { ANALYSIS_WORKFLOW, analysisTemplate, defaultWorkflows, draftTranslationTemplate, eventExtractionTemplate, listenerTemplate, MODEL_TEMPLATES, peopleRelationsTemplate, speechFixTemplate, termExtractionTemplate, translationTemplate } from './defaults.ts';
 import { APPLY_TARGETS } from './functions.ts';
 import { AI_PRESETS, presetConfig } from './presets.ts';
-import { applyIssues, nodePorts, readinessUses, validateWorkflow, workflowDefinitionSchema, workflowNodeSchema, type WorkflowDefinition } from './workflow.ts';
+import { applyIssues, nodePorts, pickPaths, readinessUses, validateWorkflow, workflowDefinitionSchema, workflowNodeSchema, type WorkflowDefinition } from './workflow.ts';
 
 const model = { connectionId: 'c', model: 'm' };
 const ids = { model, untranslated: 's0', draft: 's1', needsReview: 's2', confirmed: 's3' };
@@ -386,5 +386,26 @@ describe('editor AI settings', () => {
     const moved = editorAiSchema.parse({ translate: { model: { connectionId: 'c', model: 'm' }, instructions: 'Mine.' }, complete: { enabled: true, model: { connectionId: 'c', model: 'fast' } } });
     expect(moved.translate).toMatchObject({ model: { connectionId: 'c', model: 'm' }, instructions: 'Mine.', output: 'text' });
     expect(moved.complete).toMatchObject({ enabled: true, model: { connectionId: 'c', model: 'fast' }, timeoutSeconds: 15 });
+  });
+});
+
+describe('AI node input', () => {
+  it('trims an output to paths, through lists', () => {
+    const output = { overview: 'x', characters: [{ name: 'A', aliases: ['a'], profile: 'p' }], terms: [] };
+    expect(pickPaths(output, [])).toBe(output);
+    expect(pickPaths(output, ['overview', 'characters.name', 'characters.aliases'])).toEqual({ overview: 'x', characters: [{ name: 'A', aliases: ['a'] }] });
+    expect(pickPaths(output, ['characters'])).toEqual({ characters: output.characters });
+  });
+
+  it('takes only an earlier AI or script node, and sends no lines only for a json answer of the whole request', () => {
+    const model = { connectionId: 'c', model: 'm' };
+    const ai = (id: string, config: Record<string, unknown>) => ({ id, type: 'ai', position: { x: 0, y: 0 }, config: { model, instructions: 'x', ...config } });
+    const check = (nodes: object[], edges: [string, string][]) =>
+      validateWorkflow(workflowDefinitionSchema.parse({ nodes: [{ id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: {} }, ...nodes], edges: edges.map(([source, target], i) => ({ id: String(i), source, sourceHandle: 'out', target })) }), { statusIds: new Set(), connections: new Set(['c']) } as never)
+        .filter((issue) => issue.level === 'error')
+        .map((issue) => issue.message);
+    expect(check([ai('a', {}), ai('b', { input: { from: 'a' } })], [['entry', 'a'], ['a', 'b']])).toEqual([]);
+    expect(check([ai('a', { input: { from: 'b' } }), ai('b', {})], [['entry', 'a'], ['a', 'b']])).toContainEqual(expect.stringContaining('앞에 있어야'));
+    expect(check([ai('a', {}), ai('b', { input: { from: 'a', lines: false } })], [['entry', 'a'], ['a', 'b']])).toContainEqual(expect.stringContaining('대사 없이'));
   });
 });
