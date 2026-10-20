@@ -30,7 +30,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   workflowId?: string;
   groupIds?: string[];
   unitIds?: string[];
-  /** What the workflows run on: 'terms' lists only term workflows and takes the glossary terms in `termIds` (none = the workflow's own 대상 용어). With `workflowId` the workflow's own 대상 decides. */
+  /** What the run starts on (the dialog's 대사 / 용어 choice, which the person can change): 'terms' takes the glossary terms in `termIds` (none = the workflow's own 대상 용어). With `workflowId` the workflow's own 대상 decides. */
   subject?: 'lines' | 'terms';
   termIds?: string[];
   /** What the named lines are, when they are not simply picked ('이번 길 번역 안 한 줄'); the scope button reads it with the count. */
@@ -73,8 +73,9 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   // This run's models by AI node, where the person picked another than the node's own (the workflow is not changed).
   const [runModels, setRunModels] = useState<Record<string, ModelValue>>({});
   const workflows = useQuery({ ...q.workflows(projectId), enabled: open });
-  // Opened for one workflow (its editor): what it runs on is its own 대상, not the caller's default.
-  const subject = (fixedWorkflowId && workflows.data?.find((item) => item.id === fixedWorkflowId)?.subject) || givenSubject;
+  // 대사 or 용어, picked in the dialog (it starts on the page's); a fixed workflow runs on its own 대상.
+  const [pickedSubject, setPickedSubject] = useState<'lines' | 'terms'>(givenSubject);
+  const subject = fixedWorkflowId ? (workflows.data?.find((item) => item.id === fixedWorkflowId)?.subject ?? givenSubject) : pickedSubject;
   const terms = subject === 'terms';
   const unit = terms ? '개' : '줄';
   const rememberKey = remember && `run-dialog:${projectId}:${remember}`;
@@ -100,7 +101,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   const pickable = workflows.data?.filter((item) => item.subject === subject);
   const valid = (id: string | undefined) => (id && pickable?.some((workflow) => workflow.id === id && !workflow.errorCount) ? id : undefined);
   // A remembered button never falls back to some other workflow: the person picks one.
-  const workflowId = fixedWorkflowId ?? (rememberKey ? valid(chosen) : (chosen ?? pickable?.find((workflow) => !workflow.errorCount)?.id));
+  const workflowId = fixedWorkflowId ?? valid(chosen) ?? (rememberKey ? undefined : pickable?.find((workflow) => !workflow.errorCount)?.id);
   const workflow = workflows.data?.find((item) => item.id === workflowId);
   const groups = useQuery({ ...q.groups(projectId), enabled: open });
   const here = groupIds?.length ? groups.data?.filter((group) => groupIds.includes(group.id)) : undefined;
@@ -189,6 +190,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   useEffect(() => {
     if (open && !wasOpen.current) {
       setOpened({ unitIds: givenUnitIds, groupIds: givenGroupIds, termIds: givenTermIds });
+      setPickedSubject(givenSubject);
       setScopeTarget(givenUnitIds?.length ? 'units' : givenGroupIds?.length ? 'here' : 'groups');
       setPickedScenes(startPicks());
       setSceneFilter('');
@@ -222,6 +224,16 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
         <div className="-mx-1 max-h-[70svh] space-y-5 overflow-auto px-1 py-0.5">
           {!fixedWorkflowId && (
             <div className="space-y-2">
+            <RadioGroup value={subject} onValueChange={(value) => setPickedSubject(value as 'lines' | 'terms')} className="flex gap-4" aria-label="실행할 대상">
+              <Label className="text-sm font-normal">
+                <RadioGroupItem value="lines" />
+                대사
+              </Label>
+              <Label className="text-sm font-normal">
+                <RadioGroupItem value="terms" />
+                용어
+              </Label>
+            </RadioGroup>
             <Select value={workflowId ?? ''} onValueChange={choose}>
               <SelectTrigger className="w-full" aria-label="워크플로">
                 <SelectValue placeholder="워크플로 선택" />
