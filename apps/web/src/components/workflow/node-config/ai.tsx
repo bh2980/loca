@@ -228,12 +228,13 @@ function AiInputSection({ node, refs, set }: { node: AiNode; refs: NodeRefs; set
   const setInput = (patch: Partial<AiNode['config']['input']>) => set({ input: { ...input, ...patch } });
   const id = (name: string) => `ai-input-${node.id}-${name}`;
   return (
-    <InspectorSection title="입력" defaultOpen={input.previous}>
+    // Open whenever a step before it returns something, so what it can take in is in sight.
+    <InspectorSection title="입력" defaultOpen={input.previous || steps.length > 0}>
       <div className="space-y-3">
         <CheckItem
           id={id('previous')}
           label="앞 단계 결과도 함께 보내기"
-          title="조건·검사·저장 노드는 건너뛰고, 선으로 이어진 바로 앞 AI·스크립트·모으기 노드의 결과를 대사마다 보냅니다."
+          title="선으로 이어진 바로 앞에서 결과를 내는 노드(AI·검사·스크립트·HTTP·모으기)의 결과를 대사마다 보냅니다. 조건·저장 노드는 건너뜁니다."
           checked={input.previous}
           onChange={(previous) => setInput({ previous, fields: [], ...(previous ? (gathered && batch ? { lines: false } : {}) : { lines: true }) })}
         />
