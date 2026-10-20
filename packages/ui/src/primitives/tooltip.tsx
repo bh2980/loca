@@ -1,5 +1,6 @@
 import * as React from "react";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
+import { CircleHelp } from "lucide-react";
 import { cn } from "../lib/utils.ts";
 
 function TooltipProvider({
@@ -51,3 +52,19 @@ function TooltipContent({
 }
 
 export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider };
+
+/** A "?" beside a label whose word alone does not say enough: the short explanation is its tooltip. */
+function HelpTip({ children, label = "설명" }: { children: React.ReactNode; label?: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span role="img" aria-label={label} tabIndex={0} className="inline-flex shrink-0 cursor-help text-subtle-foreground outline-none hover:text-muted-foreground focus-visible:text-foreground">
+          <CircleHelp className="size-3.5" />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-64">{children}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+export { HelpTip };

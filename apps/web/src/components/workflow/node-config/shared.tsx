@@ -1,5 +1,5 @@
 /** Pieces shared by the node-kind configs: shared field primitives and the node/ref types. */
-import { Button, Checkbox, Input, NumberInput, InspectorField, InspectorToggle, NODE_CARD_KIND_APPEARANCE, Switch, cn } from '@loca/ui';
+import { Button, Checkbox, HelpTip, Input, NumberInput, InspectorField, InspectorToggle, NODE_CARD_KIND_APPEARANCE, Switch, cn } from '@loca/ui';
 import { CONNECTION_KIND_INFO, functionGroup, nodeName, workflowInput, type WorkflowEdge, type WorkflowNode, type WorkflowSubject } from '@tw/shared';
 import { nodeIcon } from '@/components/workflow/node-view';
 
@@ -60,10 +60,10 @@ export function Field({ label, hint, action, children }: { label: string; hint?:
 }
 
 /** A context item counted in lines or scenes: a switch like the others, with the count beside it while on (0 = off). */
-export function CountRow({ label, unit, value, fallback, max, onChange }: { label: string; unit: string; value: number; fallback: number; max: number; onChange: (value: number) => void }) {
+export function CountRow({ label, help, unit, value, fallback, max, onChange }: { label: string; help?: string; unit: string; value: number; fallback: number; max: number; onChange: (value: number) => void }) {
   return (
     <div className="flex min-w-0 items-center justify-between gap-3 text-sm">
-      <span className="min-w-0">{label}</span>
+      <span className="flex min-w-0 items-center gap-1">{label}{help && <HelpTip>{help}</HelpTip>}</span>
       <span className="flex shrink-0 items-center gap-2">
         {value > 0 && (
           <span className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -77,8 +77,8 @@ export function CountRow({ label, unit, value, fallback, max, onChange }: { labe
   );
 }
 
-export function ToggleRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
-  return <InspectorToggle label={label} checked={checked} onChange={onChange} />;
+export function ToggleRow({ label, help, checked, onChange }: { label: string; help?: string; checked: boolean; onChange: (value: boolean) => void }) {
+  return <InspectorToggle label={<span className="flex items-center gap-1">{label}{help && <HelpTip>{help}</HelpTip>}</span>} checked={checked} onChange={onChange} />;
 }
 
 

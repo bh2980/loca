@@ -2,9 +2,9 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, Check, ChevronRight, LoaderCircle } from 'lucide-react';
 import { toast } from 'sonner';
-import { AI_PROMPTS, COMPLETE_SYSTEM, DEFAULT_EDITOR_AI, type EditorAi, type EditorButton } from '@tw/shared';
+import { AI_PROMPTS, COMPLETE_SYSTEM, CONTEXT_FIELDS, DEFAULT_EDITOR_AI, type EditorAi, type EditorButton } from '@tw/shared';
 import { ModelPicker } from '@/components/model-picker';
-import { Button, Checkbox, Collapsible, CollapsibleContent, CollapsibleTrigger, Field, FieldDescription, FieldGroup, FieldLabel, Input, Switch, SettingsSection, Textarea } from '@loca/ui';
+import { Button, Checkbox, Collapsible, CollapsibleContent, CollapsibleTrigger, Field, FieldDescription, FieldGroup, FieldLabel, HelpTip, Input, Switch, SettingsSection, Textarea } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { useFormFrom } from '@/lib/use-form-from';
@@ -39,11 +39,12 @@ function SavedNumber({ id, label, value, min, max, storage, disabled, className 
 }
 
 /** One thing sent with the line, as a checkbox; a count (앞 대사 n줄) sits beside it while it is on. */
-function ContextCheck({ id, label, checked, onChange, count }: { id: string; label: string; checked: boolean; onChange: (on: boolean) => void; count?: { value: number; max: number; unit: string; storage: string; onSave: (value: number) => void } }) {
+function ContextCheck({ id, label, help, checked, onChange, count }: { id: string; label: string; help?: string; checked: boolean; onChange: (on: boolean) => void; count?: { value: number; max: number; unit: string; storage: string; onSave: (value: number) => void } }) {
   return (
     <span className="flex items-center gap-1.5 text-sm">
       <Checkbox id={id} checked={checked} onCheckedChange={(on) => onChange(on === true)} />
       <label htmlFor={id}>{label}</label>
+      {help && <HelpTip>{help}</HelpTip>}
       {count && checked && (
         <span className="flex items-center gap-1 text-xs text-muted-foreground">
           <SavedNumber id={`${id}-count`} label={`${label} 수`} value={count.value} min={1} max={count.max} storage={count.storage} className="h-7 w-14 text-right" onSave={count.onSave} />
@@ -131,15 +132,15 @@ export function EditorAiSection({ projectId }: { projectId: string }) {
           <Field>
             <FieldLabel>함께 보낼 것</FieldLabel>
             <div className="flex flex-wrap gap-x-4 gap-y-2">
-              <ContextCheck id="editor-ai-glossary" label="용어집" checked={context.glossary} onChange={(glossary) => setContext({ glossary })} />
-              <ContextCheck id="editor-ai-speech" label="청자·말투" checked={context.speech} onChange={(speech) => setContext({ speech })} />
-              <ContextCheck id="editor-ai-preceding" label="앞 대사" checked={context.precedingLines > 0} onChange={(on) => setContext({ precedingLines: on ? 8 : 0 })} count={{ value: context.precedingLines, max: 50, unit: '줄', storage: key('preceding'), onSave: (precedingLines) => setContext({ precedingLines }) }} />
-              {context.precedingLines > 0 && <ContextCheck id="editor-ai-preceding-translations" label="앞 대사의 번역" checked={context.precedingTranslations} onChange={(precedingTranslations) => setContext({ precedingTranslations })} />}
-              <ContextCheck id="editor-ai-scenes" label="이전 장면" checked={context.previousScenes > 0} onChange={(on) => setContext({ previousScenes: on ? 1 : 0 })} count={{ value: context.previousScenes, max: 10, unit: '개', storage: key('scenes'), onSave: (previousScenes) => setContext({ previousScenes }) }} />
-              <ContextCheck id="editor-ai-cast" label="인물 명단" checked={context.cast} onChange={(cast) => setContext({ cast })} />
-              <ContextCheck id="editor-ai-characters" label="인물 프로필" checked={context.characters} onChange={(characters) => setContext({ characters })} />
-              <ContextCheck id="editor-ai-relationships" label="인물 관계" checked={context.relationships} onChange={(relationships) => setContext({ relationships })} />
-              <ContextCheck id="editor-ai-documents" label="문서" checked={context.documents} onChange={(documents) => setContext({ documents })} />
+              <ContextCheck id="editor-ai-glossary" label={CONTEXT_FIELDS.glossary.label} help={CONTEXT_FIELDS.glossary.help} checked={context.glossary} onChange={(glossary) => setContext({ glossary })} />
+              <ContextCheck id="editor-ai-speech" label={CONTEXT_FIELDS.speech.label} help={CONTEXT_FIELDS.speech.help} checked={context.speech} onChange={(speech) => setContext({ speech })} />
+              <ContextCheck id="editor-ai-preceding" label={CONTEXT_FIELDS.precedingLines.label} help={CONTEXT_FIELDS.precedingLines.help} checked={context.precedingLines > 0} onChange={(on) => setContext({ precedingLines: on ? 8 : 0 })} count={{ value: context.precedingLines, max: 50, unit: '줄', storage: key('preceding'), onSave: (precedingLines) => setContext({ precedingLines }) }} />
+              {context.precedingLines > 0 && <ContextCheck id="editor-ai-preceding-translations" label={CONTEXT_FIELDS.precedingTranslations.label} help={CONTEXT_FIELDS.precedingTranslations.help} checked={context.precedingTranslations} onChange={(precedingTranslations) => setContext({ precedingTranslations })} />}
+              <ContextCheck id="editor-ai-scenes" label={CONTEXT_FIELDS.previousScenes.label} help={CONTEXT_FIELDS.previousScenes.help} checked={context.previousScenes > 0} onChange={(on) => setContext({ previousScenes: on ? 1 : 0 })} count={{ value: context.previousScenes, max: 10, unit: '개', storage: key('scenes'), onSave: (previousScenes) => setContext({ previousScenes }) }} />
+              <ContextCheck id="editor-ai-cast" label={CONTEXT_FIELDS.cast.label} help={CONTEXT_FIELDS.cast.help} checked={context.cast} onChange={(cast) => setContext({ cast })} />
+              <ContextCheck id="editor-ai-characters" label={CONTEXT_FIELDS.characters.label} help={CONTEXT_FIELDS.characters.help} checked={context.characters} onChange={(characters) => setContext({ characters })} />
+              <ContextCheck id="editor-ai-relationships" label={CONTEXT_FIELDS.relationships.label} help={CONTEXT_FIELDS.relationships.help} checked={context.relationships} onChange={(relationships) => setContext({ relationships })} />
+              <ContextCheck id="editor-ai-documents" label={CONTEXT_FIELDS.documents.label} help={CONTEXT_FIELDS.documents.help} checked={context.documents} onChange={(documents) => setContext({ documents })} />
             </div>
           </Field>
           <Field>
@@ -179,9 +180,9 @@ export function EditorAiSection({ projectId }: { projectId: string }) {
             <Field>
               <FieldLabel>함께 보낼 것</FieldLabel>
               <div className="flex flex-wrap gap-x-4 gap-y-2">
-                <ContextCheck id="editor-ai-complete-glossary" label="용어집" checked={complete.glossary} onChange={(glossary) => setComplete({ glossary })} />
-                <ContextCheck id="editor-ai-complete-speech" label="청자·말투" checked={complete.speech} onChange={(speech) => setComplete({ speech })} />
-                <ContextCheck id="editor-ai-complete-preceding" label="앞 대사(번역 포함)" checked={complete.precedingLines > 0} onChange={(on) => setComplete({ precedingLines: on ? 3 : 0 })} count={{ value: complete.precedingLines, max: 20, unit: '줄', storage: key('complete-preceding'), onSave: (precedingLines) => setComplete({ precedingLines }) }} />
+                <ContextCheck id="editor-ai-complete-glossary" label={CONTEXT_FIELDS.glossary.label} help={CONTEXT_FIELDS.glossary.help} checked={complete.glossary} onChange={(glossary) => setComplete({ glossary })} />
+                <ContextCheck id="editor-ai-complete-speech" label={CONTEXT_FIELDS.speech.label} help={CONTEXT_FIELDS.speech.help} checked={complete.speech} onChange={(speech) => setComplete({ speech })} />
+                <ContextCheck id="editor-ai-complete-preceding" label="앞 대사(번역 포함)" help="번역 중인 대사 바로 앞의 대사를 원문과 지금 번역으로 함께 보냅니다." checked={complete.precedingLines > 0} onChange={(on) => setComplete({ precedingLines: on ? 3 : 0 })} count={{ value: complete.precedingLines, max: 20, unit: '줄', storage: key('complete-preceding'), onSave: (precedingLines) => setComplete({ precedingLines }) }} />
               </div>
             </Field>
             <Field>

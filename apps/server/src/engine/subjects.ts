@@ -99,9 +99,16 @@ export function termPrompt(db: Db, projectId: string, items: Item[], node: AiNod
       },
     ];
   });
-  const rows = [...units.values()];
-  const context = rows.length
-    ? buildContext(db, projectId, rows, { ...node.config.context, precedingLines: 0, previousScenes: 0, speech: false })
-    : buildContext(db, projectId, [], { ...node.config.context, precedingLines: 0, previousScenes: 0, speech: false, glossary: false, characters: false, relationships: false });
+  // The context is chosen from the terms themselves (a confirmed "Brin" goes with "Brin Guild") and
+  // from their example lines, so 확정 용어 works without examples too.
+  const own = items.flatMap((item) => {
+    const term = terms.get(item.subjectId);
+    return term ? [{ id: `term:${term.id}`, key: `term:${term.id}`, groupId: TERM_GROUP, sort: 0, speaker: null, source: term.source }] : [];
+  });
+  const context = buildContext(db, projectId, [...own, ...units.values()], { ...node.config.context, precedingLines: 0, previousScenes: 0, speech: false });
+  // A term being translated is not its own context.
+  const asked = new Set(own.map((row) => row.source.toLowerCase()));
+  context.terms = context.terms.filter((term) => !asked.has(term.source.toLowerCase()));
+  context.items = context.items.filter((item) => item.kind !== 'term' || !asked.has(item.label.split(' → ')[0]!.toLowerCase()));
   return { lines, context };
 }

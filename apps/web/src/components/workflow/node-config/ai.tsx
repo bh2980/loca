@@ -1,7 +1,7 @@
 /** AI node settings, grouped by the user's task: model, instruction, output, advanced. */
 import { useEffect, useState } from 'react';
 import { Plus, X } from 'lucide-react';
-import { AI_OUTPUTS, AI_SCOPES, CHOICE_SOURCES, CONNECTION_KIND_INFO, BATCH_MODE_LABELS, contextConfigSchema, INPUT_TYPES, nodeName, previousSteps, type WorkflowSubject, type AiOutput, type AiScope, type BatchConfig, type Capability, type ChoiceSource, type WorkflowNode } from '@tw/shared';
+import { AI_OUTPUTS, AI_SCOPES, CONTEXT_FIELDS, CHOICE_SOURCES, CONNECTION_KIND_INFO, BATCH_MODE_LABELS, contextConfigSchema, INPUT_TYPES, nodeName, previousSteps, type WorkflowSubject, type AiOutput, type AiScope, type BatchConfig, type Capability, type ChoiceSource, type WorkflowNode } from '@tw/shared';
 import { Button, Dialog, DialogContent, DialogHeader, DialogTitle, Input, NumberInput, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, InspectorResult, InspectorSection } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
@@ -208,25 +208,25 @@ export function AiContextFields({ config, set, input }: { config: Pick<AiNode['c
     <>
       <div className="space-y-2.5">
         {lines ? <>
-            <CountRow label="앞 대사" unit="줄" value={context.precedingLines} fallback={8} max={50} onChange={(value) => setContext({ precedingLines: value })} />
+            <CountRow label={CONTEXT_FIELDS.precedingLines.label} help={CONTEXT_FIELDS.precedingLines.help} unit="줄" value={context.precedingLines} fallback={8} max={50} onChange={(value) => setContext({ precedingLines: value })} />
             {context.precedingLines > 0 && (
               <div className="pl-4">
-                <ToggleRow label="앞 대사 번역" checked={context.precedingTranslations} onChange={(value) => setContext({ precedingTranslations: value })} />
+                <ToggleRow label={CONTEXT_FIELDS.precedingTranslations.label} help={CONTEXT_FIELDS.precedingTranslations.help} checked={context.precedingTranslations} onChange={(value) => setContext({ precedingTranslations: value })} />
               </div>
             )}
-            <CountRow label="이전 장면" unit="개" value={context.previousScenes} fallback={1} max={10} onChange={(value) => setContext({ previousScenes: value })} />
-            <ToggleRow label="앞 단계 지적" checked={config.include.issues} onChange={(value) => set({ include: { ...config.include, issues: value } })} />
+            <CountRow label={CONTEXT_FIELDS.previousScenes.label} help={CONTEXT_FIELDS.previousScenes.help} unit="개" value={context.previousScenes} fallback={1} max={10} onChange={(value) => setContext({ previousScenes: value })} />
+            <ToggleRow label={CONTEXT_FIELDS.issues.label} help={CONTEXT_FIELDS.issues.help} checked={config.include.issues} onChange={(value) => set({ include: { ...config.include, issues: value } })} />
         </> : (
-            <CountRow label="용례" unit="줄" value={context.examples} fallback={2} max={5} onChange={(value) => setContext({ examples: value })} />
+            <CountRow label={CONTEXT_FIELDS.examples.label} help={CONTEXT_FIELDS.examples.help} unit="줄" value={context.examples} fallback={2} max={5} onChange={(value) => setContext({ examples: value })} />
         )}
       </div>
       <div className="space-y-2.5 border-t border-border-subtle pt-3">
-        <ToggleRow label="용어집" checked={context.glossary} onChange={(value) => setContext({ glossary: value })} />
-        {lines && <ToggleRow label="청자·말투" checked={context.speech} onChange={(value) => setContext({ speech: value })} />}
-        <ToggleRow label="인물 명단" checked={context.cast} onChange={(value) => setContext({ cast: value })} />
-        <ToggleRow label="인물 프로필" checked={context.characters} onChange={(value) => setContext({ characters: value })} />
-        <ToggleRow label="인물 관계" checked={context.relationships} onChange={(value) => setContext({ relationships: value })} />
-        <ToggleRow label="문서" checked={context.documents} onChange={(value) => setContext({ documents: value })} />
+        <ToggleRow label={CONTEXT_FIELDS.glossary.label} help={CONTEXT_FIELDS.glossary.help} checked={context.glossary} onChange={(value) => setContext({ glossary: value })} />
+        {lines && <ToggleRow label={CONTEXT_FIELDS.speech.label} help={CONTEXT_FIELDS.speech.help} checked={context.speech} onChange={(value) => setContext({ speech: value })} />}
+        <ToggleRow label={CONTEXT_FIELDS.cast.label} help={CONTEXT_FIELDS.cast.help} checked={context.cast} onChange={(value) => setContext({ cast: value })} />
+        <ToggleRow label={CONTEXT_FIELDS.characters.label} help={CONTEXT_FIELDS.characters.help} checked={context.characters} onChange={(value) => setContext({ characters: value })} />
+        <ToggleRow label={CONTEXT_FIELDS.relationships.label} help={CONTEXT_FIELDS.relationships.help} checked={context.relationships} onChange={(value) => setContext({ relationships: value })} />
+        <ToggleRow label={CONTEXT_FIELDS.documents.label} help={CONTEXT_FIELDS.documents.help} checked={context.documents} onChange={(value) => setContext({ documents: value })} />
       </div>
     </>
   );

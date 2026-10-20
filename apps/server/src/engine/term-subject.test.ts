@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { importFileSchema, validateWorkflow, workflowDefinitionSchema } from '@tw/shared';
+import { aiNodeConfigSchema, importFileSchema, validateWorkflow, workflowDefinitionSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
@@ -9,6 +9,7 @@ import { memoryStore } from '../services/secrets.ts';
 import { promptEntries } from './prompts.ts';
 import { Runner, type ModelPort } from './runner.ts';
 import { createRun, selectRunTerms } from './run-create.ts';
+import { termPrompt } from './subjects.ts';
 import { scopeMismatch } from '../services/run-plan.ts';
 
 /** A project whose script mentions Varn Gate (twice) and Hesk (once), with both as candidate terms without a Korean form, and one confirmed term. */
@@ -82,6 +83,16 @@ describe('a workflow whose input is terms', () => {
     // Marks of the other input are refused before anything is counted or run.
     expect(scopeMismatch('lines', { marks: ['emptyTarget'] })).toContain('번역 누락');
     expect(scopeMismatch('terms', { marks: ['ai', 'emptyTarget'] })).toBeNull();
+  });
+
+  it('sends the confirmed terms found in the term itself, even with no example lines, but not the term as its own context', () => {
+    const { db, projectId, gate } = setup();
+    db.insert(s.terms).values({ projectId, source: 'Varn', target: '바른', status: 'confirmed', statusBy: 'human', origin: 'human', examples: [] }).run();
+    const node = { id: 'translate', type: 'ai', position: at, config: aiNodeConfigSchema.parse({ model: { connectionId: 'c', model: 'm' }, instructions: '', output: 'json', scope: 'line', fields: [{ name: 'target', type: 'string' }], context: { glossary: true, examples: 0 } }) } as never;
+    const { context } = termPrompt(db, projectId, [{ subjectId: gate.id, data: {} }] as never, node);
+    expect(context.terms.map((term) => term.source)).toEqual(['Varn']);
+    const varn = db.select().from(s.terms).where(eq(s.terms.source, 'Varn')).get()!;
+    expect(termPrompt(db, projectId, [{ subjectId: varn.id, data: {} }] as never, node).context.terms).toEqual([]);
   });
 
   it('sends each term with its example lines, saves the Korean form of each candidate and confirms it', async () => {
