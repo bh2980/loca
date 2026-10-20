@@ -124,7 +124,7 @@ describe('AI knowledge writes', () => {
     expect(db.select().from(s.documents).get()?.body).toBe('2');
   });
 
-  it('sets AI listeners without touching a person\'s or the import\'s, and scene listeners as scene guesses', () => {
+  it('sets AI listeners without touching a person\'s or the import\'s', () => {
     const { db, projectId } = setup();
     db.update(s.units).set({ listener: 'Captain', listenerOrigin: 'import' }).where(eq(s.units.key, 'a3')).run();
     db.update(s.units).set({ listener: 'Guard', listenerOrigin: 'human' }).where(eq(s.units.key, 'a2')).run();
