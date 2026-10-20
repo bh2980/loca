@@ -118,8 +118,8 @@ async function runScenario(scenario: Scenario, size: number): Promise<Metrics> {
 
   // The database is fresh per scenario, so every row belongs to this run.
   const run = db.select().from(s.runs).all().find((row) => row.id === runId)!;
-  const steps = db.select({ nodeId: s.runSteps.nodeId, ok: s.runSteps.ok, units: s.runSteps.unitIds, input: s.runSteps.inputTokens, cached: s.runSteps.cachedInputTokens, output: s.runSteps.outputTokens }).from(s.runSteps).all();
-  const items = db.select({ unitId: s.runItems.unitId, state: s.runItems.state }).from(s.runItems).all();
+  const steps = db.select({ nodeId: s.runSteps.nodeId, ok: s.runSteps.ok, units: s.runSteps.subjectIds, input: s.runSteps.inputTokens, cached: s.runSteps.cachedInputTokens, output: s.runSteps.outputTokens }).from(s.runSteps).all();
+  const items = db.select({ unitId: s.runItems.subjectId, state: s.runItems.state }).from(s.runItems).all();
   const failed = new Set(items.filter((item) => item.state === 'failed').map((item) => item.unitId));
   const unfinished = new Set(items.filter((item) => item.state === 'queued' || item.state === 'running').map((item) => item.unitId));
 

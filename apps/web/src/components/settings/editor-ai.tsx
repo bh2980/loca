@@ -1,24 +1,98 @@
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, Check, LoaderCircle } from 'lucide-react';
+import { AlertCircle, Check, ChevronRight, LoaderCircle } from 'lucide-react';
 import { toast } from 'sonner';
-import { DEFAULT_EDITOR_AI, type EditorAi } from '@tw/shared';
+import { AI_PROMPTS, COMPLETE_SYSTEM, CONTEXT_FIELDS, DEFAULT_EDITOR_AI, type EditorAi, type EditorButton } from '@tw/shared';
 import { ModelPicker } from '@/components/model-picker';
-import { Button, Field, FieldDescription, FieldGroup, FieldLabel, Input, Switch, SettingsSection } from '@loca/ui';
+import { Button, Checkbox, Collapsible, CollapsibleContent, CollapsibleTrigger, Field, FieldDescription, FieldGroup, FieldLabel, HelpTip, Input, Switch, SettingsSection, Textarea } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { useFormFrom } from '@/lib/use-form-from';
 
+/** A text kept locally while typed and saved when the field is left (a prompt is long; one save, not one per key). */
+function SavedText({ id, label, value, storage, rows = 6, onSave }: { id: string; label: string; value: string; storage: string; rows?: number; onSave: (value: string) => void }) {
+  const { draft, setDraft } = useFormFrom(value, storage);
+  return <Textarea id={id} aria-label={label} rows={rows} value={draft} className="font-mono text-xs" onChange={(event) => setDraft(event.target.value)} onBlur={() => draft !== value && onSave(draft)} />;
+}
+
+/** A whole number kept locally while typed, saved within its bounds when the field is left. */
+function SavedNumber({ id, label, value, min, max, storage, disabled, className = 'w-32', onSave }: { id: string; label?: string; value: number; min: number; max: number; storage: string; disabled?: boolean; className?: string; onSave: (value: number) => void }) {
+  const { draft, setDraft } = useFormFrom(String(value), storage);
+  return (
+    <Input
+      id={id}
+      aria-label={label}
+      type="number"
+      min={min}
+      max={max}
+      disabled={disabled}
+      className={className}
+      value={draft}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={() => {
+        const next = Math.min(max, Math.max(min, Math.round(Number(draft) || value)));
+        setDraft(String(next));
+        if (next !== value) onSave(next);
+      }}
+    />
+  );
+}
+
+/** One thing sent with the line, as a checkbox; a count (앞 대사 n줄) sits beside it while it is on. */
+function ContextCheck({ id, label, help, checked, onChange, count }: { id: string; label: string; help?: string; checked: boolean; onChange: (on: boolean) => void; count?: { value: number; max: number; unit: string; storage: string; onSave: (value: number) => void } }) {
+  return (
+    <span className="flex items-center gap-1.5 text-sm">
+      <Checkbox id={id} checked={checked} onCheckedChange={(on) => onChange(on === true)} />
+      <label htmlFor={id}>{label}</label>
+      {help && <HelpTip>{help}</HelpTip>}
+      {count && checked && (
+        <span className="flex items-center gap-1 text-xs text-muted-foreground">
+          <SavedNumber id={`${id}-count`} label={`${label} 수`} value={count.value} min={1} max={count.max} storage={count.storage} className="h-7 w-14 text-right" onSave={count.onSave} />
+          {count.unit}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** Instructions as one line (프리셋 사용 중 · 편집); the text opens below it. */
+function Instructions({ id, label, value, preset, presetLabel, storage, onSave }: { id: string; label: string; value: string; preset: string; presetLabel: string; storage: string; onSave: (value: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const own = value !== preset;
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <div className="flex min-w-0 items-center gap-2 text-sm">
+        <span className="w-16 shrink-0">{label}</span>
+        <span className="min-w-0 flex-1 truncate text-muted-foreground">{own ? `${presetLabel}에서 바꿈` : `${presetLabel} 사용 중`}</span>
+        {own && (
+          <Button variant="ghost" onClick={() => onSave(preset)}>
+            되돌리기
+          </Button>
+        )}
+        <CollapsibleTrigger asChild>
+          <Button variant="ghost" aria-expanded={open}>
+            {open ? '닫기' : '편집'}
+          </Button>
+        </CollapsibleTrigger>
+      </div>
+      <CollapsibleContent className="pt-2">
+        <SavedText id={id} label={`${label} 지시문`} value={value} storage={storage} onSave={onSave} />
+        <FieldDescription className="mt-1">출력 형식 안내는 서버가 덧붙입니다.</FieldDescription>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
 /**
- * The editor's AI: the model for 'AI 번역·다듬기' (any connection, a CLI too:
- * the translator waits for it), the continuation (자동완성: on or off, an API model only, a CLI takes
- * seconds, too slow to follow typing), and how many calls a day both make at most, with today's count.
+ * The editor's AI, per project. AI 번역 and 다듬기 share one model (any connection, a CLI too) and what
+ * is sent with the line, each button with its own instructions (from the AI 번역 / AI 다듬기 presets);
+ * the continuation (자동완성) answers as the person types, so it has its own API model. Time limits
+ * and caps are under 고급. Materials are sent whether or not a person confirmed them (the context's default).
  */
 export function EditorAiSection({ projectId }: { projectId: string }) {
   const project = useQuery(q.project(projectId));
   const queryClient = useQueryClient();
   const settings: EditorAi = project.data?.editorAi ?? DEFAULT_EDITOR_AI;
-  // Follows the saved cap (changed elsewhere) until it is being typed.
-  const { draft: cap, setDraft: setCap } = useFormFrom(String(settings.dailyCap), `editor-ai-cap.${projectId}`);
   // Shown at once: the project's cached settings change before the server answers (undone on failure).
   const save = useMutation({
     mutationFn: (editorAi: EditorAi) => unwrap(client.projects[':projectId'].$patch({ param: { projectId }, json: { editorAi } })),
@@ -36,44 +110,119 @@ export function EditorAiSection({ projectId }: { projectId: string }) {
     onSettled: () => queryClient.invalidateQueries({ queryKey: q.project(projectId).queryKey }),
   });
   const change = (patch: Partial<EditorAi>) => save.mutate({ ...settings, ...patch });
+  const context = settings.context;
+  const setContext = (patch: Partial<EditorAi['context']>) => change({ context: { ...context, ...patch } });
+  const setButton = (id: EditorButton, patch: Partial<EditorAi[EditorButton]>) => change({ [id]: { ...settings[id], ...patch } });
+  const complete = settings.complete;
+  const setComplete = (patch: Partial<EditorAi['complete']>) => change({ complete: { ...complete, ...patch } });
+  const key = (name: string) => `editor-ai-${name}.${projectId}`;
 
   return (
     <SettingsSection title="편집기 AI">
-      <FieldGroup className="gap-4">
-        <Field>
-          <FieldLabel>번역 모델</FieldLabel>
-          <ModelPicker value={settings.assistModel} onChange={(assistModel) => change({ assistModel })} />
-          <FieldDescription>편집기의 AI 번역·다듬기 버튼이 씁니다. CLI 연결도 됩니다.</FieldDescription>
-        </Field>
-        <Field orientation="horizontal">
-          <Switch id="editor-ai-on" checked={settings.enabled} onCheckedChange={(enabled) => change({ enabled })} />
-          <FieldLabel htmlFor="editor-ai-on">자동완성</FieldLabel>
-        </Field>
-        {/* Indented under the switch: the model and the daily cap belong to autocomplete only. */}
-        <FieldGroup className="gap-4 border-l border-border-subtle pl-4">
+      <FieldGroup className="gap-8">
+        <FieldGroup className="gap-4">
+          <div>
+            <p className="text-sm font-medium">AI 번역 · 다듬기</p>
+            <p className="text-xs text-muted-foreground">편집기의 두 버튼. 대사 하나를 번역하거나 번역가의 초안을 다듬어 AI 후보로 넣습니다. CLI 연결도 됩니다.</p>
+          </div>
           <Field>
-            <FieldLabel>자동완성 모델</FieldLabel>
-            <ModelPicker value={settings.model} onChange={(model) => change({ model })} kinds={['openai']} />
-            <FieldDescription>입력하는 동안 바로 답해야 해서 API 연결만 고를 수 있습니다. CLI 연결은 응답이 느립니다.</FieldDescription>
+            <FieldLabel>모델</FieldLabel>
+            <ModelPicker value={settings.model} onChange={(model) => change({ model })} />
           </Field>
           <Field>
-            <FieldLabel htmlFor="editor-ai-cap">하루 최대 호출</FieldLabel>
-            <Input
-              id="editor-ai-cap"
-              type="number"
-              min={1}
-              className="w-32"
-              value={cap}
-              onChange={(event) => setCap(event.target.value)}
-              onBlur={() => {
-                const value = Math.max(1, Math.round(Number(cap) || settings.dailyCap));
-                setCap(String(value));
-                if (value !== settings.dailyCap) change({ dailyCap: value });
-              }}
-            />
-            <FieldDescription>자동완성 호출만 셉니다. 오늘 {project.data?.editorCallsToday ?? 0}회 사용</FieldDescription>
+            <FieldLabel>함께 보낼 것</FieldLabel>
+            <div className="flex flex-wrap gap-x-4 gap-y-2">
+              <ContextCheck id="editor-ai-glossary" label={CONTEXT_FIELDS.glossary.label} help={CONTEXT_FIELDS.glossary.help} checked={context.glossary} onChange={(glossary) => setContext({ glossary })} />
+              <ContextCheck id="editor-ai-speech" label={CONTEXT_FIELDS.speech.label} help={CONTEXT_FIELDS.speech.help} checked={context.speech} onChange={(speech) => setContext({ speech })} />
+              <ContextCheck id="editor-ai-preceding" label={CONTEXT_FIELDS.precedingLines.label} help={CONTEXT_FIELDS.precedingLines.help} checked={context.precedingLines > 0} onChange={(on) => setContext({ precedingLines: on ? 8 : 0 })} count={{ value: context.precedingLines, max: 50, unit: '줄', storage: key('preceding'), onSave: (precedingLines) => setContext({ precedingLines }) }} />
+              {context.precedingLines > 0 && <ContextCheck id="editor-ai-preceding-translations" label={CONTEXT_FIELDS.precedingTranslations.label} help={CONTEXT_FIELDS.precedingTranslations.help} checked={context.precedingTranslations} onChange={(precedingTranslations) => setContext({ precedingTranslations })} />}
+              <ContextCheck id="editor-ai-scenes" label={CONTEXT_FIELDS.previousScenes.label} help={CONTEXT_FIELDS.previousScenes.help} checked={context.previousScenes > 0} onChange={(on) => setContext({ previousScenes: on ? 1 : 0 })} count={{ value: context.previousScenes, max: 10, unit: '개', storage: key('scenes'), onSave: (previousScenes) => setContext({ previousScenes }) }} />
+              <ContextCheck id="editor-ai-cast" label={CONTEXT_FIELDS.cast.label} help={CONTEXT_FIELDS.cast.help} checked={context.cast} onChange={(cast) => setContext({ cast })} />
+              <ContextCheck id="editor-ai-characters" label={CONTEXT_FIELDS.characters.label} help={CONTEXT_FIELDS.characters.help} checked={context.characters} onChange={(characters) => setContext({ characters })} />
+              <ContextCheck id="editor-ai-relationships" label={CONTEXT_FIELDS.relationships.label} help={CONTEXT_FIELDS.relationships.help} checked={context.relationships} onChange={(relationships) => setContext({ relationships })} />
+              <ContextCheck id="editor-ai-documents" label={CONTEXT_FIELDS.documents.label} help={CONTEXT_FIELDS.documents.help} checked={context.documents} onChange={(documents) => setContext({ documents })} />
+            </div>
+          </Field>
+          <Field>
+            <FieldLabel>지시문</FieldLabel>
+            <div className="space-y-1">
+              {(['translate', 'refine'] as const).map((id) => (
+                <Instructions
+                  key={id}
+                  id={`editor-ai-${id}-instructions`}
+                  label={id === 'translate' ? 'AI 번역' : '다듬기'}
+                  value={settings[id].instructions}
+                  preset={AI_PROMPTS[id].instructions}
+                  presetLabel="기본 지시문"
+                  storage={key(`${id}-instructions`)}
+                  onSave={(instructions) => setButton(id, { instructions })}
+                />
+              ))}
+            </div>
           </Field>
         </FieldGroup>
+
+        <FieldGroup className="gap-4">
+          <Field orientation="horizontal">
+            <Switch id="editor-ai-on" checked={complete.enabled} onCheckedChange={(enabled) => setComplete({ enabled })} />
+            <FieldLabel htmlFor="editor-ai-on">자동완성</FieldLabel>
+            <span className="ml-auto text-xs text-muted-foreground tabular-nums">
+              오늘 {project.data?.editorCallsToday ?? 0}/{complete.dailyCap}회
+            </span>
+          </Field>
+          {/* Indented under the switch: everything here belongs to autocomplete only. */}
+          <FieldGroup className="gap-4 border-l border-border-subtle pl-4">
+            <Field>
+              <FieldLabel>모델</FieldLabel>
+              <ModelPicker value={complete.model} onChange={(model) => setComplete({ model })} kinds={['openai']} />
+              <FieldDescription>API 연결만 됩니다.</FieldDescription>
+            </Field>
+            <Field>
+              <FieldLabel>함께 보낼 것</FieldLabel>
+              <div className="flex flex-wrap gap-x-4 gap-y-2">
+                <ContextCheck id="editor-ai-complete-glossary" label={CONTEXT_FIELDS.glossary.label} help={CONTEXT_FIELDS.glossary.help} checked={complete.glossary} onChange={(glossary) => setComplete({ glossary })} />
+                <ContextCheck id="editor-ai-complete-speech" label={CONTEXT_FIELDS.speech.label} help={CONTEXT_FIELDS.speech.help} checked={complete.speech} onChange={(speech) => setComplete({ speech })} />
+                <ContextCheck id="editor-ai-complete-preceding" label="앞 대사(번역 포함)" help="번역 중인 대사 바로 앞의 대사를 원문과 지금 번역으로 함께 보냅니다." checked={complete.precedingLines > 0} onChange={(on) => setComplete({ precedingLines: on ? 3 : 0 })} count={{ value: complete.precedingLines, max: 20, unit: '줄', storage: key('complete-preceding'), onSave: (precedingLines) => setComplete({ precedingLines }) }} />
+              </div>
+            </Field>
+            <Field>
+              <FieldLabel>지시문</FieldLabel>
+              <Instructions id="editor-ai-complete-instructions" label="자동완성" value={complete.instructions} preset={COMPLETE_SYSTEM} presetLabel="기본" storage={key('complete-instructions')} onSave={(instructions) => setComplete({ instructions })} />
+            </Field>
+          </FieldGroup>
+        </FieldGroup>
+
+        <Collapsible>
+          <CollapsibleTrigger asChild>
+            <Button variant="ghost" className="group -ml-2">
+              <ChevronRight className="transition-transform group-data-[state=open]:rotate-90" /> 고급
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <FieldGroup className="gap-4 pt-3">
+              <Field>
+                <FieldLabel htmlFor="editor-ai-timeout">에디터 AI 제한 시간 (초)</FieldLabel>
+                <SavedNumber id="editor-ai-timeout" value={settings.timeoutSeconds} min={10} max={600} storage={key('timeout')} onSave={(timeoutSeconds) => change({ timeoutSeconds })} />
+                <FieldDescription>AI 번역·다듬기와 서식 규칙의 자연어로 정규식 만들기가 답을 기다리는 시간입니다.</FieldDescription>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="editor-ai-complete-timeout">자동완성 제한 시간 (초)</FieldLabel>
+                <SavedNumber id="editor-ai-complete-timeout" value={complete.timeoutSeconds} min={3} max={120} storage={key('complete-timeout')} onSave={(timeoutSeconds) => setComplete({ timeoutSeconds })} />
+                <FieldDescription>이보다 늦은 답은 입력에 도움이 되지 않아 버립니다.</FieldDescription>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="editor-ai-complete-delay">자동완성 대기 시간 (밀리초)</FieldLabel>
+                <SavedNumber id="editor-ai-complete-delay" value={complete.delayMs} min={0} max={5000} storage={key('complete-delay')} onSave={(delayMs) => setComplete({ delayMs })} />
+                <FieldDescription>대사를 열고 이만큼 머물러야 자동완성을 요청합니다. ↑↓로 지나가는 대사에는 요청하지 않습니다.</FieldDescription>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="editor-ai-cap">자동완성 하루 최대 호출</FieldLabel>
+                <SavedNumber id="editor-ai-cap" value={complete.dailyCap} min={1} max={100_000} storage={key('cap')} onSave={(dailyCap) => setComplete({ dailyCap })} />
+              </Field>
+            </FieldGroup>
+          </CollapsibleContent>
+        </Collapsible>
+
         <div role={save.isError ? 'alert' : 'status'} aria-live={save.isError ? 'assertive' : 'polite'} className="flex min-h-5 items-center gap-1.5 text-xs text-muted-foreground">
           {save.isPending && <><LoaderCircle aria-hidden="true" className="size-3.5 animate-spin" /> 저장 중</>}
           {save.isSuccess && <><Check aria-hidden="true" className="size-3.5 text-success" /> 저장했습니다</>}

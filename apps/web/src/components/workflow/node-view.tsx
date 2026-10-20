@@ -1,7 +1,7 @@
 import { memo, useEffect } from 'react';
 import { Handle, Position, useUpdateNodeInternals, type Node, type NodeProps } from '@xyflow/react';
-import { BookPlus, Braces, CircleDot, Code, Flag, GitFork, Globe, ListChecks, MessageCircleQuestion, NotebookPen, ScanSearch, Sparkles, SpellCheck, Tag, UserCheck } from 'lucide-react';
-import { nodeName, nodePorts, type WorkflowNode } from '@tw/shared';
+import { BookPlus, Braces, CircleDot, Code, Combine, Flag, GitFork, Globe, ListChecks, MessageCircleQuestion, NotebookPen, ScanSearch, Sparkles, SpellCheck, Tag, UserCheck } from 'lucide-react';
+import { functionGroup, nodeName, nodePorts, type WorkflowNode } from '@tw/shared';
 import { NodeCard, type CanvasDirection } from '@loca/ui';
 
 type Icon = typeof Sparkles;
@@ -24,6 +24,7 @@ export function nodeIcon(node: WorkflowNode): Icon {
     case 'ai': return AI_ICON[node.config.output] ?? Sparkles;
     case 'function': return FUNCTION_ICON[node.config.fn] ?? Code;
     case 'condition': return GitFork;
+    case 'gather': return Combine;
     case 'end': return Flag;
   }
 }
@@ -49,10 +50,10 @@ export type FlowNode = Node<{
   warnings: string[];
   /** Target status of a status-change node, shown in that status's colour. */
   status?: { name: string; color: string };
-  live?: { queued: number; running: number; failed: number };
+  live?: { queued: number; running: number; failed: number; calls?: number; limit?: number; passed?: number };
   direction: CanvasDirection;
   /** Lines enter here (the hidden entry node points at it): its 시작 mark, which opens the start settings. */
-  start?: { label: string; onOpen: () => void };
+  start?: { label: string; onOpen?: () => void };
   /** Exits with no line leaving them: drawn with an end mark. */
   open: string[];
 }, 'workflow'>;
@@ -83,7 +84,7 @@ export const WorkflowNodeView = memo(function WorkflowNodeView({ id, data, selec
         : { top: `${((index + 0.5) / (ports.length || 1)) * 100}%` }}
     />,
   }));
-  const kind = node.type === 'function' && node.config.fn === 'setStatus' ? 'status' : node.type;
+  const kind = node.type === 'function' ? functionGroup(node.config.fn) : node.type;
   const detail = node.type === 'function' && node.config.fn === 'setStatus'
     ? `→ ${status?.name ?? '상태 그대로'}`
     : summary;
@@ -100,6 +101,7 @@ export const WorkflowNodeView = memo(function WorkflowNodeView({ id, data, selec
     errors={errors.length}
     warnings={warnings.length}
     live={live}
+    parallel={node.type === 'ai' ? node.config.concurrency : undefined}
     selected={selected}
     start={start}
     className={isEntry ? 'w-48' : isVertical ? 'w-56' : 'w-72'}

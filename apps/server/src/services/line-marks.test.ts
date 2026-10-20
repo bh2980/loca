@@ -14,7 +14,7 @@ describe('unknown listener', () => {
       for (const speaker of ['Ann', null, ' ', '\t', '\u00a0', ''])
         for (const source of ['Line', '<b></b>', '{0} %s', '<b>{name}</b>!'])
           for (const listener of [null, 'Hank'])
-            for (const origin of [null, 'import', 'scene', 'ai', 'human'] as const)
+            for (const origin of [null, 'import', 'ai', 'human'] as const)
               for (const confidence of [null, 0.5, 0.95]) cases.push({ kind, speaker, source, listener, origin, confidence });
     const file = importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'g', title: 'G' }], units: cases.map((item, index) => ({ key: `u${index}`, group: 'g', source: item.source })) });
     const { projectId } = importProject(db, file, null as never);
@@ -45,10 +45,9 @@ describe('unknown listener', () => {
 });
 
 describe('mark filters', () => {
-  it('take marks of one field as either, the rest as all', () => {
-    expect(matchesMarks(['candidate'], ['candidate', 'ai'])).toBe(true);
-    expect(matchesMarks(['ai', 'emptyTarget'], ['candidate', 'ai', 'emptyTarget'])).toBe(true);
-    expect(matchesMarks(['ai'], ['candidate', 'ai', 'emptyTarget'])).toBe(false);
+  it('need every picked mark', () => {
+    expect(matchesMarks(['ai', 'emptyTarget'], ['ai', 'emptyTarget'])).toBe(true);
+    expect(matchesMarks(['ai'], ['ai', 'emptyTarget'])).toBe(false);
     expect(matchesMarks(['remaining'], ['remaining', 'noted'])).toBe(false);
     expect(matchesMarks([], undefined)).toBe(true);
   });

@@ -17,6 +17,6 @@ describe('harness_reference', () => {
   });
 
   it('gives one preset in full on request', () => {
-    expect(reference({ preset: 'listener' })).toMatchObject({ preset: 'listener', output: 'json', instructions: expect.any(String) });
+    expect(reference({ preset: 'review' })).toMatchObject({ preset: 'review', output: 'verdict', instructions: expect.any(String) });
   });
 });

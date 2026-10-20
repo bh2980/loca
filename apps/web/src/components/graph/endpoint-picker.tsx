@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { Button, CanvasDirectionControl, CanvasSurface, Empty, EmptyDescription, EmptyHeader, EmptyTitle, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner } from '@loca/ui';
+import { Button, CanvasSurface, Empty, EmptyDescription, EmptyHeader, EmptyTitle, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner } from '@loca/ui';
 import { GraphCanvas, type GraphCanvasHandle, type NodeInfo, type Viewport } from '@/components/graph/graph-canvas';
 import { useSize } from '@/hooks/use-size';
 import { q } from '@/lib/queries';
@@ -196,7 +196,6 @@ export function EndpointPicker({ projectId, direction, step, start, end, section
           </Select>
         )}
         {expandedChain && <Button variant="ghost" onClick={() => onGraphNavigation({ chain: undefined, focus: undefined })}>전체 그래프</Button>}
-        <CanvasDirectionControl direction={direction} onDirectionChange={onDirectionChange} />
       </div>
       <div className="grid shrink-0 gap-1 border-b border-border px-3 py-2">
         <Input aria-label="현재 장 그래프에서 대사 찾기" value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="현재 장에서 화자·원문·키로 찾기" />
@@ -227,6 +226,7 @@ export function EndpointPicker({ projectId, direction, step, start, end, section
             looseEdges={expanded ? undefined : currentLayout.looseEdges}
             regions={expanded ? [] : currentLayout.regions}
             direction={direction}
+            onDirectionChange={onDirectionChange}
             info={info}
             width={size.width}
             height={size.height}

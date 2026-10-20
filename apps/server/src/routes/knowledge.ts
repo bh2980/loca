@@ -1,17 +1,17 @@
 import { Hono } from 'hono';
 import { and, asc, eq, inArray, ne, or } from 'drizzle-orm';
 import { z } from 'zod';
-import { KNOWLEDGE_TAG_KINDS, modelChoiceSchema, patchOf } from '@tw/shared';
+import { EVENT_LINK_KINDS, KNOWLEDGE_TAG_KINDS, modelChoiceSchema, patchOf } from '@tw/shared';
 import { badRequest, found, notFound, validate, type Env } from '../context.ts';
 import { eachChunk, inChunks } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
-import { deleteItems } from '../services/item-delete.ts';
+import { deleteItems, deleteItemsKept, restoreItems } from '../services/item-delete.ts';
 import { events } from '../events.ts';
 import { graphOrder, ruleLines } from '../services/speech.ts';
-import { eventFlow, forks } from '../services/event-routes.ts';
+import { linkEvents, projectEventFlow, setEventLink } from '../services/event-routes.ts';
 import { fillTermUsage, termUsage } from '../services/term-usage.ts';
 import { saveCharacter } from '../services/characters.ts';
-import { discoverAndSave, saveTerm, SUGGEST_BATCH } from '../services/terms.ts';
+import { discoverAndSave, saveTerm } from '../services/terms.ts';
 import { byPerson } from '../services/status-by.ts';
 import { clearReview, setKnowledgeTag, withTags } from '../services/knowledge-tags.ts';
 import { characterInput, documentInput, eventInput, relationshipInput, speechRuleInput, termInput } from '../schemas/knowledge.ts';
@@ -31,22 +31,6 @@ export const knowledgeRoutes = new Hono<Env>()
     const projectId = c.req.param('projectId')!;
     fillTermUsage(db, projectId);
     return c.json(withTags(db, 'terms', db.select().from(s.terms).where(visible(s.terms, projectId)).orderBy(asc(s.terms.source)).all()));
-  })
-  .get('/terms/suggest', (c) => {
-    const projectId = c.req.param('projectId')!;
-    const pending = c.var.deps.terms.pending(projectId).length;
-    return c.json({ state: c.var.deps.terms.state(projectId), pending, calls: Math.ceil(pending / SUGGEST_BATCH), batch: SUGGEST_BATCH });
-  })
-  .post('/terms/suggest', validate('json', modelChoiceSchema), (c) => {
-    try {
-      return c.json(c.var.deps.terms.start(c.req.param('projectId')!, c.req.valid('json')));
-    } catch (error) {
-      badRequest(error instanceof Error ? error.message : String(error));
-    }
-  })
-  .post('/terms/suggest/cancel', (c) => {
-    c.var.deps.terms.cancel(c.req.param('projectId')!);
-    return c.json({ ok: true });
   })
   .post('/terms/discover', (c) => {
     const { db } = c.var.deps;
@@ -88,7 +72,7 @@ export const knowledgeRoutes = new Hono<Env>()
   .get('/documents/:id', (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId')!;
-    const row = found(db.select().from(s.documents).where(byProject(s.documents, c.req.param('id'), projectId)).get(), '문서');
+    const row = found(db.select().from(s.documents).where(byProject(s.documents, c.req.param('id'), projectId)).get(), '노트');
     return c.json(withTags(db, 'documents', [row])[0]);
   })
   .post('/documents', validate('json', documentInput), (c) => {
@@ -136,6 +120,15 @@ export const knowledgeRoutes = new Hono<Env>()
     deleteItems(c.var.deps.db, c.req.param('projectId')!, 'characters', [c.req.param('id')]);
     return c.json({ ok: true });
   })
+  /** Deletes a graph's selection (people, relationships, speech rules; events, their lines) and returns a token ⌘/Ctrl+Z restores it with. */
+  .post('/knowledge-delete', validate('json', z.object({ items: z.array(z.object({ kind: z.enum(['characters', 'relationships', 'speechRules', 'events', 'eventLinks']), ids: z.array(z.string()).min(1) })).min(1) })), (c) =>
+    c.json(deleteItemsKept(c.var.deps.db, c.req.param('projectId')!, c.req.valid('json').items)),
+  )
+  /** Puts back what a knowledge-delete removed (its token), for ⌘/Ctrl+Z. */
+  .post('/knowledge-restore', validate('json', z.object({ token: z.string().min(1) })), (c) => {
+    if (!restoreItems(c.var.deps.db, c.req.param('projectId')!, c.req.valid('json').token)) badRequest('되돌릴 수 없습니다. 삭제한 지 오래되었거나 서버가 다시 시작되었습니다.');
+    return c.json({ ok: true as const });
+  })
   .get('/relationships/:id', (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId')!;
@@ -159,28 +152,19 @@ export const knowledgeRoutes = new Hono<Env>()
     return c.json({ ok: true });
   })
   /** Events with where they happen (the earliest of their evidence lines: script position, section, scene) and which events they lead to, for the flow graph. */
-  .get('/events', (c) => {
-    const { db } = c.var.deps;
-    const projectId = c.req.param('projectId')!;
-    const events = withTags(db, 'events', db.select().from(s.storyEvents).where(visible(s.storyEvents, projectId)).all());
-    const keys = [...new Set(events.flatMap((event) => event.evidence))];
-    const lines = new Map(
-      inChunks(keys, (slice) =>
-        db.select({ key: s.units.key, seq: s.units.seq, kind: s.units.kind, section: s.groups.section, scene: s.groups.title }).from(s.units).innerJoin(s.groups, eq(s.groups.id, s.units.groupId)).where(and(eq(s.units.projectId, projectId), inArray(s.units.key, slice))).all(),
-      ).map((line) => [line.key, line]),
-    );
-    const placed = events.map((event) => {
-      // Where the event happens: its earliest spoken evidence line; UI and document text (menus, event
-      // banners) only when it has no dialogue evidence, since such text often sits far from the scene.
-      const cited = event.evidence.flatMap((key) => lines.get(key) ?? []);
-      const spoken = cited.filter((line) => line.kind === 'dialogue');
-      const first = (spoken.length ? spoken : cited).sort((a, b) => a.seq - b.seq)[0];
-      return { ...event, at: first ? { seq: first.seq, section: first.section, scene: first.scene, key: first.key } : null };
-    });
-    const graphNodes = db.select({ id: s.graphNodes.id, kind: s.graphNodes.kind, unitIds: s.graphNodes.unitIds }).from(s.graphNodes).where(eq(s.graphNodes.projectId, projectId)).all();
-    const graphEdges = db.select({ fromId: s.graphEdges.fromId, toId: s.graphEdges.toId, label: s.graphEdges.label }).from(s.graphEdges).where(eq(s.graphEdges.projectId, projectId)).all();
-    const keyOf = new Map(db.select({ id: s.units.id, key: s.units.key }).from(s.units).where(eq(s.units.projectId, projectId)).all().map((unit) => [unit.id, unit.key]));
-    return c.json(eventFlow(graphOrder(db, projectId), forks(graphNodes, graphEdges, keyOf), placed));
+  .get('/events', (c) => c.json(projectEventFlow(c.var.deps.db, c.req.param('projectId')!)))
+  /** Draws a line between two events or takes one away, as link_events does (by a person); says what the pair had before, for ⌘/Ctrl+Z. */
+  .post('/event-links', validate('json', z.object({ fromId: z.string().min(1), toId: z.string().min(1), action: z.enum(['link', 'unlink']) })), (c) => {
+    try {
+      return c.json(linkEvents(c.var.deps.db, c.req.param('projectId')!, { ...c.req.valid('json'), origin: 'human' }));
+    } catch (error) {
+      return badRequest((error as Error).message);
+    }
+  })
+  /** Puts a pair's correction back as it was (⌘/Ctrl+Z, ⌘/Ctrl+Shift+Z). */
+  .put('/event-links', validate('json', z.object({ fromId: z.string().min(1), toId: z.string().min(1), kind: z.enum(EVENT_LINK_KINDS).nullable() })), (c) => {
+    if (!setEventLink(c.var.deps.db, c.req.param('projectId')!, { ...c.req.valid('json'), origin: 'human' })) badRequest('같은 프로젝트의 서로 다른 두 사건만 이을 수 있습니다.');
+    return c.json({ ok: true as const });
   })
   .get('/events/:id', (c) => {
     const { db } = c.var.deps;

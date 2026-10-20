@@ -4,13 +4,13 @@ import { keepPreviousData, useMutation, useQuery, type UseQueryResult } from '@t
 import type { InferResponseType } from 'hono/client';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { ChevronRight, Play } from 'lucide-react';
-import { SearchInput, Button, Checkbox, Label, RadioGroup, RadioGroupItem, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Skeleton, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner, StatusIcon, SectionHeading, FieldRows, FieldRow } from '@loca/ui';
+import { SearchInput, Button, Checkbox, Label, RadioGroup, RadioGroupItem, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Skeleton, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue, Spinner, StatusIcon, SectionHeading, FieldRows, FieldRow } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
-import { LINE_MARK_IDS, type LineMark, UNREVIEWED_MARKS } from '@tw/shared';
+import { INPUT_TYPES, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, TERM_MARK_IDS, WORKFLOW_SUBJECT_IDS, LINE_MARK_IDS, type AutoMark, type LineMark } from '@tw/shared';
 import { MarkChip } from '@/components/status';
 import type { ModelValue } from '@/components/model-picker';
 import { Pace, RunModels } from './run-estimate';
-import { lineTags, q } from '@/lib/queries';
+import { tagsIn, q } from '@/lib/queries';
 import { SCRIPT_VIEW } from '@/lib/labels';
 import { cn } from '@/lib/utils';
 
@@ -24,12 +24,15 @@ const KIND_ORDER: GroupKind[] = ['scene', 'ui', 'document'];
  * project, never preselected), what in those lines would spoil the translation and where to fix it,
  * how long and how much in plain words, and which models.
  */
-export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: givenGroupIds, unitIds: givenUnitIds, unitsLabel, viewKind, dirty, disabled, trigger, defaultIgnoreStatus = false, remember, open: controlledOpen, onOpenChange, hideTrigger = false }: {
+export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: givenGroupIds, unitIds: givenUnitIds, termIds: givenTermIds, subject: givenSubject = 'lines', unitsLabel, viewKind, dirty, disabled, trigger, defaultIgnoreStatus = false, remember, open: controlledOpen, onOpenChange, hideTrigger = false }: {
   projectId: string;
   /** Omit to let the user pick a workflow (when starting from a scene or a line selection). */
   workflowId?: string;
   groupIds?: string[];
   unitIds?: string[];
+  /** What the page holds: a workflow of this input is picked first, and the page's lines or `termIds` are its scope. The picked workflow's input decides the scope fields. */
+  subject?: 'lines' | 'terms';
+  termIds?: string[];
   /** What the named lines are, when they are not simply picked ('이번 길 번역 안 한 줄'); the scope button reads it with the count. */
   unitsLabel?: string;
   /** Opened from the script's UI or documents view: every line of that kind is the scope to start from. */
@@ -50,9 +53,10 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   const setOpen = (next: boolean) => { setLocalOpen(next); onOpenChange?.(next); };
   // The lines and scenes it was opened with stay its scope while it is open: picks cleared or changed
   // behind it (another tab, a refresh of the list) must not turn '고른 대사' into the whole project.
-  const [opened, setOpened] = useState<{ unitIds?: string[]; groupIds?: string[] }>({});
+  const [opened, setOpened] = useState<{ unitIds?: string[]; groupIds?: string[]; termIds?: string[] }>({});
   const unitIds = open ? opened.unitIds : givenUnitIds;
   const groupIds = open ? opened.groupIds : givenGroupIds;
+  const termIds = open ? opened.termIds : givenTermIds;
   // Dialogue is nearly the whole project, so like the whole project it is never preselected.
   const preselectKind = viewKind && viewKind !== 'scene' ? viewKind : undefined;
 
@@ -65,7 +69,6 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   const [pickedStatuses, setPickedStatuses] = useState<Set<string>>(new Set());
 
   const statuses = useQuery({ ...q.statuses(projectId), enabled: open });
-  const tags = lineTags(statuses.data?.tags);
   // This run's models by AI node, where the person picked another than the node's own (the workflow is not changed).
   const [runModels, setRunModels] = useState<Record<string, ModelValue>>({});
   const workflows = useQuery({ ...q.workflows(projectId), enabled: open });
@@ -88,19 +91,44 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
       }
     }
   };
-  const valid = (id: string | undefined) => (id && workflows.data?.some((workflow) => workflow.id === id && !workflow.errorCount) ? id : undefined);
+  const pickable = workflows.data;
+  const valid = (id: string | undefined) => (id && pickable?.some((workflow) => workflow.id === id && !workflow.errorCount) ? id : undefined);
   // A remembered button never falls back to some other workflow: the person picks one.
-  const workflowId = fixedWorkflowId ?? (rememberKey ? valid(chosen) : (chosen ?? workflows.data?.find((workflow) => !workflow.errorCount)?.id));
+  // With none chosen, the first workflow whose input is what the page holds (scenes, lines or terms).
+  const workflowId = fixedWorkflowId ?? valid(chosen) ?? (rememberKey ? undefined : (pickable?.find((workflow) => !workflow.errorCount && workflow.input === givenSubject) ?? pickable?.find((workflow) => !workflow.errorCount))?.id);
   const workflow = workflows.data?.find((item) => item.id === workflowId);
+  // What the run takes is the workflow's input (its entry node); the scope fields below follow it.
+  const subject = workflow?.input ?? givenSubject;
+  const terms = subject === 'terms';
+  const tags = tagsIn(statuses.data?.tags, terms ? 'terms' : 'lines');
+  const unit = terms ? '개' : '줄';
   const groups = useQuery({ ...q.groups(projectId), enabled: open });
   const here = groupIds?.length ? groups.data?.filter((group) => groupIds.includes(group.id)) : undefined;
 
-  // The workflow's own start (대상 상태) picks the statuses; opened for named lines, none are.
-  const entryStatuses = defaultIgnoreStatus ? '' : (workflow?.entryStatusIds ?? []).join(',');
+  const termList = useQuery({ ...q.terms(projectId), enabled: open && terms });
+  const [pickedTerms, setPickedTerms] = useState<Set<string>>(new Set());
+
+  // The filters start as they were the last time this workflow ran from here (this browser only).
+  const filtersKey = workflowId && `run-filters:${projectId}:${workflowId}`;
   useEffect(() => {
     if (!open) return;
-    setPickedStatuses(new Set(entryStatuses ? entryStatuses.split(',') : []));
-  }, [open, workflowId, entryStatuses]);
+    let saved: { statuses?: string[]; marks?: string[]; tags?: string[] } = {};
+    try {
+      saved = filtersKey && !defaultIgnoreStatus ? JSON.parse(localStorage.getItem(filtersKey) ?? '{}') : {};
+    } catch {
+      // A blocked or broken storage starts with no filters.
+    }
+    setPickedStatuses(new Set(saved.statuses ?? []));
+    setPickedMarks(new Set(saved.marks ?? []));
+    setPickedTags(new Set(saved.tags ?? []));
+  }, [open, filtersKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const rememberFilters = () => {
+    try {
+      if (filtersKey) localStorage.setItem(filtersKey, JSON.stringify({ statuses: [...pickedStatuses], marks: [...pickedMarks], tags: [...pickedTags] }));
+    } catch {
+      // Not remembered: the next run starts without filters.
+    }
+  };
 
   // Opened from the UI strings or documents view: every group of that kind starts picked.
   // The table starts with everything ticked (the whole project), or only the kind of the view it was opened from.
@@ -111,8 +139,24 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
     preselected.current = true;
     setPickedScenes(startPicks());
   }, [groups.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Every term starts picked once the glossary is in.
+  const termsPreselected = useRef(false);
+  useEffect(() => {
+    if (termsPreselected.current || !termList.data) return;
+    termsPreselected.current = true;
+    setPickedTerms(new Set(termList.data.map((term) => term.id)));
+  }, [termList.data]);
   const allGroups = (groups.data ?? []).length;
   const wholeProject = scopeTarget === 'groups' && allGroups > 0 && pickedScenes.size === allGroups;
+  const allTerms = scopeTarget === 'groups' && (termList.data?.length ?? 0) > 0 && pickedTerms.size === termList.data!.length;
+  // What the picker lists: scenes by kind for lines; terms as one flat list (their status is a filter, like in the glossary).
+  const sections: PickSection[] = terms
+    ? [{ key: 'terms', items: (termList.data ?? []).filter((term) => term.status !== 'rejected').map((term) => ({ id: term.id, title: term.source, search: `${term.source} ${term.target}`, total: 1, detail: term.target || '—' })) }]
+    : KIND_ORDER.map((kind) => ({
+        key: kind,
+        label: SCRIPT_VIEW[kind],
+        items: (groups.data ?? []).filter((group) => group.kind === kind).map((group) => ({ id: group.id, title: group.title, search: `${group.title} ${group.key}`, total: group.total, detail: `${group.total}줄` })),
+      }));
 
   let computedUnitIds: string[] | undefined;
   let computedGroupIds: string[] | undefined;
@@ -120,23 +164,27 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   else if (scopeTarget === 'here') computedGroupIds = groupIds;
   else if (!wholeProject) computedGroupIds = pickedScenes.size ? [...pickedScenes] : ['__none__'];
 
-  const statusScope =
-    pickedStatuses.size > 0
-      ? { statusIds: [...pickedStatuses], ignoreStatus: false }
-      : { statusIds: [], ignoreStatus: true };
-
-  const scope = {
-    ...(computedUnitIds ? { unitIds: computedUnitIds } : {}),
-    ...(computedGroupIds ? { groupIds: computedGroupIds } : {}),
-    ...statusScope,
-    ...(pickedTags.size ? { tagIds: [...pickedTags] } : {}),
+  // The filters, the list pages' rules: statuses (a line's project statuses, a term's 후보·확정), automatic marks and tags.
+  const filters = {
+    ...(pickedStatuses.size ? { statusIds: [...pickedStatuses] } : {}),
     ...(pickedMarks.size ? { marks: [...pickedMarks] as LineMark[] } : {}),
+    ...(pickedTags.size ? { tagIds: [...pickedTags] } : {}),
   };
+  const pickedTermIds = scopeTarget === 'units' ? termIds : allTerms ? undefined : [...pickedTerms];
+  const scope = terms
+    ? { ...(pickedTermIds?.length ? { termIds: pickedTermIds } : {}), ...filters }
+    : {
+        ...(computedUnitIds ? { unitIds: computedUnitIds } : {}),
+        ...(computedGroupIds ? { groupIds: computedGroupIds } : {}),
+        ...filters,
+      };
 
   const ready =
-    (scopeTarget === 'units' && Boolean(unitIds?.length)) ||
-    (scopeTarget === 'here' && Boolean(groupIds?.length)) ||
-    (scopeTarget === 'groups' && pickedScenes.size > 0);
+    (terms && scopeTarget === 'units' && Boolean(termIds?.length)) ||
+    (terms && scopeTarget === 'groups' && pickedTerms.size > 0) ||
+    (!terms && scopeTarget === 'units' && Boolean(unitIds?.length)) ||
+    (!terms && scopeTarget === 'here' && Boolean(groupIds?.length)) ||
+    (!terms && scopeTarget === 'groups' && pickedScenes.size > 0);
   // Only finished picks go out; one still missing its model stays in the picker meanwhile.
   const chosenModels = Object.fromEntries(Object.entries(runModels).filter(([, value]) => value.connectionId && value.model));
   const request = { ...scope, ...(Object.keys(chosenModels).length ? { models: chosenModels } : {}) };
@@ -167,27 +215,33 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
       return unwrap(client.workflows[':id'].runs.$post({ param: { id: workflowId! }, json: { ...request, ...(Object.keys(limits).length ? { limits } : {}) } }));
     },
     onSuccess: (run) => {
+      rememberFilters();
       setOpen(false);
       void navigate({ to: '/p/$projectId/runs/$runId', params: { projectId, runId: run.runId } });
     },
   });
   const total = data?.lines.total;
 
+  // Opened by its trigger or by the page (controlled `open`): the scope it opens with is taken then.
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (open && !wasOpen.current) {
+      setOpened({ unitIds: givenUnitIds, groupIds: givenGroupIds, termIds: givenTermIds });
+      setScopeTarget(givenUnitIds?.length || givenTermIds?.length ? 'units' : givenGroupIds?.length ? 'here' : 'groups');
+      setPickedScenes(startPicks());
+      if (termList.data) setPickedTerms(new Set(termList.data.map((term) => term.id)));
+      setSceneFilter('');
+      setPickedTags(new Set());
+      setPickedMarks(new Set());
+      setRunModels({});
+    }
+    wasOpen.current = open;
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <Dialog
       open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (next) {
-          setOpened({ unitIds: givenUnitIds, groupIds: givenGroupIds });
-          setScopeTarget(givenUnitIds?.length ? 'units' : givenGroupIds?.length ? 'here' : 'groups');
-          setPickedScenes(startPicks());
-          setSceneFilter('');
-          setPickedTags(new Set());
-          setPickedMarks(new Set());
-          setRunModels({});
-        }
-      }}
+      onOpenChange={setOpen}
     >
       {!hideTrigger && <DialogTrigger asChild>
         {trigger ?? (
@@ -212,15 +266,23 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
                 <SelectValue placeholder="워크플로 선택" />
               </SelectTrigger>
               <SelectContent>
-                {workflows.data?.map((item) => (
-                  <SelectItem key={item.id} value={item.id} disabled={item.errorCount > 0}>
-                    {item.name} {item.errorCount > 0 && <span className="text-muted-foreground">· 오류 있음</span>}
-                  </SelectItem>
-                ))}
+                {WORKFLOW_SUBJECT_IDS.map((input) => {
+                  const rows = pickable?.filter((item) => item.input === input) ?? [];
+                  return rows.length ? (
+                    <SelectGroup key={input}>
+                      <SelectLabel>{INPUT_TYPES[input].label} 입력</SelectLabel>
+                      {rows.map((item) => (
+                        <SelectItem key={item.id} value={item.id} disabled={item.errorCount > 0}>
+                          {item.name} {item.errorCount > 0 && <span className="text-muted-foreground">· 오류 있음</span>}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  ) : null;
+                })}
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
-              {!workflows.data?.length && '저장된 워크플로가 없습니다. '}
+              {!pickable?.length && '저장된 워크플로가 없습니다. '}
               <Link to="/p/$projectId/workflows" params={{ projectId }} className="underline underline-offset-2">워크플로 관리</Link>
             </p>
             </div>
@@ -229,16 +291,22 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
           <section className="space-y-4">
             <fieldset className="space-y-2">
               <SectionHeading as="legend" className="mb-2">대상</SectionHeading>
-              {/* A choice only when the dialog came with lines or groups picked; otherwise the table is the whole choice. */}
-              {unitIds?.length || groupIds?.length ? (
+              {/* A choice only when the dialog came with items picked; otherwise the list is the whole choice. */}
+              {(terms ? termIds?.length : unitIds?.length || groupIds?.length) ? (
                 <RadioGroup value={scopeTarget} onValueChange={(value) => setScopeTarget(value as ScopeTarget)} className="gap-2">
-                  {unitIds?.length ? (
+                  {terms && termIds?.length ? (
+                    <Label className="text-sm font-normal">
+                      <RadioGroupItem value="units" />
+                      고른 용어 {termIds.length.toLocaleString()}개
+                    </Label>
+                  ) : null}
+                  {!terms && unitIds?.length ? (
                     <Label className="text-sm font-normal">
                       <RadioGroupItem value="units" />
                       {unitsLabel ?? '고른 대사'} {unitIds.length.toLocaleString()}줄
                     </Label>
                   ) : null}
-                  {groupIds?.length ? (
+                  {!terms && groupIds?.length ? (
                     <Label className="text-sm font-normal">
                       <RadioGroupItem value="here" />
                       {here?.length === 1 ? `지금 연 묶음 (${here[0].title})` : `지금 연 묶음 ${groupIds.length}개`}
@@ -251,8 +319,8 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
                 </RadioGroup>
               ) : null}
               {scopeTarget === 'groups' && (
-                <div className={cn((unitIds?.length || groupIds?.length) && 'ml-6')}>
-                  <GroupPicker groups={groups.data ?? []} picked={pickedScenes} setPicked={setPickedScenes} filter={sceneFilter} setFilter={setSceneFilter} />
+                <div className={cn((terms ? termIds?.length : unitIds?.length || groupIds?.length) && 'ml-6')}>
+                  <ScopePicker sections={sections} unit={unit} picked={terms ? pickedTerms : pickedScenes} setPicked={terms ? setPickedTerms : setPickedScenes} filter={sceneFilter} setFilter={setSceneFilter} />
                 </div>
               )}
             </fieldset>
@@ -262,21 +330,28 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
               <FieldRows>
                 <FieldRow label="상태">
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                    {(statuses.data?.statuses ?? []).map((status) => (
-                      <Label key={status.id} className="text-sm font-normal">
-                        <Checkbox checked={pickedStatuses.has(status.id)} onCheckedChange={(checked) => toggled(setPickedStatuses, status.id, checked === true)} />
-                        <StatusIcon status={status} />
-                        {status.name}
-                      </Label>
-                    ))}
+                    {terms
+                      ? KNOWLEDGE_STATUSES.filter((status) => status !== 'rejected').map((status) => (
+                          <Label key={status} className="text-sm font-normal">
+                            <Checkbox checked={pickedStatuses.has(status)} onCheckedChange={(checked) => toggled(setPickedStatuses, status, checked === true)} />
+                            {KNOWLEDGE_STATUS_LABELS[status]}
+                          </Label>
+                        ))
+                      : (statuses.data?.statuses ?? []).map((status) => (
+                        <Label key={status.id} className="text-sm font-normal">
+                          <Checkbox checked={pickedStatuses.has(status.id)} onCheckedChange={(checked) => toggled(setPickedStatuses, status.id, checked === true)} />
+                          <StatusIcon status={status} />
+                          {status.name}
+                        </Label>
+                      ))}
                   </div>
                 </FieldRow>
                 <FieldRow label="태그">
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                    {LINE_MARK_IDS.map((mark) => (
+                    {(terms ? TERM_MARK_IDS : LINE_MARK_IDS).map((mark) => (
                       <Label key={mark} className="text-sm font-normal">
                         <Checkbox checked={pickedMarks.has(mark)} onCheckedChange={(checked) => toggled(setPickedMarks, mark, checked === true)} />
-                        <MarkChip mark={mark} />
+                        <MarkChip mark={mark as AutoMark} />
                       </Label>
                     ))}
                     {tags.map((tag) => (
@@ -293,7 +368,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
             <p className="text-sm">
               {!ready ? null : total === undefined && plan.isError ? (
                 <span className="text-destructive">
-                  줄 수를 세지 못했습니다: {plan.error.message}{' '}
+                  {terms ? '용어' : '줄'} 수를 세지 못했습니다: {plan.error.message}{' '}
                   <Button variant="ghost" size="inline" onClick={() => void plan.refetch()}>
                     다시 시도
                   </Button>
@@ -311,21 +386,22 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
                   )}
                 </span>
               ) : total === 0 ? (
-                <span className="text-muted-foreground">이 범위에는 실행할 대사가 없습니다.</span>
+                <span className="text-muted-foreground">{terms ? (termIds?.length ? '고른 용어 중 실행할 것이 없습니다.' : '조건에 맞는 용어가 없습니다. 필터를 줄이거나 용어집에서 용어를 골라 실행하세요.') : '이 범위에는 실행할 대사가 없습니다.'}</span>
               ) : (
                 <>
-                  <b className="font-medium tabular-nums">{total.toLocaleString()}줄</b>을 실행합니다
-                  {data!.lines.translated > 0 && <span className="text-muted-foreground"> (그중 이미 번역 있는 줄 {data!.lines.translated.toLocaleString()})</span>}
+                  <b className="font-medium tabular-nums">{total.toLocaleString()}{unit}</b>{terms ? '를' : '을'} 실행합니다
+                  {data!.lines.translated > 0 && <span className="text-muted-foreground"> (그중 이미 {terms ? '표기가 있는 용어' : '번역 있는 줄'} {data!.lines.translated.toLocaleString()})</span>}
                 </>
               )}
               {data && data.lines.excluded > 0 && <span className="text-muted-foreground"> · 번역 제외 {data.lines.excluded.toLocaleString()}줄은 빠집니다</span>}
             </p>
-            {wholeProject && Boolean(total) && (
+            {!terms && wholeProject && Boolean(total) && (
               <p className="text-xs text-warning">프로젝트 전체입니다. 처음이면 장면 하나로 먼저 시험해 보세요.</p>
             )}
           </section>
 
-          {data && total ? (
+          {/* Listeners, speech rules and glossary checks are about lines: a term run has none of them. */}
+          {data && total && !terms ? (
             <Readiness
               projectId={projectId}
               readiness={data.readiness}
@@ -333,7 +409,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
               onLeave={() => setOpen(false)}
             />
           ) : null}
-          {data && total ? <Pace data={data} /> : null}
+          {data && total ? <Pace data={data} projectId={projectId} /> : null}
           {data && total ? (
             <RunModels
               nodes={data.nodes}
@@ -354,7 +430,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
           </Button>
           {/* A model picked without its model yet would quietly run on the node's own: finish or undo it first. */}
           <Button disabled={!total || !workflowId || stale || start.isPending || Object.keys(chosenModels).length !== Object.keys(runModels).length} onClick={() => start.mutate()}>
-            {start.isPending ? <Spinner /> : <Play />} {total ? `${total.toLocaleString()}줄 실행` : '실행 시작'}
+            {start.isPending ? <Spinner /> : <Play />} {total ? `${total.toLocaleString()}${unit} 실행` : '실행 시작'}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -371,69 +447,83 @@ type ScopeTarget = 'units' | 'here' | 'groups';
  * Every group of the project as one table: 전체, then each kind (대사 · UI · 문서) with its own
  * checkbox and fold, then its groups. Kinds start folded; a search opens them.
  */
-function GroupPicker({ groups, picked, setPicked, filter, setFilter }: { groups: { id: string; key: string; kind: GroupKind; title: string; total: number }[]; picked: Set<string>; setPicked: SetPicked; filter: string; setFilter: (value: string) => void }) {
-  const [open, setOpen] = useState<Set<GroupKind>>(new Set());
+/** One section of the picker: a fold with its items (scenes of a kind, or terms of a status). */
+interface PickSection {
+  key: string;
+  /** None: the items sit right under 전체 (terms have no grouping). */
+  label?: string;
+  items: { id: string; title: string; search: string; total: number; detail: string }[];
+}
+
+/** The run's items to pick: 전체 → sections → items, with a search; the same for lines (scenes) and terms. */
+function ScopePicker({ sections, unit, picked, setPicked, filter, setFilter }: { sections: PickSection[]; unit: string; picked: Set<string>; setPicked: SetPicked; filter: string; setFilter: (value: string) => void }) {
+  const [open, setOpen] = useState<Set<string>>(new Set());
   const needle = filter.trim().toLowerCase();
-  const sections = KIND_ORDER.map((kind) => ({ kind, all: groups.filter((group) => group.kind === kind) }))
-    .filter((section) => section.all.length)
-    .map((section) => ({ ...section, shown: needle ? section.all.filter((group) => `${group.title} ${group.key}`.toLowerCase().includes(needle)) : section.all }));
-  const lines = (list: typeof groups) => list.reduce((sum, group) => sum + group.total, 0);
-  const pickedLines = lines(groups.filter((group) => picked.has(group.id)));
-  const state = (list: typeof groups) => {
-    const count = list.filter((group) => picked.has(group.id)).length;
+  const all = sections.flatMap((section) => section.items);
+  const shownOf = (section: PickSection) => (needle ? section.items.filter((item) => item.search.toLowerCase().includes(needle)) : section.items);
+  const total = (list: PickSection['items']) => list.reduce((sum, item) => sum + item.total, 0);
+  const state = (list: PickSection['items']) => {
+    const count = list.filter((item) => picked.has(item.id)).length;
     return count === list.length ? true : count > 0 ? ('indeterminate' as const) : false;
   };
-  const setMany = (list: typeof groups, on: boolean) =>
+  const setMany = (list: PickSection['items'], on: boolean) =>
     setPicked((previous) => {
       const next = new Set(previous);
-      for (const group of list) on ? next.add(group.id) : next.delete(group.id);
+      for (const item of list) on ? next.add(item.id) : next.delete(item.id);
       return next;
     });
   const row = 'flex min-w-0 items-center gap-2 rounded px-2 py-1 text-sm hover:bg-muted';
+  const itemRow = (item: PickSection['items'][number]) => (
+    <li key={item.id}>
+      <label className={row}>
+        <Checkbox checked={picked.has(item.id)} onCheckedChange={(checked) => toggled(setPicked, item.id, checked === true)} />
+        <span className="min-w-0 flex-1 truncate">{item.title}</span>
+        <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{item.detail}</span>
+      </label>
+    </li>
+  );
   return (
     <div className="min-w-0 overflow-hidden rounded-md border">
       <div className="border-b p-1">
-        <SearchInput value={filter} onChange={(value) => setFilter(value ?? '')} placeholder="찾기" className="w-full" end={`${pickedLines.toLocaleString()}줄`} />
+        <SearchInput value={filter} onChange={(value) => setFilter(value ?? '')} placeholder="찾기" className="w-full" end={`${total(all.filter((item) => picked.has(item.id))).toLocaleString()}${unit}`} />
       </div>
       <div className="max-h-64 overflow-auto p-1">
         <label className={cn(row, 'font-medium')}>
-          <Checkbox checked={state(groups)} onCheckedChange={(checked) => setMany(groups, checked === true)} />
+          <Checkbox checked={state(all)} onCheckedChange={(checked) => setMany(all, checked === true)} />
           <span className="min-w-0 flex-1">전체</span>
-          <span className="shrink-0 text-xs font-normal text-muted-foreground tabular-nums">{lines(groups).toLocaleString()}줄</span>
+          <span className="shrink-0 text-xs font-normal text-muted-foreground tabular-nums">{total(all).toLocaleString()}{unit}</span>
         </label>
-        {sections.map(({ kind, all, shown }) => {
-          const expanded = Boolean(needle) || open.has(kind);
+        {sections.filter((section) => section.items.length).map((section) => {
+          if (!section.label)
+            return (
+              <ul key={section.key} className="ml-4">
+                {shownOf(section).map(itemRow)}
+              </ul>
+            );
+          const expanded = Boolean(needle) || open.has(section.key);
           return (
-            <div key={kind}>
-              {/* Each level steps in by 16px: 전체 → kind → its groups. The fold arrow sits in that step. */}
+            <div key={section.key}>
+              {/* Each level steps in by 16px: 전체 → section → its items. The fold arrow sits in that step. */}
               <div className="flex min-w-0 items-center pl-2">
                 <Button
                   variant="ghost"
                   size="icon-xs"
                   className="w-4"
-                  aria-label={`${SCRIPT_VIEW[kind]} ${expanded ? '접기' : '펼치기'}`}
+                  aria-label={`${section.label} ${expanded ? '접기' : '펼치기'}`}
                   aria-expanded={expanded}
-                  onClick={() => toggled(setOpen as SetPicked, kind, !open.has(kind))}
+                  onClick={() => toggled(setOpen as SetPicked, section.key, !open.has(section.key))}
                 >
                   <ChevronRight className={cn('transition-transform', expanded && 'rotate-90')} />
                 </Button>
                 <label className={cn(row, 'min-w-0 flex-1 pl-0')}>
-                  <Checkbox checked={state(all)} onCheckedChange={(checked) => setMany(all, checked === true)} />
-                  <span className="min-w-0 flex-1 truncate">{SCRIPT_VIEW[kind]}</span>
-                  <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{all.length.toLocaleString()}개 · {lines(all).toLocaleString()}줄</span>
+                  <Checkbox checked={state(section.items)} onCheckedChange={(checked) => setMany(section.items, checked === true)} />
+                  <span className="min-w-0 flex-1 truncate">{section.label}</span>
+                  <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{section.items.length.toLocaleString()}개{unit === '줄' && ` · ${total(section.items).toLocaleString()}줄`}</span>
                 </label>
               </div>
               {expanded && (
                 <ul className="ml-8">
-                  {shown.map((group) => (
-                    <li key={group.id}>
-                      <label className={row}>
-                        <Checkbox checked={picked.has(group.id)} onCheckedChange={(checked) => toggled(setPicked, group.id, checked === true)} />
-                        <span className="min-w-0 flex-1 truncate">{group.title}</span>
-                        <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{group.total}줄</span>
-                      </label>
-                    </li>
-                  ))}
+                  {shownOf(section).map(itemRow)}
                 </ul>
               )}
             </div>
@@ -470,11 +560,11 @@ function Readiness({ projectId, readiness, oneScene, onLeave }: { projectId: str
     },
     {
       uses: 'speech',
-      ok: readiness.unreviewedRules.count === 0,
-      text: readiness.unreviewedRules.count ? `확인 안 한 말투 규칙 ${readiness.unreviewedRules.count}개 (${readiness.unreviewedRules.examples.join(', ')}${readiness.unreviewedRules.count > readiness.unreviewedRules.examples.length ? ' 등' : ''})` : '쓰이는 말투 규칙은 모두 확인됨',
-      link: readiness.unreviewedRules.count > 0 && (
-        <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', marks: [...UNREVIEWED_MARKS], ...(!readiness.unreviewedRules.more && { ids: readiness.unreviewedRules.ids }) }} onClick={onLeave}>
-          확인하기
+      ok: readiness.candidateRules.count === 0,
+      text: readiness.candidateRules.count ? `후보 말투 규칙 ${readiness.candidateRules.count}개 (${readiness.candidateRules.examples.join(', ')}${readiness.candidateRules.count > readiness.candidateRules.examples.length ? ' 등' : ''})` : '쓰이는 말투 규칙은 모두 확정됨',
+      link: readiness.candidateRules.count > 0 && (
+        <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', status: 'candidate', ...(!readiness.candidateRules.more && { ids: readiness.candidateRules.ids }) }} onClick={onLeave}>
+          후보 보기
         </Link>
       ),
     },
@@ -490,11 +580,11 @@ function Readiness({ projectId, readiness, oneScene, onLeave }: { projectId: str
     },
     {
       uses: 'glossary',
-      ok: readiness.unreviewedTerms.count === 0,
-      text: readiness.unreviewedTerms.count ? `확인 안 한 용어 ${readiness.unreviewedTerms.count}개 (${readiness.unreviewedTerms.examples.join(', ')}${readiness.unreviewedTerms.count > readiness.unreviewedTerms.examples.length ? ' 등' : ''})` : '나오는 용어는 모두 확인됨',
-      link: readiness.unreviewedTerms.count > 0 && (
-        <Link to="/p/$projectId/glossary" params={{ projectId }} search={{ marks: [...UNREVIEWED_MARKS], ...(!readiness.unreviewedTerms.more && { ids: readiness.unreviewedTerms.ids }) }} onClick={onLeave}>
-          확인하기
+      ok: readiness.candidateTerms.count === 0,
+      text: readiness.candidateTerms.count ? `후보 용어 ${readiness.candidateTerms.count}개 (${readiness.candidateTerms.examples.join(', ')}${readiness.candidateTerms.count > readiness.candidateTerms.examples.length ? ' 등' : ''})` : '나오는 용어는 모두 확정됨',
+      link: readiness.candidateTerms.count > 0 && (
+        <Link to="/p/$projectId/glossary" params={{ projectId }} search={{ status: 'candidate', ...(!readiness.candidateTerms.more && { ids: readiness.candidateTerms.ids }) }} onClick={onLeave}>
+          후보 보기
         </Link>
       ),
     },

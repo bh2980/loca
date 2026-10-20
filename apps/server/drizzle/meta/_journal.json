@@ -512,6 +512,104 @@
       "when": 1792427071119,
       "tag": "0072_chat_compaction",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "6",
+      "when": 1792471452561,
+      "tag": "0073_drop_connection_timeout",
+      "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "6",
+      "when": 1792473006241,
+      "tag": "0074_editor_ai_buttons",
+      "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "6",
+      "when": 1792474249927,
+      "tag": "0075_run_subjects",
+      "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "6",
+      "when": 1792476174344,
+      "tag": "0076_term_translate_workflow",
+      "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "6",
+      "when": 1792489266557,
+      "tag": "0077_connection_drop_concurrency",
+      "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "6",
+      "when": 1792491279623,
+      "tag": "0078_editor_ai_shared_model",
+      "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "6",
+      "when": 1792493344196,
+      "tag": "0079_ai_input_previous",
+      "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "6",
+      "when": 1792498861811,
+      "tag": "0080_ai_auto_confirm",
+      "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "6",
+      "when": 1792498862255,
+      "tag": "0081_drop_ai_confirm",
+      "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "6",
+      "when": 1792501271508,
+      "tag": "0082_drop_run_proposals",
+      "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "6",
+      "when": 1792508158361,
+      "tag": "0083_drop_scene_listener_origin",
+      "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "6",
+      "when": 1792513595116,
+      "tag": "0084_event_links",
+      "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "6",
+      "when": 1792516078400,
+      "tag": "0085_character_color",
+      "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "6",
+      "when": 1792518272738,
+      "tag": "0086_graph_origin",
+      "breakpoints": true
     }
   ]
 }

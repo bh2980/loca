@@ -3,7 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { CircleAlert, CircleCheck, Network, Pencil } from 'lucide-react';
-import { checkFormat, EXCLUSION_REASON_LABELS, exclusionReason, isUnknownListener, type LineTranslate, listenerLabel, needsListener, PALETTE, SPEECH_LEVEL_LABELS, speechLevelOf, TAG_SCOPES, type FormatRules, type SpeechLevel } from '@tw/shared';
+import { CopyButton } from '@/components/copy-button';
+import { checkFormat, exclusionReason, isUnknownListener, type LineTranslate, listenerLabel, needsListener, PALETTE, SPEECH_LEVEL_LABELS, speechLevelOf, TAG_SCOPES, type FormatRules, type SpeechLevel } from '@tw/shared';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, AiMark, Badge, Button, CandidateCard, Group, InspectorBlock, InspectorField, InspectorFields, InspectorHeader, Inspector, InspectorList, InspectorSection, PropertyGrid, PropertyRow, SpeakerIdentity, StatusIcon, TagChip, TagListEditor } from '@loca/ui';
 import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
 import { AiButton } from '@/components/ai-button';
@@ -23,6 +24,7 @@ import { cn } from '@/lib/utils';
 import { useReportView } from '@/lib/view-context';
 import { editorChecks, tokenPatternOf } from '@/lib/line-context';
 import { dateTime } from '@/lib/datetime';
+import { usePersonColors } from '@/lib/person-colors';
 
 const ORIGIN = { ai: 'AI', human: '사람', import: '가져옴', tool: '도구' } as const;
 const STATE = { queued: '대기', running: '실행 중', done: '완료', failed: '실패', cancelled: '취소됨' } as const;
@@ -51,6 +53,7 @@ export function LineDetail({
   const statuses = useQuery(q.statuses(projectId));
   const project = useQuery(q.project(projectId));
   const people = useQuery(q.characters(projectId));
+  const colorOf = usePersonColors(projectId);
   const group = useQuery({ ...q.group(unit.data?.group.id ?? ''), enabled: Boolean(unit.data?.group.id) });
   const [draft, setDraft] = useDraft(`line:${unitId}`, unit.data?.translation ?? '');
   const [noting, setNoting] = useState(false);
@@ -91,7 +94,6 @@ export function LineDetail({
   const hasDialogueContext = line?.kind === 'dialogue' && Boolean(line.speaker?.trim());
   // 번역 제외: what the project's rules say about this source, and what a person's choice does.
   const ruleReason = line ? exclusionReason(line.source, project.data?.formatRules ?? undefined, project.data?.exclusionRules, project.data?.sourceLanguage) : null;
-  const translateNote = line?.translate === 'exclude' || (!line?.translate && ruleReason) ? '진행률·실행·내보내기·검사에서 빠집니다. 번역은 그대로 둡니다.' : undefined;
   const kindLabel = line?.kind === 'ui' ? 'UI 문자열' : line?.kind === 'document' ? '문서' : hasDialogueContext ? '대사' : '서술';
   const speakerTitle = line?.speaker || '화자 없음';
   const speakerPerson = line?.speaker ? people.data?.characters.find((person) => person.name.toLowerCase() === line.speaker!.toLowerCase() || person.aliases.some((alias) => alias.toLowerCase() === line.speaker!.toLowerCase())) : undefined;
@@ -190,7 +192,16 @@ export function LineDetail({
           <InspectorSection title="정보">
             <PropertyGrid>
               <PropertyRow label="대사 키">
-                <code className="font-mono text-xs break-all text-muted-foreground">{line.key}</code>
+                <span className="flex min-w-0 items-start gap-1">
+                  <code className="min-w-0 flex-1 pt-1 font-mono text-xs break-all text-muted-foreground">{line.key}</code>
+                  <CopyButton value={line.key} label="대사 키 복사" />
+                </span>
+              </PropertyRow>
+              <PropertyRow label="원문">
+                <span className="flex min-w-0 items-start gap-1">
+                  <span className="min-w-0 flex-1 whitespace-pre-wrap break-words pt-0.5">{line.source}</span>
+                  <CopyButton value={line.source} label="원문 복사" />
+                </span>
               </PropertyRow>
               <PropertyRow label="장면">
                 {showScene ? <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.group.id, line: line.id }} className="block truncate hover:underline" title={line.group.title}>{line.group.title}</Link> : <span className="block truncate" title={line.group.title}>{line.group.title}</span>}
@@ -225,7 +236,7 @@ export function LineDetail({
                   )}
                 </PropertyRow>
               )}
-              {line.speaker && <PropertyRow label="화자"><SpeakerCard projectId={projectId} name={line.speaker}><SpeakerIdentity speaker={line.speaker} /></SpeakerCard></PropertyRow>}
+              {line.speaker && <PropertyRow label="화자"><SpeakerCard projectId={projectId} name={line.speaker}><SpeakerIdentity speaker={line.speaker} color={colorOf(line.speaker)} /></SpeakerCard></PropertyRow>}
               {line.speech && <PropertyRow label="말투 규칙"><Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', item: line.speech.ruleId }} className="block truncate hover:underline" title={line.speech.rule}>{line.speech.rule}</Link></PropertyRow>}
               {line.speaker && <PropertyRow label="인물"><Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'characters', ...(speakerPerson && { item: speakerPerson.id }) }} className="block truncate hover:underline">보기</Link></PropertyRow>}
             </PropertyGrid>
@@ -241,14 +252,13 @@ export function LineDetail({
                   </div>
                 </InspectorField>
               )}
-              <InspectorField label="번역 대상" description={translateNote}>
-                <Select value={line.translate ?? 'auto'} onValueChange={(value) => patch.mutate({ translate: value === 'auto' ? null : (value as LineTranslate) })}>
+              <InspectorField label="번역 대상">
+                <Select value={line.translate ?? (ruleReason ? 'exclude' : 'include')} onValueChange={(value) => patch.mutate({ translate: value as LineTranslate })}>
                   <SelectTrigger className="w-full" aria-label="번역 대상">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="auto">규칙대로 ({ruleReason ? `제외 · ${EXCLUSION_REASON_LABELS[ruleReason]}` : '번역함'})</SelectItem>
-                    <SelectItem value="include">번역함</SelectItem>
+                    <SelectItem value="include">번역 대상</SelectItem>
                     <SelectItem value="exclude">제외</SelectItem>
                   </SelectContent>
                 </Select>

@@ -509,23 +509,28 @@ program
 
 // ── glossary, knowledge, tags, run plan ──────────────────────────────
 
+/** `--status 후보 확정` as the tool's status ids. */
+const STATUS_CHOICES = ['후보', '확정'];
+const statusIds = (picked: string[] | undefined) => picked?.map((label) => (label === '후보' ? 'candidate' : 'confirmed'));
+
 const terms = program
   .command('terms')
   .description('용어집 목록: 원문, 번역어, 상태, 나온 줄(대본에서 쓰이는 대사 수), 표시(#), 태그. 앱 용어집 화면의 필터와 같은 규칙')
   .option('-q, --q <글자>', '원문·번역어에 들어 있는 글자')
-  .addOption(new Option('--mark <marks...>', '자동 표시. 후보와 AI 초안을 함께 주면 둘 중 하나').choices(TERM_MARK_IDS))
-  .option('--unreviewed', '사람이 아직 정하지 않은 용어 (--mark candidate ai와 같음)')
+  .addOption(new Option('--status <status...>', '상태 (앱의 상태 열). 둘을 함께 주면 둘 중 하나').choices(STATUS_CHOICES))
+  .addOption(new Option('--mark <marks...>', '자동 표시. 여러 개면 모두 붙은 것').choices(TERM_MARK_IDS))
+  .option('--unreviewed', '사람이 아직 정하지 않은 용어 (상태가 후보이거나 AI가 정한 것)')
   .option('--tag <tags...>', '태그 이름 (모두 붙은 용어)')
   .option('--limit <n>', '최대 몇 개까지')
   .option('--jsonl', '한 줄에 하나씩 JSON으로 출력')
-  .action(async (options: { q?: string; mark?: string[]; unreviewed?: boolean; tag?: string[]; limit?: string; jsonl?: boolean }) => {
+  .action(async (options: { q?: string; status?: string[]; mark?: string[]; unreviewed?: boolean; tag?: string[]; limit?: string; jsonl?: boolean }) => {
     type Term = { id: string; source: string; target: string; note: string; status: KnowledgeStatus; statusBy: string; lines: number | null; examples: string[]; marks: string[]; tags: string[] };
     const wanted = options.limit ? Number(options.limit) : Infinity;
     const rows: Term[] = [];
     let total = 0;
     // A page the tool had to cut still arrives; continue from what came.
     while (rows.length < wanted) {
-      const page = await readTool<{ total: number; terms: Term[] }>('list_terms', { q: options.q, marks: options.mark, unreviewed: options.unreviewed || undefined, tags: options.tag, offset: rows.length, limit: Math.min(100, wanted - rows.length) });
+      const page = await readTool<{ total: number; terms: Term[] }>('list_terms', { q: options.q, status: statusIds(options.status), marks: options.mark, unreviewed: options.unreviewed || undefined, tags: options.tag, offset: rows.length, limit: Math.min(100, wanted - rows.length) });
       total = page.total;
       rows.push(...page.terms);
       if (!page.terms.length || rows.length >= total) break;
@@ -552,7 +557,7 @@ terms
   });
 
 const KNOWLEDGE_KINDS = {
-  documents: { tool: 'read_documents', pick: undefined, label: '문서' },
+  documents: { tool: 'read_documents', pick: undefined, label: '노트' },
   characters: { tool: 'list_characters', pick: 'characters', label: '인물' },
   relationships: { tool: 'list_characters', pick: 'relationships', label: '관계' },
   events: { tool: 'list_events', pick: undefined, label: '사건' },
@@ -562,17 +567,18 @@ const KNOWLEDGE_KINDS = {
 program
   .command('knowledge <종류>')
   .description(`작품 자료 목록: ${Object.entries(KNOWLEDGE_KINDS).map(([kind, info]) => `${kind}(${info.label})`).join(', ')}. 상태, 표시(#), 태그 포함. 앱 작품 자료 화면의 필터와 같은 규칙`)
-  .addOption(new Option('--mark <marks...>', '자동 표시. 후보와 AI 초안을 함께 주면 둘 중 하나').choices(KNOWLEDGE_MARK_IDS))
-  .option('--unreviewed', '사람이 아직 정하지 않은 항목 (--mark candidate ai와 같음)')
+  .addOption(new Option('--status <status...>', '상태 (앱의 상태 열). 둘을 함께 주면 둘 중 하나').choices(STATUS_CHOICES))
+  .addOption(new Option('--mark <marks...>', '자동 표시. 여러 개면 모두 붙은 것').choices(KNOWLEDGE_MARK_IDS))
+  .option('--unreviewed', '사람이 아직 정하지 않은 항목 (상태가 후보이거나 AI가 정한 것)')
   .option('--tag <tags...>', '태그 이름 (모두 붙은 항목)')
   .option('--jsonl', '한 줄에 하나씩 JSON으로 출력')
-  .action(async (kind: string, options: { mark?: string[]; unreviewed?: boolean; tag?: string[]; jsonl?: boolean }) => {
+  .action(async (kind: string, options: { status?: string[]; mark?: string[]; unreviewed?: boolean; tag?: string[]; jsonl?: boolean }) => {
     if (!(kind in KNOWLEDGE_KINDS)) throw new CliError(`종류는 ${Object.keys(KNOWLEDGE_KINDS).join(', ')} 중 하나입니다.`);
     const info = KNOWLEDGE_KINDS[kind as keyof typeof KNOWLEDGE_KINDS];
-    const result = await readTool<Record<string, any>>(info.tool, { marks: options.mark, unreviewed: options.unreviewed || undefined, tags: options.tag });
+    const result = await readTool<Record<string, any>>(info.tool, { status: statusIds(options.status), marks: options.mark, unreviewed: options.unreviewed || undefined, tags: options.tag });
     const rows: Record<string, any>[] = info.pick ? result[info.pick] : Array.isArray(result) ? result : (result.items ?? []);
     log(`${info.label} ${rows.length.toLocaleString()}개`);
-    warnTruncated(result, '--mark, --unreviewed, --tag로 좁히세요.');
+    warnTruncated(result, '--status, --mark, --unreviewed, --tag로 좁히세요.');
     if (options.jsonl) return printJsonl(rows);
     if (globals().json) return printList(rows.length, rows);
     const name = (row: Record<string, any>): string =>
@@ -645,9 +651,10 @@ workflows
     if (globals().json) return print({ id: data.id, name: data.name, description: data.description, definition: data.definition, issues: data.issues });
     const summary = (node: Node) =>
       node.type === 'entry' ? `대상 상태 ${node.config.statusIds?.length ?? 0}개`
-      : node.type === 'ai' ? `${node.config.output}·${node.config.scope ?? 'line'}${node.config.preset ? ` · 프리셋 ${node.config.preset}` : ''} · ${node.config.model?.model || '모델 없음'}${node.config.fields?.length ? ` · 필드 ${node.config.fields.map((field: { name: string }) => field.name).join(', ')}` : ''}`
+      : node.type === 'ai' ? `${node.config.output}·${node.config.scope ?? 'line'}${node.config.preset ? ` · 프리셋 ${node.config.preset}` : ''} · ${node.config.model?.model || '모델 없음'} · 동시 ${node.config.concurrency ?? 1}${node.config.fields?.length ? ` · 필드 ${node.config.fields.map((field: { name: string }) => field.name).join(', ')}` : ''}`
       : node.type === 'function' ? `${node.config.fn}`
       : node.type === 'condition' ? JSON.stringify(node.config.expression)
+      : node.type === 'gather' ? `모으기 (앞 단계 결과)${node.config.fields?.length ? ` · 필드 ${node.config.fields.join(', ')}` : ''}`
       : '';
     console.log(`${data.name}  (${data.id})${data.description ? `\n${data.description}` : ''}\n`);
     for (const node of data.definition.nodes) {
@@ -682,108 +689,114 @@ const runs = program.command('runs').description('워크플로 실행: 목록, �
 
 runs
   .command('list')
-  .description('최근 실행 (id, 상태, 대사 수, AI 호출·토큰)과 실패가 많은 노드')
+  .description('최근 실행 (id, 상태, 대사·용어 수, AI 호출·토큰)과 실패가 많은 노드')
   .option('--since <시간>', '몇 시간 전부터', '24')
   .action(async (options: { since: string }) => {
     const data = (await unwrap(api().projects[':projectId'].stats[':of{groups|sections|runs}'].$get({ param: { projectId: await projectId(), of: 'runs' }, query: { sinceHours: options.since } }))) as {
-      runs: { id: string; workflow: string; status: string; lines: number; calls: number; failedCalls: number; inputTokens: number; outputTokens: number; createdAt: string }[];
+      runs: { id: string; workflow: string; status: string; subject?: 'lines' | 'terms'; lines: number; calls: number; failedCalls: number; inputTokens: number; outputTokens: number; createdAt: string }[];
       failingNodes: { workflow: string; node: string; failedLines: number }[];
     };
     if (globals().json) return print({ total: data.runs.length, rows: data.runs, failingNodes: data.failingNodes });
     for (const run of data.runs)
-      console.log(`${new Date(run.createdAt).toLocaleString()}  ${run.workflow} [${run.status}] 대사 ${run.lines}, 호출 ${run.calls}(실패 ${run.failedCalls}), 토큰 ${(run.inputTokens + run.outputTokens).toLocaleString()}  (${run.id})`);
+      console.log(`${new Date(run.createdAt).toLocaleString()}  ${run.workflow} [${run.status}] ${run.subject === 'terms' ? `용어 ${run.lines}개` : `대사 ${run.lines}`}, 호출 ${run.calls}(실패 ${run.failedCalls}), 토큰 ${(run.inputTokens + run.outputTokens).toLocaleString()}  (${run.id})`);
     if (data.failingNodes.length) console.log(`\n실패가 많은 노드:\n${data.failingNodes.map((node) => `  ${node.workflow} › ${node.node}: ${node.failedLines}줄`).join('\n')}`);
   });
 
 runs
   .command('show <id>')
-  .description('한 실행의 노드별 진행(상태별 대사 수)과 최근 실패')
+  .description('한 실행의 노드별 진행(상태별 대사·용어 수)과 최근 실패')
   .action(async (id: string) => {
-    const data = await readTool<{ id: string; workflow: string; status: string; total: number; nodes: { nodeId: string; state: string; count: number }[]; failures: { key?: string; nodeId?: string; error?: string }[] }>('read_run', { runId: id });
+    const data = await readTool<{ id: string; workflow: string; status: string; subject?: 'lines' | 'terms'; total: number; nodes: { nodeId: string; state: string; count: number }[]; failures: { key?: string; unitId?: string; nodeId?: string; error?: string }[] }>('read_run', { runId: id });
     if (globals().json) return print(data);
-    console.log(`${data.workflow} [${data.status}] 대사 ${data.total.toLocaleString()}줄\n${appLink(`/p/${await projectId()}/runs/${data.id}`)}`);
+    console.log(`${data.workflow} [${data.status}] ${data.subject === 'terms' ? `용어 ${data.total.toLocaleString()}개` : `대사 ${data.total.toLocaleString()}줄`}\n${appLink(`/p/${await projectId()}/runs/${data.id}`)}`);
     for (const node of data.nodes) console.log(`  ${node.nodeId.padEnd(16)} ${node.state.padEnd(9)} ${node.count.toLocaleString()}`);
-    if (data.failures.length) console.log(`\n최근 실패:\n${data.failures.map((failure) => `  ${failure.key ?? ''} ${failure.nodeId ? `[${failure.nodeId}] ` : ''}${short(failure.error ?? '', 120)}`).join('\n')}`);
+    if (data.failures.length) console.log(`\n최근 실패:\n${data.failures.map((failure) => `  ${failure.key ?? failure.unitId ?? ''} ${failure.nodeId ? `[${failure.nodeId}] ` : ''}${short(failure.error ?? '', 120)}`).join('\n')}`);
   });
 
 runs
   .command('plan <워크플로>')
-  .description('실행 전 미리보기(실행 대화상자와 같은 계산, 모델은 부르지 않고 아무것도 시작하지 않음). 워크플로는 이름·id: 범위의 대사 수, 묶음·요청 수 추정, 준비 상태(청자 미상, 확인 안 한 말투 규칙·용어, 말투 규칙 없는 쌍). 범위 조건은 모두 만족해야 합니다')
+  .description('실행 전 미리보기(실행 대화상자와 같은 계산, 모델은 부르지 않고 아무것도 시작하지 않음). 워크플로는 이름·id: 범위의 대사 수(용어 입력이면 용어 수), 묶음·요청 수 추정, 준비 상태(청자 미상, 확인 안 한 말투 규칙·용어, 말투 규칙 없는 쌍). 범위 조건은 모두 만족해야 합니다. 용어 입력 워크플로(진입 input이 terms)는 --term으로 범위를 정하고 대사 범위 옵션은 쓸 수 없습니다')
   .option('-g, --group <groups...>', '장면·묶음 (키·id·제목)')
   .option('--key <keys...>', '대사 키')
-  .addOption(new Option('--mark <marks...>', '자동 표시가 모두 붙은 대사').choices(LINE_MARK_IDS))
+  .addOption(new Option('--mark <marks...>', '자동 표시가 모두 붙은 것 (대사 입력: 대사 표시, 용어 입력: 용어 표시)').choices([...new Set([...LINE_MARK_IDS, ...TERM_MARK_IDS])]))
   .option('--tag <tags...>', '태그 이름 (모두 붙은 대사)')
-  .option('--ignore-status', '진입 노드가 받지 않는 상태의 대사도 포함')
+  .option('--term <terms...>', '용어 입력 워크플로만: 이 용어(원문·id)만. 없으면 진입 노드의 용어 상태·표시 조건(많이 쓰인 순)')
+  .option('--status <statuses...>', '이 상태인 것만 (대사: 상태 이름·id, 용어: 후보·확정·버림). 없으면 모든 상태')
   .option('--model <specs...>', '이번 실행만 다른 모델로: "연결:모델"(모든 AI 단계) 또는 "노드=연결:모델" (연결·노드는 이름이나 id). 워크플로는 바뀌지 않습니다')
-  .action(async (workflow: string, options: { group?: string[]; key?: string[]; mark?: string[]; tag?: string[]; ignoreStatus?: boolean; model?: string[] }) => {
+  .action(async (workflow: string, options: { group?: string[]; key?: string[]; mark?: string[]; tag?: string[]; term?: string[]; status?: string[]; model?: string[] }) => {
     type Names = { count: number; examples: string[]; names: string[]; more: boolean };
     const data = await readTool<{
       workflow: { id: string; name: string };
       lines: { total: number; translated: number; untranslated: number };
+      subject?: 'lines' | 'terms';
       plan: { batches: number; linesPerBatch: { min: number; median: number; max: number } | null };
-      nodes: { name: string; model: string | null; requests: { min: number; expected: number | null; max: number }; promptTokens: number }[];
+      nodes: { name: string; model: string | null; concurrency: number; requests: { min: number; expected: number | null; max: number }; promptTokens: number }[];
       totals: { calls: { min: number; expected: number | null; max: number }; inputTokens: { min: number; expected: number | null; max: number } };
       pace: { seconds: number | null; costUsd: number | null; subscription: boolean };
-      readiness: { dialogueLines: number; unknownListenerLines: number; unreviewedRules: Names; unreviewedTerms: Names; pairsWithoutRule: { count: number; examples: string[] } };
-    }>('plan_run', { workflow, groups: options.group, keys: options.key, tags: options.tag, marks: options.mark, ignoreStatus: options.ignoreStatus, models: runModels(options.model) });
+      load: { runs: number; max: number; added: number };
+      readiness: { dialogueLines: number; unknownListenerLines: number; candidateRules: Names; candidateTerms: Names; pairsWithoutRule: { count: number; examples: string[] } };
+    }>('plan_run', { workflow, groups: options.group, keys: options.key, tags: options.tag, marks: options.mark, terms: options.term, statuses: options.status, models: runModels(options.model) });
     if (globals().json) return print(data);
     const range = (value: { min: number; expected: number | null; max: number }) => (value.expected !== null ? `약 ${value.expected.toLocaleString()} (${value.min.toLocaleString()}~${value.max.toLocaleString()})` : `${value.min.toLocaleString()}~${value.max.toLocaleString()}`);
     console.log(`${data.workflow.name} 실행 미리보기`);
-    console.log(`  대사 ${data.lines.total.toLocaleString()}개 (번역 있음 ${data.lines.translated.toLocaleString()} · 없음 ${data.lines.untranslated.toLocaleString()})`);
+    const terms = data.subject === 'terms';
+    console.log(`  ${terms ? '용어' : '대사'} ${data.lines.total.toLocaleString()}개 (번역${terms ? '어' : ''} 있음 ${data.lines.translated.toLocaleString()} · 없음 ${data.lines.untranslated.toLocaleString()})`);
     const per = data.plan.linesPerBatch;
-    console.log(`  묶음 ${data.plan.batches.toLocaleString()}개${per ? ` (묶음당 ${per.min}~${per.max}줄, 중간 ${per.median})` : ''}`);
+    if (!terms) console.log(`  묶음 ${data.plan.batches.toLocaleString()}개${per ? ` (묶음당 ${per.min}~${per.max}줄, 중간 ${per.median})` : ''}`);
     console.log(`  AI 요청 ${range(data.totals.calls)} · 입력 토큰 ${range(data.totals.inputTokens)}${data.pace.seconds !== null ? ` · 약 ${Math.round(data.pace.seconds / 60)}분` : ''}${data.pace.subscription ? ' · 구독' : data.pace.costUsd !== null ? ` · 약 $${data.pace.costUsd.toFixed(2)}` : ''}`);
-    for (const node of data.nodes) console.log(`    ${node.name}  ${node.model ?? '(모델 없음)'}  요청 ${range(node.requests)} · 프롬프트 약 ${node.promptTokens.toLocaleString()}토큰`);
+    for (const node of data.nodes) console.log(`    ${node.name}  ${node.model ?? '(모델 없음)'}  요청 ${range(node.requests)} · 동시 ${node.concurrency} · 프롬프트 약 ${node.promptTokens.toLocaleString()}토큰`);
+    if (data.load.runs) console.log(`  주의: 다른 실행 ${data.load.runs}개가 AI 요청을 최대 ${data.load.max}개까지 동시에 보내는 중입니다. 이 실행을 시작하면 최대 ${data.load.max + data.load.added}개가 됩니다.   → loca runs list`);
+    if (terms) return console.log('\n용어 입력 워크플로는 청자·말투 규칙 준비 상태를 보지 않습니다. 시작 전 loca terms로 대상 용어를 확인하세요.');
     const ready = data.readiness;
     console.log('\n준비 상태');
     console.log(`  청자 미상 대사 ${ready.unknownListenerLines.toLocaleString()} / 청자가 필요한 대사 ${ready.dialogueLines.toLocaleString()}${ready.unknownListenerLines ? '   → loca lines --mark unknownListener' : ''}`);
     const list = (entry: Names) => `${entry.names.slice(0, 8).join(', ')}${entry.count > Math.min(8, entry.names.length) ? ` 외 ${entry.count - Math.min(8, entry.names.length)}개` : ''}`;
-    console.log(`  확인 안 한 말투 규칙 ${ready.unreviewedRules.count}개${ready.unreviewedRules.count ? `: ${list(ready.unreviewedRules)}   → loca knowledge speech-rules --unreviewed` : ''}`);
-    console.log(`  확인 안 한 용어 ${ready.unreviewedTerms.count}개${ready.unreviewedTerms.count ? `: ${list(ready.unreviewedTerms)}   → loca terms --unreviewed` : ''}`);
+    console.log(`  후보 말투 규칙 ${ready.candidateRules.count}개${ready.candidateRules.count ? `: ${list(ready.candidateRules)}   → loca knowledge speech-rules --status 후보` : ''}`);
+    console.log(`  후보 용어 ${ready.candidateTerms.count}개${ready.candidateTerms.count ? `: ${list(ready.candidateTerms)}   → loca terms --status 후보` : ''}`);
     console.log(`  말투 규칙 없는 화자 쌍 ${ready.pairsWithoutRule.count}개${ready.pairsWithoutRule.count ? `: ${ready.pairsWithoutRule.examples.join(', ')}${ready.pairsWithoutRule.count > ready.pairsWithoutRule.examples.length ? ' …' : ''}` : ''}`);
   });
 
 runs
   .command('start <워크플로>')
-  .description('실행 시작을 제안으로 올리기 (AI 호출에 비용이 들어 앱에서 수락해야 시작합니다). 범위는 plan과 같고, 먼저 plan으로 확인하세요')
+  .description('실행 시작을 제안으로 올리기 (AI 호출에 비용이 들어 앱에서 수락해야 시작합니다). 범위는 plan과 같고(대사 입력 워크플로는 대사 범위, 용어 입력 워크플로는 --term), 먼저 plan으로 확인하세요')
   .option('-g, --group <groups...>', '장면·묶음 (키·id·제목)')
   .option('--key <keys...>', '대사 키')
-  .addOption(new Option('--mark <marks...>', '자동 표시가 모두 붙은 대사').choices(LINE_MARK_IDS))
+  .addOption(new Option('--mark <marks...>', '자동 표시가 모두 붙은 것 (대사 입력: 대사 표시, 용어 입력: 용어 표시)').choices([...new Set([...LINE_MARK_IDS, ...TERM_MARK_IDS])]))
   .option('--tag <tags...>', '태그 이름 (모두 붙은 대사)')
-  .option('--ignore-status', '시작의 대상 상태가 아닌 대사도 포함')
+  .option('--term <terms...>', '용어 입력 워크플로만: 이 용어(원문·id)만. 없으면 진입 노드의 용어 상태·표시 조건(많이 쓰인 순)')
+  .option('--status <statuses...>', 'plan과 같은 상태 조건')
   .option('--model <specs...>', 'plan과 같은 "연결:모델" 또는 "노드=연결:모델"')
-  .action(async (ref: string, options: { group?: string[]; key?: string[]; mark?: string[]; tag?: string[]; ignoreStatus?: boolean; model?: string[] }) => {
+  .action(async (ref: string, options: { group?: string[]; key?: string[]; mark?: string[]; tag?: string[]; term?: string[]; status?: string[]; model?: string[] }) => {
     const workflow = await resolveWorkflow(ref);
     const groups = await resolveGroups(options.group);
     const unitIds = options.key?.length ? (await unwrap(api().projects[':projectId'].lines.find.$post({ param: { projectId: await projectId() }, json: { keys: options.key, limit: 1000 } }))).rows.map((row) => row.id) : undefined;
     const tagIds = options.tag?.length
       ? (await readTool<{ tags: { id: string; name: string }[] }>('list_tags')).tags.filter((tag) => options.tag!.includes(tag.name)).map((tag) => tag.id)
       : undefined;
-    const { proposalId } = await proposeTool('start_run', { workflowId: workflow.id, groupIds: groups?.map((group) => group.id), unitIds, tagIds, marks: options.mark, ignoreStatus: options.ignoreStatus, models: runModels(options.model) });
+    const { proposalId } = await proposeTool('start_run', { workflowId: workflow.id, groupIds: groups?.map((group) => group.id), unitIds, tagIds, marks: options.mark, termIds: options.term, statuses: options.status, models: runModels(options.model) });
     if (globals().json) return print({ proposalId });
     console.log(`실행 요청을 올렸습니다 (${proposalId}). ${ACCEPT_HINT}. 시작한 뒤에는 loca runs list로 봅니다.`);
   });
 
-const proposals = program.command('proposals').description('CLI와 워크플로가 올린 제안: 목록과 결정 상태 (결정은 앱에서)');
+const proposals = program.command('proposals').description('CLI가 올린 제안: 목록과 결정 상태 (결정은 앱에서)');
 
 proposals
   .command('list')
   .description('제안 목록, 최근 것부터')
   .addOption(new Option('--status <상태>', '이 상태만').choices(['pending', 'running', 'accepted', 'rejected', 'failed']))
-  .option('--run <id>', '이 실행이 올린 제안만')
   .option('--limit <n>', '최대 몇 개', '50')
-  .action(async (options: { status?: 'pending'; run?: string; limit: string }) => {
-    const response = await api().projects[':projectId'].proposals.$get({ param: { projectId: await projectId() }, query: { status: options.status, runId: options.run, limit: options.limit } });
+  .action(async (options: { status?: 'pending'; limit: string }) => {
+    const response = await api().projects[':projectId'].proposals.$get({ param: { projectId: await projectId() }, query: { status: options.status, limit: options.limit } });
     const rows = await unwrap(Promise.resolve(response));
     const total = Number(response.headers.get('x-total-count') ?? rows.length);
     log(`제안 ${total.toLocaleString()}개 중 ${rows.length.toLocaleString()}개`);
     if (globals().json) return printList(total, rows);
     const word: Record<string, string> = { pending: '대기', running: '적용 중', accepted: '수락', rejected: '거절', failed: '실패' };
-    const from: Record<string, string> = { cli: 'CLI', run: '실행', chat: '채팅' };
-    for (const row of rows as { id: string; tool: string; status: string; source?: string; runId?: string | null; input?: Record<string, unknown>; createdAt: string }[]) {
+    const from: Record<string, string> = { cli: 'CLI', api: 'API' };
+    for (const row of rows as { id: string; tool: string; status: string; source?: string; input?: Record<string, unknown>; createdAt: string }[]) {
       // How many entries it carries (lines, items, changes), when it is a list.
       const size = Object.values(row.input ?? {}).find(Array.isArray)?.length;
-      console.log(`${new Date(row.createdAt).toLocaleString()}  [${word[row.status] ?? row.status}] ${row.tool}${size ? ` ${size.toLocaleString()}건` : ''} · ${from[row.source ?? ''] ?? row.source ?? ''}${row.runId ? ` ${row.runId.slice(0, 8)}` : ''}  (${row.id})`);
+      console.log(`${new Date(row.createdAt).toLocaleString()}  [${word[row.status] ?? row.status}] ${row.tool}${size ? ` ${size.toLocaleString()}건` : ''} · ${from[row.source ?? ''] ?? row.source ?? ''}  (${row.id})`);
     }
   });
 
@@ -879,7 +892,7 @@ format
     const warnings = importWarnings(result.data);
     if (globals().json) return print({ ok: true, summary, warnings });
     console.log(`형식이 맞습니다: ${summary.name}`);
-    console.log(`  묶음 ${summary.groups} · 대사 ${summary.units} · 인물 ${summary.characters} · 문서 ${summary.documents} · 용어 ${summary.terms}`);
+    console.log(`  묶음 ${summary.groups} · 대사 ${summary.units} · 인물 ${summary.characters} · 노트 ${summary.documents} · 용어 ${summary.terms}`);
     if (summary.excluded) console.log(`  번역 제외로 보이는 원문 ${summary.excluded} (${Object.entries(summary.excludedBy).map(([reason, count]) => `${EXCLUSION_REASON_LABELS[reason as keyof typeof EXCLUSION_REASON_LABELS]} ${count}`).join(' · ')}): 진행률·실행·내보내기에서 빠집니다. 규칙은 앱의 설정 › 에디터 › 번역 제외`);
     console.log(summary.graphNodes ? `  그래프 노드 ${summary.graphNodes} · 연결 ${summary.graphEdges}` : '  그래프 없음: 앞 대사 문맥을 장면 순서로만 찾습니다');
     for (const warning of warnings) console.log(`  경고  ${warning.message}${warning.examples.length ? ` (예: ${warning.examples.join(', ')})` : ''}`);

@@ -31,7 +31,7 @@ const KIND_BY_TOOL: Record<string, KnowledgeKind> = {
   save_speech_rule: 'speechRules', save_event: 'events', save_document: 'documents',
 };
 const RESTORE_FIELDS: Record<string, string[]> = {
-  save_character: ['name', 'role', 'aliases', 'profile', 'speech', 'style', 'gender', 'ageBand', 'player', 'status'],
+  save_character: ['name', 'role', 'aliases', 'profile', 'speech', 'style', 'gender', 'ageBand', 'player', 'color', 'status'],
   save_relationship: ['kind', 'description', 'mutual', 'changes', 'status'],
   save_speech_rule: ['fromName', 'toName', 'level', 'address', 'note', 'startKey', 'evidence', 'status'],
   save_event: ['title', 'summary', 'cause', 'outcome', 'participants', 'evidence', 'status'],

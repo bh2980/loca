@@ -9,6 +9,7 @@ import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { changedFields, useFormFrom } from '@/lib/use-form-from';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
+import { AiAutoConfirmSetting } from '@/components/settings/ai-confirm';
 import type { FormatRules } from '@tw/shared';
 
 export const Route = createFileRoute('/p/$projectId/settings/project')({
@@ -90,6 +91,10 @@ function ProjectForm({ projectId, project }: { projectId: string; project: { nam
                 </FieldDescription>
               </Field>
             </FieldGroup>
+          </SettingsSection>
+
+          <SettingsSection title="AI 문맥">
+            <AiAutoConfirmSetting projectId={projectId} />
           </SettingsSection>
 
           <SettingsSection title="번역 결과">

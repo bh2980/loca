@@ -1,11 +1,14 @@
 /** Edits one workflow node's config; the node kinds live beside this file. */
 import { useState } from 'react';
+import { RequestPreview } from './request-preview';
 import { Trash2 } from 'lucide-react';
-import { AI_OUTPUTS, AI_SCOPES, CHOICE_SOURCES, JSON_FIELD_TYPE_LABELS, NODE_TYPES, nodeName, nodePorts, type JsonField, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
-import { Button, Inspector, InspectorHeader, InspectorBlock, InspectorList, InspectorSection, InspectorTabs, PropertyGrid, PropertyRow, StatusIcon, Checkbox, Input, GroupHeading } from '@loca/ui';
+import { AI_OUTPUTS, AI_SCOPES, CHOICE_SOURCES, INPUT_TYPES, JSON_FIELD_TYPE_LABELS, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, NODE_TYPES, nodeName, nodePorts, TERM_MARK_IDS, WORKFLOW_SUBJECT_IDS, type AutoMark, type JsonField, type WorkflowSubject, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
+import { MarkChip } from '@/components/status';
+import { Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Inspector, InspectorHeader, InspectorBlock, InspectorList, InspectorSection, InspectorTabs, PropertyGrid, PropertyRow, StatusIcon, Checkbox, Input, GroupHeading } from '@loca/ui';
 import { nodeIcon } from '../node-view';
 import { AiConfig } from '@/components/workflow/node-config/ai';
 import { ConditionEditor } from '@/components/workflow/node-config/condition';
+import { GatherConfig } from '@/components/workflow/node-config/gather';
 import { FunctionConfig } from '@/components/workflow/node-config/function';
 import { Field, type NodeRefs } from '@/components/workflow/node-config/shared';
 
@@ -44,7 +47,7 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
                 <Trash2 /> 노드 삭제
               </Button></>) : undefined}
       className="min-w-0 border-l-0"
-      header={<InspectorHeader icon={<Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />} kind={`${NODE_TYPES[node.type].label} · ${node.id}`} name={nodeName(node)} onClose={onClose} />}
+      header={<InspectorHeader icon={<Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />} kind={NODE_TYPES[node.type].label} name={nodeName(node)} onClose={onClose} />}
       tabs={<InspectorTabs<NodeConfigTab> value={activeTab} onChange={changeTab} items={[{ value: 'settings', label: '설정' }, { value: 'io', label: '입출력' }, { value: 'errors', label: issues.length ? `오류 ${issues.length}` : '오류' }]} />}
       bodyClassName="space-y-0 p-0"
     >
@@ -56,24 +59,23 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
             </Field>
             {node.type === 'ai' && <AiConfig part="model" node={node} refs={refs} onChange={onChange} />}
             {node.type === 'entry' && (
-              <Field label="대상 상태">
-                <div className="space-y-1.5">
-                  {refs.statuses.map((status) => (
-                    <label key={status.id} className="flex items-center gap-2 text-sm">
-                      <Checkbox checked={node.config.statusIds.includes(status.id)} onCheckedChange={(checked) => onChange({ ...node, config: { statusIds: checked ? [...node.config.statusIds, status.id] : node.config.statusIds.filter((id) => id !== status.id) } })} />
-                      <StatusIcon status={status} /> {status.name}
-                    </label>
-                  ))}
-                </div>
-              </Field>
+              <>
+                <Field label="입력" help="이 워크플로가 다루는 것입니다. 노드마다 이 입력에 맞는 칸과 노드만 보입니다. 어떤 대사·용어를 넣을지는 실행할 때 고릅니다.">
+                  <Select value={node.config.input} onValueChange={(input) => onChange({ ...node, config: { ...node.config, input: input as WorkflowSubject } })}>
+                    <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                    <SelectContent>{WORKFLOW_SUBJECT_IDS.map((id) => <SelectItem key={id} value={id}>{INPUT_TYPES[id].label}</SelectItem>)}</SelectContent>
+                  </Select>
+                </Field>
+              </>
             )}
           </InspectorSection>
 
           {node.type === 'ai' ? (
             <AiConfig part="rest" node={node} refs={refs} onChange={onChange} />
-          ) : node.type === 'function' || node.type === 'condition' ? (
+          ) : node.type === 'function' || node.type === 'condition' || node.type === 'gather' ? (
             <InspectorSection title={NODE_TYPES[node.type].label}>
               {node.type === 'function' && <FunctionConfig node={node} refs={refs} readOnly={readOnly} onChange={onChange} />}
+              {node.type === 'gather' && <GatherConfig node={node} refs={refs} onChange={onChange} />}
               {node.type === 'condition' && <ConditionEditor node={node} nodes={refs.nodes} refs={refs} readOnly={readOnly} onChange={onChange} />}
             </InspectorSection>
           ) : null}
@@ -82,8 +84,13 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
 
       {activeTab === 'io' && (
         <div className="min-w-0">
+          {node.type === 'ai' && <RequestPreview projectId={refs.projectId} workflowId={refs.workflowId} node={node} />}
           <InspectorSection title="입력">
-            {node.type === 'entry' && <PropertyGrid><PropertyRow label="대상 상태">{node.config.statusIds.length ? node.config.statusIds.map((id) => refs.statuses.find((status) => status.id === id)?.name ?? '삭제된 상태').join(' · ') : '범위 안의 모든 대사'}</PropertyRow></PropertyGrid>}
+            {node.type === 'entry' && (
+              <PropertyGrid>
+                <PropertyRow label="입력">{INPUT_TYPES[node.config.input].label}</PropertyRow>
+              </PropertyGrid>
+            )}
             {refs.edges ? incoming.length ? (
               <PropertyGrid>
                 {incoming.map((edge) => {

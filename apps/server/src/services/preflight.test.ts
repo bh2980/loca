@@ -41,11 +41,11 @@ describe('preflight', () => {
   it('predicts the plan and the calls of the run it describes', async () => {
     const db = openDatabase(':memory:');
     const connection = db.insert(s.connections).values({ kind: 'openai', name: 'mock', baseUrl: 'http://mock/v1' }).returning().get();
-    db.update(s.connections).set({ outputTokens: 4000, timeoutSeconds: 30, maxAttempts: 1 }).where(eq(s.connections.id, connection.id)).run();
+    db.update(s.connections).set({ outputTokens: 4000, maxAttempts: 1 }).where(eq(s.connections.id, connection.id)).run();
   const choice = { connectionId: connection.id, model: 'm' };
     const { projectId } = importProject(db, importFileSchema.parse(realistic(3000).file), choice);
     const workflow = db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).all().find((row) => row.name === '초벌 번역')!;
-    const scope = { ignoreStatus: true };
+    const scope = {};
 
     // First run: no history yet, so only nodes every line passes have an expectation.
     const first = await preflight(db, workflow, scope);

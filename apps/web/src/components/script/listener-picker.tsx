@@ -3,7 +3,7 @@ import { isUnsureListener, listenerLabel, type ListenerOrigin, SPECIAL_LISTENERS
 import { Input, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@loca/ui';
 import { cn } from '@/lib/utils';
 
-const LISTENER_ORIGIN_LABELS: Record<ListenerOrigin, string> = { import: '가져오기', scene: '장면 추정', ai: 'AI 추정', human: '사람' };
+const LISTENER_ORIGIN_LABELS: Record<ListenerOrigin, string> = { import: '가져오기', ai: 'AI 추정', human: '사람' };
 const TYPE_NAME = '__type';
 
 /**
@@ -29,10 +29,8 @@ export function ListenerPicker({ line, cast, onPick, inline = false }: {
   const hint = !line.listenerOrigin
     ? null
     : unsure
-      ? line.listenerOrigin === 'scene'
-        ? `장면 추정: 이 장면에서 주로 ${listenerLabel(line.listener!)}에게 (섞인 장면 · ${confidence})`
-        : `AI 추정: ${listenerLabel(line.listener!)} (${confidence}, 낮아서 미상)`
-      : `${LISTENER_ORIGIN_LABELS[line.listenerOrigin]}${line.listenerOrigin === 'ai' || line.listenerOrigin === 'scene' ? ` · ${confidence}` : ''}`;
+      ? `AI 추정: ${listenerLabel(line.listener!)} (${confidence}, 낮아서 미상)`
+      : `${LISTENER_ORIGIN_LABELS[line.listenerOrigin]}${line.listenerOrigin === 'ai' ? ` · ${confidence}` : ''}`;
 
   if (typing !== null)
     return (

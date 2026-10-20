@@ -8,6 +8,7 @@ import { RunDialog } from '@/components/workflow/run-dialog';
 import { GroupHeading, InspectorSection, InspectorList, InspectorResult, Button, Collapsible, CollapsibleContent, CollapsibleTrigger } from '@loca/ui';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
+import { PersonName } from '@/lib/person-colors';
 
 /** A list that stays folded until asked for (a rule's lines, evidence inside a pair): the pane shows what to decide first. */
 function Fold({ label, children }: { label: ReactNode; children: ReactNode }) {
@@ -65,7 +66,7 @@ export function Evidence({ projectId, keys, embedded }: { projectId: string; key
           <li key={line.id}>
             <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.groupId, line: line.id }} className={lineLink}>
               <span className="text-xs text-muted-foreground">{line.groupTitle} · </span>
-              {line.speaker && <span className="font-medium">{line.speaker}: </span>}
+              {line.speaker && <span className="font-medium"><PersonName projectId={projectId} name={line.speaker} />: </span>}
               {line.source}
             </Link>
           </li>

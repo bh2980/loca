@@ -5,6 +5,7 @@ import { useHasDock } from "./right-dock"
 
 export const HEADER_ACTIONS_ID = "page-header-actions"
 export const PAGE_HEADING_ID = "loca-page-heading"
+export const HEADER_VIEWS_ID = "loca-page-views"
 
 /**
  * Slot portal for main actions in the top app navigation bar.
@@ -14,6 +15,16 @@ export function HeaderActions({ children }: { children: ReactNode }) {
   useEffect(() => {
     setSlot(document.getElementById(HEADER_ACTIONS_ID))
   }, [])
+  return slot ? createPortal(children, slot) : null
+}
+
+/**
+ * What the page shows (its view tabs), right after the title: fixed in place, unlike the actions on
+ * the right, which come and go with what is selected.
+ */
+export function HeaderViews({ children }: { children: ReactNode }) {
+  const [slot, setSlot] = useState<HTMLElement | null>(null)
+  useEffect(() => setSlot(document.getElementById(HEADER_VIEWS_ID)), [])
   return slot ? createPortal(children, slot) : null
 }
 

@@ -1,6 +1,6 @@
 import { convertToModelMessages, stepCountIs, streamText, type ModelMessage, type UIMessage } from 'ai';
 import { eq } from 'drizzle-orm';
-import { chatTitle, estimateTokens } from '@tw/shared';
+import { CALL_TIMEOUT_MS, chatTitle, estimateTokens } from '@tw/shared';
 import * as ai from '@tw/ai';
 import type { Deps } from '../context.ts';
 import type { Db } from '../db/index.ts';
@@ -67,7 +67,7 @@ export async function runChatTurn(deps: Pick<Deps, 'db' | 'secrets'>, given: typ
   const previous = session.agentSession;
   if (previous && (previous.kind !== route.kind || previous.model !== route.model)) void ai.closeSession(previous.id);
   if (ai.isAcpKind(route.kind))
-    return cliChatResponse({ db, chat: session, route, system: [AGENT_SYSTEM, NO_EDITOR_NOTE].join('\n\n'), view, messages, answeredBy, timeoutMs: live.snapshot.timeoutSeconds * 1000, turn });
+    return cliChatResponse({ db, chat: session, route, system: [AGENT_SYSTEM, NO_EDITOR_NOTE].join('\n\n'), view, messages, answeredBy, idleMs: CALL_TIMEOUT_MS.chatIdle, turn });
   return apiChatResponse({ db, session, route, live, view, messages, answeredBy, turn });
 }
 
@@ -152,11 +152,20 @@ function apiChatResponse(input: {
       for (let pass = 0; steps < MAX_STEPS; pass++) {
         // One log row per pass (its tool steps included); usage comes with the finish.
         const finish = startCall(db, { projectId: session.projectId, kind: 'chat', refId: session.id, label: pass ? '채팅 · 끼어든 메시지 후' : '채팅' }, route);
+        // No overall limit (a turn with tool calls can run long): the pass stops when the model sends nothing for chatIdle.
+        const idle = new AbortController();
+        let quiet: NodeJS.Timeout | undefined;
+        const arm = () => {
+          clearTimeout(quiet);
+          quiet = setTimeout(() => idle.abort(), CALL_TIMEOUT_MS.chatIdle);
+        };
+        arm();
         const result = streamText({
           model: ai.chatModel(route),
           onFinish: ({ totalUsage }) => finish({ usage: { inputTokens: totalUsage.inputTokens, cachedInputTokens: totalUsage.inputTokenDetails?.cacheReadTokens, outputTokens: totalUsage.outputTokens } }),
           onError: ({ error }) => finish({ error }),
-          onAbort: () => finish({ error: '중단함' }),
+          onAbort: () => finish({ error: idle.signal.aborted ? `모델이 ${CALL_TIMEOUT_MS.chatIdle / 1000}초 동안 아무것도 보내지 않아 멈춤` : '중단함' }),
+          onChunk: arm,
           system,
           messages: modelMessages,
           tools,
@@ -164,10 +173,10 @@ function apiChatResponse(input: {
           stopWhen: [stepCountIs(MAX_STEPS - steps), () => hasInterjections(db, session.id)],
           maxOutputTokens: live.snapshot.maxOutputTokens,
           providerOptions: ai.openaiProviderOptions(route),
-          abortSignal: turn.signal,
+          abortSignal: AbortSignal.any([turn.signal, idle.signal]),
         });
         writer.merge(result.toUIMessageStream({ sendStart: false, sendFinish: false, onError: errorText }));
-        const passSteps = await result.steps;
+        const passSteps = await Promise.resolve(result.steps).finally(() => clearTimeout(quiet));
         steps += Math.max(1, passSteps.length);
         finishReason = await result.finishReason;
         // Waiting for the person to approve a tool: the turn ends; a queued message waits for the next one.

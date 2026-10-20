@@ -1,4 +1,4 @@
-import { batchTokens, lineCost, type BatchConfig } from '@tw/shared';
+import { batchTokens, lineCost, lineCostIn, type BatchConfig } from '@tw/shared';
 
 /** A line to batch, in script position. `tokens` is the estimated size of its text. */
 export interface BatchLine {
@@ -140,11 +140,13 @@ export function packGroups<T extends { tokens: number; kind?: string }>(planned:
  * request; a model that refuses a request as too long gets it again in halves (the runner).
  */
 function wholeScript<T extends { tokens: number }>(groups: T[][], maxTokens: number): T[][] {
+  // Sent as compact script text: a line costs its text plus its id and speaker, not the per-line JSON.
+  const cost = lineCostIn('whole');
   const requests: T[][] = [];
   let current: T[] = [];
   let tokens = 0;
   for (const group of groups) {
-    const groupTokens = group.reduce((sum, line) => sum + lineCost(line), 0);
+    const groupTokens = group.reduce((sum, line) => sum + cost(line), 0);
     if (current.length && tokens + groupTokens > maxTokens) {
       requests.push(current);
       current = [];
@@ -156,13 +158,13 @@ function wholeScript<T extends { tokens: number }>(groups: T[][], maxTokens: num
       continue;
     }
     for (const line of group) {
-      if (current.length && tokens + lineCost(line) > maxTokens) {
+      if (current.length && tokens + cost(line) > maxTokens) {
         requests.push(current);
         current = [];
         tokens = 0;
       }
       current.push(line);
-      tokens += lineCost(line);
+      tokens += cost(line);
     }
   }
   if (current.length) requests.push(current);

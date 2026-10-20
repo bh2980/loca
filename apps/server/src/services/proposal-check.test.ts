@@ -64,6 +64,6 @@ describe('proposal check', () => {
   it('reports a failed update instead of claiming success', async () => {
     const { db, projectId } = setup();
     const tool = agentCatalog(db, projectId).find((candidate) => candidate.name === 'save_document')!;
-    expect(await tool.run({ id: 'nope', kind: 'note', title: 't', body: '' })).toEqual({ ok: false, error: expect.stringContaining('없는 문서') });
+    expect(await tool.run({ id: 'nope', kind: 'note', title: 't', body: '' })).toEqual({ ok: false, error: expect.stringContaining('없는 노트') });
   });
 });

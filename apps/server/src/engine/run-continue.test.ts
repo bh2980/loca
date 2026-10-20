@@ -13,7 +13,7 @@ import { createRun } from './run-create.ts';
 
 function setup() {
   const db = openDatabase(':memory:');
-  const conn = (name: string, port: number) => db.insert(s.connections).values({ kind: 'openai', name, baseUrl: `http://localhost:${port}/v1`, outputTokens: 1000, timeoutSeconds: 30, maxAttempts: 1 }).returning().get();
+  const conn = (name: string, port: number) => db.insert(s.connections).values({ kind: 'openai', name, baseUrl: `http://localhost:${port}/v1`, outputTokens: 1000, maxAttempts: 1 }).returning().get();
   const a = conn('A', 1);
   const b = conn('B', 2);
   const groups = [{ key: 'g', title: 'G' }];
@@ -22,7 +22,7 @@ function setup() {
   const workflow = db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).get()!;
   const definition = { ...workflow.definition, nodes: workflow.definition.nodes.map((node) => (node.type === 'ai' ? { ...node, config: { ...node.config, batch: { mode: 'count' as const, size: 1, maxTokens: 6_000 } } } : node)) };
   db.update(s.workflows).set({ definition }).where(eq(s.workflows.id, workflow.id)).run();
-  const runId = createRun(db, { projectId, workflow: { ...workflow, definition }, models: snapshotWorkflowModels(db, definition), scope: { ignoreStatus: true } }).runId;
+  const runId = createRun(db, { projectId, workflow: { ...workflow, definition }, models: snapshotWorkflowModels(db, definition), scope: {} }).runId;
   const run = () => db.select().from(s.runs).where(eq(s.runs.id, runId)).get()!;
   return { db, a, b, workflow, runId, run };
 }

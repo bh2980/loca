@@ -64,7 +64,7 @@ describe('CLI parity with the app', () => {
     expect(cliKeys({ tags: ['A'] })).toEqual(['u0', 'u1']);
   });
 
-  it('lists terms with usage, marks and the app\'s either-or rule for candidate + ai', () => {
+  it('lists terms with usage, marks and the status / unreviewed filters', () => {
     const { db, projectId } = setup();
     db.insert(s.terms).values([
       { projectId, source: 'Zed Unused', target: '', status: 'candidate', statusBy: 'ai' },
@@ -73,15 +73,23 @@ describe('CLI parity with the app', () => {
     ]).run();
     const all = listTerms(db, projectId, {});
     const zed = all.terms.find((term) => term.source === 'Zed Unused')!;
-    expect(zed.marks).toEqual(['candidate', 'emptyTarget', 'unused']);
+    expect(zed.marks).toEqual(['emptyTarget', 'unused']);
     expect(zed.lines).toBe(0);
-    // candidate + ai = either one; a human-confirmed term is neither.
-    const unreviewed = listTerms(db, projectId, { marks: ['candidate', 'ai'] }).terms.map((term) => term.source);
+    // unreviewed = status candidate or decided by AI; a human-confirmed term is neither.
+    const unreviewed = listTerms(db, projectId, { unreviewed: true }).terms.map((term) => term.source);
     expect(unreviewed).toEqual(expect.arrayContaining(['Zed Unused', 'Quiet']));
     expect(unreviewed).not.toContain('Plain');
-    expect(listTerms(db, projectId, { unreviewed: true }).total).toBe(unreviewed.length);
-    // other marks must all hold
-    expect(listTerms(db, projectId, { marks: ['candidate', 'emptyTarget'] }).terms.map((term) => term.source)).toContain('Zed Unused');
+    // status is the 상태 column: candidate or confirmed, several mean either
+    const candidates = listTerms(db, projectId, { status: ['candidate'] }).terms.map((term) => term.source);
+    expect(candidates).toContain('Zed Unused');
+    expect(candidates).not.toContain('Plain');
+    const confirmed = listTerms(db, projectId, { status: ['confirmed'] }).terms.map((term) => term.source);
+    expect(confirmed).toEqual(expect.arrayContaining(['Plain', 'Quiet']));
+    expect(confirmed).not.toContain('Zed Unused');
+    expect(listTerms(db, projectId, { status: ['candidate', 'confirmed'] }).total).toBe(all.total);
+    // marks must all hold, and combine with status
+    expect(listTerms(db, projectId, { status: ['candidate'], marks: ['emptyTarget'] }).terms.map((term) => term.source)).toContain('Zed Unused');
+    expect(listTerms(db, projectId, { status: ['confirmed'], marks: ['emptyTarget'] }).total).toBe(0);
     expect(listTerms(db, projectId, { marks: ['ai', 'emptyTarget'] }).terms.map((term) => term.source)).not.toContain('Quiet');
     expect(listTerms(db, projectId, { limit: 1 }).terms).toHaveLength(1);
   });
@@ -150,8 +158,8 @@ describe('CLI parity with the app', () => {
     for (const name of ['list_terms', 'term_usage', 'list_tags', 'plan_run', 'list_characters', 'list_events', 'list_speech_rules', 'read_documents']) expect(catalog.some((tool) => tool.name === name && !tool.changes)).toBe(true);
     const events = catalog.find((tool) => tool.name === 'list_events')!;
     const all = (await events.run({})) as { marks: string[] }[];
-    const unreviewed = (await events.run({ unreviewed: true })) as { marks: string[] }[];
+    const unreviewed = (await events.run({ unreviewed: true })) as { status: string; marks: string[] }[];
     expect(all.every((event) => Array.isArray(event.marks))).toBe(true);
-    expect(unreviewed.every((event) => event.marks.includes('candidate') || event.marks.includes('ai'))).toBe(true);
+    expect(unreviewed.every((event) => event.status === 'candidate' || event.marks.includes('ai'))).toBe(true);
   });
 });

@@ -1,13 +1,14 @@
 import { and, desc, eq, inArray, isNotNull, ne, sql } from 'drizzle-orm';
-import { batchConfigSchema, readinessUses, CONNECTION_KIND_INFO, estimateTokens, isFreeModel, isUnknownListener, isUnreviewed, needsListener, nodeName, termMatcher, type AiNode, type WorkflowDefinition } from '@tw/shared';
+import { batchConfigSchema, INPUT_TYPES, workflowInput, readinessUses, CONNECTION_KIND_INFO, estimateTokens, isFreeModel, isUnknownListener, needsListener, nodeName, termMatcher, type AiNode, type WorkflowDefinition } from '@tw/shared';
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { packGroups } from '../engine/batches.ts';
-import { buildPrompt } from '../engine/prompts.ts';
+import { buildPrompt, promptLineId } from '../engine/prompts.ts';
 import { wholeScriptRequest } from '../engine/whole-script.ts';
 import { resolveChoiceOptions } from './choice-options.ts';
-import { excludedInScope, planRun, sceneLinks, selectRunUnits } from '../engine/run-create.ts';
+import { excludedInScope, planRun, sceneLinks, selectRunTerms, selectRunUnits } from '../engine/run-create.ts';
+import { loadTerms, TERM_GROUP, termPrompt } from '../engine/subjects.ts';
 import { resolveBudgets } from './budgets.ts';
 import { buildContext } from './context.ts';
 import { choiceLabel } from './routes.ts';
@@ -27,6 +28,8 @@ export interface NodeEstimate {
   choice: { connectionId: string; model: string; effort?: string };
   /** Other models sharing this node's requests (their accounts take whatever is free). */
   sharedWith: string[];
+  /** Requests the node sends at once (its 동시 처리 수). */
+  concurrency: number;
   connection: { id: string; name: string; kind: string; cli: boolean } | null;
   /** Requests if every planned line reaches this node once. */
   full: number;
@@ -50,7 +53,8 @@ export interface NodeEstimate {
 export async function preflight(db: Db, workflow: Pick<typeof s.workflows.$inferSelect, 'projectId' | 'definition'> & { id: string | null }, scope: s.RunScope) {
   const definition: WorkflowDefinition = resolveBudgets(db, workflow.definition);
   const projectId = workflow.projectId;
-  const unitIds = selectRunUnits(db, projectId, definition, scope);
+  if (workflowInput(definition) === 'terms') return termPreflight(db, workflow, definition, scope);
+  const unitIds = selectRunUnits(db, projectId, scope);
   const columns = { id: s.units.id, key: s.units.key, groupId: s.units.groupId, seq: s.units.seq, kind: s.units.kind, speaker: s.units.speaker, source: s.units.source, translation: s.units.translation, listener: s.units.listener, listenerOrigin: s.units.listenerOrigin, listenerConfidence: s.units.listenerConfidence, tokens: sql<number>`(length(cast(${s.units.source} as blob)) + 3) / 4` };
   // Most of a project: one scan kept by id is faster than ids in chunks (see planLines).
   const wanted = new Set(unitIds);
@@ -76,7 +80,8 @@ export async function preflight(db: Db, workflow: Pick<typeof s.workflows.$infer
   }
   function estimateNode(node: AiNode): NodeEstimate {
     const config = batchConfigSchema.parse(node.config.batch ?? {});
-    const requests = packGroups(groups, config);
+    // A node that reads only an earlier node's result (after a gather) makes one request, not one per batch.
+    const requests = node.config.input.lines ? packGroups(groups, config) : groups.length ? [groups.flat().slice(0, 1)] : [];
     const label = (choice: { connectionId: string; model: string; effort?: string }) => {
       const row = choice.connectionId && choice.model ? db.select({ name: s.connections.name }).from(s.connections).where(eq(s.connections.id, choice.connectionId)).get() : undefined;
       return row ? choiceLabel(row.name, choice) : null;
@@ -91,6 +96,7 @@ export async function preflight(db: Db, workflow: Pick<typeof s.workflows.$infer
       model: label(node.config.model),
       choice: node.config.model,
       sharedWith: node.config.extraModels.flatMap((choice) => label(choice) ?? []),
+      concurrency: node.config.concurrency,
       connection: connection ? { id: connection.id, name: connection.name, kind: connection.kind, cli: CONNECTION_KIND_INFO[connection.kind].transport === 'cli' } : null,
       full: requests.length,
       requests: { min: all ? requests.length : 0, expected: all ? requests.length : historyRate === null ? null : Math.round(historyRate * units.length), max },
@@ -118,7 +124,8 @@ export async function preflight(db: Db, workflow: Pick<typeof s.workflows.$infer
   return {
     readiness,
     pace,
-    lines: { total: units.length, excluded: excludedInScope(db, projectId, definition, scope), translated: units.filter((unit) => unit.translation).length, untranslated: units.filter((unit) => !unit.translation).length },
+    load: aiLoad(db, definition),
+    lines: { total: units.length, excluded: excludedInScope(db, projectId, scope), translated: units.filter((unit) => unit.translation).length, untranslated: units.filter((unit) => !unit.translation).length },
     plan: {
       batches: sizes.length,
       linesPerBatch: sizes.length ? { min: sizes[0], median: sizes[Math.floor(sizes.length / 2)], max: sizes.at(-1)! } : null,
@@ -138,15 +145,78 @@ export async function preflight(db: Db, workflow: Pick<typeof s.workflows.$infer
   };
 }
 
+/**
+ * preflight for a term run: the terms in scope, packed as the runner would (one by one or in
+ * fixed counts, no scenes), with each AI node's requests and a sampled prompt size. Line readiness
+ * (listeners, speech rules) does not apply.
+ */
+/** A terms run's batching (as the runner does it, within the input's batch modes). */
+function termBatch(node: AiNode) {
+  const config = batchConfigSchema.parse(node.config.batch ?? {});
+  return (INPUT_TYPES.terms.batchModes as readonly string[]).includes(config.mode) ? config : { ...config, mode: 'count' as const };
+}
+
+async function termPreflight(db: Db, workflow: { id: string | null; projectId: string }, definition: WorkflowDefinition, scope: s.RunScope) {
+  const projectId = workflow.projectId;
+  const ids = selectRunTerms(db, projectId, scope);
+  const { terms } = loadTerms(db, ids);
+  const rows = ids.flatMap((id, seq) => {
+    const term = terms.get(id);
+    return term ? [{ id, groupId: TERM_GROUP, seq, kind: 'term', tokens: estimateTokens(term.source) + 40, target: term.target }] : [];
+  });
+  const project = db.select().from(s.projects).where(eq(s.projects.id, projectId)).get()!;
+  const languages = { source: project.sourceLanguage, target: project.targetLanguage };
+  const everyLine = linesThrough(definition);
+  const estimates: NodeEstimate[] = definition.nodes
+    .filter((node): node is AiNode => node.type === 'ai')
+    .map((node) => {
+      const requests = !node.config.input.lines ? (rows.length ? [rows.slice(0, 1)] : []) : packGroups(rows.length ? [rows] : [], termBatch(node));
+      const connection = node.config.model.connectionId ? db.select().from(s.connections).where(eq(s.connections.id, node.config.model.connectionId)).get() : undefined;
+      const all = everyLine.has(node.id);
+      const historyRate = workflow.id ? rateFromHistory(db, workflow.id, node.id) : null;
+      const sample = requests[0] ?? [];
+      const prompt = sample.length ? termPrompt(db, projectId, sample.map((row) => ({ subjectId: row.id, data: { path: [], outputs: {} } }) as never), node) : null;
+      return {
+        nodeId: node.id,
+        name: nodeName(node),
+        model: connection && node.config.model.model ? choiceLabel(connection.name, node.config.model) : null,
+        choice: node.config.model,
+        sharedWith: [],
+        concurrency: node.config.concurrency,
+        connection: connection ? { id: connection.id, name: connection.name, kind: connection.kind, cli: CONNECTION_KIND_INFO[connection.kind].transport === 'cli' } : null,
+        full: requests.length,
+        requests: { min: all ? requests.length : 0, expected: all ? requests.length : historyRate === null ? null : Math.round(historyRate * rows.length), max: requests.length * (all ? 1 : definition.settings.maxVisitsPerNode) },
+        everyLine: all,
+        promptTokens: prompt ? estimateTokens(Object.values(buildPrompt(node, languages, prompt.context, prompt.lines)).join('\n\n')) : 0,
+        overheadTokens: connection ? overheadOf(db, connection.id) : null,
+        historyRate,
+      };
+    });
+  const sum = (pick: (estimate: NodeEstimate) => number | null) => estimates.reduce<number | null>((total, estimate) => (total === null || pick(estimate) === null ? null : total + pick(estimate)!), 0);
+  const perRequest = (estimate: NodeEstimate) => estimate.promptTokens + (estimate.overheadTokens ?? 0);
+  const calls = { min: sum((e) => e.requests.min)!, expected: sum((e) => e.requests.expected), max: sum((e) => e.requests.max)! };
+  const inputTokens = { min: sum((e) => e.requests.min * perRequest(e))!, expected: sum((e) => (e.requests.expected === null ? null : e.requests.expected * perRequest(e))), max: sum((e) => e.requests.max * perRequest(e))! };
+  const none = { count: 0, examples: [] as string[], ids: [] as string[], more: false };
+  return {
+    readiness: { dialogueLines: 0, unknownListenerLines: 0, candidateRules: none, candidateTerms: none, pairsWithoutRule: { count: 0, examples: [] as string[] }, applies: readinessUses(definition) },
+    pace: paceOf(db, estimates),
+    load: aiLoad(db, definition),
+    lines: { total: rows.length, excluded: 0, translated: rows.filter((row) => row.target).length, untranslated: rows.filter((row) => !row.target).length },
+    plan: { batches: 0, linesPerBatch: null, list: listBatches(db, []) },
+    nodes: estimates,
+    totals: { calls, inputTokens },
+    suggestedLimits: { maxCalls: Math.ceil((calls.expected ?? calls.max) * 1.3) || undefined, maxInputTokens: estimates.some((e) => e.connection && e.overheadTokens === null) ? undefined : Math.ceil((inputTokens.expected ?? inputTokens.max) * 1.3) || undefined },
+  };
+}
+
 /** The items' ids for a link that lists only them; past the cap, `more` says the list would be partial. */
 const IDS_CAP = 100;
 const idList = (ids: string[]) => ({ ids: ids.slice(0, IDS_CAP), more: ids.length > IDS_CAP });
 
 /**
  * What in this run's own lines would make the translation worse, for a person to fix first:
- * dialogue whose listener is unknown, speech rules its speaker → listener pairs use that no person
- * has looked at (isUnreviewed in shared: candidates, or set by AI), and glossary terms its lines mention that are not
- * confirmed by a person.
+ * dialogue whose listener is unknown, and speech rules its speaker → listener pairs use and glossary
+ * terms its lines mention that are still candidates (only confirmed ones reach the prompt).
  */
 function readinessOf(db: Db, projectId: string, units: { kind: string; speaker: string | null; source: string; listener: string | null; listenerOrigin: string | null; listenerConfidence: number | null }[], index: ReturnType<typeof speechRuleIndex>) {
   // Lines said to someone (needsListener: not narration, not format tokens only): the ones a listener matters for.
@@ -165,9 +235,9 @@ function readinessOf(db: Db, projectId: string, units: { kind: string; speaker: 
     .from(s.speechRules)
     .where(eq(s.speechRules.projectId, projectId))
     .all()
-    .filter(isUnreviewed)
+    .filter((rule) => rule.status === 'candidate')
     .filter((rule) => pairs.has(`${index.norm(rule.from)}|${index.norm(rule.to)}`));
-  const unreviewedRules = [...new Map(rules.map((rule) => [`${index.norm(rule.from)}|${index.norm(rule.to)}`, rule])).values()];
+  const candidateRules = [...new Map(rules.map((rule) => [`${index.norm(rule.from)}|${index.norm(rule.to)}`, rule])).values()];
   // Pairs that speak often in these lines (5+) with no rule at all: their speech level is the model's guess.
   const ruled = new Set(db.select({ from: s.speechRules.fromName, to: s.speechRules.toName }).from(s.speechRules).where(and(eq(s.speechRules.projectId, projectId), ne(s.speechRules.status, 'rejected'))).all().map((rule) => `${index.norm(rule.from)}|${index.norm(rule.to)}`));
   const withoutRule = [...pairs].filter(([key, lines]) => lines >= 5 && !ruled.has(key)).sort((a, b) => b[1] - a[1]);
@@ -176,21 +246,34 @@ function readinessOf(db: Db, projectId: string, units: { kind: string; speaker: 
     .from(s.terms)
     .where(eq(s.terms.projectId, projectId))
     .all()
-    .filter(isUnreviewed);
+    .filter((term) => term.status === 'candidate');
   const mentioned = terms.length ? termMatcher(terms, (term) => term.source) : null;
-  const unreviewedTerms = new Map<string, string>(mentioned ? units.flatMap((unit) => mentioned.find(unit.source).map((term) => [term.source, term.id] as const)) : []);
+  const candidateTerms = new Map<string, string>(mentioned ? units.flatMap((unit) => mentioned.find(unit.source).map((term) => [term.source, term.id] as const)) : []);
   return {
     dialogueLines: dialogue.length,
     unknownListenerLines: unknownListener,
-    unreviewedRules: { count: unreviewedRules.length, examples: unreviewedRules.slice(0, 3).map((rule) => `${rule.from} → ${rule.to}`), ...idList(unreviewedRules.map((rule) => rule.id)) },
-    unreviewedTerms: { count: unreviewedTerms.size, examples: [...unreviewedTerms.keys()].slice(0, 3), ...idList([...unreviewedTerms.values()]) },
+    candidateRules: { count: candidateRules.length, examples: candidateRules.slice(0, 3).map((rule) => `${rule.from} → ${rule.to}`), ...idList(candidateRules.map((rule) => rule.id)) },
+    candidateTerms: { count: candidateTerms.size, examples: [...candidateTerms.keys()].slice(0, 3), ...idList([...candidateTerms.values()]) },
     pairsWithoutRule: { count: withoutRule.length, examples: withoutRule.slice(0, 3).map(([key]) => names.get(key)!) },
   };
 }
 
+/** The most AI requests a definition sends at once: its AI nodes' 동시 처리 수 together. */
+const aiSlots = (definition: WorkflowDefinition) => definition.nodes.reduce((sum, node) => sum + (node.type === 'ai' ? node.config.concurrency : 0), 0);
+
+/**
+ * AI requests already going out from this computer: the runs sending now (any project; a paused run
+ * sends nothing) and the most they send at once, with what this run would add. The run dialog and
+ * `loca runs plan` warn with it; nothing is held back.
+ */
+function aiLoad(db: Db, definition: WorkflowDefinition) {
+  const running = db.select({ definition: s.runs.definition }).from(s.runs).where(eq(s.runs.status, 'running')).all();
+  return { runs: running.length, max: running.reduce((sum, run) => sum + aiSlots(run.definition), 0), added: aiSlots(definition) };
+}
+
 /**
  * How long and how much, from the connections' own recent calls in runs: the median seconds per
- * request, spread over the connection's parallel requests, and the average cost a provider
+ * request, spread over the node's parallel requests (동시 처리 수), and the average cost a provider
  * reported. CLI connections run on a subscription. null where there is no history yet.
  */
 function paceOf(db: Db, estimates: NodeEstimate[]) {
@@ -213,7 +296,7 @@ function paceOf(db: Db, estimates: NodeEstimate[]) {
         .filter((call) => call.finished);
     const own = estimate.choice.model ? recent(estimate.choice.model) : [];
     const calls = own.length >= 3 ? own : recent();
-    const parallel = db.select({ concurrency: s.connections.concurrency }).from(s.connections).where(eq(s.connections.id, estimate.connection.id)).get()?.concurrency ?? 1;
+    const parallel = estimate.concurrency;
     if (!calls.length) seconds = null;
     else if (seconds !== null) {
       const durations = calls.map((call) => (call.finished!.getTime() - call.started.getTime()) / 1000).sort((a, b) => a - b);
@@ -286,7 +369,7 @@ function samplePrompt(db: Db, projectId: string, node: AiNode, languages: { sour
       return estimateTokens(`${system}\n\n${prompt}`);
     }
     const context = buildContext(db, projectId, rows, node.config.context);
-    const lines = rows.map((row, index) => ({ id: String(index + 1), unitId: row.id, groupId: row.groupId, key: row.key, kind: row.kind, speaker: row.speaker, source: row.source, candidate: row.translation ?? undefined }));
+    const lines = rows.map((row, index) => ({ id: promptLineId(index), unitId: row.id, groupId: row.groupId, key: row.key, kind: row.kind, speaker: row.speaker, source: row.source, candidate: row.translation ?? undefined }));
     const { system, prompt } = buildPrompt(node, languages, context, lines, choiceOptions);
     return estimateTokens(`${system}\n\n${prompt}`);
   });

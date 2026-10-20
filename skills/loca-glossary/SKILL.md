@@ -5,11 +5,11 @@ description: Build and maintain the glossary of a loca project — find where te
 
 # loca 용어집 다루기
 
-공통 규칙(연결, 제안, 권한, 표시, 작업 폴더)은 README를 따릅니다. 확정 용어만 번역 문맥에 들어가고, 후보는 들어가지 않습니다.
+공통 규칙(연결, 제안, 권한, 표시, 작업 폴더)은 README를 따릅니다. 확정 용어만 번역 문맥에 들어가고, 후보는 들어가지 않습니다. AI가 만든 용어가 바로 확정될지는 프로젝트 설정 `aiAutoConfirm` 하나가 정합니다(`loca-project`).
 
 ## 읽기
 ```
-loca terms                         # 원문 → 번역어, 상태, 나온 줄(대본에서 쓰인 대사 수), 표시(#), 태그, id. -q, --mark, --tag, --limit, --jsonl
+loca terms                         # 원문 → 번역어, 상태, 나온 줄(대본에서 쓰인 대사 수), 표시(#), 태그, id. -q, --status, --mark, --tag, --unreviewed, --limit, --jsonl
 loca terms --unreviewed            # 확인 안 한 용어(후보 또는 AI 초안): 번역 전에 사람이 볼 목록
 loca terms usage <원문|id>          # 그 용어가 쓰인 대사 (앱 용어 창과 같은 낱말 단위 매칭)
 loca lines --q "Guild" --all --jsonl   # 임의 글자 검색
@@ -28,3 +28,12 @@ loca check terms                   # 확정 용어를 어긴 번역
 3. 이미 있는 용어는 `{"terms":[{"id":"…","target":"새 번역"}]}`처럼 **바꿀 필드만** 넣습니다.
 4. 태그: `loca call tag_items '{"kind":"terms","ids":["…"],"add":["<용어 태그>"],"remove":[]}'`. 용어집에 붙는 태그만 붙습니다(`loca tags`). 새 태그 만들기는 `loca-project`.
 5. 확정 용어가 바뀌면 그 용어가 쓰인 줄(`loca terms usage`)을 `loca-review` 순서로 고칩니다.
+
+## 비어 있는 번역어 채우기
+번역어가 없는 용어(`loca terms --mark emptyTarget`)를 한꺼번에 채우는 일은 용어 입력 워크플로(진입 `input: "terms"`, 기본 "용어 번역")를 `--status 후보 --mark emptyTarget` 범위로 실행해서 합니다. AI 노드(json: `target`, `note`; 문맥 `examples`로 용어가 나온 대사를 함께 보냄) → `용어 표기 저장`(`saveTermEntry`, 사람이 채운 칸은 건드리지 않음) 두 단계입니다. 용어가 아닌 후보는 용어집에서 사람이 버립니다. 만드는 법은 `loca-workflows`.
+```
+loca runs plan 용어 번역 --status 후보 --mark emptyTarget    # 대상 용어 수와 요청 수 (모델은 부르지 않음)
+loca runs plan 용어 번역 --term Guild                        # 특정 용어만
+loca runs start 용어 번역 --status 후보 --mark emptyTarget   # 시작 제안 (앱에서 수락)
+```
+표기를 얻은 후보는 프로젝트 설정 `aiAutoConfirm`에 따라 바로 확정되거나 후보로 남습니다. AI가 채운 것은 `loca terms --unreviewed`로 사람이 확인합니다.

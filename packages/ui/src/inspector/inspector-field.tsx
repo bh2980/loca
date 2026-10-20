@@ -3,20 +3,26 @@ import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react"
 import { cn } from "../lib/utils"
 import { ControlIdContext } from "../primitives/control-id"
 import { Switch } from "../primitives/switch"
+import { HelpTip } from "../primitives/tooltip"
 
 /**
  * One input in a pane, always the same shape in a ~360px column: a small label over the control,
  * then a one-line description or error. `action` sits right of the label (a small button or switch).
+ * Two kinds of explanation, never mixed: `description` (shown) says how to fill it in (a format, what
+ * empty means); `help` (a ? beside the label) says what the setting is and what changing it does.
  * Read-only values use PropertyRow instead.
  */
-export function InspectorField({ label, description, error, action, children, className }: { label: ReactNode; description?: ReactNode; error?: ReactNode; action?: ReactNode; children: ReactNode; className?: string }) {
+export function InspectorField({ label, description, help, error, action, children, className }: { label: ReactNode; description?: ReactNode; help?: ReactNode; error?: ReactNode; action?: ReactNode; children: ReactNode; className?: string }) {
   const id = useId()
   return (
     <div className={cn("min-w-0 space-y-1.5", className)}>
       <div className="flex min-h-5 min-w-0 items-center justify-between gap-2">
-        <label htmlFor={id} className="min-w-0 truncate text-xs text-muted-foreground">
-          {label}
-        </label>
+        <span className="flex min-w-0 items-center gap-1">
+          <label htmlFor={id} className="min-w-0 truncate text-xs text-muted-foreground">
+            {label}
+          </label>
+          {help && <HelpTip>{help}</HelpTip>}
+        </span>
         {action}
       </div>
       <ControlIdContext.Provider value={id}>{children}</ControlIdContext.Provider>
@@ -68,11 +74,12 @@ export function InspectorActionRow({ label, description, action, result, childre
 }
 
 /** A yes/no setting: its label (and a one-line description) left, the switch right. */
-export function InspectorToggle({ label, description, checked, disabled, onChange, className }: { label: ReactNode; description?: ReactNode; checked: boolean; disabled?: boolean; onChange: (value: boolean) => void; className?: string }) {
+/** A switch row; `description` and `help` as in InspectorField. */
+export function InspectorToggle({ label, description, help, checked, disabled, onChange, className }: { label: ReactNode; description?: ReactNode; help?: ReactNode; checked: boolean; disabled?: boolean; onChange: (value: boolean) => void; className?: string }) {
   return (
     <label className={cn("flex min-w-0 items-center justify-between gap-3", className)}>
       <span className="min-w-0">
-        <span className="block text-sm text-foreground">{label}</span>
+        <span className="flex items-center gap-1 text-sm text-foreground">{label}{help && <HelpTip>{help}</HelpTip>}</span>
         {description && <span className="block text-xs text-muted-foreground">{description}</span>}
       </span>
       <Switch checked={checked} disabled={disabled} onCheckedChange={onChange} />

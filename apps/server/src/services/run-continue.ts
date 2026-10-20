@@ -35,7 +35,7 @@ export function switchedRun(db: Db, run: Run, models: RunModels | undefined) {
 /** The lines the run still has to do: queued and in flight, plus the failed ones when they go again. */
 export function remainingLines(db: Db, runId: string, retryFailed: boolean) {
   const states: s.ItemState[] = retryFailed ? ['queued', 'running', 'failed'] : ['queued', 'running'];
-  return [...new Set(db.select({ unitId: s.runItems.unitId }).from(s.runItems).where(and(eq(s.runItems.runId, runId), inArray(s.runItems.state, states))).all().map((row) => row.unitId))];
+  return [...new Set(db.select({ unitId: s.runItems.subjectId }).from(s.runItems).where(and(eq(s.runItems.runId, runId), inArray(s.runItems.state, states))).all().map((row) => row.unitId))];
 }
 
 /**
@@ -47,5 +47,7 @@ export async function continuePreflight(db: Db, run: Run, models: RunModels | un
   const switched = switchedRun(db, run, models);
   if (!switched.ok) return switched;
   const unitIds = remainingLines(db, run.id, retryFailed);
-  return { ok: true as const, lines: unitIds.length, plan: await preflight(db, { id: run.workflowId, projectId: run.projectId, definition: switched.definition }, { unitIds, ignoreStatus: true }) };
+  // The run's items as they are: lines by id regardless of status, or terms by id.
+  const scope = run.subject === 'terms' ? { termIds: unitIds } : { unitIds };
+  return { ok: true as const, lines: unitIds.length, plan: await preflight(db, { id: run.workflowId, projectId: run.projectId, definition: switched.definition }, scope) };
 }

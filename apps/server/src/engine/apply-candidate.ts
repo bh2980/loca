@@ -19,7 +19,7 @@ type Run = typeof s.runs.$inferSelect;
  */
 export function applyRunCandidate(tx: Tx, run: Run, unitId: string, candidateId: string, text: string): { applied: boolean } {
   const current = tx.select({ translation: s.units.translation, statusBy: s.units.statusBy }).from(s.units).where(eq(s.units.id, unitId)).get();
-  if (personOwns(current, text, filtersByStatus(run.definition, run.scope))) return { applied: false };
+  if (personOwns(current, text, filtersByStatus(run.scope))) return { applied: false };
   const changed = current?.translation !== text;
   tx.update(s.units).set({ translation: text, candidateId, statusBy: 'ai', statusRunId: run.id }).where(eq(s.units.id, unitId)).run();
   if (changed) applyIssueTags(tx, run.projectId, unitId, { clear: 'all' });

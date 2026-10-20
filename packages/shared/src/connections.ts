@@ -72,12 +72,10 @@ export const connectionInputSchema = z.object({
   /** HTTP tools: how the stored key is sent, e.g. "Authorization: Bearer {key}" or "X-API-Key: {key}". */
   headerTemplate: z.string().trim().optional(),
   /** Model calls this account takes at once, shared by every run. */
-  concurrency: z.number().int().min(1).max(32).optional(),
   /** Filled in when this connection is picked somewhere (and for templates and imported workflows). */
   defaultModel: z.string().trim().nullable().optional(),
   defaultEffort: z.string().nullable().optional(),
-  /** How every call through this connection is made, wherever it is picked. */
-  timeoutSeconds: z.number().int().min(10).max(3600).optional(),
+  /** How every call through this connection is made, wherever it is picked. (Time limits belong to what calls: an AI node's own, CALL_TIMEOUT_MS for the rest.) */
   maxAttempts: z.number().int().min(1).max(5).optional(),
   /** Tokens a call may take in (the window) and give out; null = the model's own. Output is also each call's cap. */
   inputTokens: z.number().int().min(1_000).max(10_000_000).nullable().optional(),
@@ -90,4 +88,11 @@ export const connectionInputSchema = z.object({
 export type ConnectionInput = z.infer<typeof connectionInputSchema>;
 
 /** Defaults of a new connection's call settings. */
-export const CONNECTION_CALL_DEFAULTS = { timeoutSeconds: 300, maxAttempts: 2 } as const;
+export const CONNECTION_CALL_DEFAULTS = { maxAttempts: 2 } as const;
+
+/**
+ * Time limits of calls that have no settings of their own (a workflow node and the editor's AI set
+ * theirs): how long a call may take depends on the work, not on the connection. A chat turn has no
+ * overall limit: it stops when the model goes quiet for `chatIdle` (or on 중단).
+ */
+export const CALL_TIMEOUT_MS = { connectionTest: 120_000, chatIdle: 120_000 } as const;

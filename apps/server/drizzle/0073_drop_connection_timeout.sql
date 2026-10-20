@@ -1,0 +1,1 @@
+ALTER TABLE `connections` DROP COLUMN `timeout_seconds`;

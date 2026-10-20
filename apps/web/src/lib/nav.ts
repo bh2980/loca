@@ -29,8 +29,8 @@ export const NAV_GROUPS: NavGroup[] = [
   ] },
   { id: 'knowledge', label: '자료', items: [
     item('people', '인물·관계', '/knowledge', UsersRound, 'knowledge', '자료', { search: { tab: 'people' } }),
-    item('documents', '문서', '/knowledge', FileText, 'knowledge', '자료', { search: { tab: 'documents' } }),
     item('events', '사건', '/knowledge', Milestone, 'knowledge', '자료', { search: { tab: 'events' } }),
+    item('documents', '노트', '/knowledge', FileText, 'knowledge', '자료', { search: { tab: 'documents' } }),
   ] },
   { id: 'automation', label: '자동화', items: [
     item('workflows', '워크플로', '/workflows', Workflow, 'automation', '자동화'),

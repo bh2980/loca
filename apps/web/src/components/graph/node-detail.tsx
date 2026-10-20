@@ -9,6 +9,7 @@ import { KIND_LABEL } from './shapes';
 import { cn } from '@/lib/utils';
 import { TokenText } from '@/components/editor/source-text';
 import { tokenPatternOf } from '@/lib/line-context';
+import { personStyle, usePersonColors } from '@/lib/person-colors';
 
 /** Scene-graph node. Scene links are derived from the dialogue graph, which the panel says plainly. */
 export function SceneNodeDetail({ projectId, groupId, onClose }: { projectId: string; groupId: string; onClose: () => void }) {
@@ -106,6 +107,7 @@ export function FlowPane({ projectId, nodeIds, title, way, extra, marked, editin
 
   // A table: who | what, one row per line; a choice and a condition are rows of their own. The
   // speaker column fits the longest name until someone drags its edge (then that width is kept).
+  const colorOf = usePersonColors(projectId);
   const speakers = nodes.flatMap((node) => node.units.map((unit) => unit.speaker ?? '지문·문구'));
   const fitted = Math.min(180, Math.max(56, ...speakers.map((name) => name.length * 7 + 8)));
   const width = speakerWidth ?? fitted;
@@ -144,7 +146,7 @@ export function FlowPane({ projectId, nodeIds, title, way, extra, marked, editin
       const here = node.id === marked;
       return row(
         unit.id,
-        unit.speaker ?? '지문·문구',
+        unit.speaker ? <span style={personStyle(colorOf(unit.speaker))}>{unit.speaker}</span> : '지문·문구',
         <>
           <TokenText text={unit.source} source={unit.source} pattern={tokens} />
           {unit.translation && <TokenText text={unit.translation} source={unit.source} pattern={tokens} className="text-muted-foreground" />}

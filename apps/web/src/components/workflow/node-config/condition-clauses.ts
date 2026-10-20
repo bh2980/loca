@@ -2,7 +2,7 @@
  * A condition node's JSON Logic as rows people can read and edit: one clause per row, joined by
  * "all" or "any". Expressions these rows cannot say stay JSON (parseCondition returns null).
  */
-import type { JsonField, WorkflowNode } from '@tw/shared';
+import { nodeOutputFields, type ItemErrorKind, type JsonField, type WorkflowNode } from '@tw/shared';
 
 export type FieldOperator = '>=' | '<=' | '==' | '!=' | 'filled';
 /** `not` turns a line property around: 상태가 … 아님, 태그 … 없음, 청자 없음. */
@@ -13,6 +13,14 @@ export type Clause =
   | { kind: 'mark'; mark: string; not?: boolean }
   | { kind: 'listener'; not?: boolean }
   | { kind: 'candidate'; not?: boolean }
+  /** A term's status (terms input). */
+  | { kind: 'termStatus'; status: string; not?: boolean }
+  /** Whether a term has a Korean form (terms input). */
+  | { kind: 'hasTarget'; not?: boolean }
+  /** How many script lines use a term (terms input). */
+  | { kind: 'uses'; op: '>=' | '<='; value: number }
+  /** Why the line came out of an "error" exit (ConditionData.error.kind). */
+  | { kind: 'error'; errorKind: ItemErrorKind; not?: boolean }
   | { kind: 'visits'; nodeId: string; limit: number }
   | { kind: 'field'; nodeId: string; field: string; op: FieldOperator; value: string | number | boolean };
 export type Join = 'and' | 'or';
@@ -36,12 +44,13 @@ function parseClause(rule: unknown): Clause | null {
   if (name === '!') {
     // Only a line property can be turned around ({"!": …}); results and visits have their own operators.
     const inner = parseClause(left);
-    return inner && inner.kind !== 'field' && inner.kind !== 'visits' && !inner.not ? { ...inner, not: true } : null;
+    return inner && inner.kind !== 'field' && inner.kind !== 'visits' && inner.kind !== 'uses' && !inner.not ? { ...inner, not: true } : null;
   }
   if (name === '!!') {
     const target = varOf(left);
     if (target === 'candidate') return { kind: 'candidate' };
     if (target === 'unit.listener') return { kind: 'listener' };
+    if (target === 'term.hasTarget') return { kind: 'hasTarget' };
     const output = target?.match(/^outputs\.([^.]+)\.(.+)$/);
     return output ? { kind: 'field', nodeId: output[1]!, field: output[2]!, op: 'filled', value: '' } : null;
   }
@@ -61,6 +70,9 @@ function parseClause(rule: unknown): Clause | null {
   if (!COMPARE.has(name)) return null;
   if (name === '==' && target === 'unit.statusId' && typeof right === 'string') return { kind: 'status', statusId: right };
   if (name === '==' && target === 'unit.kind' && typeof right === 'string') return { kind: 'lineKind', value: right };
+  if (name === '==' && target === 'error.kind' && typeof right === 'string') return { kind: 'error', errorKind: right as ItemErrorKind };
+  if (name === '==' && target === 'term.status' && typeof right === 'string') return { kind: 'termStatus', status: right };
+  if ((name === '>=' || name === '<=') && target === 'term.lines' && typeof right === 'number') return { kind: 'uses', op: name, value: right };
   const output = target.match(/^outputs\.([^.]+)\.(.+)$/);
   if (output && (typeof right === 'string' || typeof right === 'number' || typeof right === 'boolean')) {
     return { kind: 'field', nodeId: output[1]!, field: output[2]!, op: name as FieldOperator, value: right };
@@ -90,6 +102,8 @@ function baseRule(clause: Clause): unknown {
       return { '==': [{ var: 'unit.statusId' }, clause.statusId] };
     case 'lineKind':
       return { '==': [{ var: 'unit.kind' }, clause.value] };
+    case 'error':
+      return { '==': [{ var: 'error.kind' }, clause.errorKind] };
     case 'tag':
       return { in: [clause.tagId, { var: 'unit.tagIds' }] };
     case 'mark':
@@ -104,6 +118,12 @@ function baseRule(clause: Clause): unknown {
       return { '!!': [{ var: 'unit.listener' }] };
     case 'candidate':
       return { '!!': [{ var: 'candidate' }] };
+    case 'termStatus':
+      return { '==': [{ var: 'term.status' }, clause.status] };
+    case 'hasTarget':
+      return { '!!': [{ var: 'term.hasTarget' }] };
+    case 'uses':
+      return { [clause.op]: [{ var: 'term.lines' }, clause.value] };
   }
 }
 
@@ -114,15 +134,7 @@ export function conditionExpression({ join, clauses }: Condition): unknown {
   return { [join]: clauses.map(clauseRule) };
 }
 
-/** Node outputs a field row can compare: a verdict's `passed`, a choice's value and confidence, a text, declared JSON or script fields. */
-export function comparableFields(node: WorkflowNode, hasVerdict: boolean): JsonField[] {
-  const field = (name: string, type: JsonField['type']): JsonField => ({ name, type, description: '' });
-  const fields: JsonField[] = [];
-  if (hasVerdict) fields.push(field('passed', 'boolean'));
-  if (node.type === 'ai' && node.config.output === 'choice') fields.push(field('value', 'string'), field('confidence', 'number'));
-  if (node.type === 'ai' && node.config.output === 'text') fields.push(field('text', 'string'));
-  const declared = node.type === 'ai' && node.config.output === 'json' ? node.config.fields : node.type === 'function' && node.config.fn === 'script' ? ((node.config.params as { fields?: JsonField[] }).fields ?? []) : [];
-  // Only top-level scalars compare in a row; lists and evidence go through JSON.
-  fields.push(...declared.filter((item) => item.name && (item.type === 'string' || item.type === 'number' || item.type === 'boolean')));
-  return fields;
+/** Node outputs a field row can compare: the top-level text, number and true/false fields the node declares (nodeOutputFields). Lists and evidence go through JSON. */
+export function comparableFields(node: WorkflowNode): JsonField[] {
+  return (nodeOutputFields(node) ?? []).filter((item) => item.name && (item.type === 'string' || item.type === 'number' || item.type === 'boolean'));
 }

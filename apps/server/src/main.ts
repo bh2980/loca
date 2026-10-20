@@ -10,7 +10,6 @@ import { openDatabase } from './db/index.ts';
 import * as s from './db/schema.ts';
 import { Runner } from './engine/runner.ts';
 import { events } from './events.ts';
-import { TermService } from './services/terms.ts';
 import { closeStaleCalls } from './services/ai-calls.ts';
 import { closeInterruptedProposals } from './services/proposals.ts';
 import { computeLayouts, projectsMissingSections, projectsWithOldLayouts, projectsWithoutLayouts } from './services/layout.ts';
@@ -55,7 +54,7 @@ for (const layout of oldLayouts) void computeLayouts(db, layout.projectId, { dir
 for (const projectId of projectsWithoutLayouts(db)) if (!outdated.has(projectId)) void computeLayouts(db, projectId);
 for (const projectId of projectsMissingSections(db)) if (!outdated.has(projectId)) void computeLayouts(db, projectId, { sectionsOnly: true });
 
-const app = createApp({ db, secrets, runner, terms: new TermService(db, secrets) });
+const app = createApp({ db, secrets, runner });
 if (existsSync(config.webDist)) {
   // The built app is served as it is: one built before the latest pull shows yesterday's screens.
   const built = statSync(path.join(config.webDist, 'index.html'), { throwIfNoEntry: false })?.mtimeMs ?? 0;

@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
-import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import { AGE_BANDS, CHARACTER_ROLES, GENDERS, KNOWLEDGE_TAG_KINDS, TAG_ROLES, type TagRole, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, PERMISSION_MODES, type AiConfirm, type CharacterStyle, type EditorAi, type ExclusionRules, type ModelLimits, LINE_TRANSLATE, type LineMark, type MarkColors, type ModelChoice, type ContextItem, type FormatRules, type NodeType, type RelationshipChange, type WorkflowDefinition } from '@tw/shared';
+import { customType, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { AGE_BANDS, CHARACTER_ROLES, GENDERS, KNOWLEDGE_TAG_KINDS, TAG_ROLES, type TagRole, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, EVENT_LINK_KINDS, GRAPH_ORIGINS, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, PERMISSION_MODES, type CharacterStyle, type EditorAi, type ExclusionRules, type ModelLimits, LINE_TRANSLATE, type AutoMark, type MarkColors, type ModelChoice, type ContextItem, type FormatRules, type ItemErrorKind, type NodeType, type RelationshipChange, type WorkflowDefinition, workflowDefinitionSchema, WORKFLOW_SUBJECT_IDS, type WorkflowSubject } from '@tw/shared';
 import type { Usage } from '@tw/ai';
 
 const id = () => text('id').primaryKey().$defaultFn(() => crypto.randomUUID());
@@ -8,6 +8,20 @@ const createdAt = () => integer('created_at', { mode: 'timestamp_ms' }).notNull(
 const updatedAt = () =>
   integer('updated_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()).$onUpdateFn(() => new Date());
 const json = <T>(name: string) => text(name, { mode: 'json' }).$type<T>();
+/**
+ * A workflow definition, read with the schema's defaults filled in (a setting added later, such as an
+ * AI node's 동시 처리 수, reads as its default in a definition saved before it). One the schema no
+ * longer accepts (an old built-in, see workflow-migrations) is read as stored.
+ */
+const definitionJson = customType<{ data: WorkflowDefinition; driverData: string }>({
+  dataType: () => 'text',
+  toDriver: (value) => JSON.stringify(value),
+  fromDriver: (value) => {
+    const raw = JSON.parse(value);
+    const parsed = workflowDefinitionSchema.safeParse(raw);
+    return parsed.success ? parsed.data : raw;
+  },
+});
 const projectId = () => text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' });
 /**
  * Shared by every knowledge table. AI drafts land as candidates and are not used as context until
@@ -33,8 +47,8 @@ export const projects = sqliteTable('projects', {
   /** Which agent tools this project's chat (and the CLI) may use. */
   agentSettings: json<AgentSettings>('agent_settings').notNull().default(sql`'{"disabledTools":[]}'`),
   formatRules: json<FormatRules>('format_rules').notNull().default(sql`'{"presets":["brace","printf","angleTag"],"custom":[]}'`),
-  /** What becomes of AI results per knowledge kind (AI › 사용 방식). Absent kinds: auto. */
-  aiConfirm: json<Partial<AiConfirm>>('ai_confirm').notNull().default(sql`'{}'`),
+  /** 설정 › 프로젝트 › AI 문맥: AI results that are knowledge or terms are confirmed right away (on) or candidates (off); see aiStatus. */
+  aiAutoConfirm: integer('ai_auto_confirm', { mode: 'boolean' }).notNull().default(true),
   /** 번역 제외: which sources are not for translation (exclusionRulesSchema; {} = the defaults). */
   exclusionRules: json<Partial<ExclusionRules>>('exclusion_rules').notNull().default(sql`'{}'`),
   /** The editor's AI continuation (off by default; see editorAiSchema). */
@@ -190,6 +204,8 @@ export const graphNodes = sqliteTable(
     groupId: text('group_id'),
     unitIds: json<string[]>('unit_ids').notNull(),
     meta: json<Record<string, unknown>>('meta'),
+    /** Who made it: the imported file, a person in the app, or the AI (a proposal accepted). */
+    origin: text('origin', { enum: GRAPH_ORIGINS }).notNull().default('import'),
   },
   (t) => [uniqueIndex('graph_nodes_key').on(t.projectId, t.key), index('graph_nodes_group').on(t.groupId)],
 );
@@ -203,6 +219,8 @@ export const graphEdges = sqliteTable(
     toId: text('to_id').notNull().references(() => graphNodes.id, { onDelete: 'cascade' }),
     kind: text('kind'),
     label: text('label'),
+    /** As graph_nodes.origin: a line drawn in the app says so in its pane. */
+    origin: text('origin', { enum: GRAPH_ORIGINS }).notNull().default('import'),
   },
   (t) => [index('graph_edges_from').on(t.fromId), index('graph_edges_to').on(t.toId)],
 );
@@ -380,6 +398,8 @@ export const characters = sqliteTable('characters', {
   role: text('role', { enum: CHARACTER_ROLES }).notNull().default('unknown'),
   /** The player character: may be addressed even if it never speaks. */
   player: integer('player', { mode: 'boolean' }).notNull().default(false),
+  /** The color a person gave the character (a palette hex, as tags), shown wherever its name is; '' = none. */
+  color: text('color').notNull().default(''),
   ...knowledge(),
   updatedAt: updatedAt(),
 });
@@ -411,6 +431,25 @@ export const storyEvents = sqliteTable('story_events', {
 });
 
 /**
+ * A person's (or the AI's) correction to the 사건 흐름's lines, which are otherwise derived from the
+ * dialogue graph: "added" draws a line the graph does not show, "hidden" drops one it does (and keeps
+ * it dropped when the flow is computed again). One row per ordered pair.
+ */
+export const eventLinks = sqliteTable(
+  'event_links',
+  {
+    id: id(),
+    projectId: projectId(),
+    fromId: text('from_id').notNull().references(() => storyEvents.id, { onDelete: 'cascade' }),
+    toId: text('to_id').notNull().references(() => storyEvents.id, { onDelete: 'cascade' }),
+    kind: text('kind', { enum: EVENT_LINK_KINDS }).notNull(),
+    origin: text('origin', { enum: KNOWLEDGE_ORIGINS }).notNull().default('human'),
+    updatedAt: updatedAt(),
+  },
+  (table) => [uniqueIndex('event_links_pair').on(table.fromId, table.toId)],
+);
+
+/**
  * A Korean speech rule for one speaker → listener direction. Several rules for the same pair are
  * intervals: each applies from its start line (null = from the beginning) until the next one.
  */
@@ -432,25 +471,6 @@ export const speechRules = sqliteTable(
   (t) => [index('speech_rules_pair').on(t.projectId, t.fromName, t.toName)],
 );
 
-/** "빈 번역 AI로 채우기" jobs on the glossary: kept so 실행 기록 lists them beside runs and analyses. */
-export const termJobs = sqliteTable(
-  'term_jobs',
-  {
-    id: id(),
-    projectId: projectId(),
-    connectionId: text('connection_id'),
-    model: text('model'),
-    effort: text('effort'),
-    status: text('status', { enum: ['running', 'completed', 'failed', 'cancelled'] }).notNull(),
-    done: integer('done').notNull().default(0),
-    total: integer('total').notNull(),
-    usage: json<{ inputTokens: number; outputTokens: number }>('usage'),
-    error: text('error'),
-    createdAt: createdAt(),
-    finishedAt: integer('finished_at', { mode: 'timestamp_ms' }),
-  },
-  (t) => [index('term_jobs_project').on(t.projectId, t.createdAt)],
-);
 
 /** App-wide: connections are shared by every project. Secrets live in the OS keyring. */
 export const connections = sqliteTable('connections', {
@@ -461,13 +481,10 @@ export const connections = sqliteTable('connections', {
   executable: text('executable'),
   headerTemplate: text('header_template'),
   createdAt: createdAt(),
-  /** Model calls this account takes at once, shared by every run. */
-  concurrency: integer('concurrency').notNull().default(2),
   /** Filled in when the connection is picked somewhere; templates and imported workflows use it. */
   defaultModel: text('default_model'),
   defaultEffort: text('default_effort'),
   /** How every call through this connection is made, wherever it is picked. */
-  timeoutSeconds: integer('timeout_seconds').notNull().default(300),
   maxAttempts: integer('max_attempts').notNull().default(2),
   /** Tokens a call may take in (the window) and give out; null = the model's own (from its model list, modelLimits). Output is also sent as each call's cap. */
   inputTokens: integer('input_tokens'),
@@ -484,7 +501,7 @@ export const workflows = sqliteTable('workflows', {
   name: text('name').notNull(),
   description: text('description').notNull().default(''),
   version: integer('version').notNull().default(1),
-  definition: json<WorkflowDefinition>('definition').notNull(),
+  definition: definitionJson('definition').notNull(),
   updatedAt: updatedAt(),
 });
 
@@ -494,12 +511,12 @@ export interface RunScope {
   unitIds?: string[];
   /** Lines carrying every one of these tags. */
   tagIds?: string[];
-  /** Automatic marks (services/line-marks.ts): lines must have every one of them. */
-  marks?: LineMark[];
-  /** Specific status IDs to run on (overriding or supplementing entry node statusIds). */
+  /** Automatic marks the items must all have: line marks (services/line-marks.ts) or term marks. */
+  marks?: AutoMark[];
+  /** Statuses the items must be in: a lines workflow's status ids, a terms workflow's candidate / confirmed / rejected. None = any. */
   statusIds?: string[];
-  /** Run the picked lines even if their status is not one the entry node accepts. */
-  ignoreStatus?: boolean;
+  /** A run of a terms workflow: these terms (instead of the entry node's term statuses and marks). */
+  termIds?: string[];
 }
 /** One connection + model a call can go to, frozen with the connection's details. */
 export interface RouteSnapshot {
@@ -522,7 +539,6 @@ export interface AiSnapshot {
   /** Unset: the model's own limit. */
   /** The connection's 출력 토큰, sent as each call's cap; unset = the model's own limit. */
   maxOutputTokens?: number;
-  timeoutSeconds: number;
   maxAttempts: number;
   routes: RouteSnapshot[];
 }
@@ -535,9 +551,11 @@ export const runs = sqliteTable(
     workflowId: text('workflow_id').references(() => workflows.id, { onDelete: 'set null' }),
     workflowName: text('workflow_name').notNull(),
     workflowVersion: integer('workflow_version').notNull(),
-    definition: json<WorkflowDefinition>('definition').notNull(),
+    definition: definitionJson('definition').notNull(),
     /** Every model the run's AI nodes picked, resolved, keyed by choiceKey. */
     models: json<Record<string, AiSnapshot>>('models').notNull().default(sql`'{}'`),
+    /** What the run's items are (WORKFLOW_SUBJECTS): lines or terms. */
+    subject: text('subject', { enum: WORKFLOW_SUBJECT_IDS as [WorkflowSubject, ...WorkflowSubject[]] }).notNull().default('lines'),
     scope: json<RunScope>('scope').notNull(),
     status: text('status', { enum: ['running', 'paused', 'cancelled', 'completed'] }).notNull(),
     total: integer('total').notNull(),
@@ -580,8 +598,10 @@ export interface ItemData {
   outputs?: Record<string, Record<string, unknown>>;
   /** Nodes and exits taken, for display. */
   path: { nodeId: string; port: string; at: number }[];
-  /** Times the line went back to a node's queue because a call left it out or failed transiently, by node id. */
+  /** Times the line went back to a node's queue because a call failed transiently (rate limit, network), by node id. */
   retries?: Record<string, number>;
+  /** The last failure that sent the line out through an "error" exit; cleared when a node handles it (ConditionData.error). */
+  error?: { kind: ItemErrorKind; message: string; nodeId: string };
 }
 
 export const runItems = sqliteTable(
@@ -589,7 +609,8 @@ export const runItems = sqliteTable(
   {
     id: id(),
     runId: text('run_id').notNull().references(() => runs.id, { onDelete: 'cascade' }),
-    unitId: text('unit_id').notNull().references(() => units.id, { onDelete: 'cascade' }),
+    /** The item: a line (units.id) or a term (terms.id), as the run's subject says. No foreign key: deleting one cancels its open items (see cancelSubjectItems). */
+    subjectId: text('subject_id').notNull(),
     nodeId: text('node_id').notNull(),
     state: text('state', { enum: ['queued', 'running', 'done', 'failed', 'cancelled'] }).notNull(),
     visits: json<Record<string, number>>('visits').notNull(),
@@ -599,7 +620,7 @@ export const runItems = sqliteTable(
     plan: integer('plan'),
     updatedAt: updatedAt(),
   },
-  (t) => [index('run_items_run').on(t.runId, t.state, t.nodeId), index('run_items_unit').on(t.unitId)],
+  (t) => [index('run_items_run').on(t.runId, t.state, t.nodeId), index('run_items_subject').on(t.subjectId)],
 );
 
 export const runSteps = sqliteTable(
@@ -608,7 +629,8 @@ export const runSteps = sqliteTable(
     id: id(),
     runId: text('run_id').notNull().references(() => runs.id, { onDelete: 'cascade' }),
     nodeId: text('node_id').notNull(),
-    unitIds: json<string[]>('unit_ids').notNull(),
+    /** The items the call was for (lines or terms, as the run's subject says). */
+    subjectIds: json<string[]>('subject_ids').notNull(),
     ok: integer('ok', { mode: 'boolean' }).notNull(),
     /** The connection the call went out through: a node can share its work over several, and a fallback can take over. */
     connectionId: text('connection_id'),
@@ -628,8 +650,8 @@ export const runSteps = sqliteTable(
     reasoningTokens: integer('reasoning_tokens'),
     /** USD the connection reported; never estimated. */
     costUsd: real('cost_usd'),
-    /** Lines a per-line answer covered (non-empty); the request is `unitIds`. */
-    returnedLines: integer('returned_lines'),
+    /** Items a per-item answer covered (non-empty); the request is `subjectIds`. */
+    returnedItems: integer('returned_items'),
     /** 0 for a batch's first request, n for the n-th request for the lines it left out. */
     round: integer('round').notNull().default(0),
     startedAt: integer('started_at', { mode: 'timestamp_ms' }).notNull(),
@@ -667,10 +689,7 @@ export const proposals = sqliteTable(
     sessionId: text('session_id'),
     /** Model that proposed the change; null for person-originated proposals. */
     model: text('model'),
-    source: text('source', { enum: ['cli', 'api', 'run'] }).notNull(),
-    /** A workflow run's apply node filed it (source 'run'): the run and the node, so the list can group by run. */
-    runId: text('run_id').references(() => runs.id, { onDelete: 'set null' }),
-    nodeId: text('node_id'),
+    source: text('source', { enum: ['cli', 'api'] }).notNull(),
     tool: text('tool').notNull(),
     input: json<Record<string, unknown>>('input').notNull(),
     /** Inverse agent-tool calls, or why this change cannot be undone. */

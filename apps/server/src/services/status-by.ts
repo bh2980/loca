@@ -1,5 +1,5 @@
 import { and, eq } from 'drizzle-orm';
-import { aiConfirmSchema, type AiConfirm, type KnowledgeTagKind } from '@tw/shared';
+import type { KnowledgeTagKind } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { clearReview } from './knowledge-tags.ts';
@@ -30,6 +30,6 @@ export function byPerson(db: Pick<Db, 'select' | 'insert' | 'delete'>, table: De
   return { statusBy: 'human' as const, ...(rewrote ? { origin: 'human' as const } : {}) };
 }
 
-/** The project's AI › 사용 방식, every kind filled (absent kinds: auto). Read when AI results are saved. */
-export const aiConfirmOf = (db: Db, projectId: string): AiConfirm =>
-  aiConfirmSchema.parse(db.select({ aiConfirm: s.projects.aiConfirm }).from(s.projects).where(eq(s.projects.id, projectId)).get()?.aiConfirm ?? {});
+/** The project's AI 문맥 switch (설정 › 프로젝트): whether AI results that are knowledge or terms are confirmed right away. Read when they are saved. */
+export const aiAutoConfirmOf = (db: Db, projectId: string): boolean =>
+  db.select({ on: s.projects.aiAutoConfirm }).from(s.projects).where(eq(s.projects.id, projectId)).get()?.on ?? true;

@@ -1,7 +1,7 @@
 /** One row of the line list, with the hints and links that open under the picked line. */
-import { useMemo, type ComponentProps, type ReactNode, type RefObject } from 'react';
+import { useMemo, useState, type ComponentProps, type ReactNode, type RefObject } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, CircleAlert } from 'lucide-react';
+import { Check, CircleAlert, Ellipsis, PanelRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { AUTO_MARKS, compileFormatRules, isUnknownListener, lineExclusion, listenerLabel, needsListener, PALETTE, SPECIAL_LISTENERS, TAG_SCOPES, type FormatRules, type LineMark, type ListenerOrigin, mentions, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
 import { MarkChip } from '@/components/status';
@@ -16,30 +16,37 @@ import {
   AiMark,
   StatusIcon,
   TagChip,
-  TagListEditor,
+  TagSubMenu,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
   SpeakerIdentity,
   TranslationRow,
   SceneSectionHeader,
-  ContextMenu,
-  ContextMenuTrigger,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuCheckboxItem,
-  ContextMenuSeparator,
-  ContextMenuSub,
-  ContextMenuSubTrigger,
-  ContextMenuSubContent,
+  DropdownMenuCheckboxItem,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
   type StatusLike,
 } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
-import { SOURCE_GROUP_LABEL } from '@/lib/labels';
+import { SOURCE_GROUP_LABEL, SOURCE_UNIT_LABEL } from '@/lib/labels';
 import { cn } from '@/lib/utils';
 import { SpeakerCard } from '@/components/script/speaker-card';
 import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
 import { useDraft } from '@/lib/drafts';
 import { useSaveLine } from '@/lib/line-save';
 import type { InferResponseType } from '@/lib/api';
+import { usePersonColors } from '@/lib/person-colors';
+import { LineMenuItems } from '@/components/script/line-menu';
 
 /** Who the line is addressed to. Unsure AI guesses count as unknown. */
 function listenerText(line: { kind: string; speaker: string | null; source: string; listener: string | null; listenerOrigin: ListenerOrigin | null; listenerConfidence: number | null }, rules: FormatRules | undefined) {
@@ -176,8 +183,8 @@ export function LineRow({
   onSelect,
   onOpenDetail,
   onShowInGraph,
-  onInsertAfter,
-  onDelete,
+  onAddLine,
+  onEditSource,
   onOpenScene,
   onArrivedEnd,
   onNoting,
@@ -209,8 +216,10 @@ export function LineRow({
   onSelect: () => void;
   onOpenDetail?: () => void;
   onShowInGraph?: () => void;
-  onInsertAfter?: () => void;
-  onDelete?: () => void;
+  /** Adds a line at the end of this line's scene (its source editor opens). */
+  onAddLine?: () => void;
+  /** Opens this line's source (text, speaker, key) in the editor. */
+  onEditSource?: () => void;
   onOpenScene?: (groupId: string, lineId: string) => void;
   onArrivedEnd: () => void;
   onNoting: (noting: boolean) => void;
@@ -234,7 +243,7 @@ export function LineRow({
 
   const queryClient = useQueryClient();
   const patch = useMutation({
-    mutationFn: (json: { tagIds?: string[] }) => unwrap(client.units[':unitId'].$patch({ param: { unitId: line.id }, json })),
+    mutationFn: (json: { tagIds?: string[]; translate?: 'include' | 'exclude' }) => unwrap(client.units[':unitId'].$patch({ param: { unitId: line.id }, json })),
     onMutate: async (json) => ({ undo: await optimistic(queryClient, unitChanges([line.id], patchedLine(json))) }),
     onError: (error, _json, context) => {
       context?.undo();
@@ -266,23 +275,6 @@ export function LineRow({
     }
   };
 
-  const editorMarks = (
-    <div className="mt-1 flex flex-wrap items-center gap-1" role="group" aria-label="이 줄의 태그" onClick={(event) => event.stopPropagation()}>
-      {marks.map((mark) => (
-        <Button key={mark} variant="ghost" size="inline" className="h-auto p-0 hover:bg-transparent" title={`#${AUTO_MARKS[mark].name} 줄만 보기`} onClick={() => onFilterMark(mark)}>
-          <MarkChip mark={mark} projectId={projectId} />
-        </Button>
-      ))}
-      <TagListEditor
-        tags={orderedTags}
-        allTags={tags}
-        onToggle={handleToggleTag}
-        onCreate={handleCreateTag}
-        heading="태그"
-      />
-    </div>
-  );
-
   const tagRow = marks.length || orderedTags.length ? (
     <div className="mt-1 flex flex-wrap gap-1" role="group" aria-label="이 줄의 태그" onClick={(event) => event.stopPropagation()}>
       {marks.map((mark) => (
@@ -313,11 +305,13 @@ export function LineRow({
     </li>
   );
   const checkbox = <Checkbox aria-label={`${line.key} 선택`} checked={isPicked} onClick={(event) => event.stopPropagation()} onCheckedChange={(checked) => onPick(Boolean(checked))} />;
+  const colorOf = usePersonColors(projectId);
+  const addLineLabel = `이 ${SOURCE_GROUP_LABEL[line.groupKind]}에 ${SOURCE_UNIT_LABEL[line.groupKind]} 추가`;
   // Lines without a speaker (UI strings, documents) show their key in its place, level with the status opposite.
   const speaker = line.kind === 'ui' || line.kind === 'document' ? (
     <span className="truncate font-mono text-xs text-muted-foreground" title={line.key}>{line.key}</span>
   ) : line.speaker ? (
-    <SpeakerCard projectId={projectId} name={line.speaker}><SpeakerIdentity speaker={line.speaker} listener={said ? (who.unknown ? null : who.text) : undefined} listenerIsPerson={!line.listener || !Object.hasOwn(SPECIAL_LISTENERS, line.listener) && !who.unknown} /></SpeakerCard>
+    <SpeakerCard projectId={projectId} name={line.speaker}><SpeakerIdentity speaker={line.speaker} color={colorOf(line.speaker)} listener={said ? (who.unknown ? null : who.text) : undefined} listenerIsPerson={!line.listener || !Object.hasOwn(SPECIAL_LISTENERS, line.listener) && !who.unknown} /></SpeakerCard>
   ) : line.kind === 'dialogue' ? <SpeakerIdentity speaker={null} /> : null;
   const identity = (
     <div className="flex min-w-0 items-center gap-1.5">
@@ -331,11 +325,48 @@ export function LineRow({
       <AiMark by="ai" />
     </Button>
   ) : null;
-  // The details pane opens only from here or the row's menu; picking a line never opens it.
-  const detailButton = selected && onOpenDetail ? (
-    <Button variant="ghost" size="inline" className="text-muted-foreground" onClick={(event) => (event.stopPropagation(), onOpenDetail())}>
-      상세
-    </Button>
+  // One menu for the line, the same from ⋯, from a right-click on the row (opened at the pointer) and on its graph node.
+  const menuItems = (
+    <LineMenuItems
+      projectId={projectId}
+      line={{ id: line.id, key: line.key, source: line.source, translation: line.translation, statusId: line.statusId, tagIds: line.tagIds, translate: line.translate, groupKind: line.groupKind }}
+      onEdit={selected ? undefined : onSelect}
+      onOpenDetail={onOpenDetail}
+      onShowInGraph={onShowInGraph}
+      onEditSource={onEditSource}
+      onAddLine={onAddLine}
+    />
+  );
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
+  // The line's actions sit at the right end of the header of the picked row: the details pane, and everything else in ⋯.
+  const actions = selected ? (
+    <span className="flex items-center gap-0.5" onClick={(event) => event.stopPropagation()}>
+      {onOpenDetail && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button type="button" variant="ghost" size="icon-xs" className="text-muted-foreground" aria-label="상세 열기" onClick={onOpenDetail}>
+              <PanelRight />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>상세 열기</TooltipContent>
+        </Tooltip>
+      )}
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <Button type="button" variant="ghost" size="icon-xs" className="text-muted-foreground" aria-label="줄 동작">
+                <Ellipsis />
+              </Button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>줄 동작</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent align="end" className="w-52" onClick={(event) => event.stopPropagation()}>
+          {menuItems}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </span>
   ) : null;
   const source = selected ? (
     <>
@@ -346,7 +377,7 @@ export function LineRow({
   ) : <MarkedSourceText projectId={projectId} text={line.source} pattern={tokenPattern} className={cn(sourceClass)} />;
   const translation = selected ? (
     <>
-      <TranslationEditor key={`editor-${line.id}`} projectId={projectId} unit={line} statuses={statusList} focusKey={focusTick} marks={editorMarks} onEscape={onEscape} onDone={onDone} />
+      <TranslationEditor key={`editor-${line.id}`} projectId={projectId} unit={line} statuses={statusList} focusKey={focusTick} marks={tagRow} onEscape={onEscape} onDone={onDone} />
       {review && !!line.lastRun?.issues.length && <ReviewIssue issue={line.lastRun.issues[0]} />}
     </>
   ) : (
@@ -362,7 +393,7 @@ export function LineRow({
       checkbox={checkbox}
       speaker={identity}
       status={statusContent}
-      meta={aiMeta || detailButton ? <>{aiMeta}{detailButton}</> : null}
+      meta={aiMeta || actions ? <>{aiMeta}{actions}</> : null}
       source={source}
       translation={translation}
       selected={selected}
@@ -383,105 +414,25 @@ export function LineRow({
         style={arrived ? { animation: 'line-arrived 2s ease-out' } : undefined}
         onAnimationEnd={onArrivedEnd}
       >
-        <ContextMenu>
-          <ContextMenuTrigger asChild>
-            <div className="w-full">
-              {row}
-            </div>
-          </ContextMenuTrigger>
-          <ContextMenuContent className="w-52">
-            <ContextMenuItem onClick={onSelect}>
-              번역 편집
-            </ContextMenuItem>
-            {onOpenDetail && (
-              <ContextMenuItem onClick={onOpenDetail}>
-                상세 열기
-              </ContextMenuItem>
-            )}
-            <ContextMenuSeparator />
-            <ContextMenuSub>
-              <ContextMenuSubTrigger>상태 변경</ContextMenuSubTrigger>
-              <ContextMenuSubContent className="w-44">
-                {statusList.map((s) => (
-                  <ContextMenuCheckboxItem
-                    key={s.id}
-                    checked={line.statusId === s.id}
-                    onCheckedChange={() => {
-                      if (line.statusId !== s.id) {
-                        saveLine.mutate({ unitId: line.id, text: line.translation ?? '', statusId: s.id });
-                      }
-                    }}
-                  >
-                    <StatusIcon status={s} />
-                    <span className="truncate">{s.name}</span>
-                  </ContextMenuCheckboxItem>
-                ))}
-              </ContextMenuSubContent>
-            </ContextMenuSub>
-            <ContextMenuSub>
-              <ContextMenuSubTrigger>태그</ContextMenuSubTrigger>
-              <ContextMenuSubContent className="w-48">
-                {tags.length === 0 ? (
-                  <div className="px-2 py-1.5 text-xs text-muted-foreground">태그 없음</div>
-                ) : (
-                  tags.map((tag) => (
-                    <ContextMenuCheckboxItem
-                      key={tag.id}
-                      checked={line.tagIds.includes(tag.id)}
-                      onCheckedChange={(checked) => handleToggleTag(tag.id, Boolean(checked))}
-                    >
-                      <span className="size-2 rounded-full shrink-0" style={{ backgroundColor: tag.color }} />
-                      <span className="truncate">{tag.name}</span>
-                    </ContextMenuCheckboxItem>
-                  ))
-                )}
-              </ContextMenuSubContent>
-            </ContextMenuSub>
-            <ContextMenuSeparator />
-            <ContextMenuItem
-              onClick={() => {
-                void navigator.clipboard.writeText(line.source);
-                toast.success('원문을 복사했습니다.');
-              }}
-            >
-              원문 복사
-            </ContextMenuItem>
-            {line.translation && (
-              <ContextMenuItem
-                onClick={() => {
-                  void navigator.clipboard.writeText(line.translation!);
-                  toast.success('번역을 복사했습니다.');
-                }}
-              >
-                번역 복사
-              </ContextMenuItem>
-            )}
-            <ContextMenuItem
-              onClick={() => {
-                void navigator.clipboard.writeText(line.key);
-                toast.success('대사 키를 복사했습니다.');
-              }}
-            >
-              키 복사
-            </ContextMenuItem>
-            {onShowInGraph && (
-              <ContextMenuItem onClick={onShowInGraph}>
-                그래프에서 보기
-              </ContextMenuItem>
-            )}
-            {(onInsertAfter || onDelete) && <ContextMenuSeparator />}
-            {onInsertAfter && (
-              <ContextMenuItem onClick={onInsertAfter}>
-                아래에 대사 추가
-              </ContextMenuItem>
-            )}
-            {onDelete && (
-              <ContextMenuItem variant="destructive" onClick={onDelete}>
-                대사 삭제
-              </ContextMenuItem>
-            )}
-          </ContextMenuContent>
-        </ContextMenu>
+        <div
+          className="w-full"
+          onContextMenu={(event) => {
+            event.preventDefault();
+            setMenuAt({ x: event.clientX, y: event.clientY });
+          }}
+        >
+          {row}
+        </div>
+        {menuAt && (
+          <DropdownMenu open onOpenChange={(open) => !open && setMenuAt(null)} modal={false}>
+            <DropdownMenuTrigger asChild>
+              <span aria-hidden className="pointer-events-none fixed size-0" style={{ left: menuAt.x, top: menuAt.y }} />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-52" onClick={(event) => event.stopPropagation()} onCloseAutoFocus={(event) => event.preventDefault()}>
+              {menuItems}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </li>
     </>
   );

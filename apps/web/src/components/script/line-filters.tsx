@@ -7,6 +7,7 @@ import { FilterModeSwitch, markTagGroups, pickOf, PickIcon, togglePick, type Fil
 import { knownListenerFilter, toggleLineMarkFilter, unknownListenerFilter } from '@/lib/line-filter-state';
 import { Button, Input, DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger, StatusIcon } from '@loca/ui';
 import { q } from '@/lib/queries';
+import { PersonName } from '@/lib/person-colors';
 
 export interface LinesSearch {
   q?: string;
@@ -202,7 +203,7 @@ export function LineFilters({ projectId, statuses, tags, speakers, listeners, un
               }}
             >
               <PickIcon state={pickOf(search.speakers, search.hideSpeakers, speaker.name)} />
-              <span className="min-w-0 flex-1 truncate">{speaker.name}</span>
+              <PersonName projectId={projectId} name={speaker.name} className="min-w-0 flex-1 truncate" />
               <span className="text-xs text-muted-foreground tabular-nums">{speaker.lines.toLocaleString()}</span>
             </DropdownMenuItem>
           ))}

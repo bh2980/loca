@@ -38,7 +38,7 @@ function respond(db: ReturnType<typeof setup>['db'], chat: typeof s.chatSessions
     system: 'test',
     view: null,
     messages: [...((chat.messages ?? []) as never[]), user(text)],
-    timeoutMs: 10_000,
+    idleMs: 10_000,
     turn,
   });
 }

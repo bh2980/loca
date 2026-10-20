@@ -1,16 +1,18 @@
+import type { z } from 'zod';
 import { and, asc, eq } from 'drizzle-orm';
 import { get } from 'es-toolkit/compat';
-import { checkFormat, formatCheckParams, httpParams, scriptParams, setStatusParams, type FunctionName, type JsonField, filtersByStatus } from '@tw/shared';
+import { checkFormat, formatCheckParams, FUNCTIONS, httpParams, KNOWLEDGE_STATUSES, type KnowledgeStatus, scriptParams, setStatusParams, type FunctionName, type JsonField, filtersByStatus } from '@tw/shared';
 import type { Db } from '../../db/index.ts';
 import * as s from '../../db/schema.ts';
 import type { SecretStore } from '../../services/secrets.ts';
+import { setKnowledgeTag } from '../../services/knowledge-tags.ts';
 import { attachUnitTags } from '../../services/tag-scope.ts';
 import { runScript } from './sandbox.ts';
 import { knowledgeOf } from '../../services/speech.ts';
 import type { IssueTagChange } from '../../services/issue-tags.ts';
 import { HUMAN_OWNED_NOTE, personOwns } from '../apply-candidate.ts';
 import { applyFunctions } from './apply.ts';
-import type { FunctionInput, FunctionResult } from './types.ts';
+import { lineOf, type FunctionInput, type FunctionResult } from './types.ts';
 
 export type { FunctionInput, FunctionResult };
 
@@ -21,17 +23,34 @@ type Unit = typeof s.units.$inferSelect;
 type Item = typeof s.runItems.$inferSelect;
 
 const NEEDS_CANDIDATE = '검사할 번역 후보가 없습니다.';
-const candidateOf = (input: FunctionInput) => input.item.data.candidateText ?? input.unit.translation ?? null;
+/** The item's source text: a line's, or a term's. */
+const sourceOf = (input: FunctionInput) => (input.subject === 'lines' ? input.unit.source : input.term.source);
+const candidateOf = (input: FunctionInput) => input.item.data.candidateText ?? (input.subject === 'lines' ? input.unit.translation : input.term.target || null) ?? null;
 
-/** What a script or HTTP template can see about a line. */
+/** What a script or HTTP template can see about an item: `unit` for a line, `term` for a term. */
 export function lineView(input: FunctionInput) {
   return {
-    unit: { key: input.unit.key, kind: input.unit.kind, speaker: input.unit.speaker, source: input.unit.source, translation: input.unit.translation },
+    ...(input.subject === 'lines'
+      ? { unit: { key: input.unit.key, kind: input.unit.kind, speaker: input.unit.speaker, source: input.unit.source, translation: input.unit.translation } }
+      : { term: { source: input.term.source, target: input.term.target, note: input.term.note, status: input.term.status, lines: input.term.lines } }),
     candidate: candidateOf(input),
+    previous: input.previous ?? null,
     issues: input.item.data.issues ?? [],
     outputs: input.item.data.outputs ?? {},
     visits: input.item.visits,
+    error: input.item.data.error ?? null,
   };
+}
+
+/** 상태 변경 on a term: candidate, confirmed or rejected (a rejected term is not proposed again), and its tags. */
+function setTermStatus(tx: Tx, params: z.infer<typeof setStatusParams>, input: Extract<FunctionInput, { subject: 'terms' }>): FunctionResult {
+  if (params.statusId) {
+    if (!(KNOWLEDGE_STATUSES as readonly string[]).includes(params.statusId)) throw new Error('용어의 상태는 후보·확정·버림 중 하나입니다.');
+    tx.update(s.terms).set({ status: params.statusId as KnowledgeStatus, statusBy: 'ai', runId: input.runId }).where(eq(s.terms.id, input.term.id)).run();
+  }
+  for (const tagId of params.addTagIds) setKnowledgeTag(tx, input.projectId, 'terms', [input.term.id], tagId, true);
+  for (const tagId of params.removeTagIds) setKnowledgeTag(tx, input.projectId, 'terms', [input.term.id], tagId, false);
+  return { port: 'out', output: { status: params.statusId ?? input.term.status } };
 }
 
 // ── instant functions (run inside the runner's transaction) ──────────
@@ -42,32 +61,34 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     const params = formatCheckParams.parse(raw);
     const text = candidateOf(input);
     const rules = tx.select({ formatRules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, input.projectId)).get()?.formatRules;
-    const issues = text === null ? [NEEDS_CANDIDATE] : checkFormat(input.unit.source, text, params, rules).map((issue) => issue.message);
-    return { port: issues.length ? 'fail' : 'pass', issues, output: { passed: !issues.length, issues }, ...(text !== null && { issueTags: issues.length ? { add: ['format'] } : { clear: ['format'] } }) };
+    const issues = text === null ? [NEEDS_CANDIDATE] : checkFormat(sourceOf(input), text, params, rules).map((issue) => issue.message);
+    return { port: issues.length ? 'fail' : 'pass', issues, output: { text, passed: !issues.length, issues }, ...(text !== null && { issueTags: issues.length ? { add: ['format'] } : { clear: ['format'] } }) };
   },
 
   glossaryCheck(tx, _raw, input) {
     const text = candidateOf(input);
-    if (text === null) return { port: 'fail', issues: [NEEDS_CANDIDATE], output: { passed: false, issues: [NEEDS_CANDIDATE] } };
+    if (text === null) return { port: 'fail', issues: [NEEDS_CANDIDATE], output: { text, passed: false, issues: [NEEDS_CANDIDATE] } };
     const issues = knowledgeOf(tx as unknown as Db, input.projectId)
       .glossary()
-      .matcher.find(input.unit.source)
+      .matcher.find(sourceOf(input))
       .filter((term) => !text.toLowerCase().includes(term.target.toLowerCase()))
       .map((term) => `용어 "${term.source}"은(는) "${term.target}"(으)로 옮겨야 합니다.`);
-    return { port: issues.length ? 'fail' : 'pass', issues, output: { passed: !issues.length, issues }, issueTags: issues.length ? { add: ['term'] } : { clear: ['term'] } };
+    return { port: issues.length ? 'fail' : 'pass', issues, output: { text, passed: !issues.length, issues }, issueTags: issues.length ? { add: ['term'] } : { clear: ['term'] } };
   },
 
   setStatus(tx, raw, input) {
     const params = setStatusParams.parse(raw);
+    if (input.subject === 'terms') return setTermStatus(tx, params, input);
+    const unit = lineOf(input);
     // Translations now go into the line when a node produces them (engine/apply-candidate.ts, #42);
     // this node only sets the status and tags. A run sets the line's status, so AI set it;
     // a person's change later makes it theirs. A run that picks lines by status
     // never replaces a translation a person wrote (#51): its entry skips such lines, and one a person
     // saved while the run was on it keeps its status here. A run on lines named regardless of status
     // (말투만 고치기, '상태 무시') is asked to rewrite them, so its status change goes through.
-    const current = tx.select({ translation: s.units.translation, statusBy: s.units.statusBy }).from(s.units).where(eq(s.units.id, input.unit.id)).get();
+    const current = tx.select({ translation: s.units.translation, statusBy: s.units.statusBy }).from(s.units).where(eq(s.units.id, unit.id)).get();
     const run = tx.select({ definition: s.runs.definition, scope: s.runs.scope }).from(s.runs).where(eq(s.runs.id, input.runId)).get();
-    const humanOwns = personOwns(current, input.item.data.candidateText, !run || filtersByStatus(run.definition, run.scope));
+    const humanOwns = personOwns(current, input.item.data.candidateText, !run || filtersByStatus(run.scope));
     const patch: Partial<typeof s.units.$inferInsert> = {};
     const issues: string[] = [];
     if (humanOwns) {
@@ -75,13 +96,14 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
       issues.push(HUMAN_OWNED_NOTE);
     } else {
       if (params.statusId) Object.assign(patch, { statusId: params.statusId, statusBy: 'ai', statusRunId: input.runId });
-      if (Object.keys(patch).length) tx.update(s.units).set(patch).where(eq(s.units.id, input.unit.id)).run();
+      if (Object.keys(patch).length) tx.update(s.units).set(patch).where(eq(s.units.id, unit.id)).run();
     }
     // A tag that no longer belongs on lines (its places were narrowed after the node was set up) is skipped, with a notice.
-    const { skipped } = attachUnitTags(tx, input.projectId, [input.unit.id], { add: params.addTagIds, remove: params.removeTagIds }, { onMisplaced: 'skip' });
+    const { skipped } = attachUnitTags(tx, input.projectId, [unit.id], { add: params.addTagIds, remove: params.removeTagIds }, { onMisplaced: 'skip' });
     for (const tag of skipped) issues.push(`‘${tag.name}’ 태그는 대사에 붙일 수 없어 붙이지 않았습니다.`);
     return issues.length ? { port: 'out', issues } : { port: 'out' };
   },
+
 
   ...applyFunctions,
 };
@@ -124,29 +146,14 @@ function render(template: string, view: unknown, json: boolean): string {
   });
 }
 
-export async function runAsyncFunction(
-  fn: FunctionName,
-  raw: unknown,
-  input: FunctionInput,
-  deps: { db: Db; secrets: SecretStore; signal: AbortSignal },
-): Promise<FunctionResult> {
-  if (fn === 'script') {
-    const params = scriptParams.parse(raw);
-    const result = await runScript(params.code, lineView(input));
-    const port = result.port ?? params.ports[0];
-    if (!params.ports.includes(port)) throw new Error(`스크립트가 선언하지 않은 출구를 반환했습니다: ${port}`);
-    return { port, candidate: result.candidate, output: validateScriptData(result.data, params.fields), issues: result.issues };
-  }
-
-  if (fn === 'http') {
-    const params = httpParams.parse(raw);
-    const view = lineView(input);
+/** One HTTP call for an item's view (url, body and the key header as the node sets them): the parsed response. */
+export async function callHttp(params: z.infer<typeof httpParams>, view: unknown, { db, secrets, signal }: { db: Db; secrets: SecretStore; signal: AbortSignal }): Promise<unknown> {
     const url = render(params.url.trim(), view, false);
     if (!/^https?:\/\//.test(url)) throw new Error('HTTP 호출 주소가 http(s)://로 시작하지 않습니다.');
     const headers: Record<string, string> = { Accept: 'application/json' };
-    const connection = params.connectionId ? deps.db.select().from(s.connections).where(eq(s.connections.id, params.connectionId)).get() : undefined;
+    const connection = params.connectionId ? db.select().from(s.connections).where(eq(s.connections.id, params.connectionId)).get() : undefined;
     if (params.connectionId && !connection) throw new Error('고른 API 키를 찾을 수 없습니다.');
-    const key = connection ? deps.secrets.get(connection.id) : undefined;
+    const key = connection ? secrets.get(connection.id) : undefined;
     if (connection && key && connection.headerTemplate) {
       const [name, ...rest] = connection.headerTemplate.split(':');
       headers[name.trim()] = rest.join(':').trim().replace('{key}', key);
@@ -166,18 +173,33 @@ export async function runAsyncFunction(
       headers,
       body,
       redirect: 'error',
-      signal: AbortSignal.any([deps.signal, AbortSignal.timeout(params.timeoutSeconds * 1000)]),
+      signal: AbortSignal.any([signal, AbortSignal.timeout(params.timeoutSeconds * 1000)]),
     });
     if (!response.ok) throw new Error(`HTTP ${response.status} — ${(await response.text()).slice(0, 200)}`);
-    const payload: unknown = (response.headers.get('content-type') ?? '').includes('json') ? await response.json() : await response.text();
-    const result = params.resultPath ? get(payload, params.resultPath) : payload;
-    if (params.mode === 'candidate') {
-      if (typeof result !== 'string') throw new Error(`응답의 "${params.resultPath || '(전체)'}" 값이 문자열이 아닙니다.`);
-      return { port: 'out', candidate: result, output: { text: result, changed: result !== view.candidate } };
-    }
-    if (params.mode === 'verdict') return { port: result ? 'pass' : 'fail', output: { passed: Boolean(result), result } };
-    return { port: 'out', output: { result } };
+    return (response.headers.get('content-type') ?? '').includes('json') ? await response.json() : await response.text();
+}
+
+/** The declared fields of an HTTP call's result, each from its place in the response (its path, else its own name), held to the declaration like a script's data. */
+export const httpOutput = (params: z.infer<typeof httpParams>, payload: unknown) =>
+  validateScriptData(Object.fromEntries(params.fields.map((field) => [field.name, get(payload, params.paths[field.name]?.trim() || field.name)])), params.fields);
+
+export async function runAsyncFunction(
+  fn: FunctionName,
+  raw: unknown,
+  input: FunctionInput,
+  deps: { db: Db; secrets: SecretStore; signal: AbortSignal },
+): Promise<FunctionResult> {
+  if (fn === 'script') {
+    const params = scriptParams.parse(raw);
+    const result = await runScript(params.code, lineView(input));
+    const port = result.port ?? params.ports[0];
+    if (!params.ports.includes(port)) throw new Error(`스크립트가 선언하지 않은 출구를 반환했습니다: ${port}`);
+    return { port, candidate: result.candidate, output: validateScriptData(result.data, params.fields), issues: result.issues };
   }
 
+  if (fn === 'http') {
+    const params = httpParams.parse(raw);
+    return { port: 'out', output: httpOutput(params, await callHttp(params, lineView(input), deps)) };
+  }
   throw new Error(`실행할 수 없는 함수입니다: ${fn}`);
 }

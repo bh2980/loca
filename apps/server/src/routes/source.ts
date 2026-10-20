@@ -5,6 +5,7 @@ import { and, asc, count, desc, eq, gt, inArray, like, lt, ne, notInArray, notLi
 import { z } from 'zod';
 import { createGroupSchema, updateGroupSchema, createUnitSchema, updateUnitSchema, isSpecialListener, LINE_TRANSLATE, type NodeType } from '@tw/shared';
 import { createGroup, updateGroup, deleteGroup, createUnit, updateUnit, deleteUnits } from '../services/source-mutations.ts';
+import { deleteNodes, duplicateNodes, edgeDetail, insertLineAfter, linkNodes, undoGraphEdit, unlinkEdges } from '../services/graph-edit.ts';
 import { attachUnitTags } from '../services/tag-scope.ts';
 import { assertProjectRefs } from '../services/project-refs.ts';
 import { LineConflict, saveLine, saveSameText, saveStatuses } from '../services/line-save.ts';
@@ -144,10 +145,10 @@ function unitRows(db: Db, where: SQL, page?: { limit: number; offset: number }) 
   const lastRun = new Map<string, { runId: string; workflowName: string; issues: string[] }>();
   if (ids.length)
     for (const item of db
-      .select({ unitId: s.runItems.unitId, runId: s.runs.id, workflowName: s.runs.workflowName, data: s.runItems.data })
+      .select({ unitId: s.runItems.subjectId, runId: s.runs.id, workflowName: s.runs.workflowName, data: s.runItems.data })
       .from(s.runItems)
       .innerJoin(s.runs, eq(s.runs.id, s.runItems.runId))
-      .where(inArray(s.runItems.unitId, ids))
+      .where(inArray(s.runItems.subjectId, ids))
       .orderBy(desc(s.runs.createdAt))
       .all())
       if (!lastRun.has(item.unitId)) lastRun.set(item.unitId, { runId: item.runId, workflowName: item.workflowName, issues: item.data.issues ?? [] });
@@ -343,7 +344,7 @@ export const sourceRoutes = new Hono<Env>()
       .select({ id: s.runItems.id, runId: s.runs.id, workflowName: s.runs.workflowName, state: s.runItems.state, nodeId: s.runItems.nodeId, error: s.runItems.error, data: s.runItems.data, createdAt: s.runs.createdAt })
       .from(s.runItems)
       .innerJoin(s.runs, eq(s.runs.id, s.runItems.runId))
-      .where(eq(s.runItems.unitId, unitId))
+      .where(eq(s.runItems.subjectId, unitId))
       .orderBy(desc(s.runs.createdAt))
       .limit(20)
       .all();
@@ -658,7 +659,7 @@ export const sourceRoutes = new Hono<Env>()
         status: layoutStatus,
         error: layout?.error ?? null,
         layout: db.select({ data: s.graphLayouts.data }).from(s.graphLayouts).where(where).get()?.data ?? null,
-        nodes: nodes.map((node) => ({ ...node, type: null as string | null, kind: 'scene', groupId: node.id, preview: `${node.total}개 대사`, speaker: null as string | null, text: null as string | null })),
+        nodes: nodes.map((node) => ({ ...node, type: null as string | null, kind: 'scene', groupId: node.id, preview: `${node.total}개 대사`, speaker: null as string | null, text: null as string | null, unitId: null as string | null })),
         nodeTypes: {} as Record<string, NodeType>,
         sections: [] as { name: string; nodes: number; groupIds: string[] }[],
       });
@@ -681,6 +682,8 @@ export const sourceRoutes = new Hono<Env>()
         label: s.graphNodes.label,
         groupId: s.graphNodes.groupId,
         total: sql<number>`json_array_length(${s.graphNodes.unitIds})`,
+        /** The node's first line, for the line menu on its card. */
+        unitId: sql<string | null>`json_extract(${s.graphNodes.unitIds}, '$[0]')`,
         preview: sql<string | null>`(select coalesce(u.speaker || ': ', '') || substr(u.source, 1, 90) from units u where u.id = json_extract("graph_nodes"."unit_ids", '$[0]'))`,
         // The first line apart, so a card can lead with who speaks.
         speaker: sql<string | null>`(select u.speaker from units u where u.id = json_extract("graph_nodes"."unit_ids", '$[0]'))`,
@@ -694,6 +697,24 @@ export const sourceRoutes = new Hono<Env>()
     return c.body(`${head.slice(0, -1)},"layout":${raw}}`, 200, { 'content-type': 'application/json; charset=UTF-8' }) as unknown as ReturnType<
       typeof c.json<{ status: string; error: string | null; layout: s.LayoutData | null; nodes: typeof nodes; nodeTypes: typeof nodeTypes; sections: typeof sections }>
     >;
+  })
+  // Editing the dialogue graph (services/graph-edit.ts): each answers with a token ⌘/Ctrl+Z undoes it with.
+  .post('/projects/:projectId/graph/edges', validate('json', z.object({ fromId: z.string().min(1), toId: z.string().min(1), label: z.string().nullable().optional() })), (c) =>
+    c.json(linkNodes(c.var.deps.db, c.req.param('projectId'), { ...c.req.valid('json'), origin: 'human' }), 201),
+  )
+  .get('/projects/:projectId/graph/edges/:edgeId', (c) => c.json(edgeDetail(c.var.deps.db, c.req.param('projectId'), c.req.param('edgeId'))))
+  .post('/projects/:projectId/graph/edges/delete', validate('json', z.object({ ids: z.array(z.string().min(1)).min(1) })), (c) => c.json(unlinkEdges(c.var.deps.db, c.req.param('projectId'), c.req.valid('json').ids)))
+  .post('/projects/:projectId/graph/nodes/:nodeId/after', validate('json', z.object({ source: z.string().min(1), speaker: z.string().nullable().optional(), listener: z.string().nullable().optional(), key: z.string().optional() })), (c) =>
+    c.json(insertLineAfter(c.var.deps.db, c.req.param('projectId'), c.req.param('nodeId'), { ...c.req.valid('json'), origin: 'human' }), 201),
+  )
+  .post('/projects/:projectId/graph/nodes/delete', validate('json', z.object({ ids: z.array(z.string().min(1)).min(1), bridge: z.boolean().default(true) })), (c) => {
+    const { ids, bridge } = c.req.valid('json');
+    return c.json(deleteNodes(c.var.deps.db, c.req.param('projectId'), ids, bridge));
+  })
+  .post('/projects/:projectId/graph/nodes/duplicate', validate('json', z.object({ ids: z.array(z.string().min(1)).min(1) })), (c) => c.json(duplicateNodes(c.var.deps.db, c.req.param('projectId'), c.req.valid('json').ids)))
+  .post('/projects/:projectId/graph/undo', validate('json', z.object({ token: z.string().min(1) })), (c) => {
+    if (!undoGraphEdit(c.var.deps.db, c.req.param('projectId'), c.req.valid('json').token)) badRequest('되돌릴 수 없습니다. 고친 지 오래되었거나 서버가 다시 시작되었습니다.');
+    return c.json({ ok: true as const });
   })
   /** The project's stored views of the dialogue graph (see graph-views.ts), newest change first. */
   .get('/projects/:projectId/graph/views', (c) => c.json(listViews(c.var.deps.db, c.req.param('projectId'))))

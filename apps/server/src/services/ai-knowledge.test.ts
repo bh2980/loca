@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { DEFAULT_AI_CONFIRM, importFileSchema } from '@tw/shared';
+import { importFileSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { aiSaveCharacters, aiSaveDocument, aiSaveEvents, aiSaveRelationships, aiSaveSpeechRules, aiSaveTerms, aiSetLineListeners, aiSetSceneListeners, canonicalNames } from './ai-knowledge.ts';
+import { aiSaveCharacters, aiSaveDocument, aiSaveEvents, aiSaveRelationships, aiSaveSpeechRules, aiSaveTerms, aiSetLineListeners, canonicalNames } from './ai-knowledge.ts';
 import { importProject } from './importer.ts';
 import { tagsOf } from './knowledge-tags.ts';
 
@@ -23,7 +23,7 @@ function setup() {
     ],
   });
   const { projectId } = importProject(db, file);
-  const write = { projectId, runId: undefined as string | undefined, policy: DEFAULT_AI_CONFIRM };
+  const write = { projectId, runId: undefined as string | undefined, autoConfirm: true };
   return { db, projectId, write };
 }
 const lines = (db: ReturnType<typeof setup>['db'], projectId: string) => new Map(db.select().from(s.units).where(eq(s.units.projectId, projectId)).all().map((unit) => [unit.key, unit]));
@@ -58,7 +58,7 @@ describe('AI knowledge writes', () => {
 
   it('writes AI candidates under the candidate switch', () => {
     const { db, projectId, write } = setup();
-    aiSaveCharacters(db as never, { ...write, policy: { ...DEFAULT_AI_CONFIRM, characters: 'candidate' } }, [{ name: 'Guard' }]);
+    aiSaveCharacters(db as never, { ...write, autoConfirm: false }, [{ name: 'Guard' }]);
     expect(db.select().from(s.characters).where(eq(s.characters.name, 'Guard')).get()).toMatchObject({ status: 'candidate', origin: 'ai' });
     expect(projectId).toBeTruthy();
   });
@@ -124,7 +124,7 @@ describe('AI knowledge writes', () => {
     expect(db.select().from(s.documents).get()?.body).toBe('2');
   });
 
-  it('sets AI listeners without touching a person\'s or the import\'s, and scene listeners as scene guesses', () => {
+  it('sets AI listeners without touching a person\'s or the import\'s', () => {
     const { db, projectId } = setup();
     db.update(s.units).set({ listener: 'Captain', listenerOrigin: 'import' }).where(eq(s.units.key, 'a3')).run();
     db.update(s.units).set({ listener: 'Guard', listenerOrigin: 'human' }).where(eq(s.units.key, 'a2')).run();
@@ -132,11 +132,6 @@ describe('AI knowledge writes', () => {
     expect(result.set).toBe(1);
     expect(result.skipped.map((entry) => entry.key)).toEqual(['a2', 'a3', 'zz']);
     expect(lines(db, projectId).get('a1')).toMatchObject({ listener: 'Bob', listenerOrigin: 'ai', listenerConfidence: 0.9 });
-    const scene = aiSetSceneListeners(db as never, projectId, [{ scene: 'g1', speaker: 'Alice', listener: 'Bob', confidence: 0.95, exceptions: [{ line: 'a1', listener: 'Crowd', confidence: 0.4 }] }]);
-    const after = lines(db, projectId);
-    // The per-line AI guess stays over the scene default (the exception then replaces it); the import stays.
-    expect(after.get('a3')).toMatchObject({ listener: 'Captain', listenerOrigin: 'import' });
-    expect(after.get('a1')).toMatchObject({ listener: 'Crowd', listenerOrigin: 'ai' });
-    expect(scene.changed).toBe(1);
+    expect(lines(db, projectId).get('a3')).toMatchObject({ listener: 'Captain', listenerOrigin: 'import' });
   });
 });

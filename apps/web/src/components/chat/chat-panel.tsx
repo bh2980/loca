@@ -16,7 +16,7 @@ import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { useViewState, type ViewItem } from '@/lib/view-context';
 import { useUndo } from './proposal-card';
-import { ProposalGroups } from './proposal-groups';
+import { ProposalList } from './proposal-list';
 import { PermissionModePicker } from './permission-mode';
 import type { PermissionMode } from '@tw/shared';
 import { ToolPart } from './tool-part';
@@ -559,7 +559,7 @@ function ExternalProposals({ projectId }: { projectId: string }) {
       </Button>
       {open && (
         <div className="px-3 pb-3">
-          <ProposalGroups projectId={projectId} proposals={pending} title="CLI 제안" />
+          <ProposalList projectId={projectId} proposals={pending} title="CLI 제안" />
         </div>
       )}
     </div>

@@ -288,10 +288,8 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
     baseUrl: connection.baseUrl ?? undefined,
     executable: connection.executable ?? '',
     headerTemplate: connection.headerTemplate ?? '',
-    concurrency: isTool ? undefined : (connection.concurrency ?? 2),
     defaultModel: connection.defaultModel,
     defaultEffort: connection.defaultEffort,
-    timeoutSeconds: connection.timeoutSeconds,
     maxAttempts: connection.maxAttempts,
     inputTokens: connection.inputTokens,
     outputTokens: connection.outputTokens,
@@ -326,10 +324,8 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
             executable: isHttp ? undefined : (values.executable ?? ''),
             headerTemplate: connection.kind === 'http' ? (values.headerTemplate ?? '') : undefined,
             ...(!isTool && {
-              concurrency: values.concurrency,
               defaultModel: values.defaultModel ?? null,
               defaultEffort: values.defaultEffort ?? null,
-              timeoutSeconds: values.timeoutSeconds,
               maxAttempts: values.maxAttempts,
               inputTokens: values.inputTokens,
               outputTokens: values.outputTokens,
@@ -430,7 +426,8 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
                 // Not what the connection always calls: the model filled in when this connection is picked (node, chat, run).
                 <InspectorField
                   label="모델"
-                  description="이 연결로 부를 때 쓰는 모델. 비워 두면 쓰는 곳마다 고릅니다."
+                  description="비워 두면 쓰는 곳마다 고릅니다."
+                  help="이 연결을 고르면 먼저 채워지는 모델입니다."
                   action={field.value && (
                     <Button variant="ghost" size="inline" onClick={() => { field.onChange(null); form.setValue('defaultEffort', null, { shouldDirty: true }); }}>
                       지우기
@@ -469,10 +466,10 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
       {!isTool && (
         <InspectorSection title="고급" defaultOpen={false}>
           <InspectorFields>
-            <InspectorField label="입력 토큰" description="한 번 부를 때 넣을 수 있는 양. 비우면 모델 기본값을 쓰고, AI 노드가 한 번에 보내는 양이 여기에 맞춰집니다." error={errors.inputTokens?.message}>
+            <InspectorField label="입력 토큰" description="비우면 모델 기본값을 씁니다." help="한 번 부를 때 넣을 수 있는 양입니다. AI 노드가 한 번에 보내는 양이 여기에 맞춰집니다." error={errors.inputTokens?.message}>
               <Input type="number" min={1000} placeholder={modelDefault('contextWindow')} {...form.register('inputTokens', optionalNumber)} aria-invalid={!!errors.inputTokens} />
             </InspectorField>
-            <InspectorField label="출력 토큰" description="한 번에 받을 수 있는 양. 비우면 모델 기본값을 씁니다." error={errors.outputTokens?.message}>
+            <InspectorField label="출력 토큰" description="비우면 모델 기본값을 씁니다." help="한 번에 받을 수 있는 양입니다." error={errors.outputTokens?.message}>
               <Input type="number" min={256} placeholder={modelDefault('maxOutput')} {...form.register('outputTokens', optionalNumber)} aria-invalid={!!errors.outputTokens} />
             </InspectorField>
             {!isTool && (
@@ -482,7 +479,7 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
               render={({ field }) => (
                 <InspectorField
                   label="대체 모델"
-                  description="이 연결이 막히면 넘길 모델. 같은 연결의 다른 모델도 됩니다. 채팅에는 쓰지 않습니다."
+                  help="이 연결이 막히면 대신 부를 모델입니다. 같은 연결의 다른 모델도 됩니다. 채팅에는 쓰지 않습니다."
                   error={(errors.fallback?.model ?? errors.fallback)?.message}
                   action={field.value && (
                     <Button variant="ghost" size="inline" onClick={() => field.onChange(null)}>
@@ -495,12 +492,6 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
               )}
             />
             )}
-            <InspectorField label="동시 실행 수" error={errors.concurrency?.message}>
-              <Input type="number" min={1} max={32} step={1} {...form.register('concurrency', number)} aria-invalid={!!errors.concurrency} />
-            </InspectorField>
-            <InspectorField label="제한 시간 (초)" error={errors.timeoutSeconds?.message}>
-              <Input type="number" min={5} max={600} {...form.register('timeoutSeconds', number)} aria-invalid={!!errors.timeoutSeconds} />
-            </InspectorField>
             <InspectorField label="최대 시도 횟수" error={errors.maxAttempts?.message}>
               <Input type="number" {...form.register('maxAttempts', number)} aria-invalid={!!errors.maxAttempts} />
             </InspectorField>

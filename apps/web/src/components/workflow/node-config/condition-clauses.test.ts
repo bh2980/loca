@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { translationTemplate } from '@tw/shared';
 import { conditionExpression, parseCondition, type Condition } from './condition-clauses';
 
 describe('condition rows', () => {
@@ -15,6 +16,8 @@ describe('condition rows', () => {
         { kind: 'tag', tagId: 't1' },
         { kind: 'mark', mark: 'ai' },
         { kind: 'visits', nodeId: 'review', limit: 3 },
+        { kind: 'error', errorKind: 'missing' },
+        { kind: 'error', errorKind: 'too-long', not: true },
         { kind: 'field', nodeId: 'listener', field: 'confidence', op: '>=', value: 0.7 },
         { kind: 'field', nodeId: 'check', field: 'passed', op: '==', value: true },
         { kind: 'field', nodeId: 'listener', field: 'value', op: 'filled', value: '' },
@@ -22,6 +25,14 @@ describe('condition rows', () => {
       ],
     };
     expect(parseCondition(conditionExpression(condition))).toEqual(condition);
+  });
+
+  it('reads a template’s retry condition as rows (visits and failure kinds)', () => {
+    const retry = translationTemplate({ model: { connectionId: '', model: '' }, untranslated: 'u', draft: 'd', needsReview: 'n', confirmed: 'c' }).nodes.find((node) => node.id === 'translate-again');
+    expect(retry?.type === 'condition' && parseCondition(retry.config.expression)).toEqual({
+      join: 'and',
+      clauses: [{ kind: 'visits', nodeId: 'translate', limit: 2 }, { kind: 'error', errorKind: 'too-long', not: true }, { kind: 'error', errorKind: 'cut-off', not: true }],
+    });
   });
 
   it('reads the default workflows’ conditions, including the object form of "!!"', () => {

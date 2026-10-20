@@ -1,18 +1,13 @@
 /** AI node settings, grouped by the user's task: model, instruction, output, advanced. */
 import { useEffect, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { Plus, X } from 'lucide-react';
-import { AI_OUTPUTS, AI_PRESETS, AI_SCOPES, CHOICE_SOURCES, CONNECTION_KIND_INFO, contextConfigSchema, nodeName, type AiOutput, type AiScope, type BatchConfig, type Capability, type ChoiceSource, type WorkflowNode } from '@tw/shared';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Button, Dialog, DialogContent, DialogHeader, DialogTitle, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, InspectorActionRow, InspectorResult, InspectorSection } from '@loca/ui';
+import { AI_OUTPUTS, AI_SCOPES, CONTEXT_FIELDS, CHOICE_SOURCES, CONNECTION_KIND_INFO, BATCH_MODE_LABELS, contextConfigSchema, INPUT_TYPES, nodeName, previousSteps, type WorkflowSubject, type AiOutput, type AiScope, type BatchConfig, type Capability, type ChoiceSource, type WorkflowNode } from '@tw/shared';
+import { Button, HelpTip, Dialog, DialogContent, DialogHeader, DialogTitle, Input, NumberInput, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, InspectorResult, InspectorSection } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
-import { AiContextPanel } from '@/components/ai-context';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
-import { client, unwrap } from '@/lib/api';
 import { JsonFieldsEditor } from '@/components/workflow/node-config/json-fields-editor';
-import { Field, CountRow, ToggleRow, type AiNode, type NodeRefs } from '@/components/workflow/node-config/shared';
+import { Field, CheckItem, CountRow, StepChips, ToggleRow, outputFieldNames, refsInput, type AiNode, type NodeRefs } from '@/components/workflow/node-config/shared';
 
-/** The fields a preset fills into a node (a full AI node config minus the model). */
-type PresetFill = Partial<Pick<AiNode['config'], 'instructions' | 'output' | 'scope' | 'fields' | 'choice'>>;
 
 /** Custom choice values, one per line; the text is kept locally so a trailing newline can be typed. */
 function ChoiceValues({ values, onChange }: { values: string[]; onChange: (values: string[]) => void }) {
@@ -34,25 +29,11 @@ function ChoiceValues({ values, onChange }: { values: string[]; onChange: (value
   );
 }
 
-/** The saved node's whole prompt (the read-only format part included) for a sample line. */
-function PromptPreview({ projectId, workflowId, nodeId }: { projectId: string; workflowId?: string; nodeId: string }) {
-  const [aiNode, setAiNode] = useState(workflowId ? `${workflowId}:${nodeId}` : undefined);
-  const sample = useQuery({
-    queryKey: ['units', 'prompt-sample', projectId],
-    queryFn: () => unwrap(client.projects[':projectId'].lines.find.$post({ param: { projectId }, json: { offset: 0, limit: 1 } })),
-  });
-  const key = sample.data?.rows[0]?.key;
-  if (!workflowId) return <p className="text-xs text-muted-foreground">저장된 워크플로에서 볼 수 있습니다.</p>;
-  if (sample.isSuccess && !key) return <p className="text-xs text-muted-foreground">샘플로 쓸 대사가 없습니다.</p>;
-  if (!key) return <p className="text-xs text-muted-foreground">샘플 대사를 불러오는 중…</p>;
-  return <AiContextPanel projectId={projectId} unitKey={key} aiNode={aiNode} onAiNode={setAiNode} />;
-}
 
 export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest'; node: AiNode; refs: NodeRefs; onChange: (node: WorkflowNode) => void }) {
   const [expanded, setExpanded] = useState(false);
-  const [previewing, setPreviewing] = useState(false);
-  const [refilling, setRefilling] = useState(false);
   const config = node.config;
+  const input = refsInput(refs);
   // Saved workflows may predate a context setting; show its default.
   const context = contextConfigSchema.parse(config.context ?? {});
   const set = (patch: Partial<AiNode['config']>) => onChange({ ...node, config: { ...config, ...patch } });
@@ -62,11 +43,11 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
   const setExtra = (index: number, value: ModelValue) => set({ extraModels: extras.map((choice, i) => (i === index ? value : choice)) });
   const connection = refs.connections.find((item) => item.id === config.model.connectionId);
   const takesTemperature = connection ? CONNECTION_KIND_INFO[connection.kind].transport !== 'cli' && connection.kind !== 'systemone' : false;
-  const contextOn = [context.glossary, context.speech, config.include.issues, context.precedingLines > 0, context.previousScenes > 0, context.cast, context.characters, context.relationships, context.documents].filter(Boolean).length;
-  const preset = config.preset ? (AI_PRESETS as Record<string, { label: string } & PresetFill>)[config.preset] : undefined;
+  const contextOn = [config.include.candidate, context.glossary, context.speech, context.precedingLines > 0, context.previousScenes > 0, context.cast, context.characters, context.relationships, context.documents].filter(Boolean).length;
 
   if (part === 'model') {
     return (
+      <>
       <Field label="모델">
         {/* More than one model splits the work between them. */}
         <div className="space-y-1.5">
@@ -85,6 +66,10 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
           </Button>
         </div>
       </Field>
+      <Field label="동시 처리 수" help="AI에 동시에 보내는 요청 수입니다. 늘리면 빨라지지만, API는 요청 한도에 걸리기 쉽고 CLI 연결은 그 수만큼 프로그램이 떠서 컴퓨터가 무거워집니다.">
+        <NumberInput min={1} max={16} className="w-28" value={config.concurrency} onValueChange={(concurrency) => concurrency !== undefined && set({ concurrency })} />
+      </Field>
+      </>
     );
   }
 
@@ -99,36 +84,6 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
         </>
       }>
         <Textarea aria-label="지시문" value={config.instructions} onChange={(event) => set({ instructions: event.target.value })} className="min-h-28 text-sm" />
-        <InspectorActionRow
-          label="프롬프트"
-          description={config.preset ? (preset ? `프리셋 · ${preset.label}` : `프리셋 · ${config.preset}`) : '프리셋 없음'}
-          action={
-            <>
-              {preset && <Button type="button" variant="ghost" onClick={() => setRefilling(true)}>다시 채우기</Button>}
-              <Button type="button" variant="ghost" onClick={() => setPreviewing(true)}>미리보기</Button>
-            </>
-          }
-        />
-        <AlertDialog open={refilling} onOpenChange={setRefilling}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>프리셋으로 다시 채울까요?</AlertDialogTitle>
-              <AlertDialogDescription>지시문·출력 형태·필드·선택지가 ‘{preset?.label}’ 프리셋의 값으로 바뀝니다. 지금 쓴 내용은 사라집니다.</AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>취소</AlertDialogCancel>
-              <AlertDialogAction onClick={() => preset && set({ instructions: preset.instructions, output: preset.output, scope: preset.scope, fields: preset.fields, choice: preset.choice } as Partial<AiNode['config']>)}>다시 채우기</AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-        <Dialog open={previewing} onOpenChange={setPreviewing}>
-          <DialogContent className="flex h-[80vh] max-w-3xl flex-col">
-            <DialogHeader><DialogTitle>프롬프트 · {nodeName(node)}</DialogTitle></DialogHeader>
-            <div className="min-h-0 flex-1 space-y-2 overflow-auto">
-              <PromptPreview projectId={refs.projectId} workflowId={refs.workflowId} nodeId={node.id} />
-            </div>
-          </DialogContent>
-        </Dialog>
         <Dialog open={expanded} onOpenChange={setExpanded}>
           <DialogContent className="flex h-[75vh] max-w-3xl flex-col">
             <DialogHeader><DialogTitle>지시문 · {nodeName(node)}</DialogTitle></DialogHeader>
@@ -136,6 +91,8 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
           </DialogContent>
         </Dialog>
       </InspectorSection>
+
+      <AiInputSection node={node} refs={refs} set={set} />
 
       <InspectorSection title="출력">
         <Field label="출력 형태">
@@ -151,7 +108,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
             <Field label="출력 단위">
               <Select value={config.scope} onValueChange={(value) => set({ scope: value as AiScope })}>
                 <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>{(Object.keys(AI_SCOPES) as AiScope[]).map((scope) => <SelectItem key={scope} value={scope}>{AI_SCOPES[scope]}</SelectItem>)}</SelectContent>
+                <SelectContent>{(Object.keys(AI_SCOPES) as AiScope[]).map((scope) => <SelectItem key={scope} value={scope}>{scope === 'line' ? `${INPUT_TYPES[input].label}마다` : AI_SCOPES[scope]}</SelectItem>)}</SelectContent>
               </Select>
             </Field>
             <JsonFieldsEditor label="출력 필드" fields={config.fields} descriptionPlaceholder="AI에게 주는 설명" onChange={(fields) => set({ fields })} />
@@ -176,70 +133,18 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
       </InspectorSection>
 
       <InspectorSection title={`문맥 · ${contextOn}개 켬`} defaultOpen={false}>
-        <ToggleRow label="확정된 것만" checked={context.humanOnly} onChange={(value) => set({ context: { ...context, humanOnly: value } })} />
-        <div className="space-y-2.5 border-t border-border-subtle pt-3">
-          <CountRow label="앞 대사" unit="줄" value={context.precedingLines} fallback={8} max={50} onChange={(value) => set({ context: { ...context, precedingLines: value } })} />
-          {context.precedingLines > 0 && (
-            <div className="pl-4">
-              <ToggleRow label="앞 대사 번역" checked={context.precedingTranslations} onChange={(value) => set({ context: { ...context, precedingTranslations: value } })} />
-            </div>
-          )}
-          <CountRow label="이전 장면" unit="개" value={context.previousScenes} fallback={1} max={10} onChange={(value) => set({ context: { ...context, previousScenes: value } })} />
-          <ToggleRow label="앞 단계 지적" checked={config.include.issues} onChange={(value) => set({ include: { ...config.include, issues: value } })} />
-        </div>
-        <div className="space-y-2.5 border-t border-border-subtle pt-3">
-          <ToggleRow label="용어집" checked={context.glossary} onChange={(value) => set({ context: { ...context, glossary: value } })} />
-          <ToggleRow label="청자·말투" checked={context.speech} onChange={(value) => set({ context: { ...context, speech: value } })} />
-          <ToggleRow label="인물 명단" checked={context.cast} onChange={(value) => set({ context: { ...context, cast: value } })} />
-          <ToggleRow label="인물 프로필" checked={context.characters} onChange={(value) => set({ context: { ...context, characters: value } })} />
-          <ToggleRow label="인물 관계" checked={context.relationships} onChange={(value) => set({ context: { ...context, relationships: value } })} />
-          <ToggleRow label="문서" checked={context.documents} onChange={(value) => set({ context: { ...context, documents: value } })} />
-        </div>
+        <AiContextFields config={config} set={set} input={input} />
       </InspectorSection>
 
       <InspectorSection title="고급" defaultOpen={false}>
         <>
           {takesTemperature && (
             <Field label="온도">
-              <Input
-                type="number"
-                min={0}
-                max={2}
-                step={0.1}
-                className="w-28"
-                value={config.temperature ?? ''}
-                placeholder="기본값"
-                onChange={(event) =>
-                  set({
-                    temperature:
-                      event.target.value === ''
-                        ? undefined
-                        : Math.min(2, Math.max(0, Number(event.target.value))),
-                  })
-                }
-              />
-            </Field>
-          )}
-          {config.output === 'text' && (
-            <Field label="기존 번역">
-              <Select
-                value={config.include.candidate ? 'revise' : 'fresh'}
-                onValueChange={(value) =>
-                  set({ include: { ...config.include, candidate: value === 'revise' } })
-                }
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="fresh">보지 않고 새로 번역</SelectItem>
-                  <SelectItem value="revise">보고 고침</SelectItem>
-                </SelectContent>
-              </Select>
+              <NumberInput min={0} max={2} step={0.1} integer={false} optional className="w-28" value={config.temperature} placeholder="기본값" onValueChange={(temperature) => set({ temperature })} />
             </Field>
           )}
           <>
-            <Field label="묶음">
+            <Field label={<span className="flex items-center gap-1">요청 단위<HelpTip>AI 요청 한 번에 항목을 어떻게 묶어 보낼지 정합니다.</HelpTip></span>}>
               <Select
                 value={config.batch.mode}
                 onValueChange={(value) =>
@@ -257,29 +162,100 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="group">장면별</SelectItem>
-                  <SelectItem value="count">개수별</SelectItem>
-                  <SelectItem value="unit">대사 하나씩</SelectItem>
-                  <SelectItem value="whole">대본 전체</SelectItem>
+                  {INPUT_TYPES[input].batchModes.map((mode) => <SelectItem key={mode} value={mode}>{mode === 'unit' ? `${INPUT_TYPES[input].label} 하나씩` : BATCH_MODE_LABELS[mode]}</SelectItem>)}
                 </SelectContent>
               </Select>
             </Field>
             {config.batch.mode === 'count' && (
-              <Field label="요청당 줄 수">
-                <Input
-                  type="number"
-                  min={1}
-                  max={1000}
-                  value={config.batch.size}
-                  onChange={(event) =>
-                    set({ batch: { ...config.batch, size: Number(event.target.value) } })
-                  }
-                />
+              <Field label={`요청당 ${INPUT_TYPES[input].label} 수`}>
+                <NumberInput min={1} max={1000} value={config.batch.size} onValueChange={(size) => size !== undefined && set({ batch: { ...config.batch, size } })} />
               </Field>
             )}
           </>
+          <Field label="호출 제한 시간 (분)" help="요청 하나가 이 시간을 넘기면 그 요청의 항목들은 오류(시간 초과) 출구로 나갑니다.">
+            <NumberInput min={1} max={240} className="w-28" value={config.timeoutMinutes} onValueChange={(timeoutMinutes) => timeoutMinutes !== undefined && set({ timeoutMinutes })} />
+          </Field>
         </>
       </InspectorSection>
     </>
+  );
+}
+
+/** What an AI node sends besides the items: the core context switches and those of the workflow's input (INPUT_TYPES). */
+export function AiContextFields({ config, set, input }: { config: Pick<AiNode['config'], 'context' | 'include'>; set: (patch: Partial<AiNode['config']>) => void; input: WorkflowSubject }) {
+  const context = contextConfigSchema.parse(config.context ?? {});
+  const lines = input === 'lines';
+  const setContext = (patch: Partial<typeof context>) => set({ context: { ...context, ...patch } });
+  return (
+    <>
+      <div className="space-y-2.5">
+        {lines ? <>
+            <CountRow label={CONTEXT_FIELDS.precedingLines.label} help={CONTEXT_FIELDS.precedingLines.help} unit="줄" value={context.precedingLines} fallback={8} max={50} onChange={(value) => setContext({ precedingLines: value })} />
+            {context.precedingLines > 0 && (
+              <div className="pl-4">
+                <ToggleRow label={CONTEXT_FIELDS.precedingTranslations.label} help={CONTEXT_FIELDS.precedingTranslations.help} checked={context.precedingTranslations} onChange={(value) => setContext({ precedingTranslations: value })} />
+              </div>
+            )}
+            <CountRow label={CONTEXT_FIELDS.previousScenes.label} help={CONTEXT_FIELDS.previousScenes.help} unit="개" value={context.previousScenes} fallback={1} max={10} onChange={(value) => setContext({ previousScenes: value })} />
+        </> : (
+            <CountRow label={CONTEXT_FIELDS.examples.label} help={CONTEXT_FIELDS.examples.help} unit="줄" value={context.examples} fallback={2} max={5} onChange={(value) => setContext({ examples: value })} />
+        )}
+      </div>
+      <div className="space-y-2.5 border-t border-border-subtle pt-3">
+        <ToggleRow label={CONTEXT_FIELDS.candidate.label} help={CONTEXT_FIELDS.candidate.help} checked={config.include.candidate} onChange={(value) => set({ include: { ...config.include, candidate: value } })} />
+        <ToggleRow label={CONTEXT_FIELDS.glossary.label} help={CONTEXT_FIELDS.glossary.help} checked={context.glossary} onChange={(value) => setContext({ glossary: value })} />
+        {lines && <ToggleRow label={CONTEXT_FIELDS.speech.label} help={CONTEXT_FIELDS.speech.help} checked={context.speech} onChange={(value) => setContext({ speech: value })} />}
+        <ToggleRow label={CONTEXT_FIELDS.cast.label} help={CONTEXT_FIELDS.cast.help} checked={context.cast} onChange={(value) => setContext({ cast: value })} />
+        <ToggleRow label={CONTEXT_FIELDS.characters.label} help={CONTEXT_FIELDS.characters.help} checked={context.characters} onChange={(value) => setContext({ characters: value })} />
+        <ToggleRow label={CONTEXT_FIELDS.relationships.label} help={CONTEXT_FIELDS.relationships.help} checked={context.relationships} onChange={(value) => setContext({ relationships: value })} />
+        <ToggleRow label={CONTEXT_FIELDS.documents.label} help={CONTEXT_FIELDS.documents.help} checked={context.documents} onChange={(value) => setContext({ documents: value })} />
+      </div>
+    </>
+  );
+}
+
+
+/**
+ * 입력: the previous step's result for each line, as the line's "previous" (the last node before it on the
+ * line's way that leaves a result; conditions, checks and save nodes pass it on), or that alone without the lines.
+ */
+function AiInputSection({ node, refs, set }: { node: AiNode; refs: NodeRefs; set: (patch: Partial<AiNode['config']>) => void }) {
+  const input = node.config.input;
+  const steps = previousSteps({ nodes: refs.nodes, edges: refs.edges ?? [] }, node.id);
+  const names = [...new Set(steps.flatMap(outputFieldNames))];
+  const gathered = steps.some((step) => step.type === 'gather');
+  const batch = node.config.output === 'json' && node.config.scope === 'batch';
+  const setInput = (patch: Partial<AiNode['config']['input']>) => set({ input: { ...input, ...patch } });
+  const id = (name: string) => `ai-input-${node.id}-${name}`;
+  return (
+    // Open whenever a step before it returns something, so what it can take in is in sight.
+    <InspectorSection title="입력" defaultOpen={input.previous || steps.length > 0}>
+      <div className="space-y-3">
+        <CheckItem
+          id={id('previous')}
+          label="앞 단계 결과도 함께 보내기"
+          title="선으로 이어진 바로 앞에서 결과를 내는 노드(AI·검사·스크립트·HTTP·모으기)의 결과를 대사마다 보냅니다. 조건·저장 노드는 건너뜁니다."
+          checked={input.previous}
+          onChange={(previous) => setInput({ previous, fields: [], ...(previous ? (gathered && batch ? { lines: false } : {}) : { lines: true }) })}
+        />
+        {input.previous && (
+          <div className="space-y-3 pl-6">
+            <StepChips steps={steps} refs={refs} suffix="의 결과" />
+            {names.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-xs text-muted-foreground">보낼 항목</p>
+                <div className="flex flex-wrap gap-x-4 gap-y-2">
+                  {names.map((name) => (
+                    <CheckItem key={name} id={id(`field-${name}`)} label={name} checked={input.fields.includes(name)} onChange={(on) => setInput({ fields: on ? [...input.fields, name] : input.fields.filter((field) => field !== name) })} />
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">아무것도 고르지 않으면 전부 보냅니다.</p>
+              </div>
+            )}
+            {(batch || gathered) && <CheckItem id={id('lines')} label="대사도 함께 보내기" checked={input.lines} onChange={(lines) => setInput({ lines })} />}
+          </div>
+        )}
+      </div>
+    </InspectorSection>
   );
 }

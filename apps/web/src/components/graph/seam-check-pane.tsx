@@ -9,6 +9,7 @@ import { tokenPatternOf } from '@/lib/line-context';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { cn } from '@/lib/utils';
+import { PersonName } from '@/lib/person-colors';
 
 export type SeamState = 'checked' | 'stale';
 
@@ -46,7 +47,7 @@ export function SeamCheckPane({ projectId, nodeId, onClose }: { projectId: strin
   const line = (item: Line) => (
     <li key={item.unitId} className="group flex items-start gap-2 py-2 first:pt-0 last:pb-0" data-testid="seam-line">
       <div className="min-w-0 flex-1 space-y-0.5 text-sm">
-        <p className="text-xs text-muted-foreground">{item.speaker ?? '지문·문구'}</p>
+        <p className="text-xs text-muted-foreground">{item.speaker ? <PersonName projectId={projectId} name={item.speaker} /> : '지문·문구'}</p>
         <TokenText text={item.source} source={item.source} pattern={tokens} />
         {item.translation ? <TokenText text={item.translation} source={item.source} pattern={tokens} className="text-muted-foreground" /> : <p className="text-xs text-muted-foreground">번역 없음</p>}
       </div>

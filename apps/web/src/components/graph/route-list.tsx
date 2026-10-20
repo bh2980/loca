@@ -7,6 +7,7 @@ import { isUnknownListener, listenerLabel, needsListener, PALETTE, SPECIAL_LISTE
 import { TranslationEditor } from '@/components/translation-editor';
 import { LineSourceText, MarkedSourceText, TokenText } from '@/components/editor/source-text';
 import { LineHints } from '@/components/script/line-row';
+import { usePersonColors } from '@/lib/person-colors';
 import { Button, GroupHeading, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger, ScriptReadingRow, Skeleton, TagChip, TagListEditor, type StatusLike } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { tokenPatternOf } from '@/lib/line-context';
@@ -61,6 +62,7 @@ function RouteLineRow({ projectId, row, selected, status, statusList, rules, tag
   onEscape: () => void;
   onDone: (advanced: boolean) => void;
 }) {
+  const colorOf = usePersonColors(projectId);
   const queryClient = useQueryClient();
   const patch = useMutation({
     mutationFn: (json: { tagIds?: string[] }) => unwrap(client.units[':unitId'].$patch({ param: { unitId: row!.id }, json })),
@@ -159,7 +161,7 @@ function RouteLineRow({ projectId, row, selected, status, statusList, rules, tag
   return (
     <div role="listitem" data-unit={row.id} data-selected={selected || undefined} onClick={() => !selected && onSelect()}>
       {stageLabel && <GroupHeading className="block px-4 pt-3 sm:px-6">{stageLabel}</GroupHeading>}
-      <ScriptReadingRow speaker={row.speaker} listener={listener} listenerIsPerson={listenerIsPerson} status={status} statusBy={row.statusBy} source={source} translation={translation} selected={selected} />
+      <ScriptReadingRow speaker={row.speaker} speakerColor={colorOf(row.speaker)} listener={listener} listenerIsPerson={listenerIsPerson} status={status} statusBy={row.statusBy} source={source} translation={translation} selected={selected} />
     </div>
   );
 }

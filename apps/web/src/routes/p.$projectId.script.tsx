@@ -1,13 +1,13 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createFileRoute, Link } from '@tanstack/react-router';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createFileRoute } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { MoreHorizontal, ChevronDown, ChevronRight, ChevronUp, Plus, X } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ListTree, X } from 'lucide-react';
 import { Page } from '@/components/page';
 import { GroupList, type GroupRow } from '@/components/script/group-list';
 import { filterChips, isFinding, LineList, linesSearchSchema, type LinesSearch } from '@/components/script/line-list';
 import { lineQueryParams } from '@/components/script/line-filters';
 import { SourceEditor, type SourceEditorMode, type SourceSaved } from '@/components/script/source-editor';
-import { Button, ResizableNavigationPanel, EditorToolbarProvider, EditorToolbarSlot, PageHeading, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, ResizablePanel, ResizablePanelGroup, Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
+import { Button, ContextMenuItem, ContextMenuSeparator, ResizableNavigationPanel, EditorToolbarProvider, EditorToolbarSlot, PageHeading, ResizablePanel, ResizablePanelGroup, Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
 import { askAgent } from '@/lib/agent';
 import { GROUP_KIND, SCRIPT_VIEW, SOURCE_GROUP_LABEL, SOURCE_UNIT_LABEL } from '@/lib/labels';
 import { q } from '@/lib/queries';
@@ -179,47 +179,46 @@ function Script() {
     }) });
   };
 
+  // What used to sit in a "…" menu now sits beside what it acts on: + at the scene list, a scene's
+  // right-click (edit, add a line, graph, AI summary), a line's right-click (원문 편집, add a line,
+  // graph), the list toggle and ‹ › (previous / next scene) at the title.
   const activeGroupKind = group?.kind ?? view;
-  const sourceActions = [
-    {
-      label: '추가',
-      items: [
-        ...(['scene', 'ui', 'document'] as const).map((kind) => (
-          <DropdownMenuItem key={`unit-${kind}`} onSelect={() => openSourceEditor('create-unit', kind)}><Plus />{SOURCE_UNIT_LABEL[kind]} 추가</DropdownMenuItem>
-        )),
-        <DropdownMenuItem key="group" onSelect={() => openSourceEditor('create-group', view)}><Plus />{SOURCE_GROUP_LABEL[view]} 추가</DropdownMenuItem>,
-      ],
-    },
-    {
-      label: '편집',
-      items: [
-        ...(group ? [<DropdownMenuItem key="edit-group" onSelect={() => openSourceEditor('edit-group', group.kind)}>{SOURCE_GROUP_LABEL[group.kind]} 편집</DropdownMenuItem>] : []),
-        ...(search.line ? [<DropdownMenuItem key="edit-unit" onSelect={() => openSourceEditor('edit-unit', activeGroupKind)}>{SOURCE_UNIT_LABEL[activeGroupKind]} 편집</DropdownMenuItem>] : []),
-      ],
-    },
-    {
-      label: '탐색',
-      items: [
-        <DropdownMenuItem key="toggle-list" onSelect={toggleList}>{listOpen ? `${SOURCE_GROUP_LABEL[activeGroupKind]} 목록 접기` : `${SOURCE_GROUP_LABEL[activeGroupKind]} 목록 펴기`}</DropdownMenuItem>,
-        <DropdownMenuItem key="previous" disabled={index <= 0} onSelect={() => openGroup(ordered[index - 1]?.id)}>이전 {SOURCE_GROUP_LABEL[activeGroupKind]}</DropdownMenuItem>,
-        <DropdownMenuItem key="next" disabled={index < 0 || index >= ordered.length - 1} onSelect={() => openGroup(ordered[index + 1]?.id)}>다음 {SOURCE_GROUP_LABEL[activeGroupKind]}</DropdownMenuItem>,
-        ...(group?.kind === 'scene' ? [<DropdownMenuItem key="graph" asChild><Link to="/p/$projectId/graph" params={{ projectId }} search={{ scope: 'dialogue', scene: group.id }}>그래프에서 보기</Link></DropdownMenuItem>] : []),
-      ],
-    },
-    {
-      label: 'AI',
-      items: group?.kind === 'scene' ? [<DropdownMenuItem key="summary" onSelect={() => askAgent('이 장면을 끝까지 읽고 요약해줘.', { send: true })}>AI로 장면 요약</DropdownMenuItem>] : [],
-    },
-  ].filter((section) => section.items.length > 0);
+  const groupNoun = SOURCE_GROUP_LABEL[activeGroupKind];
+  const sourceAt = (mode: SourceEditorMode, kind: Kind, groupId?: string, line?: string) =>
+    void navigate({ search: (previous) => ({ ...previous, sourceAction: mode, sourceKind: kind, ...(groupId && { group: groupId, section: undefined, review: undefined, kind: undefined }), ...(line && { line }) }) });
+  const graphOf = (groupId: string) => void navigate({ to: '/p/$projectId/graph', params: { projectId }, search: { scope: 'dialogue', scene: groupId } });
+  const groupMenu = (item: GroupRow) => (
+    <>
+      <ContextMenuItem onClick={() => sourceAt('edit-group', item.kind, item.id)}>{SOURCE_GROUP_LABEL[item.kind]} 편집</ContextMenuItem>
+      <ContextMenuItem onClick={() => sourceAt('create-unit', item.kind, item.id)}>{SOURCE_UNIT_LABEL[item.kind]} 추가</ContextMenuItem>
+      {item.kind === 'scene' && (
+        <>
+          <ContextMenuSeparator />
+          <ContextMenuItem onClick={() => graphOf(item.id)}>그래프에서 보기</ContextMenuItem>
+          <ContextMenuItem onClick={() => askAgent(`"${item.title}" 장면을 끝까지 읽고 요약해줘.`, { send: true })}>AI로 장면 요약</ContextMenuItem>
+        </>
+      )}
+    </>
+  );
+  const iconButton = (label: string, icon: ReactNode, onClick: () => void, disabled = false) => (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button variant="ghost" size="icon-sm" aria-label={label} disabled={disabled} onClick={onClick}>{icon}</Button>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
 
   const heading = <>
+    {iconButton(listOpen ? `${groupNoun} 목록 접기` : `${groupNoun} 목록 펴기`, <ListTree className={listOpen ? undefined : 'text-subtle-foreground'} />, toggleList)}
     <span className="text-sm font-semibold">{search.review ? '검토함' : SCRIPT_VIEW[view]}</span><ChevronRight className="size-3 text-muted-foreground" />
     <span className="max-w-48 truncate text-xs text-muted-foreground">{group?.title ?? selectedSection ?? (search.review ? '검토 대기' : `전체 ${view === 'scene' ? '대사' : view === 'ui' ? 'UI' : '문서'}`)}</span>
-    <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon-sm" aria-label="원문 보기 메뉴"><MoreHorizontal /></Button></DropdownMenuTrigger>
-      <DropdownMenuContent align="start">
-        {sourceActions.map((section, index) => <Fragment key={section.label}>{index > 0 && <DropdownMenuSeparator />}<DropdownMenuGroup aria-label={section.label}><DropdownMenuLabel>{section.label}</DropdownMenuLabel>{section.items}</DropdownMenuGroup></Fragment>)}
-      </DropdownMenuContent>
-    </DropdownMenu>
+    {group && (
+      <span className="flex items-center">
+        {iconButton(`이전 ${groupNoun}`, <ChevronLeft />, () => openGroup(ordered[index - 1]?.id), index <= 0)}
+        {iconButton(`다음 ${groupNoun}`, <ChevronRight />, () => openGroup(ordered[index + 1]?.id), index < 0 || index >= ordered.length - 1)}
+      </span>
+    )}
   </>;
 
   return (
@@ -241,6 +240,8 @@ function Script() {
             gq={search.gq}
             onFilter={(gq) => onSearch({ gq }, { replace: true })}
             marks={finding ? perScene : undefined}
+            onCreate={() => openSourceEditor('create-group', view)}
+            menu={groupMenu}
           />
         </ResizableNavigationPanel>
         <ResizablePanel id="lines" minSize="360px" className="flex min-w-0 flex-col">
@@ -255,6 +256,11 @@ function Script() {
             search={search}
             onSearch={onSearch}
             onOpenScene={(groupId, line) => openGroup(groupId, line)}
+            lineActions={{
+              editSource: (line) => sourceAt('edit-unit', line.groupKind, undefined, line.id),
+              addLine: (line) => sourceAt('create-unit', line.groupKind, line.groupId),
+              showInGraph: (line) => graphOf(line.groupId),
+            }}
             find={finding && search.group ? { ids: new Set(matchRows.filter((row) => row.groupId === search.group).map((row) => row.id)), label: findLabel } : undefined}
             banner={
               finding && (

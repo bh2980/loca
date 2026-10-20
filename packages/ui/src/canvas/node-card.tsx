@@ -3,7 +3,7 @@ import { AlertCircle, AlertTriangle } from "lucide-react"
 import { cn } from "../lib/utils"
 import type { CanvasDirection } from "./canvas-direction-control"
 
-export type NodeCardKind = "entry" | "ai" | "function" | "condition" | "status" | "end"
+export type NodeCardKind = "entry" | "ai" | "apply" | "function" | "condition" | "gather" | "end"
 
 export interface NodeCardPort {
   id: string
@@ -23,7 +23,10 @@ export interface NodeCardProps {
   outputs?: NodeCardPort[]
   errors?: number
   warnings?: number
-  live?: { queued: number; running: number; failed: number }
+  /** Lines waiting, being worked on and failed here; `calls`/`limit`: requests in flight and how many can be at once; `passed`: lines that went through (a run's graph). */
+  live?: { queued: number; running: number; failed: number; calls?: number; limit?: number; passed?: number }
+  /** An AI node's 동시 처리 수: shown as ×n when it sends more than one request at once. */
+  parallel?: number
   selected?: boolean
   disabled?: boolean
   direction?: CanvasDirection
@@ -35,16 +38,18 @@ export interface NodeCardProps {
 export const NODE_CARD_KIND_APPEARANCE: Record<NodeCardKind, { label: string; icon: string; header: string; dot: string; capsule?: boolean }> = {
   entry: { label: "진입", icon: "text-muted-foreground", header: "bg-node-header-neutral text-muted-foreground", dot: "bg-muted-foreground", capsule: true },
   ai: { label: "AI", icon: "text-ai", header: "bg-node-header-ai text-ai", dot: "bg-ai" },
-  function: { label: "함수", icon: "text-primary", header: "bg-node-header-check text-primary", dot: "bg-primary" },
+  // One colour per editor group: AI (보라), 반영 (파랑), 함수 (초록), 흐름 (노랑: 조건, 모으기).
+  apply: { label: "반영", icon: "text-primary", header: "bg-node-header-check text-primary", dot: "bg-primary" },
+  function: { label: "함수", icon: "text-success", header: "bg-node-header-status text-success", dot: "bg-success" },
   condition: { label: "조건", icon: "text-review-ink", header: "bg-node-header-flow text-review-ink", dot: "bg-review" },
-  status: { label: "상태 변경", icon: "text-success", header: "bg-node-header-status text-success", dot: "bg-success" },
+  gather: { label: "모으기", icon: "text-review-ink", header: "bg-node-header-flow text-review-ink", dot: "bg-review" },
   end: { label: "종료", icon: "text-muted-foreground", header: "", dot: "bg-muted-foreground", capsule: true },
 }
 
 /** Compact workflow node shared by graph renderers: capsule for entry/end, chamfered diamond for condition, rounded rectangle for actions. */
-export function NodeCard({ kind, icon, title, summary, inputHandle, outputs = [], errors = 0, warnings = 0, live, selected, disabled, direction = "vertical", className, start }: NodeCardProps) {
+export function NodeCard({ kind, icon, title, summary, inputHandle, outputs = [], errors = 0, warnings = 0, live, parallel, selected, disabled, direction = "vertical", className, start }: NodeCardProps) {
   const style = NODE_CARD_KIND_APPEARANCE[kind]
-  const hasLive = live && live.queued + live.running + live.failed > 0
+  const hasLive = live && live.queued + live.running + live.failed + (live.passed ?? 0) > 0
   const isHorizontal = direction === "horizontal"
   const isCondition = kind === "condition"
   const isCapsule = style.capsule
@@ -60,13 +65,12 @@ export function NodeCard({ kind, icon, title, summary, inputHandle, outputs = []
           isCondition && "border-b border-review/30",
           style.header
         )}>
-          <span className={cn(
-            "flex size-6 shrink-0 items-center justify-center [&_svg]:size-3.5",
-            isCondition ? "rotate-45 rounded-xs bg-review text-background shadow-xs" : style.icon
-          )}>
-            <span className={isCondition ? "-rotate-45 [&_svg]:size-3.5 [&_svg]:stroke-[2]" : undefined}>{icon}</span>
-          </span>
+          {/* The header colour already tells the group; the icon stays small and plain for every kind. */}
+          <span className={cn("flex size-4 shrink-0 items-center justify-center [&_svg]:size-3.5", style.icon)}>{icon}</span>
           <span className="min-w-0 flex-1 truncate text-sm font-semibold">{title}</span>
+          {parallel !== undefined && parallel > 1 && (
+            <span className="shrink-0 rounded-sm bg-background/60 px-1 text-xs font-medium tabular-nums text-foreground" title={`동시 처리 수 ${parallel}: 요청을 ${parallel}개까지 동시에 보냅니다`}>×{parallel}</span>
+          )}
           {errors > 0 ? (
             <span className="flex shrink-0 items-center gap-1 rounded-sm bg-destructive/10 px-1 text-xs font-medium text-destructive" title={`${errors}개 오류`}>
               <AlertCircle className="size-3" />{errors}
@@ -77,9 +81,11 @@ export function NodeCard({ kind, icon, title, summary, inputHandle, outputs = []
         </div>
         {summary && <p className={cn("px-2.5 py-1.5 text-xs text-muted-foreground", isHorizontal ? "line-clamp-2" : "min-h-7 truncate")}>{summary}</p>}
         {hasLive && <div className="flex gap-2 border-t border-border-subtle px-2.5 py-1 text-xs tabular-nums">
+          {live.limit !== undefined && (live.calls ?? 0) > 0 && <span className="font-medium text-foreground" title="동시에 보낸 요청 / 이 노드가 한 번에 보낼 수 있는 요청(동시 처리 수)">요청 {live.calls}/{live.limit}</span>}
           {live.running > 0 && <span className="font-medium text-foreground">처리 {live.running}</span>}
-          {live.queued > 0 && <span className="text-muted-foreground">대기 {live.queued}</span>}
+          {live.queued > 0 && <span className="text-muted-foreground">{kind === "gather" ? "기다리는 중" : "대기"} {live.queued}</span>}
           {live.failed > 0 && <span className="text-destructive">실패 {live.failed}</span>}
+          {(live.passed ?? 0) > 0 && <span className="text-muted-foreground" title="이 노드를 지나간 줄 (다시 지나간 줄은 한 번)">지나감 {live.passed}</span>}
         </div>}
       </div>
       {outputs.length > 0 && <div className={cn(

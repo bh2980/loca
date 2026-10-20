@@ -1,8 +1,9 @@
 import { z } from 'zod';
 import Graph from 'graphology';
-import { APPLY_TARGETS, FUNCTIONS, functionPorts, jsonFieldSchema, type ApplyFunctionName, type ApplyParams, type FunctionName, type JsonField, type Port } from './functions.ts';
+import { APPLY_TARGETS, FUNCTIONS, functionPorts, functionTakes, jsonFieldSchema, type ApplyFunctionName, type ApplyParams, type FunctionName, type JsonField, type Port } from './functions.ts';
 import { stronglyConnectedComponents } from 'graphology-components';
 import { choiceKey, draftModelChoiceSchema, EMPTY_MODEL_CHOICE, modelChoiceSchema, type ModelChoice } from './model-choice.ts';
+import { KNOWLEDGE_STATUSES } from './knowledge.ts';
 
 /**
  * What an AI node pulls into its prompt. Every field maps to stored project data.
@@ -11,11 +12,6 @@ import { choiceKey, draftModelChoiceSchema, EMPTY_MODEL_CHOICE, modelChoiceSchem
  * and documents did nothing or hurt, so they are opt-in per node.
  */
 export const contextConfigSchema = z.object({
-  /**
-   * Leave out terms and knowledge that AI confirmed and no person has looked at (✦), e.g. for a
-   * review that should check against what people decided. Off: AI-confirmed items are used too.
-   */
-  humanOnly: z.boolean().default(false),
   glossary: z.boolean().default(true),
   documents: z.boolean().default(false),
   characters: z.boolean().default(false),
@@ -31,6 +27,8 @@ export const contextConfigSchema = z.object({
    * get preceding lines at all, and in experiment E9 it reached 6 of 407 lines with no measurable effect.
    */
   precedingTranslations: z.boolean().default(false),
+  /** Term workflows: lines a term appears in (with their translations) sent with it. */
+  examples: z.number().int().min(0).max(5).default(2),
   /** Estimated token cap for everything besides the lines themselves; what does not fit is dropped and recorded. Null = auto, from the model's limits (autoBudgets). */
   maxTokens: z.number().int().min(500).max(1_000_000).nullable().default(null),
 });
@@ -85,6 +83,173 @@ export type ChoiceConfig = z.infer<typeof choiceConfigSchema>;
 
 export { jsonFieldSchema, type JsonField };
 
+/**
+ * An AI node's input. `previous`: the result of the step before it goes into the prompt as each line's
+ * "previous", trimmed to `fields` (paths like "characters.name"; empty = all of it). The step before is
+ * the last node on the line's way here that leaves a result (see leavesResult): conditions, checks and
+ * save nodes pass it on, so 청자 추정 → 확신도? → 청자 저장 → 번역 gives 번역 the 청자 추정 result.
+ * `lines: false` sends no lines at all, only the previous results (one answer for the request: json,
+ * 묶음 전체), e.g. a node after a gather that combines the parts.
+ */
+export const aiInputSchema = z
+  .object({ lines: z.boolean().default(true), previous: z.boolean().default(false), fields: z.array(z.string().trim().min(1)).default([]) })
+  .prefault({});
+
+/**
+ * What a node returns for the next steps, as fields (their "앞 단계 결과", a save node's field links,
+ * condition rows): an AI node by its output form, a function by FUNCTIONS[fn].outputs (fixed, or
+ * declared by the node: a script's or an HTTP call's fields). Null: it returns nothing and passes the
+ * line on (conditions, save nodes, status changes). A gather returns its parts.
+ */
+export function nodeOutputFields(node: WorkflowNode | undefined): JsonField[] | null {
+  if (!node) return null;
+  if (node.type === 'ai') {
+    if (node.config.output === 'json') return node.config.fields;
+    if (node.config.output === 'verdict') return [{ name: 'passed', type: 'boolean', description: '' }, { name: 'issues', type: 'strings', description: '' }];
+    if (node.config.output === 'choice') return [{ name: 'value', type: 'string', description: '' }, { name: 'confidence', type: 'number', description: '' }, { name: 'reason', type: 'string', description: '' }];
+    return [{ name: 'text', type: 'string', description: '' }];
+  }
+  if (node.type === 'gather') return [{ name: 'parts', type: 'list', description: '' }];
+  if (node.type !== 'function') return null;
+  const outputs = (FUNCTIONS[node.config.fn as FunctionName] as { outputs?: readonly JsonField[] | 'declared' } | undefined)?.outputs;
+  if (!outputs) return null;
+  return outputs === 'declared' ? ((node.config.params as { fields?: JsonField[] }).fields ?? []) : [...outputs];
+}
+
+/** Nodes whose result the next step reads (an AI node's "previous", an apply node, a gather): those that declare outputs. Others pass the line on. */
+export const leavesResult = (node: WorkflowNode | undefined) => nodeOutputFields(node) !== null;
+
+/** The id of the previous step on an item's way (`path`): the last node it passed that leaves a result, not through its error exit. */
+export function previousStepId(definition: Pick<WorkflowDefinition, 'nodes'>, path: { nodeId: string; port: string }[]): string | undefined {
+  const byId = new Map(definition.nodes.map((node) => [node.id, node]));
+  return path.findLast((visit) => visit.port !== 'error' && leavesResult(byId.get(visit.nodeId)))?.nodeId;
+}
+
+/**
+ * The nodes whose result can reach `nodeId` as "previous": going back along the edges, the first node on
+ * each way that leaves a result; a result node's error exit carries no result, so the way goes on behind it.
+ */
+export function previousSteps(definition: Pick<WorkflowDefinition, 'nodes' | 'edges'>, nodeId: string): WorkflowNode[] {
+  const byId = new Map(definition.nodes.map((node) => [node.id, node]));
+  const into = Map.groupBy(definition.edges, (edge) => edge.target);
+  const found = new Set<string>();
+  const seen = new Set<string>([nodeId]);
+  const stack = [nodeId];
+  while (stack.length)
+    for (const edge of into.get(stack.pop()!) ?? []) {
+      const source = byId.get(edge.source);
+      if (leavesResult(source) && edge.sourceHandle !== 'error' && edge.source !== nodeId) found.add(edge.source);
+      else if (!seen.has(edge.source)) {
+        seen.add(edge.source);
+        stack.push(edge.source);
+      }
+    }
+  return definition.nodes.filter((node) => found.has(node.id));
+}
+
+/**
+ * `value` trimmed to `paths` ("a", "a.b"; a path through a list applies to each of its items), or
+ * the value itself when there are none.
+ */
+export function pickPaths(value: unknown, paths: string[]): unknown {
+  if (!paths.length || value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map((item) => pickPaths(item, paths));
+  const byHead = Map.groupBy(paths.map((path) => path.split('.')), (parts) => parts[0]!);
+  const record = value as Record<string, unknown>;
+  return Object.fromEntries(
+    [...byHead].filter(([head]) => head in record).map(([head, parts]) => {
+      const rest = parts.map((part) => part.slice(1).join('.')).filter(Boolean);
+      // A path that ends here keeps the whole value; longer ones only trim inside it.
+      return [head, parts.some((part) => part.length === 1) ? record[head] : pickPaths(record[head], rest)];
+    }),
+  );
+}
+
+/** What a workflow takes in: script lines, or glossary terms. Its entry node declares it (`input`). */
+export const WORKFLOW_SUBJECTS = { lines: '대사', terms: '용어' } as const;
+export type WorkflowSubject = keyof typeof WORKFLOW_SUBJECTS;
+export const WORKFLOW_SUBJECT_IDS = Object.keys(WORKFLOW_SUBJECTS) as WorkflowSubject[];
+
+/**
+ * How the two inputs differ, in one place: the editor, validation, the runner and the CLI read this
+ * instead of asking "is it terms?" themselves. A node is core plus the extension of its workflow's
+ * input; values of the other input's extension are kept but unused.
+ */
+export const INPUT_TYPES = {
+  lines: {
+    label: '대사',
+    unit: '줄',
+    /** AI batch modes: the core (count, unit) and scenes / the whole script. */
+    batchModes: ['group', 'count', 'unit', 'whole'],
+    /** AI context settings that only lines have. */
+    contextFields: ['precedingLines', 'precedingTranslations', 'previousScenes', 'speech'],
+    /** Condition rows that only lines have (the core: node result, visits, failure, translation). */
+    conditionRows: ['status', 'lineKind', 'tag', 'mark', 'listener'],
+  },
+  terms: {
+    label: '용어',
+    unit: '개',
+    batchModes: ['count', 'unit'],
+    contextFields: ['examples'],
+    conditionRows: ['termStatus', 'hasTarget', 'uses'],
+  },
+} as const satisfies Record<WorkflowSubject, { label: string; unit: string; batchModes: readonly BatchConfig['mode'][]; contextFields: readonly (keyof ContextConfig)[]; conditionRows: readonly string[] }>;
+/** Context settings that belong to one input (shown and used only there); the rest is core. */
+export const INPUT_CONTEXT_FIELDS = new Set<string>([...INPUT_TYPES.lines.contextFields, ...INPUT_TYPES.terms.contextFields]);
+
+/** The entry node: what the workflow takes in. Which items a run takes is the run's scope (the run dialog), not the workflow's. */
+export const entryConfigSchema = z
+  .object({ input: z.enum(WORKFLOW_SUBJECT_IDS as [WorkflowSubject, ...WorkflowSubject[]]).default('lines') })
+  .prefault({});
+export type EntryConfig = z.infer<typeof entryConfigSchema>;
+/** How the editor names batch modes. */
+export const BATCH_MODE_LABELS: Record<BatchConfig['mode'], string> = { group: '장면별', count: '개수별', unit: '하나씩', whole: '대본 전체' };
+/** A workflow's input: what its entry node declares. */
+export const workflowInput = (definition: Pick<WorkflowDefinition, 'nodes'>): WorkflowSubject => {
+  const entry = definition.nodes.find((node) => node.type === 'entry');
+  return entry?.type === 'entry' ? entryConfigSchema.parse(entry.config ?? {}).input : 'lines';
+};
+/** Whether an AI preset is written for this input (presets are for lines unless they say terms). */
+export const presetTakes = (preset: { inputs?: readonly WorkflowSubject[] }, input: WorkflowSubject) => (preset.inputs ?? WORKFLOW_SUBJECT_IDS).includes(input);
+
+/**
+ * 모으기: waits until no item of the run is still open before it (every request of the nodes upstream
+ * has answered), then passes ONE item on, carrying the previous step's results of all of them (the
+ * result node before it on each item's way, see previousStepId):
+ * outputs.<gather> = { parts: [one per answer, trimmed to `fields`], count, failed }. The other items
+ * end there. After a gather the flow is "the combined result", not items: nodes that change an item
+ * are refused, and an AI node right after it reads the parts with input { previous: true, lines: false }.
+ */
+export const gatherConfigSchema = z.object({ fields: z.array(z.string().trim().min(1)).default([]) }).prefault({});
+export type GatherConfig = z.infer<typeof gatherConfigSchema>;
+
+/** Functions that write the item itself (its status, translation, listener, tags, a term's form or status). */
+export const ITEM_CHANGING_FUNCTIONS = new Set(['setStatus', 'saveCandidate', 'setListener', 'tagLines']);
+
+/** An AI node's call time limit when it does not set one, in minutes. */
+export const DEFAULT_CALL_MINUTES = 10;
+
+/**
+ * Why a line left a node through its "error" exit, as conditions read it (error.kind). The runner
+ * never splits or re-sends a failed request on its own: a workflow routes these (a retry loop, a
+ * smaller-batch node), or an exit left unconnected ends the line as failed. Rate limits and dropped connections are not the line's
+ * fault: those lines wait for a later request, and the run pauses after the workflow's
+ * "연속 실패" count.
+ */
+export const ITEM_ERROR_KINDS = {
+  missing: '답에서 빠짐',
+  'invalid-output': '형식 오류',
+  timeout: '시간 초과',
+  'too-long': '요청이 너무 김',
+  'cut-off': '출력 잘림',
+  refused: '거절',
+  /** The node does not work on this kind of item (a line-only node given a term, or the reverse). */
+  unsupported: '맞지 않는 항목',
+  other: '기타',
+} as const;
+export type ItemErrorKind = keyof typeof ITEM_ERROR_KINDS;
+export const ITEM_ERROR_KIND_IDS = Object.keys(ITEM_ERROR_KINDS) as ItemErrorKind[];
+
 export const aiNodeConfigSchema = z.object({
   model: draftModelChoiceSchema.default({ ...EMPTY_MODEL_CHOICE }),
   /** More models sharing this node's work: each request goes to whichever account has a free slot. */
@@ -99,16 +264,20 @@ export const aiNodeConfigSchema = z.object({
   choice: choiceConfigSchema.default(choiceConfigSchema.parse({})),
   /** The preset this node was filled from (shown as a hint; the node is an ordinary AI node). */
   preset: z.string().optional(),
-  /** Also show the model the line's current candidate / the latest failing issues. */
-  include: z
-    .object({ candidate: z.boolean().default(true), issues: z.boolean().default(true) })
-    .default({ candidate: true, issues: true }),
+  /** Also show the model the line's current translation (문맥 › 지금 번역). */
+  include: z.object({ candidate: z.boolean().default(true) }).default({ candidate: true }),
   context: contextConfigSchema.default(contextConfigSchema.parse({})),
   batch: batchConfigSchema.default(batchConfigSchema.parse({})),
+  /** How long one request of this node may take before it fails with error kind "timeout". */
+  timeoutMinutes: z.number().int().min(1).max(240).default(DEFAULT_CALL_MINUTES),
+  /** How many of this node's requests a run sends at once (each one a model process for a CLI connection). */
+  concurrency: z.number().int().min(1).max(16).default(1),
+  /** What the request reads besides the context: the lines, and what an earlier node produced for them. */
+  input: aiInputSchema,
 });
 
 export const workflowNodeSchema = z.discriminatedUnion('type', [
-  z.object({ ...base, type: z.literal('entry'), config: z.object({ statusIds: z.array(z.string()).default([]) }) }),
+  z.object({ ...base, type: z.literal('entry'), config: entryConfigSchema }),
   z.object({ ...base, type: z.literal('ai'), config: aiNodeConfigSchema }),
   z.object({ ...base, type: z.literal('function'), config: z.object({ fn: z.string(), params: z.record(z.string(), z.unknown()).default({}) }) }),
   z.object({
@@ -118,6 +287,7 @@ export const workflowNodeSchema = z.discriminatedUnion('type', [
     config: z.object({ expression: z.unknown(), description: z.string().default('') }),
   }),
   z.object({ ...base, type: z.literal('end'), config: z.object({}).default({}) }),
+  z.object({ ...base, type: z.literal('gather'), config: gatherConfigSchema }),
 ]);
 
 export const workflowEdgeSchema = z.object({
@@ -193,6 +363,7 @@ export const NODE_TYPES: Record<WorkflowNodeType, NodeTypeInfo> = {
   function: { label: '함수', description: '형식 검사·상태 변경·HTTP 호출·스크립트 등 정해진 동작을 실행합니다.', hasInput: true },
   condition: { label: '조건', description: '방문 횟수·앞 노드의 출력·대사 속성 등으로 분기합니다.', hasInput: true },
   end: { label: '종료', description: '대사의 흐름을 마칩니다.', hasInput: true },
+  gather: { label: '모으기', description: '앞 노드의 결과를 모든 요청이 끝날 때까지 모았다가, 합친 결과 하나를 다음 노드로 넘깁니다.', hasInput: true },
 };
 
 const OUT: Port[] = [{ id: 'out', label: '완료' }];
@@ -211,6 +382,8 @@ export function nodePorts(node: WorkflowNode): Port[] {
       return [{ id: 'true', label: '참' }, { id: 'false', label: '거짓' }];
     case 'end':
       return [];
+    case 'gather':
+      return [{ id: 'out', label: '다음' }];
   }
 }
 
@@ -229,8 +402,12 @@ export interface ConditionData {
   outputs: Record<string, Record<string, unknown>>;
   candidate: string | null;
   issues: string[];
-  /** marks: the line's automatic marks right now (lineMarksOf in marks.ts; diverged is only known to the list filter). */
-  unit: { kind: string; speaker: string | null; listener: string | null; statusId: string; tagIds: string[]; marks: string[] };
+  /** marks: the line's automatic marks right now (lineMarksOf in marks.ts; diverged is only known to the list filter). Line workflows. */
+  unit?: { kind: string; speaker: string | null; listener: string | null; statusId: string; tagIds: string[]; marks: string[] };
+  /** The term (runs on terms): its status, who decided it, whether it has a Korean form, lines it appears in, marks (termMarksOf), tags. */
+  term?: { status: string; statusBy: string; hasTarget: boolean; lines: number | null; marks: string[]; tagIds: string[] };
+  /** The last failure that sent the line out through an "error" exit (null once a node handles it). */
+  error: { kind: ItemErrorKind; message: string; nodeId: string } | null;
 }
 
 export interface WorkflowIssue {
@@ -253,6 +430,8 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
   const issues: WorkflowIssue[] = [];
   const error = (message: string, at: Pick<WorkflowIssue, 'nodeId' | 'edgeId'> = {}) => issues.push({ level: 'error', message, ...at });
   const warn = (message: string, at: Pick<WorkflowIssue, 'nodeId' | 'edgeId'> = {}) => issues.push({ level: 'warning', message, ...at });
+  const input = workflowInput(definition);
+  const inputType = INPUT_TYPES[input];
 
   const graph = new Graph({ type: 'directed', multi: true, allowSelfLoops: true });
   for (const node of definition.nodes) {
@@ -324,6 +503,7 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
     }
     if (node.type === 'ai') {
       const { model, extraModels } = node.config;
+      if (!(inputType.batchModes as readonly string[]).includes(node.config.batch.mode)) error(`${inputType.label} 입력에서는 묶음을 ${inputType.batchModes.map((mode) => BATCH_MODE_LABELS[mode]).join('·')}(으)로 정합니다.`, { nodeId: node.id });
       if (!model.connectionId || !model.model) error('AI 연결과 모델을 고르세요.', { nodeId: node.id });
       else if (!refs.connections.has(model.connectionId)) error('고른 AI 연결이 삭제되었습니다. 다시 고르세요.', { nodeId: node.id });
       if (extraModels.some((choice) => !choice.connectionId || !choice.model)) error('추가한 모델을 고르거나 그 칸을 지우세요.', { nodeId: node.id });
@@ -332,9 +512,28 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
       if (node.config.output === 'json' && node.config.fields.some((field) => field.type === 'list' && !field.fields?.length)) error('목록 필드에는 항목 필드가 하나 이상 필요합니다.', { nodeId: node.id });
       if (node.config.output === 'choice' && node.config.choice.source === 'custom' && !node.config.choice.values.length) error('선택지를 하나 이상 적으세요.', { nodeId: node.id });
       if (node.config.scope === 'batch' && node.config.output !== 'json') error("'묶음 전체' 출력은 JSON에서만 쓸 수 있습니다.", { nodeId: node.id });
+      const input = aiInputSchema.parse(node.config.input ?? {});
+      if (input.previous) {
+        if (!previousSteps(definition, node.id).length) error('앞 단계에 결과를 내는 노드(AI·스크립트·모으기)가 없습니다.', { nodeId: node.id });
+        if (node.config.batch.mode === 'whole') error('대본 전체로 읽는 노드에는 앞 단계 결과를 넣을 수 없습니다.', { nodeId: node.id });
+      }
+      if (!input.lines && !(input.previous && node.config.output === 'json' && node.config.scope === 'batch')) error('대사 없이 보내려면 앞 단계 결과를 넣고, 출력을 JSON · 묶음 전체로 하세요.', { nodeId: node.id });
     }
-    if (node.type === 'entry')
-      for (const id of node.config.statusIds) if (!refs.statusIds.has(id)) error('삭제된 상태가 있습니다.', { nodeId: node.id });
+    if (node.type === 'gather') {
+      const steps = previousSteps(definition, node.id);
+      if (!steps.length) error('모으기 앞 단계에 결과를 내는 AI·스크립트 노드가 없습니다.', { nodeId: node.id });
+      else if (steps.some((step) => step.type === 'gather')) error('모으기 바로 앞 단계가 또 모으기일 수는 없습니다.', { nodeId: node.id });
+      const after = [...reach(node.id)].filter((id) => id !== node.id);
+      // A gather inside a loop would close more than once per pass and never know when it is done.
+      if ((graph.outNeighbors(node.id) as string[]).some((next) => reach(next).has(node.id))) error('모으기는 되돌아가는 고리 안에 둘 수 없습니다.', { nodeId: node.id });
+      for (const id of after) {
+        const next = definition.nodes.find((other) => other.id === id)!;
+        // After a gather one item carries the combined result: nothing may change "the item".
+        if (next.type === 'function' && ITEM_CHANGING_FUNCTIONS.has(next.config.fn)) error(`'${nodeName(next)}'는 모으기 뒤에 둘 수 없습니다. 모은 뒤에는 대사·용어가 아니라 합친 결과 하나가 흐릅니다.`, { nodeId: next.id });
+        if (next.type === 'ai' && next.config.input.lines) error('모으기 뒤의 AI 노드는 입력에서 대사를 빼고(대사도 넣기 끔) 모은 결과를 읽어야 합니다.', { nodeId: next.id });
+      }
+    }
+    if (node.type === 'function' && !functionTakes(node.config.fn, input)) error(`'${nodeName(node)}'는 ${inputType.label} 입력 워크플로에 쓸 수 없는 노드입니다.`, { nodeId: node.id });
     if (node.type === 'function') {
       const info = FUNCTIONS[node.config.fn as FunctionName];
       if (!info) {
@@ -348,7 +547,8 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
       }
       const params = parsed.data as Record<string, unknown>;
       if (node.config.fn === 'setStatus') {
-        if (params.statusId && !refs.statusIds.has(params.statusId as string)) error('삭제된 상태입니다.', { nodeId: node.id });
+        const known = input === 'terms' ? (KNOWLEDGE_STATUSES as readonly string[]).includes(params.statusId as string) : refs.statusIds.has(params.statusId as string);
+        if (params.statusId && !known) error('삭제된 상태입니다.', { nodeId: node.id });
         for (const id of [...(params.addTagIds as string[]), ...(params.removeTagIds as string[])])
           if (!refs.tagIds.has(id)) error('삭제된 태그가 있습니다.', { nodeId: node.id });
       }
@@ -356,7 +556,7 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
         if (!/^https?:\/\//.test(String(params.url).trim())) error('HTTP 호출할 주소(https://…)를 입력하세요.', { nodeId: node.id });
         if (params.connectionId && !refs.toolConnectionIds.has(params.connectionId as string)) error('삭제된 API 키입니다.', { nodeId: node.id });
       }
-      if (node.config.fn in APPLY_TARGETS) for (const message of applyIssues(definition, node.config.fn as ApplyFunctionName, params as ApplyParams)) error(message, { nodeId: node.id });
+      if (node.config.fn in APPLY_TARGETS) for (const message of applyIssues(definition, node.id, node.config.fn as ApplyFunctionName, params as ApplyParams)) error(message, { nodeId: node.id });
     }
     if (node.type === 'condition' && (node.config.expression === undefined || node.config.expression === null))
       error('조건식을 입력하세요.', { nodeId: node.id });
@@ -390,14 +590,13 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
 }
 
 /**
- * What is wrong with an apply node's source and mapping: the source must be an AI or script node
- * before it, a `list` target needs the list field, and every required field must be mapped.
+ * What is wrong with an apply node's source and mapping: the previous step (along the edges) must be an
+ * AI or script node, a `list` target needs the list field, and every required field must be mapped.
  */
-export function applyIssues(definition: WorkflowDefinition, fn: ApplyFunctionName, params: ApplyParams): string[] {
+export function applyIssues(definition: Pick<WorkflowDefinition, 'nodes' | 'edges'>, nodeId: string, fn: ApplyFunctionName, params: ApplyParams): string[] {
   const target = APPLY_TARGETS[fn];
-  const from = definition.nodes.find((other) => other.id === params.fromNodeId);
-  if (!params.fromNodeId) return ['결과를 가져올 노드를 고르세요.'];
-  if (!from || !(from.type === 'ai' || (from.type === 'function' && from.config.fn === 'script'))) return ['결과를 가져올 AI·스크립트 노드를 고르세요.'];
+  const steps = previousSteps(definition, nodeId);
+  if (!steps.length || steps.some((step) => step.type === 'gather')) return ['앞 단계에 결과를 내는 AI·스크립트 노드가 없습니다. 반영할 결과를 내는 노드 뒤에 이으세요.'];
   const issues: string[] = [];
   if (target.shape === 'list' && !params.list) issues.push('항목을 가져올 목록 필드를 고르세요.');
   const missing = target.fields.filter((field) => 'required' in field && field.required && !params.map[field.name]);
@@ -424,12 +623,8 @@ export function readinessUses(definition: WorkflowDefinition) {
   };
 }
 
-/** Whether a run picks its lines by status (its entry names statuses and the scope does not ignore them): such a run never overwrites a translation a person saved (#51). */
-export const filtersByStatus = (definition: WorkflowDefinition, scope: { statusIds?: string[]; ignoreStatus?: boolean }) => {
-  const entry = definition.nodes.find((node) => node.type === 'entry');
-  const statusIds = scope.statusIds ?? (entry?.type === 'entry' ? entry.config.statusIds : []);
-  return statusIds.length > 0 && !scope.ignoreStatus;
-};
+/** Whether a run picks its lines by status (the run dialog's status filter): such a run never overwrites a translation a person saved (#51). */
+export const filtersByStatus = (scope: { statusIds?: string[] }) => Boolean(scope.statusIds?.length);
 
 /**
  * Keeps the entry node and its connections to the root work node(s) in sync:
@@ -444,7 +639,7 @@ export function syncEntryEdges(definition: WorkflowDefinition): WorkflowDefiniti
 
   let entry = nodes.find((node) => node.type === 'entry');
   if (!entry) {
-    entry = { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: { statusIds: [] } };
+    entry = { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: entryConfigSchema.parse({}) };
     nodes = [entry, ...nodes];
   }
 

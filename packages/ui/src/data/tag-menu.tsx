@@ -8,6 +8,9 @@ import {
   DropdownMenuContent,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "../primitives/dropdown-menu"
 import { SelectionLabel } from "./picked-bar"
@@ -26,11 +29,10 @@ export interface TagMenuProps {
   className?: string
 }
 
-export function TagMenu({ tags, state, onToggle, heading, onCreate, triggerLabel, className }: TagMenuProps) {
+/** The tag list and the new-tag field, as the content of a menu or a submenu. */
+function TagMenuItems({ tags, state, onToggle, heading, onCreate }: Pick<TagMenuProps, "tags" | "state" | "onToggle" | "heading" | "onCreate">) {
   const [newTagName, setNewTagName] = useState("")
   const [creating, setCreating] = useState(false)
-
-  if (!tags.length && !onCreate) return null
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -46,14 +48,7 @@ export function TagMenu({ tags, state, onToggle, heading, onCreate, triggerLabel
   }
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="xs" aria-label="태그 붙이기·떼기" className={cn("h-6 gap-1 px-2 text-xs", className)}>
-          <Tags className="size-3 opacity-70" />
-          <SelectionLabel>{triggerLabel ?? "태그"}</SelectionLabel>
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-56 p-1">
+    <>
         <DropdownMenuLabel className="text-2xs text-muted-foreground uppercase tracking-wider">
           {heading}
         </DropdownMenuLabel>
@@ -103,8 +98,41 @@ export function TagMenu({ tags, state, onToggle, heading, onCreate, triggerLabel
             </div>
           </>
         )}
+    </>
+  )
+}
+
+export function TagMenu({ tags, state, onToggle, heading, onCreate, triggerLabel, className }: TagMenuProps) {
+  if (!tags.length && !onCreate) return null
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" size="xs" aria-label="태그 붙이기·떼기" className={cn("h-6 gap-1 px-2 text-xs", className)}>
+          <Tags className="size-3 opacity-70" />
+          <SelectionLabel>{triggerLabel ?? "태그"}</SelectionLabel>
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-56 p-1">
+        <TagMenuItems tags={tags} state={state} onToggle={onToggle} heading={heading} onCreate={onCreate} />
       </DropdownMenuContent>
     </DropdownMenu>
+  )
+}
+
+/** The same picker as a submenu of another dropdown menu (a line's ⋯ menu). */
+/** `icon` false: in a menu whose other items have none. */
+export function TagSubMenu({ tags, state, onToggle, heading, onCreate, label = "태그 붙이기·떼기", icon = true }: Pick<TagMenuProps, "tags" | "state" | "onToggle" | "heading" | "onCreate"> & { label?: string; icon?: boolean }) {
+  return (
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger>
+        {icon && <Tags />}
+        {label}
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent className="w-56 p-1">
+        <TagMenuItems tags={tags} state={state} onToggle={onToggle} heading={heading} onCreate={onCreate} />
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
   )
 }
 

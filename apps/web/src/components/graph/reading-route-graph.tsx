@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Button, CanvasSurface, CanvasToolbar, Empty, EmptyDescription, EmptyHeader, EmptyTitle, Spinner } from '@loca/ui';
+import { Button, CanvasSurface, Empty, EmptyDescription, EmptyHeader, EmptyTitle, Spinner } from '@loca/ui';
 import { useSize } from '@/hooks/use-size';
 import { q } from '@/lib/queries';
 import { useQuery } from '@tanstack/react-query';
@@ -35,17 +35,9 @@ export function ReadingRouteGraph({ projectId, stages, routeKey, direction, onDi
   const graph = useQuery(q.graph(projectId, 'dialogue'));
   const [container, size] = useSize<HTMLDivElement>();
   const canvas = useRef<GraphCanvasHandle>(null);
-  const latestK = useRef(1);
   const viewportKey = `tw.graph.reading-route.v6.${projectId}.${routeKey}.${direction}`;
   const initialViewport = readViewport(viewportKey);
-  const [zoomK, setZoomK] = useState(() => initialViewport?.k ?? 1);
   const previousEdit = useRef({ routeKey, edit });
-
-  useEffect(() => {
-    const saved = readViewport(viewportKey);
-    latestK.current = saved?.k ?? 1;
-    setZoomK(saved?.k ?? 1);
-  }, [viewportKey]);
 
   const routeNodes = useMemo(() => {
     const sourceNodes = new Map((graph.data?.nodes ?? []).map((node) => [node.id, node]));
@@ -125,6 +117,7 @@ export function ReadingRouteGraph({ projectId, stages, routeKey, direction, onDi
             key={viewportKey}
             handle={canvas}
             direction={direction}
+            onDirectionChange={onDirectionChange}
             nodes={nodes}
             edges={edges}
             info={info}
@@ -135,21 +128,9 @@ export function ReadingRouteGraph({ projectId, stages, routeKey, direction, onDi
             initialFocusAlign={selectedNodeId ? 'center' : direction === 'horizontal' ? 'left' : 'top'}
             initialFocus={initialViewport ? undefined : selectedNodeId ?? routeNodes[0]?.id}
             onViewportChange={(viewport) => {
-              latestK.current = viewport.k;
-              setZoomK(viewport.k);
               try { sessionStorage.setItem(viewportKey, JSON.stringify(viewport)); } catch { /* ignore unavailable storage */ }
             }}
             onSelect={(id) => onEdit(routeNodes.find((node) => node.id === id)?.firstUnitId || undefined)}
-          />
-          <CanvasToolbar
-            direction={direction}
-            onDirectionChange={onDirectionChange}
-            zoomPercent={zoomK * 100}
-            onZoomIn={() => canvas.current?.zoomBy(1.25)}
-            onZoomOut={() => canvas.current?.zoomBy(0.8)}
-            onFit={() => canvas.current?.fit()}
-            onResetZoom={() => canvas.current?.zoomBy(1 / latestK.current)}
-            className="absolute bottom-3 right-3 z-30"
           />
         </>
       )}

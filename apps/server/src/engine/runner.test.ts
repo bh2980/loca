@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { importFileSchema, workflowDefinitionSchema } from '@tw/shared';
+import { importFileSchema, validateWorkflow, workflowDefinitionSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
@@ -13,7 +13,7 @@ import { createRun } from './run-create.ts';
 function setup(lines = 30) {
   const db = openDatabase(':memory:');
   const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1' }).returning().get();
-  db.update(s.connections).set({ outputTokens: 1000, timeoutSeconds: 30, maxAttempts: 1 }).where(eq(s.connections.id, connection.id)).run();
+  db.update(s.connections).set({ outputTokens: 1000, maxAttempts: 1 }).where(eq(s.connections.id, connection.id)).run();
   const choice = { connectionId: connection.id, model: 'm' };
   const file = importFileSchema.parse({
     format: 'loca/v1',
@@ -126,8 +126,8 @@ describe('workflow runner', () => {
       expect(item.visits.review).toBe(3);
       expect(item.visits.revise).toBe(2);
       expect(item.data.issues).toEqual(['어색함']);
-      expect(item.data.candidateText).toBe(`[revise] ${units.get(item.unitId)!.source}`);
-      expect(statuses.get(units.get(item.unitId)!.statusId)).toBe('사람 확인 필요');
+      expect(item.data.candidateText).toBe(`[revise] ${units.get(item.subjectId)!.source}`);
+      expect(statuses.get(units.get(item.subjectId)!.statusId)).toBe('사람 확인 필요');
     }
     // Batches are per scene (size 30), so each pass over 30 lines is one call.
     expect(model.calls.filter((call) => call === 'translate')).toHaveLength(1);
@@ -194,7 +194,7 @@ describe('choice output', () => {
         return { object: { results: entries.map((entry, index) => ({ id: entry.id, value: index === 0 ? 'Pat' : index === 1 ? 'Nobody' : null, confidence: 0.95 })) }, usage: {} } as never;
       },
     });
-    const { runId } = start(db, projectId, workflow, { ignoreStatus: true });
+    const { runId } = start(db, projectId, workflow, {});
     await runner.drain();
 
     expect(seen[0].system).toContain('Options for "value": "Alice", "Pat", "group", "public", "self". Use null when none of them fits.');
@@ -207,11 +207,11 @@ describe('choice output', () => {
 });
 
 describe('json output', () => {
-  it('line scope: fields per line, evidence as line keys; a line the answer left out is asked again', async () => {
+  it('line scope: fields per line, evidence as line keys; a line the answer left out leaves through "error", and the workflow sends it back', async () => {
     const { db, projectId, choice } = setup(3);
     const definition = flow(
       { tone: ai(choice, { output: 'json', instructions: 'Describe.', fields: [{ name: 'tone', type: 'string' }, { name: 'because', type: 'lines' }], batch: { mode: 'count', size: 3, maxTokens: 6000 } }) },
-      ['entry -> tone', 'tone -> end'],
+      ['entry -> tone', 'tone -> end', 'tone.error -> tone'],
     );
     const workflow = save(db, projectId, definition);
     let calls = 0;
@@ -224,7 +224,7 @@ describe('json output', () => {
         const entries = promptEntries(request.prompt) as { id: string }[];
         // The first call leaves the last line out.
         const answered = calls === 1 ? entries.slice(0, -1) : entries;
-        return { object: { results: answered.map((entry) => ({ id: entry.id, tone: `t${entry.id}`, because: ['1', 'x'] })) }, usage: {} } as never;
+        return { object: { results: answered.map((entry) => ({ id: entry.id, tone: `t${entry.id}`, because: ['L1', 'x'] })) }, usage: {} } as never;
       },
     });
     const { runId } = start(db, projectId, workflow);
@@ -233,10 +233,10 @@ describe('json output', () => {
     const items = db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all();
     expect(items.every((item) => item.state === 'done')).toBe(true);
     const units = db.select().from(s.units).where(eq(s.units.projectId, projectId)).orderBy(s.units.sort).all();
-    const byUnit = new Map(items.map((item) => [item.unitId, item.data.outputs!.tone]));
-    // "1" is the first line of the request each time; its key is that request's first line's.
-    expect(byUnit.get(units[0].id)).toEqual({ tone: 't1', because: [units[0].key] });
-    expect(byUnit.get(units[1].id)).toMatchObject({ tone: 't2' });
+    const byUnit = new Map(items.map((item) => [item.subjectId, item.data.outputs!.tone]));
+    // "L1" is the first line of the request each time; its key is that request's first line's.
+    expect(byUnit.get(units[0].id)).toEqual({ tone: 'tL1', because: [units[0].key] });
+    expect(byUnit.get(units[1].id)).toMatchObject({ tone: 'tL2' });
   });
 
   it('batch scope: one answer for the request, carried by the first line only (batchLeader)', async () => {
@@ -260,7 +260,7 @@ describe('json output', () => {
       },
       generate: (async (_route: unknown, request: { system: string }) => {
         seen.push(request);
-        return { object: { terms: [{ source: 'artifact', evidence: ['2'] }] }, usage: {} };
+        return { object: { terms: [{ source: 'artifact', evidence: ['L2'] }] }, usage: {} };
       }) as never,
     });
     const { runId } = start(db, projectId, workflow);
@@ -269,7 +269,7 @@ describe('json output', () => {
     expect(seen[0].system).toContain('Answer as one JSON object');
     const items = db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all();
     const units = new Map(db.select().from(s.units).where(eq(s.units.projectId, projectId)).all().map((unit) => [unit.id, unit]));
-    const outputs = items.sort((a, b) => units.get(a.unitId)!.seq - units.get(b.unitId)!.seq).map((item) => item.data.outputs!.terms);
+    const outputs = items.sort((a, b) => units.get(a.subjectId)!.seq - units.get(b.subjectId)!.seq).map((item) => item.data.outputs!.terms);
     expect(outputs).toEqual([
       { terms: [{ source: 'artifact', evidence: [expect.stringMatching(/^u\d$/)] }], batchLeader: true },
       { batchLeader: false },
@@ -312,7 +312,7 @@ describe('function nodes', () => {
             },
           },
         },
-        http: fn('http', { url: `http://127.0.0.1:${port}/spell`, connectionId: tool.id, body: '{ "text": "{{candidate}}" }', resultPath: 'result.text' }),
+        http: fn('http', { url: `http://127.0.0.1:${port}/spell`, connectionId: tool.id, body: '{ "text": "{{candidate}}" }', fields: [{ name: 'text', type: 'string', description: '' }], paths: { text: 'result.text' } }),
         confirm: fn('setStatus', { statusId: confirmed.id }),
       },
       ['entry -> translate', 'translate -> script', 'script.first -> http', 'script.other -> confirm', 'http -> confirm', 'confirm -> end'],
@@ -327,7 +327,7 @@ describe('function nodes', () => {
     expect(items.map((item) => item.state)).toEqual(['done', 'done', 'done']);
     const units = db.select().from(s.units).where(eq(s.units.projectId, projectId)).all();
     const byKey = new Map(units.map((unit) => [unit.key, unit]));
-    const textOf = (key: string) => items.find((item) => item.unitId === byKey.get(key)!.id)!.data.candidateText;
+    const textOf = (key: string) => items.find((item) => item.subjectId === byKey.get(key)!.id)!.data.candidateText;
     // Only the first line took the "first" exit through the HTTP tool, which appended "!".
     expect(textOf('u0')).toBe('[[translate] Hi {name}]!');
     expect(textOf('u1')).toBe('[[translate] Line 1]');
@@ -369,7 +369,7 @@ describe('who set the status', () => {
     const initial = statuses.find((status) => status.kind === 'initial')!;
     const final = statuses.find((status) => status.kind === 'final')!;
     const call = (data: Record<string, unknown>) =>
-      db.transaction((tx) => syncFunctions.setStatus!(tx as never, { statusId: final.id }, { unit, item: { data }, tagIds: [], projectId, runId: 'r' } as never));
+      db.transaction((tx) => syncFunctions.setStatus!(tx as never, { statusId: final.id }, { subject: 'lines', unit, item: { data }, tagIds: [], projectId, runId: 'r' } as never));
 
     // A person saved '내 번역' after the run started: the run keeps their text and status (#51).
     db.update(s.units).set({ translation: '내 번역', statusBy: 'human' }).where(eq(s.units.id, unit.id)).run();
@@ -387,10 +387,68 @@ describe('who set the status', () => {
 
   it('protects a person\'s translation only in runs that pick lines by status', async () => {
     const { filtersByStatus } = await import('@tw/shared');
-    const entry = (statusIds: string[]) => ({ nodes: [{ id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: { statusIds } }], edges: [] }) as never;
-    expect(filtersByStatus(entry(['untranslated']), {})).toBe(true);
-    // '상태 무시' or a workflow without a status filter (말투만 고치기) is asked to rewrite the lines it names.
-    expect(filtersByStatus(entry(['untranslated']), { ignoreStatus: true })).toBe(false);
-    expect(filtersByStatus(entry([]), {})).toBe(false);
+    expect(filtersByStatus({ statusIds: ['untranslated'] })).toBe(true);
+    // A run without a status filter (말투만 고치기 on picked lines) is asked to rewrite the lines it names.
+    expect(filtersByStatus({ statusIds: [] })).toBe(false);
+    expect(filtersByStatus({})).toBe(false);
+  });
+});
+
+describe('an AI node reading the previous step’s result', () => {
+  it('sends each line the previous step’s result, trimmed to the chosen fields, as "previous": nodes without a result in between pass it on', async () => {
+    const { db, projectId, choice } = setup(2);
+    const definition = flow(
+      {
+        who: ai(choice, { output: 'json', instructions: 'Who is addressed?', fields: [{ name: 'listener', type: 'string' }, { name: 'reason', type: 'string' }] }),
+        sure: { type: 'condition', position: at, config: { expression: true } },
+        translate: ai(choice, { output: 'text', instructions: 'Translate.', input: { previous: true, fields: ['listener'] } }),
+      },
+      ['entry -> who', 'who -> sure', 'sure.true -> translate', 'sure.false -> translate', 'translate -> end'],
+    );
+    const seen: { system: string; prompt: string }[] = [];
+    const runner = new Runner(db, memoryStore(), {
+      judge: async () => {
+        throw new Error('unused');
+      },
+      generate: async (_route, request) => {
+        seen.push(request);
+        const lines = promptEntries(request.prompt) as { id: string }[];
+        if (request.system.includes('Who is addressed?')) return { object: { results: lines.map((line) => ({ id: line.id, listener: `P${line.id}`, reason: 'why' })) }, usage: {} } as never;
+        return { object: { results: lines.map((line) => ({ id: line.id, text: 'ko' })) }, usage: {} } as never;
+      },
+    });
+    start(db, projectId, save(db, projectId, definition));
+    await runner.drain();
+    const translate = seen.find((request) => request.system.includes('Translate.'))!;
+    expect(translate.system).toContain('"previous" is what an earlier node');
+    expect((promptEntries(translate.prompt) as { previous?: unknown }[]).map((line) => line.previous)).toEqual([{ listener: 'PL1' }, { listener: 'PL2' }]);
+  });
+
+  it('without lines sends only the previous results, for one answer', async () => {
+    const { db, projectId, choice } = setup(2);
+    const definition = flow(
+      {
+        part: ai(choice, { output: 'json', scope: 'batch', instructions: 'Read.', fields: [{ name: 'people', type: 'strings' }] }),
+        combine: ai(choice, { output: 'json', scope: 'batch', instructions: 'Combine.', fields: [{ name: 'people', type: 'strings' }], input: { previous: true, lines: false } }),
+      },
+      ['entry -> part', 'part -> combine', 'combine -> end'],
+    );
+    expect(validateWorkflow(definition, { statusIds: new Set(), connections: new Set([choice.connectionId]) } as never).filter((issue) => issue.level === 'error')).toEqual([]);
+    const seen: { system: string; prompt: string }[] = [];
+    const runner = new Runner(db, memoryStore(), {
+      judge: async () => {
+        throw new Error('unused');
+      },
+      generate: async (_route, request) => {
+        seen.push(request);
+        return { object: { people: ['Alice'] }, usage: {} } as never;
+      },
+    });
+    start(db, projectId, save(db, projectId, definition));
+    await runner.drain();
+    const combine = JSON.parse(seen.find((request) => request.system.includes('Combine.'))!.prompt);
+    expect(combine.scenes).toBeUndefined();
+    // One part's answer (its first line carries it); the other lines have nothing to pass on.
+    expect(combine.previous).toEqual([{ people: ['Alice'] }]);
   });
 });

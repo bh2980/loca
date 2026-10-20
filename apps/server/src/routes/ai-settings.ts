@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { and, asc, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import * as ai from '@tw/ai';
-import { CONNECTION_KIND_INFO, connectionInputSchema, patchOf, type ModelChoice } from '@tw/shared';
+import { CALL_TIMEOUT_MS, CONNECTION_KIND_INFO, connectionInputSchema, patchOf, type ModelChoice } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
@@ -172,14 +172,14 @@ export const modelTestRoutes = new Hono<Env>()
       const call = { projectId: null, kind: 'test' as const, refId: connection.id, label: `모델 시험 · ${choiceLabel(connection.name, choice)}` };
       const { result, route, attempts } = await ai.withFallback(live.routes, live.snapshot.maxAttempts, (route) =>
         logged(db, call, route, () => route.kind === 'systemone'
-          ? ai.judge(route, { state: { source }, instructions: 'Is this text well-formed?', timeoutMs: live.snapshot.timeoutSeconds * 1000 }).then((judged) => ({ text: judged.passed ? 'pass' : 'fail', usage: judged.usage }))
+          ? ai.judge(route, { state: { source }, instructions: 'Is this text well-formed?', timeoutMs: CALL_TIMEOUT_MS.connectionTest }).then((judged) => ({ text: judged.passed ? 'pass' : 'fail', usage: judged.usage }))
           : ai
               .generate(route, {
                 system: `Translate the text into ${targetLanguage}.`,
                 prompt: source,
                 schema: z.object({ text: z.string() }),
                 maxOutputTokens: live.snapshot.maxOutputTokens,
-                timeoutMs: live.snapshot.timeoutSeconds * 1000,
+                timeoutMs: CALL_TIMEOUT_MS.connectionTest,
               })
               .then((generated) => ({ text: generated.object.text, usage: generated.usage })),
         ),

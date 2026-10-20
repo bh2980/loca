@@ -7,6 +7,12 @@ import { z } from 'zod';
 export const KNOWLEDGE_STATUSES = ['candidate', 'confirmed', 'rejected'] as const;
 /** Who made the content. "script": found in the script by code (glossary candidates). */
 export const KNOWLEDGE_ORIGINS = ['human', 'ai', 'import', 'script'] as const;
+/** A correction to the 사건 흐름's derived lines: a line drawn by hand, or a derived line dropped. */
+export const EVENT_LINK_KINDS = ['added', 'hidden'] as const;
+/** Where a dialogue-graph node or line came from: the imported file, a person in the app, the AI. */
+export const GRAPH_ORIGINS = ['import', 'human', 'ai'] as const;
+export type GraphOrigin = (typeof GRAPH_ORIGINS)[number];
+export type EventLinkKind = (typeof EVENT_LINK_KINDS)[number];
 export type KnowledgeStatus = (typeof KNOWLEDGE_STATUSES)[number];
 export type KnowledgeOrigin = (typeof KNOWLEDGE_ORIGINS)[number];
 export const KNOWLEDGE_STATUS_LABELS: Record<KnowledgeStatus, string> = { candidate: '후보', confirmed: '확정', rejected: '버림' };
@@ -35,37 +41,22 @@ export const sourceOf = (item: { origin: KnowledgeOrigin }): KnowledgeSource => 
 /** Nothing left to decide: confirmed by a person. Everything else can be confirmed or discarded. */
 export const isSettled = (item: { status: KnowledgeStatus; statusBy: StatusBy }) => item.status === 'confirmed' && item.statusBy === 'human';
 
-/** What becomes of AI results per knowledge kind (AI 결과 반영): used right away, or a candidate. */
-export const AI_CONFIRM_KINDS = { terms: '용어', documents: '문서', characters: '인물', relationships: '관계', events: '사건', speechRules: '말투 규칙' } as const;
-export type AiConfirmKind = keyof typeof AI_CONFIRM_KINDS;
-export const aiConfirmSchema = z.object({
-  terms: z.enum(['auto', 'candidate']).default('auto'),
-  documents: z.enum(['auto', 'candidate']).default('auto'),
-  characters: z.enum(['auto', 'candidate']).default('auto'),
-  relationships: z.enum(['auto', 'candidate']).default('auto'),
-  events: z.enum(['auto', 'candidate']).default('auto'),
-  speechRules: z.enum(['auto', 'candidate']).default('auto'),
-});
-export type AiConfirm = z.infer<typeof aiConfirmSchema>;
-export const DEFAULT_AI_CONFIRM: AiConfirm = aiConfirmSchema.parse({});
-/** The status an AI result of this kind lands in. */
-export const aiStatus = (policy: AiConfirm, kind: AiConfirmKind) => (policy[kind] === 'auto' ? ('confirmed' as const) : ('candidate' as const));
-
 /**
- * Where a line's listener came from. A person's choice always wins over the AI's. "scene": the work
- * analysis's whom-a-speaker-mostly-addresses for a whole scene, copied to the speaker's lines there;
- * "ai": a guess for this very line (a listener workflow node).
+ * The project's one rule for AI results that are knowledge or terms (설정 › 프로젝트 › AI 문맥):
+ * on (default), they are confirmed right away and so used as AI context (✦ until a person looks);
+ * off, they are candidates a person confirms. Lines are not touched by it: a line's status moves
+ * only by a person or a set-status node in a workflow.
  */
-export const LISTENER_ORIGINS = ['import', 'scene', 'ai', 'human'] as const;
+export const aiStatus = (autoConfirm: boolean) => (autoConfirm ? ('confirmed' as const) : ('candidate' as const));
+
+/** Where a line's listener came from. A person's choice always wins over the AI's; "ai" is a guess for that line (a listener workflow node, the chat or CLI). */
+export const LISTENER_ORIGINS = ['import', 'ai', 'human'] as const;
 export type ListenerOrigin = (typeof LISTENER_ORIGINS)[number];
 /** AI listeners below this confidence count as unknown (experiment sample: 99% right at >= 0.9). */
 export const LISTENER_MIN_CONFIDENCE = 0.9;
-/**
- * A guess that does not count: below the bar, by line or by scene. A low scene guess means the
- * speaker addresses several people there ("mostly X"), so it is a hint about the scene, not the line.
- */
+/** An AI guess that does not count: below the bar. */
 export const isUnsureListener = (line: { listenerOrigin: ListenerOrigin | null; listenerConfidence: number | null }) =>
-  (line.listenerOrigin === 'ai' || line.listenerOrigin === 'scene') && (line.listenerConfidence ?? 0) < LISTENER_MIN_CONFIDENCE;
+  line.listenerOrigin === 'ai' && (line.listenerConfidence ?? 0) < LISTENER_MIN_CONFIDENCE;
 /**
  * Listeners that are not one person: everyone present, an unspecified audience (broadcasts,
  * notices, posts), and the speaker themself (thinking aloud). Speech rules can name them as the

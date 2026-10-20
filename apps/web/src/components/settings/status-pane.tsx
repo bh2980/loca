@@ -61,7 +61,7 @@ export function StatusPane({
               </SelectContent>
             </Select>
           </InspectorField>
-          <InspectorToggle label="검토함" description="검토함 목록에 이 상태의 대사를 모읍니다." checked={form.inReview} onChange={(inReview) => setForm((current) => ({ ...current, inReview }))} />
+          <InspectorToggle label="검토함" help="이 상태인 대사를 검토함 목록에 모읍니다." checked={form.inReview} onChange={(inReview) => setForm((current) => ({ ...current, inReview }))} />
         </InspectorFields>
       </InspectorSection>
     </Inspector>

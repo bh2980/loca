@@ -64,8 +64,8 @@ describe('번역 제외 in the project', () => {
     const remaining = db.select({ key: s.units.key }).from(s.units).where(and(eq(s.units.projectId, projectId), ...markConditions(projectId, ['remaining']))).all().map((row) => row.key).sort();
     expect(remaining).toEqual(['a', 'd']);
     const definition = workflowDefinitionSchema.parse({ nodes: [{ id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: {} }, { id: 'end', type: 'end', position: { x: 0, y: 0 } }], edges: [{ id: '1', source: 'entry', sourceHandle: 'out', target: 'end' }] });
-    expect(selectRunUnits(db, projectId, definition, {}).map((id) => keyOf.get(id)).sort()).toEqual(['a', 'd']);
-    expect(excludedInScope(db, projectId, definition, {})).toBe(2);
+    expect(selectRunUnits(db, projectId, {}).map((id) => keyOf.get(id)).sort()).toEqual(['a', 'd']);
+    expect(excludedInScope(db, projectId, {})).toBe(2);
     expect(findLines(db, projectId, { translated: false, offset: 0, limit: 50 }).rows.map((row) => row.key)).toEqual(['a', 'd']);
     const all = findLines(db, projectId, { offset: 0, limit: 50 }).rows;
     expect(all.find((row) => row.key === 'b')?.marks).toContain('excluded');

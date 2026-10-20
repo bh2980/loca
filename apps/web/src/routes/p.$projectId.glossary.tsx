@@ -1,16 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
+import { AiConfirmNote } from '@/components/settings/ai-confirm';
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, CircleStop, ScanSearch, Sparkles } from 'lucide-react';
+import { Plus, Play, ScanSearch } from 'lucide-react';
 import { toast } from 'sonner';
-import { DataTable, type ColumnDef, EmptyState, TagMenu, SplitPane, FilterChips, SearchInput, FilterBar, ActionBar, type FilterChip, Button, StatusBarItem, useRevealDock, ContextMenuItem, ContextMenuSeparator, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Spinner } from '@loca/ui';
+import { DataTable, type ColumnDef, EmptyState, TagMenu, SplitPane, FilterChips, SearchInput, FilterBar, ActionBar, type FilterChip, Button, useRevealDock, ContextMenuItem, ContextMenuSeparator, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Spinner } from '@loca/ui';
 import { HeaderFilter, MarkFilter, markTagGroups, togglePick, type FilterPick } from '@/components/header-filter';
-import { FillDialog } from '@/components/glossary/fill-dialog';
 import { NEW_TERM, NewTermPane, TermEditor, type Term } from '@/components/glossary/term-pane';
+import { RunDialog } from '@/components/workflow/run-dialog';
 import { HeaderActions, Page } from '@/components/page';
-import { JobProgress } from '@/components/job-progress';
-import { BulkDecide, matches, SourceBadge, TagCell } from '@/components/knowledge/table';
-import { AUTO_MARKS, markColor, type AutoMark, isSettled, matchesMarks, parseMarks, TERM_MARK_IDS, termMarksOf, KNOWLEDGE_SOURCES, SOURCE_LABELS, type KnowledgeSource, aiDecided } from '@tw/shared';
+import { BulkDecide, matches, parseStatusFilter, SourceBadge, StateCell, statusOptions, type StatusFilter, TagCell } from '@/components/knowledge/table';
+import { AUTO_MARKS, markColor, type AutoMark, isSettled, matchesMarks, parseMarks, TERM_MARK_IDS, termMarksOf, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, type KnowledgeSource, aiDecided } from '@tw/shared';
 import { client, unwrap } from '@/lib/api';
 import { q, tagsIn, useMarkColors } from '@/lib/queries';
 import { usePicked } from '@/lib/use-picked';
@@ -20,6 +20,7 @@ export const Route = createFileRoute('/p/$projectId/glossary')({
   validateSearch: (raw: Record<string, unknown>): GlossarySearch => ({
     q: typeof raw.q === 'string' && raw.q ? raw.q : undefined,
     source: typeof raw.source === 'string' && (KNOWLEDGE_SOURCES as readonly string[]).includes(raw.source) ? (raw.source as KnowledgeSource) : undefined,
+    status: parseStatusFilter(raw.status),
     marks: parseMarks(raw.marks, TERM_MARK_IDS),
     term: typeof raw.term === 'string' && raw.term ? raw.term : undefined,
     ids: Array.isArray(raw.ids) && raw.ids.length && raw.ids.every((id) => typeof id === 'string') ? (raw.ids as string[]) : undefined,
@@ -34,7 +35,9 @@ interface GlossarySearch {
   q?: string;
   term?: string;
   source?: KnowledgeSource;
-  /** Automatic marks (the marks URL param): #후보 and #AI가 정함 together mean either, the rest all hold (see matchesMarks). */
+  /** 상태 filter (the status URL param): 후보 or 확정; rejected terms are never listed. */
+  status?: StatusFilter;
+  /** Automatic marks (the marks URL param): terms carrying all of them. */
   marks?: AutoMark[];
   /** Tag ids: terms carrying all of them. */
   tags?: string[];
@@ -52,13 +55,7 @@ function Glossary() {
   const navigate = Route.useNavigate();
   const terms = useQuery(q.terms(projectId));
   const { picked, pick, clear: clearPicked } = usePicked(`glossary.${projectId}`);
-  const suggest = useQuery(q.termSuggest(projectId));
-  const fill = suggest.data?.state;
-  const [fillOpen, setFillOpen] = useState(false);
-  const cancelFill = useMutation({
-    mutationFn: () => unwrap(client.projects[':projectId'].terms.suggest.cancel.$post({ param: { projectId } })),
-    onError: (error) => toast.error(error.message),
-  });
+  const [runOpen, setRunOpen] = useState(false);
   const discover = useMutation({
     mutationFn: () => unwrap(client.projects[':projectId'].terms.discover.$post({ param: { projectId } })),
     onSuccess: ({ found, added, updated }) => {
@@ -67,19 +64,10 @@ function Glossary() {
     },
     onError: (error) => toast.error(error.message),
   });
-  // A finished fill reports its error once; the muted text below stays until the next run.
-  const reported = useRef<string | undefined>(undefined);
-  useEffect(() => {
-    if (fill && !fill.running && fill.error && reported.current !== fill.error) {
-      reported.current = fill.error;
-      toast.error(fill.error);
-    }
-  }, [fill]);
-
   // Who wrote a term (출처) and who set its status (✦ when AI confirmed it and no person has looked yet).
   const asDraft = (term: Term) => ({ ...term, evidence: [] });
   const hidden = (term: Term) => termMarksOf(term).some((mark) => search.hideMarks?.includes(mark)) || Boolean(term.tags?.some((tag) => search.hideTags?.includes(tag.id)));
-  const all = (terms.data ?? []).filter((term) => matches(asDraft(term), search.source, undefined, search.tags) && matchesMarks(termMarksOf(term), search.marks) && !hidden(term));
+  const all = (terms.data ?? []).filter((term) => matches(asDraft(term), search.source, undefined, search.tags, search.status) && matchesMarks(termMarksOf(term), search.marks) && !hidden(term));
   const queryClient = useQueryClient();
   const decide = useMutation({
     mutationFn: ({ ids, accept }: { ids: string[]; accept: boolean }) => unwrap(client.projects[':projectId'].drafts.$post({ param: { projectId }, json: { kind: 'terms', ids, action: accept ? 'confirm' : 'discard' } })),
@@ -146,9 +134,13 @@ function Glossary() {
   const promotable = pickedTerms.filter((term) => !isSettled(term) && term.target.trim());
   const discardable = pickedTerms.filter((term) => !isSettled(term));
   const afterBulk = { onSuccess: clearPicked };
+  // A run on terms takes the picked terms, else on what the filters leave; with neither, on the terms its own 대상 picks.
+  const narrowed = Boolean(needle || search.ids || search.source || search.status || search.marks?.length || search.tags?.length || search.hideMarks?.length || search.hideTags?.length);
+  const runTermIds = pickedTerms.length ? pickedTerms.map((term) => term.id) : narrowed ? rows.map((term) => term.id) : undefined;
 
   const chips: FilterChip[] = [
     ...(search.ids ? [{ key: 'ids', label: `실행 범위 ${search.ids.length}`, clear: () => setFilter({ ids: undefined }) }] : []),
+    ...(search.status ? [{ key: 'status', label: KNOWLEDGE_STATUS_LABELS[search.status], clear: () => setFilter({ status: undefined }) }] : []),
     ...(search.source ? [{ key: 'source', label: SOURCE_LABELS[search.source], clear: () => setFilter({ source: undefined }) }] : []),
     ...(search.marks ?? []).map((mark) => ({ key: `mark:${mark}`, label: `#${AUTO_MARKS[mark].name}`, color: markColor(mark, markColors), clear: () => pickMark(mark, 'show') })),
     ...(search.hideMarks ?? []).map((mark) => ({ key: `hide-mark:${mark}`, label: `#${AUTO_MARKS[mark].name}`, color: markColor(mark, markColors), hidden: true, clear: () => pickMark(mark, 'hide') })),
@@ -165,8 +157,14 @@ function Glossary() {
   const columns: ColumnDef<Term, unknown>[] = [
     { id: 'source', header: '원문', meta: { hideable: false }, cell: ({ row }) => <span className="font-medium">{row.original.source}</span> },
     { id: 'target', header: '번역', cell: ({ row }) => row.original.target || <span className="text-muted-foreground">—</span> },
-    { id: 'lines', header: "등장", meta: { width: 72, align: 'end' }, cell: ({ row }) => row.original.lines ?? <span className="text-muted-foreground">—</span> },
+    { id: 'lines', header: "등장", meta: { width: 72 }, cell: ({ row }) => row.original.lines ?? <span className="text-muted-foreground">—</span> },
     { id: 'note', header: '메모', meta: { className: 'text-muted-foreground' }, cell: ({ row }) => row.original.note },
+    {
+      id: 'state',
+      header: () => <HeaderFilter label="상태" value={search.status} options={statusOptions} onChange={(status) => setFilter({ status: status as StatusFilter })} />,
+      meta: { width: 80, label: '상태' },
+      cell: ({ row }) => <StateCell row={asDraft(row.original)} />,
+    },
     {
       id: 'origin',
       header: () => (
@@ -224,30 +222,17 @@ function Glossary() {
               overflow: 'never',
               onSelect: () => discover.mutate(),
             },
-            ...(fill?.running ? [{
-              id: 'cancel-fill',
-              label: '채우기 중단',
-              icon: cancelFill.isPending ? <Spinner className="size-3.5" /> : <CircleStop />,
-              disabled: cancelFill.isPending,
-              priority: 8,
-              overflow: 'never' as const,
-              onSelect: () => cancelFill.mutate(),
-            }] : []),
-            ...(!fill?.running && suggest.data?.pending ? [{
-              id: 'fill',
-              label: `AI로 채우기 (${suggest.data.pending})`,
-              icon: <Sparkles />,
-              priority: 5,
-              onSelect: () => setFillOpen(true),
-            }] : []),
+            {
+              id: 'run',
+              label: pickedTerms.length ? `선택 ${pickedTerms.length}개로 워크플로 실행` : narrowed ? '보이는 용어로 워크플로 실행' : '워크플로 실행',
+              icon: <Play />,
+              priority: 9,
+              onSelect: () => setRunOpen(true),
+            },
           ]} />
         </HeaderActions>
-        {!!suggest.data?.pending && !fill?.running && <FillDialog projectId={projectId} pending={suggest.data.pending} calls={suggest.data.calls} batch={suggest.data.batch} hideTrigger open={fillOpen} onOpenChange={setFillOpen} />}
-        {(fill?.running || fill?.error || fill?.done) && <StatusBarItem>
-          {fill.running ? <span className="flex min-w-0 items-center gap-2 tabular-nums"><JobProgress done={fill.done} total={fill.total} running className="w-20 shrink-0" /><span className="truncate">용어 번역 채우는 중 {fill.done.toLocaleString()}/{fill.total.toLocaleString()}</span></span>
-            : fill.error ? <span className="truncate">용어 번역 채우기 실패: {fill.error}</span> : fill.done > 0 ? <span>{fill.done.toLocaleString()}개 채움</span> : null}
-        </StatusBarItem>}
-        <FilterBar end={terms.data && <span className="text-2xs font-medium text-subtle-foreground tabular-nums">{rows.length.toLocaleString()}개{needle ? ` / 전체 ${all.length.toLocaleString()}개` : ''}</span>}>
+        <RunDialog projectId={projectId} subject="terms" termIds={runTermIds} hideTrigger open={runOpen} onOpenChange={setRunOpen} />
+        <FilterBar end={terms.data && <><AiConfirmNote projectId={projectId} /><span className="text-2xs font-medium text-subtle-foreground tabular-nums">{rows.length.toLocaleString()}개{needle ? ` / 전체 ${all.length.toLocaleString()}개` : ''}</span></>}>
           <SearchInput value={search.q} placeholder="원문·번역·메모 검색" onChange={(value) => void navigate({ search: (previous) => ({ ...previous, q: value }), replace: true })} />
           <FilterChips chips={chips} />
         </FilterBar>
@@ -257,7 +242,7 @@ function Glossary() {
           rows={terms.data && rows}
           rowId={(term) => term.id}
           loading={terms.isLoading}
-          empty={<EmptyState noun="용어" filtered={Boolean(needle || search.ids || search.source || search.marks?.length || search.tags?.length)} />}
+          empty={<EmptyState noun="용어" filtered={Boolean(needle || search.ids || search.source || search.status || search.marks?.length || search.tags?.length)} />}
           selected={selected?.id}
           onRowClick={(term) => select(term.id === search.term ? undefined : term.id)}
           picked={picked}

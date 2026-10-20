@@ -20,7 +20,8 @@ function setup(assistModel = true) {
     units: [{ key: 'a1', group: 'g1', speaker: 'Alice', source: "You're late.", translation: '늦었네.' }],
   });
   const { projectId } = importProject(db, file);
-  if (assistModel) db.update(s.projects).set({ editorAi: { enabled: false, model: null, assistModel: { connectionId: connection.id, model: 'm' }, dailyCap: 200 } }).where(eq(s.projects.id, projectId)).run();
+  const model = { connectionId: connection.id, model: 'm' };
+  if (assistModel) db.update(s.projects).set({ editorAi: { model } as never }).where(eq(s.projects.id, projectId)).run();
   const unit = db.select().from(s.units).where(eq(s.units.projectId, projectId)).get()!;
   return { db, unit };
 }
@@ -29,7 +30,7 @@ const fake = (text: string, seen: { system?: string; prompt?: string } = {}, cha
   (async (_route: unknown, request: { system: string; prompt: string }) => {
     seen.system = request.system;
     seen.prompt = request.prompt;
-    return { object: { results: [{ id: '1', text, ...(changes && { changes }) }] }, usage: { inputTokens: 1, outputTokens: 1 } };
+    return { object: { results: [{ id: 'L1', text, ...(changes && { changes }) }] }, usage: { inputTokens: 1, outputTokens: 1 } };
   }) as unknown as typeof ai.generate;
 
 describe('the editor AI assist', () => {
@@ -56,6 +57,20 @@ describe('the editor AI assist', () => {
     const translated = await assistLine(db, memoryStore(), unit.id, { mode: 'translate', draft: '' }, undefined, fake('지각이야.'));
     if ('unchanged' in translated) throw new Error('expected a candidate');
     expect(db.select().from(s.candidates).where(eq(s.candidates.id, translated.candidateId)).get()!.note).toBe('AI 번역');
+  });
+
+  it('uses the button\'s instructions and the shared call time limit', async () => {
+    const { db, unit } = setup();
+    const project = db.select().from(s.projects).where(eq(s.projects.id, unit.projectId)).get()!;
+    db.update(s.projects).set({ editorAi: { ...(project.editorAi as object), timeoutSeconds: 30, translate: { instructions: 'Translate like a pirate.' } } as never }).where(eq(s.projects.id, unit.projectId)).run();
+    const seen: { system?: string; timeoutMs?: number } = {};
+    const generate = (async (_route: unknown, request: { system: string; timeoutMs: number }) => {
+      Object.assign(seen, { system: request.system, timeoutMs: request.timeoutMs });
+      return { object: { results: [{ id: 'L1', text: '해적처럼' }] }, usage: {} };
+    }) as unknown as typeof ai.generate;
+    await assistLine(db, memoryStore(), unit.id, { mode: 'translate', draft: '' }, undefined, generate);
+    expect(seen.system).toContain('Translate like a pirate.');
+    expect(seen.timeoutMs).toBe(30_000);
   });
 
   it('makes no candidate when there is nothing to fix', async () => {

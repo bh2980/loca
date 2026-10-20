@@ -103,7 +103,7 @@ export function ImportProjectDialog({ trigger }: { trigger?: React.ReactNode }) 
                 ['그래프 노드', result.summary.graphNodes],
                 ['그래프 연결', result.summary.graphEdges],
                 ['인물', result.summary.characters],
-                ['참조 문서', result.summary.documents],
+                ['노트', result.summary.documents],
                 ['용어', result.summary.terms],
                 ['번역 제외로 보이는 원문', result.summary.excluded],
               ] as const

@@ -219,11 +219,9 @@ export function buildContext(
   const result: BatchContext = { scenes: Object.fromEntries(sceneRows.map((row) => [row.id, { title: row.title }])), previousScenes: [], documents: [], characters: [], cast: [], relationships: [], aiNotes: { characters: [], relationships: [], documents: [] }, terms: [], speech: {}, voices: {}, people: {}, preceding: {}, items: [], budget: { limit: contextTokens(config), used: 0 } };
   const candidates: Record<ContextItemKind, Candidate[]> = { term: [], speech: [], cast: [], preceding: [], character: [], relationship: [], scene: [], previousScene: [], document: [] };
 
-  // '사람이 확정한 것만': AI-confirmed terms and knowledge stay out of this node's prompt.
-  const trusted = (row: { statusBy: string }) => !config.humanOnly || !unverified(row);
   if (config.glossary) {
-    const used = knowledge.terms().matcher.find(text).filter(trusted).map(({ source, target, note }) => ({ source, target, note }));
-    const reason = config.humanOnly ? '원문에 나오는 사람이 확정한 용어' : '원문에 나오는 확정 용어';
+    const used = knowledge.terms().matcher.find(text).map(({ source, target, note }) => ({ source, target, note }));
+    const reason = '원문에 나오는 확정 용어';
     for (const term of used) candidates.term.push({ item: { kind: 'term', label: `${term.source} → ${term.target}`, reason }, payload: term, keep: () => result.terms.push(term) });
   }
 
@@ -301,11 +299,10 @@ export function buildContext(
     for (const line of lines) {
       const listener = knownListener(line);
       if (!listener) continue;
-      const resolved = rules.get(line.key);
-      const found = resolved && trusted(resolved.rule) ? resolved : undefined;
+      const found = rules.get(line.key);
       const entry = { listener: told(line, listener), ...(found && { rule: describeRule(found.rule), ...(found.rule.note && { note: found.rule.note }), ...(found.byOrder && { byOrder: true as const }) }) };
       candidates.speech.push({
-        item: { kind: 'speech', label: `${line.key}: ${line.speaker ?? '?'} → ${listenerLabel(listener)}${found ? ` · ${describeRule(found.rule)}` : ''}`, reason: found ? `${config.humanOnly ? '사람이 확정한' : '확정'} 말투 규칙${found.routeDependent ? ' (구간 시작을 거쳤는지가 루트에 따라 달라 대본 순서 기준)' : found.byOrder ? ' (그래프 밖이라 구간은 대본 순서 기준)' : ''}` : resolved ? '청자만 (이 쌍의 규칙은 AI가 확정해 뺌)' : '청자만 (이 쌍의 확정 규칙 없음)' },
+        item: { kind: 'speech', label: `${line.key}: ${line.speaker ?? '?'} → ${listenerLabel(listener)}${found ? ` · ${describeRule(found.rule)}` : ''}`, reason: found ? `확정 말투 규칙${found.routeDependent ? ' (구간 시작을 거쳤는지가 루트에 따라 달라 대본 순서 기준)' : found.byOrder ? ' (그래프 밖이라 구간은 대본 순서 기준)' : ''}` : '청자만 (이 쌍의 확정 규칙 없음)' },
         payload: entry,
         keep: () => (result.speech[line.id] = entry),
       });
@@ -313,8 +310,8 @@ export function buildContext(
   }
 
   if (config.cast) {
-    const cast = knowledge.characters().rows.filter(trusted).map(({ name, aliases, player, gender, ageBand }) => ({ name, aliases, ...(player ? { player: true as const } : {}), ...personFields({ gender, ageBand }) }));
-    if (cast.length) candidates.cast.push({ item: { kind: 'cast', label: `${cast.length}명`, reason: config.humanOnly ? '사람이 확정한 인물 전체 (이름·별칭·플레이어 여부·성별·나이대)' : '확정된 인물 전체 (이름·별칭·플레이어 여부·성별·나이대)' }, payload: cast, keep: () => (result.cast = cast) });
+    const cast = knowledge.characters().rows.map(({ name, aliases, player, gender, ageBand }) => ({ name, aliases, ...(player ? { player: true as const } : {}), ...personFields({ gender, ageBand }) }));
+    if (cast.length) candidates.cast.push({ item: { kind: 'cast', label: `${cast.length}명`, reason: '확정된 인물 전체 (이름·별칭·플레이어 여부·성별·나이대)' }, payload: cast, keep: () => (result.cast = cast) });
   }
 
   // How the batch's speakers talk goes with how they address each other: the style a person chose
@@ -325,7 +322,7 @@ export function buildContext(
     const speakers = new Set(batch.flatMap((unit) => (unit.speaker ? [unit.speaker.toLowerCase()] : [])));
     // The listeners the speech context names (kept or not yet: the budget decides later).
     const listeners = new Set(candidates.speech.map((candidate) => (candidate.payload as { listener: string }).listener.toLowerCase()));
-    for (const character of knowledge.characters().rows.filter(trusted)) {
+    for (const character of knowledge.characters().rows) {
       const names = [character.name, ...character.aliases].map((name) => name.toLowerCase());
       const speaks = names.some((name) => speakers.has(name));
       const style = styleInstruction(character.style);
@@ -339,7 +336,7 @@ export function buildContext(
   const allCharacters = confirmedCast?.rows ?? [];
   const present = confirmedCast ? mentionMatcher(confirmedCast.rows).find(text) : [];
   if (config.characters)
-    for (const character of present.filter(trusted)) {
+    for (const character of present) {
       const { name, aliases, profile } = character;
       const entry = { name, aliases, profile, ...personFields(character) };
       const via = [name, ...aliases.filter(usableAlias)].find((alias) => mentions(text, alias));
@@ -353,7 +350,7 @@ export function buildContext(
   if (config.relationships) {
     const presentIds = new Set(present.map((character) => character.id));
     const nameOf = new Map(allCharacters.map((character) => [character.id, character.name]));
-    const rels = knowledge.relationships().filter((rel) => presentIds.has(rel.fromId) && presentIds.has(rel.toId) && trusted(rel));
+    const rels = knowledge.relationships().filter((rel) => presentIds.has(rel.fromId) && presentIds.has(rel.toId));
 
     const graph = graphOrder(db, projectId);
     let lineOrder: Map<string, number> | undefined;
@@ -416,7 +413,8 @@ export function buildContext(
   if (config.previousScenes > 0) {
     const ids = [...new Set(groupIds.flatMap((id) => index.previousScenes.get(id) ?? []))].filter((id) => !groupIds.includes(id)).slice(0, config.previousScenes);
     const rows = ids.length ? db.select({ title: groups.title, description: groups.description }).from(groups).where(inArray(groups.id, ids)).all() : [];
-    for (const scene of rows)
+    // A scene with no description would add only its title: it is left out.
+    for (const scene of rows.filter((row) => row.description.trim()))
       candidates.previousScene.push({ item: { kind: 'previousScene', label: scene.title, reason: '대사 그래프에서 파생한 장면 연결상 바로 앞' }, payload: scene, keep: () => result.previousScenes.push(scene) });
   }
 
@@ -429,10 +427,9 @@ export function buildContext(
         .all(),
     );
     for (const { statusBy, ...doc } of rows) {
-      if (!trusted({ statusBy })) continue;
       const ai = unverified({ statusBy });
       candidates.document.push({
-        item: { kind: 'document', label: ai ? `${doc.title} (AI 추론)` : doc.title, reason: `‘번역 문맥에 넣기’를 켠 문서 (전문)${ai ? ' · 확인 안 된 AI 항목이라 사실과 따로 전달' : ''}` },
+        item: { kind: 'document', label: ai ? `${doc.title} (AI 추론)` : doc.title, reason: `‘번역 문맥에 넣기’를 켠 노트 (전문)${ai ? ' · 확인 안 된 AI 항목이라 사실과 따로 전달' : ''}` },
         payload: doc,
         keep: () => (ai ? result.aiNotes.documents : result.documents).push(doc),
       });

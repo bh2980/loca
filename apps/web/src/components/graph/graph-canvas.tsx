@@ -1,6 +1,6 @@
-import { Button } from '@loca/ui';
+import { CanvasToolbar } from '@loca/ui';
+import { paletteIndex } from '@tw/shared';
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode, type Ref } from 'react';
-import { Map as MapIcon, Minimize2 } from 'lucide-react';
 import { select } from 'd3-selection';
 import 'd3-transition';
 import { zoom as d3zoom, zoomIdentity, type ZoomBehavior, type ZoomTransform } from 'd3-zoom';
@@ -94,6 +94,8 @@ export interface NodeInfo {
   key: string;
   /** A card's first line (who speaks, or what a folded run holds) and the text under it. */
   title?: string;
+  /** The color a person gave the speaker in `title` (a palette hex): the title is drawn in it. */
+  titleColor?: string;
   body?: string | null;
 }
 export interface Viewport {
@@ -141,6 +143,20 @@ interface Props {
   /** Real edges left out of the layout (they touch a hub); drawn as faint straight lines. */
   looseEdges?: LooseEdge[];
   direction?: 'vertical' | 'horizontal';
+  /** 가로·세로 in the canvas toolbar (as in the other graphs); without it the toolbar has no direction. */
+  onDirectionChange?: (direction: 'vertical' | 'horizontal') => void;
+  /**
+   * Editing (the dialogue graph): each line card shows two dots, the way in (top / left) and the
+   * way out (bottom / right); dragging from one to another node calls onConnect(from, to). A click
+   * on a line picks it (onSelectEdge); a right-click on it opens onEdgeContextMenu.
+   */
+  editable?: boolean;
+  onConnect?: (fromId: string, toId: string) => void;
+  selectedEdgeId?: string;
+  onSelectEdge?: (edgeId: string) => void;
+  onEdgeContextMenu?: (edgeId: string, event: { clientX: number; clientY: number }) => void;
+  /** Small actions over one node (복제 · 삭제, as the other graphs' toolbox), centred above it; hidden while the node is off screen. */
+  toolbar?: { id: string; content: ReactNode };
   /** Hub nodes by id; drawn as quiet pills instead of the usual node shapes. */
   hubs?: Map<string, HubInfo>;
   info: Map<string, NodeInfo>;
@@ -180,7 +196,7 @@ interface Props {
  * Draws a precomputed ELK layout. d3-zoom owns pan/zoom, Flatbush owns spatial queries,
  * so each frame only touches what is on screen. One <canvas>, no per-node DOM.
  */
-export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, direction = 'vertical', hubs, info, width, height, selectedId, selectedIds, onSelectMany, highlight, endpointMarkers, highlightEdges, initialViewport, initialFocus, initialFocusAlign = 'center', onViewportChange, onSelect, onContextMenu, onOpen, anchor, handle }: Props) {
+export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, direction = 'vertical', onDirectionChange, editable, onConnect, selectedEdgeId, onSelectEdge, onEdgeContextMenu, toolbar, hubs, info, width, height, selectedId, selectedIds, onSelectMany, highlight, endpointMarkers, highlightEdges, initialViewport, initialFocus, initialFocusAlign = 'center', onViewportChange, onSelect, onContextMenu, onOpen, anchor, handle }: Props) {
   const theme = useTheme();
   const canvas = useRef<HTMLCanvasElement>(null);
   const minimap = useRef<HTMLCanvasElement>(null);
@@ -190,6 +206,7 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
   const drawRef = useRef<() => void>(() => {});
   const previousSize = useRef<{ width: number; height: number } | null>(null);
   const anchorBox = useRef<HTMLDivElement>(null);
+  const toolbarBox = useRef<HTMLDivElement>(null);
   const [minimapOpen, setMinimapOpen] = useState(() => {
     try {
       return localStorage.getItem('tw.graph.minimap') !== '0';
@@ -205,6 +222,8 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
       /* ignore */
     }
   };
+  // The toolbar's zoom reading, updated when a zoom or pan settles.
+  const [zoomK, setZoomK] = useState(1);
   useEffect(() => {
     if (minimapOpen) schedule();
   }, [minimapOpen]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -212,8 +231,10 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
   const edges = laidOut;
   // Which of the drawn edges are emphasised, by position.
   const emphasised = useMemo(() => new Set(highlightEdges?.size ? edges.flatMap((edge, i) => (highlightEdges.has(`${edge.from}|${edge.to}`) ? [i] : [])) : []), [edges, highlightEdges]);
-  const props = useRef({ selectedId, selectedIds, onSelectMany, highlight, endpointMarkers, emphasised, onViewportChange, onSelect, onOpen, hubs, anchorId: anchor?.id, onContextMenu });
-  props.current = { selectedId, selectedIds, onSelectMany, highlight, endpointMarkers, emphasised, onViewportChange, onSelect, onOpen, hubs, anchorId: anchor?.id, onContextMenu };
+  const props = useRef({ selectedId, selectedIds, onSelectMany, highlight, endpointMarkers, emphasised, onViewportChange, onSelect, onOpen, hubs, anchorId: anchor?.id, toolbarId: toolbar?.id, onContextMenu, editable, onConnect, selectedEdgeId, onSelectEdge, onEdgeContextMenu });
+  props.current = { selectedId, selectedIds, onSelectMany, highlight, endpointMarkers, emphasised, onViewportChange, onSelect, onOpen, hubs, anchorId: anchor?.id, toolbarId: toolbar?.id, onContextMenu, editable, onConnect, selectedEdgeId, onSelectEdge, onEdgeContextMenu };
+  /** A line being drawn from a node's dot: where it starts and where the pointer is (graph coordinates). */
+  const connecting = useRef<{ from: string; out: boolean; px: number; py: number; x: number; y: number } | null>(null);
   const boxSelect = Boolean(onSelectMany);
   /** The selection box being dragged, in canvas pixels; `moved` once it passed the click distance. */
   const drag = useRef<{ x0: number; y0: number; x1: number; y1: number; moved: boolean; additive: boolean } | null>(null);
@@ -243,6 +264,7 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
       edgeIndex!.add(minX, minY, maxX, maxY);
     }
     edgeIndex?.finish();
+    const edgeAt = new Map(edges.map((edge, i) => [edge.id, i]));
     // Clickable labels (a choice, a derived edge's left-out stretch) by their own boxes: a label can lie away from its line.
     const labelled = edges.flatMap((edge, i) => (edge.via || edge.derived ? [[i, labelBox(edge)] as const] : [])).filter((entry): entry is readonly [number, [number, number, number, number]] => entry[1] !== null);
     const labelIndex = labelled.length ? new Flatbush(labelled.length) : null;
@@ -279,7 +301,7 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
         else looseByNode.set(end, [at]);
       }
     }
-    return { byId, nodeIndex, edgeIndex, labelIndex: labelIndex ? { search: (x: number, y: number, x2: number, y2: number) => labelIndex.search(x, y, x2, y2).map((at) => labelEdge[at]) } : null, bounds, adjacent, segments, looseByNode };
+    return { edgeAt, byId, nodeIndex, edgeIndex, labelIndex: labelIndex ? { search: (x: number, y: number, x2: number, y2: number) => labelIndex.search(x, y, x2, y2).map((at) => labelEdge[at]) } : null, bounds, adjacent, segments, looseByNode };
   }, [nodes, edges, looseEdges, direction]);
 
   // How many nodes each region holds, for the zoomed-out overview.
@@ -327,9 +349,22 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
     card.style.opacity = '1';
   };
 
+  const placeToolbar = () => {
+    const box = toolbarBox.current;
+    const node = props.current.toolbarId ? index.byId.get(props.current.toolbarId) : undefined;
+    if (!box || !node) return;
+    const t = transform.current;
+    const x = (node.x + node.width / 2) * t.k + t.x, y = node.y * t.k + t.y;
+    const onScreen = x > 0 && x < width && y > box.offsetHeight + 8 && y < height;
+    box.style.transform = `translate(${Math.round(x - box.offsetWidth / 2)}px, ${Math.round(y - box.offsetHeight - 10)}px)`;
+    box.style.opacity = onScreen ? '1' : '0';
+    box.style.pointerEvents = onScreen ? 'auto' : 'none';
+  };
+
   const draw = () => {
     frame.current = 0;
     placeAnchor();
+    placeToolbar();
     const element = canvas.current;
     if (!element) return;
     const context = element.getContext('2d')!;
@@ -437,6 +472,15 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
       context.stroke();
       for (const key of selectedEdges) arrowHead(context, edges[Number(key)].points, 9, selectColor, 1);
     }
+    const picked = props.current.selectedEdgeId !== undefined ? index.edgeAt.get(props.current.selectedEdgeId) : undefined;
+    if (picked !== undefined) {
+      context.strokeStyle = selectColor;
+      context.lineWidth = Math.max(2.6, 3 / t.k);
+      context.beginPath();
+      traceEdge(context, edges[picked]);
+      context.stroke();
+      arrowHead(context, edges[picked].points, 10, selectColor, 1);
+    }
 
     // Edge labels (a choice reads as the label of the way it opens), once they can be read.
     if (t.k >= DETAIL_K) {
@@ -513,6 +557,40 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
       }
     }
     context.globalAlpha = 1;
+    // Editing: the two dots of each line card, and the line being drawn from one of them.
+    if (props.current.editable && detailed) {
+      const r = Math.max(4, 3.5 / t.k);
+      context.lineWidth = Math.max(1.5, 1.5 / t.k);
+      for (const i of visible) {
+        const node = nodes[i];
+        if (!portable(info.get(node.id)?.kind, node.id, props.current.hubs)) continue;
+        for (const [px, py] of Object.values(portsOf(node, direction))) {
+          context.beginPath();
+          context.arc(px, py, r, 0, Math.PI * 2);
+          context.fillStyle = colors.mutedForeground;
+          context.fill();
+          context.strokeStyle = colors.card;
+          context.stroke();
+        }
+      }
+    }
+    const line = connecting.current;
+    if (line) {
+      const target = nodeAt(line.x, line.y);
+      if (target && target.id !== line.from) {
+        context.strokeStyle = colors.primary;
+        context.lineWidth = Math.max(2, 2 / t.k);
+        context.strokeRect(target.x - 3, target.y - 3, target.width + 6, target.height + 6);
+      }
+      context.strokeStyle = colors.primary;
+      context.lineWidth = Math.max(1.6, 1.8 / t.k);
+      context.setLineDash([6 / t.k, 4 / t.k]);
+      context.beginPath();
+      context.moveTo(line.px, line.py);
+      context.lineTo(line.x, line.y);
+      context.stroke();
+      context.setLineDash([]);
+    }
     if (overviewMode)
       regions.forEach((region, i) => {
         const cx = region.x + region.width / 2, cy = region.y + region.height / 2;
@@ -587,6 +665,7 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
       // Wheel and touch always zoom/pan; the left and middle buttons pan. Shift+left-drag draws a
       // selection box instead (where box selection is on). Ctrl+drag is left to the browser, as in d3's default.
       .filter((event: MouseEvent | WheelEvent | TouchEvent) => {
+        if (connecting.current) return false;
         if (event.type === 'wheel' || event.type.startsWith('touch')) return true;
         const mouse = event as MouseEvent;
         if (mouse.button === 1) return true;
@@ -596,7 +675,10 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
         transform.current = event.transform;
         schedule();
       })
-      .on('end', (event: { transform: ZoomTransform }) => props.current.onViewportChange?.({ x: event.transform.x, y: event.transform.y, k: event.transform.k }));
+      .on('end', (event: { transform: ZoomTransform }) => {
+        setZoomK(event.transform.k);
+        props.current.onViewportChange?.({ x: event.transform.x, y: event.transform.y, k: event.transform.k });
+      });
     behavior.current = zoom;
     const selection = select(element).call(zoom).on('dblclick.zoom', null);
     const focusBox = () => {
@@ -634,6 +716,10 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
   useEffect(() => {
     schedule();
   }, [theme]); // redraw with the active semantic palette
+
+  useEffect(() => {
+    schedule();
+  }, [toolbar?.id]); // eslint-disable-line react-hooks/exhaustive-deps -- place the toolbar over its node
 
   useEffect(() => {
     const element = canvas.current!;
@@ -727,6 +813,44 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
     return regions.find((region) => x >= region.x - 24 && y >= region.y - 24 && x <= region.x + region.width + 24 && y <= region.y + region.height + 24);
   };
 
+  const toGraph = (clientX: number, clientY: number) => {
+    const rect = canvas.current!.getBoundingClientRect();
+    const t = transform.current;
+    return { x: (clientX - rect.left - t.x) / t.k, y: (clientY - rect.top - t.y) / t.k, k: t.k };
+  };
+  /** The topmost node at a point in graph coordinates. */
+  const nodeAt = (x: number, y: number) => {
+    const found = index.nodeIndex?.search(x, y, x, y) ?? [];
+    return found.length ? nodes[found[found.length - 1]] : undefined;
+  };
+  /** The line nearest the pointer, within a few pixels (curves sampled). */
+  const hitEdge = (clientX: number, clientY: number) => {
+    const { x, y, k } = toGraph(clientX, clientY);
+    const reach = 6 / k;
+    let best: { id: string; d: number } | undefined;
+    for (const i of index.edgeIndex?.search(x - reach, y - reach, x + reach, y + reach) ?? []) {
+      const d = distanceToEdge(edges[i], x, y);
+      if (d <= reach && (!best || d < best.d)) best = { id: edges[i].id, d };
+    }
+    return best?.id;
+  };
+  /** A dot under the pointer: which node, and whether it is the way out. */
+  const portAt = (clientX: number, clientY: number) => {
+    if (!props.current.editable || transform.current.k < DETAIL_K) return undefined;
+    const { x, y, k } = toGraph(clientX, clientY);
+    const reach = Math.max(8, 7 / k);
+    for (const i of index.nodeIndex?.search(x - reach, y - reach, x + reach, y + reach) ?? []) {
+      const node = nodes[i];
+      if (!portable(info.get(node.id)?.kind, node.id, props.current.hubs)) continue;
+      const ports = portsOf(node, direction);
+      for (const out of [true, false]) {
+        const [px, py] = out ? ports.out : ports.in;
+        if (Math.hypot(px - x, py - y) <= reach) return { node: node.id, out, px, py };
+      }
+    }
+    return undefined;
+  };
+
   const hit = (clientX: number, clientY: number) => {
     const rect = canvas.current!.getBoundingClientRect();
     const t = transform.current;
@@ -754,6 +878,16 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
           if (event.button === 1) event.preventDefault();
         }}
         onPointerDown={(event) => {
+          // A press on a node's dot starts a line (d3-zoom's filter then leaves the drag alone).
+          const port = event.button === 0 && !event.shiftKey ? portAt(event.clientX, event.clientY) : undefined;
+          if (port) {
+            const at = toGraph(event.clientX, event.clientY);
+            connecting.current = { from: port.node, out: port.out, px: port.px, py: port.py, x: at.x, y: at.y };
+            event.currentTarget.setPointerCapture(event.pointerId);
+            event.stopPropagation();
+            schedule();
+            return;
+          }
           if (!boxSelect || event.button !== 0 || !event.shiftKey) return;
           const rect = event.currentTarget.getBoundingClientRect();
           const x = event.clientX - rect.left, y = event.clientY - rect.top;
@@ -761,6 +895,14 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
           event.currentTarget.setPointerCapture(event.pointerId);
         }}
         onPointerMove={(event) => {
+          if (connecting.current) {
+            const at = toGraph(event.clientX, event.clientY);
+            connecting.current = { ...connecting.current, x: at.x, y: at.y };
+            schedule();
+            return;
+          }
+          // A dot is grabbed, not panned: say so with the cursor.
+          if (props.current.editable) event.currentTarget.style.cursor = portAt(event.clientX, event.clientY) ? 'crosshair' : '';
           const d = drag.current;
           if (!d) return;
           const rect = event.currentTarget.getBoundingClientRect();
@@ -772,7 +914,17 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
           boxed.current = { ids: new Set(boxHits(d)), additive: d.additive };
           schedule();
         }}
-        onPointerUp={finishBox}
+        onPointerUp={(event) => {
+          const line = connecting.current;
+          if (!line) return finishBox();
+          connecting.current = null;
+          suppressClick.current = true;
+          const at = toGraph(event.clientX, event.clientY);
+          const target = nodeAt(at.x, at.y);
+          // From the way-out dot the line goes to the node it is dropped on; from the way-in dot it comes from it.
+          if (target && target.id !== line.from && portable(info.get(target.id)?.kind, target.id, props.current.hubs)) props.current.onConnect?.(line.out ? line.from : target.id, line.out ? target.id : line.from);
+          schedule();
+        }}
         onPointerCancel={() => {
           drag.current = null;
           boxed.current = null;
@@ -793,12 +945,19 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
           }
           const region = transform.current.k < DETAIL_K && regions.length > 1 ? regionAt(event.clientX, event.clientY) : undefined;
           if (region) animateTo(fitTransform({ minX: region.x - 24, minY: region.y - 24, maxX: region.x + region.width + 24, maxY: region.y + region.height + 24 }));
-          else props.current.onSelect(hit(event.clientX, event.clientY));
+          else {
+            const id = hit(event.clientX, event.clientY);
+            const edge = !id && props.current.onSelectEdge ? hitEdge(event.clientX, event.clientY) : undefined;
+            if (edge) props.current.onSelectEdge!(edge);
+            else props.current.onSelect(id);
+          }
         }}
         onContextMenu={(event) => {
           if (!props.current.onContextMenu) return;
           event.preventDefault();
           const nodeId = hit(event.clientX, event.clientY);
+          const edge = !nodeId && props.current.onEdgeContextMenu ? hitEdge(event.clientX, event.clientY) : undefined;
+          if (edge) return props.current.onEdgeContextMenu!(edge, { clientX: event.clientX, clientY: event.clientY });
           props.current.onContextMenu(nodeId, { clientX: event.clientX, clientY: event.clientY });
         }}
         onKeyDown={(event) => {
@@ -815,34 +974,45 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
         }}
       />
       {box && <div aria-hidden className="pointer-events-none absolute rounded-sm border border-primary bg-primary/10" style={box} />}
+      {toolbar && (
+        <div key={toolbar.id} ref={toolbarBox} className="absolute top-0 left-0 z-20 opacity-0">
+          {toolbar.content}
+        </div>
+      )}
       {anchor && (
         <div ref={anchorBox} className="absolute top-0 left-0 z-20 opacity-0">
           {anchor.content}
         </div>
       )}
-      {minimapOpen ? (
+      {minimapOpen && (
         <div className="absolute bottom-3 left-3 rounded-md border bg-background/90 shadow-sm">
-          <Button variant="outline" size="icon-xs" onClick={() => toggleMinimap(false)} className="absolute -top-2.5 -right-2.5 rounded-full text-muted-foreground" aria-label="미니맵 접기">
-            <Minimize2 />
-          </Button>
-      <canvas
-        ref={minimap}
-        className="block cursor-pointer rounded-md"
-        aria-label="미니맵"
-        onClick={(event) => {
-          const rect = event.currentTarget.getBoundingClientRect();
-          const x = (event.clientX - rect.left - overview.offX) / overview.scale + index.bounds.minX;
-          const y = (event.clientY - rect.top - overview.offY) / overview.scale + index.bounds.minY;
-          const k = transform.current.k;
-          animateTo(zoomIdentity.translate(width / 2 - x * k, height / 2 - y * k).scale(k));
-        }}
-      />
+          <canvas
+            ref={minimap}
+            className="block cursor-pointer rounded-md"
+            aria-label="미니맵"
+            onClick={(event) => {
+              const rect = event.currentTarget.getBoundingClientRect();
+              const x = (event.clientX - rect.left - overview.offX) / overview.scale + index.bounds.minX;
+              const y = (event.clientY - rect.top - overview.offY) / overview.scale + index.bounds.minY;
+              const k = transform.current.k;
+              animateTo(zoomIdentity.translate(width / 2 - x * k, height / 2 - y * k).scale(k));
+            }}
+          />
         </div>
-      ) : (
-        <Button variant="outline" onClick={() => toggleMinimap(true)} className="absolute bottom-3 left-3 text-muted-foreground shadow-sm">
-          <MapIcon /> 미니맵
-        </Button>
       )}
+      {/* The same canvas toolbar as the other graphs: zoom, fit, 가로·세로, minimap. */}
+      <CanvasToolbar
+        zoomPercent={zoomK * 100}
+        onZoomIn={() => behavior.current && select(canvas.current!).transition().duration(200).call(behavior.current.scaleBy, 1.25)}
+        onZoomOut={() => behavior.current && select(canvas.current!).transition().duration(200).call(behavior.current.scaleBy, 0.8)}
+        onFit={() => animateTo(fitTransform())}
+        onResetZoom={() => behavior.current && select(canvas.current!).transition().duration(180).call(behavior.current.scaleTo, 1)}
+        direction={onDirectionChange ? direction : undefined}
+        onDirectionChange={onDirectionChange}
+        minimapVisible={minimapOpen}
+        onToggleMinimap={() => toggleMinimap(!minimapOpen)}
+        className="absolute right-3 bottom-3 z-30"
+      />
     </div>
   );
 }
@@ -921,6 +1091,10 @@ function drawLabel(context: CanvasRenderingContext2D, meta: NodeInfo, node: Layo
     context.rect(node.x + 10, node.y + 6, node.width - 20, node.height - 12);
     context.clip();
     context.font = '600 14px Pretendard, system-ui, sans-serif';
+    if (meta.titleColor) {
+      const index = paletteIndex(meta.titleColor);
+      context.fillStyle = index >= 0 ? colors.hues[index]! : meta.titleColor;
+    }
     context.fillText(meta.title ?? (meta.kind === 'scene' || meta.kind === 'chain' ? (meta.label ?? meta.key) : meta.key), node.x + 12, node.y + 23);
     context.font = '14px Pretendard, system-ui, sans-serif';
     context.fillStyle = colors.mutedForeground;
@@ -944,4 +1118,44 @@ function drawLabel(context: CanvasRenderingContext2D, meta: NodeInfo, node: Layo
 function wrapText(context: CanvasRenderingContext2D, text: string, x: number, y: number, maxWidth: number, lineHeight: number, maxLines: number) {
   const lines = wrapTextLines(text, maxWidth, maxLines, (line) => context.measureText(line).width);
   lines.forEach((line, index) => context.fillText(line, x, y + index * lineHeight));
+}
+
+/** Nodes a line can be drawn to or from: lines, choices, conditions and other nodes of the graph, not portals, hubs or folded labels. */
+function portable(kind: string | undefined, id: string, hubs?: Map<string, unknown>) {
+  return Boolean(kind) && kind !== 'portal' && kind !== 'scene' && !id.startsWith('portal:') && !id.startsWith('hub:') && !hubs?.has(id);
+}
+
+/** A node's two dots: the way in (top, or left when horizontal) and the way out (bottom / right). */
+function portsOf(node: { x: number; y: number; width: number; height: number }, direction: 'vertical' | 'horizontal') {
+  return direction === 'vertical'
+    ? { in: [node.x + node.width / 2, node.y] as const, out: [node.x + node.width / 2, node.y + node.height] as const }
+    : { in: [node.x, node.y + node.height / 2] as const, out: [node.x + node.width, node.y + node.height / 2] as const };
+}
+
+/** Distance from a point to a drawn edge: its segments, or its Bézier curves sampled. */
+function distanceToEdge(edge: LayoutEdge, x: number, y: number) {
+  const p = edge.points;
+  const segment = (ax: number, ay: number, bx: number, by: number) => {
+    const dx = bx - ax, dy = by - ay;
+    const t = dx || dy ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy))) : 0;
+    return Math.hypot(ax + t * dx - x, ay + t * dy - y);
+  };
+  let best = Infinity;
+  if (!edge.curved) {
+    for (let i = 0; i + 3 < p.length; i += 2) best = Math.min(best, segment(p[i], p[i + 1], p[i + 2], p[i + 3]));
+    return best;
+  }
+  let [px, py] = [p[0], p[1]];
+  for (let i = 2; i + 5 < p.length; i += 6) {
+    let [lastX, lastY] = [px, py];
+    for (let step = 1; step <= 12; step++) {
+      const t = step / 12, u = 1 - t;
+      const qx = u * u * u * px + 3 * u * u * t * p[i] + 3 * u * t * t * p[i + 2] + t * t * t * p[i + 4];
+      const qy = u * u * u * py + 3 * u * u * t * p[i + 1] + 3 * u * t * t * p[i + 3] + t * t * t * p[i + 5];
+      best = Math.min(best, segment(lastX, lastY, qx, qy));
+      [lastX, lastY] = [qx, qy];
+    }
+    [px, py] = [p[i + 4], p[i + 5]];
+  }
+  return best;
 }

@@ -17,8 +17,17 @@ export interface FunctionInfo<P extends z.ZodType = z.ZodType> {
   params: P;
   /** Exits can depend on the parameters (e.g. a script declares its own). `error` is always added. */
   ports: (params: z.infer<P>) => Port[];
+  /** The line ends here (as failed): no exits, not even "error". */
+  ends?: boolean;
   /** Runs outside the instant pass (network, sandbox); the runner dispatches it like an AI call. */
   async: boolean;
+  /** The workflow inputs it is a node of (unset: both). */
+  inputs?: readonly Subject[];
+  /**
+   * What it returns for the next steps (their "앞 단계 결과", a save node's fields, condition rows):
+   * fixed fields, or "declared" by the node (a script's or an HTTP call's fields). Unset: it passes the line on.
+   */
+  outputs?: readonly JsonField[] | 'declared';
 }
 
 /**
@@ -41,6 +50,24 @@ export interface JsonField {
   min?: number;
   max?: number;
 }
+/**
+ * Fields read off a sample result (a script's or an HTTP call's test run), for "이 결과로 칸 채우기":
+ * each top-level key with the type its value has; a list of objects keeps its items' fields. Names
+ * that cannot be field names are left out.
+ */
+export function fieldsFromSample(sample: unknown): JsonField[] {
+  if (!sample || typeof sample !== 'object' || Array.isArray(sample)) return [];
+  const typeOf = (value: unknown): Pick<JsonField, 'type' | 'fields'> => {
+    if (typeof value === 'number') return { type: 'number' };
+    if (typeof value === 'boolean') return { type: 'boolean' };
+    if (Array.isArray(value)) return value.every((entry) => typeof entry === 'string') ? { type: 'strings' } : { type: 'list', fields: fieldsFromSample(value.find((entry) => entry && typeof entry === 'object')) };
+    return { type: 'string' };
+  };
+  return Object.entries(sample as Record<string, unknown>)
+    .filter(([name]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name))
+    .map(([name, value]) => ({ name, description: '', ...typeOf(value) }));
+}
+
 export const jsonFieldSchema: z.ZodType<JsonField> = z.lazy(() =>
   z.object({
     name: z.string().trim().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, '영문·숫자·_ 로 된 이름'),
@@ -54,6 +81,12 @@ export const jsonFieldSchema: z.ZodType<JsonField> = z.lazy(() =>
 ) as z.ZodType<JsonField>;
 
 const pass: Port[] = [{ id: 'pass', label: '통과' }, { id: 'fail', label: '실패' }];
+/** What a check returns: the text it checked, whether it passed, and what it found. */
+export const CHECK_OUTPUTS: readonly JsonField[] = [
+  { name: 'text', type: 'string', description: '검사한 번역문' },
+  { name: 'passed', type: 'boolean', description: '통과했는지' },
+  { name: 'issues', type: 'strings', description: '찾은 문제' },
+];
 const out: Port[] = [{ id: 'out', label: '다음' }];
 
 export const formatCheckParams = z.object({
@@ -84,6 +117,7 @@ export const formatCheckParams = z.object({
 });
 
 export const setStatusParams = z.object({
+  /** A lines workflow: one of the project's statuses; a terms workflow: candidate, confirmed or rejected. */
   statusId: z.string().optional(),
   addTagIds: z.array(z.string()).default([]),
   removeTagIds: z.array(z.string()).default([]),
@@ -106,6 +140,8 @@ export interface ApplyField {
   /** Item fields of a `list` field (e.g. a relationship's changes); mapped as "<field>.<sub>" or by the same name. */
   fields?: ApplyField[];
 }
+/** A workflow's input: what its items are (INPUT_TYPES in workflow.ts). */
+export type Subject = 'lines' | 'terms';
 export interface ApplyTarget {
   label: string;
   description: string;
@@ -113,18 +149,24 @@ export interface ApplyTarget {
   fields: ApplyField[];
   /** The chat/CLI tool a proposal is filed as (proposals.tool), and whose service writes it. */
   tool: string;
+  /** The workflow inputs it is a node of; a `line` shape writes the item itself, so only its kind. */
+  inputs: readonly Subject[];
 }
 const evidenceField = { name: 'evidence', label: '근거 대사', type: 'lines' } as const satisfies ApplyField;
 export const APPLY_TARGETS = {
   saveCandidate: {
-    label: '번역 후보 기록',
-    description: '대사의 번역 후보로 남기고 번역 칸에 넣습니다. 사람이 저장한 번역은 덮어쓰지 않습니다.',
+    label: '번역 저장',
+    description: '이 항목에 번역을 넣습니다: 대사는 번역문(번역 기록에도 남음), 용어는 표기와 메모. 사람이 저장한 번역은 덮어쓰지 않습니다.',
     shape: 'line',
-    fields: [{ name: 'text', label: '번역문', type: 'string', required: true }],
+    fields: [
+      { name: 'text', label: '번역', type: 'string', required: true },
+      { name: 'note', label: '메모', type: 'string' },
+    ],
     tool: 'propose_changes',
+    inputs: ['lines', 'terms'],
   },
   setListener: {
-    label: '청자 설정',
+    label: '청자 저장',
     description: '대사의 청자를 적습니다(출처: AI). ‘unknown’이면 아무것도 적지 않습니다(청자 미상). 사람이 정했거나 가져온 청자는 바꾸지 않습니다.',
     shape: 'line',
     fields: [
@@ -132,13 +174,15 @@ export const APPLY_TARGETS = {
       { name: 'confidence', label: '확신도', type: 'number' },
     ],
     tool: 'set_listeners',
+    inputs: ['lines'],
   },
   tagLines: {
     label: '태그 붙이기',
-    description: '값과 이름이 같은 대사 태그를 붙입니다. 없는 태그는 만들지 않습니다.',
+    description: '값과 이름이 같은 태그를 이 항목에 붙입니다. 없는 태그는 만들지 않습니다.',
     shape: 'line',
     fields: [{ name: 'tag', label: '태그 이름', type: 'string', required: true }],
     tool: 'propose_changes',
+    inputs: ['lines', 'terms'],
   },
   saveTerms: {
     label: '용어 저장',
@@ -153,6 +197,7 @@ export const APPLY_TARGETS = {
       evidenceField,
     ],
     tool: 'save_terms',
+    inputs: ['lines', 'terms'],
   },
   saveCharacters: {
     label: '인물 저장',
@@ -170,6 +215,7 @@ export const APPLY_TARGETS = {
       evidenceField,
     ],
     tool: 'save_knowledge',
+    inputs: ['lines', 'terms'],
   },
   saveRelationships: {
     label: '관계 저장',
@@ -194,6 +240,7 @@ export const APPLY_TARGETS = {
       evidenceField,
     ],
     tool: 'save_knowledge',
+    inputs: ['lines', 'terms'],
   },
   saveSpeechRules: {
     label: '말투 규칙 저장',
@@ -209,6 +256,7 @@ export const APPLY_TARGETS = {
       evidenceField,
     ],
     tool: 'save_knowledge',
+    inputs: ['lines', 'terms'],
   },
   saveEvents: {
     label: '사건 저장',
@@ -223,10 +271,11 @@ export const APPLY_TARGETS = {
       evidenceField,
     ],
     tool: 'save_knowledge',
+    inputs: ['lines', 'terms'],
   },
   saveDocument: {
-    label: '문서 저장',
-    description: '세계관·줄거리 같은 문서를 넣습니다. 같은 제목의 문서가 있으면 AI가 쓴 것만 내용을 바꿉니다.',
+    label: '노트 저장',
+    description: '세계관·줄거리 같은 노트를 넣습니다. 같은 제목의 노트가 있으면 AI가 쓴 것만 내용을 바꿉니다.',
     shape: 'single',
     fields: [
       { name: 'title', label: '제목', type: 'string', required: true },
@@ -235,44 +284,17 @@ export const APPLY_TARGETS = {
       evidenceField,
     ],
     tool: 'save_document',
-  },
-  saveSceneListeners: {
-    label: '장면 청자 저장',
-    description: '장면마다 화자별 청자를 그 장면의 청자 없는 대사에 적습니다(출처: AI, 장면 추정). 사람이 정했거나 가져온 청자는 바꾸지 않습니다.',
-    shape: 'list',
-    fields: [
-      { name: 'scene', label: '장면', type: 'string', required: true },
-      { name: 'speaker', label: '화자', type: 'string', required: true },
-      { name: 'listener', label: '청자', type: 'string', required: true },
-      { name: 'confidence', label: '확신도', type: 'number' },
-      {
-        name: 'exceptions',
-        label: '예외 대사',
-        type: 'list',
-        fields: [
-          { name: 'line', label: '대사', type: 'lines', required: true },
-          { name: 'listener', label: '청자', type: 'string', required: true },
-          { name: 'confidence', label: '확신도', type: 'number' },
-        ],
-      },
-    ],
-    tool: 'set_listeners',
+    inputs: ['lines', 'terms'],
   },
 } as const satisfies Record<string, ApplyTarget>;
 export type ApplyFunctionName = keyof typeof APPLY_TARGETS;
 export const APPLY_FUNCTION_NAMES = Object.keys(APPLY_TARGETS) as ApplyFunctionName[];
 
 export const applyParams = z.object({
-  /** The node whose output is applied. */
-  fromNodeId: z.string().default(''),
   /** shape `list`: the list field in that output whose items are applied. */
   list: z.string().default(''),
   /** Target field → source field (inside the list item for `list`, inside the output otherwise). */
   map: z.record(z.string(), z.string()).default({}),
-  /** On (default): file a proposal a person accepts in the app. Off: write now. */
-  propose: z.boolean().default(true),
-  /** Written now: as a candidate (✦, a person confirms it) instead of confirmed. */
-  asCandidate: z.boolean().default(false),
 });
 export type ApplyParams = z.infer<typeof applyParams>;
 
@@ -284,10 +306,10 @@ export const httpParams = z.object({
   method: z.enum(['GET', 'POST']).default('POST'),
   /** JSON body; "{{candidate}}", "{{unit.source}}", "{{outputs.<node>.<field>}}" are replaced per line. */
   body: z.string().default('{\n  "text": "{{candidate}}"\n}'),
-  /** Where the answer is in the response, e.g. "result.text". Empty = whole body. */
-  resultPath: z.string().default(''),
-  /** candidate: the result becomes a new candidate · verdict: a boolean picks pass/fail · data: just store it. */
-  mode: z.enum(['candidate', 'verdict', 'data']).default('candidate'),
+  /** What it returns: fields like a script's; each is read from the response at its path in `paths` (default: the field's own name). A "text" field becomes the line's working text. */
+  fields: z.array(jsonFieldSchema).default([]),
+  /** Field name → where it is in the response, e.g. "result.text". */
+  paths: z.record(z.string(), z.string()).default({}),
   timeoutSeconds: z.number().int().min(1).max(300).default(30),
 });
 
@@ -296,7 +318,7 @@ export const scriptParams = z.object({
     .string()
     .default(
       [
-        '// input: { unit, candidate, outputs, visits }',
+        '// input: { unit(용어면 term), candidate(지금 번역), previous(앞 단계 결과), outputs, visits }',
         '// 반환: { port?: "out" | 선언한 출구, candidate?: string, data?: object, issues?: string[] }',
         'export default function run(input) {',
         '  const text = (input.candidate ?? "").replace(/\\s+$/g, "");',
@@ -317,6 +339,8 @@ export const FUNCTIONS = {
     params: formatCheckParams,
     ports: () => pass,
     async: false,
+    inputs: ['lines', 'terms'],
+    outputs: CHECK_OUTPUTS,
   },
   glossaryCheck: {
     label: '용어 검사',
@@ -324,23 +348,27 @@ export const FUNCTIONS = {
     params: z.object({}),
     ports: () => pass,
     async: false,
+    inputs: ['lines', 'terms'],
+    outputs: CHECK_OUTPUTS,
   },
   setStatus: {
     label: '상태 변경',
-    description: '상태·태그를 바꿉니다. (번역은 노드가 낸 즉시 번역 칸에 들어갑니다.)',
+    description: '이 항목의 상태와 태그를 바꿉니다: 대사는 프로젝트의 상태, 용어는 후보·확정·버림(버린 용어는 다시 제안되지 않음).',
     params: setStatusParams,
     ports: () => out,
     async: false,
+    inputs: ['lines', 'terms'],
   },
   ...(Object.fromEntries(
-    Object.entries(APPLY_TARGETS).map(([name, target]) => [name, { label: target.label, description: target.description, params: applyParams, ports: () => out, async: false }]),
+    Object.entries(APPLY_TARGETS).map(([name, target]) => [name, { label: target.label, description: target.description, params: applyParams, ports: () => out, async: false, inputs: target.inputs }]),
   ) as unknown as Record<ApplyFunctionName, FunctionInfo<typeof applyParams>>),
   http: {
     label: 'HTTP 호출',
-    description: '외부 API(맞춤법·사전 등)를 주소로 호출하고 결과를 후보·판정·데이터로 받습니다. 키가 필요하면 설정의 API 키를 고릅니다.',
+    description: '외부 API(맞춤법·사전 등)를 주소로 호출하고, 응답에서 고른 값을 선언한 결과 칸으로 돌려줍니다. text 칸은 대사의 지금 번역이 됩니다. 키가 필요하면 설정의 API 키를 고릅니다.',
     params: httpParams,
-    ports: (params: z.infer<typeof httpParams>) => (params.mode === 'verdict' ? pass : out),
+    ports: () => out,
     async: true,
+    outputs: 'declared',
   },
   script: {
     label: '스크립트',
@@ -348,6 +376,7 @@ export const FUNCTIONS = {
     params: scriptParams,
     ports: (params: z.infer<typeof scriptParams>) => params.ports.map((id) => ({ id, label: id })),
     async: true,
+    outputs: 'declared',
   },
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 } satisfies Record<string, FunctionInfo<any>>;
@@ -363,9 +392,23 @@ export const PALETTE_FUNCTION_NAMES: FunctionName[] = [
   'http',
 ];
 
+/**
+ * The editor's group of a function node, which also gives its colour: 반영 writes to the project (the
+ * apply targets and the status changes), 함수 reads and judges or computes.
+ */
+export const functionGroup = (fn: string): 'apply' | 'function' => (fn in APPLY_TARGETS || fn === 'setStatus' ? 'apply' : 'function');
+
+/** The 반영 group in the editor: what writes to the item running through first, then what writes to the project's knowledge. */
+export const APPLY_PALETTE_ORDER: FunctionName[] = ['saveCandidate', 'setStatus', 'tagLines', 'setListener', 'saveTerms', 'saveCharacters', 'saveRelationships', 'saveSpeechRules', 'saveEvents', 'saveDocument'];
+
 export function functionPorts(fn: string, params: unknown): Port[] {
   const info = FUNCTIONS[fn as FunctionName] as unknown as FunctionInfo | undefined;
   if (!info) return [{ id: 'error', label: '오류' }];
   const parsed = info.params.safeParse(params ?? {});
-  return [...info.ports(parsed.success ? parsed.data : info.params.parse({})), { id: 'error', label: '오류' }];
+  const ports = info.ports(parsed.success ? parsed.data : info.params.parse({}));
+  return info.ends ? ports : [...ports, { id: 'error', label: '오류' }];
 }
+
+/** Whether a function node can work on a workflow's items. */
+/** Whether a function is a node of workflows with this input. */
+export const functionTakes = (fn: string, input: Subject) => ((FUNCTIONS[fn as FunctionName] as FunctionInfo | undefined)?.inputs ?? ['lines', 'terms']).includes(input);

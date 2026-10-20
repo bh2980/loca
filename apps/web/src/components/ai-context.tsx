@@ -1,8 +1,8 @@
-import { ChevronRight } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { CONTEXT_ITEM_KINDS, CONTEXT_PRIORITY, type ContextItem } from '@tw/shared';
-import { Badge, Group, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Skeleton, Collapsible, CollapsibleContent, CollapsibleTrigger } from '@loca/ui';
-import { client, unwrap } from '@/lib/api';
+import { Badge, Group, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Skeleton } from '@loca/ui';
+import { PromptView, useRequestPreview } from '@/components/workflow/node-config/request-preview';
+import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
 const tokens = (value: number) => `약 ${value.toLocaleString()}`;
@@ -49,106 +49,31 @@ export function ContextItemList({ items, budget }: { items: ContextItem[]; budge
   );
 }
 
-interface PrecedingLine {
-  key: string;
-  speaker: string | null;
-  source: string;
-}
-
-function Lines({ lines }: { lines: PrecedingLine[] }) {
-  return (
-    <ol className="space-y-0.5">
-      {lines.map((line) => (
-        <li key={line.key} className="text-sm">
-          <span className="text-muted-foreground">{line.speaker ? `${line.speaker}: ` : ''}</span>
-          {line.source}
-        </li>
-      ))}
-    </ol>
-  );
-}
-
 /**
- * The line panel's "AI 문맥" tab: what the chosen AI node would send for this line, built the way
- * a run builds it, without calling a model.
+ * The line panel's "AI 프롬프트": what the chosen AI node of a lines workflow would send in the request
+ * that holds this line, built the way a run builds it, without calling a model (the same view as the
+ * workflow editor's).
  */
-export function AiContextPanel({ projectId, unitKey, unitKind = 'dialogue', aiNode, onAiNode }: { projectId: string; unitKey: string; unitKind?: 'dialogue' | 'document' | 'ui'; aiNode?: string; onAiNode: (value: string) => void }) {
-  const [workflowId, nodeId] = aiNode?.split(':') ?? [];
-  const preview = useQuery({
-    // Context is read from lines, knowledge, glossary and workflows; it refetches with line changes and on open.
-    queryKey: ['units', 'ai-context', projectId, unitKey, aiNode ?? ''],
-    queryFn: () => unwrap(client.projects[':projectId'].lines[':key']['ai-context'].$get({ param: { projectId, key: unitKey }, query: { workflowId, nodeId } })),
-  });
-  if (!preview.data)
-    return (
-      <div className="space-y-2">
-        <Skeleton className="h-8" />
-        <Skeleton className="h-24" />
-      </div>
-    );
-  const data = preview.data;
-  if (!data.picked) return <p className="text-sm text-muted-foreground">AI 노드가 있는 워크플로가 없습니다.</p>;
-  const value = `${data.picked.workflowId}:${data.picked.nodeId}`;
-  const inBatch = data.batch.keys.length;
-  const batchName = unitKind === 'dialogue' ? '장면' : '묶음';
+export function AiContextPanel({ projectId, unitKey, aiNode, onAiNode }: { projectId: string; unitKey: string; unitKind?: 'dialogue' | 'document' | 'ui'; aiNode?: string; onAiNode: (value: string) => void }) {
+  const workflows = useQuery(q.workflows(projectId));
+  const choices = (workflows.data ?? []).filter((workflow) => workflow.input === 'lines').flatMap((workflow) => workflow.aiNodes.map((node) => ({ value: `${workflow.id}:${node.id}`, label: `${workflow.name} › ${node.name}` })));
+  const picked = choices.find((choice) => choice.value === aiNode) ?? choices[0];
+  const [workflowId, nodeId] = picked?.value.split(':') ?? [];
+  const request = useRequestPreview(workflowId, nodeId, unitKey);
+  if (workflows.data && !choices.length) return <p className="text-sm text-muted-foreground">AI 노드가 있는 대사 워크플로가 없습니다.</p>;
   return (
-    <div className="space-y-4">
-      <div className="space-y-1.5">
-        <Select value={value} onValueChange={onAiNode}>
-          <SelectTrigger size="sm" className="w-full" aria-label="문맥을 볼 AI 노드">
+    <div className="space-y-2">
+      {picked && (
+        <Select value={picked.value} onValueChange={onAiNode}>
+          <SelectTrigger size="sm" className="w-full" aria-label="프롬프트를 볼 AI 노드">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {data.choices.map((choice) => (
-              <SelectItem key={`${choice.workflowId}:${choice.nodeId}`} value={`${choice.workflowId}:${choice.nodeId}`}>
-                {choice.workflowName} › {choice.nodeName}
-              </SelectItem>
-            ))}
+            {choices.map((choice) => <SelectItem key={choice.value} value={choice.value}>{choice.label}</SelectItem>)}
           </SelectContent>
         </Select>
-        <p className="text-xs text-muted-foreground">
-          {batchName} 기준 {inBatch}줄을 한 번에 보내는 경우{data.batch.mode === 'count' ? ' (‘개수’ 묶음은 장면을 넘을 수 있음)' : ''} · 프롬프트 전체 {tokens(data.promptTokens)} 토큰(추정)
-        </p>
-      </div>
-
-      <Group title="앞 대사">
-        {!data.preceding ? (
-          <p className="text-sm text-muted-foreground">
-            {data.precedingLines === 0 ? '넣지 않습니다.' : '따로 넣지 않습니다.'}
-          </p>
-        ) : (
-          <div className="space-y-2 rounded-md border p-2">
-            {data.preceding.lines.length > 0 && <Lines lines={data.preceding.lines} />}
-            {data.preceding.branches.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-xs text-warning">갈래가 합쳐지는 곳입니다. 플레이어는 이 중 한 갈래를 거쳐 왔습니다.</p>
-                {data.preceding.branches.map((branch) => (
-                  <div key={branch.label}>
-                    <Badge variant="outline" className="mb-1 px-1.5 py-0 text-xs">
-                      {branch.label}
-                    </Badge>
-                    <Lines lines={branch.lines} />
-                  </div>
-                ))}
-                {data.preceding.moreBranches > 0 && <p className="text-xs text-muted-foreground">그 밖의 갈래 {data.preceding.moreBranches}개는 넣지 않았습니다.</p>}
-              </div>
-            )}
-          </div>
-        )}
-      </Group>
-
-      <Group title="묶음 문맥">
-        <ContextItemList items={data.items} budget={data.budget} />
-      </Group>
-
-      <Collapsible>
-        <CollapsibleTrigger className="group flex items-center gap-1 text-xs font-semibold text-foreground">
-        <ChevronRight className="size-3.5 transition-transform group-data-[state=open]:rotate-90" />
-        프롬프트</CollapsibleTrigger>
-      <CollapsibleContent>
-        <pre className="mt-1 max-h-96 overflow-auto rounded bg-muted p-2 text-xs whitespace-pre-wrap">{`${data.system}\n\n${data.prompt}`}</pre>
-      </CollapsibleContent>
-      </Collapsible>
+      )}
+      {request.isError ? <p className="text-sm text-destructive">{request.error.message}</p> : !request.data ? <Skeleton className="h-40" /> : <PromptView request={request.data} title={`AI 프롬프트 · ${unitKey} · ${picked?.label ?? ''}`} />}
     </div>
   );
 }

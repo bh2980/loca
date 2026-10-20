@@ -1,19 +1,14 @@
 /** Config of a condition node: the condition as rows, anything rows cannot say as JSON Logic. */
 import { useEffect, useState } from 'react';
 import { Plus, X } from 'lucide-react';
-import { type AutoMark, CONDITION_MARK_IDS, nodeName, type WorkflowNode } from '@tw/shared';
+import { type AutoMark, CONDITION_MARK_IDS, INPUT_TYPES, ITEM_ERROR_KIND_IDS, ITEM_ERROR_KINDS, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, nodeName, type WorkflowNode } from '@tw/shared';
 import { MarkChip } from '@/components/status';
-import { Button, cn, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Input, InspectorFields, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, StatusIcon, Switch, TagChip, Textarea } from '@loca/ui';
+import { Button, cn, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Input, NumberInput, InspectorFields, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, StatusIcon, Switch, TagChip, Textarea } from '@loca/ui';
 import { comparableFields, conditionExpression, parseCondition, type Clause, type Condition, type FieldOperator, type Join } from '@/components/workflow/node-config/condition-clauses';
 import { AiButton } from '@/components/ai-button';
-import { Field, type ConditionNode, type NodeRefs } from '@/components/workflow/node-config/shared';
+import { Field, refsInput, type ConditionNode, type NodeRefs } from '@/components/workflow/node-config/shared';
 
 // ── condition node ────────────────────────────────────────────────────
-
-/** Nodes whose output has a `passed` flag a condition can test. */
-export const hasVerdict = (node: WorkflowNode) =>
-  (node.type === 'ai' && node.config.output === 'verdict') ||
-  (node.type === 'function' && (node.config.fn === 'formatCheck' || node.config.fn === 'glossaryCheck' || (node.config.fn === 'http' && (node.config.params as { mode?: string }).mode === 'verdict')));
 
 const KIND_LABELS: Record<string, string> = {
   dialogue: '대사',
@@ -22,10 +17,11 @@ const KIND_LABELS: Record<string, string> = {
 };
 
 const FIELD_OPERATORS: Record<FieldOperator, string> = { '>=': '≥', '<=': '≤', '==': '=', '!=': '≠', filled: '비어 있지 않음' };
-const ADDABLE = { status: '상태', lineKind: '종류', tag: '태그', mark: '자동 태그', listener: '청자', candidate: '번역문', field: '노드 결과', visits: '방문 횟수' } as const;
+/** Rows a condition can add: the core ones and, from INPUT_TYPES, those of the workflow's input. */
+const ADDABLE = { status: '상태', lineKind: '종류', tag: '태그', mark: '자동 태그', listener: '청자', termStatus: '용어 상태', hasTarget: '표기', uses: '쓰인 대사 수', candidate: '번역문', field: '노드 결과', visits: '방문 횟수', error: '실패 종류' } as const;
 type Addable = keyof typeof ADDABLE;
+const INPUT_ROWS = new Set<string>([...INPUT_TYPES.lines.conditionRows, ...INPUT_TYPES.terms.conditionRows]);
 
-const VARIABLES = `읽을 수 있는 값: visits.<노드ID>, outputs.<노드ID>.<필드>, candidate, issues, unit.kind, unit.speaker, unit.listener, unit.statusId, unit.tagIds, unit.marks (${CONDITION_MARK_IDS.join(' · ')})`;
 
 function Pick({ value, onChange, label, className, children }: { value: string; onChange: (value: string) => void; label: string; className?: string; children: React.ReactNode }) {
   return (
@@ -36,10 +32,10 @@ function Pick({ value, onChange, label, className, children }: { value: string; 
   );
 }
 
-/** 임/아님 or 있음/없음 after a line property. */
+/** = / ≠ between a property and its value, or 있음/없음 after one. */
 function Negate({ not, words, onChange }: { not?: boolean; words: [string, string]; onChange: (not: boolean) => void }) {
   return (
-    <Pick label="조건 방향" value={not ? 'not' : 'is'} onChange={(value) => onChange(value === 'not')} className="w-20">
+    <Pick label="조건 방향" value={not ? 'not' : 'is'} onChange={(value) => onChange(value === 'not')} className={words[0] === '=' ? 'w-16' : 'w-20'}>
       <SelectItem value="is">{words[0]}</SelectItem>
       <SelectItem value="not">{words[1]}</SelectItem>
     </Pick>
@@ -61,7 +57,7 @@ export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { nod
   const statuses = refs?.statuses ?? [];
   const tags = refs?.tags ?? [];
   const others = nodes.filter((other) => other.id !== node.id && other.type !== 'entry' && other.type !== 'end');
-  const outputs = others.map((other) => ({ node: other, fields: comparableFields(other, hasVerdict(other)) })).filter((entry) => entry.fields.length > 0);
+  const outputs = others.map((other) => ({ node: other, fields: comparableFields(other) })).filter((entry) => entry.fields.length > 0);
   const fieldsOf = (id: string) => outputs.find((entry) => entry.node.id === id)?.fields ?? [];
 
   const write = (condition: Condition) => {
@@ -88,23 +84,28 @@ export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { nod
       }
       case 'listener': return { kind };
       case 'candidate': return { kind };
+      case 'error': return { kind, errorKind: 'missing' };
+      case 'termStatus': return { kind, status: 'candidate' };
+      case 'hasTarget': return { kind };
+      case 'uses': return { kind, op: '>=', value: 3 };
     }
   };
-  const addable = (Object.keys(ADDABLE) as Addable[]).filter((kind) => fresh(kind));
+  const inputRows = new Set<string>(INPUT_TYPES[refs ? refsInput(refs) : 'lines'].conditionRows);
+  const addable = (Object.keys(ADDABLE) as Addable[]).filter((kind) => (!INPUT_ROWS.has(kind) || inputRows.has(kind)) && fresh(kind));
 
   const row = (clause: Clause, index: number) => {
     const set = (next: Clause) => setClause(index, next);
     switch (clause.kind) {
       case 'status':
-        return <>상태 <Pick label="상태" value={clause.statusId} onChange={(statusId) => set({ ...clause, statusId })} className="w-36">{statuses.map((st) => <SelectItem key={st.id} value={st.id}><StatusIcon status={st} /> {st.name}</SelectItem>)}</Pick> <Negate not={clause.not} words={['임', '아님']} onChange={(not) => set({ ...clause, not })} /></>;
+        return <>상태 <Negate not={clause.not} words={['=', '≠']} onChange={(not) => set({ ...clause, not })} /> <Pick label="상태" value={clause.statusId} onChange={(statusId) => set({ ...clause, statusId })} className="w-36">{statuses.map((st) => <SelectItem key={st.id} value={st.id}><StatusIcon status={st} /> {st.name}</SelectItem>)}</Pick></>;
       case 'lineKind':
-        return <>종류 <Pick label="종류" value={clause.value} onChange={(value) => set({ ...clause, value })} className="w-32">{Object.entries(KIND_LABELS).map(([key, name]) => <SelectItem key={key} value={key}>{name}</SelectItem>)}</Pick> <Negate not={clause.not} words={['임', '아님']} onChange={(not) => set({ ...clause, not })} /></>;
+        return <>종류 <Negate not={clause.not} words={['=', '≠']} onChange={(not) => set({ ...clause, not })} /> <Pick label="종류" value={clause.value} onChange={(value) => set({ ...clause, value })} className="w-32">{Object.entries(KIND_LABELS).map(([key, name]) => <SelectItem key={key} value={key}>{name}</SelectItem>)}</Pick></>;
       case 'tag':
         return <>태그 <Pick label="태그" value={clause.tagId} onChange={(tagId) => set({ ...clause, tagId })} className="w-36">{tags.map((tg) => <SelectItem key={tg.id} value={tg.id}><TagChip tag={tg} /></SelectItem>)}</Pick> <Negate not={clause.not} words={['있음', '없음']} onChange={(not) => set({ ...clause, not })} /></>;
       case 'mark':
         return <>자동 태그 <Pick label="자동 태그" value={clause.mark} onChange={(mark) => set({ ...clause, mark })} className="w-40">{CONDITION_MARK_IDS.map((id) => <SelectItem key={id} value={id}><MarkChip mark={id as AutoMark} /></SelectItem>)}</Pick> <Negate not={clause.not} words={['있음', '없음']} onChange={(not) => set({ ...clause, not })} /></>;
       case 'visits':
-        return <><Pick label="노드" value={clause.nodeId} onChange={(nodeId) => set({ ...clause, nodeId })} className="w-36">{others.map((other) => <SelectItem key={other.id} value={other.id}>{nodeName(other)}</SelectItem>)}</Pick> 방문 <Input type="number" min={1} className="h-8 w-14" aria-label="방문 횟수" value={clause.limit} onChange={(event) => set({ ...clause, limit: Number(event.target.value) })} /> 회 미만</>;
+        return <><Pick label="노드" value={clause.nodeId} onChange={(nodeId) => set({ ...clause, nodeId })} className="w-36">{others.map((other) => <SelectItem key={other.id} value={other.id}>{nodeName(other)}</SelectItem>)}</Pick> 방문 <NumberInput min={1} className="h-8 w-14" aria-label="방문 횟수" value={clause.limit} onValueChange={(limit) => limit !== undefined && set({ ...clause, limit })} /> 회 미만</>;
       case 'field': {
         const fields = fieldsOf(clause.nodeId);
         const field = fields.find((item) => item.name === clause.field);
@@ -130,6 +131,14 @@ export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { nod
           </>
         );
       }
+      case 'error':
+        return <>실패 종류 <Negate not={clause.not} words={['=', '≠']} onChange={(not) => set({ ...clause, not })} /> <Pick label="실패 종류" value={clause.errorKind} onChange={(errorKind) => set({ ...clause, errorKind: errorKind as typeof clause.errorKind })} className="w-36">{ITEM_ERROR_KIND_IDS.map((id) => <SelectItem key={id} value={id}>{ITEM_ERROR_KINDS[id]}</SelectItem>)}</Pick></>;
+      case 'termStatus':
+        return <>용어 상태 <Negate not={clause.not} words={['=', '≠']} onChange={(not) => set({ ...clause, not })} /> <Pick label="용어 상태" value={clause.status} onChange={(status) => set({ ...clause, status })} className="w-28">{KNOWLEDGE_STATUSES.map((status) => <SelectItem key={status} value={status}>{KNOWLEDGE_STATUS_LABELS[status]}</SelectItem>)}</Pick></>;
+      case 'hasTarget':
+        return <>표기 <Negate not={clause.not} words={['있음', '없음']} onChange={(not) => set({ ...clause, not })} /></>;
+      case 'uses':
+        return <>쓰인 대사 <Pick label="비교" value={clause.op} onChange={(value) => set({ ...clause, op: value as '>=' | '<=' })} className="w-16"><SelectItem value=">=">≥</SelectItem><SelectItem value="<=">≤</SelectItem></Pick> <NumberInput min={0} className="h-8 w-20" aria-label="쓰인 대사 수" value={clause.value} onValueChange={(value) => value !== undefined && set({ ...clause, value })} /> 줄</>;
       case 'listener':
         return <>청자 <Negate not={clause.not} words={['있음', '없음']} onChange={(not) => set({ ...clause, not })} /></>;
       case 'candidate':
@@ -153,7 +162,6 @@ export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { nod
       </Field>
       <Field
         label="조건"
-        hint={json ? VARIABLES : undefined}
         action={
           <div className="flex shrink-0 items-center gap-2">
             {!json && condition.clauses.length > 1 && (

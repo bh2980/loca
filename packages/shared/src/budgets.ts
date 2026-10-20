@@ -54,4 +54,11 @@ export const contextTokens = (config: { maxTokens?: number | null }) => config.m
  * (there is no separate line-count cap; a model that drops lines in a long list is asked again for those).
  */
 export const LINE_OVERHEAD = 20;
-export const lineCost = (line: { tokens: number }) => line.tokens + LINE_OVERHEAD;
+/**
+ * What a line costs a whole-script request beyond its text: it is sent as compact script text
+ * ("  L1234 Speaker: text"), not per-line JSON, so only its id, the speaker and a separator.
+ */
+export const SCRIPT_LINE_OVERHEAD = 5;
+/** A line's cost in a request of batch mode `mode` (whole-script requests are compact text). */
+export const lineCostIn = (mode: string) => (line: { tokens: number }) => line.tokens + (mode === 'whole' ? SCRIPT_LINE_OVERHEAD : LINE_OVERHEAD);
+export const lineCost = lineCostIn('group');

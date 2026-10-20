@@ -20,7 +20,7 @@ loca call delete_status '{"ids":["…","…"],"moveTo":"<남길 상태 id>"}'   
 - 순서는 앱의 설정 › 상태·태그에서 끌어서 바꿉니다(CLI 없음).
 
 ## 태그
-태그는 붙는 곳(`scope`)에만 붙습니다: `lines` 대사 · `terms` 용어집 · `people` 인물·관계 · `documents` 문서 · `events` 사건 (`knowledge`는 people·documents·events 셋). 앱 기본 태그(문제 유형, 확인 권장)는 이름·붙는 곳을 바꾸거나 지울 수 없고 색만 바꿀 수 있습니다.
+태그는 붙는 곳(`scope`)에만 붙습니다: `lines` 대사 · `terms` 용어집 · `people` 인물·관계 · `events` 사건 · `documents` 노트 (`knowledge`는 people·documents·events 셋). 앱 기본 태그(문제 유형, 확인 권장)는 이름·붙는 곳을 바꾸거나 지울 수 없고 색만 바꿀 수 있습니다.
 ```
 loca tags                                        # 태그와 기본 표시의 붙는 곳, 색, 쓰인 수
 loca call save_status '{"type":"tag","name":"지명","scope":["terms"]}'
@@ -42,13 +42,13 @@ loca call read_project_settings                     # exclusionRules: empty, for
 
 ## 서식 규칙과 프로젝트 설정
 ```
-loca call read_project_settings                  # 이름, 설명, formatRules, aiConfirm, editorAi, markColors
+loca call read_project_settings                  # 이름, 설명, formatRules, aiAutoConfirm, editorAi, markColors
 loca call update_project_settings @"$W/settings.json"
 ```
 - 보낸 항목은 **통째로 바뀝니다.** 먼저 읽고, 바꿀 객체(예: `formatRules`) 전체를 고쳐서 보냅니다.
 - `formatRules`: 형식 검사가 지키는 자리표시자 프리셋(중괄호 변수, printf, 마크업 태그 등)과 직접 만든 패턴. 바꾼 뒤 `loca check format`으로 결과가 기대대로인지 봅니다.
-- `aiConfirm`: AI 결과를 사람 확인 없이 확정할지. 사용자가 정하는 설정이니 묻고 바꿉니다.
-- `editorAi`: 편집기의 AI 번역·다듬기 모델, 자동완성(켜기, API 연결 모델, 하루 최대 호출).
+- `aiAutoConfirm`(앱: 설정 › 프로젝트 › AI 문맥): AI가 만든 용어·자료를 바로 확정할지(true, 기본) 후보로 둘지(false). 문맥에는 확정된 용어·자료만 들어갑니다. 대사의 상태는 바꾸지 않습니다(대사 상태는 사람이나 워크플로의 상태 변경 노드만 바꿈). 사용자가 정하는 설정이니 묻고 바꿉니다.
+- `editorAi`: 편집기 AI. AI 번역·다듬기 버튼은 `model`(CLI 연결도 됨), `context`(함께 보낼 것)를 같이 쓰고, `translate`·`refine`에는 각자의 `instructions`·`include`만 있습니다(빈 값은 AI 번역·AI 다듬기 프리셋으로 채움, 워크플로 노드와 따로). `complete`는 자동완성(`enabled`, API 연결 `model`, `instructions`, `precedingLines`, `glossary`, `speech`, `timeoutSeconds`, `delayMs`(대사를 열고 기다린 뒤 자동 요청, 기본 500), `dailyCap`). `timeoutSeconds`(기본 60)는 AI 번역·다듬기·자연어로 정규식 만들기의 제한 시간.
 - 채팅 설정(권한 모드, 도구 권한, 새 대화 모델)은 에이전트가 바꿀 수 없습니다.
 
 ## 원문 구조: 장면·묶음·원문
@@ -60,5 +60,13 @@ loca call update_group '{"groupId":"…","title":"…"}'   # 종류는 못 바�
 loca call create_unit '{"groupId":"…","key":"letter_01","source":"…","speaker":null}'
 loca call update_unit '{"unitId":"…","source":"…"}'   # 원문을 바꾸면 그 줄 상태가 처음으로 돌아감. groupId로 같은 종류의 다른 묶음으로 옮김
 ```
+
+대사 그래프도 프로젝트 데이터라 고칠 수 있습니다(가져온 파일이 원본이 아님). 대사·노드는 키로 부르고, 바꾼 것은 제안으로 올라가 사람이 앱에서 수락합니다. 직접 그은 선과 넣은 대사는 "AI가 만듦"으로 남습니다.
+```
+loca call link_lines '{"from":"<키>","to":"<키>","action":"link"}'      # 선 잇기(label로 선택지 이름), "unlink"면 지우기
+loca call add_line_after '{"after":"<키>","source":"…","speaker":"Mira"}' # 그 대사 바로 뒤: 다음 대사가 하나면 사이에, 갈래면 새 갈래로
+loca call delete_lines '{"keys":["<키>"]}'                              # 지우면서 앞뒤를 이어 줌(bridge:false면 끊음)
+```
+- 파일에 없는 원문만 넣습니다. 흐름이 틀렸는지는 `loca call line_context`·`show_graph`로 먼저 확인합니다.
 - 그래프 연결(어느 대사 다음에 어느 대사)은 만들지 않습니다. 게임 데이터에서 다시 가져와야 하면 `loca-import-format`.
 - 장면 설명(AI 번역 노드가 장면 문맥으로 받음)은 `loca-knowledge`의 `save_group_summary`.

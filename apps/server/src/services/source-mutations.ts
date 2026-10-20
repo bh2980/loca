@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, like, sql } from 'drizzle-orm';
 import { createGroupSchema, updateGroupSchema, createUnitSchema, updateUnitSchema, deleteUnitsSchema } from '@tw/shared';
 import type { z } from 'zod';
 import type { Db } from '../db/index.ts';
@@ -10,11 +10,11 @@ import { events } from '../events.ts';
 import { FILLING } from '../engine/run-create.ts';
 import { computeLayouts } from './layout.ts';
 
-type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
+export type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 type Reader = Pick<Db, 'select' | 'get'>;
 const groupOf = (db: Reader, projectId: string, id: string) => found(db.select().from(s.groups).where(and(eq(s.groups.id, id), eq(s.groups.projectId, projectId))).get(), '묶음');
 const unitOf = (db: Reader, projectId: string, id: string) => found(db.select().from(s.units).where(and(eq(s.units.id, id), eq(s.units.projectId, projectId))).get(), '원문 항목');
-const initialStatus = (db: Reader, projectId: string) => found(db.select().from(s.statuses).where(and(eq(s.statuses.projectId, projectId), eq(s.statuses.kind, 'initial'))).orderBy(asc(s.statuses.sort)).get(), '초기 상태').id;
+export const initialStatus = (db: Reader, projectId: string) => found(db.select().from(s.statuses).where(and(eq(s.statuses.projectId, projectId), eq(s.statuses.kind, 'initial'))).orderBy(asc(s.statuses.sort)).get(), '초기 상태').id;
 
 function uniqueKey(db: Reader, projectId: string, table: typeof s.units | typeof s.groups, key: string, except?: string) {
   const row = db.select({ id: table.id }).from(table).where(and(eq(table.projectId, projectId), eq(table.key, key))).get();
@@ -22,17 +22,17 @@ function uniqueKey(db: Reader, projectId: string, table: typeof s.units | typeof
 }
 
 /** Active and paused jobs must keep their input stable, including analysis plans not yet filled. */
-function refuseBusy(db: Reader, projectId: string, ids: string[]) {
+export function refuseBusy(db: Reader, projectId: string, ids: string[]) {
   if (!ids.length) return;
   const busy = db.get<{ n: number }>(sql`select count(*) n from ${s.runs} r where r.project_id = ${projectId}
     and r.status in ('running', 'paused') and (
-      exists (select 1 from ${s.runItems} i where i.run_id = r.id and i.unit_id in (select value from json_each(${JSON.stringify(ids)})))
+      exists (select 1 from ${s.runItems} i where i.run_id = r.id and i.subject_id in (select value from json_each(${JSON.stringify(ids)})))
       or r.notice = ${FILLING})`);
   if (busy?.n) badRequest('실행 중이거나 일시 정지된 워크플로에서 사용하는 원문입니다. 실행을 종료한 뒤 변경하거나 삭제하세요.');
 }
 
 /** Keep script order dense without touching content revisions on unrelated rows. */
-function resequence(tx: Tx, projectId: string) {
+export function resequence(tx: Tx, projectId: string) {
   tx.run(sql`with ordered as materialized (
     select u.id, row_number() over (order by g.sort, g.key, u.sort, u.key) - 1 as position
     from ${s.units} u join ${s.groups} g on g.id = u.group_id where u.project_id = ${projectId}
@@ -41,18 +41,25 @@ function resequence(tx: Tx, projectId: string) {
 }
 
 /** Nodes retain their imported edges; their grouping always follows their first surviving unit. */
-function refreshNodeGroups(tx: Tx, projectId: string) {
+export function refreshNodeGroups(tx: Tx, projectId: string) {
   tx.run(sql`update ${s.graphNodes} set group_id = (
     select u.group_id from ${s.units} u where u.id = json_extract(graph_nodes.unit_ids, '$[0]')
   ) where project_id = ${projectId} and json_array_length(unit_ids) > 0`);
 }
 
-function invalidate(tx: Tx, projectId: string) {
-  tx.delete(s.graphLayouts).where(eq(s.graphLayouts.projectId, projectId)).run();
+/**
+ * The stored layouts are out of date: they stay (the graph keeps showing the last one, marked as
+ * being laid out again) until computeLayouts replaces them. Views are laid out on demand, so theirs go.
+ */
+export function invalidate(tx: Tx, projectId: string) {
+  tx.delete(s.graphLayouts).where(and(eq(s.graphLayouts.projectId, projectId), like(s.graphLayouts.section, 'view:%'))).run();
+  tx.update(s.graphLayouts).set({ status: 'pending', error: null }).where(eq(s.graphLayouts.projectId, projectId)).run();
 }
-function changed(db: Db, projectId: string) {
+export function changed(db: Db, projectId: string) {
   events.changed(projectId, 'units', 'graph');
-  void computeLayouts(db, projectId);
+  // Every orientation that has a stored layout is laid out again (one after another, see computeLayouts).
+  const directions = db.selectDistinct({ direction: s.graphLayouts.direction }).from(s.graphLayouts).where(eq(s.graphLayouts.projectId, projectId)).all().map((row) => row.direction);
+  for (const direction of directions.length ? directions : ['vertical' as const]) void computeLayouts(db, projectId, { direction });
 }
 
 export function createGroup(db: Db, projectId: string, raw: z.input<typeof createGroupSchema>) {
@@ -94,7 +101,7 @@ export function createUnit(db: Db, projectId: string, raw: z.input<typeof create
     const sort = tx.get<{ n: number }>(sql`select coalesce(max(sort), -1) + 1 n from ${s.units} where group_id = ${group.id}`)!.n;
     const result = tx.insert(s.units).values({ ...input, key, projectId, kind: group.kind === 'scene' ? 'dialogue' : group.kind, statusId: initialStatus(tx, projectId), sort, listenerOrigin: input.listener ? 'human' : null }).returning().get();
     // An isolated node records the new source without inventing a connection to its neighbours.
-    tx.insert(s.graphNodes).values({ projectId, key: `entry-${result.id}`, kind: 'line', groupId: group.id, unitIds: [result.id], meta: { manualSourceEntry: true } }).run();
+    tx.insert(s.graphNodes).values({ projectId, key: `entry-${result.id}`, kind: 'script', groupId: group.id, unitIds: [result.id], meta: { manualSourceEntry: true }, origin: 'human' }).run();
     resequence(tx, projectId);
     invalidate(tx, projectId);
     return unitOf(tx, projectId, result.id);
@@ -156,6 +163,8 @@ function removeUnits(tx: Tx, projectId: string, ids: string[]) {
       tx.update(s.graphNodes).set({ unitIds, ...(unitIds.length ? {} : { groupId: null }) }).where(eq(s.graphNodes.id, node.id)).run();
     }
   }
+  // Run items name their line without a foreign key (a run's items can be terms too): they go with it.
+  tx.delete(s.runItems).where(inList(s.runItems.subjectId, ids)).run();
   tx.delete(s.units).where(and(eq(s.units.projectId, projectId), inList(s.units.id, ids))).run();
   refreshNodeGroups(tx, projectId);
   resequence(tx, projectId);

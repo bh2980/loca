@@ -7,7 +7,6 @@ import { Button, SectionHeading } from '@loca/ui';
 import { HeaderActions } from '@/components/page';
 import { q, useReviewTagId } from '@/lib/queries';
 import { cn } from '@/lib/utils';
-import { termMarksOf } from '@tw/shared';
 
 interface Step {
   key: string;
@@ -56,10 +55,10 @@ export function GettingStarted({ projectId }: { projectId: string }) {
       </HeaderActions>
     );
   const toCheck = rules.data.filter((rule) => rule.tags.some((tag) => tag.id === reviewTag)).length;
-  // Counted by the glossary's own marks (#후보, #번역어 없음 on any term), the same ones its links filter by.
+  // Counted by the glossary's own filters (상태 후보, #번역 누락 on any term), the same ones its links use.
   const confirmedTerms = terms.data.filter((term) => term.status === 'confirmed').length;
-  const candidates = terms.data.filter((term) => termMarksOf(term).includes('candidate')).length;
-  const emptyTerms = terms.data.filter((term) => termMarksOf(term).includes('emptyTarget')).length;
+  const candidates = terms.data.filter((term) => term.status === 'candidate').length;
+  const emptyTerms = terms.data.filter((term) => !term.target.trim()).length;
 
   const steps: Step[] = [
     {
@@ -102,7 +101,7 @@ export function GettingStarted({ projectId }: { projectId: string }) {
       optional: true,
       action: () => (
         <Button asChild variant="ghost">
-          <Link to="/p/$projectId/glossary" params={{ projectId }} search={candidates ? { marks: ['candidate'] } : {}}>
+          <Link to="/p/$projectId/glossary" params={{ projectId }} search={candidates ? { status: 'candidate' } : {}}>
             용어집 열기
           </Link>
         </Button>

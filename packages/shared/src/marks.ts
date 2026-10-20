@@ -10,7 +10,7 @@ export const TAG_SCOPE_LABELS: Record<TagScope, string> = {
   terms: '용어집',
   knowledge: '자료',
   people: '인물·관계',
-  documents: '문서',
+  documents: '노트',
   events: '사건',
 };
 
@@ -42,7 +42,6 @@ export const AUTO_MARKS = {
   diverged: { name: '번역 불일치', on: ['lines'], color: '#d24c49', description: '같은 원문이 다른 곳에서 다르게 번역됨' },
   noted: { name: '메모', on: ['lines'], color: '#009589', description: '줄 메모가 있음' },
   excluded: { name: '번역 제외', on: ['lines'], color: '#7b8494', description: '번역할 글자가 없거나 제외 규칙·직접 지정으로 빠진 대사. 진행률·실행·내보내기·검사에서 빠짐' },
-  candidate: { name: '후보', on: ['terms', 'people', 'documents', 'events'], color: '#bc5694', description: '아직 번역 문맥에 쓰이지 않음' },
   noEvidence: { name: '근거 부재', on: ['people', 'documents', 'events'], color: '#c46016', description: '근거 대사가 없음' },
   emptyTarget: { name: '번역 누락', on: ['terms'], color: '#d24c49', description: '한국어 번역어가 비어 있음' },
   unused: { name: '대본 미등장', on: ['terms'], color: '#79818c', description: '원문이나 화자에 나오는 대사가 없음' },
@@ -72,26 +71,13 @@ export const lineMarksSchema = z.array(z.enum(LINE_MARK_IDS as [LineMark, ...Lin
 /** The line marks read off the line itself (lineMarksOf: what workflow conditions can test). 같은 원문 다른 번역 compares across lines, so only the list filter and run scope know it; excluded lines never enter a run. */
 export const CONDITION_MARK_IDS = LINE_MARK_IDS.filter((id) => id !== 'diverged' && id !== 'excluded');
 
-/**
- * Marks that are values of one field: a knowledge item or a term is either a candidate or decided
- * by AI, never both. Picked together they mean either one; marks of different groups (or none) must
- * all hold. This is the one place filters, links and counts take the rule from.
- */
-export const MARK_GROUPS: Partial<Record<AutoMark, 'decision'>> = { candidate: 'decision', ai: 'decision' };
-
-/** Whether an item carrying `has` passes a filter of `picked` marks (see MARK_GROUPS). */
+/** Whether an item carrying `has` carries every one of the `picked` marks. */
 export function matchesMarks(has: readonly AutoMark[], picked: readonly AutoMark[] | undefined) {
   if (!picked?.length) return true;
-  const groups = new Map<string, AutoMark[]>();
-  for (const mark of picked) {
-    const group = MARK_GROUPS[mark] ?? mark;
-    groups.set(group, [...(groups.get(group) ?? []), mark]);
-  }
-  return [...groups.values()].every((anyOf) => anyOf.some((mark) => has.includes(mark)));
+  return picked.every((mark) => has.includes(mark));
 }
 
 /** "확인 안 함": a knowledge item or term no person has decided yet — a candidate, or decided by AI. The run dialog, home and links all count this. */
-export const UNREVIEWED_MARKS = ['candidate', 'ai'] as const satisfies readonly AutoMark[];
 export const isUnreviewed = (item: { status: KnowledgeStatus; statusBy: StatusBy }) => item.status !== 'rejected' && (item.status === 'candidate' || aiDecided(item));
 
 /**
@@ -122,12 +108,12 @@ export function lineMarksOf(line: ListenerLine & { statusBy: StatusBy; note: str
 
 /** The marks a knowledge item carries. */
 export function knowledgeMarksOf(item: { status: KnowledgeStatus; statusBy: StatusBy; evidence?: readonly unknown[] }): AutoMark[] {
-  return [item.status === 'candidate' && 'candidate', aiDecided(item) && 'ai', item.evidence !== undefined && item.evidence.length === 0 && 'noEvidence'].filter((mark): mark is AutoMark => Boolean(mark));
+  return [aiDecided(item) && 'ai', item.evidence !== undefined && item.evidence.length === 0 && 'noEvidence'].filter((mark): mark is AutoMark => Boolean(mark));
 }
 
 /** The marks a glossary term carries. */
 export function termMarksOf(term: { status: KnowledgeStatus; statusBy: StatusBy; target: string; lines: number | null }): AutoMark[] {
-  return [term.status === 'candidate' && 'candidate', aiDecided(term) && 'ai', !term.target.trim() && 'emptyTarget', term.lines === 0 && 'unused'].filter((mark): mark is AutoMark => Boolean(mark));
+  return [aiDecided(term) && 'ai', !term.target.trim() && 'emptyTarget', term.lines === 0 && 'unused'].filter((mark): mark is AutoMark => Boolean(mark));
 }
 
 /** The `marks` URL param: a list of mark ids (also accepts one id or a comma list), unknown ids dropped. */

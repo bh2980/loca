@@ -8,8 +8,9 @@ import { type AutoMark, isSpecialListener, knowledgeMarksOf, listenerLabel, matc
 import { EmptyState, DataTable, type ColumnDef, Inspector, InspectorHeader, InspectorSection, InspectorBlock, InspectorField, InspectorList, InspectorResult, TagListEditor, Badge, Button } from '@loca/ui';
 import { DraftEditor } from '@/components/knowledge/editor';
 import { StretchPicker } from '@/components/knowledge/evidence';
-import { candidateRow, fail, isHidden, matches, metaColumns, SourceBadge, type Draft, type KnowledgeFilterState, type KindSpec, type RelationshipRow, type SourceFilter, type SpeechRuleRow } from '@/components/knowledge/table';
+import { candidateRow, fail, isHidden, matches, metaColumns, SourceBadge, type Draft, type KnowledgeFilterState, type KindSpec, type RelationshipRow, type SourceFilter, type StatusFilter, type SpeechRuleRow } from '@/components/knowledge/table';
 import { splitList } from '@/components/chip-input';
+import { personStyle } from '@/lib/person-colors';
 import { client, unwrap } from '@/lib/api';
 import { q, tagsIn, useReviewTagId } from '@/lib/queries';
 import { cn } from '@/lib/utils';
@@ -73,8 +74,8 @@ export const pairSummary = (pair: Pair): Draft => {
 /** The marks any item of a pair carries: what its row shows and the marks filter reads. */
 export const pairMarks = (pair: Pair): AutoMark[] => [...new Set([pair.relationship, ...pair.rules].flatMap((row) => (row ? knowledgeMarksOf(row) : [])))];
 /** Pairs matching the filters: by source and tags through any one item, by marks through the pair's marks. */
-export const pairMatches = (pair: Pair, source: SourceFilter, marks?: readonly AutoMark[], tags?: string[], hidden: { hideMarks?: readonly AutoMark[]; hideTags?: readonly string[] } = {}) =>
-  matchesMarks(pairMarks(pair), marks) && [pair.relationship, ...pair.rules].some((row) => row && matches(row, source, undefined, tags)) && !isHidden(pairMarks(pair), pairTagIds(pair), hidden);
+export const pairMatches = (pair: Pair, source: SourceFilter, marks?: readonly AutoMark[], tags?: string[], status?: StatusFilter, hidden: { hideMarks?: readonly AutoMark[]; hideTags?: readonly string[] } = {}) =>
+  (!status || pairSummary(pair).status === status) && matchesMarks(pairMarks(pair), marks) && [pair.relationship, ...pair.rules].some((row) => row && matches(row, source, undefined, tags)) && !isHidden(pairMarks(pair), pairTagIds(pair), hidden);
 const pairTagIds = (pair: Pair) => [pair.relationship, ...pair.rules].flatMap((row) => (row?.tags ?? []).map((tag) => tag.id));
 export const pairItems = (pair: Pair) => [...(pair.relationship ? [{ kind: 'relationships' as const, row: pair.relationship }] : []), ...pair.rules.map((row) => ({ kind: 'speechRules' as const, row }))];
 /** Why the app marked an item for a look (its tag's note), or null. */
@@ -87,8 +88,10 @@ const ReviewBadge = ({ reasons }: { reasons: string }) => (
 const levelsText = (rules: SpeechRuleRow[]) => rules.map((rule) => SPEECH_LEVEL_LABELS[rule.level]).join(' → ');
 
 /** The speaker → listener pairs as a table; 출처 filters through its header, 후보 and AI가 정함 through the 태그 column. */
-export function PairTable({ pairs, loading, selected, picked, onPick, onOpen, bulk, filters }: {
+export function PairTable({ pairs, loading, selected, picked, onPick, onOpen, bulk, filters, colorOf }: {
   pairs: Pair[] | undefined;
+  /** A person's color by name (usePersonColors). */
+  colorOf?: (name: string) => string | undefined;
   loading: boolean;
   selected?: string;
   picked: ReadonlySet<string>;
@@ -98,7 +101,7 @@ export function PairTable({ pairs, loading, selected, picked, onPick, onOpen, bu
   filters: KnowledgeFilterState;
 }) {
   const columns: ColumnDef<Pair, unknown>[] = [
-    { id: 'pair', header: '화자 → 청자', meta: { width: 240, className: 'font-medium', hideable: false }, cell: ({ row: { original: pair } }) => `${pair.from} → ${listenerLabel(pair.to)}` },
+    { id: 'pair', header: '화자 → 청자', meta: { width: 240, className: 'font-medium', hideable: false }, cell: ({ row: { original: pair } }) => <><span style={personStyle(colorOf?.(pair.from))}>{pair.from}</span> → <span style={personStyle(colorOf?.(pair.to))}>{listenerLabel(pair.to)}</span></> },
     { id: 'relationship', header: '관계', meta: { width: 200 }, cell: ({ row: { original: pair } }) => (pair.relationship ? pair.relationship.kind : <span className="text-muted-foreground">—</span>) },
     { id: 'speech', header: '말투', cell: ({ row: { original: pair } }) => (pair.rules.length ? levelsText(pair.rules) : <span className="text-muted-foreground">—</span>) },
     ...metaColumns<Pair>(pairSummary, filters, pairMarks),
@@ -115,7 +118,7 @@ export function PairTable({ pairs, loading, selected, picked, onPick, onOpen, bu
       picked={picked}
       onPick={onPick}
       bulk={bulk}
-      empty={<EmptyState noun="관계나 말투 규칙이 있는 쌍" filtered={Boolean(filters.source || filters.marks?.length || filters.tags?.length)} />}
+      empty={<EmptyState noun="관계나 말투 규칙이 있는 쌍" filtered={Boolean(filters.source || filters.status || filters.marks?.length || filters.tags?.length)} />}
     />
   );
 }
@@ -210,7 +213,7 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
     <Inspector header={<InspectorHeader kind="관계·말투" name={`${pair.from} → ${listenerLabel(pair.to)}`} onClose={onClose} />}>
       {pairItemsList.length > 0 && (
         <InspectorBlock>
-          <InspectorField label="태그" description="이 쌍의 관계와 말투 규칙 모두에 붙습니다.">
+          <InspectorField label="태그" help="이 쌍의 관계와 말투 규칙 모두에 붙습니다.">
             <TagListEditor tags={attachedPairTags} allTags={knowledgeTags} onToggle={(tagId, add) => pairTagMutation.mutate({ tagId, add })} onCreate={handleCreatePairTag} heading="태그" />
           </InspectorField>
         </InspectorBlock>
@@ -273,7 +276,8 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
       </InspectorSection>
       <InspectorSection
         title={relationshipKind ? `관계 · ${relationshipKind}` : '관계'}
-        defaultOpen={Boolean(pair.relationship && pair.relationship.status === 'candidate')}
+        // Open where there is something to settle: a candidate, or a line just drawn that says nothing yet.
+        defaultOpen={Boolean(pair.relationship && (pair.relationship.status === 'candidate' || !pair.relationship.description))}
         actions={
           pair.relationship && (
             <span className="flex items-center gap-1.5">

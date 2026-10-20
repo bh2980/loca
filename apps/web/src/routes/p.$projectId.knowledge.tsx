@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
+import { useRelationshipGraphActions } from '@/components/knowledge/graph-actions';
+import { AiConfirmNote } from '@/components/settings/ai-confirm';
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import { ArrowLeftRight, GanttChart, Network, Plus, Table2, Users } from 'lucide-react';
@@ -11,8 +13,6 @@ import {
   FilterChips,
   FilterBar,
   ViewSwitch,
-  CanvasDirectionControl,
-  Separator,
   Badge,
   Button,
   Skeleton,
@@ -33,16 +33,19 @@ import {
   AlertDialogCancel,
   AlertDialogAction,
 } from '@loca/ui';
-import { HeaderActions, Page, StatusBarItem } from '@/components/page';
+import { HeaderActions, HeaderViews, Page, StatusBarItem } from '@/components/page';
 import { RelationshipGraph } from '@/components/relationship-graph';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { Play } from 'lucide-react';
 import { DraftEditor } from '@/components/knowledge/editor';
 import { RelationshipChanges, RuleLines } from '@/components/knowledge/evidence';
-import { BulkDecide, fail, KINDS, KnowledgeFilters, knowledgeFilterChips, KNOWLEDGE_MARK_IDS, matches, rowHidden, type KnowledgeFilterState, SourceBadge, type Kind, type KindSpec, type Row, type SourceFilter, defineKind, metaColumns, candidateRow } from '@/components/knowledge/table';
+import { BulkDecide, fail, parseStatusFilter, type StatusFilter, KINDS, KnowledgeFilters, knowledgeFilterChips, KNOWLEDGE_MARK_IDS, matches, rowHidden, type KnowledgeFilterState, SourceBadge, type Kind, type KindSpec, type Row, type SourceFilter, defineKind, metaColumns, candidateRow } from '@/components/knowledge/table';
 import { pairKey, buildPairs, PairDetail, pairItems, pairMatches, pairSummary, PairTable, type Pair, type SpeechRuleCreate } from '@/components/knowledge/pairs';
 import { AddPairPopover } from '@/components/knowledge/add-pair-popover';
 import { EventFlow } from '@/components/knowledge/event-flow';
+import { lineKey, parseLineKey, useEventFlowActions } from '@/components/knowledge/event-actions';
+import { LineDetail } from '@/components/knowledge/line-detail';
+import { personStyle, usePersonColors } from '@/lib/person-colors';
 import { splitList } from '@/components/chip-input';
 import { client, unwrap } from '@/lib/api';
 import { DOCUMENT_KIND } from '@/lib/labels';
@@ -52,13 +55,15 @@ import { cn } from '@/lib/utils';
 import { useReportView } from '@/lib/view-context';
 
 /** Tabs (the top bar's section tabs link to them). Relationships and speech rules share 인물·관계 because both describe speaker → listener pairs. */
-const TABS = { documents: '문서', people: '인물·관계', events: '사건' } as const;
+const TABS = { people: '인물·관계', events: '사건', documents: '노트' } as const;
 type Tab = keyof typeof TABS;
 interface KnowledgeSearch {
   tab?: Tab;
   /** 출처 filter: who wrote it (작품 분석, 워크플로·채팅, 대본에서 찾음, 가져오기, 사람). */
   source?: KnowledgeSource;
-  /** Automatic marks (#후보, #AI가 정함, #근거 없음): items carrying them; the first two together mean either (see matchesMarks). */
+  /** 상태 filter: 후보 or 확정. */
+  status?: StatusFilter;
+  /** Automatic marks (#AI 초안, #근거 없음): items carrying all of them. */
   marks?: AutoMark[];
   /** 태그 filter: project tag ids (확인 권장, a person's own); items carrying all of them. */
   tags?: string[];
@@ -78,6 +83,7 @@ export const Route = createFileRoute('/p/$projectId/knowledge')({
   validateSearch: (raw: Record<string, unknown>): KnowledgeSearch => ({
     tab: typeof raw.tab === 'string' && raw.tab in TABS ? (raw.tab as Tab) : undefined,
     source: typeof raw.source === 'string' && (KNOWLEDGE_SOURCES as readonly string[]).includes(raw.source) ? (raw.source as KnowledgeSource) : undefined,
+    status: parseStatusFilter(raw.status),
     marks: parseMarks(raw.marks, KNOWLEDGE_MARK_IDS),
     tags: Array.isArray(raw.tags) && raw.tags.length && raw.tags.every((id) => typeof id === 'string') ? (raw.tags as string[]) : undefined,
     hideMarks: parseMarks(raw.hideMarks, KNOWLEDGE_MARK_IDS),
@@ -101,7 +107,7 @@ function Knowledge() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const revealDock = useRevealDock();
-  const tab: Tab = search.tab ?? 'documents';
+  const tab: Tab = search.tab ?? 'people';
   // 인물·관계 is one graph (people and their relationships) or two tables (pairs / people).
   const graph = tab === 'people' && !search.display;
   const pairsView = tab === 'people' && search.display === 'table';
@@ -117,6 +123,8 @@ function Knowledge() {
   const rules = useQuery(q.speechRules(projectId));
   const nameOf = useMemo(() => new Map((people.data?.characters ?? []).map((c) => [c.id, c.name])), [people.data]);
   const api = client.projects[':projectId'];
+  // The graph's actions read the pairs (built further down) when they run.
+  const pairsForGraph = useRef<Pair[]>([]);
   const param = (id: string) => ({ param: { projectId, id } });
   // Saves a kind's form through its PATCH endpoint. A form key the endpoint does not take fails to
   // compile here: the server's schema would drop it and the edit would vanish without an error.
@@ -139,10 +147,10 @@ function Knowledge() {
       fields: [
         { name: 'title', label: '제목', type: 'text' },
         { name: 'kind', label: '종류', type: 'docKind' },
-        { name: 'alwaysInclude', label: '문맥에 넣기', description: '켜면 모든 AI 호출의 문맥에 들어갑니다.', type: 'bool' },
+        { name: 'alwaysInclude', label: '문맥에 넣기', help: '켜면 노트 문맥을 켠 AI 노드에 이 노트의 전문이 들어갑니다.', type: 'bool' },
         { name: 'body', label: '본문', type: 'long' },
       ],
-      create: () => unwrap(api.documents.$post({ param: { projectId }, json: { title: '새 문서', kind: 'note', body: '', alwaysInclude: false } })),
+      create: () => unwrap(api.documents.$post({ param: { projectId }, json: { title: '새 노트', kind: 'note', body: '', alwaysInclude: false } })),
       label: (row) => row.title,
       save: patchTo(api.documents[':id'].$patch),
       remove: (id) => unwrap(api.documents[':id'].$delete(param(id))),
@@ -150,7 +158,7 @@ function Knowledge() {
     characters: defineKind({
       rows: people.data?.characters ?? [],
       columns: [
-        { head: '이름', cell: (row) => <span className="font-medium">{row.name}{row.player ? <Badge variant="outline" className="ml-2">플레이어</Badge> : null}</span>, width: 220 },
+        { head: '이름', cell: (row) => <span className="font-medium"><span style={personStyle(row.color)}>{row.name}</span>{row.player ? <Badge variant="outline" className="ml-2">플레이어</Badge> : null}</span>, width: 220 },
         { head: '별칭', cell: (row) => row.aliases.join(', '), width: 180 },
         { head: '성별·나이', cell: (row) => <span className="text-muted-foreground">{personLabel(row)}</span>, width: 120 },
         { head: '역할', cell: (row) => row.role === 'unknown' ? null : CHARACTER_ROLE_LABELS[row.role], width: 90 },
@@ -161,6 +169,7 @@ function Knowledge() {
         { name: 'name', label: '이름', type: 'text' },
         { name: 'aliases', label: '별칭', type: 'list' },
         { name: 'player', label: '플레이어', type: 'bool' },
+        { name: 'color', label: '색', help: '이 인물의 이름이 나오는 곳(대사·그래프·사건)에 이 색으로 보입니다.', type: 'color' },
         { name: 'gender', label: '성별', type: 'gender' },
         { name: 'ageBand', label: '나이대', type: 'ageBand' },
         { name: 'role', label: '역할', type: 'role' },
@@ -185,7 +194,7 @@ function Knowledge() {
         { name: 'fromId', label: '누가', type: 'character' },
         { name: 'toId', label: '누구에게', type: 'character' },
         { name: 'kind', label: '관계', type: 'text' },
-        { name: 'mutual', label: '쌍방', description: '반대 방향에도 같은 관계입니다.', type: 'bool' },
+        { name: 'mutual', label: '쌍방', help: '반대 방향에도 같은 관계입니다.', type: 'bool' },
         { name: 'description', label: '설명', type: 'long' },
       ],
       label: (row) => `${nameOf.get(row.fromId) ?? '?'} → ${nameOf.get(row.toId) ?? '?'}`,
@@ -244,10 +253,17 @@ function Knowledge() {
   const addRule = (json: SpeechRuleCreate) => unwrap(api['speech-rules'].$post({ param: { projectId }, json }));
 
   const characters = people.data?.characters ?? [];
+  const colorOf = usePersonColors(projectId);
+  const eventActions = useEventFlowActions({ projectId, events: storyEvents.data ?? [], open: (item) => set({ item }) });
+  // A line of the 사건 흐름 opens in the pane by its key (event-actions: lineKey).
+  const line = timeline ? parseLineKey(search.item) : null;
+  const lineEnds = line && storyEvents.data ? { from: storyEvents.data.find((event) => event.id === line.fromId), to: storyEvents.data.find((event) => event.id === line.toId) } : null;
+  const graphActions = useRelationshipGraphActions({ projectId, characters, relationships: people.data?.relationships ?? [], pairs: pairsForGraph, open: (item) => set({ item }) });
   const inScope = (id: string) => !search.ids || search.ids.includes(id);
-  const shown = (row: Row) => inScope(row.id) && matches(row, search.source, search.marks, search.tags) && !rowHidden(row, search);
+  const shown = (row: Row) => inScope(row.id) && matches(row, search.source, search.marks, search.tags, search.status) && !rowHidden(row, search);
   const pairs = useMemo(() => buildPairs(characters, specs.relationships.rows, specs.speechRules.rows), [characters, specs.relationships.rows, specs.speechRules.rows]);
-  const visiblePairs = pairs.filter((pair) => pairMatches(pair, search.source, search.marks, search.tags, search) && (!search.ids || pairItems(pair).some((item) => inScope(item.row.id))));
+  pairsForGraph.current = pairs;
+  const visiblePairs = pairs.filter((pair) => pairMatches(pair, search.source, search.marks, search.tags, search.status, search) && (!search.ids || pairItems(pair).some((item) => inScope(item.row.id))));
   // A link may name a relationship or rule id; it opens the pair holding it.
   const pair = pairsView || graph ? pairs.find((candidate) => candidate.key === search.item || pairItems(candidate).some((item) => item.row.id === search.item)) : undefined;
 
@@ -346,14 +362,15 @@ function Knowledge() {
   const markColors = useMarkColors(projectId);
   const filters: KnowledgeFilterState = {
     source: search.source,
+    status: search.status,
     marks: search.marks,
     tags: search.tags,
     hideMarks: search.hideMarks,
     hideTags: search.hideTags,
     known: knowledgeTags,
-    onChange: (next) => set({ ...('source' in next && { source: next.source }), ...('marks' in next && { marks: next.marks }), ...('tags' in next && { tags: next.tags }), ...('hideMarks' in next && { hideMarks: next.hideMarks }), ...('hideTags' in next && { hideTags: next.hideTags }), item: undefined }),
+    onChange: (next) => set({ ...('source' in next && { source: next.source }), ...('status' in next && { status: next.status }), ...('marks' in next && { marks: next.marks }), ...('tags' in next && { tags: next.tags }), ...('hideMarks' in next && { hideMarks: next.hideMarks }), ...('hideTags' in next && { hideTags: next.hideTags }), item: undefined }),
   };
-  const filtered = Boolean(search.source || search.marks?.length || search.tags?.length || search.ids);
+  const filtered = Boolean(search.source || search.status || search.marks?.length || search.tags?.length || search.ids);
   const chips = [...knowledgeFilterChips(filters, markColors), ...(search.ids ? [{ key: 'ids', label: `실행 범위 ${search.ids.length}`, clear: () => set({ ids: undefined, item: undefined }) }] : [])];
   const bulk = (
     <>
@@ -527,30 +544,37 @@ function Knowledge() {
               onClose={() => set({ item: undefined })}
               onDecide={(kind, ids, action) => decide.mutate({ items: [{ kind, ids }], action })}
             />
+          ) : line && lineEnds?.from && lineEnds.to ? (
+            <LineDetail
+              key={lineKey(line)}
+              from={lineEnds.from}
+              to={lineEnds.to}
+              onOpen={(id) => set({ item: id })}
+              onRemove={() => {
+                void eventActions.remove({ eventIds: [], lines: [line] });
+                set({ item: undefined });
+              }}
+              onClose={() => set({ item: undefined })}
+            />
           ) : null
         }
       >
+        {(tab === 'people' || tab === 'events') && <HeaderViews>
+          <ViewSwitch label="보기" value={tab === 'people' ? graph ? 'graph' : search.display === 'characters' ? 'characters' : 'table' : timeline ? 'timeline' : 'table'}
+            onChange={(value) => set({ display: tab === 'people' ? value === 'graph' ? undefined : value === 'characters' ? 'characters' : 'table' : value === 'table' ? 'table' : undefined, item: undefined }, false)}
+            items={tab === 'people' ? [
+              { value: 'graph', label: '그래프', icon: <Network /> },
+              { value: 'characters', label: '인물', icon: <Users /> },
+              { value: 'table', label: '관계', icon: <ArrowLeftRight /> },
+            ] : [{ value: 'timeline', label: '흐름', icon: <GanttChart /> }, { value: 'table', label: '표', icon: <Table2 />}]} />
+        </HeaderViews>}
         <HeaderActions>
-          {(tab === 'people' || tab === 'events') && <>
-            <ViewSwitch label="보기" value={tab === 'people' ? graph ? 'graph' : search.display === 'characters' ? 'characters' : 'table' : timeline ? 'timeline' : 'table'}
-              onChange={(value) => set({ display: tab === 'people' ? value === 'graph' ? undefined : value === 'characters' ? 'characters' : 'table' : value === 'table' ? 'table' : undefined, item: undefined }, false)}
-              items={tab === 'people' ? [
-                { value: 'graph', label: '그래프', icon: <Network /> },
-                { value: 'characters', label: '인물', icon: <Users /> },
-                { value: 'table', label: '관계', icon: <ArrowLeftRight /> },
-              ] : [{ value: 'timeline', label: '흐름', icon: <GanttChart /> }, { value: 'table', label: '표', icon: <Table2 />}]} />
-            <Separator orientation="vertical" className="mx-1 h-4" />
-          </>}
-          {timeline && <>
-            <CanvasDirectionControl direction={direction} onDirectionChange={(next) => set({ direction: next }, false)} disabled={storyEvents.isPending} />
-            <Separator orientation="vertical" className="mx-1 h-4" />
-          </>}
-          {(pairsView || graph) && <AddPairPopover projectId={projectId} characters={characters} pairs={pairs} onCreated={(key) => set({ item: key, source: undefined, marks: undefined, ids: undefined })} />}
-          {/* One primary action: in the graph, adding a pair leads and adding a person steps back. */}
-          {!pairsView && spec.create && <Button variant={graph ? 'outline' : 'default'} disabled={create.isPending} onClick={() => create.mutate()}><Plus /> {KINDS[tableKind]}</Button>}
+          {/* In the graph and the 사건 흐름, items and lines are made on the canvas itself (right-click, drawing a line). */}
+          {pairsView && <AddPairPopover projectId={projectId} characters={characters} pairs={pairs} onCreated={(key) => set({ item: key, source: undefined, marks: undefined, ids: undefined })} />}
+          {!pairsView && !graph && !timeline && spec.create && <Button disabled={create.isPending} onClick={() => create.mutate()}><Plus /> {KINDS[tableKind]}</Button>}
           <RunDialog projectId={projectId} trigger={<Button variant="ghost"><Play /> 워크플로 실행</Button>} />
         </HeaderActions>
-        <FilterBar end={<span className="text-2xs font-medium text-subtle-foreground tabular-nums">{count}</span>}>
+        <FilterBar end={<><AiConfirmNote projectId={projectId} /><span className="text-2xs font-medium text-subtle-foreground tabular-nums">{count}</span></>}>
           {(graph || timeline) && <KnowledgeFilters {...filters} />}
           <FilterChips chips={chips} />
         </FilterBar>
@@ -569,7 +593,7 @@ function Knowledge() {
                 onSelectCharacter={(id) => set({ item: id })}
                 onSelectRelationship={(key) => set({ item: key })}
                 onClear={() => set({ item: undefined })}
-                onDeleteCharacters={(ids, ask) => (ask ? setDeletingIds(ids) : deleteMutation.mutate(ids))}
+                actions={graphActions}
               />
             )}
           </div>
@@ -584,6 +608,8 @@ function Knowledge() {
                 filtered={filtered}
                 events={specs.events.rows.filter(shown)}
                 direction={direction}
+                onDirectionChange={(next) => set({ direction: next }, false)}
+                actions={eventActions}
                 selected={search.item}
                 onOpen={(id) => set({ item: id })}
                 badge={(event) => <SourceBadge row={rows.find((row) => row.id === event.id)!} />}
@@ -592,6 +618,7 @@ function Knowledge() {
           </div>
         ) : pairsView ? (
           <PairTable
+            colorOf={colorOf}
             pairs={pending ? undefined : visiblePairs}
             loading={pending}
             selected={pair?.key}

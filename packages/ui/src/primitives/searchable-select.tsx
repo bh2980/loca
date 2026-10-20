@@ -12,7 +12,7 @@ export interface SearchableSelectOption {
 }
 
 /** Searchable picker that keeps only the first fifty matches mounted for large collections. */
-export function SearchableSelect({ value, onValueChange, options, placeholder = "선택", searchPlaceholder = "검색", emptyText = "검색 결과가 없습니다", ariaLabel, disabled }: {
+export function SearchableSelect({ value, onValueChange, options, placeholder = "선택", searchPlaceholder = "검색", emptyText = "검색 결과가 없습니다", ariaLabel, disabled, onSearch, selectedLabel }: {
   value?: string
   onValueChange: (value: string) => void
   options: SearchableSelectOption[]
@@ -21,13 +21,17 @@ export function SearchableSelect({ value, onValueChange, options, placeholder = 
   emptyText?: string
   ariaLabel: string
   disabled?: boolean
+  /** Searched elsewhere (e.g. on the server): the options are already the matches for the query it is given. */
+  onSearch?: (query: string) => void
+  /** The chosen value's label when it is not among the options (searched lists hold only matches). */
+  selectedLabel?: string
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
   const normalized = query.trim().toLocaleLowerCase()
-  const matches = useMemo(() => options.filter((option) => !normalized || `${option.label} ${option.searchText ?? ""}`.toLocaleLowerCase().includes(normalized)), [options, normalized])
+  const matches = useMemo(() => (onSearch ? options : options.filter((option) => !normalized || `${option.label} ${option.searchText ?? ""}`.toLocaleLowerCase().includes(normalized))), [options, normalized, onSearch])
   const visible = matches.slice(0, 50)
-  const selected = options.find((option) => option.value === value)
+  const selected = options.find((option) => option.value === value) ?? (value && selectedLabel ? { value, label: selectedLabel } : undefined)
 
   return (
     <Popover open={open} onOpenChange={(next) => { setOpen(next); if (!next) setQuery("") }}>
@@ -39,7 +43,7 @@ export function SearchableSelect({ value, onValueChange, options, placeholder = 
       </PopoverTrigger>
       <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] max-w-[var(--radix-popper-available-width)] p-0">
         <Command shouldFilter={false}>
-          <CommandInput autoFocus aria-label={`${ariaLabel} 검색`} value={query} onValueChange={setQuery} placeholder={searchPlaceholder} />
+          <CommandInput autoFocus aria-label={`${ariaLabel} 검색`} value={query} onValueChange={(next) => { setQuery(next); onSearch?.(next) }} placeholder={searchPlaceholder} />
           <CommandList>
             <CommandEmpty>{emptyText}</CommandEmpty>
             {visible.map((option) => (

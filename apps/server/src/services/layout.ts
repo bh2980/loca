@@ -1,6 +1,6 @@
 import { Worker } from 'node:worker_threads';
 import { z } from 'zod';
-import { and, asc, eq, inArray, ne, notLike, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, ne, notInArray, notLike, sql } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
 import { graphEdges, graphLayouts, graphNodes, groups, projects, units, type LayoutData, type OmittedFacts } from '../db/schema.ts';
 import { contractEdges, isControlNode } from '@tw/shared';
@@ -288,8 +288,8 @@ export async function computeLayouts(db: Db, projectId: string, options: { secti
     // A second orientation may be requested while the first is laying out. Publish pending rows
     // now so the route can render a loading state and repeated section reads won't queue reruns.
     if (!options.sectionsOnly && !running.rerun.has(direction)) {
-      save(db, projectId, 'scene', { status: 'pending', data: null, error: null }, '', direction);
-      save(db, projectId, 'dialogue', { status: 'pending', data: null, error: null }, '', direction);
+      save(db, projectId, 'scene', { status: 'pending', error: null }, '', direction);
+      save(db, projectId, 'dialogue', { status: 'pending', error: null }, '', direction);
       events.changed(projectId, 'graph');
     }
     running.rerun.add(direction);
@@ -321,7 +321,8 @@ async function computeOnce(db: Db, projectId: string, state: { worker: Worker | 
     ['dialogue', (): WorkerJob => ({ kind: 'layout', job: dialogueJob(db, projectId, direction) })],
   ] as const;
   for (const [scope, build] of sectionsOnly ? [] : jobs) {
-    guarded(() => save(db, projectId, scope, { status: 'pending', data: null, error: null }, '', direction));
+    // A stored layout stays while the new one is made: the graph keeps showing it (status pending).
+    guarded(() => save(db, projectId, scope, { status: 'pending', error: null }, '', direction));
     events.changed(projectId, 'graph');
     try {
       const work = build();
@@ -338,15 +339,20 @@ async function computeOnce(db: Db, projectId: string, state: { worker: Worker | 
   }
 
   // Each section's own dialogue layout, when the script has more than one section with lines in the graph.
-  guarded(() => db.delete(graphLayouts).where(and(eq(graphLayouts.projectId, projectId), eq(graphLayouts.scope, 'dialogue'), eq(graphLayouts.direction, direction), ne(graphLayouts.section, ''), notLike(graphLayouts.section, 'view:%'))).run());
+  // Section layouts likewise stay until replaced; one whose section is gone is dropped afterwards.
+  const sectionRows = and(eq(graphLayouts.projectId, projectId), eq(graphLayouts.scope, 'dialogue'), eq(graphLayouts.direction, direction), ne(graphLayouts.section, ''), notLike(graphLayouts.section, 'view:%'));
   const source = sectionSource(db, projectId, direction);
   const used = new Set(source.nodes.flatMap((node) => (node.section ? [node.section] : [])));
-  if (used.size < 2) return;
+  if (used.size < 2) {
+    guarded(() => db.delete(graphLayouts).where(sectionRows).run());
+    return;
+  }
   try {
     const { sections } = await runWorker<SectionLayouts>({ kind: 'sections', ...source }, (worker) => (state.worker = worker));
     state.worker = null;
     guarded(() => db.transaction(() => {
       for (const section of sections) save(db, projectId, 'dialogue', { status: 'ready', data: section.data, error: null }, section.name, direction);
+      db.delete(graphLayouts).where(and(sectionRows, notInArray(graphLayouts.section, sections.map((section) => section.name)))).run();
     }));
   } catch (error) {
     state.worker = null;

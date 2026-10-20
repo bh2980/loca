@@ -25,21 +25,23 @@ import {
 import '@xyflow/react/dist/style.css';
 import { ArrowLeftRight, ArrowUpDown, ChevronRight, Copy, Focus, LayoutGrid, Maximize, Pencil, Plus, SlidersHorizontal, Trash2, Unlink } from 'lucide-react';
 import { toast } from 'sonner';
-import { AI_PRESETS, APPLY_FUNCTION_NAMES, APPLY_TARGETS, FUNCTIONS, FUNCTION_NAMES, PALETTE_FUNCTION_NAMES, nodeModels, nodeName, nodePorts, syncEntryEdges, workflowNodeSchema, type FunctionName, type WorkflowDefinition, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
+import { AI_PRESETS, APPLY_PALETTE_ORDER, INPUT_TYPES, type BatchConfig, functionGroup, APPLY_TARGETS, FUNCTIONS, FUNCTION_NAMES, functionTakes, presetTakes, workflowInput, PALETTE_FUNCTION_NAMES, nodeModels, nodeName, nodePorts, syncEntryEdges, workflowNodeSchema, type FunctionName, type WorkflowDefinition, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
 import { Page, StatusBarItem } from '@/components/page';
 import { autoLayout } from '@/components/workflow/auto-layout';
 import { NodeConfig } from '@/components/workflow/node-config';
 import { WorkflowNodeView, type FlowNode } from '@/components/workflow/node-view';
 import { WorkflowEdgeView, type FlowEdge } from '@/components/workflow/workflow-edge';
+import { entryStarts, flowEdges, nodeSummary, openPorts, targetStatus } from '@/components/workflow/flow-graph';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { SplitPane, PageHeading, HeaderActions, NodeLibrary, CanvasToolbar, CanvasSurface, SelectionToolbox, type CanvasDirection, type NodeLibraryGroup, Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent, DropdownMenuLabel, Input, Skeleton } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
-import { lineTags, q } from '@/lib/queries';
+import { tagsIn, q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { workflowEdits } from '@/lib/workflow-edits';
 import { sameWorkflowDraft, reconcileSavedDraft, normalizeWorkflowDraft } from '@/lib/workflow-draft';
 import { dateTime } from '@/lib/datetime';
 import { useIsDark } from '@/lib/theme';
+import { useGraphShortcuts, type GraphShortcuts } from '@/lib/graph-shortcuts';
 
 /** When the workflow was last saved: 10. 13. 오전 06:16. Runs keep their own copy of what they ran. */
 const savedAt = (at: string) => dateTime(at);
@@ -80,7 +82,14 @@ function NameField({ name, onRename }: { name: string; onRename: (name: string) 
 }
 
 /** A preset as the palette reads it: label/description for the list, the rest is the AI node config it fills. */
-type PresetEntry = { label: string; description?: string; output: string } & Record<string, unknown>;
+type PresetEntry = { label: string; description?: string; output: string; inputs?: readonly ('lines' | 'terms')[] } & Record<string, unknown>;
+
+/** Nodes copied with ⌘/Ctrl+C or X, with the lines among them: pasted into this or another workflow. */
+interface GraphClipboard {
+  nodes: WorkflowNode[];
+  edges: WorkflowDefinition['edges'];
+}
+let graphClipboard: GraphClipboard | null = null;
 
 export const Route = createFileRoute('/p/$projectId/workflows/$workflowId')({
   validateSearch: (raw: Record<string, unknown>): { node?: string; nodeTab?: 'io' | 'errors'; direction?: CanvasDirection } => ({
@@ -135,7 +144,6 @@ function WorkflowEditor() {
   const connections = useQuery(q.connections());
   const runs = useQuery(q.runs(projectId));
   const activeRun = runs.data?.find((run) => run.workflowId === workflowId && (run.status === 'running' || run.status === 'paused'));
-  const live = useQuery({ ...q.run(activeRun?.id ?? ''), enabled: Boolean(activeRun) });
 
   // The draft survives navigation and reloads; it is dropped only on save or explicit discard.
   const [draft, setDraftState] = useState<Draft | null>(() => readDraft(workflowId));
@@ -220,8 +228,6 @@ function WorkflowEditor() {
     return () => clearTimeout(timer);
   }, [draft, stale, save.isPending, save.isError, save.mutate]);
 
-  const statusName = new Map(statuses.data?.statuses.map((status) => [status.id, status.name]));
-  const connectionName = new Map(connections.data?.map((connection) => [connection.id, connection.name]));
   // A new AI node starts with the model the workflow already uses, else the first connection's default.
   const newNodeModel = () => {
     const used = current?.definition.nodes.find((node) => node.type === 'ai' && node.config.model.model);
@@ -229,55 +235,8 @@ function WorkflowEditor() {
     const connection = connections.data?.find((item) => item.defaultModel && item.kind !== 'http' && item.kind !== 'systemone');
     return connection ? { connectionId: connection.id, model: connection.defaultModel!, ...(connection.defaultEffort && { effort: connection.defaultEffort }) } : { connectionId: '', model: '' };
   };
-  const summary = (node: WorkflowNode): string => {
-    switch (node.type) {
-      case 'entry':
-        return node.config.statusIds.length ? node.config.statusIds.map((id) => statusName.get(id) ?? '삭제된 상태').join(', ') : '범위 안의 모든 대사';
-      case 'ai': {
-        const model = node.config.model.model ? [connectionName.get(node.config.model.connectionId) ?? (connections.data ? '삭제된 연결' : undefined), node.config.model.model].filter(Boolean).join(' · ') : '모델 없음';
-        return `${model}${nodeModels(node).length > 1 ? ` 외 ${nodeModels(node).length - 1}개` : ''}`;
-      }
-      case 'function': {
-        const params = node.config.params as Record<string, unknown>;
-        if (node.config.fn === 'setStatus')
-          return [params.statusId && `→ ${statusName.get(params.statusId as string) ?? '삭제된 상태'}`].filter(Boolean).join(' · ') || '변경 없음';
-        if (node.config.fn === 'http') return `${(params.method as string) ?? 'POST'} ${connectionName.get(params.connectionId as string) ?? '연결 없음'}/${(params.path as string) ?? ''}`;
-        if (node.config.fn === 'script') return `출구: ${((params.ports as string[]) ?? ['out']).join(', ')}`;
-        if (node.config.fn in APPLY_TARGETS) {
-          const from = current?.definition.nodes.find((other) => other.id === params.fromNodeId);
-          return from ? `← ${nodeName(from)}` : '가져올 노드 없음';
-        }
-        if (node.config.fn === 'formatCheck') {
-          const checks = [
-            params.placeholders !== false && '자리표시자',
-            params.tags !== false && '서식 태그',
-            params.newlines !== false && '줄바꿈',
-            params.emptyText !== false && '빈 번역',
-            params.numbers && '숫자',
-            params.spaces && '공백',
-            params.particles && '조사',
-            Array.isArray(params.customRules) && params.customRules.length > 0 && `규칙 ${params.customRules.length}개`,
-          ].filter(Boolean);
-          return checks.length ? `검사: ${checks.join('·')}` : '켠 검사 항목 없음 (항상 통과)';
-        }
-        return FUNCTIONS[node.config.fn as FunctionName]?.label ?? node.config.fn;
-      }
-      case 'condition':
-        return node.config.description || '조건식';
-      default:
-        return '';
-    }
-  };
-
-  const liveCounts = useMemo(() => {
-    const counts = new Map<string, { queued: number; running: number; failed: number }>();
-    for (const row of live.data?.nodes ?? []) {
-      const entry = counts.get(row.nodeId) ?? { queued: 0, running: 0, failed: 0 };
-      if (row.state in entry) entry[row.state as keyof typeof entry] += row.count;
-      counts.set(row.nodeId, entry);
-    }
-    return counts;
-  }, [live.data]);
+  const summaryNames = { status: new Map(statuses.data?.statuses.map((status) => [status.id, status.name])), connection: new Map(connections.data?.map((connection) => [connection.id, connection.name])), connectionsLoaded: Boolean(connections.data) };
+  const summary = (node: WorkflowNode) => (current ? nodeSummary(node, current.definition, summaryNames) : '');
 
   // React Flow measures each node and reports it as a 'dimensions' change; nodes rebuilt without
   // those sizes stay hidden (and their edges undrawn) until measured again, which never happens
@@ -291,10 +250,8 @@ function WorkflowEditor() {
   );
   const nodes: FlowNode[] = useMemo(
     () => {
-      const all = current?.definition ?? { nodes: [], edges: [] };
-      const entry = all.nodes.find((node) => node.type === 'entry');
-      const starts = new Set(all.edges.filter((edge) => edge.source === entry?.id).map((edge) => edge.target));
-      const startLabel = entry && entry.type === 'entry' && entry.config.statusIds.length ? `시작 · ${summary(entry)}` : '시작';
+      if (!current) return [];
+      const { entry, starts, label: startLabel } = entryStarts(current.definition, summaryNames);
       return definitions.map((node) => ({
         id: node.id,
         type: 'workflow',
@@ -308,50 +265,17 @@ function WorkflowEditor() {
           summary: summary(node),
           errors: issues.filter((issue) => issue.nodeId === node.id && issue.level === 'error').map((issue) => issue.message),
           warnings: issues.filter((issue) => issue.nodeId === node.id && issue.level === 'warning').map((issue) => issue.message),
-          live: liveCounts.get(node.id),
           start: starts.has(node.id) && entry ? { label: startLabel, onOpen: () => select(entry.id) } : undefined,
-          open: nodePorts(node).map((port) => port.id).filter((port) => !all.edges.some((edge) => edge.source === node.id && edge.sourceHandle === port)),
-          status: (() => {
-            const statusId = node.type === 'function' && node.config.fn === 'setStatus' ? (node.config.params as { statusId?: string }).statusId : undefined;
-            const status = statusId ? statuses.data?.statuses.find((item) => item.id === statusId) : undefined;
-            return status && { name: status.name, color: status.color };
-          })(),
+          open: openPorts(node, current.definition),
+          status: targetStatus(node, statuses.data?.statuses),
         },
       }));
     },
-    [definitions, current?.definition, search.node, multi, direction, issues, liveCounts, statuses.data, connections.data, measured], // eslint-disable-line react-hooks/exhaustive-deps
+    [definitions, current?.definition, search.node, multi, direction, issues, statuses.data, connections.data, measured], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const edges: FlowEdge[] = useMemo(
-    () => {
-      const hiddenNodeIds = new Set(
-        (current?.definition.nodes ?? [])
-          .filter((node) => node.type === 'entry' || node.type === 'end')
-          .map((node) => node.id),
-      );
-      const all = (current?.definition.edges ?? []).filter(
-        (edge) => !hiddenNodeIds.has(edge.source) && !hiddenNodeIds.has(edge.target),
-      );
-      return all.map((edge) => {
-        const branches = all.filter((other) => other.source === edge.source && other.sourceHandle === edge.sourceHandle).length;
-        const source = current?.definition.nodes.find((node) => node.id === edge.source);
-        const port = source && nodePorts(source).find((item) => item.id === edge.sourceHandle);
-        const tone = edge.sourceHandle === 'error' ? 'var(--destructive)' : ['fail', 'false', 'rejected'].includes(edge.sourceHandle) ? 'var(--warning)' : 'var(--graph-edge)';
-        return {
-          id: edge.id,
-          source: edge.source,
-          sourceHandle: edge.sourceHandle,
-          target: edge.target,
-          targetHandle: 'in',
-          type: 'workflow',
-          interactionWidth: 24,
-          markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
-          selected: edge.id === edgeId,
-          data: { points: edge.layout?.points, label: port && (branches > 1 ? `${port.label} · 모두 보냄` : port.label), labelPosition: edge.layout?.labelPosition },
-          style: { stroke: edge.id === edgeId ? 'var(--primary)' : tone, strokeWidth: edge.id === edgeId || edge.id === hoveredEdgeId ? 3 : 2 },
-        };
-      });
-    },
-    [current?.definition, edgeId, hoveredEdgeId],
+    () => (current ? flowEdges(current.definition, { selected: edgeId, hovered: hoveredEdgeId }) : []),
+    [current?.definition, edgeId, hoveredEdgeId], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const select = (id: string | undefined) => void navigate({ search: (previous) => ({ ...previous, node: id }) });
@@ -545,6 +469,56 @@ function WorkflowEditor() {
     };
   }, [direction, current?.definition.direction, draft, save.isPending, search.direction, workflow.data?.version, workflow.data?.definition.direction, workflowId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Undo history of the editor: every change to the workflow (a drag or typing in a field counts as one
+  // step until it pauses), across autosaves; ⌘/Ctrl+Z goes back, ⌘/Ctrl+Shift+Z forward.
+  const history = useRef<{ past: string[]; future: string[]; last?: string; replaying: boolean; at: number }>({ past: [], future: [], replaying: false, at: 0 });
+  useEffect(() => {
+    history.current = { past: [], future: [], replaying: false, at: 0 };
+  }, [workflowId]);
+  const snapshot = current ? JSON.stringify({ name: current.name, definition: current.definition }) : undefined;
+  useEffect(() => {
+    const h = history.current;
+    if (!snapshot || snapshot === h.last) return;
+    if (h.last === undefined || h.replaying) {
+      h.replaying = false;
+      h.last = snapshot;
+      return;
+    }
+    const now = Date.now();
+    if (now - h.at > 400) {
+      h.past.push(h.last);
+      if (h.past.length > 100) h.past.shift();
+    }
+    h.at = now;
+    h.future = [];
+    h.last = snapshot;
+  }, [snapshot]);
+  const restore = (from: 'past' | 'future') => {
+    const h = history.current;
+    const target = h[from].pop();
+    if (!target || h.last === undefined) return;
+    (from === 'past' ? h.future : h.past).push(h.last);
+    h.replaying = true;
+    h.at = 0;
+    const { name, definition } = JSON.parse(target) as { name: string; definition: WorkflowDefinition };
+    setDraft((value) => ({ ...value, name, definition }));
+    // A selection of a node the restored workflow does not have goes with it.
+    const kept = new Set(definition.nodes.map((node) => node.id));
+    setMulti((ids) => ids.filter((id) => kept.has(id)));
+    setEdgeId((id) => (id && definition.edges.some((edge) => edge.id === id) ? id : undefined));
+    if (search.node && !kept.has(search.node)) void navigate({ search: (previous) => ({ ...previous, node: undefined }) });
+  };
+  // The keys every graph shares (lib/graph-shortcuts); the actions are set below, once the workflow is loaded.
+  const actions = useRef<GraphShortcuts>({});
+  useGraphShortcuts({
+    undo: () => actions.current.undo?.(),
+    redo: () => actions.current.redo?.(),
+    copy: () => actions.current.copy?.(),
+    cut: () => actions.current.cut?.(),
+    paste: () => actions.current.paste?.(),
+    remove: () => actions.current.remove?.(),
+  }, Boolean(current));
+
   if (!workflow.data || !current)
     return (
       <Page title="워크플로">
@@ -553,12 +527,14 @@ function WorkflowEditor() {
     );
 
   const errorCount = issues.filter((issue) => issue.level === 'error').length;
+  // The palette offers the core nodes and those of the workflow's input (INPUT_TYPES via functionTakes / presetTakes).
+  const input = workflowInput(current.definition);
   const palette: NodeLibraryGroup[] = [
     {
       id: 'ai',
       label: 'AI',
       items: [
-        ...Object.entries(AI_PRESETS as Record<string, PresetEntry>).map(([id, preset]) => ({
+        ...Object.entries(AI_PRESETS as unknown as Record<string, PresetEntry>).filter(([, preset]) => presetTakes(preset, input)).map(([id, preset]) => ({
           id,
           label: preset.label,
           kind: 'ai' as const,
@@ -570,34 +546,36 @@ function WorkflowEditor() {
     {
       id: 'apply',
       label: '반영',
-      items: APPLY_FUNCTION_NAMES.map((fn) => ({ id: fn, label: FUNCTIONS[fn].label, kind: 'function' as const, icon: null })),
+      items: APPLY_PALETTE_ORDER.filter((fn) => functionTakes(fn, input)).map((fn) => ({ id: fn, label: FUNCTIONS[fn].label, kind: 'apply' as const, icon: null })),
     },
     {
       id: 'function',
       label: '함수',
-      items: PALETTE_FUNCTION_NAMES.map((fn) => ({
-        id: fn,
-        label: FUNCTIONS[fn].label,
-        kind: (fn === 'setStatus' ? 'status' : 'function') as 'status' | 'function',
-        icon: null,
-      })),
+      items: PALETTE_FUNCTION_NAMES.filter((fn) => functionGroup(fn) === 'function' && functionTakes(fn, input)).map((fn) => ({ id: fn, label: FUNCTIONS[fn].label, kind: 'function' as const, icon: null })),
     },
     {
-      id: 'condition',
-      label: '조건',
+      id: 'flow',
+      label: '흐름',
       items: [
         { id: 'condition', label: '조건', kind: 'condition' as const, icon: null },
+        { id: 'gather', label: '모으기', kind: 'gather' as const, icon: null },
       ],
     },
   ];
+  // A new AI node packs requests in a way the workflow's input has (용어 has no scenes: it starts 개수별).
+  const batchFor = (batch?: { mode?: BatchConfig['mode'] }) => {
+    const modes: readonly BatchConfig['mode'][] = INPUT_TYPES[input].batchModes;
+    return { ...batch, mode: modes.includes(batch?.mode ?? 'group') ? (batch?.mode ?? 'group') : modes[0]! };
+  };
   const addFromLibrary = (id: string, position?: { x: number; y: number }) => {
-    const preset = (AI_PRESETS as Record<string, PresetEntry>)[id];
+    const preset = (AI_PRESETS as unknown as Record<string, PresetEntry>)[id];
     if (preset) {
       const { label, description: _description, ...config } = preset;
-      addNode({ type: 'ai', label, config: { ...config, model: newNodeModel(), preset: id } } as never, id, position);
+      addNode({ type: 'ai', label, config: { ...config, batch: batchFor(config.batch as { mode?: BatchConfig['mode'] } | undefined), model: newNodeModel(), preset: id } } as never, id, position);
     }
     else if (FUNCTION_NAMES.includes(id as FunctionName)) addNode({ type: 'function', config: { fn: id, params: {} } }, id, position);
-    else if (id === 'ai') addNode({ type: 'ai', config: { model: newNodeModel(), output: 'json', scope: 'line', fields: [{ name: 'note', type: 'string', description: '' }] } } as never, id, position);
+    else if (id === 'ai') addNode({ type: 'ai', config: { model: newNodeModel(), output: 'json', scope: 'line', batch: batchFor(), fields: [{ name: 'note', type: 'string', description: '' }] } } as never, id, position);
+    else if (id === 'gather') addNode({ type: 'gather', config: { from: '', fields: [] } }, id, position);
     else if (id === 'condition') addNode({ type: 'condition', config: { expression: true, description: '' } }, id, position);
   };
   const deleteNode = (nodeId: string) => {
@@ -630,7 +608,11 @@ function WorkflowEditor() {
   const duplicateNodes = (ids: string[]) => {
     if (!current) return;
     const originals = current.definition.nodes.filter((node) => ids.includes(node.id) && node.type !== 'entry');
-    if (!originals.length) return;
+    pasteNodes({ nodes: originals, edges: current.definition.edges });
+  };
+  /** Puts copies of `nodes` beside them (new ids), with the lines among them, and picks the copies. */
+  const pasteNodes = ({ nodes: originals, edges }: GraphClipboard) => {
+    if (!current || !originals.length) return;
     const taken = new Set(current.definition.nodes.map((node) => node.id));
     const renamed = new Map<string, string>();
     for (const node of originals) {
@@ -640,7 +622,7 @@ function WorkflowEditor() {
       renamed.set(node.id, id);
     }
     const copies = originals.map((node) => workflowNodeSchema.parse({ ...structuredClone(node), id: renamed.get(node.id), position: { x: node.position.x + 240, y: node.position.y } }));
-    const lines = current.definition.edges
+    const lines = edges
       .filter((edge) => renamed.has(edge.source) && renamed.has(edge.target))
       .map((edge) => ({ id: `e-${crypto.randomUUID().slice(0, 8)}`, source: renamed.get(edge.source)!, sourceHandle: edge.sourceHandle, target: renamed.get(edge.target)! }));
     setDraft((value) => ({ ...value, definition: syncEntryEdges({ ...value.definition, nodes: [...value.definition.nodes, ...copies], edges: [...value.definition.edges, ...lines] }) }));
@@ -650,6 +632,23 @@ function WorkflowEditor() {
   const deleteSelected = () => {
     if (!selected || selected.type === 'entry') return;
     deleteNode(selected.id);
+  };
+  /** The nodes the keys act on: the picked group, else the open node. */
+  const pickedIds = multi.length ? multi : search.node ? [search.node] : [];
+  const copyPicked = () => {
+    const nodes = current.definition.nodes.filter((node) => pickedIds.includes(node.id) && node.type !== 'entry');
+    if (!nodes.length) return false;
+    const ids = new Set(nodes.map((node) => node.id));
+    graphClipboard = { nodes: structuredClone(nodes), edges: current.definition.edges.filter((edge) => ids.has(edge.source) && ids.has(edge.target)) };
+    return true;
+  };
+  actions.current = {
+    undo: () => restore('past'),
+    redo: () => restore('future'),
+    copy: () => void (copyPicked() && toast.success(`노드 ${pickedIds.length}개를 복사했습니다.`)),
+    cut: () => void (copyPicked() && deleteNodes(pickedIds)),
+    paste: () => graphClipboard && pasteNodes(graphClipboard),
+    remove: () => (edgeId ? removeEdges([edgeId]) : deleteNodes(pickedIds)),
   };
 
   return (
@@ -672,6 +671,15 @@ function WorkflowEditor() {
           </Button>
         </div>
       )}
+      {/* The editor only edits: how a run is going is on its own page (실행 기록 › 그래프). */}
+      {activeRun && (
+        <div role="status" className="flex items-center gap-3 border-b bg-muted px-4 py-2 text-xs text-muted-foreground">
+          이 워크플로가 {activeRun.status === 'paused' ? '멈춘 채 실행 중' : '실행 중'}입니다. 실행이 끝날 때까지 바뀐 내용은 저장되지 않고 이 브라우저에 보관됩니다.
+          <Button variant="outline" asChild>
+            <Link to="/p/$projectId/runs/$runId" params={{ projectId, runId: activeRun.id }} search={{ tab: 'graph' }}>진행 보기</Link>
+          </Button>
+        </div>
+      )}
       <SplitPane
         id="workflow"
         selectionKey={selected?.id}
@@ -688,12 +696,14 @@ function WorkflowEditor() {
                 issues={issues.filter((issue) => issue.nodeId === selected.id)}
                 refs={{
                   statuses: statuses.data?.statuses ?? [],
-                  tags: lineTags(statuses.data?.tags),
+                  // The tags of the workflow's input: line tags, or term tags.
+                  tags: tagsIn(statuses.data?.tags, input),
                   projectId,
                   workflowId,
                   connections: connections.data ?? [],
                   nodes: current.definition.nodes,
                   edges: current.definition.edges,
+                  onOpenNode: select,
                 }}
                 onChange={(next) => setDraft((value) => ({ ...value, definition: { ...value.definition, nodes: value.definition.nodes.map((node) => (node.id === next.id ? next : node)), edges: value.definition.edges.map((edge) => ({ ...edge, layout: undefined })) } }))}
                 onDelete={deleteSelected}
@@ -725,7 +735,15 @@ function WorkflowEditor() {
               setEdgeId(undefined);
               setContextMenu(null);
             }}
-            onEdgeClick={(_event, edge) => (setEdgeId(edge.id), setContextMenu(null))}
+            // A plain click picks only the line: the node's selection (and its pane) goes, as anywhere else a plain click picks one thing.
+            onEdgeClick={(event, edge) => {
+              if (!(event.metaKey || event.ctrlKey)) {
+                select(undefined);
+                setMulti([]);
+              }
+              setEdgeId(edge.id);
+              setContextMenu(null);
+            }}
             onEdgeMouseEnter={(_event, edge) => setHoveredEdgeId(edge.id)}
             onEdgeMouseLeave={() => setHoveredEdgeId(undefined)}
             onPaneClick={() => (select(undefined), setMulti([]), setEdgeId(undefined), setContextMenu(null))}
@@ -771,7 +789,8 @@ function WorkflowEditor() {
             multiSelectionKeyCode={['Meta', 'Control']}
             selectionMode={SelectionMode.Partial}
             minZoom={0.05}
-            deleteKeyCode={['Backspace', 'Delete']}
+            // Delete goes through the shared graph keys (the entry node stays; undo brings anything back).
+            deleteKeyCode={null}
             proOptions={{ hideAttribution: true }}
           >
             <Background size={1.5} gap={20} color="var(--graph-grid)" />

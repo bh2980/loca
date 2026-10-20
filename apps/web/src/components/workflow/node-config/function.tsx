@@ -2,14 +2,15 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Play, Plus, Trash2 } from 'lucide-react';
-import { APPLY_FUNCTION_NAMES, APPLY_TARGETS, applyIssues, DEFAULT_PARTICLE_PATTERN, formatPatternError, FUNCTIONS, JSON_FIELD_TYPE_LABELS, nodeName, PALETTE_FUNCTION_NAMES, type ApplyField, type ApplyFunctionName, type ApplyParams, type CustomFormatRule, type JsonFieldType, type WorkflowDefinition, type FunctionName, type JsonField, type WorkflowNode } from '@tw/shared';
-import { Button, Input, InspectorActionRow, InspectorFields, InspectorList, InspectorResult, InspectorToggle, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, StatusIcon, TagChip } from '@loca/ui';
+import { APPLY_FUNCTION_NAMES, APPLY_TARGETS, fieldsFromSample, httpParams, nodeOutputFields, applyIssues, DEFAULT_PARTICLE_PATTERN, formatPatternError, FUNCTIONS, functionTakes, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, JSON_FIELD_TYPE_LABELS, nodeName, PALETTE_FUNCTION_NAMES, previousSteps, type ApplyField, type ApplyFunctionName, type ApplyParams, type CustomFormatRule, type JsonFieldType, type WorkflowDefinition, type FunctionName, type JsonField, type WorkflowNode } from '@tw/shared';
+import { Button, Input, NumberInput, InspectorActionRow, InspectorFields, InspectorList, InspectorResult, InspectorToggle, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, StatusIcon, TagChip } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
+import { AiConfirmNote } from '@/components/settings/ai-confirm';
 import { cn } from '@/lib/utils';
 import { AiRegexInput } from '@/components/ai-regex-input';
 import { client, unwrap } from '@/lib/api';
 import { JsonFieldsEditor } from '@/components/workflow/node-config/json-fields-editor';
-import { Field, type FunctionNode, type NodeRefs } from '@/components/workflow/node-config/shared';
+import { Field, StepChips, refsInput, type FunctionNode, type NodeRefs } from '@/components/workflow/node-config/shared';
 
 // ── function node ─────────────────────────────────────────────────────
 
@@ -23,7 +24,8 @@ export function FunctionConfig({ node, refs, readOnly, onChange }: { node: Funct
   const setMany = (patch: Record<string, unknown>) => onChange({ ...node, config: { ...node.config, params: { ...params, ...patch } } });
   const set = (key: string, value: unknown) => setMany({ [key]: value });
   const availableFns = PALETTE_FUNCTION_NAMES.includes(fn) ? PALETTE_FUNCTION_NAMES : [fn, ...PALETTE_FUNCTION_NAMES];
-  const switchable = fn in APPLY_TARGETS ? APPLY_FUNCTION_NAMES : availableFns;
+  const input = refsInput(refs);
+  const switchable = (fn in APPLY_TARGETS ? APPLY_FUNCTION_NAMES : availableFns).filter((name) => name === fn || functionTakes(name, input));
 
   const renderBody = () => {
     switch (fn) {
@@ -97,13 +99,13 @@ function FormatCheckConfig({ params, refs, set }: { params: Record<string, unkno
 
   return (
     <>
-      <InspectorToggle label="치환자 보존" description="원문의 {이름} 같은 치환자가 번역에 그대로 있어야 합니다." checked={params.placeholders as boolean} onChange={(value) => set('placeholders', value)} />
-      <InspectorToggle label="서식 태그 보존" description="원문의 서식 태그가 번역에 그대로 있어야 합니다." checked={params.tags as boolean} onChange={(value) => set('tags', value)} />
-      <InspectorToggle label="줄바꿈 수 일치" description="원문과 번역의 줄바꿈 수가 같아야 합니다." checked={params.newlines as boolean} onChange={(value) => set('newlines', value)} />
-      <InspectorToggle label="빈 번역 금지" description="번역이 비어 있으면 통과하지 못합니다." checked={params.emptyText as boolean} onChange={(value) => set('emptyText', value)} />
-      <InspectorToggle label="숫자 누락" description="원문의 숫자가 번역에 빠졌는지 봅니다." checked={Boolean(params.numbers)} onChange={(value) => set('numbers', value)} />
-      <InspectorToggle label="공백 불일치" description="앞뒤 공백이 원문과 다른지 봅니다." checked={Boolean(params.spaces)} onChange={(value) => set('spaces', value)} />
-      <InspectorToggle label="변수 뒤 조사" description="치환자 바로 뒤 조사를 확인합니다." checked={Boolean(params.particles)} onChange={(value) => set('particles', value)} />
+      <InspectorToggle label="치환자 보존" help="원문의 {이름} 같은 치환자가 번역에 그대로 있어야 합니다." checked={params.placeholders as boolean} onChange={(value) => set('placeholders', value)} />
+      <InspectorToggle label="서식 태그 보존" help="원문의 서식 태그가 번역에 그대로 있어야 합니다." checked={params.tags as boolean} onChange={(value) => set('tags', value)} />
+      <InspectorToggle label="줄바꿈 수 일치" help="원문과 번역의 줄바꿈 수가 같아야 합니다." checked={params.newlines as boolean} onChange={(value) => set('newlines', value)} />
+      <InspectorToggle label="빈 번역 금지" help="번역이 비어 있으면 통과하지 못합니다." checked={params.emptyText as boolean} onChange={(value) => set('emptyText', value)} />
+      <InspectorToggle label="숫자 누락" help="원문의 숫자가 번역에 빠졌는지 봅니다." checked={Boolean(params.numbers)} onChange={(value) => set('numbers', value)} />
+      <InspectorToggle label="공백 불일치" help="앞뒤 공백이 원문과 다른지 봅니다." checked={Boolean(params.spaces)} onChange={(value) => set('spaces', value)} />
+      <InspectorToggle label="변수 뒤 조사" help="치환자 바로 뒤의 조사(이/가, 을/를 등)가 맞는지 봅니다." checked={Boolean(params.particles)} onChange={(value) => set('particles', value)} />
 
       {Boolean(params.particles) && (
         <Field label="조사 정규식" hint="비우면 기본 패턴을 씁니다.">
@@ -119,15 +121,15 @@ function FormatCheckConfig({ params, refs, set }: { params: Record<string, unkno
 
       {LENGTH_LIMITS.map(({ key, label, step }) => (
         <Field key={key} label={label} hint="비우면 확인하지 않습니다.">
-          <Input type="number" min={0} step={step} placeholder="끔" value={(params[key] as number) || ''} onChange={(event) => set(key, Math.max(0, Number(event.target.value) || 0))} />
+          <NumberInput min={0} step={step} integer={step >= 1} optional placeholder="끔" value={(params[key] as number) || undefined} onValueChange={(next) => set(key, next ?? 0)} />
         </Field>
       ))}
 
-      <Field label="금칙어" hint="쉼표로 구분합니다. 번역에 들어 있으면 걸립니다.">
+      <Field label="금칙어" hint="쉼표로 구분합니다." help="번역에 이 말이 들어 있으면 검사에 걸립니다.">
         <Input value={(params.forbiddenWords as string) ?? ''} placeholder="예: 암튼, 대충" onChange={(event) => set('forbiddenWords', event.target.value)} />
       </Field>
 
-      <Field label="정규식 규칙" hint="금지: 걸리면 안 되는 패턴 · 보존: 원문과 번역에 같이 있어야 하는 패턴 · 필수: 번역에 있어야 하는 패턴">
+      <Field label="정규식 규칙" help="금지: 번역에 나오면 안 되는 패턴 · 보존: 원문에 있으면 번역에도 있어야 하는 패턴 · 필수: 번역에 꼭 있어야 하는 패턴">
         <div className="space-y-2">
           <AiRegexInput
             projectId={refs.projectId}
@@ -192,11 +194,13 @@ function SetStatusConfig({ params, refs, set, setMany }: { params: Record<string
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="keep">바꾸지 않음</SelectItem>
-            {refs.statuses.map((status) => (
-              <SelectItem key={status.id} value={status.id}>
-                <StatusIcon status={status} /> {status.name}
-              </SelectItem>
-            ))}
+            {refsInput(refs) === 'terms'
+              ? KNOWLEDGE_STATUSES.map((status) => <SelectItem key={status} value={status}>{KNOWLEDGE_STATUS_LABELS[status]}</SelectItem>)
+              : refs.statuses.map((status) => (
+                  <SelectItem key={status.id} value={status.id}>
+                    <StatusIcon status={status} /> {status.name}
+                  </SelectItem>
+                ))}
           </SelectContent>
         </Select>
       </Field>
@@ -232,7 +236,8 @@ function SetStatusConfig({ params, refs, set, setMany }: { params: Record<string
   );
 }
 
-const PLACEHOLDERS = '{{candidate}}, {{unit.source}}, {{unit.speaker}}, {{unit.key}}, {{outputs.<노드ID>.<필드>}}';
+
+const PLACEHOLDERS = '{{candidate}}, {{unit.source}}, {{unit.speaker}}, {{unit.key}}, {{previous.<필드>}}, {{outputs.<노드ID>.<필드>}}';
 
 function HttpConfig({ params, refs, set }: { params: Record<string, unknown>; refs: NodeRefs; set: (key: string, value: unknown) => void }) {
   const tools = refs.connections.filter((connection) => connection.kind === 'http');
@@ -249,10 +254,10 @@ function HttpConfig({ params, refs, set }: { params: Record<string, unknown>; re
           </SelectContent>
         </Select>
       </Field>
-      <Field label="주소" hint="대사마다 바뀌는 값을 주소에도 쓸 수 있습니다.">
+      <Field label="주소" help="대사마다 바뀌는 값을 주소에 넣을 수도 있습니다.">
         <Input className="font-mono text-xs" value={params.url as string} placeholder="https://api.example.com/spell" onChange={(event) => set('url', event.target.value)} />
       </Field>
-      <Field label="API 키" hint={tools.length ? '요청에 인증 정보를 붙일 때 고릅니다.' : '등록된 API 키가 없습니다. 워크플로 › API 키에서 추가하세요.'}>
+      <Field label="API 키" help={tools.length ? '요청에 붙일 인증 정보입니다.' : undefined} hint={tools.length ? undefined : '등록된 API 키가 없습니다. 워크플로 › API 키에서 추가하세요.'}>
         <Select value={(params.connectionId as string) || 'none'} onValueChange={(value) => set('connectionId', value === 'none' ? '' : value)}>
           <SelectTrigger className="w-full">
             <SelectValue />
@@ -272,24 +277,59 @@ function HttpConfig({ params, refs, set }: { params: Record<string, unknown>; re
           <Textarea className="min-h-28 font-mono text-xs" spellCheck={false} value={params.body as string} onChange={(event) => set('body', event.target.value)} />
         </Field>
       )}
-      <Field label="응답 경로" hint="응답 JSON에서 값을 꺼낼 경로입니다.">
-        <Input className="font-mono text-xs" placeholder="result.text" value={params.resultPath as string} onChange={(event) => set('resultPath', event.target.value)} />
-      </Field>
-      <Field label="결과" hint="응답을 번역 후보, 통과/실패 판정, 또는 다음 노드가 읽는 데이터로 씁니다.">
-        <Select value={params.mode as string} onValueChange={(value) => set('mode', value)}>
-          <SelectTrigger className="w-full">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="candidate">번역 후보</SelectItem>
-            <SelectItem value="verdict">판정</SelectItem>
-            <SelectItem value="data">데이터</SelectItem>
-          </SelectContent>
-        </Select>
-      </Field>
+      <HttpFields params={params} projectId={refs.projectId} set={set} />
       <Field label="제한 시간" hint="초 단위, 1–300.">
-        <Input type="number" min={1} max={300} value={params.timeoutSeconds as number} onChange={(event) => set('timeoutSeconds', Number(event.target.value))} />
+        <NumberInput min={1} max={300} value={params.timeoutSeconds as number} onValueChange={(next) => next !== undefined && set('timeoutSeconds', next)} />
       </Field>
+    </>
+  );
+}
+
+/**
+ * What an HTTP call returns: declared fields (like a script's), each read from the response at its path
+ * (default: its own name). A test call shows the response and can fill the fields from it.
+ */
+function HttpFields({ params, projectId, set }: { params: Record<string, unknown>; projectId: string; set: (key: string, value: unknown) => void }) {
+  const fields = (params.fields as JsonField[] | undefined) ?? [];
+  const paths = (params.paths as Record<string, string> | undefined) ?? {};
+  const test = useMutation({
+    mutationFn: () => unwrap(client.projects[':projectId']['http-test'].$post({ param: { projectId }, json: { params: httpParams.parse(params) } })),
+  });
+  const sampled = test.data?.ok ? fieldsFromSample(test.data.raw) : [];
+  return (
+    <>
+      <JsonFieldsEditor label="결과 칸" fields={fields} descriptionPlaceholder="설명" onChange={(next) => set('fields', next)} />
+      {fields.length > 0 && (
+        <Field label="응답에서 가져올 곳" hint="비우면 칸 이름과 같은 키를 씁니다. 예: result.text">
+          <div className="space-y-1.5">
+            {fields.map((field) => (
+              <div key={field.name} className="flex items-center gap-2 text-xs">
+                <span className="w-24 shrink-0 truncate font-mono">{field.name}</span>
+                <Input className="font-mono text-xs" placeholder={field.name} value={paths[field.name] ?? ''} onChange={(event) => set('paths', { ...paths, [field.name]: event.target.value })} />
+              </div>
+            ))}
+          </div>
+        </Field>
+      )}
+      <InspectorActionRow
+        label="시험 호출"
+        description="첫 대사로 주소를 한 번 호출해 봅니다."
+        action={<Button variant="outline" disabled={test.isPending || !(params.url as string)?.trim()} onClick={() => test.mutate()}><Play /> 호출</Button>}
+        result={
+          test.isPending ? <InspectorResult tone="pending">호출 중</InspectorResult> : test.data ? (
+            <InspectorResult
+              tone={test.data.ok ? 'ok' : 'error'}
+              detail={<pre className="max-h-64 overflow-auto whitespace-pre-wrap font-mono">{test.data.ok ? JSON.stringify(test.data.raw, null, 2) : test.data.error}</pre>}>
+              {test.data.ok ? (
+                <span className="flex items-center gap-2">
+                  {test.data.ms}ms
+                  {sampled.length > 0 && <Button size="sm" variant="ghost" onClick={() => set('fields', sampled)}>이 결과로 칸 채우기</Button>}
+                </span>
+              ) : '오류'}
+            </InspectorResult>
+          ) : null
+        }
+      />
     </>
   );
 }
@@ -301,9 +341,10 @@ function ScriptConfig({ params, projectId, readOnly, set }: { params: Record<str
   const test = useMutation({
     mutationFn: () => unwrap(client.projects[':projectId']['script-test'].$post({ param: { projectId }, json: { code: params.code as string, ports, fields } })),
   });
+  const sampledScript = test.data?.ok ? fieldsFromSample(test.data.raw) : [];
   return (
     <>
-      <Field label="출구" hint="쉼표로 구분합니다. 코드가 이 중 하나를 반환합니다.">
+      <Field label="출구" hint="쉼표로 구분합니다." help="코드가 이 중 하나를 port로 반환하면 그 출구로 나갑니다.">
         <Input
           className="font-mono text-xs"
           value={portsText}
@@ -322,7 +363,7 @@ function ScriptConfig({ params, projectId, readOnly, set }: { params: Record<str
             AI로 작성
           </AiButton>
         }
-        hint="샌드박스: 네트워크·파일 접근 없음, 2초·32MB 제한.">
+        help="격리된 곳에서 돌아갑니다. 네트워크·파일에 접근할 수 없고, 한 번에 2초·32MB까지 씁니다.">
         <Textarea className="min-h-56 font-mono text-xs leading-relaxed" spellCheck={false} value={params.code as string} onChange={(event) => set('code', event.target.value)} />
       </Field>
       <JsonFieldsEditor label="출력 필드" fields={fields} descriptionPlaceholder="설명" onChange={(next) => set('fields', next)} />
@@ -348,7 +389,12 @@ function ScriptConfig({ params, projectId, readOnly, set }: { params: Record<str
                     {JSON.stringify(test.data.input, null, 2)}
                   </pre>
                 }>
-                {test.data.ok ? `출구: ${test.data.port}${test.data.validPort ? '' : ' (선언하지 않은 출구!)'} · ${test.data.ms}ms` : '오류'}
+                {test.data.ok ? (
+                  <span className="flex items-center gap-2">
+                    {`출구: ${test.data.port}${test.data.validPort ? '' : ' (선언하지 않은 출구!)'} · ${test.data.ms}ms`}
+                    {sampledScript.length > 0 && <Button size="sm" variant="ghost" onClick={() => set('fields', sampledScript)}>이 결과로 칸 채우기</Button>}
+                  </span>
+                ) : '오류'}
               </InspectorResult>
             ) : null
           }
@@ -366,21 +412,8 @@ interface SourceField {
   fields?: SourceField[];
 }
 
-/** The fields a node's output offers to later nodes. */
-function outputFields(node: WorkflowNode): SourceField[] {
-  if (node.type === 'function') return ((node.config.params as { fields?: SourceField[] }).fields ?? []);
-  if (node.type !== 'ai') return [];
-  switch (node.config.output) {
-    case 'text':
-      return [{ name: 'text', type: 'string' }];
-    case 'verdict':
-      return [{ name: 'passed', type: 'boolean' }, { name: 'issues', type: 'strings' }];
-    case 'choice':
-      return [{ name: 'value', type: 'string' }, { name: 'confidence', type: 'number' }, { name: 'reason', type: 'string' }];
-    default:
-      return node.config.fields;
-  }
-}
+/** The fields a node's output offers to later nodes: what it declares (nodeOutputFields). */
+const outputFields = (node: WorkflowNode): SourceField[] => nodeOutputFields(node) ?? [];
 
 /** Which source types a target field of the given type can take. */
 const ACCEPTS: Record<JsonFieldType, JsonFieldType[]> = {
@@ -392,18 +425,6 @@ const ACCEPTS: Record<JsonFieldType, JsonFieldType[]> = {
   list: ['list'],
 };
 
-/** Nodes whose output can reach this one: AI and script nodes upstream (any AI/script node when no lines are drawn yet). */
-function upstreamSources(node: WorkflowNode, refs: NodeRefs) {
-  const edges = refs.edges ?? [];
-  const before = new Set<string>();
-  const queue = [node.id];
-  while (queue.length) {
-    const id = queue.pop()!;
-    for (const edge of edges) if (edge.target === id && !before.has(edge.source)) { before.add(edge.source); queue.push(edge.source); }
-  }
-  return refs.nodes.filter((other) => other.id !== node.id && (before.has(other.id) || !edges.length) && (other.type === 'ai' || (other.type === 'function' && other.config.fn === 'script')));
-}
-
 function autoMap(targets: ApplyField[], sources: SourceField[]) {
   const map: Record<string, string> = {};
   for (const target of targets) if (sources.some((source) => source.name === target.name && ACCEPTS[target.type].includes(source.type))) map[target.name] = target.name;
@@ -413,22 +434,14 @@ function autoMap(targets: ApplyField[], sources: SourceField[]) {
 function ApplyConfig({ node, fn, params, refs, setMany }: { node: FunctionNode; fn: ApplyFunctionName; params: ApplyParams; refs: NodeRefs; setMany: (patch: Record<string, unknown>) => void }) {
   const target = APPLY_TARGETS[fn];
   const targetFields: ApplyField[] = target.fields;
-  const sources = upstreamSources(node, refs);
-  const from = refs.nodes.find((other) => other.id === params.fromNodeId);
-  const topFields = from ? outputFields(from) : [];
+  const definition = { nodes: refs.nodes, edges: refs.edges ?? [] } as unknown as WorkflowDefinition;
+  // The result applied is the previous step's: the AI or script node this one is drawn after.
+  const steps = previousSteps(definition, node.id).filter((step) => step.type !== 'gather');
+  const from = steps[0];
+  const topFields = [...new Map(steps.flatMap(outputFields).map((field) => [field.name, field])).values()];
   const lists = topFields.filter((field) => field.type === 'list');
   const rowSources = target.shape === 'list' ? (lists.find((field) => field.name === params.list)?.fields ?? []) : topFields;
-  const definition = { nodes: refs.nodes, edges: refs.edges ?? [] } as unknown as WorkflowDefinition;
-  const issues = applyIssues(definition, fn, params);
-
-  const pickFrom = (id: string) => {
-    const next = refs.nodes.find((other) => other.id === id);
-    const nextTop = next ? outputFields(next) : [];
-    const nextLists = nextTop.filter((field) => field.type === 'list');
-    const list = target.shape === 'list' ? (nextLists.length === 1 ? nextLists[0]!.name : '') : '';
-    const rows = target.shape === 'list' ? (nextLists.find((field) => field.name === list)?.fields ?? []) : nextTop;
-    setMany({ fromNodeId: id, list, map: autoMap(targetFields, rows) });
-  };
+  const issues = applyIssues(definition, node.id, fn, params);
   const pickList = (list: string) => setMany({ list, map: autoMap(targetFields, lists.find((field) => field.name === list)?.fields ?? []) });
   const setMap = (name: string, source: string) => {
     const { [name]: _dropped, ...rest } = params.map;
@@ -437,20 +450,8 @@ function ApplyConfig({ node, fn, params, refs, setMany }: { node: FunctionNode; 
 
   return (
     <>
-      <Field label="결과 노드" hint="이 노드의 결과를 반영합니다.">
-        <Select value={params.fromNodeId || 'none'} onValueChange={(value) => pickFrom(value === 'none' ? '' : value)}>
-          <SelectTrigger className="w-full">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="none">고르지 않음</SelectItem>
-            {sources.map((other) => (
-              <SelectItem key={other.id} value={other.id}>
-                {nodeName(other)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      <Field label="반영할 결과">
+        <StepChips steps={steps} refs={refs} suffix="의 결과" />
       </Field>
 
       {from && target.shape === 'list' && (
@@ -474,7 +475,7 @@ function ApplyConfig({ node, fn, params, refs, setMany }: { node: FunctionNode; 
       {from && (target.shape !== 'list' || params.list) && (
         <Field
           label="필드 연결"
-          hint="반영할 항목마다 결과 노드의 어느 필드를 쓸지 고릅니다."
+          help="반영할 항목마다 앞 단계 결과의 어느 필드를 쓸지 고릅니다."
           action={
             <Button variant="ghost" size="inline" onClick={() => setMany({ map: { ...autoMap(targetFields, rowSources), ...params.map } })}>
               자동 연결
@@ -512,24 +513,8 @@ function ApplyConfig({ node, fn, params, refs, setMany }: { node: FunctionNode; 
         </Field>
       )}
 
-      <Field
-        label="반영 방식"
-        hint={params.propose ? '사용자가 제안을 수락해야 반영됩니다.' : params.asCandidate ? '바로 쓰지만 후보(✦)로 두어 사람이 확정합니다.' : '바로 반영하고 확정합니다.'}
-      >
-        <Select
-          value={params.propose ? 'propose' : params.asCandidate ? 'candidate' : 'confirmed'}
-          onValueChange={(value) => setMany({ propose: value === 'propose', asCandidate: value === 'candidate' })}
-        >
-          <SelectTrigger className="w-full">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="propose">제안</SelectItem>
-            <SelectItem value="confirmed">바로 확정</SelectItem>
-            <SelectItem value="candidate">바로 후보</SelectItem>
-          </SelectContent>
-        </Select>
-      </Field>
+      {(target.shape !== 'line' || (fn === 'saveCandidate' && refsInput(refs) === 'terms')) && <AiConfirmNote projectId={refs.projectId} />}
+
 
       {issues.map((message) => (
         <InspectorResult key={message} tone="info">
