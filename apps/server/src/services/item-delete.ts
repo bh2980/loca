@@ -1,4 +1,4 @@
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, or } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
 import { inChunks } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
@@ -28,6 +28,54 @@ export function deletable(db: Db, projectId: string, kind: DeletableKind, ids: s
   const found = new Set(rows.map((row) => row.id));
   const locked = kind === 'tags' ? new Set(inChunks([...found], (slice) => db.select({ id: s.tags.id, role: s.tags.role }).from(s.tags).where(inArray(s.tags.id, slice)).all()).filter((tag) => tag.role).map((tag) => tag.id)) : new Set<string>();
   return { ids: ids.filter((id) => found.has(id) && !locked.has(id)), missing: ids.filter((id) => !found.has(id)), locked: [...locked] };
+}
+
+/** What a delete removed, kept for a while so ⌘/Ctrl+Z can put it back (this server process only). */
+interface Removed {
+  projectId: string;
+  parts: { kind: DeletableKind; rows: Record<string, unknown>[] }[];
+  at: number;
+}
+const removed = new Map<string, Removed>();
+const KEEP_MS = 60 * 60 * 1000;
+const KEEP_MAX = 200;
+
+/** Rows of `ids` and, for characters, the relationships the cascade takes with them. */
+function rowsOf(db: Db, projectId: string, kind: DeletableKind, ids: string[]) {
+  const { table } = DELETABLE[kind];
+  const parts = [{ kind, rows: inChunks(ids, (slice) => db.select().from(table).where(and(eq(table.projectId, projectId), inArray(table.id, slice))).all()) as Record<string, unknown>[] }];
+  if (kind === 'characters')
+    parts.push({ kind: 'relationships', rows: inChunks(ids, (slice) => db.select().from(s.relationships).where(and(eq(s.relationships.projectId, projectId), or(inArray(s.relationships.fromId, slice), inArray(s.relationships.toId, slice)))).all()) as Record<string, unknown>[] });
+  return parts;
+}
+
+/**
+ * Deletes items of several kinds at once (a graph's selection: people, relationships, speech rules)
+ * and keeps what went (with the cascade) under one token for restoreItems.
+ */
+export function deleteItemsKept(db: Db, projectId: string, groups: { kind: DeletableKind; ids: string[] }[]) {
+  const parts = groups.flatMap(({ kind, ids }) => rowsOf(db, projectId, kind, deletable(db, projectId, kind, ids).ids));
+  for (const { kind, ids } of groups) deleteItems(db, projectId, kind, ids);
+  const token = crypto.randomUUID();
+  removed.set(token, { projectId, parts, at: Date.now() });
+  for (const [key, entry] of removed) if (removed.size > KEEP_MAX || Date.now() - entry.at > KEEP_MS) removed.delete(key);
+  return { ok: true as const, token, deleted: parts.reduce((sum, part) => sum + part.rows.length, 0) };
+}
+
+/** Puts back what the delete with this token removed (same ids), once. False when it is no longer kept or the project differs. */
+export function restoreItems(db: Db, projectId: string, token: string): boolean {
+  const entry = removed.get(token);
+  if (!entry || entry.projectId !== projectId) return false;
+  removed.delete(token);
+  // People before the relationships that point at them.
+  const order: DeletableKind[] = ['characters', 'relationships', 'speechRules', 'events', 'documents', 'terms', 'tags'];
+  db.transaction((tx) => {
+    for (const kind of order)
+      for (const part of entry.parts.filter((candidate) => candidate.kind === kind))
+        for (const row of part.rows) tx.insert(DELETABLE[kind].table).values(row as never).onConflictDoNothing().run();
+  });
+  for (const topic of new Set(entry.parts.map((part) => DELETABLE[part.kind].topic))) events.changed(projectId, topic);
+  return true;
 }
 
 export function deleteItems(db: Db, projectId: string, kind: DeletableKind, ids: string[]) {

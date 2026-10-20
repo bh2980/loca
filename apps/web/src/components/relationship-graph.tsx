@@ -1,7 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useGraphShortcuts } from '@/lib/graph-shortcuts';
-import { BaseEdge, Background, Controls, EdgeLabelRenderer, Handle, MarkerType, Panel, Position, ReactFlow, useInternalNode, type Edge, type EdgeProps, type InternalNode, type Node, type NodeChange, type NodeProps, SelectionMode } from '@xyflow/react';
-import { Button, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '@loca/ui';
+import { BaseEdge, Background, EdgeLabelRenderer, Handle, MarkerType, NodeToolbar, Panel, Position, ReactFlow, useInternalNode, type Edge, type EdgeProps, type InternalNode, type Node, type NodeChange, type NodeProps, type ReactFlowInstance, SelectionMode } from '@xyflow/react';
+import { Button, CanvasToolbar, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger, SelectionToolbox } from '@loca/ui';
+import { Copy, Trash2 } from 'lucide-react';
+import type { RelationshipGraphActions } from '@/components/knowledge/graph-actions';
+import { GRAPH_KEYS } from '@/lib/graph-shortcuts';
+import { keyLabel } from '@/lib/keys';
 import ELK from 'elkjs/lib/elk.bundled.js';
 import '@xyflow/react/dist/style.css';
 import type { CharacterRole } from '@tw/shared';
@@ -68,13 +72,13 @@ type RelationEdge = Edge<{ offset: number; rows: LabelRow[]; dim: boolean; focus
 function PersonNodeView({ data, selected }: NodeProps<PersonNode>) {
   return (
     <div
-      className={cn('flex items-center justify-center rounded-md border border-border bg-background px-3 text-xs font-medium shadow-none transition-opacity', data.role === 'main' && 'border-2 border-foreground/70 font-semibold', data.role === 'minor' && 'border-dashed text-muted-foreground', (selected || data.target) && 'border-primary ring-1 ring-primary/40', data.dim && !data.target && 'opacity-30')}
+      className={cn('group/person flex items-center justify-center rounded-md border border-border bg-background px-3 text-xs font-medium shadow-none transition-opacity', data.role === 'main' && 'border-2 border-foreground/70 font-semibold', data.role === 'minor' && 'border-dashed text-muted-foreground', (selected || data.target) && 'border-primary ring-1 ring-primary/40', data.dim && !data.target && 'opacity-30')}
       style={{ width: NODE_WIDTH, height: NODE_HEIGHT }}
     >
       <span className="truncate">{data.label}</span>
-      {/* Edges are floating (they attach to the node border), these handles only satisfy React Flow. */}
-      <Handle type="target" position={Position.Top} className="!opacity-0" />
-      <Handle type="source" position={Position.Bottom} className="!opacity-0" />
+      {/* Edges are floating (they attach to the node border). Dragging from the dot draws a new relationship; a drop anywhere on another person ends it there (connectionRadius). */}
+      <Handle type="target" position={Position.Top} isConnectableStart={false} className="!top-1/2 !size-1 !border-0 !opacity-0" />
+      <Handle type="source" position={Position.Bottom} title="끌어서 관계 잇기" className="!size-2.5 !border-0 !bg-primary opacity-0 transition-opacity group-hover/person:opacity-100" />
     </div>
   );
 }
@@ -138,7 +142,10 @@ const edgeTypes = { relation: FloatingEdge };
  * narrative, so ELK's stress layout is used instead of a layered (directional) one. People can be
  * dragged; where a person was put is remembered in this browser (`storageKey`) over the layout.
  */
-export function RelationshipGraph({ storageKey, characters, relationships, selectedCharacterId, selectedRelationshipId, onSelectCharacter, onSelectRelationship, onClear, onDeleteCharacters }: {
+/** Copied people (⌘/Ctrl+C or X), pasted as copies with the relationships among them. */
+let peopleClipboard: string[] = [];
+
+export function RelationshipGraph({ storageKey, characters, relationships, selectedCharacterId, selectedRelationshipId, onSelectCharacter, onSelectRelationship, onClear, actions }: {
   storageKey: string;
   characters: GraphCharacter[];
   relationships: GraphRelationship[];
@@ -147,21 +154,61 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
   onSelectCharacter: (id: string) => void;
   onSelectRelationship: (id: string) => void;
   onClear: () => void;
-  /**
-   * Delete characters; `ask` true means the page confirms first. The Delete key and the menu's 삭제
-   * both ask, since a deleted character does not come back with ⌘/Ctrl+Z.
-   */
-  onDeleteCharacters?: (ids: string[], ask: boolean) => void;
+  /** What it can change (the page's, each undoable); without it the graph only shows and selects. */
+  actions?: RelationshipGraphActions;
 }) {
   const dark = useIsDark();
   // Characters picked with a Shift+drag box or ⌘/Ctrl+click, as in the other graphs: ringed, even a
   // single one; only a plain click is the page's selection with its pane. The graph's own: tables keep theirs.
   const [picked, setPicked] = useState<Set<string>>(new Set());
-  // The characters the right-click menu acts on (the picked ones when it opens on one of them); the pane and edges open no menu.
-  const [menuFor, setMenuFor] = useState<string[] | null>(null);
+  // What the right-click menu acts on: people (the picked ones when it opens on one of them), a line, or the empty canvas at a point.
+  const [menu, setMenu] = useState<{ kind: 'people'; ids: string[] } | { kind: 'line'; id: string } | { kind: 'pane'; at: { x: number; y: number } } | null>(null);
+  const menuFor = menu?.kind === 'people' ? menu.ids : null;
+  const [flow, setFlow] = useState<ReactFlowInstance<PersonNode, RelationEdge>>();
+  const [zoom, setZoom] = useState(1);
+  // An edit changes who or which lines there are, which would lay the graph out anew: first everyone is
+  // kept where they are shown (as if dragged there), and the view does not refit. 자동 정렬 lays it out again.
+  const editedRef = useRef(0);
+  const edit = <A extends unknown[], R>(run: (...args: A) => R) => (...args: A) => {
+    editedRef.current = Date.now();
+    place({ ...positionsRef.current?.byId, ...placedRef.current });
+    return run(...args);
+  };
+  const edits = useMemo(
+    () => actions && { ...actions, remove: edit(actions.remove), connect: edit(actions.connect), addPerson: edit(actions.addPerson), duplicate: edit(actions.duplicate), undo: edit(actions.undo), redo: edit(actions.redo) },
+    [actions], // eslint-disable-line react-hooks/exhaustive-deps
+  );
   const selection = picked.size ? [...picked] : selectedCharacterId ? [selectedCharacterId] : [];
-  // The shared graph keys: Delete removes the selection, but characters cannot come back with ⌘/Ctrl+Z, so it asks first.
-  useGraphShortcuts({ remove: () => onDeleteCharacters?.(selection, true) }, Boolean(onDeleteCharacters && selection.length));
+  const removeSelection = () => {
+    if (!edits) return;
+    setPicked(new Set());
+    void edits.remove({ characterIds: selection, pairIds: !selection.length && selectedRelationshipId ? [selectedRelationshipId] : [] });
+    onClear();
+  };
+  // Copies go beside their originals, picked.
+  const paste = async (ids: string[]) => {
+    if (!edits || !ids.length) return;
+    const made = await edits.duplicate(ids);
+    const at = (id: string) => placedRef.current[id] ?? positionsRef.current?.byId[id] ?? { x: 0, y: 0 };
+    place({ ...placedRef.current, ...Object.fromEntries([...made].map(([from, to]) => [to, { x: at(from).x + 60, y: at(from).y + 60 }])) });
+    setPicked(new Set(made.values()));
+  };
+  // The shared graph keys (lib/graph-shortcuts), the same as in the workflow editor.
+  useGraphShortcuts(
+    {
+      undo: () => void edits?.undo(),
+      redo: () => void edits?.redo(),
+      copy: () => void (selection.length && (peopleClipboard = selection)),
+      cut: () => {
+        if (!selection.length) return;
+        peopleClipboard = selection;
+        removeSelection();
+      },
+      paste: () => void paste(peopleClipboard.filter((id) => characters.some((character) => character.id === id))),
+      remove: () => (selection.length || selectedRelationshipId ? removeSelection() : undefined),
+    },
+    Boolean(actions),
+  );
   const known = useMemo(() => new Set(characters.map((character) => character.id)), [characters]);
   const drawable = useMemo(() => relationships.filter((relationship) => known.has(relationship.fromId) && known.has(relationship.toId)), [relationships, known]);
   const layoutKey = useMemo(() => JSON.stringify([characters.map((c) => c.id), drawable.map((r) => [r.fromId, r.toId])]), [characters, drawable]);
@@ -173,6 +220,10 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
       return {};
     }
   });
+  const placedRef = useRef(placed);
+  placedRef.current = placed;
+  const positionsRef = useRef(positions);
+  positionsRef.current = positions;
   const place = (next: Record<string, { x: number; y: number }>) => {
     setPlaced(next);
     try {
@@ -182,6 +233,14 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
     }
   };
   const [hovered, setHovered] = useState<string | null>(null);
+  // A new layout (other people shown) refits the view by remounting it; one that follows an edit keeps the view.
+  const viewKey = useRef(positions?.key);
+  const seenKey = useRef(positions?.key);
+  if (positions && positions.key !== seenKey.current) {
+    seenKey.current = positions.key;
+    // The data an edit changes can arrive in more than one refresh.
+    if (Date.now() - editedRef.current > 5000 || !viewKey.current) viewKey.current = positions.key;
+  }
 
   useEffect(() => {
     const kept = knownLayout(storageKey, layoutKey);
@@ -235,7 +294,7 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
         id: character.id,
         type: 'person',
         position: placed[character.id] ?? positions?.byId[character.id] ?? { x: 0, y: 0 },
-        data: { label: character.name, role: character.role, dim: emphasis.active && !emphasis.nodeIds.has(character.id), target: Boolean(menuFor?.includes(character.id)) },
+        data: { label: character.name, role: character.role, dim: emphasis.active && !emphasis.nodeIds.has(character.id) && !picked.has(character.id), target: Boolean(menuFor?.includes(character.id)) },
         selected: picked.size ? picked.has(character.id) : character.id === selectedCharacterId,
         width: NODE_WIDTH,
         height: NODE_HEIGHT,
@@ -295,14 +354,21 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
     setPicked(next);
     if (next.size && selectedCharacterId) onClear();
   };
+  const one = selection.length === 1 && !picked.size ? characters.find((character) => character.id === selection[0]) : undefined;
+  const linePair = menu?.kind === 'line' ? menu.id : undefined;
   return (
-    <ContextMenu onOpenChange={(open) => !open && setMenuFor(null)}>
+    <ContextMenu onOpenChange={(open) => !open && setMenu(null)}>
     <ContextMenuTrigger asChild>
     <div className="h-full w-full">
     <ReactFlow colorMode={dark ? 'dark' : 'light'}
-      key={positions.key}
+      key={viewKey.current}
       nodes={flowNodes}
       edges={edges}
+      onInit={(instance) => {
+        setFlow(instance);
+        setZoom(instance.getZoom());
+      }}
+      onMove={(_event, viewport) => setZoom(viewport.zoom)}
       onNodesChange={(changes: NodeChange<PersonNode>[]) => {
         const moved = changes.flatMap((change) => (change.type === 'position' && change.position ? [[change.id, change.position] as const] : []));
         if (moved.length) setMoving((current) => ({ ...current, ...Object.fromEntries(moved) }));
@@ -322,25 +388,32 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
       fitViewOptions={{ padding: 0.2 }}
       minZoom={0.1}
       nodesDraggable
-      nodesConnectable={false}
+      // Drawing from a person's dot to another person makes a relationship (the page opens it to fill in).
+      nodesConnectable={Boolean(actions)}
+      connectionRadius={80}
+      onConnect={(connection) => connection.source && connection.target && void edits?.connect(connection.source, connection.target)}
       elementsSelectable
       // Same as the other graphs: left or middle drag pans, Shift+drag draws a selection box, ⌘/Ctrl+click adds a person.
       panOnDrag={[0, 1]}
       selectionKeyCode="Shift"
       multiSelectionKeyCode={['Meta', 'Control']}
       selectionMode={SelectionMode.Partial}
-      // Deleting goes through the page (Delete key above, the node's menu), not React Flow's own.
+      // Delete goes through the shared graph keys (lib/graph-shortcuts), undoable.
       deleteKeyCode={null}
-      onNodeContextMenu={(_event, node) => setMenuFor(picked.has(node.id) ? [...picked] : [node.id])}
-      onEdgeContextMenu={(event) => event.preventDefault()}
-      onPaneContextMenu={(event) => event.preventDefault()}
+      onNodeContextMenu={(_event, node) => setMenu({ kind: 'people', ids: picked.has(node.id) ? [...picked] : [node.id] })}
+      onEdgeContextMenu={(_event, edge) => setMenu({ kind: 'line', id: edge.id.split('+')[0]! })}
+      onPaneContextMenu={(event) => flow && setMenu({ kind: 'pane', at: flow.screenToFlowPosition({ x: event.clientX, y: event.clientY }) })}
       // A ⌘/Ctrl+click adds to the picked set (pick, above); a plain click is the ordinary selection.
       onNodeClick={(event, node) => {
         if (event.metaKey || event.ctrlKey) return;
         setPicked(new Set());
         onSelectCharacter(node.id);
       }}
-      onEdgeClick={(_event, edge) => onSelectRelationship(edge.id.split('+')[0])}
+      // A plain click on a line picks only the line (its pair opens to read and edit), as in the workflow editor.
+      onEdgeClick={(_event, edge) => {
+        setPicked(new Set());
+        onSelectRelationship(edge.id.split('+')[0]!);
+      }}
       // A click on a relationship label also reaches the pane; it picks that relationship, not nothing.
       onPaneClick={(event) => {
         if ((event.target as HTMLElement).closest('[data-relation-label]')) return;
@@ -350,32 +423,82 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
       proOptions={{ hideAttribution: true }}
     >
       <Background />
-      <Controls showInteractive={false} />
-      {Object.keys(placed).length > 0 && (
-        <Panel position="top-right">
-          <Button variant="outline" className="bg-background" onClick={() => place({})}>
-            배치 되돌리기
-          </Button>
-        </Panel>
+      <Panel position="bottom-right">
+        <CanvasToolbar
+          zoomPercent={zoom * 100}
+          onZoomIn={() => void flow?.zoomIn()}
+          onZoomOut={() => void flow?.zoomOut()}
+          onFit={() => void flow?.fitView({ padding: 0.2, duration: 200 })}
+          onResetZoom={() => void flow?.zoomTo(1, { duration: 180 })}
+          // Positions people were dragged to are dropped: the computed layout again.
+          onLayout={() => place({})}
+          layoutLabel="자동 정렬"
+        />
+      </Panel>
+      {edits && one && (
+        <NodeToolbar nodeId={one.id} isVisible position={Position.Top} offset={12}>
+          <SelectionToolbox actions={[
+            { id: 'copy', label: '복제', icon: <Copy />, onSelect: () => void paste([one.id]) },
+            { id: 'delete', label: '삭제', icon: <Trash2 />, onSelect: removeSelection },
+          ]} />
+        </NodeToolbar>
       )}
     </ReactFlow>
     </div>
     </ContextMenuTrigger>
-    {menuFor && (menuCharacter || menuFor.length > 1) && (
+    {menu && (
       <ContextMenuContent>
-        {menuCharacter && <ContextMenuItem onClick={() => onSelectCharacter(menuCharacter.id)}>상세 열기</ContextMenuItem>}
-        {onDeleteCharacters && (
+        {menu.kind === 'people' && (
           <>
-            {menuCharacter && <ContextMenuSeparator />}
-            <ContextMenuItem
-              variant="destructive"
-              onClick={() => {
-                setPicked(new Set());
-                onDeleteCharacters(menuFor, true);
-              }}
-            >
-              {menuFor.length > 1 ? `삭제 (${menuFor.length}명)` : '삭제'}
-            </ContextMenuItem>
+            {menuCharacter && <ContextMenuItem onClick={() => onSelectCharacter(menuCharacter.id)}>상세 열기</ContextMenuItem>}
+            {edits && (
+              <>
+                <ContextMenuItem onClick={() => void paste(menu.ids)}>복제</ContextMenuItem>
+                <ContextMenuItem onClick={() => (peopleClipboard = menu.ids)}>
+                  복사
+                  <ContextMenuShortcut>{keyLabel(GRAPH_KEYS.copy)}</ContextMenuShortcut>
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem variant="destructive" onClick={() => {
+                  setPicked(new Set());
+                  void edits.remove({ characterIds: menu.ids, pairIds: [] });
+                }}>
+                  {menu.ids.length > 1 ? `삭제 (${menu.ids.length}명)` : '삭제'}
+                  <ContextMenuShortcut>{keyLabel(GRAPH_KEYS.remove)}</ContextMenuShortcut>
+                </ContextMenuItem>
+              </>
+            )}
+          </>
+        )}
+        {menu.kind === 'line' && linePair && (
+          <>
+            <ContextMenuItem onClick={() => onSelectRelationship(linePair)}>상세 열기</ContextMenuItem>
+            {edits && (
+              <>
+                <ContextMenuSeparator />
+                <ContextMenuItem variant="destructive" onClick={() => void edits.remove({ characterIds: [], pairIds: [linePair] })}>
+                  삭제
+                  <ContextMenuShortcut>{keyLabel(GRAPH_KEYS.remove)}</ContextMenuShortcut>
+                </ContextMenuItem>
+              </>
+            )}
+          </>
+        )}
+        {menu.kind === 'pane' && (
+          <>
+            {edits && (
+              <ContextMenuItem onClick={() => {
+                const at = menu.at;
+                void edits.addPerson().then((id) => id && place({ ...placedRef.current, [id]: at }));
+              }}>인물 추가</ContextMenuItem>
+            )}
+            {edits && peopleClipboard.some((id) => characters.some((character) => character.id === id)) && (
+              <ContextMenuItem onClick={() => void paste(peopleClipboard.filter((id) => characters.some((character) => character.id === id)))}>
+                붙여넣기
+                <ContextMenuShortcut>{keyLabel(GRAPH_KEYS.paste)}</ContextMenuShortcut>
+              </ContextMenuItem>
+            )}
+            <ContextMenuItem onClick={() => place({})}>자동 정렬</ContextMenuItem>
           </>
         )}
       </ContextMenuContent>

@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
+import { useRelationshipGraphActions } from '@/components/knowledge/graph-actions';
 import { AiConfirmNote } from '@/components/settings/ai-confirm';
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
@@ -121,6 +122,8 @@ function Knowledge() {
   const rules = useQuery(q.speechRules(projectId));
   const nameOf = useMemo(() => new Map((people.data?.characters ?? []).map((c) => [c.id, c.name])), [people.data]);
   const api = client.projects[':projectId'];
+  // The graph's actions read the pairs (built further down) when they run.
+  const pairsForGraph = useRef<Pair[]>([]);
   const param = (id: string) => ({ param: { projectId, id } });
   // Saves a kind's form through its PATCH endpoint. A form key the endpoint does not take fails to
   // compile here: the server's schema would drop it and the edit would vanish without an error.
@@ -248,9 +251,11 @@ function Knowledge() {
   const addRule = (json: SpeechRuleCreate) => unwrap(api['speech-rules'].$post({ param: { projectId }, json }));
 
   const characters = people.data?.characters ?? [];
+  const graphActions = useRelationshipGraphActions({ projectId, characters, relationships: people.data?.relationships ?? [], pairs: pairsForGraph, open: (item) => set({ item }) });
   const inScope = (id: string) => !search.ids || search.ids.includes(id);
   const shown = (row: Row) => inScope(row.id) && matches(row, search.source, search.marks, search.tags, search.status) && !rowHidden(row, search);
   const pairs = useMemo(() => buildPairs(characters, specs.relationships.rows, specs.speechRules.rows), [characters, specs.relationships.rows, specs.speechRules.rows]);
+  pairsForGraph.current = pairs;
   const visiblePairs = pairs.filter((pair) => pairMatches(pair, search.source, search.marks, search.tags, search.status, search) && (!search.ids || pairItems(pair).some((item) => inScope(item.row.id))));
   // A link may name a relationship or rule id; it opens the pair holding it.
   const pair = pairsView || graph ? pairs.find((candidate) => candidate.key === search.item || pairItems(candidate).some((item) => item.row.id === search.item)) : undefined;
@@ -550,9 +555,9 @@ function Knowledge() {
             <CanvasDirectionControl direction={direction} onDirectionChange={(next) => set({ direction: next }, false)} disabled={storyEvents.isPending} />
             <Separator orientation="vertical" className="mx-1 h-4" />
           </>}
-          {(pairsView || graph) && <AddPairPopover projectId={projectId} characters={characters} pairs={pairs} onCreated={(key) => set({ item: key, source: undefined, marks: undefined, ids: undefined })} />}
-          {/* One primary action: in the graph, adding a pair leads and adding a person steps back. */}
-          {!pairsView && spec.create && <Button variant={graph ? 'outline' : 'default'} disabled={create.isPending} onClick={() => create.mutate()}><Plus /> {KINDS[tableKind]}</Button>}
+          {/* In the graph, people and relationships are made on the canvas itself (right-click, drawing a line). */}
+          {pairsView && <AddPairPopover projectId={projectId} characters={characters} pairs={pairs} onCreated={(key) => set({ item: key, source: undefined, marks: undefined, ids: undefined })} />}
+          {!pairsView && !graph && spec.create && <Button disabled={create.isPending} onClick={() => create.mutate()}><Plus /> {KINDS[tableKind]}</Button>}
           <RunDialog projectId={projectId} trigger={<Button variant="ghost"><Play /> 워크플로 실행</Button>} />
         </HeaderActions>
         <FilterBar end={<><AiConfirmNote projectId={projectId} /><span className="text-2xs font-medium text-subtle-foreground tabular-nums">{count}</span></>}>
@@ -574,7 +579,7 @@ function Knowledge() {
                 onSelectCharacter={(id) => set({ item: id })}
                 onSelectRelationship={(key) => set({ item: key })}
                 onClear={() => set({ item: undefined })}
-                onDeleteCharacters={(ids, ask) => (ask ? setDeletingIds(ids) : deleteMutation.mutate(ids))}
+                actions={graphActions}
               />
             )}
           </div>

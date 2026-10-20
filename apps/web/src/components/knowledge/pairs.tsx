@@ -273,7 +273,8 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
       </InspectorSection>
       <InspectorSection
         title={relationshipKind ? `관계 · ${relationshipKind}` : '관계'}
-        defaultOpen={Boolean(pair.relationship && pair.relationship.status === 'candidate')}
+        // Open where there is something to settle: a candidate, or a line just drawn that says nothing yet.
+        defaultOpen={Boolean(pair.relationship && (pair.relationship.status === 'candidate' || !pair.relationship.description))}
         actions={
           pair.relationship && (
             <span className="flex items-center gap-1.5">

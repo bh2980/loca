@@ -5,7 +5,7 @@ import { KNOWLEDGE_TAG_KINDS, modelChoiceSchema, patchOf } from '@tw/shared';
 import { badRequest, found, notFound, validate, type Env } from '../context.ts';
 import { eachChunk, inChunks } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
-import { deleteItems } from '../services/item-delete.ts';
+import { deleteItems, deleteItemsKept, restoreItems } from '../services/item-delete.ts';
 import { events } from '../events.ts';
 import { graphOrder, ruleLines } from '../services/speech.ts';
 import { eventFlow, forks } from '../services/event-routes.ts';
@@ -119,6 +119,15 @@ export const knowledgeRoutes = new Hono<Env>()
   .delete('/characters/:id', (c) => {
     deleteItems(c.var.deps.db, c.req.param('projectId')!, 'characters', [c.req.param('id')]);
     return c.json({ ok: true });
+  })
+  /** Deletes a graph's selection (people, relationships, speech rules) and returns a token ⌘/Ctrl+Z restores it with. */
+  .post('/knowledge-delete', validate('json', z.object({ items: z.array(z.object({ kind: z.enum(['characters', 'relationships', 'speechRules']), ids: z.array(z.string()).min(1) })).min(1) })), (c) =>
+    c.json(deleteItemsKept(c.var.deps.db, c.req.param('projectId')!, c.req.valid('json').items)),
+  )
+  /** Puts back what a knowledge-delete removed (its token), for ⌘/Ctrl+Z. */
+  .post('/knowledge-restore', validate('json', z.object({ token: z.string().min(1) })), (c) => {
+    if (!restoreItems(c.var.deps.db, c.req.param('projectId')!, c.req.valid('json').token)) badRequest('되돌릴 수 없습니다. 삭제한 지 오래되었거나 서버가 다시 시작되었습니다.');
+    return c.json({ ok: true as const });
   })
   .get('/relationships/:id', (c) => {
     const { db } = c.var.deps;
