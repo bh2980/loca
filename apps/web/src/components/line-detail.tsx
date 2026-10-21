@@ -404,7 +404,7 @@ function LineChecks({ projectId, source, text, rules, targetLanguage, speech, la
         )}
       </Group>
       {speech && (
-        <Group title={`말투 → ${speech.others ? "그 밖의 사람" : listenerLabel(speech.listener)}${speech.routeDependent ? ' (루트에 따라 달라 대본 순서 기준)' : speech.byOrder ? ' (그래프 밖이라 대본 순서 기준)' : ''}`}>
+        <Group title={`말투 → ${speech.others ? "그 밖의 인물" : listenerLabel(speech.listener)}${speech.routeDependent ? ' (루트에 따라 달라 대본 순서 기준)' : speech.byOrder ? ' (그래프 밖이라 대본 순서 기준)' : ''}`}>
           <div className="flex items-center gap-2 text-sm">
             <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', item: speech.ruleId }} className="min-w-0 truncate hover:underline">
               {speech.rule}

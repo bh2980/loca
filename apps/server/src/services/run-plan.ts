@@ -118,7 +118,13 @@ export async function planRun(db: Db, projectId: string, input: PlanInput) {
   if (unknown.length) return { ok: false as const, error: `찾지 못함: ${unknown.slice(0, 10).join(', ')}` };
   const picked = resolveRunModels(db, workflow.definition, input.models);
   if (picked.unknown.length) return { ok: false as const, error: `찾지 못함: ${picked.unknown.join(', ')}` };
-  const { plan, readiness, ...rest } = await preflight(db, { ...workflow, definition: withRunModels(workflow.definition, picked.models) }, scope);
+  let planned;
+  try {
+    planned = await preflight(db, { ...workflow, definition: withRunModels(workflow.definition, picked.models) }, scope);
+  } catch (error) {
+    return { ok: false as const, error: error instanceof Error ? error.message : String(error) };
+  }
+  const { plan, readiness, ...rest } = planned;
   const termNames = inChunks(readiness.candidateTerms.ids, (ids) => db.select({ id: s.terms.id, source: s.terms.source }).from(s.terms).where(inArray(s.terms.id, ids)).all());
   const ruleNames = inChunks(readiness.candidateRules.ids, (ids) => db.select({ id: s.speechRules.id, from: s.speechRules.fromName, to: s.speechRules.toName }).from(s.speechRules).where(inArray(s.speechRules.id, ids)).all());
   return {

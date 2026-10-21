@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import Graph from 'graphology';
-import { APPLY_TARGETS, FUNCTIONS, functionPorts, functionTakes, jsonFieldSchema, type ApplyFunctionName, type ApplyParams, type FunctionName, type JsonField, type Port } from './functions.ts';
+import { APPLY_TARGETS, FUNCTIONS, TAG_ACTIONS, type TagLinesParams, functionPorts, functionTakes, jsonFieldSchema, type ApplyFunctionName, type ApplyParams, type FunctionName, type JsonField, type Port } from './functions.ts';
 import { stronglyConnectedComponents } from 'graphology-components';
 import { choiceKey, draftModelChoiceSchema, EMPTY_MODEL_CHOICE, modelChoiceSchema, type ModelChoice } from './model-choice.ts';
 import { KNOWLEDGE_STATUSES } from './knowledge.ts';
@@ -105,7 +105,7 @@ export function nodeOutputFields(node: WorkflowNode | undefined): JsonField[] | 
   if (!node) return null;
   if (node.type === 'ai') {
     if (node.config.output === 'json') return node.config.fields;
-    if (node.config.output === 'verdict') return [{ name: 'passed', type: 'boolean', description: '' }, { name: 'issues', type: 'strings', description: '' }];
+    if (node.config.output === 'verdict') return [{ name: 'passed', type: 'boolean', description: '' }, { name: 'issues', type: 'strings', description: '' }, { name: 'categories', type: 'strings', description: '' }];
     if (node.config.output === 'choice') return [{ name: 'value', type: 'string', description: '' }, { name: 'confidence', type: 'number', description: '' }, { name: 'reason', type: 'string', description: '' }];
     return [{ name: 'text', type: 'string', description: '' }];
   }
@@ -231,10 +231,10 @@ export const DEFAULT_CALL_MINUTES = 10;
 
 /**
  * Why a line left a node through its "error" exit, as conditions read it (error.kind). The runner
- * never splits or re-sends a failed request on its own: a workflow routes these (a retry loop, a
- * smaller-batch node), or an exit left unconnected ends the line as failed. Rate limits and dropped connections are not the line's
- * fault: those lines wait for a later request, and the run pauses after the workflow's
- * "연속 실패" count.
+ * never splits or re-sends a failed request on its own: a workflow routes these (a 재요청 node, a
+ * condition loop), or an exit left unconnected ends the line as failed. Rate limits and dropped
+ * connections are not the line's fault: those lines wait for a later request. Every other failed
+ * request, a cut-off one included, counts toward the workflow's "연속 실패"; the run pauses at it.
  */
 export const ITEM_ERROR_KINDS = {
   missing: '답에서 빠짐',
@@ -249,6 +249,37 @@ export const ITEM_ERROR_KINDS = {
 } as const;
 export type ItemErrorKind = keyof typeof ITEM_ERROR_KINDS;
 export const ITEM_ERROR_KIND_IDS = Object.keys(ITEM_ERROR_KINDS) as ItemErrorKind[];
+
+/**
+ * 재요청: sends lines that failed back to an AI node, in smaller requests. A line whose last failure
+ * is one of `kinds` and that has been sent back fewer than `maxTimes` times at this node leaves
+ * through "retry" (its size factor times `scale`, which the AI node it reaches batches by); any
+ * other leaves through "error" with its original failure. Instant: no AI call.
+ */
+export const retryConfigSchema = z
+  .object({
+    kinds: z.array(z.enum(ITEM_ERROR_KIND_IDS as [ItemErrorKind, ...ItemErrorKind[]])).default(['cut-off']),
+    scale: z.number().min(0.1).max(0.9).default(0.5),
+    maxTimes: z.number().int().min(1).max(5).default(2),
+  })
+  .prefault({});
+export type RetryConfig = z.infer<typeof retryConfigSchema>;
+/** A retry node's one-line summary: "출력 잘림 · 절반 크기 · 최대 2번". */
+export const retrySummary = (config: RetryConfig) =>
+  `${config.kinds.length ? config.kinds.map((kind) => ITEM_ERROR_KINDS[kind]).join('·') : '고른 오류 없음'} · ${config.scale === 0.5 ? '절반' : `${Math.round(config.scale * 100)}%`} 크기 · 최대 ${config.maxTimes}번`;
+
+/**
+ * 워크플로 호출: runs another saved workflow on the lines that reach it. A line that reaches the end of
+ * that workflow leaves through "out" (완료); one that would end there as failed leaves through "error"
+ * (오류) with its error kind and message. Nothing else passes between the two (no results, no named
+ * ends). Empty until a workflow is picked. At run start the call is replaced by the called workflow's
+ * nodes (see expandCalls in workflow-calls.ts): the runner never sees a call node.
+ */
+export const callConfigSchema = z.object({ workflowId: z.string().default('') }).prefault({});
+export type CallConfig = z.infer<typeof callConfigSchema>;
+/** A call card's one-line summary: the called workflow's name. */
+export const callSummary = (config: CallConfig, workflows: readonly { id: string; name: string }[] = []) =>
+  (config.workflowId && workflows.find((workflow) => workflow.id === config.workflowId)?.name) || '워크플로를 고르세요';
 
 export const aiNodeConfigSchema = z.object({
   model: draftModelChoiceSchema.default({ ...EMPTY_MODEL_CHOICE }),
@@ -279,7 +310,13 @@ export const aiNodeConfigSchema = z.object({
 export const workflowNodeSchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('entry'), config: entryConfigSchema }),
   z.object({ ...base, type: z.literal('ai'), config: aiNodeConfigSchema }),
-  z.object({ ...base, type: z.literal('function'), config: z.object({ fn: z.string(), params: z.record(z.string(), z.unknown()).default({}) }) }),
+  z.object({ ...base, type: z.literal('function'), config: z.object({
+      fn: z.string(),
+      params: z.record(z.string(), z.unknown()).default({}),
+      /** HTTP and script nodes only: how many of this node's calls a run makes at once. */
+      concurrency: z.number().int().min(1).max(8).default(2),
+    }),
+  }),
   z.object({
     ...base,
     type: z.literal('condition'),
@@ -288,6 +325,8 @@ export const workflowNodeSchema = z.discriminatedUnion('type', [
   }),
   z.object({ ...base, type: z.literal('end'), config: z.object({}).default({}) }),
   z.object({ ...base, type: z.literal('gather'), config: gatherConfigSchema }),
+  z.object({ ...base, type: z.literal('retry'), config: retryConfigSchema }),
+  z.object({ ...base, type: z.literal('call'), config: callConfigSchema }),
 ]);
 
 export const workflowEdgeSchema = z.object({
@@ -307,14 +346,20 @@ export const workflowDefinitionSchema = z.object({
   edges: z.array(workflowEdgeSchema),
   /** Last explicitly arranged graph direction; older saved definitions default to vertical. */
   direction: z.enum(['vertical', 'horizontal']).optional(),
+  /**
+   * Only on a run's stored definition, where every call node was replaced by the called workflow's
+   * nodes (expandCalls): the calls that were expanded, by the call node's id as the inner nodes carry
+   * it as an id prefix ("c1", nested "c1/c2"). Lets a run show "호출 이름 › 노드 이름". Never saved
+   * on a workflow.
+   */
+  calls: z.record(z.string(), z.object({ name: z.string(), workflowId: z.string() })).optional(),
   settings: z
     .object({
       maxVisitsPerNode: z.number().int().min(1).max(50).default(5),
-      concurrency: z.number().int().min(1).max(8).default(2),
       /** The run pauses after this many model or function calls in a row fail. */
       maxConsecutiveFailures: z.number().int().min(1).max(50).default(3),
     })
-    .default({ maxVisitsPerNode: 5, concurrency: 2, maxConsecutiveFailures: 3 }),
+    .default({ maxVisitsPerNode: 5, maxConsecutiveFailures: 3 }),
 });
 
 export type ContextConfig = z.infer<typeof contextConfigSchema>;
@@ -363,6 +408,8 @@ export const NODE_TYPES: Record<WorkflowNodeType, NodeTypeInfo> = {
   function: { label: '함수', description: '형식 검사·상태 변경·HTTP 호출·스크립트 등 정해진 동작을 실행합니다.', hasInput: true },
   condition: { label: '조건', description: '방문 횟수·앞 노드의 출력·대사 속성 등으로 분기합니다.', hasInput: true },
   end: { label: '종료', description: '대사의 흐름을 마칩니다.', hasInput: true },
+  retry: { label: '재요청', description: '실패한 대사를 더 작은 요청으로 AI 노드에 다시 보냅니다. 정한 횟수를 넘으면 오류로 나갑니다.', hasInput: true },
+  call: { label: '워크플로 호출', description: '다른 워크플로를 이 대사들에 실행합니다. 끝까지 가면 완료로, 실패로 끝나게 되면 오류로 나옵니다.', hasInput: true },
   gather: { label: '모으기', description: '앞 노드의 결과를 모든 요청이 끝날 때까지 모았다가, 합친 결과 하나를 다음 노드로 넘깁니다.', hasInput: true },
 };
 
@@ -384,6 +431,10 @@ export function nodePorts(node: WorkflowNode): Port[] {
       return [];
     case 'gather':
       return [{ id: 'out', label: '다음' }];
+    case 'retry':
+      return [{ id: 'retry', label: '다시 보냄' }, ERROR];
+    case 'call':
+      return [...OUT, ERROR];
   }
 }
 
@@ -417,7 +468,27 @@ export interface WorkflowIssue {
   edgeId?: string;
 }
 
+/** A workflow of the project as validation sees it: what a call node needs to check. */
+export interface WorkflowRef {
+  id: string;
+  name: string;
+  input: WorkflowSubject;
+  /** The ids of the workflows its call nodes name. */
+  calls: string[];
+}
+/** What validation and the card summary need to know about a saved workflow. */
+export const workflowRefOf = (workflow: { id: string; name: string; definition: Pick<WorkflowDefinition, 'nodes'> }): WorkflowRef => ({
+  id: workflow.id,
+  name: workflow.name,
+  input: workflowInput(workflow.definition),
+  calls: workflow.definition.nodes.flatMap((node) => (node.type === 'call' && node.config.workflowId ? [node.config.workflowId] : [])),
+});
+
 export interface WorkflowRefs {
+  /** The project's workflows (call nodes pick from these). */
+  workflows: WorkflowRef[];
+  /** The workflow being checked, when it is saved (a call that leads back to it is a cycle). */
+  workflowId?: string;
   /** AI connections (not HTTP tool keys) by id, with their kind. */
   connections: Map<string, string>;
   statusIds: Set<string>;
@@ -452,6 +523,7 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
     if (!nodePorts(source).some((port) => port.id === edge.sourceHandle))
       error(`'${nodeName(source)}'에 없는 출구입니다: ${edge.sourceHandle}`, { edgeId: edge.id });
     if (!NODE_TYPES[target.type].hasInput) error('진입 노드로 들어가는 연결은 둘 수 없습니다.', { edgeId: edge.id });
+    if (source.type === 'retry' && edge.sourceHandle === 'retry' && target.type !== 'ai') error(`'${nodeName(source)}'의 '다시 보냄'은 AI 노드로 이어져야 합니다.`, { edgeId: edge.id });
     const port = `${edge.source}:${edge.sourceHandle}`;
     if (definition.edges.some((other) => other !== edge && other.source === edge.source && other.sourceHandle === edge.sourceHandle && other.target === edge.target && definition.edges.indexOf(other) < definition.edges.indexOf(edge)))
       error('같은 출구에서 같은 노드로 가는 연결이 두 번 있습니다.', { edgeId: edge.id });
@@ -519,6 +591,16 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
       }
       if (!input.lines && !(input.previous && node.config.output === 'json' && node.config.scope === 'batch')) error('대사 없이 보내려면 앞 단계 결과를 넣고, 출력을 JSON · 묶음 전체로 하세요.', { nodeId: node.id });
     }
+    if (node.type === 'retry' && node.config.maxTimes + 1 > definition.settings.maxVisitsPerNode)
+      warn(`다시 보내기가 최대 ${node.config.maxTimes}번이면 AI 노드를 ${node.config.maxTimes + 1}번 지납니다. 노드 방문 상한(${definition.settings.maxVisitsPerNode}회)을 넘으면 그 대사는 실패로 끝납니다.`, { nodeId: node.id });
+    if (node.type === 'call') {
+      const picked = node.config.workflowId;
+      const called = refs.workflows.find((workflow) => workflow.id === picked);
+      if (!picked) error('부를 워크플로를 고르세요.', { nodeId: node.id });
+      else if (!called) error('부르는 워크플로가 없습니다.', { nodeId: node.id });
+      else if (called.input !== input) error(`'${called.name}'은(는) ${INPUT_TYPES[called.input].label}를 받는 워크플로라 여기서 부를 수 없습니다.`, { nodeId: node.id });
+      else if (callsBack(called.id, refs)) error(`'${called.name}'을(를) 부르면 다시 이 워크플로로 돌아옵니다.`, { nodeId: node.id });
+    }
     if (node.type === 'gather') {
       const steps = previousSteps(definition, node.id);
       if (!steps.length) error('모으기 앞 단계에 결과를 내는 AI·스크립트 노드가 없습니다.', { nodeId: node.id });
@@ -552,6 +634,8 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
         for (const id of [...(params.addTagIds as string[]), ...(params.removeTagIds as string[])])
           if (!refs.tagIds.has(id)) error('삭제된 태그가 있습니다.', { nodeId: node.id });
       }
+      if (node.config.fn === 'tagLines')
+        for (const id of params.tagIds as string[]) if (!refs.tagIds.has(id)) error('삭제된 태그가 있습니다.', { nodeId: node.id });
       if (node.config.fn === 'http') {
         if (!/^https?:\/\//.test(String(params.url).trim())) error('HTTP 호출할 주소(https://…)를 입력하세요.', { nodeId: node.id });
         if (params.connectionId && !refs.toolConnectionIds.has(params.connectionId as string)) error('삭제된 API 키입니다.', { nodeId: node.id });
@@ -579,14 +663,33 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
   for (const component of stronglyConnectedComponents(graph)) {
     const looping = component.length > 1 || graph.hasDirectedEdge(component[0], component[0]);
     if (!looping) continue;
-    // Something in the loop must be able to choose a different exit.
-    const exits = component.some((id) => nodePorts(graph.getNodeAttribute(id, 'node') as WorkflowNode).filter((port) => port.id !== 'error').length > 1);
+    // Something in the loop must be able to choose a different exit; a 재요청 node leaves after its own count.
+    const exits = component.some((id) => {
+      const node = graph.getNodeAttribute(id, 'node') as WorkflowNode;
+      return node.type === 'retry' || nodePorts(node).filter((port) => port.id !== 'error').length > 1;
+    });
     if (!exits)
       warn(`분기 없이 도는 순환이 있습니다. 노드 방문 상한(${definition.settings.maxVisitsPerNode}회)에서만 멈춥니다.`, {
         nodeId: component[0],
       });
   }
   return issues;
+}
+
+/** Whether calling `calledId` leads back to the workflow being checked: it is that workflow, or its calls (any depth) reach it. */
+function callsBack(calledId: string, refs: WorkflowRefs): boolean {
+  if (!refs.workflowId) return false;
+  const byId = new Map(refs.workflows.map((workflow) => [workflow.id, workflow]));
+  const seen = new Set<string>();
+  const stack = [calledId];
+  while (stack.length) {
+    const id = stack.pop()!;
+    if (id === refs.workflowId) return true;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    stack.push(...(byId.get(id)?.calls ?? []));
+  }
+  return false;
 }
 
 /**
@@ -596,6 +699,13 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
 export function applyIssues(definition: Pick<WorkflowDefinition, 'nodes' | 'edges'>, nodeId: string, fn: ApplyFunctionName, params: ApplyParams): string[] {
   const target = APPLY_TARGETS[fn];
   const steps = previousSteps(definition, nodeId);
+  if (fn === 'tagLines') {
+    const tags = params as TagLinesParams;
+    const named = Boolean(tags.map.tag);
+    if (!named && !tags.tagIds.length && !tags.kinds.length && !tags.allKinds) return [`${tags.action === 'remove' ? '뗄' : '붙일'} 태그를 고르거나, 태그 이름이 든 앞 단계 결과 필드를 고르세요.`];
+    if (tags.allKinds && tags.action === 'add') return ['모든 문제 유형은 떼기에서만 고를 수 있습니다.'];
+    return named && (!steps.length || steps.some((step) => step.type === 'gather')) ? ['앞 단계에 결과를 내는 노드가 없습니다. 태그 이름을 읽을 노드 뒤에 이으세요.'] : [];
+  }
   if (!steps.length || steps.some((step) => step.type === 'gather')) return ['앞 단계에 결과를 내는 AI·스크립트 노드가 없습니다. 반영할 결과를 내는 노드 뒤에 이으세요.'];
   const issues: string[] = [];
   if (target.shape === 'list' && !params.list) issues.push('항목을 가져올 목록 필드를 고르세요.');

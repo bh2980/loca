@@ -1,4 +1,4 @@
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 import type { WorkflowDefinition } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -33,9 +33,18 @@ export function saveWorkflow(db: Db, projectId: string, input: { id?: string; na
   return row;
 }
 
+/** The project's other workflows with a 워크플로 호출 node that picks workflow `id`, by name. */
+export function workflowCallers(db: Db, projectId: string, id: string): { id: string; name: string }[] {
+  return db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).orderBy(asc(s.workflows.name)).all()
+    .filter((row) => row.id !== id && row.definition.nodes.some((node) => node.type === 'call' && node.config.workflowId === id))
+    .map((row) => ({ id: row.id, name: row.name }));
+}
+
 export function deleteWorkflow(db: Db, projectId: string, id: string) {
   const current = workflowFor(db, projectId, id);
   requireIdle(db, current.id);
+  const callers = workflowCallers(db, projectId, current.id);
+  if (callers.length) throw new WorkflowMutationError(`이 워크플로를 부르는 곳이 있습니다: ${callers.slice(0, 5).map((caller) => caller.name).join(', ')}${callers.length > 5 ? ` 외 ${callers.length - 5}곳` : ''}. 그곳에서 호출을 지운 뒤 지우세요.`);
   db.delete(s.workflows).where(and(eq(s.workflows.id, current.id), eq(s.workflows.projectId, projectId))).run();
   events.changed(projectId, 'workflows');
   return { ok: true as const };

@@ -3,8 +3,8 @@ import { CopyButton } from '@/components/copy-button';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, Info, OctagonAlert, Pause, Play, CircleStop } from 'lucide-react';
-import { nodeName as nameOf, type WorkflowNode } from '@tw/shared';
+import { ChevronLeft, ChevronRight, OctagonAlert, Pause, Play, CircleStop } from 'lucide-react';
+import { runNodeName, type WorkflowNode } from '@tw/shared';
 import { ContextItemList } from '@/components/ai-context';
 import { LineDetail } from '@/components/line-detail';
 import { TermEditor } from '@/components/glossary/term-pane';
@@ -18,7 +18,9 @@ import { useReportView } from '@/lib/view-context';
 import type { InferResponseType } from 'hono/client';
 import { BatchList } from '@/components/workflow/batch-list';
 import { ContinueRun } from '@/components/workflow/continue-run';
+import { RaiseCaps } from '@/components/workflow/raise-caps';
 import { RunGraph } from '@/components/workflow/run-graph';
+import { topCallIds } from '@/components/workflow/run-calls';
 import { dateTime } from '@/lib/datetime';
 
 type State = keyof typeof ITEM_STATE;
@@ -85,10 +87,21 @@ function RunDetail() {
   const nodeTotals = data.nodes.reduce<Record<string, number>>((acc, row) => ((acc[row.nodeId] = (acc[row.nodeId] ?? 0) + row.count), acc), {});
   const finished = (totals.done ?? 0) + (totals.failed ?? 0) + (totals.cancelled ?? 0);
   const order = data.definition.nodes.filter((node) => nodeTotals[node.id]);
+  // A node inside a called workflow reads "호출 이름 › 노드 이름".
   const nodeName = (id: string) => {
     const node = nodeById.get(id);
-    return node ? nameOf(node) : id;
+    return node ? runNodeName(data.definition, node) : (data.definition.calls?.[id]?.name ?? id);
   };
+  // 위치 filter: each call as a whole (the run graph's call card opens it), then its nodes.
+  const callIds = topCallIds(data.definition);
+  const locations = order.flatMap((node) => {
+    const call = callIds.find((id) => node.id.startsWith(`${id}/`));
+    const first = call && order.find((other) => other.id.startsWith(`${call}/`)) === node;
+    return [
+      ...(call && first ? [{ value: call, label: `${nodeName(call)} (전체)`, hint: order.filter((other) => other.id.startsWith(`${call}/`)).reduce((sum, other) => sum + nodeTotals[other.id]!, 0) }] : []),
+      { value: node.id, label: nodeName(node.id), hint: nodeTotals[node.id] },
+    ];
+  });
   const active = data.status === 'running' || data.status === 'paused';
   const total = items.data?.total ?? 0;
   const filtered = Boolean(search.state || search.node);
@@ -105,7 +118,7 @@ function RunDetail() {
           label="위치"
           value={search.node}
           onChange={(node) => setSearch({ node, page: undefined, line: undefined }, true)}
-          options={order.map((node) => ({ value: node.id, label: nameOf(node), hint: nodeTotals[node.id] }))}
+          options={locations}
         />
       ),
       meta: { width: 160, label: '위치' },
@@ -214,7 +227,7 @@ function RunDetail() {
           </Tabs>
           <Separator orientation="vertical" className="mx-1 h-4" />
           {data.status === 'running' && <Button onClick={() => control.mutate('pause')}><Pause /> 일시정지</Button>}
-          {data.status === 'paused' && <Button onClick={() => control.mutate('resume')}><Play /> 재개</Button>}
+          {data.status === 'paused' && <Button variant={data.limits?.hit ? 'outline' : 'default'} onClick={() => control.mutate('resume')}><Play /> 재개</Button>}
           {data.status === 'completed' && (totals.failed ?? 0) > 0 && !data.filling && <ContinueRun runId={runId} failed={totals.failed ?? 0} paused={false} />}
           {(active || data.status === 'paused') && <ActionBar aria-label="실행 동작" items={[
             ...(active ? [{ id: 'cancel', label: '실행 취소', icon: <CircleStop />, destructive: true, onSelect: () => setCancelOpen(true) }] : []),
@@ -233,18 +246,12 @@ function RunDetail() {
         </FilterBar>}
 
         <div className="shrink-0 space-y-3 border-b px-4 py-3">
-          {(data.status === 'running' || data.status === 'completed') && data.notice && !data.filling && (
-            <Alert>
-              <Info />
-              <AlertTitle>실행 알림</AlertTitle>
-              <AlertDescription className="whitespace-pre-line">{data.notice}</AlertDescription>
-            </Alert>
-          )}
           {data.status === 'paused' && data.notice && (
             <Alert variant="destructive">
               <OctagonAlert />
               <AlertTitle>실행이 멈췄습니다</AlertTitle>
               <AlertDescription>{data.notice}</AlertDescription>
+              {data.limits?.hit && !data.filling && <RaiseCaps key={`${data.limits.maxCalls}-${data.limits.maxInputTokens}`} runId={runId} limits={data.limits} />}
             </Alert>
           )}
           <p className="flex items-center gap-1 text-xs text-muted-foreground">

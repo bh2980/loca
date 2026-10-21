@@ -16,6 +16,8 @@ export interface NodeRefs {
   connections: { id: string; name: string; kind: keyof typeof CONNECTION_KIND_INFO; baseUrl: string | null; fallback: { connectionId: string; model: string } | null; inputTokens?: number | null; outputTokens?: number | null; modelLimits?: Record<string, ModelLimits> }[];
   nodes: WorkflowNode[];
   edges?: WorkflowEdge[];
+  /** The project's workflows (a call node picks one of them). */
+  workflows?: { id: string; name: string; input: WorkflowSubject }[];
   /** Opens another node's settings (a step chip's click). */
   onOpenNode?: (id: string) => void;
 }

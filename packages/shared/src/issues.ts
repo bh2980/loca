@@ -1,9 +1,10 @@
 import { normalizeTagScopes, type TagScope } from './marks.ts';
 /**
- * Problem-type tags: what kind of problem a check found in a line's current translation. A check
- * that fails puts its kind on the line, the same check passing takes it off, and a new translation
- * text clears them all (they described the old one). They are ordinary tags otherwise: filters,
- * run scopes and conditions use them, so "말투 문제만 다시 번역" is a filter and a run.
+ * Problem-type tags: what kind of problem was found in a line's current translation. Checks and
+ * reviews only judge; a workflow's 태그 붙이기 node puts a kind on the line (the project gets the
+ * kind's tag the first time) and takes it off, and a new translation text clears them all (they
+ * described the old one). They are ordinary tags otherwise: filters, run scopes and conditions use
+ * them, so "말투 문제만 다시 번역" is a filter and a run.
  */
 export const ISSUE_KINDS = {
   format: { name: '형식', color: '#c46016' },
@@ -12,9 +13,18 @@ export const ISSUE_KINDS = {
   meaning: { name: '의미', color: '#d24c49' },
   style: { name: '문체', color: '#8f68cb' },
   other: { name: '기타 지적', color: '#79818c' },
+  /** Not a finding about the translation: the line's AI step finally failed (set by an extraction workflow's failure branch; a review never names it). */
+  aiFailed: { name: 'AI 실패', color: '#6076de' },
 } as const;
 export type IssueKind = keyof typeof ISSUE_KINDS;
 export const ISSUE_KIND_IDS = Object.keys(ISSUE_KINDS) as IssueKind[];
+/** The kinds a review may name (every kind but AI 실패). */
+export const REVIEW_KIND_IDS = ISSUE_KIND_IDS.filter((kind) => kind !== 'aiFailed');
+/** The problem type a text names: its id ("speech") or its tag name ("말투"), any case; undefined for any other text. */
+export function issueKindOf(text: string): IssueKind | undefined {
+  const wanted = text.trim().toLowerCase();
+  return ISSUE_KIND_IDS.find((kind) => kind === wanted || ISSUE_KINDS[kind].name.toLowerCase() === wanted);
+}
 /** For the AI review prompt: the category ids it may give. */
 export const ISSUE_CATEGORY_GUIDE = 'speech (speech level, honorifics, form of address), term (a glossary term or name rendered differently), meaning (mistranslation, omission, addition), style (unnatural or awkward Korean), format (placeholders, tags, line breaks), other';
 

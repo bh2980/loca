@@ -177,7 +177,7 @@ describe('attachUnitTags', () => {
 });
 
 describe('a person\'s first text', () => {
-  it('moves a 미번역 line to 초벌; a later save or an explicit status keeps what it says', async () => {
+  it('moves a 미번역 line to 번역됨; a later save or an explicit status keeps what it says', async () => {
     const { db, mine, send } = setup();
     const statusOf = (id: string) => db.select({ name: s.statuses.name }).from(s.statuses).innerJoin(s.units, eq(s.units.statusId, s.statuses.id)).where(eq(s.units.id, id)).get()?.name;
     const line = mine.unit('a');
@@ -186,7 +186,7 @@ describe('a person\'s first text', () => {
     await send('POST', `/units/${line.id}/save`, { text: '  ' });
     expect(statusOf(line.id)).toBe('미번역');
     await send('POST', `/units/${line.id}/save`, { text: '안녕' });
-    expect(statusOf(line.id)).toBe('초벌');
+    expect(statusOf(line.id)).toBe('번역됨');
     const confirmed = db.select().from(s.statuses).where(and(eq(s.statuses.projectId, mine.projectId), eq(s.statuses.kind, 'final'))).get()!;
     await send('POST', `/units/${line.id}/save`, { text: '안녕하세요', statusId: confirmed.id });
     expect(statusOf(line.id)).toBe('완료');
@@ -211,7 +211,7 @@ describe('one save for a line (text, candidate and status together)', () => {
     const after = read(db, unitId);
     expect(after.line.translation).toBe('적어 둬.');
     expect(after.candidates).toEqual([{ id: after.line.candidateId, text: '적어 둬.' }]);
-    expect(after.status).toBe('초벌');
+    expect(after.status).toBe('번역됨');
   });
 
   it('a rapid double save of the same text is one candidate; a late save from the old text cannot empty the line', async () => {
@@ -228,7 +228,7 @@ describe('one save for a line (text, candidate and status together)', () => {
     const after = read(db, unitId);
     expect(after.line.translation).toBe('적어 둬.');
     expect(after.candidates).toHaveLength(1);
-    expect(after.status).toBe('초벌');
+    expect(after.status).toBe('번역됨');
   });
 
   it('picking a candidate or retyping a candidate\'s text selects it; text never goes through the line patch', async () => {

@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray, isNotNull, ne, sql } from 'drizzle-orm';
-import { autoBudgets, batchConfigSchema, type BudgetCap, type RatioSource, INPUT_TYPES, workflowInput, readinessUses, CONNECTION_KIND_INFO, estimateTokens, limitsWithSource, isFreeModel, isUnknownListener, needsListener, nodeName, termMatcher, type AiNode, type WorkflowDefinition } from '@tw/shared';
+import { autoBudgets, batchConfigSchema, INPUT_TYPES, workflowInput, readinessUses, CONNECTION_KIND_INFO, estimateTokens, limitsWithSource, isFreeModel, isUnknownListener, needsListener, runNodeName, termMatcher, type AiNode, type WorkflowDefinition } from '@tw/shared';
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -10,6 +10,7 @@ import { resolveChoiceOptions } from './choice-options.ts';
 import { excludedInScope, planRun, sceneLinks, selectRunTerms, selectRunUnits } from '../engine/run-create.ts';
 import { loadTerms, TERM_GROUP, termPrompt } from '../engine/subjects.ts';
 import { autoBudgetsOf, withBudgets } from './budgets.ts';
+import { expandedDefinition } from '../engine/expand-calls.ts';
 import { buildContext } from './context.ts';
 import { choiceLabel } from './routes.ts';
 import { speechRuleIndex } from './speech.ts';
@@ -61,10 +62,6 @@ export interface NodeSplit {
   mode: string;
   linesTokens: number | null;
   budgetBy: 'node' | 'auto';
-  /** The answer length per line-text token auto sizing assumed: measured from this node's past requests, or the default for its output kind. */
-  ratio: RatioSource;
-  /** What lowered the auto line budget below its limits-based size, if anything: the largest request that worked (×1.5) or the smallest that was cut off (×0.8). null for a number set on the node. */
-  cap: BudgetCap | null;
   input: { tokens: number | null; by: 'human' | 'api' | null };
   output: { tokens: number | null; by: 'human' | 'api' | 'assumed' | null };
   connectionName: string;
@@ -76,7 +73,7 @@ function splitOf(node: AiNode, own: AiNode | undefined, requests: number, connec
   const batch = batchConfigSchema.parse(node.config.batch ?? {});
   const set = own ? batchConfigSchema.parse(own.config.batch ?? {}).maxTokens !== null : false;
   const { input, output } = limitsWithSource(connection, node.config.model.model);
-  return { nodeId: node.id, requests, mode: batch.mode, linesTokens: batch.mode === 'group' || batch.mode === 'whole' ? batch.maxTokens : null, budgetBy: set ? 'node' : 'auto', ratio: auto.ratio, cap: set ? null : auto.cap, input, output, connectionName: connection?.name ?? '', model: node.config.model.model };
+  return { nodeId: node.id, requests, mode: batch.mode, linesTokens: batch.mode === 'group' || batch.mode === 'whole' ? batch.maxTokens : null, budgetBy: set ? 'node' : 'auto', input, output, connectionName: connection?.name ?? '', model: node.config.model.model };
 }
 
 /**
@@ -84,8 +81,10 @@ function splitOf(node: AiNode, own: AiNode | undefined, requests: number, connec
  * requests per AI node, token estimates and the risks worth seeing before spending a subscription.
  * The plan is the same one createRun stores (planRun), so the numbers describe the real run.
  */
-export async function preflight(db: Db, workflow: Pick<typeof s.workflows.$inferSelect, 'projectId' | 'definition'> & { id: string | null }, scope: s.RunScope) {
-  const autos = autoBudgetsOf(db, workflow.id, workflow.definition);
+export async function preflight(db: Db, requested: Pick<typeof s.workflows.$inferSelect, 'projectId' | 'definition'> & { id: string | null }, scope: s.RunScope) {
+  // Called workflows are counted as the run will run them: their AI nodes are listed too (throws like a run start when a call cannot be expanded).
+  const workflow = { ...requested, definition: expandedDefinition(db, requested.projectId, requested.definition, requested.id) };
+  const autos = autoBudgetsOf(db, workflow.definition);
   const definition: WorkflowDefinition = withBudgets(workflow.definition, autos);
   const projectId = workflow.projectId;
   if (workflowInput(definition) === 'terms') return termPreflight(db, workflow, definition, autos, scope);
@@ -127,7 +126,7 @@ export async function preflight(db: Db, workflow: Pick<typeof s.workflows.$infer
     const max = requests.length * (all ? 1 : definition.settings.maxVisitsPerNode);
     return {
       nodeId: node.id,
-      name: nodeName(node),
+      name: runNodeName(definition, node),
       model: label(node.config.model),
       choice: node.config.model,
       sharedWith: node.config.extraModels.flatMap((choice) => label(choice) ?? []),
@@ -153,7 +152,6 @@ export async function preflight(db: Db, workflow: Pick<typeof s.workflows.$infer
     max: sum((e) => e.requests.max * perRequest(e))!,
   };
 
-  const unmeasured = estimates.some((estimate) => estimate.connection && estimate.overheadTokens === null);
   const readiness = { ...readinessOf(db, projectId, units, speechRuleIndex(db, projectId)), applies: readinessUses(definition) };
   const pace = paceOf(db, estimates);
 
@@ -169,15 +167,7 @@ export async function preflight(db: Db, workflow: Pick<typeof s.workflows.$infer
     },
     nodes: estimates,
     totals: { calls, inputTokens },
-    /**
-     * Caps to start with: the expectation (or the maximum) plus room for re-requests. No input cap
-     * while a connection's fixed overhead is unmeasured: the estimate would leave it out and the run
-     * would stop early. One run measures it.
-     */
-    suggestedLimits: {
-      maxCalls: Math.ceil((calls.expected ?? calls.max) * 1.3) || undefined,
-      maxInputTokens: unmeasured ? undefined : Math.ceil((inputTokens.expected ?? inputTokens.max) * 1.3) || undefined,
-    },
+    suggestedLimits: suggestLimits(definition, estimates, calls, inputTokens),
   };
 }
 
@@ -186,6 +176,41 @@ export async function preflight(db: Db, workflow: Pick<typeof s.workflows.$infer
  * fixed counts, no scenes), with each AI node's requests and a sampled prompt size. Line readiness
  * (listeners, speech rules) does not apply.
  */
+/**
+ * Room the caps keep for a 재요청 node behind an AI node's error exit, at its worst: every request
+ * fails each time, so round k resends all `full` requests' lines in requests scale^k as large
+ * (full / scale^k calls). Each round carries the lines once more plus every smaller request's fixed
+ * overhead. Nothing without such a node.
+ */
+function retryHeadroom(definition: WorkflowDefinition, estimate: NodeEstimate, perRequest: number) {
+  const target = definition.edges.find((edge) => edge.source === estimate.nodeId && edge.sourceHandle === 'error')?.target;
+  const retry = definition.nodes.find((node) => node.id === target);
+  if (retry?.type !== 'retry') return { calls: 0, inputTokens: 0 };
+  let calls = 0;
+  let inputTokens = 0;
+  for (let round = 1; round <= retry.config.maxTimes; round += 1) {
+    const requests = Math.ceil(estimate.full / retry.config.scale ** round);
+    calls += requests;
+    inputTokens += estimate.full * estimate.promptTokens + requests * (perRequest - estimate.promptTokens);
+  }
+  return { calls, inputTokens };
+}
+
+/**
+ * Caps to start with: the expectation (or the maximum) plus room for re-requests, and the worst a
+ * 재요청 node can add (retryHeadroom). No input cap while a connection's fixed overhead is unmeasured:
+ * the estimate would leave it out and the run would stop early. One run measures it.
+ */
+function suggestLimits(definition: WorkflowDefinition, estimates: NodeEstimate[], calls: { expected: number | null; max: number }, inputTokens: { expected: number | null; max: number }) {
+  const perRequest = (estimate: NodeEstimate) => estimate.promptTokens + (estimate.overheadTokens ?? 0);
+  const retries = estimates.map((estimate) => retryHeadroom(definition, estimate, perRequest(estimate)));
+  const unmeasured = estimates.some((estimate) => estimate.connection && estimate.overheadTokens === null);
+  return {
+    maxCalls: Math.ceil((calls.expected ?? calls.max) * 1.3 + retries.reduce((sum, retry) => sum + retry.calls, 0)) || undefined,
+    maxInputTokens: unmeasured ? undefined : Math.ceil((inputTokens.expected ?? inputTokens.max) * 1.3 + retries.reduce((sum, retry) => sum + retry.inputTokens, 0)) || undefined,
+  };
+}
+
 /** A terms run's batching (as the runner does it, within the input's batch modes). */
 function termBatch(node: AiNode) {
   const config = batchConfigSchema.parse(node.config.batch ?? {});
@@ -214,7 +239,7 @@ async function termPreflight(db: Db, workflow: { id: string | null; projectId: s
       const prompt = sample.length ? termPrompt(db, projectId, sample.map((row) => ({ subjectId: row.id, data: { path: [], outputs: {} } }) as never), node) : null;
       return {
         nodeId: node.id,
-        name: nodeName(node),
+        name: runNodeName(definition, node),
         model: connection && node.config.model.model ? choiceLabel(connection.name, node.config.model) : null,
         choice: node.config.model,
         sharedWith: [],
@@ -242,7 +267,7 @@ async function termPreflight(db: Db, workflow: { id: string | null; projectId: s
     plan: { batches: 0, linesPerBatch: null, list: listBatches(db, []) },
     nodes: estimates,
     totals: { calls, inputTokens },
-    suggestedLimits: { maxCalls: Math.ceil((calls.expected ?? calls.max) * 1.3) || undefined, maxInputTokens: estimates.some((e) => e.connection && e.overheadTokens === null) ? undefined : Math.ceil((inputTokens.expected ?? inputTokens.max) * 1.3) || undefined },
+    suggestedLimits: suggestLimits(definition, estimates, calls, inputTokens),
   };
 }
 

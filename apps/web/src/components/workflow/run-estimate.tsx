@@ -1,6 +1,7 @@
 import type { InferResponseType } from 'hono/client';
 import { Link } from '@tanstack/react-router';
-import { Button, SectionHeading } from '@loca/ui';
+import { Button, InspectorField, NumberInput, SectionHeading } from '@loca/ui';
+import type { CapEdits, Caps } from '@/lib/run-limits';
 import { splitBasis, splitTitle } from '@/lib/split-text';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
 import type { client } from '@/lib/api';
@@ -84,5 +85,20 @@ export function RunModels({ nodes, picked, onPick, onReset, changedNote = '이�
         );
       })}
     </section>
+  );
+}
+
+/** The caps a run pauses at, filled with the suggestion; emptying a field removes that cap. */
+export function RunCaps({ suggested, edits, onChange }: { suggested: Caps | undefined; edits: CapEdits; onChange: (edits: CapEdits) => void }) {
+  const shown = (key: keyof Caps) => (edits[key] === undefined ? suggested?.[key] : edits[key]);
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      <InspectorField label="호출 상한" description="비우면 상한 없이 실행합니다." help="이만큼 쓰면 실행을 멈춥니다. 재요청 노드가 있으면 그 여유분이 들어 있습니다.">
+        <NumberInput optional min={1} value={shown('maxCalls')} onValueChange={(next) => onChange({ ...edits, maxCalls: next ?? null })} />
+      </InspectorField>
+      <InspectorField label="입력 상한" description="비우면 상한 없이 실행합니다." help="실행 전체가 AI에 보내는 입력 토큰(캐시 포함)이 이만큼 되기 전에 멈춥니다.">
+        <NumberInput optional min={1} value={shown('maxInputTokens')} onValueChange={(next) => onChange({ ...edits, maxInputTokens: next ?? null })} />
+      </InspectorField>
+    </div>
   );
 }

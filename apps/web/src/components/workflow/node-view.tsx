@@ -1,6 +1,6 @@
 import { memo, useEffect } from 'react';
 import { Handle, Position, useUpdateNodeInternals, type Node, type NodeProps } from '@xyflow/react';
-import { BookPlus, Braces, CircleDot, Code, Combine, Flag, GitFork, Globe, ListChecks, MessageCircleQuestion, NotebookPen, ScanSearch, Sparkles, SpellCheck, Tag, UserCheck } from 'lucide-react';
+import { BookPlus, Braces, CircleDot, Code, Combine, Flag, GitFork, Globe, ListChecks, MessageCircleQuestion, NotebookPen, RotateCcw, ScanSearch, Workflow, Sparkles, SpellCheck, Tag, UserCheck } from 'lucide-react';
 import { functionGroup, nodeName, nodePorts, type WorkflowNode } from '@tw/shared';
 import { NodeCard, type CanvasDirection } from '@loca/ui';
 
@@ -25,6 +25,8 @@ export function nodeIcon(node: WorkflowNode): Icon {
     case 'function': return FUNCTION_ICON[node.config.fn] ?? Code;
     case 'condition': return GitFork;
     case 'gather': return Combine;
+    case 'retry': return RotateCcw;
+    case 'call': return Workflow;
     case 'end': return Flag;
   }
 }
@@ -38,6 +40,7 @@ const handleClass = (port: string) => {
 };
 const portHelp: Record<string, string> = {
   error: '오류: 모델이나 함수 실행 중 문제가 생겼을 때',
+  retry: '다시 보냄: 실패한 대사를 더 작게 나눠 AI 노드로 되돌릴 때',
   fail: '실패: 검수 기준을 통과하지 못했을 때',
   false: '거짓: 조건식이 거짓일 때',
   rejected: '거절: 검토 결과 거절되었을 때',
@@ -84,7 +87,7 @@ export const WorkflowNodeView = memo(function WorkflowNodeView({ id, data, selec
         : { top: `${((index + 0.5) / (ports.length || 1)) * 100}%` }}
     />,
   }));
-  const kind = node.type === 'function' ? functionGroup(node.config.fn) : node.type;
+  const kind = node.type === 'function' ? (node.config.fn === 'setStatus' ? 'status' : functionGroup(node.config.fn)) : node.type;
   const detail = node.type === 'function' && node.config.fn === 'setStatus'
     ? `→ ${status?.name ?? '상태 그대로'}`
     : summary;

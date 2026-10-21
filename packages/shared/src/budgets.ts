@@ -33,53 +33,10 @@ const RESERVE = 3_000;
 const roundDown = (value: number) => Math.max(0, Math.floor(value / 500) * 500);
 
 /**
- * How much of the model's output limit an answer may be expected to fill when nothing has been
- * measured, by what the node returns: a translation's length varies most, a verdict or choice the
- * least. Replaces the node's own history once there is some (HISTORY_MARGIN).
+ * How much of the model's output limit an answer may be expected to fill, by what the node returns:
+ * a translation's length varies most, a verdict or choice the least.
  */
 const OUTPUT_MARGIN = { text: 0.75, json: 0.8, verdict: 0.9, choice: 0.9 } as const;
-/** With a measured ratio the percentile already carries the safety, so only this is kept back. */
-const HISTORY_MARGIN = 0.95;
-/** Past requests needed before their answer ratio replaces the default ratio. */
-export const MIN_HISTORY_SAMPLES = 3;
-/** Which of the measured answer ratios is used: the 90th percentile, so most requests fit. */
-const RATIO_PERCENTILE = 0.9;
-/** An auto request may grow to this multiple of the largest one that succeeded. */
-const GROWTH = 1.5;
-/** An auto request stays below this fraction of the smallest one that was cut off. */
-const CUT_OFF_SHARE = 0.8;
-/** The smallest budget a history cap leaves. */
-const CAP_FLOOR = 500;
-
-/**
- * What a node's own past requests say (same workflow, AI node and model), sizes in line-text tokens
- * as a request counts them (lineCostIn):
- * - `ratios`: per request, answer tokens / line-text tokens, from requests that were answered (a
- *   partly answered one counting only the lines it answered);
- * - `largestOk`: the largest request answered in full; `smallestCutOff`: the smallest whose answer was cut off.
- */
-export interface BudgetHistory {
-  ratios: number[];
-  largestOk: number | null;
-  smallestCutOff: number | null;
-}
-
-/** Which number of `autoBudgets` came from where: the node's history, or the defaults by output kind. */
-export interface RatioSource {
-  /** Answer tokens per line-text token that sizing assumed. */
-  value: number;
-  by: 'history' | 'default';
-  /** Past requests it was measured from (0 for the default). */
-  samples: number;
-}
-/** The history cap that lowered an auto budget: 'grown' (1.5 × the largest request that worked) or 'cut-off' (0.8 × the smallest that was cut off). */
-export interface BudgetCap {
-  by: 'grown' | 'cut-off';
-  tokens: number;
-}
-
-/** Nearest-rank percentile of numbers (any order). */
-const percentile = (values: number[], share: number) => [...values].sort((a, b) => a - b)[Math.max(0, Math.ceil(values.length * share) - 1)]!;
 
 /**
  * "Auto" budgets of an AI node from its model's limits: the context gets a tenth of the window
@@ -87,29 +44,20 @@ const percentile = (values: number[], share: number) => [...values].sort((a, b) 
  * never more than the model's output limit can carry (UNKNOWN_MAX_OUTPUT when only the window is known).
  * Unknown limits give DEFAULT_BUDGETS.
  *
- * The expected output is `ratio` answer tokens per line-text token, kept to `margin` of the output
- * limit. Without `history` (or with fewer than MIN_HISTORY_SAMPLES answered requests) the ratio is
- * OUTPUT_RATIO and the margin OUTPUT_MARGIN, both by output kind. With it the ratio is the 90th
- * percentile of what past requests needed and the margin HISTORY_MARGIN. Then the line budget may not
- * exceed 1.5 × the largest request that succeeded, nor 0.8 × the smallest one that was cut off
- * (never below CAP_FLOOR); `cap` says which lowered it. Meant for budgets left to "auto"; a number
- * set on the node is not passed through here.
+ * The expected output is OUTPUT_RATIO answer tokens per line-text token, kept to OUTPUT_MARGIN of
+ * the output limit, both by output kind. The same limits, output kind and mode always give the same
+ * sizes. Meant for budgets left to "auto"; a number set on the node is not passed through here.
  */
 export function autoBudgets(
   limits: Pick<ModelLimits, 'contextWindow' | 'maxOutput'> | undefined,
   output: keyof typeof OUTPUT_RATIO,
   mode: 'unit' | 'group' | 'count' | 'whole',
-  history?: BudgetHistory,
-): { lines: number; context: number; ratio: RatioSource; cap: BudgetCap | null } {
-  const measured = history && history.ratios.length >= MIN_HISTORY_SAMPLES;
-  const ratio: RatioSource = measured ? { value: percentile(history.ratios, RATIO_PERCENTILE), by: 'history', samples: history.ratios.length } : { value: OUTPUT_RATIO[output], by: 'default', samples: 0 };
-  const margin = measured ? HISTORY_MARGIN : OUTPUT_MARGIN[output];
-  const fallback = { lines: mode === 'whole' ? DEFAULT_BUDGETS.whole : DEFAULT_BUDGETS.lines, context: DEFAULT_BUDGETS.context };
-  let lines: number = fallback.lines;
-  let context: number = fallback.context;
+): { lines: number; context: number } {
+  const per = OUTPUT_RATIO[output];
+  const margin = OUTPUT_MARGIN[output];
+  let lines: number = mode === 'whole' ? DEFAULT_BUDGETS.whole : DEFAULT_BUDGETS.lines;
+  let context: number = DEFAULT_BUDGETS.context;
   if (limits?.contextWindow || limits?.maxOutput) {
-    // A ratio of nearly nothing would divide to infinity; the window still bounds the request.
-    const per = Math.max(ratio.value, 0.01);
     const window = limits.contextWindow ?? Infinity;
     context = Number.isFinite(window) ? Math.min(60_000, Math.max(4_000, roundDown(window * 0.1))) : DEFAULT_BUDGETS.context;
     const fromWindow = Number.isFinite(window) ? (window - context - RESERVE) / (1 + per) : Infinity;
@@ -118,11 +66,7 @@ export function autoBudgets(
     const sized = Math.max(1_000, roundDown(Math.min(fromWindow, fromOutput)));
     if (Number.isFinite(sized)) lines = sized;
   }
-  const caps: BudgetCap[] = [];
-  if (history?.largestOk) caps.push({ by: 'grown', tokens: Math.max(CAP_FLOOR, roundDown(history.largestOk * GROWTH)) });
-  if (history?.smallestCutOff) caps.push({ by: 'cut-off', tokens: Math.max(CAP_FLOOR, roundDown(history.smallestCutOff * CUT_OFF_SHARE)) });
-  const cap = caps.sort((a, b) => a.tokens - b.tokens).find((candidate) => candidate.tokens < lines) ?? null;
-  return { lines: cap ? cap.tokens : lines, context, ratio, cap };
+  return { lines, context };
 }
 
 /**

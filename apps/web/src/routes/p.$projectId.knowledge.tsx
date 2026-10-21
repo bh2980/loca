@@ -236,7 +236,7 @@ function Knowledge() {
       ],
       fields: [
         { name: 'fromName', label: '화자', description: '인물 이름이나 별칭', type: 'text' },
-        { name: 'toName', label: '청자', description: '여럿: group · 불특정 다수: public · 혼잣말: self · 그 밖의 사람: others', type: 'text' },
+        { name: 'toName', label: '청자', description: '여럿: group · 불특정 다수: public · 혼잣말: self · 그 밖의 인물: others', type: 'text' },
         { name: 'level', label: '말투', type: 'level' },
         { name: 'address', label: '호칭', type: 'chips', suggestions: (rules.data ?? []).flatMap((rule) => splitList(rule.address)) },
         { name: 'startKey', label: '시작 대사', type: 'key' },

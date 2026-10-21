@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { get } from 'es-toolkit/compat';
-import { AGE_BANDS, APPLY_FUNCTION_NAMES, APPLY_TARGETS, applyParams, DOCUMENT_KINDS, previousStepId, tagScope, aiStatus, TERM_KIND_LABELS, TERM_KINDS, UNKNOWN_LISTENER, type ApplyField, type ApplyFunctionName, type ApplyParams } from '@tw/shared';
+import { AGE_BANDS, APPLY_FUNCTION_NAMES, APPLY_TARGETS, applyParams, DOCUMENT_KINDS, ISSUE_KIND_IDS, ISSUE_KINDS, issueKindOf, previousStepId, tagLinesParams, tagScope, type IssueKind, aiStatus, TERM_KIND_LABELS, TERM_KINDS, UNKNOWN_LISTENER, type ApplyField, type ApplyFunctionName, type ApplyParams } from '@tw/shared';
 import type { Db } from '../../db/index.ts';
 import * as s from '../../db/schema.ts';
 import type { Topic } from '../../events.ts';
@@ -8,6 +8,7 @@ import { aiSaveCharacters, aiSaveDocument, aiSaveEvents, aiSaveRelationships, ai
 import { addCandidate } from '../../services/candidates.ts';
 import { aiAutoConfirmOf } from '../../services/status-by.ts';
 import { setKnowledgeTag } from '../../services/knowledge-tags.ts';
+import { applyIssueTags } from '../../services/issue-tags.ts';
 import { attachUnitTags } from '../../services/tag-scope.ts';
 import { applyRunCandidate, HUMAN_OWNED_NOTE } from '../apply-candidate.ts';
 import { lineOf, type FunctionInput, type FunctionResult } from './types.ts';
@@ -152,6 +153,7 @@ export const APPLY_TOPICS: Record<ApplyFunctionName, Topic[]> = {
 };
 
 function run(fn: ApplyFunctionName, tx: Tx, raw: unknown, input: FunctionInput): FunctionResult {
+  if (fn === 'tagLines') return runTags(tx, raw, input);
   const params = applyParams.parse(raw);
   const target = APPLY_TARGETS[fn];
   const missing = (target.fields as readonly ApplyField[]).filter((field) => field.required && !params.map[field.name]);
@@ -176,16 +178,15 @@ function run(fn: ApplyFunctionName, tx: Tx, raw: unknown, input: FunctionInput):
   const nodeId = input.item.nodeId;
   const base = { projectId: input.projectId, runId: input.runId, nodeId };
 
-  if (input.subject === 'terms' && (fn === 'saveCandidate' || fn === 'tagLines')) return runTerm(fn, context, items[0]);
-  if (fn === 'saveCandidate' || fn === 'setListener' || fn === 'tagLines') return runLine(fn, context, items[0], base);
+  if (input.subject === 'terms' && fn === 'saveCandidate') return runTerm(context, items[0]);
+  if (fn === 'saveCandidate' || fn === 'setListener') return runLine(fn, context, items[0], base);
 
   return { port: 'out', output: { applied: true, items: items.length, ...(skipped ? { skipped } : {}), ...HANDLERS[fn].write(items, context) } };
 }
 
 /** The line targets: one line per visit. */
-function runLine(fn: 'saveCandidate' | 'setListener' | 'tagLines', context: Context, item: Item, base: { projectId: string; runId: string; nodeId: string }): FunctionResult {
-  const { tx, input, params, run: runRow } = context;
-  const target = APPLY_TARGETS[fn];
+function runLine(fn: 'saveCandidate' | 'setListener', context: Context, item: Item, base: { projectId: string; runId: string; nodeId: string }): FunctionResult {
+  const { tx, input, run: runRow } = context;
   const unit = lineOf(input);
   if (fn === 'saveCandidate') {
     const text = item.text as string;
@@ -194,38 +195,62 @@ function runLine(fn: 'saveCandidate' | 'setListener' | 'tagLines', context: Cont
     const { applied } = applyRunCandidate(tx, runRow, unit.id, candidateId, text);
     return { port: 'out', candidate: text, output: { applied, candidateId }, ...(!applied ? { issues: [HUMAN_OWNED_NOTE] } : {}) };
   }
-  if (fn === 'setListener') {
-    // "unknown" (or nothing) is the AI saying it cannot tell: the line stays 청자 미상.
-    const listener = typeof item.listener === 'string' ? item.listener.trim() : '';
-    if (!listener || listener === UNKNOWN_LISTENER) return { port: 'out', output: { recorded: false, reason: '청자 미상' } };
-    const entry = { key: unit.key, listener, confidence: (item.confidence as number | undefined) ?? 1 };
-    const result = aiSetLineListeners(tx, input.projectId, [entry]);
-    return { port: 'out', output: { recorded: result.set === 1, listener: entry.listener, confidence: entry.confidence, ...(result.skipped[0] ? { reason: result.skipped[0].reason } : {}) } };
-  }
-  // tagLines: the line tag named like the value; a name that is no line tag does nothing, tags are never created here.
-  const name = item.tag as string;
-  const tag = tx.select({ id: s.tags.id, name: s.tags.name, role: s.tags.role, scope: s.tags.scope }).from(s.tags).where(eq(s.tags.projectId, input.projectId)).all().find((candidate) => lower(candidate.name) === lower(name) && tagScope(candidate).includes('lines'));
-  if (!tag) return { port: 'out', output: { tagged: false, reason: '같은 이름의 대사 태그가 없습니다.' } };
-  attachUnitTags(tx, input.projectId, [unit.id], { add: [tag.id] }, { onMisplaced: 'skip' });
-  return { port: 'out', output: { tagged: true, tag: tag.name } };
+  // setListener: "unknown" (or nothing) is the AI saying it cannot tell: the line stays 청자 미상.
+  const listener = typeof item.listener === 'string' ? item.listener.trim() : '';
+  if (!listener || listener === UNKNOWN_LISTENER) return { port: 'out', output: { recorded: false, reason: '청자 미상' } };
+  const entry = { key: unit.key, listener, confidence: (item.confidence as number | undefined) ?? 1 };
+  const result = aiSetLineListeners(tx, input.projectId, [entry]);
+  return { port: 'out', output: { recorded: result.set === 1, listener: entry.listener, confidence: entry.confidence, ...(result.skipped[0] ? { reason: result.skipped[0].reason } : {}) } };
 }
 
 /**
- * 번역 저장 and 태그 붙이기 on a term: its Korean form and note (a form a person saved is kept), or
- * the term tag named like the value.
+ * 태그 붙이기 / 떼기, the only node that adds or removes tags in a workflow (checks and reviews only
+ * judge). The tags: the ones picked in the pane, 문제 유형 picked or all of them, and the previous
+ * step's result field `map.tag` (tag names, or problem-type ids/names such as a review's `categories`).
+ * A problem type is created in the project the first time it is put on; any other name must match an
+ * existing tag that can go on this kind of item. Terms take term tags only.
  */
-function runTerm(fn: 'saveCandidate' | 'tagLines', context: Context, item: Item): FunctionResult {
+function runTags(tx: Tx, raw: unknown, input: FunctionInput): FunctionResult {
+  const params = tagLinesParams.parse(raw);
+  const add = params.action === 'add';
+  const scope = input.subject === 'lines' ? 'lines' : 'terms';
+  const fixed = params.tagIds.length > 0 || params.kinds.length > 0 || params.allKinds;
+  const names: string[] = [];
+  if (params.map.tag) {
+    const run = tx.select({ definition: s.runs.definition }).from(s.runs).where(eq(s.runs.id, input.runId)).get();
+    const from = run && previousStepId(run.definition, input.item.data.path);
+    const output = from ? input.item.data.outputs?.[from] : undefined;
+    if (!output && !fixed) return { port: 'out', output: { tagged: false, reason: '앞 단계의 결과가 이 항목에 없습니다.' } };
+    if (output) names.push(...(coerce({ name: 'tag', label: '', type: 'strings' }, get(output, params.map.tag)) as string[]));
+  } else if (!fixed) throw new Error(`'태그 붙이기' 노드에 ${add ? '붙일' : '뗄'} 태그가 없습니다.`);
+
+  const tags = tx.select({ id: s.tags.id, name: s.tags.name, role: s.tags.role, scope: s.tags.scope }).from(s.tags).where(eq(s.tags.projectId, input.projectId)).all().filter((tag) => tagScope(tag).includes(scope));
+  const kinds = new Set<IssueKind>(input.subject === 'lines' ? [...params.kinds, ...(params.allKinds ? ISSUE_KIND_IDS : [])] : []);
+  const tagIds = new Set(params.tagIds.filter((id) => tags.some((tag) => tag.id === id)));
+  const unmatched: string[] = [];
+  for (const name of names) {
+    const kind = input.subject === 'lines' ? issueKindOf(name) : undefined;
+    const tag = tags.find((candidate) => lower(candidate.name) === lower(name));
+    if (kind) kinds.add(kind);
+    else if (tag) tagIds.add(tag.id);
+    else unmatched.push(name);
+  }
+  const named = [...[...kinds].map((kind) => ISSUE_KINDS[kind].name), ...tags.filter((tag) => tagIds.has(tag.id)).map((tag) => tag.name)];
+  if (!named.length) return { port: 'out', output: { tagged: false, action: params.action, reason: unmatched.length ? `같은 이름의 ${scope === 'lines' ? '대사' : '용어'} 태그가 없습니다.` : `${add ? '붙일' : '뗄'} 태그가 없습니다.` } };
+
+  if (input.subject === 'lines') {
+    if (kinds.size) applyIssueTags(tx, input.projectId, input.unit.id, add ? { add: [...kinds] } : { clear: [...kinds] });
+    if (tagIds.size) attachUnitTags(tx, input.projectId, [input.unit.id], add ? { add: [...tagIds] } : { remove: [...tagIds] }, { onMisplaced: 'skip' });
+  } else for (const id of tagIds) setKnowledgeTag(tx, input.projectId, 'terms', [input.term.id], id, add);
+  return { port: 'out', output: { tagged: true, action: params.action, tags: named } };
+}
+
+/** 번역 저장 on a term: its Korean form and note (a form a person saved is kept). */
+function runTerm(context: Context, item: Item): FunctionResult {
   const { tx, input } = context;
   if (input.subject !== 'terms') throw new Error('용어 워크플로가 아닙니다.');
   const current = tx.select().from(s.terms).where(eq(s.terms.id, input.term.id)).get();
   if (!current) return { port: 'out', output: { applied: false, reason: '용어가 없습니다.' } };
-  if (fn === 'tagLines') {
-    const name = item.tag as string;
-    const tag = tx.select({ id: s.tags.id, name: s.tags.name, role: s.tags.role, scope: s.tags.scope }).from(s.tags).where(eq(s.tags.projectId, input.projectId)).all().find((candidate) => lower(candidate.name) === lower(name) && tagScope(candidate).includes('terms'));
-    if (!tag) return { port: 'out', output: { tagged: false, reason: '같은 이름의 용어 태그가 없습니다.' } };
-    setKnowledgeTag(tx, input.projectId, 'terms', [current.id], tag.id, true);
-    return { port: 'out', output: { tagged: true, tag: tag.name } };
-  }
   const target = typeof item.text === 'string' ? item.text.trim() : '';
   if (!target) return { port: 'out', output: { applied: false, reason: '번역이 비어 있습니다.' } };
   if (current.statusBy === 'human' && current.target.trim() && current.target !== target) return { port: 'out', candidate: target, output: { applied: false }, issues: [HUMAN_OWNED_NOTE] };

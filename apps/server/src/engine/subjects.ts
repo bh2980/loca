@@ -21,6 +21,9 @@ const EXAMPLE_TOKENS = 40;
 /** Term items have no scene: they share one group, so batch rules that keep scenes whole do not apply. */
 export const TERM_GROUP = 'terms';
 
+/** The size factor a 재요청 node left on a queued item (1 for one never sent back), as a column of the waiting rows. */
+export const RETRY_FACTOR = sql<number>`coalesce(json_extract(${s.runItems.data}, '$.retry.factor'), 1)`;
+
 /** Queued term items at slow nodes, most used first (then by source), with a position to batch by. */
 export function waitingTerms(db: Db, runId: string, slowIds: string[]) {
   return db
@@ -34,6 +37,7 @@ export function waitingTerms(db: Db, runId: string, slowIds: string[]) {
       tokens: sql<number>`(length(cast(${s.terms.source} as blob)) + 3) / 4 + ${EXAMPLE_TOKENS}`,
       since: s.runItems.updatedAt,
       plan: s.runItems.plan,
+      factor: RETRY_FACTOR,
     })
     .from(s.runItems)
     .innerJoin(s.terms, eq(s.terms.id, s.runItems.subjectId))

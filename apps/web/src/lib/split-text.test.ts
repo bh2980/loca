@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { splitBasis, splitTitle } from './split-text';
 
-const base = { requests: 4, mode: 'group', linesTokens: 12_000, budgetBy: 'auto' as const, ratio: { value: 2.5, by: 'default' as const, samples: 0 }, cap: null, input: { tokens: null, by: null }, output: { tokens: null, by: null }, connectionName: '코덱스' };
+const base = { requests: 4, mode: 'group', linesTokens: 12_000, budgetBy: 'auto' as const, input: { tokens: null, by: null }, output: { tokens: null, by: null }, connectionName: '코덱스' };
 
 describe('splitTitle', () => {
   it('names the node, the packing and the request count', () => {
@@ -14,11 +14,7 @@ describe('splitTitle', () => {
 
 describe('splitBasis', () => {
   it('gives the node its own number first', () => {
-    expect(splitBasis({ ...base, budgetBy: 'node', cap: { by: 'cut-off', tokens: 1 } })).toBe('노드에서 정한 크기입니다.');
-  });
-  it('says a past cut-off shrank the requests, before a growth cap', () => {
-    expect(splitBasis({ ...base, cap: { by: 'cut-off', tokens: 8_000 } })).toBe('지난 실행에서 답이 잘려 더 작게 나눕니다.');
-    expect(splitBasis({ ...base, cap: { by: 'grown', tokens: 8_000 } })).toBe('지난 실행 결과를 보고 조금씩 늘리는 중입니다.');
+    expect(splitBasis({ ...base, budgetBy: 'node' })).toBe('노드에서 정한 크기입니다.');
   });
   it('points to the connection when no limit is known', () => {
     expect(splitBasis(base)).toBe('연결에 입력·출력 토큰이 없어 기본 크기로 나눕니다.');

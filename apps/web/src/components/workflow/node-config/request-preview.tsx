@@ -111,20 +111,6 @@ export function useRequestPreview(workflowId: string | undefined, nodeId: string
   });
 }
 
-/**
- * The line text per request "auto" picks for a saved AI node as it is being edited (its model, output
- * and batch mode), from the model's limits and the node's past requests. Disabled until a model is
- * chosen on a saved workflow; the query follows runs, which is where the past requests change.
- */
-export function useAutoLines(workflowId: string | undefined, nodeId: string, model: { connectionId: string; model: string }, output: AiOutput, mode: BatchConfig['mode']) {
-  return useQuery({
-    queryKey: ['runs', 'auto-lines', workflowId, nodeId, model.connectionId, model.model, output, mode],
-    queryFn: () => unwrap(client.workflows[':id'].nodes[':nodeId']['auto-lines'].$get({ param: { id: workflowId!, nodeId }, query: { connectionId: model.connectionId, model: model.model, output, mode } })),
-    enabled: Boolean(workflowId && model.connectionId && model.model),
-    placeholderData: keepPreviousData,
-  });
-}
-
 /** Which item the preview is built for: lines searched by source, translation or key on the server, terms from the glossary. */
 function SamplePicker({ projectId, subject, value, label, onPick }: { projectId: string; subject: 'lines' | 'terms'; value?: string; label?: string; onPick: (value: string) => void }) {
   const [query, setQuery] = useState('');

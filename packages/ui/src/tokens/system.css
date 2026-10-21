@@ -36,6 +36,8 @@
   --color-node-header-check: var(--node-header-check);
   --color-node-header-flow: var(--node-header-flow);
   --color-node-header-status: var(--node-header-status);
+  --color-node-header-state: var(--node-header-state);
+  --color-state: var(--hue-12);
   --color-node-header-neutral: var(--node-header-neutral);
   --color-background: var(--background);
   --color-foreground: var(--foreground);

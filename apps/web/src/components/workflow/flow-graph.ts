@@ -1,6 +1,6 @@
 /** What the editor and a run's graph share: a node's one-line summary and the edges as React Flow draws them. */
 import { MarkerType } from '@xyflow/react';
-import { APPLY_TARGETS, FUNCTIONS, WORKFLOW_SUBJECTS, nodeModels, nodeName, nodePorts, previousSteps, type FunctionName, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+import { APPLY_TARGETS, FUNCTIONS, ISSUE_KINDS, TAG_ACTIONS, tagLinesParams, WORKFLOW_SUBJECTS, nodeModels, nodeName, nodePorts, previousSteps, callSummary, retrySummary, type FunctionName, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
 import type { FlowEdge } from '@/components/workflow/workflow-edge';
 
 export interface SummaryNames {
@@ -8,6 +8,8 @@ export interface SummaryNames {
   connection: Map<string, string>;
   /** Connections are known: a missing one reads as deleted rather than not loaded yet. */
   connectionsLoaded: boolean;
+  /** The project's workflows, for a call card's summary (without them a call reads as not picked yet). */
+  workflows?: { id: string; name: string }[];
 }
 
 /** "← 앞 단계" for a node that takes the previous step's result (apply nodes, a gather). */
@@ -31,6 +33,13 @@ export function nodeSummary(node: WorkflowNode, definition: WorkflowDefinition, 
         return [params.statusId && `→ ${names.status.get(params.statusId as string) ?? '삭제된 상태'}`].filter(Boolean).join(' · ') || '변경 없음';
       if (node.config.fn === 'http') return `${(params.method as string) ?? 'POST'} ${names.connection.get(params.connectionId as string) ?? '연결 없음'}/${(params.path as string) ?? ''}`;
       if (node.config.fn === 'script') return `출구: ${((params.ports as string[]) ?? ['out']).join(', ')}`;
+      if (node.config.fn === 'tagLines') {
+        // "붙이기 · 검수 지적 종류", "떼기 · 형식": the action, then where the tags come from.
+        const tags = tagLinesParams.parse(params);
+        const named = tags.map.tag && (tags.map.tag === 'categories' ? '검수 지적 종류' : tags.map.tag === 'kind' ? '검사 종류' : `결과의 ${tags.map.tag}`);
+        const picked = [...tags.kinds.map((kind) => ISSUE_KINDS[kind].name), ...(tags.tagIds.length ? [`태그 ${tags.tagIds.length}개`] : [])];
+        return [TAG_ACTIONS[tags.action], ...(tags.allKinds ? ['모든 문제 유형'] : picked), named].filter(Boolean).join(' · ');
+      }
       if (node.config.fn in APPLY_TARGETS) return stepsLabel(definition, node.id);
       if (node.config.fn === 'formatCheck') {
         const checks = [
@@ -51,6 +60,10 @@ export function nodeSummary(node: WorkflowNode, definition: WorkflowDefinition, 
       return node.config.description || '조건식';
     case 'gather':
       return stepsLabel(definition, node.id);
+    case 'retry':
+      return retrySummary(node.config);
+    case 'call':
+      return callSummary(node.config, names.workflows);
     default:
       return '';
   }

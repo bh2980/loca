@@ -12,21 +12,36 @@ describe('reading an AI answer line by line (#49)', () => {
     expect(out[1]).toBeNull();
   });
 
-  it('verdict: passing clears every kind; failing without a category is 기타 (other)', () => {
+  it('verdict: only judges (no tag change); failing without a category is 기타 (other)', () => {
     const out = readAiOutput(node({ output: 'verdict' }), { results: [{ id: '1', passed: true, issues: [] }, { id: '2', passed: false, issues: ['x'] }] }, lines, 'm');
-    expect(out[0]).toMatchObject({ port: 'pass', issues: undefined, issueTags: { clear: 'all' } });
-    expect(out[1]).toMatchObject({ port: 'fail', issues: ['x'], output: { categories: ['other'] }, issueTags: { add: ['other'] } });
+    expect(out[0]).toMatchObject({ port: 'pass', issues: undefined });
+    expect(out[1]).toMatchObject({ port: 'fail', issues: ['x'], output: { categories: ['other'] } });
+    expect(out.every((entry) => entry && !('issueTags' in entry))).toBe(true);
   });
 
-  it('choice: value, clamped confidence and reason; an answer outside the options is none; a missing line is left out', () => {
+  it('choice: value, clamped confidence and reason; none stays none; a missing line is left out', () => {
     const ai = node({ output: 'choice', choice: { source: 'custom', values: ['Bob', 'group'], allowNone: true } });
-    const out = readAiOutput(ai, { results: [{ id: '1', value: ' Bob ', confidence: 3, reason: ' why ' }, { id: '2', value: 'Zed', confidence: 'x' }] }, lines, 'm');
+    const out = readAiOutput(ai, { results: [{ id: '1', value: ' Bob ', confidence: 3, reason: ' why ' }, { id: '2', value: null, confidence: 'x' }] }, lines, 'm');
     expect(out.map((entry) => entry?.output)).toEqual([{ value: 'Bob', confidence: 1, reason: 'why' }, { value: null, confidence: 0 }]);
     expect(out[0]).toMatchObject({ port: 'out' });
     expect(readAiOutput(ai, { results: [{ id: '2', value: null, confidence: 0.2 }] }, lines, 'm')).toEqual([null, { port: 'out', output: { value: null, confidence: 0.2 } }]);
-    // The resolved options (a project list) decide, not the node's typed ones.
+  });
+
+  it('choice from the cast: a name outside the options becomes others, the AI\'s words kept in the reason', () => {
     const listed = node({ output: 'choice', choice: { source: 'characters', values: [], allowNone: true } });
-    expect(readAiOutput(listed, { results: [{ id: '1', value: 'Mira', confidence: 0.9 }, { id: '2', value: 'Zed', confidence: 0.9 }] }, lines, 'm', ['Mira']).map((entry) => (entry?.output as { value: string | null }).value)).toEqual(['Mira', null]);
+    const out = readAiOutput(listed, { results: [{ id: '1', value: 'Mira', confidence: 0.9 }, { id: '2', value: 'SWAT', confidence: 0.8, reason: '경찰 진입' }] }, lines, 'm', ['Mira', 'others']);
+    expect(out[0]).toEqual({ port: 'out', output: { value: 'Mira', confidence: 0.9 } });
+    expect(out[1]).toEqual({ port: 'out', output: { value: 'others', confidence: 0.8, reason: 'AI가 적은 청자: SWAT · 경찰 진입' } });
+    expect(readAiOutput(listed, { results: [{ id: '1', value: 'SWAT', confidence: 0.8 }] }, lines, 'm', ['Mira'])[0]).toMatchObject({ output: { value: 'others', reason: 'AI가 적은 청자: SWAT' } });
+    // An explicit none stays none.
+    expect(readAiOutput(listed, { results: [{ id: '1', value: null, confidence: 0.1 }] }, lines, 'm', ['Mira'])[0]).toEqual({ port: 'out', output: { value: null, confidence: 0.1 } });
+  });
+
+  it('choice from any other source: an answer outside the options leaves through error (invalid-output)', () => {
+    for (const source of ['custom', 'lineTags', 'statuses']) {
+      const ai = node({ output: 'choice', choice: { source, values: ['a'], allowNone: true } });
+      expect(readAiOutput(ai, { results: [{ id: '1', value: 'Zed', confidence: 0.9 }] }, lines, 'm', ['a'])[0]).toEqual({ port: 'error', error: '선택지에 없는 답: Zed', errorKind: 'invalid-output' });
+    }
   });
 
   it('json line scope: the fields without the id; a line not answered is left out', () => {

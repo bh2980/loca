@@ -220,7 +220,7 @@ function StatusSettings() {
           : row.original.tag?.role === REVIEW_TAG.role
             ? '분석이 확인이 필요하다고 본 자료. 사람이 정하거나 고치면 떨어짐'
             : row.original.tag?.role
-              ? '검사·검수가 찾은 문제 유형. 고치면 떨어짐'
+              ? '워크플로가 붙이는 문제 유형. 번역을 고치면 떨어짐'
               : '',
     },
     { id: 'units', header: '붙은 수', meta: { width: 88, align: 'end' }, cell: ({ row }) => (row.original.tag ? (row.original.tag.units + (row.original.tag.items ?? 0)).toLocaleString() : <span className="text-muted-foreground">–</span>) },

@@ -11,6 +11,17 @@ export interface BatchLine {
   speaker?: string | null;
 }
 
+/**
+ * `config` with its request budget scaled by `factor` (lines sent back by a 재요청 node): "count" its
+ * line count, "group" and "whole" their tokens; "unit" stays one line. Never below one line (a request
+ * always takes at least one) nor a factor above 1.
+ */
+export function scaleBatch(config: BatchConfig, factor: number): BatchConfig {
+  if (factor >= 1 || config.mode === 'unit') return config;
+  if (config.mode === 'count') return { ...config, size: Math.max(1, Math.floor(config.size * factor)) };
+  return { ...config, maxTokens: Math.max(1, Math.floor(batchTokens(config) * factor)) };
+}
+
 /** Consecutive lines of one kind (dialogue, document, UI); lines without a known kind stay with their neighbours. */
 function byKind<T extends { kind?: string }>(lines: T[]): T[][] {
   const runs: T[][] = [];
@@ -111,7 +122,7 @@ export function packGroups<T extends { tokens: number; kind?: string }>(planned:
     current = [];
     tokens = 0;
   };
-  // A small remnant (lines an answer left out, a review's few failures) may ride with a neighbour
+  // A small remnant (lines a 재요청 node sends again, a review's few failures) may ride with a neighbour
   // a little past the limits rather than cost a request of its own.
   const small = (count: number, cost: number) => (config.mode === 'count' ? count * 4 <= limitLines : cost * 4 <= limitTokens);
   for (const group of groups) {
@@ -137,7 +148,7 @@ export function packGroups<T extends { tokens: number; kind?: string }>(planned:
 /**
  * "whole": the script in as few requests as `maxTokens` allows, whatever the line
  * count or kind. Groups (scenes, or plan batches) are never cut unless one alone is larger than a
- * request; a model that refuses a request as too long gets it again in halves (the runner).
+ * request; a request refused as too long leaves its lines through the error exit (kind `too-long`), where a 재요청 node can send them again.
  */
 function wholeScript<T extends { tokens: number }>(groups: T[][], maxTokens: number): T[][] {
   // Sent as compact script text: a line costs its text plus its id and speaker, not the per-line JSON.

@@ -4,20 +4,24 @@ import { chatTitle } from './agent.ts';
 import { checkFormat, compileFormatRules, matchTokens } from './format-check.ts';
 import { importFileSchema, importWarnings, summarizeImport } from './import-format.ts';
 import { politenessOf, speechLevelOf, styleInstruction, styleNames } from './knowledge.ts';
-import { ANALYSIS_WORKFLOW, analysisTemplate, defaultWorkflows, draftTranslationTemplate, eventExtractionTemplate, listenerTemplate, MODEL_TEMPLATES, peopleRelationsTemplate, speechFixTemplate, termExtractionTemplate, translationTemplate } from './defaults.ts';
+import { ANALYSIS_WORKFLOW, analysisTemplate, defaultWorkflows, eventExtractionTemplate, listenerTemplate, peopleRelationsTemplate, termExtractionTemplate, translationTemplate, WORKFLOW_TEMPLATES } from './defaults.ts';
 import { APPLY_TARGETS } from './functions.ts';
 import { AI_PRESETS, AI_PROMPTS, presetConfig } from './presets.ts';
 import { APPLY_PALETTE_ORDER, fieldsFromSample, FUNCTION_NAMES, functionGroup } from './functions.ts';
-import { applyIssues, nodeOutputFields, nodePorts, pickPaths, previousStepId, previousSteps, readinessUses, validateWorkflow, workflowDefinitionSchema, workflowNodeSchema, type WorkflowDefinition, type WorkflowNode } from './workflow.ts';
+import { applyIssues, nodeOutputFields, nodePorts, pickPaths, previousStepId, previousSteps, readinessUses, retrySummary, validateWorkflow, workflowDefinitionSchema, workflowNodeSchema, type WorkflowDefinition, type WorkflowNode } from './workflow.ts';
 
 const model = { connectionId: 'c', model: 'm' };
-const ids = { model, untranslated: 's0', draft: 's1', needsReview: 's2', confirmed: 's3' };
-const refs = { connections: new Map([['c', 'openai']]), statusIds: new Set(['s0', 's1', 's2', 's3']), tagIds: new Set<string>(), toolConnectionIds: new Set<string>() };
+const ids = { model, untranslated: 's0', translated: 's1', needsReview: 's2', confirmed: 's3' };
+const refs = { workflows: [], connections: new Map([['c', 'openai']]), statusIds: new Set(['s0', 's1', 's2', 's3']), tagIds: new Set<string>(), toolConnectionIds: new Set<string>() };
 
 describe('workflow validation', () => {
-  it('accepts the draft translation template', () => {
-    const template = workflowDefinitionSchema.parse(draftTranslationTemplate({ model, untranslated: ids.untranslated, draft: ids.draft }));
-    expect(validateWorkflow(template, refs).filter((issue) => issue.level === 'error')).toEqual([]);
+  it('every registry template validates without issues when all ids are given', () => {
+    expect(WORKFLOW_TEMPLATES.map((template) => template.key)).toEqual(['translation', 'listener', 'people', 'events', 'terms', 'termTranslate']);
+    for (const template of WORKFLOW_TEMPLATES) {
+      const definition = workflowDefinitionSchema.parse(template.build({ ...ids, aiFailedTag: 't0' }));
+      expect(validateWorkflow(definition, refs), template.key).toEqual([]);
+    }
+    expect(defaultWorkflows(ids).map((row) => row.name)).toEqual(['번역', '청자 추정', '인물·관계 추출', '사건 추출']);
   });
 
   it('accepts the default template', () => {
@@ -25,9 +29,23 @@ describe('workflow validation', () => {
     expect(validateWorkflow(template, refs).filter((issue) => issue.level === 'error')).toEqual([]);
   });
 
+  it('wires the checks\' exits through 태그 붙이기 / 떼기 nodes: fail adds its kinds, pass removes only those', () => {
+    const template = workflowDefinitionSchema.parse(translationTemplate(ids));
+    const tag = (id: string) => (template.nodes.find((node) => node.id === id) as unknown as { config: { fn: string; params: { action: string; map: Record<string, string>; allKinds: boolean } } }).config;
+    expect(tag('tag-format').params).toMatchObject({ action: 'add', map: { tag: 'kind' } });
+    expect(tag('untag-format').params).toMatchObject({ action: 'remove', map: { tag: 'kind' }, allKinds: false });
+    expect(tag('tag-review').params).toMatchObject({ action: 'add', map: { tag: 'categories' } });
+    expect(tag('untag-review').params).toMatchObject({ action: 'remove', allKinds: true });
+    const exit = (source: string, handle: string) => template.edges.find((edge) => edge.source === source && edge.sourceHandle === handle)?.target;
+    expect([exit('check', 'fail'), exit('check', 'pass'), exit('review', 'fail'), exit('review', 'pass')]).toEqual(['tag-format', 'untag-format', 'tag-review', 'untag-review']);
+    // A node that picks nothing to tag is told so.
+    const empty = { ...template, nodes: template.nodes.map((node) => (node.id === 'tag-format' ? { ...node, config: { ...node.config, params: { action: 'add' } } } : node)) } as WorkflowDefinition;
+    expect(validateWorkflow(empty, refs)).toContainEqual(expect.objectContaining({ level: 'error', nodeId: 'tag-format', message: expect.stringContaining('태그를 고르') }));
+  });
+
   it('reports a deleted connection and an unconnected exit on the node', () => {
     const template = workflowDefinitionSchema.parse(translationTemplate(ids));
-    const broken: WorkflowDefinition = { ...template, edges: template.edges.filter((edge) => edge.id !== 'check-pass-review') };
+    const broken: WorkflowDefinition = { ...template, edges: template.edges.filter((edge) => edge.id !== 'check-pass-untag-format') };
     const issues = validateWorkflow(broken, { ...refs, connections: new Map() });
     expect(issues).toContainEqual(expect.objectContaining({ level: 'error', nodeId: 'translate' }));
     expect(issues).toContainEqual(expect.objectContaining({ level: 'error', nodeId: 'check', message: expect.stringContaining('통과') }));
@@ -36,18 +54,18 @@ describe('workflow validation', () => {
   it('lets an exit send lines down several branches that end apart, with one changing the line', () => {
     const template = workflowDefinitionSchema.parse(translationTemplate(ids));
     const node = (id: string, config: Record<string, unknown>, type = 'function') => workflowNodeSchema.parse({ id, type, position: { x: 0, y: 0 }, config });
-    const side = [node('terms', { output: 'json', scope: 'batch', fields: [{ name: 'terms', type: 'list', fields: [{ name: 'source', type: 'string' }] }], model }, 'ai'), node('add', { fn: 'saveTerms', params: { list: 'terms', map: { source: 'source' } } })];
+    const side = [node('side-terms', { output: 'json', scope: 'batch', fields: [{ name: 'terms', type: 'list', fields: [{ name: 'source', type: 'string' }] }], model }, 'ai'), node('side-add', { fn: 'saveTerms', params: { list: 'terms', map: { source: 'source' } } })];
     const sideEdges = [
-      { id: 's1', source: 'review', sourceHandle: 'pass', target: 'terms' },
-      { id: 's2', source: 'terms', sourceHandle: 'out', target: 'add' },
+      { id: 's1', source: 'review', sourceHandle: 'pass', target: 'side-terms' },
+      { id: 's2', source: 'side-terms', sourceHandle: 'out', target: 'side-add' },
     ];
     const ok: WorkflowDefinition = { ...template, nodes: [...template.nodes, ...side], edges: [...template.edges, ...sideEdges] };
     expect(validateWorkflow(ok, refs).filter((issue) => issue.level === 'error')).toEqual([]);
     // Meeting at a node that does work: the line would be handled twice.
-    const rejoined: WorkflowDefinition = { ...ok, edges: [...ok.edges, { id: 's3', source: 'add', sourceHandle: 'out', target: 'confirm' }] };
+    const rejoined: WorkflowDefinition = { ...ok, edges: [...ok.edges, { id: 's3', source: 'side-add', sourceHandle: 'out', target: 'confirm' }] };
     expect(validateWorkflow(rejoined, refs)).toContainEqual(expect.objectContaining({ level: 'error', nodeId: 'review', message: expect.stringContaining('다시 만납니다') }));
     // Both branches setting the status.
-    const twice: WorkflowDefinition = { ...ok, nodes: ok.nodes.map((n) => (n.id === 'add' ? node('add', { fn: 'setStatus', params: { statusId: 's1' } }) : n)) };
+    const twice: WorkflowDefinition = { ...ok, nodes: ok.nodes.map((n) => (n.id === 'side-add' ? node('side-add', { fn: 'setStatus', params: { statusId: 's1' } }) : n)) };
     expect(validateWorkflow(twice, refs)).toContainEqual(expect.objectContaining({ level: 'error', message: expect.stringContaining('상태를 바꿉니다') }));
   });
 
@@ -77,6 +95,12 @@ describe('workflow validation', () => {
     });
     expect(validateWorkflow(definition, refs)).toContainEqual(expect.objectContaining({ level: 'warning', message: expect.stringContaining('순환') }));
   });
+
+  it('does not warn about the loop through a 재요청 node, which leaves after its count', () => {
+    const definition = workflowDefinitionSchema.parse(translationTemplate(ids));
+    expect(definition.nodes.some((node) => node.type === 'retry')).toBe(true);
+    expect(validateWorkflow(definition, refs)).not.toContainEqual(expect.objectContaining({ message: expect.stringContaining('순환') }));
+  });
 });
 
 describe('node exits', () => {
@@ -85,6 +109,14 @@ describe('node exits', () => {
     expect(nodePorts(verdict).map((port) => port.id)).toEqual(['pass', 'fail', 'error']);
     const script = workflowNodeSchema.parse({ id: 's', type: 'function', position: { x: 0, y: 0 }, config: { fn: 'script', params: { ports: ['keep', 'retry'] } } });
     expect(nodePorts(script).map((port) => port.id)).toEqual(['keep', 'retry', 'error']);
+  });
+
+  it('gives function nodes their own 동시 처리 수 and drops the old workflow-wide one', () => {
+    const node = workflowNodeSchema.parse({ id: 'h', type: 'function', position: { x: 0, y: 0 }, config: { fn: 'http' } });
+    expect(node.type === 'function' && node.config.concurrency).toBe(2);
+    expect(workflowNodeSchema.safeParse({ ...node, config: { ...node.config, concurrency: 9 } }).success).toBe(false);
+    const definition = workflowDefinitionSchema.parse({ nodes: [], edges: [], settings: { maxVisitsPerNode: 4, concurrency: 8, maxConsecutiveFailures: 7 } });
+    expect(definition.settings).toEqual({ maxVisitsPerNode: 4, maxConsecutiveFailures: 7 });
   });
 
   it('flags an http node without a connection and an unknown function', () => {
@@ -197,27 +229,25 @@ describe('templates', () => {
   const kinds = (definition: WorkflowDefinition) => definition.nodes.map((node) => (node.type === 'function' ? node.config.fn : node.type));
   const errors = (definition: WorkflowDefinition) => validateWorkflow(workflowDefinitionSchema.parse(definition), refs).filter((issue) => issue.level === 'error');
 
-  it('term extraction template is entry → AI → save terms, written directly', () => {
+  it('term extraction template is entry → AI (→ 재요청) → save terms, written directly', () => {
     const definition = workflowDefinitionSchema.parse(termExtractionTemplate({ model }));
     expect(errors(definition)).toEqual([]);
-    expect(kinds(definition)).toEqual(['entry', 'ai', 'saveTerms']);
-    expect(definition.nodes[2]).toMatchObject({ config: { params: { list: 'terms', map: { source: 'source', target: 'target', kind: 'kind', meaning: 'meaning', evidence: 'evidence' } } } });
+    expect(kinds(definition)).toEqual(['entry', 'ai', 'retry', 'saveTerms']);
+    expect(definition.nodes.find((node) => node.id === 'save-terms')).toMatchObject({ config: { params: { list: 'terms', map: { source: 'source', target: 'target', kind: 'kind', meaning: 'meaning', evidence: 'evidence' } } } });
   });
 
   it('every default workflow and template is valid, with every apply node mapped from the step before it', () => {
     const all = [
-      ...defaultWorkflows({ model, untranslated: 's0', draft: 's1' }).map((row) => row.definition),
-      ...Object.values(MODEL_TEMPLATES).map((make) => make({ model })),
-      translationTemplate(ids),
+      ...defaultWorkflows(ids).map((row) => row.definition),
+      ...WORKFLOW_TEMPLATES.map((template) => template.build(ids)),
       peopleRelationsTemplate({ model }),
       eventExtractionTemplate({ model }),
-      speechFixTemplate({ model }),
     ];
     for (const definition of all) {
       expect(errors(definition)).toEqual([]);
       for (const node of definition.nodes) if (node.type === 'function' && node.config.fn in APPLY_TARGETS) expect(applyIssues(definition, node.id, node.config.fn as keyof typeof APPLY_TARGETS, node.config.params as never)).toEqual([]);
     }
-    expect(defaultWorkflows({ model }).map((row) => row.name)).toEqual(['청자 추정', '용어 추출', '용어 번역', '인물·관계 추출', '사건 추출', ANALYSIS_WORKFLOW]);
+    expect(WORKFLOW_TEMPLATES.map((template) => template.name)).toEqual(['번역', '청자 추정', '인물·관계 추출', '사건 추출', '용어 추출', '용어 번역']);
   });
 
   it('maps every field an analysis list produces that its save node accepts', () => {
@@ -232,11 +262,10 @@ describe('templates', () => {
   });
 
   it('writes translations itself in the translation templates and keeps the listener flow explicit', () => {
-    expect(kinds(draftTranslationTemplate({ model, untranslated: 's0', draft: 's1' }))).toEqual(['entry', 'ai', 'saveCandidate', 'setStatus']);
     const saved = translationTemplate(ids).nodes.find((node) => node.id === 'save');
     expect(saved).toMatchObject({ config: { fn: 'saveCandidate', params: { map: { text: 'text' } } } });
     const listener = listenerTemplate({ model });
-    expect(kinds(listener)).toEqual(['entry', 'ai', 'setListener']);
+    expect(kinds(listener)).toEqual(['entry', 'ai', 'retry', 'setListener']);
     expect(listener.nodes.find((node) => node.id === 'set-listener')).toMatchObject({ config: { params: { map: { listener: 'value', confidence: 'confidence' } } } });
   });
 
@@ -327,6 +356,61 @@ describe('run readiness', () => {
   });
 });
 
+describe('재요청 node', () => {
+  const retryNode = (id: string, config: object = {}): WorkflowNode => workflowNodeSchema.parse({ id, type: 'retry', position: { x: 0, y: 0 }, config });
+  const aiNode = (id: string): WorkflowNode => workflowNodeSchema.parse({ id, type: 'ai', position: { x: 0, y: 0 }, config: { model } });
+  const entry: WorkflowNode = { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: { input: 'lines' } };
+  const edge = (source: string, sourceHandle: string, target: string) => ({ id: `${source}-${sourceHandle}-${target}`, source, sourceHandle, target });
+
+  it('fills defaults, keeps its limits and has the exits 다시 보냄 and 오류', () => {
+    const node = retryNode('r');
+    expect(node).toMatchObject({ config: { kinds: ['cut-off'], scale: 0.5, maxTimes: 2 } });
+    expect(nodePorts(node)).toEqual([{ id: 'retry', label: '다시 보냄' }, { id: 'error', label: '오류' }]);
+    expect(workflowNodeSchema.safeParse({ ...node, config: { scale: 0.95 } }).success).toBe(false);
+    expect(workflowNodeSchema.safeParse({ ...node, config: { scale: 0.05 } }).success).toBe(false);
+    expect(workflowNodeSchema.safeParse({ ...node, config: { maxTimes: 6 } }).success).toBe(false);
+    expect(workflowNodeSchema.safeParse({ ...node, config: { kinds: ['nope'] } }).success).toBe(false);
+  });
+
+  it('is summarised in one line', () => {
+    const node = retryNode('r') as Extract<WorkflowNode, { type: 'retry' }>;
+    expect(retrySummary(node.config)).toBe('출력 잘림 · 절반 크기 · 최대 2번');
+    expect(retrySummary({ kinds: ['cut-off', 'too-long'], scale: 0.25, maxTimes: 3 })).toBe('출력 잘림·요청이 너무 김 · 25% 크기 · 최대 3번');
+  });
+
+  it('reports a 다시 보냄 exit that does not lead to an AI node, and accepts one that does', () => {
+    const wrong = workflowDefinitionSchema.parse({
+      nodes: [entry, aiNode('a'), retryNode('r'), { id: 'end', type: 'end', position: { x: 0, y: 0 }, config: {} }],
+      edges: [edge('entry', 'out', 'a'), edge('a', 'out', 'end'), edge('a', 'error', 'r'), edge('r', 'retry', 'end')],
+    });
+    expect(validateWorkflow(wrong, refs).filter((issue) => issue.level === 'error').map((issue) => issue.message)).toContain("'재요청'의 '다시 보냄'은 AI 노드로 이어져야 합니다.");
+    const right = workflowDefinitionSchema.parse({ ...wrong, edges: [edge('entry', 'out', 'a'), edge('a', 'out', 'end'), edge('a', 'error', 'r'), edge('r', 'retry', 'a')] });
+    expect(validateWorkflow(right, refs).filter((issue) => issue.level === 'error').map((issue) => issue.message)).toEqual([]);
+    // Left unconnected, the exit is reported like any other; 오류 may stay open.
+    const open = workflowDefinitionSchema.parse({ ...wrong, edges: [edge('entry', 'out', 'a'), edge('a', 'out', 'end'), edge('a', 'error', 'r')] });
+    expect(validateWorkflow(open, refs).map((issue) => issue.message)).toContain("'다시 보냄' 출구가 연결되지 않았습니다.");
+  });
+
+  it('warns when its limit cannot fit the node visit limit', () => {
+    const definition = workflowDefinitionSchema.parse({
+      nodes: [entry, aiNode('a'), retryNode('r', { maxTimes: 5 })],
+      edges: [edge('entry', 'out', 'a'), edge('a', 'error', 'r'), edge('r', 'retry', 'a')],
+    });
+    expect(validateWorkflow(definition, refs).filter((issue) => issue.level === 'warning' && issue.nodeId === 'r' && issue.message.startsWith('다시 보내기가 최대 5번이면'))).toHaveLength(1);
+  });
+
+  it('follows every AI node of the default workflows: error → 재요청 → the same node', () => {
+    const workflows = [...defaultWorkflows({ ...ids, model }).map((workflow) => workflow.definition), ...WORKFLOW_TEMPLATES.map((template) => template.build(ids))];
+    for (const definition of workflows) {
+      for (const node of definition.nodes.filter((candidate) => candidate.type === 'ai')) {
+        const resend = definition.edges.find((edge) => edge.source === node.id && edge.sourceHandle === 'error')?.target;
+        expect(definition.nodes.find((candidate) => candidate.id === resend)?.type, `${node.id} error → 재요청`).toBe('retry');
+        expect(definition.edges.some((edge) => edge.source === resend && edge.sourceHandle === 'retry' && edge.target === node.id), `${node.id} 다시 보냄`).toBe(true);
+      }
+    }
+  });
+});
+
 describe('analysis workflow and presets', () => {
   it('keeps the default analysis workflow name', () => {
     expect(ANALYSIS_WORKFLOW).toBe('작품 분석');
@@ -334,8 +418,8 @@ describe('analysis workflow and presets', () => {
 
   it('builds the work analysis: one AI node, then every list saved in a chain', () => {
     const definition = workflowDefinitionSchema.parse(analysisTemplate({ model }));
-    expect(definition.nodes.map((node) => (node.type === 'function' ? node.config.fn : node.type))).toEqual(['entry', 'ai', 'saveCharacters', 'saveRelationships', 'saveSpeechRules', 'saveEvents', 'saveTerms', 'saveDocument']);
-    expect(definition.edges.filter((edge) => edge.source === 'analysis').map((edge) => [edge.sourceHandle, edge.target])).toEqual([['out', 'save-characters']]);
+    expect(definition.nodes.map((node) => (node.type === 'function' ? node.config.fn : node.type))).toEqual(['entry', 'ai', 'retry', 'saveCharacters', 'saveRelationships', 'saveSpeechRules', 'saveEvents', 'saveTerms', 'saveDocument']);
+    expect(definition.edges.filter((edge) => edge.source === 'analysis').map((edge) => [edge.sourceHandle, edge.target])).toEqual([['out', 'save-characters'], ['error', 'analysis-resend']]);
     expect(validateWorkflow(definition, { statusIds: new Set(), connections: new Set(['c']) } as never).filter((issue) => issue.level === 'error').map((issue) => issue.message)).toEqual([]);
     expect(definition.nodes.find((node) => node.id === 'save-overview')).toMatchObject({ config: { params: { map: { title: 'overviewTitle', body: 'overview' } } } });
   });
@@ -364,9 +448,9 @@ describe('node outputs', () => {
   it('lets every node that returns something declare it, and the next step read it', () => {
     const at = { x: 0, y: 0 };
     const check = { id: 'check', type: 'function', position: at, config: { fn: 'formatCheck', params: {} } } as WorkflowNode;
-    const http = { id: 'http', type: 'function', position: at, config: { fn: 'http', params: { fields: [{ name: 'suggestion', type: 'string', description: '' }] } } } as WorkflowNode;
+    const http = { id: 'http', type: 'function', position: at, config: { fn: 'http', params: { fields: [{ name: 'suggestion', type: 'string', description: '' }] }, concurrency: 2 } } as WorkflowNode;
     const status = { id: 'status', type: 'function', position: at, config: { fn: 'setStatus', params: {} } } as WorkflowNode;
-    expect(nodeOutputFields(check)?.map((field) => field.name)).toEqual(['text', 'passed', 'issues']);
+    expect(nodeOutputFields(check)?.map((field) => field.name)).toEqual(['text', 'passed', 'issues', 'kind']);
     expect(nodeOutputFields(http)?.map((field) => field.name)).toEqual(['suggestion']);
     expect(nodeOutputFields(status)).toBeNull();
     // translate → check → status: the step before the status change is the check, which returns the text it checked.

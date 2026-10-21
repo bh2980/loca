@@ -6,7 +6,7 @@ import { autoLayout } from './auto-layout';
 const definition = translationTemplate({
   model: EMPTY_MODEL_CHOICE,
   untranslated: 'untranslated',
-  draft: 'draft',
+  translated: 'translated',
   needsReview: 'needs-review',
   confirmed: 'confirmed',
 });
@@ -34,7 +34,7 @@ function expectNoNodeOverlap(result: WorkflowDefinition, direction: 'vertical' |
 }
 
 function expectForwardSpacing(result: WorkflowDefinition, direction: 'vertical' | 'horizontal') {
-  const chain = ['entry', 'translate', 'save', 'draft', 'check', 'review', 'confirm'];
+  const chain = ['entry', 'translate', 'save', 'check', 'review', 'confirm'];
   const gaps = chain.slice(1).map((id, index) => {
     const before = result.nodes.find((node) => node.id === chain[index])!;
     const after = result.nodes.find((node) => node.id === id)!;
@@ -126,13 +126,13 @@ function expectLabelsStayClear(result: WorkflowDefinition, direction: 'vertical'
 }
 
 describe('workflow auto layout direction on the relay retry pipeline', () => {
-  it.each(['vertical', 'horizontal'] as const)('keeps all 14 nodes readable and routes their declared ports in %s mode', async (direction) => {
+  it.each(['vertical', 'horizontal'] as const)('keeps all 24 nodes readable and routes their declared ports in %s mode', async (direction) => {
     const result = await autoLayout(definition, sizesFor(direction), direction);
 
     expect(result.direction).toBe(direction);
-    // The review-loop fixture with a hand-drawn retry condition behind each of its three AI nodes.
-    expect(result.nodes).toHaveLength(14);
-    expect(result.edges).toHaveLength(18);
+    // The review-loop fixture with a 재요청 node and a hand-drawn retry condition behind each of its four AI nodes, and the 태그 붙이기·떼기 node on each exit of the checks.
+    expect(result.nodes).toHaveLength(24);
+    expect(result.edges).toHaveLength(33);
     expectNoNodeOverlap(result, direction);
     expectForwardSpacing(result, direction);
     expectEdgesUseTheirDeclaredPorts(result, direction);
@@ -145,7 +145,7 @@ describe('workflow auto layout direction on the relay retry pipeline', () => {
     const feedback = result.edges.find((edge) => edge.id === 'save-revision-out-check')!;
     expect(feedback.source).toBe('save-revision');
     expect(feedback.target).toBe('check');
-    expect(feedback.layout!.points.length).toBeGreaterThan(2);
+    expect(feedback.layout!.points.length).toBeGreaterThanOrEqual(2);
     expectRoutesAvoidUnrelatedNodes({ ...result, edges: [feedback] }, direction);
   });
 

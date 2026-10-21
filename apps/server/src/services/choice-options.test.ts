@@ -23,8 +23,8 @@ describe('choice options', () => {
     expect(resolveChoiceOptions(db, project.id, { source: 'custom', values: [' a ', 'a', 'b'] })).toEqual(['a', 'b']);
   });
 
-  it('characters: confirmed cast names plus group, public, self', () => {
-    expect(resolveChoiceOptions(db, project.id, { source: 'characters', values: ['ignored'] })).toEqual(['Mira', 'group', 'public', 'self']);
+  it('characters: confirmed cast names plus group, public, self, others', () => {
+    expect(resolveChoiceOptions(db, project.id, { source: 'characters', values: ['ignored'] })).toEqual(['Mira', 'group', 'public', 'self', 'others']);
   });
 
   it('lineTags: tags that can go on lines', () => {

@@ -7,7 +7,6 @@ import { AiButton } from '@/components/ai-button';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
 import { JsonFieldsEditor } from '@/components/workflow/node-config/json-fields-editor';
 import { numberOrNull } from '@/lib/form-values';
-import { useAutoLines } from '@/components/workflow/node-config/request-preview';
 import { Field, CheckItem, CountRow, StepChips, ToggleRow, outputFieldNames, refsInput, type AiNode, type NodeRefs } from '@/components/workflow/node-config/shared';
 
 
@@ -45,9 +44,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
   const setExtra = (index: number, value: ModelValue) => set({ extraModels: extras.map((choice, i) => (i === index ? value : choice)) });
   const connection = refs.connections.find((item) => item.id === config.model.connectionId);
   // What auto would pick for this node's own model, shown while the field is empty.
-  // From the server for a saved workflow (it also reads this node's past requests); the model's limits alone while it is not saved.
-  const learned = useAutoLines(refs.workflowId, node.id, config.model, config.output, config.batch.mode);
-  const autoLines = learned.data?.lines ?? autoBudgets(limitsFor(connection && { inputTokens: connection.inputTokens ?? null, outputTokens: connection.outputTokens ?? null, modelLimits: connection.modelLimits ?? {} }, config.model.model), config.output, config.batch.mode).lines;
+  const autoLines = autoBudgets(limitsFor(connection && { inputTokens: connection.inputTokens ?? null, outputTokens: connection.outputTokens ?? null, modelLimits: connection.modelLimits ?? {} }, config.model.model), config.output, config.batch.mode).lines;
   const takesTemperature = connection ? CONNECTION_KIND_INFO[connection.kind].transport !== 'cli' && connection.kind !== 'systemone' : false;
   const contextOn = [config.include.candidate, context.glossary, context.speech, context.precedingLines > 0, context.previousScenes > 0, context.cast, context.characters, context.relationships, context.documents].filter(Boolean).length;
 
@@ -195,7 +192,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
               </Field>
             )}
           </>
-          <Field label="호출 제한 시간 (분)" help="요청 하나가 이 시간을 넘기면 그 요청의 항목들은 오류(시간 초과) 출구로 나갑니다.">
+          <Field label="한 번 시도 제한 시간 (분)" help="한 번 시도할 때의 제한 시간입니다. 넘기면 연결의 최대 시도 횟수만큼 다시 시도하고, 대체 모델이 있으면 넘어갑니다. 모두 넘기면 오류(시간 초과)로 나갑니다.">
             <NumberInput min={1} max={240} className="w-28" value={config.timeoutMinutes} onValueChange={(timeoutMinutes) => timeoutMinutes !== undefined && set({ timeoutMinutes })} />
           </Field>
         </>

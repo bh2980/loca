@@ -121,6 +121,8 @@ describe('knowledge snapshot cache', () => {
     expect(resolve(line('SWAT'))).toMatchObject({ listener: 'SWAT', rule: { level: 'hae' }, others: true });
     // Not for a group, the public or themself.
     expect(resolve(line('group'))).toBeUndefined();
+    // A line addressed to others (anyone without a profile) uses the speaker's others rule directly.
+    expect(resolve(line('others'))).toMatchObject({ listener: 'others', rule: { level: 'hae' } });
     // An unsure AI guess is not the line's listener; a sure one is.
     expect(resolve(line('SWAT', 'ai', 0.8))).toBeUndefined();
     expect(resolve(line('SWAT', 'ai', 0.95))).toMatchObject({ rule: { level: 'hae' } });

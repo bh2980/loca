@@ -47,7 +47,7 @@ loca call save_relationship @"$W/rel.json"       # {"from":"Alice","to":"Bob","k
 loca call save_speech_rule @"$W/rule.json"       # {"fromName":"Alice","toName":"Bob","level":"haeyo","address":"밥 씨","note":"직장 선배","startKey":null}
 loca check speech --speaker Alice --listener Bob # 규칙과 번역 어미가 다른 곳 (어미로 추정)
 ```
-규칙을 고친 뒤 기존 번역을 맞추려면, 그 쌍의 대사를 말투만 고치는 워크플로(기본 "말투만 고치기")로 다시 돌리도록 제안합니다. 프로젝트에 그런 워크플로가 있는지는 `loca workflows list`로 확인하고, 없으면 `loca-workflows`로 만듭니다.
+규칙을 고친 뒤 기존 번역을 맞추려면, 그 쌍의 대사를 번역 워크플로(기본 "번역")로 다시 돌리도록 제안합니다. 프로젝트의 워크플로는 `loca workflows list`로 확인하고, 필요하면 `loca-workflows`로 만듭니다.
 
 ## 대사의 청자
 청자는 말투를 정하는 열쇠입니다. 화자가 있는 대사 중 청자를 모르는 줄에 #청자 미상(`unknownListener`)이 붙습니다(화자 없는 지문·서식만 있는 줄은 빠짐).
@@ -56,7 +56,7 @@ loca lines --mark unknownListener -g "<장면>"
 ```
 - 사람이 확정한 청자: import 파일 줄에 `{"key":"<키>","rev":<rev>,"listener":"Bob"}`(모르면 `null`).
 - 근거로 추정한 AI의 추측: `loca call set_listeners`로 확신도(0–1)와 함께 제안합니다. 줄마다(`lines`) 주고, 사람이 정했거나 가져오기로 들어온 청자는 바꾸지 않습니다. 이런 줄은 #AI 초안으로 남아 사람이 확인합니다. 형식은 `loca tools set_listeners`.
-- 특별한 청자: 여럿(`group`) · 불특정 다수(`public`) · 혼잣말(`self`) · 그 밖의 사람(`others`).
+- 특별한 청자: 여럿(`group`) · 불특정 다수(`public`) · 혼잣말(`self`) · 그 밖의 인물(`others`).
 
 ## 사건·노트·장면 설명
 ```

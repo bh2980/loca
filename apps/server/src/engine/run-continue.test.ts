@@ -9,6 +9,7 @@ import { continuePreflight, switchedRun } from '../services/run-continue.ts';
 import { memoryStore } from '../services/secrets.ts';
 import { promptEntries } from './prompts.ts';
 import { Runner, type ModelPort } from './runner.ts';
+import { withoutTerms } from './test-workflows.ts';
 import { createRun } from './run-create.ts';
 
 function setup() {
@@ -20,7 +21,7 @@ function setup() {
   const units = Array.from({ length: 4 }, (_, index) => ({ key: `u${index}`, group: 'g', source: `L${index}` }));
   const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups, units }), { connectionId: a.id, model: 'bad' });
   const workflow = db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).get()!;
-  const definition = { ...workflow.definition, nodes: workflow.definition.nodes.map((node) => (node.type === 'ai' ? { ...node, config: { ...node.config, batch: { mode: 'count' as const, size: 1, maxTokens: 6_000 } } } : node)) };
+  const definition = { ...withoutTerms(workflow.definition), nodes: withoutTerms(workflow.definition).nodes.map((node) => (node.type === 'ai' ? { ...node, config: { ...node.config, batch: { mode: 'count' as const, size: 1, maxTokens: 6_000 } } } : node)) };
   db.update(s.workflows).set({ definition }).where(eq(s.workflows.id, workflow.id)).run();
   const runId = createRun(db, { projectId, workflow: { ...workflow, definition }, models: snapshotWorkflowModels(db, definition), scope: {} }).runId;
   const run = () => db.select().from(s.runs).where(eq(s.runs.id, runId)).get()!;

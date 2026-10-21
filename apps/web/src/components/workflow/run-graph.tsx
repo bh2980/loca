@@ -8,7 +8,10 @@ import { Background, Panel, ReactFlow, ReactFlowProvider, useNodesInitialized, u
 import '@xyflow/react/dist/style.css';
 import { useQuery } from '@tanstack/react-query';
 import type { WorkflowDefinition } from '@tw/shared';
-import { CanvasToolbar, type CanvasDirection } from '@loca/ui';
+import { Button, CanvasToolbar, type CanvasDirection } from '@loca/ui';
+import { X } from 'lucide-react';
+import { ITEM_STATE } from '@/lib/labels';
+import { callMembers, callOf, collapseCalls, liveCounts, topCallIds } from '@/components/workflow/run-calls';
 import { WorkflowNodeView, type FlowNode } from '@/components/workflow/node-view';
 import { WorkflowEdgeView } from '@/components/workflow/workflow-edge';
 import { entryStarts, flowEdges, nodeSummary, openPorts, targetStatus } from '@/components/workflow/flow-graph';
@@ -53,19 +56,13 @@ function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; ru
   const { zoom } = useViewport();
   const statuses = useQuery(q.statuses(projectId));
   const connections = useQuery(q.connections());
-  const definition = run.definition;
+  // Each call is one card (its nodes are listed when it is opened); the run's own definition has them expanded.
+  const definition = useMemo(() => collapseCalls(run.definition), [run.definition]);
+  const [openCall, setOpenCall] = useState<string>();
   const direction: CanvasDirection = definition.direction ?? 'vertical';
   const saved = useMemo(() => readViewport(run.id), [run.id]);
 
-  const live = useMemo(() => {
-    const counts = new Map<string, NonNullable<FlowNode['data']['live']>>();
-    const entry = (nodeId: string) => counts.get(nodeId) ?? (counts.set(nodeId, { queued: 0, running: 0, failed: 0 }), counts.get(nodeId)!);
-    for (const row of run.nodes) if (row.state === 'queued' || row.state === 'running' || row.state === 'failed') entry(row.nodeId)[row.state] += row.count;
-    for (const [nodeId, count] of Object.entries(run.passed)) entry(nodeId).passed = count;
-    // Requests in flight against how many the node sends at once (an AI node's 동시 처리 수).
-    for (const [nodeId, limit] of Object.entries(run.callLimits)) Object.assign(entry(nodeId), { calls: run.calls[nodeId] ?? 0, limit });
-    return counts;
-  }, [run.nodes, run.passed, run.calls, run.callLimits]);
+  const live = useMemo(() => liveCounts(run.definition, run), [run]);
 
   // Nodes are rebuilt on every refresh; the sizes React Flow measured go back on them (as in the editor),
   // or a rebuilt node is unmeasured again and the view cannot fit it.
@@ -84,14 +81,14 @@ function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; ru
         type: 'workflow',
         position: node.position,
         measured: sizes[node.id],
-        selected: node.id === selected,
+        selected: node.id === selected || callOf(run.definition, selected ?? '') === node.id,
         draggable: false,
         connectable: false,
         deletable: false,
         data: {
           node,
           direction,
-          summary: nodeSummary(node, definition, names),
+          summary: node.type === 'call' ? `노드 ${run.definition.nodes.filter((inner) => inner.id.startsWith(`${node.id}/`)).length}개` : nodeSummary(node, definition, names),
           errors: [],
           warnings: [],
           live: live.get(node.id),
@@ -100,7 +97,7 @@ function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; ru
           status: targetStatus(node, statuses.data?.statuses),
         },
       }));
-  }, [definition, direction, live, selected, sizes, statuses.data, connections.data]);
+  }, [definition, run.definition, direction, live, selected, sizes, statuses.data, connections.data]);
   const edges = useMemo(() => flowEdges(definition), [definition]);
 
   // A remembered view comes back as it was; the first look fits the whole graph once every node is measured.
@@ -124,7 +121,7 @@ function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; ru
       nodesConnectable={false}
       edgesFocusable={false}
       minZoom={0.05}
-      onNodeClick={(_event, node) => onOpenNode(node.id)}
+      onNodeClick={(_event, node) => (topCallIds(run.definition).includes(node.id) ? setOpenCall((open) => (open === node.id ? undefined : node.id)) : onOpenNode(node.id))}
       onMoveEnd={(_event, viewport) => {
         try {
           sessionStorage.setItem(viewportKey(run.id), JSON.stringify(viewport));
@@ -135,6 +132,27 @@ function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; ru
       proOptions={{ hideAttribution: true }}
     >
       <Background gap={20} size={1} />
+      {openCall && (
+        <Panel position="top-left" className="max-h-[70%] w-80 overflow-auto rounded-md border bg-card p-3 text-sm shadow-sm">
+          <div className="mb-2 flex items-center gap-2">
+            <span className="min-w-0 flex-1 truncate font-medium" title={run.definition.calls?.[openCall]?.name}>{run.definition.calls?.[openCall]?.name} · 안의 노드</span>
+            <Button variant="ghost" size="sm" aria-label="닫기" onClick={() => setOpenCall(undefined)}><X /></Button>
+          </div>
+          <ul className="space-y-1">
+            {callMembers(run.definition, openCall, run.nodes).map((member) => (
+              <li key={member.node.id} className={member.depth ? 'pl-4' : undefined}>
+                <Button variant="ghost" size="sm" className="h-auto w-full justify-between gap-2 py-1 font-normal" title="이 노드의 대사 보기" onClick={() => onOpenNode(member.node.id)}>
+                  <span className="min-w-0 truncate text-left">{member.name}</span>
+                  <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                    {(Object.keys(ITEM_STATE) as (keyof typeof ITEM_STATE)[]).filter((state) => member.counts[state]).map((state) => `${ITEM_STATE[state]} ${member.counts[state]!.toLocaleString()}`).join(' · ') || '대사 없음'}
+                  </span>
+                </Button>
+              </li>
+            ))}
+          </ul>
+          <Button variant="outline" size="sm" className="mt-2 w-full" onClick={() => onOpenNode(openCall)}>이 호출의 대사 전체 보기</Button>
+        </Panel>
+      )}
       <Panel position="bottom-right">
         <CanvasToolbar zoomPercent={zoom * 100} onZoomIn={() => void flow.zoomIn()} onZoomOut={() => void flow.zoomOut()} onFit={() => void flow.fitView({ ...FIT, duration: 200 })} onResetZoom={() => void flow.zoomTo(1, { duration: 180 })} />
       </Panel>

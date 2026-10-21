@@ -11,7 +11,7 @@ const json = <T>(name: string) => text(name, { mode: 'json' }).$type<T>();
 /**
  * A workflow definition, read with the schema's defaults filled in (a setting added later, such as an
  * AI node's 동시 처리 수, reads as its default in a definition saved before it). One the schema no
- * longer accepts (an old built-in, see workflow-migrations) is read as stored.
+ * longer accepts is read as stored.
  */
 const definitionJson = customType<{ data: WorkflowDefinition; driverData: string }>({
   dataType: () => 'text',
@@ -583,6 +583,8 @@ export interface RunLimits {
   maxCalls?: number;
   /** All input tokens, cached included, as the connections reported them. */
   maxInputTokens?: number;
+  /** Set while the run is paused by a cap, naming it; cleared on resume. */
+  hit?: 'calls' | 'input';
 }
 
 export type ItemState = 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
@@ -600,6 +602,8 @@ export interface ItemData {
   path: { nodeId: string; port: string; at: number }[];
   /** Times the line went back to a node's queue because a call failed transiently (rate limit, network), by node id. */
   retries?: Record<string, number>;
+  /** Sent back by 재요청 nodes: how often at each (by node id), and the size factor the AI node batches it by (the nodes' scales multiplied). */
+  retry?: { times: Record<string, number>; factor: number };
   /** The last failure that sent the line out through an "error" exit; cleared when a node handles it (ConditionData.error). */
   error?: { kind: ItemErrorKind; message: string; nodeId: string };
 }

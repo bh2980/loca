@@ -3,7 +3,7 @@ import { AlertCircle, AlertTriangle } from "lucide-react"
 import { cn } from "../lib/utils"
 import type { CanvasDirection } from "./canvas-direction-control"
 
-export type NodeCardKind = "entry" | "ai" | "apply" | "function" | "condition" | "gather" | "end"
+export type NodeCardKind = "entry" | "ai" | "apply" | "status" | "function" | "condition" | "gather" | "retry" | "call" | "end"
 
 export interface NodeCardPort {
   id: string
@@ -38,11 +38,15 @@ export interface NodeCardProps {
 export const NODE_CARD_KIND_APPEARANCE: Record<NodeCardKind, { label: string; icon: string; header: string; dot: string; capsule?: boolean }> = {
   entry: { label: "진입", icon: "text-muted-foreground", header: "bg-node-header-neutral text-muted-foreground", dot: "bg-muted-foreground", capsule: true },
   ai: { label: "AI", icon: "text-ai", header: "bg-node-header-ai text-ai", dot: "bg-ai" },
-  // One colour per editor group: AI (보라), 반영 (파랑), 함수 (초록), 흐름 (노랑: 조건, 모으기).
+  // One colour per editor group: AI (보라), 반영 (파랑), 함수 (초록), 흐름 (노랑: 조건, 모으기, 재요청);
+  // 상태 변경 stands out from the other 반영 nodes in the status hue (분홍), since it moves lines between statuses.
   apply: { label: "반영", icon: "text-primary", header: "bg-node-header-check text-primary", dot: "bg-primary" },
+  status: { label: "상태 변경", icon: "text-state", header: "bg-node-header-state text-state", dot: "bg-state" },
   function: { label: "함수", icon: "text-success", header: "bg-node-header-status text-success", dot: "bg-success" },
   condition: { label: "조건", icon: "text-review-ink", header: "bg-node-header-flow text-review-ink", dot: "bg-review" },
   gather: { label: "모으기", icon: "text-review-ink", header: "bg-node-header-flow text-review-ink", dot: "bg-review" },
+  retry: { label: "재요청", icon: "text-review-ink", header: "bg-node-header-flow text-review-ink", dot: "bg-review" },
+  call: { label: "워크플로 호출", icon: "text-review-ink", header: "bg-node-header-flow text-review-ink", dot: "bg-review" },
   end: { label: "종료", icon: "text-muted-foreground", header: "", dot: "bg-muted-foreground", capsule: true },
 }
 
