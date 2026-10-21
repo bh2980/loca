@@ -35,14 +35,14 @@ function setup(lines: number, batch: Partial<BatchConfig>, { resend = true, fail
     confirmed: statuses.find((status) => status.kind === 'final')!.id,
   }));
   const nodes = template.nodes
-    .filter((node) => resend || node.type !== 'retry')
+    .filter((node) => resend || (node.type !== 'retry' && !node.id.endsWith('-failed')))
     .map((node) => (node.type === 'ai' && node.id === 'translate' ? { ...node, config: { ...node.config, concurrency: 1, batch: { mode: 'group' as const, size: 60, maxTokens: null, ...batch } } } : node));
   const ids = new Set(nodes.map((node) => node.id));
   const edges = template.edges.filter((edge) => ids.has(edge.source) && ids.has(edge.target));
   const definition = { ...template, nodes, edges, settings: { ...template.settings, maxConsecutiveFailures: failures } };
   const workflow = db.insert(s.workflows).values({ projectId, name: '번역', description: '', definition }).returning().get();
   const runId = createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: {} }).runId;
-  return { db, runId };
+  return { db, runId, projectId, reviewStatusId: review.id };
 }
 
 /** Answers every request; `fail(n, sources)` makes the nth translate request throw what it returns. Records each translate request's lines. */
@@ -68,8 +68,8 @@ const runOf = (db: ReturnType<typeof setup>['db'], runId: string) => db.select()
 const itemsOf = (db: ReturnType<typeof setup>['db'], runId: string) => db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all();
 
 describe('재요청 node', () => {
-  it('sends cut-off lines back at 0.5, then 0.25 of the request size, then out through 오류 with the original failure', async () => {
-    const { db, runId } = setup(8, { mode: 'count', size: 8 });
+  it('sends cut-off lines back at 0.5, then 0.25 of the request size, then out through 오류 to 검토 필요 with the original failure kept on the item', async () => {
+    const { db, runId, projectId, reviewStatusId } = setup(8, { mode: 'count', size: 8 });
     const fake = model(() => CUT_OFF());
     await new Runner(db, memoryStore(), fake.port).drain();
     // 8 lines, then 2 × 4 (× 0.5), then 4 × 2 (× 0.25), then nothing: two retries used up.
@@ -77,24 +77,25 @@ describe('재요청 node', () => {
     const items = itemsOf(db, runId);
     expect(items).toHaveLength(8);
     for (const item of items) {
-      expect(item.state).toBe('failed');
-      expect(item.data.error).toMatchObject({ kind: 'cut-off', nodeId: 'translate' });
+      // The 재요청's 오류 exit is wired to 검토 필요로: the line is handed to a person, not failed.
+      expect(item.state).toBe('done');
       expect(item.data.retry).toEqual({ times: { 'translate-resend': 2 }, factor: 0.25 });
-      expect(item.error).toContain('cut off');
     }
+    const units = db.select().from(s.units).where(eq(s.units.projectId, projectId)).all();
+    expect(units.every((unit) => unit.statusId === reviewStatusId)).toBe(true);
   });
 
-  it('leaves a failure it was not told to send back through 오류, untouched', async () => {
-    const { db, runId } = setup(8, { mode: 'count', size: 8 });
+  it('leaves a failure it was not told to send back through 오류 at once, untouched and at the same size', async () => {
+    const { db, runId, projectId, reviewStatusId } = setup(8, { mode: 'count', size: 8 });
     const fake = model(() => new Error('boom'));
     await new Runner(db, memoryStore(), fake.port).drain();
-    // Not resent smaller: the template's 다시 시도? sends it once more, at the same size.
-    expect(fake.sizes()).toEqual([8, 8]);
+    // Not resent at all: 'other' is not one of the 재요청's kinds, so the line goes straight to 검토 필요로.
+    expect(fake.sizes()).toEqual([8]);
     for (const item of itemsOf(db, runId)) {
-      expect(item.state).toBe('failed');
-      expect(item.data.error).toMatchObject({ kind: 'other', message: 'boom' });
+      expect(item.state).toBe('done');
       expect(item.data.retry).toBeUndefined();
     }
+    expect(db.select().from(s.units).where(eq(s.units.projectId, projectId)).all().every((unit) => unit.statusId === reviewStatusId)).toBe(true);
   });
 
   it('runs a cut-off request again in smaller requests, which succeed', async () => {

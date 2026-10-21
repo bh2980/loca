@@ -33,6 +33,8 @@ import { NodeConfig } from '@/components/workflow/node-config';
 import { WorkflowNodeView, type FlowNode } from '@/components/workflow/node-view';
 import { WorkflowEdgeView, type FlowEdge } from '@/components/workflow/workflow-edge';
 import { entryStarts, flowEdges, nodeSummary, openPorts, targetStatus } from '@/components/workflow/flow-graph';
+import { allFoldsOpen, computeFolds, foldContaining, foldedDefinition, foldIssues, foldPlacements, foldText, isFoldOpen, openFoldContaining, setAllFolds, toggleFold, type Fold } from '@/components/workflow/fold';
+import { useFoldState } from '@/components/workflow/use-fold-state';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { SplitPane, PageHeading, HeaderActions, NodeLibrary, CanvasToolbar, CanvasSurface, SelectionToolbox, type CanvasDirection, type NodeLibraryGroup, Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent, DropdownMenuLabel, Input, Skeleton, Popover, PopoverContent, PopoverTrigger } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
@@ -250,17 +252,58 @@ function WorkflowEditor() {
     () => (current?.definition.nodes ?? []).filter((node) => node.type !== 'entry' && node.type !== 'end'),
     [current?.definition.nodes],
   );
+  // 접기: nodes that only hang off another node are chips until opened (display only; the definition is whole).
+  const folds = useMemo(() => (current ? computeFolds(current.definition) : []), [current?.definition]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [foldState, setFoldState] = useFoldState(`loca.workflow.folds.${workflowId}`);
+  const openFolds = useMemo(() => new Set(foldState.open), [foldState]);
+  const view = useMemo(() => (current ? foldedDefinition(current.definition, folds, openFolds) : undefined), [current?.definition, folds, openFolds]); // eslint-disable-line react-hooks/exhaustive-deps
+  const shown = useMemo(() => (view?.definition.nodes ?? []).filter((node) => node.type !== 'entry' && node.type !== 'end'), [view]);
+  // A fold that just opened gets places that clear the visible nodes, written to the draft once: from
+  // then on its nodes sit where they are stored, so dragging them (or their owner) never snaps back.
+  // Folds already open when the editor loads were placed when they were opened: opening the editor is no edit.
+  const placedOpen = useRef<ReadonlySet<string> | null>(null);
+  useEffect(() => {
+    if (!current) return;
+    const before = placedOpen.current;
+    placedOpen.current = openFolds;
+    if (!before) return;
+    const opened = new Set([...openFolds].filter((id) => !before.has(id)));
+    if (!opened.size) return;
+    const placed = foldPlacements(current.definition, folds.filter((fold) => opened.has(fold.id)), opened, new Map(Object.entries(measured)), direction);
+    if (!placed.size) return;
+    setDraft((value) => ({
+      ...value,
+      definition: { ...value.definition, nodes: value.definition.nodes.map((node) => (placed.has(node.id) ? { ...node, position: placed.get(node.id)! } : node)) },
+    }));
+  }, [openFolds, folds]); // eslint-disable-line react-hooks/exhaustive-deps
+  const foldNames = useMemo(() => ({ status: summaryNames.status }), [statuses.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  const foldChip = (fold: Fold) => current && {
+    text: foldText(current.definition, fold, foldNames),
+    open: isFoldOpen(foldState, fold.id),
+    ...foldIssues(fold, issues),
+    onToggle: () => toggleFoldOf(fold),
+  };
+  /** Folding a fold that holds the open node or the picked ones puts the selection away with them. */
+  const toggleFoldOf = (fold: Fold) => {
+    setFoldState((state) => toggleFold(state, fold.id));
+    if (isFoldOpen(foldState, fold.id)) {
+      if (search.node && fold.nodeIds.includes(search.node)) select(undefined);
+      setMulti((ids) => ids.filter((id) => !fold.nodeIds.includes(id)));
+    }
+  };
+  // Selecting a folded node (?node=, search, an issue) shows it.
+  useEffect(() => setFoldState((state) => openFoldContaining(state, folds, search.node)), [search.node, folds, setFoldState]);
   const nodes: FlowNode[] = useMemo(
     () => {
       if (!current) return [];
       const { entry, starts, label: startLabel } = entryStarts(current.definition, summaryNames);
-      return definitions.map((node) => ({
+      return shown.map((node) => ({
         id: node.id,
         type: 'workflow',
         position: node.position,
         measured: measured[node.id],
         selected: multi.length ? multi.includes(node.id) : node.id === search.node,
-        deletable: node.type !== 'entry',
+        deletable: true,
         data: {
           node,
           direction,
@@ -270,14 +313,24 @@ function WorkflowEditor() {
           start: starts.has(node.id) && entry ? { label: startLabel, onOpen: () => select(entry.id) } : undefined,
           open: openPorts(node, current.definition),
           status: targetStatus(node, statuses.data?.statuses),
+          folds: Object.fromEntries(folds.filter((fold) => fold.kind === 'branch' && fold.owner === node.id).flatMap((fold) => [[fold.port, foldChip(fold)!]])),
+          foldClose: (() => { const fold = folds.find((item) => item.kind === 'edge' && item.nodeIds[0] === node.id && isFoldOpen(foldState, item.id)); return fold && (() => toggleFoldOf(fold)); })(),
         },
       }));
     },
-    [definitions, current?.definition, search.node, multi, direction, issues, statuses.data, connections.data, measured], // eslint-disable-line react-hooks/exhaustive-deps
+    [shown, folds, foldState, current?.definition, search.node, multi, direction, issues, statuses.data, connections.data, measured], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const edges: FlowEdge[] = useMemo(
-    () => (current ? flowEdges(current.definition, { selected: edgeId, hovered: hoveredEdgeId }) : []),
-    [current?.definition, edgeId, hoveredEdgeId], // eslint-disable-line react-hooks/exhaustive-deps
+    () => {
+      if (!current || !view) return [];
+      // A closed tag fold is one line with a chip on it (it keeps the id of the line into the tag node).
+      const chips = new Map(view.closed.filter((fold) => fold.kind === 'edge').map((fold) => [fold.edgeId, fold] as const));
+      return flowEdges(view.definition, { selected: edgeId, hovered: hoveredEdgeId }).map((edge) => {
+        const fold = chips.get(edge.id);
+        return fold ? { ...edge, data: { ...edge.data, fold: foldChip(fold) } } : edge;
+      });
+    },
+    [view, edgeId, hoveredEdgeId, foldState, issues, statuses.data], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const select = (id: string | undefined) => void navigate({ search: (previous) => ({ ...previous, node: id }) });
@@ -349,11 +402,14 @@ function WorkflowEditor() {
     if (removed.includes(search.node ?? '')) select(undefined);
   };
   const removeEdges = (ids: string[]) => {
+    // A folded tag node's line is two lines in the definition: cutting it cuts both.
+    const tagged = view?.closed.filter((fold) => fold.kind === 'edge' && ids.includes(fold.edgeId ?? ''));
+    const gone = new Set([...ids, ...(current?.definition.edges.filter((edge) => tagged?.some((fold) => edge.source === fold.nodeIds[0] && edge.sourceHandle === 'out')).map((edge) => edge.id) ?? [])]);
     setDraft((value) => ({
       ...value,
       definition: syncEntryEdges({
         ...value.definition,
-        edges: value.definition.edges.filter((edge) => !ids.includes(edge.id)),
+        edges: value.definition.edges.filter((edge) => !gone.has(edge.id)),
       }),
     }));
     setEdgeId(undefined);
@@ -398,12 +454,14 @@ function WorkflowEditor() {
   };
 
   const arrange = async (layoutDirection: CanvasDirection = direction, keepReadable = true) => {
-    if (!current) return;
+    if (!current || !view) return;
     const sizes = new Map(flow.getNodes().map((node) => [node.id, { width: node.measured?.width ?? 224, height: node.measured?.height ?? 66 }]));
     try {
-      const next = await autoLayout(current.definition, sizes, layoutDirection);
+      // Laid out as drawn: closed folds are not in the graph, their nodes and lines keep what they had.
+      const next = await autoLayout(view.definition, sizes, layoutDirection);
       const positions = new Map(next.nodes.map((node) => [node.id, node.position]));
-      setDraft((value) => ({ ...value, definition: { ...value.definition, direction: layoutDirection, nodes: value.definition.nodes.map((node) => ({ ...node, position: positions.get(node.id) ?? node.position })), edges: next.edges } }));
+      const routes = new Map(next.edges.map((edge) => [edge.id, edge.layout]));
+      setDraft((value) => ({ ...value, definition: { ...value.definition, direction: layoutDirection, nodes: value.definition.nodes.map((node) => ({ ...node, position: positions.get(node.id) ?? node.position })), edges: value.definition.edges.map((edge) => ({ ...edge, layout: routes.get(edge.id) })) } }));
       const focusId = search.node ?? definitions[0]?.id;
       const focusNode = next.nodes.find((node) => node.id === focusId);
       const focusSize = focusId ? sizes.get(focusId) : undefined;
@@ -824,9 +882,9 @@ function WorkflowEditor() {
             proOptions={{ hideAttribution: true }}
           >
             <Background size={1.5} gap={20} color="var(--graph-grid)" />
-            <Panel position="bottom-right"><CanvasToolbar zoomPercent={zoom * 100} onZoomIn={() => void flow.zoomIn()} onZoomOut={() => void flow.zoomOut()} onFit={() => fitWholeWorkflow(flow, 200)} onResetZoom={() => void flow.zoomTo(1, { duration: 180 })} onLayout={() => void arrange(direction, true)} layoutLabel="자동 정렬" direction={direction} onDirectionChange={changeDirection} minimapVisible={minimap} onToggleMinimap={() => setMinimap((value) => !value)} /></Panel>
+            <Panel position="bottom-right"><CanvasToolbar zoomPercent={zoom * 100} onZoomIn={() => void flow.zoomIn()} onZoomOut={() => void flow.zoomOut()} onFit={() => fitWholeWorkflow(flow, 200)} onResetZoom={() => void flow.zoomTo(1, { duration: 180 })} onLayout={() => void arrange(direction, true)} layoutLabel="자동 정렬" direction={direction} onDirectionChange={changeDirection} foldsOpen={folds.length ? allFoldsOpen(folds, foldState) : undefined} onToggleFolds={() => setFoldState(setAllFolds(folds, !allFoldsOpen(folds, foldState)))} minimapVisible={minimap} onToggleMinimap={() => setMinimap((value) => !value)} /></Panel>
             {minimap && <MiniMap position="top-right" pannable zoomable />}
-            {selected && <NodeToolbar nodeId={selected.id} isVisible position={Position.Top} offset={16}><SelectionToolbox actions={[
+            {selected && shown.some((node) => node.id === selected.id) && <NodeToolbar nodeId={selected.id} isVisible position={Position.Top} offset={16}><SelectionToolbox actions={[
               ...(selected.type !== 'entry' ? [{ id: 'copy', label: '복제', icon: <Copy />, onSelect: () => addNode({ type: selected.type, label: selected.label, config: structuredClone(selected.config) }, selected.id + '-copy', { x: selected.position.x + 240, y: selected.position.y }) },
               { id: 'delete', label: '삭제', icon: <Trash2 />, destructive: true, onSelect: deleteSelected }] : []),
             ]} /></NodeToolbar>}

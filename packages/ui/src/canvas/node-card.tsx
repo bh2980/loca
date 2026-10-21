@@ -2,6 +2,7 @@ import type { ReactNode } from "react"
 import { AlertCircle, AlertTriangle } from "lucide-react"
 import { cn } from "../lib/utils"
 import type { CanvasDirection } from "./canvas-direction-control"
+import { FoldChip, type FoldChipProps } from "./fold-chip"
 
 export type NodeCardKind = "entry" | "ai" | "apply" | "status" | "function" | "condition" | "gather" | "retry" | "call" | "end"
 
@@ -12,6 +13,8 @@ export interface NodeCardPort {
   handle?: ReactNode
   /** No line leaves this exit: the line stops here (끝), or fails (실패) when it is the error exit. */
   open?: boolean
+  /** Nodes that hang off this exit, folded into a chip below (or beside) it; open, the chip is 접기. */
+  fold?: FoldChipProps
 }
 
 export interface NodeCardProps {
@@ -33,6 +36,8 @@ export interface NodeCardProps {
   className?: string
   /** Lines start here: a 시작 mark before the input, which opens the start settings when given a handler. */
   start?: { label?: string; onOpen?: () => void }
+  /** This node is folded away when closed (a tag node on a line): a small 접기 above it folds it back. */
+  foldClose?: () => void
 }
 
 export const NODE_CARD_KIND_APPEARANCE: Record<NodeCardKind, { label: string; icon: string; header: string; dot: string; capsule?: boolean }> = {
@@ -51,7 +56,7 @@ export const NODE_CARD_KIND_APPEARANCE: Record<NodeCardKind, { label: string; ic
 }
 
 /** Compact workflow node shared by graph renderers: capsule for entry/end, chamfered diamond for condition, rounded rectangle for actions. */
-export function NodeCard({ kind, icon, title, summary, inputHandle, outputs = [], errors = 0, warnings = 0, live, parallel, selected, disabled, direction = "vertical", className, start }: NodeCardProps) {
+export function NodeCard({ kind, icon, title, summary, inputHandle, outputs = [], errors = 0, warnings = 0, live, parallel, selected, disabled, direction = "vertical", className, start, foldClose }: NodeCardProps) {
   const style = NODE_CARD_KIND_APPEARANCE[kind]
   const hasLive = live && live.queued + live.running + live.failed + (live.passed ?? 0) > 0
   const isHorizontal = direction === "horizontal"
@@ -145,6 +150,8 @@ export function NodeCard({ kind, icon, title, summary, inputHandle, outputs = []
       </div>
       {outputs.map((port) => <span key={`${port.id}-handle`}>{port.handle}</span>)}
       {start && <StartMark direction={direction} {...start} />}
+      {outputs.map((port, index) => port.fold && <FoldMark key={`${port.id}-fold`} direction={direction} at={(index + 0.5) / outputs.length} {...port.fold} />)}
+      {foldClose && <div className="absolute bottom-full right-0 mb-1"><FoldChip text="" open onToggle={foldClose} /></div>}
       {outputs.map((port, index) => port.open && <EndMark key={`${port.id}-end`} direction={direction} at={(index + 0.5) / outputs.length} failed={port.tone === "destructive"} />)}
     </div>
   )
@@ -177,6 +184,20 @@ function EndMark({ direction, at, failed }: { direction: CanvasDirection; at: nu
     >
       <span className={cn(failed ? "bg-destructive/60" : "bg-muted-foreground/50", vertical ? "h-3 w-px" : "h-px w-3")} />
       <span className={cn("text-xs", failed ? "text-destructive" : "text-muted-foreground")}>{failed ? "실패" : "끝"}</span>
+    </div>
+  )
+}
+
+/** A fold chip under an exit (beside it when the graph runs sideways), joined to the exit by a short line. */
+function FoldMark({ direction, at, ...chip }: { direction: CanvasDirection; at: number } & FoldChipProps) {
+  const vertical = direction !== "horizontal"
+  return (
+    <div
+      className={cn("absolute flex items-center", vertical ? "top-full flex-col items-start" : "left-full -translate-y-1/2 flex-row")}
+      style={vertical ? { left: `calc(${at * 100}% - 0.125rem)` } : { top: `${at * 100}%` }}
+    >
+      <span className={cn("bg-muted-foreground/50", vertical ? "ml-0.5 h-2 w-px" : "h-px w-3")} />
+      <FoldChip {...chip} />
     </div>
   )
 }

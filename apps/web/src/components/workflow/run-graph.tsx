@@ -12,6 +12,8 @@ import { Button, CanvasToolbar, type CanvasDirection } from '@loca/ui';
 import { X } from 'lucide-react';
 import { ITEM_STATE } from '@/lib/labels';
 import { callMembers, callOf, collapseCalls, liveCounts, topCallIds } from '@/components/workflow/run-calls';
+import { allFoldsOpen, computeFolds, foldedDefinition, foldLiveText, foldPlacements, foldText, isFoldOpen, openFoldContaining, setAllFolds, toggleFold, type Fold } from '@/components/workflow/fold';
+import { useFoldState } from '@/components/workflow/use-fold-state';
 import { WorkflowNodeView, type FlowNode } from '@/components/workflow/node-view';
 import { WorkflowEdgeView } from '@/components/workflow/workflow-edge';
 import { entryStarts, flowEdges, nodeSummary, openPorts, targetStatus } from '@/components/workflow/flow-graph';
@@ -71,15 +73,24 @@ function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; ru
     const sized = changes.flatMap((change) => (change.type === 'dimensions' && change.dimensions ? [[change.id, change.dimensions] as const] : []));
     if (sized.length) setSizes((previous) => ({ ...previous, ...Object.fromEntries(sized) }));
   };
+  // 접기, as in the editor: side nodes are chips (with their lines' counts) until opened.
+  const folds = useMemo(() => computeFolds(definition), [definition]);
+  const [foldState, setFoldState] = useFoldState(`loca.run.folds.${run.id}`);
+  const openFolds = useMemo(() => new Set(foldState.open), [foldState]);
+  const view = useMemo(() => foldedDefinition(definition, folds, openFolds), [definition, folds, openFolds]);
+  const placements = useMemo(() => foldPlacements(definition, folds, openFolds, new Map(Object.entries(sizes)), direction), [definition, folds, openFolds, sizes, direction]);
+  useEffect(() => setFoldState((state) => openFoldContaining(state, folds, selected)), [selected, folds, setFoldState]);
   const nodes: FlowNode[] = useMemo(() => {
     const names = { status: new Map(statuses.data?.statuses.map((status) => [status.id, status.name])), connection: new Map(connections.data?.map((connection) => [connection.id, connection.name])), connectionsLoaded: Boolean(connections.data) };
     const { entry, starts, label } = entryStarts(definition, names);
-    return definition.nodes
+    const foldNames = { status: names.status };
+    const chip = (fold: Fold) => ({ text: foldText(definition, fold, foldNames), open: isFoldOpen(foldState, fold.id), live: foldLiveText(fold, live), onToggle: () => setFoldState((state) => toggleFold(state, fold.id)) });
+    return view.definition.nodes
       .filter((node) => node.type !== 'entry' && node.type !== 'end')
       .map((node) => ({
         id: node.id,
         type: 'workflow',
-        position: node.position,
+        position: placements.get(node.id) ?? node.position,
         measured: sizes[node.id],
         selected: node.id === selected || callOf(run.definition, selected ?? '') === node.id,
         draggable: false,
@@ -95,10 +106,19 @@ function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; ru
           start: starts.has(node.id) && entry ? { label } : undefined,
           open: openPorts(node, definition),
           status: targetStatus(node, statuses.data?.statuses),
+          folds: Object.fromEntries(folds.filter((fold) => fold.kind === 'branch' && fold.owner === node.id).map((fold) => [fold.port, chip(fold)])),
+          foldClose: (() => { const fold = folds.find((item) => item.kind === 'edge' && item.nodeIds[0] === node.id && isFoldOpen(foldState, item.id)); return fold && (() => setFoldState((state) => toggleFold(state, fold.id))); })(),
         },
       }));
-  }, [definition, run.definition, direction, live, selected, sizes, statuses.data, connections.data]);
-  const edges = useMemo(() => flowEdges(definition), [definition]);
+  }, [definition, view, folds, foldState, placements, run.definition, direction, live, selected, sizes, statuses.data, connections.data, setFoldState]);
+  const edges = useMemo(() => {
+    const chips = new Map(view.closed.filter((fold) => fold.kind === 'edge').map((fold) => [fold.edgeId, fold] as const));
+    const foldNames = { status: new Map(statuses.data?.statuses.map((status) => [status.id, status.name])) };
+    return flowEdges(view.definition).map((edge) => {
+      const fold = chips.get(edge.id);
+      return fold ? { ...edge, data: { ...edge.data, fold: { text: foldText(definition, fold, foldNames), live: foldLiveText(fold, live), onToggle: () => setFoldState((state) => toggleFold(state, fold.id)) } } } : edge;
+    });
+  }, [view, definition, live, statuses.data, setFoldState]);
 
   // A remembered view comes back as it was; the first look fits the whole graph once every node is measured.
   const measured = useNodesInitialized();
@@ -154,7 +174,7 @@ function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; ru
         </Panel>
       )}
       <Panel position="bottom-right">
-        <CanvasToolbar zoomPercent={zoom * 100} onZoomIn={() => void flow.zoomIn()} onZoomOut={() => void flow.zoomOut()} onFit={() => void flow.fitView({ ...FIT, duration: 200 })} onResetZoom={() => void flow.zoomTo(1, { duration: 180 })} />
+        <CanvasToolbar zoomPercent={zoom * 100} onZoomIn={() => void flow.zoomIn()} onZoomOut={() => void flow.zoomOut()} onFit={() => void flow.fitView({ ...FIT, duration: 200 })} onResetZoom={() => void flow.zoomTo(1, { duration: 180 })} foldsOpen={folds.length ? allFoldsOpen(folds, foldState) : undefined} onToggleFolds={() => setFoldState(setAllFolds(folds, !allFoldsOpen(folds, foldState)))} />
       </Panel>
     </ReactFlow>
   );

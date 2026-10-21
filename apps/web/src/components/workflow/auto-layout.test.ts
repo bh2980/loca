@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EMPTY_MODEL_CHOICE, nodePorts, translationTemplate, type WorkflowDefinition, type WorkflowEdge, type WorkflowNode } from '@tw/shared';
+import { EMPTY_MODEL_CHOICE, nodePorts, translationTemplate, WORKFLOW_TEMPLATES, type WorkflowDefinition, type WorkflowEdge, type WorkflowNode } from '@tw/shared';
 import { workflowPortTone } from './node-view.tsx';
 import { autoLayout } from './auto-layout';
 
@@ -9,6 +9,7 @@ const definition = translationTemplate({
   translated: 'translated',
   needsReview: 'needs-review',
   confirmed: 'confirmed',
+  aiFailedTag: 'ai-failed',
 });
 
 function sizesFor(direction: 'vertical' | 'horizontal') {
@@ -130,9 +131,9 @@ describe('workflow auto layout direction on the relay retry pipeline', () => {
     const result = await autoLayout(definition, sizesFor(direction), direction);
 
     expect(result.direction).toBe(direction);
-    // The review-loop fixture with a 재요청 node and a hand-drawn retry condition behind each of its four AI nodes, and the 태그 붙이기·떼기 node on each exit of the checks.
+    // The review-loop fixture: a 재요청 node and a failure marker (검토 필요로 / AI 실패 태그) behind each of its four AI nodes, and the 태그 붙이기·떼기 node on each exit of the checks.
     expect(result.nodes).toHaveLength(24);
-    expect(result.edges).toHaveLength(33);
+    expect(result.edges).toHaveLength(29);
     expectNoNodeOverlap(result, direction);
     expectForwardSpacing(result, direction);
     expectEdgesUseTheirDeclaredPorts(result, direction);
@@ -147,6 +148,26 @@ describe('workflow auto layout direction on the relay retry pipeline', () => {
     expect(feedback.target).toBe('check');
     expect(feedback.layout!.points.length).toBeGreaterThanOrEqual(2);
     expectRoutesAvoidUnrelatedNodes({ ...result, edges: [feedback] }, direction);
+  });
+
+  it.each(WORKFLOW_TEMPLATES.map((template) => template.key))('lays out the %s template top to bottom without overlaps, its main path in execution order', async (key) => {
+    const template = WORKFLOW_TEMPLATES.find((candidate) => candidate.key === key)!.build({ model: EMPTY_MODEL_CHOICE, aiFailedTag: 't', needsReview: 's' });
+    const sizes = new Map(template.nodes.map((node) => [node.id, { width: 224, height: 148 }]));
+    const result = await autoLayout(template, sizes, 'vertical');
+    for (let i = 0; i < result.nodes.length; i++) for (let j = i + 1; j < result.nodes.length; j++) {
+      const a = result.nodes[i]!, b = result.nodes[j]!;
+      const box = (node: WorkflowNode) => ({ left: node.position.x, top: node.position.y, right: node.position.x + 224, bottom: node.position.y + 148 });
+      expect(overlaps(box(a), box(b)), `${a.id} overlaps ${b.id}`).toBe(false);
+    }
+    // Follow the first 'out' exit from the entry: every step lies below the one before.
+    let node: WorkflowNode = result.nodes.find((candidate) => candidate.type === 'entry')!;
+    for (;;) {
+      const next = result.edges.find((edge) => edge.source === node.id && edge.sourceHandle === 'out');
+      const target = next && result.nodes.find((candidate) => candidate.id === next.target);
+      if (!target) break;
+      expect(target.position.y, `${target.id} below ${node.id}`).toBeGreaterThan(node.position.y);
+      node = target;
+    }
   });
 
   it('keeps failure/false ports as warnings and runtime error ports as destructive', () => {

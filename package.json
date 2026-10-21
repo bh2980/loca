@@ -16,6 +16,7 @@
     "verify": "pnpm -r exec tsc --noEmit -p . && pnpm ui-rules && vitest run && pnpm budget",
     "db:generate": "pnpm --filter @tw/server db:generate",
     "samples": "tsx scripts/make-samples.ts",
+    "samples:showcase": "tsx scripts/showcase-sample.ts",
     "mock-llm": "tsx scripts/mock-llm.ts",
     "loca": "node apps/cli/bin/loca.mjs",
     "ui-rules": "tsx scripts/ui-rules.ts"

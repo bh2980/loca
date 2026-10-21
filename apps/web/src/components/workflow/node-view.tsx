@@ -2,7 +2,7 @@ import { memo, useEffect } from 'react';
 import { Handle, Position, useUpdateNodeInternals, type Node, type NodeProps } from '@xyflow/react';
 import { BookPlus, Braces, CircleDot, Code, Combine, Flag, GitFork, Globe, ListChecks, MessageCircleQuestion, NotebookPen, RotateCcw, ScanSearch, Workflow, Sparkles, SpellCheck, Tag, UserCheck } from 'lucide-react';
 import { functionGroup, nodeName, nodePorts, type WorkflowNode } from '@tw/shared';
-import { NodeCard, type CanvasDirection } from '@loca/ui';
+import { NodeCard, type CanvasDirection, type FoldChipProps } from '@loca/ui';
 
 type Icon = typeof Sparkles;
 
@@ -59,11 +59,15 @@ export type FlowNode = Node<{
   start?: { label: string; onOpen?: () => void };
   /** Exits with no line leaving them: drawn with an end mark. */
   open: string[];
+  /** Nodes folded into a chip on an exit (by exit id); an opened fold's chip reads 접기. */
+  folds?: Record<string, FoldChipProps>;
+  /** This node is folded into a line when closed: 접기 puts it back. */
+  foldClose?: () => void;
 }, 'workflow'>;
 
 /** Workflow ports move with the shared graph orientation and keep their accessible names. */
 export const WorkflowNodeView = memo(function WorkflowNodeView({ id, data, selected }: NodeProps<FlowNode>) {
-  const { node, summary, errors, warnings, status, live, direction, start, open } = data;
+  const { node, summary, errors, warnings, status, live, direction, start, open, folds, foldClose } = data;
   const updateNodeInternals = useUpdateNodeInternals();
   useEffect(() => updateNodeInternals(id), [direction, id, updateNodeInternals]);
   const Icon = nodeIcon(node);
@@ -76,6 +80,7 @@ export const WorkflowNodeView = memo(function WorkflowNodeView({ id, data, selec
     label: port.id === 'error' ? '오류' : port.label,
     tone: workflowPortTone(port.id),
     open: open.includes(port.id),
+    fold: folds?.[port.id],
     handle: <Handle
       type="source"
       position={isVertical ? Position.Bottom : Position.Right}
@@ -107,6 +112,7 @@ export const WorkflowNodeView = memo(function WorkflowNodeView({ id, data, selec
     parallel={node.type === 'ai' ? node.config.concurrency : undefined}
     selected={selected}
     start={start}
+    foldClose={foldClose}
     className={isEntry ? 'w-48' : isVertical ? 'w-56' : 'w-72'}
   />;
 });

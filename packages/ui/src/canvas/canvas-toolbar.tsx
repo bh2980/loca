@@ -1,4 +1,4 @@
-import { Grid2X2, Maximize, Minus, Plus, WandSparkles } from "lucide-react"
+import { ChevronsDownUp, ChevronsUpDown, Grid2X2, Maximize, Minus, Plus, WandSparkles } from "lucide-react"
 import { Button } from "../primitives/button"
 import { cn } from "../lib/utils"
 import { CanvasDirectionControl, type CanvasDirection } from "./canvas-direction-control"
@@ -16,6 +16,9 @@ export interface CanvasToolbarProps {
   direction?: CanvasDirection
   onDirectionChange?: (direction: CanvasDirection) => void
   directionDisabled?: boolean
+  /** Folded side nodes: every fold open (then the button folds them) or not. Omit when the graph has none. */
+  foldsOpen?: boolean
+  onToggleFolds?: () => void
   className?: string
 }
 
@@ -26,7 +29,7 @@ const COMPACT = "hidden @2xl/canvas:inline"
 /** Between groups (zoom · fit · layout · direction · minimap); --border alone is too faint on the popover surface. */
 const Divider = () => <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-muted-foreground/30" />
 
-export function CanvasToolbar({ zoomPercent, onZoomIn, onZoomOut, onFit, onResetZoom, onLayout, minimapVisible, onToggleMinimap, layoutLabel, direction, onDirectionChange, directionDisabled, className }: CanvasToolbarProps) {
+export function CanvasToolbar({ zoomPercent, onZoomIn, onZoomOut, onFit, onResetZoom, onLayout, minimapVisible, onToggleMinimap, layoutLabel, direction, onDirectionChange, directionDisabled, foldsOpen, onToggleFolds, className }: CanvasToolbarProps) {
   return <div role="toolbar" aria-label="캔버스 도구" className={cn("flex h-9 items-center gap-0.5 rounded-md border border-border bg-popover px-1 shadow-sm", className)}>
     <Button variant="ghost" size="icon-xs" aria-label="축소" onClick={onZoomOut}><Minus /></Button>
     {onResetZoom ? (
@@ -39,6 +42,10 @@ export function CanvasToolbar({ zoomPercent, onZoomIn, onZoomOut, onFit, onReset
     <Button variant="ghost" size="icon-xs" aria-label="화면에 맞춤" onClick={onFit}><Maximize /></Button>
     {onLayout && <Divider />}
     {onLayout && <Button variant="ghost" size={layoutLabel ? "sm" : "icon-xs"} aria-label={layoutLabel ?? "자동 정렬"} title={layoutLabel ?? "자동 정렬"} onClick={onLayout}><WandSparkles />{layoutLabel && <span className={COMPACT}>{layoutLabel}</span>}</Button>}
+    {onToggleFolds && foldsOpen !== undefined && <>
+      <Divider />
+      <Button variant="ghost" size="sm" aria-label={foldsOpen ? "모두 접기" : "모두 펼치기"} title={foldsOpen ? "접힌 노드를 모두 접기" : "접힌 노드를 모두 펼치기"} onClick={onToggleFolds}>{foldsOpen ? <ChevronsDownUp /> : <ChevronsUpDown />}<span className={COMPACT}>{foldsOpen ? "접기" : "모두 펼치기"}</span></Button>
+    </>}
     {direction && onDirectionChange && <>
       <Divider />
       <CanvasDirectionControl direction={direction} onDirectionChange={onDirectionChange} disabled={directionDisabled} variant="ghost" labelClassName={COMPACT} />

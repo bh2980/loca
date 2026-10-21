@@ -30,6 +30,7 @@ export async function autoLayout(definition: WorkflowDefinition, sizes: Map<stri
       // Keep the drawn order (entry first, main path before retry loops) and route loops back around.
       'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
       'elk.layered.feedbackEdges': 'true',
+      'elk.layered.cycleBreaking.strategy': 'MODEL_ORDER',
       'elk.layered.spacing.edgeNodeBetweenLayers': '32',
     },
     children: definition.nodes.map((node) => {

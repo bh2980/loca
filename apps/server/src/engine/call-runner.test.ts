@@ -30,7 +30,9 @@ function setup({ termsBatch = 8, callError }: { termsBatch?: number; callError?:
   const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).all();
   const review = db.insert(s.statuses).values({ projectId, name: '사람 확인 필요', color: '#b26f00', kind: 'normal', inReview: true, sort: 10 }).returning().get();
 
-  const extraction = termExtractionTemplate({ model: choice });
+  // The called workflow without its AI 실패 태그 marker: a failure that survives its 재요청 leaves the call through 오류.
+  const full = termExtractionTemplate({ model: choice });
+  const extraction = { ...full, nodes: full.nodes.filter((node) => !node.id.endsWith('-failed')), edges: full.edges.filter((edge) => !edge.target.endsWith('-failed')) };
   const called = db.insert(s.workflows).values({
     projectId,
     name: '용어 추출',
