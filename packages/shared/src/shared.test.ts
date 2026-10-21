@@ -11,8 +11,8 @@ import { APPLY_PALETTE_ORDER, fieldsFromSample, FUNCTION_NAMES, functionGroup } 
 import { applyIssues, nodeOutputFields, nodePorts, pickPaths, previousStepId, previousSteps, readinessUses, retrySummary, validateWorkflow, workflowDefinitionSchema, workflowNodeSchema, type WorkflowDefinition, type WorkflowNode } from './workflow.ts';
 
 const model = { connectionId: 'c', model: 'm' };
-const ids = { model, untranslated: 's0', translated: 's1', needsReview: 's2', confirmed: 's3' };
-const refs = { workflows: [], connections: new Map([['c', 'openai']]), statusIds: new Set(['s0', 's1', 's2', 's3']), tagIds: new Set<string>(), toolConnectionIds: new Set<string>() };
+const ids = { model, untranslated: 's0', translated: 's1', needsReview: 's2', confirmed: 's3', aiFailedTag: 't0' };
+const refs = { workflows: [], connections: new Map([['c', 'openai']]), statusIds: new Set(['s0', 's1', 's2', 's3']), tagIds: new Set(['t0']), toolConnectionIds: new Set<string>() };
 
 describe('workflow validation', () => {
   it('every registry template validates without issues when all ids are given', () => {
@@ -230,9 +230,9 @@ describe('templates', () => {
   const errors = (definition: WorkflowDefinition) => validateWorkflow(workflowDefinitionSchema.parse(definition), refs).filter((issue) => issue.level === 'error');
 
   it('term extraction template is entry → AI (→ 재요청) → save terms, written directly', () => {
-    const definition = workflowDefinitionSchema.parse(termExtractionTemplate({ model }));
+    const definition = workflowDefinitionSchema.parse(termExtractionTemplate(ids));
     expect(errors(definition)).toEqual([]);
-    expect(kinds(definition)).toEqual(['entry', 'ai', 'retry', 'saveTerms']);
+    expect(kinds(definition)).toEqual(['entry', 'ai', 'retry', 'tagLines', 'saveTerms']);
     expect(definition.nodes.find((node) => node.id === 'save-terms')).toMatchObject({ config: { params: { list: 'terms', map: { source: 'source', target: 'target', kind: 'kind', meaning: 'meaning', evidence: 'evidence' } } } });
   });
 
@@ -240,8 +240,8 @@ describe('templates', () => {
     const all = [
       ...defaultWorkflows(ids).map((row) => row.definition),
       ...WORKFLOW_TEMPLATES.map((template) => template.build(ids)),
-      peopleRelationsTemplate({ model }),
-      eventExtractionTemplate({ model }),
+      peopleRelationsTemplate(ids),
+      eventExtractionTemplate(ids),
     ];
     for (const definition of all) {
       expect(errors(definition)).toEqual([]);
@@ -251,7 +251,7 @@ describe('templates', () => {
   });
 
   it('maps every field an analysis list produces that its save node accepts', () => {
-    const analysis = analysisTemplate({ model });
+    const analysis = analysisTemplate(ids);
     for (const node of analysis.nodes) {
       if (node.type !== 'function' || !(node.config.fn in APPLY_TARGETS) || !node.config.params.list) continue;
       const fields = AI_PROMPTS.analysis.fields;
@@ -264,8 +264,8 @@ describe('templates', () => {
   it('writes translations itself in the translation templates and keeps the listener flow explicit', () => {
     const saved = translationTemplate(ids).nodes.find((node) => node.id === 'save');
     expect(saved).toMatchObject({ config: { fn: 'saveCandidate', params: { map: { text: 'text' } } } });
-    const listener = listenerTemplate({ model });
-    expect(kinds(listener)).toEqual(['entry', 'ai', 'retry', 'setListener']);
+    const listener = listenerTemplate(ids);
+    expect(kinds(listener)).toEqual(['entry', 'ai', 'retry', 'tagLines', 'setListener']);
     expect(listener.nodes.find((node) => node.id === 'set-listener')).toMatchObject({ config: { params: { map: { listener: 'value', confidence: 'confidence' } } } });
   });
 
@@ -349,10 +349,10 @@ describe('isIdentifierLabel', () => {
 describe('run readiness', () => {
   it('follows the context the AI nodes send, whatever they output', () => {
     expect(readinessUses(translationTemplate(ids))).toEqual({ speech: true, glossary: true });
-    expect(readinessUses(analysisTemplate({ model }))).toEqual({ speech: false, glossary: false });
-    expect(readinessUses(listenerTemplate({ model }))).toEqual({ speech: false, glossary: false });
+    expect(readinessUses(analysisTemplate(ids))).toEqual({ speech: false, glossary: false });
+    expect(readinessUses(listenerTemplate(ids))).toEqual({ speech: false, glossary: false });
     // Term extraction is sent the glossary (to skip known terms), so unreviewed terms matter to it.
-    expect(readinessUses(termExtractionTemplate({ model }))).toEqual({ speech: false, glossary: true });
+    expect(readinessUses(termExtractionTemplate(ids))).toEqual({ speech: false, glossary: true });
   });
 });
 
@@ -399,15 +399,59 @@ describe('재요청 node', () => {
     expect(validateWorkflow(definition, refs).filter((issue) => issue.level === 'warning' && issue.nodeId === 'r' && issue.message.startsWith('다시 보내기가 최대 5번이면'))).toHaveLength(1);
   });
 
-  it('follows every AI node of the default workflows: error → 재요청 → the same node', () => {
-    const workflows = [...defaultWorkflows({ ...ids, model }).map((workflow) => workflow.definition), ...WORKFLOW_TEMPLATES.map((template) => template.build(ids))];
-    for (const definition of workflows) {
+  it('gives every AI node of every template the one failure pattern: error → 재요청 → 다시 보냄 → the same node, 오류 → its marker', () => {
+    const everything = [
+      ...WORKFLOW_TEMPLATES.map((template) => ({ name: template.key, definition: template.build(ids) })),
+      ...defaultWorkflows(ids).map((workflow) => ({ name: `default ${workflow.name}`, definition: workflow.definition })),
+      { name: 'analysis', definition: analysisTemplate(ids) },
+    ];
+    // The marker per AI node: 번역's three set 검토 필요; every extraction AI puts the AI 실패 tag; 용어 번역 (terms) has none.
+    const statusMarkers = new Set(['translate', 'review', 'revise']);
+    for (const { name, definition } of everything) {
       for (const node of definition.nodes.filter((candidate) => candidate.type === 'ai')) {
-        const resend = definition.edges.find((edge) => edge.source === node.id && edge.sourceHandle === 'error')?.target;
-        expect(definition.nodes.find((candidate) => candidate.id === resend)?.type, `${node.id} error → 재요청`).toBe('retry');
-        expect(definition.edges.some((edge) => edge.source === resend && edge.sourceHandle === 'retry' && edge.target === node.id), `${node.id} 다시 보냄`).toBe(true);
+        const resends = definition.edges.filter((edge) => edge.source === node.id && edge.sourceHandle === 'error');
+        expect(resends, `${name}/${node.id} has one 재요청`).toHaveLength(1);
+        const resend = definition.nodes.find((candidate) => candidate.id === resends[0]!.target)!;
+        expect(resend.type, `${name}/${node.id} error → 재요청`).toBe('retry');
+        expect(resend.type === 'retry' && resend.config).toMatchObject({ kinds: ['cut-off', 'too-long', 'missing', 'invalid-output', 'timeout'], scale: 0.5, maxTimes: 2 });
+        expect(definition.edges.filter((edge) => edge.source === resend.id && edge.sourceHandle === 'retry').map((edge) => edge.target), `${name}/${node.id} 다시 보냄`).toEqual([node.id]);
+        const marker = definition.edges.filter((edge) => edge.source === resend.id && edge.sourceHandle === 'error').map((edge) => definition.nodes.find((candidate) => candidate.id === edge.target)!);
+        if (name.endsWith('termTranslate')) { expect(marker, 'terms cannot take the line tag').toEqual([]); continue; }
+        expect(marker, `${name}/${node.id} 재요청 오류 → marker`).toHaveLength(1);
+        const isTranslation = (name === 'translation' || name === 'default 번역') && statusMarkers.has(node.id);
+        if (isTranslation) expect(marker[0]).toMatchObject({ label: '검토 필요로', config: { fn: 'setStatus', params: { statusId: 's2' } } });
+        else expect(marker[0]).toMatchObject({ label: 'AI 실패 태그', config: { fn: 'tagLines', params: { action: 'add', tagIds: ['t0'] } } });
       }
     }
+  });
+
+  it('has no 다시 시도? condition and no two nodes at one position, and every template validates', () => {
+    for (const template of WORKFLOW_TEMPLATES) {
+      const definition = workflowDefinitionSchema.parse(template.build(ids));
+      expect(validateWorkflow(definition, refs), template.key).toEqual([]);
+      expect(definition.nodes.filter((node) => node.type === 'condition' && node.label === '다시 시도?'), template.key).toEqual([]);
+      const spots = definition.nodes.map((node) => `${node.position.x},${node.position.y}`);
+      expect(new Set(spots).size, `${template.key} positions`).toBe(spots.length);
+    }
+  });
+
+  it('lays the 번역 template out top to bottom: main path in column 0, 재요청 beside its AI node, markers beside that, the revise loop in its own columns', () => {
+    const definition = translationTemplate(ids);
+    const place = (id: string) => definition.nodes.find((node) => node.id === id)!.position;
+    const main = ['entry', 'translate', 'save', 'check', 'untag-format', 'review', 'untag-review', 'confirm', 'terms', 'save-terms'];
+    expect(main.map((id) => place(id).x)).toEqual(main.map(() => 0));
+    const ys = main.map((id) => place(id).y);
+    expect(ys).toEqual([...ys].sort((a, b) => a - b));
+    expect(new Set(ys).size).toBe(ys.length);
+    for (const ai of ['translate', 'review', 'terms']) {
+      expect(place(`${ai}-resend`)).toEqual({ x: place(ai).x + 320, y: place(ai).y });
+      expect(place(`${ai}-failed`)).toEqual({ x: place(ai).x + 640, y: place(ai).y });
+    }
+    expect(place('revise-resend').y).toBe(place('revise').y);
+    expect(place('revise-failed').y).toBe(place('revise').y);
+    // Edges go down or sideways, except the loops: 재요청 → its AI node, 수정 번역 저장 → 형식 검사.
+    const loops = new Set(['translate-resend-retry-translate', 'review-resend-retry-review', 'revise-resend-retry-revise', 'terms-resend-retry-terms', 'save-revision-out-check']);
+    for (const edge of definition.edges) if (!loops.has(edge.id)) expect(place(edge.target).y, edge.id).toBeGreaterThanOrEqual(place(edge.source).y);
   });
 });
 
@@ -417,10 +461,10 @@ describe('analysis workflow and presets', () => {
   });
 
   it('builds the work analysis: one AI node, then every list saved in a chain', () => {
-    const definition = workflowDefinitionSchema.parse(analysisTemplate({ model }));
-    expect(definition.nodes.map((node) => (node.type === 'function' ? node.config.fn : node.type))).toEqual(['entry', 'ai', 'retry', 'saveCharacters', 'saveRelationships', 'saveSpeechRules', 'saveEvents', 'saveTerms', 'saveDocument']);
+    const definition = workflowDefinitionSchema.parse(analysisTemplate(ids));
+    expect(definition.nodes.map((node) => (node.type === 'function' ? node.config.fn : node.type))).toEqual(['entry', 'ai', 'retry', 'tagLines', 'saveCharacters', 'saveRelationships', 'saveSpeechRules', 'saveEvents', 'saveTerms', 'saveDocument']);
     expect(definition.edges.filter((edge) => edge.source === 'analysis').map((edge) => [edge.sourceHandle, edge.target])).toEqual([['out', 'save-characters'], ['error', 'analysis-resend']]);
-    expect(validateWorkflow(definition, { statusIds: new Set(), connections: new Set(['c']) } as never).filter((issue) => issue.level === 'error').map((issue) => issue.message)).toEqual([]);
+    expect(validateWorkflow(definition, { statusIds: new Set(), connections: new Set(['c']), tagIds: new Set(['t0']) } as never).filter((issue) => issue.level === 'error').map((issue) => issue.message)).toEqual([]);
     expect(definition.nodes.find((node) => node.id === 'save-overview')).toMatchObject({ config: { params: { map: { title: 'overviewTitle', body: 'overview' } } } });
   });
 
@@ -509,7 +553,7 @@ describe('AI node input', () => {
     const model = { connectionId: 'c', model: 'm' };
     const ai = (id: string, config: Record<string, unknown>) => ({ id, type: 'ai', position: { x: 0, y: 0 }, config: { model, instructions: 'x', ...config } });
     const check = (nodes: object[], edges: [string, string][]) =>
-      validateWorkflow(workflowDefinitionSchema.parse({ nodes: [{ id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: {} }, ...nodes], edges: edges.map(([source, target], i) => ({ id: String(i), source, sourceHandle: 'out', target })) }), { statusIds: new Set(), connections: new Set(['c']) } as never)
+      validateWorkflow(workflowDefinitionSchema.parse({ nodes: [{ id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: {} }, ...nodes], edges: edges.map(([source, target], i) => ({ id: String(i), source, sourceHandle: 'out', target })) }), { statusIds: new Set(), connections: new Set(['c']), tagIds: new Set(['t0']) } as never)
         .filter((issue) => issue.level === 'error')
         .map((issue) => issue.message);
     expect(check([ai('a', {}), ai('b', { input: { previous: true } })], [['entry', 'a'], ['a', 'b']])).toEqual([]);

@@ -78,6 +78,7 @@ export * from "./inspector"
 
 // Reference-screen components: register before application use.
 export * from "./canvas/node-card"
+export * from "./canvas/fold-chip"
 export * from "./canvas/node-library"
 export * from "./canvas/canvas-toolbar"
 export * from "./canvas/canvas-direction-control"
