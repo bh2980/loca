@@ -22,10 +22,10 @@ describe('planBatches', () => {
     expect(planBatches(lines, config).map((batch) => batch.length)).toEqual([10, 10]);
   });
 
-  it('never mixes dialogue with UI text', () => {
+  it('never mixes dialogue with UI text, and UI text between scenes does not cut the dialogue', () => {
     seq = 0;
     const batches = planBatches([...scene('s1', 2), ...scene('ui', 2, { kind: 'ui', speaker: null }), ...scene('s2', 2)], config);
-    expect(batches.map((batch) => batch.map((line) => line.groupId))).toEqual([['s1', 's1'], ['ui', 'ui'], ['s2', 's2']]);
+    expect(batches.map((batch) => batch.map((line) => line.groupId))).toEqual([['s1', 's1', 's2', 's2'], ['ui', 'ui']]);
   });
 
   it('starts a new batch for an unrelated scene once the current one is half full', () => {
@@ -36,6 +36,12 @@ describe('planBatches', () => {
 });
 
 describe('packGroups', () => {
+  it('packs each kind on its own, so a document group between plan batches does not cut them', () => {
+    const line = (groupId: string, kind: string) => ({ groupId, seq: 0, tokens: 10, kind });
+    const requests = packGroups([[line('a', 'dialogue')], [line('d', 'document')], [line('b', 'dialogue')]], { mode: 'group', size: 60, maxTokens: 1_000 });
+    expect(requests.map((request) => request.map((item) => item.groupId))).toEqual([['a', 'b'], ['d']]);
+  });
+
   it('keeps groups whole and lets a small remnant ride with a neighbour past the limit', () => {
     seq = 0;
     const requests = packGroups([scene('a', 2), scene('b', 10), scene('c', 9)], config);

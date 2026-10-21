@@ -34,7 +34,16 @@ function byKind<T extends { kind?: string }>(lines: T[]): T[][] {
 }
 
 /**
- * Lines split into model requests, in script order. This is the one batching rule: the run plan,
+ * Items gathered by kind (dialogue, document, UI), each kind keeping script order, kinds in the order
+ * they first appear: a document between two scenes no longer cuts the dialogue's requests in two, and
+ * kinds still never share a request. Items whose kind is unknown stay in one group with each other.
+ */
+function apartByKind<T>(items: T[], kindOf: (item: T) => string | undefined): T[][] {
+  return [...Map.groupBy(items, (item) => kindOf(item) ?? '').values()];
+}
+
+/**
+ * Lines split into model requests, in script order within each kind (apartByKind). This is the one batching rule: the run plan,
  * the runner and the context preview all call it.
  *
  * - "unit": one line per request.
@@ -52,7 +61,7 @@ export function planBatches<T extends BatchLine>(lines: T[], config: BatchConfig
   const ordered = [...lines].sort((a, b) => a.seq - b.seq);
   if (config.mode === 'unit') return ordered.map((line) => [line]);
   if (config.mode === 'whole') return wholeScript([...Map.groupBy(ordered, (line) => line.groupId).values()], batchTokens(config));
-  if (config.mode === 'count') return byKind(ordered).flatMap((run) => Array.from({ length: Math.ceil(run.length / config.size) }, (_, index) => run.slice(index * config.size, (index + 1) * config.size)));
+  if (config.mode === 'count') return apartByKind(ordered, (line) => line.kind).flatMap((run) => Array.from({ length: Math.ceil(run.length / config.size) }, (_, index) => run.slice(index * config.size, (index + 1) * config.size)));
 
   const batches: T[][] = [];
   let current: T[] = [];
@@ -73,7 +82,7 @@ export function planBatches<T extends BatchLine>(lines: T[], config: BatchConfig
     const groups = new Set(current.map((line) => line.groupId));
     return !linked || ![...groups].some((group) => linked(group, scene[0].groupId) || linked(scene[0].groupId, group));
   };
-  const scenes = [...Map.groupBy(ordered, (line) => line.groupId).values()];
+  const scenes = apartByKind([...Map.groupBy(ordered, (line) => line.groupId).values()], (scene) => scene[0]!.kind).flat(1);
   for (const scene of scenes) {
     const sceneTokens = scene.reduce((sum, line) => sum + lineCost(line), 0);
     if (unrelated(scene)) flush();
@@ -103,14 +112,15 @@ export function planBatches<T extends BatchLine>(lines: T[], config: BatchConfig
 /**
  * Groups that must stay together (the run plan's batches, in plan order) packed into requests: whole
  * groups share a request up to the node's limits; a group larger than one request is cut. Groups of
- * another kind (dialogue, document, UI: their first line's `kind`, when known) start a new request,
- * as they do in planBatches.
+ * one kind (dialogue, document, UI: their first line's `kind`, when known) are packed together and
+ * never with another kind, as in planBatches.
  */
 export function packGroups<T extends { tokens: number; kind?: string }>(planned: T[][], config: BatchConfig): T[][] {
   if (config.mode === 'unit') return planned.flat().map((line) => [line]);
   if (config.mode === 'whole') return wholeScript(planned, batchTokens(config));
-  // A group that holds several kinds (a mixed imported group, an older plan) is cut where the kind changes.
-  const groups = planned.flatMap(byKind);
+  // A group that holds several kinds (a mixed imported group, an older plan) is cut where the kind changes;
+  // then each kind is packed on its own (apartByKind), so a document between scenes does not cut them.
+  const groups = apartByKind(planned.flatMap(byKind), (group) => group[0]?.kind).flat(1);
   const requests: T[][] = [];
   let current: T[] = [];
   let tokens = 0;
