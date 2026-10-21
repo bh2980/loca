@@ -183,6 +183,9 @@ describe('profiles and faults', () => {
     const cut = ask(node('text'), { truncateRate: 1 });
     expect(cut.finishReason).toBe('length');
     expect(() => JSON.parse(cut.content)).toThrow();
+    // Cut short only when the request carries more line text than the limit.
+    expect(ask(node('text'), { truncateOverChars: 1 }).finishReason).toBe('length');
+    expect(ask(node('text'), { truncateOverChars: 100_000 }).finishReason).toBe('stop');
     const limited = ask(node('text'), { rate429: 1 });
     expect(limited.status).toBe(429);
     expect(limited.retryAfterSeconds).toBeGreaterThan(0);

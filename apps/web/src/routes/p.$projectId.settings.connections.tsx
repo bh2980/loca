@@ -12,6 +12,7 @@ import {
   CONNECTION_KINDS,
   connectionInputSchema,
   isFreeModel,
+  UNKNOWN_MAX_OUTPUT,
   type Capability,
   type ConnectionKind,
 } from '@tw/shared';
@@ -305,11 +306,13 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
   const number = { setValueAs: numberOrUndefined };
   // Empty token fields mean the model's own limit: null, so clearing a number is saved too.
   const optionalNumber = { setValueAs: numberOrNull };
-  // What the model list said about this connection's model, shown while a token field is empty.
-  const modelDefault = (field: 'contextWindow' | 'maxOutput') => {
-    const known = connection.modelLimits?.[form.watch('defaultModel') ?? '']?.[field];
-    return known ? `모델 기본값 (${known.toLocaleString()})` : '모델 기본값';
+  // A token field's number in effect: the one typed, else what the model list said about this connection's model (shown as the placeholder), else the default.
+  const limitOf = (field: 'contextWindow' | 'maxOutput', typed: unknown) => {
+    const listed = connection.modelLimits?.[form.watch('defaultModel') ?? '']?.[field];
+    return { tag: typed ? '직접 입력' : listed ? '모델 정보' : '기본값', placeholder: (listed ?? (field === 'maxOutput' ? UNKNOWN_MAX_OUTPUT : undefined))?.toLocaleString() };
   };
+  const inputLimit = limitOf('contextWindow', form.watch('inputTokens'));
+  const outputLimit = limitOf('maxOutput', form.watch('outputTokens'));
   const errors = form.formState.errors;
   const need: Capability[] = info.capabilities.includes('judge') ? ['judge'] : ['generate'];
 
@@ -464,12 +467,17 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
       {!isTool && (
         <InspectorSection title="고급" defaultOpen={false}>
           <InspectorFields>
-            <InspectorField label="입력 토큰" description="비우면 모델 기본값을 씁니다." help="한 번 부를 때 넣을 수 있는 양입니다. AI 노드가 한 번에 보내는 양이 여기에 맞춰집니다." error={errors.inputTokens?.message}>
-              <Input type="number" min={1000} placeholder={modelDefault('contextWindow')} {...form.register('inputTokens', optionalNumber)} aria-invalid={!!errors.inputTokens} />
+            <InspectorField label="입력 토큰" description={inputLimit.tag} help="한 번 부를 때 넣을 수 있는 양입니다. AI 노드가 한 번에 보내는 양이 여기에 맞춰집니다." error={errors.inputTokens?.message}>
+              <Input type="number" min={1000} placeholder={inputLimit.placeholder} {...form.register('inputTokens', optionalNumber)} aria-invalid={!!errors.inputTokens} />
             </InspectorField>
-            {info.capsOutput && (
-              <InspectorField label="출력 토큰" description="비우면 모델 기본값을 씁니다." help="한 번에 받을 수 있는 양입니다." error={errors.outputTokens?.message}>
-                <Input type="number" min={256} placeholder={modelDefault('maxOutput')} {...form.register('outputTokens', optionalNumber)} aria-invalid={!!errors.outputTokens} />
+            {info.capabilities.includes('generate') && (
+              <InspectorField
+                label="출력 토큰"
+                description={outputLimit.tag}
+                help={info.capsOutput ? '한 번에 받을 수 있는 양입니다. 적은 값은 요청마다 상한으로도 보냅니다.' : '한 번에 받을 수 있는 양입니다. 이 연결에는 전달되지 않고, 한 번에 얼마나 보낼지 정하는 데만 쓰입니다.'}
+                error={errors.outputTokens?.message}
+              >
+                <Input type="number" min={256} placeholder={outputLimit.placeholder} {...form.register('outputTokens', optionalNumber)} aria-invalid={!!errors.outputTokens} />
               </InspectorField>
             )}
             {!isTool && (

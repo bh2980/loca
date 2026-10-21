@@ -20,6 +20,20 @@ const usageOf = (usage: ai.Usage | undefined) => ({
   costUsd: usage?.costUsd ?? null,
 });
 
+/**
+ * What a call reported about its model's limits (Claude Code does) is kept in the connection's
+ * modelLimits under the model id the user picked, for "auto" budgets; a person's numbers stay.
+ */
+export function learnLimits(db: Db, connectionId: string | undefined, model: string, learned: ai.Usage['limits']) {
+  if (!connectionId || (!learned?.contextWindow && !learned?.maxOutput)) return;
+  const current = db.select({ limits: s.connections.modelLimits }).from(s.connections).where(eq(s.connections.id, connectionId)).get()?.limits;
+  if (!current || current[model]?.by === 'human') return;
+  const entry = { ...current[model], ...(learned.contextWindow && { contextWindow: learned.contextWindow }), ...(learned.maxOutput && { maxOutput: learned.maxOutput }), by: 'api' as const };
+  if (JSON.stringify(entry) === JSON.stringify(current[model])) return;
+  db.update(s.connections).set({ modelLimits: { ...current, [model]: entry } }).where(eq(s.connections.id, connectionId)).run();
+  events.changed(undefined, 'connections');
+}
+
 /** Starts a log row for a request going out to `route`; finish it with the returned function. */
 export function startCall(db: Db, meta: CallMeta, route: Pick<ai.ResolvedRoute, 'kind' | 'model' | 'connectionId'>) {
   const id = crypto.randomUUID();
@@ -40,6 +54,7 @@ export function startCall(db: Db, meta: CallMeta, route: Pick<ai.ResolvedRoute, 
       .where(eq(s.aiCalls.id, id))
       .run();
     events.changed(meta.projectId ?? undefined, ...topics);
+    learnLimits(db, route.connectionId, route.model, outcome.usage?.limits);
   };
 }
 

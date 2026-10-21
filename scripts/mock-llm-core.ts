@@ -19,10 +19,12 @@ export interface MockOptions {
   badJsonRate: number;
   rate429: number;
   truncateRate: number;
+  /** Answers to requests carrying more than this many characters of line text are cut short (0 = off). */
+  truncateOverChars: number;
   seed: number;
 }
 
-export const DEFAULT_OPTIONS: MockOptions = { fixedTokens: 0, cachedTokens: 0, dropRate: 0, dupRate: 0, emptyRate: 0, badJsonRate: 0, rate429: 0, truncateRate: 0, seed: 1 };
+export const DEFAULT_OPTIONS: MockOptions = { fixedTokens: 0, cachedTokens: 0, dropRate: 0, dupRate: 0, emptyRate: 0, badJsonRate: 0, rate429: 0, truncateRate: 0, truncateOverChars: 0, seed: 1 };
 
 export const PROFILES: Record<string, Partial<MockOptions>> = {
   'cli-like': { fixedTokens: 20000, cachedTokens: 10000, latencyMs: 2000 },
@@ -40,6 +42,7 @@ const NUMBERS: Record<string, keyof MockOptions> = {
   BAD_JSON_RATE: 'badJsonRate',
   '429_RATE': 'rate429',
   TRUNCATE_RATE: 'truncateRate',
+  TRUNCATE_OVER_CHARS: 'truncateOverChars',
   SEED: 'seed',
 };
 
@@ -321,7 +324,9 @@ export function respond(request: MockRequest, options: MockOptions, rand: () => 
 
   let content = JSON.stringify(body);
   let finishReason: 'stop' | 'length' = 'stop';
-  if (rand() < options.truncateRate) {
+  // Line text only (the sources the request carries), so a node's request size decides, not the prompt around it.
+  const tooMuch = options.truncateOverChars > 0 && rows.reduce((sum, row) => sum + row.source.length, 0) > options.truncateOverChars;
+  if (tooMuch || rand() < options.truncateRate) {
     content = content.slice(0, Math.max(1, Math.floor(content.length * 0.6)));
     finishReason = 'length';
     faults.push('truncate');

@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { scopeMismatch } from '../services/run-plan.ts';
 import { and, asc, count, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { choiceKey, nodeName, httpParams, FUNCTIONS, type FunctionName, isWholeScriptWorkflow, nodeModels, CONNECTION_KIND_INFO, workflowInput, AUTO_MARK_IDS, type AutoMark, scriptParams, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels } from '@tw/shared';
+import { AI_OUTPUT_IDS, type AiOutput, choiceKey, nodeName, httpParams, FUNCTIONS, type FunctionName, isWholeScriptWorkflow, nodeModels, CONNECTION_KIND_INFO, workflowInput, AUTO_MARK_IDS, type AutoMark, scriptParams, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -13,6 +13,7 @@ import { runScript } from '../engine/functions/sandbox.ts';
 import { WHOLE_SCRIPT_BUSY, createRunInSteps, FILLING, refuseSecondWholeScript, selectRunTerms, selectRunUnits } from '../engine/run-create.ts';
 import { listBatches, preflight } from '../services/preflight.ts';
 import { choiceLabel, snapshotWorkflowModels } from '../services/routes.ts';
+import { autoOf, modelLimitsOf } from '../services/budgets.ts';
 import { previewRequest } from '../services/request-preview.ts';
 import { continuePreflight, switchedRun } from '../services/run-continue.ts';
 import { deleteWorkflow, saveWorkflow, WorkflowMutationError } from '../services/workflow-mutations.ts';
@@ -129,6 +130,14 @@ export const workflowRoutes = new Hono<Env>()
   .get('/workflows/:id/nodes/:nodeId/request', validate('query', z.object({ sample: z.string().optional() })), (c) => {
     const workflow = found(c.var.deps.db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
     return c.json(found(previewRequest(c.var.deps.db, workflow, c.req.param('nodeId'), c.req.valid('query').sample) ?? undefined, 'AI 노드'));
+  })
+  /** The line text per request "auto" would pick for the node as it is being edited (model, output, batch mode), with what decided it: the model's limits and this node's past requests. */
+  .get('/workflows/:id/nodes/:nodeId/auto-lines', validate('query', z.object({ connectionId: z.string(), model: z.string(), output: z.enum(AI_OUTPUT_IDS as [AiOutput, ...AiOutput[]]), mode: z.enum(['unit', 'group', 'count', 'whole']) })), (c) => {
+    const { db } = c.var.deps;
+    const workflow = found(db.select({ id: s.workflows.id }).from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
+    const { connectionId, model, output, mode } = c.req.valid('query');
+    const { lines, ratio, cap } = autoOf(db, workflow.id, { id: c.req.param('nodeId'), config: { model: { connectionId, model }, output, batch: { mode } } }, modelLimitsOf(db, { connectionId, model }));
+    return c.json({ lines, ratio, cap });
   })
   .post('/workflows/:id/preview', validate('json', scopeSchema), (c) => {
     const { db } = c.var.deps;

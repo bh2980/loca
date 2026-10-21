@@ -11,7 +11,7 @@ import { CompleteRefused } from './editor-complete.ts';
 import { liveChoice } from './routes.ts';
 import type { SecretStore } from './secrets.ts';
 import { addCandidate } from './candidates.ts';
-import { modelLimitsOf, resolveNodeBudgets } from './budgets.ts';
+import { autoOf, modelLimitsOf, resolveNodeBudgets } from './budgets.ts';
 
 export type AssistMode = 'translate' | 'refine';
 
@@ -39,7 +39,7 @@ export async function assistLine(db: Db, secrets: SecretStore, unitId: string, r
 
   const node = { id: 'editor', type: 'ai', position: { x: 0, y: 0 }, config } as AiNode;
   // The context cap follows the button's model window (auto), like an AI node's.
-  const context = buildContext(db, unit.projectId, [unit], resolveNodeBudgets(node, modelLimitsOf(db, config.model)).config.context);
+  const context = buildContext(db, unit.projectId, [unit], resolveNodeBudgets(node, autoOf(db, null, node, modelLimitsOf(db, config.model))).config.context);
   const line = { id: promptLineId(0), unitId: unit.id, groupId: unit.groupId, key: unit.key, kind: unit.kind, speaker: unit.speaker, source: unit.source, candidate: node.config.include.candidate ? request.draft || unit.translation || undefined : undefined };
   const { system, prompt } = buildPrompt(node, { source: project.sourceLanguage, target: project.targetLanguage }, context, [line]);
   const label = `편집기 ${refine ? '다듬기' : 'AI 번역'}`;

@@ -1,11 +1,13 @@
 /** AI node settings, grouped by the user's task: model, instruction, output, advanced. */
 import { useEffect, useState } from 'react';
 import { Plus, X } from 'lucide-react';
-import { AI_OUTPUTS, AI_SCOPES, CONTEXT_FIELDS, CHOICE_SOURCES, CONNECTION_KIND_INFO, BATCH_MODE_LABELS, contextConfigSchema, INPUT_TYPES, nodeName, previousSteps, type WorkflowSubject, type AiOutput, type AiScope, type BatchConfig, type Capability, type ChoiceSource, type WorkflowNode } from '@tw/shared';
+import { AI_OUTPUTS, AI_SCOPES, CONTEXT_FIELDS, CHOICE_SOURCES, CONNECTION_KIND_INFO, BATCH_MODE_LABELS, autoBudgets, contextConfigSchema, INPUT_TYPES, limitsFor, nodeName, previousSteps, type WorkflowSubject, type AiOutput, type AiScope, type BatchConfig, type Capability, type ChoiceSource, type WorkflowNode } from '@tw/shared';
 import { Button, HelpTip, Dialog, DialogContent, DialogHeader, DialogTitle, Input, NumberInput, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, InspectorResult, InspectorSection } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
 import { JsonFieldsEditor } from '@/components/workflow/node-config/json-fields-editor';
+import { numberOrNull } from '@/lib/form-values';
+import { useAutoLines } from '@/components/workflow/node-config/request-preview';
 import { Field, CheckItem, CountRow, StepChips, ToggleRow, outputFieldNames, refsInput, type AiNode, type NodeRefs } from '@/components/workflow/node-config/shared';
 
 
@@ -42,6 +44,10 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
   const chosenModels = new Set([config.model, ...extras].filter((choice) => choice.model).map((choice) => choice.model));
   const setExtra = (index: number, value: ModelValue) => set({ extraModels: extras.map((choice, i) => (i === index ? value : choice)) });
   const connection = refs.connections.find((item) => item.id === config.model.connectionId);
+  // What auto would pick for this node's own model, shown while the field is empty.
+  // From the server for a saved workflow (it also reads this node's past requests); the model's limits alone while it is not saved.
+  const learned = useAutoLines(refs.workflowId, node.id, config.model, config.output, config.batch.mode);
+  const autoLines = learned.data?.lines ?? autoBudgets(limitsFor(connection && { inputTokens: connection.inputTokens ?? null, outputTokens: connection.outputTokens ?? null, modelLimits: connection.modelLimits ?? {} }, config.model.model), config.output, config.batch.mode).lines;
   const takesTemperature = connection ? CONNECTION_KIND_INFO[connection.kind].transport !== 'cli' && connection.kind !== 'systemone' : false;
   const contextOn = [config.include.candidate, context.glossary, context.speech, context.precedingLines > 0, context.previousScenes > 0, context.cast, context.characters, context.relationships, context.documents].filter(Boolean).length;
 
@@ -166,6 +172,23 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
                 </SelectContent>
               </Select>
             </Field>
+            {(config.batch.mode === 'group' || config.batch.mode === 'whole') && (
+              <Field
+                label="요청당 대사 양"
+                hint={config.batch.maxTokens === null ? '자동' : '직접 입력'}
+                help="AI 요청 한 번에 담는 대사의 양입니다. 보통은 비워 두고, 더 잘게 나누고 싶을 때만 적습니다."
+              >
+                <Input
+                  type="number"
+                  min={500}
+                  max={10_000_000}
+                  className="w-40"
+                  value={config.batch.maxTokens ?? ''}
+                  placeholder={autoLines.toLocaleString()}
+                  onChange={(event) => set({ batch: { ...config.batch, maxTokens: numberOrNull(event.target.value) } })}
+                />
+              </Field>
+            )}
             {config.batch.mode === 'count' && (
               <Field label={`요청당 ${INPUT_TYPES[input].label} 수`}>
                 <NumberInput min={1} max={1000} value={config.batch.size} onValueChange={(size) => size !== undefined && set({ batch: { ...config.batch, size } })} />

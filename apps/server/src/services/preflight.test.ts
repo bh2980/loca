@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { importFileSchema } from '@tw/shared';
+import { DEFAULT_BUDGETS, importFileSchema, presetConfig, UNKNOWN_MAX_OUTPUT, workflowDefinitionSchema } from '@tw/shared';
 import { realistic } from '../../../../scripts/realistic-sample.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -67,15 +67,76 @@ describe('preflight', () => {
     // The first AI node is exact: it follows the same plan.
     expect(actual(translate.nodeId)).toBe(translate.requests.expected);
 
-    // Second preflight learns from the run: every node has an expectation within 20% of what ran,
-    // and the connection's fixed overhead is now measured.
+    // Second preflight learns from the run: the requests are sized by the answers it saw (split.ratio),
+    // every node has an expectation within 20% of what the next run sends, and the connection's fixed overhead is now measured.
     const second = await preflight(db, workflow, scope);
+    expect(second.nodes[0].split.ratio).toMatchObject({ by: 'history' });
+    const secondRun = createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope }).runId;
+    await new Runner(db, memoryStore(), model()).drain();
+    const again = db.select().from(s.runSteps).where(eq(s.runSteps.runId, secondRun)).all();
     for (const node of second.nodes) {
       expect(node.requests.expected).not.toBeNull();
-      const ran = actual(node.nodeId);
+      const ran = again.filter((step) => step.nodeId === node.nodeId).length;
       if (ran) expect(Math.abs(node.requests.expected! - ran) / ran).toBeLessThanOrEqual(0.2);
     }
     expect(second.nodes[0].overheadTokens).toBeGreaterThan(10_000);
     expect(second.totals.calls.expected).toBeGreaterThan(0);
   }, 60_000);
+});
+
+describe('preflight split', () => {
+  const setup = (connection: Partial<typeof s.connections.$inferInsert>, batch: { maxTokens?: number } = {}) => {
+    const db = openDatabase(':memory:');
+    const row = db.insert(s.connections).values({ kind: 'openai', name: '연결', baseUrl: 'http://x/v1', ...connection }).returning().get();
+    const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', source: 'Hi' }, { key: 'b', group: 'g', source: 'Bye' }] }));
+    const config = presetConfig('translate', { connectionId: row.id, model: 'm' });
+    const nodes = [{ id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: {} }, { id: 'ai', type: 'ai', position: { x: 0, y: 0 }, config: { ...config, batch: { ...config.batch, ...batch } } }];
+    const definition = workflowDefinitionSchema.parse({ nodes, edges: [{ id: '1', source: 'entry', sourceHandle: 'out', target: 'ai' }] });
+    return preflight(db, { id: null, projectId, definition }, {}).then((result) => result.nodes[0].split);
+  };
+
+  it('explains an API connection\'s split by its listed limits', async () => {
+    const split = await setup({ modelLimits: { m: { contextWindow: 1_000_000, maxOutput: 65_536, by: 'api' } } });
+    expect(split).toMatchObject({ nodeId: 'ai', requests: 1, mode: 'group', linesTokens: 19_500, budgetBy: 'auto', ratio: { value: 2.5, by: 'default', samples: 0 }, cap: null, input: { tokens: 1_000_000, by: 'api' }, output: { tokens: 65_536, by: 'api' }, connectionName: '연결', model: 'm' });
+  });
+
+  it('explains a CLI connection by a person\'s numbers, and the assumed output when only the window is known', async () => {
+    const split = await setup({ kind: 'codex', baseUrl: null, inputTokens: 1_000_000, outputTokens: 30_000 });
+    expect(split).toMatchObject({ linesTokens: 9_000, input: { tokens: 1_000_000, by: 'human' }, output: { tokens: 30_000, by: 'human' } });
+    const assumed = await setup({ kind: 'claude', baseUrl: null, modelLimits: { m: { contextWindow: 1_000_000, by: 'api' } } });
+    expect(assumed).toMatchObject({ linesTokens: 4_500, input: { tokens: 1_000_000, by: 'api' }, output: { tokens: UNKNOWN_MAX_OUTPUT, by: 'assumed' } });
+  });
+
+  it('reports unknown limits with the default budgets', async () => {
+    const split = await setup({ kind: 'codex', baseUrl: null });
+    expect(split).toMatchObject({ linesTokens: DEFAULT_BUDGETS.lines, budgetBy: 'auto', input: { tokens: null, by: null }, output: { tokens: null, by: null } });
+  });
+
+  it('says a number set on the node is the node\'s own', async () => {
+    const split = await setup({ modelLimits: { m: { contextWindow: 1_000_000, maxOutput: 65_536, by: 'api' } } }, { maxTokens: 2_000 });
+    expect(split).toMatchObject({ linesTokens: 2_000, budgetBy: 'node' });
+  });
+
+  it('reports the answer ratio learned from the node\'s past requests and the cap a cut-off answer set', async () => {
+    const db = openDatabase(':memory:');
+    const row = db.insert(s.connections).values({ kind: 'openai', name: '연결', baseUrl: 'http://x/v1', modelLimits: { m: { contextWindow: 1_000_000, maxOutput: 65_536, by: 'api' } } }).returning().get();
+    const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', source: 'x'.repeat(8_000) }, { key: 'b', group: 'g', source: 'x'.repeat(8_000) }] }));
+    const ids = db.select({ id: s.units.id }).from(s.units).all().map((unit) => unit.id);
+    const definition = workflowDefinitionSchema.parse({
+      nodes: [{ id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: {} }, { id: 'ai', type: 'ai', position: { x: 0, y: 0 }, config: presetConfig('translate', { connectionId: row.id, model: 'm' }) }],
+      edges: [{ id: '1', source: 'entry', sourceHandle: 'out', target: 'ai' }],
+    });
+    const workflow = db.insert(s.workflows).values({ projectId, name: 'w', definition }).returning().get();
+    const run = db.insert(s.runs).values({ projectId, workflowId: workflow.id, workflowName: 'w', workflowVersion: 1, definition, scope: {}, status: 'completed', total: 2 }).returning().get();
+    const step = (patch: Partial<typeof s.runSteps.$inferInsert>, at: number) => db.insert(s.runSteps).values({ runId: run.id, nodeId: 'ai', model: 'm', subjectIds: ids, ok: true, outputTokens: 240, returnedItems: 2, startedAt: new Date(at), finishedAt: new Date(at), ...patch }).run();
+    const plan = async () => (await preflight(db, workflow, {})).nodes[0].split;
+
+    expect(await plan()).toMatchObject({ ratio: { value: 2.5, by: 'default', samples: 0 }, cap: null, linesTokens: 19_500 });
+    // Two lines are 2 × (2,000 + 20) tokens; 400 answer tokens a request is a ratio of about 0.1.
+    for (const at of [1, 2, 3]) step({ outputTokens: 404 }, at);
+    expect(await plan()).toMatchObject({ ratio: { value: 0.1, by: 'history', samples: 3 }, cap: { by: 'grown', tokens: 6_000 }, linesTokens: 6_000 });
+    // A cut-off request of that size keeps the next ones below 0.8 of it.
+    step({ ok: false, outputTokens: 900, error: 'finishReason: length' }, 4);
+    expect(await plan()).toMatchObject({ cap: { by: 'cut-off', tokens: 3_000 }, linesTokens: 3_000 });
+  });
 });

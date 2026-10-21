@@ -23,19 +23,19 @@ function setup() {
 }
 
 describe('connection output tokens', () => {
-  it('keeps the cap for an API connection, which sends it with each call', async () => {
+  it('keeps the number for an API connection, which also sends it as each call\'s cap', async () => {
     const { send, outputOf } = setup();
-    const { id } = await (await send('POST', '', { kind: 'openai', name: 'API', outputTokens: 4000 })).json();
+    const { id } = (await (await send('POST', '', { kind: 'openai', name: 'API', outputTokens: 4000 })).json()) as { id: string };
     expect(outputOf(id)).toBe(4000);
     expect((await send('PATCH', `/${id}`, { outputTokens: 8000 })).status).toBe(200);
     expect(outputOf(id)).toBe(8000);
   });
 
-  it('stores no cap for a CLI connection, which picks its own output length', async () => {
+  it('keeps the number for a CLI connection too, where it only sizes requests', async () => {
     const { send, outputOf } = setup();
-    const { id } = await (await send('POST', '', { kind: 'codex', name: 'Codex', outputTokens: 4000 })).json();
-    expect(outputOf(id)).toBeNull();
+    const { id } = (await (await send('POST', '', { kind: 'codex', name: 'Codex', outputTokens: 4000 })).json()) as { id: string };
+    expect(outputOf(id)).toBe(4000);
     expect((await send('PATCH', `/${id}`, { outputTokens: 8000 })).status).toBe(200);
-    expect(outputOf(id)).toBeNull();
+    expect(outputOf(id)).toBe(8000);
   });
 });

@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray, isNotNull, ne, sql } from 'drizzle-orm';
-import { batchConfigSchema, INPUT_TYPES, workflowInput, readinessUses, CONNECTION_KIND_INFO, estimateTokens, isFreeModel, isUnknownListener, needsListener, nodeName, termMatcher, type AiNode, type WorkflowDefinition } from '@tw/shared';
+import { autoBudgets, batchConfigSchema, type BudgetCap, type RatioSource, INPUT_TYPES, workflowInput, readinessUses, CONNECTION_KIND_INFO, estimateTokens, limitsWithSource, isFreeModel, isUnknownListener, needsListener, nodeName, termMatcher, type AiNode, type WorkflowDefinition } from '@tw/shared';
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -9,7 +9,7 @@ import { wholeScriptRequest } from '../engine/whole-script.ts';
 import { resolveChoiceOptions } from './choice-options.ts';
 import { excludedInScope, planRun, sceneLinks, selectRunTerms, selectRunUnits } from '../engine/run-create.ts';
 import { loadTerms, TERM_GROUP, termPrompt } from '../engine/subjects.ts';
-import { resolveBudgets } from './budgets.ts';
+import { autoBudgetsOf, withBudgets } from './budgets.ts';
 import { buildContext } from './context.ts';
 import { choiceLabel } from './routes.ts';
 import { speechRuleIndex } from './speech.ts';
@@ -43,6 +43,40 @@ export interface NodeEstimate {
   overheadTokens: number | null;
   /** From past runs of this workflow: requests per line at this node; null without history. */
   historyRate: number | null;
+  /** How its lines are split into requests, and which numbers decided it. */
+  split: NodeSplit;
+}
+
+/**
+ * Why a node sends the requests it does. `linesTokens` is the line text one request packs to (null
+ * when requests are sized by count or one by one); `budgetBy` says whether a person set it on the
+ * node or it came from the model's limits ("auto"). `input` is the window used (a person's 입력 토큰,
+ * or a listed or learned limit; null when unknown) and `output` the answer length it assumed: a
+ * person's 출력 토큰, a listed or learned limit, or UNKNOWN_MAX_OUTPUT ('assumed') once the window is known.
+ * Both null means neither is known and the default budgets applied.
+ */
+export interface NodeSplit {
+  nodeId: string;
+  requests: number;
+  mode: string;
+  linesTokens: number | null;
+  budgetBy: 'node' | 'auto';
+  /** The answer length per line-text token auto sizing assumed: measured from this node's past requests, or the default for its output kind. */
+  ratio: RatioSource;
+  /** What lowered the auto line budget below its limits-based size, if anything: the largest request that worked (×1.5) or the smallest that was cut off (×0.8). null for a number set on the node. */
+  cap: BudgetCap | null;
+  input: { tokens: number | null; by: 'human' | 'api' | null };
+  output: { tokens: number | null; by: 'human' | 'api' | 'assumed' | null };
+  connectionName: string;
+  model: string;
+}
+
+/** `node` is the resolved node (budgets filled), `own` the definition's, whose maxTokens null means "auto". */
+function splitOf(node: AiNode, own: AiNode | undefined, requests: number, connection: typeof s.connections.$inferSelect | undefined, auto: ReturnType<typeof autoBudgets>): NodeSplit {
+  const batch = batchConfigSchema.parse(node.config.batch ?? {});
+  const set = own ? batchConfigSchema.parse(own.config.batch ?? {}).maxTokens !== null : false;
+  const { input, output } = limitsWithSource(connection, node.config.model.model);
+  return { nodeId: node.id, requests, mode: batch.mode, linesTokens: batch.mode === 'group' || batch.mode === 'whole' ? batch.maxTokens : null, budgetBy: set ? 'node' : 'auto', ratio: auto.ratio, cap: set ? null : auto.cap, input, output, connectionName: connection?.name ?? '', model: node.config.model.model };
 }
 
 /**
@@ -51,9 +85,10 @@ export interface NodeEstimate {
  * The plan is the same one createRun stores (planRun), so the numbers describe the real run.
  */
 export async function preflight(db: Db, workflow: Pick<typeof s.workflows.$inferSelect, 'projectId' | 'definition'> & { id: string | null }, scope: s.RunScope) {
-  const definition: WorkflowDefinition = resolveBudgets(db, workflow.definition);
+  const autos = autoBudgetsOf(db, workflow.id, workflow.definition);
+  const definition: WorkflowDefinition = withBudgets(workflow.definition, autos);
   const projectId = workflow.projectId;
-  if (workflowInput(definition) === 'terms') return termPreflight(db, workflow, definition, scope);
+  if (workflowInput(definition) === 'terms') return termPreflight(db, workflow, definition, autos, scope);
   const unitIds = selectRunUnits(db, projectId, scope);
   const columns = { id: s.units.id, key: s.units.key, groupId: s.units.groupId, seq: s.units.seq, kind: s.units.kind, speaker: s.units.speaker, source: s.units.source, translation: s.units.translation, listener: s.units.listener, listenerOrigin: s.units.listenerOrigin, listenerConfidence: s.units.listenerConfidence, tokens: sql<number>`(length(cast(${s.units.source} as blob)) + 3) / 4` };
   // Most of a project: one scan kept by id is faster than ids in chunks (see planLines).
@@ -104,6 +139,7 @@ export async function preflight(db: Db, workflow: Pick<typeof s.workflows.$infer
       promptTokens: samplePrompt(db, projectId, node, { source: project.sourceLanguage, target: project.targetLanguage }, requests),
       overheadTokens: connection ? overheadOf(db, connection.id) : null,
       historyRate,
+      split: splitOf(node, workflow.definition.nodes.find((candidate): candidate is AiNode => candidate.id === node.id && candidate.type === 'ai'), requests.length, connection, autos.get(node.id)!),
     };
   }
 
@@ -156,7 +192,7 @@ function termBatch(node: AiNode) {
   return (INPUT_TYPES.terms.batchModes as readonly string[]).includes(config.mode) ? config : { ...config, mode: 'count' as const };
 }
 
-async function termPreflight(db: Db, workflow: { id: string | null; projectId: string }, definition: WorkflowDefinition, scope: s.RunScope) {
+async function termPreflight(db: Db, workflow: { id: string | null; projectId: string; definition: WorkflowDefinition }, definition: WorkflowDefinition, autos: ReturnType<typeof autoBudgetsOf>, scope: s.RunScope) {
   const projectId = workflow.projectId;
   const ids = selectRunTerms(db, projectId, scope);
   const { terms } = loadTerms(db, ids);
@@ -190,6 +226,7 @@ async function termPreflight(db: Db, workflow: { id: string | null; projectId: s
         promptTokens: prompt ? estimateTokens(Object.values(buildPrompt(node, languages, prompt.context, prompt.lines)).join('\n\n')) : 0,
         overheadTokens: connection ? overheadOf(db, connection.id) : null,
         historyRate,
+        split: splitOf(node, workflow.definition.nodes.find((candidate): candidate is AiNode => candidate.id === node.id && candidate.type === 'ai'), requests.length, connection, autos.get(node.id)!),
       };
     });
   const sum = (pick: (estimate: NodeEstimate) => number | null) => estimates.reduce<number | null>((total, estimate) => (total === null || pick(estimate) === null ? null : total + pick(estimate)!), 0);

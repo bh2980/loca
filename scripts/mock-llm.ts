@@ -19,6 +19,8 @@
  *   MOCK_BAD_JSON_RATE  fraction of answers that are not valid JSON
  *   MOCK_429_RATE       fraction of requests answered 429 with a Retry-After header
  *   MOCK_TRUNCATE_RATE  fraction of answers cut short with finish_reason "length"
+ *   MOCK_TRUNCATE_OVER_CHARS  answers to requests with more than this many characters of line text are always cut short
+ *                       (finish_reason "length"); shows a run re-splitting after a cut-off, e.g. 600 with 60-line batches
  *   MOCK_SEED           seed of the PRNG, so a run is reproducible (default 1)
  *   MOCK_PROFILE        presets, comma separated; explicit variables win
  *     cli-like  fixed 20000, cached 10000, latency 2000ms

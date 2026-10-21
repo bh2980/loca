@@ -1,6 +1,6 @@
 /** Pieces shared by the node-kind configs: shared field primitives and the node/ref types. */
 import { Button, Checkbox, HelpTip, Input, NumberInput, InspectorField, InspectorToggle, NODE_CARD_KIND_APPEARANCE, Switch, cn } from '@loca/ui';
-import { CONNECTION_KIND_INFO, functionGroup, leavesResult, nodeName, nodeOutputFields, workflowInput, type WorkflowEdge, type WorkflowNode, type WorkflowSubject } from '@tw/shared';
+import { CONNECTION_KIND_INFO, functionGroup, leavesResult, nodeName, nodeOutputFields, workflowInput, type ModelLimits, type WorkflowEdge, type WorkflowNode, type WorkflowSubject } from '@tw/shared';
 import { nodeIcon } from '@/components/workflow/node-view';
 
 export type AiNode = Extract<WorkflowNode, { type: 'ai' }>;
@@ -13,7 +13,7 @@ export interface NodeRefs {
   workflowId?: string;
   statuses: { id: string; name: string; color: string; humanOnly?: boolean }[];
   tags: { id: string; name: string; color: string }[];
-  connections: { id: string; name: string; kind: keyof typeof CONNECTION_KIND_INFO; baseUrl: string | null; fallback: { connectionId: string; model: string } | null }[];
+  connections: { id: string; name: string; kind: keyof typeof CONNECTION_KIND_INFO; baseUrl: string | null; fallback: { connectionId: string; model: string } | null; inputTokens?: number | null; outputTokens?: number | null; modelLimits?: Record<string, ModelLimits> }[];
   nodes: WorkflowNode[];
   edges?: WorkflowEdge[];
   /** Opens another node's settings (a step chip's click). */

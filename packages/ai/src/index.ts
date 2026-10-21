@@ -1,7 +1,7 @@
 import pRetry from 'p-retry';
 import type { LanguageModel } from 'ai';
 import { CONNECTION_KIND_INFO } from '@tw/shared';
-import { cliGenerate, cliModels, cliVersion, describeCli } from './cli.ts';
+import { cliGenerate, cliModelList, cliModels, cliVersion, describeCli } from './cli.ts';
 import { ModelError, toModelError } from './errors.ts';
 import { openaiChatModel, openaiComplete, openaiGenerate, openaiModelList, openaiModels } from './openai.ts';
 import { systemOneAsk, systemOneJudge, systemOneModels } from './systemone.ts';
@@ -53,10 +53,20 @@ export async function listModels(route: Omit<ResolvedRoute, 'model'>): Promise<s
   return null;
 }
 
-/** What the model list says about each model's limits (API connections; CLIs say nothing). */
-export async function listModelLimits(route: Omit<ResolvedRoute, 'model'>): Promise<Record<string, ModelLimitsInfo>> {
-  if (route.kind === 'openai') return (await openaiModelList(route)).limits;
-  return {};
+/**
+ * The model list with what it says about each model's limits: an API's model list, or a CLI's own
+ * list and cache files (codex, grok, opencode; claude and antigravity say nothing). One request or run.
+ */
+export async function listModelCatalog(route: Omit<ResolvedRoute, 'model'>): Promise<{ models: string[] | null; limits: Record<string, ModelLimitsInfo> }> {
+  if (route.kind === 'openai') {
+    const list = await openaiModelList(route);
+    return { models: list.ids, limits: list.limits };
+  }
+  if (route.kind === 'codex' || route.kind === 'grok' || route.kind === 'antigravity' || route.kind === 'opencode' || route.kind === 'claude') {
+    const list = await cliModelList(route.kind, route.executable);
+    return { models: list?.models ?? null, limits: list?.limits ?? {} };
+  }
+  return { models: await listModels(route), limits: {} };
 }
 
 /** Cheap reachability check: API → model list, CLI → `--version`. */

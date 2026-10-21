@@ -1,6 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { events } from '../events.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
+import { eq } from 'drizzle-orm';
 import { closeStaleCalls, logged, startCall } from './ai-calls.ts';
 
 const route = { kind: 'codex' as const, model: 'gpt-test' };
@@ -29,5 +31,36 @@ describe('AI call log', () => {
     second({ usage: { inputTokens: 1 } });
     expect(db.select().from(s.aiCalls).all().at(-1)).toMatchObject({ status: 'failed', error: '오류', inputTokens: null });
     void finish;
+  });
+
+  describe('learned model limits', () => {
+    const limitsOf = (db: ReturnType<typeof openDatabase>, id: string) => db.select({ limits: s.connections.modelLimits }).from(s.connections).where(eq(s.connections.id, id)).get()?.limits;
+    const finishWith = (db: ReturnType<typeof openDatabase>, connectionId: string, limits: { contextWindow?: number; maxOutput?: number }) =>
+      startCall(db, { projectId: null, kind: 'test', label: '시험' }, { kind: 'claude', model: 'opus', connectionId })({ usage: { inputTokens: 1, limits } });
+
+    it('are stored under the picked model, replacing an earlier API entry', () => {
+      const db = openDatabase(':memory:');
+      const { id } = db.insert(s.connections).values({ kind: 'claude', name: 'c', modelLimits: { opus: { contextWindow: 200_000, by: 'api' } } }).returning().get();
+      finishWith(db, id, { contextWindow: 1_000_000, maxOutput: 64_000 });
+      expect(limitsOf(db, id)).toEqual({ opus: { contextWindow: 1_000_000, maxOutput: 64_000, by: 'api' } });
+    });
+
+    it('never replace a person\'s entry', () => {
+      const db = openDatabase(':memory:');
+      const { id } = db.insert(s.connections).values({ kind: 'claude', name: 'c', modelLimits: { opus: { contextWindow: 50_000, by: 'human' } } }).returning().get();
+      finishWith(db, id, { contextWindow: 1_000_000 });
+      expect(limitsOf(db, id)).toEqual({ opus: { contextWindow: 50_000, by: 'human' } });
+    });
+
+    it('write nothing when the value did not change', () => {
+      const db = openDatabase(':memory:');
+      const { id } = db.insert(s.connections).values({ kind: 'claude', name: 'c', modelLimits: { opus: { contextWindow: 1_000_000, maxOutput: 64_000, by: 'api' } } }).returning().get();
+      const changed = vi.spyOn(events, 'changed');
+      finishWith(db, id, { contextWindow: 1_000_000, maxOutput: 64_000 });
+      expect(changed).not.toHaveBeenCalledWith(undefined, 'connections');
+      finishWith(db, id, { contextWindow: 900_000 });
+      expect(changed).toHaveBeenCalledWith(undefined, 'connections');
+      changed.mockRestore();
+    });
   });
 });

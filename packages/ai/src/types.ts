@@ -31,6 +31,8 @@ export interface Usage {
   reasoningTokens?: number;
   /** USD the connection itself reported (some CLIs do); never an estimate from a price catalog. */
   costUsd?: number;
+  /** The model's window and output limit, when the connection reports them with a call (Claude Code does). */
+  limits?: { contextWindow?: number; maxOutput?: number };
 }
 
 const num = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? value : undefined);
