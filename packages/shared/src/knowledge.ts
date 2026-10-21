@@ -58,22 +58,23 @@ export const LISTENER_MIN_CONFIDENCE = 0.9;
 export const isUnsureListener = (line: { listenerOrigin: ListenerOrigin | null; listenerConfidence: number | null }) =>
   line.listenerOrigin === 'ai' && (line.listenerConfidence ?? 0) < LISTENER_MIN_CONFIDENCE;
 /**
- * Listeners that are not one person: everyone present, an unspecified audience (broadcasts,
- * notices, posts), and the speaker themself (thinking aloud). Speech rules can name them as the
- * listener too ("Mira → group"). A listener nobody could tell is null (an AI null = looked, unsure).
+ * Listeners that are not one named person: everyone present, an unspecified audience (broadcasts,
+ * notices, posts), the speaker themself (thinking aloud), and anyone without a profile (extras such
+ * as SWAT, a passer-by). Speech rules can name them as the listener too ("Mira → group"). A listener
+ * nobody could tell is null (an AI null = looked, unsure).
  */
-export const SPECIAL_LISTENERS = { group: '여럿', public: '불특정 다수', self: '혼잣말' } as const;
+export const SPECIAL_LISTENERS = { group: '여럿', public: '불특정 다수', self: '혼잣말', others: '그 밖의 인물' } as const;
 export type SpecialListener = keyof typeof SPECIAL_LISTENERS;
 export const isSpecialListener = (name: string | null | undefined): name is SpecialListener => !!name && Object.hasOwn(SPECIAL_LISTENERS, name);
 /**
- * A speech rule's listener for "everyone else": the speaker's level toward anyone without a rule of
- * their own (extras such as SWAT, a passer-by). Only rules use it; a line's listener is never "others".
+ * "Everyone else": a line's listener when it is addressed to someone without a profile, and a speech
+ * rule's listener for the speaker's level toward anyone without a rule of their own.
  */
-export const OTHERS_LISTENER = 'others';
+export const OTHERS_LISTENER = 'others' satisfies SpecialListener;
 /** What an AI answers when it cannot tell who a line is addressed to: the line stays 청자 미상 and nothing is written. */
 export const UNKNOWN_LISTENER = 'unknown';
 /** A listener as people read it: a name, or the Korean word for a special listener. */
-export const listenerLabel = (name: string) => (isSpecialListener(name) ? SPECIAL_LISTENERS[name] : name === OTHERS_LISTENER ? '그 밖의 사람' : name);
+export const listenerLabel = (name: string) => (isSpecialListener(name) ? SPECIAL_LISTENERS[name] : name);
 
 /** Korean speech levels: the archaic 하소서 (to a king, a god, in prayer), four formal (하십시오·하오·하게·해라) and two informal (해요·해) ones. */
 export const SPEECH_LEVELS = ['hasoseo', 'hasipsio', 'hao', 'hage', 'haera', 'haeyo', 'hae', 'other'] as const;

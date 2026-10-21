@@ -46,6 +46,9 @@ function apply(ctx: Ctx, fn: ApplyFunctionName, params: Record<string, unknown>,
   return ctx.db.transaction((tx) => applyFunctions[fn](tx, params, input));
 }
 
+/** The project's tags besides the one every project starts with (AI 실패). */
+const tagsOfProject = (ctx: { db: { select: () => { from: (table: typeof s.tags) => { all: () => (typeof s.tags.$inferSelect)[] } } } }) => ctx.db.select().from(s.tags).all().filter((tag) => tag.role !== 'aiFailed');
+
 describe('apply node mapping', () => {
   it('reads list items by the field map, drops items missing a required field and takes the first of a lines field', () => {
     const { items, skipped } = applyItems('saveSpeechRules', { list: 'rules', map: { fromName: 'speaker', toName: 'listener', level: 'level', startKey: 'at' } }, {
@@ -162,12 +165,81 @@ describe('apply nodes', () => {
     apply(ctx, 'tagLines', params, { value: '긴급' }, 'a1');
     expect(ctx.db.select().from(s.unitTags).all().map((row) => row.tagId)).toEqual([tag.id]);
     expect(apply(ctx, 'tagLines', params, { value: '없는 태그' }, 'a2').output).toMatchObject({ tagged: false });
-    expect(ctx.db.select().from(s.tags).all()).toHaveLength(1);
+    expect(tagsOfProject(ctx)).toHaveLength(1);
   });
 
   it('is registered as instant functions and names the topics it writes', () => {
     expect(Object.keys(syncFunctions)).toEqual(expect.arrayContaining(Object.keys(APPLY_TOPICS)));
     expect(APPLY_TOPICS.saveTerms).toEqual(['terms']);
     expect(APPLY_TOPICS.saveEvents).toContain('knowledge');
+  });
+});
+
+describe('태그 붙이기 / 떼기', () => {
+  const tagNamesOf = (ctx: Ctx, key: string) => {
+    const unit = ctx.db.select().from(s.units).where(eq(s.units.key, key)).get()!;
+    const tags = tagsOfProject(ctx);
+    return ctx.db.select().from(s.unitTags).where(eq(s.unitTags.unitId, unit.id)).all().map((row) => tags.find((tag) => tag.id === row.tagId)!.name).sort();
+  };
+
+  it('adds and removes the tags picked in the pane', () => {
+    const ctx = setup();
+    const urgent = ctx.db.insert(s.tags).values({ projectId: ctx.projectId, name: '긴급', color: 'x' }).returning().get();
+    expect(apply(ctx, 'tagLines', { action: 'add', tagIds: [urgent.id] }, undefined, 'a1').output).toMatchObject({ tagged: true, action: 'add', tags: ['긴급'] });
+    expect(tagNamesOf(ctx, 'a1')).toEqual(['긴급']);
+    apply(ctx, 'tagLines', { action: 'remove', tagIds: [urgent.id] }, undefined, 'a1');
+    expect(tagNamesOf(ctx, 'a1')).toEqual([]);
+    // Picked 문제 유형 are created in the project the first time they are put on.
+    expect(tagsOfProject(ctx)).toHaveLength(1);
+    apply(ctx, 'tagLines', { action: 'add', kinds: ['format'] }, undefined, 'a1');
+    expect(tagsOfProject(ctx).map((tag) => tag.role)).toEqual([null, 'format']);
+    expect(tagNamesOf(ctx, 'a1')).toEqual(['형식']);
+  });
+
+  it('names its tags by a field of the previous result: problem types are created on first use, other names only match', () => {
+    const ctx = setup();
+    ctx.db.insert(s.tags).values({ projectId: ctx.projectId, name: '긴급', color: 'x' }).run();
+    const params = { action: 'add', map: { tag: 'categories' } };
+    apply(ctx, 'tagLines', params, { categories: ['speech', '용어', '긴급', '없는 태그'] }, 'a1');
+    expect(tagNamesOf(ctx, 'a1')).toEqual(['긴급', '말투', '용어']);
+    expect(tagsOfProject(ctx).map((tag) => tag.name).sort()).toEqual(['긴급', '말투', '용어']);
+    expect(apply(ctx, 'tagLines', params, { categories: ['없는 태그'] }, 'a2').output).toMatchObject({ tagged: false });
+    expect(apply(ctx, 'tagLines', params, undefined, 'a2').output).toMatchObject({ tagged: false });
+    // A single text field works too (a check's kind).
+    apply(ctx, 'tagLines', { action: 'remove', map: { tag: 'kind' } }, { kind: 'speech' }, 'a1');
+    expect(tagNamesOf(ctx, 'a1')).toEqual(['긴급', '용어']);
+  });
+
+  it('a pass-path 떼기 removes only its own kinds and leaves another check\'s tag; allKinds removes every problem type but not the person\'s tags', () => {
+    const ctx = setup();
+    const urgent = ctx.db.insert(s.tags).values({ projectId: ctx.projectId, name: '긴급', color: 'x' }).returning().get();
+    apply(ctx, 'tagLines', { action: 'add', tagIds: [urgent.id], kinds: ['format', 'term'] }, undefined, 'a1');
+    expect(tagNamesOf(ctx, 'a1')).toEqual(['긴급', '용어', '형식']);
+    apply(ctx, 'tagLines', { action: 'remove', map: { tag: 'kind' } }, { kind: 'format', passed: true }, 'a1');
+    expect(tagNamesOf(ctx, 'a1')).toEqual(['긴급', '용어']);
+    apply(ctx, 'tagLines', { action: 'remove', allKinds: true }, undefined, 'a1');
+    expect(tagNamesOf(ctx, 'a1')).toEqual(['긴급']);
+  });
+
+  it('refuses a node with nothing to tag', () => {
+    const ctx = setup();
+    expect(() => apply(ctx, 'tagLines', { action: 'add' }, { x: 1 }, 'a1')).toThrow();
+  });
+});
+
+describe('checks only judge', () => {
+  it('formatCheck and glossaryCheck return a verdict and their kind and touch no tags', () => {
+    const ctx = setup();
+    const unit = ctx.db.select().from(s.units).where(eq(s.units.key, 'a1')).get()!;
+    const item = ctx.db.select().from(s.runItems).where(eq(s.runItems.subjectId, unit.id)).get()!;
+    const input: FunctionInput = { subject: 'lines', unit, item: { ...item, data: { ...item.data, candidateText: '' } }, tagIds: [], projectId: ctx.projectId, runId: ctx.runId };
+    const format = ctx.db.transaction((tx) => syncFunctions.formatCheck!(tx, {}, input));
+    expect(format).toMatchObject({ port: 'fail', output: { passed: false, kind: 'format' } });
+    const glossary = ctx.db.transaction((tx) => syncFunctions.glossaryCheck!(tx, {}, { ...input, item: { ...item, data: { ...item.data, candidateText: '좋아' } } }));
+    expect(glossary).toMatchObject({ port: 'pass', output: { kind: 'term' } });
+    expect(format).not.toHaveProperty('issueTags');
+    expect(glossary).not.toHaveProperty('issueTags');
+    expect(tagsOfProject(ctx)).toEqual([]);
+    expect(ctx.db.select().from(s.unitTags).all()).toEqual([]);
   });
 });

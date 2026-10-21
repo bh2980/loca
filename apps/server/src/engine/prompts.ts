@@ -69,7 +69,7 @@ export const isBatchScope = (node: AiNode) => node.config.output === 'json' && n
 /**
  * The structured answer an AI node must return, by output form. Per-line entries carry the line id;
  * with `ids` the schema also says which ids and how many, so a large batch is less likely to come
- * back short (the runner still asks again for whatever is missing). `options` are a choice node's
+ * back short (lines missing from an answer leave through the error exit, kind `missing`, for a 재요청 node to send again). `options` are a choice node's
  * resolved options (resolveChoiceOptions).
  */
 export function outputSchema(node: AiNode, ids?: string[], options: string[] = node.config.choice.values): z.ZodType<unknown> {

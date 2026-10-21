@@ -15,7 +15,7 @@ import { linkEvents, projectEventFlow } from './event-routes.ts';
 import { deleteNodes, insertLineAfter, linkNodes, nodeByKey, unlinkEdges } from './graph-edit.ts';
 import { characterInput, documentInput, eventInput, relationshipInput, speechRuleInput, termInput } from '../schemas/knowledge.ts';
 import { describeRule, knownListener, speechRuleIndex } from './speech.ts';
-import { workflowIssues } from './workflow-issues.ts';
+import { calledWorkflowErrors, workflowIssues } from './workflow-issues.ts';
 import { statusInput, tagInput } from '../schemas/projects.ts';
 import { createStatus, createTag, deleteStatuses, deleteTags, TaxonomyMutationError, updateStatus, updateTag } from './project-taxonomy.ts';
 import { deleteWorkflow, saveWorkflow, WorkflowMutationError } from './workflow-mutations.ts';
@@ -376,7 +376,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
           scope: 'start_run / plan_run: a lines workflow takes groups/lines/tags/marks; a terms workflow takes terms (ids or sources), term statuses and term marks. A scope of the other kind is refused.',
           usage: 'Typical terms workflow: entry input terms → AI node (json: target, note) → 용어 표기 저장.',
         },
-        definitionShape: 'nodes: [{id, type: entry|ai|function|condition|gather|end, position:{x,y}, label?, config}], edges: [{id, source, sourceHandle (exit id), target}], settings: {maxVisitsPerNode, concurrency, maxConsecutiveFailures}',
+        definitionShape: 'nodes: [{id, type: entry|ai|function|condition|gather|retry|call|end, position:{x,y}, label?, config}], edges: [{id, source, sourceHandle (exit id), target}], settings: {maxVisitsPerNode, maxConsecutiveFailures}',
         aiNode: {
           // From the schema itself, so new fields reach the agent without editing this text.
           config: zod.toJSONSchema(aiNodeConfigSchema, { io: 'input' }),
@@ -392,6 +392,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
           applyNodes: {
             what: 'Apply nodes (反映) put the result of the step before them (the AI/script node they are drawn after; conditions and other save nodes in between pass it on) into the project: they are the workflow form of the write tools below and go through the same services. AI nodes only produce answers (text / verdict / choice / json); saving them is an apply node\'s job.',
             config: 'params = { list (shape "list": the list field in its json output), map (target field → field of the source; nested list fields use "<list>.<sub>" or the same name) }; written now, and knowledge and terms land confirmed or as candidates as the project setting aiAutoConfirm says',
+            tagNode: 'tagLines (태그 붙이기/떼기) is the only node that adds or removes tags: checks (formatCheck, glossaryCheck) and AI verdicts only judge and never tag. params = { action: "add"|"remove", tagIds (project tags), kinds (문제 유형 ids: format, term, speech, meaning, style, other; created in the project the first time they are put on), allKinds (remove only: every 문제 유형), map: { tag: a field of the previous step\'s result holding tag names or 문제 유형 ids, e.g. "categories" of an AI verdict or "kind" of a check } }. Wire fail → add (the categories / the check\'s kind) and pass → remove (only that check\'s kinds; a review passing removes allKinds). The one implicit rule: when a line\'s translation text changes (번역 저장), its 문제 유형 tags are cleared.',
             batchOutputs: 'A json output with scope "batch" is carried by the batch\'s first line only; apply nodes skip the other lines, so a batch is applied once.',
             targets: Object.fromEntries(Object.entries(APPLY_TARGETS).map(([name, target]) => [name, { label: target.label, shape: target.shape, files: target.tool, fields: target.fields.map((field) => `${field.name}${'required' in field && field.required ? '*' : ''}:${field.type}`) }])),
           },
@@ -405,10 +406,22 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
           rulesAfter: 'After a gather, nodes that change an item (apply/status/save nodes and other item-changing functions) are refused; the AI node right after it must use input { previous: true, lines: false } and then gets "previous": [{ parts, count, failed }] (json, scope batch). A gather may not sit inside a loop.',
           typical: 'entry → AI node (reads the script in several requests, batch by count or scene, json output) → 모으기 (fields as needed) → AI node (input { previous: true, lines: false }, batch scope, combines the parts into one result) → end.',
         },
+        retryNode: {
+          what: 'Node type "retry" (재요청): sends lines that failed back to an AI node in smaller requests. Instant, no AI call.',
+          config: '{ kinds (error kinds to send back, default ["cut-off"]), scale (0.1–0.9, default 0.5), maxTimes (1–5, default 2) }',
+          exits: 'retry (다시 보냄; must lead to an AI node), error (오류; the original failure, unchanged)',
+          behavior: 'A line whose last error.kind is in `kinds` and that was sent back fewer than maxTimes times at this node leaves through "retry"; the AI node it reaches batches such lines apart, with its request size (tokens, or lines in count mode) times scale^times. Any other line leaves through "error". Draw: AI error → retry node → retry → the same AI node.',
+        },
+        callNode: {
+          what: 'Node type "call" (워크플로 호출): runs another saved workflow of the same input type at this spot. Instant itself, no AI call.',
+          config: '{ workflowId } (empty until picked; the called workflow may not be this one nor lead back to it, at any depth)',
+          exits: 'out (완료: the line reached the end of the called workflow), error (오류: it would have ended there failed; carries its error.kind and message)',
+          behavior: 'At run start the call is replaced by the called workflow\'s nodes as they are then; this workflow\'s settings (visit and failure limits) apply, the called one\'s entry and settings are ignored. No result is passed: a node after a call reads nothing from inside the called workflow. A workflow that other workflows call cannot be deleted.',
+        },
         conditionData: `JSON Logic over {visits: {[nodeId]: count}, outputs: {[nodeId]: output}, candidate, issues, unit: {kind, speaker, listener, statusId, tagIds, marks} (line workflows only), term: {status, statusBy, hasTarget, lines, marks, tagIds} (term workflows only; lines = how many script lines use it), error: {kind, message, nodeId} | null} (marks: any of ${CONDITION_MARK_IDS.join(', ')}; test with {"in": ["ai", {"var": "unit.marks"}]}; error is the last failure that sent the line out through an "error" exit, kind one of ${ITEM_ERROR_KIND_IDS.join(', ')}; it survives conditions and is cleared when a working node succeeds). Example: {"<": [{"var": "visits.review"}, 3]}, {"==": [{"var": "outputs.review.passed"}, true]} or {"==": [{"var": "error.kind"}, "missing"]}`,
         previousStep: 'An AI node with config.input.previous gets, per line, "previous" = the result of the step before it: the last node on the line\'s way there that leaves a result (AI, script or gather; conditions, checks and save nodes pass it on; a result node\'s error exit carries none), trimmed to input.fields. There is no picking a farther node: draw the graph so the result you need is the step before.',
-        concurrency: 'An AI node sends up to config.concurrency (동시 처리 수, default 1, 1–16) requests at once; with a CLI connection each is a model process. Connections have no limit of their own: every run counts on its own (two runs add up) and chat does not count. To go faster raise the number; never draw copies of a node. HTTP and script nodes share settings.concurrency.',
-        failures: 'The engine never splits or re-sends a request on its own (only rate limits and dropped connections wait for a later request; the run pauses after settings.maxConsecutiveFailures failed requests in a row). Lines an answer left out, a malformed answer, a timeout (the AI node\'s timeoutMinutes, default 10) or a request too large for the model leave through the node\'s "error" exit with error.kind; an exit with no edge ends the line as failed with its reason (re-run failed lines with the run continue). To retry inside the workflow, draw it: error → a condition (e.g. visits.<node> < 2 and error.kind not too-long/cut-off) → the node; to mark lines for a person, route to a status change or tags. The templates draw no retries.',
+        concurrency: 'An AI node sends up to config.concurrency (동시 처리 수, default 1, 1–16) requests at once; with a CLI connection each is a model process. Connections have no limit of their own: every run counts on its own (two runs add up) and chat does not count. To go faster raise the number; never draw copies of a node. HTTP and script function nodes have their own config.concurrency (default 2, 1–8), counted per node.',
+        failures: 'The engine never splits or re-sends a request on its own (only rate limits and dropped connections wait for a later request; every other failed request, a cut-off one included, counts toward settings.maxConsecutiveFailures: the run pauses after that many in a row; a failure a retry node sends back does not count). Lines an answer left out, a malformed answer, a timeout (the AI node\'s timeoutMinutes, default 10) or a request too large for the model leave through the node\'s "error" exit with error.kind; an exit with no edge ends the line as failed with its reason (re-run failed lines with the run continue). To resend a cut-off or too-long request smaller, draw error → a retry node (재요청) → the same AI node (the templates do); to retry the rest, draw error → a condition (e.g. visits.<node> < 2 and error.kind not too-long/cut-off) → the node; to mark lines for a person, route to a status change or tags.',
         rules: [
           'Exactly one entry node.',
           'Every exit except "error" must be connected; an unconnected "out" only warns (the line stops there).',
@@ -430,7 +443,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       inputSchema: z.object({ workflowId: z.string() }),
       execute: ({ workflowId }) => {
         const workflow = db.select().from(s.workflows).where(and(eq(s.workflows.id, workflowId), eq(s.workflows.projectId, projectId))).get();
-        return workflow ? { ...workflow, issues: workflowIssues(db, projectId, workflow.definition) } : { error: '워크플로를 찾을 수 없습니다.' };
+        return workflow ? { ...workflow, issues: workflowIssues(db, projectId, workflow.definition, workflow.id) } : { error: '워크플로를 찾을 수 없습니다.' };
       },
     }),
     read_run: tool({
@@ -545,7 +558,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       execute: ({ id, name, description, definition }) => {
         try {
           const saved = saveWorkflow(db, projectId, { id, name, description, definition });
-          return { ok: true, id: saved.id, issues: workflowIssues(db, projectId, definition) };
+          return { ok: true, id: saved.id, issues: workflowIssues(db, projectId, definition, saved.id) };
         } catch (error) {
           if (error instanceof WorkflowMutationError) return { ok: false, error: error.message };
           throw error;
@@ -553,7 +566,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       },
     }),
     delete_workflow: tool({
-      description: 'Delete a workflow by id. A workflow with a running or paused run cannot be deleted.',
+      description: 'Delete a workflow by id. A workflow with a running or paused run, or one that another workflow calls (a call node), cannot be deleted.',
       inputSchema: z.object({ id: z.string().min(1) }),
       needsApproval: true,
       execute: ({ id }) => {
@@ -636,8 +649,14 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         const picked = resolveRunModels(db, stored.definition, models);
         if (picked.unknown.length) return { ok: false, error: `찾지 못함: ${picked.unknown.join(', ')}` };
         const workflow = { ...stored, definition: withRunModels(stored.definition, picked.models) };
-        const errors = workflowIssues(db, projectId, workflow.definition).filter((issue) => issue.level === 'error');
+        const errors = workflowIssues(db, projectId, workflow.definition, workflow.id).filter((issue) => issue.level === 'error');
         if (errors.length) return { ok: false, error: `워크플로에 오류가 있습니다: ${errors[0].message}` };
+        try {
+          const called = calledWorkflowErrors(db, projectId, workflow.definition, workflow.id);
+          if (called.length) return { ok: false, error: `부르는 워크플로에 오류가 있습니다: ${called[0]}` };
+        } catch (error) {
+          return { ok: false, error: error instanceof Error ? error.message : String(error) };
+        }
         const found = (termIds ?? []).map((term) => ({ term, row: findTerm(db, projectId, term) }));
         if (found.some((entry) => !entry.row)) return { ok: false, error: `찾지 못함: ${found.filter((entry) => !entry.row).map((entry) => `용어 ${entry.term}`).join(', ')}` };
         const subject = workflowInput(workflow.definition);
@@ -883,8 +902,8 @@ export const AGENT_SYSTEM = `당신은 게임 번역 작업실 loca의 프로젝
 
 작업실 개념:
 - 원문은 장면(scene/document/ui 그룹)과 대사(line)로 구성되고, 대사 그래프와 장면 그래프가 있습니다.
-- 대사마다 사용자 정의 상태(미번역 → … → 확정)와 태그가 있습니다.
-- 워크플로는 진입·AI 번역/검수/수정·형식 검사·조건·상태 변경 노드를 이어 번역을 자동화합니다. 사람 검토가 필요하면 '검토함에 표시'가 켜진 상태(예: 사람 확인 필요)로 바꾸고 끝냅니다. 검토함은 그 상태의 대사를 모두 보여 줍니다.
+- 대사마다 사용자 정의 상태(미번역 → 번역됨 → 검토 필요 → 완료 같은 기본 상태, 사용자가 바꿀 수 있음)와 태그가 있습니다.
+- 워크플로는 진입·AI 번역/검수/수정·형식 검사·조건·상태 변경 노드를 이어 번역을 자동화합니다. 사람 검토가 필요하면 '검토함에 표시'가 켜진 상태(기본은 검토 필요)로 바꾸고 끝냅니다. 검토함은 그 상태의 대사를 모두 보여 줍니다.
 - AI 노드는 지금 번역, 확정 용어, 청자·말투 규칙, 앞 대사, 이전 장면, 인물 명단·프로필·관계, 작품 노트(‘번역 문맥에 넣기’를 켠 노트)를 문맥으로 받습니다.
 
 일하는 방식:

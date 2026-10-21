@@ -27,6 +27,8 @@ export interface AiPreset {
   timeoutMinutes?: number;
   /** The workflow inputs it works on (default both: it reads an item's source and translation); the palette offers it there. */
   inputs?: readonly ('lines' | 'terms')[];
+  /** What the node reads from the step before it (input.previous and which of its fields). */
+  input?: { previous: boolean; fields: string[] };
 }
 
 const field = (name: string, type: JsonFieldType, description: string, fields?: JsonField[]): JsonField => ({ name, type, description, ...(fields && { fields }) });
@@ -48,7 +50,7 @@ const RULE_CHARACTERS =
 const RULE_RELATIONSHIPS =
   '- relationships: one per direction that matters, people named as the script does; "changes" give the line id ("at") where the relationship changes, what changed and why.';
 const RULE_EVENTS = '- events: what happened, its cause and its outcome, the people involved; include events that later lines refer back to.';
-const RULE_SPEECH_RULES = `- speechRules: for every speaker → listener direction with several lines (the listener may also be "group", "public" or "self": how the speaker talks to several people present, to an unspecified audience, or to themself), the Korean speech level the translation should use, one of: ${SPEECH_LEVEL_GUIDE}. Decide from the relationship (age, rank, intimacy, hostility, era and setting) as a Korean translator would; narration-like or written addresses often take 해라체, close friends 해체. "address" is how the speaker should address the listener in Korean (e.g. "수사관님", "언니"); when several forms are used, separate them with commas (e.g. "행크 경위님, 경위님"); empty if none. If the level changes at some point (falling out, reconciliation, promotion), give one rule per stretch: "startKey" is the line id where the new stretch begins (empty for the first). Do not mark a single sarcastic or emotional line as a change. "note" says why.`;
+const RULE_SPEECH_RULES = `- speechRules: for every speaker → listener direction with several lines (the listener may also be "group", "public", "self" or "others": how the speaker talks to several people present, to an unspecified audience, to themself, or to anyone else without a profile or an extra of their own), the Korean speech level the translation should use, one of: ${SPEECH_LEVEL_GUIDE}. Decide from the relationship (age, rank, intimacy, hostility, era and setting) as a Korean translator would; narration-like or written addresses often take 해라체, close friends 해체. "address" is how the speaker should address the listener in Korean (e.g. "수사관님", "언니"); when several forms are used, separate them with commas (e.g. "행크 경위님, 경위님"); empty if none. If the level changes at some point (falling out, reconciliation, promotion), give one rule per stretch: "startKey" is the line id where the new stretch begins (empty for the first). Do not mark a single sarcastic or emotional line as a change. "note" says why.`;
 const RULE_TERMS = `- terms: names and words whose Korean form must stay the same across the whole translation: people, places, organizations, products and technology, coined words and in-world concepts (also lower-case ones, such as a slang word, a species or a drug), ranks and titles, and interface words that recur. Not ordinary words. Skip what the glossary already has. "source" exactly as the script writes it, "kind" one of ${TERM_KINDS.join(', ')}, "meaning" one short Korean sentence, "target" the Korean form a translator should use (names by Korean loanword convention), "evidence" a few lines where it appears. At most about 150, the most important first.`;
 /** The terms rule for reading translated lines: the Korean form is taken from the translations, never made up. */
 const RULE_TERMS_FROM_TRANSLATIONS = `- terms: names and words whose Korean form must stay the same across the whole translation: people, places, organizations, products and technology, coined words and in-world concepts (also lower-case ones, such as a slang word, a species or a drug), ranks and titles, and interface words that recur. Not ordinary words. Skip what the glossary already has. "source" exactly as the script writes it, "kind" one of ${TERM_KINDS.join(', ')}, "meaning" one short Korean sentence, "target" the Korean form the translations of those lines use for it; when the lines have no translation, or their translations render it in different ways, leave "target" empty and say so in "meaning". "evidence" a few lines where it appears.`;
@@ -82,7 +84,7 @@ const relationshipFields: JsonField[] = [
 ];
 const speechRuleFields: JsonField[] = [
   field('fromName', 'string', 'The speaker, named as the script does.'),
-  field('toName', 'string', 'The listener: a name, or "group", "public" or "self".'),
+  field('toName', 'string', 'The listener: a name, or "group", "public", "self" or "others" (anyone without a profile of their own, e.g. extras).'),
   field('level', 'string', `The Korean speech level the translation should use, one of: ${SPEECH_LEVELS.join(', ')}. ${SPEECH_LEVEL_GUIDE}.`),
   field('address', 'string', 'How the speaker addresses the listener in Korean (e.g. "수사관님"); several forms separated by commas; empty if none.'),
   field('note', 'string', 'Why this level.'),
@@ -163,19 +165,20 @@ export const AI_PROMPTS = {
       'Keep every placeholder, rich-text tag and line break the source has.',
     ].join('\n'),
   },
-  speechFix: {
-    label: 'AI 말투 맞추기',
-    description: '번역의 어미·호칭만 말투 규칙에 맞게 고칩니다.',
+  revise: {
+    label: 'AI 수정',
+    description: '앞 단계(검사·검수)가 지적한 곳만 번역문에서 고칩니다.',
     output: 'text',
     scope: 'line',
+    // The translation as it stands, and what the check or review found ("previous").
     include: { candidate: true },
     fields: [],
-    context: { speech: true, documents: false, characters: false, relationships: false, glossary: false, precedingLines: 4, previousScenes: 0 },
-    batch: { mode: 'group' },
+    input: { previous: true, fields: ['issues', 'categories', 'kind'] },
     instructions:
-      'Each line has a current translation ("candidate") and, where known, its listener and a confirmed speechRule. ' +
-      'Change only the sentence endings, honorifics and forms of address so the line follows its speechRule; keep the meaning, word choice and everything else as it is. ' +
-      'If a line already follows its rule, or has no rule, return its candidate unchanged. Keep every placeholder, rich-text tag and line break exactly.',
+      'Each line has a translation to fix ("candidate") and what the format check or the review found wrong with it ("previous": "issues" are the problems, "categories" or "kind" their types). ' +
+      'Fix only what those findings point out; keep the meaning, word choice, speech level and everything else as it is. ' +
+      'Keep every placeholder ({name}, %s), rich-text tag and line break of the source exactly. ' +
+      'Return the whole corrected translation of the line. If the findings do not apply to the candidate, return it unchanged.',
   },
   listener: {
     label: 'AI 청자 추정',
@@ -327,6 +330,7 @@ export function presetConfig(id: AiPromptId, model: DraftModelChoice | null | un
     context: preset.context,
     batch: preset.batch,
     timeoutMinutes: preset.timeoutMinutes,
+    ...(preset.input && { input: { lines: true, ...preset.input } }),
     ...overrides,
   });
 }

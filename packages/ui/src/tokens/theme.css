@@ -31,6 +31,8 @@
   --node-header-check: var(--primary-soft);
   --node-header-flow: color-mix(in oklab, var(--review) 18%, var(--card));
   --node-header-status: color-mix(in oklab, var(--success) 14%, var(--card));
+  /* 상태 변경 node: the status hue the graph also uses for states (--graph-kind-state). */
+  --node-header-state: color-mix(in oklab, var(--hue-12) 16%, var(--card));
 
   --chrome: oklch(0.968 0.006 258);
   --panel: oklch(0.984 0.004 258);
@@ -132,6 +134,8 @@
   --node-header-check: oklch(0.37 0.05 256);
   --node-header-flow: color-mix(in oklab, var(--review) 18%, var(--card));
   --node-header-status: color-mix(in oklab, var(--success) 14%, var(--card));
+  /* 상태 변경 node: the status hue the graph also uses for states (--graph-kind-state). */
+  --node-header-state: color-mix(in oklab, var(--hue-12) 16%, var(--card));
 
   --chrome: oklch(0.17 0.011 265);
   --panel: oklch(0.235 0.013 265);

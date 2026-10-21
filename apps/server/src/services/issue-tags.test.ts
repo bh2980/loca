@@ -27,7 +27,7 @@ function setup() {
 describe('tags', () => {
   it('come with the file, one project tag per name', () => {
     const { db, projectId, tagsOf } = setup();
-    expect(db.select({ name: s.tags.name }).from(s.tags).where(eq(s.tags.projectId, projectId)).all().map((tag) => tag.name).sort()).toEqual(['UI', '음성']);
+    expect(db.select({ name: s.tags.name }).from(s.tags).where(eq(s.tags.projectId, projectId)).all().map((tag) => tag.name).sort()).toEqual(['AI 실패', 'UI', '음성']);
     expect(tagsOf('a1')).toEqual(['UI', '음성']);
   });
 

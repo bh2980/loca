@@ -26,8 +26,8 @@ const program = new Command('loca')
 자주 쓰는 흐름:
   번역      loca export --untranslated -g s1 -c 4 -t -o s1.jsonl  →  번역해 채운 뒤  loca import s1.jsonl
   점검      loca check terms -g s1        (찾은 게 있으면 종료 코드 1)
-  워크플로  loca workflows list · loca workflows show 초벌 --json > wf.json  →  고친 뒤  loca workflows save wf.json
-  실행      loca runs plan 초벌 -g s1  →  loca runs start 초벌 -g s1  →  loca runs list · loca runs show <id>
+  워크플로  loca workflows list · loca workflows show 번역 --json > wf.json  →  고친 뒤  loca workflows save wf.json
+  실행      loca runs plan 번역 -g s1  →  loca runs start 번역 -g s1  →  loca runs list · loca runs show <id>
   그래프    loca views create --label "미라와 요나스" -s MIRA JONAS  (링크 출력)
   그 밖     loca tools · loca tools <이름> · loca call <이름> '{...}'
 
@@ -649,12 +649,15 @@ workflows
     type Node = { id: string; type: string; label?: string; config: Record<string, any> };
     const data = await readTool<{ id: string; name: string; description: string; definition: { nodes: Node[]; edges: { source: string; sourceHandle: string; target: string }[] }; issues: { level: string; message: string; nodeId?: string }[] }>('read_workflow', { workflowId: found.id });
     if (globals().json) return print({ id: data.id, name: data.name, description: data.description, definition: data.definition, issues: data.issues });
+    const names = new Map((await unwrap(api().projects[':projectId'].workflows.$get({ param: { projectId: await projectId() } }))).map((item) => [item.id, item.name]));
     const summary = (node: Node) =>
       node.type === 'entry' ? `대상 상태 ${node.config.statusIds?.length ?? 0}개`
       : node.type === 'ai' ? `${node.config.output}·${node.config.scope ?? 'line'}${node.config.preset ? ` · 프리셋 ${node.config.preset}` : ''} · ${node.config.model?.model || '모델 없음'} · 동시 ${node.config.concurrency ?? 1}${node.config.fields?.length ? ` · 필드 ${node.config.fields.map((field: { name: string }) => field.name).join(', ')}` : ''}`
-      : node.type === 'function' ? `${node.config.fn}`
+      : node.type === 'function' ? `${node.config.fn}${node.config.fn === 'http' || node.config.fn === 'script' ? ` · 동시 ${node.config.concurrency ?? 2}` : ''}`
       : node.type === 'condition' ? JSON.stringify(node.config.expression)
+      : node.type === 'retry' ? `재요청 · 오류 ${(node.config.kinds ?? []).join(',')} · 크기 ×${node.config.scale} · 최대 ${node.config.maxTimes}번`
       : node.type === 'gather' ? `모으기 (앞 단계 결과)${node.config.fields?.length ? ` · 필드 ${node.config.fields.join(', ')}` : ''}`
+      : node.type === 'call' ? `호출: ${names.get(node.config.workflowId) ?? (node.config.workflowId ? `(없는 워크플로 ${node.config.workflowId})` : '고르지 않음')}`
       : '';
     console.log(`${data.name}  (${data.id})${data.description ? `\n${data.description}` : ''}\n`);
     for (const node of data.definition.nodes) {

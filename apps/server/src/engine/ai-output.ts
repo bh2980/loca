@@ -1,4 +1,4 @@
-import type { AiNode, IssueKind, JsonField } from '@tw/shared';
+import { OTHERS_LISTENER, type AiNode, type IssueKind, type ItemErrorKind, type JsonField } from '@tw/shared';
 import type { FunctionResult } from './functions/index.ts';
 import { answerSchema, type PromptLine } from './prompts.ts';
 
@@ -8,6 +8,8 @@ export interface Outcome extends FunctionResult {
   origin?: 'ai' | 'tool';
   model?: string;
   error?: string;
+  /** The failure kind an error exit carries (default: other). */
+  errorKind?: ItemErrorKind;
 }
 
 /**
@@ -44,13 +46,12 @@ export function readAiOutput(node: AiNode, raw: unknown, lines: PromptLine[], mo
       return lines.map((line) => {
         const result = entryOf(line) as ({ passed: boolean; issues: string[]; categories?: IssueKind[] } & { id: string }) | undefined;
         if (!result) return null;
-        // A review covers every kind: passing clears them, failing names what it found (기타 when it did not say).
+        // Failing names what it found (기타 when it did not say); a 태그 붙이기 node after it turns that into tags.
         const kinds = result.categories?.length ? [...new Set(result.categories)] : (['other'] as IssueKind[]);
         return {
           port: result.passed ? 'pass' : 'fail',
           issues: result.passed ? undefined : result.issues,
           output: { passed: result.passed, issues: result.issues, ...(!result.passed && { categories: kinds }) },
-          issueTags: result.passed ? { clear: 'all' } : { add: kinds },
         };
       });
     case 'choice':
@@ -58,10 +59,18 @@ export function readAiOutput(node: AiNode, raw: unknown, lines: PromptLine[], mo
         const entry = entryOf(line);
         if (!entry) return null;
         const answer = typeof entry.value === 'string' ? entry.value.trim() : '';
-        // An answer outside the options counts as no answer.
-        const chosen = answer && (!choiceOptions.length || choiceOptions.includes(answer)) ? answer : null;
-        const reason = typeof entry.reason === 'string' && entry.reason.trim() ? entry.reason.trim() : undefined;
-        return { port: 'out', output: { value: chosen, confidence: Math.min(1, Math.max(0, Number(entry.confidence) || 0)), ...(reason && { reason }) } };
+        const given = typeof entry.reason === 'string' && entry.reason.trim() ? entry.reason.trim() : undefined;
+        const confidence = Math.min(1, Math.max(0, Number(entry.confidence) || 0));
+        // No answer at all is an explicit "none of these" (해당 없음): value null.
+        if (!answer) return { port: 'out', output: { value: null, confidence, ...(given && { reason: given }) } };
+        if (!choiceOptions.length || choiceOptions.includes(answer)) return { port: 'out', output: { value: answer, confidence, ...(given && { reason: given }) } };
+        // An answer outside the options: a name the cast does not have is someone without a profile (그 밖의 인물),
+        // the AI's own words kept as the reason; for any other list the line leaves through the error exit.
+        if (node.config.choice.source === 'characters') {
+          const reason = `AI가 적은 청자: ${answer}${given ? ` · ${given}` : ''}`;
+          return { port: 'out', output: { value: OTHERS_LISTENER, confidence, reason } };
+        }
+        return { port: 'error', error: `선택지에 없는 답: ${answer}`, errorKind: 'invalid-output' };
       });
     case 'json': {
       const fields = node.config.fields;

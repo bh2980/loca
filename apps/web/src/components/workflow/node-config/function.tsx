@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Play, Plus, Trash2 } from 'lucide-react';
-import { APPLY_FUNCTION_NAMES, APPLY_TARGETS, fieldsFromSample, httpParams, nodeOutputFields, applyIssues, DEFAULT_PARTICLE_PATTERN, formatPatternError, FUNCTIONS, functionTakes, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, JSON_FIELD_TYPE_LABELS, nodeName, PALETTE_FUNCTION_NAMES, previousSteps, type ApplyField, type ApplyFunctionName, type ApplyParams, type CustomFormatRule, type JsonFieldType, type WorkflowDefinition, type FunctionName, type JsonField, type WorkflowNode } from '@tw/shared';
+import { APPLY_FUNCTION_NAMES, APPLY_TARGETS, ISSUE_KIND_IDS, ISSUE_KINDS, issueKindOf, TAG_ACTIONS, tagLinesParams, fieldsFromSample, httpParams, nodeOutputFields, applyIssues, DEFAULT_PARTICLE_PATTERN, formatPatternError, FUNCTIONS, functionTakes, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, JSON_FIELD_TYPE_LABELS, nodeName, PALETTE_FUNCTION_NAMES, previousSteps, type ApplyField, type ApplyFunctionName, type ApplyParams, type IssueKind, type TagAction, type TagLinesParams, type CustomFormatRule, type JsonFieldType, type WorkflowDefinition, type FunctionName, type JsonField, type WorkflowNode } from '@tw/shared';
 import { Button, Input, NumberInput, InspectorActionRow, InspectorFields, InspectorList, InspectorResult, InspectorToggle, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, StatusIcon, TagChip } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
 import { AiConfirmNote } from '@/components/settings/ai-confirm';
@@ -10,7 +10,7 @@ import { cn } from '@/lib/utils';
 import { AiRegexInput } from '@/components/ai-regex-input';
 import { client, unwrap } from '@/lib/api';
 import { JsonFieldsEditor } from '@/components/workflow/node-config/json-fields-editor';
-import { Field, StepChips, refsInput, type FunctionNode, type NodeRefs } from '@/components/workflow/node-config/shared';
+import { Field, StepChips, ToggleRow, refsInput, type FunctionNode, type NodeRefs } from '@/components/workflow/node-config/shared';
 
 // ── function node ─────────────────────────────────────────────────────
 
@@ -39,6 +39,8 @@ export function FunctionConfig({ node, refs, readOnly, onChange }: { node: Funct
         return <HttpConfig params={params} refs={refs} set={set} />;
       case 'script':
         return <ScriptConfig params={params} projectId={refs.projectId} readOnly={readOnly} set={set} />;
+      case 'tagLines':
+        return <TagLinesConfig node={node} params={params as TagLinesParams} refs={refs} setMany={setMany} />;
       default:
         return fn in APPLY_TARGETS ? <ApplyConfig node={node} fn={fn as ApplyFunctionName} params={params as ApplyParams} refs={refs} setMany={setMany} /> : null;
     }
@@ -51,7 +53,7 @@ export function FunctionConfig({ node, refs, readOnly, onChange }: { node: Funct
           value={fn}
           onValueChange={(nextFn) => {
             const keepLabel = node.label && node.label !== FUNCTIONS[fn]?.label ? node.label : undefined;
-            onChange({ ...node, label: keepLabel, config: { fn: nextFn, params: {} } });
+            onChange({ ...node, label: keepLabel, config: { ...node.config, fn: nextFn, params: {} } });
           }}
         >
           <SelectTrigger className="w-full">
@@ -67,6 +69,11 @@ export function FunctionConfig({ node, refs, readOnly, onChange }: { node: Funct
         </Select>
       </Field>
       {renderBody()}
+      {info.async && (
+        <Field label="동시 처리 수" hint="1~8개." help="이 노드가 동시에 보내는 호출 수입니다. 늘리면 빨라지지만, 받는 쪽이 요청 한도에 걸리기 쉽습니다.">
+          <NumberInput min={1} max={8} className="w-28" value={node.config.concurrency} onValueChange={(concurrency) => concurrency !== undefined && onChange({ ...node, config: { ...node.config, concurrency } })} />
+        </Field>
+      )}
     </InspectorFields>
   );
 }
@@ -236,6 +243,94 @@ function SetStatusConfig({ params, refs, set, setMany }: { params: Record<string
   );
 }
 
+
+/**
+ * 태그 붙이기 / 떼기: what to do, which tags (picked here and/or named by a field of the previous step's
+ * result), and for 떼기 every 문제 유형. Checks and reviews only judge; this node is where tags change.
+ */
+function TagLinesConfig({ node, params, refs, setMany }: { node: FunctionNode; params: TagLinesParams; refs: NodeRefs; setMany: (patch: Record<string, unknown>) => void }) {
+  const add = params.action === 'add';
+  const terms = refsInput(refs) === 'terms';
+  const definition = { nodes: refs.nodes, edges: refs.edges ?? [] } as unknown as WorkflowDefinition;
+  const steps = previousSteps(definition, node.id).filter((step) => step.type !== 'gather');
+  // Fields that can hold tag names: texts and lists of texts.
+  const fields = [...new Map(steps.flatMap((step) => nodeOutputFields(step) ?? []).filter((field) => field.type === 'string' || field.type === 'strings').map((field) => [field.name, field])).values()];
+  const from = params.map.tag;
+  const own = refs.tags.filter((tag) => !issueKindOf(tag.name));
+  const toggle = (key: 'tagIds' | 'kinds', id: string) => {
+    const list = params[key] as string[];
+    setMany({ [key]: list.includes(id) ? list.filter((item) => item !== id) : [...list, id] });
+  };
+  const chip = (on: boolean, label: string, color: string, onClick: () => void) => (
+    <Button key={label} variant="ghost" size="inline" className="h-auto p-0 hover:bg-transparent" aria-pressed={on} onClick={onClick}>
+      {on && <span className="text-xs text-muted-foreground">{add ? '+' : '−'}</span>}
+      <TagChip tag={{ name: label, color }} className={cn(!on && 'opacity-50 hover:opacity-100', on && !add && 'line-through')} />
+    </Button>
+  );
+  const issues = applyIssues(definition, node.id, 'tagLines', params);
+
+  return (
+    <>
+      <Field label="동작">
+        <Select value={params.action} onValueChange={(action) => setMany({ action, ...(action === 'add' && { allKinds: false }) })}>
+          <SelectTrigger className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {(Object.keys(TAG_ACTIONS) as TagAction[]).map((action) => (
+              <SelectItem key={action} value={action}>
+                {TAG_ACTIONS[action]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </Field>
+
+      <Field label="고른 태그" hint={`누르면 ${add ? '붙일' : '뗄'} 태그에 넣고, 한 번 더 누르면 뺍니다.`}>
+        <div className="flex flex-wrap gap-1.5">
+          {!terms &&
+            ISSUE_KIND_IDS.map((kind: IssueKind) => chip(params.kinds.includes(kind) || (!add && params.allKinds), ISSUE_KINDS[kind].name, ISSUE_KINDS[kind].color, () => !params.allKinds && toggle('kinds', kind)))}
+          {own.map((tag) => chip(params.tagIds.includes(tag.id), tag.name, tag.color, () => toggle('tagIds', tag.id)))}
+        </div>
+        {!terms && !add && <ToggleRow label="모든 문제 유형" help="검사·검수가 남긴 문제 유형 태그를 모두 뗍니다. 사람이 만든 태그는 그대로 둡니다." checked={params.allKinds} onChange={(allKinds) => setMany({ allKinds, ...(allKinds && { kinds: [] }) })} />}
+      </Field>
+
+      <Field
+        label="앞 단계 결과의 종류"
+        hint={steps.length ? '고르면 그 필드의 값이 태그 이름입니다. 문제 유형은 이름이나 영문 id(speech)로 씁니다.' : undefined}
+        help="AI 검수의 categories, 검사의 kind처럼 앞 단계가 알려준 문제 유형으로 태그를 정합니다. 고른 태그와 함께 쓸 수 있습니다."
+      >
+        {steps.length ? (
+          <>
+            <StepChips steps={steps} refs={refs} suffix="의 결과" />
+            <Select value={from ?? 'none'} onValueChange={(next) => setMany({ map: next === 'none' ? {} : { tag: next } })}>
+              <SelectTrigger className="w-full" aria-label="태그 이름 필드">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">쓰지 않음</SelectItem>
+                {from && !fields.some((field) => field.name === from) && <SelectItem value={from}>{from} (없어짐)</SelectItem>}
+                {fields.map((field) => (
+                  <SelectItem key={field.name} value={field.name}>
+                    {field.name} · {JSON_FIELD_TYPE_LABELS[field.type]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </>
+        ) : (
+          <p className="text-xs text-muted-foreground">앞 단계에 결과를 내는 노드(AI·검사·스크립트)가 없습니다.</p>
+        )}
+      </Field>
+
+      {issues.map((message) => (
+        <InspectorResult key={message} tone="info">
+          {message}
+        </InspectorResult>
+      ))}
+    </>
+  );
+}
 
 const PLACEHOLDERS = '{{candidate}}, {{unit.source}}, {{unit.speaker}}, {{unit.key}}, {{previous.<필드>}}, {{outputs.<노드ID>.<필드>}}';
 

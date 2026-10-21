@@ -25,15 +25,16 @@ import {
 import '@xyflow/react/dist/style.css';
 import { ArrowLeftRight, ArrowUpDown, ChevronRight, Copy, Focus, LayoutGrid, Maximize, Pencil, Plus, SlidersHorizontal, Trash2, Unlink } from 'lucide-react';
 import { toast } from 'sonner';
-import { AI_PRESETS, APPLY_PALETTE_ORDER, INPUT_TYPES, type BatchConfig, functionGroup, APPLY_TARGETS, FUNCTIONS, FUNCTION_NAMES, functionTakes, presetTakes, workflowInput, PALETTE_FUNCTION_NAMES, nodeModels, nodeName, nodePorts, syncEntryEdges, workflowNodeSchema, type FunctionName, type WorkflowDefinition, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
+import { AI_PRESETS, APPLY_PALETTE_ORDER, INPUT_TYPES, NODE_TYPES, retryConfigSchema, type BatchConfig, functionGroup, APPLY_TARGETS, FUNCTIONS, FUNCTION_NAMES, functionTakes, presetTakes, workflowInput, PALETTE_FUNCTION_NAMES, nodeModels, nodeName, nodePorts, syncEntryEdges, workflowNodeSchema, type FunctionName, type WorkflowDefinition, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
 import { Page, StatusBarItem } from '@/components/page';
 import { autoLayout } from '@/components/workflow/auto-layout';
+import { WorkflowSettings } from '@/components/workflow/workflow-settings';
 import { NodeConfig } from '@/components/workflow/node-config';
 import { WorkflowNodeView, type FlowNode } from '@/components/workflow/node-view';
 import { WorkflowEdgeView, type FlowEdge } from '@/components/workflow/workflow-edge';
 import { entryStarts, flowEdges, nodeSummary, openPorts, targetStatus } from '@/components/workflow/flow-graph';
 import { RunDialog } from '@/components/workflow/run-dialog';
-import { SplitPane, PageHeading, HeaderActions, NodeLibrary, CanvasToolbar, CanvasSurface, SelectionToolbox, type CanvasDirection, type NodeLibraryGroup, Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent, DropdownMenuLabel, Input, Skeleton } from '@loca/ui';
+import { SplitPane, PageHeading, HeaderActions, NodeLibrary, CanvasToolbar, CanvasSurface, SelectionToolbox, type CanvasDirection, type NodeLibraryGroup, Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent, DropdownMenuLabel, Input, Skeleton, Popover, PopoverContent, PopoverTrigger } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { tagsIn, q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
@@ -143,6 +144,7 @@ function WorkflowEditor() {
   const statuses = useQuery(q.statuses(projectId));
   const connections = useQuery(q.connections());
   const runs = useQuery(q.runs(projectId));
+  const workflows = useQuery(q.workflows(projectId));
   const activeRun = runs.data?.find((run) => run.workflowId === workflowId && (run.status === 'running' || run.status === 'paused'));
 
   // The draft survives navigation and reloads; it is dropped only on save or explicit discard.
@@ -235,7 +237,7 @@ function WorkflowEditor() {
     const connection = connections.data?.find((item) => item.defaultModel && item.kind !== 'http' && item.kind !== 'systemone');
     return connection ? { connectionId: connection.id, model: connection.defaultModel!, ...(connection.defaultEffort && { effort: connection.defaultEffort }) } : { connectionId: '', model: '' };
   };
-  const summaryNames = { status: new Map(statuses.data?.statuses.map((status) => [status.id, status.name])), connection: new Map(connections.data?.map((connection) => [connection.id, connection.name])), connectionsLoaded: Boolean(connections.data) };
+  const summaryNames = { status: new Map(statuses.data?.statuses.map((status) => [status.id, status.name])), connection: new Map(connections.data?.map((connection) => [connection.id, connection.name])), connectionsLoaded: Boolean(connections.data), workflows: workflows.data };
   const summary = (node: WorkflowNode) => (current ? nodeSummary(node, current.definition, summaryNames) : '');
 
   // React Flow measures each node and reports it as a 'dimensions' change; nodes rebuilt without
@@ -526,6 +528,7 @@ function WorkflowEditor() {
       </Page>
     );
 
+  const calledBy = workflow.data.calledBy ?? [];
   const errorCount = issues.filter((issue) => issue.level === 'error').length;
   // The palette offers the core nodes and those of the workflow's input (INPUT_TYPES via functionTakes / presetTakes).
   const input = workflowInput(current.definition);
@@ -546,7 +549,7 @@ function WorkflowEditor() {
     {
       id: 'apply',
       label: '반영',
-      items: APPLY_PALETTE_ORDER.filter((fn) => functionTakes(fn, input)).map((fn) => ({ id: fn, label: FUNCTIONS[fn].label, kind: 'apply' as const, icon: null })),
+      items: APPLY_PALETTE_ORDER.filter((fn) => functionTakes(fn, input)).map((fn) => ({ id: fn, label: FUNCTIONS[fn].label, kind: fn === 'setStatus' ? ('status' as const) : ('apply' as const), icon: null })),
     },
     {
       id: 'function',
@@ -559,6 +562,8 @@ function WorkflowEditor() {
       items: [
         { id: 'condition', label: '조건', kind: 'condition' as const, icon: null },
         { id: 'gather', label: '모으기', kind: 'gather' as const, icon: null },
+        { id: 'retry', label: '재요청', kind: 'retry' as const, icon: null, description: NODE_TYPES.retry.description },
+        { id: 'call', label: '워크플로 호출', kind: 'call' as const, icon: null, description: '다른 워크플로를 여기서 돌립니다.' },
       ],
     },
   ];
@@ -573,9 +578,11 @@ function WorkflowEditor() {
       const { label, description: _description, ...config } = preset;
       addNode({ type: 'ai', label, config: { ...config, batch: batchFor(config.batch as { mode?: BatchConfig['mode'] } | undefined), model: newNodeModel(), preset: id } } as never, id, position);
     }
-    else if (FUNCTION_NAMES.includes(id as FunctionName)) addNode({ type: 'function', config: { fn: id, params: {} } }, id, position);
+    else if (FUNCTION_NAMES.includes(id as FunctionName)) addNode({ type: 'function', config: { fn: id, params: {}, concurrency: 2 } }, id, position);
     else if (id === 'ai') addNode({ type: 'ai', config: { model: newNodeModel(), output: 'json', scope: 'line', batch: batchFor(), fields: [{ name: 'note', type: 'string', description: '' }] } } as never, id, position);
     else if (id === 'gather') addNode({ type: 'gather', config: { from: '', fields: [] } }, id, position);
+    else if (id === 'retry') addNode({ type: 'retry', config: retryConfigSchema.parse({}) }, id, position);
+    else if (id === 'call') addNode({ type: 'call', config: { workflowId: '' } }, id, position);
     else if (id === 'condition') addNode({ type: 'condition', config: { expression: true, description: '' } }, id, position);
   };
   const deleteNode = (nodeId: string) => {
@@ -656,6 +663,24 @@ function WorkflowEditor() {
       <PageHeading>
         <Link to="/p/$projectId/workflows" params={{ projectId }} className="text-xs text-muted-foreground">워크플로</Link><ChevronRight className="size-3 text-muted-foreground" />
         <NameField name={current.name} onRename={(name) => setDraft((value) => ({ ...value, name }))} />
+        {calledBy.length > 0 && (
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="ghost" size="sm" className="text-xs text-muted-foreground">워크플로 {calledBy.length}개가 이 워크플로를 부릅니다</Button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-64 p-2">
+              <ul className="space-y-0.5">
+                {calledBy.map((caller) => (
+                  <li key={caller.id}>
+                    <Button variant="ghost" size="sm" className="w-full justify-start font-normal" asChild>
+                      <Link to="/p/$projectId/workflows/$workflowId" params={{ projectId, workflowId: caller.id }}><span className="truncate">{caller.name}</span></Link>
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </PopoverContent>
+          </Popover>
+        )}
         <span className="truncate text-xs text-muted-foreground" role="status">{save.isPending ? '저장 중…' : save.isError ? '저장 실패 · 편집 보관됨' : draft ? '저장 대기' : `자동 저장됨 ${savedAt(workflow.data.updatedAt)}`}</span>
       </PageHeading>
       <HeaderActions>
@@ -686,7 +711,11 @@ function WorkflowEditor() {
         defaultWidth="360px"
         className="h-full"
         pane={
-          selected && (
+          current && !selected && !multi.length ? (
+            <div className="h-full min-w-0 overflow-x-hidden bg-background">
+              <WorkflowSettings settings={current.definition.settings} onChange={(settings) => setDraft((value) => ({ ...value, definition: { ...value.definition, settings } }))} />
+            </div>
+          ) : selected && (
             <div className="h-full min-w-0 overflow-x-hidden bg-background">
               <NodeConfig
                 key={`${selected.id}:${revision}`}
@@ -703,6 +732,7 @@ function WorkflowEditor() {
                   connections: connections.data ?? [],
                   nodes: current.definition.nodes,
                   edges: current.definition.edges,
+                  workflows: workflows.data,
                   onOpenNode: select,
                 }}
                 onChange={(next) => setDraft((value) => ({ ...value, definition: { ...value.definition, nodes: value.definition.nodes.map((node) => (node.id === next.id ? next : node)), edges: value.definition.edges.map((edge) => ({ ...edge, layout: undefined })) } }))}

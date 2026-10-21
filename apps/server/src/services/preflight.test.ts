@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { DEFAULT_BUDGETS, importFileSchema, presetConfig, UNKNOWN_MAX_OUTPUT, workflowDefinitionSchema } from '@tw/shared';
 import { realistic } from '../../../../scripts/realistic-sample.ts';
 import { openDatabase } from '../db/index.ts';
+import { translateOnlyWorkflow } from '../engine/test-workflows.ts';
 import * as s from '../db/schema.ts';
 import { promptEntries } from '../engine/prompts.ts';
 import { Runner, type ModelPort } from '../engine/runner.ts';
@@ -44,7 +45,7 @@ describe('preflight', () => {
     db.update(s.connections).set({ outputTokens: 4000, maxAttempts: 1 }).where(eq(s.connections.id, connection.id)).run();
   const choice = { connectionId: connection.id, model: 'm' };
     const { projectId } = importProject(db, importFileSchema.parse(realistic(3000).file), choice);
-    const workflow = db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).all().find((row) => row.name === '초벌 번역')!;
+    const workflow = translateOnlyWorkflow(db, projectId);
     const scope = {};
 
     // First run: no history yet, so only nodes every line passes have an expectation.
@@ -67,10 +68,8 @@ describe('preflight', () => {
     // The first AI node is exact: it follows the same plan.
     expect(actual(translate.nodeId)).toBe(translate.requests.expected);
 
-    // Second preflight learns from the run: the requests are sized by the answers it saw (split.ratio),
-    // every node has an expectation within 20% of what the next run sends, and the connection's fixed overhead is now measured.
+    // Second preflight learns from the run: every node has an expectation within 20% of what the next run sends, and the connection's fixed overhead is now measured.
     const second = await preflight(db, workflow, scope);
-    expect(second.nodes[0].split.ratio).toMatchObject({ by: 'history' });
     const secondRun = createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope }).runId;
     await new Runner(db, memoryStore(), model()).drain();
     const again = db.select().from(s.runSteps).where(eq(s.runSteps.runId, secondRun)).all();
@@ -97,7 +96,7 @@ describe('preflight split', () => {
 
   it('explains an API connection\'s split by its listed limits', async () => {
     const split = await setup({ modelLimits: { m: { contextWindow: 1_000_000, maxOutput: 65_536, by: 'api' } } });
-    expect(split).toMatchObject({ nodeId: 'ai', requests: 1, mode: 'group', linesTokens: 19_500, budgetBy: 'auto', ratio: { value: 2.5, by: 'default', samples: 0 }, cap: null, input: { tokens: 1_000_000, by: 'api' }, output: { tokens: 65_536, by: 'api' }, connectionName: '연결', model: 'm' });
+    expect(split).toMatchObject({ nodeId: 'ai', requests: 1, mode: 'group', linesTokens: 19_500, budgetBy: 'auto', input: { tokens: 1_000_000, by: 'api' }, output: { tokens: 65_536, by: 'api' }, connectionName: '연결', model: 'm' });
   });
 
   it('explains a CLI connection by a person\'s numbers, and the assumed output when only the window is known', async () => {
@@ -117,7 +116,7 @@ describe('preflight split', () => {
     expect(split).toMatchObject({ linesTokens: 2_000, budgetBy: 'node' });
   });
 
-  it('reports the answer ratio learned from the node\'s past requests and the cap a cut-off answer set', async () => {
+  it('sizes the same after past requests, short or cut off', async () => {
     const db = openDatabase(':memory:');
     const row = db.insert(s.connections).values({ kind: 'openai', name: '연결', baseUrl: 'http://x/v1', modelLimits: { m: { contextWindow: 1_000_000, maxOutput: 65_536, by: 'api' } } }).returning().get();
     const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', source: 'x'.repeat(8_000) }, { key: 'b', group: 'g', source: 'x'.repeat(8_000) }] }));
@@ -131,12 +130,26 @@ describe('preflight split', () => {
     const step = (patch: Partial<typeof s.runSteps.$inferInsert>, at: number) => db.insert(s.runSteps).values({ runId: run.id, nodeId: 'ai', model: 'm', subjectIds: ids, ok: true, outputTokens: 240, returnedItems: 2, startedAt: new Date(at), finishedAt: new Date(at), ...patch }).run();
     const plan = async () => (await preflight(db, workflow, {})).nodes[0].split;
 
-    expect(await plan()).toMatchObject({ ratio: { value: 2.5, by: 'default', samples: 0 }, cap: null, linesTokens: 19_500 });
-    // Two lines are 2 × (2,000 + 20) tokens; 400 answer tokens a request is a ratio of about 0.1.
+    expect(await plan()).toMatchObject({ linesTokens: 19_500 });
     for (const at of [1, 2, 3]) step({ outputTokens: 404 }, at);
-    expect(await plan()).toMatchObject({ ratio: { value: 0.1, by: 'history', samples: 3 }, cap: { by: 'grown', tokens: 6_000 }, linesTokens: 6_000 });
-    // A cut-off request of that size keeps the next ones below 0.8 of it.
     step({ ok: false, outputTokens: 900, error: 'finishReason: length' }, 4);
-    expect(await plan()).toMatchObject({ cap: { by: 'cut-off', tokens: 3_000 }, linesTokens: 3_000 });
+    expect(await plan()).toMatchObject({ linesTokens: 19_500 });
+  });
+
+  it('keeps room in the call cap for a 재요청 node, at its worst', async () => {
+    const db = openDatabase(':memory:');
+    const connection = db.insert(s.connections).values({ kind: 'openai', name: 'mock', baseUrl: 'http://mock/v1' }).returning().get();
+    const { projectId } = importProject(db, importFileSchema.parse(realistic(600).file), { connectionId: connection.id, model: 'm' });
+    const workflow = translateOnlyWorkflow(db, projectId);
+    const retry = workflow.definition.nodes.find((node) => node.type === 'retry');
+    expect(retry?.type === 'retry' && retry.config).toMatchObject({ scale: 0.5, maxTimes: 2 });
+    const withRetry = await preflight(db, workflow, {});
+    const full = withRetry.nodes[0]!.full;
+    // Without the node: only the usual 30% room.
+    const definition = { ...workflow.definition, nodes: workflow.definition.nodes.filter((node) => node.type !== 'retry'), edges: workflow.definition.edges.filter((edge) => edge.source !== retry!.id && edge.target !== retry!.id) };
+    const without = await preflight(db, { ...workflow, definition }, {});
+    expect(without.suggestedLimits.maxCalls).toBe(Math.ceil(full * 1.3));
+    // Two rounds at half and quarter size: full / 0.5 + full / 0.25 more calls.
+    expect(withRetry.suggestedLimits.maxCalls).toBe(Math.ceil(full * 1.3 + Math.ceil(full / 0.5) + Math.ceil(full / 0.25)));
   });
 });

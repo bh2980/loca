@@ -132,12 +132,12 @@ export function PairTable({ pairs, loading, selected, picked, onPick, onOpen, bu
 export function PairDetail({ projectId, pair, relationships, speechRules, addRule, characters, others, onOpenPair, onClose, onDecide }: {
   projectId: string;
   pair: Pair;
-  /** The speaker's "그 밖의 사람" pair, if it has one (its rule covers listeners without their own). */
+  /** The speaker's "그 밖의 인물" pair, if it has one (its rule covers listeners without their own). */
   others?: Pair;
   onOpenPair?: (key: string) => void;
   relationships: KindSpec;
   speechRules: KindSpec;
-  /** Creates a speech rule (a new stretch, the speaker's 그 밖의 사람 rule). */
+  /** Creates a speech rule (a new stretch, the speaker's 그 밖의 인물 rule). */
   addRule: (json: SpeechRuleCreate) => Promise<{ id: string }>;
   characters: { id: string; name: string }[];
   onClose: () => void;
@@ -229,8 +229,8 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
         {picking && <StretchPicker projectId={projectId} from={pair.from} to={pair.to} taken={new Set(pair.rules.map((rule) => rule.startKey ?? ''))} onPick={(key) => addStretch.mutate(key)} onCancel={() => setPicking(false)} />}
         {rules.length === 0 && (
           <p className="text-sm text-muted-foreground">
-            {pair.to !== OTHERS_LISTENER && others?.rules.length
-              ? `규칙이 없어 ${pair.from}의 ‘그 밖의 사람’ 규칙(${SPEECH_LEVEL_LABELS[others.rules[0].level]})이 쓰입니다.`
+            {!isSpecialListener(pair.to) && others?.rules.length
+              ? `규칙이 없어 ${pair.from}의 ‘그 밖의 인물’ 규칙(${SPEECH_LEVEL_LABELS[others.rules[0].level]})이 쓰입니다.`
               : '말투 규칙이 없습니다.'}
           </p>
         )}
@@ -263,14 +263,14 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
             );
           })}
         </InspectorList>
-        {pair.to !== OTHERS_LISTENER && !isSpecialListener(pair.to) && onOpenPair && (
+        {!isSpecialListener(pair.to) && onOpenPair && (
           <Button
             variant="ghost"
             size="inline"
             className="text-muted-foreground"
             onClick={() => (others ? onOpenPair(others.key) : addRule({ fromName: pair.from, toName: OTHERS_LISTENER, level: 'haeyo', address: '' }).then(() => onOpenPair(pairKey(pair.from, OTHERS_LISTENER))))}
           >
-            {others?.rules.length ? `${pair.from} → 그 밖의 사람: ${SPEECH_LEVEL_LABELS[others.rules[0].level]}` : `${pair.from} → 그 밖의 사람 말투`}
+            {others?.rules.length ? `${pair.from} → 그 밖의 인물: ${SPEECH_LEVEL_LABELS[others.rules[0].level]}` : `${pair.from} → 그 밖의 인물 말투`}
           </Button>
         )}
       </InspectorSection>

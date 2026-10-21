@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { packGroups, planBatches, type BatchLine } from './batches.ts';
+import { packGroups, planBatches, scaleBatch, type BatchLine } from './batches.ts';
 
 // Each test line costs lineCost = 10 + 20 tokens, so 300 tokens hold 10 lines (and "count" packs 10 by size).
 const config = { mode: 'group' as const, size: 10, maxTokens: 300 };
@@ -67,5 +67,26 @@ describe('planBatches with dialogue-graph links', () => {
     const lines = [...scene('s1', 5, { speaker: 'A' }), ...scene('s2', 2, { speaker: 'B' })];
     expect(planBatches(lines, config).map((batch) => batch.length)).toEqual([5, 2]);
     expect(planBatches(lines, config, (a, b) => a === 's1' && b === 's2').map((batch) => batch.length)).toEqual([7]);
+  });
+});
+
+describe('scaleBatch', () => {
+  it('scales the tokens of group and whole, the lines of count, and leaves unit and a factor of 1 alone', () => {
+    expect(scaleBatch(config, 0.5)).toMatchObject({ mode: 'group', maxTokens: 150 });
+    expect(scaleBatch({ ...config, mode: 'whole' }, 0.25)).toMatchObject({ maxTokens: 75 });
+    expect(scaleBatch({ ...config, mode: 'count' }, 0.5)).toMatchObject({ size: 5 });
+    expect(scaleBatch({ ...config, mode: 'count', size: 3 }, 0.1)).toMatchObject({ size: 1 });
+    expect(scaleBatch({ ...config, mode: 'unit' }, 0.5)).toEqual({ ...config, mode: 'unit' });
+    expect(scaleBatch(config, 1)).toBe(config);
+  });
+
+  it('plans smaller requests with it, but never fewer than one line', () => {
+    seq = 0;
+    const lines = [...scene('s1', 2), ...scene('s2', 2), ...scene('s3', 2), ...scene('s4', 2), ...scene('s5', 2)];
+    expect(planBatches(lines, config).map((batch) => batch.length)).toEqual([10]);
+    expect(planBatches(lines, scaleBatch(config, 0.5)).map((batch) => batch.length)).toEqual([4, 4, 2]);
+    // A budget below one line still sends the line.
+    expect(packGroups([lines], scaleBatch({ ...config, maxTokens: 20 }, 0.1)).map((batch) => batch.length)).toEqual(Array(10).fill(1));
+    expect(packGroups([lines.slice(0, 4), lines.slice(4)], scaleBatch(config, 0.5)).map((batch) => batch.length)).toEqual([4, 5, 1]);
   });
 });

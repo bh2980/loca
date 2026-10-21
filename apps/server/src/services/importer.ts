@@ -2,6 +2,7 @@ import {
   DEFAULT_STATUSES,
   defaultWorkflows,
   detectFormatRules,
+  ISSUE_KINDS,
   type DraftModelChoice,
   type ImportFile,
 } from '@tw/shared';
@@ -50,6 +51,9 @@ export function importProject(db: Db, file: ImportFile, model: DraftModelChoice 
       DEFAULT_STATUSES.map((status, sort) => ({ id: statusIds[status.key], projectId, name: status.name, color: status.color, kind: status.kind, inReview: status.inReview, sort })),
     );
 
+    // Tags every project starts with (the app's own, found again by role).
+    const aiFailedTagId = tx.insert(s.tags).values({ projectId, name: ISSUE_KINDS.aiFailed.name, color: ISSUE_KINDS.aiFailed.color, role: 'aiFailed' }).returning({ id: s.tags.id }).get().id;
+
     const groupIds = new Map<string, string>();
     insertMany(
       tx,
@@ -85,7 +89,7 @@ export function importProject(db: Db, file: ImportFile, model: DraftModelChoice 
         source: unit.source,
         translation: unit.translation ?? null,
         candidateId,
-        statusId: unit.translation ? statusIds.draft : statusIds.untranslated,
+        statusId: unit.translation ? statusIds.translated : statusIds.untranslated,
         meta: unit.meta,
       });
     });
@@ -166,7 +170,7 @@ export function importProject(db: Db, file: ImportFile, model: DraftModelChoice 
     );
     insertMany(tx, s.terms, file.terms.map((term) => ({ projectId, ...term })));
 
-    for (const workflow of defaultWorkflows({ model, untranslated: statusIds.untranslated, draft: statusIds.draft })) tx.insert(s.workflows).values({ projectId, ...workflow }).run();
+    for (const workflow of defaultWorkflows({ model, untranslated: statusIds.untranslated, translated: statusIds.translated, aiFailedTag: aiFailedTagId, needsReview: statusIds.needsReview, confirmed: statusIds.confirmed })) tx.insert(s.workflows).values({ projectId, ...workflow }).run();
   });
   return {
     projectId,

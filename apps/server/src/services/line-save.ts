@@ -99,7 +99,7 @@ export function saveStatuses(tx: Tx, projectId: string, unitIds: string[], save:
 
 /**
  * A line that gets its first text while it is still in an initial status (미번역) has started:
- * it moves to the first ordinary status that is not a review inbox (초벌), so its badge and the
+ * it moves to the first ordinary status that is not a review inbox (번역됨), so its badge and the
  * scene's progress say so. Null when the line is past its initial status or there is no such status.
  */
 function startedStatus(tx: Tx, projectId: string, statusId: string): string | null {

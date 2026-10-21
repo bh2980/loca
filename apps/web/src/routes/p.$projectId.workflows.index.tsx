@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Copy, Play, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { WORKFLOW_TEMPLATES } from '@tw/shared';
 import { AiButton } from '@/components/ai-button';
-import { EmptyState, DataTable, type ColumnDef, JobStatusBadge, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Badge, Button, Skeleton, ContextMenuItem, ContextMenuSeparator } from '@loca/ui';
+import { EmptyState, DataTable, type ColumnDef, JobStatusBadge, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Badge, Button, Skeleton, ContextMenuItem, ContextMenuSeparator, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@loca/ui';
 import { HeaderActions, Page } from '@/components/page';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { client, unwrap } from '@/lib/api';
@@ -30,7 +31,7 @@ function Workflows() {
   const [deleteTarget, setDeleteTarget] = useState<Workflow | null>(null);
   type Workflow = NonNullable<typeof workflows.data>[number];
   const create = useMutation({
-    mutationFn: () => unwrap(client.projects[':projectId'].workflows.$post({ param: { projectId }, json: {} })),
+    mutationFn: (template?: string) => unwrap(client.projects[':projectId'].workflows.$post({ param: { projectId }, json: template ? { template } : {} })),
     onSuccess: (workflow) => {
       queryClient.invalidateQueries({ queryKey: q.workflows(projectId).queryKey });
       void navigate({ to: '/p/$projectId/workflows/$workflowId', params: { projectId, workflowId: workflow.id } });
@@ -170,9 +171,25 @@ function Workflows() {
           <AiButton send={false} prompt="이런 워크플로를 만들어줘: ">
             AI로 만들기
           </AiButton>
-          <Button disabled={create.isPending} onClick={() => create.mutate()}>
-            <Plus /> 새 워크플로
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button disabled={create.isPending}>
+                <Plus /> 새 워크플로
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-80">
+              {/* One list: the blank workflow is a choice like the templates, so it reads the same. */}
+              {[{ key: undefined, name: '빈 워크플로', description: '노드 없이 처음부터 만듭니다.' }, ...WORKFLOW_TEMPLATES].map((template, index) => (
+                <Fragment key={template.key ?? 'blank'}>
+                  {index === 1 && <DropdownMenuSeparator />}
+                  <DropdownMenuItem className="flex-col items-start gap-0.5" onClick={() => create.mutate(template.key)}>
+                    <span className="font-medium">{template.name}</span>
+                    <span className="text-xs text-muted-foreground">{template.description}</span>
+                  </DropdownMenuItem>
+                </Fragment>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </HeaderActions>
         <DataTable id="workflows"
           columns={columns}

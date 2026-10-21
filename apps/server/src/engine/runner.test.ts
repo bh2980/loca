@@ -197,10 +197,10 @@ describe('choice output', () => {
     const { runId } = start(db, projectId, workflow, {});
     await runner.drain();
 
-    expect(seen[0].system).toContain('Options for "value": "Alice", "Pat", "group", "public", "self". Use null when none of them fits.');
+    expect(seen[0].system).toContain('Options for "value": "Alice", "Pat", "group", "public", "self", "others". Use null when none of them fits.');
     expect(JSON.parse(seen[0].prompt).cast).toEqual([{ name: 'Alice', aliases: [] }, { name: 'Pat', aliases: [], player: true }]);
     const items = db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all();
-    expect(items.map((item) => item.data.outputs?.listener)).toEqual([{ value: 'Pat', confidence: 0.95 }, { value: null, confidence: 0.95 }, { value: null, confidence: 0.95 }]);
+    expect(items.map((item) => item.data.outputs?.listener)).toEqual([{ value: 'Pat', confidence: 0.95 }, { value: 'others', confidence: 0.95, reason: 'AI가 적은 청자: Nobody' }, { value: null, confidence: 0.95 }]);
     const units = db.select().from(s.units).where(eq(s.units.projectId, projectId)).all();
     expect(units.every((unit) => unit.listener === null)).toBe(true);
   });
@@ -336,6 +336,37 @@ describe('function nodes', () => {
     // Nothing wrote the lines' translation (that is an apply node's job); the run set every line's status: AI, with the run.
     expect(units.every((unit) => unit.translation === null)).toBe(true);
     expect(units.map((unit) => [unit.statusBy, unit.statusRunId])).toEqual(units.map(() => ['ai', runId]));
+  });
+
+  it('lets each HTTP node send as many calls at once as its own 동시 처리 수 allows', async () => {
+    const { createServer } = await import('node:http');
+    const live = { a: 0, b: 0 };
+    const peak = { a: 0, b: 0 };
+    const server = createServer((request, response) => {
+      const which = request.url === '/a' ? 'a' : 'b';
+      request.resume();
+      live[which]++;
+      peak[which] = Math.max(peak[which], live[which]);
+      setTimeout(() => {
+        live[which]--;
+        response.setHeader('content-type', 'application/json');
+        response.end('{}');
+      }, 40);
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const port = (server.address() as { port: number }).port;
+
+    const { db, projectId } = setup(8);
+    const tool = db.insert(s.connections).values({ kind: 'http', name: 'slow' }).returning().get();
+    const call = (path: string, concurrency: number) => ({ ...fn('http', { url: `http://127.0.0.1:${port}/${path}`, connectionId: tool.id, body: '{}' }), config: { fn: 'http', params: { url: `http://127.0.0.1:${port}/${path}`, connectionId: tool.id, body: '{}' }, concurrency } });
+    const workflow = save(db, projectId, flow({ a: call('a', 1), b: call('b', 3) }, ['entry -> a', 'entry -> b', 'a -> end', 'b -> end']));
+    const runner = new Runner(db, memoryStore(), noModel);
+    start(db, projectId, workflow);
+    await runner.drain();
+    server.close();
+
+    expect(peak.a).toBe(1);
+    expect(peak.b).toBe(3);
   });
 
   it('stops a runaway script and reports it as an error', async () => {

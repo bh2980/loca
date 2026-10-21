@@ -22,7 +22,7 @@ function setup() {
   };
   const setStatus = (id: string, status: 'running' | 'paused' | 'completed') => db.update(s.runs).set({ status, notice: null }).where(eq(s.runs.id, id)).run();
   const calls: string[] = [];
-  const runner = { continue: (id: string) => (calls.push(`continue ${id}`), { ok: true, retried: 0 }), resume: (id: string) => calls.push(`resume ${id}`) };
+  const runner = { continue: (id: string) => (calls.push(`continue ${id}`), { ok: true, retried: 0 }), resume: (id: string, limits?: unknown) => calls.push(limits ? `resume ${id} ${JSON.stringify(limits)}` : `resume ${id}`) };
   const app = new Hono<Env>()
     .use(async (c, next) => {
       c.set('deps', { db, runner } as never);
@@ -62,5 +62,17 @@ describe('continuing or resuming a work analysis while another runs', () => {
     const response = await post(`/runs/${paused}/continue`);
     expect((await response.text())).not.toContain('이미 진행 중');
     expect(calls[0]).toBe(`resume ${paused}`);
+  });
+});
+
+describe('resuming with new caps', () => {
+  it('passes the body\'s limits on (null clears one) and refuses a bad one', async () => {
+    const { analysis, setStatus, post, calls } = setup();
+    const paused = analysis('분석 1');
+    setStatus(paused, 'paused');
+    expect((await post(`/runs/${paused}/resume`, { limits: { maxCalls: 50, maxInputTokens: null } })).status).toBe(200);
+    expect(calls).toEqual([`resume ${paused} {"maxCalls":50,"maxInputTokens":null}`]);
+    expect((await post(`/runs/${paused}/resume`, { limits: { maxCalls: 0 } })).status).toBe(400);
+    expect(calls).toHaveLength(1);
   });
 });

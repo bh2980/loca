@@ -9,7 +9,6 @@ import { setKnowledgeTag } from '../../services/knowledge-tags.ts';
 import { attachUnitTags } from '../../services/tag-scope.ts';
 import { runScript } from './sandbox.ts';
 import { knowledgeOf } from '../../services/speech.ts';
-import type { IssueTagChange } from '../../services/issue-tags.ts';
 import { HUMAN_OWNED_NOTE, personOwns } from '../apply-candidate.ts';
 import { applyFunctions } from './apply.ts';
 import { lineOf, type FunctionInput, type FunctionResult } from './types.ts';
@@ -62,18 +61,18 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     const text = candidateOf(input);
     const rules = tx.select({ formatRules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, input.projectId)).get()?.formatRules;
     const issues = text === null ? [NEEDS_CANDIDATE] : checkFormat(sourceOf(input), text, params, rules).map((issue) => issue.message);
-    return { port: issues.length ? 'fail' : 'pass', issues, output: { text, passed: !issues.length, issues }, ...(text !== null && { issueTags: issues.length ? { add: ['format'] } : { clear: ['format'] } }) };
+    return { port: issues.length ? 'fail' : 'pass', issues, output: { text, passed: !issues.length, issues, kind: 'format' } };
   },
 
   glossaryCheck(tx, _raw, input) {
     const text = candidateOf(input);
-    if (text === null) return { port: 'fail', issues: [NEEDS_CANDIDATE], output: { text, passed: false, issues: [NEEDS_CANDIDATE] } };
+    if (text === null) return { port: 'fail', issues: [NEEDS_CANDIDATE], output: { text, passed: false, issues: [NEEDS_CANDIDATE], kind: 'term' } };
     const issues = knowledgeOf(tx as unknown as Db, input.projectId)
       .glossary()
       .matcher.find(sourceOf(input))
       .filter((term) => !text.toLowerCase().includes(term.target.toLowerCase()))
       .map((term) => `용어 "${term.source}"은(는) "${term.target}"(으)로 옮겨야 합니다.`);
-    return { port: issues.length ? 'fail' : 'pass', issues, output: { text, passed: !issues.length, issues }, issueTags: issues.length ? { add: ['term'] } : { clear: ['term'] } };
+    return { port: issues.length ? 'fail' : 'pass', issues, output: { text, passed: !issues.length, issues, kind: 'term' } };
   },
 
   setStatus(tx, raw, input) {

@@ -64,7 +64,7 @@ describe('shared project mutations', () => {
 
   it('blocks workflow edits and deletion while a run is paused, then allows them after completion', () => {
     const { db, projectId } = setup();
-    const definition = translationTemplate({ model: { connectionId: '', model: '' }, untranslated: 'start', draft: 'draft', needsReview: 'review', confirmed: 'done' });
+    const definition = translationTemplate({ model: { connectionId: '', model: '' }, untranslated: 'start', translated: 'translated', needsReview: 'review', confirmed: 'done' });
     const workflow = saveWorkflow(db, projectId, { name: 'W', description: '', definition });
     db.insert(s.runs).values({
       projectId, workflowId: workflow.id, workflowName: workflow.name, workflowVersion: workflow.version,

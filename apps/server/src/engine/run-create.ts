@@ -1,4 +1,4 @@
-import { and, count, eq, inArray, ne, notInArray, or, sql } from 'drizzle-orm';
+import { and, count, eq, inArray, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
 import { batchConfigSchema, isWholeScriptWorkflow, matchesMarks, termMarksOf, workflowInput, type AiNode, type AutoMark, type LineMark, type WorkflowDefinition } from '@tw/shared';
 import { tagsOf } from '../services/knowledge-tags.ts';
@@ -10,6 +10,8 @@ import type { ItemData } from '../db/schema.ts';
 import { events } from '../events.ts';
 import { excludedSql, markConditions, translatableSql } from '../services/line-marks.ts';
 import { resolveBudgets } from '../services/budgets.ts';
+import { snapshotWorkflowModels } from '../services/routes.ts';
+import { expandedDefinition } from './expand-calls.ts';
 import { planBatches } from './batches.ts';
 
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
@@ -24,13 +26,8 @@ type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 function scopeConditions(db: Db, projectId: string, scope: s.RunScope) {
   const statusIds = scope.statusIds ?? [];
   const conditions = [eq(s.units.projectId, projectId)];
-  if (statusIds.length) {
-    conditions.push(inArray(s.units.statusId, statusIds));
-    // A line a person translated is not "untranslated", even while it still sits in an initial status:
-    // the status filter must not pick it again and overwrite what they wrote.
-    const initial = db.select({ id: s.statuses.id }).from(s.statuses).where(eq(s.statuses.kind, 'initial'));
-    conditions.push(or(notInArray(s.units.statusId, initial), ne(s.units.statusBy, 'human'), sql`coalesce(trim(${s.units.translation}), '') = ''`)!);
-  }
+  // Exactly the lines in those statuses, like the line list's filter.
+  if (statusIds.length) conditions.push(inArray(s.units.statusId, statusIds));
   // A scope can name every line of a large project; long lists travel as one JSON parameter.
   if (scope.groupIds?.length) conditions.push(inList(s.units.groupId, scope.groupIds));
   if (scope.unitIds?.length) conditions.push(inList(s.units.id, scope.unitIds));
@@ -140,8 +137,9 @@ type RunInput = { projectId: string; workflow: typeof s.workflows.$inferSelect; 
 
 /** The run's lines and their plan batches, and the run row to store. */
 function runRows(db: Db, input: RunInput) {
+  // Called workflows are put in place first: the run stores, plans and budgets the nodes it will really run.
   // "Auto" budgets are fixed here for the models this run calls: the plan and the runner use the same numbers.
-  const definition = resolveBudgets(db, input.workflow.id, input.workflow.definition);
+  const definition = resolveBudgets(db, expandedDefinition(db, input.projectId, input.workflow.definition, input.workflow.id));
   const entry = definition.nodes.find((node) => node.type === 'entry');
   if (!entry) throw new Error('진입 노드가 없습니다.');
   const subject = workflowInput(definition);
@@ -157,7 +155,8 @@ function runRows(db: Db, input: RunInput) {
     workflowName: input.workflow.name,
     workflowVersion: input.workflow.version,
     definition,
-    models: input.models,
+    // Models of the nodes inside called workflows are frozen with the caller's.
+    models: { ...snapshotWorkflowModels(db, definition), ...input.models },
     subject,
     scope: input.scope,
     status: 'running' as s.RunStatus,
@@ -204,7 +203,7 @@ export const FILLING = '대사를 넣는 중입니다.';
  */
 export async function createRunInSteps(db: Db, input: RunInput) {
   // Checked and inserted with no await in between, so two starts at once cannot both pass.
-  if (isWholeScriptWorkflow(input.workflow.definition)) refuseSecondWholeScript(db, input.projectId);
+  if (isWholeScriptWorkflow(expandedDefinition(db, input.projectId, input.workflow.definition, input.workflow.id))) refuseSecondWholeScript(db, input.projectId);
   const { run, items } = runRows(db, input);
   db.insert(s.runs).values({ ...run, status: 'paused', notice: FILLING }).run();
   events.changed(input.projectId, 'runs');

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
-import { OTHERS_LISTENER, SPECIAL_LISTENERS, SPEECH_LEVELS, SPEECH_LEVEL_LABELS, type SpeechLevel } from '@tw/shared';
+import { SPECIAL_LISTENERS, SPEECH_LEVELS, SPEECH_LEVEL_LABELS, type SpeechLevel } from '@tw/shared';
 import { Button, FieldRow, FieldRows, Input, Popover, PopoverContent, PopoverTrigger, SearchableSelect, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, type SearchableSelectOption } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { pairKey, type Pair } from './pairs';
@@ -17,7 +17,7 @@ interface Person {
   name: string;
 }
 
-/** One end of the pair: a picked person, or a new name; listeners can also be 여럿 / 불특정 다수 / 혼잣말 / 그 밖의 사람. */
+/** One end of the pair: a picked person, or a new name; listeners can also be 여럿 / 불특정 다수 / 혼잣말 / 그 밖의 인물. */
 function End({ label, value, name, onValue, onName, options, placeholder }: { label: string; value: string; name: string; onValue: (value: string) => void; onName: (name: string) => void; options: SearchableSelectOption[]; placeholder: string }) {
   return (
     <FieldRow label={label}>
@@ -49,7 +49,6 @@ export function AddPairPopover({ projectId, characters, pairs, onCreated }: { pr
     ...people,
     { value: NEW, label: '새 인물…' },
     ...Object.entries(SPECIAL_LISTENERS).map(([key, label]) => ({ value: key, label: `${label} (${key})`, searchText: key })),
-    { value: OTHERS_LISTENER, label: '그 밖의 사람 (others)', searchText: OTHERS_LISTENER },
   ];
   const isPerson = (value: string) => characters.some((c) => c.id === value);
   const toSpecial = to !== '' && to !== NEW && !isPerson(to);

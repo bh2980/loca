@@ -28,7 +28,7 @@ describe('condition rows', () => {
   });
 
   it('reads a template’s retry condition as rows (visits and failure kinds)', () => {
-    const retry = translationTemplate({ model: { connectionId: '', model: '' }, untranslated: 'u', draft: 'd', needsReview: 'n', confirmed: 'c' }).nodes.find((node) => node.id === 'translate-again');
+    const retry = translationTemplate({ model: { connectionId: '', model: '' }, untranslated: 'u', translated: 'd', needsReview: 'n', confirmed: 'c' }).nodes.find((node) => node.id === 'translate-again');
     expect(retry?.type === 'condition' && parseCondition(retry.config.expression)).toEqual({
       join: 'and',
       clauses: [{ kind: 'visits', nodeId: 'translate', limit: 2 }, { kind: 'error', errorKind: 'too-long', not: true }, { kind: 'error', errorKind: 'cut-off', not: true }],

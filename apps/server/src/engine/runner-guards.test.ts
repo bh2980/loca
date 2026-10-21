@@ -10,9 +10,19 @@ import { memoryStore } from '../services/secrets.ts';
 import { promptEntries } from './prompts.ts';
 import { errorKindOf, Runner, type ModelPort } from './runner.ts';
 import { createRun, createRunInSteps } from './run-create.ts';
+import { withoutTerms } from './test-workflows.ts';
+
+/** The template without its 재요청 nodes (a failure that needs a smaller request then ends the line), unless `keep`. */
+function withoutResend(full: ReturnType<typeof translationTemplate>, keep: boolean) {
+  const definition = withoutTerms(full);
+  if (keep) return definition;
+  const nodes = definition.nodes.filter((node) => node.type !== 'retry');
+  const ids = new Set(nodes.map((node) => node.id));
+  return { ...definition, nodes, edges: definition.edges.filter((edge) => ids.has(edge.source) && ids.has(edge.target)) };
+}
 
 /** A project of `scenes` scenes; scene i has `size(i)` lines. Scene keys sort opposite to script order. */
-function setup(scenes: number, size: (scene: number) => number) {
+function setup(scenes: number, size: (scene: number) => number, { resend = true }: { resend?: boolean } = {}) {
   const db = openDatabase(':memory:');
   const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1' }).returning().get();
   db.update(s.connections).set({ outputTokens: 1000, maxAttempts: 1 }).where(eq(s.connections.id, connection.id)).run();
@@ -36,13 +46,13 @@ function setup(scenes: number, size: (scene: number) => number) {
     projectId,
     name: '검수 포함 번역',
     description: '',
-    definition: translationTemplate({
+    definition: withoutResend(translationTemplate({
       model: choice,
       untranslated: untranslated.id,
-      draft: draft.id,
+      translated: draft.id,
       needsReview: needsReview.id,
       confirmed: confirmed.id,
-    }),
+    }), resend),
   }).returning().get();
   const start = (limits?: s.RunLimits) =>
     createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: {}, limits }).runId;
@@ -134,6 +144,47 @@ describe('runner guards', () => {
     expect(runOf(db, runId).notice).toContain('호출 상한');
     runner.resume(runId);
     expect(runOf(db, runId)).toMatchObject({ status: 'running', notice: null });
+  });
+
+  it('a plain resume pauses again at the cap; raised caps let the run finish; null clears a cap', async () => {
+    const { db, start } = setup(200, () => 3);
+    const runId = start({ maxCalls: 4 });
+    const runner = new Runner(db, memoryStore(), model());
+    await runner.drain();
+    expect(runOf(db, runId)).toMatchObject({ status: 'paused', limits: { maxCalls: 4, hit: 'calls' } });
+    const calls = () => db.select().from(s.runSteps).where(eq(s.runSteps.runId, runId)).all().length;
+    const first = calls();
+
+    runner.resume(runId);
+    expect(runOf(db, runId).limits).toEqual({ maxCalls: 4 });
+    await runner.drain();
+    expect(runOf(db, runId)).toMatchObject({ status: 'paused', limits: { maxCalls: 4, hit: 'calls' } });
+    expect(calls()).toBeGreaterThan(first);
+
+    runner.resume(runId, { maxCalls: 1000 });
+    expect(runOf(db, runId).limits).toEqual({ maxCalls: 1000 });
+    await runner.drain();
+    expect(runOf(db, runId).status).toBe('completed');
+
+    const cleared = setup(200, () => 3);
+    const id = cleared.start({ maxCalls: 4, maxInputTokens: 10_000_000 });
+    const other = new Runner(cleared.db, memoryStore(), model());
+    await other.drain();
+    other.resume(id, { maxCalls: null });
+    expect(runOf(cleared.db, id).limits).toEqual({ maxInputTokens: 10_000_000 });
+    await other.drain();
+    expect(runOf(cleared.db, id).status).toBe('completed');
+  });
+
+  it('an input cap that stopped the run is named, and raising it continues', async () => {
+    const { db, start } = setup(20, () => 3);
+    const runId = start({ maxInputTokens: 1 });
+    const runner = new Runner(db, memoryStore(), model());
+    await runner.drain();
+    expect(runOf(db, runId).limits).toEqual({ maxInputTokens: 1, hit: 'input' });
+    runner.resume(runId, { maxInputTokens: null });
+    await runner.drain();
+    expect(runOf(db, runId)).toMatchObject({ status: 'completed', limits: null });
   });
 
   it('checks the input cap before each call, counting calls in flight, so a run stops short of it', async () => {
@@ -243,7 +294,7 @@ describe('incomplete answers', () => {
   });
 
   it('ends the lines of a request longer than the model window as failed (too-long) with what to do, without pausing the run', async () => {
-    const { db, start } = setup(1, () => 8);
+    const { db, start } = setup(1, () => 8, { resend: false });
     const runId = start();
     const fake: ModelPort = {
       judge: async () => {
@@ -260,7 +311,7 @@ describe('incomplete answers', () => {
     const items = db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all();
     expect(runOf(db, runId).status).toBe('completed');
     expect(items.every((item) => item.state === 'failed' && item.data.error?.kind === 'too-long')).toBe(true);
-    expect(items[0]!.error).toContain('더 작은 묶음');
+    expect(items[0]!.error).toBe('maximum context length exceeded');
     expect(db.select().from(s.runSteps).where(eq(s.runSteps.runId, runId)).all()).toHaveLength(1);
   });
 });

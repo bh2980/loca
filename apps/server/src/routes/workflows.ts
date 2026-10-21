@@ -1,22 +1,21 @@
 import { Hono } from 'hono';
 import { scopeMismatch } from '../services/run-plan.ts';
-import { and, asc, count, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, getTableColumns, inArray, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { AI_OUTPUT_IDS, type AiOutput, choiceKey, nodeName, httpParams, FUNCTIONS, type FunctionName, isWholeScriptWorkflow, nodeModels, CONNECTION_KIND_INFO, workflowInput, AUTO_MARK_IDS, type AutoMark, scriptParams, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels } from '@tw/shared';
+import { AI_OUTPUT_IDS, type AiOutput, choiceKey, nodeName, httpParams, FUNCTIONS, type FunctionName, isWholeScriptWorkflow, nodeModels, CONNECTION_KIND_INFO, workflowInput, AUTO_MARK_IDS, type AutoMark, scriptParams, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels, WORKFLOW_TEMPLATES } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { workflowIssues } from '../services/workflow-issues.ts';
+import { calledWorkflowErrors, workflowIssues } from '../services/workflow-issues.ts';
 import { events } from '../events.ts';
 import { callHttp, httpOutput, lineView, validateScriptData } from '../engine/functions/index.ts';
 import { runScript } from '../engine/functions/sandbox.ts';
 import { WHOLE_SCRIPT_BUSY, createRunInSteps, FILLING, refuseSecondWholeScript, selectRunTerms, selectRunUnits } from '../engine/run-create.ts';
 import { listBatches, preflight } from '../services/preflight.ts';
-import { choiceLabel, snapshotWorkflowModels } from '../services/routes.ts';
-import { autoOf, modelLimitsOf } from '../services/budgets.ts';
+import { choiceLabel, defaultModelChoice, snapshotWorkflowModels } from '../services/routes.ts';
 import { previewRequest } from '../services/request-preview.ts';
 import { continuePreflight, switchedRun } from '../services/run-continue.ts';
-import { deleteWorkflow, saveWorkflow, WorkflowMutationError } from '../services/workflow-mutations.ts';
+import { deleteWorkflow, saveWorkflow, workflowCallers, WorkflowMutationError } from '../services/workflow-mutations.ts';
 
 const scopeSchema = z.object({ groupIds: z.array(z.string()).optional(), unitIds: z.array(z.string()).optional(), tagIds: z.array(z.string()).optional(), marks: z.array(z.enum(AUTO_MARK_IDS as [AutoMark, ...AutoMark[]])).optional(), statusIds: z.array(z.string()).optional(), termIds: z.array(z.string()).optional() });
 /** A run's scope and, optionally, the models it uses instead of its nodes' own (by AI node id). */
@@ -34,6 +33,9 @@ const connectionName = (names: Map<string, string>, id: string | null, kind: str
   (id && names.get(id)) ?? (kind ? (CONNECTION_KIND_INFO[kind as keyof typeof CONNECTION_KIND_INFO]?.label ?? kind) : null);
 
 /** A whole-script run continued or resumed while another one runs: refused like a second start. */
+/** What POST /runs/:id/resume may carry: new caps (null removes one). */
+export const resumeSchema = z.object({ limits: z.object({ maxCalls: z.number().int().min(1).nullable().optional(), maxInputTokens: z.number().int().min(1).nullable().optional() }).optional() });
+
 function refuseWhileAnotherWholeScript(db: Db, run: typeof s.runs.$inferSelect) {
   if (!isWholeScriptWorkflow(run.definition)) return;
   try {
@@ -61,6 +63,34 @@ function freeWorkflowName(db: Db, projectId: string): string {
   for (let n = 2; ; n++) if (!taken.has(`${NEW_WORKFLOW_NAME} ${n}`)) return `${NEW_WORKFLOW_NAME} ${n}`;
 }
 
+const TEMPLATE_KEYS = WORKFLOW_TEMPLATES.map((template) => template.key) as [string, ...string[]];
+
+/** A workflow name not taken in the project: `base`, then `base 2`, `3`… */
+function freeNameFor(db: Db, projectId: string, base: string): string {
+  const taken = new Set(db.select({ name: s.workflows.name }).from(s.workflows).where(eq(s.workflows.projectId, projectId)).all().map((row) => row.name));
+  if (!taken.has(base)) return base;
+  for (let n = 2; ; n++) if (!taken.has(`${base} ${n}`)) return `${base} ${n}`;
+}
+
+/** A template's definition with this project's statuses (by kind and review flag, never by name), failure tag and default model. */
+function templateDefinition(db: Db, projectId: string, key: string): { name: string; definition: WorkflowDefinition } {
+  const template = WORKFLOW_TEMPLATES.find((entry) => entry.key === key) ?? badRequest('알 수 없는 템플릿입니다.');
+  const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).orderBy(asc(s.statuses.sort)).all();
+  const normal = statuses.filter((status) => status.kind === 'normal');
+  const aiFailedTag = db.select({ id: s.tags.id }).from(s.tags).where(and(eq(s.tags.projectId, projectId), eq(s.tags.name, 'AI 실패'))).get();
+  const definition = workflowDefinitionSchema.parse(
+    template.build({
+      model: defaultModelChoice(db),
+      untranslated: statuses.find((status) => status.kind === 'initial')?.id,
+      confirmed: statuses.find((status) => status.kind === 'final')?.id,
+      needsReview: normal.find((status) => status.inReview)?.id,
+      translated: normal.find((status) => !status.inReview)?.id,
+      aiFailedTag: aiFailedTag?.id,
+    }),
+  );
+  return { name: template.name, definition };
+}
+
 export const workflowRoutes = new Hono<Env>()
   .get('/projects/:projectId/workflows', (c) => {
     const { db } = c.var.deps;
@@ -74,18 +104,20 @@ export const workflowRoutes = new Hono<Env>()
         nodeCount: definition.nodes.length,
         // Its AI nodes, for pickers that show what one of them sends (대사 상세 › AI 프롬프트).
         aiNodes: definition.nodes.filter((node) => node.type === 'ai').map((node) => ({ id: node.id, name: nodeName(node) })),
-        errorCount: workflowIssues(db, projectId, definition).filter((issue) => issue.level === 'error').length,
+        errorCount: workflowIssues(db, projectId, definition, row.id).filter((issue) => issue.level === 'error').length,
       })),
     );
   })
   .post(
     '/projects/:projectId/workflows',
-    validate('json', z.object({ name: z.string().trim().min(1).optional() })),
+    validate('json', z.object({ name: z.string().trim().min(1).optional(), template: z.enum(TEMPLATE_KEYS).optional() })),
     (c) => {
       const { db } = c.var.deps;
       const projectId = c.req.param('projectId');
-      const name = c.req.valid('json').name ?? freeWorkflowName(db, projectId);
-      const definition = blankWorkflow();
+      const body = c.req.valid('json');
+      const fromTemplate = body.template ? templateDefinition(db, projectId, body.template) : null;
+      const name = body.name ?? (fromTemplate ? freeNameFor(db, projectId, fromTemplate.name) : freeWorkflowName(db, projectId));
+      const definition = fromTemplate?.definition ?? blankWorkflow();
       const row = saveWorkflow(db, projectId, { name, description: '', definition });
       return c.json(row, 201);
     },
@@ -93,7 +125,8 @@ export const workflowRoutes = new Hono<Env>()
   .get('/workflows/:id', (c) => {
     const { db } = c.var.deps;
     const workflow = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
-    return c.json({ ...workflow, issues: workflowIssues(db, workflow.projectId, workflow.definition) });
+    // calledBy: the workflows with a 워크플로 호출 node that picks this one (the editor header lists them).
+    return c.json({ ...workflow, calledBy: workflowCallers(db, workflow.projectId, workflow.id), issues: workflowIssues(db, workflow.projectId, workflow.definition, workflow.id) });
   })
   .put('/workflows/:id', validate('json', z.object({ name: z.string().trim().min(1), description: z.string().default(''), definition: workflowDefinitionSchema, version: z.number().int() })), (c) => {
     const { db } = c.var.deps;
@@ -101,7 +134,7 @@ export const workflowRoutes = new Hono<Env>()
     const current = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
     try {
       const row = saveWorkflow(db, current.projectId, { id: current.id, ...body });
-      return c.json({ ...row, issues: workflowIssues(db, current.projectId, row.definition) });
+      return c.json({ ...row, calledBy: workflowCallers(db, current.projectId, current.id), issues: workflowIssues(db, current.projectId, row.definition, current.id) });
     } catch (error) {
       if (error instanceof WorkflowMutationError) {
         if (error.status === 404) found(undefined, '워크플로');
@@ -113,7 +146,7 @@ export const workflowRoutes = new Hono<Env>()
   .post('/workflows/:id/validate', validate('json', z.object({ definition: workflowDefinitionSchema })), (c) => {
     const { db } = c.var.deps;
     const workflow = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
-    return c.json(workflowIssues(db, workflow.projectId, c.req.valid('json').definition));
+    return c.json(workflowIssues(db, workflow.projectId, c.req.valid('json').definition, workflow.id));
   })
   .delete('/workflows/:id', (c) => {
     const { db } = c.var.deps;
@@ -131,14 +164,6 @@ export const workflowRoutes = new Hono<Env>()
     const workflow = found(c.var.deps.db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
     return c.json(found(previewRequest(c.var.deps.db, workflow, c.req.param('nodeId'), c.req.valid('query').sample) ?? undefined, 'AI 노드'));
   })
-  /** The line text per request "auto" would pick for the node as it is being edited (model, output, batch mode), with what decided it: the model's limits and this node's past requests. */
-  .get('/workflows/:id/nodes/:nodeId/auto-lines', validate('query', z.object({ connectionId: z.string(), model: z.string(), output: z.enum(AI_OUTPUT_IDS as [AiOutput, ...AiOutput[]]), mode: z.enum(['unit', 'group', 'count', 'whole']) })), (c) => {
-    const { db } = c.var.deps;
-    const workflow = found(db.select({ id: s.workflows.id }).from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
-    const { connectionId, model, output, mode } = c.req.valid('query');
-    const { lines, ratio, cap } = autoOf(db, workflow.id, { id: c.req.param('nodeId'), config: { model: { connectionId, model }, output, batch: { mode } } }, modelLimitsOf(db, { connectionId, model }));
-    return c.json({ lines, ratio, cap });
-  })
   .post('/workflows/:id/preview', validate('json', scopeSchema), (c) => {
     const { db } = c.var.deps;
     const workflow = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
@@ -152,7 +177,11 @@ export const workflowRoutes = new Hono<Env>()
     const workflow = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
     const { models, ...scope } = c.req.valid('json');
     fitScope(workflow.definition, scope);
-    return c.json(await preflight(db, { ...workflow, definition: withRunModels(workflow.definition, models) }, scope));
+    try {
+      return c.json(await preflight(db, { ...workflow, definition: withRunModels(workflow.definition, models) }, scope));
+    } catch (error) {
+      badRequest(error instanceof Error ? error.message : String(error));
+    }
   })
   .post('/workflows/:id/runs', validate('json', runSchema.extend({ limits: z.object({ maxCalls: z.number().int().min(1).optional(), maxInputTokens: z.number().int().min(1).optional() }).optional() })), async (c) => {
     const { db } = c.var.deps;
@@ -161,9 +190,11 @@ export const workflowRoutes = new Hono<Env>()
     fitScope(stored.definition, scope);
     // This run's models (the dialog's picks) stand in for the nodes' own; the workflow is not changed.
     const workflow = { ...stored, definition: withRunModels(stored.definition, models) };
-    const errors = workflowIssues(db, workflow.projectId, workflow.definition).filter((issue) => issue.level === 'error');
+    const errors = workflowIssues(db, workflow.projectId, workflow.definition, workflow.id).filter((issue) => issue.level === 'error');
     if (errors.length) badRequest(`워크플로에 오류가 ${errors.length}개 있습니다: ${errors[0].message}`);
     try {
+      const called = calledWorkflowErrors(db, workflow.projectId, workflow.definition, workflow.id);
+      if (called.length) badRequest(`부르는 워크플로에 오류가 ${called.length}개 있습니다: ${called[0]}`);
       return c.json(await createRunInSteps(db, { projectId: workflow.projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope, limits }), 201);
     } catch (error) {
       badRequest(error instanceof Error ? error.message : String(error));
@@ -339,11 +370,11 @@ export const workflowRoutes = new Hono<Env>()
       .map((row) => ({ ...row, name: connectionName(names, row.connectionId, null) }));
     const { models, ...rest } = run;
     // Requests a node has in flight now, and how many it can have at once: an AI node's 동시 처리 수,
-    // an HTTP or script node's workflow setting.
+    // an HTTP or script node's own.
     const callLimits = Object.fromEntries(
       run.definition.nodes.flatMap((node) => {
         if (node.type === 'ai') return [[node.id, node.config.concurrency]];
-        return node.type === 'function' && FUNCTIONS[node.config.fn as FunctionName]?.async ? [[node.id, run.definition.settings.concurrency]] : [];
+        return node.type === 'function' && FUNCTIONS[node.config.fn as FunctionName]?.async ? [[node.id, node.config.concurrency]] : [];
       }),
     );
     // Items that went through each node (a line that visited a node twice counts once): the run graph's "지나감".
@@ -360,7 +391,8 @@ export const workflowRoutes = new Hono<Env>()
     const { state, nodeId, offset, limit } = c.req.valid('query');
     const conditions = [eq(s.runItems.runId, c.req.param('id'))];
     if (state) conditions.push(eq(s.runItems.state, state as s.ItemState));
-    if (nodeId) conditions.push(eq(s.runItems.nodeId, nodeId));
+    // A call's id also matches every node inside it (`call/inner`, nested `call/call2/inner`): the run graph's call card opens them all.
+    if (nodeId) conditions.push(or(eq(s.runItems.nodeId, nodeId), sql`substr(${s.runItems.nodeId}, 1, ${nodeId.length + 1}) = ${`${nodeId}/`}`)!);
     const where = and(...conditions);
     const total = db.select({ count: count() }).from(s.runItems).where(where).get()!.count;
     const run = db.select({ subject: s.runs.subject }).from(s.runs).where(eq(s.runs.id, c.req.param('id'))).get();
@@ -414,13 +446,25 @@ export const workflowRoutes = new Hono<Env>()
     if (!result.ok) badRequest(result.error);
     return c.json({ ok: true, retried: result.retried, changes: switched.changes });
   })
-  .post('/runs/:id/:action{pause|resume|cancel}', (c) => {
+  .post('/runs/:id/:action{pause|resume|cancel}', async (c) => {
     const { runner } = c.var.deps;
     const id = c.req.param('id');
     const action = c.req.param('action') as 'pause' | 'resume' | 'cancel';
     if (action === 'resume') {
       const run = found(c.var.deps.db.select().from(s.runs).where(eq(s.runs.id, id)).get(), '실행');
       refuseWhileAnotherWholeScript(c.var.deps.db, run);
+      // An optional body raises (or clears, with null) the caps before the run goes on.
+      const text = await c.req.text();
+      let raw: unknown = {};
+      try {
+        if (text.trim()) raw = JSON.parse(text);
+      } catch {
+        badRequest('상한이 올바르지 않습니다.');
+      }
+      const body = resumeSchema.safeParse(raw);
+      if (!body.success) badRequest('상한이 올바르지 않습니다.');
+      runner.resume(id, body.data.limits);
+      return c.json({ ok: true });
     }
     runner[action](id);
     return c.json({ ok: true });

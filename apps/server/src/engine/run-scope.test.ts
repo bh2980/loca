@@ -3,6 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import { importFileSchema } from '@tw/shared';
 import { realistic } from '../../../../scripts/realistic-sample.ts';
 import { openDatabase } from '../db/index.ts';
+import { translateOnlyWorkflow } from './test-workflows.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
 import { translatableSql } from '../services/line-marks.ts';
@@ -17,7 +18,7 @@ describe('run scope by marks', () => {
     const db = openDatabase(':memory:');
     const connection = db.insert(s.connections).values({ kind: 'openai', name: 'mock', baseUrl: 'http://mock/v1' }).returning().get();
     const { projectId } = importProject(db, importFileSchema.parse(realistic(300).file), { connectionId: connection.id, model: 'm' });
-    const workflow = db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).all().find((row) => row.name === '초벌 번역')!;
+    const workflow = translateOnlyWorkflow(db, projectId);
     const units = db.select().from(s.units).where(eq(s.units.projectId, projectId)).all();
     const [noted, notedByAi, plain] = units;
     db.update(s.units).set({ note: '확인 필요' }).where(eq(s.units.id, noted.id)).run();
@@ -36,21 +37,21 @@ describe('run scope by marks', () => {
     expect(pick({ marks: [] })).toEqual(translatable(db, projectId).sort());
   });
 
-  it('skips a 미번역 line a person translated when the scope filters by status, not when it names the line', () => {
+  it('a status filter picks exactly the lines in those statuses, including ones a person already translated', () => {
     const db = openDatabase(':memory:');
     const connection = db.insert(s.connections).values({ kind: 'openai', name: 'mock', baseUrl: 'http://mock/v1' }).returning().get();
     const { projectId } = importProject(db, importFileSchema.parse(realistic(200).file), { connectionId: connection.id, model: 'm' });
-    const workflow = db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).all().find((row) => row.name === '초벌 번역')!;
+    const workflow = translateOnlyWorkflow(db, projectId);
     const initial = db.select().from(s.statuses).where(and(eq(s.statuses.projectId, projectId), eq(s.statuses.kind, 'initial'))).get()!;
     const [written, blank] = db.select().from(s.units).where(and(eq(s.units.projectId, projectId), eq(s.units.statusId, initial.id))).all();
     db.update(s.units).set({ translation: '사람 번역', statusBy: 'human' }).where(eq(s.units.id, written.id)).run();
     db.update(s.units).set({ translation: null, statusBy: 'human' }).where(eq(s.units.id, blank.id)).run();
 
     const picked = selectRunUnits(db, projectId, { statusIds: [initial.id] });
-    expect(picked).not.toContain(written.id);
-    // A person's line with nothing written yet is still untranslated.
+    expect(picked).toContain(written.id);
     expect(picked).toContain(blank.id);
-    // A scope that names lines on purpose is unaffected.
+    const inInitial = db.select({ id: s.units.id }).from(s.units).where(and(eq(s.units.projectId, projectId), eq(s.units.statusId, initial.id), translatableSql(projectId))).all().map((row) => row.id);
+    expect(picked.sort()).toEqual(inInitial.sort());
     expect(selectRunUnits(db, projectId, { unitIds: [written.id] })).toEqual([written.id]);
   });
 
@@ -59,7 +60,7 @@ describe('run scope by marks', () => {
     const connection = db.insert(s.connections).values({ kind: 'openai', name: 'mock', baseUrl: 'http://mock/v1' }).returning().get();
     const first = importProject(db, importFileSchema.parse(realistic(1200).file), { connectionId: connection.id, model: 'm' });
     const other = importProject(db, importFileSchema.parse(realistic(50).file), { connectionId: connection.id, model: 'm' });
-    const workflow = db.select().from(s.workflows).where(eq(s.workflows.projectId, first.projectId)).all().find((row) => row.name === '초벌 번역')!;
+    const workflow = translateOnlyWorkflow(db, first.projectId);
     const units = db.select().from(s.units).where(eq(s.units.projectId, first.projectId)).all();
     const foreign = db.select().from(s.units).where(eq(s.units.projectId, other.projectId)).all()[0];
     // A route's untranslated lines: more than the 500 ids an IN list binds one by one.
@@ -73,7 +74,7 @@ describe('run scope by marks', () => {
     const db = openDatabase(':memory:');
     const connection = db.insert(s.connections).values({ kind: 'openai', name: 'mock', baseUrl: 'http://mock/v1' }).returning().get();
     const { projectId } = importProject(db, importFileSchema.parse(realistic(100).file), { connectionId: connection.id, model: 'm' });
-    const workflow = db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).all().find((row) => row.name === '초벌 번역')!;
+    const workflow = translateOnlyWorkflow(db, projectId);
     const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).all();
     const untranslated = statuses.find((s) => s.kind === 'initial')!;
     const draft = statuses.find((s) => s.kind === 'normal')!;

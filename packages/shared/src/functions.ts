@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { customFormatRuleSchema, formatPatternError } from './format-check.ts';
+import { ISSUE_KIND_IDS, type IssueKind } from './issues.ts';
 
 /**
  * Function nodes run one function from this registry. Each entry declares its parameters and exits;
@@ -81,11 +82,12 @@ export const jsonFieldSchema: z.ZodType<JsonField> = z.lazy(() =>
 ) as z.ZodType<JsonField>;
 
 const pass: Port[] = [{ id: 'pass', label: '통과' }, { id: 'fail', label: '실패' }];
-/** What a check returns: the text it checked, whether it passed, and what it found. */
+/** What a check returns: the text it checked, whether it passed, what it found and the kind of problem it looks for (a 태그 붙이기 node can name its tag after it). */
 export const CHECK_OUTPUTS: readonly JsonField[] = [
   { name: 'text', type: 'string', description: '검사한 번역문' },
   { name: 'passed', type: 'boolean', description: '통과했는지' },
   { name: 'issues', type: 'strings', description: '찾은 문제' },
+  { name: 'kind', type: 'string', description: '이 검사가 찾는 문제 유형' },
 ];
 const out: Port[] = [{ id: 'out', label: '다음' }];
 
@@ -156,7 +158,7 @@ const evidenceField = { name: 'evidence', label: '근거 대사', type: 'lines' 
 export const APPLY_TARGETS = {
   saveCandidate: {
     label: '번역 저장',
-    description: '이 항목에 번역을 넣습니다: 대사는 번역문(번역 기록에도 남음), 용어는 표기와 메모. 사람이 저장한 번역은 덮어쓰지 않습니다.',
+    description: '이 항목에 번역을 넣습니다: 대사는 번역문(번역 기록에도 남음), 용어는 표기와 메모. 사람이 저장한 번역은 덮어쓰지 않습니다. 대사의 번역문이 바뀌면 옛 번역에 대한 지적이던 문제 유형 태그는 떨어집니다.',
     shape: 'line',
     fields: [
       { name: 'text', label: '번역', type: 'string', required: true },
@@ -178,9 +180,9 @@ export const APPLY_TARGETS = {
   },
   tagLines: {
     label: '태그 붙이기',
-    description: '값과 이름이 같은 태그를 이 항목에 붙입니다. 없는 태그는 만들지 않습니다.',
+    description: '이 항목에 태그를 붙이거나 뗍니다. 고른 태그와, 앞 단계 결과가 이름 붙인 태그를 함께 쓸 수 있습니다. 문제 유형 태그는 처음 붙일 때 프로젝트에 만들어지고, 그 밖의 태그는 이름이 같은 것이 있을 때만 다룹니다.',
     shape: 'line',
-    fields: [{ name: 'tag', label: '태그 이름', type: 'string', required: true }],
+    fields: [{ name: 'tag', label: '태그 이름', type: 'strings' }],
     tool: 'propose_changes',
     inputs: ['lines', 'terms'],
   },
@@ -298,6 +300,23 @@ export const applyParams = z.object({
 });
 export type ApplyParams = z.infer<typeof applyParams>;
 
+/**
+ * 태그 붙이기 / 떼기: the one place a line (or term) gets or loses a tag in a workflow. The tags come
+ * from the pane (`tagIds`: the project's tags, `kinds`: 문제 유형, created in the project the first time
+ * one is put on), from the previous step's result (`map.tag`: a field holding tag names or problem-type
+ * ids, e.g. a review's `categories` or a check's `kind`), or both. `allKinds` (떼기 only) is every
+ * 문제 유형 tag. Checks and reviews only judge; they never tag.
+ */
+export const TAG_ACTIONS = { add: '붙이기', remove: '떼기' } as const;
+export type TagAction = keyof typeof TAG_ACTIONS;
+export const tagLinesParams = applyParams.extend({
+  action: z.enum(['add', 'remove']).default('add'),
+  tagIds: z.array(z.string()).default([]),
+  kinds: z.array(z.enum(ISSUE_KIND_IDS as [IssueKind, ...IssueKind[]])).default([]),
+  allKinds: z.boolean().default(false),
+});
+export type TagLinesParams = z.infer<typeof tagLinesParams>;
+
 export const httpParams = z.object({
   /** Full address, e.g. "https://api.example.com/spell?lang=ko"; "{{unit.key}}"-style values are filled in (URL-encoded). */
   url: z.string().default(''),
@@ -335,7 +354,7 @@ export const scriptParams = z.object({
 export const FUNCTIONS = {
   formatCheck: {
     label: '형식 검사',
-    description: '켠 항목(치환자·서식 태그·줄바꿈·빈 번역·숫자·공백·한국어 조사), 길이 제한(글자·바이트·줄·원문 대비 비율), 금칙어, 사용자 정의 정규식 규칙을 검사합니다. 치환자·태그 문법은 프로젝트 설정의 치환자·태그 문법을 따릅니다.',
+    description: '번역 후보를 검사해 통과·실패만 정합니다(태그는 붙이지 않습니다). 켠 항목(치환자·서식 태그·줄바꿈·빈 번역·숫자·공백·한국어 조사), 길이 제한(글자·바이트·줄·원문 대비 비율), 금칙어, 사용자 정의 정규식 규칙을 검사합니다. 치환자·태그 문법은 프로젝트 설정의 치환자·태그 문법을 따릅니다.',
     params: formatCheckParams,
     ports: () => pass,
     async: false,
@@ -344,7 +363,7 @@ export const FUNCTIONS = {
   },
   glossaryCheck: {
     label: '용어 검사',
-    description: '원문에 나온 확정 용어의 지정 번역이 후보에 쓰였는지 검사합니다.',
+    description: '원문에 나온 확정 용어의 지정 번역이 후보에 쓰였는지 검사해 통과·실패만 정합니다(태그는 붙이지 않습니다).',
     params: z.object({}),
     ports: () => pass,
     async: false,
@@ -362,6 +381,7 @@ export const FUNCTIONS = {
   ...(Object.fromEntries(
     Object.entries(APPLY_TARGETS).map(([name, target]) => [name, { label: target.label, description: target.description, params: applyParams, ports: () => out, async: false, inputs: target.inputs }]),
   ) as unknown as Record<ApplyFunctionName, FunctionInfo<typeof applyParams>>),
+  tagLines: { label: APPLY_TARGETS.tagLines.label, description: APPLY_TARGETS.tagLines.description, params: tagLinesParams, ports: () => out, async: false, inputs: APPLY_TARGETS.tagLines.inputs },
   http: {
     label: 'HTTP 호출',
     description: '외부 API(맞춤법·사전 등)를 주소로 호출하고, 응답에서 고른 값을 선언한 결과 칸으로 돌려줍니다. text 칸은 대사의 지금 번역이 됩니다. 키가 필요하면 설정의 API 키를 고릅니다.',
@@ -398,8 +418,8 @@ export const PALETTE_FUNCTION_NAMES: FunctionName[] = [
  */
 export const functionGroup = (fn: string): 'apply' | 'function' => (fn in APPLY_TARGETS || fn === 'setStatus' ? 'apply' : 'function');
 
-/** The 반영 group in the editor: what writes to the item running through first, then what writes to the project's knowledge. */
-export const APPLY_PALETTE_ORDER: FunctionName[] = ['saveCandidate', 'setStatus', 'tagLines', 'setListener', 'saveTerms', 'saveCharacters', 'saveRelationships', 'saveSpeechRules', 'saveEvents', 'saveDocument'];
+/** The 반영 group in the editor: 상태 변경 first (it moves lines between statuses), then 태그 붙이기, then the 저장 nodes (the item's own, then the project's knowledge). */
+export const APPLY_PALETTE_ORDER: FunctionName[] = ['setStatus', 'tagLines', 'saveCandidate', 'setListener', 'saveTerms', 'saveCharacters', 'saveRelationships', 'saveSpeechRules', 'saveEvents', 'saveDocument'];
 
 export function functionPorts(fn: string, params: unknown): Port[] {
   const info = FUNCTIONS[fn as FunctionName] as unknown as FunctionInfo | undefined;

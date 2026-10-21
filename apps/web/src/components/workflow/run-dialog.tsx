@@ -9,7 +9,8 @@ import { client, unwrap } from '@/lib/api';
 import { INPUT_TYPES, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, TERM_MARK_IDS, WORKFLOW_SUBJECT_IDS, LINE_MARK_IDS, type AutoMark, type LineMark } from '@tw/shared';
 import { MarkChip } from '@/components/status';
 import type { ModelValue } from '@/components/model-picker';
-import { Pace, RunModels } from './run-estimate';
+import { Pace, RunCaps, RunModels } from './run-estimate';
+import { startLimits, type CapEdits } from '@/lib/run-limits';
 import { tagsIn, q } from '@/lib/queries';
 import { SCRIPT_VIEW } from '@/lib/labels';
 import { cn } from '@/lib/utils';
@@ -42,7 +43,6 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   trigger?: ReactNode;
   /** Start with the entry-status check off (re-running lines that are already done). */
   defaultIgnoreStatus?: boolean;
-  /** Preselect the workflow with this name when it exists (e.g. "말투만 고치기"). */
   /** A button's own key: the dialog opens on the workflow last run from it, and with none picked the first time. */
   remember?: string;
   open?: boolean; onOpenChange?: (open: boolean) => void; hideTrigger?: boolean;
@@ -71,6 +71,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   const statuses = useQuery({ ...q.statuses(projectId), enabled: open });
   // This run's models by AI node, where the person picked another than the node's own (the workflow is not changed).
   const [runModels, setRunModels] = useState<Record<string, ModelValue>>({});
+  const [capEdits, setCapEdits] = useState<CapEdits>({});
   const workflows = useQuery({ ...q.workflows(projectId), enabled: open });
   const rememberKey = remember && `run-dialog:${projectId}:${remember}`;
   const [chosen, setChosen] = useState<string | undefined>(() => {
@@ -210,8 +211,8 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   const suggested = data?.suggestedLimits;
   const start = useMutation({
     mutationFn: () => {
-      // A safety net, not a choice: the suggested caps, past which the run pauses.
-      const limits = { ...(suggested?.maxCalls ? { maxCalls: suggested.maxCalls } : {}), ...(suggested?.maxInputTokens ? { maxInputTokens: suggested.maxInputTokens } : {}) };
+      // The caps the fields hold (the suggestion until changed), past which the run pauses.
+      const limits = startLimits(suggested, capEdits);
       return unwrap(client.workflows[':id'].runs.$post({ param: { id: workflowId! }, json: { ...request, ...(Object.keys(limits).length ? { limits } : {}) } }));
     },
     onSuccess: (run) => {
@@ -234,6 +235,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
       setPickedTags(new Set());
       setPickedMarks(new Set());
       setRunModels({});
+      setCapEdits({});
     }
     wasOpen.current = open;
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -410,6 +412,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
             />
           ) : null}
           {data && total ? <Pace data={data} projectId={projectId} /> : null}
+          {data && total ? <RunCaps suggested={suggested} edits={capEdits} onChange={setCapEdits} /> : null}
           {data && total ? (
             <RunModels
               nodes={data.nodes}

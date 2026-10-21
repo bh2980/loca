@@ -1,5 +1,4 @@
 import type * as s from '../../db/schema.ts';
-import type { IssueTagChange } from '../../services/issue-tags.ts';
 
 type Unit = typeof s.units.$inferSelect;
 type Term = typeof s.terms.$inferSelect;
@@ -14,8 +13,6 @@ export interface FunctionResult {
   output?: Record<string, unknown>;
   /** Problems to hand to a later revise step. */
   issues?: string[];
-  /** Problem-type tags this check puts on the line or takes off (services/issue-tags.ts). */
-  issueTags?: IssueTagChange;
   /** Why the line leaves through "error" (with that port). */
   error?: string;
 }

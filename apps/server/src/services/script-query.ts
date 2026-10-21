@@ -1,5 +1,5 @@
 import { and, asc, count, desc, eq, gte, inArray, like, or, sql, type SQL } from 'drizzle-orm';
-import { checkFormat, exclusionRulesSchema, lineExclusion, lineMarksOf, mentions, type BatchChange, type CheckKind, type LineFilter, type LineMark } from '@tw/shared';
+import { checkFormat, exclusionRulesSchema, lineExclusion, lineMarksOf, mentions, runNodeName, type BatchChange, type CheckKind, type LineFilter, type LineMark } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import { inChunks, inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
@@ -316,8 +316,9 @@ export function runStats(db: Db, projectId: string, since: Date) {
     .groupBy(s.runItems.runId, s.runItems.nodeId)
     .all();
   const nodeName = (runId: string, nodeId: string) => {
-    const node = runs.find((run) => run.id === runId)?.definition.nodes.find((candidate) => candidate.id === nodeId);
-    return node?.label ?? nodeId;
+    const definition = runs.find((run) => run.id === runId)?.definition;
+    const node = definition?.nodes.find((candidate) => candidate.id === nodeId);
+    return node ? runNodeName(definition!, node) : nodeId;
   };
   return {
     runs: runs.map((run) => {
