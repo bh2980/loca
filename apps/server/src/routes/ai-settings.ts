@@ -60,7 +60,7 @@ export const connectionRoutes = new Hono<Env>()
     checkFallback(db, null, input.fallback);
     const row = db
       .insert(s.connections)
-      .values({ ...input, baseUrl: info.transport === 'http' ? (input.baseUrl ?? info.defaultBaseUrl) : null, executable: input.executable || null })
+      .values({ ...input, outputTokens: info.capsOutput ? input.outputTokens : null, baseUrl: info.transport === 'http' ? (input.baseUrl ?? info.defaultBaseUrl) : null, executable: input.executable || null })
       .returning()
       .get();
     if (apiKey) secrets.set(row.id, apiKey);
@@ -72,9 +72,9 @@ export const connectionRoutes = new Hono<Env>()
   .patch('/:id', validate('json', patchOf(connectionInputSchema.omit({ kind: true }))), (c) => {
     const { db } = c.var.deps;
     const input = c.req.valid('json');
-    const current = db.select({ defaultModel: s.connections.defaultModel }).from(s.connections).where(eq(s.connections.id, c.req.param('id'))).get();
+    const current = db.select({ kind: s.connections.kind, defaultModel: s.connections.defaultModel }).from(s.connections).where(eq(s.connections.id, c.req.param('id'))).get();
     checkFallback(db, c.req.param('id'), input.fallback, input.defaultModel !== undefined ? input.defaultModel : current?.defaultModel);
-    found(db.update(s.connections).set({ ...input, executable: input.executable === '' ? null : input.executable, defaultModel: input.defaultModel || (input.defaultModel === undefined ? undefined : null), defaultEffort: input.defaultEffort || (input.defaultEffort === undefined ? undefined : null) }).where(eq(s.connections.id, c.req.param('id'))).returning().get(), '연결');
+    found(db.update(s.connections).set({ ...input, outputTokens: current && !CONNECTION_KIND_INFO[current.kind].capsOutput ? null : input.outputTokens, executable: input.executable === '' ? null : input.executable, defaultModel: input.defaultModel || (input.defaultModel === undefined ? undefined : null), defaultEffort: input.defaultEffort || (input.defaultEffort === undefined ? undefined : null) }).where(eq(s.connections.id, c.req.param('id'))).returning().get(), '연결');
     if (input.defaultModel) fillDefaultModels(db);
     events.changed(undefined, 'connections', 'workflows');
     return c.json({ ok: true });

@@ -21,6 +21,8 @@ export interface ConnectionKindInfo {
   defaultBaseUrl?: string;
   needsKey: boolean;
   efforts: string[];
+  /** Whether a call can be capped at outputTokens. Agent CLIs pick their own output length and System One answers a fixed shape. */
+  capsOutput?: boolean;
 }
 
 export const CONNECTION_KIND_INFO: Record<ConnectionKind, ConnectionKindInfo> = {
@@ -31,6 +33,7 @@ export const CONNECTION_KIND_INFO: Record<ConnectionKind, ConnectionKindInfo> = 
     defaultBaseUrl: 'https://api.openai.com/v1',
     needsKey: true,
     efforts: ['minimal', 'low', 'medium', 'high'],
+    capsOutput: true,
   },
   systemone: {
     label: 'System One (TypeSafe)',

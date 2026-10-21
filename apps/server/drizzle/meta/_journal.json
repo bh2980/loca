@@ -610,6 +610,13 @@
       "when": 1792518272738,
       "tag": "0086_graph_origin",
       "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "6",
+      "when": 1792518273738,
+      "tag": "0087_output_tokens_api_only",
+      "breakpoints": true
     }
   ]
 }

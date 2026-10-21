@@ -10,6 +10,3 @@ export function keyLabel(combo: string) {
   const parts = combo.split('+').map((part) => names[part] ?? part.toUpperCase());
   return isMac ? parts.join('') : parts.join('+');
 }
-
-/** Where the OS keeps secrets (API keys are stored there, never in the DB). */
-export const keyStoreLabel = isMac ? 'macOS 키체인' : typeof navigator !== 'undefined' && /Win/i.test(navigator.userAgent) ? 'Windows 자격 증명 관리자' : 'OS 키체인(Secret Service)';

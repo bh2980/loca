@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { numberOrNull, numberOrUndefined } from '@/lib/form-values';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
@@ -49,7 +50,6 @@ import { client, unwrap, type InferResponseType } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { cn } from '@/lib/utils';
-import { keyStoreLabel } from '@/lib/keys';
 import { dateTime } from '@/lib/datetime';
 
 export const Route = createFileRoute('/p/$projectId/settings/connections')({
@@ -259,7 +259,7 @@ function NewConnection({ onClose, onCreated }: { onClose: () => void; onCreated?
                 <InspectorField label="주소" error={form.formState.errors.baseUrl?.message}>
                   <Input {...form.register('baseUrl', { setValueAs: (value: string) => (value ? value : undefined) })} aria-invalid={!!form.formState.errors.baseUrl} />
                 </InspectorField>
-                <InspectorField label="API 키" description={`${keyStoreLabel}에 저장되며 DB·내보내기에 들어가지 않습니다.`}>
+                <InspectorField label="API 키">
                   <Input type="password" autoComplete="off" {...form.register('apiKey')} />
                 </InspectorField>
               </>
@@ -302,9 +302,9 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
   });
   const dirtyFields: Record<string, unknown> = form.formState.dirtyFields;
   const onlyDirty = <T extends object>(json: T) => Object.fromEntries(Object.entries(json).filter(([key]) => dirtyFields[key])) as T;
-  const number = { setValueAs: (value: string) => (value === '' ? undefined : Number(value)) };
+  const number = { setValueAs: numberOrUndefined };
   // Empty token fields mean the model's own limit: null, so clearing a number is saved too.
-  const optionalNumber = { setValueAs: (value: string) => (value === '' ? null : Number(value)) };
+  const optionalNumber = { setValueAs: numberOrNull };
   // What the model list said about this connection's model, shown while a token field is empty.
   const modelDefault = (field: 'contextWindow' | 'maxOutput') => {
     const known = connection.modelLimits?.[form.watch('defaultModel') ?? '']?.[field];
@@ -426,7 +426,6 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
                 // Not what the connection always calls: the model filled in when this connection is picked (node, chat, run).
                 <InspectorField
                   label="모델"
-                  description="비워 두면 쓰는 곳마다 고릅니다."
                   help="이 연결을 고르면 먼저 채워지는 모델입니다."
                   action={field.value && (
                     <Button variant="ghost" size="inline" onClick={() => { field.onChange(null); form.setValue('defaultEffort', null, { shouldDirty: true }); }}>
@@ -450,7 +449,6 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
           {isHttp && (
             <InspectorField
               label={connection.hasKey ? 'API 키 · 저장됨' : 'API 키 · 없음'}
-              description={`${keyStoreLabel}에 저장되며 DB·내보내기에 들어가지 않습니다.`}
               action={connection.hasKey && (
                 <Button variant="ghost" size="inline" className="text-destructive" disabled={deleteKey.isPending} onClick={() => deleteKey.mutate()}>
                   키 삭제
@@ -469,9 +467,11 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
             <InspectorField label="입력 토큰" description="비우면 모델 기본값을 씁니다." help="한 번 부를 때 넣을 수 있는 양입니다. AI 노드가 한 번에 보내는 양이 여기에 맞춰집니다." error={errors.inputTokens?.message}>
               <Input type="number" min={1000} placeholder={modelDefault('contextWindow')} {...form.register('inputTokens', optionalNumber)} aria-invalid={!!errors.inputTokens} />
             </InspectorField>
-            <InspectorField label="출력 토큰" description="비우면 모델 기본값을 씁니다." help="한 번에 받을 수 있는 양입니다." error={errors.outputTokens?.message}>
-              <Input type="number" min={256} placeholder={modelDefault('maxOutput')} {...form.register('outputTokens', optionalNumber)} aria-invalid={!!errors.outputTokens} />
-            </InspectorField>
+            {info.capsOutput && (
+              <InspectorField label="출력 토큰" description="비우면 모델 기본값을 씁니다." help="한 번에 받을 수 있는 양입니다." error={errors.outputTokens?.message}>
+                <Input type="number" min={256} placeholder={modelDefault('maxOutput')} {...form.register('outputTokens', optionalNumber)} aria-invalid={!!errors.outputTokens} />
+              </InspectorField>
+            )}
             {!isTool && (
             <Controller
               control={form.control}
