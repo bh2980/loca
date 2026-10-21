@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { numberOrNull, numberOrUndefined } from '@/lib/form-values';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
@@ -302,9 +303,9 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
   });
   const dirtyFields: Record<string, unknown> = form.formState.dirtyFields;
   const onlyDirty = <T extends object>(json: T) => Object.fromEntries(Object.entries(json).filter(([key]) => dirtyFields[key])) as T;
-  const number = { setValueAs: (value: string) => (value === '' ? undefined : Number(value)) };
+  const number = { setValueAs: numberOrUndefined };
   // Empty token fields mean the model's own limit: null, so clearing a number is saved too.
-  const optionalNumber = { setValueAs: (value: string) => (value === '' ? null : Number(value)) };
+  const optionalNumber = { setValueAs: numberOrNull };
   // What the model list said about this connection's model, shown while a token field is empty.
   const modelDefault = (field: 'contextWindow' | 'maxOutput') => {
     const known = connection.modelLimits?.[form.watch('defaultModel') ?? '']?.[field];
