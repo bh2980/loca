@@ -5,7 +5,7 @@ onlyBuiltDependencies:
   - better-sqlite3
   - esbuild
   - "@napi-rs/keyring"
-# pnpm 10.26+ (and 11, 12) read allowBuilds; onlyBuiltDependencies above is for the pinned 10.18.
+# Newer pnpm (checked with 12.14) reads allowBuilds; onlyBuiltDependencies above is for the pinned 10.18.
 # Without it a newer pnpm skips these build scripts and the server cannot load better-sqlite3.
 allowBuilds:
   better-sqlite3: true
