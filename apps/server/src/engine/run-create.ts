@@ -141,7 +141,7 @@ type RunInput = { projectId: string; workflow: typeof s.workflows.$inferSelect; 
 /** The run's lines and their plan batches, and the run row to store. */
 function runRows(db: Db, input: RunInput) {
   // "Auto" budgets are fixed here for the models this run calls: the plan and the runner use the same numbers.
-  const definition = resolveBudgets(db, input.workflow.definition);
+  const definition = resolveBudgets(db, input.workflow.id, input.workflow.definition);
   const entry = definition.nodes.find((node) => node.type === 'entry');
   if (!entry) throw new Error('진입 노드가 없습니다.');
   const subject = workflowInput(definition);

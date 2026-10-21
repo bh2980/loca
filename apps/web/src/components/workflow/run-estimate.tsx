@@ -1,6 +1,7 @@
 import type { InferResponseType } from 'hono/client';
 import { Link } from '@tanstack/react-router';
 import { Button, SectionHeading } from '@loca/ui';
+import { splitBasis, splitTitle } from '@/lib/split-text';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
 import type { client } from '@/lib/api';
 
@@ -32,6 +33,16 @@ export function Pace({ data, projectId }: { data: PlanData; projectId?: string }
         )}
         {money && ` · ${money}`}
       </p>
+      {data.nodes.length > 0 && (
+        <div className="space-y-1.5">
+          {data.nodes.map((node) => (
+            <div key={node.nodeId}>
+              <p className="text-sm">{splitTitle(node.name, node.split)}</p>
+              <p className="text-xs text-muted-foreground">{splitBasis(node.split)}</p>
+            </div>
+          ))}
+        </div>
+      )}
       {projectId && data.load.runs > 0 && (
         <p className="text-xs text-warning" role="status">
           다른 실행 {data.load.runs}개가 AI 요청을 최대 {data.load.max}개까지 동시에 보내는 중입니다. 이 실행을 시작하면 최대 {data.load.max + data.load.added}개가 됩니다.{' '}

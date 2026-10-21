@@ -21,7 +21,7 @@ export interface ConnectionKindInfo {
   defaultBaseUrl?: string;
   needsKey: boolean;
   efforts: string[];
-  /** Whether a call can be capped at outputTokens. Agent CLIs pick their own output length and System One answers a fixed shape. */
+  /** Whether outputTokens is also sent with each call as its output cap (API); elsewhere it only sizes requests (agent CLIs pick their own output length, System One answers a fixed shape). */
   capsOutput?: boolean;
 }
 

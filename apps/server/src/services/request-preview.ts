@@ -5,7 +5,7 @@ import * as s from '../db/schema.ts';
 import { buildPrompt } from '../engine/prompts.ts';
 import { selectRunTerms } from '../engine/run-create.ts';
 import { termPrompt } from '../engine/subjects.ts';
-import { modelLimitsOf, resolveNodeBudgets } from './budgets.ts';
+import { autoOf, modelLimitsOf, resolveNodeBudgets } from './budgets.ts';
 import { previewContext } from './context-preview.ts';
 
 /** Items of the request listed before "외 N개". */
@@ -48,7 +48,7 @@ export function previewRequest(db: Db, workflow: typeof s.workflows.$inferSelect
   const at = Math.max(0, sample ? ids.indexOf(sample) : 0);
   const batchIds = ids.slice(Math.floor(at / size) * size, Math.floor(at / size) * size + size);
   if (!batchIds.length) return { ...base, sample: null, total: 0, items: [], context: [], system: '', prompt: '', promptTokens: 0 };
-  const resolved = resolveNodeBudgets(node, modelLimitsOf(db, node.config.model));
+  const resolved = resolveNodeBudgets(node, autoOf(db, workflow.id, node, modelLimitsOf(db, node.config.model)));
   const { lines, context } = termPrompt(db, projectId, batchIds.map((id) => ({ subjectId: id, data: {} })) as never, resolved);
   const project = db.select().from(s.projects).where(eq(s.projects.id, projectId)).get()!;
   const { system, prompt } = buildPrompt(resolved, { source: project.sourceLanguage, target: project.targetLanguage }, context, lines);

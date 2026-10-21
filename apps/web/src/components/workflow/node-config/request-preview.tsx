@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import type { InferResponseType } from 'hono/client';
-import { AI_OUTPUTS, CONTEXT_ITEM_KINDS, CONTEXT_PRIORITY, INPUT_TYPES, JSON_FIELD_TYPE_LABELS, type AiNode } from '@tw/shared';
+import { AI_OUTPUTS, CONTEXT_ITEM_KINDS, CONTEXT_PRIORITY, INPUT_TYPES, JSON_FIELD_TYPE_LABELS, type AiNode, type AiOutput, type BatchConfig } from '@tw/shared';
 import { Button, Collapsible, CollapsibleContent, CollapsibleTrigger, Dialog, DialogContent, DialogHeader, DialogTitle, InspectorSection, SearchableSelect, Skeleton } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
@@ -107,6 +107,20 @@ export function useRequestPreview(workflowId: string | undefined, nodeId: string
     queryKey: ['workflows', 'request-preview', workflowId, nodeId, sample ?? ''],
     queryFn: () => unwrap(client.workflows[':id'].nodes[':nodeId'].request.$get({ param: { id: workflowId!, nodeId: nodeId! }, query: sample ? { sample } : {} })),
     enabled: Boolean(workflowId && nodeId),
+    placeholderData: keepPreviousData,
+  });
+}
+
+/**
+ * The line text per request "auto" picks for a saved AI node as it is being edited (its model, output
+ * and batch mode), from the model's limits and the node's past requests. Disabled until a model is
+ * chosen on a saved workflow; the query follows runs, which is where the past requests change.
+ */
+export function useAutoLines(workflowId: string | undefined, nodeId: string, model: { connectionId: string; model: string }, output: AiOutput, mode: BatchConfig['mode']) {
+  return useQuery({
+    queryKey: ['runs', 'auto-lines', workflowId, nodeId, model.connectionId, model.model, output, mode],
+    queryFn: () => unwrap(client.workflows[':id'].nodes[':nodeId']['auto-lines'].$get({ param: { id: workflowId!, nodeId }, query: { connectionId: model.connectionId, model: model.model, output, mode } })),
+    enabled: Boolean(workflowId && model.connectionId && model.model),
     placeholderData: keepPreviousData,
   });
 }

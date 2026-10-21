@@ -3,7 +3,7 @@ import { CopyButton } from '@/components/copy-button';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, OctagonAlert, Pause, Play, CircleStop } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Info, OctagonAlert, Pause, Play, CircleStop } from 'lucide-react';
 import { nodeName as nameOf, type WorkflowNode } from '@tw/shared';
 import { ContextItemList } from '@/components/ai-context';
 import { LineDetail } from '@/components/line-detail';
@@ -233,6 +233,13 @@ function RunDetail() {
         </FilterBar>}
 
         <div className="shrink-0 space-y-3 border-b px-4 py-3">
+          {(data.status === 'running' || data.status === 'completed') && data.notice && !data.filling && (
+            <Alert>
+              <Info />
+              <AlertTitle>실행 알림</AlertTitle>
+              <AlertDescription className="whitespace-pre-line">{data.notice}</AlertDescription>
+            </Alert>
+          )}
           {data.status === 'paused' && data.notice && (
             <Alert variant="destructive">
               <OctagonAlert />

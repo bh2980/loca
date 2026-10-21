@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
+import path from 'node:path';
 import { PassThrough } from 'node:stream';
-import { CLI_IDLE_MS, execaCli, idleTimeout, readCliOutput, watchIdle } from './cli.ts';
+import { CLI_IDLE_MS, codexModelLimits, execaCli, grokCachePath, grokModelLimits, opencodeCachePath, opencodeModelLimits, idleTimeout, readCliOutput, watchIdle } from './cli.ts';
 import { ModelError } from './errors.ts';
 
 const schema = z.object({ ok: z.boolean() });
@@ -116,5 +117,44 @@ describe('a CLI that waits or goes quiet', () => {
     expect(idleTimeout('grok', 600_000)).toBe(0);
     expect(idleTimeout('opencode', 600_000)).toBe(CLI_IDLE_MS);
     expect(idleTimeout('codex', 30_000)).toBe(30_000);
+  });
+});
+
+describe('model limits from the CLIs', () => {
+  it('reads codex context_window (not max_context_window) of visible models only', () => {
+    const catalog = JSON.stringify({ models: [{ slug: 'gpt-a', visibility: 'list', context_window: 272_000, max_context_window: 1_000_000 }, { slug: 'gpt-b', visibility: 'hide', context_window: 100 }, { slug: 'gpt-c', visibility: 'list' }] });
+    expect(codexModelLimits(catalog)).toEqual({ 'gpt-a': { contextWindow: 272_000 } });
+    expect(codexModelLimits('not json')).toEqual({});
+  });
+
+  it('reads grok window and max_completion_tokens only when it is a positive number', () => {
+    const cache = { models: { 'grok-4': { info: { context_window: 256_000, max_completion_tokens: null } }, 'grok-5': { info: { context_window: 2_000_000, max_completion_tokens: 64_000 } }, other: { info: { context_window: 5 } }, 'grok-6': {} } };
+    expect(grokModelLimits(cache, ['grok-4', 'grok-5', 'grok-6', 'missing'])).toEqual({ 'grok-4': { contextWindow: 256_000 }, 'grok-5': { contextWindow: 2_000_000, maxOutput: 64_000 } });
+    expect(grokModelLimits(undefined, ['grok-4'])).toEqual({});
+  });
+
+  it('maps opencode provider/model ids to models.dev limits, and skips what the cache lacks', () => {
+    const cache = { anthropic: { models: { 'claude-x': { limit: { context: 200_000, output: 32_000 } } } }, 'amazon-bedrock': { models: { 'a.b/c': { limit: { context: 1_000 } } } } };
+    expect(opencodeModelLimits(cache, ['anthropic/claude-x', 'anthropic/nope', 'ghost/m', 'amazon-bedrock/a.b/c', 'plain'])).toEqual({ 'anthropic/claude-x': { contextWindow: 200_000, maxOutput: 32_000 }, 'amazon-bedrock/a.b/c': { contextWindow: 1_000 } });
+    expect(opencodeModelLimits(null, ['anthropic/claude-x'])).toEqual({});
+  });
+
+  it('finds the cache files under GROK_HOME and XDG_CACHE_HOME when set', () => {
+    expect(grokCachePath({ GROK_HOME: '/g' }, '/h')).toBe('/g/models_cache.json'.replaceAll('/', path.sep));
+    expect(grokCachePath({}, '/h')).toBe(path.join('/h', '.grok', 'models_cache.json'));
+    expect(opencodeCachePath({ XDG_CACHE_HOME: '/x' }, '/h')).toBe(path.join('/x', 'opencode', 'models.json'));
+    expect(opencodeCachePath({}, '/h')).toBe(path.join('/h', '.cache', 'opencode', 'models.json'));
+  });
+
+  it('learns a claude model\'s window from the result\'s modelUsage, taking the model that did the work', () => {
+    const schema = z.object({ ok: z.boolean() });
+    const envelope = {
+      type: 'result',
+      result: '{"ok":true}',
+      usage: { input_tokens: 10, output_tokens: 5 },
+      modelUsage: { 'claude-haiku': { inputTokens: 5, outputTokens: 1, contextWindow: 200_000, maxOutputTokens: 8_000 }, 'claude-opus': { inputTokens: 900, outputTokens: 50, contextWindow: 1_000_000, maxOutputTokens: 64_000 } },
+    };
+    expect(readCliOutput('claude', JSON.stringify(envelope), schema).usage.limits).toEqual({ contextWindow: 1_000_000, maxOutput: 64_000 });
+    expect(readCliOutput('claude', JSON.stringify({ ...envelope, modelUsage: undefined }), schema).usage.limits).toBeUndefined();
   });
 });

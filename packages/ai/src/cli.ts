@@ -1,12 +1,12 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { execa, ExecaError, type Options } from 'execa';
 import { z } from 'zod';
 import type { ConnectionKind } from '@tw/shared';
 import { cliSpawn, resolveCli } from './spawn.ts';
 import { keepOutput, ModelError, TOO_LONG, withOutput } from './errors.ts';
-import { addUsage, readUsage, type GenerateRequest, type GenerateResult, type ResolvedRoute, type Usage } from './types.ts';
+import { addUsage, readUsage, type GenerateRequest, type GenerateResult, type ModelLimitsInfo, type ResolvedRoute, type Usage } from './types.ts';
 
 type CliKind = Extract<ConnectionKind, 'codex' | 'claude' | 'grok' | 'antigravity' | 'opencode'>;
 
@@ -175,6 +175,19 @@ export function opencodeUsage(events: unknown[]): Usage {
   return total;
 }
 
+/**
+ * The window and output limit Claude Code reports per model in its result (`modelUsage`); the model
+ * that did most of the work when a call used several (a subagent, a fallback).
+ */
+function claudeLimits(modelUsage: unknown): Usage['limits'] {
+  const entries = Object.values(record(modelUsage) ?? {}).map((entry) => record(entry) ?? {});
+  const used = (entry: Record<string, unknown>) => (positive(entry.inputTokens) ?? 0) + (positive(entry.outputTokens) ?? 0);
+  const main = entries.sort((a, b) => used(b) - used(a))[0];
+  const contextWindow = positive(main?.contextWindow);
+  const maxOutput = positive(main?.maxOutputTokens);
+  return contextWindow || maxOutput ? { contextWindow, maxOutput } : undefined;
+}
+
 /** Each CLI wraps the model's answer in its own terminal envelope; progress events are never results. */
 export function unwrap(kind: CliKind, stdout: string): { data: unknown; usage: Usage } {
   const lines = stdout.split(/\r?\n/).filter(Boolean);
@@ -210,6 +223,10 @@ export function unwrap(kind: CliKind, stdout: string): { data: unknown; usage: U
   }
   if (!envelope) throw new ModelError('cli', 'CLI가 최종 결과를 반환하지 않았습니다.', false);
   const usage = readUsage(envelope.usage, envelope.total_cost_usd);
+  if (kind === 'claude') {
+    const limits = claudeLimits(envelope.modelUsage);
+    if (limits) usage.limits = limits;
+  }
   if (envelope.is_error === true || envelope.type === 'error' || envelope.status === 'ERROR' || String(envelope.subtype ?? '').startsWith('error'))
     throw cliFailure(String(envelope.result ?? envelope.error ?? '').slice(0, 300), usage);
   const stop = String(envelope.stopReason ?? envelope.stop_reason ?? '').toLowerCase();
@@ -333,14 +350,12 @@ export async function cliVersion(kind: CliKind, executable?: string): Promise<st
  */
 const MODEL_ARGS: Partial<Record<CliKind, string[]>> = { grok: ['models'], antigravity: ['models'], opencode: ['models'], codex: ['debug', 'models'] };
 const CLAUDE_ALIASES = ['opus', 'sonnet', 'haiku', 'fable'];
+type CodexModel = { slug?: string; visibility?: string; priority?: number; context_window?: number };
+const codexVisible = (stdout: string) =>
+  ((JSON.parse(stdout) as { models?: CodexModel[] }).models ?? []).filter((model) => model.slug && model.visibility !== 'hide').sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
+
 const MODEL_LIST: Partial<Record<CliKind, (stdout: string) => string[]>> = {
-  codex: (stdout) => {
-    const catalog = JSON.parse(stdout) as { models?: { slug?: string; visibility?: string; priority?: number }[] };
-    return (catalog.models ?? [])
-      .filter((model) => model.slug && model.visibility !== 'hide')
-      .sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0))
-      .map((model) => model.slug!);
-  },
+  codex: (stdout) => codexVisible(stdout).map((model) => model.slug!),
   grok: (stdout) => [...stdout.matchAll(/^\s*[*-]\s+(\S+)/gm)].map((match) => match[1]),
   opencode: (stdout) => [...stdout.matchAll(/^([\w.-]+\/[\w.:#-]+)\s*$/gm)].map((match) => match[1]),
   antigravity: (stdout) =>
@@ -353,8 +368,66 @@ const MODEL_LIST: Partial<Record<CliKind, (stdout: string) => string[]>> = {
 
 export const cliListsModels = (kind: CliKind) => kind in MODEL_LIST || kind === 'claude';
 
+const positive = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined);
+const limitsOrNone = (contextWindow: unknown, maxOutput?: unknown): ModelLimitsInfo | undefined => {
+  const limits: ModelLimitsInfo = { ...(positive(contextWindow) && { contextWindow: positive(contextWindow) }), ...(positive(maxOutput) && { maxOutput: positive(maxOutput) }) };
+  return Object.keys(limits).length ? limits : undefined;
+};
+
+/** Codex's catalog gives each visible model's `context_window` (the usable one, not `max_context_window`) and no output limit. */
+export function codexModelLimits(stdout: string): Record<string, ModelLimitsInfo> {
+  try {
+    return Object.fromEntries(codexVisible(stdout).flatMap((model) => { const limits = limitsOrNone(model.context_window); return limits ? [[model.slug!, limits] as const] : []; }));
+  } catch {
+    return {};
+  }
+}
+
+/** Grok's `models_cache.json`: `models.<id>.info` has the window and, once the server sends it, `max_completion_tokens`. */
+export function grokModelLimits(cache: unknown, models: string[]): Record<string, ModelLimitsInfo> {
+  const known = record(record(cache)?.models) ?? {};
+  return Object.fromEntries(models.flatMap((id) => {
+    const info = record(record(known[id])?.info);
+    const limits = limitsOrNone(info?.context_window, info?.max_completion_tokens);
+    return limits ? [[id, limits] as const] : [];
+  }));
+}
+
+/** opencode's models.dev cache: ids are `provider/model`, limits at `<provider>.models.<model>.limit` ({context, output}). */
+export function opencodeModelLimits(cache: unknown, models: string[]): Record<string, ModelLimitsInfo> {
+  const providers = record(cache) ?? {};
+  return Object.fromEntries(models.flatMap((id) => {
+    const slash = id.indexOf('/');
+    const limit = record(record(record(record(providers[id.slice(0, slash)])?.models)?.[id.slice(slash + 1)])?.limit);
+    const limits = slash > 0 ? limitsOrNone(limit?.context, limit?.output) : undefined;
+    return limits ? [[id, limits] as const] : [];
+  }));
+}
+
+/** Where grok keeps its model cache (GROK_HOME, else ~/.grok) and opencode its models.dev cache (XDG_CACHE_HOME, else ~/.cache). */
+export const grokCachePath = (env: NodeJS.ProcessEnv = process.env, home = homedir()) => path.join(env.GROK_HOME || path.join(home, '.grok'), 'models_cache.json');
+export const opencodeCachePath = (env: NodeJS.ProcessEnv = process.env, home = homedir()) => path.join(env.XDG_CACHE_HOME || path.join(home, '.cache'), 'opencode', 'models.json');
+
+async function readJsonFile(file: string): Promise<unknown> {
+  try {
+    return JSON.parse(await readFile(file, 'utf8'));
+  } catch {
+    return undefined;
+  }
+}
+
+/** The CLI's models, and what it says about their limits where it does (never an error: limits are optional). */
+export interface CliModelList {
+  models: string[];
+  limits: Record<string, ModelLimitsInfo>;
+}
+
 export async function cliModels(kind: CliKind, executable?: string): Promise<string[] | null> {
-  if (kind === 'claude') return CLAUDE_ALIASES;
+  return (await cliModelList(kind, executable))?.models ?? null;
+}
+
+export async function cliModelList(kind: CliKind, executable?: string): Promise<CliModelList | null> {
+  if (kind === 'claude') return { models: CLAUDE_ALIASES, limits: {} };
   const parse = MODEL_LIST[kind];
   if (!parse) return null;
   try {
@@ -368,7 +441,8 @@ export async function cliModels(kind: CliKind, executable?: string): Promise<str
       /* unreadable output, reported below */
     }
     if (!models.length) throw new ModelError('cli', `모델 목록을 읽지 못했습니다: ${String(result.stderr || result.stdout).trim().slice(0, 160)}`, false);
-    return models;
+    const limits = kind === 'codex' ? codexModelLimits(String(result.stdout)) : kind === 'grok' ? grokModelLimits(await readJsonFile(grokCachePath()), models) : kind === 'opencode' ? opencodeModelLimits(await readJsonFile(opencodeCachePath()), models) : {};
+    return { models, limits };
   } catch (error) {
     if (error instanceof ModelError) throw error;
     throw new ModelError('cli', '모델 목록을 확인하지 못했습니다.', false);

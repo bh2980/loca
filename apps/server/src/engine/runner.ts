@@ -1,7 +1,7 @@
 import { and, asc, count, desc, eq, gte, inArray, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
 import jsonLogic from 'json-logic-js';
 import * as ai from '@tw/ai';
-import { estimateTokens, batchConfigSchema, batchTokens, lineCostIn, FUNCTIONS, functionTakes, INPUT_TYPES, choiceKey, lineMarksOf, nodeModels, nodeName, type AiNode, type ConditionData, type FunctionName, type ItemErrorKind, pickPaths, previousStepId, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+import { estimateTokens, batchConfigSchema, batchTokens, lineCostIn, FUNCTIONS, functionTakes, INPUT_TYPES, choiceKey, lineMarksOf, nodeModels, nodeName, type AiNode, type BatchConfig, type ConditionData, type FunctionName, type ItemErrorKind, pickPaths, previousStepId, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
 type GatherNode = Extract<WorkflowNode, { type: 'gather' }>;
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
@@ -33,6 +33,8 @@ type Unit = typeof s.units.$inferSelect;
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 type StepRecord = Omit<typeof s.runSteps.$inferInsert, 'ok' | 'finishedAt'>;
 /** A queued line waiting at a slow node, with its script position for batching. */
+/** A request's size: its line text in tokens (as the batch mode counts it) and its line count. */
+type RequestSize = { tokens: number; lines: number };
 type Waiting = { id: string; unitId: string; nodeId: string; groupId: string; seq: number; kind: string; tokens: number; since: Date; plan: number | null };
 
 /** Functions that write beyond the line itself, and the change topic they touch. */
@@ -47,6 +49,13 @@ const SETTLE_PER_TICK = 2_000;
  * every call at once, which the consecutive-failure guard catches within a few calls.
  */
 const STOPPING_CODES: Record<string, string> = { auth: '인증 오류', config: '연결 설정 오류' };
+
+/** After a cut-off, the node's remaining requests are re-split to this share of the size that was cut off. */
+const CUT_OFF_SHRINK = 0.8;
+/** The run pauses when this many of a node's requests in a row were cut off. */
+const CUT_OFFS_TO_PAUSE = 3;
+/** The least a request's line-text budget can be set to (the node setting's own minimum). */
+const BATCH_TOKENS_MIN = 500;
 
 /** Usage of a call: every attempt that reported some, failed retries included. */
 function stepUsage(attempts: ai.Attempt[], fallback: ai.Usage = {}): ai.Usage {
@@ -410,6 +419,8 @@ export class Runner {
   private callsByModel = new Map<string, number>();
   /** HTTP / script function calls in flight per run. */
   private functionsByRun = new Map<string, number>();
+  /** Requests cut off in a row per run and node; a request that is answered resets it. */
+  private cutOffs = new Map<string, number>();
   /** Requests in flight per run and node: how many of a node's batches are being worked on at once. */
   private callsByNode = new Map<string, Map<string, number>>();
 
@@ -678,6 +689,53 @@ export class Runner {
     }
   }
 
+  /** Requests the lines waiting at a node make up under `config` (as advance packs them, every line counted as ready). */
+  private requestsAt(lines: Waiting[], config: ReturnType<typeof runBatch>) {
+    return lines.every((line) => line.plan !== null) ? packGroups([...Map.groupBy(lines, (line) => line.plan!).values()], config) : planBatches(lines, config);
+  }
+
+  /**
+   * A request of `node` was cut off at the model's output limit. Requests not yet sent shrink to
+   * CUT_OFF_SHRINK of its size (count mode: half its lines), the smallest cut-off winning; ones in
+   * flight are left alone and nothing is sent again here. CUT_OFFS_TO_PAUSE in a row pause the run.
+   */
+  private cutOff(run: Run, node: AiNode, size: RequestSize) {
+    const key = `${run.id}|${node.id}`;
+    // The run's stored definition is the source of truth: every tick reads its nodes' batch from it, and
+    // it outlives a restart, a resume and a continue. Cut-offs only ever lower the stored number.
+    const stored = this.db.select().from(s.runs).where(eq(s.runs.id, run.id)).get();
+    const current = stored?.definition.nodes.find((candidate): candidate is AiNode => candidate.id === node.id && candidate.type === 'ai');
+    if (!stored || !current) return;
+    const before = runBatch(stored, current);
+    const streak = (this.cutOffs.get(key) ?? 0) + 1;
+    this.cutOffs.set(key, streak);
+    const lowered: Partial<BatchConfig> = {};
+    if (before.mode === 'count') lowered.size = Math.min(before.size, Math.max(1, Math.floor(size.lines / 2)));
+    else if (before.mode !== 'unit') lowered.maxTokens = Math.min(batchTokens(before), Math.max(BATCH_TOKENS_MIN, Math.floor(size.tokens * CUT_OFF_SHRINK)));
+    const definition = { ...stored.definition, nodes: stored.definition.nodes.map((candidate) => (candidate.id === node.id && candidate.type === 'ai' ? { ...candidate, config: { ...candidate.config, batch: { ...candidate.config.batch, ...lowered } } } : candidate)) };
+    this.db.update(s.runs).set({ definition }).where(eq(s.runs.id, run.id)).run();
+    const after = runBatch(stored, { ...current, config: { ...current.config, batch: { ...current.config.batch, ...lowered } } });
+    if (before.mode === 'count' && after.size < before.size) this.note(run.id, `출력 잘림으로 '${nodeName(node)}'의 요청당 대사 수를 ${before.size}에서 ${after.size}로 줄였습니다.`);
+    else if (before.mode !== 'count' && before.mode !== 'unit' && batchTokens(after) < batchTokens(before)) {
+      const waiting = this.waiting(run, [node.id]);
+      const was = this.requestsAt(waiting, before).length;
+      const now = this.requestsAt(waiting, after).length;
+      if (now > was) this.note(run.id, `출력 잘림으로 '${nodeName(node)}'의 남은 요청을 ${was}개에서 ${now}개로 다시 나눴습니다.`);
+    }
+    if (streak >= CUT_OFFS_TO_PAUSE) {
+      this.cutOffs.delete(key);
+      this.halt(run.id, `출력 잘림이 ${CUT_OFFS_TO_PAUSE}번 연속 나서 멈췄습니다. 노드의 요청당 대사 양을 줄이거나 연결의 출력 토큰을 확인하세요.`);
+    }
+  }
+
+  /** Adds a line to the notice of a running run (the run page shows it); the latest few are kept. */
+  private note(runId: string, text: string) {
+    const run = this.db.select({ status: s.runs.status, notice: s.runs.notice }).from(s.runs).where(eq(s.runs.id, runId)).get();
+    if (run?.status !== 'running') return;
+    const notice = [...(run.notice?.split('\n') ?? []), text].slice(-3).join('\n');
+    this.db.update(s.runs).set({ notice }).where(eq(s.runs.id, runId)).run();
+  }
+
   /** The model an AI node's next request goes to (its choiceKey): of the node's models, the one with the fewest of its requests in flight. */
   private nextModel(run: Run, node: AiNode) {
     const keys = nodeModels(node).map(choiceKey);
@@ -700,7 +758,9 @@ export class Runner {
     const byNode = this.callsByNode.get(run.id) ?? new Map<string, number>();
     this.callsByNode.set(run.id, byNode);
     byNode.set(node.id, (byNode.get(node.id) ?? 0) + 1);
-    const work = node.type === 'ai' ? this.executeAi(run, node, modelKey!, batch, controller.signal) : this.executeFunction(run, node as FunctionNode, batch[0], controller.signal);
+    const size: RequestSize = { tokens: 0, lines: lines.length };
+    if (node.type === 'ai') size.tokens = lines.reduce((sum, line) => sum + lineCostIn(runBatch(run, node).mode)(line), 0);
+    const work = node.type === 'ai' ? this.executeAi(run, node, modelKey!, batch, controller.signal, size) : this.executeFunction(run, node as FunctionNode, batch[0], controller.signal);
     const task = work.finally(() => {
       set.delete(task);
       counts.set(key, (counts.get(key) ?? 1) - 1);
@@ -741,7 +801,7 @@ export class Runner {
     }
   }
 
-  private async executeAi(run: Run, node: AiNode, modelKey: string, batch: Item[], signal: AbortSignal) {
+  private async executeAi(run: Run, node: AiNode, modelKey: string, batch: Item[], signal: AbortSignal, size: RequestSize) {
     const model = run.models[modelKey];
     if (!model) return this.failBatch(run, batch, { runId: run.id, nodeId: node.id, subjectIds: batch.map((item) => item.subjectId), startedAt: new Date() }, new Error('이 노드의 AI 연결이 실행을 시작할 때 없었습니다. 노드에서 연결과 모델을 다시 고르고 새로 실행하세요.'));
     const routes = resolveRoutes(model, this.secrets);
@@ -749,7 +809,7 @@ export class Runner {
       if (run.subject !== 'lines') return this.failBatch(run, batch, { runId: run.id, nodeId: node.id, subjectIds: batch.map((item) => item.subjectId), startedAt: new Date() }, new Error('System One 연결은 대사 워크플로에서만 쓸 수 있습니다.'));
       return this.judgeLines(run, node, batch, model, routes, signal);
     }
-    await this.callLines(run, node, model, routes, batch, signal);
+    await this.callLines(run, node, model, routes, batch, signal, size);
   }
 
   /** The lines of `items` as the prompt numbers them, in batch (script) order. */
@@ -811,7 +871,7 @@ export class Runner {
    * a per-line answer left out (or answered empty) leaves through "error" with kind "missing", and a
    * failed request sends all its lines there with the failure's kind (errorKindOf).
    */
-  private async callLines(run: Run, node: AiNode, model: s.AiSnapshot, routes: ai.ResolvedRoute[], items: Item[], signal: AbortSignal): Promise<void> {
+  private async callLines(run: Run, node: AiNode, model: s.AiSnapshot, routes: ai.ResolvedRoute[], items: Item[], signal: AbortSignal, size: RequestSize): Promise<void> {
     const project = this.db.select().from(s.projects).where(eq(s.projects.id, run.projectId)).get()!;
     // Terms: the term items and the context their example lines call for (engine/subjects.ts).
     const terms = run.subject === 'terms' ? termPrompt(this.db, run.projectId, items, node) : null;
@@ -877,11 +937,12 @@ export class Runner {
           .values({ ...step, ok: true, connectionId: result.route.connectionId ?? step.connectionId, model: result.route.model, output: raw, attempts: result.attempts, returnedItems: perLine ? answered : null, ...usageColumns(stepUsage(result.attempts, result.result.usage)), finishedAt: new Date() })
           .run();
       });
+      this.cutOffs.delete(`${run.id}|${node.id}`);
       this.notify(run.id);
       this.guard(run.id);
     } catch (error) {
       if (signal.aborted) return;
-      this.failBatch(run, items, { ...step, attempts: attemptsOf(error) }, error);
+      this.failBatch(run, items, { ...step, attempts: attemptsOf(error) }, error, { node, size });
     }
   }
 
@@ -930,7 +991,7 @@ export class Runner {
 
   /** Turn the model's structured answer into one Outcome per line, by output kind. Null: the answer left the line out. */
   /** Every line of a failed call leaves through `error`; the call is recorded with whatever usage the connection reported. */
-  private failBatch(run: Run, batch: Item[], step: StepRecord, error: unknown) {
+  private failBatch(run: Run, batch: Item[], step: StepRecord, error: unknown, request?: { node: AiNode; size: RequestSize }) {
     const message = error instanceof Error ? error.message : String(error);
     const usage = stepUsage(attemptsOf(error), (error as { usage?: ai.Usage }).usage);
     const transient = TRANSIENT.has((error as { code?: string }).code ?? '');
@@ -941,6 +1002,7 @@ export class Runner {
       for (const item of batch) transient ? this.retryLater(tx, run, item, message) : this.route(tx, run, item, 'error', shown, kind);
       tx.insert(s.runSteps).values({ ...step, ok: false, error: message, ...usageColumns(usage), finishedAt: new Date() }).run();
     });
+    if (kind === 'cut-off' && request && !transient) this.cutOff(run, request.node, request.size);
     this.notify(run.id);
     this.guard(run.id, { code: (error as { code?: string }).code, message });
   }
