@@ -14,9 +14,9 @@ function setup() {
   const { projectId } = importProject(db, file);
   const own = db.insert(s.connections).values({ kind: 'openai', name: 'Own', baseUrl: 'http://localhost:1/v1' }).returning().get();
   const other = db.insert(s.connections).values({ kind: 'openai', name: 'Other', baseUrl: 'http://localhost:2/v1' }).returning().get();
-  // Every AI node of every workflow runs on Own (sharing with Other) unless a run says otherwise.
+  // Every AI node of every workflow runs on Own unless a run says otherwise.
   for (const workflow of db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).all()) {
-    const definition = { ...workflow.definition, nodes: workflow.definition.nodes.map((node) => (node.type === 'ai' ? { ...node, config: { ...node.config, model: { connectionId: own.id, model: 'own-model' }, extraModels: [{ connectionId: other.id, model: 'shared' }] } } : node)) };
+    const definition = { ...workflow.definition, nodes: workflow.definition.nodes.map((node) => (node.type === 'ai' ? { ...node, config: { ...node.config, model: { connectionId: own.id, model: 'own-model' } } } : node)) };
     db.update(s.workflows).set({ definition }).where(eq(s.workflows.id, workflow.id)).run();
   }
   const workflow = db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).all().find((row) => row.definition.nodes.some((node) => node.type === 'ai'))!;
@@ -24,11 +24,11 @@ function setup() {
 }
 
 describe("a run's own models", () => {
-  it('replace a node\'s model and the models it shares with, and leave the workflow alone', () => {
+  it('replace a node\'s model and leave the workflow alone', () => {
     const { workflow, other } = setup();
     const ai = workflow.definition.nodes.find((node): node is AiNode => node.type === 'ai')!;
     const changed = withRunModels(workflow.definition, { [ai.id]: { connectionId: other.id, model: 'other-model' } });
-    expect(changed.nodes.find((node) => node.id === ai.id)).toMatchObject({ config: { model: { connectionId: other.id, model: 'other-model' }, extraModels: [] } });
+    expect(changed.nodes.find((node) => node.id === ai.id)).toMatchObject({ config: { model: { connectionId: other.id, model: 'other-model' } } });
     expect(ai.config.model.model).toBe('own-model');
     expect(withRunModels(workflow.definition, undefined)).toBe(workflow.definition);
   });
@@ -39,7 +39,7 @@ describe("a run's own models", () => {
     const picked = await planRun(db, projectId, { workflow: workflow.id, models: { '*': { connection: 'other', model: 'other-model' } } });
     if (!plain.ok || !picked.ok) throw new Error('plan failed');
     expect(plain.nodes.every((node) => node.model?.includes('own-model'))).toBe(true);
-    expect(picked.nodes.every((node) => node.model?.includes('other-model') && node.sharedWith.length === 0)).toBe(true);
+    expect(picked.nodes.every((node) => node.model?.includes('other-model'))).toBe(true);
     expect(await planRun(db, projectId, { workflow: workflow.id, models: { '*': { connection: 'nope', model: 'x' } } })).toMatchObject({ ok: false, error: expect.stringContaining('nope') });
   });
 

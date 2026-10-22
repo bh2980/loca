@@ -306,8 +306,6 @@ export const callSummary = (config: CallConfig, workflows: readonly { id: string
 
 export const aiNodeConfigSchema = z.object({
   model: draftModelChoiceSchema.default({ ...EMPTY_MODEL_CHOICE }),
-  /** More models sharing this node's work: each request goes to whichever account has a free slot. */
-  extraModels: z.array(draftModelChoiceSchema).default([]),
   /** Empty = the model's default. Only some API models take it. */
   temperature: z.number().min(0).max(2).optional(),
   /** The prompt. Everything the model is told is here or in the read-only format part shown in the preview. */
@@ -394,27 +392,22 @@ export type WorkflowDefinition = z.infer<typeof workflowDefinitionSchema>;
 
 /**
  * Models for one run, by AI node id (the run dialog, `start_run`, `loca plan`). A node given one
- * runs on that model alone for this run (the models it otherwise shares batches with are left out);
- * the workflow itself keeps its own models.
+ * runs on that model for this run; the workflow itself keeps its own model.
  */
 export const runModelsSchema = z.record(z.string(), modelChoiceSchema);
 export type RunModels = z.infer<typeof runModelsSchema>;
 export function withRunModels(definition: WorkflowDefinition, models: RunModels | undefined): WorkflowDefinition {
   if (!models || !Object.keys(models).length) return definition;
-  return { ...definition, nodes: definition.nodes.map((node) => (node.type === 'ai' && models[node.id] ? { ...node, config: { ...node.config, model: models[node.id]!, extraModels: [] } } : node)) };
+  return { ...definition, nodes: definition.nodes.map((node) => (node.type === 'ai' && models[node.id] ? { ...node, config: { ...node.config, model: models[node.id]! } } : node)) };
 }
 export type AiNode = Extract<WorkflowNode, { type: 'ai' }>;
 export type FunctionNode = Extract<WorkflowNode, { type: 'function' }>;
 export type RetryNode = Extract<WorkflowNode, { type: 'retry' }>;
 
-/** Every model an AI node may send a request with (picked ones only, each once), its own first. */
-export function nodeModels(node: AiNode): ModelChoice[] {
-  const seen = new Set<string>();
-  return [node.config.model, ...node.config.extraModels].flatMap((choice) => {
-    if (!choice.connectionId || !choice.model || seen.has(choiceKey(choice))) return [];
-    seen.add(choiceKey(choice));
-    return [{ connectionId: choice.connectionId, model: choice.model, ...(choice.effort && { effort: choice.effort }) }];
-  });
+/** The model an AI node sends its requests with, or null while none is picked. */
+export function nodeModel(node: AiNode): ModelChoice | null {
+  const choice = node.config.model;
+  return choice.connectionId && choice.model ? { connectionId: choice.connectionId, model: choice.model, ...(choice.effort && { effort: choice.effort }) } : null;
 }
 
 /** The model a 재요청 node sends lines back on instead of the AI node's own, when it is picked. */
@@ -425,7 +418,7 @@ export function retryModel(node: RetryNode): ModelChoice | null {
 
 /** Every model a workflow may call: its AI nodes' and the models its 재요청 nodes send lines back on. */
 export const definitionModels = (definition: Pick<WorkflowDefinition, 'nodes'>): ModelChoice[] =>
-  definition.nodes.flatMap((node) => (node.type === 'ai' ? nodeModels(node) : node.type === 'retry' ? [retryModel(node) ?? []].flat() : []));
+  definition.nodes.flatMap((node) => ((node.type === 'ai' ? nodeModel(node) : node.type === 'retry' ? retryModel(node) : null) ?? []));
 
 /**
  * Where a 재요청 node's lines come from: the AI nodes whose 오류 exit leads to it, directly or through
@@ -653,12 +646,10 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
       error(`'${port.label}' 출구가 연결되지 않았습니다.`, { nodeId: node.id });
     }
     if (node.type === 'ai') {
-      const { model, extraModels } = node.config;
+      const { model } = node.config;
       if (!(inputType.batchModes as readonly string[]).includes(node.config.batch.mode)) error(`${inputType.label} 입력에서는 묶음을 ${inputType.batchModes.map((mode) => BATCH_MODE_LABELS[mode]).join('·')}(으)로 정합니다.`, { nodeId: node.id });
       if (!model.connectionId || !model.model) error('AI 연결과 모델을 고르세요.', { nodeId: node.id });
       else if (!refs.connections.has(model.connectionId)) error('고른 AI 연결이 삭제되었습니다. 다시 고르세요.', { nodeId: node.id });
-      if (extraModels.some((choice) => !choice.connectionId || !choice.model)) error('추가한 모델을 고르거나 그 칸을 지우세요.', { nodeId: node.id });
-      else if (extraModels.some((choice) => !refs.connections.has(choice.connectionId))) error('추가한 모델 중 연결이 삭제된 것이 있습니다.', { nodeId: node.id });
       if (node.config.output === 'json' && !node.config.fields.length) error('JSON 출력에는 필드가 하나 이상 필요합니다.', { nodeId: node.id });
       if (node.config.output === 'json' && node.config.fields.some((field) => field.type === 'list' && !field.fields?.length)) error('목록 필드에는 항목 필드가 하나 이상 필요합니다.', { nodeId: node.id });
       if (node.config.output === 'choice' && node.config.choice.source === 'custom' && !node.config.choice.values.length) error('선택지를 하나 이상 적으세요.', { nodeId: node.id });

@@ -1,7 +1,7 @@
 import { and, asc, count, desc, eq, gt, gte, inArray, isNull, lte, ne, notInArray, or, sql } from 'drizzle-orm';
 import jsonLogic from 'json-logic-js';
 import * as ai from '@tw/ai';
-import { estimateTokens, batchConfigSchema, batchTokens, lineCostIn, FUNCTIONS, functionTakes, INPUT_TYPES, choiceKey, lineMarksOf, nodeModels, runNodeName, type AiNode, type ConditionData, type FunctionName, type ItemErrorKind, pickPaths, previousStepId, retryModel, type FunctionNode, type RetryNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+import { estimateTokens, batchConfigSchema, batchTokens, lineCostIn, FUNCTIONS, functionTakes, INPUT_TYPES, choiceKey, lineMarksOf, runNodeName, type AiNode, type ConditionData, type FunctionName, type ItemErrorKind, pickPaths, previousStepId, retryModel, type FunctionNode, type RetryNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
 type GatherNode = Extract<WorkflowNode, { type: 'gather' }>;
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
@@ -443,8 +443,6 @@ export class Runner {
     return new Map(rows.map((row) => [`${row.plan}|${row.nodeId}`, row.count]));
   }
 
-  /** Model calls in flight per run, node and model choice: a node with several models spreads its requests over them. */
-  private callsByModel = new Map<string, number>();
   /** Failed steps per run that a 재요청 node takes back: they do not count toward 연속 실패. */
   private retriedSteps = new Map<string, Set<string>>();
   /** Requests in flight per run and node: how many of a node's batches are being worked on at once. */
@@ -744,12 +742,6 @@ export class Runner {
     return Boolean(item.data.error && node.config.kinds.includes(item.data.error.kind) && (item.data.retry?.times[node.id] ?? 0) < node.config.maxTimes);
   }
 
-  /** The model an AI node's next request goes to (its choiceKey): of the node's models, the one with the fewest of its requests in flight. */
-  private nextModel(run: Run, node: AiNode) {
-    const keys = nodeModels(node).map(choiceKey);
-    return keys.reduce((best, key) => ((this.callsByModel.get(`${run.id}|${node.id}|${key}`) ?? 0) < (this.callsByModel.get(`${run.id}|${node.id}|${best}`) ?? 0) ? key : best), keys[0]!);
-  }
-
   private dispatch(run: Run, node: WorkflowNode, lines: Waiting[]) {
     const ids = lines.map((line) => line.id);
     const byId = new Map(this.db.select().from(s.runItems).where(inArray(s.runItems.id, ids)).all().map((item) => [item.id, item]));
@@ -760,16 +752,13 @@ export class Runner {
     const set = this.inflight.get(run.id) ?? new Set();
     this.inflight.set(run.id, set);
     // Lines sent back on a model of a 재요청 node go together on that model (the batches were grouped by it).
-    const modelKey = node.type === 'ai' ? (lines[0]?.model ?? this.nextModel(run, node)) : null;
-    const key = modelKey ? `${run.id}|${node.id}|${modelKey}` : null;
-    if (key) this.callsByModel.set(key, (this.callsByModel.get(key) ?? 0) + 1);
+    const modelKey = node.type === 'ai' ? (lines[0]?.model ?? choiceKey(node.config.model)) : null;
     const byNode = this.callsByNode.get(run.id) ?? new Map<string, number>();
     this.callsByNode.set(run.id, byNode);
     byNode.set(node.id, (byNode.get(node.id) ?? 0) + 1);
     const work = node.type === 'ai' ? this.executeAi(run, node, modelKey!, batch, controller.signal) : this.executeFunction(run, node as FunctionNode, batch[0], controller.signal);
     const task = work.finally(() => {
       set.delete(task);
-      if (key) this.callsByModel.set(key, (this.callsByModel.get(key) ?? 1) - 1);
       byNode.set(node.id, (byNode.get(node.id) ?? 1) - 1);
     });
     set.add(task);

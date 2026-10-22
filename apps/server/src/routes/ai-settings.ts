@@ -21,7 +21,7 @@ function usesOf(db: Db, id: string) {
     .from(s.workflows)
     .innerJoin(s.projects, eq(s.projects.id, s.workflows.projectId))
     .all()
-    .filter((row) => row.definition.nodes.some((node) => (node.type === 'ai' && [node.config.model, ...node.config.extraModels].some((choice) => choice.connectionId === id)) || (node.type === 'retry' && node.config.model?.connectionId === id)))
+    .filter((row) => row.definition.nodes.some((node) => (node.type === 'ai' && node.config.model.connectionId === id) || (node.type === 'retry' && node.config.model?.connectionId === id)))
     .map((row) => `워크플로 '${row.name}'(${row.project})`);
   const chats = db.select({ id: s.chatSessions.id }).from(s.chatSessions).where(eq(s.chatSessions.connectionId, id)).all().length;
   return [...workflows, ...(chats ? [`대화 ${chats}개`] : [])];

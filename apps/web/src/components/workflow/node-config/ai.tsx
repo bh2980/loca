@@ -1,10 +1,9 @@
 /** AI node settings, grouped by the user's task: model, instruction, output, advanced. */
 import { useEffect, useState } from 'react';
-import { Plus, X } from 'lucide-react';
 import { AI_OUTPUTS, AI_SCOPES, CONTEXT_FIELDS, CHOICE_SOURCES, CONNECTION_KIND_INFO, BATCH_MODE_LABELS, autoBudgets, contextConfigSchema, INPUT_TYPES, limitsFor, nodeName, previousSteps, type WorkflowSubject, type AiOutput, type AiScope, type BatchConfig, type Capability, type ChoiceSource, type WorkflowNode } from '@tw/shared';
-import { Button, HelpTip, Dialog, DialogContent, DialogHeader, DialogTitle, Input, NumberInput, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, InspectorResult, InspectorSection } from '@loca/ui';
+import { Button, HelpTip, Dialog, DialogContent, DialogHeader, DialogTitle, Input, NumberInput, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, InspectorSection } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
-import { ModelPicker, type ModelValue } from '@/components/model-picker';
+import { ModelPicker } from '@/components/model-picker';
 import { JsonFieldsEditor } from '@/components/workflow/node-config/json-fields-editor';
 import { numberOrNull } from '@/lib/form-values';
 import { Field, CheckItem, CountRow, StepChips, ToggleRow, outputFieldNames, refsInput, type AiNode, type NodeRefs } from '@/components/workflow/node-config/shared';
@@ -39,9 +38,6 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
   const context = contextConfigSchema.parse(config.context ?? {});
   const set = (patch: Partial<AiNode['config']>) => onChange({ ...node, config: { ...config, ...patch } });
   const need: Capability[] = config.output === 'verdict' ? ['generate', 'judge'] : ['generate'];
-  const extras = config.extraModels;
-  const chosenModels = new Set([config.model, ...extras].filter((choice) => choice.model).map((choice) => choice.model));
-  const setExtra = (index: number, value: ModelValue) => set({ extraModels: extras.map((choice, i) => (i === index ? value : choice)) });
   const connection = refs.connections.find((item) => item.id === config.model.connectionId);
   // What auto would pick for this node's own model, shown while the field is empty.
   const autoLines = autoBudgets(limitsFor(connection && { modelLimits: connection.modelLimits ?? {} }, config.model.model), config.output, config.batch.mode).lines;
@@ -52,22 +48,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
     return (
       <>
       <Field label="모델">
-        {/* More than one model splits the work between them. */}
-        <div className="space-y-1.5">
-          <ModelPicker need={need} value={config.model} onChange={(model) => set({ model })} />
-          {extras.map((extra, index) => (
-            <div key={index} className="flex min-w-0 items-center gap-1.5">
-              <ModelPicker need={need} value={extra} onChange={(value) => setExtra(index, value)} className="min-w-0" />
-              <Button size="icon" variant="ghost" className="shrink-0" aria-label="모델 빼기" onClick={() => set({ extraModels: extras.filter((_, i) => i !== index) })}>
-                <X />
-              </Button>
-            </div>
-          ))}
-          {config.output === 'text' && chosenModels.size > 1 && <InspectorResult tone="info">서로 다른 모델이 번역을 나누면 장면마다 문체가 달라질 수 있습니다.</InspectorResult>}
-          <Button variant="ghost" className="-ml-2 text-muted-foreground" disabled={!config.model.model || extras.some((choice) => !choice.model)} onClick={() => set({ extraModels: [...extras, { connectionId: '', model: '' }] })}>
-            <Plus /> 모델
-          </Button>
-        </div>
+        <ModelPicker need={need} value={config.model} onChange={(model) => set({ model })} />
       </Field>
       <Field label="동시 처리 수" help="AI에 동시에 보내는 요청 수입니다. 늘리면 빨라지지만, API는 요청 한도에 걸리기 쉽고 CLI 연결은 그 수만큼 프로그램이 떠서 컴퓨터가 무거워집니다.">
         <NumberInput min={1} max={16} className="w-28" value={config.concurrency} onValueChange={(concurrency) => concurrency !== undefined && set({ concurrency })} />

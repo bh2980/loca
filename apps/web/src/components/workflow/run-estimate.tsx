@@ -80,7 +80,6 @@ export function RunModels({ nodes, picked, onPick, onReset, changedNote = 'Ïù¥Î≤
                 </Button>
               </span>
             )}
-            {!changed && node.sharedWith.length > 0 && <span className="text-xs text-muted-foreground">+ {node.sharedWith.join(', ')}</span>}
           </div>
         );
       })}
