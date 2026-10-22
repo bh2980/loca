@@ -25,7 +25,7 @@ function withoutResend(full: ReturnType<typeof translationTemplate>, keep: boole
 function setup(scenes: number, size: (scene: number) => number, { resend = true }: { resend?: boolean } = {}) {
   const db = openDatabase(':memory:');
   const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1' }).returning().get();
-  db.update(s.connections).set({ maxAttempts: 1, modelLimits: { m: { maxOutput: 1000, by: 'api' } } }).where(eq(s.connections.id, connection.id)).run();
+  db.update(s.connections).set({ modelLimits: { m: { maxOutput: 1000, by: 'api' } } }).where(eq(s.connections.id, connection.id)).run();
   const choice = { connectionId: connection.id, model: 'm' };
   const groups = Array.from({ length: scenes }, (_, index) => ({ key: `g${String(scenes - index).padStart(6, '0')}`, title: `Scene ${index}` }));
   const units = groups.flatMap((group, scene) => Array.from({ length: size(scene) }, (_, index) => ({ key: `${group.key}-${index}`, group: group.key, source: `S${scene} L${index}` })));
@@ -438,7 +438,6 @@ describe('slots per node', () => {
     // Review on a second, slow connection with one slot; translate keeps its own two.
     setConcurrency(workflow, 2);
     const slow = db.insert(s.connections).values({ kind: 'openai', name: 'slow', baseUrl: 'http://slow/v1' }).returning().get();
-    db.update(s.connections).set({ maxAttempts: 1 }).where(eq(s.connections.id, slow.id)).run();
     const reviewer = { connectionId: slow.id, model: 'm' };
     const definition = { ...workflow.definition, nodes: workflow.definition.nodes.map((node) => (node.type === 'ai' && node.config.instructions.includes('Review each') ? { ...node, config: { ...node.config, model: reviewer, concurrency: 1 } } : node)) };
     db.update(s.workflows).set({ definition }).where(eq(s.workflows.id, workflow.id)).run();
@@ -457,7 +456,6 @@ describe('sharing and branching', () => {
   it('spreads a node over its models', async () => {
     const { db, workflow } = setup(12, () => 5);
     const other = db.insert(s.connections).values({ kind: 'openai', name: 'second', baseUrl: 'http://localhost:2/v1' }).returning().get();
-    db.update(s.connections).set({ maxAttempts: 1 }).where(eq(s.connections.id, other.id)).run();
     const second = { connectionId: other.id, model: 'm2' };
     const definition = { ...workflow.definition, nodes: workflow.definition.nodes.map((node) => (node.type === 'ai' ? { ...node, config: { ...node.config, extraModels: [second], concurrency: 2, batch: { mode: 'count' as const, size: 5, maxTokens: 6_000 } } } : node)) };
     db.update(s.workflows).set({ definition }).where(eq(s.workflows.id, workflow.id)).run();

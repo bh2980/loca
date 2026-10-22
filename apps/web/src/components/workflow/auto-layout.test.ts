@@ -127,13 +127,13 @@ function expectLabelsStayClear(result: WorkflowDefinition, direction: 'vertical'
 }
 
 describe('workflow auto layout direction on the relay retry pipeline', () => {
-  it.each(['vertical', 'horizontal'] as const)('keeps all 24 nodes readable and routes their declared ports in %s mode', async (direction) => {
+  it.each(['vertical', 'horizontal'] as const)('keeps all 28 nodes readable and routes their declared ports in %s mode', async (direction) => {
     const result = await autoLayout(definition, sizesFor(direction), direction);
 
     expect(result.direction).toBe(direction);
-    // The review-loop fixture: a 재요청 node and a failure marker (검토 필요로 / AI 실패 태그) behind each of its four AI nodes, and the 태그 붙이기·떼기 node on each exit of the checks.
-    expect(result.nodes).toHaveLength(24);
-    expect(result.edges).toHaveLength(29);
+    // The review-loop fixture: two chained 재요청 nodes and a failure marker (검토 필요로 / AI 실패 태그) behind each of its four AI nodes, and the 태그 붙이기·떼기 node on each exit of the checks.
+    expect(result.nodes).toHaveLength(28);
+    expect(result.edges).toHaveLength(37);
     expectNoNodeOverlap(result, direction);
     expectForwardSpacing(result, direction);
     expectEdgesUseTheirDeclaredPorts(result, direction);

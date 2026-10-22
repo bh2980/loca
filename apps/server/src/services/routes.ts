@@ -1,51 +1,32 @@
 import { eq, inArray } from 'drizzle-orm';
 import type { ResolvedRoute } from '@tw/ai';
-import { choiceKey, CONNECTION_KIND_INFO, nodeModels, type Capability, type ConnectionKind, type ModelChoice, type WorkflowDefinition } from '@tw/shared';
+import { choiceKey, CONNECTION_KIND_INFO, definitionModels, type Capability, type ConnectionKind, type ModelChoice, type WorkflowDefinition } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import { connections, type AiSnapshot, type RouteSnapshot } from '../db/schema.ts';
 import type { SecretStore } from './secrets.ts';
-
-/** Fallbacks followed after the picked connection (each connection's own "막히면", in turn). */
-const MAX_FALLBACKS = 3;
 
 type Connection = typeof connections.$inferSelect;
 
 export const choiceLabel = (name: string, choice: { model: string; effort?: string | null }) => [name, choice.model, choice.effort].filter(Boolean).join(' · ');
 
-/**
- * Freezes a model choice with its connection, so work keeps using what it started with: the
- * picked route, then the connection's fallback chain, with the picked connection's call settings.
- */
+/** Freezes a model choice with its connection, so work keeps using what it started with. */
 export function snapshotChoice(db: Db, choice: ModelChoice, byId = new Map<string, Connection>()): AiSnapshot | undefined {
-  const get = (id: string) => {
-    if (!byId.has(id)) {
-      const row = db.select().from(connections).where(eq(connections.id, id)).get();
-      if (row) byId.set(id, row);
-    }
-    return byId.get(id);
-  };
-  const primary = get(choice.connectionId);
-  if (!primary) return undefined;
-  const route = (connection: Connection, model: string, effort: string | null | undefined): RouteSnapshot => ({
+  if (!byId.has(choice.connectionId)) {
+    const row = db.select().from(connections).where(eq(connections.id, choice.connectionId)).get();
+    if (row) byId.set(row.id, row);
+  }
+  const connection = byId.get(choice.connectionId);
+  if (!connection) return undefined;
+  const route: RouteSnapshot = {
     connectionId: connection.id,
     name: connection.name,
     kind: connection.kind,
     baseUrl: connection.baseUrl,
     executable: connection.executable,
-    model,
-    effort: effort || null,
-  });
-  const routes = [route(primary, choice.model, choice.effort)];
-  const seen = new Set([choiceKey(choice)]);
-  let next = primary.fallback;
-  while (next && routes.length <= MAX_FALLBACKS && !seen.has(choiceKey(next))) {
-    seen.add(choiceKey(next));
-    const connection = get(next.connectionId);
-    if (!connection) break;
-    routes.push(route(connection, next.model, next.effort));
-    next = connection.fallback;
-  }
-  return { label: choiceLabel(primary.name, choice), maxOutputTokens: primary.modelLimits[choice.model]?.maxOutput, maxAttempts: primary.maxAttempts, routes };
+    model: choice.model,
+    effort: choice.effort || null,
+  };
+  return { label: choiceLabel(connection.name, choice), maxOutputTokens: connection.modelLimits[choice.model]?.maxOutput, route };
 }
 
 /** Snapshots of several choices, keyed by choiceKey (a run's AI nodes). Choices whose connection is gone are left out. */
@@ -58,11 +39,12 @@ export function snapshotChoices(db: Db, choices: ModelChoice[]): Record<string, 
   }));
 }
 
-/** Every model a workflow's AI nodes may call, frozen for a run. */
-export const snapshotWorkflowModels = (db: Db, definition: WorkflowDefinition) => snapshotChoices(db, definition.nodes.flatMap((node) => (node.type === 'ai' ? nodeModels(node) : [])));
+/** Every model a workflow may call (its AI nodes' and what its 재요청 nodes send lines back on), frozen for a run. */
+export const snapshotWorkflowModels = (db: Db, definition: WorkflowDefinition) => snapshotChoices(db, definitionModels(definition));
 
-export function resolveRoutes(snapshot: AiSnapshot, secrets: SecretStore): ResolvedRoute[] {
-  return snapshot.routes.map((route) => ({
+export function resolveRoute(snapshot: AiSnapshot, secrets: SecretStore): ResolvedRoute {
+  const { route } = snapshot;
+  return {
     connectionId: route.connectionId,
     kind: route.kind as ConnectionKind,
     baseUrl: route.baseUrl ?? undefined,
@@ -70,7 +52,7 @@ export function resolveRoutes(snapshot: AiSnapshot, secrets: SecretStore): Resol
     model: route.model,
     effort: route.effort ?? undefined,
     apiKey: secrets.get(route.connectionId) ?? undefined,
-  }));
+  };
 }
 
 /**
@@ -80,10 +62,10 @@ export function resolveRoutes(snapshot: AiSnapshot, secrets: SecretStore): Resol
 export function liveChoice(db: Db, choice: ModelChoice, secrets: SecretStore, need: Capability) {
   const snapshot = snapshotChoice(db, choice);
   if (!snapshot) throw new Error('고른 AI 연결이 없습니다. 다시 고르세요.');
-  const kind = snapshot.routes[0]!.kind as ConnectionKind;
+  const kind = snapshot.route.kind as ConnectionKind;
   if (!CONNECTION_KIND_INFO[kind].capabilities.includes(need))
     throw new Error(need === 'chat' ? `${CONNECTION_KIND_INFO[kind].label} 연결은 채팅에 쓸 수 없습니다.` : `${CONNECTION_KIND_INFO[kind].label} 연결은 판정 전용이라 여기에 쓸 수 없습니다.`);
-  return { snapshot, routes: resolveRoutes(snapshot, secrets) };
+  return { snapshot, route: resolveRoute(snapshot, secrets) };
 }
 
 export function connectionRoute(db: Db, connectionId: string, secrets: SecretStore) {

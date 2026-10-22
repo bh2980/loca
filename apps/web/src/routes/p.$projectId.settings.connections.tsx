@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { numberOrUndefined } from '@/lib/form-values';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
@@ -286,8 +285,6 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
     baseUrl: connection.baseUrl ?? undefined,
     executable: connection.executable ?? '',
     headerTemplate: connection.headerTemplate ?? '',
-    maxAttempts: connection.maxAttempts,
-    fallback: connection.fallback,
   };
   const form = useForm<z.input<typeof editSchema>, unknown, z.output<typeof editSchema>>({
     resolver: zodResolver(editSchema),
@@ -296,7 +293,6 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
   });
   const dirtyFields: Record<string, unknown> = form.formState.dirtyFields;
   const onlyDirty = <T extends object>(json: T) => Object.fromEntries(Object.entries(json).filter(([key]) => dirtyFields[key])) as T;
-  const number = { setValueAs: numberOrUndefined };
   const errors = form.formState.errors;
   const need: Capability[] = info.capabilities.includes('judge') ? ['judge'] : ['generate'];
 
@@ -310,10 +306,6 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
             baseUrl: isHttp ? values.baseUrl : undefined,
             executable: isHttp ? undefined : (values.executable ?? ''),
             headerTemplate: connection.kind === 'http' ? (values.headerTemplate ?? '') : undefined,
-            ...(!isTool && {
-              maxAttempts: values.maxAttempts,
-              fallback: values.fallback ?? null,
-            }),
           }),
         }),
       ),
@@ -374,7 +366,7 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
   return (
     <Inspector footerStart={<><DeleteButton
           label={`연결 '${connection.name}'`}
-          description="워크플로 노드·대화·다른 연결의 대체 모델이 이 연결을 쓰고 있으면 삭제되지 않습니다. 저장된 API 키도 함께 삭제됩니다."
+          description="워크플로 노드(재요청 노드의 다른 모델 포함)·대화가 이 연결을 쓰고 있으면 삭제되지 않습니다. 저장된 API 키도 함께 삭제됩니다."
           pending={remove.isPending}
           onConfirm={() => remove.mutate()}
         /></>}
@@ -415,37 +407,6 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
           )}
         </InspectorFields>
       </InspectorSection>
-
-      {!isTool && (
-        <InspectorSection title="고급" defaultOpen={false}>
-          <InspectorFields>
-            {!isTool && (
-            <Controller
-              control={form.control}
-              name="fallback"
-              render={({ field }) => (
-                <InspectorField
-                  label="대체 모델"
-                  help="이 연결이 막히면 대신 부를 모델입니다. 같은 연결의 다른 모델도 됩니다. 채팅에는 쓰지 않습니다."
-                  error={(errors.fallback?.model ?? errors.fallback)?.message}
-                  action={field.value && (
-                    <Button variant="ghost" size="inline" onClick={() => field.onChange(null)}>
-                      지우기
-                    </Button>
-                  )}
-                >
-                  <ModelPicker value={field.value} onChange={(next: ModelValue) => field.onChange(next.model ? next : { ...next, model: '' })} />
-                </InspectorField>
-              )}
-            />
-            )}
-            <InspectorField label="최대 시도 횟수" error={errors.maxAttempts?.message}>
-              <Input type="number" {...form.register('maxAttempts', number)} aria-invalid={!!errors.maxAttempts} />
-            </InspectorField>
-          </InspectorFields>
-        </InspectorSection>
-      )}
-
 
       <InspectorSection title="확인">
         <div>
@@ -527,7 +488,7 @@ function ModelTest({ connectionId, need }: { connectionId: string; need: Capabil
       result={
         result &&
         (result.ok ? (
-          <InspectorResult tone="ok" detail={<span className="font-mono">{result.model}{result.fellBack && ' (대체 모델)'} · {result.ms.toLocaleString()}ms · {result.attempts.length}회 시도</span>}>
+          <InspectorResult tone="ok" detail={<span className="font-mono">{result.model} · {result.ms.toLocaleString()}ms</span>}>
             <span className="whitespace-pre-wrap text-foreground">{result.text}</span>
           </InspectorResult>
         ) : (

@@ -120,7 +120,7 @@ function parseJson(text: string, usage?: Usage): unknown {
   }
 }
 
-/** CLIs report an exhausted plan or rate limit only in their text; treat it like HTTP 429 so fallbacks can take over. */
+/** CLIs report an exhausted plan or rate limit only in their text; treat it like HTTP 429 so it gets the same 'rate-limit' kind. */
 const QUOTA = /quota|RESOURCE_EXHAUSTED|rate.?limit|usage limit|too many requests|\b429\b/i;
 const cliFailure = (detail: string, usage?: Usage) =>
   QUOTA.test(detail)

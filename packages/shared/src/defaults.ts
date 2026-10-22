@@ -60,7 +60,8 @@ export const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 // an apply node (반영). Nothing is hidden inside an AI node.
 // ---------------------------------------------------------------------------------------------
 
-const SETTINGS = { maxVisitsPerNode: 5, maxConsecutiveFailures: 3 } as const;
+/** 8 visits: an AI node's first call plus the 5 resends its two 재요청 nodes allow (2 + 3), with room for a review loop. */
+const SETTINGS = { maxVisitsPerNode: 8, maxConsecutiveFailures: 3 } as const;
 /** Vertical layout, top to bottom, like the editor's auto layout. */
 const ROW = 140;
 const at = (row: number, column = 0) => ({ x: column * 320, y: row * ROW });
@@ -118,28 +119,41 @@ const tagNode = (id: string, label: string, action: TagAction, options: { from?:
 const edge = (source: string, sourceHandle: string, target: string): WorkflowEdge => ({ id: `${source}-${sourceHandle}-${target}`, source, sourceHandle, target });
 
 /**
- * A 재요청 node after an AI node: what failed (cut off, too long, left out, malformed, timed out) goes back
- * to the AI node in smaller requests, up to its limit; other failures, and those over the limit, leave
- * through its 오류 exit (a failure marker, see failTag and the 번역 template).
+ * The two 재요청 nodes every AI node of a template has, chained on its 오류 exit:
+ *  - `-resend`: what failed because of the request (cut off, too long, left out, malformed, timed out) goes back to the AI node
+ *    in half-size requests, at most twice;
+ *  - `-wait`: what failed because of the provider (usage limit, dropped connection) goes back unchanged after 60 seconds, at most 3 times.
+ * A failure of another kind, or one that used up its times at the first, goes on to the second; the second's 오류 exit
+ * is the workflow's failure path (a failure marker, see failTag and the 번역 template).
  */
-const resendNode = (aiId: string, row: number, column = 1): WorkflowNode => ({
-  id: `${aiId}-resend`,
-  type: 'retry',
-  position: at(row, column),
-  config: retryConfigSchema.parse({ kinds: ['cut-off', 'too-long', 'missing', 'invalid-output', 'timeout'] }),
-});
-/** AI node → 재요청 → 다시 보냄 back to the AI node; the 재요청's 오류 exit goes to `failedId` (none: unconnected, the line ends failed). */
+const resendNodes = (aiId: string, row: number, column = 1): WorkflowNode[] => [
+  {
+    id: `${aiId}-resend`,
+    type: 'retry',
+    position: at(row, column),
+    config: retryConfigSchema.parse({ kinds: ['cut-off', 'too-long', 'missing', 'invalid-output', 'timeout'], scale: 0.5, maxTimes: 2 }),
+  },
+  {
+    id: `${aiId}-wait`,
+    type: 'retry',
+    position: at(row, column + 1),
+    config: retryConfigSchema.parse({ kinds: ['rate-limit', 'network'], scale: 1, wait: 60, maxTimes: 3 }),
+  },
+];
+/** AI node → 재요청 → 재요청 (each 다시 보냄 back to the AI node); the last 재요청's 오류 exit goes to `failedId` (none: unconnected, the line ends failed). */
 const resendEdges = (aiId: string, failedId?: string) => [
   edge(aiId, 'error', `${aiId}-resend`),
   edge(`${aiId}-resend`, 'retry', aiId),
-  ...(failedId ? [edge(`${aiId}-resend`, 'error', failedId)] : []),
+  edge(`${aiId}-resend`, 'error', `${aiId}-wait`),
+  edge(`${aiId}-wait`, 'retry', aiId),
+  ...(failedId ? [edge(`${aiId}-wait`, 'error', failedId)] : []),
 ];
 
 /** Edges along a chain of nodes, each from its `out` exit. */
 const chain = (...ids: string[]) => ids.slice(1).map((id, index) => edge(ids[index]!, 'out', id));
 
 /** The failure marker of an extraction AI node's 재요청: puts the `AI 실패` tag on the line. */
-const failTag = (aiId: string, ids: TemplateIds, row: number, column = 2): WorkflowNode =>
+const failTag = (aiId: string, ids: TemplateIds, row: number, column = 3): WorkflowNode =>
   tagNode(`${aiId}-failed`, 'AI 실패 태그', 'add', { tagIds: ids.aiFailedTag ? [ids.aiFailedTag] : [] }, row, column);
 
 const statusNode = (id: string, label: string, statusId: string, row: number, column = 0): WorkflowNode => ({
@@ -170,11 +184,12 @@ const writeTranslation = (id: string, row: number, column = 0, label = '번역 �
  * times, then is set to "검토 필요", a status shown in the review inbox. People take it from there; the
  * run itself ends. Translations are written, not proposed, because a translation flow proposing every
  * line would leave nothing to review.
- * Every AI node fails the same way: error → its 재요청 node (sent again smaller, at most twice) → back to
- * the AI node; when that gives up, 번역·검수·수정 set the line to "검토 필요" and 용어 추출 puts the
- * `AI 실패` tag on it (the translation is already done by then).
- * Layout: the main path runs down column 0; each 재요청 sits right of its AI node and its failure marker
- * right of that; the revise loop has its own column further right.
+ * Every AI node fails the same way: error → a 재요청 node (sent again in half-size requests, at most
+ * twice) → a second 재요청 node (usage limit or dropped connection: sent again unchanged after 60 seconds,
+ * at most 3 times) → back to the AI node; when both give up, 번역·검수·수정 set the line to "검토 필요" and
+ * 용어 추출 puts the `AI 실패` tag on it (the translation is already done by then).
+ * Layout: the main path runs down column 0; the two 재요청 sit right of their AI node and its failure marker
+ * right of those; the revise loop has its own column further right.
  */
 export function translationTemplate(ids: TemplateIds): WorkflowDefinition {
   const failed = (aiId: string, row: number, column: number, label = '검토 필요로') => statusNode(`${aiId}-failed`, label, ids.needsReview ?? '', row, column);
@@ -183,15 +198,15 @@ export function translationTemplate(ids: TemplateIds): WorkflowDefinition {
     nodes: [
       entryNode(),
       aiNode('translate', 'translate', ids.model, 1),
-      resendNode('translate', 1),
-      failed('translate', 1, 2),
+      ...resendNodes('translate', 1),
+      failed('translate', 1, 3),
       writeTranslation('save', 2),
       formatCheckNode(3),
       tagNode('untag-format', '형식 태그 떼기', 'remove', { from: 'kind' }, 4),
       tagNode('tag-format', '형식 태그 붙이기', 'add', { from: 'kind' }, 4, 1),
       aiNode('review', 'review', ids.model, 5),
-      resendNode('review', 5),
-      failed('review', 5, 2),
+      ...resendNodes('review', 5),
+      failed('review', 5, 3),
       tagNode('untag-review', '문제 태그 모두 떼기', 'remove', { all: true }, 6),
       tagNode('tag-review', '검수 지적 태그 붙이기', 'add', { from: 'categories' }, 6, 1),
       statusNode('confirm', '완료로', ids.confirmed ?? '', 7),
@@ -205,12 +220,12 @@ export function translationTemplate(ids: TemplateIds): WorkflowDefinition {
       },
       statusNode('escalate', '검토 필요로', ids.needsReview ?? '', 6, 4),
       aiNode('revise', 'revise', ids.model, 7, 3, 'AI 수정'),
-      resendNode('revise', 7, 4),
-      failed('revise', 7, 5),
+      ...resendNodes('revise', 7, 4),
+      failed('revise', 7, 6),
       writeTranslation('save-revision', 8, 3, '수정 번역 저장'),
       aiNode('terms', 'terms', ids.model, 8),
-      resendNode('terms', 8),
-      failTag('terms', ids, 8),
+      ...resendNodes('terms', 8),
+      failTag('terms', ids, 8, 4),
       saveList('save-terms', 'saveTerms', 'terms', 'terms', 9),
     ],
     edges: [
@@ -244,7 +259,7 @@ export function translationTemplate(ids: TemplateIds): WorkflowDefinition {
 export function termExtractionTemplate(ids: TemplateIds): WorkflowDefinition {
   return {
     settings: { ...SETTINGS },
-    nodes: [entryNode(), aiNode('terms', 'terms', ids.model, 1), resendNode('terms', 1), failTag('terms', ids, 1), saveList('save-terms', 'saveTerms', 'terms', 'terms', 2)],
+    nodes: [entryNode(), aiNode('terms', 'terms', ids.model, 1), ...resendNodes('terms', 1), failTag('terms', ids, 1), saveList('save-terms', 'saveTerms', 'terms', 'terms', 2)],
     edges: [...chain('entry', 'terms', 'save-terms'), ...resendEdges('terms', 'terms-failed')],
   };
 }
@@ -261,7 +276,7 @@ export function termTranslationTemplate(ids: TemplateIds): WorkflowDefinition {
     nodes: [
       entryNode('terms'),
       aiNode('translate', 'termTranslate', ids.model, 1),
-      resendNode('translate', 1),
+      ...resendNodes('translate', 1),
       applyNode('save-term', 'saveCandidate', 2, { map: { text: 'target', note: 'note' } }),
     ],
     edges: [...chain('entry', 'translate', 'save-term'), ...resendEdges('translate')],
@@ -288,7 +303,7 @@ export function peopleRelationsTemplate(ids: TemplateIds): WorkflowDefinition {
     nodes: [
       entryNode(),
       aiNode('people', 'knowledge', ids.model, 1),
-      resendNode('people', 1),
+      ...resendNodes('people', 1),
       failTag('people', ids, 1),
       saveList('save-characters', 'saveCharacters', 'knowledge', 'characters', 2),
       saveList('save-relationships', 'saveRelationships', 'knowledge', 'relationships', 3),
@@ -301,7 +316,7 @@ export function peopleRelationsTemplate(ids: TemplateIds): WorkflowDefinition {
         label: AI_PROMPTS.peopleMerge.label,
         config: presetConfig('peopleMerge', ids.model, { input: { lines: false, previous: true, fields: [] } }),
       },
-      resendNode('merge', 6),
+      ...resendNodes('merge', 6),
       { ...saveList('save-merged-characters', 'saveCharacters', 'peopleMerge', 'characters', 7, 0, { profiles: 'propose' }), label: '합친 인물 저장' },
     ],
     edges: [...chain('entry', 'people', 'save-characters', 'save-relationships', 'save-speech-rules', 'gather', 'merge', 'save-merged-characters'), ...resendEdges('people', 'people-failed'), ...resendEdges('merge')],
@@ -312,7 +327,7 @@ export function peopleRelationsTemplate(ids: TemplateIds): WorkflowDefinition {
 export function eventExtractionTemplate(ids: TemplateIds): WorkflowDefinition {
   return {
     settings: { ...SETTINGS },
-    nodes: [entryNode(), aiNode('events', 'events', ids.model, 1), resendNode('events', 1), failTag('events', ids, 1), saveList('save-events', 'saveEvents', 'events', 'events', 2)],
+    nodes: [entryNode(), aiNode('events', 'events', ids.model, 1), ...resendNodes('events', 1), failTag('events', ids, 1), saveList('save-events', 'saveEvents', 'events', 'events', 2)],
     edges: [...chain('entry', 'events', 'save-events'), ...resendEdges('events', 'events-failed')],
   };
 }
@@ -325,7 +340,7 @@ export function eventExtractionTemplate(ids: TemplateIds): WorkflowDefinition {
 export function listenerTemplate(ids: TemplateIds): WorkflowDefinition {
   return {
     settings: { ...SETTINGS },
-    nodes: [entryNode(), aiNode('listener', 'listener', ids.model, 1), resendNode('listener', 1), failTag('listener', ids, 1), applyNode('set-listener', 'setListener', 2, { map: { listener: 'value', confidence: 'confidence' } })],
+    nodes: [entryNode(), aiNode('listener', 'listener', ids.model, 1), ...resendNodes('listener', 1), failTag('listener', ids, 1), applyNode('set-listener', 'setListener', 2, { map: { listener: 'value', confidence: 'confidence' } })],
     edges: [...chain('entry', 'listener', 'set-listener'), ...resendEdges('listener', 'listener-failed')],
   };
 }
@@ -348,7 +363,7 @@ export function analysisTemplate(ids: TemplateIds): WorkflowDefinition {
     nodes: [
       entryNode(),
       aiNode(analysis, 'analysis', ids.model, 1, 0, '작품 분석'),
-      resendNode(analysis, 1),
+      ...resendNodes(analysis, 1),
       failTag(analysis, ids, 1),
       saveList('save-characters', 'saveCharacters', 'analysis', 'characters', 2),
       saveList('save-relationships', 'saveRelationships', 'analysis', 'relationships', 3),

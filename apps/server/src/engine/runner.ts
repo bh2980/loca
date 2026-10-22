@@ -1,7 +1,7 @@
-import { and, asc, count, desc, eq, gte, inArray, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, gte, inArray, isNull, lte, ne, notInArray, or, sql } from 'drizzle-orm';
 import jsonLogic from 'json-logic-js';
 import * as ai from '@tw/ai';
-import { estimateTokens, batchConfigSchema, batchTokens, lineCostIn, FUNCTIONS, functionTakes, INPUT_TYPES, choiceKey, lineMarksOf, nodeModels, runNodeName, type AiNode, type ConditionData, type FunctionName, type ItemErrorKind, pickPaths, previousStepId, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+import { estimateTokens, batchConfigSchema, batchTokens, lineCostIn, FUNCTIONS, functionTakes, INPUT_TYPES, choiceKey, lineMarksOf, nodeModels, runNodeName, type AiNode, type ConditionData, type FunctionName, type ItemErrorKind, pickPaths, previousStepId, retryModel, type FunctionNode, type RetryNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
 type GatherNode = Extract<WorkflowNode, { type: 'gather' }>;
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
@@ -9,7 +9,7 @@ import * as s from '../db/schema.ts';
 import type { ItemData, ItemState } from '../db/schema.ts';
 import { events, type Topic } from '../events.ts';
 import { buildContext } from '../services/context.ts';
-import { resolveRoutes } from '../services/routes.ts';
+import { resolveRoute } from '../services/routes.ts';
 import type { SecretStore } from '../services/secrets.ts';
 import { runAsyncFunction, syncFunctions, type FunctionInput } from './functions/index.ts';
 import { APPLY_TOPICS } from './functions/apply.ts';
@@ -20,7 +20,7 @@ import { wholeScriptRequest } from './whole-script.ts';
 import { resolveChoiceOptions } from '../services/choice-options.ts';
 import { logged } from '../services/ai-calls.ts';
 import { outputCutOff } from '../services/whole-script-limits.ts';
-import { loadTerms, RETRY_FACTOR, termCondition, termInput, termPrompt, waitingTerms } from './subjects.ts';
+import { loadTerms, RETRY_FACTOR, RETRY_MODEL, termCondition, termInput, termPrompt, waitingTerms } from './subjects.ts';
 import { overheadOf } from '../services/preflight.ts';
 import type { ModelPort } from './model-port.ts';
 export type { ModelPort } from './model-port.ts';
@@ -32,7 +32,7 @@ type Unit = typeof s.units.$inferSelect;
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 type StepRecord = Omit<typeof s.runSteps.$inferInsert, 'ok' | 'finishedAt'>;
 /** A queued line waiting at a slow node, with its script position for batching. */
-type Waiting = { id: string; unitId: string; nodeId: string; groupId: string; seq: number; kind: string; tokens: number; since: Date; plan: number | null; factor: number };
+type Waiting = { id: string; unitId: string; nodeId: string; groupId: string; seq: number; kind: string; tokens: number; since: Date; plan: number | null; factor: number; /** The model a 재요청 node sends it to this node on (a run.models key); null: the node's own. */ model: string | null };
 
 /** Functions that write beyond the line itself, and the change topic they touch. */
 const FUNCTION_TOPICS: Record<string, Topic[]> = { ...APPLY_TOPICS, setStatus: ['terms'] };
@@ -42,8 +42,9 @@ const GATHER_MS = 5_000;
 const SETTLE_PER_TICK = 2_000;
 /**
  * Failures that will not go away by trying the next batch: the run pauses at the first one. A rate
- * limit is not among them: an API's limit passes with time, and an exhausted subscription fails
- * every call at once, which the consecutive-failure guard catches within a few calls.
+ * limit is not among them: it leaves through the node's "error" exit like any failure (a 재요청 node
+ * can wait and send it again), and an exhausted subscription fails every call at once, which the
+ * consecutive-failure guard catches within a few calls.
  */
 const STOPPING_CODES: Record<string, string> = { auth: '인증 오류', config: '연결 설정 오류' };
 
@@ -59,19 +60,11 @@ const usageColumns = (usage: ai.Usage) => ({
   reasoningTokens: usage.reasoningTokens,
   costUsd: usage.costUsd,
 });
-/**
- * Failures that are not the lines' fault (the provider's rate limit, a dropped connection): the lines
- * wait for a later request. The run pauses after the workflow's 연속 실패 count, so this cannot spin.
- * Everything else leaves through the node's "error" exit with its kind (ConditionData.error) for the
- * workflow to route: the runner does not split or re-send a request on its own.
- */
-const TRANSIENT = new Set(['rate-limit', 'network']);
-
 /** The kind a failed call gives its lines, as conditions read it. */
 export function errorKindOf(error: unknown): ItemErrorKind {
   if (outputCutOff(error)) return 'cut-off';
   const code = (error as { code?: string }).code;
-  if (code === 'invalid-output' || code === 'too-long' || code === 'timeout') return code;
+  if (code === 'invalid-output' || code === 'too-long' || code === 'timeout' || code === 'rate-limit' || code === 'network') return code;
   // A model that declines to answer (an API's content filter, a CLI's refusal stop reason).
   if (/거절|refus|content[_ ]filter/i.test(error instanceof Error ? error.message : String(error))) return 'refused';
   return 'other';
@@ -126,6 +119,8 @@ export class Runner {
   private ticking = false;
   private inflight = new Map<string, Set<Promise<void>>>();
   private aborts = new Map<string, AbortController>();
+  /** Runs with nothing to do until lines held by a 재요청 node's wait are due: when, and the timer that ticks then. No polling meanwhile. */
+  private sleeping = new Map<string, { until: number; timer: NodeJS.Timeout }>();
 
   constructor(
     private db: Db,
@@ -141,6 +136,7 @@ export class Runner {
 
   async stop() {
     clearInterval(this.timer);
+    for (const runId of [...this.sleeping.keys()]) this.wake(runId);
     for (const controller of this.aborts.values()) controller.abort();
     await Promise.allSettled([...this.inflight.values()].flatMap((set) => [...set]));
   }
@@ -161,6 +157,12 @@ export class Runner {
     try {
       let active = false;
       for (const run of this.db.select().from(s.runs).where(eq(s.runs.status, 'running')).all()) {
+        // A run whose lines all wait for a 재요청 node's wait does nothing until the first is due.
+        const asleep = this.sleeping.get(run.id);
+        if (asleep) {
+          if (asleep.until > Date.now()) continue;
+          this.wake(run.id);
+        }
         // One run's failure (a database error, a bad definition) pauses that run; the others go on.
         try {
           active = this.advance(run) || active;
@@ -173,6 +175,24 @@ export class Runner {
     } finally {
       this.ticking = false;
     }
+  }
+
+  /** Puts a run to sleep until `until` (ms): its timer ticks then. */
+  private sleepUntil(runId: string, until: number) {
+    const known = this.sleeping.get(runId);
+    if (known?.until === until) return;
+    clearTimeout(known?.timer);
+    const timer = setTimeout(() => {
+      this.sleeping.delete(runId);
+      void this.tick();
+    }, Math.max(0, until - Date.now()));
+    timer.unref?.();
+    this.sleeping.set(runId, { until, timer });
+  }
+
+  private wake(runId: string) {
+    clearTimeout(this.sleeping.get(runId)?.timer);
+    this.sleeping.delete(runId);
   }
 
   pause(runId: string) {
@@ -194,6 +214,7 @@ export class Runner {
       next = merged.maxCalls || merged.maxInputTokens ? merged : null;
     } else if (next) next = { ...next };
     if (next) delete next.hit;
+    this.wake(runId);
     this.db.update(s.runs).set({ status: 'running', notice: null, limits: next }).where(and(eq(s.runs.id, runId), eq(s.runs.status, 'paused'), or(isNull(s.runs.notice), ne(s.runs.notice, FILLING)))).run();
     this.notify(runId);
   }
@@ -225,9 +246,8 @@ export class Runner {
         for (const item of failed) {
           const failedAt = item.data.error?.nodeId;
           const nodeId = failedAt && known.has(failedAt) ? failedAt : item.nodeId;
-          const { [nodeId]: _, ...retries } = item.data.retries ?? {};
           tx.update(s.runItems)
-            .set({ state: 'queued', nodeId, error: null, visits: { ...item.visits, [nodeId]: 1 }, data: { ...item.data, retries, error: undefined } })
+            .set({ state: 'queued', nodeId, error: null, notBefore: null, visits: { ...item.visits, [nodeId]: 1 }, data: { ...item.data, retry: undefined, error: undefined } })
             .where(eq(s.runItems.id, item.id))
             .run();
         }
@@ -242,12 +262,16 @@ export class Runner {
         .run();
       return { ok: true as const, retried };
     });
-    if (result.ok) this.notify(runId);
+    if (result.ok) {
+      this.wake(runId);
+      this.notify(runId);
+    }
     return result;
   }
 
   cancel(runId: string) {
     this.aborts.get(runId)?.abort();
+    this.wake(runId);
     this.db.transaction((tx) => {
       tx.update(s.runs).set({ status: 'cancelled', finishedAt: new Date() }).where(eq(s.runs.id, runId)).run();
       tx.update(s.runItems)
@@ -323,7 +347,7 @@ export class Runner {
    * exit with several edges sends the line down each of them: the item takes the first, and a copy
    * of it each of the others (validation keeps those branches apart until they end).
    */
-  private route(tx: Tx, run: Run, item: Item, port: string, error?: string, kind?: ItemErrorKind) {
+  private route(tx: Tx, run: Run, item: Item, port: string, error?: string, kind?: ItemErrorKind, notBefore?: number) {
     const definition: WorkflowDefinition = run.definition;
     // What conditions read as error: set by an "error" exit (a node without its own kind keeps the
     // failure it was sent with), kept through conditions (they only route the
@@ -353,7 +377,7 @@ export class Runner {
           message = `'${node ? runNodeName(definition, node) : nodeId}' 노드 방문 상한(${definition.settings.maxVisitsPerNode}회)을 넘었습니다.`;
         }
       }
-      return { nodeId, state, visits, data: { ...item.data, path }, error: message };
+      return { nodeId, state, visits, data: { ...item.data, path }, error: message, notBefore: notBefore ? new Date(notBefore) : null };
     };
     tx.update(s.runItems).set(moved(edges[0]?.target)).where(eq(s.runItems.id, item.id)).run();
     for (const edge of edges.slice(1)) tx.insert(s.runItems).values({ runId: run.id, subjectId: item.subjectId, plan: item.plan, ...moved(edge.target) }).run();
@@ -454,15 +478,6 @@ export class Runner {
   }
 
   /** Queued lines at instant nodes (anything not slow, unknown nodes included so they fail visibly). */
-  /** Sends a line back to the queue of the node it is at (a failure that was not the line's fault). */
-  private retryLater(tx: Tx, run: Run, item: Item, reason: string) {
-    const count = (item.data.retries?.[item.nodeId] ?? 0) + 1;
-    tx.update(s.runItems)
-      .set({ state: 'queued', data: { ...item.data, retries: { ...item.data.retries, [item.nodeId]: count } }, error: reason })
-      .where(eq(s.runItems.id, item.id))
-      .run();
-  }
-
   private queuedInstant(run: Run, slowIds: string[], limit: number) {
     const conditions = [eq(s.runItems.runId, run.id), eq(s.runItems.state, 'queued')];
     if (slowIds.length) conditions.push(notInArray(s.runItems.nodeId, slowIds));
@@ -472,7 +487,8 @@ export class Runner {
   /** Queued lines at slow nodes, light rows in script order (scene order, then line order). */
   private waiting(run: Run, slowIds: string[]): Waiting[] {
     if (!slowIds.length) return [];
-    if (run.subject === 'terms') return waitingTerms(this.db, run.id, slowIds);
+    const now = new Date();
+    if (run.subject === 'terms') return waitingTerms(this.db, run.id, slowIds, now);
     return this.db
       .select({
         id: s.runItems.id,
@@ -486,10 +502,11 @@ export class Runner {
         since: s.runItems.updatedAt,
         plan: s.runItems.plan,
         factor: RETRY_FACTOR,
+        model: RETRY_MODEL,
       })
       .from(s.runItems)
       .innerJoin(s.units, eq(s.units.id, s.runItems.subjectId))
-      .where(and(eq(s.runItems.runId, run.id), eq(s.runItems.state, 'queued'), inArray(s.runItems.nodeId, slowIds)))
+      .where(and(eq(s.runItems.runId, run.id), eq(s.runItems.state, 'queued'), inArray(s.runItems.nodeId, slowIds), or(isNull(s.runItems.notBefore), lte(s.runItems.notBefore, now))))
       .orderBy(asc(s.units.seq))
       .all();
   }
@@ -544,7 +561,16 @@ export class Runner {
       if (!open.length) {
         this.db.update(s.runs).set({ status: 'completed', finishedAt: new Date() }).where(eq(s.runs.id, run.id)).run();
         this.notify(run.id);
-      } else if (changed) this.notify(run.id, ...touched);
+      } else {
+        // Lines held by a 재요청 node's wait: nothing to do until the first is due.
+        const due = this.db
+          .select({ at: sql<number>`min(${s.runItems.notBefore})` })
+          .from(s.runItems)
+          .where(and(eq(s.runItems.runId, run.id), eq(s.runItems.state, 'queued'), gt(s.runItems.notBefore, new Date())))
+          .get()?.at;
+        if (due) this.sleepUntil(run.id, due);
+        if (changed) this.notify(run.id, ...touched);
+      }
       return false;
     }
 
@@ -568,9 +594,9 @@ export class Runner {
       if (!node) continue;
       held.set(nodeId, { node, lines });
       const before = [...(upstream.get(nodeId) ?? [])].filter((id) => id !== nodeId);
-      // Lines a 재요청 node sent back are batched apart from the others, by a smaller budget (their factor).
-      for (const [factor, sized] of Map.groupBy(lines, (line) => line.factor)) {
-        const config = node.type === 'ai' ? scaleBatch(runBatch(run, node), factor) : null;
+      // Lines a 재요청 node sent back are batched apart from the others, by a smaller budget (their factor), and apart by the model they will go to.
+      for (const sized of Map.groupBy(lines, (line) => `${line.factor}|${line.model ?? ''}`).values()) {
+        const config = node.type === 'ai' ? scaleBatch(runBatch(run, node), sized[0]!.factor) : null;
         let batches: Waiting[][];
         if (!config) batches = sized.map((line) => [line]);
         else if (sized.every((line) => line.plan !== null)) {
@@ -610,7 +636,7 @@ export class Runner {
     // loop whose members sit at both ends). Send the most downstream node's lines as they are.
     if (!(this.inflight.get(run.id)?.size ?? 0) && held.size) {
       const [, { node, lines }] = [...held.entries()].sort(([a], [b]) => depth(b) - depth(a))[0];
-      const same = lines.filter((line) => line.factor === lines[0]!.factor);
+      const same = lines.filter((line) => line.factor === lines[0]!.factor && line.model === lines[0]!.model);
       const config = node.type === 'ai' ? scaleBatch(runBatch(run, node), lines[0]!.factor) : null;
       const first = config ? (packGroups([...Map.groupBy(same, (line) => line.plan ?? -1).values()], config)[0] ?? []) : same.slice(0, 1);
       if (first.length && canSend(node)) {
@@ -682,11 +708,21 @@ export class Runner {
         }
       }
       case 'retry': {
-        // Sent back while the failure is one of its kinds and the node's times are not used up; else on as an error, untouched.
-        const times = item.data.retry?.times[node.id] ?? 0;
-        if (!item.data.error || !node.config.kinds.includes(item.data.error.kind) || times >= node.config.maxTimes) return this.route(tx, run, item, 'error');
-        const retry = { times: { ...item.data.retry?.times, [node.id]: times + 1 }, factor: (item.data.retry?.factor ?? 1) * node.config.scale, last: { kind: item.data.error.kind, message: item.data.error.message, nodeId: node.id } };
-        return this.route(tx, run, { ...item, data: { ...item.data, retry } }, 'retry');
+        // Sent back while the failure is one of its kinds and the node's times are not used up; else on through
+        // its error exit (the next 재요청 node of a chain, or the workflow's failure path), untouched.
+        if (!this.accepts(node, item)) return this.route(tx, run, item, 'error');
+        const error = item.data.error!;
+        const { wait } = node.config;
+        // The AI node the lines go back to, and the model they go on there (none picked: that node's own).
+        const target = run.definition.edges.find((edge) => edge.source === node.id && edge.sourceHandle === 'retry')?.target;
+        const picked = retryModel(node);
+        const retry: NonNullable<ItemData['retry']> = {
+          times: { ...item.data.retry?.times, [node.id]: (item.data.retry?.times[node.id] ?? 0) + 1 },
+          factor: (item.data.retry?.factor ?? 1) * node.config.scale,
+          last: { kind: error.kind, message: error.message, nodeId: node.id, ...(wait > 0 && { waitSeconds: wait }) },
+          ...(picked && target && { model: { nodeId: target, key: choiceKey(picked) } }),
+        };
+        return this.route(tx, run, { ...item, data: { ...item.data, retry } }, 'retry', undefined, undefined, wait > 0 ? Date.now() + wait * 1000 : undefined);
       }
       case 'function': {
         if (!functionTakes(node.config.fn, run.subject)) return this.route(tx, run, item, 'error', unsupported(run.definition, node, run.subject), 'unsupported');
@@ -701,6 +737,11 @@ export class Runner {
       default:
         return this.route(tx, run, item, 'error', '즉시 실행할 수 없는 노드입니다.');
     }
+  }
+
+  /** Whether a 재요청 node sends the item back: its failure is one of the node's kinds and the item has not used up the node's times. */
+  private accepts(node: RetryNode, item: Item) {
+    return Boolean(item.data.error && node.config.kinds.includes(item.data.error.kind) && (item.data.retry?.times[node.id] ?? 0) < node.config.maxTimes);
   }
 
   /** The model an AI node's next request goes to (its choiceKey): of the node's models, the one with the fewest of its requests in flight. */
@@ -718,7 +759,8 @@ export class Runner {
     if (!controller || controller.signal.aborted) this.aborts.set(run.id, (controller = new AbortController()));
     const set = this.inflight.get(run.id) ?? new Set();
     this.inflight.set(run.id, set);
-    const modelKey = node.type === 'ai' ? this.nextModel(run, node) : null;
+    // Lines sent back on a model of a 재요청 node go together on that model (the batches were grouped by it).
+    const modelKey = node.type === 'ai' ? (lines[0]?.model ?? this.nextModel(run, node)) : null;
     const key = modelKey ? `${run.id}|${node.id}|${modelKey}` : null;
     if (key) this.callsByModel.set(key, (this.callsByModel.get(key) ?? 0) + 1);
     const byNode = this.callsByNode.get(run.id) ?? new Map<string, number>();
@@ -768,12 +810,12 @@ export class Runner {
   private async executeAi(run: Run, node: AiNode, modelKey: string, batch: Item[], signal: AbortSignal) {
     const model = run.models[modelKey];
     if (!model) return this.failBatch(run, batch, { runId: run.id, nodeId: node.id, subjectIds: batch.map((item) => item.subjectId), startedAt: new Date() }, new Error('이 노드의 AI 연결이 실행을 시작할 때 없었습니다. 노드에서 연결과 모델을 다시 고르고 새로 실행하세요.'));
-    const routes = resolveRoutes(model, this.secrets);
-    if (routes[0]?.kind === 'systemone') {
+    const route = resolveRoute(model, this.secrets);
+    if (route.kind === 'systemone') {
       if (run.subject !== 'lines') return this.failBatch(run, batch, { runId: run.id, nodeId: node.id, subjectIds: batch.map((item) => item.subjectId), startedAt: new Date() }, new Error('System One 연결은 대사 워크플로에서만 쓸 수 있습니다.'));
-      return this.judgeLines(run, node, batch, model, routes, signal);
+      return this.judgeLines(run, node, batch, route, signal);
     }
-    await this.callLines(run, node, model, routes, batch, signal);
+    await this.callLines(run, node, model, route, batch, signal);
   }
 
   /** The lines of `items` as the prompt numbers them, in batch (script) order. */
@@ -835,13 +877,13 @@ export class Runner {
    * a per-line answer left out (or answered empty) leaves through "error" with kind "missing", and a
    * failed request sends all its lines there with the failure's kind (errorKindOf).
    */
-  private async callLines(run: Run, node: AiNode, model: s.AiSnapshot, routes: ai.ResolvedRoute[], items: Item[], signal: AbortSignal): Promise<void> {
+  private async callLines(run: Run, node: AiNode, model: s.AiSnapshot, route: ai.ResolvedRoute, items: Item[], signal: AbortSignal): Promise<void> {
     const project = this.db.select().from(s.projects).where(eq(s.projects.id, run.projectId)).get()!;
     // Terms: the term items and the context their example lines call for (engine/subjects.ts).
     const terms = run.subject === 'terms' ? termPrompt(this.db, run.projectId, items, node) : null;
     const { rows, lines } = terms ? { rows: [], lines: withPrevious(terms.lines, items, run.definition, node) } : this.promptLines(items, run.definition, node);
-    const round = Math.max(0, ...items.map((item) => item.data.retries?.[node.id] ?? 0));
-    const step: StepRecord = { runId: run.id, nodeId: node.id, connectionId: routes[0]?.connectionId ?? null, model: routes[0]?.model ?? null, subjectIds: items.map((item) => item.subjectId), startedAt: new Date(), round };
+    const round = Math.max(0, ...items.map((item) => Object.values(item.data.retry?.times ?? {}).reduce((sum, n) => sum + n, 0)));
+    const step: StepRecord = { runId: run.id, nodeId: node.id, connectionId: route.connectionId ?? null, model: route.model, subjectIds: items.map((item) => item.subjectId), startedAt: new Date(), round };
     const languages = { source: project.sourceLanguage, target: project.targetLanguage };
     const choiceOptions = node.config.output === 'choice' ? resolveChoiceOptions(this.db, run.projectId, node.config.choice) : undefined;
     // A node reading the script whole sends it as compact script text (engine/whole-script.ts), its
@@ -886,7 +928,7 @@ export class Runner {
     try {
       // Whole-script reads are logged as such: their pace (minutes per script) would skew the run estimates.
       const call = { projectId: run.projectId, kind: whole ? ('whole' as const) : ('run' as const), refId: run.id, label: `${runNodeName(run.definition, node)} · ${items.length.toLocaleString()}줄` };
-      const result = await ai.withFallback(routes, model.maxAttempts, (route) => logged(this.db, call, route, () => this.model.generate(route, request)), signal).finally(release);
+      const result = await ai.callOnce(route, (route) => logged(this.db, call, route, () => this.model.generate(route, request)), signal).finally(release);
       const raw = result.result.object;
       const outcomes = readAiOutput(node, raw, lines, result.route.model, choiceOptions);
       const answered = outcomes.filter(Boolean).length;
@@ -910,8 +952,8 @@ export class Runner {
   }
 
   /** A judge model (System One) answers one line at a time and only supports verdicts. */
-  private async judgeLines(run: Run, node: AiNode, batch: Item[], model: s.AiSnapshot, routes: ai.ResolvedRoute[], signal: AbortSignal) {
-    const step: StepRecord = { runId: run.id, nodeId: node.id, connectionId: routes[0]?.connectionId ?? null, model: routes[0]?.model ?? null, subjectIds: batch.map((item) => item.subjectId), startedAt: new Date() };
+  private async judgeLines(run: Run, node: AiNode, batch: Item[], route: ai.ResolvedRoute, signal: AbortSignal) {
+    const step: StepRecord = { runId: run.id, nodeId: node.id, connectionId: route.connectionId ?? null, model: route.model, subjectIds: batch.map((item) => item.subjectId), startedAt: new Date() };
     if (node.config.output !== 'verdict') return this.failBatch(run, batch, step, new Error('System One 연결은 출력 형태가 "판정"인 AI 노드에서만 쓸 수 있습니다.'));
     const { rows, lines } = this.promptLines(batch, run.definition, node);
     const context = buildContext(this.db, run.projectId, rows, node.config.context);
@@ -921,9 +963,8 @@ export class Runner {
       let attempts: ai.Attempt[] = [];
       const judged: ai.Usage[] = [];
       for (const line of lines) {
-        const outcome = await ai.withFallback(
-          routes,
-          model.maxAttempts,
+        const outcome = await ai.callOnce(
+          route,
           (route) =>
             logged(this.db, { projectId: run.projectId, kind: 'run', refId: run.id, label: `${runNodeName(run.definition, node)} · 판정 1줄` }, route, () => this.model.judge(route, {
               state: { source: line.source, translation: line.candidate ?? '', speaker: line.speaker, context: { scene: context.scenes[line.groupId] ?? null, characters: context.characters, glossary: context.terms } },
@@ -941,7 +982,7 @@ export class Runner {
       this.db.transaction((tx) => {
         batch.forEach((item, index) => this.record(tx, run, item, outcomes[index]));
         tx.insert(s.runSteps)
-          .values({ ...step, ok: true, model: routes[0]?.model, prompt: null, output: outcomes, attempts, returnedItems: outcomes.length, ...usageColumns(stepUsage(attempts, judged.reduce(ai.addUsage, {}))), finishedAt: new Date() })
+          .values({ ...step, ok: true, model: route.model, prompt: null, output: outcomes, attempts, returnedItems: outcomes.length, ...usageColumns(stepUsage(attempts, judged.reduce(ai.addUsage, {}))), finishedAt: new Date() })
           .run();
       });
       this.notify(run.id);
@@ -957,25 +998,31 @@ export class Runner {
   private failBatch(run: Run, batch: Item[], step: StepRecord, error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     const usage = stepUsage(attemptsOf(error), (error as { usage?: ai.Usage }).usage);
-    const transient = TRANSIENT.has((error as { code?: string }).code ?? '');
     const kind = errorKindOf(error);
     const stepId = crypto.randomUUID();
     this.db.transaction((tx) => {
-      // A rate limit or a dropped connection is not the lines' fault: they wait for a later batch.
-      for (const item of batch) transient ? this.retryLater(tx, run, item, message) : this.route(tx, run, item, 'error', message, kind);
+      for (const item of batch) this.route(tx, run, item, 'error', message, kind);
       tx.insert(s.runSteps).values({ ...step, id: stepId, ok: false, error: message, errorKind: kind, ...usageColumns(usage), finishedAt: new Date() }).run();
     });
-    if (!transient && this.takenBack(run, step.nodeId, batch, kind)) this.retriedSteps.set(run.id, (this.retriedSteps.get(run.id) ?? new Set()).add(stepId));
+    if (this.takenBack(run, step.nodeId, batch, kind)) this.retriedSteps.set(run.id, (this.retriedSteps.get(run.id) ?? new Set()).add(stepId));
     this.notify(run.id);
     this.guard(run.id, { code: (error as { code?: string }).code, message });
   }
 
-  /** Whether a 재요청 node right after `nodeId`'s error exit sends all of these lines (as they were before this failure) back for a failure of `kind`. */
+  /**
+   * Whether every one of these lines (as they were before this failure) is sent back by the 재요청 nodes
+   * after `nodeId`'s error exit, for a failure of `kind`: the first node of the chain takes it, or else the next one, and so on.
+   */
   private takenBack(run: Run, nodeId: string, batch: Item[], kind: ItemErrorKind) {
-    const edges = run.definition.edges.filter((edge) => edge.source === nodeId && edge.sourceHandle === 'error');
-    return edges.some((edge) => {
-      const node = this.node(run, edge.target);
-      return node?.type === 'retry' && node.config.kinds.includes(kind) && batch.every((item) => (item.data.retry?.times[node.id] ?? 0) < node.config.maxTimes);
+    return batch.every((item) => {
+      const seen = new Set<string>();
+      for (let from = nodeId; ; ) {
+        const next = this.node(run, run.definition.edges.find((edge) => edge.source === from && edge.sourceHandle === 'error')?.target ?? '');
+        if (next?.type !== 'retry' || seen.has(next.id)) return false;
+        seen.add(next.id);
+        if (this.accepts(next, { ...item, data: { ...item.data, error: { kind, message: '', nodeId } } })) return true;
+        from = next.id;
+      }
     });
   }
 }

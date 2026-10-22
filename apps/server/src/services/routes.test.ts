@@ -5,25 +5,16 @@ import { liveChoice, snapshotChoice } from './routes.ts';
 import { memoryStore } from './secrets.ts';
 
 describe('model choices', () => {
-  it('follow each connection\'s fallback in turn, stopping at a loop, with the picked connection\'s call settings', () => {
+  it('freeze the picked route with the connection\'s output limit for that model', () => {
     const db = openDatabase(':memory:');
-    db.insert(s.connections).values([
-      { id: 'a', kind: 'openai', name: 'A', maxAttempts: 3, modelLimits: { ma: { maxOutput: 4000, by: 'api' } }, fallback: { connectionId: 'b', model: 'mb', effort: 'high' } },
-      { id: 'b', kind: 'codex', name: 'B', fallback: { connectionId: 'a', model: 'ma' } },
-    ]).run();
-    const snapshot = snapshotChoice(db, { connectionId: 'a', model: 'ma' })!;
-    expect(snapshot).toMatchObject({ label: 'A · ma', maxAttempts: 3, maxOutputTokens: 4000 });
+    db.insert(s.connections).values({ id: 'a', kind: 'openai', name: 'A', modelLimits: { ma: { maxOutput: 4000, by: 'api' } } }).run();
+    const snapshot = snapshotChoice(db, { connectionId: 'a', model: 'ma', effort: 'high' })!;
+    expect(snapshot).toMatchObject({ label: 'A · ma · high', maxOutputTokens: 4000, route: { connectionId: 'a', name: 'A', kind: 'openai', model: 'ma', effort: 'high' } });
+    expect(snapshot).not.toHaveProperty('routes');
+    expect(snapshot).not.toHaveProperty('maxAttempts');
     // A model whose output limit is unknown gets no cap.
     expect(snapshotChoice(db, { connectionId: 'a', model: 'unlisted' })!.maxOutputTokens).toBeUndefined();
-    expect(snapshot.routes.map((route) => [route.name, route.model, route.effort])).toEqual([['A', 'ma', null], ['B', 'mb', 'high']]);
     expect(snapshotChoice(db, { connectionId: 'gone', model: 'x' })).toBeUndefined();
-  });
-
-  it('falls back to another model of the same connection once, without looping', () => {
-    const db = openDatabase(':memory:');
-    db.insert(s.connections).values({ id: 'or', kind: 'openai', name: 'OpenRouter', fallback: { connectionId: 'or', model: 'cheap' } }).run();
-    expect(snapshotChoice(db, { connectionId: 'or', model: 'big' })!.routes.map((route) => route.model)).toEqual(['big', 'cheap']);
-    expect(snapshotChoice(db, { connectionId: 'or', model: 'cheap' })!.routes.map((route) => route.model)).toEqual(['cheap']);
   });
 
   it('refuse a connection that cannot do what the place needs', () => {

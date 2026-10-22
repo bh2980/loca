@@ -100,7 +100,7 @@ function mockPort(options: MockOptions): ModelPort {
 async function runScenario(scenario: Scenario, size: number): Promise<Metrics> {
   const options = scenario.profiles.reduce<MockOptions>((all, name) => ({ ...all, ...PROFILES[name] }), { ...DEFAULT_OPTIONS, seed: SEED });
   const db = openDatabase(':memory:');
-  const connection = db.insert(s.connections).values({ kind: 'openai', name: 'mock', baseUrl: 'http://localhost:1/v1', maxOutputTokens: 8000, timeoutSeconds: 30, maxAttempts: 1 }).returning().get();
+  const connection = db.insert(s.connections).values({ kind: 'openai', name: 'mock', baseUrl: 'http://localhost:1/v1', maxOutputTokens: 8000, timeoutSeconds: 30 }).returning().get();
   const choice = { connectionId: connection.id, model: 'mock' };
   const { file } = realistic(size);
   const { projectId } = importProject(db, importFileSchema.parse(file), choice);

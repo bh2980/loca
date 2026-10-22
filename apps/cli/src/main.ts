@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { Command, Option } from 'commander';
 import { hc } from 'hono/client';
 import type { AppType } from '@tw/server/app';
-import { acceptedLabel, AUTO_MARKS, CHECK_KINDS, EXCLUSION_REASON_LABELS, CONTEXT_ITEM_KINDS, importFileJsonSchema, importFileSchema, importWarnings, KNOWLEDGE_MARK_IDS, KNOWLEDGE_STATUS_LABELS, LINE_MARK_IDS, lineChangeSchema, summarizeImport, TERM_MARK_IDS, type AutoMark, type KnowledgeStatus, type LineFilterInput, type LineMark, personLabel } from '@tw/shared';
+import { acceptedLabel, AUTO_MARKS, CHECK_KINDS, EXCLUSION_REASON_LABELS, CONTEXT_ITEM_KINDS, importFileJsonSchema, importFileSchema, importWarnings, KNOWLEDGE_MARK_IDS, KNOWLEDGE_STATUS_LABELS, LINE_MARK_IDS, lineChangeSchema, summarizeImport, retryConfigSchema, retrySummary, TERM_MARK_IDS, type AutoMark, type KnowledgeStatus, type LineFilterInput, type LineMark, personLabel } from '@tw/shared';
 
 /**
  * loca — the workbench from a terminal, for people and for agents with a shell (codex, claude…).
@@ -655,7 +655,7 @@ workflows
       : node.type === 'ai' ? `${node.config.output}·${node.config.scope ?? 'line'}${node.config.preset ? ` · 프리셋 ${node.config.preset}` : ''} · ${node.config.model?.model || '모델 없음'} · 동시 ${node.config.concurrency ?? 1}${node.config.fields?.length ? ` · 필드 ${node.config.fields.map((field: { name: string }) => field.name).join(', ')}` : ''}`
       : node.type === 'function' ? `${node.config.fn}${node.config.fn === 'saveCharacters' ? ` · 프로필 ${node.config.params?.profiles ?? 'fillEmpty'}` : ''}${node.config.fn === 'http' || node.config.fn === 'script' ? ` · 동시 ${node.config.concurrency ?? 2}` : ''}`
       : node.type === 'condition' ? JSON.stringify(node.config.expression)
-      : node.type === 'retry' ? `재요청 · 오류 ${(node.config.kinds ?? []).join(',')} · 크기 ×${node.config.scale} · 최대 ${node.config.maxTimes}번`
+      : node.type === 'retry' ? `재요청 · ${retrySummary(retryConfigSchema.parse(node.config ?? {}))}`
       : node.type === 'gather' ? `모으기 (앞 단계 결과)${node.config.fields?.length ? ` · 필드 ${node.config.fields.join(', ')}` : ''}`
       : node.type === 'call' ? `호출: ${names.get(node.config.workflowId) ?? (node.config.workflowId ? `(없는 워크플로 ${node.config.workflowId})` : '고르지 않음')}`
       : '';

@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { and, asc, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import * as ai from '@tw/ai';
-import { CALL_TIMEOUT_MS, CONNECTION_KIND_INFO, connectionInputSchema, patchOf, type ModelChoice } from '@tw/shared';
+import { CALL_TIMEOUT_MS, CONNECTION_KIND_INFO, connectionInputSchema, patchOf } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
@@ -14,29 +14,17 @@ type CliKind = 'codex' | 'claude' | 'grok' | 'antigravity' | 'opencode';
 const isCli = (kind: string): kind is CliKind => CONNECTION_KIND_INFO[kind as keyof typeof CONNECTION_KIND_INFO]?.transport === 'cli';
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-/**
- * A fallback names a model to go on with: another connection, or another model of the same one (an
- * OpenRouter-style API serves many). A chain that comes back to a model it already tried stops there (snapshotChoice).
- */
-function checkFallback(db: Db, fallback: ModelChoice | null | undefined) {
-  if (!fallback) return;
-  const target = found(db.select().from(s.connections).where(eq(s.connections.id, fallback.connectionId)).get(), '막히면 넘길 연결');
-  if (target.kind === 'http') badRequest('API 키 연결로는 넘길 수 없습니다.');
-}
-
-/** Where a connection is picked: AI nodes (by workflow), conversations and other connections' fallbacks. */
+/** Where a connection is picked: AI nodes and 재요청 nodes (by workflow) and conversations. */
 function usesOf(db: Db, id: string) {
   const workflows = db
     .select({ name: s.workflows.name, project: s.projects.name, definition: s.workflows.definition })
     .from(s.workflows)
     .innerJoin(s.projects, eq(s.projects.id, s.workflows.projectId))
     .all()
-    .filter((row) => row.definition.nodes.some((node) => node.type === 'ai' && [node.config.model, ...node.config.extraModels].some((choice) => choice.connectionId === id)))
+    .filter((row) => row.definition.nodes.some((node) => (node.type === 'ai' && [node.config.model, ...node.config.extraModels].some((choice) => choice.connectionId === id)) || (node.type === 'retry' && node.config.model?.connectionId === id)))
     .map((row) => `워크플로 '${row.name}'(${row.project})`);
   const chats = db.select({ id: s.chatSessions.id }).from(s.chatSessions).where(eq(s.chatSessions.connectionId, id)).all().length;
-  // Its own fallback (another of its models) goes with it.
-  const fallbacks = db.select({ id: s.connections.id, name: s.connections.name, fallback: s.connections.fallback }).from(s.connections).all().filter((row) => row.id !== id && row.fallback?.connectionId === id).map((row) => `연결 '${row.name}'의 대체 모델`);
-  return [...workflows, ...(chats ? [`대화 ${chats}개`] : []), ...fallbacks];
+  return [...workflows, ...(chats ? [`대화 ${chats}개`] : [])];
 }
 
 export const connectionRoutes = new Hono<Env>()
@@ -55,7 +43,6 @@ export const connectionRoutes = new Hono<Env>()
     const { db, secrets } = c.var.deps;
     const { apiKey, ...input } = c.req.valid('json');
     const info = CONNECTION_KIND_INFO[input.kind];
-    checkFallback(db, input.fallback);
     const row = db
       .insert(s.connections)
       .values({ ...input, baseUrl: info.transport === 'http' ? (input.baseUrl ?? info.defaultBaseUrl) : null, executable: input.executable || null })
@@ -68,7 +55,6 @@ export const connectionRoutes = new Hono<Env>()
   .patch('/:id', validate('json', patchOf(connectionInputSchema.omit({ kind: true }))), (c) => {
     const { db } = c.var.deps;
     const input = c.req.valid('json');
-    checkFallback(db, input.fallback);
     found(db.update(s.connections).set({ ...input, executable: input.executable === '' ? null : input.executable }).where(eq(s.connections.id, c.req.param('id'))).returning().get(), '연결');
     events.changed(undefined, 'connections');
     return c.json({ ok: true });
@@ -164,7 +150,7 @@ export const modelTestRoutes = new Hono<Env>()
       const judge = connection.kind === 'systemone';
       const live = liveChoice(db, choice, secrets, judge ? 'judge' : 'generate');
       const call = { projectId: null, kind: 'test' as const, refId: connection.id, label: `모델 시험 · ${choiceLabel(connection.name, choice)}` };
-      const { result, route, attempts } = await ai.withFallback(live.routes, live.snapshot.maxAttempts, (route) =>
+      const { result, route } = await ai.callOnce(live.route, (route) =>
         logged(db, call, route, () => route.kind === 'systemone'
           ? ai.judge(route, { state: { source }, instructions: 'Is this text well-formed?', timeoutMs: CALL_TIMEOUT_MS.connectionTest }).then((judged) => ({ text: judged.passed ? 'pass' : 'fail', usage: judged.usage }))
           : ai
@@ -178,7 +164,7 @@ export const modelTestRoutes = new Hono<Env>()
               .then((generated) => ({ text: generated.object.text, usage: generated.usage })),
         ),
       );
-      return c.json({ ok: true as const, text: result.text, model: route.model, fellBack: route.connectionId !== choice.connectionId || route.model !== choice.model, attempts, ms: Date.now() - started });
+      return c.json({ ok: true as const, text: result.text, model: route.model, ms: Date.now() - started });
     } catch (error) {
       return c.json({ ok: false as const, detail: message(error), ms: Date.now() - started });
     }

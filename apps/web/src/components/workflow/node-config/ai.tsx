@@ -192,7 +192,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
               </Field>
             )}
           </>
-          <Field label="한 번 시도 제한 시간 (분)" help="한 번 시도할 때의 제한 시간입니다. 넘기면 연결의 최대 시도 횟수만큼 다시 시도하고, 대체 모델이 있으면 넘어갑니다. 모두 넘기면 오류(시간 초과)로 나갑니다.">
+          <Field label="요청 제한 시간 (분)" help="요청 하나의 제한 시간입니다. 넘기면 그 대사들이 오류(시간 초과) 출구로 나갑니다. 다시 보내려면 오류 출구에 재요청 노드를 이으세요.">
             <NumberInput min={1} max={240} className="w-28" value={config.timeoutMinutes} onValueChange={(timeoutMinutes) => timeoutMinutes !== undefined && set({ timeoutMinutes })} />
           </Field>
         </>

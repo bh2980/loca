@@ -113,7 +113,7 @@ pnpm loca import "$W/ch1.out.jsonl"     # 제안 1건 → 앱에서 수락하면
 apps/server     Hono API, Drizzle + SQLite(FTS5), 워크플로 실행기, ELK 그래프 배치(worker), 채팅 에이전트
 apps/web        React 19, TanStack Router/Query, shadcn/ui, React Flow(워크플로·인물), Canvas+d3-zoom(원문 그래프)
 packages/shared 표준 포맷·워크플로 정의·검증(Zod, graphology), 형식 검사
-packages/ai     AI SDK(OpenAI 호환), TypeSafe SDK(System One), CLI 실행(execa), 재시도·대체 경로(p-retry)
+packages/ai     AI SDK(OpenAI 호환), TypeSafe SDK(System One), CLI 실행(execa). 호출은 한 경로로 한 번(다시 보내기는 워크플로의 재요청 노드가 한다)
 scripts         샘플 생성(pnpm samples), 모의 LLM(pnpm mock-llm)
 ```
 

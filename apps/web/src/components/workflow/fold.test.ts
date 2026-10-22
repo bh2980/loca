@@ -26,13 +26,15 @@ describe('computeFolds on the 번역 template', () => {
       'review:error', 'revise:error', 'terms:error', 'translate:error',
     ].sort());
   });
-  it('takes a 재요청 and its failure marker into the exit of the AI node', () => {
-    expect(find(folds, 'translate:error')?.nodeIds).toEqual(['translate-resend', 'translate-failed']);
-    expect(find(folds, 'terms:error')?.nodeIds).toEqual(['terms-resend', 'terms-failed']);
+  it('takes the two chained 재요청 nodes and the failure marker into the exit of the AI node', () => {
+    expect(find(folds, 'translate:error')?.nodeIds).toEqual(['translate-resend', 'translate-wait', 'translate-failed']);
+    expect(find(folds, 'terms:error')?.nodeIds).toEqual(['terms-resend', 'terms-wait', 'terms-failed']);
+    // The second 재요청's own 오류 exit is not a fold of its own: it is inside its owner's.
+    expect(folds.some((fold) => fold.owner.endsWith('-resend') || fold.owner.endsWith('-wait'))).toBe(false);
   });
-  it('hides 13 side nodes and keeps the main path', () => {
+  it('hides 17 side nodes and keeps the main path', () => {
     const hidden = new Set(folds.flatMap((fold) => fold.nodeIds));
-    expect(hidden.size).toBe(13);
+    expect(hidden.size).toBe(17);
     for (const id of ['translate', 'save', 'check', 'review', 'confirm', 'terms', 'save-terms', 'retry', 'revise', 'save-revision']) expect(hidden.has(id)).toBe(false);
   });
   it('draws a tag node as one line from its source to its target, keeping the id of the line into it', () => {
@@ -119,15 +121,17 @@ describe('foldText', () => {
   const folds = computeFolds(template);
   const text = (id: string, names = { status: statusNames }) => foldText(template, find(folds, id)!, names);
   it('words a 재요청 and what its failure goes to', () => {
-    expect(text('translate:error')).toBe('실패 시 절반으로 2번 → 검토 필요');
-    expect(text('terms:error')).toBe('실패 시 절반으로 2번 → AI 실패 태그');
+    expect(text('translate:error')).toBe('출력 잘림·요청이 너무 김 외 3 시 절반으로 2번 → 사용량 한도·연결 끊김 시 1분 뒤 그대로 3번 → 검토 필요');
+    expect(text('terms:error')).toBe('출력 잘림·요청이 너무 김 외 3 시 절반으로 2번 → 사용량 한도·연결 끊김 시 1분 뒤 그대로 3번 → AI 실패 태그');
   });
   it('falls back to the node\'s name without status names', () => {
-    expect(text('translate:error', { status: new Map() as never })).toBe('실패 시 절반으로 2번 → 검토 필요로');
+    expect(text('translate:error', { status: new Map() as never })).toBe('출력 잘림·요청이 너무 김 외 3 시 절반으로 2번 → 사용량 한도·연결 끊김 시 1분 뒤 그대로 3번 → 검토 필요로');
   });
   it('words a 재요청 with no failure branch and other scales', () => {
     const d = definition([fn('a', 'http'), node('r', 'retry', { kinds: ['cut-off'], scale: 0.7, maxTimes: 3 })], [edge('a', 'error', 'r'), edge('r', 'retry', 'a')]);
-    expect(foldText(d, computeFolds(d)[0]!)).toBe('실패 시 70%로 3번');
+    expect(foldText(d, computeFolds(d)[0]!)).toBe('출력 잘림 시 70%로 3번');
+    const other = definition([fn('a', 'http'), node('r', 'retry', { kinds: ['rate-limit'], scale: 1, wait: 90, maxTimes: 1, model: { connectionId: 'c', model: 'gpt-x' } })], [edge('a', 'error', 'r'), edge('r', 'retry', 'a')]);
+    expect(foldText(other, computeFolds(other)[0]!)).toBe('사용량 한도 시 1분 30초 뒤 gpt-x로 1번');
   });
   it('words tag nodes by what they do', () => {
     expect(text('pass:untag-format')).toBe('태그 떼기 · 검사 종류');

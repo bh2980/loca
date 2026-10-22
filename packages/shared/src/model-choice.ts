@@ -3,7 +3,7 @@ import { z } from 'zod';
 /**
  * Which AI a place of use calls: a connection, one of its models and a reasoning effort. Picked
  * where AI is used (chat, AI nodes, work analysis, glossary fill); how the call is made (time limit,
- * attempts, output cap, fallback) belongs to the connection.
+ * output cap) belongs to the connection.
  */
 export const modelChoiceSchema = z.object({
   connectionId: z.string().min(1, 'AI 연결을 고르세요.'),

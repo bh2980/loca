@@ -177,21 +177,29 @@ export async function preflight(db: Db, requested: Pick<typeof s.workflows.$infe
  * (listeners, speech rules) does not apply.
  */
 /**
- * Room the caps keep for a 재요청 node behind an AI node's error exit, at its worst: every request
- * fails each time, so round k resends all `full` requests' lines in requests scale^k as large
- * (full / scale^k calls). Each round carries the lines once more plus every smaller request's fixed
- * overhead. Nothing without such a node.
+ * Room the caps keep for the 재요청 nodes behind an AI node's error exit (a chain, each after the last),
+ * at their worst: every request fails each time, so round k resends all `full` requests' lines in
+ * requests (the nodes' scales so far)^k as large. Each round carries the lines once more plus every
+ * smaller request's fixed overhead. Nothing without such a node.
  */
 function retryHeadroom(definition: WorkflowDefinition, estimate: NodeEstimate, perRequest: number) {
-  const target = definition.edges.find((edge) => edge.source === estimate.nodeId && edge.sourceHandle === 'error')?.target;
-  const retry = definition.nodes.find((node) => node.id === target);
-  if (retry?.type !== 'retry') return { calls: 0, inputTokens: 0 };
   let calls = 0;
   let inputTokens = 0;
-  for (let round = 1; round <= retry.config.maxTimes; round += 1) {
-    const requests = Math.ceil(estimate.full / retry.config.scale ** round);
-    calls += requests;
-    inputTokens += estimate.full * estimate.promptTokens + requests * (perRequest - estimate.promptTokens);
+  let scale = 1;
+  const seen = new Set<string>();
+  let from = estimate.nodeId;
+  for (;;) {
+    const target = definition.edges.find((edge) => edge.source === from && edge.sourceHandle === 'error')?.target;
+    const retry = definition.nodes.find((node) => node.id === target);
+    if (retry?.type !== 'retry' || seen.has(retry.id)) break;
+    seen.add(retry.id);
+    for (let round = 1; round <= retry.config.maxTimes; round += 1) {
+      scale *= retry.config.scale;
+      const requests = Math.ceil(estimate.full / scale);
+      calls += requests;
+      inputTokens += estimate.full * estimate.promptTokens + requests * (perRequest - estimate.promptTokens);
+    }
+    from = retry.id;
   }
   return { calls, inputTokens };
 }

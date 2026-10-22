@@ -41,8 +41,7 @@ export async function runChatTurn(deps: Pick<Deps, 'db' | 'secrets'>, given: typ
   }
   if (!session.connectionId || !session.model) throw new Error('입력창 아래에서 채팅할 AI 연결과 모델을 고르세요.');
   const live = liveChoice(db, { connectionId: session.connectionId, model: session.model, ...(session.effort && { effort: session.effort }) }, secrets, 'chat');
-  // A chat talks to one model: the connection's fallback is for workflow and analysis requests.
-  const route = live.routes[0]!;
+  const route = live.route;
   const messages = mergeIncoming(session.messages as UIMessage[], request.incoming, request.trigger);
   if (!messages.length) throw new Error('보낼 메시지가 없습니다.');
   const answeredBy: AnsweredBy = { kind: route.kind, connectionId: session.connectionId, model: route.model };

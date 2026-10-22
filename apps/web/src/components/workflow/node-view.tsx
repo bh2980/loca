@@ -40,7 +40,7 @@ const handleClass = (port: string) => {
 };
 const portHelp: Record<string, string> = {
   error: '오류: 모델이나 함수 실행 중 문제가 생겼을 때',
-  retry: '다시 보냄: 실패한 대사를 더 작게 나눠 AI 노드로 되돌릴 때',
+  retry: '다시 보냄: 실패한 대사를 작게·기다렸다가·다른 모델로 AI 노드에 되돌릴 때',
   fail: '실패: 검수 기준을 통과하지 못했을 때',
   false: '거짓: 조건식이 거짓일 때',
   rejected: '거절: 검토 결과 거절되었을 때',

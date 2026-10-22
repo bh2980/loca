@@ -31,14 +31,26 @@ const continueSchema = z.object({ models: runModelsSchema.optional(), retryFaile
 /** A line waiting to go through an AI node again: it was last sent back by a 재요청 node (the AI node has not answered since). */
 const RETRYING = sql`(${s.runItems.state} in ('queued', 'running') and json_extract(${s.runItems.data}, '$.path[#-1].port') = 'retry' and json_extract(${s.runItems.data}, '$.retry.last.kind') is not null)`;
 
-/** Why a line is being sent again: the resends so far (all 재요청 nodes), the last node's limit, and the failure that sent it. */
-function retryOf(item: { state: s.ItemState; data: s.ItemData }, definition: WorkflowDefinition) {
+/**
+ * Why a line is being sent again: the resend count at the 재요청 node that sent it (of that node's limit), the failure that
+ * sent it, how long it still waits (`waitsUntil`, ms) and the model it goes on when that node picked one.
+ */
+function retryOf(item: { state: s.ItemState; data: s.ItemData; notBefore: Date | null }, run: { definition: WorkflowDefinition; models: Record<string, s.AiSnapshot> }) {
   const last = item.data.retry?.last;
   const path = item.data.path;
   if (!last || (item.state !== 'queued' && item.state !== 'running') || path[path.length - 1]?.port !== 'retry') return null;
-  const node = definition.nodes.find((candidate) => candidate.id === last.nodeId);
-  const times = Object.values(item.data.retry!.times).reduce((sum, n) => sum + n, 0);
-  return { times, max: node?.type === 'retry' ? node.config.maxTimes : times, kind: last.kind, message: last.message };
+  const node = run.definition.nodes.find((candidate) => candidate.id === last.nodeId);
+  const times = item.data.retry!.times[last.nodeId] ?? 0;
+  const model = item.data.retry!.model;
+  return {
+    times,
+    max: node?.type === 'retry' ? node.config.maxTimes : times,
+    kind: last.kind,
+    message: last.message,
+    nodeId: last.nodeId,
+    waitsUntil: item.state === 'queued' && item.notBefore && item.notBefore.getTime() > Date.now() ? item.notBefore.getTime() : null,
+    model: model ? (run.models[model.key]?.label ?? null) : null,
+  };
 }
 
 const connectionNames = (db: Db) => new Map(db.select({ id: s.connections.id, name: s.connections.name }).from(s.connections).all().map((row) => [row.id, row.name]));
@@ -372,7 +384,7 @@ export const workflowRoutes = new Hono<Env>()
       .from(s.runSteps)
       .where(eq(s.runSteps.runId, run.id))
       .get();
-    // Which connection and model did the calls (a switched or shared step, a fallback that took over).
+    // Which connection and model did the calls (a switched or shared step, a 재요청 node's other model).
     const names = connectionNames(db);
     const byModel = db
       .select({ connectionId: s.runSteps.connectionId, model: s.runSteps.model, steps: count(), failed: sql<number>`sum(case when ${s.runSteps.ok} then 0 else 1 end)`, inputTokens: sql<number>`coalesce(sum(${s.runSteps.inputTokens}), 0)`, outputTokens: sql<number>`coalesce(sum(${s.runSteps.outputTokens}), 0)`, costUsd: sql<number | null>`sum(${s.runSteps.costUsd})` })
@@ -403,8 +415,8 @@ export const workflowRoutes = new Hono<Env>()
       entry.count += row.count;
       entry.kinds[row.kind] = row.count;
     }
-    // What each model choice resolved to when the run started, its fallbacks after it.
-    return c.json({ ...rest, passed, retrying, models: Object.values(models).map((model) => ({ label: model.label, routes: model.routes.map((route) => ({ connectionId: route.connectionId, name: route.name, model: route.model })) })), nodes, calls: runner.liveCalls(run.id), callLimits, usage, byModel, filling: run.notice === FILLING });
+    // What each model choice resolved to when the run started.
+    return c.json({ ...rest, passed, retrying, models: Object.values(models).map((model) => ({ label: model.label, connectionId: model.route.connectionId, name: model.route.name, model: model.route.model })), nodes, calls: runner.liveCalls(run.id), callLimits, usage, byModel, filling: run.notice === FILLING });
   })
   .get('/runs/:id/items', validate('query', z.object({ state: z.string().optional(), nodeId: z.string().optional(), offset: z.coerce.number().default(0), limit: z.coerce.number().max(500).default(100) })), (c) => {
     const { db } = c.var.deps;
@@ -416,11 +428,11 @@ export const workflowRoutes = new Hono<Env>()
     if (nodeId) conditions.push(or(eq(s.runItems.nodeId, nodeId), sql`substr(${s.runItems.nodeId}, 1, ${nodeId.length + 1}) = ${`${nodeId}/`}`)!);
     const where = and(...conditions);
     const total = db.select({ count: count() }).from(s.runItems).where(where).get()!.count;
-    const run = db.select({ subject: s.runs.subject, definition: s.runs.definition }).from(s.runs).where(eq(s.runs.id, c.req.param('id'))).get();
+    const run = db.select({ subject: s.runs.subject, definition: s.runs.definition, models: s.runs.models }).from(s.runs).where(eq(s.runs.id, c.req.param('id'))).get();
     // Term runs list the term (source, current form) where line runs list the line; most used first.
     if (run?.subject === 'terms') {
       const rows = db
-        .select({ id: s.runItems.id, unitId: s.runItems.subjectId, key: s.terms.source, speaker: sql<string | null>`null`, source: s.terms.source, target: s.terms.target, nodeId: s.runItems.nodeId, state: s.runItems.state, visits: s.runItems.visits, data: s.runItems.data, error: s.runItems.error, updatedAt: s.runItems.updatedAt, statusName: sql<string | null>`null`, statusColor: sql<string | null>`null` })
+        .select({ id: s.runItems.id, unitId: s.runItems.subjectId, key: s.terms.source, speaker: sql<string | null>`null`, source: s.terms.source, target: s.terms.target, nodeId: s.runItems.nodeId, state: s.runItems.state, visits: s.runItems.visits, data: s.runItems.data, error: s.runItems.error, notBefore: s.runItems.notBefore, updatedAt: s.runItems.updatedAt, statusName: sql<string | null>`null`, statusColor: sql<string | null>`null` })
         .from(s.runItems)
         .innerJoin(s.terms, eq(s.terms.id, s.runItems.subjectId))
         .where(where)
@@ -428,10 +440,10 @@ export const workflowRoutes = new Hono<Env>()
         .limit(limit)
         .offset(offset)
         .all();
-      return c.json({ total, subject: 'terms' as const, rows: rows.map((row) => ({ ...row, retry: retryOf(row, run.definition) })) });
+      return c.json({ total, subject: 'terms' as const, rows: rows.map((row) => ({ ...row, retry: retryOf(row, run) })) });
     }
     const rows = db
-      .select({ id: s.runItems.id, unitId: s.runItems.subjectId, key: s.units.key, speaker: s.units.speaker, source: s.units.source, nodeId: s.runItems.nodeId, state: s.runItems.state, visits: s.runItems.visits, data: s.runItems.data, error: s.runItems.error, updatedAt: s.runItems.updatedAt, statusName: s.statuses.name, statusColor: s.statuses.color })
+      .select({ id: s.runItems.id, unitId: s.runItems.subjectId, key: s.units.key, speaker: s.units.speaker, source: s.units.source, nodeId: s.runItems.nodeId, state: s.runItems.state, visits: s.runItems.visits, data: s.runItems.data, error: s.runItems.error, notBefore: s.runItems.notBefore, updatedAt: s.runItems.updatedAt, statusName: s.statuses.name, statusColor: s.statuses.color })
       .from(s.runItems)
       .innerJoin(s.units, eq(s.units.id, s.runItems.subjectId))
       .leftJoin(s.statuses, eq(s.statuses.id, s.units.statusId))
@@ -440,7 +452,7 @@ export const workflowRoutes = new Hono<Env>()
       .limit(limit)
       .offset(offset)
       .all();
-    return c.json({ total, subject: 'lines' as const, rows: rows.map((row) => ({ ...row, target: null as string | null, retry: run ? retryOf(row, run.definition) : null })) });
+    return c.json({ total, subject: 'lines' as const, rows: rows.map((row) => ({ ...row, target: null as string | null, retry: run ? retryOf(row, run) : null })) });
   })
   .get('/runs/:id/steps', (c) => {
     const { db } = c.var.deps;

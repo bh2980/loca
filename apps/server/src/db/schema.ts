@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { customType, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import { AGE_BANDS, CHARACTER_ROLES, GENDERS, KNOWLEDGE_TAG_KINDS, TAG_ROLES, type TagRole, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, EVENT_LINK_KINDS, GRAPH_ORIGINS, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, PERMISSION_MODES, type CharacterStyle, type EditorAi, type ExclusionRules, type ModelLimits, LINE_TRANSLATE, type AutoMark, type MarkColors, type ModelChoice, type ContextItem, type FormatRules, type ItemErrorKind, type NodeType, type RelationshipChange, type WorkflowDefinition, workflowDefinitionSchema, WORKFLOW_SUBJECT_IDS, type WorkflowSubject } from '@tw/shared';
+import { AGE_BANDS, CHARACTER_ROLES, GENDERS, KNOWLEDGE_TAG_KINDS, TAG_ROLES, type TagRole, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, EVENT_LINK_KINDS, GRAPH_ORIGINS, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, PERMISSION_MODES, type CharacterStyle, type EditorAi, type ExclusionRules, type ModelLimits, LINE_TRANSLATE, type AutoMark, type MarkColors, type ContextItem, type FormatRules, type ItemErrorKind, type NodeType, type RelationshipChange, type WorkflowDefinition, workflowDefinitionSchema, WORKFLOW_SUBJECT_IDS, type WorkflowSubject } from '@tw/shared';
 import type { Usage } from '@tw/ai';
 
 const id = () => text('id').primaryKey().$defaultFn(() => crypto.randomUUID());
@@ -311,7 +311,7 @@ export const graphViews = sqliteTable('graph_views', {
 export const AI_CALL_KINDS = ['run', 'whole', 'terms', 'test', 'chat', 'editor'] as const;
 
 /**
- * Every request sent to a model, one row per attempt (a fallback is its own row), written when it
+ * Every request sent to a model, one row per attempt, written when it
  * goes out and finished when it returns: the app-wide log of AI work. Run steps keep the prompts.
  */
 export const aiCalls = sqliteTable(
@@ -325,7 +325,7 @@ export const aiCalls = sqliteTable(
     refId: text('ref_id'),
     /** What it was for, as people read it ("AI 번역 · 60줄", "작품 분석 1/3"). */
     label: text('label').notNull(),
-    /** The connection the request went through (a fallback's own, when it took over). */
+    /** The connection the request went through. */
     connectionId: text('connection_id'),
     connectionKind: text('connection_kind'),
     model: text('model'),
@@ -481,12 +481,8 @@ export const connections = sqliteTable('connections', {
   executable: text('executable'),
   headerTemplate: text('header_template'),
   createdAt: createdAt(),
-  /** How every call through this connection is made, wherever it is picked. */
-  maxAttempts: integer('max_attempts').notNull().default(2),
   /** Model id → its context window and output limit (from the model list, or a person's numbers); what "auto" budgets read. */
   modelLimits: json<Record<string, ModelLimits>>('model_limits').notNull().default(sql`'{}'`),
-  /** Where calls go when this connection keeps failing transiently; that connection's own fallback is followed in turn. */
-  fallback: json<ModelChoice>('fallback'),
 });
 
 export const workflows = sqliteTable('workflows', {
@@ -512,7 +508,7 @@ export interface RunScope {
   /** A run of a terms workflow: these terms (instead of the entry node's term statuses and marks). */
   termIds?: string[];
 }
-/** One connection + model a call can go to, frozen with the connection's details. */
+/** The connection + model a call goes to, frozen with the connection's details. */
 export interface RouteSnapshot {
   connectionId: string;
   /** The connection's name when it was used, for display. */
@@ -523,17 +519,13 @@ export interface RouteSnapshot {
   model: string;
   effort: string | null;
 }
-/**
- * A model choice as it was resolved when work started: the picked route first, then the
- * connection's fallbacks, with the picked connection's call settings.
- */
+/** A model choice as it was resolved when work started: the route a call goes to, with the connection's call settings. */
 export interface AiSnapshot {
   /** "connection · model · effort", as people read it. */
   label: string;
   /** The model's known output limit (its modelLimits), sent as each call's cap; unset = none sent. */
   maxOutputTokens?: number;
-  maxAttempts: number;
-  routes: RouteSnapshot[];
+  route: RouteSnapshot;
 }
 
 export const runs = sqliteTable(
@@ -593,10 +585,18 @@ export interface ItemData {
   outputs?: Record<string, Record<string, unknown>>;
   /** Nodes and exits taken, for display. */
   path: { nodeId: string; port: string; at: number }[];
-  /** Times the line went back to a node's queue because a call failed transiently (rate limit, network), by node id. */
-  retries?: Record<string, number>;
-  /** Sent back by 재요청 nodes: how often at each (by node id), and the size factor the AI node batches it by (the nodes' scales multiplied). */
-  retry?: { times: Record<string, number>; factor: number; /** The failure that sent the line back last (the run page says why a line waits), and the 재요청 node that did. */ last?: { kind: ItemErrorKind; message: string; nodeId: string } };
+  /**
+   * Sent back by 재요청 nodes: how often at each (by node id), and the size factor the AI node batches it by (the
+   * nodes' scales multiplied).
+   */
+  retry?: {
+    times: Record<string, number>;
+    factor: number;
+    /** The failure that sent the line back last (the run page says why a line waits), the 재요청 node that did, and how long it made the line wait. */
+    last?: { kind: ItemErrorKind; message: string; nodeId: string; waitSeconds?: number };
+    /** The model the last 재요청 node sends the line to `nodeId` (an AI node) on, as its choiceKey; unset = that node's own models. Applies only at that node. */
+    model?: { nodeId: string; key: string };
+  };
   /** The last failure that sent the line out through an "error" exit; cleared when a node handles it (ConditionData.error). */
   error?: { kind: ItemErrorKind; message: string; nodeId: string };
 }
@@ -613,6 +613,8 @@ export const runItems = sqliteTable(
     visits: json<Record<string, number>>('visits').notNull(),
     data: json<ItemData>('data').notNull(),
     error: text('error'),
+    /** A 재요청 node's wait: the line is not sent before this time (the scheduler skips it, and wakes when the first is due). */
+    notBefore: integer('not_before', { mode: 'timestamp_ms' }),
     /** The run plan's batch this line belongs to (see planRun); null for runs started before plans. */
     plan: integer('plan'),
     updatedAt: updatedAt(),
@@ -629,7 +631,7 @@ export const runSteps = sqliteTable(
     /** The items the call was for (lines or terms, as the run's subject says). */
     subjectIds: json<string[]>('subject_ids').notNull(),
     ok: integer('ok', { mode: 'boolean' }).notNull(),
-    /** The connection the call went out through: a node can share its work over several, and a fallback can take over. */
+    /** The connection the call went out through: a node can share its work over several, and a 재요청 node can send lines on another model. */
     connectionId: text('connection_id'),
     model: text('model'),
     prompt: text('prompt'),

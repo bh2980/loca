@@ -10,7 +10,7 @@
  * open (the editor and the run graph keep that in sessionStorage, per workflow / run).
  */
 import { retryLiveText } from '../../lib/retry-info';
-import { ISSUE_KINDS, TAG_ACTIONS, nodeName, nodePorts, tagLinesParams, type RetryConfig, type WorkflowDefinition, type WorkflowEdge, type WorkflowNode } from '@tw/shared';
+import { ISSUE_KINDS, ITEM_ERROR_KINDS, TAG_ACTIONS, nodeName, retryScaleText, retryWaitText, nodePorts, tagLinesParams, type RetryConfig, type WorkflowDefinition, type WorkflowEdge, type WorkflowNode } from '@tw/shared';
 
 /** A branch of more nodes than this is not a side detail any more. */
 export const MAX_FOLDED_NODES = 4;
@@ -138,8 +138,19 @@ function brief(node: WorkflowNode, names: FoldNames): string {
   return nodeName(node);
 }
 
-/** "실패 시 절반으로 2번": what a 재요청 node does, in the chip's few words. */
-export const retryChipText = (config: RetryConfig) => `실패 시 ${config.scale === 0.5 ? '절반' : `${Math.round(config.scale * 100)}%`}으로 ${config.maxTimes}번`.replace('%으로', '%로');
+/** At most this many error kinds are named in a 재요청 chip; the rest are counted ("외 3"). */
+const CHIP_KINDS = 2;
+
+/**
+ * What a 재요청 node does, in the chip's few words: "출력 잘림·시간 초과 시 절반으로 2번",
+ * "사용량 한도·연결 끊김 시 60초 뒤 그대로 3번", "사용량 한도 시 gpt-5로 3번" (the kinds come first, since a chain has several nodes).
+ */
+export function retryChipText(config: RetryConfig) {
+  const kinds = config.kinds.map((kind) => ITEM_ERROR_KINDS[kind]);
+  const named = kinds.length ? `${kinds.slice(0, CHIP_KINDS).join('·')}${kinds.length > CHIP_KINDS ? ` 외 ${kinds.length - CHIP_KINDS}` : ''}` : '고른 오류 없음';
+  const size = config.scale >= 1 ? (config.model?.model ? '' : '그대로') : `${retryScaleText(config.scale)}${config.scale === 0.5 ? '으로' : '로'}`.replace('%으로', '%로');
+  return [`${named} 시`, config.wait > 0 ? `${retryWaitText(config.wait)} 뒤` : '', config.model?.model ? `${config.model.model}로` : '', size, `${config.maxTimes}번`].filter(Boolean).join(' ');
+}
 
 /** "태그 붙이기 · 검수 지적", "태그 떼기 · 모든 문제 유형": what a tag node does, in the chip's few words. */
 export function tagChipText(node: WorkflowNode): string {
@@ -150,13 +161,13 @@ export function tagChipText(node: WorkflowNode): string {
   return [`태그 ${TAG_ACTIONS[tags.action]}`, ...(tags.allKinds ? ['모든 문제 유형'] : picked.length ? [picked.join('·')] : []), from].filter(Boolean).join(' · ');
 }
 
-/** The chip's text: 재요청 first ("실패 시 절반으로 2번 → 검토 필요"), a lone tag node by what it does, else the names joined. */
+/** The chip's text: 재요청 first ("출력 잘림 시 절반으로 2번 → 사용량 한도 시 60초 뒤 그대로 3번 → 검토 필요"), a lone tag node by what it does, else the names joined. */
 export function foldText(definition: WorkflowDefinition, fold: Fold, names: FoldNames = {}): string {
   const nodes = fold.nodeIds.flatMap((id) => definition.nodes.find((node) => node.id === id) ?? []);
   const first = nodes[0];
   if (!first) return '';
-  const rest = nodes.slice(1).map((node) => brief(node, names));
-  if (first.type === 'retry') return [retryChipText(first.config), ...rest].join(' → ');
+  // A chain of 재요청 nodes reads one after the other, then whatever they end in ("… 2번 → … 3번 → 검토 필요").
+  if (first.type === 'retry') return nodes.map((node) => (node.type === 'retry' ? retryChipText(node.config) : brief(node, names))).join(' → ');
   if (fold.kind === 'edge' || (nodes.length === 1 && first.type === 'function' && first.config.fn === 'tagLines')) return tagChipText(first);
   return nodes.map((node) => brief(node, names)).join(' → ');
 }
