@@ -283,19 +283,26 @@ export function termTranslationTemplate(ids: TemplateIds): WorkflowDefinition {
   };
 }
 
-/** The fields of each person a part passes on to AI 인물 합치기 (the evidence lines of the parts are not shown to it). */
-const MERGED_CHARACTER_PATHS = ['name', 'aliases', 'profile', 'speech', 'player', 'gender', 'ageBand', 'role'].map((field) => `characters.${field}`);
+/**
+ * The fields of what each part passes on to AI 인물·관계 합치기: the people without their evidence lines, relationships and speech rules with
+ * theirs (the line ids of a change, of a rule's start and of the evidence are what the merge keeps and the saves store).
+ */
+const MERGED_PATHS = [
+  ...['name', 'aliases', 'profile', 'speech', 'player', 'gender', 'ageBand', 'role'].map((field) => `characters.${field}`),
+  ...['from', 'to', 'kind', 'description', 'changes.at', 'changes.change', 'changes.cause', 'evidence'].map((field) => `relationships.${field}`),
+  ...['fromName', 'toName', 'level', 'address', 'note', 'startKey', 'evidence'].map((field) => `speechRules.${field}`),
+];
 
 /**
- * 인물·관계 추출: scene groups are read against what is known; new people, relationships and speech rules
- * are saved as each request answers (people first, so the relationships and rules after them find the
- * people they name). The people go on: 모으기 waits for every request, AI 인물 합치기 makes one entry of the
- * fragments of each person (new ones and what the scenes showed about people already stored: role, gender,
- * age band, other names, profile), and 인물 저장 ('다르면 제안으로 올림') adds them: an empty profile is filled, an
- * AI one nobody touched is replaced, an imported or written one that differs becomes a proposal.
- * The 인물 합치기 AI has a 재요청 node but no failure marker: after the 모으기 one item stands for the whole run, so an `AI 실패`
- * tag would land on an arbitrary line; its 오류 ends that item failed with the reason (the people of the scenes are already saved).
- * The 모으기 reads the AI node's `characters` through the save nodes between them (save nodes pass the result on).
+ * 인물·관계 추출: scene groups are read against what is known (new people, what the scenes show about people already
+ * stored, relationships and speech rules). Nothing is saved while the scenes are read: 모으기 waits for every request
+ * and collects the people, relationships and speech rules of every part, AI 인물·관계 합치기 makes one entry per person,
+ * one relationship per direction (its changes in script order) and one speech rule per speaker → listener stretch, and
+ * then each list is saved once: 인물 저장 ('다르면 제안으로 올림': an empty profile is filled, an AI one nobody touched is replaced,
+ * an imported or written one that differs becomes a proposal), then 관계 저장 and 말투 규칙 저장, which find the people they name.
+ * The 합치기 AI has a 재요청 node but no failure marker: after the 모으기 one item stands for the whole run, so an `AI 실패`
+ * tag would land on an arbitrary line; its 오류 ends that item failed with the reason (nothing of the run is saved then).
+ * The save nodes read the 합치기 AI's lists: a save node passes the result of the step before it on.
  */
 export function peopleRelationsTemplate(ids: TemplateIds): WorkflowDefinition {
   return {
@@ -305,21 +312,20 @@ export function peopleRelationsTemplate(ids: TemplateIds): WorkflowDefinition {
       aiNode('people', 'knowledge', ids.model, 1),
       ...resendNodes('people', 1),
       failTag('people', ids, 1),
-      saveList('save-characters', 'saveCharacters', 'knowledge', 'characters', 2),
-      saveList('save-relationships', 'saveRelationships', 'knowledge', 'relationships', 3),
-      saveList('save-speech-rules', 'saveSpeechRules', 'knowledge', 'speechRules', 4),
-      { id: 'gather', type: 'gather', position: at(5), label: '인물 조각 모으기', config: { fields: MERGED_CHARACTER_PATHS } },
+      { id: 'gather', type: 'gather', position: at(2), label: '인물·관계 조각 모으기', config: { fields: MERGED_PATHS } },
       {
         id: 'merge',
         type: 'ai',
-        position: at(6),
+        position: at(3),
         label: AI_PROMPTS.peopleMerge.label,
         config: presetConfig('peopleMerge', ids.model, { input: { lines: false, previous: true, fields: [] } }),
       },
-      ...resendNodes('merge', 6),
-      { ...saveList('save-merged-characters', 'saveCharacters', 'peopleMerge', 'characters', 7, 0, { profiles: 'propose' }), label: '합친 인물 저장' },
+      ...resendNodes('merge', 3),
+      saveList('save-characters', 'saveCharacters', 'peopleMerge', 'characters', 4, 0, { profiles: 'propose' }),
+      saveList('save-relationships', 'saveRelationships', 'peopleMerge', 'relationships', 5),
+      saveList('save-speech-rules', 'saveSpeechRules', 'peopleMerge', 'speechRules', 6),
     ],
-    edges: [...chain('entry', 'people', 'save-characters', 'save-relationships', 'save-speech-rules', 'gather', 'merge', 'save-merged-characters'), ...resendEdges('people', 'people-failed'), ...resendEdges('merge')],
+    edges: [...chain('entry', 'people', 'gather', 'merge', 'save-characters', 'save-relationships', 'save-speech-rules'), ...resendEdges('people', 'people-failed'), ...resendEdges('merge')],
   };
 }
 

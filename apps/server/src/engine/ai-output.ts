@@ -26,6 +26,24 @@ function withLineKeys(value: Record<string, unknown>, fields: JsonField[], keyOf
   return result;
 }
 
+/** The line keys that the "lines" fields of the previous step's results hold (at any depth): the ids a combining request may cite. */
+function partKeys(value: unknown, fields: JsonField[]): Set<string> {
+  const keys = new Set<string>();
+  const names = new Set<string>();
+  const collect = (list: JsonField[]) => list.forEach((field) => (field.type === 'lines' ? names.add(field.name) : collect(field.fields ?? [])));
+  collect(fields);
+  const walk = (entry: unknown) => {
+    if (Array.isArray(entry)) return entry.forEach(walk);
+    if (!entry || typeof entry !== 'object') return;
+    for (const [name, child] of Object.entries(entry)) {
+      if (names.has(name) && Array.isArray(child)) child.forEach((key) => typeof key === 'string' && key && keys.add(key));
+      else walk(child);
+    }
+  };
+  walk(value);
+  return keys;
+}
+
 /**
  * An AI node's answer read line by line (#49: out of runner.ts, no state of its own). Line-scope
  * outputs give each line its own outcome, or null when the answer left the line out (the runner
@@ -34,6 +52,8 @@ function withLineKeys(value: Record<string, unknown>, fields: JsonField[], keyOf
  */
 export function readAiOutput(node: AiNode, raw: unknown, lines: PromptLine[], model: string, choiceOptions: string[] = node.config.choice.values): (Outcome | null)[] {
   const keyOf = new Map(lines.map((line) => [line.id, line.key]));
+  // A request without lines (parts to combine) cites the line keys its parts carry; only those are kept.
+  if (!node.config.input.lines) for (const key of partKeys(lines.map((line) => line.previous), node.config.fields)) keyOf.set(key, key);
   const value = raw as { results?: ({ id: string } & Record<string, unknown>)[] };
   const entryOf = (line: PromptLine) => value.results?.find((entry) => entry.id === line.id);
   switch (node.config.output) {
