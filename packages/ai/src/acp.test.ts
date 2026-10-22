@@ -2,8 +2,11 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type * as acp from '@agentclientprotocol/sdk';
 import { afterEach, describe, expect, it } from 'vitest';
-import { agentFor, agentWith, closeSession, readUsage, setAgentStarter, stopIdleAgents, type AcpAgent } from './acp.ts';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
+import { acpError, agentCommand, AcpAgent as Agent, agentFor, agentWith, closeSession, readUsage, setAgentStarter, stopIdleAgents, type AcpAgent } from './acp.ts';
 import { ModelError } from './errors.ts';
 import { inProcessStarter } from './fake-acp-starter.ts';
 import { hostTools } from './mcp-host.ts';
@@ -178,4 +181,50 @@ describe('the fake agent as a process (WORKBENCH_ACP_AGENT)', () => {
       delete process.env.WORKBENCH_ACP_AGENT;
     }
   }, 20_000);
+});
+
+describe('what a failed agent says', () => {
+  it('names a login only when the CLI says so, not for any JSON-RPC -32000', () => {
+    expect(acpError({ code: -32000, message: 'Internal error', data: { details: 'spawn failed' } }).code).toBe('cli');
+    expect(acpError({ code: -32000, message: 'Authentication required' }).code).toBe('auth');
+    expect(acpError(new Error('x'), 'Error: you are not logged in\n').code).toBe('auth');
+    const withMethods = acpError({ code: -32000, message: 'login required' }, '', { authMethods: ['ChatGPT', 'API key'] });
+    expect(withMethods.message).toContain('ChatGPT, API key');
+  });
+
+  it('reports the exit code, the last stderr lines and the command when the stream closes at once', async () => {
+    const stderr = new PassThrough();
+    const child = Object.assign(new EventEmitter(), { stderr, kill: () => {} });
+    const closed = new TransformStream<acp.AnyMessage, acp.AnyMessage>();
+    void closed.writable.close();
+    const sink = new TransformStream<acp.AnyMessage, acp.AnyMessage>();
+    // The stream is gone before the process has said anything; stderr and the exit follow a moment later.
+    setTimeout(() => {
+      stderr.write('boom: cannot find module\n');
+      stderr.end();
+      setTimeout(() => child.emit('exit', 3), 20);
+    }, 30);
+    const error = await failure(Agent.over('opencode', child as never, { writable: sink.writable, readable: closed.readable }, 'opencode.cmd acp'));
+    expect(error.message).toContain('exit 3');
+    expect(error.message).toContain('boom: cannot find module');
+    expect(error.message).toContain('opencode.cmd acp');
+  });
+});
+
+describe('the command a chat agent runs', () => {
+  const deps = (files: string[], read: string) => ({ home: 'C:\\Users\\me', exists: (file: string) => files.includes(file), read: () => read, parse: (command: string, args: string[]) => ({ command: 'cmd.exe', args: ['/d', '/s', '/c', `"${command} ${args.join(' ')}"`], options: { windowsVerbatimArguments: true } }) });
+
+  it('keeps windowsVerbatimArguments for a .cmd that cmd.exe has to run (opencode, grok)', () => {
+    const command = agentCommand('opencode', 'C:\\tools\\opencode.cmd', { platform: 'win32', env: {}, deps: deps(['C:\\tools\\opencode.cmd'], '@echo off\r\nopencode-real %*') });
+    expect(command.file).toBe('cmd.exe');
+    expect(command.windowsVerbatimArguments).toBe(true);
+    expect(agentCommand('opencode', '/usr/bin/opencode', { platform: 'linux', env: {}, deps: { exists: () => true } }).windowsVerbatimArguments).toBeUndefined();
+  });
+
+  it('gives Claude a real executable, never a .cmd', () => {
+    const cmdOnly = deps(['C:\\tools\\claude.cmd'], '@echo off\r\nclaude-real %*');
+    expect(() => agentCommand('claude', 'C:\\tools\\claude.cmd', { platform: 'win32', env: {}, deps: cmdOnly })).toThrow(/claude\.exe의 전체 경로/);
+    const withExe = agentCommand('claude', 'C:\\tools\\claude.cmd', { platform: 'win32', env: {}, deps: deps(['C:\\tools\\claude.cmd', 'C:\\tools\\claude.exe'], '') });
+    expect(withExe.env.CLAUDE_CODE_EXECUTABLE).toBe('C:\\tools\\claude.exe');
+  });
 });

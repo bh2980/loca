@@ -9,7 +9,7 @@ import type { ConnectionKind } from '@tw/shared';
 import { cliCommand, cliMissing, CODEX_UNUSED_FEATURES } from './cli.ts';
 import { ModelError, TOO_LONG } from './errors.ts';
 import type { HostedServer } from './mcp-host.ts';
-import { cliSpawn, resolveCli } from './spawn.ts';
+import { adapterExecutable, cliSpawn, resolveCli, type SpawnDeps } from './spawn.ts';
 import type { Usage } from './types.ts';
 
 /**
@@ -51,17 +51,34 @@ function codexConfig() {
 }
 
 /** The process to start for a kind: a bundled adapter run with this Node, or the CLI's own ACP mode. */
-export function agentCommand(kind: AcpKind, executable?: string): { file: string; args: string[]; env: NodeJS.ProcessEnv } {
+export function agentCommand(
+  kind: AcpKind,
+  executable?: string,
+  host: { platform?: NodeJS.Platform; env?: NodeJS.ProcessEnv; deps?: SpawnDeps } = {},
+): { file: string; args: string[]; env: NodeJS.ProcessEnv; windowsVerbatimArguments?: boolean } {
   // Tests and end-to-end runs without a real CLI (fake-acp.ts).
   if (process.env.WORKBENCH_ACP_AGENT) return { file: process.execPath, args: [process.env.WORKBENCH_ACP_AGENT, kind], env: {} };
   const resolved = () => {
-    const found = resolveCli(cliCommand(kind, executable));
+    const found = resolveCli(cliCommand(kind, executable), host.platform, host.env, host.deps?.home, host.deps?.exists);
     if (!found) throw new ModelError('config', cliMissing(cliCommand(kind, executable)), false);
     return found;
   };
   switch (kind) {
-    case 'claude':
-      return { file: process.execPath, args: [packageFile('@agentclientprotocol/claude-agent-acp/dist/index.js')], env: { CLAUDE_CODE_EXECUTABLE: resolved() } };
+    case 'claude': {
+      // The Claude Agent SDK starts this without a shell: on Windows never a `.cmd` shim (spawn EINVAL).
+      const found = resolved();
+      const native = adapterExecutable(found, host.platform, host.env, host.deps);
+      if (!native) throw new ModelError('config', `Windows에서는 ${found}(.cmd)를 채팅에서 바로 실행할 수 없습니다. 연결 설정의 실행 파일에 claude.exe의 전체 경로를 입력하세요.`, false);
+      const env: NodeJS.ProcessEnv = { CLAUDE_CODE_EXECUTABLE: native.file };
+      // A script is run by the SDK with `node` from PATH: make it this server's Node.
+      if (native.js) {
+        const base = host.env ?? process.env;
+        const key = Object.keys(base).find((name) => name.toLowerCase() === 'path') ?? 'PATH';
+        const platformPath = (host.platform ?? process.platform) === 'win32' ? path.win32 : path.posix;
+        env[key] = [platformPath.dirname(process.execPath), base[key]].filter(Boolean).join(platformPath.delimiter);
+      }
+      return { file: process.execPath, args: [packageFile('@agentclientprotocol/claude-agent-acp/dist/index.js')], env };
+    }
     case 'codex':
       return { file: process.execPath, args: [packageFile('@agentclientprotocol/codex-acp/dist/index.js')], env: { CODEX_PATH: resolved(), CODEX_CONFIG: JSON.stringify(codexConfig()) } };
     case 'antigravity':
@@ -70,8 +87,8 @@ export function agentCommand(kind: AcpKind, executable?: string): { file: string
       return { file: process.execPath, args: [path.join(path.dirname(path.dirname(packageFile('@simonepri/refined-antigravity-acp'))), 'bin/cli.js')], env: { REFINED_AGY_CLIENT_NAME: 'zed' } };
     case 'grok':
     case 'opencode': {
-      const spawned = cliSpawn(resolved(), kind === 'grok' ? ['agent', 'stdio'] : ['acp']);
-      return { file: spawned.file, args: spawned.args, env: {} };
+      const spawned = cliSpawn(resolved(), kind === 'grok' ? ['agent', 'stdio'] : ['acp'], host.platform, host.env, host.deps);
+      return { file: spawned.file, args: spawned.args, env: {}, ...(spawned.windowsVerbatimArguments && { windowsVerbatimArguments: true }) };
     }
   }
 }
@@ -84,17 +101,22 @@ export interface SessionListener {
 const QUOTA = /quota|RESOURCE_EXHAUSTED|rate.?limit|usage limit|too many requests|\b429\b/i;
 const AUTH = /auth(entication)? required|not (logged|signed) in|login required|unauthori[sz]ed|\b401\b/i;
 
-/** An ACP or process failure as a ModelError, with the CLI's last words when it died. */
-export function acpError(error: unknown, stderr = ''): ModelError {
+/** An ACP or process failure as a ModelError, with the CLI's last words when it died, the login methods it offers and the command that was run. */
+export function acpError(error: unknown, stderr = '', extra: { authMethods?: string[]; command?: string } = {}): ModelError {
   if (error instanceof ModelError) return error;
   const raw = error instanceof Error ? error.message : typeof error === 'object' && error && 'message' in error ? String((error as { message: unknown }).message) : String(error);
   const data = typeof error === 'object' && error && 'data' in error ? JSON.stringify((error as { data: unknown }).data ?? '') : '';
   const detail = [raw, data && data !== '""' ? data : '', stderr.trim().split('\n').slice(-3).join(' ')].filter(Boolean).join(' · ').slice(0, 400);
+  const tail = extra.command ? ` (실행: ${extra.command})` : '';
   if (QUOTA.test(detail)) return new ModelError('rate-limit', `CLI 사용량 한도에 도달했습니다. ${detail}`);
   if (TOO_LONG.test(detail)) return new ModelError('too-long', `요청이 모델의 문맥 창보다 깁니다. ${detail}`.slice(0, 400), false);
-  if (AUTH.test(detail) || (error as { code?: unknown })?.code === -32000) return new ModelError('auth', `CLI 로그인이 필요합니다. 연결 설정에서 로그인하세요. ${detail}`, false);
-  return new ModelError('cli', `CLI가 실패했습니다: ${detail}`, false);
+  // Only what the CLI says: a bare JSON-RPC -32000 is any server error.
+  if (AUTH.test(detail)) return new ModelError('auth', `CLI 로그인이 필요합니다. 연결 설정에서 로그인하세요.${extra.authMethods?.length ? ` (로그인 방식: ${extra.authMethods.join(', ')})` : ''} ${detail}`, false);
+  return new ModelError('cli', `CLI가 실패했습니다: ${detail}${tail}`, false);
 }
+
+/** How long a stream that closed waits for the process to exit and its stderr to end, to report why. */
+const CLOSE_GRACE_MS = 1000;
 
 const num = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? value : undefined);
 
@@ -151,11 +173,17 @@ export class AcpAgent {
 
   readonly kind: AcpKind;
   readonly init: acp.InitializeResponse;
+  /** The login methods the agent offers (names), kept for error messages; logging in through them is not implemented. */
+  readonly authMethods: string[];
+  readonly command: string | undefined;
   private readonly child: Pick<ChildProcess, 'once' | 'kill' | 'stderr'>;
   private readonly connection: acp.ClientSideConnection;
 
-  private constructor(kind: AcpKind, child: Pick<ChildProcess, 'once' | 'kill' | 'stderr'>, connection: acp.ClientSideConnection, init: acp.InitializeResponse) {
+  private constructor(kind: AcpKind, child: Pick<ChildProcess, 'once' | 'kill' | 'stderr'>, connection: acp.ClientSideConnection, init: acp.InitializeResponse, command?: string) {
     this.kind = kind;
+    this.command = command;
+    this.authMethods = (init.authMethods ?? []).map((method) => method.name || method.id);
+    if (this.authMethods.length) console.debug(`[acp] ${kind} auth methods: ${this.authMethods.join(', ')}`);
     this.child = child;
     this.connection = connection;
     this.init = init;
@@ -164,17 +192,17 @@ export class AcpAgent {
 
   static async start(kind: AcpKind, executable: string | undefined): Promise<AcpAgent> {
     const command = agentCommand(kind, executable);
-    const child = spawn(command.file, command.args, { env: { ...process.env, ...command.env }, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    const child = spawn(command.file, command.args, { env: { ...process.env, ...command.env }, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, ...(command.windowsVerbatimArguments && { windowsVerbatimArguments: true }) });
     const spawned = new Promise<void>((resolve, reject) => {
       child.once('spawn', resolve);
       child.once('error', (error: NodeJS.ErrnoException) => reject(error.code === 'ENOENT' ? new ModelError('config', cliMissing(cliCommand(kind, executable)), false) : acpError(error)));
     });
     await spawned;
-    return AcpAgent.over(kind, child, acp.ndJsonStream(Writable.toWeb(child.stdin!) as WritableStream<Uint8Array>, Readable.toWeb(child.stdout!) as ReadableStream<Uint8Array>));
+    return AcpAgent.over(kind, child, acp.ndJsonStream(Writable.toWeb(child.stdin!) as WritableStream<Uint8Array>, Readable.toWeb(child.stdout!) as ReadableStream<Uint8Array>), [command.file, ...command.args].join(' '));
   }
 
   /** An agent on an existing stream; `child` is its process, or a stand-in with `once('exit')`, `kill` and no stderr (tests). */
-  static async over(kind: AcpKind, child: Pick<ChildProcess, 'once' | 'kill' | 'stderr'>, stream: acp.Stream): Promise<AcpAgent> {
+  static async over(kind: AcpKind, child: Pick<ChildProcess, 'once' | 'kill' | 'stderr'>, stream: acp.Stream, command?: string): Promise<AcpAgent> {
     let self: AcpAgent | undefined;
     const connection = new acp.ClientSideConnection(
       () => ({
@@ -191,19 +219,30 @@ export class AcpAgent {
       stderrTail.text = (stderrTail.text + chunk.toString()).slice(-4000);
       if (self) self.stderr = stderrTail.text;
     });
-    const exitedEarly = new Promise<never>((_, reject) => child.once('exit', (code) => reject(acpError(new Error(`ACP 프로세스가 종료되었습니다 (exit ${code}).`), stderrTail.text))));
+    let exitCode: number | null | undefined;
+    const exitSeen = new Promise<void>((resolve) => child.once('exit', (code) => ((exitCode = code), resolve())));
+    const stderrEnded = new Promise<void>((resolve) => {
+      if (!child.stderr) return resolve();
+      child.stderr.once('end', resolve);
+      child.stderr.once('close', resolve);
+    });
+    const exitedEarly = exitSeen.then(() => Promise.reject(new Error('exited')));
     exitedEarly.catch(() => {});
     const init = await Promise.race([
       connection.initialize({ protocolVersion: acp.PROTOCOL_VERSION, clientCapabilities: {}, clientInfo: { name: 'loca', title: 'Translation Workbench', version: '1.0.0' } }),
       exitedEarly,
-    ]).catch((error: unknown) => {
+    ]).catch(async (error: unknown) => {
+      // A closed stream or an exit says nothing by itself: give the process a moment to finish and its stderr to end.
+      const closed = !(error instanceof ModelError) && (error instanceof Error ? /closed|exited/i.test(error.message) : false);
+      if (closed) await Promise.race([Promise.all([exitSeen, stderrEnded]), new Promise((resolve) => setTimeout(resolve, CLOSE_GRACE_MS))]);
       child.kill();
-      throw acpError(error, stderrTail.text);
+      const reason = closed ? new Error(exitCode === undefined ? 'ACP 연결이 닫혔습니다.' : `ACP 프로세스가 바로 종료되었습니다 (exit ${exitCode}).`) : error;
+      throw acpError(reason, stderrTail.text, { command });
     });
-    self = new AcpAgent(kind, child, connection, init);
+    self = new AcpAgent(kind, child, connection, init, command);
     self.stderr = stderrTail.text;
     child.once('exit', (code) => {
-      self!.exitError = acpError(new Error(`ACP 프로세스가 종료되었습니다 (exit ${code}).`), self!.stderr);
+      self!.exitError = acpError(new Error(`ACP 프로세스가 종료되었습니다 (exit ${code}).`), self!.stderr, { command });
     });
     return self;
   }
@@ -395,12 +434,12 @@ export class AcpAgent {
   private async call<T>(request: () => Promise<T>): Promise<T> {
     if (this.exitError) throw this.exitError;
     const died = this.exited.then(() => {
-      throw this.exitError ?? acpError(new Error('ACP 프로세스가 종료되었습니다.'), this.stderr);
+      throw this.exitError ?? acpError(new Error('ACP 프로세스가 종료되었습니다.'), this.stderr, { command: this.command });
     });
     try {
       return await Promise.race([request(), died]);
     } catch (error) {
-      throw acpError(error, this.stderr);
+      throw acpError(error, this.stderr, { authMethods: this.authMethods, command: this.command });
     }
   }
 }

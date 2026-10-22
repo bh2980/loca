@@ -113,7 +113,7 @@ export function ChatPanel({ projectId }: { projectId: string }) {
   }, [waiting, sessions.data, sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <aside className="flex h-full flex-col bg-sidebar" aria-label="프로젝트 에이전트">
+    <aside className="flex h-full flex-col bg-sidebar" aria-label="프로젝트 에이전트" data-own-keys>
       <div className="flex h-12 shrink-0 items-center gap-1 border-b px-2">
         <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
           <DropdownMenuTrigger asChild>

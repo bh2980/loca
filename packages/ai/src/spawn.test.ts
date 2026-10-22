@@ -2,7 +2,7 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { cliSpawn, resolveCli, shimTarget } from './spawn.ts';
+import { adapterExecutable, cliSpawn, resolveCli, shimTarget } from './spawn.ts';
 
 // What npm and pnpm write next to a globally installed CLI on Windows.
 const NPM_SHIM = `@ECHO off
@@ -55,6 +55,54 @@ describe('starting a CLI', () => {
   });
 });
 
+// opencode's npm shim runs a node script without an extension; a native CLI's shim runs its .exe.
+const OPENCODE_SHIM = `@ECHO off\r\nSETLOCAL\r\n"%dp0%\\node_modules\\opencode-ai\\bin\\opencode" %*\r\n`;
+const EXE_SHIM = `@ECHO off\r\n"%dp0%\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe"   %*\r\n`;
+const NPM = 'C:\\Users\\me\\AppData\\Roaming\\npm';
+
+describe('npm shims that do not run a .js file', () => {
+  it('runs a target without an extension as a node script when it starts with a node shebang', () => {
+    const exists = () => true;
+    const target = `${NPM}\\node_modules\\opencode-ai\\bin\\opencode`;
+    expect(shimTarget(`${NPM}\\opencode.cmd`, () => OPENCODE_SHIM, exists, () => '#!/usr/bin/env node\nconsole.log(1)')).toBe(target);
+    expect(shimTarget(`${NPM}\\opencode.cmd`, () => OPENCODE_SHIM, exists, () => 'MZ\u0090\u0000')).toBeNull();
+    expect(cliSpawn('opencode', ['acp'], 'win32', { PATH: NPM, PATHEXT: '.CMD' }, { home: 'C:\\Users\\me', exists: (file) => file === `${NPM}\\opencode.cmd` || file === target, read: () => OPENCODE_SHIM, head: () => '#!/usr/bin/env node' })).toEqual({
+      file: process.execPath,
+      args: [target, 'acp'],
+    });
+  });
+
+  it('resolves a shim that points at an .exe to that .exe, so cmd.exe is not involved', () => {
+    const exe = `${NPM}\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe`;
+    expect(shimTarget(`${NPM}\\claude.cmd`, () => EXE_SHIM, () => true)).toBe(exe);
+    expect(cliSpawn('claude', ['x'], 'win32', { PATH: NPM, PATHEXT: '.CMD' }, { home: 'C:\\Users\\me', exists: (file) => file === `${NPM}\\claude.cmd` || file === exe, read: () => EXE_SHIM })).toEqual({ file: exe, args: ['x'] });
+  });
+});
+
+describe('the executable handed to an adapter', () => {
+  const env = { PATH: NPM, PATHEXT: '.EXE;.CMD', USERPROFILE: 'C:\\Users\\me' };
+  const deps = (files: string[], shim = PNPM_SHIM) => ({ home: 'C:\\Users\\me', exists: (file: string) => files.includes(file), read: () => shim });
+
+  it('is never a .cmd: a real .exe next to the shim, on PATH, or the one the shim runs', () => {
+    expect(adapterExecutable(`${NPM}\\claude.cmd`, 'win32', env, deps([`${NPM}\\claude.cmd`, `${NPM}\\claude.exe`]))).toEqual({ file: `${NPM}\\claude.exe`, js: false });
+    expect(adapterExecutable(`${NPM}\\claude.cmd`, 'win32', env, deps([`${NPM}\\claude.cmd`, 'C:\\Users\\me\\.local\\bin\\claude.exe']))).toEqual({ file: 'C:\\Users\\me\\.local\\bin\\claude.exe', js: false });
+    const exe = `${NPM}\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe`;
+    expect(adapterExecutable(`${NPM}\\claude.cmd`, 'win32', env, deps([`${NPM}\\claude.cmd`, exe], EXE_SHIM))).toEqual({ file: exe, js: false });
+  });
+
+  it('falls back to the shim\'s node script, and to null when only the .cmd is left', () => {
+    const script = 'C:\\Users\\me\\AppData\\Roaming\\npm\\..\\global\\5\\node_modules\\@anthropic-ai\\claude-code\\cli.js';
+    const resolved = 'C:\\Users\\me\\AppData\\Roaming\\global\\5\\node_modules\\@anthropic-ai\\claude-code\\cli.js';
+    expect(adapterExecutable(`${NPM}\\claude.cmd`, 'win32', env, deps([`${NPM}\\claude.cmd`, resolved, script]))).toEqual({ file: resolved, js: true });
+    expect(adapterExecutable(`${NPM}\\claude.cmd`, 'win32', env, deps([`${NPM}\\claude.cmd`], '@echo off\r\nclaude-real %*'))).toBeNull();
+  });
+
+  it('keeps an .exe and anything on other platforms as found', () => {
+    expect(adapterExecutable('C:\\x\\claude.exe', 'win32', env)).toEqual({ file: 'C:\\x\\claude.exe', js: false });
+    expect(adapterExecutable('/usr/local/bin/claude', 'darwin', env)).toEqual({ file: '/usr/local/bin/claude', js: false });
+  });
+});
+
 describe('resolving a CLI executable', () => {
   const HOME = '/home/me';
   const none = () => false;
@@ -89,5 +137,10 @@ describe('resolving a CLI executable', () => {
   it('returns null when nothing is found anywhere', () => {
     expect(resolveCli('nope', 'linux', { PATH: '/usr/bin' }, HOME, none)).toBeNull();
     expect(resolveCli('nope', 'win32', { PATH: 'C:\\Tools', PATHEXT: '.EXE' }, 'C:\\Users\\me', none)).toBeNull();
+  });
+
+  it('searches the Windows per-user install dirs', () => {
+    expect(resolveCli('claude', 'win32', { PATH: 'C:\\x', PATHEXT: '.EXE', USERPROFILE: 'C:\\Users\\me', APPDATA: 'C:\\Users\\me\\AppData\\Roaming' }, 'C:\\Users\\me', (file) => file === 'C:\\Users\\me\\.local\\bin\\claude.exe')).toBe('C:\\Users\\me\\.local\\bin\\claude.exe');
+    expect(resolveCli('claude', 'win32', { PATH: 'C:\\x', PATHEXT: '.EXE', USERPROFILE: 'C:\\Users\\me' }, 'C:\\Users\\me', (file) => file === 'C:\\Users\\me\\.claude\\local\\claude.exe')).toBe('C:\\Users\\me\\.claude\\local\\claude.exe');
   });
 });

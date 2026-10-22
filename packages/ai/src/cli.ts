@@ -437,10 +437,10 @@ export async function openLoginTerminal(kind: CliKind, executable?: string): Pro
   }
 }
 
-/** Codex and Claude expose a status command; Grok and Antigravity do not, so their status is unknown. */
-export async function cliLoginStatus(kind: CliKind, executable?: string): Promise<'signed-in' | 'signed-out' | 'unknown'> {
+/** Codex and Claude expose a status command; Grok, OpenCode and Antigravity do not ('unsupported': nothing was checked). 'unknown': the command did not run. */
+export async function cliLoginStatus(kind: CliKind, executable?: string): Promise<'signed-in' | 'signed-out' | 'unknown' | 'unsupported'> {
   const statusArgs = kind === 'codex' ? ['login', 'status'] : kind === 'claude' ? ['auth', 'status'] : undefined;
-  if (!statusArgs) return 'unknown';
+  if (!statusArgs) return 'unsupported';
   const result = await execaCli(cliCommand(kind, executable), statusArgs, { timeout: 20_000, reject: false, windowsHide: true });
   if (result.failed && result.exitCode === undefined) return 'unknown';
   return result.exitCode === 0 ? 'signed-in' : 'signed-out';

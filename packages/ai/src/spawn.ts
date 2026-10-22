@@ -1,4 +1,4 @@
-import { accessSync, constants, existsSync, readFileSync, statSync } from 'node:fs';
+import { accessSync, closeSync, constants, existsSync, openSync, readFileSync, readSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crossSpawn from 'cross-spawn';
@@ -12,14 +12,47 @@ import crossSpawn from 'cross-spawn';
  * its Node script run directly with this Node; a shim that is not npm's goes through cross-spawn's
  * cmd.exe escaping.
  */
-export function cliSpawn(command: string, args: string[], platform: NodeJS.Platform = process.platform, env: NodeJS.ProcessEnv = process.env): { file: string; args: string[]; windowsVerbatimArguments?: boolean } {
-  const found = resolveCli(command, platform, env);
+export function cliSpawn(command: string, args: string[], platform: NodeJS.Platform = process.platform, env: NodeJS.ProcessEnv = process.env, deps: SpawnDeps = {}): { file: string; args: string[]; windowsVerbatimArguments?: boolean } {
+  const found = resolveCli(command, platform, env, deps.home, deps.exists);
   if (platform !== 'win32') return { file: found ?? command, args };
   if (!found || /\.(?:exe|com)$/i.test(found)) return { file: found ?? command, args };
-  const script = /\.(?:cmd|bat)$/i.test(found) ? shimTarget(found) : null;
-  if (script) return { file: process.execPath, args: [script, ...args] };
-  const parsed = (crossSpawn as unknown as { _parse: CrossSpawnParse })._parse(found, args, {});
+  const target = /\.(?:cmd|bat)$/i.test(found) ? shimTarget(found, deps.read, deps.exists, deps.head) : null;
+  if (target && /\.exe$/i.test(target)) return { file: target, args };
+  if (target) return { file: process.execPath, args: [target, ...args] };
+  const parse = deps.parse ?? (crossSpawn as unknown as { _parse: CrossSpawnParse })._parse;
+  const parsed = parse(found, args, {});
   return { file: parsed.command, args: parsed.args, windowsVerbatimArguments: Boolean(parsed.options.windowsVerbatimArguments) };
+}
+
+/** What cliSpawn, shimTarget and adapterExecutable read from the machine; tests replace it. */
+export interface SpawnDeps {
+  home?: string;
+  exists?: (file: string) => boolean;
+  read?: (file: string) => string;
+  /** The first bytes of a file, to tell a node script without an extension from a binary. */
+  head?: (file: string) => string;
+  parse?: CrossSpawnParse;
+}
+
+/**
+ * The file to hand an adapter that starts the CLI itself without a shell (the Claude Agent SDK).
+ * On Windows a `.cmd` shim cannot be started that way (spawn EINVAL), so this is a real `.exe`
+ * (beside the shim, on PATH or in an install dir, or the one the shim runs) or else the Node
+ * script the shim runs (`js`: the caller makes sure `node` is on PATH). Null when only a `.cmd`
+ * is left. Elsewhere the found file is used as it is.
+ */
+export function adapterExecutable(found: string, platform: NodeJS.Platform = process.platform, env: NodeJS.ProcessEnv = process.env, deps: SpawnDeps = {}): { file: string; js: boolean } | null {
+  if (platform !== 'win32' || /\.(?:exe|com)$/i.test(found)) return { file: found, js: false };
+  const exists = deps.exists ?? existsSync;
+  if (/\.(?:c|m)?js$/i.test(found)) return { file: found, js: true };
+  const target = /\.(?:cmd|bat)$/i.test(found) ? shimTarget(found, deps.read, exists, deps.head) : null;
+  if (target && /\.exe$/i.test(target)) return { file: target, js: false };
+  const base = path.win32.basename(found).replace(/\.[^.]*$/, '');
+  const sibling = path.win32.join(path.win32.dirname(found), `${base}.exe`);
+  if (exists(sibling)) return { file: sibling, js: false };
+  const onPath = resolveCli(`${base}.exe`, platform, env, deps.home, exists);
+  if (onPath) return { file: onPath, js: false };
+  return target ? { file: target, js: true } : null;
 }
 
 /** cross-spawn's argument parser (exported as `_parse`, not in its types): the cmd.exe line, escaped. */
@@ -28,7 +61,7 @@ type CrossSpawnParse = (command: string, args: string[], options: object) => { c
 // Where CLIs land when a package manager or installer does not put them on the system PATH but the
 // user's shell rc adds them (opencode, grok, claude, volta, bun, cargo, homebrew, pnpm global).
 const POSIX_INSTALL_DIRS = ['~/.opencode/bin', '~/.local/bin', '~/.npm-global/bin', '~/.volta/bin', '~/.bun/bin', '~/.grok/bin', '~/.claude/local', '~/.local/share/pnpm', '~/Library/pnpm', '~/.cargo/bin', '/opt/homebrew/bin', '/usr/local/bin'];
-const WIN32_INSTALL_DIRS = ['%APPDATA%\\npm', '%LOCALAPPDATA%\\pnpm', '%USERPROFILE%\\.opencode\\bin', '%USERPROFILE%\\.bun\\bin', '%LOCALAPPDATA%\\Volta\\bin'];
+const WIN32_INSTALL_DIRS = ['%APPDATA%\\npm', '%LOCALAPPDATA%\\pnpm', '%USERPROFILE%\\.opencode\\bin', '%USERPROFILE%\\.local\\bin', '%USERPROFILE%\\.claude\\local', '%USERPROFILE%\\.bun\\bin', '%LOCALAPPDATA%\\Volta\\bin'];
 
 /** `~` and `%VAR%` (Windows) expanded for the target platform, not the host building the string. */
 function expandDir(dir: string, platform: NodeJS.Platform, env: NodeJS.ProcessEnv, home: string): string {
@@ -99,18 +132,42 @@ export function resolveCli(
 }
 
 /**
- * The script an npm/pnpm cmd-shim runs with node: `"%dp0%\node_modules\@openai\codex\bin\codex.js" %*`
- * (npm) or `"%~dp0\..\pkg\cli.js" %*` (pnpm). Null when the shim does not run a JS file that exists.
+ * What an npm/pnpm cmd-shim runs: `"%dp0%\node_modules\@openai\codex\bin\codex.js" %*` (npm) or
+ * `"%~dp0\..\pkg\cli.js" %*` (pnpm). That is a JS file (also one without an extension, told by
+ * its `#!/usr/bin/env node` line, as opencode's) or an `.exe`; null when the shim runs anything
+ * else or the file does not exist.
  */
-export function shimTarget(shim: string, read: (file: string) => string = (file) => readFileSync(file, 'utf8'), exists: (file: string) => boolean = existsSync): string | null {
+export function shimTarget(
+  shim: string,
+  read: (file: string) => string = (file) => readFileSync(file, 'utf8'),
+  exists: (file: string) => boolean = existsSync,
+  head: (file: string) => string = firstBytes,
+): string | null {
   let text: string;
   try {
     text = read(shim);
   } catch {
     return null;
   }
-  const match = /"%~?dp0%?\\?([^"%]+?\.(?:c|m)?js)"/i.exec(text);
+  const match = /"%~?dp0%?\\?([^"%]+)"\s+%\*/i.exec(text);
   if (!match) return null;
   const script = path.win32.resolve(path.win32.dirname(shim), match[1]);
-  return exists(script) ? script : null;
+  if (!exists(script)) return null;
+  if (/\.(?:exe)$/i.test(script) || /\.(?:c|m)?js$/i.test(script)) return script;
+  if (/\.[^.\\/]+$/.test(script)) return null;
+  try {
+    return /^#!.*\bnode\b/.test(head(script)) ? script : null;
+  } catch {
+    return null;
+  }
+}
+
+function firstBytes(file: string): string {
+  const fd = openSync(file, 'r');
+  try {
+    const buffer = Buffer.alloc(128);
+    return buffer.toString('utf8', 0, readSync(fd, buffer, 0, 128, 0));
+  } finally {
+    closeSync(fd);
+  }
 }
