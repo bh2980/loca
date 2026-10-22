@@ -60,9 +60,10 @@ describe('model profiles → model choices (0035/0036)', () => {
     // Still a valid definition: the app reads it with the same schema.
     const nodes = workflowDefinitionSchema.parse(workflow.definition).nodes;
     expect(nodes.map((n) => n.id)).toEqual(['entry', 'a', 'b']);
-    expect(nodes[1]).toMatchObject({ config: { model: { connectionId: 'c1', model: 'gpt-x', effort: 'low' }, extraModels: [{ connectionId: 'c2', model: 'gpt-5' }], temperature: 0.3, instructions: 'Translate.\n\nKeep it short.' } });
-    expect((nodes[1]!.config as { extraModels: object[] }).extraModels[0]).not.toHaveProperty('effort');
-    expect(nodes[2]).toMatchObject({ config: { model: { connectionId: '', model: '' }, extraModels: [], instructions: 'Translate.' } });
+    expect(nodes[1]).toMatchObject({ config: { model: { connectionId: 'c1', model: 'gpt-x', effort: 'low' }, temperature: 0.3, instructions: 'Translate.\n\nKeep it short.' } });
+    // The app's schema no longer has extra models: they are dropped on parse.
+    expect(nodes[1]!.config).not.toHaveProperty('extraModels');
+    expect(nodes[2]).toMatchObject({ config: { model: { connectionId: '', model: '' }, instructions: 'Translate.' } });
     expect(nodes[2]!.config).not.toHaveProperty('temperature');
     expect(nodes[2]!.config).not.toHaveProperty('profileId');
 

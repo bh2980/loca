@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { get } from 'es-toolkit/compat';
-import { AGE_BANDS, APPLY_FUNCTION_NAMES, APPLY_TARGETS, applyParams, choiceKey, nodeModels, saveCharactersParams, type SaveCharactersParams, DOCUMENT_KINDS, ISSUE_KIND_IDS, ISSUE_KINDS, issueKindOf, previousStepId, tagLinesParams, tagScope, type IssueKind, aiStatus, TERM_KIND_LABELS, TERM_KINDS, UNKNOWN_LISTENER, type ApplyField, type ApplyFunctionName, type ApplyParams } from '@tw/shared';
+import { AGE_BANDS, APPLY_FUNCTION_NAMES, APPLY_TARGETS, applyParams, choiceKey, nodeModel, saveCharactersParams, type SaveCharactersParams, DOCUMENT_KINDS, ISSUE_KIND_IDS, ISSUE_KINDS, issueKindOf, previousStepId, tagLinesParams, tagScope, type IssueKind, aiStatus, TERM_KIND_LABELS, TERM_KINDS, UNKNOWN_LISTENER, type ApplyField, type ApplyFunctionName, type ApplyParams } from '@tw/shared';
 import type { Db } from '../../db/index.ts';
 import * as s from '../../db/schema.ts';
 import type { Topic } from '../../events.ts';
@@ -121,7 +121,7 @@ const HANDLERS: Record<Exclude<ApplyFunctionName, ItemTarget>, Handler> = {
       // A proposal names the model whose answer is being saved: the AI node before this one.
       const from = run && previousStepId(run.definition, input.item.data.path);
       const node = run?.definition.nodes.find((candidate) => candidate.id === from);
-      const choice = node?.type === 'ai' ? nodeModels(node)[0] : undefined;
+      const choice = node?.type === 'ai' ? nodeModel(node) ?? undefined : undefined;
       const model = run && choice ? run.models[choiceKey(choice)]?.label : undefined;
       return aiSaveCharacters(tx, write, items as never, { profiles, model });
     },

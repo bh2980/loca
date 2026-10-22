@@ -453,27 +453,6 @@ describe('slots per node', () => {
 });
 
 describe('sharing and branching', () => {
-  it('spreads a node over its models', async () => {
-    const { db, workflow } = setup(12, () => 5);
-    const other = db.insert(s.connections).values({ kind: 'openai', name: 'second', baseUrl: 'http://localhost:2/v1' }).returning().get();
-    const second = { connectionId: other.id, model: 'm2' };
-    const definition = { ...workflow.definition, nodes: workflow.definition.nodes.map((node) => (node.type === 'ai' ? { ...node, config: { ...node.config, extraModels: [second], concurrency: 2, batch: { mode: 'count' as const, size: 5, maxTokens: 6_000 } } } : node)) };
-    db.update(s.workflows).set({ definition }).where(eq(s.workflows.id, workflow.id)).run();
-    const fresh = db.select().from(s.workflows).where(eq(s.workflows.id, workflow.id)).get()!;
-    const runId = createRun(db, { projectId: fresh.projectId, workflow: fresh, models: snapshotWorkflowModels(db, fresh.definition), scope: {} }).runId;
-    const models: string[] = [];
-    const base = model();
-    // Calls take a moment, so both accounts are busy at once.
-    const slow: ModelPort = { ...base, generate: async (route, request) => (models.push(route.model), await new Promise((resolve) => setTimeout(resolve, 5)), base.generate(route, request)) };
-    await new Runner(db, memoryStore(), slow).drain();
-    expect(runOf(db, runId).status).toBe('completed');
-    expect(new Set(models)).toEqual(new Set(['m', 'm2']));
-    // Each call records the connection it went out through.
-    const steps = db.select({ model: s.runSteps.model, connectionId: s.runSteps.connectionId }).from(s.runSteps).where(eq(s.runSteps.runId, runId)).all();
-    expect(steps.filter((step) => step.model === 'm2').every((step) => step.connectionId === other.id)).toBe(true);
-    expect(steps.some((step) => step.connectionId === other.id)).toBe(true);
-  });
-
   it('sends a line down every branch of an exit and counts it done once all of them are', async () => {
     const { db, workflow } = setup(2, () => 3);
     const end = { id: 'side-end', type: 'end' as const, position: { x: 0, y: 0 }, config: {} };

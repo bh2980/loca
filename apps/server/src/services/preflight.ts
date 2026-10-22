@@ -28,7 +28,6 @@ export interface NodeEstimate {
   /** The same model as a choice: the node's own, or the run's pick (the run dialog's picker starts from it). */
   choice: { connectionId: string; model: string; effort?: string };
   /** Other models sharing this node's requests (their accounts take whatever is free). */
-  sharedWith: string[];
   /** Requests the node sends at once (its 동시 처리 수). */
   concurrency: number;
   connection: { id: string; name: string; kind: string; cli: boolean } | null;
@@ -129,7 +128,6 @@ export async function preflight(db: Db, requested: Pick<typeof s.workflows.$infe
       name: runNodeName(definition, node),
       model: label(node.config.model),
       choice: node.config.model,
-      sharedWith: node.config.extraModels.flatMap((choice) => label(choice) ?? []),
       concurrency: node.config.concurrency,
       connection: connection ? { id: connection.id, name: connection.name, kind: connection.kind, cli: CONNECTION_KIND_INFO[connection.kind].transport === 'cli' } : null,
       full: requests.length,
@@ -250,7 +248,6 @@ async function termPreflight(db: Db, workflow: { id: string | null; projectId: s
         name: runNodeName(definition, node),
         model: connection && node.config.model.model ? choiceLabel(connection.name, node.config.model) : null,
         choice: node.config.model,
-        sharedWith: [],
         concurrency: node.config.concurrency,
         connection: connection ? { id: connection.id, name: connection.name, kind: connection.kind, cli: CONNECTION_KIND_INFO[connection.kind].transport === 'cli' } : null,
         full: requests.length,

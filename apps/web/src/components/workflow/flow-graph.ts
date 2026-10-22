@@ -1,6 +1,6 @@
 /** What the editor and a run's graph share: a node's one-line summary and the edges as React Flow draws them. */
 import { MarkerType } from '@xyflow/react';
-import { APPLY_TARGETS, FUNCTIONS, ISSUE_KINDS, TAG_ACTIONS, tagLinesParams, WORKFLOW_SUBJECTS, nodeModels, nodeName, nodePorts, previousSteps, callSummary, retrySummary, type FunctionName, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+import { APPLY_TARGETS, FUNCTIONS, ISSUE_KINDS, TAG_ACTIONS, tagLinesParams, WORKFLOW_SUBJECTS, nodeName, nodePorts, previousSteps, callSummary, retrySummary, type FunctionName, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
 import type { FlowEdge } from '@/components/workflow/workflow-edge';
 
 export interface SummaryNames {
@@ -25,7 +25,7 @@ export function nodeSummary(node: WorkflowNode, definition: WorkflowDefinition, 
       return `${WORKFLOW_SUBJECTS[node.config.input]} 입력`;
     case 'ai': {
       const model = node.config.model.model ? [names.connection.get(node.config.model.connectionId) ?? (names.connectionsLoaded ? '삭제된 연결' : undefined), node.config.model.model].filter(Boolean).join(' · ') : '모델 없음';
-      return `${model}${nodeModels(node).length > 1 ? ` 외 ${nodeModels(node).length - 1}개` : ''}`;
+      return model;
     }
     case 'function': {
       const params = node.config.params as Record<string, unknown>;
