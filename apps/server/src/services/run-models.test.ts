@@ -55,8 +55,8 @@ describe("a run's own models", () => {
     const result = (await start.run({ workflowId: workflow.id, models: { '*': { connection: other.id, model: 'other-model' } } })) as { ok: boolean; runId?: string };
     expect(result.ok).toBe(true);
     const run = db.select().from(s.runs).where(eq(s.runs.id, result.runId!)).get()!;
-    expect(Object.values(run.models).flatMap((snapshot) => snapshot.routes.map((route) => route.model))).toEqual(expect.arrayContaining(['other-model']));
-    expect(Object.values(run.models).flatMap((snapshot) => snapshot.routes.map((route) => route.model))).not.toContain('own-model');
+    expect(Object.values(run.models).map((snapshot) => snapshot.route.model)).toEqual(expect.arrayContaining(['other-model']));
+    expect(Object.values(run.models).map((snapshot) => snapshot.route.model)).not.toContain('own-model');
     expect(db.select().from(s.workflows).where(eq(s.workflows.id, workflow.id)).get()!.definition.nodes.find((node) => node.type === 'ai')).toMatchObject({ config: { model: { model: 'own-model' } } });
   });
 });

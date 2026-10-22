@@ -46,7 +46,6 @@ export function ModelPicker({
   value,
   onChange,
   need = ['generate'],
-  exclude,
   kinds,
   lockConnection,
   compact,
@@ -57,8 +56,6 @@ export function ModelPicker({
   onChange: (value: ModelValue) => void;
   /** The connection must offer one of these. */
   need?: Capability[];
-  /** A connection that may not be picked (a connection's own fallback). */
-  exclude?: string;
   /** Only connections of these kinds (the editor's continuation: API connections). */
   kinds?: ConnectionKind[];
   /** Only the model and effort of `value.connectionId` (a connection's model test). */
@@ -69,7 +66,7 @@ export function ModelPicker({
 }) {
   const params = useParams({ strict: false });
   const connections = useQuery(q.connections());
-  const usable = (connections.data ?? []).filter((item) => item.id !== exclude && (!kinds || kinds.includes(item.kind)) && CONNECTION_KIND_INFO[item.kind].capabilities.some((capability) => need.includes(capability)));
+  const usable = (connections.data ?? []).filter((item) => (!kinds || kinds.includes(item.kind)) && CONNECTION_KIND_INFO[item.kind].capabilities.some((capability) => need.includes(capability)));
   const connection = usable.find((item) => item.id === value?.connectionId);
   const efforts = connection ? CONNECTION_KIND_INFO[connection.kind].efforts : [];
   const fullLabel = useModelLabel(value);

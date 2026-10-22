@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { termMarksOf, type AiNode, type ConditionData } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -24,8 +24,11 @@ export const TERM_GROUP = 'terms';
 /** The size factor a 재요청 node left on a queued item (1 for one never sent back), as a column of the waiting rows. */
 export const RETRY_FACTOR = sql<number>`coalesce(json_extract(${s.runItems.data}, '$.retry.factor'), 1)`;
 
-/** Queued term items at slow nodes, most used first (then by source), with a position to batch by. */
-export function waitingTerms(db: Db, runId: string, slowIds: string[]) {
+/** The model a 재요청 node sends a queued item to its node on (a run.models key), or null: the node's own. Only counts at the AI node it was set for. */
+export const RETRY_MODEL = sql<string | null>`case when json_extract(${s.runItems.data}, '$.retry.model.nodeId') = ${s.runItems.nodeId} then json_extract(${s.runItems.data}, '$.retry.model.key') end`;
+
+/** Queued term items at slow nodes that are due (not held by a 재요청 node's wait), most used first (then by source), with a position to batch by. */
+export function waitingTerms(db: Db, runId: string, slowIds: string[], now: Date) {
   return db
     .select({
       id: s.runItems.id,
@@ -38,10 +41,11 @@ export function waitingTerms(db: Db, runId: string, slowIds: string[]) {
       since: s.runItems.updatedAt,
       plan: s.runItems.plan,
       factor: RETRY_FACTOR,
+      model: RETRY_MODEL,
     })
     .from(s.runItems)
     .innerJoin(s.terms, eq(s.terms.id, s.runItems.subjectId))
-    .where(and(eq(s.runItems.runId, runId), eq(s.runItems.state, 'queued'), inArray(s.runItems.nodeId, slowIds)))
+    .where(and(eq(s.runItems.runId, runId), eq(s.runItems.state, 'queued'), inArray(s.runItems.nodeId, slowIds), or(isNull(s.runItems.notBefore), lte(s.runItems.notBefore, now))))
     .orderBy(desc(sql`coalesce(${s.terms.lines}, 0)`), asc(s.terms.source))
     .all()
     .map((row, index) => ({ ...row, seq: index }));

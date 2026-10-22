@@ -51,9 +51,10 @@ describe('model profiles → model choices (0035/0036)', () => {
     raw.close();
 
     const db = openDatabase(file, drizzleFolder);
+    // The attempts and the fallback chain the profiles had are gone with them (a failed call is one attempt on one route; 0092).
     const connections = new Map(db.select().from(s.connections).all().map((row) => [row.id, row]));
-    expect(connections.get('c1')).toMatchObject({ maxAttempts: 3, fallback: { connectionId: 'c2', model: 'gpt-5', effort: 'high' } });
-    expect(connections.get('c2')).toMatchObject({ maxAttempts: 1, fallback: null });
+    expect(connections.get('c1')).not.toHaveProperty('maxAttempts');
+    expect(connections.get('c1')).not.toHaveProperty('fallback');
 
     const workflow = db.select().from(s.workflows).get()!;
     // Still a valid definition: the app reads it with the same schema.
@@ -67,8 +68,8 @@ describe('model profiles → model choices (0035/0036)', () => {
 
     const run = db.select().from(s.runs).get()!;
     expect(run.definition.nodes[1]).toMatchObject({ config: { model: { connectionId: 'c1', model: 'gpt-x', effort: 'low' }, temperature: 0.3 } });
-    // A frozen run keeps what its snapshot had (the connection column is gone since 0073).
-    expect(run.models).toEqual({ 'c1|gpt-x|low': { label: 'A fast', maxOutputTokens: 12000, timeoutSeconds: 120, maxAttempts: 3, routes: [{ connectionId: 'c1', name: 'Main', kind: 'openai', baseUrl: null, executable: null, model: 'gpt-x', effort: 'low' }] } });
+    // A frozen run keeps what its snapshot had (the connection column is gone since 0073), now as one route (0092).
+    expect(run.models).toEqual({ 'c1|gpt-x|low': { label: 'A fast', maxOutputTokens: 12000, timeoutSeconds: 120, route: { connectionId: 'c1', name: 'Main', kind: 'openai', baseUrl: null, executable: null, model: 'gpt-x', effort: 'low' } } });
 
     expect(db.select().from(s.chatSessions).get()).toMatchObject({ connectionId: 'c2', model: 'gpt-5', effort: null });
     expect(db.select().from(s.aiCalls).get()).toMatchObject({ refId: 'c1', connectionId: 'c1' });

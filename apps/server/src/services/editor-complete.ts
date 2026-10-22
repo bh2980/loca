@@ -45,9 +45,9 @@ export async function completeLine(db: Db, secrets: SecretStore, unitId: string,
     midnight.setHours(24, 0, 0, 0);
     throw new CompleteRefused(`오늘 자동완성 한도(${settings.dailyCap}회)를 다 썼습니다.`, 429, Math.ceil((midnight.getTime() - Date.now()) / 1000));
   }
-  const { routes } = liveChoice(db, settings.model, secrets, 'generate');
+  const { route: chosen } = liveChoice(db, settings.model, secrets, 'generate');
   // The effort is the person's choice: "모델 기본값" sends none (a slow thinking model: pick low).
-  const route: ai.ResolvedRoute = routes[0]!;
+  const route: ai.ResolvedRoute = chosen;
   if (route.kind !== 'openai') throw new CompleteRefused('편집기 자동완성은 API 연결(OpenAI 호환)만 쓸 수 있습니다.', 400);
 
   const before = db

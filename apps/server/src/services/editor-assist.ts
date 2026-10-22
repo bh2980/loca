@@ -35,7 +35,7 @@ export async function assistLine(db: Db, secrets: SecretStore, unitId: string, r
   const config = editorNodeConfig(settings, request.mode);
   if (!config.model.model) throw new CompleteRefused('설정 › 에디터에서 AI 번역·다듬기 모델을 고르세요.', 400);
   if (refine && !request.draft.trim()) throw new CompleteRefused('다듬을 번역이 없습니다.', 400);
-  const { snapshot, routes } = liveChoice(db, config.model, secrets, 'generate');
+  const { snapshot, route } = liveChoice(db, config.model, secrets, 'generate');
 
   const node = { id: 'editor', type: 'ai', position: { x: 0, y: 0 }, config } as AiNode;
   // The context cap follows the button's model window (auto), like an AI node's.
@@ -45,7 +45,7 @@ export async function assistLine(db: Db, secrets: SecretStore, unitId: string, r
   const label = `편집기 ${refine ? '다듬기' : 'AI 번역'}`;
   const call = { projectId: unit.projectId, kind: 'editor' as const, refId: unitId, label, request: `${system}\n\n---\n\n${prompt}` };
   const result = await ai
-    .withFallback(routes, snapshot.maxAttempts, (route) => logged(db, call, route, () => generate(route, { system, prompt, schema: outputSchema(node, [promptLineId(0)]), maxOutputTokens: snapshot.maxOutputTokens, timeoutMs: settings.timeoutSeconds * 1000, signal })), signal)
+    .callOnce(route, (route) => logged(db, call, route, () => generate(route, { system, prompt, schema: outputSchema(node, [promptLineId(0)]), maxOutputTokens: snapshot.maxOutputTokens, timeoutMs: settings.timeoutSeconds * 1000, signal })), signal)
     .catch((error: unknown) => {
       if (error instanceof ai.ModelError && error.code === 'rate-limit') throw new CompleteRefused('모델 요청 한도에 걸렸습니다. 잠시 뒤 다시.', 429, 60);
       throw error;

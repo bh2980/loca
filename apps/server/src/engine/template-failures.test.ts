@@ -28,7 +28,6 @@ const alwaysTimesOut = () => {
 function setup(templateKey: string) {
   const db = openDatabase(':memory:');
   const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1' }).returning().get();
-  db.update(s.connections).set({ maxAttempts: 1 }).where(eq(s.connections.id, connection.id)).run();
   const choice = { connectionId: connection.id, model: 'm' };
   const units = Array.from({ length: 4 }, (_, index) => ({ key: `u${index}`, group: `g${index}`, source: `Hello ${index}`, translation: templateKey === 'translation' ? undefined : `안녕 ${index}` }));
   const groups = units.map((unit) => ({ key: unit.group, title: unit.group }));

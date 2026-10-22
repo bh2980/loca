@@ -15,7 +15,7 @@ vi.mock('@tw/ai', async (original) => ({ ...(await original<typeof import('@tw/a
 
 function setup(withModel = true) {
   const db = openDatabase(':memory:');
-  const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1', maxAttempts: 1 }).returning().get();
+  const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1' }).returning().get();
   const file = importFileSchema.parse({
     format: 'loca/v1',
     project: { name: 'P' },

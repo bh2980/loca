@@ -15,7 +15,7 @@ import { scopeMismatch } from '../services/run-plan.ts';
 /** A project whose script mentions Varn Gate (twice) and Hesk (once), with both as candidate terms without a Korean form, and one confirmed term. */
 function setup() {
   const db = openDatabase(':memory:');
-  const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1', maxAttempts: 1 }).returning().get();
+  const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1' }).returning().get();
   const choice = { connectionId: connection.id, model: 'm' };
   const file = importFileSchema.parse({
     format: 'loca/v1',

@@ -15,7 +15,7 @@ export type ModelErrorCode =
   | 'cli'
   | 'unknown';
 
-/** Only transient failures are retried or sent to a fallback route; everything else surfaces as is. */
+/** A failed call. Nothing here retries it or tries another route; `transient` only says whether trying again later could work (a workflow's 재요청 node decides). */
 export class ModelError extends Error {
   constructor(
     readonly code: ModelErrorCode,

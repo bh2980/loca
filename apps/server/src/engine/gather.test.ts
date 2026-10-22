@@ -11,7 +11,7 @@ import { createRun } from './run-create.ts';
 
 function setup() {
   const db = openDatabase(':memory:');
-  const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1', maxAttempts: 1 }).returning().get();
+  const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1' }).returning().get();
   const choice = { connectionId: connection.id, model: 'm' };
   const groups = [1, 2, 3].map((n) => ({ key: `g${n}`, title: `Scene ${n}` }));
   const units = groups.flatMap((group, scene) => [0, 1].map((n) => ({ key: `${group.key}-${n}`, group: group.key, speaker: 'MIRA', source: `S${scene} L${n}` })));

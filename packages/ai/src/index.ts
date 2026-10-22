@@ -1,4 +1,3 @@
-import pRetry from 'p-retry';
 import type { LanguageModel } from 'ai';
 import { CONNECTION_KIND_INFO } from '@tw/shared';
 import { cliGenerate, cliModelList, cliModels, cliVersion, describeCli } from './cli.ts';
@@ -98,7 +97,6 @@ export async function locateCli(kind: Parameters<typeof cliVersion>[0], executab
 }
 
 export interface Attempt {
-  route: number;
   model: string;
   ok: boolean;
   error?: string;
@@ -108,37 +106,17 @@ export interface Attempt {
 }
 
 /**
- * Try the primary route, then each fallback in order. A route is retried with backoff only on
- * transient failures (rate limit, network, timeout); anything else stops immediately.
+ * One call on one route: no retry, no other route. A failure is thrown as a ModelError carrying the
+ * attempt (with what the call used before it failed); what happens next is the workflow's business
+ * (a 재요청 node), or the person's, where there is no workflow.
  */
-export async function withFallback<R>(
-  routes: ResolvedRoute[],
-  maxAttempts: number,
-  call: (route: ResolvedRoute) => Promise<R>,
-  signal?: AbortSignal,
-): Promise<{ result: R; route: ResolvedRoute; attempts: Attempt[] }> {
-  const attempts: Attempt[] = [];
-  let last: ModelError | undefined;
-  for (const [index, route] of routes.entries()) {
-    try {
-      const result = await pRetry(() => call(route), {
-        retries: maxAttempts - 1,
-        minTimeout: 1000,
-        maxTimeout: 15_000,
-        signal,
-        shouldRetry: ({ error }) => toModelError(error, signal).transient,
-        onFailedAttempt: ({ error }) => {
-          const failure = toModelError(error, signal);
-          attempts.push({ route: index, model: route.model, ok: false, error: failure.message, code: failure.code, ...(failure.usage ? { usage: failure.usage } : {}) });
-        },
-      });
-      const usage = (result as { usage?: Usage } | null)?.usage;
-      attempts.push({ route: index, model: route.model, ok: true, ...(usage ? { usage } : {}) });
-      return { result, route, attempts };
-    } catch (error) {
-      last = toModelError(error, signal);
-      if (!last.transient) break;
-    }
+export async function callOnce<R>(route: ResolvedRoute, call: (route: ResolvedRoute) => Promise<R>, signal?: AbortSignal): Promise<{ result: R; route: ResolvedRoute; attempts: Attempt[] }> {
+  try {
+    const result = await call(route);
+    const usage = (result as { usage?: Usage } | null)?.usage;
+    return { result, route, attempts: [{ model: route.model, ok: true, ...(usage ? { usage } : {}) }] };
+  } catch (error) {
+    const failure = toModelError(error, signal);
+    throw Object.assign(failure, { attempts: [{ model: route.model, ok: false, error: failure.message, code: failure.code, ...(failure.usage ? { usage: failure.usage } : {}) } satisfies Attempt] });
   }
-  throw Object.assign(last ?? new ModelError('config', '사용할 AI 경로가 없습니다.', false), { attempts });
 }

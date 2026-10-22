@@ -14,7 +14,7 @@ const person = (name: string, extra: Record<string, unknown> = {}) => ({ name, a
 describe('인물·관계 추출 template, end to end', () => {
   it('reads the scenes, saves new people at once, then merges the fragments of each person and proposes what a person owns', async () => {
     const db = openDatabase(':memory:');
-    const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1', maxAttempts: 1 }).returning().get();
+    const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1' }).returning().get();
     const choice = { connectionId: connection.id, model: 'm' };
     const groups = [1, 2, 3].map((n) => ({ key: `g${n}`, title: `Scene ${n}` }));
     const units = groups.flatMap((group, scene) => [0, 1].map((n) => ({ key: `${group.key}-${n}`, group: group.key, speaker: scene === 1 ? 'MIRA' : 'KAI', source: `S${scene} L${n}` })));

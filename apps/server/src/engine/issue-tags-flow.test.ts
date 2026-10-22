@@ -22,7 +22,6 @@ describe('the default 번역 workflow tags through its 태그 붙이기 nodes', 
   it('tags a failing line with the review\'s categories and untags it after a passing re-review', async () => {
     const db = openDatabase(':memory:');
     const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1' }).returning().get();
-    db.update(s.connections).set({ maxAttempts: 1 }).where(eq(s.connections.id, connection.id)).run();
     const model = { connectionId: connection.id, model: 'm' };
     const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Test' }, groups: [{ key: 'g1', title: 'Scene' }], units: [{ key: 'u0', group: 'g1', source: 'Line 0' }, { key: 'u1', group: 'g1', source: 'Line 1' }] }), model);
     const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).all();

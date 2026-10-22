@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { modelChoiceSchema } from './model-choice.ts';
 import { modelLimitsSchema } from './budgets.ts';
 
 export const CONNECTION_KINDS = ['openai', 'systemone', 'codex', 'claude', 'grok', 'antigravity', 'opencode', 'http'] as const;
@@ -71,17 +70,10 @@ export const connectionInputSchema = z.object({
   executable: z.string().trim().optional(),
   /** HTTP tools: how the stored key is sent, e.g. "Authorization: Bearer {key}" or "X-API-Key: {key}". */
   headerTemplate: z.string().trim().optional(),
-  /** How every call through this connection is made, wherever it is picked. (Time limits belong to what calls: an AI node's own, CALL_TIMEOUT_MS for the rest.) */
-  maxAttempts: z.number().int().min(1).max(5).optional(),
   /** What each model of this connection takes and gives in one call (model id → limits): from its model list, or a person's numbers. */
   modelLimits: z.record(z.string(), modelLimitsSchema).optional(),
-  /** Where calls go when this connection keeps failing transiently (rate limit, network, timeout); that connection's own fallback is followed in turn. */
-  fallback: modelChoiceSchema.nullable().optional(),
 });
 export type ConnectionInput = z.infer<typeof connectionInputSchema>;
-
-/** Defaults of a new connection's call settings. */
-export const CONNECTION_CALL_DEFAULTS = { maxAttempts: 2 } as const;
 
 /**
  * Time limits of calls that have no settings of their own (a workflow node and the editor's AI set

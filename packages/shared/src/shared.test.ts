@@ -8,7 +8,7 @@ import { ANALYSIS_WORKFLOW, analysisTemplate, defaultWorkflows, eventExtractionT
 import { APPLY_TARGETS, saveCharactersParams } from './functions.ts';
 import { AI_PRESETS, AI_PROMPTS, presetConfig } from './presets.ts';
 import { APPLY_PALETTE_ORDER, fieldsFromSample, FUNCTION_NAMES, functionGroup } from './functions.ts';
-import { applyIssues, nodeOutputFields, nodePorts, pickPaths, previousStepId, previousSteps, readinessUses, retrySummary, validateWorkflow, workflowDefinitionSchema, workflowNodeSchema, type WorkflowDefinition, type WorkflowNode } from './workflow.ts';
+import { applyIssues, nodeOutputFields, nodePorts, pickPaths, previousStepId, previousSteps, readinessUses, retrySummary, retryModel, retryOrigins, retryScaleText, resendsOf, definitionModels, ITEM_ERROR_KINDS, validateWorkflow, workflowDefinitionSchema, workflowNodeSchema, type RetryNode, type WorkflowDefinition, type WorkflowNode } from './workflow.ts';
 
 const model = { connectionId: 'c', model: 'm' };
 const ids = { model, untranslated: 's0', translated: 's1', needsReview: 's2', confirmed: 's3', aiFailedTag: 't0' };
@@ -229,17 +229,17 @@ describe('templates', () => {
   const kinds = (definition: WorkflowDefinition) => definition.nodes.map((node) => (node.type === 'function' ? node.config.fn : node.type));
   const errors = (definition: WorkflowDefinition) => validateWorkflow(workflowDefinitionSchema.parse(definition), refs).filter((issue) => issue.level === 'error');
 
-  it('term extraction template is entry → AI (→ 재요청) → save terms, written directly', () => {
+  it('term extraction template is entry → AI (→ 재요청 → 재요청) → save terms, written directly', () => {
     const definition = workflowDefinitionSchema.parse(termExtractionTemplate(ids));
     expect(errors(definition)).toEqual([]);
-    expect(kinds(definition)).toEqual(['entry', 'ai', 'retry', 'tagLines', 'saveTerms']);
+    expect(kinds(definition)).toEqual(['entry', 'ai', 'retry', 'retry', 'tagLines', 'saveTerms']);
     expect(definition.nodes.find((node) => node.id === 'save-terms')).toMatchObject({ config: { params: { list: 'terms', map: { source: 'source', target: 'target', kind: 'kind', meaning: 'meaning', evidence: 'evidence' } } } });
   });
 
   it('people template saves new people per scene, then gathers the fragments, merges them and saves the result as proposals where a person owns the profile', () => {
     const definition = workflowDefinitionSchema.parse(peopleRelationsTemplate(ids));
     expect(errors(definition)).toEqual([]);
-    expect(kinds(definition)).toEqual(['entry', 'ai', 'retry', 'tagLines', 'saveCharacters', 'saveRelationships', 'saveSpeechRules', 'gather', 'ai', 'retry', 'saveCharacters']);
+    expect(kinds(definition)).toEqual(['entry', 'ai', 'retry', 'retry', 'tagLines', 'saveCharacters', 'saveRelationships', 'saveSpeechRules', 'gather', 'ai', 'retry', 'retry', 'saveCharacters']);
     expect(definition.edges.filter((edge) => edge.sourceHandle === 'out').map((edge) => `${edge.source}>${edge.target}`)).toEqual([
       'entry>people', 'people>save-characters', 'save-characters>save-relationships', 'save-relationships>save-speech-rules', 'save-speech-rules>gather', 'gather>merge', 'merge>save-merged-characters',
     ]);
@@ -284,7 +284,7 @@ describe('templates', () => {
     const saved = translationTemplate(ids).nodes.find((node) => node.id === 'save');
     expect(saved).toMatchObject({ config: { fn: 'saveCandidate', params: { map: { text: 'text' } } } });
     const listener = listenerTemplate(ids);
-    expect(kinds(listener)).toEqual(['entry', 'ai', 'retry', 'tagLines', 'setListener']);
+    expect(kinds(listener)).toEqual(['entry', 'ai', 'retry', 'retry', 'tagLines', 'setListener']);
     expect(listener.nodes.find((node) => node.id === 'set-listener')).toMatchObject({ config: { params: { map: { listener: 'value', confidence: 'confidence' } } } });
   });
 
@@ -383,18 +383,34 @@ describe('재요청 node', () => {
 
   it('fills defaults, keeps its limits and has the exits 다시 보냄 and 오류', () => {
     const node = retryNode('r');
-    expect(node).toMatchObject({ config: { kinds: ['cut-off'], scale: 0.5, maxTimes: 2 } });
+    expect(node).toMatchObject({ config: { kinds: ['cut-off'], scale: 0.5, maxTimes: 2, wait: 0, model: null } });
     expect(nodePorts(node)).toEqual([{ id: 'retry', label: '다시 보냄' }, { id: 'error', label: '오류' }]);
-    expect(workflowNodeSchema.safeParse({ ...node, config: { scale: 0.95 } }).success).toBe(false);
+    expect(workflowNodeSchema.safeParse({ ...node, config: { scale: 1.05 } }).success).toBe(false);
     expect(workflowNodeSchema.safeParse({ ...node, config: { scale: 0.05 } }).success).toBe(false);
     expect(workflowNodeSchema.safeParse({ ...node, config: { maxTimes: 6 } }).success).toBe(false);
+    expect(workflowNodeSchema.safeParse({ ...node, config: { wait: -1 } }).success).toBe(false);
+    expect(workflowNodeSchema.safeParse({ ...node, config: { wait: 3601 } }).success).toBe(false);
     expect(workflowNodeSchema.safeParse({ ...node, config: { kinds: ['nope'] } }).success).toBe(false);
   });
 
-  it('is summarised in one line', () => {
-    const node = retryNode('r') as Extract<WorkflowNode, { type: 'retry' }>;
+  it('accepts the new error kinds, a scale of 1 (그대로), a wait and another model', () => {
+    const node = retryNode('r', { kinds: ['rate-limit', 'network'], scale: 1, wait: 60, maxTimes: 3, model: { connectionId: 'c', model: 'other', effort: 'low' } });
+    expect(node).toMatchObject({ config: { kinds: ['rate-limit', 'network'], scale: 1, wait: 60, model: { connectionId: 'c', model: 'other', effort: 'low' } } });
+    expect(ITEM_ERROR_KINDS['rate-limit']).toBe('사용량 한도');
+    expect(ITEM_ERROR_KINDS.network).toBe('연결 끊김');
+    expect(retryModel(node as RetryNode)).toEqual({ connectionId: 'c', model: 'other', effort: 'low' });
+    expect(retryModel(retryNode('x', { model: { connectionId: '', model: '' } }) as RetryNode)).toBeNull();
+  });
+
+  it('is summarised in one line, wait and model included', () => {
+    const node = retryNode('r') as RetryNode;
     expect(retrySummary(node.config)).toBe('출력 잘림 · 절반 크기 · 최대 2번');
-    expect(retrySummary({ kinds: ['cut-off', 'too-long'], scale: 0.25, maxTimes: 3 })).toBe('출력 잘림·요청이 너무 김 · 25% 크기 · 최대 3번');
+    expect(retrySummary({ ...node.config, kinds: ['cut-off', 'too-long'], scale: 0.25, maxTimes: 3 })).toBe('출력 잘림·요청이 너무 김 · 25% 크기 · 최대 3번');
+    expect(retrySummary({ ...node.config, kinds: ['rate-limit', 'network'], scale: 1, wait: 60, maxTimes: 3 })).toBe('사용량 한도·연결 끊김 · 같은 크기 · 1분 기다림 · 최대 3번');
+    expect(retrySummary({ ...node.config, kinds: ['rate-limit'], scale: 1, wait: 90, model: { connectionId: 'c', model: 'gpt-x' }, maxTimes: 1 })).toBe('사용량 한도 · 같은 크기 · 1분 30초 기다림 · 다른 모델 gpt-x · 최대 1번');
+    expect(retryScaleText(1)).toBe('그대로');
+    expect(retryScaleText(0.5)).toBe('절반');
+    expect(retryScaleText(0.3)).toBe('30%');
   });
 
   it('reports a 다시 보냄 exit that does not lead to an AI node, and accepts one that does', () => {
@@ -410,15 +426,68 @@ describe('재요청 node', () => {
     expect(validateWorkflow(open, refs).map((issue) => issue.message)).toContain("'다시 보냄' 출구가 연결되지 않았습니다.");
   });
 
-  it('warns when its limit cannot fit the node visit limit', () => {
-    const definition = workflowDefinitionSchema.parse({
-      nodes: [entry, aiNode('a'), retryNode('r', { maxTimes: 5 })],
-      edges: [edge('entry', 'out', 'a'), edge('a', 'error', 'r'), edge('r', 'retry', 'a')],
+  describe('chains', () => {
+    const messages = (definition: WorkflowDefinition) => validateWorkflow(definition, refs).filter((issue) => issue.level === 'error').map((issue) => issue.message);
+    const chain = (extra: Partial<WorkflowDefinition> = {}) =>
+      workflowDefinitionSchema.parse({
+        nodes: [entry, aiNode('a'), retryNode('r1'), retryNode('r2'), { id: 'end', type: 'end', position: { x: 0, y: 0 }, config: {} }],
+        edges: [edge('entry', 'out', 'a'), edge('a', 'out', 'end'), edge('a', 'error', 'r1'), edge('r1', 'retry', 'a'), edge('r1', 'error', 'r2'), edge('r2', 'retry', 'a')],
+        ...extra,
+      });
+
+    it('accepts a 재요청 after another 재요청\'s 오류 exit, both leading back to the AI node', () => {
+      expect(messages(chain())).toEqual([]);
+      expect(retryOrigins(chain(), 'r2')).toEqual({ origins: ['a'], bad: false });
     });
-    expect(validateWorkflow(definition, refs).filter((issue) => issue.level === 'warning' && issue.nodeId === 'r' && issue.message.startsWith('다시 보내기가 최대 5번이면'))).toHaveLength(1);
+
+    it('rejects a 재요청 that is not after an AI node\'s 오류 exit, directly or through other 재요청 nodes', () => {
+      const afterOut = workflowDefinitionSchema.parse({ ...chain(), edges: [edge('entry', 'out', 'a'), edge('a', 'out', 'r1'), edge('r1', 'retry', 'a'), edge('r1', 'error', 'r2'), edge('r2', 'retry', 'a')] });
+      expect(messages(afterOut)).toContain('재요청은 AI 노드의 오류 출구(또는 다른 재요청의 오류 출구) 바로 뒤에만 둘 수 있습니다.');
+      // The second is fed by the first's 다시 보냄 instead of its 오류: not a chain.
+      const wrongExit = workflowDefinitionSchema.parse({ ...chain(), edges: [edge('entry', 'out', 'a'), edge('a', 'out', 'end'), edge('a', 'error', 'r1'), edge('r1', 'retry', 'r2'), edge('r2', 'retry', 'a')] });
+      expect(messages(wrongExit).length).toBeGreaterThan(0);
+      // Nothing leads to it.
+      const alone = workflowDefinitionSchema.parse({ ...chain(), edges: [edge('entry', 'out', 'a'), edge('a', 'out', 'end')] });
+      expect(messages(alone)).toContain('재요청은 AI 노드의 오류 출구(또는 다른 재요청의 오류 출구) 바로 뒤에만 둘 수 있습니다.');
+      // A condition in between.
+      const viaCondition = workflowDefinitionSchema.parse({
+        ...chain(),
+        nodes: [entry, aiNode('a'), retryNode('r1'), { id: 'c', type: 'condition', position: { x: 0, y: 0 }, config: { expression: true } }, { id: 'end', type: 'end', position: { x: 0, y: 0 }, config: {} }],
+        edges: [edge('entry', 'out', 'a'), edge('a', 'out', 'end'), edge('a', 'error', 'c'), edge('c', 'true', 'r1'), edge('c', 'false', 'end'), edge('r1', 'retry', 'a')],
+      });
+      expect(messages(viaCondition)).toContain('재요청은 AI 노드의 오류 출구(또는 다른 재요청의 오류 출구) 바로 뒤에만 둘 수 있습니다.');
+    });
+
+    it('rejects a 재요청 shared by two AI nodes, and a 다시 보냄 that goes to another AI node', () => {
+      const shared = workflowDefinitionSchema.parse({
+        nodes: [entry, aiNode('a'), aiNode('b'), retryNode('r1')],
+        edges: [edge('entry', 'out', 'a'), edge('a', 'out', 'b'), edge('a', 'error', 'r1'), edge('b', 'error', 'r1'), edge('r1', 'retry', 'a')],
+      });
+      expect(messages(shared)).toContain('AI 노드 하나의 오류 출구 뒤에만 이을 수 있습니다. 여러 AI 노드가 이 재요청을 함께 쓸 수 없습니다.');
+      const elsewhere = workflowDefinitionSchema.parse({ ...shared, edges: [edge('entry', 'out', 'a'), edge('a', 'out', 'b'), edge('a', 'error', 'r1'), edge('r1', 'retry', 'b')] });
+      expect(messages(elsewhere).some((message) => message.includes("'다시 보냄'은 오류 출구로 이 재요청에 닿는 AI 노드"))).toBe(true);
+    });
+
+    it('checks the model it sends on', () => {
+      const withModel = (picked: object | null) => chain({ nodes: chain().nodes.map((node) => (node.id === 'r2' && node.type === 'retry' ? { ...node, config: { ...node.config, model: picked as never } } : node)) });
+      expect(messages(withModel({ connectionId: 'c', model: 'm' }))).toEqual([]);
+      expect(messages(withModel({ connectionId: '', model: '' }))).toContain("다시 보낼 모델을 고르거나 '같은 모델'로 되돌리세요.");
+      expect(messages(withModel({ connectionId: 'gone', model: 'm' }))).toContain('고른 AI 연결이 삭제되었습니다. 다시 고르세요.');
+      expect(definitionModels(withModel({ connectionId: 'c', model: 'other' }))).toEqual([{ connectionId: 'c', model: 'm' }, { connectionId: 'c', model: 'other' }]);
+    });
+
+    it('warns once, on the AI node, when the chain\'s limits together exceed the node visit limit', () => {
+      const long = chain({ settings: { maxVisitsPerNode: 5, maxConsecutiveFailures: 3 } });
+      const heavy = workflowDefinitionSchema.parse({ ...long, nodes: long.nodes.map((node) => (node.type === 'retry' ? { ...node, config: { ...node.config, maxTimes: 3 } } : node)) });
+      expect(resendsOf(heavy, 'a')).toBe(6);
+      const warnings = validateWorkflow(heavy, refs).filter((issue) => issue.level === 'warning' && issue.message.startsWith('다시 보내기가 모두 합쳐 최대 6번이면'));
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]!.nodeId).toBe('a');
+      expect(validateWorkflow(long, refs).filter((issue) => issue.message.startsWith('다시 보내기가 모두 합쳐'))).toEqual([]);
+    });
   });
 
-  it('gives every AI node of every template the one failure pattern: error → 재요청 → 다시 보냄 → the same node, 오류 → its marker', () => {
+  it('gives every AI node of every template the one failure pattern: error → 재요청 (절반, 2번) → 재요청 (그대로, 60초, 3번) → its marker', () => {
     const everything = [
       ...WORKFLOW_TEMPLATES.map((template) => ({ name: template.key, definition: template.build(ids) })),
       ...defaultWorkflows(ids).map((workflow) => ({ name: `default ${workflow.name}`, definition: workflow.definition })),
@@ -432,9 +501,14 @@ describe('재요청 node', () => {
         expect(resends, `${name}/${node.id} has one 재요청`).toHaveLength(1);
         const resend = definition.nodes.find((candidate) => candidate.id === resends[0]!.target)!;
         expect(resend.type, `${name}/${node.id} error → 재요청`).toBe('retry');
-        expect(resend.type === 'retry' && resend.config).toMatchObject({ kinds: ['cut-off', 'too-long', 'missing', 'invalid-output', 'timeout'], scale: 0.5, maxTimes: 2 });
+        expect(resend.type === 'retry' && resend.config).toMatchObject({ kinds: ['cut-off', 'too-long', 'missing', 'invalid-output', 'timeout'], scale: 0.5, maxTimes: 2, wait: 0, model: null });
         expect(definition.edges.filter((edge) => edge.source === resend.id && edge.sourceHandle === 'retry').map((edge) => edge.target), `${name}/${node.id} 다시 보냄`).toEqual([node.id]);
-        const marker = definition.edges.filter((edge) => edge.source === resend.id && edge.sourceHandle === 'error').map((edge) => definition.nodes.find((candidate) => candidate.id === edge.target)!);
+        const next = definition.edges.filter((edge) => edge.source === resend.id && edge.sourceHandle === 'error');
+        expect(next, `${name}/${node.id} first 재요청 오류 → second 재요청`).toHaveLength(1);
+        const wait = definition.nodes.find((candidate) => candidate.id === next[0]!.target)!;
+        expect(wait.type === 'retry' && wait.config, `${name}/${node.id} second`).toMatchObject({ kinds: ['rate-limit', 'network'], scale: 1, wait: 60, maxTimes: 3, model: null });
+        expect(definition.edges.filter((edge) => edge.source === wait.id && edge.sourceHandle === 'retry').map((edge) => edge.target), `${name}/${node.id} 다시 보냄 (second)`).toEqual([node.id]);
+        const marker = definition.edges.filter((edge) => edge.source === wait.id && edge.sourceHandle === 'error').map((edge) => definition.nodes.find((candidate) => candidate.id === edge.target)!);
         if (name.endsWith('termTranslate')) { expect(marker, 'terms cannot take the line tag').toEqual([]); continue; }
         if (node.id === 'merge') { expect(marker, 'after the 모으기 no line stands for the failure').toEqual([]); continue; }
         expect(marker, `${name}/${node.id} 재요청 오류 → marker`).toHaveLength(1);
@@ -465,12 +539,13 @@ describe('재요청 node', () => {
     expect(new Set(ys).size).toBe(ys.length);
     for (const ai of ['translate', 'review', 'terms']) {
       expect(place(`${ai}-resend`)).toEqual({ x: place(ai).x + 320, y: place(ai).y });
-      expect(place(`${ai}-failed`)).toEqual({ x: place(ai).x + 640, y: place(ai).y });
+      expect(place(`${ai}-wait`)).toEqual({ x: place(ai).x + 640, y: place(ai).y });
+      expect(place(`${ai}-failed`).y).toBe(place(ai).y);
     }
     expect(place('revise-resend').y).toBe(place('revise').y);
     expect(place('revise-failed').y).toBe(place('revise').y);
     // Edges go down or sideways, except the loops: 재요청 → its AI node, 수정 번역 저장 → 형식 검사.
-    const loops = new Set(['translate-resend-retry-translate', 'review-resend-retry-review', 'revise-resend-retry-revise', 'terms-resend-retry-terms', 'save-revision-out-check']);
+    const loops = new Set(['translate-resend-retry-translate', 'review-resend-retry-review', 'revise-resend-retry-revise', 'terms-resend-retry-terms', 'translate-wait-retry-translate', 'review-wait-retry-review', 'revise-wait-retry-revise', 'terms-wait-retry-terms', 'save-revision-out-check']);
     for (const edge of definition.edges) if (!loops.has(edge.id)) expect(place(edge.target).y, edge.id).toBeGreaterThanOrEqual(place(edge.source).y);
   });
 });
@@ -482,7 +557,7 @@ describe('analysis workflow and presets', () => {
 
   it('builds the work analysis: one AI node, then every list saved in a chain', () => {
     const definition = workflowDefinitionSchema.parse(analysisTemplate(ids));
-    expect(definition.nodes.map((node) => (node.type === 'function' ? node.config.fn : node.type))).toEqual(['entry', 'ai', 'retry', 'tagLines', 'saveCharacters', 'saveRelationships', 'saveSpeechRules', 'saveEvents', 'saveTerms', 'saveDocument']);
+    expect(definition.nodes.map((node) => (node.type === 'function' ? node.config.fn : node.type))).toEqual(['entry', 'ai', 'retry', 'retry', 'tagLines', 'saveCharacters', 'saveRelationships', 'saveSpeechRules', 'saveEvents', 'saveTerms', 'saveDocument']);
     expect(definition.edges.filter((edge) => edge.source === 'analysis').map((edge) => [edge.sourceHandle, edge.target])).toEqual([['out', 'save-characters'], ['error', 'analysis-resend']]);
     expect(validateWorkflow(definition, { statusIds: new Set(), connections: new Set(['c']), tagIds: new Set(['t0']) } as never).filter((issue) => issue.level === 'error').map((issue) => issue.message)).toEqual([]);
     expect(definition.nodes.find((node) => node.id === 'save-overview')).toMatchObject({ config: { params: { map: { title: 'overviewTitle', body: 'overview' } } } });

@@ -42,7 +42,6 @@ describe('preflight', () => {
   it('predicts the plan and the calls of the run it describes', async () => {
     const db = openDatabase(':memory:');
     const connection = db.insert(s.connections).values({ kind: 'openai', name: 'mock', baseUrl: 'http://mock/v1' }).returning().get();
-    db.update(s.connections).set({ maxAttempts: 1 }).where(eq(s.connections.id, connection.id)).run();
   const choice = { connectionId: connection.id, model: 'm' };
     const { projectId } = importProject(db, importFileSchema.parse(realistic(3000).file), choice);
     const workflow = translateOnlyWorkflow(db, projectId);
@@ -146,10 +145,11 @@ describe('preflight split', () => {
     const withRetry = await preflight(db, workflow, {});
     const full = withRetry.nodes[0]!.full;
     // Without the node: only the usual 30% room.
-    const definition = { ...workflow.definition, nodes: workflow.definition.nodes.filter((node) => node.type !== 'retry'), edges: workflow.definition.edges.filter((edge) => edge.source !== retry!.id && edge.target !== retry!.id) };
+    const retries = new Set(workflow.definition.nodes.filter((node) => node.type === 'retry').map((node) => node.id));
+    const definition = { ...workflow.definition, nodes: workflow.definition.nodes.filter((node) => node.type !== 'retry'), edges: workflow.definition.edges.filter((edge) => !retries.has(edge.source) && !retries.has(edge.target)) };
     const without = await preflight(db, { ...workflow, definition }, {});
     expect(without.suggestedLimits.maxCalls).toBe(Math.ceil(full * 1.3));
-    // Two rounds at half and quarter size: full / 0.5 + full / 0.25 more calls.
-    expect(withRetry.suggestedLimits.maxCalls).toBe(Math.ceil(full * 1.3 + Math.ceil(full / 0.5) + Math.ceil(full / 0.25)));
+    // The chain's first node: two rounds at half and quarter size (full / 0.5 + full / 0.25 more calls); the second keeps that size for its three rounds.
+    expect(withRetry.suggestedLimits.maxCalls).toBe(Math.ceil(full * 1.3 + Math.ceil(full / 0.5) + Math.ceil(full / 0.25) + 3 * Math.ceil(full / 0.25)));
   });
 });

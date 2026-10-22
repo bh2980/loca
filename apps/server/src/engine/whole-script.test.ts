@@ -14,7 +14,7 @@ import { createRun, createRunInSteps } from './run-create.ts';
 /** Two scenes, three lines, a labelled branch: the whole-script tests' script. */
 function setup() {
   const db = openDatabase(':memory:');
-  const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1', maxAttempts: 1 }).returning().get();
+  const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1' }).returning().get();
   const choice = { connectionId: connection.id, model: 'm' };
   const file = importFileSchema.parse({
     format: 'loca/v1',

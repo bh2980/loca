@@ -156,7 +156,7 @@ function RunDetail() {
         const item = row.original;
         return (
           <>
-            {item.retry && <p className="text-muted-foreground" title={item.retry.message}>{retryReason(item.retry.kind, item.retry.message)}</p>}
+            {item.retry && <p className="text-muted-foreground" title={item.retry.message}>{retryReason(item.retry)}</p>}
             {item.error && <p className="text-destructive">{item.error}</p>}
             {!!item.data.issues?.length && <p className="text-warning">{item.data.issues.join(' / ')}</p>}
             {!!item.data.notes?.length && <p className="text-muted-foreground">{item.data.notes.join(' / ')}</p>}
@@ -266,7 +266,7 @@ function RunDetail() {
             <CopyButton value={runId} label="실행 ID 복사" />
           </p>
           <p className="truncate text-xs text-muted-foreground">
-            {dateTime(data.createdAt)} 시작 · 모델 {data.models.map((model) => (model.routes.length > 1 ? `${model.label} (막히면 → ${model.routes.slice(1).map((route) => `${route.name} · ${route.model}`).join(' → ')})` : model.label)).join(', ') || '없음'}
+            {dateTime(data.createdAt)} 시작 · 모델 {data.models.map((model) => model.label).join(', ') || '없음'}
           </p>
           {data.byModel.length > 1 && (
             <p className="text-xs text-muted-foreground">
@@ -352,7 +352,7 @@ function RunDetail() {
                           <Badge variant={step.ok ? 'outline' : 'destructive'}>{step.ok ? '성공' : '실패'}</Badge>{' '}
                           {!step.ok && errorKindLabel(step.errorKind) && <Badge variant="outline">{errorKindLabel(step.errorKind)}</Badge>}{' '}
                           <span className="text-muted-foreground">{terms ? `용어 ${step.subjectIds.length}개` : `대사 ${step.subjectIds.length}줄`}</span>{' '}
-                          <span className="min-w-0 truncate text-muted-foreground">{[data.models.flatMap((model) => model.routes).find((route) => route.connectionId === step.connectionId)?.name, step.model].filter(Boolean).join(' · ')}</span>
+                          <span className="min-w-0 truncate text-muted-foreground">{[data.models.find((model) => model.connectionId === step.connectionId)?.name, step.model].filter(Boolean).join(' · ')}</span>
                           {' '}
                           <span className="ml-auto text-xs text-muted-foreground tabular-nums">
                             {((new Date(step.finishedAt).getTime() - new Date(step.startedAt).getTime()) / 1000).toFixed(1)}s
@@ -363,9 +363,6 @@ function RunDetail() {
                       </CollapsibleTrigger>
                       <CollapsibleContent className="mt-2 space-y-2 pl-9">
                         {step.error && <p className="text-destructive">{[errorKindLabel(step.errorKind), step.error].filter(Boolean).join(' · ')}</p>}
-                        {Array.isArray(step.attempts) && step.attempts.length > 1 && (
-                          <p className="text-xs text-muted-foreground">시도: {(step.attempts as { model: string; ok: boolean; error?: string }[]).map((attempt) => `${attempt.model} ${attempt.ok ? '성공' : `실패(${attempt.error})`}`).join(' → ')}</p>
-                        )}
                         {Array.isArray(step.context) && (
                           <Collapsible>
                             <CollapsibleTrigger asChild>

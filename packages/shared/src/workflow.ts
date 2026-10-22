@@ -231,10 +231,9 @@ export const DEFAULT_CALL_MINUTES = 10;
 
 /**
  * Why a line left a node through its "error" exit, as conditions read it (error.kind). The runner
- * never splits or re-sends a failed request on its own: a workflow routes these (a 재요청 node, a
- * condition loop), or an exit left unconnected ends the line as failed. Rate limits and dropped
- * connections are not the line's fault: those lines wait for a later request. Every other failed
- * request, a cut-off one included, counts toward the workflow's "연속 실패"; the run pauses at it.
+ * never splits, waits for or re-sends a failed request on its own: a workflow routes these (a 재요청
+ * node, a condition loop), or an exit left unconnected ends the line as failed. Every failed request,
+ * a rate limit included, counts toward the workflow's "연속 실패"; the run pauses at it.
  */
 export const ITEM_ERROR_KINDS = {
   missing: '답에서 빠짐',
@@ -242,6 +241,10 @@ export const ITEM_ERROR_KINDS = {
   timeout: '시간 초과',
   'too-long': '요청이 너무 김',
   'cut-off': '출력 잘림',
+  /** The provider's usage limit (an API's rate limit, an exhausted subscription). */
+  'rate-limit': '사용량 한도',
+  /** The connection dropped or never came up. */
+  network: '연결 끊김',
   refused: '거절',
   /** The node does not work on this kind of item (a line-only node given a term, or the reverse). */
   unsupported: '맞지 않는 항목',
@@ -251,22 +254,42 @@ export type ItemErrorKind = keyof typeof ITEM_ERROR_KINDS;
 export const ITEM_ERROR_KIND_IDS = Object.keys(ITEM_ERROR_KINDS) as ItemErrorKind[];
 
 /**
- * 재요청: sends lines that failed back to an AI node, in smaller requests. A line whose last failure
- * is one of `kinds` and that has been sent back fewer than `maxTimes` times at this node leaves
- * through "retry" (its size factor times `scale`, which the AI node it reaches batches by); any
- * other leaves through "error" with its original failure. Instant: no AI call.
+ * 재요청: sends lines that failed back to an AI node, in smaller requests, after a wait, on another
+ * model: whatever of that the node says. A line whose last failure is one of `kinds` and that has been
+ * sent back fewer than `maxTimes` times at this node leaves through "retry" (its size factor times
+ * `scale`, which the AI node it reaches batches by; held for `wait` seconds first; sent with `model`
+ * instead of the AI node's own when one is set); any other leaves through "error" with its original
+ * failure, which may lead on to another 재요청 node (a chain: each counts its own times). Instant: no AI call.
  */
 export const retryConfigSchema = z
   .object({
     kinds: z.array(z.enum(ITEM_ERROR_KIND_IDS as [ItemErrorKind, ...ItemErrorKind[]])).default(['cut-off']),
-    scale: z.number().min(0.1).max(0.9).default(0.5),
+    /** 1 = the same size as before. */
+    scale: z.number().min(0.1).max(1).default(0.5),
     maxTimes: z.number().int().min(1).max(5).default(2),
+    /** Seconds the lines wait before they are sent back (0 = right away). */
+    wait: z.number().min(0).max(3600).default(0),
+    /** Null: the AI node's own models. Else the lines are sent back to the AI node on this model. */
+    model: draftModelChoiceSchema.nullable().default(null),
   })
   .prefault({});
 export type RetryConfig = z.infer<typeof retryConfigSchema>;
-/** A retry node's one-line summary: "출력 잘림 · 절반 크기 · 최대 2번". */
+/** "그대로", "절반", "30%": how much of its size a resent request keeps. */
+export const retryScaleText = (scale: number) => (scale >= 1 ? '그대로' : scale === 0.5 ? '절반' : `${Math.round(scale * 100)}%`);
+/** "60초", "2분", "1시간 30분": a wait, in words. */
+export const retryWaitText = (seconds: number) =>
+  seconds < 60 ? `${seconds}초` : seconds % 60 ? `${Math.floor(seconds / 60)}분 ${seconds % 60}초` : seconds < 3600 ? `${seconds / 60}분` : `${Math.floor(seconds / 3600)}시간${seconds % 3600 ? ` ${(seconds % 3600) / 60}분` : ''}`;
+/** A retry node's one-line summary: "출력 잘림 · 절반 크기 · 최대 2번", "사용량 한도 · 같은 크기 · 60초 기다림 · 다른 모델 gpt-5 · 최대 3번". */
 export const retrySummary = (config: RetryConfig) =>
-  `${config.kinds.length ? config.kinds.map((kind) => ITEM_ERROR_KINDS[kind]).join('·') : '고른 오류 없음'} · ${config.scale === 0.5 ? '절반' : `${Math.round(config.scale * 100)}%`} 크기 · 최대 ${config.maxTimes}번`;
+  [
+    config.kinds.length ? config.kinds.map((kind) => ITEM_ERROR_KINDS[kind]).join('·') : '고른 오류 없음',
+    config.scale >= 1 ? '같은 크기' : `${retryScaleText(config.scale)} 크기`,
+    config.wait > 0 && `${retryWaitText(config.wait)} 기다림`,
+    config.model && `다른 모델 ${config.model.model || '(고르지 않음)'}`,
+    `최대 ${config.maxTimes}번`,
+  ]
+    .filter(Boolean)
+    .join(' · ');
 
 /**
  * 워크플로 호출: runs another saved workflow on the lines that reach it. A line that reaches the end of
@@ -382,6 +405,7 @@ export function withRunModels(definition: WorkflowDefinition, models: RunModels 
 }
 export type AiNode = Extract<WorkflowNode, { type: 'ai' }>;
 export type FunctionNode = Extract<WorkflowNode, { type: 'function' }>;
+export type RetryNode = Extract<WorkflowNode, { type: 'retry' }>;
 
 /** Every model an AI node may send a request with (picked ones only, each once), its own first. */
 export function nodeModels(node: AiNode): ModelChoice[] {
@@ -391,6 +415,57 @@ export function nodeModels(node: AiNode): ModelChoice[] {
     seen.add(choiceKey(choice));
     return [{ connectionId: choice.connectionId, model: choice.model, ...(choice.effort && { effort: choice.effort }) }];
   });
+}
+
+/** The model a 재요청 node sends lines back on instead of the AI node's own, when it is picked. */
+export function retryModel(node: RetryNode): ModelChoice | null {
+  const choice = node.config.model;
+  return choice?.connectionId && choice.model ? { connectionId: choice.connectionId, model: choice.model, ...(choice.effort && { effort: choice.effort }) } : null;
+}
+
+/** Every model a workflow may call: its AI nodes' and the models its 재요청 nodes send lines back on. */
+export const definitionModels = (definition: Pick<WorkflowDefinition, 'nodes'>): ModelChoice[] =>
+  definition.nodes.flatMap((node) => (node.type === 'ai' ? nodeModels(node) : node.type === 'retry' ? [retryModel(node) ?? []].flat() : []));
+
+/**
+ * Where a 재요청 node's lines come from: the AI nodes whose 오류 exit leads to it, directly or through
+ * other 재요청 nodes (a chain), and `bad` when something else leads to it (any other node or exit).
+ */
+export function retryOrigins(definition: Pick<WorkflowDefinition, 'nodes' | 'edges'>, retryId: string): { origins: string[]; bad: boolean } {
+  const byId = new Map(definition.nodes.map((node) => [node.id, node]));
+  const origins = new Set<string>();
+  let bad = false;
+  const seen = new Set<string>();
+  const walk = (id: string) => {
+    if (seen.has(id)) return;
+    seen.add(id);
+    const into = definition.edges.filter((edge) => edge.target === id);
+    if (!into.length) bad = true;
+    for (const edge of into) {
+      const source = byId.get(edge.source);
+      if (source?.type === 'ai' && edge.sourceHandle === 'error') origins.add(source.id);
+      else if (source?.type === 'retry' && edge.sourceHandle === 'error') walk(source.id);
+      else bad = true;
+    }
+  };
+  walk(retryId);
+  return { origins: [...origins], bad };
+}
+
+/** How many times a line can be sent back to an AI node by the 재요청 chains behind its 오류 exit (the sum of their limits). */
+export function resendsOf(definition: Pick<WorkflowDefinition, 'nodes' | 'edges'>, aiId: string): number {
+  const byId = new Map(definition.nodes.map((node) => [node.id, node]));
+  const seen = new Set<string>();
+  const walk = (from: string): number =>
+    definition.edges
+      .filter((edge) => edge.source === from && edge.sourceHandle === 'error')
+      .reduce((sum, edge) => {
+        const node = byId.get(edge.target);
+        if (node?.type !== 'retry' || seen.has(node.id)) return sum;
+        seen.add(node.id);
+        return sum + node.config.maxTimes + walk(node.id);
+      }, 0);
+  return walk(aiId);
 }
 
 /** Functions that change the line itself (its status, tags or representative translation). */
@@ -408,7 +483,7 @@ export const NODE_TYPES: Record<WorkflowNodeType, NodeTypeInfo> = {
   function: { label: '함수', description: '형식 검사·상태 변경·HTTP 호출·스크립트 등 정해진 동작을 실행합니다.', hasInput: true },
   condition: { label: '조건', description: '방문 횟수·앞 노드의 출력·대사 속성 등으로 분기합니다.', hasInput: true },
   end: { label: '종료', description: '대사의 흐름을 마칩니다.', hasInput: true },
-  retry: { label: '재요청', description: '실패한 대사를 더 작은 요청으로 AI 노드에 다시 보냅니다. 정한 횟수를 넘으면 오류로 나갑니다.', hasInput: true },
+  retry: { label: '재요청', description: '실패한 대사를 AI 노드에 다시 보냅니다. 더 작게, 기다렸다가, 다른 모델로 보낼 수 있고, 정한 횟수를 넘으면 오류로 나갑니다.', hasInput: true },
   call: { label: '워크플로 호출', description: '다른 워크플로를 이 대사들에 실행합니다. 끝까지 가면 완료로, 실패로 끝나게 되면 오류로 나옵니다.', hasInput: true },
   gather: { label: '모으기', description: '앞 노드의 결과를 모든 요청이 끝날 때까지 모았다가, 합친 결과 하나를 다음 노드로 넘깁니다.', hasInput: true },
 };
@@ -523,7 +598,11 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
     if (!nodePorts(source).some((port) => port.id === edge.sourceHandle))
       error(`'${nodeName(source)}'에 없는 출구입니다: ${edge.sourceHandle}`, { edgeId: edge.id });
     if (!NODE_TYPES[target.type].hasInput) error('진입 노드로 들어가는 연결은 둘 수 없습니다.', { edgeId: edge.id });
-    if (source.type === 'retry' && edge.sourceHandle === 'retry' && target.type !== 'ai') error(`'${nodeName(source)}'의 '다시 보냄'은 AI 노드로 이어져야 합니다.`, { edgeId: edge.id });
+    if (source.type === 'retry' && edge.sourceHandle === 'retry') {
+      const { origins } = retryOrigins(definition, source.id);
+      if (target.type !== 'ai') error(`'${nodeName(source)}'의 '다시 보냄'은 AI 노드로 이어져야 합니다.`, { edgeId: edge.id });
+      else if (origins.length === 1 && origins[0] !== target.id) error(`'${nodeName(source)}'의 '다시 보냄'은 오류 출구로 이 재요청에 닿는 AI 노드('${nodeName(graph.getNodeAttribute(origins[0]!, 'node') as WorkflowNode)}')로 이어져야 합니다.`, { edgeId: edge.id });
+    }
     const port = `${edge.source}:${edge.sourceHandle}`;
     if (definition.edges.some((other) => other !== edge && other.source === edge.source && other.sourceHandle === edge.sourceHandle && other.target === edge.target && definition.edges.indexOf(other) < definition.edges.indexOf(edge)))
       error('같은 출구에서 같은 노드로 가는 연결이 두 번 있습니다.', { edgeId: edge.id });
@@ -591,8 +670,17 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
       }
       if (!input.lines && !(input.previous && node.config.output === 'json' && node.config.scope === 'batch')) error('대사 없이 보내려면 앞 단계 결과를 넣고, 출력을 JSON · 묶음 전체로 하세요.', { nodeId: node.id });
     }
-    if (node.type === 'retry' && node.config.maxTimes + 1 > definition.settings.maxVisitsPerNode)
-      warn(`다시 보내기가 최대 ${node.config.maxTimes}번이면 AI 노드를 ${node.config.maxTimes + 1}번 지납니다. 노드 방문 상한(${definition.settings.maxVisitsPerNode}회)을 넘으면 그 대사는 실패로 끝납니다.`, { nodeId: node.id });
+    if (node.type === 'ai') {
+      const resends = resendsOf(definition, node.id);
+      if (resends && resends + 1 > definition.settings.maxVisitsPerNode)
+        warn(`다시 보내기가 모두 합쳐 최대 ${resends}번이면 이 노드를 ${resends + 1}번 지납니다. 노드 방문 상한(${definition.settings.maxVisitsPerNode}회)을 넘으면 그 대사는 실패로 끝납니다.`, { nodeId: node.id });
+    }
+    if (node.type === 'retry') {
+      const { origins, bad } = retryOrigins(definition, node.id);
+      if (bad || origins.length !== 1) error(origins.length > 1 ? 'AI 노드 하나의 오류 출구 뒤에만 이을 수 있습니다. 여러 AI 노드가 이 재요청을 함께 쓸 수 없습니다.' : '재요청은 AI 노드의 오류 출구(또는 다른 재요청의 오류 출구) 바로 뒤에만 둘 수 있습니다.', { nodeId: node.id });
+      if (node.config.model && (!node.config.model.connectionId || !node.config.model.model)) error('다시 보낼 모델을 고르거나 \'같은 모델\'로 되돌리세요.', { nodeId: node.id });
+      else if (node.config.model && !refs.connections.has(node.config.model.connectionId)) error('고른 AI 연결이 삭제되었습니다. 다시 고르세요.', { nodeId: node.id });
+    }
     if (node.type === 'call') {
       const picked = node.config.workflowId;
       const called = refs.workflows.find((workflow) => workflow.id === picked);
