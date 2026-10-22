@@ -230,23 +230,30 @@ describe('templates', () => {
     expect(definition.nodes.find((node) => node.id === 'save-terms')).toMatchObject({ config: { params: { list: 'terms', map: { source: 'source', target: 'target', kind: 'kind', meaning: 'meaning', evidence: 'evidence' } } } });
   });
 
-  it('people template saves new people per scene, then gathers the fragments, merges them and saves the result as proposals where a person owns the profile', () => {
+  it('people template gathers the people, relationships and speech rules of every scene, merges them once and saves each list once, the people as proposals where a person owns the profile', () => {
     const definition = workflowDefinitionSchema.parse(peopleRelationsTemplate(ids));
     expect(errors(definition)).toEqual([]);
-    expect(kinds(definition)).toEqual(['entry', 'ai', 'retry', 'retry', 'tagLines', 'saveCharacters', 'saveRelationships', 'saveSpeechRules', 'gather', 'ai', 'retry', 'retry', 'saveCharacters']);
+    expect(kinds(definition)).toEqual(['entry', 'ai', 'retry', 'retry', 'tagLines', 'gather', 'ai', 'retry', 'retry', 'saveCharacters', 'saveRelationships', 'saveSpeechRules']);
     expect(definition.edges.filter((edge) => edge.sourceHandle === 'out').map((edge) => `${edge.source}>${edge.target}`)).toEqual([
-      'entry>people', 'people>save-characters', 'save-characters>save-relationships', 'save-relationships>save-speech-rules', 'save-speech-rules>gather', 'gather>merge', 'merge>save-merged-characters',
+      'entry>people', 'people>gather', 'gather>merge', 'merge>save-characters', 'save-characters>save-relationships', 'save-relationships>save-speech-rules',
     ]);
-    expect(definition.nodes.find((node) => node.id === 'gather')).toMatchObject({ config: { fields: expect.arrayContaining(['characters.name', 'characters.aliases', 'characters.profile']) } });
+    // Nothing is saved before the merge.
+    const saves = definition.nodes.filter((node) => node.type === 'function' && node.config.fn.startsWith('save'));
+    const order = definition.nodes.map((node) => node.id);
+    expect(saves.every((node) => order.indexOf(node.id) > order.indexOf('merge'))).toBe(true);
+    expect(definition.nodes.find((node) => node.id === 'gather')).toMatchObject({
+      config: { fields: expect.arrayContaining(['characters.name', 'characters.aliases', 'characters.profile', 'relationships.from', 'relationships.changes.at', 'relationships.evidence', 'speechRules.fromName', 'speechRules.startKey', 'speechRules.evidence']) },
+    });
     expect(definition.nodes.find((node) => node.id === 'merge')).toMatchObject({ config: { input: { previous: true, lines: false }, output: 'json', scope: 'batch' } });
     const profiles = (id: string) => (definition.nodes.find((node) => node.id === id) as { config: { params: { profiles?: string } } }).config.params.profiles;
-    expect(profiles('save-characters')).toBeUndefined();
-    expect(profiles('save-merged-characters')).toBe('propose');
+    expect(profiles('save-characters')).toBe('propose');
     expect(saveCharactersParams.parse({}).profiles).toBe('fillEmpty');
-    // Every field the gather keeps is one the AI node produces, and the merge returns the same person fields as the scene reading (minus evidence).
-    const scene = AI_PROMPTS.knowledge.fields.find((field) => field.name === 'characters')!.fields!.map((field) => field.name);
-    const merged = AI_PROMPTS.peopleMerge.fields.find((field) => field.name === 'characters')!.fields!.map((field) => field.name);
-    expect(merged).toEqual(scene.filter((name) => name !== 'evidence'));
+    // Every path the gather keeps is a field the scene AI produces, and the merge returns the same fields as the scene reading (people without evidence).
+    const names = (preset: 'knowledge' | 'peopleMerge', list: string) => AI_PROMPTS[preset].fields.find((field) => field.name === list)!.fields!.map((field) => field.name);
+    expect(names('peopleMerge', 'characters')).toEqual(names('knowledge', 'characters').filter((name) => name !== 'evidence'));
+    expect(names('peopleMerge', 'relationships')).toEqual(names('knowledge', 'relationships'));
+    expect(names('peopleMerge', 'speechRules')).toEqual(names('knowledge', 'speechRules'));
+    expect(definition.nodes.find((node) => node.id === 'save-relationships')).toMatchObject({ config: { params: { list: 'relationships', map: expect.objectContaining({ from: 'from', changes: 'changes' }) } } });
   });
 
   it('every default workflow and template is valid, with every apply node mapped from the step before it', () => {
