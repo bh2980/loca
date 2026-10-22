@@ -46,6 +46,7 @@ import { Page } from '@/components/page';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
 import { DeleteButton } from '@/components/settings/delete-button';
 import { KeyPane, type KeyRow } from '@/components/settings/key-pane';
+import { AuthMethodField } from '@/components/settings/auth-method-field';
 import { ExecutableField } from '@/components/settings/executable-field';
 import { client, unwrap, type InferResponseType } from '@/lib/api';
 import { q } from '@/lib/queries';
@@ -289,6 +290,7 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
     name: connection.name,
     baseUrl: connection.baseUrl ?? undefined,
     executable: connection.executable ?? '',
+    authMethod: connection.authMethod,
     headerTemplate: connection.headerTemplate ?? '',
     defaultModel: connection.defaultModel,
     defaultEffort: connection.defaultEffort,
@@ -326,6 +328,7 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
             name: values.name,
             baseUrl: isHttp ? values.baseUrl : undefined,
             executable: isHttp ? undefined : (values.executable ?? ''),
+            authMethod: isHttp ? undefined : (values.authMethod ?? null),
             headerTemplate: connection.kind === 'http' ? (values.headerTemplate ?? '') : undefined,
             ...(!isTool && {
               defaultModel: values.defaultModel ?? null,
@@ -421,6 +424,9 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
           )}
           {info.transport === 'cli' && (
             <Controller control={form.control} name="executable" render={({ field }) => <ExecutableField kind={connection.kind} value={field.value ?? ''} onChange={field.onChange} />} />
+          )}
+          {info.transport === 'cli' && (
+            <Controller control={form.control} name="authMethod" render={({ field }) => <AuthMethodField connectionId={connection.id} executable={connection.executable} value={field.value} onChange={field.onChange} />} />
           )}
           {!isTool && (
             <Controller

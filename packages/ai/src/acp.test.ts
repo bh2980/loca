@@ -6,7 +6,7 @@ import type * as acp from '@agentclientprotocol/sdk';
 import { afterEach, describe, expect, it } from 'vitest';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
-import { acpError, agentCommand, AcpAgent as Agent, agentFor, agentWith, closeSession, readUsage, setAgentStarter, stopIdleAgents, type AcpAgent } from './acp.ts';
+import { acpError, agentCommand, AcpAgent as Agent, agentFor, agentWith, closeSession, listAuthMethods, readUsage, setAgentStarter, stopIdleAgents, type AcpAgent } from './acp.ts';
 import { ModelError } from './errors.ts';
 import { inProcessStarter } from './fake-acp-starter.ts';
 import { hostTools } from './mcp-host.ts';
@@ -167,6 +167,58 @@ describe('chat sessions over ACP', () => {
       costUsd: 0.01852796,
     });
     expect(readUsage({})).toEqual({});
+  });
+});
+
+describe('logging in when a session asks', () => {
+  const AUTH = JSON.stringify([
+    { id: 'oauth-personal', name: 'Log in with Google' },
+    { id: 'gemini-api-key', name: 'Gemini API key' },
+  ]);
+  const session = (agent: AcpAgent) => agent.newSession({ cwd: cwd(), mcpServers: [], system: '' });
+
+  it('authenticates with the first method offered when none is chosen, then retries the session', async () => {
+    setAgentStarter(inProcessStarter({ FAKE_ACP_AUTH: AUTH, FAKE_ACP_CHAT_TOOLS: '[]' }));
+    const agent = await agentFor('antigravity');
+    expect(agent.authMethods.map((method) => method.id)).toEqual(['oauth-personal', 'gemini-api-key']);
+    const { sessionId } = await session(agent);
+    expect((await turn(agent, sessionId, '안녕')).reply).toContain('로그인 oauth-personal');
+  });
+
+  it('sends the method the connection chose', async () => {
+    setAgentStarter(inProcessStarter({ FAKE_ACP_AUTH: AUTH, FAKE_ACP_CHAT_TOOLS: '[]' }));
+    const agent = await agentFor('antigravity', undefined, 'gemini-api-key');
+    const { sessionId } = await session(agent);
+    expect((await turn(agent, sessionId, '안녕')).reply).toContain('로그인 gemini-api-key');
+  });
+
+  it('does not log in before a session asks, nor when the agent needs none', async () => {
+    setAgentStarter(inProcessStarter({ FAKE_ACP_CHAT_TOOLS: '[]' }));
+    const agent = await agentFor('grok', undefined, 'whatever');
+    const { sessionId } = await session(agent);
+    expect((await turn(agent, sessionId, '안녕')).reply).not.toContain('로그인 ');
+  });
+
+  it('reports the real message and the method when authenticate fails', async () => {
+    setAgentStarter(inProcessStarter({ FAKE_ACP_AUTH: AUTH, FAKE_ACP_AUTH_FAIL: 'browser login was cancelled' }));
+    const agent = await agentFor('antigravity', undefined, 'oauth-personal');
+    const error = await failure(session(agent));
+    expect(error.code).toBe('auth');
+    expect(error.message).toContain('browser login was cancelled');
+    expect(error.message).toContain('Log in with Google');
+  });
+
+  it('fails with the agent\'s message when the chosen method is not one it knows', async () => {
+    setAgentStarter(inProcessStarter({ FAKE_ACP_AUTH: AUTH }));
+    const agent = await agentFor('antigravity', undefined, 'nope');
+    expect((await failure(session(agent))).message).toContain('Unknown auth method nope');
+  });
+
+  it('lists the methods without opening a session', async () => {
+    setAgentStarter(inProcessStarter({ FAKE_ACP_AUTH: AUTH }));
+    expect((await listAuthMethods('antigravity')).map((method) => method.name)).toEqual(['Log in with Google', 'Gemini API key']);
+    setAgentStarter(inProcessStarter());
+    expect(await listAuthMethods('grok')).toEqual([]);
   });
 });
 

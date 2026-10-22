@@ -60,7 +60,7 @@ export const connectionRoutes = new Hono<Env>()
     checkFallback(db, null, input.fallback);
     const row = db
       .insert(s.connections)
-      .values({ ...input, baseUrl: info.transport === 'http' ? (input.baseUrl ?? info.defaultBaseUrl) : null, executable: input.executable || null })
+      .values({ ...input, baseUrl: info.transport === 'http' ? (input.baseUrl ?? info.defaultBaseUrl) : null, executable: input.executable || null, authMethod: input.authMethod || null })
       .returning()
       .get();
     if (apiKey) secrets.set(row.id, apiKey);
@@ -74,7 +74,7 @@ export const connectionRoutes = new Hono<Env>()
     const input = c.req.valid('json');
     const current = db.select({ defaultModel: s.connections.defaultModel }).from(s.connections).where(eq(s.connections.id, c.req.param('id'))).get();
     checkFallback(db, c.req.param('id'), input.fallback, input.defaultModel !== undefined ? input.defaultModel : current?.defaultModel);
-    found(db.update(s.connections).set({ ...input, executable: input.executable === '' ? null : input.executable, defaultModel: input.defaultModel || (input.defaultModel === undefined ? undefined : null), defaultEffort: input.defaultEffort || (input.defaultEffort === undefined ? undefined : null) }).where(eq(s.connections.id, c.req.param('id'))).returning().get(), '연결');
+    found(db.update(s.connections).set({ ...input, executable: input.executable === '' ? null : input.executable, authMethod: input.authMethod === undefined ? undefined : input.authMethod || null, defaultModel: input.defaultModel || (input.defaultModel === undefined ? undefined : null), defaultEffort: input.defaultEffort || (input.defaultEffort === undefined ? undefined : null) }).where(eq(s.connections.id, c.req.param('id'))).returning().get(), '연결');
     if (input.defaultModel) fillDefaultModels(db);
     events.changed(undefined, 'connections', 'workflows');
     return c.json({ ok: true });
@@ -129,6 +129,17 @@ export const connectionRoutes = new Hono<Env>()
       return c.json({ ok: true as const, models });
     } catch (error) {
       return c.json({ ok: false as const, models: null, detail: message(error) });
+    }
+  })
+  // The login methods an ACP agent offers: initialize only (no session, no model call), then the process stops.
+  .get('/:id/auth-methods', async (c) => {
+    const { db, secrets } = c.var.deps;
+    const route = found(connectionRoute(db, c.req.param('id'), secrets), '연결');
+    if (!ai.isAcpKind(route.kind)) return c.json({ ok: true as const, methods: [] });
+    try {
+      return c.json({ ok: true as const, methods: await ai.listAuthMethods(route.kind, route.executable) });
+    } catch (error) {
+      return c.json({ ok: false as const, detail: message(error) });
     }
   })
   .get('/:id/login', async (c) => {

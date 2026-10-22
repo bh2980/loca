@@ -6,6 +6,8 @@
  * Manual run: start the API with WORKBENCH_ACP_AGENT=<repo>/packages/ai/src/fake-acp.ts; every CLI
  * connection's chat then talks to this agent instead of the real one. FAKE_ACP_CHUNK_MS paces the
  * reply (default 20 ms per piece); FAKE_ACP_FAIL makes every turn fail with that message.
+ * FAKE_ACP_AUTH (JSON list of {id, name}) offers login methods and makes sessions fail with "Authentication
+ * required" until `authenticate` is called (the reply names the method used); FAKE_ACP_AUTH_FAIL makes it fail.
  */
 import { randomUUID } from 'node:crypto';
 import { Readable, Writable } from 'node:stream';
@@ -41,19 +43,26 @@ async function connectTools(server: acp.McpServer) {
 /** Runs the fake agent on a stream (stdio when this file is run directly, in-process in tests). */
 export function fakeAgent(stream: acp.Stream, env: Record<string, string | undefined> = process.env) {
   const sessions = new Map<string, FakeSession>();
+  const methods = JSON.parse(env.FAKE_ACP_AUTH ?? '[]') as { id: string; name: string }[];
+  let loggedInWith: string | undefined;
+  const needLogin = () => {
+    if (methods.length && !loggedInWith) throw new acp.RequestError(-32000, 'Authentication required · No authentication method selected.');
+  };
   return new acp.AgentSideConnection(
     (client) => ({
       initialize: async () => ({
         protocolVersion: acp.PROTOCOL_VERSION,
         agentCapabilities: { loadSession: true, mcpCapabilities: { http: true }, sessionCapabilities: { resume: {}, close: {}, systemPrompt: { mode: { override: {} } } } },
-        authMethods: [],
+        authMethods: methods,
       }),
       newSession: async (params) => {
+        needLogin();
         const sessionId = randomUUID();
         sessions.set(sessionId, { system: params.systemPrompt?.content.map((block) => (block.type === 'text' ? block.text : '')).join('') ?? '', servers: params.mcpServers, model: MODELS[0]! });
         return { sessionId, configOptions: [{ id: 'model', name: 'Model', type: 'select', currentValue: MODELS[0]!, options: MODELS.map((value) => ({ value, name: value })) }] };
       },
       resumeSession: async (params) => {
+        needLogin();
         sessions.set(params.sessionId, { system: params.systemPrompt?.content.map((block) => (block.type === 'text' ? block.text : '')).join('') ?? '', servers: params.mcpServers ?? [], model: MODELS[0]! });
         return {};
       },
@@ -66,7 +75,12 @@ export function fakeAgent(stream: acp.Stream, env: Record<string, string | undef
         if (session && params.configId === 'model') session.model = String(params.value);
         return { configOptions: [] };
       },
-      authenticate: async () => ({}),
+      authenticate: async (params) => {
+        if (env.FAKE_ACP_AUTH_FAIL) throw new acp.RequestError(-32603, env.FAKE_ACP_AUTH_FAIL);
+        if (!methods.some((method) => method.id === params.methodId)) throw new acp.RequestError(-32602, `Unknown auth method ${params.methodId}`);
+        loggedInWith = params.methodId;
+        return {};
+      },
       cancel: async (params) => {
         sessions.get(params.sessionId)?.abort?.abort();
       },
@@ -92,7 +106,7 @@ export function fakeAgent(stream: acp.Stream, env: Record<string, string | undef
             found += (result.content as { type: string; text?: string }[]).map((part) => part.text ?? '').join('').slice(0, 600);
             await client.sessionUpdate({ sessionId: params.sessionId, update: { sessionUpdate: 'tool_call_update', toolCallId, status: 'completed' } });
           }
-          const reply = `가짜 ACP 에이전트(${session.model})의 답입니다. 받은 메시지: ${text.slice(-120)}${found ? `\n\n도구 결과 일부: ${found}` : ''}`;
+          const reply = `가짜 ACP 에이전트(${session.model}${loggedInWith ? `, 로그인 ${loggedInWith}` : ''})의 답입니다. 받은 메시지: ${text.slice(-120)}${found ? `\n\n도구 결과 일부: ${found}` : ''}`;
           for (const piece of reply.match(/.{1,40}/gs) ?? []) {
             if (abort.signal.aborted) return { stopReason: 'cancelled' };
             await say(piece);
