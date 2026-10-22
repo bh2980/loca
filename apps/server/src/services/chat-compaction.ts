@@ -35,9 +35,9 @@ export function withCompaction(record: UIMessage[], compaction: Compaction | nul
 
 const tokensOf = (messages: UIMessage[]) => messages.reduce((sum, message) => sum + estimateTokens(message.parts), 0);
 
-/** The model's window from the connection (입력 토큰) or its model list; UNKNOWN_WINDOW when neither says. */
+/** The model's window from its model list; UNKNOWN_WINDOW when neither says. */
 export function chatWindow(db: Db, connectionId: string | undefined, model: string) {
-  const connection = connectionId ? db.select({ inputTokens: s.connections.inputTokens, outputTokens: s.connections.outputTokens, modelLimits: s.connections.modelLimits }).from(s.connections).where(eq(s.connections.id, connectionId)).get() : undefined;
+  const connection = connectionId ? db.select({ modelLimits: s.connections.modelLimits }).from(s.connections).where(eq(s.connections.id, connectionId)).get() : undefined;
   return limitsFor(connection, model)?.contextWindow ?? UNKNOWN_WINDOW;
 }
 

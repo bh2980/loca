@@ -9,7 +9,6 @@ import { events } from '../events.ts';
 import { attachTurn, steerable, turnStartedAt } from '../services/chat-turns.ts';
 import { enqueueSteer, stopWithQueued } from '../services/chat-interject.ts';
 import { runChatTurn } from '../services/chat-run.ts';
-import { defaultModelChoice } from '../services/routes.ts';
 
 /**
  * What the user is looking at when they send a message. The web app reports it from every page,
@@ -62,11 +61,10 @@ export const chatRoutes = new Hono<Env>()
   .post('/projects/:projectId/chat', validate('json', z.object({ model: modelChoiceSchema.optional() })), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
-    // A new conversation talks to the project's chat model, else the AI the latest one picked, unless told otherwise.
+    // A new conversation talks to the project's chat model, else the model the latest one picked (none: the panel asks to pick), unless told otherwise.
     const settings = agentSettingsSchema.parse(db.select({ settings: s.projects.agentSettings }).from(s.projects).where(eq(s.projects.id, projectId)).get()?.settings ?? {});
     const latest = db.select({ connectionId: s.chatSessions.connectionId, model: s.chatSessions.model, effort: s.chatSessions.effort }).from(s.chatSessions).where(and(eq(s.chatSessions.projectId, projectId), sql`${s.chatSessions.model} is not null`)).orderBy(desc(s.chatSessions.updatedAt)).get();
-    const fallback = defaultModelChoice(db, 'chat');
-    const choice = c.req.valid('json').model ?? settings.chatModel ?? latest ?? (fallback.connectionId && fallback.model ? fallback : undefined);
+    const choice = c.req.valid('json').model ?? settings.chatModel ?? latest;
     // …and starts in the project's default permission mode (#45).
     const permissionMode = settings.defaultPermissionMode;
     const row = db.insert(s.chatSessions).values({ projectId, title: '새 대화', ...choiceColumns(choice), permissionMode }).returning().get();

@@ -481,14 +481,8 @@ export const connections = sqliteTable('connections', {
   executable: text('executable'),
   headerTemplate: text('header_template'),
   createdAt: createdAt(),
-  /** Filled in when the connection is picked somewhere; templates and imported workflows use it. */
-  defaultModel: text('default_model'),
-  defaultEffort: text('default_effort'),
   /** How every call through this connection is made, wherever it is picked. */
   maxAttempts: integer('max_attempts').notNull().default(2),
-  /** Tokens a call may take in (the window) and give out; null = the model's own (from its model list, modelLimits). Output is also sent as each call's cap. */
-  inputTokens: integer('input_tokens'),
-  outputTokens: integer('output_tokens'),
   /** Model id → its context window and output limit (from the model list, or a person's numbers); what "auto" budgets read. */
   modelLimits: json<Record<string, ModelLimits>>('model_limits').notNull().default(sql`'{}'`),
   /** Where calls go when this connection keeps failing transiently; that connection's own fallback is followed in turn. */
@@ -536,8 +530,7 @@ export interface RouteSnapshot {
 export interface AiSnapshot {
   /** "connection · model · effort", as people read it. */
   label: string;
-  /** Unset: the model's own limit. */
-  /** The connection's 출력 토큰, sent as each call's cap; unset = the model's own limit. */
+  /** The model's known output limit (its modelLimits), sent as each call's cap; unset = none sent. */
   maxOutputTokens?: number;
   maxAttempts: number;
   routes: RouteSnapshot[];

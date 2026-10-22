@@ -24,7 +24,7 @@ const CUT_OFF = () => new ai.ModelError('cli', 'Your previous response was cut o
 function setup(lines: number, batch: Partial<BatchConfig>, { resend = true, failures = 50 }: { resend?: boolean; failures?: number } = {}) {
   const db = openDatabase(':memory:');
   const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1' }).returning().get();
-  db.update(s.connections).set({ outputTokens: 1000, maxAttempts: 1 }).where(eq(s.connections.id, connection.id)).run();
+  db.update(s.connections).set({ maxAttempts: 1 }).where(eq(s.connections.id, connection.id)).run();
   const choice = { connectionId: connection.id, model: 'm' };
   const units = Array.from({ length: lines }, (_, index) => ({ key: `g1-${index}`, group: 'g1', source: `S0 L${index}` }));
   const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Test' }, groups: [{ key: 'g1', title: 'Scene' }], units }), choice);

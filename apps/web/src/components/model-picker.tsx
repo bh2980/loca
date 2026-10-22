@@ -38,21 +38,9 @@ function useModelLabel(value: ModelValue | null | undefined) {
 }
 
 /**
- * What a picker starts with: the choice used here last time if its connection still exists,
- * else the first connection (by name) that can do the job and has a default model.
- */
-export function useInitialModel(need: Capability[], last?: { connectionId: string | null; model: string | null; effort?: string | null } | null): ModelValue | null {
-  const connections = useQuery(q.connections());
-  const usable = (connections.data ?? []).filter((item) => CONNECTION_KIND_INFO[item.kind].capabilities.some((capability) => need.includes(capability)));
-  if (last?.connectionId && last.model && usable.some((item) => item.id === last.connectionId)) return { connectionId: last.connectionId, model: last.model, ...(last.effort && { effort: last.effort }) };
-  const connection = usable.find((item) => item.defaultModel);
-  return connection ? { connectionId: connection.id, model: connection.defaultModel!, ...(connection.defaultEffort && { effort: connection.defaultEffort }) } : null;
-}
-
-/**
  * The one way to choose AI wherever it is used: a connection, one of its models
  * and a reasoning effort, in one popover. Connections that cannot do what the place needs are left
- * out; picking a connection fills in its default model. `compact` is the chat composer's ghost button.
+ * out; picking a connection leaves the model to be picked next. `compact` is the chat composer's ghost button.
  */
 export function ModelPicker({
   value,
@@ -73,7 +61,7 @@ export function ModelPicker({
   exclude?: string;
   /** Only connections of these kinds (the editor's continuation: API connections). */
   kinds?: ConnectionKind[];
-  /** Only the model and effort of `value.connectionId` (a connection's own default model, its test). */
+  /** Only the model and effort of `value.connectionId` (a connection's model test). */
   lockConnection?: boolean;
   compact?: boolean;
   id?: string;
@@ -96,8 +84,7 @@ export function ModelPicker({
   const typed = query.trim();
 
   const pickConnection = (connectionId: string) => {
-    const next = usable.find((item) => item.id === connectionId);
-    onChange({ connectionId, model: next?.defaultModel ?? '', ...(next?.defaultEffort && { effort: next.defaultEffort }) });
+    onChange({ connectionId, model: '' });
   };
   const pickModel = (model: string) => {
     onChange({ connectionId: value!.connectionId, model, ...(value?.effort && efforts.includes(value.effort) && { effort: value.effort }) });

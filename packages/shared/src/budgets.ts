@@ -25,7 +25,7 @@ export const DEFAULT_BUDGETS = { lines: 6_000, whole: 300_000, context: 12_000 }
 const OUTPUT_RATIO = { text: 2.5, verdict: 0.3, choice: 0.3, json: 0.5 } as const;
 /**
  * What is assumed when nothing says how long one answer may be (the window is known, the output
- * limit is not): a person's 출력 토큰 or a listed limit replaces it.
+ * limit is not): a listed limit replaces it.
  */
 export const UNKNOWN_MAX_OUTPUT = 16_000;
 /** System prompt, instructions and the request's own scaffolding. */
@@ -70,18 +70,15 @@ export function autoBudgets(
 }
 
 /**
- * What a call through this connection may take in and give out: the connection's own 입력·출력 토큰
- * when a person set them, else what the model list said about the chosen model; undefined when neither is known.
+ * What a call through this connection may take in and give out: what the model list (or a learned
+ * call) said about the chosen model; undefined when it said nothing.
  */
-export function limitsFor(connection: { inputTokens: number | null; outputTokens: number | null; modelLimits: Record<string, ModelLimits> } | undefined, model: string): ModelLimits | undefined {
-  if (!connection) return undefined;
-  const listed = connection.modelLimits[model];
-  const contextWindow = connection.inputTokens ?? listed?.contextWindow;
-  const maxOutput = connection.outputTokens ?? listed?.maxOutput;
-  return contextWindow || maxOutput ? { contextWindow, maxOutput, by: connection.inputTokens || connection.outputTokens ? 'human' : 'api' } : undefined;
+export function limitsFor(connection: { modelLimits: Record<string, ModelLimits> } | undefined, model: string): ModelLimits | undefined {
+  const listed = connection?.modelLimits[model];
+  return listed?.contextWindow || listed?.maxOutput ? listed : undefined;
 }
 
-/** Where one of a request's limits comes from: a person's number, the model list or a learned call, or the assumption UNKNOWN_MAX_OUTPUT. */
+/** Where one of a request's limits comes from: the model list or a learned call, or the assumption UNKNOWN_MAX_OUTPUT. */
 export type LimitSource = 'human' | 'api' | 'assumed';
 
 /**
@@ -89,18 +86,14 @@ export type LimitSource = 'human' | 'api' | 'assumed';
  * that is unknown, except the output once the window is known (UNKNOWN_MAX_OUTPUT, 'assumed'). Both
  * null means the default budgets applied.
  */
-export function limitsWithSource(connection: { inputTokens: number | null; outputTokens: number | null; modelLimits: Record<string, ModelLimits> } | undefined, model: string) {
+export function limitsWithSource(connection: { modelLimits: Record<string, ModelLimits> } | undefined, model: string) {
   const listed = connection?.modelLimits[model];
-  const input: { tokens: number | null; by: 'human' | 'api' | null } =
-    connection?.inputTokens != null ? { tokens: connection.inputTokens, by: 'human' } : listed?.contextWindow ? { tokens: listed.contextWindow, by: listed.by } : { tokens: null, by: null };
-  const output: { tokens: number | null; by: LimitSource | null } =
-    connection?.outputTokens != null
-      ? { tokens: connection.outputTokens, by: 'human' }
-      : listed?.maxOutput
-        ? { tokens: listed.maxOutput, by: listed.by }
-        : input.tokens !== null
-          ? { tokens: UNKNOWN_MAX_OUTPUT, by: 'assumed' }
-          : { tokens: null, by: null };
+  const input: { tokens: number | null; by: 'human' | 'api' | null } = listed?.contextWindow ? { tokens: listed.contextWindow, by: listed.by } : { tokens: null, by: null };
+  const output: { tokens: number | null; by: LimitSource | null } = listed?.maxOutput
+    ? { tokens: listed.maxOutput, by: listed.by }
+    : input.tokens !== null
+      ? { tokens: UNKNOWN_MAX_OUTPUT, by: 'assumed' }
+      : { tokens: null, by: null };
   return { input, output };
 }
 

@@ -14,7 +14,6 @@ import { closeStaleCalls } from './services/ai-calls.ts';
 import { closeInterruptedProposals } from './services/proposals.ts';
 import { computeLayouts, projectsMissingSections, projectsWithOldLayouts, projectsWithoutLayouts } from './services/layout.ts';
 import { keyringStore, memoryStore } from './services/secrets.ts';
-import { fillDefaultModels } from './services/routes.ts';
 
 // A stray rejected promise (a client that vanished, a failed background job) must not take the server down.
 process.on('unhandledRejection', (reason) => console.error('unhandled rejection', reason));
@@ -30,8 +29,6 @@ const secrets = process.env.WORKBENCH_SECRETS === 'memory' ? memoryStore() : key
 closeStaleCalls(db);
 // Proposals a stopped server was still applying are closed as failed, not run again (see closeInterruptedProposals).
 closeInterruptedProposals(db);
-// AI nodes saved before their connection had a default model get it now (also done when a connection is saved).
-fillDefaultModels(db);
 const runner = new Runner(db, secrets);
 runner.start();
 

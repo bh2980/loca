@@ -52,8 +52,8 @@ describe('model profiles → model choices (0035/0036)', () => {
 
     const db = openDatabase(file, drizzleFolder);
     const connections = new Map(db.select().from(s.connections).all().map((row) => [row.id, row]));
-    expect(connections.get('c1')).toMatchObject({ defaultModel: 'gpt-x', defaultEffort: 'low', maxAttempts: 3, outputTokens: 12000, fallback: { connectionId: 'c2', model: 'gpt-5', effort: 'high' } });
-    expect(connections.get('c2')).toMatchObject({ defaultModel: 'gpt-5', defaultEffort: null, maxAttempts: 1, fallback: null });
+    expect(connections.get('c1')).toMatchObject({ maxAttempts: 3, fallback: { connectionId: 'c2', model: 'gpt-5', effort: 'high' } });
+    expect(connections.get('c2')).toMatchObject({ maxAttempts: 1, fallback: null });
 
     const workflow = db.select().from(s.workflows).get()!;
     // Still a valid definition: the app reads it with the same schema.

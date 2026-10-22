@@ -232,12 +232,10 @@ function WorkflowEditor() {
     return () => clearTimeout(timer);
   }, [draft, stale, save.isPending, save.isError, save.mutate]);
 
-  // A new AI node starts with the model the workflow already uses, else the first connection's default.
+  // A new AI node starts with the model the workflow already uses, else none: validation asks for one.
   const newNodeModel = () => {
     const used = current?.definition.nodes.find((node) => node.type === 'ai' && node.config.model.model);
-    if (used?.type === 'ai') return used.config.model;
-    const connection = connections.data?.find((item) => item.defaultModel && item.kind !== 'http' && item.kind !== 'systemone');
-    return connection ? { connectionId: connection.id, model: connection.defaultModel!, ...(connection.defaultEffort && { effort: connection.defaultEffort }) } : { connectionId: '', model: '' };
+    return used?.type === 'ai' ? used.config.model : { connectionId: '', model: '' };
   };
   const summaryNames = { status: new Map(statuses.data?.statuses.map((status) => [status.id, status.name])), connection: new Map(connections.data?.map((connection) => [connection.id, connection.name])), connectionsLoaded: Boolean(connections.data), workflows: workflows.data };
   const summary = (node: WorkflowNode) => (current ? nodeSummary(node, current.definition, summaryNames) : '');

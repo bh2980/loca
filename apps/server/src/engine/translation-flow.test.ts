@@ -16,7 +16,7 @@ type Entry = { id: string; source: string; candidate?: string; previous?: { issu
 async function run({ source = 'Hello', translate = (line: Entry) => `번역 ${line.source}`, revise = (line: Entry, n: number) => `수정${n} ${line.source}`, passes = (_line: Entry, _review: number) => true }: { source?: string; translate?: (line: Entry) => string; revise?: (line: Entry, n: number) => string; passes?: (line: Entry, review: number) => boolean } = {}) {
   const db = openDatabase(':memory:');
   const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1' }).returning().get();
-  db.update(s.connections).set({ outputTokens: 1000, maxAttempts: 1 }).where(eq(s.connections.id, connection.id)).run();
+  db.update(s.connections).set({ maxAttempts: 1 }).where(eq(s.connections.id, connection.id)).run();
   const { projectId } = importProject(
     db,
     importFileSchema.parse({ format: 'loca/v1', project: { name: 'Test' }, groups: [{ key: 'g1', title: 'Scene' }], units: [{ key: 'u0', group: 'g1', source }] }),

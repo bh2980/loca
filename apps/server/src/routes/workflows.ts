@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { scopeMismatch } from '../services/run-plan.ts';
 import { and, asc, count, desc, eq, getTableColumns, inArray, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { AI_OUTPUT_IDS, type AiOutput, choiceKey, nodeName, httpParams, FUNCTIONS, type FunctionName, isWholeScriptWorkflow, nodeModels, CONNECTION_KIND_INFO, workflowInput, AUTO_MARK_IDS, type AutoMark, scriptParams, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels, WORKFLOW_TEMPLATES } from '@tw/shared';
+import { AI_OUTPUT_IDS, type AiOutput, choiceKey, nodeName, httpParams, FUNCTIONS, type FunctionName, isWholeScriptWorkflow, nodeModels, CONNECTION_KIND_INFO, workflowInput, AUTO_MARK_IDS, type AutoMark, scriptParams, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels, WORKFLOW_TEMPLATES, EMPTY_MODEL_CHOICE } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -12,7 +12,7 @@ import { callHttp, httpOutput, lineView, validateScriptData } from '../engine/fu
 import { runScript } from '../engine/functions/sandbox.ts';
 import { WHOLE_SCRIPT_BUSY, createRunInSteps, FILLING, refuseSecondWholeScript, selectRunTerms, selectRunUnits } from '../engine/run-create.ts';
 import { listBatches, preflight } from '../services/preflight.ts';
-import { choiceLabel, defaultModelChoice, snapshotWorkflowModels } from '../services/routes.ts';
+import { choiceLabel, snapshotWorkflowModels } from '../services/routes.ts';
 import { previewRequest } from '../services/request-preview.ts';
 import { continuePreflight, switchedRun } from '../services/run-continue.ts';
 import { deleteWorkflow, saveWorkflow, workflowCallers, WorkflowMutationError } from '../services/workflow-mutations.ts';
@@ -85,7 +85,7 @@ function freeNameFor(db: Db, projectId: string, base: string): string {
   for (let n = 2; ; n++) if (!taken.has(`${base} ${n}`)) return `${base} ${n}`;
 }
 
-/** A template's definition with this project's statuses (by kind and review flag, never by name), failure tag and default model. */
+/** A template's definition with this project's statuses (by kind and review flag, never by name), and failure tag. The model is left empty: validation asks the person to pick one. */
 function templateDefinition(db: Db, projectId: string, key: string): { name: string; definition: WorkflowDefinition } {
   const template = WORKFLOW_TEMPLATES.find((entry) => entry.key === key) ?? badRequest('알 수 없는 템플릿입니다.');
   const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).orderBy(asc(s.statuses.sort)).all();
@@ -93,7 +93,7 @@ function templateDefinition(db: Db, projectId: string, key: string): { name: str
   const aiFailedTag = db.select({ id: s.tags.id }).from(s.tags).where(and(eq(s.tags.projectId, projectId), eq(s.tags.name, 'AI 실패'))).get();
   const definition = workflowDefinitionSchema.parse(
     template.build({
-      model: defaultModelChoice(db),
+      model: EMPTY_MODEL_CHOICE,
       untranslated: statuses.find((status) => status.kind === 'initial')?.id,
       confirmed: statuses.find((status) => status.kind === 'final')?.id,
       needsReview: normal.find((status) => status.inReview)?.id,

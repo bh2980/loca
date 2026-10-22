@@ -23,7 +23,7 @@ const at = { x: 0, y: 0 };
 function setup({ termsBatch = 8, callError }: { termsBatch?: number; callError?: 'handled' } = {}) {
   const db = openDatabase(':memory:');
   const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1' }).returning().get();
-  db.update(s.connections).set({ outputTokens: 1000, maxAttempts: 1 }).where(eq(s.connections.id, connection.id)).run();
+  db.update(s.connections).set({ maxAttempts: 1 }).where(eq(s.connections.id, connection.id)).run();
   const choice = { connectionId: connection.id, model: 'm' };
   const units = Array.from({ length: 8 }, (_, index) => ({ key: `u${index}`, group: 'g1', source: `Hello ${index}` }));
   const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Test' }, groups: [{ key: 'g1', title: 'Scene' }], units }), choice);

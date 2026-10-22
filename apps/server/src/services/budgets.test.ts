@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { autoBudgets, DEFAULT_BUDGETS, limitsFor, UNKNOWN_MAX_OUTPUT, importFileSchema, presetConfig, workflowDefinitionSchema, type AiNode } from '@tw/shared';
+import { autoBudgets, DEFAULT_BUDGETS, limitsFor, limitsWithSource, UNKNOWN_MAX_OUTPUT, importFileSchema, presetConfig, workflowDefinitionSchema, type AiNode } from '@tw/shared';
 import { limitsOf } from '@tw/ai';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -45,11 +45,15 @@ describe('resolving and migrating budgets', () => {
   };
   const definitionWith = (config: AiNode['config']) => workflowDefinitionSchema.parse({ nodes: [{ id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: {} }, { id: 'ai', type: 'ai', position: { x: 0, y: 0 }, config }], edges: [{ id: '1', source: 'entry', sourceHandle: 'out', target: 'ai' }] });
 
-  it('take the connection\'s 입력·출력 토큰 over what the model list said, and the list when they are empty', () => {
+  it('read the limits the model list (or a learned call) gave, and nothing else', () => {
     const listed = { m: { contextWindow: 200_000, maxOutput: 8_000, by: 'api' as const } };
-    expect(limitsFor({ inputTokens: null, outputTokens: null, modelLimits: listed }, 'm')).toMatchObject({ contextWindow: 200_000, maxOutput: 8_000 });
-    expect(limitsFor({ inputTokens: 1_000_000, outputTokens: null, modelLimits: listed }, 'm')).toMatchObject({ contextWindow: 1_000_000, maxOutput: 8_000 });
-    expect(limitsFor({ inputTokens: null, outputTokens: null, modelLimits: {} }, 'cli-model')).toBeUndefined();
+    expect(limitsFor({ modelLimits: listed }, 'm')).toMatchObject({ contextWindow: 200_000, maxOutput: 8_000 });
+    expect(limitsFor({ modelLimits: listed }, 'other')).toBeUndefined();
+    expect(limitsFor({ modelLimits: {} }, 'cli-model')).toBeUndefined();
+    expect(limitsFor(undefined, 'm')).toBeUndefined();
+    expect(limitsWithSource({ modelLimits: listed }, 'm')).toEqual({ input: { tokens: 200_000, by: 'api' }, output: { tokens: 8_000, by: 'api' } });
+    expect(limitsWithSource({ modelLimits: { m: { contextWindow: 100_000, by: 'api' } } }, 'm').output).toEqual({ tokens: UNKNOWN_MAX_OUTPUT, by: 'assumed' });
+    expect(limitsWithSource({ modelLimits: {} }, 'm')).toEqual({ input: { tokens: null, by: null }, output: { tokens: null, by: null } });
   });
 
   it('fills auto from the node model and keeps a person\'s numbers', () => {
