@@ -51,9 +51,9 @@ export interface NodeEstimate {
 /**
  * Why a node sends the requests it does. `linesTokens` is the line text one request packs to (null
  * when requests are sized by count or one by one); `budgetBy` says whether a person set it on the
- * node or it came from the model's limits ("auto"). `input` is the window used (a person's 입력 토큰,
- * or a listed or learned limit; null when unknown) and `output` the answer length it assumed: a
- * person's 출력 토큰, a listed or learned limit, or UNKNOWN_MAX_OUTPUT ('assumed') once the window is known.
+ * node or it came from the model's limits ("auto"). `input` is the window used (a listed or
+ * learned limit of the model; null when unknown) and `output` the answer length it assumed: a
+ * listed or learned limit, or UNKNOWN_MAX_OUTPUT ('assumed') once the window is known.
  * Both null means neither is known and the default budgets applied.
  */
 export interface NodeSplit {

@@ -94,7 +94,7 @@ export function agentCommand(
 }
 
 /** A login method an ACP agent offers (initialize's authMethods). */
-export interface AuthMethodInfo {
+interface AuthMethodInfo {
   id: string;
   name: string;
   description?: string;
@@ -109,7 +109,7 @@ const QUOTA = /quota|RESOURCE_EXHAUSTED|rate.?limit|usage limit|too many request
 const AUTH = /auth(entication)? required|not (logged|signed) in|login required|unauthori[sz]ed|\b401\b/i;
 
 /** An ACP or process failure as a ModelError, with the CLI's last words when it died, the login methods it offers and the command that was run. */
-export function acpError(error: unknown, stderr = '', extra: { authMethods?: string[]; command?: string } = {}): ModelError {
+export function acpError(error: unknown, stderr = '', extra: { command?: string } = {}): ModelError {
   if (error instanceof ModelError) return error;
   const raw = error instanceof Error ? error.message : typeof error === 'object' && error && 'message' in error ? String((error as { message: unknown }).message) : String(error);
   const data = typeof error === 'object' && error && 'data' in error ? JSON.stringify((error as { data: unknown }).data ?? '') : '';
@@ -118,7 +118,7 @@ export function acpError(error: unknown, stderr = '', extra: { authMethods?: str
   if (QUOTA.test(detail)) return new ModelError('rate-limit', `CLI 사용량 한도에 도달했습니다. ${detail}`);
   if (TOO_LONG.test(detail)) return new ModelError('too-long', `요청이 모델의 문맥 창보다 깁니다. ${detail}`.slice(0, 400), false);
   // Only what the CLI says: a bare JSON-RPC -32000 is any server error.
-  if (AUTH.test(detail)) return new ModelError('auth', `CLI 로그인이 필요합니다. 연결 설정에서 로그인하세요.${extra.authMethods?.length ? ` (로그인 방식: ${extra.authMethods.join(', ')})` : ''} ${detail}`, false);
+  if (AUTH.test(detail)) return new ModelError('auth', `CLI에 로그인이 필요합니다. 연결 설정의 '로그인 창 열기'로 로그인하세요. ${detail}`, false);
   return new ModelError('cli', `CLI가 실패했습니다: ${detail}${tail}`, false);
 }
 
@@ -180,18 +180,15 @@ export class AcpAgent {
 
   readonly kind: AcpKind;
   readonly init: acp.InitializeResponse;
-  /** The login methods the agent offers. A session that fails with a login error authenticates through one of them (`authMethod`, else the first) and is retried once. */
+  /** The login methods the agent offers; a session that fails with a login error answers with the first (see withLogin). */
   readonly authMethods: AuthMethodInfo[];
-  /** The method id the connection chose; undefined = the first one offered. */
-  private readonly authMethod: string | undefined;
   readonly command: string | undefined;
   private readonly child: Pick<ChildProcess, 'once' | 'kill' | 'stderr'>;
   private readonly connection: acp.ClientSideConnection;
 
-  private constructor(kind: AcpKind, child: Pick<ChildProcess, 'once' | 'kill' | 'stderr'>, connection: acp.ClientSideConnection, init: acp.InitializeResponse, command?: string, authMethod?: string) {
+  private constructor(kind: AcpKind, child: Pick<ChildProcess, 'once' | 'kill' | 'stderr'>, connection: acp.ClientSideConnection, init: acp.InitializeResponse, command?: string) {
     this.kind = kind;
     this.command = command;
-    this.authMethod = authMethod?.trim() || undefined;
     this.authMethods = (init.authMethods ?? []).map((method) => ({ id: method.id, name: method.name || method.id, ...(method.description && { description: method.description }) }));
     if (this.authMethods.length) console.debug(`[acp] ${kind} auth methods: ${this.authMethods.map((method) => method.name).join(', ')}`);
     this.child = child;
@@ -200,7 +197,7 @@ export class AcpAgent {
     this.exited = new Promise((resolve) => child.once('exit', () => resolve()));
   }
 
-  static async start(kind: AcpKind, executable: string | undefined, authMethod?: string): Promise<AcpAgent> {
+  static async start(kind: AcpKind, executable: string | undefined): Promise<AcpAgent> {
     const command = agentCommand(kind, executable);
     const child = spawn(command.file, command.args, { env: { ...process.env, ...command.env }, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, ...(command.windowsVerbatimArguments && { windowsVerbatimArguments: true }) });
     const spawned = new Promise<void>((resolve, reject) => {
@@ -208,11 +205,11 @@ export class AcpAgent {
       child.once('error', (error: NodeJS.ErrnoException) => reject(error.code === 'ENOENT' ? new ModelError('config', cliMissing(cliCommand(kind, executable)), false) : acpError(error)));
     });
     await spawned;
-    return AcpAgent.over(kind, child, acp.ndJsonStream(Writable.toWeb(child.stdin!) as WritableStream<Uint8Array>, Readable.toWeb(child.stdout!) as ReadableStream<Uint8Array>), [command.file, ...command.args].join(' '), authMethod);
+    return AcpAgent.over(kind, child, acp.ndJsonStream(Writable.toWeb(child.stdin!) as WritableStream<Uint8Array>, Readable.toWeb(child.stdout!) as ReadableStream<Uint8Array>), [command.file, ...command.args].join(' '));
   }
 
   /** An agent on an existing stream; `child` is its process, or a stand-in with `once('exit')`, `kill` and no stderr (tests). */
-  static async over(kind: AcpKind, child: Pick<ChildProcess, 'once' | 'kill' | 'stderr'>, stream: acp.Stream, command?: string, authMethod?: string): Promise<AcpAgent> {
+  static async over(kind: AcpKind, child: Pick<ChildProcess, 'once' | 'kill' | 'stderr'>, stream: acp.Stream, command?: string): Promise<AcpAgent> {
     let self: AcpAgent | undefined;
     const connection = new acp.ClientSideConnection(
       () => ({
@@ -249,7 +246,7 @@ export class AcpAgent {
       const reason = closed ? new Error(exitCode === undefined ? 'ACP 연결이 닫혔습니다.' : `ACP 프로세스가 바로 종료되었습니다 (exit ${exitCode}).`) : error;
       throw acpError(reason, stderrTail.text, { command });
     });
-    self = new AcpAgent(kind, child, connection, init, command, authMethod);
+    self = new AcpAgent(kind, child, connection, init, command);
     self.stderr = stderrTail.text;
     child.once('exit', (code) => {
       self!.exitError = acpError(new Error(`ACP 프로세스가 종료되었습니다 (exit ${code}).`), self!.stderr, { command });
@@ -441,20 +438,20 @@ export class AcpAgent {
   }
 
   /**
-   * A session request that logs in when the agent asks: on a login error, authenticates with the
-   * connection's method (else the first offered) and tries once more. Never before a session asks.
+   * A session request that answers the agent's login question: when the agent asks for a login
+   * (some, like Antigravity, refuse a session until the client picks a method), authenticates with the
+   * first method it offers, which makes it use the CLI's own login, and tries once more. Never before
+   * a session asks. If it still fails, the CLI is not logged in.
    */
   private async withLogin<T>(request: () => Promise<T>): Promise<T> {
     try {
       return await this.call(request);
     } catch (error) {
       if (!(error instanceof ModelError) || error.code !== 'auth' || !this.authMethods.length) throw error;
-      const method = this.authMethods.find((candidate) => candidate.id === this.authMethod) ?? (this.authMethod ? { id: this.authMethod, name: this.authMethod } : this.authMethods[0]!);
       try {
-        await this.call(() => this.connection.authenticate({ methodId: method.id }));
+        await this.call(() => this.connection.authenticate({ methodId: this.authMethods[0]!.id }));
       } catch (failed) {
-        const reason = failed instanceof ModelError ? failed.message : acpError(failed, this.stderr, { command: this.command }).message;
-        throw new ModelError('auth', `로그인 방식 '${method.name}'(${method.id})으로 로그인하지 못했습니다. ${reason}`.slice(0, 600), false);
+        throw failed instanceof ModelError && failed.code === 'auth' ? failed : new ModelError('auth', `CLI에 로그인이 필요합니다. 연결 설정의 '로그인 창 열기'로 로그인하세요. ${failed instanceof ModelError ? failed.message : acpError(failed, this.stderr, { command: this.command }).message}`.slice(0, 600), false);
       }
       return this.call(request);
     }
@@ -469,7 +466,7 @@ export class AcpAgent {
     try {
       return await Promise.race([request(), died]);
     } catch (error) {
-      throw acpError(error, this.stderr, { authMethods: this.authMethods.map((method) => method.name), command: this.command });
+      throw acpError(error, this.stderr, { command: this.command });
     }
   }
 }
@@ -481,25 +478,25 @@ const PER_PROCESS = 8;
 /** A process with nothing running for this long is stopped. */
 const IDLE_STOP_MS = 10 * 60_000;
 
-let starter: (kind: AcpKind, executable: string | undefined, authMethod?: string) => Promise<AcpAgent> = (kind, executable, authMethod) => AcpAgent.start(kind, executable, authMethod);
+let starter: (kind: AcpKind, executable: string | undefined) => Promise<AcpAgent> = (kind, executable) => AcpAgent.start(kind, executable);
 /** Tests start agents in process. */
 export function setAgentStarter(start: typeof starter | null) {
-  starter = start ?? ((kind, executable, authMethod) => AcpAgent.start(kind, executable, authMethod));
+  starter = start ?? ((kind, executable) => AcpAgent.start(kind, executable));
   pool.clear();
 }
 
-const poolKey = (kind: AcpKind, executable?: string, authMethod?: string) => `${kind}\u0000${executable?.trim() ?? ''}\u0000${authMethod?.trim() ?? ''}`;
+const poolKey = (kind: AcpKind, executable?: string) => `${kind}\u0000${executable?.trim() ?? ''}`;
 
 /** A process for a new session: an idle one first, else a new one. */
-export async function agentFor(kind: AcpKind, executable?: string, authMethod?: string): Promise<AcpAgent> {
-  const key = poolKey(kind, executable, authMethod);
+export async function agentFor(kind: AcpKind, executable?: string): Promise<AcpAgent> {
+  const key = poolKey(kind, executable);
   const entries = pool.get(key) ?? [];
   pool.set(key, entries);
   for (const entry of entries) {
     const agent = await entry.catch(() => null);
     if (agent?.alive && agent.active < PER_PROCESS) return agent;
   }
-  const started = starter(kind, executable, authMethod);
+  const started = starter(kind, executable);
   entries.push(started);
   started.then(
     (agent) => void agent.exited.then(() => remove(key, started)),
@@ -508,19 +505,45 @@ export async function agentFor(kind: AcpKind, executable?: string, authMethod?: 
   return started;
 }
 
-/** The login methods an agent offers: starts a process, reads what initialize says (no session, no model call) and stops it. */
-export async function listAuthMethods(kind: AcpKind, executable?: string): Promise<AuthMethodInfo[]> {
-  const agent = await starter(kind, executable);
+/** How long a login check waits for the agent to start and open a session. */
+const LOGIN_CHECK_MS = 60_000;
+
+/**
+ * Whether the CLI is logged in, checked the way the chat starts: start the agent, initialize, open a
+ * session (answering a login question as the chat does) and close it. No prompt, no model call. A
+ * login error is 'signed-out'; any other failure throws with its real message. The process always stops.
+ */
+export async function checkCliLogin(kind: AcpKind, executable?: string): Promise<'signed-in' | 'signed-out'> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new ModelError('timeout', `CLI가 ${LOGIN_CHECK_MS / 1000}초 안에 세션을 열지 못했습니다.`, false)), LOGIN_CHECK_MS);
+  });
+  timeout.catch(() => {});
+  const started = starter(kind, executable);
+  started.catch(() => {});
   try {
-    return agent.authMethods;
+    return await Promise.race([
+      (async () => {
+        const agent = await started;
+        const { sessionId } = await agent.newSession({ cwd: tmpdir(), mcpServers: [], system: '' });
+        await agent.close(sessionId);
+        return 'signed-in' as const;
+      })(),
+      timeout,
+    ]);
+  } catch (error) {
+    if (error instanceof ModelError && error.code === 'auth') return 'signed-out';
+    throw error;
   } finally {
-    agent.kill();
+    clearTimeout(timer);
+    // A start still pending at the timeout is stopped when it arrives.
+    void started.then((agent) => agent.kill(), () => {});
   }
 }
 
 /** The process that has a session open, if any is still running. */
-export async function agentWith(kind: AcpKind, executable: string | undefined, sessionId: string, authMethod?: string): Promise<AcpAgent | null> {
-  for (const entry of pool.get(poolKey(kind, executable, authMethod)) ?? []) {
+export async function agentWith(kind: AcpKind, executable: string | undefined, sessionId: string): Promise<AcpAgent | null> {
+  for (const entry of pool.get(poolKey(kind, executable)) ?? []) {
     const agent = await entry.catch(() => null);
     if (agent?.alive && agent.sessions.has(sessionId)) return agent;
   }

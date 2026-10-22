@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { numberOrNull, numberOrUndefined } from '@/lib/form-values';
+import { numberOrUndefined } from '@/lib/form-values';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
@@ -12,7 +12,6 @@ import {
   CONNECTION_KINDS,
   connectionInputSchema,
   isFreeModel,
-  UNKNOWN_MAX_OUTPUT,
   type Capability,
   type ConnectionKind,
 } from '@tw/shared';
@@ -46,7 +45,6 @@ import { Page } from '@/components/page';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
 import { DeleteButton } from '@/components/settings/delete-button';
 import { KeyPane, type KeyRow } from '@/components/settings/key-pane';
-import { AuthMethodField } from '@/components/settings/auth-method-field';
 import { ExecutableField } from '@/components/settings/executable-field';
 import { client, unwrap, type InferResponseType } from '@/lib/api';
 import { q } from '@/lib/queries';
@@ -65,9 +63,7 @@ export const Route = createFileRoute('/p/$projectId/settings/connections')({
 const CAPABILITY_LABEL: Record<Capability, string> = { generate: '생성', judge: '판정', chat: '채팅', tool: '도구' };
 const LOGIN_LABEL: Record<string, string> = {
   'signed-in': '로그인됨',
-  'signed-out': '로그아웃됨',
-  unknown: '확인하지 못했습니다',
-  unsupported: '확인할 수 없음: 이 CLI는 로그인 상태를 알려 주지 않습니다',
+  'signed-out': '로그인 필요',
 };
 const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -96,7 +92,6 @@ function ConnectionsSettingsPage() {
   const aiColumns: ColumnDef<ConnectionRow, unknown>[] = [
     { id: 'name', header: '이름', meta: { hideable: false }, cell: ({ row }) => <span className="font-medium">{row.original.name}</span> },
     { id: 'kind', header: '종류', meta: { width: 200, className: 'text-muted-foreground' }, cell: ({ row }) => CONNECTION_KIND_INFO[row.original.kind].label },
-    { id: 'model', header: '모델', meta: { width: 240, className: 'font-mono text-xs text-muted-foreground' }, cell: ({ row }) => [row.original.defaultModel, row.original.defaultEffort].filter(Boolean).join(' · ') },
     {
       id: 'state',
       header: '상태',
@@ -290,13 +285,8 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
     name: connection.name,
     baseUrl: connection.baseUrl ?? undefined,
     executable: connection.executable ?? '',
-    authMethod: connection.authMethod,
     headerTemplate: connection.headerTemplate ?? '',
-    defaultModel: connection.defaultModel,
-    defaultEffort: connection.defaultEffort,
     maxAttempts: connection.maxAttempts,
-    inputTokens: connection.inputTokens,
-    outputTokens: connection.outputTokens,
     fallback: connection.fallback,
   };
   const form = useForm<z.input<typeof editSchema>, unknown, z.output<typeof editSchema>>({
@@ -307,15 +297,6 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
   const dirtyFields: Record<string, unknown> = form.formState.dirtyFields;
   const onlyDirty = <T extends object>(json: T) => Object.fromEntries(Object.entries(json).filter(([key]) => dirtyFields[key])) as T;
   const number = { setValueAs: numberOrUndefined };
-  // Empty token fields mean the model's own limit: null, so clearing a number is saved too.
-  const optionalNumber = { setValueAs: numberOrNull };
-  // A token field's number in effect: the one typed, else what the model list said about this connection's model (shown as the placeholder), else the default.
-  const limitOf = (field: 'contextWindow' | 'maxOutput', typed: unknown) => {
-    const listed = connection.modelLimits?.[form.watch('defaultModel') ?? '']?.[field];
-    return { tag: typed ? '직접 입력' : listed ? '모델 정보' : '기본값', placeholder: (listed ?? (field === 'maxOutput' ? UNKNOWN_MAX_OUTPUT : undefined))?.toLocaleString() };
-  };
-  const inputLimit = limitOf('contextWindow', form.watch('inputTokens'));
-  const outputLimit = limitOf('maxOutput', form.watch('outputTokens'));
   const errors = form.formState.errors;
   const need: Capability[] = info.capabilities.includes('judge') ? ['judge'] : ['generate'];
 
@@ -328,14 +309,9 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
             name: values.name,
             baseUrl: isHttp ? values.baseUrl : undefined,
             executable: isHttp ? undefined : (values.executable ?? ''),
-            authMethod: isHttp ? undefined : (values.authMethod ?? null),
             headerTemplate: connection.kind === 'http' ? (values.headerTemplate ?? '') : undefined,
             ...(!isTool && {
-              defaultModel: values.defaultModel ?? null,
-              defaultEffort: values.defaultEffort ?? null,
               maxAttempts: values.maxAttempts,
-              inputTokens: values.inputTokens,
-              outputTokens: values.outputTokens,
               fallback: values.fallback ?? null,
             }),
           }),
@@ -379,7 +355,7 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
   });
   const loginStatus = useMutation({
     mutationFn: () => unwrap(client.connections[':id'].login.$get({ param: { id: connection.id } })),
-    onSuccess: (result) => setLogin(result.status),
+    onSuccess: (result) => setLogin(result.status === 'error' ? result.detail : result.status),
     onError: (error) => toast.error(errorMessage(error)),
   });
   const openLogin = useMutation({
@@ -425,37 +401,6 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
           {info.transport === 'cli' && (
             <Controller control={form.control} name="executable" render={({ field }) => <ExecutableField kind={connection.kind} value={field.value ?? ''} onChange={field.onChange} />} />
           )}
-          {info.transport === 'cli' && (
-            <Controller control={form.control} name="authMethod" render={({ field }) => <AuthMethodField connectionId={connection.id} executable={connection.executable} value={field.value} onChange={field.onChange} />} />
-          )}
-          {!isTool && (
-            <Controller
-              control={form.control}
-              name="defaultModel"
-              render={({ field }) => (
-                // Not what the connection always calls: the model filled in when this connection is picked (node, chat, run).
-                <InspectorField
-                  label="모델"
-                  help="이 연결을 고르면 먼저 채워지는 모델입니다."
-                  action={field.value && (
-                    <Button variant="ghost" size="inline" onClick={() => { field.onChange(null); form.setValue('defaultEffort', null, { shouldDirty: true }); }}>
-                      지우기
-                    </Button>
-                  )}
-                >
-                  <ModelPicker
-                    lockConnection
-                    need={need}
-                    value={{ connectionId: connection.id, model: field.value ?? '', effort: form.getValues('defaultEffort') ?? undefined }}
-                    onChange={(next) => {
-                      field.onChange(next.model || null);
-                      form.setValue('defaultEffort', next.effort ?? null, { shouldDirty: true });
-                    }}
-                  />
-                </InspectorField>
-              )}
-            />
-          )}
           {isHttp && (
             <InspectorField
               label={connection.hasKey ? 'API 키 · 저장됨' : 'API 키 · 없음'}
@@ -474,19 +419,6 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
       {!isTool && (
         <InspectorSection title="고급" defaultOpen={false}>
           <InspectorFields>
-            <InspectorField label="입력 토큰" description={inputLimit.tag} help="한 번에 넣을 수 있는 양입니다. 클수록 호출은 줄지만 놓치는 내용이 늘 수 있습니다." error={errors.inputTokens?.message}>
-              <Input type="number" min={1000} placeholder={inputLimit.placeholder} {...form.register('inputTokens', optionalNumber)} aria-invalid={!!errors.inputTokens} />
-            </InspectorField>
-            {info.capabilities.includes('generate') && (
-              <InspectorField
-                label="출력 토큰"
-                description={outputLimit.tag}
-                help={info.capsOutput ? '한 번에 받을 수 있는 양입니다. 적은 값은 요청마다 상한으로도 보냅니다.' : '한 번에 받을 수 있는 양입니다. 이 연결에는 전달되지 않고, 한 번에 얼마나 보낼지 정하는 데만 쓰입니다.'}
-                error={errors.outputTokens?.message}
-              >
-                <Input type="number" min={256} placeholder={outputLimit.placeholder} {...form.register('outputTokens', optionalNumber)} aria-invalid={!!errors.outputTokens} />
-              </InspectorField>
-            )}
             {!isTool && (
             <Controller
               control={form.control}
@@ -525,14 +457,13 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
           {info.transport === 'cli' && (
             <InspectorActionRow
               label="로그인"
-              description={connection.kind === 'antigravity' ? 'agy를 인자 없이 엽니다. 이미 로그인했다면 로그인 창은 나오지 않습니다.' : undefined}
               action={
                 <>
-                  <Button variant="ghost" disabled={openLogin.isPending} onClick={() => openLogin.mutate()}>{connection.kind === 'antigravity' ? 'agy 열기' : '창 열기'}</Button>
+                  <Button variant="ghost" disabled={openLogin.isPending} onClick={() => openLogin.mutate()}>로그인 창 열기</Button>
                   <Button variant="outline" disabled={loginStatus.isPending} onClick={() => loginStatus.mutate()}>{loginStatus.isPending && <Spinner />}상태 보기</Button>
                 </>
               }
-              result={login && <InspectorResult tone={login === 'signed-in' ? 'ok' : login === 'signed-out' ? 'error' : 'info'}>{LOGIN_LABEL[login] ?? login}</InspectorResult>}
+              result={login && <InspectorResult tone={login === 'signed-in' ? 'ok' : 'error'}>{LOGIN_LABEL[login] ?? login}</InspectorResult>}
             />
           )}
           {!isTool && (
@@ -565,7 +496,7 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
               }
             />
           )}
-          {!isTool && <ModelTest connectionId={connection.id} need={need} defaultModel={connection.defaultModel} defaultEffort={connection.defaultEffort} />}
+          {!isTool && <ModelTest connectionId={connection.id} need={need} />}
         </div>
       </InspectorSection>
 
@@ -573,9 +504,9 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
   );
 }
 
-function ModelTest({ connectionId, need, defaultModel, defaultEffort }: { connectionId: string; need: Capability[]; defaultModel: string | null; defaultEffort: string | null }) {
+function ModelTest({ connectionId, need }: { connectionId: string; need: Capability[] }) {
   const [picked, setChoice] = useState<ModelValue | null>(null);
-  const choice = picked ?? { connectionId, model: defaultModel ?? '', ...(defaultEffort && { effort: defaultEffort }) };
+  const choice = picked ?? { connectionId, model: '' };
   const [source, setSource] = useState('');
   const test = useMutation({
     mutationFn: () => unwrap(client.connections[':id'].test.$post({ param: { id: connectionId }, json: { model: choice.model, effort: choice.effort, source, targetLanguage: 'ko' } })),

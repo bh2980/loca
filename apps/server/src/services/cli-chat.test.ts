@@ -130,7 +130,7 @@ describe('CLI chat over ACP', () => {
   it('lets the CLI session go when the chat moves to another model', async () => {
     setAgentStarter(inProcessStarter({ FAKE_ACP_CHAT_TOOLS: '[]' }));
     const { db, chat } = setup();
-    const connection = db.insert(s.connections).values({ name: 'Grok', kind: 'grok', defaultModel: 'fake' }).returning().get();
+    const connection = db.insert(s.connections).values({ name: 'Grok', kind: 'grok' }).returning().get();
     const send = async (model: string, text: string) => {
       const current = db.update(s.chatSessions).set({ connectionId: connection.id, model }).where(eq(s.chatSessions.id, chat.id)).returning().get();
       await (await runChatTurn({ db, secrets: memoryStore() }, current, { incoming: user(text) })).text();

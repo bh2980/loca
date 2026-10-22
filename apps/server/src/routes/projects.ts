@@ -11,7 +11,6 @@ import { createStatus, createTag, deleteStatuses, deleteTags, orderTags, project
 import { projectSettingsInput, updateProjectSettings } from '../services/project-settings.ts';
 import { importProject } from '../services/importer.ts';
 import type { DecidedTable } from '../services/status-by.ts';
-import { defaultModelChoice } from '../services/routes.ts';
 import { cancelLayout, computeLayouts } from '../services/layout.ts';
 import { REGEX_TARGETS, generateRegex } from '../services/regex-assist.ts';
 import { editorCallsToday } from '../services/editor-complete.ts';
@@ -43,7 +42,7 @@ export const projectRoutes = new Hono<Env>()
   })
   .post('/', validate('json', importFileSchema), (c) => {
     const { db } = c.var.deps;
-    const summary = importProject(db, c.req.valid('json'), defaultModelChoice(db));
+    const summary = importProject(db, c.req.valid('json'));
     void computeLayouts(db, summary.projectId);
     events.changed(undefined, 'projects');
     return c.json(summary, 201);

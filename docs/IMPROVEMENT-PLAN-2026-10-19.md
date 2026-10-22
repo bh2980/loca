@@ -499,7 +499,7 @@
           .where(eq(s.units.projectId, projectId))
           .limit(20)
           .all();
-        const modelChoice = defaultModelChoice(db, projectId);
+        const modelChoice = editorAi.model; // 설정 › 에디터의 AI 모델
         const schema = z.object({
           label: z.string().describe('규칙의 짧은 한국어 이름 (예: 중괄호 변수, 영문 대문자 약어 금지)'),
           kind: target === 'token'

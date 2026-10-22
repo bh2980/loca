@@ -13,7 +13,7 @@ export interface NodeRefs {
   workflowId?: string;
   statuses: { id: string; name: string; color: string; humanOnly?: boolean }[];
   tags: { id: string; name: string; color: string }[];
-  connections: { id: string; name: string; kind: keyof typeof CONNECTION_KIND_INFO; baseUrl: string | null; fallback: { connectionId: string; model: string } | null; inputTokens?: number | null; outputTokens?: number | null; modelLimits?: Record<string, ModelLimits> }[];
+  connections: { id: string; name: string; kind: keyof typeof CONNECTION_KIND_INFO; baseUrl: string | null; fallback: { connectionId: string; model: string } | null; modelLimits?: Record<string, ModelLimits> }[];
   nodes: WorkflowNode[];
   edges?: WorkflowEdge[];
   /** The project's workflows (a call node picks one of them). */

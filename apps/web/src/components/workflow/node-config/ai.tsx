@@ -44,7 +44,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
   const setExtra = (index: number, value: ModelValue) => set({ extraModels: extras.map((choice, i) => (i === index ? value : choice)) });
   const connection = refs.connections.find((item) => item.id === config.model.connectionId);
   // What auto would pick for this node's own model, shown while the field is empty.
-  const autoLines = autoBudgets(limitsFor(connection && { inputTokens: connection.inputTokens ?? null, outputTokens: connection.outputTokens ?? null, modelLimits: connection.modelLimits ?? {} }, config.model.model), config.output, config.batch.mode).lines;
+  const autoLines = autoBudgets(limitsFor(connection && { modelLimits: connection.modelLimits ?? {} }, config.model.model), config.output, config.batch.mode).lines;
   const takesTemperature = connection ? CONNECTION_KIND_INFO[connection.kind].transport !== 'cli' && connection.kind !== 'systemone' : false;
   const contextOn = [config.include.candidate, context.glossary, context.speech, context.precedingLines > 0, context.previousScenes > 0, context.cast, context.characters, context.relationships, context.documents].filter(Boolean).length;
 
@@ -171,9 +171,9 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
             </Field>
             {(config.batch.mode === 'group' || config.batch.mode === 'whole') && (
               <Field
-                label="요청당 대사 양"
+                label="요청 크기"
                 hint={config.batch.maxTokens === null ? '자동' : '직접 입력'}
-                help="요청 한 번에 담는 대사 양입니다. 클수록 빠르지만 놓치는 내용이 늘어납니다."
+                help="요청 한 번에 보내는 원문 양입니다. 클수록 빠르지만 놓치는 내용이 늘어납니다."
               >
                 <Input
                   type="number"

@@ -2,7 +2,7 @@
  * What a number field holds, for react-hook-form's setValueAs. The form hands it the field's text
  * as typed, but also the default value as stored when the field mounts (null for "none"), so an empty
  * value can be '', null or undefined: each is "no number", never 0 (Number(null) is 0, which failed a
- * min() check and kept 입력·출력 토큰 left empty from saving).
+ * min() check and kept an empty field from saving).
  */
 export const numberOrNull = (value: unknown): number | null => {
   if (value === null || value === undefined) return null;

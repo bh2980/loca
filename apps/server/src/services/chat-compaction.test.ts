@@ -20,7 +20,7 @@ const sized = (tokens: number) => 'x'.repeat(tokens * 4);
 function setup(inputTokens: number) {
   const db = openDatabase(':memory:');
   const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', source: 'Hi' }] }));
-  const connection = db.insert(s.connections).values({ name: 'Grok', kind: 'grok', executable: FAKE_GROK, defaultModel: 'fake', inputTokens }).returning().get();
+  const connection = db.insert(s.connections).values({ name: 'Grok', kind: 'grok', executable: FAKE_GROK, modelLimits: { fake: { contextWindow: inputTokens, by: 'api' } } }).returning().get();
   const chat = db.insert(s.chatSessions).values({ projectId, title: '대화' }).returning().get();
   const route = { kind: 'grok' as const, executable: FAKE_GROK, model: 'fake', connectionId: connection.id };
   return { db, chat, route };

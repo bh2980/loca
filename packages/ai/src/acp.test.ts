@@ -6,7 +6,7 @@ import type * as acp from '@agentclientprotocol/sdk';
 import { afterEach, describe, expect, it } from 'vitest';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
-import { acpError, agentCommand, AcpAgent as Agent, agentFor, agentWith, closeSession, listAuthMethods, readUsage, setAgentStarter, stopIdleAgents, type AcpAgent } from './acp.ts';
+import { acpError, agentCommand, AcpAgent as Agent, agentFor, agentWith, checkCliLogin, closeSession, readUsage, setAgentStarter, stopIdleAgents, type AcpAgent } from './acp.ts';
 import { ModelError } from './errors.ts';
 import { inProcessStarter } from './fake-acp-starter.ts';
 import { hostTools } from './mcp-host.ts';
@@ -185,40 +185,57 @@ describe('logging in when a session asks', () => {
     expect((await turn(agent, sessionId, '안녕')).reply).toContain('로그인 oauth-personal');
   });
 
-  it('sends the method the connection chose', async () => {
-    setAgentStarter(inProcessStarter({ FAKE_ACP_AUTH: AUTH, FAKE_ACP_CHAT_TOOLS: '[]' }));
-    const agent = await agentFor('antigravity', undefined, 'gemini-api-key');
-    const { sessionId } = await session(agent);
-    expect((await turn(agent, sessionId, '안녕')).reply).toContain('로그인 gemini-api-key');
-  });
-
   it('does not log in before a session asks, nor when the agent needs none', async () => {
     setAgentStarter(inProcessStarter({ FAKE_ACP_CHAT_TOOLS: '[]' }));
-    const agent = await agentFor('grok', undefined, 'whatever');
+    const agent = await agentFor('grok');
     const { sessionId } = await session(agent);
     expect((await turn(agent, sessionId, '안녕')).reply).not.toContain('로그인 ');
   });
 
-  it('reports the real message and the method when authenticate fails', async () => {
+  it('says the CLI needs a login, with the agent\'s own message, when authenticate fails', async () => {
     setAgentStarter(inProcessStarter({ FAKE_ACP_AUTH: AUTH, FAKE_ACP_AUTH_FAIL: 'browser login was cancelled' }));
-    const agent = await agentFor('antigravity', undefined, 'oauth-personal');
+    const agent = await agentFor('antigravity');
     const error = await failure(session(agent));
     expect(error.code).toBe('auth');
     expect(error.message).toContain('browser login was cancelled');
-    expect(error.message).toContain('Log in with Google');
+    expect(error.message).toContain('로그인 창 열기');
   });
+});
 
-  it('fails with the agent\'s message when the chosen method is not one it knows', async () => {
-    setAgentStarter(inProcessStarter({ FAKE_ACP_AUTH: AUTH }));
-    const agent = await agentFor('antigravity', undefined, 'nope');
-    expect((await failure(session(agent))).message).toContain('Unknown auth method nope');
-  });
-
-  it('lists the methods without opening a session', async () => {
-    setAgentStarter(inProcessStarter({ FAKE_ACP_AUTH: AUTH }));
-    expect((await listAuthMethods('antigravity')).map((method) => method.name)).toEqual(['Log in with Google', 'Gemini API key']);
+describe('checking the login the way the chat starts', () => {
+  const AUTH = JSON.stringify([{ id: 'oauth-personal', name: 'Log in with Google' }]);
+  it('is signed in when a session opens, also when the agent asks for a login first', async () => {
     setAgentStarter(inProcessStarter());
-    expect(await listAuthMethods('grok')).toEqual([]);
+    expect(await checkCliLogin('grok')).toBe('signed-in');
+    setAgentStarter(inProcessStarter({ FAKE_ACP_AUTH: AUTH }));
+    expect(await checkCliLogin('antigravity')).toBe('signed-in');
+  });
+
+  it('is signed out when the login is refused', async () => {
+    setAgentStarter(inProcessStarter({ FAKE_ACP_AUTH: AUTH, FAKE_ACP_AUTH_FAIL: 'no browser' }));
+    expect(await checkCliLogin('antigravity')).toBe('signed-out');
+  });
+
+  it('reports any other failure with its message', async () => {
+    setAgentStarter(async () => {
+      throw new Error('spawn exploded');
+    });
+    await expect(checkCliLogin('codex')).rejects.toThrow('spawn exploded');
+  });
+
+  it('stops the process every time', async () => {
+    const kills: number[] = [];
+    for (const fail of [undefined, 'no browser']) {
+      const inner = inProcessStarter({ FAKE_ACP_AUTH: AUTH, FAKE_ACP_AUTH_FAIL: fail });
+      setAgentStarter(async (kind, executable) => {
+        const agent = await inner(kind, executable);
+        const kill = agent.kill.bind(agent);
+        agent.kill = () => (kills.push(1), kill());
+        return agent;
+      });
+      await checkCliLogin('antigravity');
+    }
+    expect(kills).toHaveLength(2);
   });
 });
 
@@ -240,8 +257,7 @@ describe('what a failed agent says', () => {
     expect(acpError({ code: -32000, message: 'Internal error', data: { details: 'spawn failed' } }).code).toBe('cli');
     expect(acpError({ code: -32000, message: 'Authentication required' }).code).toBe('auth');
     expect(acpError(new Error('x'), 'Error: you are not logged in\n').code).toBe('auth');
-    const withMethods = acpError({ code: -32000, message: 'login required' }, '', { authMethods: ['ChatGPT', 'API key'] });
-    expect(withMethods.message).toContain('ChatGPT, API key');
+    expect(acpError({ code: -32000, message: 'login required' }).message).toContain('로그인 창 열기');
   });
 
   it('reports the exit code, the last stderr lines and the command when the stream closes at once', async () => {

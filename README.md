@@ -42,7 +42,7 @@ API가 준비되면 Vite가 개발 주소 `http://127.0.0.1:4318`을 표시합�
 ## 시작하기
 
 1. 첫 화면에서 **표준 파일 가져오기** → `samples/relay-station.json` (작은 예시)
-2. AI › 연결 → 연결 추가(OpenAI 호환 API, System One, Codex/Claude/Grok/Antigravity/opencode CLI) → 기본 모델 선택. opencode CLI로는 opencode의 무료 모델(`opencode/…`)과 opencode Go 모델을 쓸 수 있습니다
+2. AI › 연결 → 연결 추가(OpenAI 호환 API, System One, Codex/Claude/Grok/Antigravity/opencode CLI). 연결은 접속 방법만 담고 모델은 AI 노드와 채팅에서 고릅니다. opencode CLI로는 opencode의 무료 모델(`opencode/…`)과 opencode Go 모델을 쓸 수 있습니다
 3. 워크플로 → 기본 번역 → AI 노드에 연결·모델 지정 → 저장 → 실행
 4. 실행 기록에서 진행을 보고, 검토함에서 ‘사람 확인 필요’ 같은 검토 상태의 대사를 고치고 다음 상태로 옮김
 5. 우측 **에이전트**(Windows: Ctrl+I, macOS: ⌘I)에게 "대본을 읽고 인물 프로필을 만들어줘"처럼 요청 → 제안 카드 수락

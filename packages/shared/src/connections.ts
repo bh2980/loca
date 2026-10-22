@@ -21,8 +21,6 @@ export interface ConnectionKindInfo {
   defaultBaseUrl?: string;
   needsKey: boolean;
   efforts: string[];
-  /** Whether outputTokens is also sent with each call as its output cap (API); elsewhere it only sizes requests (agent CLIs pick their own output length, System One answers a fixed shape). */
-  capsOutput?: boolean;
 }
 
 export const CONNECTION_KIND_INFO: Record<ConnectionKind, ConnectionKindInfo> = {
@@ -33,7 +31,6 @@ export const CONNECTION_KIND_INFO: Record<ConnectionKind, ConnectionKindInfo> = 
     defaultBaseUrl: 'https://api.openai.com/v1',
     needsKey: true,
     efforts: ['minimal', 'low', 'medium', 'high'],
-    capsOutput: true,
   },
   systemone: {
     label: 'System One (TypeSafe)',
@@ -72,19 +69,10 @@ export const connectionInputSchema = z.object({
   baseUrl: z.string().trim().url().optional(),
   /** Absolute path to the CLI executable. Empty = resolve from PATH. */
   executable: z.string().trim().optional(),
-  /** ACP CLI kinds: the agent's login method (id) to use when it asks to log in. Null/empty = the first it offers. */
-  authMethod: z.string().trim().nullable().optional(),
   /** HTTP tools: how the stored key is sent, e.g. "Authorization: Bearer {key}" or "X-API-Key: {key}". */
   headerTemplate: z.string().trim().optional(),
-  /** Model calls this account takes at once, shared by every run. */
-  /** Filled in when this connection is picked somewhere (and for templates and imported workflows). */
-  defaultModel: z.string().trim().nullable().optional(),
-  defaultEffort: z.string().nullable().optional(),
   /** How every call through this connection is made, wherever it is picked. (Time limits belong to what calls: an AI node's own, CALL_TIMEOUT_MS for the rest.) */
   maxAttempts: z.number().int().min(1).max(5).optional(),
-  /** Tokens a call may take in (the window) and give out; null = the model's own. Output is also each call's cap. */
-  inputTokens: z.number().int().min(1_000).max(10_000_000).nullable().optional(),
-  outputTokens: z.number().int().min(256).max(1_000_000).nullable().optional(),
   /** What each model of this connection takes and gives in one call (model id → limits): from its model list, or a person's numbers. */
   modelLimits: z.record(z.string(), modelLimitsSchema).optional(),
   /** Where calls go when this connection keeps failing transiently (rate limit, network, timeout); that connection's own fallback is followed in turn. */

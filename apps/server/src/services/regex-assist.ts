@@ -6,7 +6,7 @@ import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { badRequest } from '../http-errors.ts';
 import { logged } from './ai-calls.ts';
-import { defaultModelChoice, liveChoice } from './routes.ts';
+import { liveChoice } from './routes.ts';
 import type { SecretStore } from './secrets.ts';
 
 export const REGEX_TARGETS = ['token', 'check'] as const;
@@ -22,12 +22,13 @@ const TASK = {
 
 /**
  * 자연어로 정규식 만들기: one rule (label, kind, pattern, example) for the format-check settings,
- * made by the project's default model from the user's description and up to 10 source lines.
+ * made by the editor's AI model (설정 › 에디터) from the user's description and up to 10 source lines.
  * The pattern is checked with the same rule the settings use, so what comes back can be saved as is.
  */
 export async function generateRegex(db: Db, secrets: SecretStore, projectId: string, request: { prompt: string; target: RegexTarget }, signal?: AbortSignal, generate: typeof ai.generate = ai.generate) {
-  const choice = defaultModelChoice(db);
-  if (!choice.connectionId) badRequest('AI 연결에 기본 모델이 없습니다. AI 설정에서 연결과 기본 모델을 고르세요.');
+  const editorAi = editorAiSchema.parse(db.select({ editorAi: s.projects.editorAi }).from(s.projects).where(eq(s.projects.id, projectId)).get()?.editorAi ?? {});
+  const choice = editorAi.model;
+  if (!choice.connectionId || !choice.model) badRequest('설정 › 에디터에서 AI 모델을 고르세요.');
   const { snapshot, routes } = liveChoice(db, choice, secrets, 'generate');
   const samples = db.select({ source: s.units.source }).from(s.units).where(eq(s.units.projectId, projectId)).orderBy(asc(s.units.seq)).limit(10).all();
   const kinds = KINDS[request.target];
@@ -43,7 +44,7 @@ export async function generateRegex(db: Db, secrets: SecretStore, projectId: str
   const result = await ai.withFallback(
     routes,
     snapshot.maxAttempts,
-    (route) => logged(db, call, route, () => generate(route, { system, prompt, schema, maxOutputTokens: snapshot.maxOutputTokens, timeoutMs: editorAiSchema.parse(db.select({ editorAi: s.projects.editorAi }).from(s.projects).where(eq(s.projects.id, projectId)).get()?.editorAi ?? {}).timeoutSeconds * 1000, signal })),
+    (route) => logged(db, call, route, () => generate(route, { system, prompt, schema, maxOutputTokens: snapshot.maxOutputTokens, timeoutMs: editorAi.timeoutSeconds * 1000, signal })),
     signal,
   );
   const rule = schema.parse(result.result.object);

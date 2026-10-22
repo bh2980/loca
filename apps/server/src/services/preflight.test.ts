@@ -42,7 +42,7 @@ describe('preflight', () => {
   it('predicts the plan and the calls of the run it describes', async () => {
     const db = openDatabase(':memory:');
     const connection = db.insert(s.connections).values({ kind: 'openai', name: 'mock', baseUrl: 'http://mock/v1' }).returning().get();
-    db.update(s.connections).set({ outputTokens: 4000, maxAttempts: 1 }).where(eq(s.connections.id, connection.id)).run();
+    db.update(s.connections).set({ maxAttempts: 1 }).where(eq(s.connections.id, connection.id)).run();
   const choice = { connectionId: connection.id, model: 'm' };
     const { projectId } = importProject(db, importFileSchema.parse(realistic(3000).file), choice);
     const workflow = translateOnlyWorkflow(db, projectId);
@@ -99,8 +99,8 @@ describe('preflight split', () => {
     expect(split).toMatchObject({ nodeId: 'ai', requests: 1, mode: 'group', linesTokens: 19_500, budgetBy: 'auto', input: { tokens: 1_000_000, by: 'api' }, output: { tokens: 65_536, by: 'api' }, connectionName: '연결', model: 'm' });
   });
 
-  it('explains a CLI connection by a person\'s numbers, and the assumed output when only the window is known', async () => {
-    const split = await setup({ kind: 'codex', baseUrl: null, inputTokens: 1_000_000, outputTokens: 30_000 });
+  it('explains a CLI connection by the numbers a person gave the model, and the assumed output when only the window is known', async () => {
+    const split = await setup({ kind: 'codex', baseUrl: null, modelLimits: { m: { contextWindow: 1_000_000, maxOutput: 30_000, by: 'human' } } });
     expect(split).toMatchObject({ linesTokens: 9_000, input: { tokens: 1_000_000, by: 'human' }, output: { tokens: 30_000, by: 'human' } });
     const assumed = await setup({ kind: 'claude', baseUrl: null, modelLimits: { m: { contextWindow: 1_000_000, by: 'api' } } });
     expect(assumed).toMatchObject({ linesTokens: 4_500, input: { tokens: 1_000_000, by: 'api' }, output: { tokens: UNKNOWN_MAX_OUTPUT, by: 'assumed' } });

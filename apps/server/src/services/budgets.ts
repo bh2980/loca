@@ -3,7 +3,7 @@ import { autoBudgets, batchConfigSchema, contextConfigSchema, limitsFor, type Ai
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 
-const connectionLimits = { inputTokens: s.connections.inputTokens, outputTokens: s.connections.outputTokens, modelLimits: s.connections.modelLimits };
+const connectionLimits = { modelLimits: s.connections.modelLimits };
 
 /** What the chosen model's calls may take and give (limitsFor), or undefined when unknown. */
 export function modelLimitsOf(db: Db, choice: ModelChoice | undefined): ModelLimits | undefined {

@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { importFileSchema } from '@tw/shared';
+import { eq } from 'drizzle-orm';
+import { editorAiSchema, importFileSchema } from '@tw/shared';
 import type { Env } from '../context.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -14,7 +15,7 @@ vi.mock('@tw/ai', async (original) => ({ ...(await original<typeof import('@tw/a
 
 function setup(withModel = true) {
   const db = openDatabase(':memory:');
-  if (withModel) db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1', defaultModel: 'm', maxAttempts: 1 }).run();
+  const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1', maxAttempts: 1 }).returning().get();
   const file = importFileSchema.parse({
     format: 'loca/v1',
     project: { name: 'P' },
@@ -22,6 +23,7 @@ function setup(withModel = true) {
     units: Array.from({ length: 12 }, (_, n) => ({ key: `u${n}`, group: 'g', source: `Line ${n} [[ID_${n}]]` })),
   });
   const { projectId } = importProject(db, file, null as never);
+  if (withModel) db.update(s.projects).set({ editorAi: editorAiSchema.parse({ model: { connectionId: connection.id, model: 'm' } }) }).where(eq(s.projects.id, projectId)).run();
   const app = new Hono<Env>()
     .use(async (c, next) => {
       c.set('deps', { db, secrets: memoryStore() } as never);
@@ -67,7 +69,7 @@ describe('POST /projects/:projectId/generate-regex', () => {
     expect(await (await post({ prompt: 'TODO 금지', target: 'check' })).json()).toMatchObject({ kind: 'forbidden' });
   });
 
-  it('refuses without a default model, an empty prompt and an unknown project', async () => {
+  it('refuses without an editor AI model, an empty prompt and an unknown project', async () => {
     const none = setup(false);
     const response = await none.post({ prompt: 'x', target: 'token' });
     expect(response.status).toBe(400);

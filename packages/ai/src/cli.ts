@@ -436,12 +436,3 @@ export async function openLoginTerminal(kind: CliKind, executable?: string): Pro
     throw new ModelError('config', `터미널에서 직접 실행하세요: ${[command, ...loginArgs].join(' ')}`, false);
   }
 }
-
-/** Codex and Claude expose a status command; Grok, OpenCode and Antigravity do not ('unsupported': nothing was checked). 'unknown': the command did not run. */
-export async function cliLoginStatus(kind: CliKind, executable?: string): Promise<'signed-in' | 'signed-out' | 'unknown' | 'unsupported'> {
-  const statusArgs = kind === 'codex' ? ['login', 'status'] : kind === 'claude' ? ['auth', 'status'] : undefined;
-  if (!statusArgs) return 'unsupported';
-  const result = await execaCli(cliCommand(kind, executable), statusArgs, { timeout: 20_000, reject: false, windowsHide: true });
-  if (result.failed && result.exitCode === undefined) return 'unknown';
-  return result.exitCode === 0 ? 'signed-in' : 'signed-out';
-}

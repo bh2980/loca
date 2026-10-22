@@ -364,7 +364,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       execute: (input) => planRun(db, projectId, input),
     }),
     harness_reference: tool({
-      description: 'How workflows work: node types, their exits, the condition data model, available AI connections (with each default model and the efforts it takes), statuses and tags. Read this before proposing a workflow. AI presets come as a summary; pass preset (an id) for one preset\'s full instructions, output fields and context.',
+      description: 'How workflows work: node types, their exits, the condition data model, available AI connections (with the efforts each takes), statuses and tags. Read this before proposing a workflow. AI presets come as a summary; pass preset (an id) for one preset\'s full instructions, output fields and context.',
       inputSchema: z.object({ preset: z.enum(AI_PRESET_IDS).optional() }),
       execute: ({ preset }) => preset ? { preset, ...AI_PRESETS[preset] } : ({
         nodeTypes: NODE_TYPES,
@@ -430,7 +430,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
           'A loop needs a node with two or more exits inside it.',
         ],
         connections: db
-          .select({ id: s.connections.id, name: s.connections.name, kind: s.connections.kind, baseUrl: s.connections.baseUrl, defaultModel: s.connections.defaultModel, defaultEffort: s.connections.defaultEffort })
+          .select({ id: s.connections.id, name: s.connections.name, kind: s.connections.kind, baseUrl: s.connections.baseUrl })
           .from(s.connections)
           .all()
           .map((row) => ({ ...row, capabilities: CONNECTION_KIND_INFO[row.kind].capabilities, efforts: CONNECTION_KIND_INFO[row.kind].efforts })),

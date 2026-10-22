@@ -2,7 +2,7 @@ import { eq, inArray } from 'drizzle-orm';
 import type { ResolvedRoute } from '@tw/ai';
 import { choiceKey, CONNECTION_KIND_INFO, nodeModels, type Capability, type ConnectionKind, type ModelChoice, type WorkflowDefinition } from '@tw/shared';
 import type { Db } from '../db/index.ts';
-import { connections, workflows, type AiSnapshot, type RouteSnapshot } from '../db/schema.ts';
+import { connections, type AiSnapshot, type RouteSnapshot } from '../db/schema.ts';
 import type { SecretStore } from './secrets.ts';
 
 /** Fallbacks followed after the picked connection (each connection's own "막히면", in turn). */
@@ -32,7 +32,6 @@ export function snapshotChoice(db: Db, choice: ModelChoice, byId = new Map<strin
     kind: connection.kind,
     baseUrl: connection.baseUrl,
     executable: connection.executable,
-    authMethod: connection.authMethod,
     model,
     effort: effort || null,
   });
@@ -46,7 +45,7 @@ export function snapshotChoice(db: Db, choice: ModelChoice, byId = new Map<strin
     routes.push(route(connection, next.model, next.effort));
     next = connection.fallback;
   }
-  return { label: choiceLabel(primary.name, choice), maxOutputTokens: primary.outputTokens ?? undefined, maxAttempts: primary.maxAttempts, routes };
+  return { label: choiceLabel(primary.name, choice), maxOutputTokens: primary.modelLimits[choice.model]?.maxOutput, maxAttempts: primary.maxAttempts, routes };
 }
 
 /** Snapshots of several choices, keyed by choiceKey (a run's AI nodes). Choices whose connection is gone are left out. */
@@ -68,7 +67,6 @@ export function resolveRoutes(snapshot: AiSnapshot, secrets: SecretStore): Resol
     kind: route.kind as ConnectionKind,
     baseUrl: route.baseUrl ?? undefined,
     executable: route.executable ?? undefined,
-    authMethod: route.authMethod ?? undefined,
     model: route.model,
     effort: route.effort ?? undefined,
     apiKey: secrets.get(route.connectionId) ?? undefined,
@@ -96,53 +94,6 @@ export function connectionRoute(db: Db, connectionId: string, secrets: SecretSto
     kind: connection.kind,
     baseUrl: connection.baseUrl ?? undefined,
     executable: connection.executable ?? undefined,
-    authMethod: connection.authMethod ?? undefined,
     apiKey: secrets.get(connection.id) ?? undefined,
   };
-}
-
-/** What templates and imported workflows start with: the first AI connection (by name) that has a default model. */
-export function defaultModelChoice(db: Db, capability: Capability = 'generate'): { connectionId: string; model: string; effort?: string } {
-  const connection = db
-    .select()
-    .from(connections)
-    .all()
-    .filter((row) => row.defaultModel && CONNECTION_KIND_INFO[row.kind].capabilities.includes(capability))
-    .sort((a, b) => a.name.localeCompare(b.name))[0];
-  return connection ? { connectionId: connection.id, model: connection.defaultModel!, ...(connection.defaultEffort && { effort: connection.defaultEffort }) } : { connectionId: '', model: '' };
-}
-
-/**
- * AI nodes whose model was never picked get the connections' defaults: an empty node (saved before
- * any connection had a default model) takes defaultModelChoice, a node with a connection but no
- * model takes that connection's default. Null when nothing changed. Picked models are never touched.
- */
-export function withDefaultModels(db: Db, definition: WorkflowDefinition, byId = new Map(db.select().from(connections).all().map((row) => [row.id, row]))): WorkflowDefinition | null {
-  let fallback: ReturnType<typeof defaultModelChoice> | undefined;
-  let changed = false;
-  const nodes = definition.nodes.map((node) => {
-    if (node.type !== 'ai' || node.config.model.model) return node;
-    const current = node.config.model;
-    const connection = current.connectionId ? byId.get(current.connectionId) : undefined;
-    const choice = current.connectionId
-      ? connection?.defaultModel && { connectionId: connection.id, model: connection.defaultModel, ...((current.effort || connection.defaultEffort) && { effort: current.effort || connection.defaultEffort! }) }
-      : (fallback ??= defaultModelChoice(db)).connectionId && fallback;
-    if (!choice) return node;
-    changed = true;
-    return { ...node, config: { ...node.config, model: choice } };
-  });
-  return changed ? { ...definition, nodes } : null;
-}
-
-/** After a connection gets a default model: fills every workflow's unpicked AI nodes. Returns the projects whose workflows changed. */
-export function fillDefaultModels(db: Db): string[] {
-  const byId = new Map(db.select().from(connections).all().map((row) => [row.id, row]));
-  const projects = new Set<string>();
-  for (const workflow of db.select().from(workflows).all()) {
-    const definition = withDefaultModels(db, workflow.definition, byId);
-    if (!definition) continue;
-    db.update(workflows).set({ definition, version: workflow.version + 1 }).where(eq(workflows.id, workflow.id)).run();
-    projects.add(workflow.projectId);
-  }
-  return [...projects];
 }

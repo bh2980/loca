@@ -177,7 +177,7 @@ export function ChatPanel({ projectId }: { projectId: string }) {
         </AlertDialogContent>
       </AlertDialog>
       <ExternalProposals projectId={projectId} />
-      {/* A connection picked without a model yet (one with no default) still counts, so the picker asks for the model. */}
+      {/* A connection picked without a model yet still counts, so the picker asks for the model. */}
       {current ? (
         <Conversation key={current.id} projectId={projectId} sessionId={current.id} mode={current.permissionMode} model={current.connectionId ? { connectionId: current.connectionId, model: current.model ?? '', ...(current.effort && { effort: current.effort }) } : null} />
       ) : (
@@ -209,7 +209,7 @@ function Conversation({ projectId, sessionId, model, mode }: { projectId: string
         void unwrap(client.chat[':sessionId'].$patch({ param: { sessionId }, json: { permissionMode: next } }));
       }}
       onModel={async (next) => {
-        // Shown at once; a choice without a model yet (a connection with no default) waits for one.
+        // Shown at once; a connection chosen without a model yet waits for one.
         queryClient.setQueryData(q.chatSessions(projectId).queryKey, (list) => list?.map((item) => (item.id === sessionId ? { ...item, connectionId: next.connectionId, model: next.model || null, effort: next.effort ?? null } : item)));
         if (!next.model) return;
         await unwrap(client.chat[':sessionId'].$patch({ param: { sessionId }, json: { model: next } }));
@@ -445,7 +445,7 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
           {!busy && !error && lastMessage?.role === 'user' && <TurnState turn={turn} onStop={halt} onRetry={() => void regenerate()} canRetry={ready} />}
           {stalled && (
             <div className="flex items-center gap-2 rounded-md border bg-muted px-3 py-2 text-sm">
-              <span className="text-muted-foreground">{finishReason === 'length' ? '출력 한도(AI 연결 설정의 최대 출력 토큰)에 걸려 멈췄습니다.' : '에이전트가 결과를 말하지 않고 멈췄습니다.'}</span>
+              <span className="text-muted-foreground">{finishReason === 'length' ? '모델의 출력 한도에 걸려 멈췄습니다.' : '에이전트가 결과를 말하지 않고 멈췄습니다.'}</span>
               <Button variant="outline" className="ml-auto" disabled={!ready} onClick={() => void sendMessage({ text: '계속해줘' })}>
                 계속
               </Button>

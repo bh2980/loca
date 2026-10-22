@@ -8,7 +8,7 @@ import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { logged } from '../services/ai-calls.ts';
 import type { Db } from '../db/index.ts';
-import { choiceLabel, connectionRoute, fillDefaultModels, liveChoice } from '../services/routes.ts';
+import { choiceLabel, connectionRoute, liveChoice } from '../services/routes.ts';
 
 type CliKind = 'codex' | 'claude' | 'grok' | 'antigravity' | 'opencode';
 const isCli = (kind: string): kind is CliKind => CONNECTION_KIND_INFO[kind as keyof typeof CONNECTION_KIND_INFO]?.transport === 'cli';
@@ -16,12 +16,10 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
 
 /**
  * A fallback names a model to go on with: another connection, or another model of the same one (an
- * OpenRouter-style API serves many). Its own default model would only repeat the failing calls, and
- * a chain that comes back to a model it already tried stops there (snapshotChoice).
+ * OpenRouter-style API serves many). A chain that comes back to a model it already tried stops there (snapshotChoice).
  */
-function checkFallback(db: Db, id: string | null, fallback: ModelChoice | null | undefined, defaultModel?: string | null) {
+function checkFallback(db: Db, fallback: ModelChoice | null | undefined) {
   if (!fallback) return;
-  if (fallback.connectionId === id && fallback.model === defaultModel) badRequest('대체 모델로 이 연결의 모델을 고를 수 없습니다. 다른 모델을 고르세요.');
   const target = found(db.select().from(s.connections).where(eq(s.connections.id, fallback.connectionId)).get(), '막히면 넘길 연결');
   if (target.kind === 'http') badRequest('API 키 연결로는 넘길 수 없습니다.');
 }
@@ -57,26 +55,22 @@ export const connectionRoutes = new Hono<Env>()
     const { db, secrets } = c.var.deps;
     const { apiKey, ...input } = c.req.valid('json');
     const info = CONNECTION_KIND_INFO[input.kind];
-    checkFallback(db, null, input.fallback);
+    checkFallback(db, input.fallback);
     const row = db
       .insert(s.connections)
-      .values({ ...input, baseUrl: info.transport === 'http' ? (input.baseUrl ?? info.defaultBaseUrl) : null, executable: input.executable || null, authMethod: input.authMethod || null })
+      .values({ ...input, baseUrl: info.transport === 'http' ? (input.baseUrl ?? info.defaultBaseUrl) : null, executable: input.executable || null })
       .returning()
       .get();
     if (apiKey) secrets.set(row.id, apiKey);
-    // Its default model goes into AI nodes that were saved before any model could be picked.
-    const filled = row.defaultModel ? fillDefaultModels(db) : [];
-    events.changed(undefined, 'connections', ...(filled.length ? (['workflows'] as const) : []));
+    events.changed(undefined, 'connections');
     return c.json(row, 201);
   })
   .patch('/:id', validate('json', patchOf(connectionInputSchema.omit({ kind: true }))), (c) => {
     const { db } = c.var.deps;
     const input = c.req.valid('json');
-    const current = db.select({ defaultModel: s.connections.defaultModel }).from(s.connections).where(eq(s.connections.id, c.req.param('id'))).get();
-    checkFallback(db, c.req.param('id'), input.fallback, input.defaultModel !== undefined ? input.defaultModel : current?.defaultModel);
-    found(db.update(s.connections).set({ ...input, executable: input.executable === '' ? null : input.executable, authMethod: input.authMethod === undefined ? undefined : input.authMethod || null, defaultModel: input.defaultModel || (input.defaultModel === undefined ? undefined : null), defaultEffort: input.defaultEffort || (input.defaultEffort === undefined ? undefined : null) }).where(eq(s.connections.id, c.req.param('id'))).returning().get(), '연결');
-    if (input.defaultModel) fillDefaultModels(db);
-    events.changed(undefined, 'connections', 'workflows');
+    checkFallback(db, input.fallback);
+    found(db.update(s.connections).set({ ...input, executable: input.executable === '' ? null : input.executable }).where(eq(s.connections.id, c.req.param('id'))).returning().get(), '연결');
+    events.changed(undefined, 'connections');
     return c.json({ ok: true });
   })
   .delete('/:id', (c) => {
@@ -131,25 +125,15 @@ export const connectionRoutes = new Hono<Env>()
       return c.json({ ok: false as const, models: null, detail: message(error) });
     }
   })
-  // The login methods an ACP agent offers: initialize only (no session, no model call), then the process stops.
-  .get('/:id/auth-methods', async (c) => {
-    const { db, secrets } = c.var.deps;
-    const route = found(connectionRoute(db, c.req.param('id'), secrets), '연결');
-    if (!ai.isAcpKind(route.kind)) return c.json({ ok: true as const, methods: [] });
-    try {
-      return c.json({ ok: true as const, methods: await ai.listAuthMethods(route.kind, route.executable) });
-    } catch (error) {
-      return c.json({ ok: false as const, detail: message(error) });
-    }
-  })
   .get('/:id/login', async (c) => {
     const { db, secrets } = c.var.deps;
     const route = found(connectionRoute(db, c.req.param('id'), secrets), '연결');
     if (!isCli(route.kind)) return c.json({ status: 'not-applicable' as const });
+    // The chat's own path: start the agent and open a session (no prompt, no model call), then stop it.
     try {
-      return c.json({ status: await ai.cliLoginStatus(route.kind, route.executable) });
-    } catch {
-      return c.json({ status: 'unknown' as const });
+      return c.json({ status: await ai.checkCliLogin(route.kind as ai.AcpKind, route.executable) });
+    } catch (error) {
+      return c.json({ status: 'error' as const, detail: message(error) });
     }
   })
   .post('/:id/login', async (c) => {
