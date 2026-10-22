@@ -8,6 +8,8 @@ export interface ResolvedRoute {
   kind: ConnectionKind;
   baseUrl?: string;
   executable?: string;
+  /** ACP agents: the login method id to authenticate with when a session needs it. */
+  authMethod?: string;
   apiKey?: string;
   model: string;
   effort?: string;

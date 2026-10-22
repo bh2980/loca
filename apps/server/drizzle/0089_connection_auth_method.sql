@@ -1,0 +1,1 @@
+ALTER TABLE `connections` ADD `auth_method` text;

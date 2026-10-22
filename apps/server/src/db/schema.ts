@@ -479,6 +479,8 @@ export const connections = sqliteTable('connections', {
   name: text('name').notNull(),
   baseUrl: text('base_url'),
   executable: text('executable'),
+  /** An ACP agent's login method (its authMethods id) used when a session asks to log in; null = the first one it offers. */
+  authMethod: text('auth_method'),
   headerTemplate: text('header_template'),
   createdAt: createdAt(),
   /** Filled in when the connection is picked somewhere; templates and imported workflows use it. */
@@ -526,6 +528,8 @@ export interface RouteSnapshot {
   kind: string;
   baseUrl: string | null;
   executable: string | null;
+  /** ACP kinds: the login method id; absent in runs saved before it existed. */
+  authMethod?: string | null;
   model: string;
   effort: string | null;
 }

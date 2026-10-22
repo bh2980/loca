@@ -10,7 +10,7 @@ import type { AskRequest, AskResult, CompleteRequest, CompleteResult, GenerateRe
 export * from './types.ts';
 export { ModelError, type ModelErrorCode } from './errors.ts';
 export { cliLoginStatus, cliVersion, openLoginTerminal, LOGIN_COMMANDS } from './cli.ts';
-export { ACP_KINDS, AcpAgent, acpError, agentFor, agentWith, closeSession, isAcpKind, setAgentStarter, stopIdleAgents, type AcpKind, type SessionListener } from './acp.ts';
+export { ACP_KINDS, AcpAgent, acpError, agentFor, agentWith, closeSession, isAcpKind, listAuthMethods, setAgentStarter, stopIdleAgents, type AcpKind, type AuthMethodInfo, type SessionListener } from './acp.ts';
 export { hostTools, type HostedServer, type HostedTool } from './mcp-host.ts';
 export { limitsOf, openaiProviderOptions } from './openai.ts';
 

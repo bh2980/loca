@@ -137,11 +137,11 @@ export async function cliChatResponse(input: {
       const cwd = chatFolder();
       const server = await chatServer(db, chat);
       // The session: still open in a running process, reopened from the CLI's store, or new.
-      let agent = saved ? await ai.agentWith(kind, route.executable, saved.id) : null;
+      let agent = saved ? await ai.agentWith(kind, route.executable, saved.id, route.authMethod) : null;
       let lead: string | null = null;
       if (agent) sessionId = saved!.id;
       else {
-        agent = await ai.agentFor(kind, route.executable);
+        agent = await ai.agentFor(kind, route.executable, route.authMethod);
         const reopened = saved ? await agent.reopen({ sessionId: saved.id, cwd, mcpServers: [server], system: input.system }) : null;
         if (reopened && saved) sessionId = saved.id;
         else {

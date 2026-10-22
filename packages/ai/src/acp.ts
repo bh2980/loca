@@ -93,6 +93,13 @@ export function agentCommand(
   }
 }
 
+/** A login method an ACP agent offers (initialize's authMethods). */
+export interface AuthMethodInfo {
+  id: string;
+  name: string;
+  description?: string;
+}
+
 /** What a session's updates go to while one of our requests runs on it. */
 export interface SessionListener {
   update: (update: acp.SessionUpdate) => void;
@@ -173,24 +180,27 @@ export class AcpAgent {
 
   readonly kind: AcpKind;
   readonly init: acp.InitializeResponse;
-  /** The login methods the agent offers (names), kept for error messages; logging in through them is not implemented. */
-  readonly authMethods: string[];
+  /** The login methods the agent offers. A session that fails with a login error authenticates through one of them (`authMethod`, else the first) and is retried once. */
+  readonly authMethods: AuthMethodInfo[];
+  /** The method id the connection chose; undefined = the first one offered. */
+  private readonly authMethod: string | undefined;
   readonly command: string | undefined;
   private readonly child: Pick<ChildProcess, 'once' | 'kill' | 'stderr'>;
   private readonly connection: acp.ClientSideConnection;
 
-  private constructor(kind: AcpKind, child: Pick<ChildProcess, 'once' | 'kill' | 'stderr'>, connection: acp.ClientSideConnection, init: acp.InitializeResponse, command?: string) {
+  private constructor(kind: AcpKind, child: Pick<ChildProcess, 'once' | 'kill' | 'stderr'>, connection: acp.ClientSideConnection, init: acp.InitializeResponse, command?: string, authMethod?: string) {
     this.kind = kind;
     this.command = command;
-    this.authMethods = (init.authMethods ?? []).map((method) => method.name || method.id);
-    if (this.authMethods.length) console.debug(`[acp] ${kind} auth methods: ${this.authMethods.join(', ')}`);
+    this.authMethod = authMethod?.trim() || undefined;
+    this.authMethods = (init.authMethods ?? []).map((method) => ({ id: method.id, name: method.name || method.id, ...(method.description && { description: method.description }) }));
+    if (this.authMethods.length) console.debug(`[acp] ${kind} auth methods: ${this.authMethods.map((method) => method.name).join(', ')}`);
     this.child = child;
     this.connection = connection;
     this.init = init;
     this.exited = new Promise((resolve) => child.once('exit', () => resolve()));
   }
 
-  static async start(kind: AcpKind, executable: string | undefined): Promise<AcpAgent> {
+  static async start(kind: AcpKind, executable: string | undefined, authMethod?: string): Promise<AcpAgent> {
     const command = agentCommand(kind, executable);
     const child = spawn(command.file, command.args, { env: { ...process.env, ...command.env }, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, ...(command.windowsVerbatimArguments && { windowsVerbatimArguments: true }) });
     const spawned = new Promise<void>((resolve, reject) => {
@@ -198,11 +208,11 @@ export class AcpAgent {
       child.once('error', (error: NodeJS.ErrnoException) => reject(error.code === 'ENOENT' ? new ModelError('config', cliMissing(cliCommand(kind, executable)), false) : acpError(error)));
     });
     await spawned;
-    return AcpAgent.over(kind, child, acp.ndJsonStream(Writable.toWeb(child.stdin!) as WritableStream<Uint8Array>, Readable.toWeb(child.stdout!) as ReadableStream<Uint8Array>), [command.file, ...command.args].join(' '));
+    return AcpAgent.over(kind, child, acp.ndJsonStream(Writable.toWeb(child.stdin!) as WritableStream<Uint8Array>, Readable.toWeb(child.stdout!) as ReadableStream<Uint8Array>), [command.file, ...command.args].join(' '), authMethod);
   }
 
   /** An agent on an existing stream; `child` is its process, or a stand-in with `once('exit')`, `kill` and no stderr (tests). */
-  static async over(kind: AcpKind, child: Pick<ChildProcess, 'once' | 'kill' | 'stderr'>, stream: acp.Stream, command?: string): Promise<AcpAgent> {
+  static async over(kind: AcpKind, child: Pick<ChildProcess, 'once' | 'kill' | 'stderr'>, stream: acp.Stream, command?: string, authMethod?: string): Promise<AcpAgent> {
     let self: AcpAgent | undefined;
     const connection = new acp.ClientSideConnection(
       () => ({
@@ -239,7 +249,7 @@ export class AcpAgent {
       const reason = closed ? new Error(exitCode === undefined ? 'ACP 연결이 닫혔습니다.' : `ACP 프로세스가 바로 종료되었습니다 (exit ${exitCode}).`) : error;
       throw acpError(reason, stderrTail.text, { command });
     });
-    self = new AcpAgent(kind, child, connection, init, command);
+    self = new AcpAgent(kind, child, connection, init, command, authMethod);
     self.stderr = stderrTail.text;
     child.once('exit', (code) => {
       self!.exitError = acpError(new Error(`ACP 프로세스가 종료되었습니다 (exit ${code}).`), self!.stderr, { command });
@@ -276,7 +286,7 @@ export class AcpAgent {
   /** A new session; `inMessage` says whether the system prompt must lead the first message. */
   async newSession(input: { cwd: string; mcpServers: HostedServer[]; system: string }): Promise<{ sessionId: string; configOptions: acp.SessionConfigOption[]; inMessage: boolean }> {
     const { field, inMessage } = this.systemPromptField(input.system);
-    const response = await this.call(() =>
+    const response = await this.withLogin(() =>
       this.connection.newSession({ cwd: input.cwd, mcpServers: input.mcpServers, ...(field && { systemPrompt: field }), _meta: sessionMeta(this.kind, input.system) ?? null }),
     );
     this.sessions.set(response.sessionId, Date.now());
@@ -290,14 +300,14 @@ export class AcpAgent {
     const common = { sessionId: input.sessionId, cwd: input.cwd, mcpServers: input.mcpServers, ...(field && { systemPrompt: field }), _meta: sessionMeta(this.kind, input.system) ?? null };
     try {
       if (this.capabilities().sessionCapabilities?.resume) {
-        const response = await this.call(() => this.connection.resumeSession(common));
+        const response = await this.withLogin(() => this.connection.resumeSession(common));
         this.sessions.set(input.sessionId, Date.now());
         this.settings.set(input.sessionId, { options: response.configOptions ?? [] });
         return { configOptions: response.configOptions ?? [] };
       }
       if (this.capabilities().loadSession) {
         // Loading replays the history as updates; nobody listens to them yet.
-        const response = await this.call(() => this.connection.loadSession(common));
+        const response = await this.withLogin(() => this.connection.loadSession(common));
         this.sessions.set(input.sessionId, Date.now());
         this.settings.set(input.sessionId, { options: response.configOptions ?? [] });
         return { configOptions: response.configOptions ?? [] };
@@ -430,6 +440,26 @@ export class AcpAgent {
     this.child.kill();
   }
 
+  /**
+   * A session request that logs in when the agent asks: on a login error, authenticates with the
+   * connection's method (else the first offered) and tries once more. Never before a session asks.
+   */
+  private async withLogin<T>(request: () => Promise<T>): Promise<T> {
+    try {
+      return await this.call(request);
+    } catch (error) {
+      if (!(error instanceof ModelError) || error.code !== 'auth' || !this.authMethods.length) throw error;
+      const method = this.authMethods.find((candidate) => candidate.id === this.authMethod) ?? (this.authMethod ? { id: this.authMethod, name: this.authMethod } : this.authMethods[0]!);
+      try {
+        await this.call(() => this.connection.authenticate({ methodId: method.id }));
+      } catch (failed) {
+        const reason = failed instanceof ModelError ? failed.message : acpError(failed, this.stderr, { command: this.command }).message;
+        throw new ModelError('auth', `로그인 방식 '${method.name}'(${method.id})으로 로그인하지 못했습니다. ${reason}`.slice(0, 600), false);
+      }
+      return this.call(request);
+    }
+  }
+
   /** A request that fails with the process's own reason when it died meanwhile. */
   private async call<T>(request: () => Promise<T>): Promise<T> {
     if (this.exitError) throw this.exitError;
@@ -439,7 +469,7 @@ export class AcpAgent {
     try {
       return await Promise.race([request(), died]);
     } catch (error) {
-      throw acpError(error, this.stderr, { authMethods: this.authMethods, command: this.command });
+      throw acpError(error, this.stderr, { authMethods: this.authMethods.map((method) => method.name), command: this.command });
     }
   }
 }
@@ -451,25 +481,25 @@ const PER_PROCESS = 8;
 /** A process with nothing running for this long is stopped. */
 const IDLE_STOP_MS = 10 * 60_000;
 
-let starter: (kind: AcpKind, executable: string | undefined) => Promise<AcpAgent> = (kind, executable) => AcpAgent.start(kind, executable);
+let starter: (kind: AcpKind, executable: string | undefined, authMethod?: string) => Promise<AcpAgent> = (kind, executable, authMethod) => AcpAgent.start(kind, executable, authMethod);
 /** Tests start agents in process. */
 export function setAgentStarter(start: typeof starter | null) {
-  starter = start ?? ((kind, executable) => AcpAgent.start(kind, executable));
+  starter = start ?? ((kind, executable, authMethod) => AcpAgent.start(kind, executable, authMethod));
   pool.clear();
 }
 
-const poolKey = (kind: AcpKind, executable?: string) => `${kind}\u0000${executable?.trim() ?? ''}`;
+const poolKey = (kind: AcpKind, executable?: string, authMethod?: string) => `${kind}\u0000${executable?.trim() ?? ''}\u0000${authMethod?.trim() ?? ''}`;
 
 /** A process for a new session: an idle one first, else a new one. */
-export async function agentFor(kind: AcpKind, executable?: string): Promise<AcpAgent> {
-  const key = poolKey(kind, executable);
+export async function agentFor(kind: AcpKind, executable?: string, authMethod?: string): Promise<AcpAgent> {
+  const key = poolKey(kind, executable, authMethod);
   const entries = pool.get(key) ?? [];
   pool.set(key, entries);
   for (const entry of entries) {
     const agent = await entry.catch(() => null);
     if (agent?.alive && agent.active < PER_PROCESS) return agent;
   }
-  const started = starter(kind, executable);
+  const started = starter(kind, executable, authMethod);
   entries.push(started);
   started.then(
     (agent) => void agent.exited.then(() => remove(key, started)),
@@ -478,9 +508,19 @@ export async function agentFor(kind: AcpKind, executable?: string): Promise<AcpA
   return started;
 }
 
+/** The login methods an agent offers: starts a process, reads what initialize says (no session, no model call) and stops it. */
+export async function listAuthMethods(kind: AcpKind, executable?: string): Promise<AuthMethodInfo[]> {
+  const agent = await starter(kind, executable);
+  try {
+    return agent.authMethods;
+  } finally {
+    agent.kill();
+  }
+}
+
 /** The process that has a session open, if any is still running. */
-export async function agentWith(kind: AcpKind, executable: string | undefined, sessionId: string): Promise<AcpAgent | null> {
-  for (const entry of pool.get(poolKey(kind, executable)) ?? []) {
+export async function agentWith(kind: AcpKind, executable: string | undefined, sessionId: string, authMethod?: string): Promise<AcpAgent | null> {
+  for (const entry of pool.get(poolKey(kind, executable, authMethod)) ?? []) {
     const agent = await entry.catch(() => null);
     if (agent?.alive && agent.sessions.has(sessionId)) return agent;
   }

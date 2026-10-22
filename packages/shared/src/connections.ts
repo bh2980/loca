@@ -72,6 +72,8 @@ export const connectionInputSchema = z.object({
   baseUrl: z.string().trim().url().optional(),
   /** Absolute path to the CLI executable. Empty = resolve from PATH. */
   executable: z.string().trim().optional(),
+  /** ACP CLI kinds: the agent's login method (id) to use when it asks to log in. Null/empty = the first it offers. */
+  authMethod: z.string().trim().nullable().optional(),
   /** HTTP tools: how the stored key is sent, e.g. "Authorization: Bearer {key}" or "X-API-Key: {key}". */
   headerTemplate: z.string().trim().optional(),
   /** Model calls this account takes at once, shared by every run. */
