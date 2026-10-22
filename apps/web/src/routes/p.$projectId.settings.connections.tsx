@@ -63,9 +63,10 @@ export const Route = createFileRoute('/p/$projectId/settings/connections')({
 
 const CAPABILITY_LABEL: Record<Capability, string> = { generate: '생성', judge: '판정', chat: '채팅', tool: '도구' };
 const LOGIN_LABEL: Record<string, string> = {
-  logged_in: '로그인됨',
-  logged_out: '로그아웃됨',
-  unknown: '확인 안 됨',
+  'signed-in': '로그인됨',
+  'signed-out': '로그아웃됨',
+  unknown: '확인하지 못했습니다',
+  unsupported: '확인할 수 없음: 이 CLI는 로그인 상태를 알려 주지 않습니다',
 };
 const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -380,7 +381,7 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
   });
   const openLogin = useMutation({
     mutationFn: () => unwrap(client.connections[':id'].login.$post({ param: { id: connection.id } })),
-    onSuccess: (result) => (result.ok ? toast.success(`로그인 창을 열었습니다: ${result.command}`) : toast.error(result.detail)),
+    onSuccess: (result) => (result.ok ? toast.success(`${connection.kind === 'antigravity' ? 'agy를 열었습니다' : '로그인 창을 열었습니다'}: ${result.command}`) : toast.error(result.detail)),
     onError: (error) => toast.error(errorMessage(error)),
   });
 
@@ -467,7 +468,7 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
       {!isTool && (
         <InspectorSection title="고급" defaultOpen={false}>
           <InspectorFields>
-            <InspectorField label="입력 토큰" description={inputLimit.tag} help="한 번 부를 때 넣을 수 있는 양입니다. AI 노드가 한 번에 보내는 양이 여기에 맞춰집니다." error={errors.inputTokens?.message}>
+            <InspectorField label="입력 토큰" description={inputLimit.tag} help="한 번에 넣을 수 있는 양입니다. 클수록 호출은 줄지만 놓치는 내용이 늘 수 있습니다." error={errors.inputTokens?.message}>
               <Input type="number" min={1000} placeholder={inputLimit.placeholder} {...form.register('inputTokens', optionalNumber)} aria-invalid={!!errors.inputTokens} />
             </InspectorField>
             {info.capabilities.includes('generate') && (
@@ -518,13 +519,14 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
           {info.transport === 'cli' && (
             <InspectorActionRow
               label="로그인"
+              description={connection.kind === 'antigravity' ? 'agy를 인자 없이 엽니다. 이미 로그인했다면 로그인 창은 나오지 않습니다.' : undefined}
               action={
                 <>
-                  <Button variant="ghost" disabled={openLogin.isPending} onClick={() => openLogin.mutate()}>창 열기</Button>
+                  <Button variant="ghost" disabled={openLogin.isPending} onClick={() => openLogin.mutate()}>{connection.kind === 'antigravity' ? 'agy 열기' : '창 열기'}</Button>
                   <Button variant="outline" disabled={loginStatus.isPending} onClick={() => loginStatus.mutate()}>{loginStatus.isPending && <Spinner />}상태 보기</Button>
                 </>
               }
-              result={login && <InspectorResult tone={login === 'logged_in' ? 'ok' : login === 'logged_out' ? 'error' : 'info'}>{LOGIN_LABEL[login] ?? login}</InspectorResult>}
+              result={login && <InspectorResult tone={login === 'signed-in' ? 'ok' : login === 'signed-out' ? 'error' : 'info'}>{LOGIN_LABEL[login] ?? login}</InspectorResult>}
             />
           )}
           {!isTool && (

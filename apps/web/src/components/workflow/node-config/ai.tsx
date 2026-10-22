@@ -173,7 +173,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
               <Field
                 label="요청당 대사 양"
                 hint={config.batch.maxTokens === null ? '자동' : '직접 입력'}
-                help="AI 요청 한 번에 담는 대사의 양입니다. 보통은 비워 두고, 더 잘게 나누고 싶을 때만 적습니다."
+                help="요청 한 번에 담는 대사 양입니다. 클수록 빠르지만 놓치는 내용이 늘어납니다."
               >
                 <Input
                   type="number"
