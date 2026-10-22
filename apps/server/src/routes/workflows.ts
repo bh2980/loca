@@ -28,6 +28,19 @@ const runSchema = scopeSchema.extend({ models: runModelsSchema.optional() });
 const continueSchema = z.object({ models: runModelsSchema.optional(), retryFailed: z.boolean().default(false) });
 
 /** Connection names now, for logs that keep only the id; a deleted connection reads as its kind. */
+/** A line waiting to go through an AI node again: it was last sent back by a 재요청 node (the AI node has not answered since). */
+const RETRYING = sql`(${s.runItems.state} in ('queued', 'running') and json_extract(${s.runItems.data}, '$.path[#-1].port') = 'retry' and json_extract(${s.runItems.data}, '$.retry.last.kind') is not null)`;
+
+/** Why a line is being sent again: the resends so far (all 재요청 nodes), the last node's limit, and the failure that sent it. */
+function retryOf(item: { state: s.ItemState; data: s.ItemData }, definition: WorkflowDefinition) {
+  const last = item.data.retry?.last;
+  const path = item.data.path;
+  if (!last || (item.state !== 'queued' && item.state !== 'running') || path[path.length - 1]?.port !== 'retry') return null;
+  const node = definition.nodes.find((candidate) => candidate.id === last.nodeId);
+  const times = Object.values(item.data.retry!.times).reduce((sum, n) => sum + n, 0);
+  return { times, max: node?.type === 'retry' ? node.config.maxTimes : times, kind: last.kind, message: last.message };
+}
+
 const connectionNames = (db: Db) => new Map(db.select({ id: s.connections.id, name: s.connections.name }).from(s.connections).all().map((row) => [row.id, row.name]));
 const connectionName = (names: Map<string, string>, id: string | null, kind: string | null) =>
   (id && names.get(id)) ?? (kind ? (CONNECTION_KIND_INFO[kind as keyof typeof CONNECTION_KIND_INFO]?.label ?? kind) : null);
@@ -383,19 +396,27 @@ export const workflowRoutes = new Hono<Env>()
         .all<{ nodeId: string; count: number }>(sql`select json_extract(step.value, '$.nodeId') as nodeId, count(distinct item.id) as count from ${s.runItems} item, json_each(item.data, '$.path') step where item.run_id = ${run.id} group by nodeId`)
         .map((row) => [row.nodeId, row.count]),
     );
+    // Lines waiting to go through an AI node again, by the 재요청 node that sent them back: how many, and the failure kinds that sent them back.
+    const retrying: Record<string, { count: number; kinds: Record<string, number> }> = {};
+    for (const row of db.all<{ nodeId: string; kind: string; count: number }>(sql`select json_extract(data, '$.retry.last.nodeId') as nodeId, json_extract(data, '$.retry.last.kind') as kind, count(*) as count from ${s.runItems} where run_id = ${run.id} and ${RETRYING} group by nodeId, kind`)) {
+      const entry = (retrying[row.nodeId] ??= { count: 0, kinds: {} });
+      entry.count += row.count;
+      entry.kinds[row.kind] = row.count;
+    }
     // What each model choice resolved to when the run started, its fallbacks after it.
-    return c.json({ ...rest, passed, models: Object.values(models).map((model) => ({ label: model.label, routes: model.routes.map((route) => ({ connectionId: route.connectionId, name: route.name, model: route.model })) })), nodes, calls: runner.liveCalls(run.id), callLimits, usage, byModel, filling: run.notice === FILLING });
+    return c.json({ ...rest, passed, retrying, models: Object.values(models).map((model) => ({ label: model.label, routes: model.routes.map((route) => ({ connectionId: route.connectionId, name: route.name, model: route.model })) })), nodes, calls: runner.liveCalls(run.id), callLimits, usage, byModel, filling: run.notice === FILLING });
   })
   .get('/runs/:id/items', validate('query', z.object({ state: z.string().optional(), nodeId: z.string().optional(), offset: z.coerce.number().default(0), limit: z.coerce.number().max(500).default(100) })), (c) => {
     const { db } = c.var.deps;
     const { state, nodeId, offset, limit } = c.req.valid('query');
     const conditions = [eq(s.runItems.runId, c.req.param('id'))];
-    if (state) conditions.push(eq(s.runItems.state, state as s.ItemState));
+    if (state === 'retrying') conditions.push(RETRYING);
+    else if (state) conditions.push(eq(s.runItems.state, state as s.ItemState));
     // A call's id also matches every node inside it (`call/inner`, nested `call/call2/inner`): the run graph's call card opens them all.
     if (nodeId) conditions.push(or(eq(s.runItems.nodeId, nodeId), sql`substr(${s.runItems.nodeId}, 1, ${nodeId.length + 1}) = ${`${nodeId}/`}`)!);
     const where = and(...conditions);
     const total = db.select({ count: count() }).from(s.runItems).where(where).get()!.count;
-    const run = db.select({ subject: s.runs.subject }).from(s.runs).where(eq(s.runs.id, c.req.param('id'))).get();
+    const run = db.select({ subject: s.runs.subject, definition: s.runs.definition }).from(s.runs).where(eq(s.runs.id, c.req.param('id'))).get();
     // Term runs list the term (source, current form) where line runs list the line; most used first.
     if (run?.subject === 'terms') {
       const rows = db
@@ -407,7 +428,7 @@ export const workflowRoutes = new Hono<Env>()
         .limit(limit)
         .offset(offset)
         .all();
-      return c.json({ total, subject: 'terms' as const, rows });
+      return c.json({ total, subject: 'terms' as const, rows: rows.map((row) => ({ ...row, retry: retryOf(row, run.definition) })) });
     }
     const rows = db
       .select({ id: s.runItems.id, unitId: s.runItems.subjectId, key: s.units.key, speaker: s.units.speaker, source: s.units.source, nodeId: s.runItems.nodeId, state: s.runItems.state, visits: s.runItems.visits, data: s.runItems.data, error: s.runItems.error, updatedAt: s.runItems.updatedAt, statusName: s.statuses.name, statusColor: s.statuses.color })
@@ -419,7 +440,7 @@ export const workflowRoutes = new Hono<Env>()
       .limit(limit)
       .offset(offset)
       .all();
-    return c.json({ total, subject: 'lines' as const, rows: rows.map((row) => ({ ...row, target: null as string | null })) });
+    return c.json({ total, subject: 'lines' as const, rows: rows.map((row) => ({ ...row, target: null as string | null, retry: run ? retryOf(row, run.definition) : null })) });
   })
   .get('/runs/:id/steps', (c) => {
     const { db } = c.var.deps;

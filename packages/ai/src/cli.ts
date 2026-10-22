@@ -31,35 +31,6 @@ export function describeCli(kind: CliKind, executable?: string): { command: stri
 /** Not-found message with the fix: the executable field takes a full path when PATH and the usual dirs miss. */
 export const cliMissing = (command: string) => `CLI를 찾지 못했습니다: ${command}. PATH와 일반 설치 경로에서 찾지 못했으니 연결 설정의 실행 파일에 전체 경로를 넣으세요.`;
 
-/** Time with no output before a CLI counts as stuck. Claude and Grok print one envelope at the end, so only the overall timeout applies to them. */
-export const CLI_IDLE_MS = 120_000;
-
-/**
- * Kill a CLI that prints nothing on either stream for `idleMs` (0 disables the watch). Progress
- * resets the timer; `fired` tells an idle kill from a user cancel, which both surface as an abort.
- */
-export function watchIdle(streams: (NodeJS.ReadableStream | null | undefined)[], idleMs: number, onIdle: () => void) {
-  let fired = false;
-  let timer: NodeJS.Timeout | undefined;
-  if (idleMs > 0) {
-    const arm = () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        fired = true;
-        onIdle();
-      }, idleMs);
-      timer.unref();
-    };
-    arm();
-    for (const stream of streams) stream?.on('data', arm);
-  }
-  return { fired: () => fired, stop: () => clearTimeout(timer) };
-}
-
-/** The timeout for a CLI that went quiet: the watchdog window, never longer than the whole call. */
-export const idleTimeout = (kind: CliKind, timeoutMs: number) => (kind === 'claude' || kind === 'grok' ? 0 : Math.min(CLI_IDLE_MS, timeoutMs));
-
-export const idleMessage = (idleMs: number) => `CLI가 ${Math.round(idleMs / 1000)}초 동안 아무 출력도 없어 중단했습니다. 로그인 상태나 실행 파일 경로를 확인하세요.`;
 const PREAMBLE =
   'You are performing one translation workbench task. Use only the text supplied below. ' +
   'Do not use tools, inspect files, contact external services, or modify files. ' +
@@ -277,21 +248,17 @@ export async function cliGenerate<T>(route: ResolvedRoute, request: GenerateRequ
   const prompt =
     (kind === 'codex' ? request.prompt : `${instructions}\n\n${request.prompt}`) +
     (kind === 'opencode' ? `\n\nAnswer with one JSON value that follows this JSON Schema, and nothing else:\n${JSON.stringify(schema)}` : '');
-  const idleMs = idleTimeout(kind, request.timeoutMs);
-  const idle = new AbortController();
-  let watchdog: ReturnType<typeof watchIdle> | undefined;
   try {
     await Promise.all([writeFile(files.schema, JSON.stringify(schema)), writeFile(files.prompt, prompt), ...(kind === 'codex' ? [writeFile(files.instructions, instructions)] : [])]);
     const subprocess = execaCli(cliCommand(kind, route.executable), args(kind, route, schema, files, request.timeoutMs), {
       cwd: dir,
       input: kind === 'grok' ? undefined : kind === 'antigravity' ? `${JSON.stringify({ event: 'user', message: { role: 'user', content: prompt } })}\n` : prompt,
       timeout: request.timeoutMs,
-      cancelSignal: request.signal ? AbortSignal.any([request.signal, idle.signal]) : idle.signal,
+      cancelSignal: request.signal,
       maxBuffer: 16 * 1024 * 1024,
       forceKillAfterDelay: 3000,
       windowsHide: true,
     });
-    watchdog = watchIdle([subprocess.stdout, subprocess.stderr], idleMs, () => idle.abort());
     const result = await subprocess;
     const lastMessage = kind === 'codex' ? await readFile(files.result, 'utf8').catch(() => '') : '';
     try {
@@ -302,7 +269,7 @@ export async function cliGenerate<T>(route: ResolvedRoute, request: GenerateRequ
   } catch (error) {
     if (error instanceof ModelError) throw error;
     if (error instanceof ExecaError) {
-      if (error.isCanceled) throw watchdog?.fired() ? new ModelError('timeout', idleMessage(idleMs)) : new ModelError('cancelled', '작업이 취소되었습니다.');
+      if (error.isCanceled) throw new ModelError('cancelled', '작업이 취소되었습니다.');
       if (error.timedOut) throw new ModelError('timeout', 'CLI 호출이 제한 시간을 초과했습니다.');
       if (error.code === 'ENOENT') throw new ModelError('config', cliMissing(cliCommand(kind, route.executable)), false);
       // A CLI that exits non-zero often still printed its envelope on stdout: its own error, and usage.
@@ -326,7 +293,6 @@ export async function cliGenerate<T>(route: ResolvedRoute, request: GenerateRequ
     }
     throw new ModelError('unknown', error instanceof Error ? error.message : String(error), false);
   } finally {
-    watchdog?.stop();
     await rm(dir, { recursive: true, force: true });
   }
 }

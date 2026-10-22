@@ -13,6 +13,7 @@ import { EmptyState, SectionHeading, DataTable, type ColumnDef, Pager, FilterBar
 import { HeaderFilter } from '@/components/header-filter';
 import { client, unwrap } from '@/lib/api';
 import { ITEM_STATE } from '@/lib/labels';
+import { errorKindLabel, retryReason, retryState } from '@/lib/retry-info';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import type { InferResponseType } from 'hono/client';
@@ -23,7 +24,7 @@ import { RunGraph } from '@/components/workflow/run-graph';
 import { topCallIds } from '@/components/workflow/run-calls';
 import { dateTime } from '@/lib/datetime';
 
-type State = keyof typeof ITEM_STATE;
+type State = keyof typeof ITEM_STATE | 'retrying';
 interface RunSearch {
   state?: State;
   node?: string;
@@ -35,7 +36,7 @@ interface RunSearch {
 
 export const Route = createFileRoute('/p/$projectId/runs/$runId')({
   validateSearch: (raw: Record<string, unknown>): RunSearch => ({
-    state: typeof raw.state === 'string' && raw.state in ITEM_STATE ? (raw.state as State) : undefined,
+    state: typeof raw.state === 'string' && (raw.state in ITEM_STATE || raw.state === 'retrying') ? (raw.state as State) : undefined,
     node: typeof raw.node === 'string' ? raw.node : undefined,
     page: typeof raw.page === 'number' && raw.page > 0 ? raw.page : undefined,
     line: typeof raw.line === 'string' ? raw.line : undefined,
@@ -85,6 +86,7 @@ function RunDetail() {
   const nodeById = new Map<string, WorkflowNode>(data.definition.nodes.map((node) => [node.id, node]));
   const totals = data.nodes.reduce<Record<string, number>>((acc, row) => ((acc[row.state] = (acc[row.state] ?? 0) + row.count), acc), {});
   const nodeTotals = data.nodes.reduce<Record<string, number>>((acc, row) => ((acc[row.nodeId] = (acc[row.nodeId] ?? 0) + row.count), acc), {});
+  const retryingTotal = Object.values(data.retrying).reduce((sum, entry) => sum + entry.count, 0);
   const finished = (totals.done ?? 0) + (totals.failed ?? 0) + (totals.cancelled ?? 0);
   const order = data.definition.nodes.filter((node) => nodeTotals[node.id]);
   // A node inside a called workflow reads "호출 이름 › 노드 이름".
@@ -131,13 +133,16 @@ function RunDetail() {
           label="상태"
           value={search.state}
           onChange={(state) => setSearch({ state: state as State | undefined, page: undefined, line: undefined }, true)}
-          options={(Object.keys(ITEM_STATE) as State[]).filter((state) => totals[state]).map((state) => ({ value: state, label: ITEM_STATE[state], hint: totals[state] }))}
+          options={[
+            ...(Object.keys(ITEM_STATE) as (keyof typeof ITEM_STATE)[]).filter((state) => totals[state]).map((state) => ({ value: state, label: ITEM_STATE[state], hint: totals[state] })),
+            ...(retryingTotal || search.state === 'retrying' ? [{ value: 'retrying', label: '다시 보내는 중', hint: retryingTotal }] : []),
+          ]}
         />
       ),
       meta: { width: 128, label: '상태' },
       cell: ({ row }) => (
         <>
-          {ITEM_STATE[row.original.state]}
+          {row.original.retry ? <span className="text-xs">{retryState(row.original.retry.times, row.original.retry.max)}</span> : ITEM_STATE[row.original.state]}
           {row.original.state === 'done' && row.original.statusName && <span className="text-muted-foreground"> → {row.original.statusName}</span>}
           {Object.values(row.original.visits).some((count) => count > 1) && <span className="text-xs text-muted-foreground"> · 재방문 {Math.max(...Object.values(row.original.visits)) - 1}</span>}
         </>
@@ -151,6 +156,7 @@ function RunDetail() {
         const item = row.original;
         return (
           <>
+            {item.retry && <p className="text-muted-foreground" title={item.retry.message}>{retryReason(item.retry.kind, item.retry.message)}</p>}
             {item.error && <p className="text-destructive">{item.error}</p>}
             {!!item.data.issues?.length && <p className="text-warning">{item.data.issues.join(' / ')}</p>}
             {!!item.data.notes?.length && <p className="text-muted-foreground">{item.data.notes.join(' / ')}</p>}
@@ -344,7 +350,8 @@ function RunDetail() {
                           {/* The spaces keep the row's words apart when read or copied (#48); the flex gap already spaces them on screen. */}
                           <span className="w-32 truncate text-left font-medium">{nodeName(step.nodeId)}</span>{' '}
                           <Badge variant={step.ok ? 'outline' : 'destructive'}>{step.ok ? '성공' : '실패'}</Badge>{' '}
-                          <span className="text-muted-foreground">{terms ? '용어' : '대사'} {step.subjectIds.length}</span>{' '}
+                          {!step.ok && errorKindLabel(step.errorKind) && <Badge variant="outline">{errorKindLabel(step.errorKind)}</Badge>}{' '}
+                          <span className="text-muted-foreground">{terms ? `용어 ${step.subjectIds.length}개` : `대사 ${step.subjectIds.length}줄`}</span>{' '}
                           <span className="min-w-0 truncate text-muted-foreground">{[data.models.flatMap((model) => model.routes).find((route) => route.connectionId === step.connectionId)?.name, step.model].filter(Boolean).join(' · ')}</span>
                           {' '}
                           <span className="ml-auto text-xs text-muted-foreground tabular-nums">
@@ -355,7 +362,7 @@ function RunDetail() {
                         </Button>
                       </CollapsibleTrigger>
                       <CollapsibleContent className="mt-2 space-y-2 pl-9">
-                        {step.error && <p className="text-destructive">{step.error}</p>}
+                        {step.error && <p className="text-destructive">{[errorKindLabel(step.errorKind), step.error].filter(Boolean).join(' · ')}</p>}
                         {Array.isArray(step.attempts) && step.attempts.length > 1 && (
                           <p className="text-xs text-muted-foreground">시도: {(step.attempts as { model: string; ok: boolean; error?: string }[]).map((attempt) => `${attempt.model} ${attempt.ok ? '성공' : `실패(${attempt.error})`}`).join(' → ')}</p>
                         )}

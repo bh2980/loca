@@ -1,10 +1,11 @@
 import { and, eq } from 'drizzle-orm';
-import { AGE_BANDS, aiStatus, CHARACTER_ROLES, DOCUMENT_KINDS, GENDERS, isSpecialListener, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, TERM_KIND_LABELS, TERM_KINDS } from '@tw/shared';
+import { AGE_BANDS, aiStatus, CHARACTER_ROLES, DOCUMENT_KINDS, GENDERS, isSpecialListener, type ProfileMode, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, TERM_KIND_LABELS, TERM_KINDS } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { markForReview } from './knowledge-tags.ts';
 import { clampConfidence, cleanListener, setAiListener } from './listeners.ts';
 import { knownListener } from './speech.ts';
+import { events } from '../events.ts';
 import { upsertAiTerm } from './terms.ts';
 
 /**
@@ -86,7 +87,7 @@ export function mainPairs(tx: Tx | Db, projectId: string, people: { name: string
 
 /** The stored cast (rejected ones kept apart): who a name means, as every AI write below resolves names. */
 function cast(tx: Tx, projectId: string, found: { name: string; aliases: string[] }[] = []) {
-  const stored = tx.select({ id: s.characters.id, name: s.characters.name, aliases: s.characters.aliases, status: s.characters.status, profile: s.characters.profile, speech: s.characters.speech, gender: s.characters.gender, ageBand: s.characters.ageBand, role: s.characters.role, origin: s.characters.origin, evidence: s.characters.evidence }).from(s.characters).where(eq(s.characters.projectId, projectId)).all();
+  const stored = tx.select({ id: s.characters.id, name: s.characters.name, aliases: s.characters.aliases, status: s.characters.status, statusBy: s.characters.statusBy, profile: s.characters.profile, speech: s.characters.speech, gender: s.characters.gender, ageBand: s.characters.ageBand, role: s.characters.role, origin: s.characters.origin, evidence: s.characters.evidence }).from(s.characters).where(eq(s.characters.projectId, projectId)).all();
   const live = stored.filter((c) => c.status !== 'rejected');
   // The model may spell a known person differently ("Mara Holt" for the speaker "Mara"): mapped onto the stored person.
   const canonical = canonicalNames(live, found);
@@ -111,32 +112,80 @@ export function aiSaveTerms(tx: Tx, write: AiWrite, items: AiTermItem[]) {
 }
 
 export interface AiCharacterItem { name: string; aliases?: string[]; profile?: string; speech?: string; gender?: string; ageBand?: string; role?: string; player?: boolean; evidence?: string[] }
-/** Characters: a new one lands as a draft; one already in the cast only gets its empty fields filled (a person's 'unknown' stays). */
-export function aiSaveCharacters(tx: Tx, write: AiWrite, items: AiCharacterItem[]) {
-  const counts = { added: 0, filled: 0 };
+export interface AiCharacterOptions {
+  /** What happens to a profile or speech description a person already has (PROFILE_MODES). Default: only an empty one is filled. */
+  profiles?: ProfileMode;
+  /** The model whose answer a proposal is filed for (shown on the proposal). */
+  model?: string | null;
+}
+const sameText = (a: string, b: string) => a.trim() === b.trim();
+/**
+ * Characters: a new one lands as a draft. One already in the cast gains the new names it goes by (never a
+ * name that belongs to another stored person: two stored people are not merged) and gets its unknown
+ * role, gender and age band filled (not a person's: their 'unknown' stays). Its profile and speech
+ * description depend on `profiles`: 'fillEmpty' fills an empty one; 'propose' also replaces an AI one
+ * nobody touched and files a save_character proposal for an imported or person-written one that differs,
+ * which the person accepts in the app (not filed again while an identical one is pending).
+ */
+export function aiSaveCharacters(tx: Tx, write: AiWrite, items: AiCharacterItem[], options: AiCharacterOptions = {}) {
+  const counts = { added: 0, filled: 0, replaced: 0, proposed: 0 };
   const people = items.filter((item) => item.name?.trim()).map((item) => ({ ...item, name: item.name.trim(), aliases: strings(item.aliases) }));
   const { stored, live, canon, idByName } = cast(tx, write.projectId, people);
   const known = new Set(stored.flatMap((c) => namesOf(c).map(lower)));
+  const pending = options.profiles === 'propose' ? tx.select({ input: s.proposals.input }).from(s.proposals).where(and(eq(s.proposals.projectId, write.projectId), eq(s.proposals.status, 'pending'), eq(s.proposals.tool, 'save_character'))).all().map((row) => row.input) : [];
   for (const c of people) {
     const gender = pick(GENDERS, c.gender, 'unknown');
     const ageBand = pick(AGE_BANDS, c.ageBand, 'unknown');
     const role = pick(CHARACTER_ROLES, c.role, 'unknown');
     const evidence = strings(c.evidence);
     if (namesOf(c).some((name) => known.has(lower(name))) || canon(c.name) !== c.name) {
-      const existing = live.find((person) => person.id === idByName.get(lower(canon(c.name))));
+      const id = [canon(c.name), ...c.aliases].map((name) => idByName.get(lower(name))).find(Boolean);
+      const existing = live.find((person) => person.id === id);
+      if (!existing) continue;
       const profile = c.profile?.trim() ?? '';
       const speech = c.speech?.trim() ?? '';
-      const fill = existing && {
-        ...(!existing.profile.trim() && profile && { profile }),
-        ...(!existing.speech.trim() && speech && { speech }),
+      // Names of the other stored people (rejected ones too) are theirs, whoever else claims them.
+      const theirs = new Set(stored.filter((other) => other.id !== existing.id).flatMap((other) => namesOf(other).map(lower)));
+      const mine = new Set(namesOf(existing).map(lower));
+      const fresh: string[] = [];
+      for (const name of [c.name, ...c.aliases]) {
+        if (mine.has(lower(name)) || theirs.has(lower(name))) continue;
+        mine.add(lower(name));
+        fresh.push(name);
+      }
+      const fill: Partial<typeof s.characters.$inferInsert> = {
+        ...(fresh.length && { aliases: [...existing.aliases, ...fresh] }),
         ...(existing.origin !== 'human' && existing.gender === 'unknown' && gender !== 'unknown' && { gender }),
         ...(existing.origin !== 'human' && existing.ageBand === 'unknown' && ageBand !== 'unknown' && { ageBand }),
         ...(existing.origin !== 'human' && existing.role === 'unknown' && role !== 'unknown' && { role }),
         ...(!existing.evidence.length && evidence.length && { evidence }),
       };
-      if (existing && fill && Object.keys(fill).length) {
+      const wording: { profile?: string; speech?: string } = {};
+      const untouched = existing.origin === 'ai' && existing.statusBy === 'ai';
+      let replaced = false;
+      for (const [field, value] of [['profile', profile], ['speech', speech]] as const) {
+        if (!value) continue;
+        if (!existing[field].trim()) fill[field] = value;
+        else if (options.profiles === 'propose' && !sameText(existing[field], value)) {
+          if (untouched) {
+            fill[field] = value;
+            replaced = true;
+          } else wording[field] = value;
+        }
+      }
+      if (Object.keys(fill).length) {
         tx.update(s.characters).set(fill).where(eq(s.characters.id, existing.id)).run();
-        counts.filled++;
+        counts[replaced ? 'replaced' : 'filled']++;
+      }
+      if (Object.keys(wording).length) {
+        const input = { id: existing.id, ...wording };
+        if (!pending.some((other) => Object.keys(input).length === Object.keys(other).length && Object.entries(input).every(([key, value]) => other[key] === value))) {
+          pending.push(input);
+          // Filed like propose() in proposals.ts (which imports this module through the agent tools, so it cannot be imported here).
+          tx.insert(s.proposals).values({ projectId: write.projectId, sessionId: null, model: options.model ?? null, source: 'api', tool: 'save_character', input, review: `인물·관계 추출: ‘${existing.name}’의 프로필이 새로 읽은 내용과 다릅니다.` }).run();
+          events.changed(write.projectId, 'proposals');
+          counts.proposed++;
+        }
       }
       continue;
     }

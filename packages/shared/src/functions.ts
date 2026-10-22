@@ -203,7 +203,7 @@ export const APPLY_TARGETS = {
   },
   saveCharacters: {
     label: '인물 저장',
-    description: '인물을 넣습니다. 사람이 정한 인물은 바꾸지 않고, 이미 있는 인물은 빈 칸만 채웁니다.',
+    description: '인물을 넣습니다. 이미 있는 인물에게는 새 별칭을 더하고 모르던 역할·성별·나이대와 빈 프로필·말버릇을 채웁니다. 사람이 정한 인물은 바꾸지 않고, 이미 쓰인 프로필·말버릇은 ‘프로필 처리’에 따라 둡니다.',
     shape: 'list',
     fields: [
       { name: 'name', label: '이름', type: 'string', required: true },
@@ -301,6 +301,16 @@ export const applyParams = z.object({
 export type ApplyParams = z.infer<typeof applyParams>;
 
 /**
+ * 인물 저장's own setting, what happens to a profile or speech description the person already has:
+ * `fillEmpty` fills only an empty one; `propose` also replaces an AI one nobody touched and files a
+ * proposal (save_character) for an imported or human-written one that differs, which the person accepts in the app.
+ */
+export const PROFILE_MODES = { fillEmpty: '빈 칸만 채움', propose: '다르면 제안으로 올림' } as const;
+export type ProfileMode = keyof typeof PROFILE_MODES;
+export const saveCharactersParams = applyParams.extend({ profiles: z.enum(Object.keys(PROFILE_MODES) as [ProfileMode, ...ProfileMode[]]).default('fillEmpty') });
+export type SaveCharactersParams = z.infer<typeof saveCharactersParams>;
+
+/**
  * 태그 붙이기 / 떼기: the one place a line (or term) gets or loses a tag in a workflow. The tags come
  * from the pane (`tagIds`: the project's tags, `kinds`: 문제 유형, created in the project the first time
  * one is put on), from the previous step's result (`map.tag`: a field holding tag names or problem-type
@@ -381,6 +391,7 @@ export const FUNCTIONS = {
   ...(Object.fromEntries(
     Object.entries(APPLY_TARGETS).map(([name, target]) => [name, { label: target.label, description: target.description, params: applyParams, ports: () => out, async: false, inputs: target.inputs }]),
   ) as unknown as Record<ApplyFunctionName, FunctionInfo<typeof applyParams>>),
+  saveCharacters: { label: APPLY_TARGETS.saveCharacters.label, description: APPLY_TARGETS.saveCharacters.description, params: saveCharactersParams, ports: () => out, async: false, inputs: APPLY_TARGETS.saveCharacters.inputs },
   tagLines: { label: APPLY_TARGETS.tagLines.label, description: APPLY_TARGETS.tagLines.description, params: tagLinesParams, ports: () => out, async: false, inputs: APPLY_TARGETS.tagLines.inputs },
   http: {
     label: 'HTTP 호출',

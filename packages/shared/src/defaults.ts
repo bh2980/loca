@@ -88,6 +88,8 @@ function mapByName(fn: ApplyFunctionName, source: JsonField[]): Record<string, s
 interface ApplyOptions {
   list?: string;
   map: Record<string, string>;
+  /** Settings of the node besides its field links (e.g. 인물 저장's `profiles`). */
+  params?: Record<string, unknown>;
 }
 /** An apply node: it applies the result of the step before it (the AI or script node it is drawn after). */
 const applyNode = (id: string, fn: ApplyFunctionName, row: number, options: ApplyOptions, column = 0): WorkflowNode => ({
@@ -95,11 +97,11 @@ const applyNode = (id: string, fn: ApplyFunctionName, row: number, options: Appl
   type: 'function',
   position: at(row, column),
   label: APPLY_TARGETS[fn].label,
-  config: { fn, params: { list: options.list ?? '', map: options.map }, concurrency: 2 },
+  config: { fn, params: { list: options.list ?? '', map: options.map, ...options.params }, concurrency: 2 },
 });
 /** An apply node for one list of a preset's JSON output, mapped by field name. */
-const saveList = (id: string, fn: ApplyFunctionName, preset: AiPromptId, list: string, row: number, column = 0): WorkflowNode =>
-  applyNode(id, fn, row, { list, map: mapByName(fn, itemFields(preset, list)) }, column);
+const saveList = (id: string, fn: ApplyFunctionName, preset: AiPromptId, list: string, row: number, column = 0, params?: Record<string, unknown>): WorkflowNode =>
+  applyNode(id, fn, row, { list, map: mapByName(fn, itemFields(preset, list)), params }, column);
 
 /**
  * A 태그 붙이기 / 떼기 node. `from` names the field of the previous step's result that holds the tags
@@ -266,7 +268,20 @@ export function termTranslationTemplate(ids: TemplateIds): WorkflowDefinition {
   };
 }
 
-/** 인물·관계 추출: scene groups are read against what is known; new people, relationships and speech rules are saved. */
+/** The fields of each person a part passes on to AI 인물 합치기 (the evidence lines of the parts are not shown to it). */
+const MERGED_CHARACTER_PATHS = ['name', 'aliases', 'profile', 'speech', 'player', 'gender', 'ageBand', 'role'].map((field) => `characters.${field}`);
+
+/**
+ * 인물·관계 추출: scene groups are read against what is known; new people, relationships and speech rules
+ * are saved as each request answers (people first, so the relationships and rules after them find the
+ * people they name). The people go on: 모으기 waits for every request, AI 인물 합치기 makes one entry of the
+ * fragments of each person (new ones and what the scenes showed about people already stored: role, gender,
+ * age band, other names, profile), and 인물 저장 ('다르면 제안으로 올림') adds them: an empty profile is filled, an
+ * AI one nobody touched is replaced, an imported or written one that differs becomes a proposal.
+ * The 인물 합치기 AI has a 재요청 node but no failure marker: after the 모으기 one item stands for the whole run, so an `AI 실패`
+ * tag would land on an arbitrary line; its 오류 ends that item failed with the reason (the people of the scenes are already saved).
+ * The 모으기 reads the AI node's `characters` through the save nodes between them (save nodes pass the result on).
+ */
 export function peopleRelationsTemplate(ids: TemplateIds): WorkflowDefinition {
   return {
     settings: { ...SETTINGS },
@@ -278,8 +293,18 @@ export function peopleRelationsTemplate(ids: TemplateIds): WorkflowDefinition {
       saveList('save-characters', 'saveCharacters', 'knowledge', 'characters', 2),
       saveList('save-relationships', 'saveRelationships', 'knowledge', 'relationships', 3),
       saveList('save-speech-rules', 'saveSpeechRules', 'knowledge', 'speechRules', 4),
+      { id: 'gather', type: 'gather', position: at(5), label: '인물 조각 모으기', config: { fields: MERGED_CHARACTER_PATHS } },
+      {
+        id: 'merge',
+        type: 'ai',
+        position: at(6),
+        label: AI_PROMPTS.peopleMerge.label,
+        config: presetConfig('peopleMerge', ids.model, { input: { lines: false, previous: true, fields: [] } }),
+      },
+      resendNode('merge', 6),
+      { ...saveList('save-merged-characters', 'saveCharacters', 'peopleMerge', 'characters', 7, 0, { profiles: 'propose' }), label: '합친 인물 저장' },
     ],
-    edges: [...chain('entry', 'people', 'save-characters', 'save-relationships', 'save-speech-rules'), ...resendEdges('people', 'people-failed')],
+    edges: [...chain('entry', 'people', 'save-characters', 'save-relationships', 'save-speech-rules', 'gather', 'merge', 'save-merged-characters'), ...resendEdges('people', 'people-failed'), ...resendEdges('merge')],
   };
 }
 
