@@ -9,6 +9,7 @@
  * draws the definition with the closed folds left out, and the `FoldState` helpers keep which folds are
  * open (the editor and the run graph keep that in sessionStorage, per workflow / run).
  */
+import { retryLiveText } from '../../lib/retry-info';
 import { ISSUE_KINDS, TAG_ACTIONS, nodeName, nodePorts, tagLinesParams, type RetryConfig, type WorkflowDefinition, type WorkflowEdge, type WorkflowNode } from '@tw/shared';
 
 /** A branch of more nodes than this is not a side detail any more. */
@@ -185,16 +186,21 @@ export function foldIssues(fold: Fold, issues: readonly { level: 'error' | 'warn
 }
 
 /** A run's live counts on the folded nodes, as a chip adds them: "처리 1 · 대기 2 · 실패 3" (zeros left out). */
-export function foldLiveText(fold: Fold, live: ReadonlyMap<string, { queued: number; running: number; failed: number }>): string {
+export function foldLiveText(fold: Fold, live: ReadonlyMap<string, { queued: number; running: number; failed: number; retrying?: { count: number; kinds: Record<string, number> } }>): string {
   const sum = { running: 0, queued: 0, failed: 0 };
+  const retrying = { count: 0, kinds: {} as Record<string, number> };
   for (const id of fold.nodeIds) {
     const counts = live.get(id);
     if (!counts) continue;
     sum.running += counts.running;
     sum.queued += counts.queued;
     sum.failed += counts.failed;
+    if (counts.retrying) {
+      retrying.count += counts.retrying.count;
+      for (const [kind, n] of Object.entries(counts.retrying.kinds)) retrying.kinds[kind] = (retrying.kinds[kind] ?? 0) + n;
+    }
   }
-  return [sum.running && `처리 ${sum.running.toLocaleString()}`, sum.queued && `대기 ${sum.queued.toLocaleString()}`, sum.failed && `실패 ${sum.failed.toLocaleString()}`].filter(Boolean).join(' · ');
+  return [retryLiveText(retrying), sum.running && `처리 ${sum.running.toLocaleString()}`, sum.queued && `대기 ${sum.queued.toLocaleString()}`, sum.failed && `실패 ${sum.failed.toLocaleString()}`].filter(Boolean).join(' · ');
 }
 
 /* ---- which folds are open ---- */

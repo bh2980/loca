@@ -685,7 +685,7 @@ export class Runner {
         // Sent back while the failure is one of its kinds and the node's times are not used up; else on as an error, untouched.
         const times = item.data.retry?.times[node.id] ?? 0;
         if (!item.data.error || !node.config.kinds.includes(item.data.error.kind) || times >= node.config.maxTimes) return this.route(tx, run, item, 'error');
-        const retry = { times: { ...item.data.retry?.times, [node.id]: times + 1 }, factor: (item.data.retry?.factor ?? 1) * node.config.scale };
+        const retry = { times: { ...item.data.retry?.times, [node.id]: times + 1 }, factor: (item.data.retry?.factor ?? 1) * node.config.scale, last: { kind: item.data.error.kind, message: item.data.error.message, nodeId: node.id } };
         return this.route(tx, run, { ...item, data: { ...item.data, retry } }, 'retry');
       }
       case 'function': {
@@ -963,7 +963,7 @@ export class Runner {
     this.db.transaction((tx) => {
       // A rate limit or a dropped connection is not the lines' fault: they wait for a later batch.
       for (const item of batch) transient ? this.retryLater(tx, run, item, message) : this.route(tx, run, item, 'error', message, kind);
-      tx.insert(s.runSteps).values({ ...step, id: stepId, ok: false, error: message, ...usageColumns(usage), finishedAt: new Date() }).run();
+      tx.insert(s.runSteps).values({ ...step, id: stepId, ok: false, error: message, errorKind: kind, ...usageColumns(usage), finishedAt: new Date() }).run();
     });
     if (!transient && this.takenBack(run, step.nodeId, batch, kind)) this.retriedSteps.set(run.id, (this.retriedSteps.get(run.id) ?? new Set()).add(stepId));
     this.notify(run.id);

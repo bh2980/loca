@@ -241,24 +241,43 @@ export const AI_PROMPTS = {
   },
   knowledge: {
     label: 'AI 인물·관계 추출',
-    description: '장면 묶음마다 새 인물, 관계와 그 변화, 말투 규칙을 이미 아는 자료와 견주어 뽑습니다.',
+    description: '장면 묶음마다 새 인물과, 이미 있는 인물에 대해 알게 된 것(역할·성별·나이대·별칭·프로필), 관계와 그 변화, 말투 규칙을 이미 아는 자료와 견주어 뽑습니다.',
     output: 'json',
     scope: 'batch',
     include: { candidate: false },
     context: { glossary: false, cast: true, characters: true, relationships: true, documents: true, speech: true, precedingLines: 8, previousScenes: 1 },
-    batch: { mode: 'group' },
+    // Bigger requests get shorter answers: on a 2,200-line script, 3,000 tokens found the most relationships and speech rules (1,000 contradicted itself, 102,000 found half).
+    batch: { mode: 'group', maxTokens: 3_000 },
     fields: [
-      listField('characters', 'People these lines add; empty when none are new.', characterFields),
+      listField('characters', 'People these lines add, and people already in the cast that these lines show something about (role, gender, age band, other names, profile); empty when there is nothing.', characterFields),
       listField('relationships', 'Relationships these lines start or change.', relationshipFields),
       listField('speechRules', 'Speaker → listener speech levels these lines show.', speechRuleFields),
     ],
     instructions: [
-      'Read these lines as one scene against what is already known (cast, characters, relationships and the speech rules on each line). Report only what the scene adds or changes: people not in the cast, a relationship that starts or changes (with the line where it shows), and a point where a speaker starts addressing a listener at a different Korean speech level. Return empty lists when nothing is new.',
+      'Read these lines as one scene against what is already known (cast, characters, relationships and the speech rules on each line). Report only what the scene adds or changes: people not in the cast, what these lines show about a person who is in the cast (see below), a relationship that starts or changes (with the line where it shows), and a point where a speaker starts addressing a listener at a different Korean speech level. Return empty lists when nothing is new.',
+      '- A person already in the cast gets an entry in "characters" too when these lines show something about them: their role, gender or age band, other names they go by ("aliases"), or who they are ("profile": a short Korean description of what these lines show about them, not a retelling of the scene). Leave out what the lines do not show. Use exactly the cast name as "name". A scene that shows nothing new about a cast member gets no entry for them.',
       KNOWN_CAST,
       EVIDENCE_RULES,
       RULE_CHARACTERS,
       RULE_RELATIONSHIPS,
       RULE_SPEECH_RULES,
+    ].join('\n'),
+  },
+  peopleMerge: {
+    label: 'AI 인물 합치기',
+    description: '인물·관계 추출이 장면 묶음마다 낸 인물 조각을 사람마다 하나로 합칩니다(모으기 뒤).',
+    output: 'json',
+    scope: 'batch',
+    include: { candidate: false },
+    // Only the gathered parts go in; the cast keeps the names people fixed.
+    context: READING_CONTEXT,
+    input: { previous: true, fields: [] },
+    fields: [listField('characters', 'Every person the parts name, once.', characterFields.filter((entry) => entry.name !== 'evidence'))],
+    instructions: [
+      'An earlier node read the script scene by scene; "previous" holds what it found ("parts", one per request, in script order): the people each part reports, new ones and people already in the cast. Combine them into one answer:',
+      '- characters: one entry per person. The same person under different names is ONE entry: use the cast name (or, for a new person, the name the parts use most) as "name" and put every other name in "aliases" (all of the parts\' aliases and other names, once each). Merge the profiles into 1-3 Korean sentences and the speech descriptions into one; do not retell scenes. For gender, ageBand and role take the strongest evidence: what most parts say, otherwise the part that states it; "unknown" only when no part knows (role: the highest one a part gives, since a person who is main in one part is main). player is true if any part says so. Never invent a person no part names.',
+      KNOWN_CAST,
+      '- Use only what the parts say. Write in Korean, except names.',
     ].join('\n'),
   },
   events: {

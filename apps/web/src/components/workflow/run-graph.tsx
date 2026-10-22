@@ -18,6 +18,7 @@ import { WorkflowNodeView, type FlowNode } from '@/components/workflow/node-view
 import { WorkflowEdgeView } from '@/components/workflow/workflow-edge';
 import { entryStarts, flowEdges, nodeSummary, openPorts, targetStatus } from '@/components/workflow/flow-graph';
 import { q } from '@/lib/queries';
+import { retryLiveText } from '@/lib/retry-info';
 import { useIsDark } from '@/lib/theme';
 
 const nodeTypes = { workflow: WorkflowNodeView };
@@ -32,6 +33,7 @@ export interface RunGraphData {
   calls: Record<string, number>;
   callLimits: Record<string, number>;
   passed: Record<string, number>;
+  retrying?: Record<string, { count: number; kinds: Record<string, number> }>;
 }
 
 const viewportKey = (runId: string) => `loca.run.viewport.${runId}`;
@@ -102,7 +104,7 @@ function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; ru
           summary: node.type === 'call' ? `노드 ${run.definition.nodes.filter((inner) => inner.id.startsWith(`${node.id}/`)).length}개` : nodeSummary(node, definition, names),
           errors: [],
           warnings: [],
-          live: live.get(node.id),
+          live: live.get(node.id) && { ...live.get(node.id)!, retry: retryLiveText(live.get(node.id)!.retrying) || undefined },
           start: starts.has(node.id) && entry ? { label } : undefined,
           open: openPorts(node, definition),
           status: targetStatus(node, statuses.data?.statuses),

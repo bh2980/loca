@@ -653,7 +653,7 @@ workflows
     const summary = (node: Node) =>
       node.type === 'entry' ? `대상 상태 ${node.config.statusIds?.length ?? 0}개`
       : node.type === 'ai' ? `${node.config.output}·${node.config.scope ?? 'line'}${node.config.preset ? ` · 프리셋 ${node.config.preset}` : ''} · ${node.config.model?.model || '모델 없음'} · 동시 ${node.config.concurrency ?? 1}${node.config.fields?.length ? ` · 필드 ${node.config.fields.map((field: { name: string }) => field.name).join(', ')}` : ''}`
-      : node.type === 'function' ? `${node.config.fn}${node.config.fn === 'http' || node.config.fn === 'script' ? ` · 동시 ${node.config.concurrency ?? 2}` : ''}`
+      : node.type === 'function' ? `${node.config.fn}${node.config.fn === 'saveCharacters' ? ` · 프로필 ${node.config.params?.profiles ?? 'fillEmpty'}` : ''}${node.config.fn === 'http' || node.config.fn === 'script' ? ` · 동시 ${node.config.concurrency ?? 2}` : ''}`
       : node.type === 'condition' ? JSON.stringify(node.config.expression)
       : node.type === 'retry' ? `재요청 · 오류 ${(node.config.kinds ?? []).join(',')} · 크기 ×${node.config.scale} · 최대 ${node.config.maxTimes}번`
       : node.type === 'gather' ? `모으기 (앞 단계 결과)${node.config.fields?.length ? ` · 필드 ${node.config.fields.join(', ')}` : ''}`

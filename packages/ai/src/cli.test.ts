@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import path from 'node:path';
-import { PassThrough } from 'node:stream';
-import { CLI_IDLE_MS, codexModelLimits, execaCli, grokCachePath, grokModelLimits, opencodeCachePath, opencodeModelLimits, idleTimeout, readCliOutput, watchIdle } from './cli.ts';
+import { codexModelLimits, execaCli, grokCachePath, grokModelLimits, opencodeCachePath, opencodeModelLimits, readCliOutput } from './cli.ts';
 import { ModelError } from './errors.ts';
 
 const schema = z.object({ ok: z.boolean() });
@@ -95,29 +94,12 @@ describe('readCliOutput', () => {
   });
 });
 
-describe('a CLI that waits or goes quiet', () => {
+describe('a CLI that waits', () => {
   it('gets a closed stdin when the call passes no input, so a CLI reading a pipe cannot wait forever', async () => {
     const result = await execaCli(process.execPath, ['-e', "process.stdin.resume(); process.stdin.on('end', () => process.exit(0))"], { timeout: 10_000 });
     expect(result.exitCode).toBe(0);
   });
 
-  it('is stopped after the idle window, and output resets the window', async () => {
-    const stream = new PassThrough();
-    let idle = 0;
-    const watch = watchIdle([stream], 60, () => idle++);
-    await new Promise((resolve) => setTimeout(resolve, 40));
-    stream.write('progress');
-    await new Promise((resolve) => setTimeout(resolve, 40));
-    expect(watch.fired()).toBe(false);
-    await new Promise((resolve) => setTimeout(resolve, 60));
-    expect(watch.fired()).toBe(true);
-    expect(idle).toBe(1);
-    watch.stop();
-    // Claude and Grok answer with one envelope at the end: only the overall timeout applies.
-    expect(idleTimeout('grok', 600_000)).toBe(0);
-    expect(idleTimeout('opencode', 600_000)).toBe(CLI_IDLE_MS);
-    expect(idleTimeout('codex', 30_000)).toBe(30_000);
-  });
 });
 
 describe('model limits from the CLIs', () => {

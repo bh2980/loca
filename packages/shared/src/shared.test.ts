@@ -5,7 +5,7 @@ import { checkFormat, compileFormatRules, matchTokens } from './format-check.ts'
 import { importFileSchema, importWarnings, summarizeImport } from './import-format.ts';
 import { politenessOf, speechLevelOf, styleInstruction, styleNames } from './knowledge.ts';
 import { ANALYSIS_WORKFLOW, analysisTemplate, defaultWorkflows, eventExtractionTemplate, listenerTemplate, peopleRelationsTemplate, termExtractionTemplate, translationTemplate, WORKFLOW_TEMPLATES } from './defaults.ts';
-import { APPLY_TARGETS } from './functions.ts';
+import { APPLY_TARGETS, saveCharactersParams } from './functions.ts';
 import { AI_PRESETS, AI_PROMPTS, presetConfig } from './presets.ts';
 import { APPLY_PALETTE_ORDER, fieldsFromSample, FUNCTION_NAMES, functionGroup } from './functions.ts';
 import { applyIssues, nodeOutputFields, nodePorts, pickPaths, previousStepId, previousSteps, readinessUses, retrySummary, validateWorkflow, workflowDefinitionSchema, workflowNodeSchema, type WorkflowDefinition, type WorkflowNode } from './workflow.ts';
@@ -236,6 +236,25 @@ describe('templates', () => {
     expect(definition.nodes.find((node) => node.id === 'save-terms')).toMatchObject({ config: { params: { list: 'terms', map: { source: 'source', target: 'target', kind: 'kind', meaning: 'meaning', evidence: 'evidence' } } } });
   });
 
+  it('people template saves new people per scene, then gathers the fragments, merges them and saves the result as proposals where a person owns the profile', () => {
+    const definition = workflowDefinitionSchema.parse(peopleRelationsTemplate(ids));
+    expect(errors(definition)).toEqual([]);
+    expect(kinds(definition)).toEqual(['entry', 'ai', 'retry', 'tagLines', 'saveCharacters', 'saveRelationships', 'saveSpeechRules', 'gather', 'ai', 'retry', 'saveCharacters']);
+    expect(definition.edges.filter((edge) => edge.sourceHandle === 'out').map((edge) => `${edge.source}>${edge.target}`)).toEqual([
+      'entry>people', 'people>save-characters', 'save-characters>save-relationships', 'save-relationships>save-speech-rules', 'save-speech-rules>gather', 'gather>merge', 'merge>save-merged-characters',
+    ]);
+    expect(definition.nodes.find((node) => node.id === 'gather')).toMatchObject({ config: { fields: expect.arrayContaining(['characters.name', 'characters.aliases', 'characters.profile']) } });
+    expect(definition.nodes.find((node) => node.id === 'merge')).toMatchObject({ config: { input: { previous: true, lines: false }, output: 'json', scope: 'batch' } });
+    const profiles = (id: string) => (definition.nodes.find((node) => node.id === id) as { config: { params: { profiles?: string } } }).config.params.profiles;
+    expect(profiles('save-characters')).toBeUndefined();
+    expect(profiles('save-merged-characters')).toBe('propose');
+    expect(saveCharactersParams.parse({}).profiles).toBe('fillEmpty');
+    // Every field the gather keeps is one the AI node produces, and the merge returns the same person fields as the scene reading (minus evidence).
+    const scene = AI_PROMPTS.knowledge.fields.find((field) => field.name === 'characters')!.fields!.map((field) => field.name);
+    const merged = AI_PROMPTS.peopleMerge.fields.find((field) => field.name === 'characters')!.fields!.map((field) => field.name);
+    expect(merged).toEqual(scene.filter((name) => name !== 'evidence'));
+  });
+
   it('every default workflow and template is valid, with every apply node mapped from the step before it', () => {
     const all = [
       ...defaultWorkflows(ids).map((row) => row.definition),
@@ -417,6 +436,7 @@ describe('재요청 node', () => {
         expect(definition.edges.filter((edge) => edge.source === resend.id && edge.sourceHandle === 'retry').map((edge) => edge.target), `${name}/${node.id} 다시 보냄`).toEqual([node.id]);
         const marker = definition.edges.filter((edge) => edge.source === resend.id && edge.sourceHandle === 'error').map((edge) => definition.nodes.find((candidate) => candidate.id === edge.target)!);
         if (name.endsWith('termTranslate')) { expect(marker, 'terms cannot take the line tag').toEqual([]); continue; }
+        if (node.id === 'merge') { expect(marker, 'after the 모으기 no line stands for the failure').toEqual([]); continue; }
         expect(marker, `${name}/${node.id} 재요청 오류 → marker`).toHaveLength(1);
         const isTranslation = (name === 'translation' || name === 'default 번역') && statusMarkers.has(node.id);
         if (isTranslation) expect(marker[0]).toMatchObject({ label: '검토 필요로', config: { fn: 'setStatus', params: { statusId: 's2' } } });

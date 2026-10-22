@@ -153,6 +153,10 @@ describe('what a chip counts', () => {
     expect(foldLiveText(find(folds, 'review:error')!, live)).toBe('대기 3 · 실패 3');
     expect(foldLiveText(find(folds, 'translate:error')!, live)).toBe('');
   });
+  it('says how many lines are being resent and why', () => {
+    const live = new Map([['review-resend', { queued: 0, running: 0, failed: 0, retrying: { count: 12, kinds: { 'cut-off': 9, timeout: 3 } } }]]);
+    expect(foldLiveText(find(folds, 'review:error')!, live)).toBe('다시 보냄 12 · 출력 잘림');
+  });
 });
 
 describe('which folds are open', () => {

@@ -11,6 +11,9 @@ import { promptEntries } from './prompts.ts';
 import { Runner, type ModelPort } from './runner.ts';
 import { withoutTerms } from './test-workflows.ts';
 import { createRun } from './run-create.ts';
+import { Hono } from 'hono';
+import type { Env } from '../context.ts';
+import { workflowRoutes } from '../routes/workflows.ts';
 
 const CUT_OFF = () => new ai.ModelError('cli', 'Your previous response was cut off because it exceeded the output token limit', false);
 
@@ -79,7 +82,7 @@ describe('재요청 node', () => {
     for (const item of items) {
       // The 재요청's 오류 exit is wired to 검토 필요로: the line is handed to a person, not failed.
       expect(item.state).toBe('done');
-      expect(item.data.retry).toEqual({ times: { 'translate-resend': 2 }, factor: 0.25 });
+      expect(item.data.retry).toMatchObject({ times: { 'translate-resend': 2 }, factor: 0.25, last: { kind: 'cut-off' } });
     }
     const units = db.select().from(s.units).where(eq(s.units.projectId, projectId)).all();
     expect(units.every((unit) => unit.statusId === reviewStatusId)).toBe(true);
@@ -187,5 +190,51 @@ describe('cut-offs and 연속 실패', () => {
     expect(runOf(db, runId).notice).toBeNull();
     const node = runOf(db, runId).definition.nodes.find((candidate) => candidate.id === 'translate') as { config: { batch: BatchConfig } };
     expect(node.config.batch.size).toBe(8);
+  });
+});
+
+describe('lines being resent, as the run page reads them', () => {
+  it('exposes why a line waits, filters by it, and counts the failure kinds per 재요청 node', async () => {
+    const { db, runId } = setup(8, { mode: 'count', size: 8 });
+    // The first request is cut off and its 8 lines are sent back once; the run stops at its second call (a rate limit), so they wait at the AI node.
+    db.update(s.runs).set({ limits: { maxCalls: 2 } }).where(eq(s.runs.id, runId)).run();
+    const runner = new Runner(db, memoryStore(), model((n) => (n === 1 ? CUT_OFF() : new ai.ModelError('rate-limit', 'slow down'))).port);
+    await runner.drain();
+    const app = new Hono<Env>()
+      .use(async (context, next) => {
+        context.set('deps', { db, runner } as never);
+        await next();
+      })
+      .route('/', workflowRoutes);
+
+    const all = (await (await app.request(`/runs/${runId}/items`)).json()) as { total: number; rows: { state: string; retry: { times: number; max: number; kind: string; message: string } | null }[] };
+    expect(all.total).toBe(8);
+    expect(all.rows.every((row) => row.state === 'queued' && row.retry?.times === 1 && row.retry.max === 2 && row.retry.kind === 'cut-off' && row.retry.message.length > 0)).toBe(true);
+    const retrying = (await (await app.request(`/runs/${runId}/items?state=retrying`)).json()) as { total: number };
+    expect(retrying.total).toBe(8);
+    expect(((await (await app.request(`/runs/${runId}/items?state=failed`)).json()) as { total: number }).total).toBe(0);
+
+    const detail = (await (await app.request(`/runs/${runId}`)).json()) as { retrying: Record<string, { count: number; kinds: Record<string, number> }> };
+    expect(detail.retrying).toEqual({ 'translate-resend': { count: 8, kinds: { 'cut-off': 8 } } });
+    const steps = (await (await app.request(`/runs/${runId}/steps`)).json()) as { ok: boolean; errorKind: string | null; subjectIds: string[] }[];
+    const cut = steps.find((step) => step.errorKind === 'cut-off');
+    expect(cut).toMatchObject({ ok: false });
+    expect(cut!.subjectIds).toHaveLength(8);
+  });
+
+  it('shows nothing once the lines are answered', async () => {
+    const { db, runId } = setup(8, { mode: 'count', size: 8 });
+    const runner = new Runner(db, memoryStore(), model((n) => (n === 1 ? CUT_OFF() : null)).port);
+    await runner.drain();
+    const app = new Hono<Env>()
+      .use(async (context, next) => {
+        context.set('deps', { db, runner } as never);
+        await next();
+      })
+      .route('/', workflowRoutes);
+    const rows = ((await (await app.request(`/runs/${runId}/items`)).json()) as { rows: { retry: unknown }[] }).rows;
+    expect(rows.every((row) => row.retry === null)).toBe(true);
+    expect(((await (await app.request(`/runs/${runId}/items?state=retrying`)).json()) as { total: number }).total).toBe(0);
+    expect(((await (await app.request(`/runs/${runId}`)).json()) as { retrying: object }).retrying).toEqual({});
   });
 });

@@ -603,7 +603,7 @@ export interface ItemData {
   /** Times the line went back to a node's queue because a call failed transiently (rate limit, network), by node id. */
   retries?: Record<string, number>;
   /** Sent back by 재요청 nodes: how often at each (by node id), and the size factor the AI node batches it by (the nodes' scales multiplied). */
-  retry?: { times: Record<string, number>; factor: number };
+  retry?: { times: Record<string, number>; factor: number; /** The failure that sent the line back last (the run page says why a line waits), and the 재요청 node that did. */ last?: { kind: ItemErrorKind; message: string; nodeId: string } };
   /** The last failure that sent the line out through an "error" exit; cleared when a node handles it (ConditionData.error). */
   error?: { kind: ItemErrorKind; message: string; nodeId: string };
 }
@@ -644,6 +644,8 @@ export const runSteps = sqliteTable(
     context: json<ContextItem[]>('context'),
     output: json<unknown>('output'),
     error: text('error'),
+    /** The kind of a failed call (errorKindOf); null for calls that worked and for earlier runs. */
+    errorKind: text('error_kind').$type<ItemErrorKind>(),
     attempts: json<unknown[]>('attempts'),
     /** Usage of every attempt of this call (failed ones included), as the connections reported it. */
     inputTokens: integer('input_tokens'),
