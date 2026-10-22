@@ -32,7 +32,6 @@ export function snapshotChoice(db: Db, choice: ModelChoice, byId = new Map<strin
     kind: connection.kind,
     baseUrl: connection.baseUrl,
     executable: connection.executable,
-    authMethod: connection.authMethod,
     model,
     effort: effort || null,
   });
@@ -68,7 +67,6 @@ export function resolveRoutes(snapshot: AiSnapshot, secrets: SecretStore): Resol
     kind: route.kind as ConnectionKind,
     baseUrl: route.baseUrl ?? undefined,
     executable: route.executable ?? undefined,
-    authMethod: route.authMethod ?? undefined,
     model: route.model,
     effort: route.effort ?? undefined,
     apiKey: secrets.get(route.connectionId) ?? undefined,
@@ -96,7 +94,6 @@ export function connectionRoute(db: Db, connectionId: string, secrets: SecretSto
     kind: connection.kind,
     baseUrl: connection.baseUrl ?? undefined,
     executable: connection.executable ?? undefined,
-    authMethod: connection.authMethod ?? undefined,
     apiKey: secrets.get(connection.id) ?? undefined,
   };
 }

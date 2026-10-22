@@ -631,6 +631,13 @@
       "when": 1792657615466,
       "tag": "0089_connection_auth_method",
       "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "6",
+      "when": 1792660459491,
+      "tag": "0090_drop_connection_auth_method",
+      "breakpoints": true
     }
   ]
 }

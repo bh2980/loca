@@ -46,7 +46,6 @@ import { Page } from '@/components/page';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
 import { DeleteButton } from '@/components/settings/delete-button';
 import { KeyPane, type KeyRow } from '@/components/settings/key-pane';
-import { AuthMethodField } from '@/components/settings/auth-method-field';
 import { ExecutableField } from '@/components/settings/executable-field';
 import { client, unwrap, type InferResponseType } from '@/lib/api';
 import { q } from '@/lib/queries';
@@ -65,9 +64,7 @@ export const Route = createFileRoute('/p/$projectId/settings/connections')({
 const CAPABILITY_LABEL: Record<Capability, string> = { generate: '생성', judge: '판정', chat: '채팅', tool: '도구' };
 const LOGIN_LABEL: Record<string, string> = {
   'signed-in': '로그인됨',
-  'signed-out': '로그아웃됨',
-  unknown: '확인하지 못했습니다',
-  unsupported: '확인할 수 없음: 이 CLI는 로그인 상태를 알려 주지 않습니다',
+  'signed-out': '로그인 필요',
 };
 const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -290,7 +287,6 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
     name: connection.name,
     baseUrl: connection.baseUrl ?? undefined,
     executable: connection.executable ?? '',
-    authMethod: connection.authMethod,
     headerTemplate: connection.headerTemplate ?? '',
     defaultModel: connection.defaultModel,
     defaultEffort: connection.defaultEffort,
@@ -328,7 +324,6 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
             name: values.name,
             baseUrl: isHttp ? values.baseUrl : undefined,
             executable: isHttp ? undefined : (values.executable ?? ''),
-            authMethod: isHttp ? undefined : (values.authMethod ?? null),
             headerTemplate: connection.kind === 'http' ? (values.headerTemplate ?? '') : undefined,
             ...(!isTool && {
               defaultModel: values.defaultModel ?? null,
@@ -379,7 +374,7 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
   });
   const loginStatus = useMutation({
     mutationFn: () => unwrap(client.connections[':id'].login.$get({ param: { id: connection.id } })),
-    onSuccess: (result) => setLogin(result.status),
+    onSuccess: (result) => setLogin(result.status === 'error' ? result.detail : result.status),
     onError: (error) => toast.error(errorMessage(error)),
   });
   const openLogin = useMutation({
@@ -424,9 +419,6 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
           )}
           {info.transport === 'cli' && (
             <Controller control={form.control} name="executable" render={({ field }) => <ExecutableField kind={connection.kind} value={field.value ?? ''} onChange={field.onChange} />} />
-          )}
-          {info.transport === 'cli' && (
-            <Controller control={form.control} name="authMethod" render={({ field }) => <AuthMethodField connectionId={connection.id} executable={connection.executable} value={field.value} onChange={field.onChange} />} />
           )}
           {!isTool && (
             <Controller
@@ -525,14 +517,13 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
           {info.transport === 'cli' && (
             <InspectorActionRow
               label="로그인"
-              description={connection.kind === 'antigravity' ? 'agy를 인자 없이 엽니다. 이미 로그인했다면 로그인 창은 나오지 않습니다.' : undefined}
               action={
                 <>
-                  <Button variant="ghost" disabled={openLogin.isPending} onClick={() => openLogin.mutate()}>{connection.kind === 'antigravity' ? 'agy 열기' : '창 열기'}</Button>
+                  <Button variant="ghost" disabled={openLogin.isPending} onClick={() => openLogin.mutate()}>로그인 창 열기</Button>
                   <Button variant="outline" disabled={loginStatus.isPending} onClick={() => loginStatus.mutate()}>{loginStatus.isPending && <Spinner />}상태 보기</Button>
                 </>
               }
-              result={login && <InspectorResult tone={login === 'signed-in' ? 'ok' : login === 'signed-out' ? 'error' : 'info'}>{LOGIN_LABEL[login] ?? login}</InspectorResult>}
+              result={login && <InspectorResult tone={login === 'signed-in' ? 'ok' : 'error'}>{LOGIN_LABEL[login] ?? login}</InspectorResult>}
             />
           )}
           {!isTool && (

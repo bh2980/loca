@@ -112,9 +112,6 @@ export const q = {
     }),
   connections: () => queryOptions({ queryKey: ['connections'], queryFn: () => unwrap(client.connections.$get()) }),
   /** Recent model tests of one connection (AI log rows outside any project). */
-  /** The login methods an ACP agent offers (starts the agent, initialize only), fetched on demand and kept until the executable changes. Not under 'connections': saving a setting must not start the agent again. */
-  authMethods: (connectionId: string, executable: string | null, enabled: boolean) =>
-    queryOptions({ queryKey: ['agent', 'auth-methods', connectionId, executable], queryFn: () => unwrap(client.connections[':id']['auth-methods'].$get({ param: { id: connectionId } })), enabled, staleTime: Infinity, retry: false }),
   connectionTests: (connectionId: string) => queryOptions({ queryKey: ['calls', 'tests', connectionId], queryFn: () => unwrap(client.connections[':id'].tests.$get({ param: { id: connectionId } })) }),
   workflows: (projectId: string) =>
     queryOptions({ queryKey: ['workflows', projectId], queryFn: () => unwrap(client.projects[':projectId'].workflows.$get({ param: { projectId } })) }),
