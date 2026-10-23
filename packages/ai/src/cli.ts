@@ -5,7 +5,7 @@ import { execa, ExecaError, type Options } from 'execa';
 import { z } from 'zod';
 import type { ConnectionKind } from '@tw/shared';
 import { cliSpawn, resolveCli } from './spawn.ts';
-import { keepOutput, ModelError, TOO_LONG, withOutput } from './errors.ts';
+import { keepOutput, ModelError, SERVER_DOWN, TOO_LONG, withOutput } from './errors.ts';
 import { addUsage, readUsage, type GenerateRequest, type GenerateResult, type ModelLimitsInfo, type ResolvedRoute, type Usage } from './types.ts';
 
 type CliKind = Extract<ConnectionKind, 'codex' | 'claude' | 'grok' | 'antigravity' | 'opencode'>;
@@ -125,6 +125,8 @@ const QUOTA = /quota|RESOURCE_EXHAUSTED|rate.?limit|usage limit|too many request
 const cliFailure = (detail: string, usage?: Usage) =>
   QUOTA.test(detail)
     ? new ModelError('rate-limit', `CLI 사용량 한도에 도달했습니다. ${detail}`, undefined, usage)
+    : SERVER_DOWN.test(detail)
+      ? new ModelError('network', `AI 서비스 서버 오류입니다. ${detail}`, undefined, usage)
     : TOO_LONG.test(detail)
       ? new ModelError('too-long', `요청이 모델의 문맥 창보다 깁니다. ${detail}`.slice(0, 400), false, usage)
       : new ModelError('cli', `CLI가 실패를 반환했습니다: ${detail}`, false, usage);
@@ -288,6 +290,7 @@ export async function cliGenerate<T>(route: ResolvedRoute, request: GenerateRequ
       const detail = (error.stderr || stdout || '').toString().trim().split('\n').slice(-3).join(' ').slice(0, 400);
       // The whole output is searched: a pretty-printed envelope can push the reason far from the last lines.
       if (QUOTA.test(output)) throw new ModelError('rate-limit', `CLI 사용량 한도에 도달했습니다. ${detail}`, undefined, usage, kept);
+      if (SERVER_DOWN.test(output)) throw new ModelError('network', `AI 서비스 서버 오류입니다. ${detail}`, undefined, usage, kept);
       if (TOO_LONG.test(output)) throw new ModelError('too-long', `요청이 모델의 문맥 창보다 깁니다. ${detail}`.slice(0, 400), false, usage, kept);
       throw new ModelError('cli', `CLI가 실패했습니다 (exit ${error.exitCode}). ${detail}`, false, usage, kept);
     }

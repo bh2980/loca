@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import * as acp from '@agentclientprotocol/sdk';
 import type { ConnectionKind } from '@tw/shared';
 import { cliCommand, cliMissing, CODEX_UNUSED_FEATURES } from './cli.ts';
-import { ModelError, TOO_LONG } from './errors.ts';
+import { ModelError, SERVER_DOWN, TOO_LONG } from './errors.ts';
 import type { HostedServer } from './mcp-host.ts';
 import { adapterExecutable, cliSpawn, resolveCli, type SpawnDeps } from './spawn.ts';
 import type { Usage } from './types.ts';
@@ -116,6 +116,7 @@ export function acpError(error: unknown, stderr = '', extra: { command?: string 
   const detail = [raw, data && data !== '""' ? data : '', stderr.trim().split('\n').slice(-3).join(' ')].filter(Boolean).join(' · ').slice(0, 400);
   const tail = extra.command ? ` (실행: ${extra.command})` : '';
   if (QUOTA.test(detail)) return new ModelError('rate-limit', `CLI 사용량 한도에 도달했습니다. ${detail}`);
+  if (SERVER_DOWN.test(detail)) return new ModelError('network', `AI 서비스 서버 오류입니다. ${detail}${tail}`);
   if (TOO_LONG.test(detail)) return new ModelError('too-long', `요청이 모델의 문맥 창보다 깁니다. ${detail}`.slice(0, 400), false);
   // Only what the CLI says: a bare JSON-RPC -32000 is any server error.
   if (AUTH.test(detail)) return new ModelError('auth', `CLI에 로그인이 필요합니다. 연결 설정의 '로그인 창 열기'로 로그인하세요. ${detail}`, false);
