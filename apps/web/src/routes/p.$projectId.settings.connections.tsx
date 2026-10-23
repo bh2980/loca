@@ -10,7 +10,6 @@ import {
   CONNECTION_KIND_INFO,
   CONNECTION_KINDS,
   connectionInputSchema,
-  isFreeModel,
   type Capability,
   type ConnectionKind,
 } from '@tw/shared';
@@ -276,7 +275,6 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
   const isTool = connection.kind === 'http';
   const [apiKey, setApiKey] = useState('');
   const [probeResult, setProbeResult] = useState<{ ok: boolean; detail: string } | null>(null);
-  const [models, setModels] = useState<{ list: string[] | null; detail?: string } | null>(null);
   const [login, setLogin] = useState<string | null>(null);
 
   const editSchema = connectionInputSchema.omit({ kind: true });
@@ -339,11 +337,6 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
     mutationFn: () => unwrap(client.connections[':id'].probe.$post({ param: { id: connection.id } })),
     onSuccess: setProbeResult,
     onError: (error) => setProbeResult({ ok: false, detail: errorMessage(error) }),
-  });
-  const loadModels = useMutation({
-    mutationFn: () => unwrap(client.connections[':id'].models.$get({ param: { id: connection.id } })),
-    onSuccess: (result) => setModels({ list: result.models, detail: 'detail' in result ? result.detail : undefined }),
-    onError: (error) => setModels({ list: null, detail: errorMessage(error) }),
   });
   const loginStatus = useMutation({
     mutationFn: () => unwrap(client.connections[':id'].login.$get({ param: { id: connection.id } })),
@@ -410,11 +403,14 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
 
       <InspectorSection title="확인">
         <div>
-          <InspectorActionRow
-            label="연결 확인"
-            action={<Button variant="outline" disabled={probe.isPending} onClick={() => probe.mutate()}>{probe.isPending && <Spinner />}확인</Button>}
-            result={probeResult && <InspectorResult tone={probeResult.ok ? 'ok' : 'error'}>{probeResult.detail}</InspectorResult>}
-          />
+          {/* A CLI's 연결 확인 would only run --version, which the 실행 파일 field already shows. */}
+          {info.transport !== 'cli' && (
+            <InspectorActionRow
+              label="연결 확인"
+              action={<Button variant="outline" disabled={probe.isPending} onClick={() => probe.mutate()}>{probe.isPending && <Spinner />}확인</Button>}
+              result={probeResult && <InspectorResult tone={probeResult.ok ? 'ok' : 'error'}>{probeResult.detail}</InspectorResult>}
+            />
+          )}
           {info.transport === 'cli' && (
             <InspectorActionRow
               label="로그인"
@@ -425,36 +421,6 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
                 </>
               }
               result={login && <InspectorResult tone={login === 'signed-in' ? 'ok' : 'error'}>{LOGIN_LABEL[login] ?? login}</InspectorResult>}
-            />
-          )}
-          {!isTool && (
-            <InspectorActionRow
-              label="모델 목록"
-              action={<Button variant="outline" disabled={loadModels.isPending} onClick={() => loadModels.mutate()}>{loadModels.isPending && <Spinner />}불러오기</Button>}
-              result={
-                models &&
-                (models.list ? (
-                  <InspectorResult
-                    tone="ok"
-                    detail={
-                      <ul className="max-h-40 space-y-0.5 overflow-auto font-mono">
-                        {models.list.map((model) => (
-                          <li key={model} className="flex items-center gap-2">
-                            <span className="truncate">{model}</span>
-                            {isFreeModel(connection.kind, model) && <span className="shrink-0 font-sans text-success">무료</span>}
-                          </li>
-                        ))}
-                      </ul>
-                    }
-                  >
-                    모델 {models.list.length}개
-                  </InspectorResult>
-                ) : models.detail ? (
-                  <InspectorResult tone="error">{models.detail}</InspectorResult>
-                ) : (
-                  <InspectorResult tone="info">이 연결은 모델 목록을 제공하지 않습니다</InspectorResult>
-                ))
-              }
             />
           )}
           {!isTool && <ModelTest connectionId={connection.id} need={need} />}

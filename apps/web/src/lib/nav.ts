@@ -52,7 +52,7 @@ export function holds(item: NavItem, rest: string, search: Record<string, unknow
   const matchesPath = under(rest, item.path) || item.also?.some((path) => under(rest, path));
   if (!matchesPath) return false;
   if (item.search && !Object.entries(item.search).every(([key, value]) => search[key] === value)) {
-    if (!(item.id === 'documents' && rest === '/knowledge' && search.tab == null)) return false;
+    if (!(item.id === 'people' && rest === '/knowledge' && search.tab == null)) return false;
   }
   return true;
 }
