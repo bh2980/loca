@@ -4,7 +4,7 @@ import { AGE_BANDS, APPLY_FUNCTION_NAMES, APPLY_TARGETS, applyParams, choiceKey,
 import type { Db } from '../../db/index.ts';
 import * as s from '../../db/schema.ts';
 import type { Topic } from '../../events.ts';
-import { aiSaveCharacters, aiSaveDocument, aiSaveEvents, aiSaveRelationships, aiSaveSpeechRules, aiSaveTerms, aiSetLineListeners, type AiWrite } from '../../services/ai-knowledge.ts';
+import { aiSaveCharacters, aiSaveDocument, aiSaveEvents, aiSaveRelationships, relationshipRows, aiSaveSpeechRules, aiSaveTerms, aiSetLineListeners, type AiWrite } from '../../services/ai-knowledge.ts';
 import { addCandidate } from '../../services/candidates.ts';
 import { aiAutoConfirmOf } from '../../services/status-by.ts';
 import { setKnowledgeTag } from '../../services/knowledge-tags.ts';
@@ -48,11 +48,18 @@ function coerce(field: ApplyField, value: unknown): unknown {
   }
 }
 
-/** An item of a nested list: each sub-field takes `entry[map["<list>.<sub>"] ?? <sub>]`. Null when a required one is missing. */
+/** The entries of a list field read by its sub-fields, each taking `entry[map["<path>.<sub>"] ?? <sub>]` (deeper lists by the whole path). Entries missing a required sub-field are left out. */
+function readEntries(field: ApplyField, entries: unknown, map: Record<string, string>, prefix: string): Item[] {
+  if (!Array.isArray(entries)) return [];
+  return entries.flatMap((entry) => (entry && typeof entry === 'object' ? [readSub(field.fields ?? [], map, entry as Item, prefix)] : [])).filter((sub): sub is Item => sub !== null);
+}
+
+/** An item of a nested list: null when a required sub-field is missing. */
 function readSub(fields: ApplyField[], map: Record<string, string>, entry: Item, prefix: string): Item | null {
   const item: Item = {};
   for (const field of fields) {
-    const value = coerce(field, get(entry, map[`${prefix}${field.name}`] ?? field.name));
+    const source = get(entry, map[`${prefix}${field.name}`] ?? field.name);
+    const value = field.type === 'list' ? readEntries(field, source, map, `${prefix}${field.name}.`) : coerce(field, source);
     if (blank(value)) {
       if (field.required) return null;
     } else item[field.name] = value;
@@ -65,12 +72,7 @@ function readItem(fields: ApplyField[], map: Record<string, string>, record: Ite
   const item: Item = {};
   for (const field of fields) {
     const source = map[field.name];
-    let value: unknown;
-    if (!source) value = undefined;
-    else if (field.type === 'list') {
-      const entries = get(record, source);
-      value = Array.isArray(entries) ? entries.flatMap((entry) => (entry && typeof entry === 'object' ? [readSub(field.fields ?? [], map, entry as Item, `${field.name}.`)] : [])).filter((sub) => sub !== null) : [];
-    } else value = coerce(field, get(record, source));
+    const value = !source ? undefined : field.type === 'list' ? readEntries(field, get(record, source), map, `${field.name}.`) : coerce(field, get(record, source));
     if (blank(value)) {
       if (field.required) return null;
     } else item[field.name] = value;
@@ -128,8 +130,10 @@ const HANDLERS: Record<Exclude<ApplyFunctionName, ItemTarget>, Handler> = {
   },
   saveRelationships: {
     write: (items, { tx, write }) => {
-      const mapped = items.map((item) => ({ ...item, changes: ((item.changes as Item[]) ?? []).map((change) => ({ at: first(change.at), change: change.change as string, cause: change.cause as string })) }));
-      const { unresolved, ...counts } = aiSaveRelationships(tx, write, mapped as never);
+      const pairs = items.map((item) => ({
+        views: ((item.views as Item[]) ?? []).map((view) => ({ ...view, changes: ((view.changes as Item[]) ?? []).map((change) => ({ at: first(change.at), kind: change.kind as string, cause: change.cause as string })) })),
+      }));
+      const { unresolved, ...counts } = aiSaveRelationships(tx, write, relationshipRows(pairs as never));
       return { ...counts, ...(unresolved.length ? { unresolved } : {}) };
     },
   },

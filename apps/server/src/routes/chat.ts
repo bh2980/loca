@@ -2,13 +2,17 @@ import { Hono } from 'hono';
 import { UI_MESSAGE_STREAM_HEADERS, type UIMessage } from 'ai';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { agentSettingsSchema, modelChoiceSchema, PERMISSION_MODES, type ModelChoice } from '@tw/shared';
+import { agentSettingsSchema, ATTACH_KINDS, ATTACH_PAGE, modelChoiceSchema, savedPromptsSchema, PERMISSION_MODES, type ModelChoice } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { attachTurn, steerable, turnStartedAt } from '../services/chat-turns.ts';
-import { enqueueSteer, stopWithQueued } from '../services/chat-interject.ts';
+import { dequeueSteer, enqueueSteer, stopWithQueued } from '../services/chat-interject.ts';
 import { runChatTurn } from '../services/chat-run.ts';
+import { searchAttach } from '../services/attach-search.ts';
+import { chatRunScope } from '../services/chat-run-scope.ts';
+import { chatUsage } from '../services/chat-usage.ts';
+import { readSavedPrompts, writeSavedPrompts } from '../services/saved-prompts.ts';
 
 /**
  * What the user is looking at when they send a message. The web app reports it from every page,
@@ -17,15 +21,39 @@ import { runChatTurn } from '../services/chat-run.ts';
 const viewSchema = z.object({
   page: z.string(),
   path: z.string(),
-  items: z.array(z.object({ kind: z.string(), id: z.string(), label: z.string(), detail: z.string().max(6000).optional() })).max(20),
+  // `attached`: the person added it with @ (it need not be on screen).
+  items: z.array(z.object({ kind: z.string(), id: z.string(), label: z.string(), detail: z.string().max(6000).optional(), attached: z.boolean().optional() })).max(20),
 });
 
-const describeView = (view: z.infer<typeof viewSchema>) =>
-  [
+/** How the agent reaches what a person attached with @, through the tools it already has. */
+const ATTACH_HOW: Record<string, string> = {
+  대사: 'read_line(unitId) 또는 line_context로 앞뒤·청자·말투 규칙을 읽습니다',
+  장면: 'read_scene(sceneId)로 대사를 읽습니다 (list_events에서 장면의 사건도 찾을 수 있습니다)',
+  인물: 'list_characters, find_lines(speakers: [이름])로 그 인물의 대사를 찾습니다',
+  관계: 'list_relationships(ids: [id])',
+  '말투 규칙': 'list_speech_rules (화자·청자는 라벨)',
+  사건: 'list_events(ids: [id])',
+  노트: 'read_documents(ids: [id])',
+  용어: 'term_usage(term: id)로 쓰인 대사를 찾습니다',
+  태그: 'find_lines(tags: [id])로 이 태그가 붙은 대사를 찾습니다',
+  상태: 'find_lines(statuses: [id])로 이 상태의 대사를 찾습니다',
+  워크플로: 'read_workflow(workflowId)',
+  '실행 기록': 'read_run(runId)',
+};
+
+export const describeView = (view: z.infer<typeof viewSchema>) => {
+  const line = (item: z.infer<typeof viewSchema>['items'][number]) => `- ${item.kind}: ${item.label} [id=${item.id}]${item.detail ? `\n  ${item.detail}` : ''}`;
+  // An attached item says how to read it: its kind, id and label, and the tool that opens it.
+  const attachedLine = (item: z.infer<typeof viewSchema>['items'][number]) => `${line(item)}${ATTACH_HOW[item.kind] ? `\n  → ${ATTACH_HOW[item.kind]}` : ''}`;
+  const onScreen = view.items.filter((item) => !item.attached);
+  const attached = view.items.filter((item) => item.attached);
+  return [
     '사용자의 현재 화면 (지시어 "이것/이 대사/이 노드"는 여기를 가리킵니다):',
     `- 페이지: ${view.page} (${view.path})`,
-    ...view.items.map((item) => `- ${item.kind}: ${item.label} [id=${item.id}]${item.detail ? `\n  ${item.detail}` : ''}`),
+    ...onScreen.map(line),
+    ...(attached.length ? ['사용자가 이 메시지에 직접 첨부한 항목 (@로 고름. "이것/첨부한 것"은 이 항목들도 가리킵니다. 종류·id·이름을 알려 주니 id로 바로 읽으세요):', ...attached.map(attachedLine)] : []),
   ].join('\n');
+};
 
 const choiceColumns = (choice: Partial<ModelChoice> | { connectionId: string | null; model: string | null; effort: string | null } | undefined) => ({
   connectionId: choice?.connectionId ?? null,
@@ -71,6 +99,18 @@ export const chatRoutes = new Hono<Env>()
     events.changed(projectId, 'chat');
     return c.json(row, 201);
   })
+  // @-attach: every kind (lines, scenes, people, relationships, rules, events, notes, terms, tags, statuses, workflows, runs), grouped by kind, paged.
+  .get('/projects/:projectId/chat/attach', validate('query', z.object({ q: z.string().optional(), kind: z.enum(ATTACH_KINDS).optional(), offset: z.coerce.number().int().min(0).optional(), limit: z.coerce.number().int().min(1).max(ATTACH_PAGE).optional() })), (c) => c.json(searchAttach(c.var.deps.db, c.req.param('projectId'), c.req.valid('query'))))
+  // What the picks of a /workflow run mean as the run dialog's scope (scenes, lines, a person's lines, tags, statuses, terms).
+  .post('/projects/:projectId/chat/run-scope', validate('json', z.object({ workflowId: z.string(), items: z.array(z.object({ kind: z.string(), id: z.string() })).min(1).max(200) })), (c) => {
+    const { workflowId, items } = c.req.valid('json');
+    const result = chatRunScope(c.var.deps.db, c.req.param('projectId'), workflowId, items);
+    if (!result.ok) badRequest(result.error);
+    return c.json(result);
+  })
+  // 저장한 지시: read by the composer's / list, the settings page and `loca prompts`; only the settings page writes them.
+  .get('/projects/:projectId/prompts', (c) => c.json(found(readSavedPrompts(c.var.deps.db, c.req.param('projectId')) ?? undefined, '프로젝트')))
+  .put('/projects/:projectId/prompts', validate('json', z.object({ prompts: savedPromptsSchema })), (c) => c.json(found(writeSavedPrompts(c.var.deps.db, c.req.param('projectId'), c.req.valid('json').prompts) ?? undefined, '프로젝트')))
   .get('/projects/:projectId/chat/search', validate('query', z.object({ q: z.string().optional() })), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
@@ -205,7 +245,7 @@ export const chatRoutes = new Hono<Env>()
     const session = found(db.select().from(s.chatSessions).where(eq(s.chatSessions.id, sessionId)).get(), '대화');
     // What the latest turn is doing or how it ended, for a panel that is not streaming it (after a reload).
     const call = db.select({ label: s.aiCalls.label, status: s.aiCalls.status, error: s.aiCalls.error, startedAt: s.aiCalls.startedAt }).from(s.aiCalls).where(eq(s.aiCalls.refId, sessionId)).orderBy(desc(s.aiCalls.startedAt)).get() ?? null;
-    return c.json({ ...session, turn: { startedAt: turnStartedAt(sessionId), call } });
+    return c.json({ ...session, turn: { startedAt: turnStartedAt(sessionId), call }, usage: chatUsage(db, session) });
   })
   .patch('/chat/:sessionId', validate('json', z.object({ title: z.string().trim().min(1).optional(), model: modelChoiceSchema.optional(), permissionMode: z.enum(PERMISSION_MODES).optional() })), (c) => {
     const { db } = c.var.deps;
@@ -248,4 +288,6 @@ export const chatRoutes = new Hono<Env>()
     enqueueSteer(c.var.deps.db, sessionId, c.req.valid('json').text);
     return c.json({ queued: true });
   })
+  // Takes a queued message back before the turn has taken it: `removed` false means it was delivered already.
+  .post('/chat/:sessionId/unsteer', validate('json', z.object({ text: z.string().trim().min(1).max(20_000) })), (c) => c.json({ removed: dequeueSteer(c.var.deps.db, c.req.param('sessionId'), c.req.valid('json').text) }))
   .post('/chat/:sessionId/stop', (c) => c.json(stopWithQueued(c.var.deps.db, c.req.param('sessionId'))));

@@ -179,7 +179,7 @@ export function buildPrompt(
       : '',
     Object.keys(context.people).length ? '"people" gives the gender and age of speakers and listeners: let Korean forms of address and speech levels fit them.' : '',
     [...context.relationships, ...context.aiNotes.relationships].some((r) => r.changes?.length)
-      ? 'Relationships with "changes" show how the bond changed up to this point in the story.'
+      ? 'A relationship\'s "kind" is who "to" is to "from" at the first line of the request. Its "changes" are later changes inside the request: from the line "at" on, the relationship is that change\'s "kind".'
       : '',
     kindGuide(lines),
     !node.config.input.lines

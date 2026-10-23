@@ -33,11 +33,12 @@ loca views list
 
 ## 인물과 관계
 - 기존 인물은 `id`로 고칩니다(`loca call list_characters`). 같은 이름으로 새로 만들면 거절됩니다.
+- 관계는 방향마다 행 하나입니다: `kind`는 `to`가 `from`에게 누구인지 짧은 명사 하나("두목-부하"처럼 양쪽 역할, "동료 / 파트너"처럼 여럿, "협력에서 적대로"처럼 변화를 넣지 않습니다). 두 방향이 같으면 `mutual`. 시간에 따라 바뀌면 `changes`에 바뀌는 대사 키 `at`, 바뀐 뒤의 관계 `kind`, 이유 `cause`를 순서대로 적습니다. `loca knowledge relationships`는 `협력자 ▸ 배신자 (키부터)`처럼 보여 줍니다.
 - `profile`은 마크다운: 성격, 역할, 번역 시 주의점, 근거 대사 키 몇 개. `speech`는 원문에서 어떻게 말하는지. `player`는 플레이어 캐릭터(말이 없어도 청자가 됨).
 - `gender`(`male`/`female`/`other`/`unknown`)와 `ageBand`(`child`/`teen`/`young`/`middle`/`old`/`unknown`)는 대사에 근거(대명사, 호칭, 나이 언급)가 있을 때만 채웁니다. 번역의 호칭·말투 문맥에 들어갑니다.
 ```
 loca call save_character @"$W/alice.json"       # {"id":"…","name":"Alice","aliases":["CHAR_ALICE"],"profile":"…","speech":"…","player":false,"gender":"female","ageBand":"middle"}
-loca call save_relationship @"$W/rel.json"       # {"from":"Alice","to":"Bob","kind":"동료","description":"…","mutual":true}
+loca call save_relationship @"$W/rel.json"       # {"from":"Alice","to":"Bob","kind":"동료","description":"…","mutual":true,"changes":[{"at":"<대사 키>","kind":"적","cause":"…"}]}
 ```
 
 ## 말투 규칙

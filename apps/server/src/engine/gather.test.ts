@@ -112,7 +112,7 @@ describe('모으기', () => {
             overviewTitle: '작품 개요',
             overview: `part ${scene}`,
             characters: [{ name: scene === '2' ? 'Corporal Mira' : 'Mira', aliases: [], profile: '', speech: '', player: false, gender: 'unknown', ageBand: 'unknown', role: 'unknown', evidence: [] }],
-            relationships: [{ from: 'Mira', to: `Kai ${scene}`, kind: '동료', description: '', changes: [], evidence: [] }],
+            relationships: [{ between: ['Mira', `Kai ${scene}`], views: [{ from: 'Mira', to: `Kai ${scene}`, kind: '동료', description: '', changes: [], evidence: [] }, { from: `Kai ${scene}`, to: 'Mira', kind: '동료', description: '', changes: [], evidence: [] }] }],
             events: [],
             speechRules: [],
             sceneListeners: [],

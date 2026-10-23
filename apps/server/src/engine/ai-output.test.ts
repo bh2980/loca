@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { workflowNodeSchema, type AiNode } from '@tw/shared';
+import { AI_PROMPTS, workflowNodeSchema, type AiNode } from '@tw/shared';
 import { readAiOutput } from './ai-output.ts';
 
 const node = (config: Record<string, unknown>) => workflowNodeSchema.parse({ id: 'n', type: 'ai', position: { x: 0, y: 0 }, config }) as AiNode;
@@ -76,5 +76,60 @@ describe('reading an AI answer line by line (#49)', () => {
     expect(out).toEqual([null, null]);
     const ok = readAiOutput(node({ output: 'json', fields }), { results: [{ id: '1', value: 'MIRA', confidence: 0.9 }, { id: '2', value: 'unknown', confidence: 0 }] }, lines, 'm');
     expect(ok.map((entry) => entry?.output)).toEqual([{ value: 'MIRA', confidence: 0.9 }, { value: 'unknown', confidence: 0 }]);
+  });
+
+  describe('relationships with a view per direction', () => {
+    const relationFields = [{ name: 'relationships', type: 'list', fields: [{ name: 'between', type: 'strings' }, { name: 'views', type: 'list', fields: [{ name: 'from', type: 'string' }, { name: 'to', type: 'string' }, { name: 'kind', type: 'string' }, { name: 'evidence', type: 'lines' }, { name: 'changes', type: 'list', fields: [{ name: 'at', type: 'lines' }, { name: 'kind', type: 'string' }] }] }] }];
+    const view = (from: string, to: string, extra: Record<string, unknown> = {}) => ({ from, to, kind: '협력자', evidence: [], changes: [], ...extra });
+    const read = (relationships: unknown[]) => readAiOutput(node({ output: 'json', scope: 'batch', fields: relationFields }), { relationships }, lines, 'm');
+
+    it('keeps the line ids of a view and of its changes (a list inside a list item)', () => {
+      const [out] = read([{ between: ['A', 'B'], views: [view('A', 'B', { evidence: ['1'], changes: [{ at: ['2'], kind: '적' }] }), view('B', 'A')] }]);
+      expect(out!.output).toMatchObject({ relationships: [{ views: [{ evidence: ['k1'], changes: [{ at: ['k2'], kind: '적' }] }, { evidence: [] }] }], batchLeader: true });
+    });
+
+    it('is an invalid-output failure for the whole request when a pair has no view, more than two, a direction twice or a direction that is not the pair\'s', () => {
+      const bad = [
+        [],
+        [view('A', 'B'), view('A', 'B')],
+        [view('A', 'B'), view('B', 'C')],
+        [view('A', 'C')],
+        [view('A', 'B'), view('B', 'A'), view('A', 'B')],
+      ];
+      for (const views of bad) {
+        const out = read([{ between: ['A', 'B'], views }]);
+        expect(out).toHaveLength(2);
+        for (const outcome of out) expect(outcome).toMatchObject({ port: 'error', errorKind: 'invalid-output', error: expect.stringContaining('relationships[0] (A ↔ B)') });
+      }
+      expect(read([{ between: ['A'], views: [] }])[0]).toMatchObject({ port: 'error', errorKind: 'invalid-output', error: expect.stringContaining('"between"') });
+      expect(read([{ between: ['A', 'a'], views: [view('A', 'a'), view('a', 'A')] }])[0]).toMatchObject({ port: 'error' });
+    });
+
+    it('accepts one direction or both, in either order, and name spellings that differ only by case or spaces; unknown people are the save\'s concern', () => {
+      expect(read([{ between: ['A', 'B'], views: [view('B', 'A')] }])[0]).toMatchObject({ port: 'out' });
+    });
+
+    it('accepts the two directions in either order and name spellings that differ only by case or spaces; unknown people are the save\'s concern', () => {
+      expect(read([{ between: ['A', 'B'], views: [view('b', 'a'), view(' A ', 'B')] }, { between: ['Nobody', 'B'], views: [view('B', 'Nobody'), view('Nobody', 'B')] }])[0]).toMatchObject({ port: 'out' });
+    });
+
+    it('a line-scope answer breaks the same way, only that line', () => {
+      const ai = node({ output: 'json', fields: relationFields });
+      const out = readAiOutput(ai, { results: [{ id: '1', relationships: [{ between: ['A', 'B'], views: [view('A', 'B'), view('A', 'B')] }] }, { id: '2', relationships: [] }] }, lines, 'm');
+      expect(out[0]).toMatchObject({ port: 'error', errorKind: 'invalid-output' });
+      expect(out[1]).toMatchObject({ port: 'out' });
+    });
+
+    it('applies to the relationship fields of the presets', () => {
+      const empty = (fields: { name: string; type: string; fields?: unknown[] }[]): Record<string, unknown> => Object.fromEntries(fields.map((field) => [field.name, field.type === 'string' ? '' : field.type === 'boolean' ? false : field.type === 'number' ? 0 : []]));
+      const full = (from: string, to: string) => ({ ...view(from, to), description: '' });
+      for (const preset of ['knowledge', 'peopleMerge', 'analysis'] as const) {
+        const fields = AI_PROMPTS[preset].fields;
+        const read = (relationships: unknown[]) => readAiOutput(node({ output: 'json', scope: 'batch', fields }), { ...empty(fields), relationships }, lines, 'm');
+        expect(read([{ between: ['A', 'B'], views: [full('A', 'B'), full('B', 'A')] }])[0]).toMatchObject({ port: 'out' });
+        expect(read([{ between: ['A', 'B'], views: [full('A', 'B')] }])[0]).toMatchObject({ port: 'out' });
+        expect(read([{ between: ['A', 'B'], views: [] }])[0]).toMatchObject({ port: 'error', errorKind: 'invalid-output' });
+      }
+    });
   });
 });

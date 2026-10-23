@@ -112,6 +112,27 @@ export const PERMISSION_MODE_INFO: Record<PermissionMode, { label: string; descr
   bypass: { label: '바로 반영', description: '허용한 작업을 확인 없이 반영합니다. 변경 기록은 남고 되돌릴 수 있습니다.' },
 };
 
+/** 저장한 지시: a prompt kept per project and called from the chat box's / list (it fills the box, the person sends it; a `{대상}` in it opens the @ picker there). */
+export const savedPromptSchema = z.object({
+  /** What follows the slash: no spaces, no leading slash. Korean is fine. */
+  name: z
+    .string()
+    .trim()
+    .min(1, '이름을 입력하세요.')
+    .max(30, '이름은 30자까지입니다.')
+    .regex(/^[^\s/]+$/u, '이름에는 공백과 /를 쓸 수 없습니다.'),
+  text: z.string().trim().min(1, '지시 내용을 입력하세요.').max(8000, '지시는 8,000자까지입니다.'),
+});
+export type SavedPrompt = z.infer<typeof savedPromptSchema>;
+export const savedPromptsSchema = z.array(savedPromptSchema).max(100).superRefine((list, ctx) => {
+  const seen = new Set<string>();
+  list.forEach((prompt, index) => {
+    const key = prompt.name.toLowerCase();
+    if (seen.has(key)) ctx.addIssue({ code: 'custom', path: [index, 'name'], message: `이름이 겹칩니다: ${prompt.name}` });
+    seen.add(key);
+  });
+});
+
 export const agentSettingsSchema = z.object({
   /** Tool names switched off for this project's agent (chat and CLI). */
   disabledTools: z.array(z.string()).default([]),
@@ -121,6 +142,8 @@ export const agentSettingsSchema = z.object({
   chatModel: modelChoiceSchema.nullable().default(null),
   /** The permission mode a new conversation starts in. */
   defaultPermissionMode: z.enum(PERMISSION_MODES).default('ask'),
+  /** 저장한 지시: /name in the chat box inserts the text. */
+  prompts: savedPromptsSchema.default([]),
 });
 export type AgentSettings = z.infer<typeof agentSettingsSchema>;
 

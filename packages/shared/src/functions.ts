@@ -139,7 +139,7 @@ export interface ApplyField {
   label: string;
   type: JsonFieldType;
   required?: boolean;
-  /** Item fields of a `list` field (e.g. a relationship's changes); mapped as "<field>.<sub>" or by the same name. */
+  /** Item fields of a `list` field (e.g. a relationship's views and their changes); mapped as "<field>.<sub>" (with the whole path for deeper ones) or by the same name. */
   fields?: ApplyField[];
 }
 /** A workflow's input: what its items are (INPUT_TYPES in workflow.ts). */
@@ -221,25 +221,33 @@ export const APPLY_TARGETS = {
   },
   saveRelationships: {
     label: '관계 저장',
-    description: '두 인물의 관계와 그 변화를 넣습니다. 사람이 정한 관계는 바꾸지 않고, 달라진 점은 후보로 남깁니다.',
+    description:
+      '두 인물의 관계를 방향마다 넣습니다(한 쌍에 한 방향 또는 두 방향). 두 방향의 관계와 변화가 같으면 쌍방 관계 하나로 저장합니다. 사람이 정한 관계는 바꾸지 않고, 달라진 점은 후보로 남깁니다.',
     shape: 'list',
     fields: [
-      { name: 'from', label: '인물', type: 'string', required: true },
-      { name: 'to', label: '상대', type: 'string', required: true },
-      { name: 'kind', label: '관계', type: 'string', required: true },
-      { name: 'description', label: '설명', type: 'string' },
-      { name: 'mutual', label: '쌍방', type: 'boolean' },
       {
-        name: 'changes',
-        label: '변화',
+        name: 'views',
+        label: '방향별 관계',
         type: 'list',
+        required: true,
         fields: [
-          { name: 'at', label: '변화 대사', type: 'lines', required: true },
-          { name: 'change', label: '변화', type: 'string', required: true },
-          { name: 'cause', label: '원인', type: 'string' },
+          { name: 'from', label: '인물', type: 'string', required: true },
+          { name: 'to', label: '상대', type: 'string', required: true },
+          { name: 'kind', label: '관계', type: 'string', required: true },
+          { name: 'description', label: '설명', type: 'string' },
+          evidenceField,
+          {
+            name: 'changes',
+            label: '변화',
+            type: 'list',
+            fields: [
+              { name: 'at', label: '변화 대사', type: 'lines', required: true },
+              { name: 'kind', label: '바뀐 관계', type: 'string', required: true },
+              { name: 'cause', label: '원인', type: 'string' },
+            ],
+          },
         ],
       },
-      evidenceField,
     ],
     tool: 'save_knowledge',
     inputs: ['lines', 'terms'],

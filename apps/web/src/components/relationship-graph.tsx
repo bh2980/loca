@@ -11,6 +11,7 @@ import '@xyflow/react/dist/style.css';
 import type { CharacterRole } from '@tw/shared';
 import { cn } from '@/lib/utils';
 import { personStyle } from '@/lib/person-colors';
+import { relationRow } from '@/lib/relation-label';
 import { useIsDark } from '@/lib/theme';
 
 export interface GraphCharacter {
@@ -25,6 +26,8 @@ export interface GraphRelationship {
   fromId: string;
   toId: string;
   kind: string;
+  /** The kinds it changes to, in script order (shown after the kind). */
+  changes?: { kind: string }[];
   mutual: boolean;
   /** Drawn dashed: a candidate not yet used as context. */
   dashed?: boolean;
@@ -329,7 +332,7 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
           target: head.toId,
           data: {
             offset,
-            rows: members.map((relationship, at) => ({ id: relationship.id, text: members.length > 1 ? `${at === 0 ? '→' : '←'} ${relationship.kind}` : relationship.kind, selected: relationship.id === selectedRelationshipId })),
+            rows: members.map((relationship, at) => ({ id: relationship.id, text: relationRow(members.length > 1 ? (at === 0 ? 'forward' : 'back') : relationship.mutual ? 'both' : 'forward', relationship.kind, relationship.changes), selected: relationship.id === selectedRelationshipId })),
             dashed: members.every((relationship) => relationship.dashed),
             dim: emphasis.active && !ids.some((id) => emphasis.edgeIds.has(id)),
             focus: ids.some((id) => emphasis.edgeIds.has(id)),

@@ -18,6 +18,8 @@ export interface ResolvedRoute {
 export interface ModelLimitsInfo {
   contextWindow?: number;
   maxOutput?: number;
+  /** Whether it takes images (a model list's input modalities), when the list says. */
+  images?: boolean;
 }
 
 export interface Usage {

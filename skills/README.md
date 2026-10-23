@@ -9,7 +9,7 @@
 | `loca-glossary` | 용어 사용처, 위반 점검, 용어 후보 제안 |
 | `loca-knowledge` | 인물·관계·말투 규칙·사건·노트 읽기와 제안, 대사의 청자 정하기, 장면 설명 |
 | `loca-workflows` | 워크플로 만들기·고치기(노드, AI 출력·필드, 조건, 반영), 실행 미리보기·시작, 실패 원인 보기 |
-| `loca-project` | 프로젝트 설정: 상태·태그, 서식 규칙, 장면·원문 추가와 수정 |
+| `loca-project` | 프로젝트 설정: 상태·태그, 서식 규칙, 장면·원문 추가와 수정, 저장한 지시 읽기(`loca prompts`) |
 | `loca-import-format` | 게임 추출 결과를 표준 파일(`loca/v1`)로 바꾸는 변환기 만들기와 `loca format check` |
 
 ## 공통 규칙

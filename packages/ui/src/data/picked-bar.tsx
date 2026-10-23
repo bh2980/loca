@@ -26,7 +26,9 @@ export function SelectionBar({
         "@container/picked flex min-w-0 flex-wrap items-center gap-2 text-xs",
         // Actions here sit in a table header or toolbar row of about their own height: borderless and
         // one step shorter, so they read as text actions rather than boxes crammed into the row.
-        "[&_button:not([role=checkbox])]:h-6! [&_button:not([role=checkbox])]:border-transparent! [&_button:not([role=checkbox])]:bg-transparent! [&_button:not([role=checkbox])]:shadow-none! [&_button:not([role=checkbox]):hover]:bg-accent!",
+        "[&_button:not([role=checkbox])]:h-6!",
+        // A primary (default) button keeps its fill: stripping it would leave white text on nothing.
+        "[&_button:not([role=checkbox],[data-variant=default])]:border-transparent! [&_button:not([role=checkbox],[data-variant=default])]:bg-transparent! [&_button:not([role=checkbox],[data-variant=default])]:shadow-none! [&_button:not([role=checkbox],[data-variant=default]):hover]:bg-accent!",
         className,
       )}
       role="toolbar"

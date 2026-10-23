@@ -34,6 +34,15 @@ export function learnLimits(db: Db, connectionId: string | undefined, model: str
   events.changed(undefined, 'connections');
 }
 
+/** Whether the model takes images, as the connection said (an agent CLI's initialize); kept for the composer's chip warning. A person's limits stay untouched. */
+export function learnImages(db: Db, connectionId: string | undefined, model: string, images: boolean | undefined) {
+  if (!connectionId || images === undefined) return;
+  const current = db.select({ limits: s.connections.modelLimits }).from(s.connections).where(eq(s.connections.id, connectionId)).get()?.limits;
+  if (!current || current[model]?.images === images) return;
+  db.update(s.connections).set({ modelLimits: { ...current, [model]: { ...current[model], by: current[model]?.by ?? ('api' as const), images } } }).where(eq(s.connections.id, connectionId)).run();
+  events.changed(undefined, 'connections');
+}
+
 /** Starts a log row for a request going out to `route`; finish it with the returned function. */
 export function startCall(db: Db, meta: CallMeta, route: Pick<ai.ResolvedRoute, 'kind' | 'model' | 'connectionId'>) {
   const id = crypto.randomUUID();

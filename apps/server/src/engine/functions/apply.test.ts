@@ -59,10 +59,11 @@ describe('apply node mapping', () => {
   });
 
   it('reads nested list fields by sub-field', () => {
-    const { items } = applyItems('saveRelationships', { list: 'rels', map: { from: 'a', to: 'b', kind: 'kind', changes: 'shifts', 'changes.change': 'what' } }, {
-      rels: [{ a: 'Bob', b: 'Alice', kind: '부하', shifts: [{ at: ['a2'], what: '긴장' }, { at: [], what: '무시' }] }],
+    const { items } = applyItems('saveRelationships', { list: 'rels', map: { views: 'sides', 'views.from': 'who', 'views.changes': 'shifts', 'views.changes.kind': 'now' } }, {
+      rels: [{ sides: [{ who: 'Bob', to: 'Alice', kind: '부하', shifts: [{ at: ['a2'], now: '경계' }, { at: [], now: '무시' }] }, { who: 'Alice', to: 'Bob' }] }],
     });
-    expect(items[0].changes).toEqual([{ at: ['a2'], change: '긴장' }]);
+    // Three levels deep: the second view has no kind, so it is left out; the change without a line too.
+    expect(items[0]!.views).toEqual([{ from: 'Bob', to: 'Alice', kind: '부하', changes: [{ at: ['a2'], kind: '경계' }] }]);
   });
 });
 
@@ -122,10 +123,12 @@ describe('apply nodes', () => {
     const ctx = setup();
     ctx.db.insert(s.characters).values([{ projectId: ctx.projectId, name: 'Alice' }, { projectId: ctx.projectId, name: 'Bob' }]).run();
     ctx.db.insert(s.storyEvents).values({ projectId: ctx.projectId, title: '지각' }).run();
-    apply(ctx, 'saveRelationships', { list: 'r', map: { from: 'a', to: 'b', kind: 'k', changes: 'c' } }, { r: [{ a: 'Bob', b: 'Alice', k: '부하', c: [{ at: ['a2'], change: '긴장' }] }], batchLeader: true });
+    apply(ctx, 'saveRelationships', { list: 'r', map: { views: 'views' } }, { r: [{ between: ['Alice', 'Bob'], views: [{ from: 'Bob', to: 'Alice', kind: '부하', changes: [{ at: ['a2'], kind: '경계', cause: '지각' }] }] }], batchLeader: true });
     apply(ctx, 'saveSpeechRules', { list: 'r', map: { fromName: 'a', toName: 'b', level: 'l', startKey: 's' } }, { r: [{ a: 'Bob', b: 'Alice', l: 'haeyo', s: ['a2'] }, { a: 'Bob', b: 'Alice', l: 'nonsense' }], batchLeader: true });
     apply(ctx, 'saveEvents', { list: 'e', map: { title: 't' } }, { e: [{ t: '지각' }], batchLeader: true });
-    expect(ctx.db.select().from(s.relationships).get()).toMatchObject({ kind: '부하', changes: [{ at: 'a2', change: '긴장', cause: '' }] });
+    expect(ctx.db.select().from(s.relationships).get()).toMatchObject({ kind: '부하', changes: [{ at: 'a2', kind: '경계', cause: '지각' }] });
+    // The one direction the script shows is the one row.
+    expect(ctx.db.select().from(s.relationships).all()).toHaveLength(1);
     expect(ctx.db.select().from(s.speechRules).get()).toMatchObject({ fromName: 'Bob', startKey: 'a2' });
     expect(ctx.db.select().from(s.storyEvents).all()).toHaveLength(1);
   });

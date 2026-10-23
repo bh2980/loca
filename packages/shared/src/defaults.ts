@@ -289,7 +289,7 @@ export function termTranslationTemplate(ids: TemplateIds): WorkflowDefinition {
  */
 const MERGED_PATHS = [
   ...['name', 'aliases', 'profile', 'speech', 'player', 'gender', 'ageBand', 'role'].map((field) => `characters.${field}`),
-  ...['from', 'to', 'kind', 'description', 'changes.at', 'changes.change', 'changes.cause', 'evidence'].map((field) => `relationships.${field}`),
+  ...['between', 'views.from', 'views.to', 'views.kind', 'views.description', 'views.evidence', 'views.changes.at', 'views.changes.kind', 'views.changes.cause'].map((field) => `relationships.${field}`),
   ...['fromName', 'toName', 'level', 'address', 'note', 'startKey', 'evidence'].map((field) => `speechRules.${field}`),
 ];
 
@@ -297,7 +297,7 @@ const MERGED_PATHS = [
  * 인물·관계 추출: scene groups are read against what is known (new people, what the scenes show about people already
  * stored, relationships and speech rules). Nothing is saved while the scenes are read: 모으기 waits for every request
  * and collects the people, relationships and speech rules of every part, AI 인물·관계 합치기 makes one entry per person,
- * one relationship per direction (its changes in script order) and one speech rule per speaker → listener stretch, and
+ * one relationship per pair of people (a view per direction, its changes in script order) and one speech rule per speaker → listener stretch, and
  * then each list is saved once: 인물 저장 ('다르면 제안으로 올림': an empty profile is filled, an AI one nobody touched is replaced,
  * an imported or written one that differs becomes a proposal), then 관계 저장 and 말투 규칙 저장, which find the people they name.
  * The 합치기 AI has a 재요청 node but no failure marker: after the 모으기 one item stands for the whole run, so an `AI 실패`

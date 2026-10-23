@@ -33,7 +33,11 @@ export function withCompaction(record: UIMessage[], compaction: Compaction | nul
   return [{ id: 'compaction', role: 'user', parts: [{ type: 'text', text: summaryText(compaction.summary) }] }, ...record.slice(compaction.upTo)];
 }
 
-const tokensOf = (messages: UIMessage[]) => messages.reduce((sum, message) => sum + estimateTokens(message.parts), 0);
+/** An attached image costs about what a provider charges for one, not the size of its base64 text. */
+const IMAGE_TOKENS = 1_500;
+export const partsTokens = (parts: UIMessage['parts']) => estimateTokens(parts.map((part) => (part.type === 'file' ? { type: 'file' } : part))) + IMAGE_TOKENS * parts.filter((part) => part.type === 'file').length;
+
+const tokensOf = (messages: UIMessage[]) => messages.reduce((sum, message) => sum + partsTokens(message.parts), 0);
 
 /** The model's window from its model list; UNKNOWN_WINDOW when neither says. */
 export function chatWindow(db: Db, connectionId: string | undefined, model: string) {
@@ -49,7 +53,7 @@ export function chatWindow(db: Db, connectionId: string | undefined, model: stri
 export function cutPoint(record: UIMessage[], from: number) {
   let kept = 0;
   let cut = record.length;
-  while (cut > from + 1 && kept < KEEP_RECENT_TOKENS) kept += estimateTokens(record[--cut]!.parts);
+  while (cut > from + 1 && kept < KEEP_RECENT_TOKENS) kept += partsTokens(record[--cut]!.parts);
   while (cut > from && record[cut]?.role !== 'user') cut--;
   return cut > from ? cut : 0;
 }
@@ -71,7 +75,7 @@ async function summarize(db: Db, chat: { id: string; projectId: string }, route:
     // As many messages as fit beside the summary so far (at least one).
     let end = start;
     let used = summary ? estimateTokens(summary) : 0;
-    while (end < messages.length && (end === start || used + estimateTokens(messages[end]!.parts) <= room)) used += estimateTokens(messages[end++]!.parts);
+    while (end < messages.length && (end === start || used + partsTokens(messages[end]!.parts) <= room)) used += partsTokens(messages[end++]!.parts);
     const prompt = [summary ? `이전 요약:\n${summary}` : '', `요약할 대화:\n${transcript(messages.slice(start, end))}`].filter(Boolean).join('\n\n');
     const result = await logged(db, { projectId: chat.projectId, kind: 'chat', refId: chat.id, label: '대화 압축' }, route, () =>
       ai.generate(route, { system: SUMMARY_SYSTEM, prompt, schema: z.object({ summary: z.string().min(1) }), timeoutMs: 300_000, signal }),

@@ -368,33 +368,50 @@ export function buildContext(
       return pointSeq <= batchMaxSeq();
     };
 
+    // A relationship is given as it stands at the batch's first line (script order): its kind is the start kind with every
+    // change certainly passed before that line applied, and "changes" holds only what comes later inside the request or
+    // on some routes only. One kind per request is the simplest that is never ahead of the story for the first line;
+    // a change inside the batch is told with its line, so the prompt says from where the new kind holds.
+    const firstKey = batchKeys.reduce((best, key) => ((getScriptOrder().get(key) ?? Infinity) < (getScriptOrder().get(best) ?? Infinity) ? key : best), batchKeys[0]!);
+    const sequence = (point: string) => getScriptOrder().get(point) ?? Infinity;
+    const isBeforeFirst = (point: string): boolean => {
+      const passage = graph.passage(point, firstKey);
+      if (passage === 'definite') return true;
+      return passage === 'unknown' && sequence(point) <= sequence(firstKey);
+    };
+
     for (const rel of rels) {
       // Spoiler protection: if all evidence for this relationship lies in the future or unreachable branches, suppress it.
       if (rel.evidence?.length && rel.evidence.every((ev) => !isPassedOrReachable(ev))) {
         continue;
       }
-      // Filter changes: keep only changes up to or reachable by this batch
-      const validChanges = (rel.changes ?? []).filter((ch) => isPassedOrReachable(ch.at));
+      // Changes up to or reachable by this batch, in script order; those passed before its first line set the kind.
+      const validChanges = (rel.changes ?? []).filter((ch) => isPassedOrReachable(ch.at)).sort((a, b) => sequence(a.at) - sequence(b.at));
+      const applied = validChanges.filter((ch) => isBeforeFirst(ch.at));
+      const current = applied.at(-1);
+      // A change on only some routes that always comes before the one now in force changes nothing.
+      const superseded = (point: string) => current && (graph.has(point) && graph.has(current.at) ? graph.leadsTo(point, current.at) && !graph.leadsTo(current.at, point) : sequence(point) < sequence(current.at));
+      const later = validChanges.filter((ch) => !applied.includes(ch) && !superseded(ch.at));
       const entry = {
         from: nameOf.get(rel.fromId)!,
         to: nameOf.get(rel.toId)!,
-        kind: rel.kind,
+        kind: current?.kind ?? rel.kind,
         description: rel.description,
         mutual: rel.mutual,
-        ...(validChanges.length && { changes: validChanges }),
+        ...(later.length && { changes: later }),
       };
       const ai = unverified(rel);
       const totalChanges = rel.changes?.length ?? 0;
-      const changeNote = validChanges.length !== totalChanges
-        ? ` · 미래 변화 ${totalChanges - validChanges.length}건 차단`
-        : validChanges.length
-          ? ` · 변화 ${validChanges.length}건`
-          : '';
+      const changeNote = [
+        applied.length ? `첫 줄 기준 변화 ${applied.length}건 반영` : '',
+        later.length ? `묶음 안·경로에 따라 바뀌는 변화 ${later.length}건` : '',
+        validChanges.length !== totalChanges ? `미래 변화 ${totalChanges - validChanges.length}건 차단` : '',
+      ].filter(Boolean).join(' · ');
       candidates.relationship.push({
         item: {
           kind: 'relationship',
           label: `${entry.from} → ${entry.to}: ${entry.kind}${ai ? ' (AI 추론)' : ''}`,
-          reason: `이 묶음에 나오는 두 인물 사이${changeNote}${ai ? ' · 확인 안 된 AI 항목이라 사실과 따로 전달' : ''}`,
+          reason: `이 묶음에 나오는 두 인물 사이${changeNote ? ` · ${changeNote}` : ''}${ai ? ' · 확인 안 된 AI 항목이라 사실과 따로 전달' : ''}`,
         },
         payload: entry,
         keep: () => (ai ? result.aiNotes.relationships : result.relationships).push(entry),

@@ -6,7 +6,7 @@ import { DefaultChatTransport, lastAssistantMessageIsCompleteWithApprovalRespons
 export interface ChatView {
   page: string;
   path: string;
-  items: { kind: string; id: string; label: string; detail?: string }[];
+  items: { kind: string; id: string; label: string; detail?: string; /** Added by the person with @, not read from the page. */ attached?: boolean }[];
 }
 
 /**

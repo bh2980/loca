@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { importFileSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { aiSaveCharacters, aiSaveDocument, aiSaveEvents, aiSaveRelationships, aiSaveSpeechRules, aiSaveTerms, aiSetLineListeners, canonicalNames } from './ai-knowledge.ts';
+import { aiSaveCharacters, aiSaveDocument, aiSaveEvents, aiSaveRelationships, relationshipRows, aiSaveSpeechRules, aiSaveTerms, aiSetLineListeners, canonicalNames } from './ai-knowledge.ts';
 import { importProject } from './importer.ts';
 import { tagsOf } from './knowledge-tags.ts';
 
@@ -139,18 +139,49 @@ describe('AI knowledge writes', () => {
   it('adds relationships between stored people, changes only an unchecked AI one and keeps a person\'s beside a candidate', () => {
     const { db, projectId, write } = setup();
     aiSaveCharacters(db as never, write, [{ name: 'Alice' }, { name: 'Bob' }]);
-    const rel = { from: 'Bob', to: 'Alice', kind: '부하', description: '', changes: [{ at: 'a3', change: '긴장', cause: '지각' }], evidence: ['a2'] };
+    const rel = { from: 'Bob', to: 'Alice', kind: '부하', description: '', changes: [{ at: 'a3', kind: '경계', cause: '지각' }], evidence: ['a2'] };
     expect(aiSaveRelationships(db as never, write, [rel, { from: 'Nobody', to: 'Alice', kind: 'x' }])).toMatchObject({ added: 1, unresolved: ['Nobody → Alice'] });
     // An unchecked AI relationship gains a new change.
-    aiSaveRelationships(db as never, write, [{ ...rel, changes: [{ at: 'a1', change: '풀림' }] }]);
+    aiSaveRelationships(db as never, write, [{ ...rel, changes: [{ at: 'a1', kind: '풀림' }] }]);
     expect(db.select().from(s.relationships).where(eq(s.relationships.projectId, projectId)).all().map((r) => r.changes.length)).toEqual([2]);
     // Once a person confirmed it, a new change waits as a candidate beside it.
     db.update(s.relationships).set({ statusBy: 'human' }).where(eq(s.relationships.projectId, projectId)).run();
-    const result = aiSaveRelationships(db as never, write, [{ ...rel, changes: [{ at: 'a2', change: '화해' }] }]);
+    const result = aiSaveRelationships(db as never, write, [{ ...rel, changes: [{ at: 'a2', kind: '화해' }] }]);
     expect(result.proposed).toBe(1);
     const all = db.select().from(s.relationships).where(eq(s.relationships.projectId, projectId)).all();
     expect(all).toHaveLength(2);
     expect(all.find((r) => r.status === 'candidate')?.description).toContain('변경 제안');
+  });
+
+  it('turns the two views of a pair into rows: one mutual row when they agree, one per direction otherwise, none for an unknown direction', () => {
+    const { db, projectId, write } = setup();
+    aiSaveCharacters(db as never, write, [{ name: 'Alice' }, { name: 'Bob' }]);
+    const view = (from: string, to: string, kind: string, extra: Record<string, unknown> = {}) => ({ from, to, kind, description: '', evidence: [], changes: [], ...extra });
+    const row = () => db.select().from(s.relationships).where(eq(s.relationships.projectId, projectId)).all();
+    const save = (views: ReturnType<typeof view>[]) => aiSaveRelationships(db as never, write, relationshipRows([{ views }]));
+    // Different kinds: two directional rows, each with its own kind and changes.
+    save([view('Bob', 'Alice', '두목', { changes: [{ at: 'a3', kind: '적', cause: '배신' }] }), view('Alice', 'Bob', '부하', { description: '믿는다' })]);
+    expect(row().map((r) => [r.fromId === row()[0]!.fromId ? 'first' : 'second', r.kind, r.mutual, r.changes.map((change) => change.kind)])).toEqual([['first', '두목', false, ['적']], ['second', '부하', false, []]]);
+    expect(row()[0]!.changes).toEqual([{ at: 'a3', kind: '적', cause: '배신' }]);
+    db.delete(s.relationships).run();
+    // The same kind, no changes (the descriptions may differ): one mutual row.
+    save([view('Alice', 'Bob', '협력자', { description: '함께 일한다', evidence: ['a1'] }), view('Bob', 'Alice', '협력자', { description: '', evidence: ['a2'] })]);
+    expect(row()).toHaveLength(1);
+    expect(row()[0]).toMatchObject({ kind: '협력자', mutual: true, description: '함께 일한다', evidence: ['a1', 'a2'] });
+    db.delete(s.relationships).run();
+    // The same kind but only one direction changes: two rows.
+    save([view('Alice', 'Bob', '협력자', { changes: [{ at: 'a3', kind: '적', cause: '' }] }), view('Bob', 'Alice', '협력자')]);
+    expect(row().map((r) => r.mutual)).toEqual([false, false]);
+    db.delete(s.relationships).run();
+    // The same kind and the same change at the same line: mutual.
+    save([view('Alice', 'Bob', '협력자', { changes: [{ at: 'a3', kind: '적', cause: '다툼' }] }), view('Bob', 'Alice', '협력자', { changes: [{ at: 'a3', kind: '적', cause: '' }] })]);
+    expect(row()).toHaveLength(1);
+    expect(row()[0]).toMatchObject({ mutual: true, changes: [{ at: 'a3', kind: '적', cause: '다툼' }] });
+    db.delete(s.relationships).run();
+    // A pair with one view is one directional row.
+    const counts = save([view('Bob', 'Alice', '언니')]);
+    expect(counts.added).toBe(1);
+    expect(row()).toMatchObject([{ kind: '언니', mutual: false }]);
   });
 
   it('does not add a rejected rule again, doubts a rule whose evidence is someone else talking and yields to a person\'s rule', () => {

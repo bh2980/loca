@@ -226,8 +226,8 @@ describe('context builder', () => {
       kind: 'colleagues',
       description: '동료 수사관',
       changes: [
-        { at: 'panel.1', change: '의견 충돌로 갈등', cause: '조사 방식' },
-        { at: 'tower.1', change: '위기 극복 후 깊은 신뢰', cause: '탑 수리 협력' },
+        { at: 'panel.1', kind: '경쟁자', cause: '조사 방식' },
+        { at: 'tower.1', kind: '신뢰하는 동료', cause: '탑 수리 협력' },
       ],
     }).run();
 
@@ -245,24 +245,36 @@ describe('context builder', () => {
     const ctxArrival = buildContext(db, projectId, batchArrival, config({ characters: true, relationships: true }));
     const relArrival = ctxArrival.relationships.find((r) => r.kind === 'colleagues')!;
     expect(relArrival).toBeDefined();
-    // In arrival, panel.1 and tower.1 have not been reached yet -> changes blocked for spoiler prevention
+    // In arrival, panel.1 and tower.1 have not been reached yet -> the start kind, no changes (spoiler prevention)
+    expect(relArrival.kind).toBe('colleagues');
     expect(relArrival.changes).toBeUndefined();
     // Secret alliance whose evidence is in tower.2 is suppressed completely
     expect(ctxArrival.relationships.find((r) => r.kind === 'secret_alliance')).toBeUndefined();
     expect(ctxArrival.items.find((item) => item.label.includes('colleagues'))?.reason).toContain('미래 변화 2건 차단');
 
-    // In panel.2, panel.1 has been passed, but tower.1 has not
+    // In panel.2, panel.1 has been passed (its kind holds now), but tower.1 has not
     const batchPanel = [{ ...unit('panel.2'), source: 'MIRA speaks to JONAS.' }];
     const ctxPanel = buildContext(db, projectId, batchPanel, config({ characters: true, relationships: true }));
-    const relPanel = ctxPanel.relationships.find((r) => r.kind === 'colleagues')!;
-    expect(relPanel.changes).toEqual([{ at: 'panel.1', change: '의견 충돌로 갈등', cause: '조사 방식' }]);
+    expect(ctxPanel.relationships.find((r) => r.kind === 'colleagues')).toBeUndefined();
+    const relPanel = ctxPanel.relationships.find((r) => r.kind === '경쟁자')!;
+    expect(relPanel.changes).toBeUndefined();
     expect(ctxPanel.relationships.find((r) => r.kind === 'secret_alliance')).toBeUndefined();
 
-    // In tower.2, both panel.1 and tower.1 have been passed, and evidence for secret_alliance is met
+    // A batch from panel.2 to tower.1 starts as of its first line (panel.1's change has been passed)
+    // and tells the change that comes inside it with its line.
+    const batchSpan = [{ ...unit('panel.2'), source: 'MIRA and JONAS.' }, { ...unit('tower.1'), source: 'MIRA and JONAS at tower.' }];
+    const relSpan = buildContext(db, projectId, batchSpan, config({ characters: true, relationships: true })).relationships.find((r) => r.description === '동료 수사관')!;
+    expect(relSpan).toMatchObject({ kind: '경쟁자', changes: [{ at: 'tower.1', kind: '신뢰하는 동료', cause: '탑 수리 협력' }] });
+    // A batch that starts at the change applies it to its own first line.
+    const batchAt = [{ ...unit('panel.1'), source: 'MIRA and JONAS.' }];
+    expect(buildContext(db, projectId, batchAt, config({ characters: true, relationships: true })).relationships.find((r) => r.description === '동료 수사관')).toMatchObject({ kind: '경쟁자' });
+
+    // In tower.2, both panel.1 and tower.1 have been passed (the latest kind holds), and evidence for secret_alliance is met
     const batchTower = [{ ...unit('tower.2'), source: 'MIRA and JONAS at tower.' }];
     const ctxTower = buildContext(db, projectId, batchTower, config({ characters: true, relationships: true }));
-    const relTower = ctxTower.relationships.find((r) => r.kind === 'colleagues')!;
-    expect(relTower.changes?.map((c) => c.at)).toEqual(['panel.1', 'tower.1']);
+    const relTower = ctxTower.relationships.find((r) => r.description === '동료 수사관')!;
+    expect(relTower).toMatchObject({ kind: '신뢰하는 동료' });
+    expect(relTower.changes).toBeUndefined();
     expect(ctxTower.relationships.find((r) => r.kind === 'secret_alliance')).toBeDefined();
   });
 });

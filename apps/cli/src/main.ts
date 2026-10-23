@@ -584,7 +584,7 @@ program
     const name = (row: Record<string, any>): string =>
       kind === 'documents' ? `[${row.kind}] ${row.title}${row.alwaysInclude ? ' (항상 문맥에)' : ''}`
       : kind === 'characters' ? `${row.name}${row.aliases?.length ? ` (${row.aliases.join(', ')})` : ''}${row.player ? ' 플레이어' : ''}${personLabel(row) ? ` · ${personLabel(row)}` : ''}`
-      : kind === 'relationships' ? `${row.from} ${row.mutual ? '↔' : '→'} ${row.to}: ${row.kind}`
+      : kind === 'relationships' ? `${row.from} ${row.mutual ? '↔' : '→'} ${row.to}: ${row.kind}${(row.changes ?? []).map((change: { at: string; kind: string }) => ` ▸ ${change.kind} (${change.at}부터)`).join('')}`
       : kind === 'events' ? `${row.title}${row.summary ? ` — ${short(row.summary, 60)}` : ''}`
       : `${row.from} → ${row.to}  ${row.level}${row.startKey ? ` (${row.startKey}부터)` : ''}${row.address ? `  호칭 ${row.address}` : ''}`;
     for (const row of rows) console.log(`${name(row)}  [${KNOWLEDGE_STATUS_LABELS[row.status as KnowledgeStatus]}]  ${withMarks('', row.marks, row.tags)}  (${row.id})`);
@@ -602,6 +602,16 @@ program
     for (const tag of data.tags) row(tag, tag.builtin ? '기본' : '내 태그');
     console.log('\n자동 표시 (앱이 대본에서 읽는 사실. 붙이는 게 아니라 조건으로 필터·실행 범위에 씁니다)');
     for (const mark of data.marks) row({ ...mark, name: mark.name }, '자동');
+  });
+
+program
+  .command('prompts')
+  .description('저장한 지시(앱 설정 › 채팅): 채팅 입력창의 / 목록(워크플로 아래)에서 고르는 프롬프트의 이름과 내용. 내용의 {대상} 자리에서는 고를 때 @ 첨부 목록이 열립니다. 읽기 전용이고, 만들기·고치기는 앱 설정에서 합니다')
+  .action(async () => {
+    const rows = await unwrap(api().projects[':projectId'].prompts.$get({ param: { projectId: await projectId() } }));
+    if (globals().json) return printList(rows.length, rows);
+    if (!rows.length) return log('저장한 지시가 없습니다.');
+    for (const row of rows) console.log(`/${row.name}\n${row.text.split('\n').map((line) => `  ${line}`).join('\n')}`);
   });
 
 /** `--model` specs ("연결:모델" for every AI node, "노드=연결:모델" for one) as plan_run / start_run take them. */

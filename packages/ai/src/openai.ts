@@ -78,7 +78,10 @@ export function limitsOf(item: Record<string, unknown>): ModelLimitsInfo | undef
   const top = (item.top_provider ?? {}) as Record<string, unknown>;
   const contextWindow = tokens(item.context_length, item.context_window, item.max_context_length, item.max_model_len, top.context_length, item.max_input_tokens);
   const maxOutput = tokens(top.max_completion_tokens, item.max_completion_tokens, item.max_output_tokens, item.max_tokens);
-  return contextWindow || maxOutput ? { ...(contextWindow && { contextWindow }), ...(maxOutput && { maxOutput }) } : undefined;
+  // OpenRouter lists what a model takes in: architecture.input_modalities.
+  const modalities = ((item.architecture ?? {}) as Record<string, unknown>).input_modalities;
+  const images = Array.isArray(modalities) ? modalities.includes('image') : undefined;
+  return contextWindow || maxOutput || images !== undefined ? { ...(contextWindow && { contextWindow }), ...(maxOutput && { maxOutput }), ...(images !== undefined && { images }) } : undefined;
 }
 
 /** The model list with what it says about each model's limits. */
