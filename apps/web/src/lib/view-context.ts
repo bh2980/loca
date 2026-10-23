@@ -10,6 +10,8 @@ export interface ViewItem {
   label: string;
   /** Extra facts for the agent (e.g. a node's current unsaved config as JSON). */
   detail?: string;
+  /** Set by the chat's @ picker: the person attached it, the page did not report it. */
+  attached?: boolean;
 }
 
 interface ViewState {

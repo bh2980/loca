@@ -125,7 +125,7 @@ export function RuleLines({ projectId, ruleId, candidate, embedded }: { projectI
   );
 }
 
-export function RelationshipChanges({ projectId, changes, embedded }: { projectId: string; changes: { at: string; change: string; cause: string }[]; embedded?: boolean }) {
+export function RelationshipChanges({ projectId, changes, embedded }: { projectId: string; changes: { at: string; kind: string; cause: string }[]; embedded?: boolean }) {
   const lines = useQuery(q.linesByKeys(projectId, changes.map((change) => change.at)));
   if (!changes.length) return null;
   const byKey = new Map(lines.data?.map((line) => [line.key, line]));
@@ -135,8 +135,11 @@ export function RelationshipChanges({ projectId, changes, embedded }: { projectI
         {changes.map((change) => {
           const line = byKey.get(change.at);
           return (
-            <li key={`${change.at}-${change.change}`} className="py-2 text-sm first:pt-0 last:pb-0">
-              <p>{change.change}</p>
+            <li key={`${change.at}-${change.kind}`} className="py-2 text-sm first:pt-0 last:pb-0">
+              <p>
+                <span className="font-medium">→ {change.kind}</span>
+                {change.cause && <span className="text-muted-foreground"> · {change.cause}</span>}
+              </p>
               {line && (
                 <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.groupId, line: line.id }} className="mt-1 block text-muted-foreground hover:underline">
                   {line.speaker && `${line.speaker}: `}

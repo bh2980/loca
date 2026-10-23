@@ -6,6 +6,7 @@
  * Manual run: start the API with WORKBENCH_ACP_AGENT=<repo>/packages/ai/src/fake-acp.ts; every CLI
  * connection's chat then talks to this agent instead of the real one. FAKE_ACP_CHUNK_MS paces the
  * reply (default 20 ms per piece); FAKE_ACP_FAIL makes every turn fail with that message.
+ * FAKE_ACP_IMAGES=off makes the agent say it takes no images (promptCapabilities.image false).
  * FAKE_ACP_AUTH (JSON list of {id, name}) offers login methods and makes sessions fail with "Authentication
  * required" until `authenticate` is called (the reply names the method used); FAKE_ACP_AUTH_FAIL makes it fail.
  */
@@ -52,7 +53,7 @@ export function fakeAgent(stream: acp.Stream, env: Record<string, string | undef
     (client) => ({
       initialize: async () => ({
         protocolVersion: acp.PROTOCOL_VERSION,
-        agentCapabilities: { loadSession: true, mcpCapabilities: { http: true }, sessionCapabilities: { resume: {}, close: {}, systemPrompt: { mode: { override: {} } } } },
+        agentCapabilities: { loadSession: true, promptCapabilities: { image: env.FAKE_ACP_IMAGES !== 'off' }, mcpCapabilities: { http: true }, sessionCapabilities: { resume: {}, close: {}, systemPrompt: { mode: { override: {} } } } },
         authMethods: methods,
       }),
       newSession: async (params) => {
@@ -90,6 +91,7 @@ export function fakeAgent(stream: acp.Stream, env: Record<string, string | undef
         const abort = new AbortController();
         session.abort = abort;
         const text = params.prompt.map((block) => (block.type === 'text' ? block.text : '')).join('');
+        const images = params.prompt.filter((block) => block.type === 'image').length;
         const say = (chunk: string) => client.sessionUpdate({ sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: chunk } } });
         const tools = session.servers[0] ? await connectTools(session.servers[0]) : null;
         try {
@@ -106,7 +108,7 @@ export function fakeAgent(stream: acp.Stream, env: Record<string, string | undef
             found += (result.content as { type: string; text?: string }[]).map((part) => part.text ?? '').join('').slice(0, 600);
             await client.sessionUpdate({ sessionId: params.sessionId, update: { sessionUpdate: 'tool_call_update', toolCallId, status: 'completed' } });
           }
-          const reply = `가짜 ACP 에이전트(${session.model}${loggedInWith ? `, 로그인 ${loggedInWith}` : ''})의 답입니다. 받은 메시지: ${text.slice(-120)}${found ? `\n\n도구 결과 일부: ${found}` : ''}`;
+          const reply = `가짜 ACP 에이전트(${session.model}${loggedInWith ? `, 로그인 ${loggedInWith}` : ''})의 답입니다. 받은 메시지: ${text.slice(-120)}${images ? ` (이미지 ${images}장)` : ''}${found ? `\n\n도구 결과 일부: ${found}` : ''}`;
           for (const piece of reply.match(/.{1,40}/gs) ?? []) {
             if (abort.signal.aborted) return { stopReason: 'cancelled' };
             await say(piece);

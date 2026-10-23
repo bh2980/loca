@@ -352,7 +352,7 @@ function Knowledge() {
     () =>
       visiblePairs
         .filter((candidate) => candidate.fromId && candidate.toId)
-        .map((candidate) => ({ id: candidate.key, fromId: candidate.fromId!, toId: candidate.toId!, kind: candidate.relationship?.kind ?? '', mutual: false, dashed: pairSummary(candidate).status === 'candidate' })),
+        .map((candidate) => ({ id: candidate.key, fromId: candidate.fromId!, toId: candidate.toId!, kind: candidate.relationship?.kind ?? '', changes: candidate.relationship?.changes, mutual: Boolean(candidate.relationship?.mutual), dashed: pairSummary(candidate).status === 'candidate' })),
     [visiblePairs],
   );
 

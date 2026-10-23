@@ -40,7 +40,7 @@ loca는 게임 내부 형식을 모릅니다. 게임마다 **변환기**가 추�
 | `graph.nodes[]` | `key`, `type`, `kind`, `label`, `units`(이 노드가 보여 주는 대사 key, 순서대로), `group`, `meta` | 대사가 없는 컨테이너 노드는 `group`으로 장면을 알려 줍니다 |
 | `graph.edges[]` | `from`, `to`, `kind`, `label` | 선택지 문구나 조건은 `label`에 |
 | `characters[]` | `name`, `aliases`, `profile`, `speech`, `player`, `gender`(`male`/`female`/`other`/`unknown`), `ageBand`(`child`/`teen`/`young`/`middle`/`old`/`unknown`), `color`(`#rrggbb`, 이름이 보이는 색. 비우면 없음) | 화자 표기가 여럿이면 하나를 `name`, 나머지를 `aliases`로. 말 없는 주인공처럼 대사를 듣기만 하는 플레이어 캐릭터도 넣고 `player: true` |
-| `relationships[]` | `from`, `to`(인물 이름·별칭), `kind`, `description`, `mutual`, `changes[]`(`at` 대사 키, `change`, `cause`) | 원본이나 공식 자료에 있는 것만 |
+| `relationships[]` | `from`, `to`(인물 이름·별칭), `kind`, `description`, `mutual`, `changes[]`(`at` 대사 키, `kind` 바뀐 뒤의 관계, `cause`) | 원본이나 공식 자료에 있는 것만. 방향마다 행 하나이고 `kind`는 `to`가 `from`에게 누구인지 짧은 명사 하나 |
 | `events[]` | `title`, `summary`, `cause`, `outcome`, `participants`, `evidence`(대사 키) | 공식 자료에 있는 것만. 보통은 앱의 사건 추출(또는 작품 분석) 워크플로가 초안을 만듭니다 |
 | `speechRules[]` | `from`, `to`, `level`(`hasoseo` 하소서체/`hasipsio` 하십시오체/`hao` 하오체/`hage` 하게체/`haera` 해라체/`haeyo` 해요체/`hae` 해체·반말/`other`), `address`, `note`, `start`(대사 키, 이 줄부터) | 기존 공식 번역에서 확인된 말투만 |
 | `documents[]` | `title`, `kind`(`story`/`world`/`style`/`note`), `body`(마크다운), `alwaysInclude` | `alwaysInclude`(앱의 ‘번역 문맥에 넣기’)를 켜면 ‘작품 노트’ 문맥을 켠 AI 노드의 호출마다 통째로 들어가므로 짧은 핵심 설정만 |

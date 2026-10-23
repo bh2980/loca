@@ -199,7 +199,34 @@ export function aiSaveCharacters(tx: Tx, write: AiWrite, items: AiCharacterItem[
   return counts;
 }
 
-export interface AiRelationshipItem { from: string; to: string; kind: string; description?: string; mutual?: boolean; changes?: { at?: string; change?: string; cause?: string }[]; evidence?: string[] }
+export interface AiRelationshipChange { at?: string; kind?: string; cause?: string }
+export interface AiRelationshipItem { from: string; to: string; kind: string; description?: string; mutual?: boolean; changes?: AiRelationshipChange[]; evidence?: string[] }
+/** One direction of an AI-read pair: who `to` is to `from`, and how that changes. */
+export type AiRelationshipView = Omit<AiRelationshipItem, 'mutual'>;
+/** A pair as the AI nodes answer it: one or two views, each a direction. */
+export interface AiRelationshipPair { views: AiRelationshipView[] }
+
+const sameChanges = (a: AiRelationshipView, b: AiRelationshipView) => {
+  const [x, y] = [a.changes ?? [], b.changes ?? []];
+  return x.length === y.length && x.every((change, index) => change.at === y[index]!.at && same(change.kind ?? '', y[index]!.kind ?? ''));
+};
+
+/**
+ * The directional rows of AI-read pairs. Each view is a row of its own; two views with the same kind
+ * and the same changes (the same new kind at the same lines, or none) are one row, mutual. A pair with
+ * one view is one directional row: the script shows only that direction.
+ */
+export function relationshipRows(pairs: AiRelationshipPair[]): AiRelationshipItem[] {
+  const rows: AiRelationshipItem[] = [];
+  for (const pair of pairs) {
+    const views = pair.views ?? [];
+    const [first, second] = views;
+    if (views.length === 2 && first!.kind.trim() && same(first!.kind, second!.kind) && sameChanges(first!, second!) && same(first!.from, second!.to) && same(first!.to, second!.from)) {
+      rows.push({ ...first!, description: first!.description?.trim() ? first!.description : second!.description, evidence: [...new Set([...strings(first!.evidence), ...strings(second!.evidence)])], mutual: true });
+    } else rows.push(...views);
+  }
+  return rows;
+}
 /**
  * Relationships between stored characters. A pair already related only gains new changes when it is an
  * unchecked AI relationship; a person's relationship is never edited — the change waits as a candidate beside it.
@@ -215,7 +242,7 @@ export function aiSaveRelationships(tx: Tx, write: AiWrite, items: AiRelationshi
       counts.unresolved.push(`${item.from} → ${item.to}`);
       continue;
     }
-    const changes = (item.changes ?? []).flatMap((change) => (change.at && change.change ? [{ at: change.at, change: change.change, cause: change.cause ?? '' }] : []));
+    const changes = (item.changes ?? []).flatMap((change) => (change.at && change.kind?.trim() ? [{ at: change.at, kind: change.kind.trim(), cause: change.cause ?? '' }] : []));
     const evidence = strings(item.evidence);
     const pair = rels.filter((rel) => rel.fromId === fromId && rel.toId === toId);
     if (!pair.length) {
@@ -232,7 +259,7 @@ export function aiSaveRelationships(tx: Tx, write: AiWrite, items: AiRelationshi
       open.changes = [...open.changes, ...fresh];
       counts.changed++;
     } else {
-      rels.push(tx.insert(s.relationships).values({ projectId: write.projectId, fromId, toId, kind: item.kind.trim(), description: `변경 제안: ${fresh.map((change) => change.change).join(' / ')}`, changes: fresh, evidence: fresh.map((change) => change.at), origin: 'ai', statusBy: 'ai', status: 'candidate' }).returning().get());
+      rels.push(tx.insert(s.relationships).values({ projectId: write.projectId, fromId, toId, kind: item.kind.trim(), description: `변경 제안: ${fresh.map((change) => change.kind).join(' → ')}`, changes: fresh, evidence: fresh.map((change) => change.at), origin: 'ai', statusBy: 'ai', status: 'candidate' }).returning().get());
       counts.proposed++;
     }
   }

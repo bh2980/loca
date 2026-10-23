@@ -9,6 +9,8 @@ export const modelLimitsSchema = z.object({
   contextWindow: z.number().int().positive().optional(),
   /** Most output tokens in one call. */
   maxOutput: z.number().int().positive().optional(),
+  /** Whether the model takes images in a message: the model list's input modalities, or the agent CLI's promptCapabilities.image. Unset: not known. */
+  images: z.boolean().optional(),
   /** Where the numbers came from; a person's are never replaced by the provider's. */
   by: z.enum(['api', 'human']).default('api'),
 });

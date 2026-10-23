@@ -51,7 +51,12 @@ export function ModelPicker({
   compact,
   id,
   className,
+  open: openProp,
+  onOpenChange,
 }: {
+  /** Open from outside (the chat's /model command); left out, the picker opens itself. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
   value: ModelValue | null | undefined;
   onChange: (value: ModelValue) => void;
   /** The connection must offer one of these. */
@@ -72,11 +77,16 @@ export function ModelPicker({
   const fullLabel = useModelLabel(value);
   const label = lockConnection ? [value?.model, value?.effort].filter(Boolean).join(' · ') || null : fullLabel;
   const free = connection ? isFreeModel(connection.kind, value?.model) : false;
-  const [open, setOpen] = useState(false);
+  const [ownOpen, setOwnOpen] = useState(false);
+  const open = openProp ?? ownOpen;
+  const setOpen = (next: boolean) => {
+    setOwnOpen(next);
+    onOpenChange?.(next);
+  };
   const [query, setQuery] = useState('');
   // Listed once the picker has been opened (a CLI may start a process to list them), and kept while it closes.
   const [opened, setOpened] = useState(false);
-  const models = useModels(opened ? value?.connectionId || undefined : undefined);
+  const models = useModels(opened || open ? value?.connectionId || undefined : undefined);
   const list = models.data?.models ?? [];
   const typed = query.trim();
 

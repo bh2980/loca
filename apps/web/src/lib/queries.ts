@@ -1,5 +1,5 @@
-import { keepPreviousData, queryOptions, useQuery } from '@tanstack/react-query';
-import { REVIEW_TAG, normalizeTagScopes, type DetectedCustomFormatRule, type DetectedFormatPreset, type FormatPreset, type MarkColors, type TagScope } from '@tw/shared';
+import { infiniteQueryOptions, keepPreviousData, queryOptions, useQuery } from '@tanstack/react-query';
+import { ATTACH_PAGE, REVIEW_TAG, normalizeTagScopes, type AttachKind, type DetectedCustomFormatRule, type DetectedFormatPreset, type FormatPreset, type MarkColors, type TagScope } from '@tw/shared';
 import { client, unwrap } from './api';
 
 /**
@@ -147,6 +147,24 @@ export const q = {
   chatSessions: (projectId: string) => queryOptions({ queryKey: ['chat', projectId], queryFn: () => unwrap(client.projects[':projectId'].chat.$get({ param: { projectId } })) }),
   chatSession: (sessionId: string) =>
     queryOptions({ queryKey: ['chat', 'session', sessionId], queryFn: () => unwrap(client.chat[':sessionId'].$get({ param: { sessionId } })), staleTime: Infinity }),
+  /** @-attach, every kind: the top matches of each, grouped. Keyed under units (projects, terms, knowledge, workflows and statuses imply it), so a change refetches; runs are read when the list opens. */
+  attach: (projectId: string, term: string) =>
+    queryOptions({
+      queryKey: ['units', 'attach', projectId, 'all', term],
+      queryFn: () => unwrap(client.projects[':projectId'].chat.attach.$get({ param: { projectId }, query: { q: term } })),
+      placeholderData: keepPreviousData,
+    }),
+  /** @-attach inside one kind: pages of up to ATTACH_PAGE, the next on 더 보기. */
+  attachKind: (projectId: string, kind: AttachKind, term: string) =>
+    infiniteQueryOptions({
+      queryKey: ['units', 'attach', projectId, kind, term],
+      queryFn: ({ pageParam }) => unwrap(client.projects[':projectId'].chat.attach.$get({ param: { projectId }, query: { q: term, kind, offset: String(pageParam), limit: String(ATTACH_PAGE) } })),
+      initialPageParam: 0,
+      getNextPageParam: (last, pages) => (last.groups[0]?.more ? pages.length * ATTACH_PAGE : undefined),
+      placeholderData: keepPreviousData,
+    }),
+  /** 저장한 지시, for the chat's / list and the settings page (projects imply units). */
+  prompts: (projectId: string) => queryOptions({ queryKey: ['units', 'prompts', projectId], queryFn: () => unwrap(client.projects[':projectId'].prompts.$get({ param: { projectId } })) }),
   chatSearch: (projectId: string, query: string) =>
     queryOptions({
       queryKey: ['chat', 'search', projectId, query],

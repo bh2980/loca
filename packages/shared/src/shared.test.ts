@@ -165,7 +165,7 @@ describe('import format', () => {
     const result = importFileSchema.safeParse({
       ...base,
       characters: [{ name: 'A' }, { name: 'B', player: true }],
-      relationships: [{ from: 'A', to: 'B', kind: 'friend', changes: [{ at: 'u9', change: 'falls out' }] }],
+      relationships: [{ from: 'A', to: 'B', kind: 'friend', changes: [{ at: 'u9', kind: 'enemy' }] }],
       speechRules: [{ from: 'A', to: 'B', level: 'haeyo' }, { from: 'A', to: 'B', level: 'hae', start: 'u9' }],
       events: [{ title: 'Fight', evidence: ['u1', 'u8'] }],
     });
@@ -242,7 +242,7 @@ describe('templates', () => {
     const order = definition.nodes.map((node) => node.id);
     expect(saves.every((node) => order.indexOf(node.id) > order.indexOf('merge'))).toBe(true);
     expect(definition.nodes.find((node) => node.id === 'gather')).toMatchObject({
-      config: { fields: expect.arrayContaining(['characters.name', 'characters.aliases', 'characters.profile', 'relationships.from', 'relationships.changes.at', 'relationships.evidence', 'speechRules.fromName', 'speechRules.startKey', 'speechRules.evidence']) },
+      config: { fields: expect.arrayContaining(['characters.name', 'characters.aliases', 'characters.profile', 'relationships.between', 'relationships.views.from', 'relationships.views.changes.at', 'relationships.views.changes.kind', 'relationships.views.evidence', 'speechRules.fromName', 'speechRules.startKey', 'speechRules.evidence']) },
     });
     expect(definition.nodes.find((node) => node.id === 'merge')).toMatchObject({ config: { input: { previous: true, lines: false }, output: 'json', scope: 'batch' } });
     const profiles = (id: string) => (definition.nodes.find((node) => node.id === id) as { config: { params: { profiles?: string } } }).config.params.profiles;
@@ -253,7 +253,7 @@ describe('templates', () => {
     expect(names('peopleMerge', 'characters')).toEqual(names('knowledge', 'characters').filter((name) => name !== 'evidence'));
     expect(names('peopleMerge', 'relationships')).toEqual(names('knowledge', 'relationships'));
     expect(names('peopleMerge', 'speechRules')).toEqual(names('knowledge', 'speechRules'));
-    expect(definition.nodes.find((node) => node.id === 'save-relationships')).toMatchObject({ config: { params: { list: 'relationships', map: expect.objectContaining({ from: 'from', changes: 'changes' }) } } });
+    expect(definition.nodes.find((node) => node.id === 'save-relationships')).toMatchObject({ config: { params: { list: 'relationships', map: { views: 'views' } } } });
   });
 
   it('every default workflow and template is valid, with every apply node mapped from the step before it', () => {

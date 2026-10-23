@@ -173,7 +173,8 @@ export function personLabel(character: { gender?: Gender | null; ageBand?: AgeBa
 export const relationshipChangeSchema = z.object({
   /** The line key where the change shows. */
   at: z.string().min(1),
-  change: z.string().min(1),
+  /** The relationship from then on (one short noun), as `kind` of the relationship itself. */
+  kind: z.string().min(1),
   cause: z.string().default(''),
 });
 export type RelationshipChange = z.infer<typeof relationshipChangeSchema>;

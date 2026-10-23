@@ -43,6 +43,7 @@ export function messageText(message: UIMessage) {
   const pieces: string[] = [];
   for (const part of message.parts) {
     if (part.type === 'text' && part.text.trim()) pieces.push(part.text);
+    else if (part.type === 'file') pieces.push('[이미지 첨부]');
     else if (part.type.startsWith('tool-') || part.type === 'dynamic-tool') pieces.push(toolLine(part as ToolPart));
   }
   return pieces.join('\n');

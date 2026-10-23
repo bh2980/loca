@@ -8,6 +8,7 @@ import { ModelPicker } from '@/components/model-picker';
 import { client, unwrap } from '@/lib/api';
 import { optimistic } from '@/lib/optimistic';
 import { q } from '@/lib/queries';
+import { SavedPromptsSection } from './saved-prompts';
 
 const RESOURCES = Object.keys(AGENT_RESOURCES) as AgentResource[];
 const ACTIONS = Object.keys(AGENT_ACTIONS) as AgentAction[];
@@ -78,6 +79,8 @@ export function AgentTab({ projectId: propProjectId }: { projectId?: string } = 
             <p className="text-xs text-muted-foreground">{PERMISSION_MODE_INFO[defaultMode].description}</p>
           </div>
         </SettingsSection>
+
+        <SavedPromptsSection projectId={projectId} />
 
         <SettingsSection title="도구 권한" description="채팅 AI와 터미널의 loca call에만 적용됩니다. 삭제는 기본으로 꺼져 있습니다.">
           <PermissionMatrix

@@ -67,6 +67,30 @@ describe('CLI chat over ACP', () => {
     expect(proposal).toMatchObject({ sessionId: chat.id, tool: 'save_character', source: 'cli' });
   });
 
+  it('sends an attached image to an agent that takes images, and only the text to one that does not', async () => {
+    const withImage = (db: ReturnType<typeof setup>['db'], chat: typeof s.chatSessions.$inferSelect) =>
+      cliChatResponse({
+        db,
+        chat,
+        route: { kind: 'grok', model: 'fake' },
+        answeredBy: { kind: 'grok', connectionId: 'conn-grok', model: 'fake' },
+        system: 'test',
+        view: null,
+        messages: [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: '이 화면 봐줘' }, { type: 'file', mediaType: 'image/png', url: `data:image/png;base64,${Buffer.from('png').toString('base64')}` }] }],
+        idleMs: 10_000,
+        turn: fakeTurn(),
+      });
+    setAgentStarter(inProcessStarter({ FAKE_ACP_CHAT_TOOLS: '[]' }));
+    const first = setup();
+    expect(await (await withImage(first.db, first.chat)).text()).toContain('(이미지 1장)');
+    await stopIdleAgents(true);
+    setAgentStarter(inProcessStarter({ FAKE_ACP_CHAT_TOOLS: '[]', FAKE_ACP_IMAGES: 'off' }));
+    const second = setup();
+    const body = await (await withImage(second.db, second.chat)).text();
+    expect(body).not.toContain('(이미지 1장)');
+    expect(body).toContain('이미지 1장은 이 모델은 이미지를 받지 않습니다');
+  });
+
   it('keeps one CLI session across turns and tells it only what it missed', async () => {
     setAgentStarter(inProcessStarter({ FAKE_ACP_CHAT_TOOLS: '[]' }));
     const { db, chat } = setup();

@@ -3,26 +3,37 @@ import { useChat } from '@ai-sdk/react';
 import type { UIMessage } from 'ai';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation } from '@tanstack/react-router';
-import { ArrowUp, Check, ChevronRight, History, Plus, Square, Trash2, X } from 'lucide-react';
+import { ArrowUp, Check, ChevronRight, ImageOff, Paperclip, Pencil, Plus, Square, X } from 'lucide-react';
+import { toast } from 'sonner';
 import { Markdown } from './markdown';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, SectionHeading, Spinner, Textarea } from '@loca/ui';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Button, SectionHeading, Spinner, Textarea, Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
+import { CopyButton } from '@/components/copy-button';
 import { Elapsed } from '@/components/job-progress';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
 import { client, unwrap } from '@/lib/api';
 import { agentRequests, usePendingAgentRequest } from '@/lib/agent';
 import { chatDock } from '@/lib/chat-dock';
+import { NO_HISTORY, sentTexts, stepHistory, type HistoryState } from '@/lib/chat-input-history';
+import { mergeIntoDraft, removeOnce } from '@/lib/chat-queue';
+import { insertAt } from '@/lib/chat-triggers';
+import { loadCards, saveCards, type RunCard } from '@/lib/chat-run';
 import { chatFor, dropChat } from '@/lib/chat-store';
+import { keyLabel } from '@/lib/keys';
 import { q } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { useViewState, type ViewItem } from '@/lib/view-context';
+import { AttachChip } from './attach-chip';
+import { ComposerMenu } from './composer-menu';
+import { ConversationMenu } from './conversation-menu';
+import { RunCardView, type RunCardControls } from './run-card';
+import { useComposerMenu, type RunMode } from './use-composer-menu';
 import { useUndo } from './proposal-card';
 import { ProposalList } from './proposal-list';
 import { PermissionModePicker } from './permission-mode';
-import type { PermissionMode } from '@tw/shared';
+import { CHAT_IMAGES_MAX, compactionMarker, imageDecision, IMAGE_UNSUPPORTED_NOTE, messageChips, type ChatChip, type PermissionMode } from '@tw/shared';
+import { imageFilesOf, prepareImage, type PendingImage } from '@/lib/chat-image-file';
+import { ContextMeter, type ChatUsage } from './context-meter';
 import { ToolPart } from './tool-part';
-
-/** A conversation's model use in the session list: 950, 12.3k, 10.3M tokens. */
-const compactTokens = (n: number) => new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(n);
 
 const SESSION_KEY = (projectId: string) => `tw.chat.session.${projectId}`;
 const readSession = (projectId: string) => {
@@ -82,7 +93,6 @@ export function ChatPanel({ projectId }: { projectId: string }) {
   });
 
   const [deleting, setDeleting] = useState<{ id: string; title: string } | null>(null);
-  const [menuOpen, setMenuOpen] = useState(false);
   const remove = useMutation({
     mutationFn: (id: string) => unwrap(client.chat[':sessionId'].$delete({ param: { sessionId: id } })),
     onSuccess: (_data, id) => {
@@ -115,46 +125,7 @@ export function ChatPanel({ projectId }: { projectId: string }) {
   return (
     <aside className="flex h-full flex-col bg-sidebar" aria-label="프로젝트 에이전트" data-own-keys>
       <div className="flex h-12 shrink-0 items-center gap-1 border-b px-2">
-        <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="min-w-0 flex-1 justify-start">
-              <History className="text-muted-foreground" />
-              <span className="truncate">{current?.title ?? '대화 없음'}</span>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-72">
-            <DropdownMenuLabel className="text-xs font-semibold text-foreground">대화</DropdownMenuLabel>
-            {sessions.data?.map((session) => (
-              <DropdownMenuItem key={session.id} onSelect={() => setSessionId(session.id)} className={cn('group/session pr-1', session.id === sessionId && 'font-medium')}>
-                <span className="min-w-0 flex-1 truncate">{session.title}</span>
-                {session.calls > 0 && (
-                  <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                    {session.calls}건 · {compactTokens(session.tokens)}
-                  </span>
-                )}
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  className="text-muted-foreground opacity-0 group-hover/session:opacity-100 group-focus/session:opacity-100 hover:text-destructive"
-                  aria-label={`${session.title} 삭제`}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setMenuOpen(false);
-                    setDeleting({ id: session.id, title: session.title });
-                  }}
-                  onPointerDown={(event) => event.stopPropagation()}
-                >
-                  <Trash2 />
-                </Button>
-              </DropdownMenuItem>
-            ))}
-            {!sessions.data?.length && <p className="px-2 py-1.5 text-sm text-muted-foreground">아직 대화가 없습니다.</p>}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={() => create.mutate()}>
-              <Plus /> 새 대화
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <ConversationMenu projectId={projectId} sessions={sessions.data} sessionId={sessionId} currentTitle={current?.title} onPick={setSessionId} onDelete={setDeleting} onCreate={() => create.mutate()} />
         <Button variant="ghost" size="icon" aria-label="새 대화" onClick={() => create.mutate()}>
           <Plus />
         </Button>
@@ -201,6 +172,8 @@ function Conversation({ projectId, sessionId, model, mode }: { projectId: string
       sessionId={sessionId}
       initial={(saved.data?.messages ?? []) as unknown as UIMessage[]}
       turn={saved.data?.turn ?? null}
+      usage={saved.data?.usage ?? null}
+      compaction={saved.data?.compaction ?? null}
       pending={saved.data?.pendingSteers ?? []}
       model={model}
       mode={mode}
@@ -218,11 +191,15 @@ function Conversation({ projectId, sessionId, model, mode }: { projectId: string
   );
 }
 
-function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel, mode, onMode }: {
+function ChatBody({ projectId, sessionId, initial, turn, usage, compaction, pending, model, onModel, mode, onMode }: {
   projectId: string;
   sessionId: string;
   initial: UIMessage[];
   turn: Turn | null;
+  /** The meter's numbers and whether the model takes images (server: chat-usage.ts). */
+  usage: (ChatUsage & { images: 'yes' | 'no' | 'unknown' }) | null;
+  /** Where the conversation's start was summarized, if it was. */
+  compaction: { upTo: number; summary: string; at: number } | null;
   /** Messages the server still holds for the conversation's agent (sent before a reload or a restart). */
   pending: string[];
   model: ModelValue | null;
@@ -230,18 +207,24 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
   onMode: (mode: PermissionMode) => void;
   onModel: (next: ModelValue) => Promise<void>;
 }) {
-  const queryClient = useQueryClient();
   const ready = Boolean(model?.connectionId && model.model);
   const view = useViewState();
   const location = useLocation();
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
-  const attached: ViewItem[] = Object.values(view.items).flat().filter((item) => !excluded.has(`${item.kind}:${item.id}`));
+  // Chips from the page (reported by useReportView) and ones the person picked with @ for the next message
+  // (these stay on the message they were sent with).
+  const [picked, setPicked] = useState<ChatChip[]>([]);
+  const reported: ViewItem[] = Object.values(view.items).flat();
+  const onPage: ViewItem[] = reported.filter((item) => !excluded.has(`${item.kind}:${item.id}`) && !picked.some((other) => other.kind === item.kind && other.id === item.id));
+  const attached: ViewItem[] = [...onPage, ...picked.map((chip): ViewItem => ({ kind: chip.kind, id: chip.id, label: chip.label, ...(chip.detail && { detail: chip.detail }), attached: true }))];
   const viewRef = useRef({ page: view.page, path: location.pathname, items: attached });
   viewRef.current = { page: view.page, path: location.pathname, items: attached };
+  // What the message being sent carries: held for a moment after sending so the chips cleared by it still reach the request.
+  const frozenView = useRef<typeof viewRef.current | null>(null);
 
   // The conversation outlives this panel: closing it mid-reply keeps the reply coming in.
   const stored = chatFor(sessionId, initial);
-  stored.view.current = viewRef.current;
+  stored.view.current = frozenView.current ?? viewRef.current;
   const { messages, sendMessage, setMessages, regenerate, status, stop, error, addToolApprovalResponse, addToolOutput } = useChat({ chat: stored.chat });
   // The turn runs on the server, not in this request: stopping ends both.
   const halt = () => {
@@ -251,12 +234,10 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
       const last = current.at(-1);
       return last ? [...current.slice(0, -1), { ...last, metadata: { ...((last.metadata as object | undefined) ?? {}), stopped: true } }] : current;
     });
-    setLater([]);
     void unwrap(client.chat[':sessionId'].stop.$post({ param: { sessionId } })).then(({ queued: back }) => {
       // Messages the turn had not taken yet go back to the input box.
-      const mine = [...later, ...back.filter((text) => !later.includes(text))];
       setQueued([]);
-      if (mine.length) setInput((current) => [current.trim(), ...mine].filter(Boolean).join('\n\n'));
+      if (back.length) setInput((current) => mergeIntoDraft(current, back));
     });
   };
   // A reply this window is not streaming (sent before a reload, or from another window) is saved
@@ -298,11 +279,61 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
     [projectId],
   );
   const [showModelHint, setShowModelHint] = useState(false);
+  // Images pasted or dropped for the next message; a model that takes none keeps the chip but they are not sent.
+  const [images, setImages] = useState<PendingImage[]>([]);
+  const [dragging, setDragging] = useState(false);
+  const imageSupport = imageDecision(usage?.images === 'yes' ? true : usage?.images === 'no' ? false : undefined, images.length);
+  const addImages = async (files: File[]) => {
+    for (const file of files) {
+      if (images.length >= CHAT_IMAGES_MAX) return void toast.error(`이미지는 한 메시지에 ${CHAT_IMAGES_MAX}장까지 붙일 수 있습니다.`);
+      try {
+        const image = await prepareImage(file);
+        setImages((list) => (list.length >= CHAT_IMAGES_MAX ? list : [...list, image]));
+      } catch (cause) {
+        toast.error(cause instanceof Error ? cause.message : '이미지를 붙이지 못했습니다.');
+      }
+    }
+  };
   // Sent while the reply was running (#44): waiting for the turn to take them at its next step.
   // Those still on the server (sent before a reload, or a turn a restart cut off) go with the next one.
   const [queued, setQueued] = useState<string[]>(pending);
-  // Sent too late for the running turn to take: they go as the next message once it ends.
-  const [later, setLater] = useState<string[]>([]);
+  const box = useRef<HTMLTextAreaElement>(null);
+  // @ (attach) and / (commands) pickers over the box (use-composer-menu.ts): what they show follows the text and the caret.
+  const [caret, setCaret] = useState(0);
+  // A /workflow waiting for its target, the `{대상}` slot of a saved prompt, and the 실행 확인 cards of this conversation.
+  const [run, setRun] = useState<RunMode | null>(null);
+  const [slot, setSlot] = useState<number | null>(null);
+  const [cards, setCards] = useState<RunCard[]>(() => loadCards(sessionId));
+  useEffect(() => saveCards(sessionId, cards), [sessionId, cards]);
+  const waitingCard = useRef<RunCardControls | null>(null);
+  const putInput = (value: string, at: number) => {
+    setInput(value);
+    setHistory(NO_HISTORY);
+    setCaret(at);
+    const target = box.current;
+    requestAnimationFrame(() => {
+      target?.focus();
+      target?.setSelectionRange(at, at);
+      // The browser moves the caret to the end when the text is replaced (a select event may report that); the caret we set is the one that counts.
+      setCaret(at);
+    });
+  };
+  const menu = useComposerMenu({ projectId, input, caret, put: putInput, box, onPage: reported, picked, setPicked, run, setRun, slot, setSlot });
+  // The slot is the @ a prompt's {대상} was opened as: it ends when that @ is no longer there (the caret may jump while the text is replaced, so it is not tied to the list being open).
+  useEffect(() => {
+    if (slot !== null && input[slot] !== '@') setSlot(null);
+  }, [input, slot]);
+  // The target is picked: the card asks before anything runs (AI work costs money).
+  const confirmRun = () => {
+    if (!run) return;
+    if (!run.chips.length) return putInput('@', 1);
+    setCards((list) => [...list, { id: crypto.randomUUID(), workflowId: run.command.id, workflowName: run.command.name, input: run.command.input, chips: run.chips, after: messages.length }]);
+    setRun(null);
+    putInput('', 0);
+  };
+  // ↑/↓ in the box walks what was sent in this conversation; any edit leaves the walk.
+  const [history, setHistory] = useState<HistoryState>(NO_HISTORY);
+  const sent = sentTexts(messages);
   useEffect(() => {
     sessionStorage.setItem(`tw.chat.draft.${sessionId}`, input);
   }, [sessionId, input]);
@@ -316,6 +347,7 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
   const [replyUndoIds, setReplyUndoIds] = useState<string[]>([]);
   const undoReply = useUndo(projectId, sessionId);
   // A finished turn whose last part is a tool call said nothing about the result: say so and offer to continue.
+  const marker = compactionMarker(compaction, messages.length);
   const lastMessage = messages.at(-1);
   const lastPart = lastMessage?.parts.filter((part) => part.type !== 'step-start').at(-1);
   const finishReason = (lastMessage?.metadata as { finishReason?: string } | undefined)?.finishReason;
@@ -345,20 +377,51 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
   }, [messages]);
 
   const send = () => {
+    // A /workflow waiting for its target: Enter makes the confirm card instead of sending a message.
+    if (run) return confirmRun();
     const text = input.trim();
-    if (!text || !ready) return;
+    const files = imageSupport.send ? images.map((image) => ({ type: 'file' as const, mediaType: image.mediaType, url: image.url, filename: image.name })) : [];
+    if (!text && !files.length) return;
+    if (!ready) return;
+    // A message that joins a running reply is text: the images wait for the next message.
+    if ((busy || elsewhere) && files.length) return void toast.info('이미지는 답이 끝난 뒤에 보낼 수 있습니다.');
     setInput('');
     if (!busy && !elsewhere) {
-      void sendMessage({ text });
+      frozenView.current = viewRef.current;
+      setTimeout(() => (frozenView.current = null), 2000);
+      stored.view.current = viewRef.current;
+      // What the person pointed at with @ is kept on the message, to read (and open) later.
+      void sendMessage({ text, ...(files.length && { files }), ...(picked.length && { metadata: { chips: picked } }) });
+      setPicked([]);
+      setImages([]);
       return;
     }
     pinned.current = true;
     setQueued((list) => [...list, text]);
-    void client.chat[':sessionId'].steer.$post({ param: { sessionId }, json: { text } }).then((response) => {
-      if (response.ok) return;
-      setQueued((list) => list.filter((item) => item !== text));
-      setLater((list) => [...list, text]);
-    });
+    const giveBack = () => {
+      setQueued((list) => removeOnce(list, text));
+      setInput((current) => mergeIntoDraft(current, [text]));
+      toast.info('답이 막 끝나 전달하지 못했습니다. 입력창에 되돌려 두었습니다.');
+    };
+    // The turn may be ending: it refuses (409) and the text goes back to the box instead of being sent on its own.
+    client.chat[':sessionId'].steer.$post({ param: { sessionId }, json: { text } }).then((response) => response.ok || giveBack(), giveBack);
+  };
+  // A queued message the turn has not taken yet: cancel it, or take it back into the box to edit.
+  const takeBack = async (text: string, edit: boolean) => {
+    const { removed } = await unwrap(client.chat[':sessionId'].unsteer.$post({ param: { sessionId }, json: { text } })).catch(() => ({ removed: false }));
+    if (!removed) return void toast.info('이미 에이전트에게 전달됐습니다.');
+    setQueued((list) => removeOnce(list, text));
+    if (edit) {
+      setInput((current) => mergeIntoDraft(current, [text]));
+      box.current?.focus();
+    }
+  };
+  // 수정해서 보내기: the old message stays; its text becomes a new draft.
+  const reuse = (text: string, chips: ChatChip[]) => {
+    setInput(text);
+    setPicked(chips);
+    setHistory(NO_HISTORY);
+    box.current?.focus();
   };
   // A queued message shows in the reply once the turn has handed it to the model.
   useEffect(() => {
@@ -367,16 +430,34 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
     const left = queued.filter((text) => !delivered.includes(text));
     if (left.length !== queued.length) setQueued(left);
   }, [messages]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Too late for the last turn: sent as the next message as soon as it has ended.
-  useEffect(() => {
-    if (!later.length || busy || elsewhere || !ready) return;
-    const text = later.join('\n\n');
-    setLater([]);
-    void sendMessage({ text });
-  }, [later, busy, elsewhere, ready]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 실행 확인 cards sit where they were made (after that many messages); the newest waiting one answers the keyboard.
+  const lastWaiting = [...cards].reverse().find((card) => !card.runId && !card.cancelled)?.id;
+  const cardsAt = (n: number) =>
+    cards
+      .filter((card) => Math.min(card.after, messages.length) === n)
+      .map((card) => (
+        <RunCardView
+          key={card.id}
+          projectId={projectId}
+          card={card}
+          controls={card.id === lastWaiting ? waitingCard : undefined}
+          onChange={(patch) => setCards((list) => list.map((item) => (item.id === card.id ? { ...item, ...patch } : item)))}
+          onAnswered={() => box.current?.focus()}
+        />
+      ));
 
   return (
-    <>
+    <div
+      className="flex min-h-0 flex-1 flex-col"
+      onKeyDown={(event) => {
+        // Esc stops the running reply from anywhere in the panel body (not from a popup opened inside it).
+        if (event.key !== 'Escape' || event.defaultPrevented || event.nativeEvent.isComposing || !(busy || elsewhere)) return;
+        if (!event.currentTarget.contains(event.target as Node)) return;
+        event.preventDefault();
+        halt();
+      }}
+    >
       <div
         ref={scroller}
         className="min-h-0 flex-1 overflow-y-auto px-4 py-4"
@@ -385,13 +466,14 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
           pinned.current = element.scrollHeight - element.scrollTop - element.clientHeight < 40;
         }}
       >
-        {!messages.length && (
+        {!messages.length && !cards.length && (
           <div className="space-y-2 pt-6 text-sm text-muted-foreground">
             <SectionHeading>무엇을 도와드릴까요?</SectionHeading>
           </div>
         )}
         <div className="space-y-5">
-          {messages.map((message) => {
+          {cardsAt(0)}
+          {messages.map((message, messageIndex) => {
             const { stopped, interrupted } = (message.metadata as { stopped?: boolean; interrupted?: boolean } | undefined) ?? {};
             const undoable = message.role === 'assistant' ? [...new Set(message.parts.flatMap((part) => {
               const id = ((part as { output?: { proposalId?: string } }).output ?? {}).proposalId;
@@ -402,11 +484,16 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
             message.role === 'user' && (message.metadata as { kind?: string } | undefined)?.kind === 'decisions' ? (
               <DecisionNotice key={message.id} text={message.parts.map((part) => (part.type === 'text' ? part.text : '')).join('')} />
             ) : message.role === 'user' ? (
-              <div key={message.id} className="ml-8 rounded-lg bg-background px-3 py-2 text-sm whitespace-pre-wrap shadow-xs ring-1 ring-border">
-                {message.parts.map((part, index) => (part.type === 'text' ? <span key={index}>{part.text}</span> : null))}
+              <div key={message.id} className="group/message ml-8">
+                <div className="rounded-lg bg-background px-3 py-2 text-sm whitespace-pre-wrap shadow-xs ring-1 ring-border">
+                  {message.parts.map((part, index) => (part.type === 'text' ? <span key={index}>{part.text}</span> : null))}
+                  <SentImages parts={message.parts} />
+                  <SentChips projectId={projectId} chips={messageChips(message)} />
+                </div>
+                <MessageActions text={messageText(message)} chips={messageChips(message)} onReuse={reuse} />
               </div>
             ) : (
-              <div key={message.id} className="space-y-2 text-sm">
+              <div key={message.id} className="group/message space-y-2 text-sm">
                 {message.parts.map((part, index) => {
                   if (part.type === 'text')
                     return (
@@ -421,21 +508,25 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
                   if (part.type.startsWith('tool-')) return <ToolPart key={index} part={part as never} proposal={proposalById.get(((part as { output?: { proposalId?: string } }).output ?? {}).proposalId ?? '')} stale={message.id !== messages.at(-1)?.id} onDecide={(id, approved) => addToolApprovalResponse({ id, approved })} onOutput={(toolCallId, output) => void addToolOutput({ tool: part.type.slice(5) as never, toolCallId, output: output as never })} />;
                   return null;
                 })}
+                {!(busy && message.id === lastMessage?.id) && <MessageActions text={messageText(message)} />}
                 {undoable.length > 0 && <Button variant="outline" onClick={() => { setReplyUndoIds(undoable); setUndoingReply(true); }}>변경 되돌리기 ({undoable.length})</Button>}
               </div>
             );
-            if (!stopped && !interrupted) return view;
+            const summarized = marker?.index === messageIndex ? <CompactionNotice summary={marker.summary} /> : null;
+            if (!stopped && !interrupted) return <Fragment key={message.id}>{summarized}{view}{cardsAt(messageIndex + 1)}</Fragment>;
             return (
               <Fragment key={message.id}>
+                {summarized}
                 {view}
                 <p className="flex items-center gap-1.5 text-xs text-muted-foreground" role="status">
                   <Square className="size-3" /> {stopped ? '중지됨' : '끊김 · 다음 메시지가 먼저 시작됐습니다'}
                 </p>
+                {cardsAt(messageIndex + 1)}
               </Fragment>
             );
           })}
-          {[...queued, ...later].map((text, index) => (
-            <SteerBubble key={`queued-${index}`} text={text} waiting />
+          {queued.map((text, index) => (
+            <SteerBubble key={`queued-${index}`} text={text} waiting onEdit={() => void takeBack(text, true)} onCancel={() => void takeBack(text, false)} />
           ))}
           {busy && (
             <p className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -446,9 +537,6 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
           {stalled && (
             <div className="flex items-center gap-2 rounded-md border bg-muted px-3 py-2 text-sm">
               <span className="text-muted-foreground">{finishReason === 'length' ? '모델의 출력 한도에 걸려 멈췄습니다.' : '에이전트가 결과를 말하지 않고 멈췄습니다.'}</span>
-              <Button variant="outline" className="ml-auto" disabled={!ready} onClick={() => void sendMessage({ text: '계속해줘' })}>
-                계속
-              </Button>
             </div>
           )}
           {error && <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">{error.message}</p>}
@@ -463,38 +551,145 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
       </AlertDialog>
 
       <div className="shrink-0 border-t bg-background p-2">
-        {attached.length > 0 && (
-          <div className="mb-1.5 flex flex-wrap gap-1" aria-label="첨부된 화면 정보">
-            {attached.map((item) => {
-              const label = item.label.replace(/^asset-[a-f0-9-]+\s*·\s*/i, '');
-              return (
-                <span key={`${item.kind}:${item.id}`} className="inline-flex max-w-full items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-xs">
-                  <span className="text-muted-foreground">{item.kind}</span>
-                  <span className="truncate">{label}</span>
-                  <Button variant="ghost" size="inline" aria-label={`${label} 첨부 빼기`} className="-mr-0.5 p-0 text-muted-foreground hover:bg-transparent hover:text-foreground" onClick={() => setExcluded((set) => new Set(set).add(`${item.kind}:${item.id}`))}>
-                    <X />
-                  </Button>
-                </span>
-              );
-            })}
+        {run && (
+          <div className="mb-1.5 flex flex-wrap items-center gap-1" aria-label="실행 대상">
+            <span className="text-xs font-medium">/{run.command.name}</span>
+            {run.chips.map((chip) => (
+              <AttachChip key={`${chip.kind}:${chip.id}`} projectId={projectId} chip={chip} onRemove={() => { setRun({ ...run, chips: run.chips.filter((other) => !(other.kind === chip.kind && other.id === chip.id)) }); box.current?.focus(); }} />
+            ))}
+            <span className="text-xs text-muted-foreground">{run.chips.length ? `${keyLabel('Enter')} 실행 확인 · @ 더 고르기 · ${keyLabel('Esc')} 취소` : '@로 실행할 대상을 고르세요'}</span>
+            <Button type="button" variant="ghost" size="icon-xs" className="ml-auto" aria-label="실행 그만두기" onClick={() => { setRun(null); putInput('', 0); }}>
+              <X />
+            </Button>
           </div>
         )}
+        {attached.length > 0 && (
+          <div className="mb-1.5 flex flex-wrap gap-1" aria-label="첨부된 화면 정보">
+            {attached.map((item) => (
+              <AttachChip
+                key={`${item.kind}:${item.id}`}
+                projectId={projectId}
+                chip={{ kind: item.kind, id: item.id, label: item.label, ...(item.detail && { detail: item.detail }), href: picked.find((chip) => chip.kind === item.kind && chip.id === item.id)?.href }}
+                link={Boolean(item.attached)}
+                onRemove={() => {
+                  if (item.attached) setPicked((list) => list.filter((other) => !(other.kind === item.kind && other.id === item.id)));
+                  else setExcluded((set) => new Set(set).add(`${item.kind}:${item.id}`));
+                  box.current?.focus();
+                }}
+              />
+            ))}
+          </div>
+        )}
+        {images.length > 0 && (
+          <div className="mb-1.5 flex flex-wrap items-center gap-1.5" aria-label="붙인 이미지">
+            {images.map((image) => (
+              <span key={image.id} className={cn('relative inline-block rounded-md ring-1 ring-border', imageSupport.support === 'no' && 'opacity-50')}>
+                <img src={image.url} alt={image.name} className="size-12 rounded-md object-cover" />
+                <Button variant="secondary" size="inline" aria-label={`${image.name} 빼기`} className="absolute -top-1.5 -right-1.5 rounded-full p-0.5" onClick={() => setImages((list) => list.filter((other) => other.id !== image.id))}>
+                  <X />
+                </Button>
+              </span>
+            ))}
+            {imageSupport.support === 'no' && (
+              <span className="flex items-center gap-1 text-xs text-muted-foreground" role="status">
+                <ImageOff className="size-3.5" /> {IMAGE_UNSUPPORTED_NOTE}
+              </span>
+            )}
+          </div>
+        )}
+        <div
+          className={cn('relative', dragging && 'rounded-md ring-2 ring-ring')}
+          onDragOver={(event) => {
+            if (![...event.dataTransfer.items].some((item) => item.kind === 'file' && item.type.startsWith('image/'))) return;
+            event.preventDefault();
+            setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(event) => {
+            setDragging(false);
+            const files = imageFilesOf(event.dataTransfer);
+            if (!files.length) return;
+            event.preventDefault();
+            void addImages(files);
+          }}
+        >
+        {menu.menuShown && (
+          <ComposerMenu
+            id="chat-composer-menu"
+            title={menu.title}
+            groups={menu.groups}
+            activeId={menu.activeId}
+            onActive={menu.setActiveId}
+            onPick={menu.pickRow}
+            loading={menu.loading}
+            empty={menu.empty}
+            hint={menu.hint}
+          />
+        )}
         <Textarea
+          ref={box}
           value={input}
-          onChange={(event) => setInput(event.target.value)}
+          aria-haspopup="listbox"
+          aria-expanded={menu.menuShown}
+          aria-controls={menu.menuShown ? 'chat-composer-menu' : undefined}
+          onChange={(event) => {
+            setInput(event.target.value);
+            setCaret(event.target.selectionStart);
+            setHistory(NO_HISTORY);
+          }}
+          onSelect={(event) => setCaret(event.currentTarget.selectionStart)}
+          onPaste={(event) => {
+            // A pasted picture (a screenshot) becomes a chip; text pastes as usual.
+            const files = imageFilesOf(event.clipboardData);
+            if (!files.length || event.clipboardData.getData('text/plain')) return;
+            event.preventDefault();
+            void addImages(files);
+          }}
           onKeyDown={(event) => {
+            const composing = event.nativeEvent.isComposing || event.keyCode === 229;
+            // The @ and / lists take their keys first (arrows, Enter, Tab, Esc, Backspace on an empty search).
+            if (menu.onKeyDown(event)) return;
+            if (event.key === 'Escape' && !composing && !event.shiftKey) {
+              // No list open: Esc backs out of a /workflow's target, then cancels a card that waits, then (in the panel) stops a reply.
+              if (run) {
+                event.preventDefault();
+                setRun(null);
+                putInput('', 0);
+                return;
+              }
+              if (!input.trim() && !busy && !elsewhere && waitingCard.current) {
+                event.preventDefault();
+                waitingCard.current.cancel();
+                return;
+              }
+            }
+            if (!composing && (event.key === 'ArrowUp' || event.key === 'ArrowDown') && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
+              const step = stepHistory(sent, history, event.key === 'ArrowUp' ? 'up' : 'down', input, event.currentTarget.selectionStart);
+              if (step) {
+                event.preventDefault();
+                setInput(step.value);
+                setHistory(step.state);
+                // The caret goes to the end after React has put the text in.
+                const target = event.currentTarget;
+                requestAnimationFrame(() => target.setSelectionRange(step.value.length, step.value.length));
+              }
+              return;
+            }
             if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault();
-              if (!ready) {
+              // Nothing typed and a 실행 확인 card waiting: Enter answers it (실행).
+              if (!run && !input.trim() && !images.length && waitingCard.current) return waitingCard.current.start();
+              if (!ready && !run) {
                 setShowModelHint(true);
                 return;
               }
               send();
             }
           }}
-          placeholder={ready ? '메시지' : '모델을 먼저 고르세요'}
+          placeholder={run ? '@로 실행할 대상을 고르세요' : lastWaiting ? `${keyLabel('Enter')}로 실행 · ${keyLabel('Esc')}로 취소 (또는 메시지)` : ready ? '메시지' : '모델을 먼저 고르세요'}
           className="max-h-48 min-h-16 resize-none border-0 bg-transparent px-1 shadow-none focus-visible:ring-0"
         />
+        </div>
         {!ready && (input.trim() || showModelHint) && (
           <p className="px-1 text-xs text-muted-foreground">
             아래에서 AI 연결과 모델을 고르세요.{' '}
@@ -507,28 +702,124 @@ function ChatBody({ projectId, sessionId, initial, turn, pending, model, onModel
           </div>
           <PermissionModePicker compact value={mode} onChange={onMode} />
           <div className="ml-auto flex items-center gap-1">
+            <ContextMeter usage={usage} />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  aria-label="첨부 (@)"
+                  onClick={() => {
+                    const target = box.current;
+                    const next = insertAt(input, target?.selectionStart ?? input.length);
+                    menu.reopen();
+                    putInput(next.value, next.caret);
+                  }}
+                >
+                  <Paperclip />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>첨부 (@)</TooltipContent>
+            </Tooltip>
             {(busy || elsewhere) && (
-              <Button size="icon" variant="secondary" aria-label="중지" onClick={halt}>
-                <Square className="size-3" />
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button size="icon" variant="secondary" aria-label="중지" aria-keyshortcuts="Escape" onClick={halt}>
+                    <Square className="size-3" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>중지 ({keyLabel('Esc')})</TooltipContent>
+              </Tooltip>
             )}
             {/* While the reply runs, a message goes in at its next step instead of waiting for it to end. */}
-            <Button size="icon" aria-label={busy || elsewhere ? '진행 중인 답에 끼워 보내기' : '보내기'} disabled={!input.trim() || !ready} onClick={send}>
+            <Button size="icon" aria-label={run ? '실행 확인' : busy || elsewhere ? '진행 중인 답에 끼워 보내기' : '보내기'} disabled={run ? false : (!input.trim() && !imageSupport.send) || !ready} onClick={send}>
               <ArrowUp />
             </Button>
           </div>
         </div>
       </div>
-    </>
+    </div>
+  );
+}
+
+const messageText = (message: UIMessage) => message.parts.map((part) => (part.type === 'text' ? part.text : '')).filter(Boolean).join('\n\n');
+
+/** Copy (and, for what the person wrote, reuse as a new draft); shown on hover or keyboard focus. */
+function MessageActions({ text, chips = [], onReuse }: { text: string; chips?: ChatChip[]; onReuse?: (text: string, chips: ChatChip[]) => void }) {
+  if (!text.trim()) return null;
+  return (
+    <div className="flex justify-end gap-0.5 opacity-0 transition-opacity group-hover/message:opacity-100 group-focus-within/message:opacity-100">
+      <CopyButton value={text} label="메시지 복사" />
+      {onReuse && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button type="button" variant="ghost" size="icon-xs" className="text-muted-foreground" aria-label="수정해서 보내기" onClick={() => onReuse(text, chips)}>
+              <Pencil />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>수정해서 보내기</TooltipContent>
+        </Tooltip>
+      )}
+    </div>
   );
 }
 
 /** A message sent while a reply was running: where the reply took it, or still waiting for its next step. */
-function SteerBubble({ text, waiting = false }: { text: string; waiting?: boolean }) {
+function SteerBubble({ text, waiting = false, onEdit, onCancel }: { text: string; waiting?: boolean; onEdit?: () => void; onCancel?: () => void }) {
   return (
     <div className={cn('ml-8 rounded-lg bg-background px-3 py-2 text-sm whitespace-pre-wrap shadow-xs ring-1 ring-border', waiting && 'text-muted-foreground')}>
-      <span className="mb-0.5 block text-xs text-muted-foreground">{waiting ? '전달 대기 중' : '진행 중에 보냄'}</span>
+      <span className="mb-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+        <span className="flex-1">{waiting ? '전달 대기 중' : '진행 중에 보냄'}</span>
+        {waiting && onEdit && (
+          <Button variant="ghost" size="icon-xs" aria-label="입력창으로 되돌려 수정" onClick={onEdit}>
+            <Pencil />
+          </Button>
+        )}
+        {waiting && onCancel && (
+          <Button variant="ghost" size="icon-xs" aria-label="보내기 취소" onClick={onCancel}>
+            <X />
+          </Button>
+        )}
+      </span>
       {text}
+    </div>
+  );
+}
+
+/** What a message pointed at with @, kept with it; each opens its page. */
+function SentChips({ projectId, chips }: { projectId: string; chips: ChatChip[] }) {
+  if (!chips.length) return null;
+  return (
+    <div className="mt-1.5 flex flex-wrap gap-1" aria-label="첨부한 항목">
+      {chips.map((chip) => <AttachChip key={`${chip.kind}:${chip.id}`} projectId={projectId} chip={chip} />)}
+    </div>
+  );
+}
+
+/** The pictures a message carried, from the stored record. */
+function SentImages({ parts }: { parts: UIMessage['parts'] }) {
+  const files = parts.filter((part) => part.type === 'file' && part.mediaType.startsWith('image/')) as { url: string; filename?: string }[];
+  if (!files.length) return null;
+  return (
+    <div className="mt-1.5 flex flex-wrap gap-1.5">
+      {files.map((file, index) => (
+        <img key={index} src={file.url} alt={file.filename ?? '붙인 이미지'} className="max-h-40 max-w-full rounded-md ring-1 ring-border" />
+      ))}
+    </div>
+  );
+}
+
+/** Where the server summarized the conversation's start (chat-compaction.ts); the summary is what the model reads in its place. */
+function CompactionNotice({ summary }: { summary: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="text-xs text-muted-foreground" role="status">
+      <Button variant="ghost" size="row" className="gap-1.5 px-0 text-xs" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <ChevronRight className={cn('size-3.5 transition-transform', open && 'rotate-90')} />
+        앞 대화를 요약했습니다
+      </Button>
+      {open && <p className="mt-1 rounded-md bg-muted px-3 py-2 whitespace-pre-wrap">{summary}</p>}
     </div>
   );
 }
@@ -559,7 +850,7 @@ function ExternalProposals({ projectId }: { projectId: string }) {
       </Button>
       {open && (
         <div className="px-3 pb-3">
-          <ProposalList projectId={projectId} proposals={pending} title="CLI 제안" />
+          <ProposalList projectId={projectId} proposals={pending} title="제안" />
         </div>
       )}
     </div>

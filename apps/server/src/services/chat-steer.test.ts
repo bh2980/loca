@@ -5,7 +5,7 @@ import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { expandSteers, transcript } from './chat-context.ts';
 import { startTurn, steerable } from './chat-turns.ts';
-import { enqueueSteer, hasSteers, stopWithQueued, takeSteers } from './chat-interject.ts';
+import { dequeueSteer, enqueueSteer, hasSteers, stopWithQueued, takeSteers } from './chat-interject.ts';
 import { eq } from 'drizzle-orm';
 import { importProject } from './importer.ts';
 
@@ -37,7 +37,11 @@ describe('steering (#44)', () => {
     expect(hasSteers(db, id)).toBe(true);
     // Stored on the conversation: a restart (no turn in memory) keeps them.
     expect(db.select({ pending: s.chatSessions.pendingSteers }).from(s.chatSessions).where(eq(s.chatSessions.id, id)).get()!.pending).toEqual(['a', 'b']);
-    expect(takeSteers(db, id)).toEqual(['a', 'b']);
+    // A queued message can be taken back until the turn has taken it.
+    expect(dequeueSteer(db, id, 'a')).toBe(true);
+    expect(dequeueSteer(db, id, 'a')).toBe(false);
+    expect(takeSteers(db, id)).toEqual(['b']);
+    expect(dequeueSteer(db, id, 'b')).toBe(false);
     expect(takeSteers(db, id)).toEqual([]);
     turn.markClosing();
     expect(steerable(id)).toBe(false);

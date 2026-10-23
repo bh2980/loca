@@ -44,6 +44,33 @@ function partKeys(value: unknown, fields: JsonField[]): Set<string> {
   return keys;
 }
 
+const nameKey = (name: unknown) => (typeof name === 'string' ? name.trim().toLowerCase() : '');
+
+/** Whether the fields ask for pairs of people with a view per direction (a `relationships` list with `between` and `views`). */
+const asksRelationshipViews = (fields: JsonField[]) => fields.some((field) => field.name === 'relationships' && field.type === 'list' && field.fields?.some((sub) => sub.name === 'views') && field.fields?.some((sub) => sub.name === 'between'));
+
+/**
+ * What is wrong with the relationships of an answer, or null: each pair names two different people
+ * ("between") and has one or two views, each a direction of the pair (from → to or to → from), no
+ * direction twice. Names are
+ * compared as the script spells them; whether a person exists is for the save to find out.
+ */
+export function relationshipViewsProblem(answer: unknown): string | null {
+  const list = (answer as { relationships?: unknown } | null)?.relationships;
+  if (!Array.isArray(list)) return null;
+  for (const [index, pair] of list.entries()) {
+    const { between, views } = (pair ?? {}) as { between?: unknown; views?: unknown };
+    const names = Array.isArray(between) ? between.map((name) => String(name).trim()) : [];
+    const label = `relationships[${index}]${names.length ? ` (${names.join(' ↔ ')})` : ''}`;
+    if (names.length !== 2 || !names[0] || !names[1] || nameKey(names[0]) === nameKey(names[1])) return `${label}: "between" must name two different people.`;
+    const directions = (Array.isArray(views) ? views : []).map((view) => `${nameKey((view as { from?: unknown })?.from)}>${nameKey((view as { to?: unknown })?.to)}`);
+    const wanted = [`${nameKey(names[0])}>${nameKey(names[1])}`, `${nameKey(names[1])}>${nameKey(names[0])}`];
+    if (!directions.length || directions.length > 2 || !directions.every((direction) => wanted.includes(direction)) || new Set(directions).size !== directions.length)
+      return `${label}: "views" must be one or two, each ${names[0]} → ${names[1]} or ${names[1]} → ${names[0]}, no direction twice (got ${directions.length}).`;
+  }
+  return null;
+}
+
 /**
  * An AI node's answer read line by line (#49: out of runner.ts, no state of its own). Line-scope
  * outputs give each line its own outcome, or null when the answer left the line out (the runner
@@ -98,6 +125,9 @@ export function readAiOutput(node: AiNode, raw: unknown, lines: PromptLine[], mo
       if (node.config.scope === 'batch') {
         // An answer that breaks a field's limits counts as none: every line is asked again.
         if (!strict.safeParse(raw ?? {}).success) return lines.map(() => null);
+        // Pairs whose views are not one or two distinct directions of the pair fail the request, so a 재요청 node can send it again.
+        const problem = asksRelationshipViews(fields) ? relationshipViewsProblem(raw) : null;
+        if (problem) return lines.map(() => ({ port: 'error', error: `관계 형식이 맞지 않습니다: ${problem}`, errorKind: 'invalid-output' as const }));
         // One answer for the whole request; to save space in run_items.data (H7) only the first line carries it.
         const found = withLineKeys((raw ?? {}) as Record<string, unknown>, fields, keyOf);
         return lines.map((_, index) => ({ port: 'out', output: index === 0 ? { ...found, batchLeader: true } : { batchLeader: false } }));
@@ -108,6 +138,8 @@ export function readAiOutput(node: AiNode, raw: unknown, lines: PromptLine[], mo
         const { id: _id, ...answer } = entry;
         // A line whose answer breaks a field's limits (empty required, number out of bounds) is asked again.
         if (!strict.safeParse(answer).success) return null;
+        const problem = asksRelationshipViews(fields) ? relationshipViewsProblem(answer) : null;
+        if (problem) return { port: 'error', error: `관계 형식이 맞지 않습니다: ${problem}`, errorKind: 'invalid-output' };
         return { port: 'out', output: withLineKeys(answer, fields, keyOf) };
       });
     }

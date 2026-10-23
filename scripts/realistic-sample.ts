@@ -195,7 +195,7 @@ export function realistic(size: number): { file: ImportFileInput; report: string
       kind: pick(RELATION_KINDS),
       description: '자주 대화하는 사이.',
       mutual: index % 3 === 0,
-      changes: index % 5 === 0 ? [{ at: `s${index}.l1`, change: '관계가 달라짐', cause: '' }].filter((change) => units.some((unit) => unit.key === change.at)) : [],
+      changes: index % 5 === 0 ? [{ at: `s${index}.l1`, kind: '적대', cause: '' }].filter((change) => units.some((unit) => unit.key === change.at)) : [],
     };
   });
   const speechRules = pairs.slice(0, 10).map(([pair], index) => {

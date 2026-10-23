@@ -1,8 +1,8 @@
 /** The app runs on Windows and Linux as well: shortcut hints follow the platform. */
 export const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/i.test((navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform || navigator.platform || navigator.userAgent);
 
-const MAC: Record<string, string> = { Mod: '⌘', Ctrl: '⌃', Alt: '⌥', Shift: '⇧', Enter: '↵', Up: '↑', Down: '↓', ArrowRight: '→' };
-const OTHER: Record<string, string> = { Mod: 'Ctrl', Ctrl: 'Ctrl', Alt: 'Alt', Shift: 'Shift', Enter: 'Enter', Up: '↑', Down: '↓', ArrowRight: '→' };
+const MAC: Record<string, string> = { Mod: '⌘', Ctrl: '⌃', Alt: '⌥', Shift: '⇧', Enter: '↵', Tab: 'Tab', Backspace: '⌫', Esc: 'Esc', Up: '↑', Down: '↓', ArrowRight: '→' };
+const OTHER: Record<string, string> = { Mod: 'Ctrl', Ctrl: 'Ctrl', Alt: 'Alt', Shift: 'Shift', Enter: 'Enter', Tab: 'Tab', Backspace: 'Backspace', Esc: 'Esc', Up: '↑', Down: '↓', ArrowRight: '→' };
 
 /** A shortcut as the user's keyboard says it: 'Mod+Shift+S' is ⌘⇧S on a Mac, Ctrl+Shift+S elsewhere. */
 export function keyLabel(combo: string) {

@@ -11,6 +11,8 @@ import { AGENT_SYSTEM } from './agent-tools.ts';
 import { gatedTools } from './change-gate.ts';
 import { expandSteers, mergeIncoming, type AnsweredBy } from './chat-context.ts';
 import { fitRecord } from './chat-compaction.ts';
+import { imageDecision } from '@tw/shared';
+import { incomingImageProblem, withoutImages } from './chat-images.ts';
 import { agentCatalog, jsonSchemaOf } from './agent-catalog.ts';
 import { hasInterjections, takeInterjections, writeInterjections, type Interjection } from './chat-interject.ts';
 import { afterTurn, startTurn, turnEnded, turnStartedAt, type ChatTurn } from './chat-turns.ts';
@@ -40,6 +42,8 @@ export async function runChatTurn(deps: Pick<Deps, 'db' | 'secrets'>, given: typ
     session = db.select().from(s.chatSessions).where(eq(s.chatSessions.id, session.id)).get() ?? session;
   }
   if (!session.connectionId || !session.model) throw new Error('입력창 아래에서 채팅할 AI 연결과 모델을 고르세요.');
+  const imageProblem = incomingImageProblem(request.incoming);
+  if (imageProblem) throw new Error(imageProblem);
   const live = liveChoice(db, { connectionId: session.connectionId, model: session.model, ...(session.effort && { effort: session.effort }) }, secrets, 'chat');
   const route = live.route;
   const messages = mergeIncoming(session.messages as UIMessage[], request.incoming, request.trigger);
@@ -142,7 +146,10 @@ function apiChatResponse(input: {
       const system = [AGENT_SYSTEM, input.view].filter(Boolean).join('\n\n');
       const overhead = estimateTokens(system) + toolTokens(db, session.projectId);
       const fitted = await fitRecord({ db, chat: session, route, record: messages, overhead, signal: turn.signal });
-      let modelMessages: ModelMessage[] = await convertToModelMessages(expandSteers(fitted), { ignoreIncompleteToolCalls: true });
+      // A model whose list says it takes no images gets the text only (the composer's chip said so).
+      const known = db.select({ modelLimits: s.connections.modelLimits }).from(s.connections).where(eq(s.connections.id, session.connectionId!)).get()?.modelLimits[route.model]?.images;
+      const sendable = imageDecision(known, 1).send ? fitted : withoutImages(fitted);
+      let modelMessages: ModelMessage[] = await convertToModelMessages(expandSteers(sendable), { ignoreIncompleteToolCalls: true });
       // Messages a previous turn could not take (it stopped for an approval) come first.
       const leftover = takeInterjections(db, session.id);
       if (leftover.length) modelMessages = [...modelMessages, interject(leftover)];

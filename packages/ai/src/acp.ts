@@ -270,6 +270,12 @@ export class AcpAgent {
     return this.init.agentCapabilities ?? {};
   }
 
+  /** Whether the agent takes images in a prompt (initialize's promptCapabilities.image); undefined when it did not say. */
+  takesImages(): boolean | undefined {
+    const prompt = this.capabilities().promptCapabilities;
+    return prompt ? Boolean(prompt.image) : undefined;
+  }
+
   /** How the system prompt goes in: the protocol field when the agent takes it, else in `_meta` (claude, codex, agy) or the first message. */
   private systemPromptField(system: string): { field?: acp.SystemPrompt; inMessage: boolean } {
     const supported = this.capabilities().sessionCapabilities?.systemPrompt;
@@ -361,7 +367,7 @@ export class AcpAgent {
    * One prompt turn. Updates go to `listener` while it runs; the signal cancels it. A turn that
    * reports nothing for `idleMs` is cancelled as stuck; one past `timeoutMs` (when given) as too long.
    */
-  async prompt(sessionId: string, text: string, listener: SessionListener, options: { signal?: AbortSignal; timeoutMs?: number; idleMs?: number }): Promise<{ stopReason: acp.StopReason; usage: Usage }> {
+  async prompt(sessionId: string, text: string, listener: SessionListener, options: { signal?: AbortSignal; timeoutMs?: number; idleMs?: number; /** Base64 images sent after the text; only when takesImages() is not false. */ images?: { data: string; mimeType: string }[] }): Promise<{ stopReason: acp.StopReason; usage: Usage }> {
     this.active++;
     this.lastUsed = Date.now();
     this.sessions.set(sessionId, this.lastUsed);
@@ -396,7 +402,7 @@ export class AcpAgent {
     options.signal?.addEventListener('abort', cancel, { once: true });
     try {
       if (options.signal?.aborted) throw new ModelError('cancelled', '중단했습니다.', false);
-      const response = await this.call(() => this.connection.prompt({ sessionId, prompt: [{ type: 'text', text }] }));
+      const response = await this.call(() => this.connection.prompt({ sessionId, prompt: [{ type: 'text', text }, ...(options.images ?? []).map((image) => ({ type: 'image' as const, data: image.data, mimeType: image.mimeType }))] }));
       const usage = readUsage(response);
       if (cost !== undefined && usage.costUsd === undefined) usage.costUsd = cost;
       if (timedOut === 'idle') throw new ModelError('timeout', `CLI가 ${Math.round((options.idleMs ?? 0) / 1000)}초 동안 아무 응답도 없어 중단했습니다.`, undefined, usage);

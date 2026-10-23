@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { UIMessage } from 'ai';
 import { eq } from 'drizzle-orm';
-import { estimateTokens, importFileSchema } from '@tw/shared';
+import { compactionMarker, estimateTokens, importFileSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { cutPoint, fitRecord, KEEP_RECENT_TOKENS, withCompaction } from './chat-compaction.ts';
@@ -49,6 +49,10 @@ describe('chat compaction (as pi does it)', () => {
     expect(calls(db)).toBe(1);
     const stored = db.select().from(s.chatSessions).where(eq(s.chatSessions.id, chat.id)).get()!;
     expect(stored.compaction).toMatchObject({ upTo: cut, summary: expect.any(String) });
+    // The panel marks it: "앞 대화를 요약했습니다" before the first message the summary does not cover.
+    const marker = compactionMarker(stored.compaction, record.length);
+    expect(marker).toMatchObject({ index: cut, summary: stored.compaction!.summary });
+    expect(record[marker!.index]!.role).toBe('user');
 
     // The next turn reuses the stored summary while the rest fits.
     const next = [...record, reply('8', '답'), user('9', '다음')];

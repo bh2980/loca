@@ -3,33 +3,28 @@ import { Link } from '@tanstack/react-router';
 import { Button, InspectorField, NumberInput, SectionHeading } from '@loca/ui';
 import type { CapEdits, Caps } from '@/lib/run-limits';
 import { splitBasis, splitTitle } from '@/lib/split-text';
+import { paceParts } from '@/lib/run-summary';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
 import type { client } from '@/lib/api';
 
 /** A run's plan and estimate as the preflight returns it (starting a run, or continuing one). */
 export type PlanData = InferResponseType<(typeof client.workflows)[':id']['preflight']['$post'], 200>;
 
-const duration = (seconds: number) => (seconds < 90 ? `${Math.max(1, Math.round(seconds / 10) * 10)}초` : seconds < 5400 ? `${Math.round(seconds / 60)}분` : `${(seconds / 3600).toFixed(1)}시간`);
-
 /**
  * How long and how much, in plain words (for the models picked below). With `projectId`, also how
  * many AI requests other runs already send at once and what this one adds: a notice, never a block.
  */
 export function Pace({ data, projectId }: { data: PlanData; projectId?: string }) {
-  const calls = data.totals.calls;
-  const callText = calls.expected !== null ? `${calls.expected.toLocaleString()}회` : `${calls.min.toLocaleString()}~${calls.max.toLocaleString()}회`;
-  const { seconds, costUsd, subscription } = data.pace;
-  // Only what is known: no time without history, no cost the provider never reported.
-  const money = subscription && !costUsd ? '구독 사용' : costUsd === null ? null : costUsd === 0 && !subscription ? '무료' : costUsd < 0.01 ? '1센트 미만' : `약 $${costUsd.toFixed(2)}${subscription ? ' + 구독' : ''}`;
+  const { callText, time, money } = paceParts(data);
   return (
     <section className="space-y-2">
       <SectionHeading>예상</SectionHeading>
       <p className="text-sm">
         AI 요청 <b className="font-medium tabular-nums">{callText}</b>
-        {seconds !== null && (
+        {time !== null && (
           <>
             {' · 약 '}
-            <b className="font-medium">{duration(seconds)}</b>
+            <b className="font-medium">{time}</b>
           </>
         )}
         {money && ` · ${money}`}

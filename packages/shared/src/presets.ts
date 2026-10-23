@@ -48,7 +48,7 @@ const KNOWN_CAST =
 const RULE_CHARACTERS =
   '- characters: everyone who speaks or is addressed often. "speech" describes how they talk in the source. Mark the player character (the one the player controls or who is addressed as "you" by the game, even if it never speaks) with "player": true. Give "gender" (male, female, other = neither, e.g. an android or a spirit) and "ageBand" (child, teen, young, middle, old) only when the lines show it (pronouns, forms of address, stated age, role); otherwise "unknown". Give "role": main when the story centres on them, supporting when they recur and take part in the plot, minor when they have few lines; use "unknown" when unclear. Name everyone as the source does, in the source language; an unnamed player character gets the role the game uses (e.g. "Detective", "Captain"), never a translated name.';
 const RULE_RELATIONSHIPS =
-  '- relationships: one per direction that matters, people named as the script does; "changes" give the line id ("at") where the relationship changes, what changed and why.';
+  '- relationships: one entry per pair of people who matter, named as the script does ("between"), with one or two "views", each a direction of the pair ("from" → "to"). Give a direction only when the script shows how "from" sees or treats "to"; when the relationship is the same both ways (동료, 연인, 형제·자매, 친구) give both directions. A view says who "to" is to "from" in "kind": ONE short noun (e.g. 부하, 두목, 언니, 협력자), never both people\'s roles ("두목-부하"), never several joined ("동료 / 파트너"), never a change ("협력에서 적대로"). When "from"\'s view of "to" changes, add to that view\'s "changes" the line id ("at") where it changes, the new relationship in "kind" (again one short noun) and why in "cause".';
 const RULE_EVENTS = '- events: what happened, its cause and its outcome, the people involved; include events that later lines refer back to.';
 const RULE_SPEECH_RULES = `- speechRules: for every speaker → listener direction with several lines (the listener may also be "group", "public", "self" or "others": how the speaker talks to several people present, to an unspecified audience, to themself, or to anyone else without a profile or an extra of their own), the Korean speech level the translation should use, one of: ${SPEECH_LEVEL_GUIDE}. Decide from the relationship (age, rank, intimacy, hostility, era and setting) as a Korean translator would; narration-like or written addresses often take 해라체, close friends 해체. "address" is how the speaker should address the listener in Korean (e.g. "수사관님", "언니"); when several forms are used, separate them with commas (e.g. "행크 경위님, 경위님"); empty if none. If the level changes at some point (falling out, reconciliation, promotion), give one rule per stretch: "startKey" is the line id where the new stretch begins (empty for the first). Do not mark a single sarcastic or emotional line as a change. "note" says why.`;
 const RULE_TERMS = `- terms: names and words whose Korean form must stay the same across the whole translation: people, places, organizations, products and technology, coined words and in-world concepts (also lower-case ones, such as a slang word, a species or a drug), ranks and titles, and interface words that recur. Not ordinary words. Skip what the glossary already has. "source" exactly as the script writes it, "kind" one of ${TERM_KINDS.join(', ')}, "meaning" one short Korean sentence, "target" the Korean form a translator should use (names by Korean loanword convention), "evidence" a few lines where it appears. At most about 150, the most important first.`;
@@ -71,16 +71,19 @@ const characterFields: JsonField[] = [
   evidence('who they are'),
 ];
 const relationshipFields: JsonField[] = [
-  field('from', 'string', 'The person, named as the script does.'),
-  field('to', 'string', 'The other person, named as the script does.'),
-  field('kind', 'string', 'The relationship in a few words (e.g. 상관-부하, 연인, 적대).'),
-  field('description', 'string', 'What the relationship is like, in Korean.'),
-  field('changes', 'list', 'Points where the relationship changes, in story order; empty when it stays as it is.', [
-    field('at', 'lines', 'The id of the line where the change shows.'),
-    field('change', 'string', 'What changes, in Korean.'),
-    field('cause', 'string', 'Why it changes.'),
+  field('between', 'strings', 'The two people of the pair, named as the script does: exactly two names.'),
+  field('views', 'list', 'One or two views, each a direction of the pair (between[0] → between[1] or between[1] → between[0]), never the same direction twice. Give a direction only when the script shows how "from" sees or treats "to"; when the relationship is the same both ways (동료, 연인, 형제·자매, 친구) give both.', [
+    field('from', 'string', 'The person who sees the other, one of "between".'),
+    field('to', 'string', 'The person who is seen, the other of "between".'),
+    field('kind', 'string', 'Who "to" is to "from": ONE short noun (e.g. 부하, 두목, 언니, 협력자). Never both people\'s roles, never several joined, never a change over time.'),
+    field('description', 'string', 'How "from" sees and treats "to", in Korean.'),
+    evidence('how "from" sees "to"'),
+    field('changes', 'list', 'Points where the view of "to" by "from" changes, in script order; empty when it stays as it is.', [
+      field('at', 'lines', 'The id of the line where the view changes.'),
+      field('kind', 'string', 'Who "to" is to "from" from then on: ONE short noun.'),
+      field('cause', 'string', 'Why it changes.'),
+    ]),
   ]),
-  evidence('the relationship'),
 ];
 const speechRuleFields: JsonField[] = [
   field('fromName', 'string', 'The speaker, named as the script does.'),
@@ -250,7 +253,7 @@ export const AI_PROMPTS = {
     batch: { mode: 'group', maxTokens: 3_000 },
     fields: [
       listField('characters', 'People these lines add, and people already in the cast that these lines show something about (role, gender, age band, other names, profile); empty when there is nothing.', characterFields),
-      listField('relationships', 'Relationships these lines start or change.', relationshipFields),
+      listField('relationships', 'Pairs of people whose relationship these lines start or change, with a view for each direction the script shows.', relationshipFields),
       listField('speechRules', 'Speaker → listener speech levels these lines show.', speechRuleFields),
     ],
     instructions: [
@@ -274,13 +277,13 @@ export const AI_PROMPTS = {
     input: { previous: true, fields: [] },
     fields: [
       listField('characters', 'Every person the parts name, once.', characterFields.filter((entry) => entry.name !== 'evidence')),
-      listField('relationships', 'One per direction that the parts report, its changes in script order.', relationshipFields),
+      listField('relationships', 'One per pair of people that the parts report, two views each, the changes of a view in script order.', relationshipFields),
       listField('speechRules', 'One per speaker → listener stretch.', speechRuleFields),
     ],
     instructions: [
       'An earlier node read the script scene by scene; "previous" holds what it found ("parts", one per request, in script order): the people, relationships and speech rules each part reports, new ones and ones about people already in the cast. Combine them into one answer:',
       '- characters: one entry per person. The same person under different names is ONE entry: use the cast name (or, for a new person, the name the parts use most) as "name" and put every other name in "aliases" (all of the parts\' aliases and other names, once each). Merge the profiles into 1-3 Korean sentences and the speech descriptions into one; do not retell scenes. For gender, ageBand and role take the strongest evidence: what most parts say, otherwise the part that states it; "unknown" only when no part knows (role: the highest one a part gives, since a person who is main in one part is main). player is true if any part says so. Never invent a person no part names.',
-      '- relationships: one entry per direction (from → to). Merge the parts\' entries of the same direction into one: one kind and description that fit the whole story, and every change of the parts once, in script order (the order of the parts), with the line id ("at") the part gives. Never invent a line id; keep the evidence ids of the parts.',
+      '- relationships: one entry per pair of people ("between"), with one or two views, each a direction (give a direction only when a part shows how "from" sees or treats "to"; when the relationship is the same both ways (동료, 연인, 형제·자매, 친구) give both). Merge the parts\' entries of the same pair (in either order of names) into one: for each direction given one "kind" (ONE short noun for who "to" is to "from", never both roles, never several joined, never a change) and one description that fit the whole story, and every change of that view once, in script order (the order of the parts), with the line id ("at") the part gives and the new relationship in its "kind". A change is a new relationship, so a pair that goes from allies to enemies is kind 협력자 with a change to 적. Never invent a line id; keep the evidence ids of the parts.',
       '- speechRules: one entry per speaker → listener stretch. When parts disagree on the level, decide from the relationship and from what most of the evidence shows. Keep a change of level (a "startKey" line id) only when the parts show a lasting change, not one scene\'s tone; a rule that only differs by one scene\'s tone is one entry without "startKey". Keep the line ids ("startKey", evidence) from the parts, never invent one.',
       '- Name people as the characters list does (the cast name, or the name the parts use most).',
       KNOWN_CAST,
@@ -313,7 +316,7 @@ export const AI_PROMPTS = {
       field('overviewTitle', 'string', 'A short Korean title for the overview document, e.g. "작품 개요".'),
       field('overview', 'string', 'Markdown document in Korean with the headings 배경 (the setting), 주요 갈등 (the main conflict) and 줄거리 (the plot so far). Use only what the text says.'),
       listField('characters', 'Everyone who speaks or is addressed often.', characterFields),
-      listField('relationships', 'One per direction that matters.', relationshipFields),
+      listField('relationships', 'One per pair of people that matters, two views each.', relationshipFields),
       listField('events', 'What happened, including events later lines refer back to.', eventFields),
       listField('speechRules', 'For every speaker → listener direction with several lines.', speechRuleFields),
       listField('terms', 'Names and words whose Korean form must stay the same everywhere; about 150 at most, the most important first.', termFields),

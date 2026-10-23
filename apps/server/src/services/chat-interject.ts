@@ -30,6 +30,17 @@ export function enqueueSteer(db: Db, sessionId: string, text: string) {
   });
 }
 
+/** Takes one queued message back (the person cancelled or is editing it). False: the turn already took it. */
+export function dequeueSteer(db: Db, sessionId: string, text: string) {
+  return db.transaction((tx) => {
+    const pending = tx.select({ pending: s.chatSessions.pendingSteers }).from(s.chatSessions).where(eq(s.chatSessions.id, sessionId)).get()?.pending ?? [];
+    const at = pending.indexOf(text);
+    if (at < 0) return false;
+    tx.update(s.chatSessions).set({ pendingSteers: pending.filter((_, i) => i !== at) }).where(eq(s.chatSessions.id, sessionId)).run();
+    return true;
+  });
+}
+
 /** The queued messages, removed from the queue (the caller hands them to the model). */
 export function takeSteers(db: Db, sessionId: string) {
   return db.transaction((tx) => {

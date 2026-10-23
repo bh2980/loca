@@ -6,7 +6,9 @@ import { eq } from 'drizzle-orm';
 import * as ai from '@tw/ai';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { logged } from './ai-calls.ts';
+import { learnImages, logged } from './ai-calls.ts';
+import { acpImages } from './chat-images.ts';
+import { imageDecision, IMAGE_UNSUPPORTED_NOTE } from '@tw/shared';
 import { agentCatalog, jsonSchemaOf, type CatalogTool } from './agent-catalog.ts';
 import { catchUp, handover, textOf, type AnsweredBy } from './chat-context.ts';
 import { fitRecord } from './chat-compaction.ts';
@@ -157,7 +159,12 @@ export async function cliChatResponse(input: {
       const context = known
         ? catchUp(earlier, saved?.seen ?? earlier.length)
         : handover((await fitRecord({ db, chat, route, record: messages, overhead: estimateTokens(input.system) + estimateTokens([...tools.values()].map((tool) => ({ name: tool.name, description: tool.description, input: jsonSchemaOf(tool.schema) }))) + CLI_OVERHEAD, signal: input.turn.signal })).slice(0, -1));
-      let prompt = [lead, turnPrompt({ context, view: input.view, text: last ? textOf(last) : '', leftover })].filter(Boolean).join('\n\n---\n\n');
+      // Images go as prompt blocks when the agent says it takes them; the capability is kept so the composer can warn before sending.
+      learnImages(db, route.connectionId, route.model, agent.takesImages());
+      const wanted = acpImages(last);
+      const decision = imageDecision(agent.takesImages(), wanted.length);
+      const images = decision.send ? wanted : [];
+      let prompt = [lead, turnPrompt({ context, view: input.view, text: [last ? textOf(last) : '', decision.dropped ? `(이미지 ${decision.dropped}장은 ${IMAGE_UNSUPPORTED_NOTE}: 보내지 않았습니다)` : ''].filter(Boolean).join('\n'), leftover })].filter(Boolean).join('\n\n---\n\n');
       db.update(s.chatSessions).set({ agentSession: { kind: route.kind, model: route.model, id: sessionId, lastTurnAt: Date.now(), seen: known ? saved?.seen : 0 } }).where(eq(s.chatSessions.id, chat.id)).run();
 
       let textId: string | null = null;
@@ -190,7 +197,8 @@ export async function cliChatResponse(input: {
                   writer.write({ type: 'text-delta', id: textId, delta: update.content.text });
                 },
               },
-              { signal: input.turn.signal, idleMs: input.idleMs },
+              // Images go with the first request only; a message that came in meanwhile is text.
+              { signal: input.turn.signal, idleMs: input.idleMs, ...(pass === 0 && images.length && { images }) },
             ),
           );
           breakText();
