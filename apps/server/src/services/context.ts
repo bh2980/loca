@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray, lt } from 'drizzle-orm';
-import { CONTEXT_PRIORITY, contextConfigSchema, contextTokens, estimateTokens, listenerLabel, mentions, personNote, styleInstruction, termMatcher, type AgeBand, type ContextConfig, type ContextItem, type ContextItemKind, type Gender, type RelationshipChange } from '@tw/shared';
+import { CONTEXT_PRIORITY, contextConfigSchema, contextTokens, estimateTokens, isSpecialListener, listenerLabel, mentions, personNote, styleInstruction, termMatcher, type AgeBand, type ContextConfig, type ContextItem, type ContextItemKind, type Gender, type RelationshipChange } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import { documents as documentsTable, graphEdges, graphNodes, groups, units } from '../db/schema.ts';
 import { cachedKnowledge, describeRule, graphOrder, knowledgeOf, knownListener, scriptOrder, speechRuleIndex } from './speech.ts';
@@ -32,12 +32,15 @@ const personFields = (character: { gender: Gender; ageBand: AgeBand }) => {
   return { ...(gender && { gender }), ...(age && { age }) };
 };
 
+/** A stored character as a prompt entry: what is written about them (profile, how they talk) and what is known of them. */
+export interface StoredCharacter { name: string; aliases: string[]; profile: string; speech?: string; role?: string; gender?: string; age?: string }
+
 export interface BatchContext {
   /** Per group id in the batch: its title always, its description when the budget kept it. A batch can span several scenes. */
   scenes: Record<string, { title: string; description?: string }>;
   previousScenes: { title: string; description: string }[];
   documents: { kind: string; title: string; body: string }[];
-  characters: { name: string; aliases: string[]; profile: string; gender?: string; age?: string }[];
+  characters: StoredCharacter[];
   /** Per speaker in the batch whose written style (문체) a person chose: the style as an instruction. */
   voices: Record<string, string>;
   /** Per speaker and named listener in the batch whose gender or age band is known: "female, young adult" (forms of address follow them). */
@@ -52,11 +55,13 @@ export interface BatchContext {
    * so the model does not take a guess for a settled fact.
    */
   aiNotes: {
-    characters: { name: string; aliases: string[]; profile: string; gender?: string; age?: string }[];
+    characters: StoredCharacter[];
     relationships: { from: string; to: string; kind: string; description: string; mutual: boolean; changes?: RelationshipChange[] }[];
     documents: { kind: string; title: string; body: string }[];
   };
   terms: { source: string; target: string; note: string }[];
+  /** A request reading earlier results instead of lines: the confirmed speech rules among the people those results name. */
+  speechRules: { from: string; to: string; level: string; address?: string; note?: string; startKey?: string }[];
   /** Per unit id, only for lines whose preceding lines are not already in the batch or shown for an earlier line. */
   preceding: Record<string, Preceding>;
   /** Everything considered, in fill order, with what was dropped for the cap. */
@@ -203,20 +208,26 @@ interface Candidate {
   keep: () => void;
 }
 
+/**
+ * `parts` is the text of a request that reads earlier results instead of lines (a merge, input.lines off):
+ * the people it names are the ones the characters, relationships and speech rules context is about, and
+ * the batch's own lines (the one item such a request stands on) say nothing.
+ */
 export function buildContext(
   db: Db,
   projectId: string,
   batch: { id: string; key: string; groupId: string; sort: number; speaker: string | null; source: string }[],
   stored: Partial<ContextConfig>,
+  parts?: string,
 ): BatchContext {
   // Saved workflows may predate a setting; the schema fills its default.
   const config = contextConfigSchema.parse(stored ?? {});
   const index = graphIndex(db, projectId);
   const knowledge = knowledgeOf(db, projectId);
-  const text = batch.map((unit) => `${unit.speaker ?? ''}\n${unit.source}`).join('\n');
+  const text = parts ?? batch.map((unit) => `${unit.speaker ?? ''}\n${unit.source}`).join('\n');
   const groupIds = [...new Set(batch.map((unit) => unit.groupId))];
   const sceneRows = db.select().from(groups).where(inArray(groups.id, groupIds)).all();
-  const result: BatchContext = { scenes: Object.fromEntries(sceneRows.map((row) => [row.id, { title: row.title }])), previousScenes: [], documents: [], characters: [], cast: [], relationships: [], aiNotes: { characters: [], relationships: [], documents: [] }, terms: [], speech: {}, voices: {}, people: {}, preceding: {}, items: [], budget: { limit: contextTokens(config), used: 0 } };
+  const result: BatchContext = { scenes: Object.fromEntries(sceneRows.map((row) => [row.id, { title: row.title }])), previousScenes: [], documents: [], characters: [], cast: [], relationships: [], aiNotes: { characters: [], relationships: [], documents: [] }, terms: [], speechRules: [], speech: {}, voices: {}, people: {}, preceding: {}, items: [], budget: { limit: contextTokens(config), used: 0 } };
   const candidates: Record<ContextItemKind, Candidate[]> = { term: [], speech: [], cast: [], preceding: [], character: [], relationship: [], scene: [], previousScene: [], document: [] };
 
   if (config.glossary) {
@@ -279,7 +290,7 @@ export function buildContext(
     }
   }
 
-  if (config.speech) {
+  if (config.speech && parts === undefined) {
     const lines = db
       .select({ id: units.id, key: units.key, groupId: units.groupId, speaker: units.speaker, listener: units.listener, listenerOrigin: units.listenerOrigin, listenerConfidence: units.listenerConfidence })
       .from(units)
@@ -318,7 +329,7 @@ export function buildContext(
   // for a speaker (문체), one short line per name, whenever speech is on (characters may be off).
   // Who they are goes with it too: gender and age band of the batch's speakers and the listeners
   // they name (Korean forms of address and speech levels follow them).
-  if (config.speech) {
+  if (config.speech && parts === undefined) {
     const speakers = new Set(batch.flatMap((unit) => (unit.speaker ? [unit.speaker.toLowerCase()] : [])));
     // The listeners the speech context names (kept or not yet: the budget decides later).
     const listeners = new Set(candidates.speech.map((candidate) => (candidate.payload as { listener: string }).listener.toLowerCase()));
@@ -337,8 +348,8 @@ export function buildContext(
   const present = confirmedCast ? mentionMatcher(confirmedCast.rows).find(text) : [];
   if (config.characters)
     for (const character of present) {
-      const { name, aliases, profile } = character;
-      const entry = { name, aliases, profile, ...personFields(character) };
+      const { name, aliases, profile, speech, role } = character;
+      const entry: StoredCharacter = { name, aliases, profile, ...(speech.trim() && { speech }), ...(role !== 'unknown' && { role }), ...personFields(character) };
       const via = [name, ...aliases.filter(usableAlias)].find((alias) => mentions(text, alias));
       const ai = unverified(character);
       candidates.character.push({
@@ -347,6 +358,14 @@ export function buildContext(
         keep: () => (ai ? result.aiNotes.characters : result.characters).push(entry),
       });
     }
+  if (config.speech && parts !== undefined) {
+    const named = new Set(mentionMatcher(knowledge.characters().rows).find(text).flatMap((character) => [character.name, ...character.aliases].map((name) => name.toLowerCase())));
+    for (const rule of knowledge.allSpeechRules()) {
+      if (rule.status !== 'confirmed' || !named.has(rule.fromName.toLowerCase()) || !(named.has(rule.toName.toLowerCase()) || isSpecialListener(rule.toName))) continue;
+      const entry = { from: rule.fromName, to: rule.toName, level: rule.level, ...(rule.address && { address: rule.address }), ...(rule.note && { note: rule.note }), ...(rule.startKey && { startKey: rule.startKey }) };
+      candidates.speech.push({ item: { kind: 'speech', label: `${rule.fromName} → ${rule.toName}${rule.startKey ? ` (${rule.startKey}부터)` : ''}: ${describeRule(rule)}`, reason: '읽는 결과에 나오는 인물 사이의 확정 말투 규칙' }, payload: entry, keep: () => result.speechRules.push(entry) });
+    }
+  }
   if (config.relationships) {
     const presentIds = new Set(present.map((character) => character.id));
     const nameOf = new Map(allCharacters.map((character) => [character.id, character.name]));

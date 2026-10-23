@@ -663,7 +663,7 @@ workflows
     const summary = (node: Node) =>
       node.type === 'entry' ? `대상 상태 ${node.config.statusIds?.length ?? 0}개`
       : node.type === 'ai' ? `${node.config.output}·${node.config.scope ?? 'line'}${node.config.preset ? ` · 프리셋 ${node.config.preset}` : ''} · ${node.config.model?.model || '모델 없음'} · 동시 ${node.config.concurrency ?? 1}${node.config.fields?.length ? ` · 필드 ${node.config.fields.map((field: { name: string }) => field.name).join(', ')}` : ''}`
-      : node.type === 'function' ? `${node.config.fn}${node.config.fn === 'saveCharacters' ? ` · 프로필 ${node.config.params?.profiles ?? 'fillEmpty'}` : ''}${node.config.fn === 'http' || node.config.fn === 'script' ? ` · 동시 ${node.config.concurrency ?? 2}` : ''}`
+      : node.type === 'function' ? `${node.config.fn}${node.config.fn === 'http' || node.config.fn === 'script' ? ` · 동시 ${node.config.concurrency ?? 2}` : ''}`
       : node.type === 'condition' ? JSON.stringify(node.config.expression)
       : node.type === 'retry' ? `재요청 · ${retrySummary(retryConfigSchema.parse(node.config ?? {}))}`
       : node.type === 'gather' ? `모으기 (앞 단계 결과)${node.config.fields?.length ? ` · 필드 ${node.config.fields.join(', ')}` : ''}`
@@ -789,6 +789,49 @@ runs
     const { proposalId } = await proposeTool('start_run', { workflowId: workflow.id, groupIds: groups?.map((group) => group.id), unitIds, tagIds, marks: options.mark, termIds: options.term, statuses: options.status, models: runModels(options.model) });
     if (globals().json) return print({ proposalId });
     console.log(`실행 요청을 올렸습니다 (${proposalId}). ${ACCEPT_HINT}. 시작한 뒤에는 loca runs list로 봅니다.`);
+  });
+
+const graph = program.command('graph').description('대사 그래프 잇기(변경은 제안으로 올라가 앱에서 수락). 장면 연결은 저장되지 않고 대사 그래프에서 계산됩니다');
+
+graph
+  .command('link <from키> <to키>')
+  .description('대사(또는 노드 키)에서 대사로 선 하나 잇기를 제안으로 올리기')
+  .option('--label <이름>', '선택지 이름')
+  .action(async (from: string, to: string, options: { label?: string }) => {
+    const { proposalId } = await proposeTool('link_lines', { from, to, action: 'link', label: options.label });
+    if (globals().json) return print({ proposalId });
+    console.log(`제안을 올렸습니다 (${proposalId}). ${ACCEPT_HINT}.`);
+  });
+
+graph
+  .command('unlink <from키> <to키>')
+  .description('두 대사 사이의 선을 지우는 제안 올리기')
+  .action(async (from: string, to: string) => {
+    const { proposalId } = await proposeTool('link_lines', { from, to, action: 'unlink' });
+    if (globals().json) return print({ proposalId });
+    console.log(`제안을 올렸습니다 (${proposalId}). ${ACCEPT_HINT}.`);
+  });
+
+graph
+  .command('link-scenes <from장면> <to장면>')
+  .description('장면 A의 마지막 대사 → 장면 B의 첫 대사로 선을 잇는 제안 올리기 (장면은 키·id·제목). --unlink이면 두 장면을 바로 잇는 선을 지웁니다')
+  .option('--unlink', '잇지 않고 끊기')
+  .action(async (from: string, to: string, options: { unlink?: boolean }) => {
+    const { proposalId } = await proposeTool('link_scenes', { pairs: [{ from, to }], action: options.unlink ? 'unlink' : 'link' });
+    if (globals().json) return print({ proposalId });
+    console.log(`제안을 올렸습니다 (${proposalId}). ${ACCEPT_HINT}.`);
+  });
+
+graph
+  .command('order')
+  .description('대본 순서로 잇기 제안 올리기: 장면 안에서 노드를 대본 순서대로 잇습니다. 이미 나가는 길·들어오는 길이 있는 노드는 건드리지 않습니다 (그래프 없이 가져온 파일용)')
+  .option('--scene <scenes...>', '장면 (키·id·제목): 그 장면의 모든 노드')
+  .option('--line <keys...>', '대사 키: 이 대사들의 노드끼리만 (장면별로)')
+  .action(async (options: { scene?: string[]; line?: string[] }) => {
+    if (!options.scene?.length && !options.line?.length) throw new CliError('--scene 또는 --line을 하나 이상 주세요.');
+    const { proposalId } = await proposeTool('link_in_order', { scenes: options.scene ?? [], lines: options.line ?? [] });
+    if (globals().json) return print({ proposalId });
+    console.log(`제안을 올렸습니다 (${proposalId}). ${ACCEPT_HINT}.`);
   });
 
 const proposals = program.command('proposals').description('CLI가 올린 제안: 목록과 결정 상태 (결정은 앱에서)');

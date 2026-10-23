@@ -5,7 +5,7 @@ import { checkFormat, compileFormatRules, matchTokens } from './format-check.ts'
 import { importFileSchema, importWarnings, summarizeImport } from './import-format.ts';
 import { politenessOf, speechLevelOf, styleInstruction, styleNames } from './knowledge.ts';
 import { ANALYSIS_WORKFLOW, analysisTemplate, defaultWorkflows, eventExtractionTemplate, listenerTemplate, peopleRelationsTemplate, termExtractionTemplate, translationTemplate, WORKFLOW_TEMPLATES } from './defaults.ts';
-import { APPLY_TARGETS, saveCharactersParams } from './functions.ts';
+import { APPLY_TARGETS } from './functions.ts';
 import { AI_PRESETS, AI_PROMPTS, presetConfig } from './presets.ts';
 import { APPLY_PALETTE_ORDER, fieldsFromSample, FUNCTION_NAMES, functionGroup } from './functions.ts';
 import { applyIssues, nodeOutputFields, nodePorts, pickPaths, previousStepId, previousSteps, readinessUses, retrySummary, retryModel, retryOrigins, retryScaleText, resendsOf, definitionModels, ITEM_ERROR_KINDS, validateWorkflow, workflowDefinitionSchema, workflowNodeSchema, type RetryNode, type WorkflowDefinition, type WorkflowNode } from './workflow.ts';
@@ -242,12 +242,13 @@ describe('templates', () => {
     const order = definition.nodes.map((node) => node.id);
     expect(saves.every((node) => order.indexOf(node.id) > order.indexOf('merge'))).toBe(true);
     expect(definition.nodes.find((node) => node.id === 'gather')).toMatchObject({
-      config: { fields: expect.arrayContaining(['characters.name', 'characters.aliases', 'characters.profile', 'relationships.between', 'relationships.views.from', 'relationships.views.changes.at', 'relationships.views.changes.kind', 'relationships.views.evidence', 'speechRules.fromName', 'speechRules.startKey', 'speechRules.evidence']) },
+      config: { fields: expect.arrayContaining(['characters.name', 'characters.aliases', 'characters.newFacts.text', 'characters.newFacts.evidence', 'characters.newSpeech.text', 'relationships.between', 'relationships.views.from', 'relationships.views.changes.at', 'relationships.views.changes.kind', 'relationships.views.evidence', 'speechRules.fromName', 'speechRules.startKey', 'speechRules.evidence']) },
     });
     expect(definition.nodes.find((node) => node.id === 'merge')).toMatchObject({ config: { input: { previous: true, lines: false }, output: 'json', scope: 'batch' } });
-    const profiles = (id: string) => (definition.nodes.find((node) => node.id === id) as { config: { params: { profiles?: string } } }).config.params.profiles;
-    expect(profiles('save-characters')).toBe('propose');
-    expect(saveCharactersParams.parse({}).profiles).toBe('fillEmpty');
+    // 인물 저장 has no setting: new facts are always appended.
+    expect((definition.nodes.find((node) => node.id === 'save-characters') as { config: { params: Record<string, unknown> } }).config.params).not.toHaveProperty('profiles');
+    expect(definition.nodes.find((node) => node.id === 'save-characters')).toMatchObject({ config: { params: { map: { newFacts: 'newFacts', newSpeech: 'newSpeech' } } } });
+    expect(APPLY_TARGETS.saveCharacters.fields.map((field) => field.name)).not.toContain('profile');
     // Every path the gather keeps is a field the scene AI produces, and the merge returns the same fields as the scene reading (people without evidence).
     const names = (preset: 'knowledge' | 'peopleMerge', list: string) => AI_PROMPTS[preset].fields.find((field) => field.name === list)!.fields!.map((field) => field.name);
     expect(names('peopleMerge', 'characters')).toEqual(names('knowledge', 'characters').filter((name) => name !== 'evidence'));

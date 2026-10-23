@@ -884,7 +884,9 @@ export class Runner {
       step.context = whole.context.items;
       built = whole;
     } else {
-      const context = terms?.context ?? buildContext(this.db, run.projectId, rows, node.config.context);
+      // A request that reads earlier results instead of lines (a merge) asks about the people those results name.
+      const parts = !node.config.input.lines && node.config.input.previous ? JSON.stringify(lines.flatMap((line) => (line.previous === undefined ? [] : [line.previous]))) : undefined;
+      const context = terms?.context ?? buildContext(this.db, run.projectId, rows, node.config.context, parts);
       step.context = context.items;
       built = buildPrompt(node, languages, context, lines, choiceOptions);
     }

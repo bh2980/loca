@@ -59,6 +59,8 @@ export const AGENT_TOOLS: Record<string, { target: AgentToolTarget; action: Agen
   save_event: tool('knowledge', 'change', '사건 저장'),
   link_events: tool('knowledge', 'change', '사건 잇기'),
   link_lines: tool('script', 'change', '대사 그래프 잇기'),
+  link_scenes: tool('script', 'change', '장면 잇기'),
+  link_in_order: tool('script', 'change', '대본 순서로 잇기'),
   add_line_after: tool('script', 'change', '대사 넣기'),
   delete_lines: tool('script', 'change', '대사 지우기'),
   save_document: tool('knowledge', 'change', '노트 저장'),

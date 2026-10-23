@@ -89,7 +89,7 @@ function mapByName(fn: ApplyFunctionName, source: JsonField[]): Record<string, s
 interface ApplyOptions {
   list?: string;
   map: Record<string, string>;
-  /** Settings of the node besides its field links (e.g. 인물 저장's `profiles`). */
+  /** Settings of the node besides its field links. */
   params?: Record<string, unknown>;
 }
 /** An apply node: it applies the result of the step before it (the AI or script node it is drawn after). */
@@ -288,7 +288,7 @@ export function termTranslationTemplate(ids: TemplateIds): WorkflowDefinition {
  * theirs (the line ids of a change, of a rule's start and of the evidence are what the merge keeps and the saves store).
  */
 const MERGED_PATHS = [
-  ...['name', 'aliases', 'profile', 'speech', 'player', 'gender', 'ageBand', 'role'].map((field) => `characters.${field}`),
+  ...['name', 'aliases', 'newFacts.text', 'newFacts.evidence', 'newSpeech.text', 'newSpeech.evidence', 'player', 'gender', 'ageBand', 'role'].map((field) => `characters.${field}`),
   ...['between', 'views.from', 'views.to', 'views.kind', 'views.description', 'views.evidence', 'views.changes.at', 'views.changes.kind', 'views.changes.cause'].map((field) => `relationships.${field}`),
   ...['fromName', 'toName', 'level', 'address', 'note', 'startKey', 'evidence'].map((field) => `speechRules.${field}`),
 ];
@@ -298,8 +298,8 @@ const MERGED_PATHS = [
  * stored, relationships and speech rules). Nothing is saved while the scenes are read: 모으기 waits for every request
  * and collects the people, relationships and speech rules of every part, AI 인물·관계 합치기 makes one entry per person,
  * one relationship per pair of people (a view per direction, its changes in script order) and one speech rule per speaker → listener stretch, and
- * then each list is saved once: 인물 저장 ('다르면 제안으로 올림': an empty profile is filled, an AI one nobody touched is replaced,
- * an imported or written one that differs becomes a proposal), then 관계 저장 and 말투 규칙 저장, which find the people they name.
+ * then each list is saved once: 인물 저장 (new facts are appended to the end of the stored profile and speech description, nothing stored is rewritten),
+ * then 관계 저장 (new changes are appended) and 말투 규칙 저장 (new stretches and pairs only), which find the people they name.
  * The 합치기 AI has a 재요청 node but no failure marker: after the 모으기 one item stands for the whole run, so an `AI 실패`
  * tag would land on an arbitrary line; its 오류 ends that item failed with the reason (nothing of the run is saved then).
  * The save nodes read the 합치기 AI's lists: a save node passes the result of the step before it on.
@@ -321,7 +321,7 @@ export function peopleRelationsTemplate(ids: TemplateIds): WorkflowDefinition {
         config: presetConfig('peopleMerge', ids.model, { input: { lines: false, previous: true, fields: [] } }),
       },
       ...resendNodes('merge', 3),
-      saveList('save-characters', 'saveCharacters', 'peopleMerge', 'characters', 4, 0, { profiles: 'propose' }),
+      saveList('save-characters', 'saveCharacters', 'peopleMerge', 'characters', 4),
       saveList('save-relationships', 'saveRelationships', 'peopleMerge', 'relationships', 5),
       saveList('save-speech-rules', 'saveSpeechRules', 'peopleMerge', 'speechRules', 6),
     ],

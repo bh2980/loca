@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeftRight, ClipboardPaste, CopyPlus, Trash2, FilePlus2, FolderPlus, MinusCircle, ArrowUpDown, Copy, ExternalLink, Flag, Focus, Maximize, Minus, Network, Play, Plus, Route as RouteIcon, SlidersHorizontal, Sparkles } from 'lucide-react';
+import { ArrowLeftRight, ClipboardPaste, CopyPlus, ListOrdered, Trash2, FilePlus2, FolderPlus, MinusCircle, ArrowUpDown, Copy, ExternalLink, Flag, Focus, Maximize, Minus, Network, Play, Plus, Route as RouteIcon, SlidersHorizontal, Sparkles } from 'lucide-react';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { GraphCanvas, type GraphCanvasHandle, type LayoutEdge, type NodeInfo, type Viewport } from '@/components/graph/graph-canvas';
 import { LINE_CARD_WIDTH, LineCard } from '@/components/graph/line-card';
@@ -541,6 +541,11 @@ function GraphPage() {
   // Editing the dialogue graph, with the keys every graph shares (lib/graph-shortcuts). A view's
   // lines are derived, so a view is read only.
   const editing = dialogue && !isPicking && !viewId;
+  // The scene graph connects scenes only (derived from the dialogue graph: A's last line → B's first line); undo is shared with the dialogue graph.
+  const sceneEditing = !dialogue;
+  /** The picked scenes, or the one the menu is on; hubs are not scenes. */
+  const scenesOf = (id: string) => (picked.has(id) ? [...picked] : [id]).filter((sceneId) => !hubs.has(sceneId));
+  const orderScenes = (ids: string[]) => void edits.linkInOrder({ groupIds: ids });
   const pickedNodes = picked.size ? [...picked] : search.node ? [search.node] : [];
   const openEdge = (edgeId: string | undefined) => void navigate({ search: (previous) => ({ ...previous, edge: edgeId, node: undefined, edit: undefined, addAfter: undefined }), replace: true });
   const removePicked = () => {
@@ -559,16 +564,19 @@ function GraphPage() {
     {
       undo: () => void edits.undo(),
       redo: () => void edits.redo(),
-      copy: () => void (pickedNodes.length && (nodeClipboard = pickedNodes)),
-      cut: () => {
-        if (!pickedNodes.length) return;
-        nodeClipboard = pickedNodes;
-        removePicked();
-      },
-      paste: () => void paste(nodeClipboard),
-      remove: removePicked,
+      // Scenes are not copied or deleted from here: only the dialogue graph has those.
+      ...(editing && {
+        copy: () => void (pickedNodes.length && (nodeClipboard = pickedNodes)),
+        cut: () => {
+          if (!pickedNodes.length) return;
+          nodeClipboard = pickedNodes;
+          removePicked();
+        },
+        paste: () => void paste(nodeClipboard),
+        remove: removePicked,
+      }),
     },
-    editing,
+    editing || sceneEditing,
   );
   const currentStep: 'start' | 'end' = search.pickStep ?? (search.pickStart && !search.pickEnd ? 'end' : 'start');
 
@@ -890,12 +898,18 @@ function GraphPage() {
                   { id: 'copy', label: '복제', icon: <CopyPlus />, onSelect: () => void paste([search.node!]) },
                   { id: 'delete', label: '삭제', icon: <Trash2 />, onSelect: removePicked },
                 ]} />,
+              } : sceneEditing && search.node && !picked.size && !hubs.has(search.node) && layout?.nodes.some((node) => node.id === search.node) ? {
+                id: search.node,
+                content: <SelectionToolbox actions={[
+                  { id: 'order', label: '대본 순서로 잇기', icon: <ListOrdered />, onSelect: () => orderScenes([search.node!]) },
+                ]} />,
               } : undefined}
-              editable={editing}
-              onConnect={(fromId, toId) => void edits.connect(fromId, toId)}
+              editable={editing || sceneEditing}
+              connectScenes={sceneEditing}
+              onConnect={(fromId, toId) => void (sceneEditing ? edits.linkScenes(fromId, toId) : edits.connect(fromId, toId))}
               selectedEdgeId={search.edge}
               onSelectEdge={dialogue ? (edgeId) => (edgeId.startsWith('via:') ? select(edgeId.slice('via:'.length)) : openEdge(edgeId)) : undefined}
-              onEdgeContextMenu={editing ? (edgeId, pos) => setContextMenu({ edgeId, x: pos.clientX, y: pos.clientY }) : undefined}
+              onEdgeContextMenu={editing || sceneEditing ? (edgeId, pos) => setContextMenu({ edgeId, x: pos.clientX, y: pos.clientY }) : undefined}
               onOpen={dialogue ? startLine : undefined}
               anchor={
                 anchorId && search.edit
@@ -958,6 +972,9 @@ function GraphPage() {
                   {editing && (
                     <>
                       <DropdownMenuSeparator />
+                      <DropdownMenuItem onSelect={() => void edits.linkInOrder({ nodeIds: realNodes(picked) })}>
+                        <span>대본 순서로 잇기</span>
+                      </DropdownMenuItem>
                       <DropdownMenuItem onSelect={() => void paste([...picked])}>
                         <span>복제 ({picked.size.toLocaleString()}개)</span>
                       </DropdownMenuItem>
@@ -1153,6 +1170,11 @@ function GraphPage() {
                   >
                     <span>대사 그래프에서 보기</span>
                   </DropdownMenuItem>
+                  {scenesOf(contextMenu.nodeId).length > 0 && (
+                    <DropdownMenuItem onSelect={() => orderScenes(scenesOf(contextMenu.nodeId!))}>
+                      <span>대본 순서로 잇기{scenesOf(contextMenu.nodeId).length > 1 ? ` (${scenesOf(contextMenu.nodeId).length.toLocaleString()}개 장면)` : ''}</span>
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
                     onSelect={() => {
@@ -1164,7 +1186,21 @@ function GraphPage() {
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               )}
-              {contextMenu.edgeId && (
+              {contextMenu.edgeId && sceneEditing && (
+                <DropdownMenuContent align="start" side="bottom" sideOffset={2} className="w-48">
+                  {(() => {
+                    const line = edges.find((edge) => edge.id === contextMenu.edgeId);
+                    // A line to or from a connection point (hub) stands for dialogue-graph lines through nodes outside scenes.
+                    const direct = line && !hubs.has(line.from) && !hubs.has(line.to);
+                    return (
+                      <DropdownMenuItem disabled={!direct} onSelect={() => void edits.unlinkScenes(line!.from, line!.to)}>
+                        <span>연결 끊기</span>
+                      </DropdownMenuItem>
+                    );
+                  })()}
+                </DropdownMenuContent>
+              )}
+              {contextMenu.edgeId && !sceneEditing && (
                 <DropdownMenuContent align="start" side="bottom" sideOffset={2} className="w-48">
                   <DropdownMenuItem onSelect={() => openEdge(contextMenu.edgeId)}>
                     <span>상세 열기</span>

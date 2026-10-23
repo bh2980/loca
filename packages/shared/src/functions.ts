@@ -203,13 +203,13 @@ export const APPLY_TARGETS = {
   },
   saveCharacters: {
     label: '인물 저장',
-    description: '인물을 넣습니다. 이미 있는 인물에게는 새 별칭을 더하고 모르던 역할·성별·나이대와 빈 프로필·말버릇을 채웁니다. 사람이 정한 인물은 바꾸지 않고, 이미 쓰인 프로필·말버릇은 ‘프로필 처리’에 따라 둡니다.',
+    description: '인물을 넣습니다. 이미 있는 인물에게는 새 별칭을 더하고 모르던 역할·성별·나이대를 채우며, 새로 알게 된 사실·말버릇을 프로필·말버릇 끝에 줄을 바꿔 덧붙입니다. 이미 쓰인 글은 누가 썼든 고치지 않고, 이미 적힌 사실은 다시 더하지 않습니다.',
     shape: 'list',
     fields: [
       { name: 'name', label: '이름', type: 'string', required: true },
       { name: 'aliases', label: '별칭', type: 'strings' },
-      { name: 'profile', label: '프로필', type: 'string' },
-      { name: 'speech', label: '말버릇', type: 'string' },
+      { name: 'newFacts', label: '새로 안 사실', type: 'list', fields: [{ name: 'text', label: '사실', type: 'string', required: true }, evidenceField] },
+      { name: 'newSpeech', label: '새로 안 말버릇', type: 'list', fields: [{ name: 'text', label: '말버릇', type: 'string', required: true }, evidenceField] },
       { name: 'gender', label: '성별', type: 'string' },
       { name: 'ageBand', label: '나이대', type: 'string' },
       { name: 'role', label: '역할', type: 'string' },
@@ -222,7 +222,7 @@ export const APPLY_TARGETS = {
   saveRelationships: {
     label: '관계 저장',
     description:
-      '두 인물의 관계를 방향마다 넣습니다(한 쌍에 한 방향 또는 두 방향). 두 방향의 관계와 변화가 같으면 쌍방 관계 하나로 저장합니다. 사람이 정한 관계는 바꾸지 않고, 달라진 점은 후보로 남깁니다.',
+      '두 인물의 관계를 방향마다 넣습니다(한 쌍에 한 방향 또는 두 방향). 두 방향의 관계와 변화가 같으면 쌍방 관계 하나로 저장합니다. 이미 있는 관계는 종류·설명을 그대로 두고, 새 변화만 변화 목록 끝에 덧붙입니다(같은 대사의 변화는 건너뜀).',
     shape: 'list',
     fields: [
       {
@@ -254,7 +254,7 @@ export const APPLY_TARGETS = {
   },
   saveSpeechRules: {
     label: '말투 규칙 저장',
-    description: '화자→청자 말투 규칙(등급·호칭)을 넣습니다. 사람이 정한 규칙과 다르면 후보로 남깁니다.',
+    description: '화자→청자 말투 규칙(등급·호칭)을 넣습니다. 이미 있는 규칙은 그대로 두고, 새 구간이나 새 쌍의 규칙만 넣습니다. 같은 쌍·구간에서 저장된 규칙과 다르면 넣지 않습니다.',
     shape: 'list',
     fields: [
       { name: 'fromName', label: '화자', type: 'string', required: true },
@@ -307,16 +307,6 @@ export const applyParams = z.object({
   map: z.record(z.string(), z.string()).default({}),
 });
 export type ApplyParams = z.infer<typeof applyParams>;
-
-/**
- * 인물 저장's own setting, what happens to a profile or speech description the person already has:
- * `fillEmpty` fills only an empty one; `propose` also replaces an AI one nobody touched and files a
- * proposal (save_character) for an imported or human-written one that differs, which the person accepts in the app.
- */
-export const PROFILE_MODES = { fillEmpty: '빈 칸만 채움', propose: '다르면 제안으로 올림' } as const;
-export type ProfileMode = keyof typeof PROFILE_MODES;
-export const saveCharactersParams = applyParams.extend({ profiles: z.enum(Object.keys(PROFILE_MODES) as [ProfileMode, ...ProfileMode[]]).default('fillEmpty') });
-export type SaveCharactersParams = z.infer<typeof saveCharactersParams>;
 
 /**
  * 태그 붙이기 / 떼기: the one place a line (or term) gets or loses a tag in a workflow. The tags come
@@ -399,7 +389,7 @@ export const FUNCTIONS = {
   ...(Object.fromEntries(
     Object.entries(APPLY_TARGETS).map(([name, target]) => [name, { label: target.label, description: target.description, params: applyParams, ports: () => out, async: false, inputs: target.inputs }]),
   ) as unknown as Record<ApplyFunctionName, FunctionInfo<typeof applyParams>>),
-  saveCharacters: { label: APPLY_TARGETS.saveCharacters.label, description: APPLY_TARGETS.saveCharacters.description, params: saveCharactersParams, ports: () => out, async: false, inputs: APPLY_TARGETS.saveCharacters.inputs },
+  saveCharacters: { label: APPLY_TARGETS.saveCharacters.label, description: APPLY_TARGETS.saveCharacters.description, params: applyParams, ports: () => out, async: false, inputs: APPLY_TARGETS.saveCharacters.inputs },
   tagLines: { label: APPLY_TARGETS.tagLines.label, description: APPLY_TARGETS.tagLines.description, params: tagLinesParams, ports: () => out, async: false, inputs: APPLY_TARGETS.tagLines.inputs },
   http: {
     label: 'HTTP 호출',

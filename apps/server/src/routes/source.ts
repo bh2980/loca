@@ -5,7 +5,7 @@ import { and, asc, count, desc, eq, gt, inArray, like, lt, ne, notInArray, notLi
 import { z } from 'zod';
 import { createGroupSchema, updateGroupSchema, createUnitSchema, updateUnitSchema, isSpecialListener, LINE_TRANSLATE, type NodeType } from '@tw/shared';
 import { createGroup, updateGroup, deleteGroup, createUnit, updateUnit, deleteUnits } from '../services/source-mutations.ts';
-import { deleteNodes, duplicateNodes, edgeDetail, insertLineAfter, linkNodes, undoGraphEdit, unlinkEdges } from '../services/graph-edit.ts';
+import { deleteNodes, duplicateNodes, edgeDetail, insertLineAfter, linkInOrder, linkNodes, linkScenes, undoGraphEdit, unlinkEdges, unlinkScenes } from '../services/graph-edit.ts';
 import { attachUnitTags } from '../services/tag-scope.ts';
 import { assertProjectRefs } from '../services/project-refs.ts';
 import { LineConflict, saveLine, saveSameText, saveStatuses } from '../services/line-save.ts';
@@ -704,6 +704,14 @@ export const sourceRoutes = new Hono<Env>()
   )
   .get('/projects/:projectId/graph/edges/:edgeId', (c) => c.json(edgeDetail(c.var.deps.db, c.req.param('projectId'), c.req.param('edgeId'))))
   .post('/projects/:projectId/graph/edges/delete', validate('json', z.object({ ids: z.array(z.string().min(1)).min(1) })), (c) => c.json(unlinkEdges(c.var.deps.db, c.req.param('projectId'), c.req.valid('json').ids)))
+  // Scene connections are dialogue-graph lines (A's last line → B's first line), so these edit that graph.
+  .post('/projects/:projectId/graph/scene-links', validate('json', z.object({ fromGroupId: z.string().min(1), toGroupId: z.string().min(1) })), (c) =>
+    c.json(linkScenes(c.var.deps.db, c.req.param('projectId'), { ...c.req.valid('json'), origin: 'human' })),
+  )
+  .post('/projects/:projectId/graph/scene-links/delete', validate('json', z.object({ fromGroupId: z.string().min(1), toGroupId: z.string().min(1) })), (c) => c.json(unlinkScenes(c.var.deps.db, c.req.param('projectId'), c.req.valid('json'))))
+  .post('/projects/:projectId/graph/link-in-order', validate('json', z.object({ groupIds: z.array(z.string().min(1)).max(5000).optional(), nodeIds: z.array(z.string().min(1)).max(20000).optional() }).refine((v) => v.groupIds?.length || v.nodeIds?.length, '장면이나 노드를 하나 이상 고르세요.')), (c) =>
+    c.json(linkInOrder(c.var.deps.db, c.req.param('projectId'), { ...c.req.valid('json'), origin: 'human' })),
+  )
   .post('/projects/:projectId/graph/nodes/:nodeId/after', validate('json', z.object({ source: z.string().min(1), speaker: z.string().nullable().optional(), listener: z.string().nullable().optional(), key: z.string().optional() })), (c) =>
     c.json(insertLineAfter(c.var.deps.db, c.req.param('projectId'), c.req.param('nodeId'), { ...c.req.valid('json'), origin: 'human' }), 201),
   )

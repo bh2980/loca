@@ -1,19 +1,19 @@
 import { and, eq } from 'drizzle-orm';
-import { AGE_BANDS, aiStatus, CHARACTER_ROLES, DOCUMENT_KINDS, GENDERS, isSpecialListener, type ProfileMode, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, TERM_KIND_LABELS, TERM_KINDS } from '@tw/shared';
+import { AGE_BANDS, aiStatus, CHARACTER_ROLES, DOCUMENT_KINDS, GENDERS, isSpecialListener, SPEECH_LEVELS, TERM_KIND_LABELS, TERM_KINDS } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { markForReview } from './knowledge-tags.ts';
 import { clampConfidence, cleanListener, setAiListener } from './listeners.ts';
 import { knownListener } from './speech.ts';
-import { events } from '../events.ts';
 import { upsertAiTerm } from './terms.ts';
 
 /**
  * What an AI result does to the project's knowledge and listeners. One home for the rules of the
  * 반영 nodes written straight into the project (engine/functions/apply.ts) and for `set_listeners`
- * (the chat/CLI tool and an accepted proposal): AI-made items land as AI › 사용 방식 says, nothing a
- * person made, edited, confirmed or rejected is changed, and a view that differs from a person's is
- * kept beside it as a candidate. Everything runs in the caller's transaction.
+ * (the chat/CLI tool and an accepted proposal): new AI items land as AI › 사용 방식 says (confirmed or
+ * candidates), stored text is never rewritten, and what an AI result adds to a stored item (new facts
+ * of a person, new changes of a relationship) is appended whatever its origin. Everything runs in the
+ * caller's transaction.
  */
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 export interface AiWrite {
@@ -111,28 +111,45 @@ export function aiSaveTerms(tx: Tx, write: AiWrite, items: AiTermItem[]) {
   return counts;
 }
 
-export interface AiCharacterItem { name: string; aliases?: string[]; profile?: string; speech?: string; gender?: string; ageBand?: string; role?: string; player?: boolean; evidence?: string[] }
-export interface AiCharacterOptions {
-  /** What happens to a profile or speech description a person already has (PROFILE_MODES). Default: only an empty one is filled. */
-  profiles?: ProfileMode;
-  /** The model whose answer a proposal is filed for (shown on the proposal). */
-  model?: string | null;
-}
-const sameText = (a: string, b: string) => a.trim() === b.trim();
+/** One new fact (or habit of speech) of a person with the lines that show it. */
+export interface AiFact { text: string; evidence?: string[] }
+export interface AiCharacterItem { name: string; aliases?: string[]; newFacts?: AiFact[]; newSpeech?: AiFact[]; gender?: string; ageBand?: string; role?: string; player?: boolean; evidence?: string[] }
+
+const squash = (text: string) => text.replace(/\s+/g, ' ').trim().toLowerCase();
+const facts = (value: unknown): AiFact[] =>
+  Array.isArray(value) ? value.flatMap((entry) => (entry && typeof entry === 'object' && typeof (entry as AiFact).text === 'string' && (entry as AiFact).text.trim() ? [{ text: (entry as AiFact).text.trim().replace(/\s*\n\s*/g, ' '), evidence: strings((entry as AiFact).evidence) }] : [])) : [];
 /**
- * Characters: a new one lands as a draft. One already in the cast gains the new names it goes by (never a
- * name that belongs to another stored person: two stored people are not merged) and gets its unknown
- * role, gender and age band filled (not a person's: their 'unknown' stays). Its profile and speech
- * description depend on `profiles`: 'fillEmpty' fills an empty one; 'propose' also replaces an AI one
- * nobody touched and files a save_character proposal for an imported or person-written one that differs,
- * which the person accepts in the app (not filed again while an identical one is pending).
+ * `stored` with each new fact on a line of its own at the end. A fact whose text already appears in the
+ * text (whitespace and case ignored, so also one added a moment ago) is not added. Returns the whole
+ * text and the facts that were added.
  */
-export function aiSaveCharacters(tx: Tx, write: AiWrite, items: AiCharacterItem[], options: AiCharacterOptions = {}) {
-  const counts = { added: 0, filled: 0, replaced: 0, proposed: 0 };
+export function appendFacts(stored: string, list: AiFact[]) {
+  let text = stored.trimEnd();
+  let seen = squash(text);
+  const added: AiFact[] = [];
+  for (const fact of facts(list)) {
+    const key = squash(fact.text);
+    if (seen.includes(key)) continue;
+    seen += ` ${key}`;
+    text = text ? `${text}\n${fact.text}` : fact.text;
+    added.push(fact);
+  }
+  return { text: added.length ? text : stored, added };
+}
+const union = (...lists: string[][]) => [...new Set(lists.flat())];
+/**
+ * Characters: a new one lands as a draft whose profile and speech description are its new facts, one per
+ * line. One already in the cast, whoever made it, is never rewritten: it gains the new names it goes by
+ * (never a name that belongs to another stored person: two stored people are not merged), gets its unknown
+ * role, gender and age band filled (not a person's: their 'unknown' stays) and the new facts and habits of
+ * speech are appended to the end of its profile and speech description, each on its own line, unless the
+ * text already says it. The evidence lines of an appended fact are added to the person's evidence.
+ */
+export function aiSaveCharacters(tx: Tx, write: AiWrite, items: AiCharacterItem[]) {
+  const counts = { added: 0, filled: 0, appended: 0 };
   const people = items.filter((item) => item.name?.trim()).map((item) => ({ ...item, name: item.name.trim(), aliases: strings(item.aliases) }));
   const { stored, live, canon, idByName } = cast(tx, write.projectId, people);
   const known = new Set(stored.flatMap((c) => namesOf(c).map(lower)));
-  const pending = options.profiles === 'propose' ? tx.select({ input: s.proposals.input }).from(s.proposals).where(and(eq(s.proposals.projectId, write.projectId), eq(s.proposals.status, 'pending'), eq(s.proposals.tool, 'save_character'))).all().map((row) => row.input) : [];
   for (const c of people) {
     const gender = pick(GENDERS, c.gender, 'unknown');
     const ageBand = pick(AGE_BANDS, c.ageBand, 'unknown');
@@ -142,8 +159,6 @@ export function aiSaveCharacters(tx: Tx, write: AiWrite, items: AiCharacterItem[
       const id = [canon(c.name), ...c.aliases].map((name) => idByName.get(lower(name))).find(Boolean);
       const existing = live.find((person) => person.id === id);
       if (!existing) continue;
-      const profile = c.profile?.trim() ?? '';
-      const speech = c.speech?.trim() ?? '';
       // Names of the other stored people (rejected ones too) are theirs, whoever else claims them.
       const theirs = new Set(stored.filter((other) => other.id !== existing.id).flatMap((other) => namesOf(other).map(lower)));
       const mine = new Set(namesOf(existing).map(lower));
@@ -155,41 +170,27 @@ export function aiSaveCharacters(tx: Tx, write: AiWrite, items: AiCharacterItem[
       }
       const fill: Partial<typeof s.characters.$inferInsert> = {
         ...(fresh.length && { aliases: [...existing.aliases, ...fresh] }),
-        ...(existing.origin !== 'human' && existing.gender === 'unknown' && gender !== 'unknown' && { gender }),
-        ...(existing.origin !== 'human' && existing.ageBand === 'unknown' && ageBand !== 'unknown' && { ageBand }),
-        ...(existing.origin !== 'human' && existing.role === 'unknown' && role !== 'unknown' && { role }),
-        ...(!existing.evidence.length && evidence.length && { evidence }),
+        ...(existing.gender === 'unknown' && gender !== 'unknown' && { gender }),
+        ...(existing.ageBand === 'unknown' && ageBand !== 'unknown' && { ageBand }),
+        ...(existing.role === 'unknown' && role !== 'unknown' && { role }),
       };
-      const wording: { profile?: string; speech?: string } = {};
-      const untouched = existing.origin === 'ai' && existing.statusBy === 'ai';
-      let replaced = false;
-      for (const [field, value] of [['profile', profile], ['speech', speech]] as const) {
-        if (!value) continue;
-        if (!existing[field].trim()) fill[field] = value;
-        else if (options.profiles === 'propose' && !sameText(existing[field], value)) {
-          if (untouched) {
-            fill[field] = value;
-            replaced = true;
-          } else wording[field] = value;
-        }
+      const appended = { profile: appendFacts(existing.profile, c.newFacts ?? []), speech: appendFacts(existing.speech, c.newSpeech ?? []) };
+      const added = [...appended.profile.added, ...appended.speech.added];
+      const names = Object.keys(fill).length > 0;
+      if (added.length) {
+        fill.profile = appended.profile.text;
+        fill.speech = appended.speech.text;
       }
-      if (Object.keys(fill).length) {
-        tx.update(s.characters).set(fill).where(eq(s.characters.id, existing.id)).run();
-        counts[replaced ? 'replaced' : 'filled']++;
-      }
-      if (Object.keys(wording).length) {
-        const input = { id: existing.id, ...wording };
-        if (!pending.some((other) => Object.keys(input).length === Object.keys(other).length && Object.entries(input).every(([key, value]) => other[key] === value))) {
-          pending.push(input);
-          // Filed like propose() in proposals.ts (which imports this module through the agent tools, so it cannot be imported here).
-          tx.insert(s.proposals).values({ projectId: write.projectId, sessionId: null, model: options.model ?? null, source: 'api', tool: 'save_character', input, review: `인물·관계 추출: ‘${existing.name}’의 프로필이 새로 읽은 내용과 다릅니다.` }).run();
-          events.changed(write.projectId, 'proposals');
-          counts.proposed++;
-        }
-      }
+      const gained = union(!existing.evidence.length ? evidence : [], ...added.map((fact) => fact.evidence ?? [])).filter((line) => !existing.evidence.includes(line));
+      if (gained.length) fill.evidence = [...existing.evidence, ...gained];
+      if (Object.keys(fill).length) tx.update(s.characters).set(fill).where(eq(s.characters.id, existing.id)).run();
+      if (names) counts.filled++;
+      if (added.length) counts.appended++;
       continue;
     }
-    const row = tx.insert(s.characters).values({ projectId: write.projectId, name: c.name, aliases: c.aliases, profile: c.profile ?? '', speech: c.speech ?? '', player: c.player === true, gender, ageBand, role, evidence, ...draft(write) }).returning({ id: s.characters.id }).get();
+    const profile = appendFacts('', c.newFacts ?? []);
+    const speech = appendFacts('', c.newSpeech ?? []);
+    const row = tx.insert(s.characters).values({ projectId: write.projectId, name: c.name, aliases: c.aliases, profile: profile.text, speech: speech.text, player: c.player === true, gender, ageBand, role, evidence: union(evidence, ...[...profile.added, ...speech.added].map((fact) => fact.evidence ?? [])), ...draft(write) }).returning({ id: s.characters.id }).get();
     for (const name of namesOf(c)) {
       known.add(lower(name));
       if (!idByName.has(lower(name))) idByName.set(lower(name), row.id);
@@ -228,11 +229,12 @@ export function relationshipRows(pairs: AiRelationshipPair[]): AiRelationshipIte
   return rows;
 }
 /**
- * Relationships between stored characters. A pair already related only gains new changes when it is an
- * unchecked AI relationship; a person's relationship is never edited — the change waits as a candidate beside it.
+ * Relationships between stored characters. A pair already related (whoever made it) keeps its kind and
+ * description and gains the answer's new changes at the end of its changes (not one at a line it already
+ * has a change at); a pair a person rejected gains nothing.
  */
 export function aiSaveRelationships(tx: Tx, write: AiWrite, items: AiRelationshipItem[]) {
-  const counts = { added: 0, changed: 0, proposed: 0, unresolved: [] as string[] };
+  const counts = { added: 0, changed: 0, unresolved: [] as string[] };
   const { canon, idByName } = cast(tx, write.projectId, items.flatMap((item) => [{ name: item.from ?? '', aliases: [] }, { name: item.to ?? '', aliases: [] }]).filter((p) => p.name));
   const rels = tx.select().from(s.relationships).where(eq(s.relationships.projectId, write.projectId)).all();
   for (const item of items) {
@@ -250,38 +252,36 @@ export function aiSaveRelationships(tx: Tx, write: AiWrite, items: AiRelationshi
       counts.added++;
       continue;
     }
-    // A pair a person rejected is not proposed again.
-    const fresh = changes.filter((change) => !pair.some((rel) => rel.changes.some((known) => known.at === change.at)));
-    if (!fresh.length || pair.every((rel) => rel.status === 'rejected')) continue;
-    const open = pair.find((rel) => rel.origin === 'ai' && rel.statusBy === 'ai' && rel.status !== 'rejected');
-    if (open) {
-      tx.update(s.relationships).set({ changes: [...open.changes, ...fresh], evidence: [...open.evidence, ...fresh.map((change) => change.at)] }).where(eq(s.relationships.id, open.id)).run();
-      open.changes = [...open.changes, ...fresh];
-      counts.changed++;
-    } else {
-      rels.push(tx.insert(s.relationships).values({ projectId: write.projectId, fromId, toId, kind: item.kind.trim(), description: `변경 제안: ${fresh.map((change) => change.kind).join(' → ')}`, changes: fresh, evidence: fresh.map((change) => change.at), origin: 'ai', statusBy: 'ai', status: 'candidate' }).returning().get());
-      counts.proposed++;
-    }
+    // A pair a person rejected gains nothing.
+    const target = pair.find((rel) => rel.status !== 'rejected');
+    const fresh = changes.filter((change, index) => changes.findIndex((other) => other.at === change.at) === index && !pair.some((rel) => rel.changes.some((known) => known.at === change.at)));
+    if (!target || !fresh.length) continue;
+    tx.update(s.relationships).set({ changes: [...target.changes, ...fresh], evidence: union(target.evidence, fresh.map((change) => change.at)) }).where(eq(s.relationships.id, target.id)).run();
+    target.changes = [...target.changes, ...fresh];
+    counts.changed++;
   }
   return counts;
 }
 
 export interface AiSpeechRuleItem { fromName: string; toName: string; level: string; address?: string; note?: string; startKey?: string | null; evidence?: string[] }
 /**
- * Speech rules. Used at once under auto-confirm; doubts only mark a rule 확인 권장 (rules of the main
- * pairs, evidence lines of someone else's speech). A person's confirmed rule for the same pair and
- * stretch that says otherwise wins, so the AI one stays a candidate beside it. A rule already there
- * (rejected ones too) is not added again.
+ * Speech rules. A new one (a pair or a stretch with no rule yet) is used at once under auto-confirm;
+ * doubts only mark it 확인 권장 (rules of the main pairs, evidence lines of someone else's speech). A
+ * stored rule stays whatever its origin: one for the same pair and stretch (the same speaker → listener
+ * and start line) that the answer gives again or differently is not added and not made a candidate.
+ * A rule a person rejected is only not added again (the same level and address).
  */
 export function aiSaveSpeechRules(tx: Tx, write: AiWrite, items: AiSpeechRuleItem[]) {
-  const counts = { added: 0, forReview: 0, skipped: [] as string[] };
+  const counts = { added: 0, kept: 0, forReview: 0, skipped: [] as string[] };
   const { live, canon } = cast(tx, write.projectId, items.flatMap((item) => [{ name: item.fromName ?? '', aliases: [] }, { name: item.toName ?? '', aliases: [] }]).filter((p) => p.name));
   const person = personKey(live);
   const main = mainPairs(tx, write.projectId, live);
   const speakerOf = new Map(tx.select({ key: s.units.key, speaker: s.units.speaker }).from(s.units).where(eq(s.units.projectId, write.projectId)).all().map((unit) => [unit.key, unit.speaker]));
   const rules = tx.select().from(s.speechRules).where(eq(s.speechRules.projectId, write.projectId)).all();
   const ruleKey = (from: string, to: string, start: string | null, level: string, address: string) => `${person(from)}|${person(to)}|${start}|${level}|${address}`.toLowerCase();
-  const taken = new Set(rules.map((r) => ruleKey(r.fromName, r.toName, r.startKey, r.level, r.address)));
+  const taken = new Set(rules.filter((r) => r.status === 'rejected').map((r) => ruleKey(r.fromName, r.toName, r.startKey, r.level, r.address)));
+  const stretchOf = (r: { fromName: string; toName: string; startKey: string | null }) => `${person(r.fromName)}|${person(r.toName)}|${r.startKey}`.toLowerCase();
+  const stretches = new Set(rules.filter((r) => r.status !== 'rejected').map(stretchOf));
   for (const r of items) {
     const level = SPEECH_LEVELS.find((candidate) => candidate === r.level);
     if (!r.fromName?.trim() || !r.toName?.trim() || !level) {
@@ -292,21 +292,22 @@ export function aiSaveSpeechRules(tx: Tx, write: AiWrite, items: AiSpeechRuleIte
     const to = canon(r.toName);
     const start = r.startKey?.trim() || null;
     const address = r.address ?? '';
+    if (stretches.has(stretchOf({ fromName: from, toName: to, startKey: start }))) {
+      counts.kept++;
+      continue;
+    }
     const key = ruleKey(from, to, start, level, address);
     if (taken.has(key)) continue;
     taken.add(key);
+    stretches.add(stretchOf({ fromName: from, toName: to, startKey: start }));
     const evidence = strings(r.evidence);
     const foreign = evidence.filter((line) => person(speakerOf.get(line) ?? '') !== person(from)).length;
-    const official = rules.find((old) => old.statusBy === 'human' && old.status === 'confirmed' && person(old.fromName) === person(from) && person(old.toName) === person(to) && old.startKey === start);
     const reasons = [
-      official && official.level !== level && `정식 규칙(${SPEECH_LEVEL_LABELS[official.level]})과 다름`,
       evidence.length && foreign * 2 > evidence.length && '근거 대사의 화자가 다름',
       main.has(`${person(from)}|${person(to)}`) && '대사가 많은 주요 쌍',
     ].filter(Boolean) as string[];
     if (reasons.length) counts.forReview++;
-    const yieldsToPerson = Boolean(official && official.level !== level);
-    const row = tx.insert(s.speechRules).values({ projectId: write.projectId, fromName: from, toName: to, level, address, note: r.note ?? '', startKey: start, evidence, ...draft(write), ...(yieldsToPerson && { status: 'candidate' as const }) }).returning().get();
-    rules.push(row);
+    const row = tx.insert(s.speechRules).values({ projectId: write.projectId, fromName: from, toName: to, level, address, note: r.note ?? '', startKey: start, evidence, ...draft(write) }).returning().get();
     if (reasons.length) markForReview(tx, write.projectId, 'speechRules', row.id, reasons);
     counts.added++;
   }

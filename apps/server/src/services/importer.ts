@@ -29,6 +29,7 @@ export interface ImportSummary {
 /** Creates a project from a validated standard file. Everything lands in one transaction or nothing does. */
 export function importProject(db: Db, file: ImportFile, model: DraftModelChoice = { connectionId: '', model: '' }): ImportSummary {
   const projectId = crypto.randomUUID();
+  let addedNodes = 0;
   db.transaction((tx) => {
     const detected = !file.project.formatRules ? detectFormatRules(file.units.map((u) => u.source)) : null;
     const formatRules = file.project.formatRules ?? (detected && detected.recommendedPresets.length > 0 ? { presets: detected.recommendedPresets, custom: [] } : undefined);
@@ -137,6 +138,22 @@ export function importProject(db: Db, file: ImportFile, model: DraftModelChoice 
       );
     }
 
+    // Every line of a scene is a node of the dialogue graph, also in a file without `graph` (or with a
+    // graph that leaves some out): one script node each, connected to nothing; the connections are drawn later.
+    const placed = new Set((file.graph?.nodes ?? []).flatMap((node) => node.units));
+    const takenKeys = new Set((file.graph?.nodes ?? []).map((node) => node.key));
+    const sceneGroupIds = new Set(file.groups.filter((group) => group.kind === 'scene').map((group) => groupIds.get(group.key)!));
+    const loose: (typeof s.graphNodes.$inferInsert)[] = [];
+    for (const unit of unitRows) {
+      if (!sceneGroupIds.has(unit.groupId) || placed.has(unit.key)) continue;
+      let key = unit.key;
+      for (let n = 2; takenKeys.has(key); n++) key = `${unit.key}#${n}`;
+      takenKeys.add(key);
+      loose.push({ projectId, key, kind: 'script', groupId: unit.groupId, unitIds: [unit.id!], origin: 'import' });
+    }
+    insertMany(tx, s.graphNodes, loose);
+    addedNodes = loose.length;
+
     const characterIds = new Map<string, string>();
     insertMany(
       tx,
@@ -176,7 +193,7 @@ export function importProject(db: Db, file: ImportFile, model: DraftModelChoice 
     projectId,
     groups: file.groups.length,
     units: file.units.length,
-    graphNodes: file.graph?.nodes.length ?? 0,
+    graphNodes: (file.graph?.nodes.length ?? 0) + addedNodes,
     graphEdges: file.graph?.edges.length ?? 0,
   };
 }

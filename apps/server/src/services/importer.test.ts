@@ -30,6 +30,41 @@ describe('default workflows of a new project', () => {
 });
 
 
+describe('scene lines as dialogue-graph nodes', () => {
+  const nodes = (db: ReturnType<typeof openDatabase>, projectId: string) => db.select().from(s.graphNodes).where(eq(s.graphNodes.projectId, projectId)).all();
+
+  it('gives each scene line one unconnected node when the file has no graph, and none to document or ui lines', () => {
+    const db = openDatabase(':memory:');
+    const file = importFileSchema.parse({
+      format: 'loca/v1',
+      project: { name: 'T' },
+      groups: [{ key: 's1', title: 'S1' }, { key: 'd', kind: 'document', title: 'Doc' }, { key: 'u', kind: 'ui', title: 'UI' }],
+      units: [{ key: 'a', group: 's1', source: 'One' }, { key: 'b', group: 's1', source: 'Two' }, { key: 'x', group: 'd', source: 'Letter' }, { key: 'y', group: 'u', source: 'OK' }],
+    });
+    const { projectId, graphNodes } = importProject(db, file);
+    const rows = nodes(db, projectId);
+    expect(graphNodes).toBe(2);
+    expect(rows.map((node) => [node.key, node.kind, node.origin, node.unitIds.length]).sort()).toEqual([['a', 'script', 'import', 1], ['b', 'script', 'import', 1]]);
+    expect(rows.every((node) => node.groupId)).toBe(true);
+    expect(db.select().from(s.graphEdges).all()).toEqual([]);
+  });
+
+  it('adds nodes only for scene lines the file graph leaves out, with a unique key', () => {
+    const db = openDatabase(':memory:');
+    const file = importFileSchema.parse({
+      format: 'loca/v1',
+      project: { name: 'T' },
+      groups: [{ key: 'g', title: 'G' }],
+      units: [{ key: 'a', group: 'g', source: 'One' }, { key: 'b', group: 'g', source: 'Two' }],
+      graph: { nodes: [{ key: 'b', units: ['a'] }], edges: [] },
+    });
+    const { projectId } = importProject(db, file);
+    const rows = nodes(db, projectId);
+    expect(rows.map((node) => node.key).sort()).toEqual(['b', 'b#2']);
+    expect(rows.find((node) => node.key === 'b#2')!.unitIds).toHaveLength(1);
+  });
+});
+
 describe('character roles in imports', () => {
   it('keeps supplied roles and defaults older files to unknown', () => {
     const supplied = importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', source: 'Hi' }], characters: [{ name: 'Lead', role: 'main' }, { name: 'Extra' }] });

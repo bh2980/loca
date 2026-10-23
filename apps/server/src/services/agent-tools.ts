@@ -12,7 +12,7 @@ import { inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { linkEvents, projectEventFlow } from './event-routes.ts';
-import { deleteNodes, insertLineAfter, linkNodes, nodeByKey, unlinkEdges } from './graph-edit.ts';
+import { deleteNodes, insertLineAfter, linkInOrder, linkNodes, linkScenes, nodeByKey, sceneByRef, unlinkEdges, unlinkScenes } from './graph-edit.ts';
 import { characterInput, documentInput, eventInput, relationshipInput, speechRuleInput, termInput } from '../schemas/knowledge.ts';
 import { describeRule, knownListener, speechRuleIndex } from './speech.ts';
 import { calledWorkflowErrors, workflowIssues } from './workflow-issues.ts';
@@ -505,6 +505,33 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         unlinkEdges(db, projectId, [edge.id]);
         return { ok: true };
       },
+    }),
+    link_scenes: tool({
+      description: 'Connect or disconnect scenes. Scene links are not stored: they are derived from the dialogue graph, so link draws one dialogue-graph line from the last line of scene A to the first line of scene B (nothing happens when it exists), and unlink deletes the lines that go straight from a node of A to a node of B (a link that runs through a choice or condition outside scenes is not touched: say so and use link_lines). Scenes are ids, keys or titles, as in show_graph. Use list_scenes / read_scene first. Lines made this way are marked as made by the AI.',
+      inputSchema: z.object({ pairs: z.array(z.object({ from: z.string().min(1), to: z.string().min(1) })).min(1).max(100), action: z.enum(['link', 'unlink']) }),
+      needsApproval: true,
+      execute: ({ pairs, action }) => {
+        const results = pairs.map(({ from, to }) => {
+          try {
+            const [fromGroupId, toGroupId] = [sceneByRef(db, projectId, from), sceneByRef(db, projectId, to)];
+            const done = action === 'link' ? linkScenes(db, projectId, { fromGroupId, toGroupId, origin: 'ai' }) : unlinkScenes(db, projectId, { fromGroupId, toGroupId });
+            return { from, to, ok: true, result: done.message ?? (action === 'unlink' ? '연결을 끊었습니다.' : undefined) };
+          } catch (error) {
+            return { from, to, ok: false, error: error instanceof Error ? error.message : String(error) };
+          }
+        });
+        return { ok: results.every((row) => row.ok), results };
+      },
+    }),
+    link_in_order: tool({
+      description: 'Link dialogue-graph nodes in script order ("대본 순서로 잇기") for lines that were imported without a graph (one unconnected node per line): within each scene, each node is linked to the next in script order. Nodes that already have a way out (or a way in) are never touched, so existing branches stay as they are. Give scenes (ids, keys or titles: every node of them) and/or lines (line keys: only those nodes, linked among themselves per scene); at least one. Use list_scenes / read_scene first. Returns how many were linked and how many were left as they were. Lines made this way are marked as made by the AI.',
+      inputSchema: z.object({ scenes: z.array(z.string().min(1)).max(500).default([]), lines: z.array(z.string().min(1)).max(5000).default([]) }).refine((input) => input.scenes.length + input.lines.length > 0, { message: 'scenes or lines is required' }),
+      needsApproval: true,
+      execute: ({ scenes, lines }) => ({
+        ok: true,
+        ...linkInOrder(db, projectId, { groupIds: scenes.map((scene) => sceneByRef(db, projectId, scene)), nodeIds: lines.map((key) => nodeByKey(db, projectId, key)), origin: 'ai' }),
+        token: undefined,
+      }),
     }),
     add_line_after: tool({
       description: 'Add a source line right after another line (by key) in its scene and in the dialogue graph: between it and its next line when it has one way on, else as another way out. Only for source the file lacks (the user asked); not for translations.',

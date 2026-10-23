@@ -251,6 +251,110 @@ export function duplicateNodes(db: Db, projectId: string, ids: string[]) {
   });
 }
 
+const nothingChanged = (projectId: string) => keep({ projectId, at: Date.now(), put: { units: [], unitTags: [], nodes: [], edges: [] }, drop: { units: [], nodes: [], edges: [] } });
+
+const sceneOf = (db: Pick<Db, 'select'>, projectId: string, id: string) => {
+  const group = found(db.select().from(s.groups).where(and(eq(s.groups.projectId, projectId), eq(s.groups.id, id))).get(), '장면');
+  if (group.kind !== 'scene') badRequest(`장면이 아닙니다: ${group.title}`);
+  return group;
+};
+
+/** A scene by id, key or title (as show_graph names scenes); for the AI's tools. */
+export function sceneByRef(db: Db, projectId: string, ref: string) {
+  const lower = ref.toLowerCase();
+  const match = db.select({ id: s.groups.id, title: s.groups.title }).from(s.groups).where(and(eq(s.groups.projectId, projectId), eq(s.groups.kind, 'scene'))).all()
+    .filter((group) => group.id === ref || group.title.toLowerCase() === lower);
+  const byKey = match.length ? [] : db.select({ id: s.groups.id, title: s.groups.title }).from(s.groups).where(and(eq(s.groups.projectId, projectId), eq(s.groups.kind, 'scene'), eq(s.groups.key, ref))).all();
+  const hits = match.length ? match : byKey;
+  if (!hits.length) badRequest(`찾을 수 없는 장면입니다: ${ref}`);
+  if (hits.length > 1) badRequest(`'${ref}'와 일치하는 장면이 여럿입니다. 키나 id로 지정하세요.`);
+  return hits[0]!.id;
+}
+
+/** The nodes of a scene with the script position (seq) of their first and last line; nodes without lines are left out. */
+function sceneNodes(db: Pick<Db, 'select'>, projectId: string, groupId: string) {
+  const nodes = db.select().from(s.graphNodes).where(and(eq(s.graphNodes.projectId, projectId), eq(s.graphNodes.groupId, groupId))).all();
+  const seqOf = new Map(inChunks(nodes.flatMap((node) => node.unitIds), (slice) => db.select({ id: s.units.id, seq: s.units.seq }).from(s.units).where(inArray(s.units.id, slice)).all()).map((row) => [row.id, row.seq]));
+  return nodes.flatMap((node) => {
+    const seqs = node.unitIds.map((id) => seqOf.get(id)).filter((seq) => seq !== undefined);
+    return seqs.length ? [{ node, first: Math.min(...seqs), last: Math.max(...seqs), head: seqOf.get(node.unitIds[0]!) ?? Math.min(...seqs) }] : [];
+  });
+}
+
+/**
+ * Connects scene A to scene B in the dialogue graph, which is where scene connections come from:
+ * one line from the node holding A's last line to the node holding B's first line. Already there: nothing changes.
+ */
+export function linkScenes(db: Db, projectId: string, input: { fromGroupId: string; toGroupId: string; origin: GraphOrigin }) {
+  if (input.fromGroupId === input.toGroupId) badRequest('같은 장면끼리는 이을 수 없습니다.');
+  const from = sceneOf(db, projectId, input.fromGroupId);
+  const to = sceneOf(db, projectId, input.toGroupId);
+  const last = sceneNodes(db, projectId, from.id).sort((a, b) => b.last - a.last)[0];
+  const first = sceneNodes(db, projectId, to.id).sort((a, b) => a.first - b.first)[0];
+  if (!last) badRequest(`'${from.title}'에는 대사 그래프 노드가 없습니다.`);
+  if (!first) badRequest(`'${to.title}'에는 대사 그래프 노드가 없습니다.`);
+  const existing = db.select().from(s.graphEdges).where(and(eq(s.graphEdges.fromId, last!.node.id), eq(s.graphEdges.toId, first!.node.id))).get();
+  if (existing) return { edge: existing, created: false, message: `'${from.title}'과 '${to.title}'은 이미 이어져 있습니다.`, token: nothingChanged(projectId) };
+  const result = linkNodes(db, projectId, { fromId: last!.node.id, toId: first!.node.id, origin: input.origin });
+  return { ...result, created: true, message: `'${from.title}'의 마지막 대사에서 '${to.title}'의 첫 대사로 이었습니다.` };
+}
+
+/**
+ * Takes the connection from scene A to scene B away: the lines that go straight from a node of A to a node
+ * of B. When the connection runs through nodes outside scenes (a choice, a condition) nothing is deleted.
+ */
+export function unlinkScenes(db: Db, projectId: string, input: { fromGroupId: string; toGroupId: string }) {
+  const from = sceneOf(db, projectId, input.fromGroupId);
+  const to = sceneOf(db, projectId, input.toGroupId);
+  const ids = (groupId: string) => db.select({ id: s.graphNodes.id }).from(s.graphNodes).where(and(eq(s.graphNodes.projectId, projectId), eq(s.graphNodes.groupId, groupId))).all().map((row) => row.id);
+  const [fromIds, toIds] = [new Set(ids(from.id)), new Set(ids(to.id))];
+  const direct = db.select().from(s.graphEdges).where(eq(s.graphEdges.projectId, projectId)).all().filter((edge) => fromIds.has(edge.fromId) && toIds.has(edge.toId));
+  if (!direct.length) return { deleted: 0, message: `'${from.title}'에서 '${to.title}'로 바로 이어진 선이 없습니다. 선택지나 조건 같은 노드를 거쳐 이어진 연결이니, 대사 그래프에서 해당 선을 직접 지워 주세요.`, token: null };
+  return { ...unlinkEdges(db, projectId, direct.map((edge) => edge.id)), message: null };
+}
+
+/**
+ * "대본 순서로 잇기": in each scene, nodes in script order (their first line's position) are linked one to
+ * the next, but only where the earlier has no line out and the later none in, so existing branches stay as
+ * they are. Takes whole scenes (every node) and/or single nodes (those among them, per scene).
+ */
+export function linkInOrder(db: Db, projectId: string, input: { groupIds?: string[]; nodeIds?: string[]; origin: GraphOrigin }) {
+  const scenes = new Set(db.select({ id: s.groups.id }).from(s.groups).where(and(eq(s.groups.projectId, projectId), eq(s.groups.kind, 'scene'))).all().map((row) => row.id));
+  const byScene = new Map<string, Set<string> | 'all'>();
+  for (const id of input.groupIds ?? []) if (scenes.has(id)) byScene.set(id, 'all');
+  const picked = input.nodeIds?.length ? inChunks(input.nodeIds, (slice) => db.select({ id: s.graphNodes.id, groupId: s.graphNodes.groupId }).from(s.graphNodes).where(and(eq(s.graphNodes.projectId, projectId), inArray(s.graphNodes.id, slice))).all()) : [];
+  for (const node of picked) {
+    if (!node.groupId || !scenes.has(node.groupId) || byScene.get(node.groupId) === 'all') continue;
+    const set = byScene.get(node.groupId) as Set<string> | undefined;
+    if (set) set.add(node.id);
+    else byScene.set(node.groupId, new Set([node.id]));
+  }
+  if (!byScene.size) badRequest('이을 장면이나 노드가 없습니다.');
+  const edges = db.select({ fromId: s.graphEdges.fromId, toId: s.graphEdges.toId }).from(s.graphEdges).where(eq(s.graphEdges.projectId, projectId)).all();
+  const hasOut = new Set(edges.map((edge) => edge.fromId));
+  const hasIn = new Set(edges.map((edge) => edge.toId));
+  const pairs: [string, string][] = [];
+  let skipped = 0;
+  for (const [groupId, only] of byScene) {
+    const ordered = sceneNodes(db, projectId, groupId).filter(({ node }) => only === 'all' || only.has(node.id)).sort((a, b) => a.head - b.head || a.first - b.first);
+    for (let index = 1; index < ordered.length; index++) {
+      const [earlier, later] = [ordered[index - 1]!.node.id, ordered[index]!.node.id];
+      if (hasOut.has(earlier) || hasIn.has(later)) skipped++;
+      else {
+        pairs.push([earlier, later]);
+        hasOut.add(earlier);
+        hasIn.add(later);
+      }
+    }
+  }
+  if (!pairs.length) return { linked: 0, skipped, token: null };
+  const result = edit(db, projectId, (tx, record) => {
+    for (const [fromId, toId] of pairs) record.created('edges', tx.insert(s.graphEdges).values({ projectId, fromId, toId, origin: input.origin }).returning().get().id);
+    return {};
+  });
+  return { linked: pairs.length, skipped, token: result.token };
+}
+
 /** Puts back what the edit with this token changed; false when it is no longer kept or the project differs. Once. */
 export function undoGraphEdit(db: Db, projectId: string, token: string) {
   const entry = undos.get(token);

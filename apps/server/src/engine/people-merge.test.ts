@@ -9,7 +9,7 @@ import { memoryStore } from '../services/secrets.ts';
 import { Runner, type ModelPort } from './runner.ts';
 import { createRun } from './run-create.ts';
 
-const person = (name: string, extra: Record<string, unknown> = {}) => ({ name, aliases: [], profile: '', speech: '', player: false, gender: 'unknown', ageBand: 'unknown', role: 'unknown', evidence: [], ...extra });
+const person = (name: string, extra: Record<string, unknown> = {}) => ({ name, aliases: [], newFacts: [], newSpeech: [], player: false, gender: 'unknown', ageBand: 'unknown', role: 'unknown', evidence: [], ...extra });
 
 describe('인물·관계 추출 template, end to end', () => {
   it('reads the scenes and saves nothing, then merges the fragments and saves people, relationships and speech rules once', async () => {
@@ -19,11 +19,12 @@ describe('인물·관계 추출 template, end to end', () => {
     const groups = [1, 2, 3].map((n) => ({ key: `g${n}`, title: `Scene ${n}` }));
     const units = groups.flatMap((group, scene) => [0, 1].map((n) => ({ key: `${group.key}-${n}`, group: group.key, speaker: scene === 1 ? 'MIRA' : 'KAI', source: `S${scene} L${n}` })));
     const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'People' }, groups, units }), choice);
-    // Stored before the run: one imported with a placeholder profile, one written by an earlier AI run nobody touched.
+    // Stored before the run: one imported with a placeholder profile, one written by an earlier AI run nobody touched, and a person's speech rule.
     db.insert(s.characters).values([
-      { projectId, name: 'MIRA', profile: '가져온 자리표시자', origin: 'import', status: 'confirmed' },
+      { projectId, name: 'MIRA', profile: '가져온 자리표시자', speech: '가져온 말버릇', role: 'minor', origin: 'import', status: 'confirmed' },
       { projectId, name: 'KAI', profile: '옛 AI 프로필', origin: 'ai', statusBy: 'ai' },
     ]).run();
+    db.insert(s.speechRules).values({ projectId, fromName: 'MIRA', toName: 'group', level: 'haeyo', startKey: null, origin: 'human', statusBy: 'human', status: 'confirmed' }).run();
     const aiFailed = db.select().from(s.tags).where(eq(s.tags.role, 'aiFailed')).get()!;
     const template = peopleRelationsTemplate({ model: choice, aiFailedTag: aiFailed.id });
     // One request per scene (two lines each).
@@ -44,17 +45,17 @@ describe('인물·관계 추출 template, end to end', () => {
       generate: async (_route, request) => {
         seen.push(request);
         stored.push({ nova: db.select().from(s.characters).where(eq(s.characters.name, 'NOVA')).all().length, relationships: db.select().from(s.relationships).all().length, speechRules: db.select().from(s.speechRules).all().length });
-        if (merging(request)) return { object: { characters: [person('MIRA', { aliases: ['Captain', 'KAI'], profile: '선장, 부하를 아낀다', role: 'main', gender: 'female' }), person('KAI', { aliases: ['Kay'], profile: '새 AI 프로필', role: 'supporting' }), person('NOVA', { profile: '정비사' })], relationships: [{ between: ['MIRA', 'NOVA'], views: [{ from: 'NOVA', to: 'MIRA', kind: '선장', description: '선장을 따른다', changes: [{ at: ['g1-0'], kind: '은인', cause: '구조' }, { at: ['g3-1'], kind: '믿는 선장', cause: '수리' }], evidence: ['L1', 'g3-0'] }, { from: 'MIRA', to: 'NOVA', kind: '정비사', description: '', changes: [], evidence: [] }, ] }], speechRules: [{ fromName: 'MIRA', toName: 'NOVA', level: 'hae', address: '', note: '상관', startKey: [], evidence: ['g1-0'] }] }, usage: {} } as never;
+        if (merging(request)) return { object: { characters: [person('MIRA', { aliases: ['Captain', 'KAI'], newFacts: [{ text: '선장, 부하를 아낀다', evidence: ['g1-0'] }, { text: '가져온 자리표시자', evidence: [] }], newSpeech: [{ text: '짧게 말한다', evidence: ['g3-0'] }], role: 'main', gender: 'female' }), person('KAI', { aliases: ['Kay'], newFacts: [{ text: '새 AI 사실', evidence: [] }], role: 'supporting' }), person('NOVA', { newFacts: [{ text: '정비사', evidence: ['g3-1'] }, { text: '말수가 적다', evidence: [] }] })], relationships: [{ between: ['MIRA', 'NOVA'], views: [{ from: 'NOVA', to: 'MIRA', kind: '선장', description: '선장을 따른다', changes: [{ at: ['g1-0'], kind: '은인', cause: '구조' }, { at: ['g3-1'], kind: '믿는 선장', cause: '수리' }], evidence: ['L1', 'g3-0'] }, { from: 'MIRA', to: 'NOVA', kind: '정비사', description: '', changes: [], evidence: [] }, ] }], speechRules: [{ fromName: 'MIRA', toName: 'NOVA', level: 'hae', address: '', note: '상관', startKey: [], evidence: ['g1-0'] }, { fromName: 'MIRA', toName: 'group', level: 'hae', address: '', note: '', startKey: [], evidence: [] }] }, usage: {} } as never;
         const scene = /S(\d)/.exec(request.prompt)![1];
         const rule = { fromName: 'MIRA', toName: 'NOVA', level: scene === '2' ? 'haeyo' : 'hae', address: '', note: '', startKey: [], evidence: ['L1'] };
-        return { object: { characters: [person('MIRA', { aliases: scene === '0' ? ['Captain'] : [], profile: `장면 ${scene}의 MIRA`, role: 'main' }), ...(scene === '2' ? [person('NOVA', { profile: '정비사' })] : [])], relationships: scene === '2' ? [{ between: ['MIRA', 'NOVA'], views: [{ from: 'MIRA', to: 'NOVA', kind: '정비사', description: '', changes: [{ at: ['L2'], kind: '믿는 정비사', cause: '' }], evidence: ['L2'] }] }] : [], speechRules: [rule] }, usage: {} } as never;
+        return { object: { characters: [person('MIRA', { aliases: scene === '0' ? ['Captain'] : [], newFacts: [{ text: `장면 ${scene}의 MIRA`, evidence: ['L1'] }], role: 'main' }), ...(scene === '2' ? [person('NOVA', { newFacts: [{ text: '정비사', evidence: ['L2'] }] })] : [])], relationships: scene === '2' ? [{ between: ['MIRA', 'NOVA'], views: [{ from: 'MIRA', to: 'NOVA', kind: '정비사', description: '', changes: [{ at: ['L2'], kind: '믿는 정비사', cause: '' }], evidence: ['L2'] }] }] : [], speechRules: [rule] }, usage: {} } as never;
       },
     };
     await new Runner(db, memoryStore(), port).drain();
 
-    // Nothing is saved before the merge request: the people, relationships and rules all come after it.
+    // Nothing is saved before the merge request: the people and relationships come after it (the person's rule was stored before the run).
     expect(stored).toHaveLength(4);
-    expect(stored.every((entry) => entry.nova === 0 && entry.relationships === 0 && entry.speechRules === 0)).toBe(true);
+    expect(stored.every((entry) => entry.nova === 0 && entry.relationships === 0 && entry.speechRules === 1)).toBe(true);
     // Three scene requests, then one merge request that gets the fragments (trimmed to the gather's fields) and no lines.
     const combine = seen.filter(merging);
     expect(seen.length - combine.length).toBe(3);
@@ -74,12 +75,12 @@ describe('인물·관계 추출 template, end to end', () => {
     expect(db.select().from(s.runs).where(eq(s.runs.id, runId)).get()!.status).toBe('completed');
 
     const people = new Map(db.select().from(s.characters).where(eq(s.characters.projectId, projectId)).all().map((c) => [c.name, c]));
-    // The imported profile waits for the person; role, gender and names came in at once.
-    expect(people.get('MIRA')).toMatchObject({ profile: '가져온 자리표시자', role: 'main', gender: 'female', origin: 'import' });
+    // The imported profile stays whole and gains the new facts at its end (the one it already says is skipped); gender and names came in at once, the known role stays.
+    expect(people.get('MIRA')).toMatchObject({ profile: '가져온 자리표시자\n선장, 부하를 아낀다', speech: '가져온 말버릇\n짧게 말한다', role: 'minor', gender: 'female', origin: 'import', evidence: ['g1-0', 'g3-0'] });
     expect(people.get('MIRA')!.aliases).toEqual(['Captain']);
-    // KAI is another stored person: not an alias of MIRA, and the untouched AI profile is replaced.
-    expect(people.get('KAI')).toMatchObject({ profile: '새 AI 프로필', role: 'supporting', aliases: ['Kay'] });
-    expect(people.get('NOVA')).toMatchObject({ profile: '정비사', origin: 'ai' });
+    // KAI is another stored person: not an alias of MIRA, and the AI profile is kept with the new fact appended.
+    expect(people.get('KAI')).toMatchObject({ profile: '옛 AI 프로필\n새 AI 사실', role: 'supporting', aliases: ['Kay'] });
+    expect(people.get('NOVA')).toMatchObject({ profile: '정비사\n말수가 적다', origin: 'ai', evidence: ['g3-1'] });
     // Relationships and speech rules were saved once, after the merge; the relationship names NOVA, who is new in this run.
     const rels = db.select().from(s.relationships).where(eq(s.relationships.projectId, projectId)).all();
     // Two views, two rows: how NOVA sees MIRA (with its changes at the lines the parts gave) and how MIRA sees NOVA.
@@ -91,10 +92,12 @@ describe('인물·관계 추출 template, end to end', () => {
     expect(fromNova.changes).toEqual([{ at: 'g1-0', kind: '은인', cause: '구조' }, { at: 'g3-1', kind: '믿는 선장', cause: '수리' }]);
     expect(rels.find((rel) => rel.fromId === mira)).toMatchObject({ toId: nova, kind: '정비사', changes: [] });
     const rules = db.select().from(s.speechRules).where(eq(s.speechRules.projectId, projectId)).all();
-    expect(rules).toHaveLength(1);
-    expect(rules[0]).toMatchObject({ level: 'hae' });
-    const proposals = db.select().from(s.proposals).all();
-    expect(proposals).toHaveLength(1);
-    expect(proposals[0]).toMatchObject({ tool: 'save_character', source: 'api', status: 'pending', input: { id: people.get('MIRA')!.id, profile: '선장, 부하를 아낀다' } });
+    // The person's rule for MIRA → group stays (the merge's other level for it is not added); the new pair is added.
+    expect(rules.map((rule) => `${rule.fromName}|${rule.toName}|${rule.level}`).sort()).toEqual(['MIRA|NOVA|hae', 'MIRA|group|haeyo']);
+    expect(db.select().from(s.proposals).all()).toHaveLength(0);
+    // The merge was told what is stored about the people its parts name: profile, speech, role and the stored speech rules.
+    const known = JSON.parse(combine[0]!.prompt) as { characters?: { name: string; profile: string; speech?: string; role?: string }[]; speechRules?: { from: string; to: string; level: string }[] };
+    expect(known.characters).toMatchObject([{ name: 'MIRA', profile: '가져온 자리표시자', speech: '가져온 말버릇', role: 'minor' }]);
+    expect(known.speechRules).toEqual([{ from: 'MIRA', to: 'group', level: 'haeyo' }]);
   });
 });
