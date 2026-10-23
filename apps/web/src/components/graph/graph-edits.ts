@@ -36,11 +36,12 @@ export function useDialogueGraphEdits(projectId: string, drawn: { current: Drawn
       return undefined;
     }
   };
-  /** Does an edit and records it: undo with its token, redo by doing it again (a new token). */
-  const step = async <T extends { token: string }>(call: () => Promise<T>) => {
+  /** Does an edit and records it: undo with its token, redo by doing it again (a new token). An edit that changed nothing has no token and is not recorded. */
+  const step = async <T extends { token: string | null }>(call: () => Promise<T>) => {
     const first = await call();
     let token = first.token;
-    history.current.past.push({ undo: () => undoToken(token), redo: async () => (token = (await call()).token) });
+    if (!token) return first;
+    history.current.past.push({ undo: () => undoToken(token!), redo: async () => (token = (await call()).token) });
     if (history.current.past.length > 100) history.current.past.shift();
     history.current.future = [];
     return first;
@@ -63,6 +64,28 @@ export function useDialogueGraphEdits(projectId: string, drawn: { current: Drawn
         if (line?.edge) await step(() => unwrap(graph.edges.delete.$post({ param, json: { ids: [line.edge] } })));
         if (line?.choice) await step(() => unwrap(graph.nodes.delete.$post({ param, json: { ids: [line.choice], bridge: false } })));
         if (nodeIds.length) await step(() => unwrap(graph.nodes.delete.$post({ param, json: { ids: nodeIds, bridge: true } })));
+      }),
+    /** Scene A → scene B: a line from A's last line to B's first line in the dialogue graph (the scene graph is derived from it). */
+    linkScenes: (fromGroupId: string, toGroupId: string) =>
+      run(async () => {
+        if (fromGroupId === toGroupId) return;
+        const result = await step(() => unwrap(graph['scene-links'].$post({ param, json: { fromGroupId, toGroupId } })));
+        toast(result.message);
+      }),
+    /** Takes the connection between two scenes away; says why when nothing could be deleted. */
+    unlinkScenes: (fromGroupId: string, toGroupId: string) =>
+      run(async () => {
+        const result = await step(() => unwrap(graph['scene-links'].delete.$post({ param, json: { fromGroupId, toGroupId } })));
+        if (result.message) toast.info(result.message);
+      }),
+    /** "대본 순서로 잇기" for scenes (ids) and/or dialogue nodes (drawn ids); says how many were linked. */
+    linkInOrder: (target: { groupIds?: string[]; nodeIds?: string[] }) =>
+      run(async () => {
+        const nodeIds = target.nodeIds?.flatMap(nodesOf);
+        const result = await step(() => unwrap(graph['link-in-order'].$post({ param, json: { ...(target.groupIds?.length && { groupIds: target.groupIds }), ...(nodeIds?.length && { nodeIds }) } })));
+        const kept = result.skipped ? ` (이미 이어진 ${result.skipped.toLocaleString()}곳은 그대로)` : '';
+        if (result.linked) toast.success(`${result.linked.toLocaleString()}곳을 이었습니다${kept}`);
+        else toast.info(`새로 이을 곳이 없습니다${kept}`);
       }),
     /** A new line after a node (drawn id); returns the new node's id. */
     insertAfter: (nodeId: string, line: { source: string; speaker?: string | null; listener?: string | null }) =>

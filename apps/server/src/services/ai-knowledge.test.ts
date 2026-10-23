@@ -40,19 +40,19 @@ describe('AI knowledge writes', () => {
     expect(map.get('michael')).toBeUndefined();
   });
 
-  it('fills the empty fields of a person already in the cast and leaves written ones alone', () => {
+  it('fills the unknown fields and empty texts of a person already in the cast and leaves written ones alone', () => {
     const { db, projectId, write } = setup();
     db.insert(s.characters).values([{ projectId, name: 'Alice', origin: 'import', role: 'unknown', status: 'confirmed' }, { projectId, name: 'Bob', profile: '사람이 쓴 설명', gender: 'unknown', role: 'unknown', origin: 'human', status: 'confirmed' }]).run();
     const counts = aiSaveCharacters(db as never, write, [
-      { name: 'Alice', profile: '선장', speech: '짧고 단호함', gender: 'female', ageBand: 'middle', role: 'main' },
-      { name: 'Bob', profile: 'AI 설명', gender: 'female', role: 'supporting' },
+      { name: 'Alice', newFacts: [{ text: '선장', evidence: ['a1'] }], newSpeech: [{ text: '짧고 단호함' }], gender: 'female', ageBand: 'middle', role: 'main' },
+      { name: 'Bob', newFacts: [{ text: 'AI 설명' }], gender: 'female', role: 'supporting' },
       { name: 'Guard', role: 'minor', gender: 'bogus', evidence: ['a2'] },
     ]);
-    expect(counts).toEqual({ added: 1, filled: 1, replaced: 0, proposed: 0 });
+    expect(counts).toEqual({ added: 1, filled: 2, appended: 2 });
     const people = new Map(db.select().from(s.characters).where(eq(s.characters.projectId, projectId)).all().map((c) => [c.name, c]));
-    expect(people.get('Alice')).toMatchObject({ profile: '선장', speech: '짧고 단호함', gender: 'female', role: 'main', origin: 'import' });
-    // A person's character: its written profile stays, and its 'unknown' is the person's answer.
-    expect(people.get('Bob')).toMatchObject({ profile: '사람이 쓴 설명', gender: 'unknown', role: 'unknown' });
+    expect(people.get('Alice')).toMatchObject({ profile: '선장', speech: '짧고 단호함', gender: 'female', role: 'main', origin: 'import', evidence: ['a1'] });
+    // A person's character: what is written stays whole (the new fact is appended) and what is still unknown is filled.
+    expect(people.get('Bob')).toMatchObject({ profile: '사람이 쓴 설명\nAI 설명', gender: 'female', role: 'supporting' });
     expect(people.get('Guard')).toMatchObject({ role: 'minor', gender: 'unknown', origin: 'ai', statusBy: 'ai', status: 'confirmed', evidence: ['a2'] });
   });
 
@@ -60,58 +60,67 @@ describe('AI knowledge writes', () => {
     const { db, projectId, write } = setup();
     db.insert(s.characters).values([{ projectId, name: 'Alice', aliases: ['Al'], origin: 'human', statusBy: 'human' }, { projectId, name: 'Bob', aliases: ['Robert'], origin: 'import' }]).run();
     const counts = aiSaveCharacters(db as never, write, [{ name: 'Alice', aliases: ['al', 'Captain', 'Robert', 'Bob'] }]);
-    expect(counts).toMatchObject({ added: 0, filled: 1 });
+    expect(counts).toMatchObject({ added: 0, filled: 1, appended: 0 });
     const people = new Map(db.select().from(s.characters).where(eq(s.characters.projectId, projectId)).all().map((c) => [c.name, c]));
     expect(people.get('Alice')?.aliases).toEqual(['Al', 'Captain']);
     expect(people.get('Bob')?.aliases).toEqual(['Robert']);
     expect(db.select().from(s.characters).all()).toHaveLength(2);
   });
 
-  describe('profiles of people already there', () => {
-    const wording = { profile: '새 프로필', speech: '새 말버릇' };
-    const proposals = (db: ReturnType<typeof setup>['db']) => db.select().from(s.proposals).all();
+  describe('new facts of people already there', () => {
+    const fact = (text: string, ...evidence: string[]) => ({ text, evidence });
+    const stored = (db: ReturnType<typeof setup>['db']) => new Map(db.select().from(s.characters).all().map((c) => [c.name, c]));
 
-    it('fillEmpty (the default) keeps a written profile and files nothing', () => {
-      const { db, projectId, write } = setup();
-      db.insert(s.characters).values({ projectId, name: 'Alice', profile: '가져온 프로필', origin: 'import' }).run();
-      expect(aiSaveCharacters(db as never, write, [{ name: 'Alice', ...wording }])).toEqual({ added: 0, filled: 1, replaced: 0, proposed: 0 });
-      expect(db.select().from(s.characters).get()).toMatchObject({ profile: '가져온 프로필', speech: '새 말버릇' });
-      expect(proposals(db)).toHaveLength(0);
-    });
-
-    it('propose fills an empty one, replaces an AI one nobody touched and files a proposal for an imported or person-written one', () => {
+    it('appends each new fact on its own line to a human, imported or AI text and leaves the stored text exactly as it is', () => {
       const { db, projectId, write } = setup();
       db.insert(s.characters).values([
-        { projectId, name: 'Alice', profile: '', origin: 'import' },
-        { projectId, name: 'Bob', profile: 'AI 프로필', speech: 'AI 말버릇', origin: 'ai', statusBy: 'ai' },
-        { projectId, name: 'Cara', profile: '가져온 프로필', speech: '새 말버릇', origin: 'import' },
-        { projectId, name: 'Dan', profile: '사람이 쓴 프로필', origin: 'ai', statusBy: 'human' },
+        { projectId, name: 'Alice', profile: '사람이 쓴 프로필\n  - 들여쓴 줄', speech: '반말', origin: 'human', statusBy: 'human', status: 'confirmed' },
+        { projectId, name: 'Bob', profile: '가져온 프로필', origin: 'import' },
+        { projectId, name: 'Cara', profile: 'AI 프로필', origin: 'ai', statusBy: 'ai' },
       ]).run();
-      const counts = aiSaveCharacters(db as never, write, [{ name: 'Alice', ...wording }, { name: 'Bob', ...wording }, { name: 'Cara', ...wording }, { name: 'Dan', ...wording }], { profiles: 'propose', model: 'mock · m' });
-      expect(counts).toEqual({ added: 0, filled: 2, replaced: 1, proposed: 2 });
-      const people = new Map(db.select().from(s.characters).all().map((c) => [c.name, c]));
-      expect(people.get('Alice')).toMatchObject(wording);
-      expect(people.get('Bob')).toMatchObject(wording);
-      // Nothing a person owns changes until they accept; only the empty speech of Dan is filled.
-      expect(people.get('Cara')).toMatchObject({ profile: '가져온 프로필', speech: '새 말버릇' });
-      expect(people.get('Dan')).toMatchObject({ profile: '사람이 쓴 프로필', speech: '새 말버릇' });
-      expect(proposals(db).map((row) => ({ tool: row.tool, source: row.source, model: row.model, status: row.status, input: row.input }))).toEqual([
-        { tool: 'save_character', source: 'api', model: 'mock · m', status: 'pending', input: { id: people.get('Cara')!.id, profile: '새 프로필' } },
-        { tool: 'save_character', source: 'api', model: 'mock · m', status: 'pending', input: { id: people.get('Dan')!.id, profile: '새 프로필' } },
-      ]);
+      const counts = aiSaveCharacters(db as never, write, ['Alice', 'Bob', 'Cara'].map((name) => ({ name, newFacts: [fact('새 사실 하나', 'a1'), fact('새 사실 둘', 'a3')], newSpeech: [fact('말끝을 흐린다')] })));
+      expect(counts).toEqual({ added: 0, filled: 0, appended: 3 });
+      const people = stored(db);
+      expect(people.get('Alice')).toMatchObject({ profile: '사람이 쓴 프로필\n  - 들여쓴 줄\n새 사실 하나\n새 사실 둘', speech: '반말\n말끝을 흐린다', evidence: ['a1', 'a3'] });
+      expect(people.get('Bob')).toMatchObject({ profile: '가져온 프로필\n새 사실 하나\n새 사실 둘', speech: '말끝을 흐린다', origin: 'import' });
+      expect(people.get('Cara')).toMatchObject({ profile: 'AI 프로필\n새 사실 하나\n새 사실 둘', origin: 'ai' });
+      expect(db.select().from(s.proposals).all()).toHaveLength(0);
     });
 
-    it('does not file an identical pending proposal again, nor one when the text already matches', () => {
+    it('skips a fact the text already says (whitespace and case ignored), also one repeated in the answer', () => {
       const { db, projectId, write } = setup();
-      db.insert(s.characters).values({ projectId, name: 'Cara', profile: '가져온 프로필', origin: 'import' }).run();
-      const save = (profile: string) => aiSaveCharacters(db as never, write, [{ name: 'Cara', profile }], { profiles: 'propose' });
-      expect(save('새 프로필').proposed).toBe(1);
-      expect(save('새 프로필').proposed).toBe(0);
-      expect(save(' 가져온 프로필 ').proposed).toBe(0);
-      expect(proposals(db)).toHaveLength(1);
-      // A different text is a different proposal.
-      expect(save('다른 프로필').proposed).toBe(1);
-      expect(proposals(db)).toHaveLength(2);
+      db.insert(s.characters).values({ projectId, name: 'Alice', profile: 'Captain  of the ship\n전직 군인', origin: 'human', statusBy: 'human' }).run();
+      const save = (...facts: ReturnType<typeof fact>[]) => aiSaveCharacters(db as never, write, [{ name: 'Alice', newFacts: facts }]);
+      expect(save(fact('captain of the SHIP'), fact('전직 군인'), fact('  '))).toEqual({ added: 0, filled: 0, appended: 0 });
+      expect(stored(db).get('Alice')!.profile).toBe('Captain  of the ship\n전직 군인');
+      expect(save(fact('새 사실'), fact('새  사실'), fact('다른 사실')).appended).toBe(1);
+      expect(stored(db).get('Alice')!.profile).toBe('Captain  of the ship\n전직 군인\n새 사실\n다른 사실');
+      expect(save(fact('새 사실')).appended).toBe(0);
+    });
+
+    it('lets the new facts of a person not stored yet be their profile and speech description', () => {
+      const { db, write } = setup();
+      aiSaveCharacters(db as never, write, [{ name: 'Guard', newFacts: [fact('성문을 지킨다', 'a1'), fact('겁이 많다', 'a2')], newSpeech: [fact('존댓말을 쓴다')], evidence: ['a3'] }]);
+      expect(stored(db).get('Guard')).toMatchObject({ profile: '성문을 지킨다\n겁이 많다', speech: '존댓말을 쓴다', evidence: ['a3', 'a1', 'a2'], origin: 'ai' });
+    });
+
+    it('fills an empty profile and writes new facts of a rejected person nowhere', () => {
+      const { db, projectId, write } = setup();
+      db.insert(s.characters).values([{ projectId, name: 'Alice', profile: '', origin: 'human', statusBy: 'human' }, { projectId, name: 'Bob', profile: '', status: 'rejected', statusBy: 'human' }]).run();
+      expect(aiSaveCharacters(db as never, write, [{ name: 'Alice', newFacts: [fact('선장')] }, { name: 'Bob', newFacts: [fact('부하')] }])).toEqual({ added: 0, filled: 0, appended: 1 });
+      expect(stored(db).get('Alice')!.profile).toBe('선장');
+      expect(stored(db).get('Bob')!.profile).toBe('');
+    });
+
+    it('fills role, gender and age band only when unknown, also of a person-written character', () => {
+      const { db, projectId, write } = setup();
+      db.insert(s.characters).values([
+        { projectId, name: 'Alice', role: 'minor', gender: 'unknown', ageBand: 'old', origin: 'import' },
+        { projectId, name: 'Bob', role: 'unknown', gender: 'unknown', origin: 'human', statusBy: 'human' },
+      ]).run();
+      aiSaveCharacters(db as never, write, [{ name: 'Alice', role: 'main', gender: 'female', ageBand: 'child' }, { name: 'Bob', role: 'main', gender: 'male' }]);
+      expect(stored(db).get('Alice')).toMatchObject({ role: 'minor', gender: 'female', ageBand: 'old' });
+      expect(stored(db).get('Bob')).toMatchObject({ role: 'main', gender: 'male' });
     });
   });
 
@@ -136,21 +145,24 @@ describe('AI knowledge writes', () => {
     expect(db.select().from(s.terms).where(eq(s.terms.source, 'cut')).get()).toMatchObject({ target: '', status: 'rejected' });
   });
 
-  it('adds relationships between stored people, changes only an unchecked AI one and keeps a person\'s beside a candidate', () => {
+  it('adds relationships between stored people and appends new changes to a stored one, whoever made it, leaving its kind and description', () => {
     const { db, projectId, write } = setup();
     aiSaveCharacters(db as never, write, [{ name: 'Alice' }, { name: 'Bob' }]);
     const rel = { from: 'Bob', to: 'Alice', kind: '부하', description: '', changes: [{ at: 'a3', kind: '경계', cause: '지각' }], evidence: ['a2'] };
     expect(aiSaveRelationships(db as never, write, [rel, { from: 'Nobody', to: 'Alice', kind: 'x' }])).toMatchObject({ added: 1, unresolved: ['Nobody → Alice'] });
+    const all = () => db.select().from(s.relationships).where(eq(s.relationships.projectId, projectId)).all();
     // An unchecked AI relationship gains a new change.
     aiSaveRelationships(db as never, write, [{ ...rel, changes: [{ at: 'a1', kind: '풀림' }] }]);
-    expect(db.select().from(s.relationships).where(eq(s.relationships.projectId, projectId)).all().map((r) => r.changes.length)).toEqual([2]);
-    // Once a person confirmed it, a new change waits as a candidate beside it.
-    db.update(s.relationships).set({ statusBy: 'human' }).where(eq(s.relationships.projectId, projectId)).run();
-    const result = aiSaveRelationships(db as never, write, [{ ...rel, changes: [{ at: 'a2', kind: '화해' }] }]);
-    expect(result.proposed).toBe(1);
-    const all = db.select().from(s.relationships).where(eq(s.relationships.projectId, projectId)).all();
-    expect(all).toHaveLength(2);
-    expect(all.find((r) => r.status === 'candidate')?.description).toContain('변경 제안');
+    expect(all().map((r) => r.changes.map((change) => change.at))).toEqual([['a3', 'a1']]);
+    // A person's relationship gains it too: appended, no candidate row, kind and description kept; a change at a known line is skipped.
+    db.update(s.relationships).set({ statusBy: 'human', origin: 'human', description: '사람이 쓴 설명' }).where(eq(s.relationships.projectId, projectId)).run();
+    const result = aiSaveRelationships(db as never, write, [{ ...rel, kind: '두목', description: 'AI 설명', changes: [{ at: 'a2', kind: '화해' }, { at: 'a1', kind: '다른 종류' }] }]);
+    expect(result).toEqual({ added: 0, changed: 1, unresolved: [] });
+    expect(all()).toHaveLength(1);
+    expect(all()[0]).toMatchObject({ kind: '부하', description: '사람이 쓴 설명', status: 'confirmed', statusBy: 'human', changes: [{ at: 'a3' }, { at: 'a1', kind: '풀림' }, { at: 'a2', kind: '화해' }] });
+    expect(all()[0]!.evidence).toEqual(['a2', 'a1', 'a2'].filter((line, index, list) => list.indexOf(line) === index));
+    // Nothing new: nothing changes.
+    expect(aiSaveRelationships(db as never, write, [{ ...rel, changes: [{ at: 'a2', kind: '화해' }] }]).changed).toBe(0);
   });
 
   it('turns the two views of a pair into rows: one mutual row when they agree, one per direction otherwise, none for an unknown direction', () => {
@@ -184,8 +196,8 @@ describe('AI knowledge writes', () => {
     expect(row()).toMatchObject([{ kind: '언니', mutual: false }]);
   });
 
-  it('does not add a rejected rule again, doubts a rule whose evidence is someone else talking and yields to a person\'s rule', () => {
-    const { db, projectId, write } = setup();
+  it('does not add a rejected rule again and doubts a rule whose evidence is someone else talking', () => {
+    const { db, write } = setup();
     const rule = { fromName: 'Bob', toName: 'Alice', level: 'hasipsio', address: '선장님', evidence: ['a2'] };
     aiSaveSpeechRules(db as never, write, [rule]);
     db.update(s.speechRules).set({ status: 'rejected', statusBy: 'human' }).where(eq(s.speechRules.fromName, 'Bob')).run();
@@ -196,11 +208,26 @@ describe('AI knowledge writes', () => {
     const doubtful = bob.find((r) => r.level === 'hae')!;
     expect(doubtful.status).toBe('confirmed');
     expect(reviewOf(db, doubtful.id)).toContain('근거 대사의 화자가 다름');
-    db.insert(s.speechRules).values({ projectId, fromName: 'Alice', toName: 'Bob', level: 'hae', startKey: null, status: 'confirmed', statusBy: 'human' }).run();
-    aiSaveSpeechRules(db as never, write, [{ fromName: 'Alice', toName: 'Bob', level: 'hasipsio' }]);
-    const ai = db.select().from(s.speechRules).where(eq(s.speechRules.fromName, 'Alice')).all().find((r) => r.level === 'hasipsio')!;
-    expect(ai.status).toBe('candidate');
-    expect(reviewOf(db, ai.id)).toContain('정식 규칙');
+  });
+
+  it('keeps a stored rule: a new stretch or pair is added, a conflicting rule for the same pair and stretch is neither added nor made a candidate', () => {
+    const { db, projectId, write } = setup();
+    db.insert(s.speechRules).values([
+      { projectId, fromName: 'Alice', toName: 'Bob', level: 'hae', startKey: null, status: 'confirmed', statusBy: 'human', origin: 'human' },
+      { projectId, fromName: 'Bob', toName: 'Alice', level: 'haeyo', startKey: null, status: 'confirmed', origin: 'import' },
+    ]).run();
+    const counts = aiSaveSpeechRules(db as never, write, [
+      { fromName: 'Alice', toName: 'Bob', level: 'hasipsio' },
+      { fromName: 'alice', toName: 'bob', level: 'hae' },
+      { fromName: 'Bob', toName: 'Alice', level: 'hae' },
+      { fromName: 'Alice', toName: 'Bob', level: 'hasipsio', startKey: 'a3' },
+      { fromName: 'Alice', toName: 'Bob', level: 'haeyo', startKey: 'a3' },
+      { fromName: 'Alice', toName: 'group', level: 'hae' },
+    ]);
+    expect(counts).toMatchObject({ added: 2, kept: 4 });
+    const rules = db.select().from(s.speechRules).where(eq(s.speechRules.projectId, projectId)).all();
+    expect(rules.map((r) => [r.fromName, r.toName, r.startKey ?? '', r.level, r.status].join('|')).sort()).toEqual(['Alice|Bob|a3|hasipsio|confirmed', 'Alice|Bob||hae|confirmed', 'Alice|group||hae|confirmed', 'Bob|Alice||haeyo|confirmed']);
+    expect(rules.some((r) => r.status === 'candidate')).toBe(false);
   });
 
   it('keeps one event per title and rewrites only an untouched AI document', () => {

@@ -155,6 +155,7 @@ export const projectParts = (context: BatchContext) => ({
   glossary: context.terms.length ? context.terms : undefined,
   characters: context.characters.length ? context.characters : undefined,
   relationships: context.relationships.length ? context.relationships : undefined,
+  speechRules: context.speechRules.length ? context.speechRules : undefined,
   aiNotes: hasAiNotes(context) ? { ...(context.aiNotes.characters.length && { characters: context.aiNotes.characters }), ...(context.aiNotes.relationships.length && { relationships: context.aiNotes.relationships }), ...(context.aiNotes.documents.length && { documents: context.aiNotes.documents }) } : undefined,
 });
 

@@ -4,7 +4,7 @@ import { importFileSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from './importer.ts';
-import { deleteNodes, duplicateNodes, insertLineAfter, linkNodes, undoGraphEdit, unlinkEdges } from './graph-edit.ts';
+import { deleteNodes, duplicateNodes, insertLineAfter, linkInOrder, linkNodes, linkScenes, sceneByRef, undoGraphEdit, unlinkEdges, unlinkScenes } from './graph-edit.ts';
 
 function setup() {
   const db = openDatabase(':memory:');
@@ -83,5 +83,78 @@ describe('editing the dialogue graph', () => {
     expect(ways()).toContain(`${copyA.key}>${copyB.key}:Ask`);
     expect(ways().filter((way) => way.includes(copyB.key) && way.includes('nc'))).toEqual([]);
     expect(order()).toEqual(['One.', 'Two.', 'Three.', 'One.', 'Two.']);
+  });
+});
+
+
+describe('connecting scenes and linking in script order', () => {
+  function scenes() {
+    const db = openDatabase(':memory:');
+    const { projectId } = importProject(
+      db,
+      importFileSchema.parse({
+        format: 'loca/v1',
+        project: { name: 'P' },
+        groups: [{ key: 'A', title: 'Alpha' }, { key: 'B', title: 'Beta' }],
+        units: [
+          { key: 'a1', group: 'A', source: '1' }, { key: 'a2', group: 'A', source: '2' }, { key: 'a3', group: 'A', source: '3' },
+          { key: 'b1', group: 'B', source: '4' }, { key: 'b2', group: 'B', source: '5' },
+        ],
+      }),
+    );
+    const id = (key: string) => db.select().from(s.groups).where(eq(s.groups.key, key)).get()!.id;
+    const ways = () => {
+      const name = (nodeId: string) => db.select().from(s.graphNodes).where(eq(s.graphNodes.id, nodeId)).get()!.key;
+      return db.select().from(s.graphEdges).all().map((edge) => `${name(edge.fromId)}>${name(edge.toId)}`).sort();
+    };
+    return { db, projectId, id, ways };
+  }
+
+  it('links the last line of one scene to the first of the next, once, and undo takes it away', () => {
+    const { db, projectId, id, ways } = scenes();
+    const first = linkScenes(db, projectId, { fromGroupId: id('A'), toGroupId: id('B'), origin: 'human' });
+    expect(first.created).toBe(true);
+    expect(ways()).toEqual(['a3>b1']);
+    expect(linkScenes(db, projectId, { fromGroupId: id('A'), toGroupId: id('B'), origin: 'human' }).created).toBe(false);
+    expect(ways()).toEqual(['a3>b1']);
+    expect(() => linkScenes(db, projectId, { fromGroupId: id('A'), toGroupId: id('A'), origin: 'human' })).toThrow();
+    expect(undoGraphEdit(db, projectId, first.token)).toBe(true);
+    expect(ways()).toEqual([]);
+  });
+
+  it('unlinks only direct lines and explains when the link runs through other nodes', () => {
+    const { db, projectId, id, ways } = scenes();
+    linkScenes(db, projectId, { fromGroupId: id('A'), toGroupId: id('B'), origin: 'human' });
+    const removed = unlinkScenes(db, projectId, { fromGroupId: id('A'), toGroupId: id('B') });
+    expect(removed.deleted).toBe(1);
+    expect(ways()).toEqual([]);
+    expect(undoGraphEdit(db, projectId, removed.token!)).toBe(true);
+    expect(ways()).toEqual(['a3>b1']);
+    const none = unlinkScenes(db, projectId, { fromGroupId: id('B'), toGroupId: id('A') });
+    expect(none.deleted).toBe(0);
+    expect(none.message).toContain('대사 그래프');
+    expect(ways()).toEqual(['a3>b1']);
+  });
+
+  it('links nodes in script order but never changes a node that already has a way in or out', () => {
+    const { db, projectId, id, ways } = scenes();
+    const node = (key: string) => db.select().from(s.graphNodes).where(eq(s.graphNodes.key, key)).get()!.id;
+    linkNodes(db, projectId, { fromId: node('a2'), toId: node('b2'), origin: 'human' });
+    const result = linkInOrder(db, projectId, { groupIds: [id('A'), id('B')], origin: 'human' });
+    // a1>a2 is made; a2>a3 is skipped (a2 has a way out); b1>b2 is skipped (b2 has a way in).
+    expect(result).toMatchObject({ linked: 1, skipped: 2 });
+    expect(ways()).toEqual(['a1>a2', 'a2>b2']);
+    expect(undoGraphEdit(db, projectId, result.token!)).toBe(true);
+    expect(ways()).toEqual(['a2>b2']);
+    const picked = linkInOrder(db, projectId, { nodeIds: [node('b1'), node('a3'), node('a1')], origin: 'ai' });
+    expect(picked.linked).toBe(1);
+    expect(ways()).toEqual(['a1>a3', 'a2>b2']);
+    expect(db.select().from(s.graphEdges).all().find((edge) => edge.fromId === node('a1'))!.origin).toBe('ai');
+  });
+
+  it('finds scenes by id, key or title', () => {
+    const { db, projectId, id } = scenes();
+    expect([sceneByRef(db, projectId, 'A'), sceneByRef(db, projectId, 'beta'), sceneByRef(db, projectId, id('B'))]).toEqual([id('A'), id('B'), id('B')]);
+    expect(() => sceneByRef(db, projectId, 'nope')).toThrow();
   });
 });

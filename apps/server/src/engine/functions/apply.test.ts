@@ -96,27 +96,28 @@ describe('apply nodes', () => {
     expect(ctx.db.select().from(s.terms).where(eq(s.terms.source, 'sail')).get()?.status).toBe('candidate');
   });
 
-  it('never changes a person\'s character and adds only new ones', () => {
+  it('never rewrites a person\'s character: new facts are appended, unknown fields are filled, new people are added', () => {
     const ctx = setup();
     ctx.db.insert(s.characters).values({ projectId: ctx.projectId, name: 'Alice', profile: '사람이 씀', origin: 'human', statusBy: 'human' }).run();
-    const params = { list: 'people', map: { name: 'name', profile: 'profile', gender: 'gender' } };
-    const output = { people: [{ name: 'Alice', profile: 'AI', gender: 'female' }, { name: 'Bob', profile: '선원', gender: 'weird' }], batchLeader: true };
+    const params = { list: 'people', map: { name: 'name', newFacts: 'newFacts', gender: 'gender' } };
+    const output = { people: [{ name: 'Alice', newFacts: [{ text: 'AI가 안 사실', evidence: ['x'] }], gender: 'female' }, { name: 'Bob', newFacts: [{ text: '선원' }, { text: '말이 적다' }], gender: 'weird' }], batchLeader: true };
     apply(ctx, 'saveCharacters', params, output);
     const people = new Map(ctx.db.select().from(s.characters).all().map((c) => [c.name, c]));
-    expect(people.get('Alice')).toMatchObject({ profile: '사람이 씀', gender: 'unknown', origin: 'human' });
-    expect(people.get('Bob')).toMatchObject({ profile: '선원', origin: 'ai', statusBy: 'ai' });
+    expect(people.get('Alice')).toMatchObject({ profile: '사람이 씀\nAI가 안 사실', gender: 'female', origin: 'human', evidence: ['x'] });
+    expect(people.get('Bob')).toMatchObject({ profile: '선원\n말이 적다', origin: 'ai', statusBy: 'ai' });
   });
 
-  it('인물 저장 profiles: fillEmpty keeps an imported profile, propose files a proposal for it and reports the counts', () => {
+  it('인물 저장 appends new facts to an imported profile without a proposal and reports the counts', () => {
     const ctx = setup();
     ctx.db.insert(s.characters).values({ projectId: ctx.projectId, name: 'Alice', profile: '가져온 프로필', aliases: [], origin: 'import' }).run();
-    const params = { list: 'people', map: { name: 'name', profile: 'profile', aliases: 'aliases' } };
-    const output = { people: [{ name: 'Alice', profile: '새 프로필', aliases: ['Al'] }], batchLeader: true };
-    expect(apply(ctx, 'saveCharacters', params, output).output).toMatchObject({ applied: true, added: 0, filled: 1, proposed: 0 });
-    expect(ctx.db.select().from(s.characters).get()).toMatchObject({ profile: '가져온 프로필', aliases: ['Al'] });
-    expect(apply(ctx, 'saveCharacters', { ...params, profiles: 'propose' }, output).output).toMatchObject({ applied: true, added: 0, proposed: 1 });
-    expect(ctx.db.select().from(s.proposals).all()).toMatchObject([{ tool: 'save_character', status: 'pending', input: { id: ctx.db.select().from(s.characters).get()!.id, profile: '새 프로필' } }]);
-    expect(ctx.db.select().from(s.characters).get()).toMatchObject({ profile: '가져온 프로필' });
+    const params = { list: 'people', map: { name: 'name', newFacts: 'newFacts', newSpeech: 'newSpeech', aliases: 'aliases' } };
+    const output = { people: [{ name: 'Alice', newFacts: [{ text: '새 사실', evidence: ['a1'] }, { text: '가져온 프로필' }], newSpeech: [{ text: '반말' }], aliases: ['Al'] }], batchLeader: true };
+    expect(apply(ctx, 'saveCharacters', params, output).output).toMatchObject({ applied: true, added: 0, filled: 1, appended: 1 });
+    expect(ctx.db.select().from(s.characters).get()).toMatchObject({ profile: '가져온 프로필\n새 사실', speech: '반말', aliases: ['Al'], evidence: ['a1'] });
+    expect(ctx.db.select().from(s.proposals).all()).toHaveLength(0);
+    // Saved again, nothing is new.
+    expect(apply(ctx, 'saveCharacters', params, output).output).toMatchObject({ applied: true, added: 0, filled: 0, appended: 0 });
+    expect(ctx.db.select().from(s.characters).get()!.profile).toBe('가져온 프로필\n새 사실');
   });
 
   it('writes relationships with their changes, rules with the first start line, and events not stored yet', () => {

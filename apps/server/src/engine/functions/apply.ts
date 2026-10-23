@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { get } from 'es-toolkit/compat';
-import { AGE_BANDS, APPLY_FUNCTION_NAMES, APPLY_TARGETS, applyParams, choiceKey, nodeModel, saveCharactersParams, type SaveCharactersParams, DOCUMENT_KINDS, ISSUE_KIND_IDS, ISSUE_KINDS, issueKindOf, previousStepId, tagLinesParams, tagScope, type IssueKind, aiStatus, TERM_KIND_LABELS, TERM_KINDS, UNKNOWN_LISTENER, type ApplyField, type ApplyFunctionName, type ApplyParams } from '@tw/shared';
+import { AGE_BANDS, APPLY_FUNCTION_NAMES, APPLY_TARGETS, applyParams, DOCUMENT_KINDS, ISSUE_KIND_IDS, ISSUE_KINDS, issueKindOf, previousStepId, tagLinesParams, tagScope, type IssueKind, aiStatus, TERM_KIND_LABELS, TERM_KINDS, UNKNOWN_LISTENER, type ApplyField, type ApplyFunctionName, type ApplyParams } from '@tw/shared';
 import type { Db } from '../../db/index.ts';
 import * as s from '../../db/schema.ts';
 import type { Topic } from '../../events.ts';
@@ -118,15 +118,7 @@ const HANDLERS: Record<Exclude<ApplyFunctionName, ItemTarget>, Handler> = {
     write: (items, { tx, write }) => aiSaveTerms(tx, write, items as never),
   },
   saveCharacters: {
-    write: (items, { tx, write, params, run, input }) => {
-      const profiles = (params as SaveCharactersParams).profiles;
-      // A proposal names the model whose answer is being saved: the AI node before this one.
-      const from = run && previousStepId(run.definition, input.item.data.path);
-      const node = run?.definition.nodes.find((candidate) => candidate.id === from);
-      const choice = node?.type === 'ai' ? nodeModel(node) ?? undefined : undefined;
-      const model = run && choice ? run.models[choiceKey(choice)]?.label : undefined;
-      return aiSaveCharacters(tx, write, items as never, { profiles, model });
-    },
+    write: (items, { tx, write }) => aiSaveCharacters(tx, write, items as never),
   },
   saveRelationships: {
     write: (items, { tx, write }) => {
@@ -166,7 +158,7 @@ export const APPLY_TOPICS: Record<ApplyFunctionName, Topic[]> = {
 
 function run(fn: ApplyFunctionName, tx: Tx, raw: unknown, input: FunctionInput): FunctionResult {
   if (fn === 'tagLines') return runTags(tx, raw, input);
-  const params = (fn === 'saveCharacters' ? saveCharactersParams : applyParams).parse(raw);
+  const params = applyParams.parse(raw);
   const target = APPLY_TARGETS[fn];
   const missing = (target.fields as readonly ApplyField[]).filter((field) => field.required && !params.map[field.name]);
   if (missing.length || (target.shape === 'list' && !params.list)) throw new Error(`'${target.label}' 노드의 필드 연결이 비어 있습니다.`);

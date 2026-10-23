@@ -152,6 +152,8 @@ interface Props {
    */
   editable?: boolean;
   onConnect?: (fromId: string, toId: string) => void;
+  /** The scene graph: scene nodes (not hubs) can be connected too. */
+  connectScenes?: boolean;
   selectedEdgeId?: string;
   onSelectEdge?: (edgeId: string) => void;
   onEdgeContextMenu?: (edgeId: string, event: { clientX: number; clientY: number }) => void;
@@ -196,7 +198,7 @@ interface Props {
  * Draws a precomputed ELK layout. d3-zoom owns pan/zoom, Flatbush owns spatial queries,
  * so each frame only touches what is on screen. One <canvas>, no per-node DOM.
  */
-export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, direction = 'vertical', onDirectionChange, editable, onConnect, selectedEdgeId, onSelectEdge, onEdgeContextMenu, toolbar, hubs, info, width, height, selectedId, selectedIds, onSelectMany, highlight, endpointMarkers, highlightEdges, initialViewport, initialFocus, initialFocusAlign = 'center', onViewportChange, onSelect, onContextMenu, onOpen, anchor, handle }: Props) {
+export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, direction = 'vertical', onDirectionChange, editable, onConnect, connectScenes, selectedEdgeId, onSelectEdge, onEdgeContextMenu, toolbar, hubs, info, width, height, selectedId, selectedIds, onSelectMany, highlight, endpointMarkers, highlightEdges, initialViewport, initialFocus, initialFocusAlign = 'center', onViewportChange, onSelect, onContextMenu, onOpen, anchor, handle }: Props) {
   const theme = useTheme();
   const canvas = useRef<HTMLCanvasElement>(null);
   const minimap = useRef<HTMLCanvasElement>(null);
@@ -231,8 +233,8 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
   const edges = laidOut;
   // Which of the drawn edges are emphasised, by position.
   const emphasised = useMemo(() => new Set(highlightEdges?.size ? edges.flatMap((edge, i) => (highlightEdges.has(`${edge.from}|${edge.to}`) ? [i] : [])) : []), [edges, highlightEdges]);
-  const props = useRef({ selectedId, selectedIds, onSelectMany, highlight, endpointMarkers, emphasised, onViewportChange, onSelect, onOpen, hubs, anchorId: anchor?.id, toolbarId: toolbar?.id, onContextMenu, editable, onConnect, selectedEdgeId, onSelectEdge, onEdgeContextMenu });
-  props.current = { selectedId, selectedIds, onSelectMany, highlight, endpointMarkers, emphasised, onViewportChange, onSelect, onOpen, hubs, anchorId: anchor?.id, toolbarId: toolbar?.id, onContextMenu, editable, onConnect, selectedEdgeId, onSelectEdge, onEdgeContextMenu };
+  const props = useRef({ selectedId, selectedIds, onSelectMany, highlight, endpointMarkers, emphasised, onViewportChange, onSelect, onOpen, hubs, anchorId: anchor?.id, toolbarId: toolbar?.id, onContextMenu, editable, onConnect, connectScenes, selectedEdgeId, onSelectEdge, onEdgeContextMenu });
+  props.current = { selectedId, selectedIds, onSelectMany, highlight, endpointMarkers, emphasised, onViewportChange, onSelect, onOpen, hubs, anchorId: anchor?.id, toolbarId: toolbar?.id, onContextMenu, editable, onConnect, connectScenes, selectedEdgeId, onSelectEdge, onEdgeContextMenu };
   /** A line being drawn from a node's dot: where it starts and where the pointer is (graph coordinates). */
   const connecting = useRef<{ from: string; out: boolean; px: number; py: number; x: number; y: number } | null>(null);
   const boxSelect = Boolean(onSelectMany);
@@ -563,7 +565,7 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
       context.lineWidth = Math.max(1.5, 1.5 / t.k);
       for (const i of visible) {
         const node = nodes[i];
-        if (!portable(info.get(node.id)?.kind, node.id, props.current.hubs)) continue;
+        if (!portable(info.get(node.id)?.kind, node.id, props.current.hubs, props.current.connectScenes)) continue;
         for (const [px, py] of Object.values(portsOf(node, direction))) {
           context.beginPath();
           context.arc(px, py, r, 0, Math.PI * 2);
@@ -841,7 +843,7 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
     const reach = Math.max(8, 7 / k);
     for (const i of index.nodeIndex?.search(x - reach, y - reach, x + reach, y + reach) ?? []) {
       const node = nodes[i];
-      if (!portable(info.get(node.id)?.kind, node.id, props.current.hubs)) continue;
+      if (!portable(info.get(node.id)?.kind, node.id, props.current.hubs, props.current.connectScenes)) continue;
       const ports = portsOf(node, direction);
       for (const out of [true, false]) {
         const [px, py] = out ? ports.out : ports.in;
@@ -922,7 +924,7 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
           const at = toGraph(event.clientX, event.clientY);
           const target = nodeAt(at.x, at.y);
           // From the way-out dot the line goes to the node it is dropped on; from the way-in dot it comes from it.
-          if (target && target.id !== line.from && portable(info.get(target.id)?.kind, target.id, props.current.hubs)) props.current.onConnect?.(line.out ? line.from : target.id, line.out ? target.id : line.from);
+          if (target && target.id !== line.from && portable(info.get(target.id)?.kind, target.id, props.current.hubs, props.current.connectScenes)) props.current.onConnect?.(line.out ? line.from : target.id, line.out ? target.id : line.from);
           schedule();
         }}
         onPointerCancel={() => {
@@ -1120,9 +1122,9 @@ function wrapText(context: CanvasRenderingContext2D, text: string, x: number, y:
   lines.forEach((line, index) => context.fillText(line, x, y + index * lineHeight));
 }
 
-/** Nodes a line can be drawn to or from: lines, choices, conditions and other nodes of the graph, not portals, hubs or folded labels. */
-function portable(kind: string | undefined, id: string, hubs?: Map<string, unknown>) {
-  return Boolean(kind) && kind !== 'portal' && kind !== 'scene' && !id.startsWith('portal:') && !id.startsWith('hub:') && !hubs?.has(id);
+/** Nodes a line can be drawn to or from: lines, choices, conditions and other nodes of the graph (scenes only in the scene graph), not portals, hubs or folded labels. */
+function portable(kind: string | undefined, id: string, hubs?: Map<string, unknown>, scenes?: boolean) {
+  return Boolean(kind) && kind !== 'portal' && (scenes || kind !== 'scene') && !id.startsWith('portal:') && !id.startsWith('hub:') && !hubs?.has(id);
 }
 
 /** A node's two dots: the way in (top, or left when horizontal) and the way out (bottom / right). */

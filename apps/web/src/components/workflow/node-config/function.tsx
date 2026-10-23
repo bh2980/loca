@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Play, Plus, Trash2 } from 'lucide-react';
-import { APPLY_FUNCTION_NAMES, APPLY_TARGETS, ISSUE_KIND_IDS, ISSUE_KINDS, issueKindOf, TAG_ACTIONS, tagLinesParams, fieldsFromSample, httpParams, nodeOutputFields, applyIssues, DEFAULT_PARTICLE_PATTERN, formatPatternError, FUNCTIONS, functionTakes, PROFILE_MODES, type ProfileMode, type SaveCharactersParams, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, JSON_FIELD_TYPE_LABELS, nodeName, PALETTE_FUNCTION_NAMES, previousSteps, type ApplyField, type ApplyFunctionName, type ApplyParams, type IssueKind, type TagAction, type TagLinesParams, type CustomFormatRule, type JsonFieldType, type WorkflowDefinition, type FunctionName, type JsonField, type WorkflowNode } from '@tw/shared';
+import { APPLY_FUNCTION_NAMES, APPLY_TARGETS, ISSUE_KIND_IDS, ISSUE_KINDS, issueKindOf, TAG_ACTIONS, tagLinesParams, fieldsFromSample, httpParams, nodeOutputFields, applyIssues, DEFAULT_PARTICLE_PATTERN, formatPatternError, FUNCTIONS, functionTakes, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, JSON_FIELD_TYPE_LABELS, nodeName, PALETTE_FUNCTION_NAMES, previousSteps, type ApplyField, type ApplyFunctionName, type ApplyParams, type IssueKind, type TagAction, type TagLinesParams, type CustomFormatRule, type JsonFieldType, type WorkflowDefinition, type FunctionName, type JsonField, type WorkflowNode } from '@tw/shared';
 import { Button, Input, NumberInput, InspectorActionRow, InspectorFields, InspectorList, InspectorResult, InspectorToggle, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, StatusIcon, TagChip } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
 import { AiConfirmNote } from '@/components/settings/ai-confirm';
@@ -605,26 +605,6 @@ function ApplyConfig({ node, fn, params, refs, setMany }: { node: FunctionNode; 
               );
             })}
           </InspectorList>
-        </Field>
-      )}
-
-      {fn === 'saveCharacters' && (
-        <Field
-          label="프로필 처리"
-          hint="이미 있는 인물의 프로필·말버릇을 새 결과가 다르게 쓸 때입니다. 새 별칭과 모르던 역할·성별·나이대는 어느 쪽이든 더합니다."
-          help="‘빈 칸만 채움’: 비어 있는 프로필·말버릇만 채웁니다. ‘다르면 제안으로 올림’: 비어 있으면 채우고, AI가 쓰고 아무도 손대지 않은 것은 바꾸며, 가져왔거나 사람이 쓴 것은 제안으로 올려 수락하면 바뀝니다.">
-          <Select value={(params as SaveCharactersParams).profiles ?? 'fillEmpty'} onValueChange={(profiles) => setMany({ profiles })}>
-            <SelectTrigger className="w-full" aria-label="프로필 처리">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {(Object.keys(PROFILE_MODES) as ProfileMode[]).map((mode) => (
-                <SelectItem key={mode} value={mode}>
-                  {PROFILE_MODES[mode]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
         </Field>
       )}
 

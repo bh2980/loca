@@ -74,6 +74,15 @@ loca call link_lines '{"from":"<키>","to":"<키>","action":"link"}'      # 선 
 loca call add_line_after '{"after":"<키>","source":"…","speaker":"Mira"}' # 그 대사 바로 뒤: 다음 대사가 하나면 사이에, 갈래면 새 갈래로
 loca call delete_lines '{"keys":["<키>"]}'                              # 지우면서 앞뒤를 이어 줌(bridge:false면 끊음)
 ```
+- `graph` 없이 가져온 파일(영화 대본 같은)은 장면의 대사마다 이어지지 않은 노드가 하나씩 생깁니다(문서·UI 묶음의 항목은 노드가 없음). 연결은 이렇게 만듭니다.
+- 장면 연결은 저장되지 않고 대사 그래프에서 계산됩니다. 장면 잇기 = A의 마지막 대사 노드 → B의 첫 대사 노드 간선 하나입니다(`link_scenes`). 선택지·조건을 거쳐 이어진 연결은 `link_scenes`의 `unlink`로 끊을 수 없고, `link_lines`로 해당 선을 지웁니다.
+- 대본 순서로 잇기(`link_in_order`)는 장면 안에서 노드를 대본 순서대로 잇되, 이미 나가는 길이나 들어오는 길이 있는 노드는 건드리지 않아 기존 갈래가 그대로 남습니다. 먼저 `loca scenes list`·`loca scenes show`로 장면을 확인합니다.
+```
+loca graph link <from키> <to키> [--label 선택지]   # link_lines
+loca graph unlink <from키> <to키>
+loca graph link-scenes <from장면> <to장면> [--unlink]   # 장면 A의 마지막 대사 → B의 첫 대사
+loca graph order --scene <장면...> --line <키...>   # 대본 순서로 잇기(둘 중 하나 이상)
+```
 - 파일에 없는 원문만 넣습니다. 흐름이 틀렸는지는 `loca call line_context`·`show_graph`로 먼저 확인합니다.
-- 그래프 연결(어느 대사 다음에 어느 대사)은 만들지 않습니다. 게임 데이터에서 다시 가져와야 하면 `loca-import-format`.
+- 게임 데이터가 가진 분기(선택지·조건)는 지어내지 않습니다. 게임 데이터에서 다시 가져와야 하면 `loca-import-format`.
 - 장면 설명(AI 번역 노드가 장면 문맥으로 받음)은 `loca-knowledge`의 `save_group_summary`.
