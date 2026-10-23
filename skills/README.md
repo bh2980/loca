@@ -18,7 +18,7 @@
 loca 앱이 켜져 있어야 합니다(기본 `http://127.0.0.1:4317`, 다르면 `--url` 또는 `LOCA_URL`). 프로젝트가 여럿이면 `--project <이름>` 또는 `LOCA_PROJECT`. `loca format …`과 `loca workspace …`만 앱 없이 됩니다.
 
 ### 바꾸는 일은 모두 제안
-프로젝트를 바꾸는 명령(`import`, `call`의 변경 도구, `workflows save`, `runs start`)은 바로 반영되지 않고 **제안**이 됩니다. 사용자가 앱의 채팅 패널 ‘CLI 제안’에서 수락해야 반영됩니다. 제안을 올린 뒤에는 제안 ID와 요약을 알리고, 결과는 `loca proposals show <id>`, 기다리는 제안은 `loca proposals list --status pending`으로 봅니다. 예외는 `loca views create` 하나입니다(번역 데이터는 바꾸지 않고 그래프에 보일 노드만 저장).
+프로젝트를 바꾸는 명령(`import`, `call`의 변경 도구, `workflows save`, `runs start`)은 바로 반영되지 않고 **제안**이 됩니다. 사용자가 앱의 채팅 패널 ‘제안’에서 수락해야 반영됩니다. 제안을 올린 뒤에는 제안 ID와 요약을 알리고, 결과는 `loca proposals show <id>`, 기다리는 제안은 `loca proposals list --status pending`으로 봅니다. 예외는 `loca views create` 하나입니다(번역 데이터는 바꾸지 않고 그래프에 보일 노드만 저장).
 
 ### 권한
 `loca tools`·`loca call`은 앱의 설정 › 채팅 › 도구 권한을 따릅니다(대상별 생성·조회·변경·삭제·실행). **삭제는 기본으로 꺼져 있어** 삭제 도구가 `loca tools` 목록에 아예 없을 수 있습니다. 목록에 없거나 거절된 작업을 다른 도구로 우회하지 말고, 필요한 대상과 행위를 사용자에게 말해 켜 달라고 합니다. 도구의 입력 형식은 `loca tools <이름>`으로 봅니다. `save_*` 도구는 `id`가 있으면 그 항목의 보낸 필드만 바꾸고, 없으면 새로 만듭니다.

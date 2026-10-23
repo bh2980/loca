@@ -32,6 +32,8 @@ export class ModelError extends Error {
 }
 
 /** How providers and CLIs word a request that does not fit the model's context window. */
+/** A provider's own servers failing for a moment (as a CLI reports it in text): treated like an API's HTTP 5xx, a dropped connection. */
+export const SERVER_DOWN = /internal server error|bad gateway|service unavailable|gateway time-?out|\bHTTP\s*5\d\d\b|\b5\d\d (internal|bad|service|gateway)\b|ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up|fetch failed/i;
 export const TOO_LONG = /context(_| )?(length|window)|maximum context|prompt is too long|input is too long|too many (input )?tokens|exceeds? (the )?(model'?s? )?(max(imum)?|context)|request (entity )?too large/i;
 const tooLong = (message: string) => new ModelError('too-long', `요청이 모델의 문맥 창보다 깁니다. ${message}`.slice(0, 400), false);
 

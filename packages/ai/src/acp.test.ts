@@ -260,6 +260,14 @@ describe('what a failed agent says', () => {
     expect(acpError({ code: -32000, message: 'login required' }).message).toContain('로그인 창 열기');
   });
 
+  it("calls the provider's own server failing a dropped connection, so a 재요청 for 연결 끊김 resends it", () => {
+    const failed = acpError(new Error('Eligibility check failed: failed to fetch user info: 500 Internal Server Error'));
+    expect(failed.code).toBe('network');
+    expect(failed.message).toContain('500 Internal Server Error');
+    expect(acpError(new Error('upstream returned HTTP 503')).code).toBe('network');
+    expect(acpError(new Error('line 500 of the prompt is invalid')).code).toBe('cli');
+  });
+
   it('reports the exit code, the last stderr lines and the command when the stream closes at once', async () => {
     const stderr = new PassThrough();
     const child = Object.assign(new EventEmitter(), { stderr, kill: () => {} });

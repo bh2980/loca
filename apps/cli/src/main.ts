@@ -117,7 +117,7 @@ async function proposeTool(name: string, input: Record<string, unknown>): Promis
   return { proposalId: response.proposalId as string };
 }
 /** Where proposals are decided. */
-const ACCEPT_HINT = 'loca 앱 채팅 패널의 ‘CLI 제안’에서 수락하면 반영됩니다';
+const ACCEPT_HINT = 'loca 앱 채팅 패널의 ‘제안’에서 수락하면 반영됩니다';
 
 /** A workflow by id, exact name, or part of its name. */
 async function resolveWorkflow(ref: string) {
