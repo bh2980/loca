@@ -1,5 +1,27 @@
 import { hc, type InferResponseType } from 'hono/client';
 import type { AppType } from '@tw/server/app';
+import { useSyncExternalStore } from 'react';
+
+/**
+ * Whether the API is unreachable right now (a network error, or the dev proxy's 503 while the server starts or restarts).
+ * Set by every call; the app shell shows a notice while it is true. Queries retry through react-query (main.tsx), never our own loop.
+ */
+let serverDown = false;
+const downListeners = new Set<() => void>();
+const setServerDown = (down: boolean) => {
+  if (serverDown === down) return;
+  serverDown = down;
+  for (const listener of downListeners) listener();
+};
+export const isServerDown = () => serverDown;
+export const useServerDown = () =>
+  useSyncExternalStore(
+    (listener) => {
+      downListeners.add(listener);
+      return () => void downListeners.delete(listener);
+    },
+    () => serverDown,
+  );
 
 /** Told the topics a request changed (its x-changed header), to refetch them at once; set by main.tsx. */
 let onChanged: (topics: string[]) => void = () => {};
@@ -21,7 +43,15 @@ export const CLIENT_ID = globalThis.crypto?.randomUUID?.() ?? `${Date.now().toSt
 export async function apiFetch(input: RequestInfo | URL, init?: RequestInit) {
   const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
   headers.set('x-client', CLIENT_ID);
-  const response = await fetch(input, { ...init, headers });
+  let response: Response;
+  try {
+    response = await fetch(input, { ...init, headers });
+  } catch (error) {
+    // An aborted call says nothing about the server.
+    if (!(error instanceof DOMException && error.name === 'AbortError')) setServerDown(true);
+    throw error;
+  }
+  setServerDown(response.status === 503);
   const changed = response.headers.get('x-changed');
   if (changed) onChanged(changed.split(','));
   return response;

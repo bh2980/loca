@@ -3,8 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createRouter, RouterProvider } from '@tanstack/react-router';
 import { toast } from 'sonner';
-import { Toaster, TooltipProvider } from '@loca/ui';
-import { setChangeListener } from '@/lib/api';
+import { Spinner, Toaster, TooltipProvider } from '@loca/ui';
+import { isServerDown, setChangeListener, useServerDown } from '@/lib/api';
 import { refetchKeys } from '@/lib/live';
 import { routeTree } from './routeTree.gen';
 import '@loca/ui/fonts.css';
@@ -12,7 +12,8 @@ import './index.css';
 
 const queryClient = new QueryClient({
   defaultOptions: {
-    queries: { staleTime: 30_000, refetchOnWindowFocus: false, retry: 1 },
+    // While the server is unreachable (starting, restarting) queries keep retrying with react-query's growing delay; a failure with the server up is retried once.
+    queries: { staleTime: 30_000, refetchOnWindowFocus: false, retry: (count) => count < (isServerDown() ? 8 : 1) },
     mutations: { onError: (error) => toast.error(error.message) },
   },
 });
@@ -31,6 +32,16 @@ const router = createRouter({
   defaultPreloadStaleTime: 0,
 });
 
+/** Outside the router: a page still waiting for its first data renders nothing, and the notice must show then too. */
+function ServerDownNotice() {
+  if (!useServerDown()) return null;
+  return (
+    <div role="status" className="fixed bottom-10 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-md border bg-popover px-3 py-1.5 text-xs text-popover-foreground shadow-md">
+      <Spinner className="size-3" />서버에 연결하는 중…
+    </div>
+  );
+}
+
 declare module '@tanstack/react-router' {
   interface Register {
     router: typeof router;
@@ -42,6 +53,7 @@ createRoot(document.getElementById('root')!).render(
     <QueryClientProvider client={queryClient}>
       <TooltipProvider delayDuration={300}>
         <RouterProvider router={router} />
+        <ServerDownNotice />
         <Toaster position="bottom-left" />
       </TooltipProvider>
     </QueryClientProvider>
