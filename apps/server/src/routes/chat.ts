@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { UI_MESSAGE_STREAM_HEADERS, type UIMessage } from 'ai';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { agentSettingsSchema, ATTACH_KINDS, ATTACH_PAGE, modelChoiceSchema, savedPromptsSchema, PERMISSION_MODES, type ModelChoice } from '@tw/shared';
+import { agentSettingsSchema, chatChipSchema, ATTACH_KINDS, ATTACH_PAGE, modelChoiceSchema, savedPromptsSchema, PERMISSION_MODES, type ModelChoice } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
@@ -10,7 +10,7 @@ import { attachTurn, steerable, turnStartedAt } from '../services/chat-turns.ts'
 import { dequeueSteer, enqueueSteer, stopWithQueued } from '../services/chat-interject.ts';
 import { runChatTurn } from '../services/chat-run.ts';
 import { searchAttach } from '../services/attach-search.ts';
-import { chatRunScope } from '../services/chat-run-scope.ts';
+import { answerRunCard, createRunCard } from '../services/chat-run-cards.ts';
 import { chatUsage } from '../services/chat-usage.ts';
 import { readSavedPrompts, writeSavedPrompts } from '../services/saved-prompts.ts';
 
@@ -101,13 +101,11 @@ export const chatRoutes = new Hono<Env>()
   })
   // @-attach: every kind (lines, scenes, people, relationships, rules, events, notes, terms, tags, statuses, workflows, runs), grouped by kind, paged.
   .get('/projects/:projectId/chat/attach', validate('query', z.object({ q: z.string().optional(), kind: z.enum(ATTACH_KINDS).optional(), offset: z.coerce.number().int().min(0).optional(), limit: z.coerce.number().int().min(1).max(ATTACH_PAGE).optional() })), (c) => c.json(searchAttach(c.var.deps.db, c.req.param('projectId'), c.req.valid('query'))))
-  // What the picks of a /workflow run mean as the run dialog's scope (scenes, lines, a person's lines, tags, statuses, terms).
-  .post('/projects/:projectId/chat/run-scope', validate('json', z.object({ workflowId: z.string(), items: z.array(z.object({ kind: z.string(), id: z.string() })).min(1).max(200) })), (c) => {
-    const { workflowId, items } = c.req.valid('json');
-    const result = chatRunScope(c.var.deps.db, c.req.param('projectId'), workflowId, items);
-    if (!result.ok) badRequest(result.error);
-    return c.json(result);
-  })
+  // The 실행 확인 card of a /workflow (docs/CHAT-INPUT-DESIGN.md 3-2) is a message of the conversation: made from the picks
+  // (their run scope and preflight, as the run dialog's), then answered once with 실행 (starts the run and records its id) or 취소.
+  .post('/chat/:sessionId/run-cards', validate('json', z.object({ workflowId: z.string(), chips: z.array(chatChipSchema).min(1).max(200) })), async (c) => c.json(await createRunCard(c.var.deps.db, c.req.param('sessionId'), c.req.valid('json')), 201))
+  .post('/chat/:sessionId/run-cards/:cardId/start', async (c) => c.json(await answerRunCard(c.var.deps.db, c.req.param('sessionId'), c.req.param('cardId'), 'start')))
+  .post('/chat/:sessionId/run-cards/:cardId/cancel', async (c) => c.json(await answerRunCard(c.var.deps.db, c.req.param('sessionId'), c.req.param('cardId'), 'cancel')))
   // 저장한 지시: read by the composer's / list, the settings page and `loca prompts`; only the settings page writes them.
   .get('/projects/:projectId/prompts', (c) => c.json(found(readSavedPrompts(c.var.deps.db, c.req.param('projectId')) ?? undefined, '프로젝트')))
   .put('/projects/:projectId/prompts', validate('json', z.object({ prompts: savedPromptsSchema })), (c) => c.json(found(writeSavedPrompts(c.var.deps.db, c.req.param('projectId'), c.req.valid('json').prompts) ?? undefined, '프로젝트')))

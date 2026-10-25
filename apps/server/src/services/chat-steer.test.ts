@@ -3,7 +3,7 @@ import type { UIMessage } from 'ai';
 import { importFileSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { expandSteers, transcript } from './chat-context.ts';
+import { expandRecord, transcript } from './chat-context.ts';
 import { startTurn, steerable } from './chat-turns.ts';
 import { dequeueSteer, enqueueSteer, hasSteers, stopWithQueued, takeSteers } from './chat-interject.ts';
 import { eq } from 'drizzle-orm';
@@ -14,16 +14,16 @@ const user = (id: string, text: string): UIMessage => ({ id, role: 'user', parts
 describe('steering (#44)', () => {
   it('splits a reply where a steering message reached the model', () => {
     const reply = { id: 'r', role: 'assistant', metadata: { answeredBy: { kind: 'openai', connectionId: 'c', model: 'm' } }, parts: [{ type: 'step-start' }, { type: 'text', text: '읽는 중' }, { type: 'data-steer', data: { text: '인물부터 해줘' } }, { type: 'step-start' }, { type: 'text', text: '인물을 봅니다' }] } as unknown as UIMessage;
-    const expanded = expandSteers([user('u', '요약해줘'), reply]);
+    const expanded = expandRecord([user('u', '요약해줘'), reply]);
     expect(expanded.map((message) => [message.id, message.role])).toEqual([['u', 'user'], ['r', 'assistant'], ['r~1', 'user'], ['r~2', 'assistant']]);
     expect(expanded[2].parts).toEqual([{ type: 'text', text: '인물부터 해줘' }]);
     expect(expanded[3].metadata).toEqual(reply.metadata);
     // Every context builder reads it in that order.
     expect(transcript([user('u', '요약해줘'), reply])).toBe('사용자: 요약해줘\n에이전트(m): 읽는 중\n사용자: 인물부터 해줘\n에이전트(m): 인물을 봅니다');
-    expect(expandSteers([user('u', '요약해줘'), reply]).map((message) => message.role)).toEqual(['user', 'assistant', 'user', 'assistant']);
+    expect(expandRecord([user('u', '요약해줘'), reply]).map((message) => message.role)).toEqual(['user', 'assistant', 'user', 'assistant']);
     // A steer at the very start leaves no empty reply segment.
     const first = { id: 'f', role: 'assistant', parts: [{ type: 'data-steer', data: { text: '먼저' } }, { type: 'text', text: '네' }] } as unknown as UIMessage;
-    expect(expandSteers([first]).map((message) => message.role)).toEqual(['user', 'assistant']);
+    expect(expandRecord([first]).map((message) => message.role)).toEqual(['user', 'assistant']);
   });
 
   it('queues messages for the running turn, refuses once it is closing, and hands them back on stop', () => {

@@ -8,7 +8,7 @@ import { hasUnreportedDecisions, takeDecisions } from './proposals.ts';
  * What reaches a running turn from outside its model: messages the person sent meanwhile (#44)
  * and how its proposals were decided (#43). Each backend takes them at turn start and at every step
  * boundary, writes them into the reply where they came in (a `data-steer` part, see
- * chat-context.ts expandSteers) and hands them to the model as a user message.
+ * chat-context.ts expandRecord) and hands them to the model as a user message.
  */
 export interface Interjection {
   text: string;

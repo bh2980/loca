@@ -1,11 +1,8 @@
-import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import { importFileSchema, messageChips } from '@tw/shared';
-import type { Env } from '../context.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { chatRoutes } from '../routes/chat.ts';
 import { importProject } from './importer.ts';
 import { chatRunScope } from './chat-run-scope.ts';
 import { mergeIncoming } from './chat-context.ts';
@@ -65,17 +62,6 @@ describe('what the picks of a /workflow run mean as a run scope', () => {
     expect(chatRunScope(db, projectId, 'missing', [{ kind: '장면', id: groups[0].id }])).toMatchObject({ ok: false });
     expect(chatRunScope(db, projectId, termWorkflow.id, [{ kind: '용어', id: terms[0].id }])).toMatchObject({ ok: true, input: 'terms', scope: { termIds: [terms[0].id] } });
     expect(chatRunScope(db, projectId, termWorkflow.id, [{ kind: '장면', id: groups[0].id }])).toMatchObject({ ok: false });
-  });
-
-  it('is served as POST /projects/:id/chat/run-scope (400 with the reason when it cannot be a scope)', async () => {
-    const { db, projectId, lines, groups, units } = setup();
-    const app = new Hono<Env>().use(async (c, next) => { c.set('deps', { db } as never); await next(); }).route('/', chatRoutes);
-    const post = (items: unknown[]) => app.request(`/projects/${projectId}/chat/run-scope`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ workflowId: lines.id, items }) });
-    const ok = await post([{ kind: '장면', id: groups[0].id }]);
-    expect(ok.status).toBe(200);
-    expect(await ok.json()).toMatchObject({ ok: true, scope: { groupIds: [groups[0].id] } });
-    const refused = await post([{ kind: '장면', id: groups[0].id }, { kind: '대사', id: units[0].id }]);
-    expect(refused.status).toBe(400);
   });
 });
 

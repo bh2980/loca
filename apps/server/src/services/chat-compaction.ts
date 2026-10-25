@@ -1,13 +1,13 @@
 import type { UIMessage } from 'ai';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { estimateTokens, limitsFor } from '@tw/shared';
+import { estimateTokens, limitsFor, runCardOf } from '@tw/shared';
 import * as ai from '@tw/ai';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { logged } from './ai-calls.ts';
-import { transcript } from './chat-context.ts';
+import { runCardLine, transcript } from './chat-context.ts';
 
 /**
  * A conversation is sent whole until it would not fit the model's window; then, as pi does, the
@@ -35,7 +35,12 @@ export function withCompaction(record: UIMessage[], compaction: Compaction | nul
 
 /** An attached image costs about what a provider charges for one, not the size of its base64 text. */
 const IMAGE_TOKENS = 1_500;
-export const partsTokens = (parts: UIMessage['parts']) => estimateTokens(parts.map((part) => (part.type === 'file' ? { type: 'file' } : part))) + IMAGE_TOKENS * parts.filter((part) => part.type === 'file').length;
+/** A run card costs its line, not the scope ids it carries. */
+const cardPart = (part: UIMessage['parts'][number]) => {
+  const card = runCardOf({ parts: [part] });
+  return card ? { type: 'run-card', line: runCardLine(card) } : part;
+};
+export const partsTokens = (parts: UIMessage['parts']) => estimateTokens(parts.map((part) => (part.type === 'file' ? { type: 'file' } : cardPart(part)))) + IMAGE_TOKENS * parts.filter((part) => part.type === 'file').length;
 
 const tokensOf = (messages: UIMessage[]) => messages.reduce((sum, message) => sum + partsTokens(message.parts), 0);
 
