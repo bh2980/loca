@@ -15,7 +15,8 @@ import { chatDock } from '@/lib/chat-dock';
 import { NO_HISTORY, sentTexts, stepHistory, type HistoryState } from '@/lib/chat-input-history';
 import { mergeIntoDraft, removeOnce } from '@/lib/chat-queue';
 import { insertAt } from '@/lib/chat-triggers';
-import { loadCards, saveCards, type RunCard } from '@/lib/chat-run';
+import { syncCards, withCard } from '@/lib/chat-run';
+import { makeRunCard } from '@/lib/chat-run-api';
 import { chatFor, dropChat } from '@/lib/chat-store';
 import { keyLabel } from '@/lib/keys';
 import { q } from '@/lib/queries';
@@ -27,7 +28,7 @@ import { useComposerMenu, type RunMode } from './use-composer-menu';
 import { useUndo } from './proposal-card';
 import { ProposalList } from './proposal-list';
 import { PermissionModePicker } from './permission-mode';
-import { CHAT_IMAGES_MAX, compactionMarker, imageDecision, IMAGE_UNSUPPORTED_NOTE, messageChips, type ChatChip, type PermissionMode } from '@tw/shared';
+import { CHAT_IMAGES_MAX, compactionMarker, imageDecision, IMAGE_UNSUPPORTED_NOTE, messageChips, runCardOf, type ChatChip, type PermissionMode, type RunCard } from '@tw/shared';
 import { imageFilesOf, prepareImage, type PendingImage } from '@/lib/chat-image-file';
 import { ContextMeter, type ChatUsage } from './context-meter';
 import { ToolPart } from './tool-part';
@@ -204,6 +205,7 @@ function ChatBody({ projectId, sessionId, initial, turn, usage, compaction, pend
   onMode: (mode: PermissionMode) => void;
   onModel: (next: ModelValue) => Promise<void>;
 }) {
+  const queryClient = useQueryClient();
   const ready = Boolean(model?.connectionId && model.model);
   const view = useViewState();
   const location = useLocation();
@@ -243,6 +245,12 @@ function ChatBody({ projectId, sessionId, initial, turn, usage, compaction, pend
     if (status !== 'ready' || initial.length <= messages.length) return;
     if (messages.every((message, i) => initial[i]?.id === message.id)) setMessages(initial);
   }, [initial]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Run cards are messages of the stored conversation (made or answered here or in another window): they join this one once no reply is streaming into it.
+  useEffect(() => {
+    if (status !== 'ready') return;
+    const next = syncCards(messages, initial);
+    if (next) setMessages(next);
+  }, [initial, status, messages]); // eslint-disable-line react-hooks/exhaustive-deps
   // A turn running on the server that this window is not streaming (sent before a reload, from
   // another window, or started by the server once proposals were decided): attach to it, once per turn.
   const attachedTo = useRef<number | null>(null);
@@ -297,11 +305,20 @@ function ChatBody({ projectId, sessionId, initial, turn, usage, compaction, pend
   const box = useRef<HTMLTextAreaElement>(null);
   // @ (attach) and / (commands) pickers over the box (use-composer-menu.ts): what they show follows the text and the caret.
   const [caret, setCaret] = useState(0);
-  // A /workflow waiting for its target, the `{대상}` slot of a saved prompt, and the 실행 확인 cards of this conversation.
+  // A /workflow waiting for its target and the `{대상}` slot of a saved prompt. The 실행 확인 cards are messages of the conversation (server).
   const [run, setRun] = useState<RunMode | null>(null);
   const [slot, setSlot] = useState<number | null>(null);
-  const [cards, setCards] = useState<RunCard[]>(() => loadCards(sessionId));
-  useEffect(() => saveCards(sessionId, cards), [sessionId, cards]);
+  // A card the server made or answered joins the stored conversation at once; the sync above puts it on screen.
+  const putCard = (card: RunCard) => queryClient.setQueryData(q.chatSession(sessionId).queryKey, (session) => (session ? withCard(session, card) : session));
+  const makeCard = useMutation({
+    mutationFn: ({ workflowId, chips }: { workflowId: string; chips: ChatChip[] }) => makeRunCard(sessionId, workflowId, chips),
+    onSuccess: (card) => {
+      putCard(card);
+      setRun(null);
+      putInput('', 0);
+    },
+    onError: (cause) => toast.error(cause instanceof Error ? cause.message : '실행 확인을 만들지 못했습니다.'),
+  });
   const waitingCard = useRef<RunCardControls | null>(null);
   const putInput = (value: string, at: number) => {
     setInput(value);
@@ -322,11 +339,9 @@ function ChatBody({ projectId, sessionId, initial, turn, usage, compaction, pend
   }, [input, slot]);
   // The target is picked: the card asks before anything runs (AI work costs money).
   const confirmRun = () => {
-    if (!run) return;
+    if (!run || makeCard.isPending) return;
     if (!run.chips.length) return putInput('@', 1);
-    setCards((list) => [...list, { id: crypto.randomUUID(), workflowId: run.command.id, workflowName: run.command.name, input: run.command.input, chips: run.chips, after: messages.length }]);
-    setRun(null);
-    putInput('', 0);
+    makeCard.mutate({ workflowId: run.command.id, chips: run.chips });
   };
   // ↑/↓ in the box walks what was sent in this conversation; any edit leaves the walk.
   const [history, setHistory] = useState<HistoryState>(NO_HISTORY);
@@ -336,7 +351,9 @@ function ChatBody({ projectId, sessionId, initial, turn, usage, compaction, pend
   }, [sessionId, input]);
   const busy = status === 'submitted' || status === 'streaming';
   // A turn this window is not streaming (sent before a reload) that is still going on the server.
-  const elsewhere = !busy && Boolean(turn?.startedAt) && messages.at(-1)?.role === 'user';
+  // Run cards are in the conversation but are not the exchange: the newest message that is not one is what the reply state is about.
+  const lastMessage = messages.findLast((message) => !runCardOf(message));
+  const elsewhere = !busy && Boolean(turn?.startedAt) && lastMessage?.role === 'user';
   // CLI chats store change requests as proposals; their cards are decided through the API.
   const proposals = useQuery(q.proposals(projectId, sessionId));
   const proposalById = new Map(proposals.data?.map((proposal) => [proposal.id, proposal]));
@@ -345,7 +362,6 @@ function ChatBody({ projectId, sessionId, initial, turn, usage, compaction, pend
   const undoReply = useUndo(projectId, sessionId);
   // A finished turn whose last part is a tool call said nothing about the result: say so and offer to continue.
   const marker = compactionMarker(compaction, messages.length);
-  const lastMessage = messages.at(-1);
   const lastPart = lastMessage?.parts.filter((part) => part.type !== 'step-start').at(-1);
   const finishReason = (lastMessage?.metadata as { finishReason?: string } | undefined)?.finishReason;
   const stalled = !busy && !error && lastMessage?.role === 'assistant' && (finishReason === 'length' || Boolean(lastPart?.type.startsWith('tool-') && (lastPart as { state?: string }).state === 'output-available'));
@@ -428,21 +444,19 @@ function ChatBody({ projectId, sessionId, initial, turn, usage, compaction, pend
     if (left.length !== queued.length) setQueued(left);
   }, [messages]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 실행 확인 cards sit where they were made (after that many messages); the newest waiting one answers the keyboard.
-  const lastWaiting = [...cards].reverse().find((card) => !card.runId && !card.cancelled)?.id;
-  const cardsAt = (n: number) =>
-    cards
-      .filter((card) => Math.min(card.after, messages.length) === n)
-      .map((card) => (
-        <RunCardView
-          key={card.id}
-          projectId={projectId}
-          card={card}
-          controls={card.id === lastWaiting ? waitingCard : undefined}
-          onChange={(patch) => setCards((list) => list.map((item) => (item.id === card.id ? { ...item, ...patch } : item)))}
-          onAnswered={() => box.current?.focus()}
-        />
-      ));
+  // 실행 확인 cards are in the conversation where they were made; the newest waiting one answers the keyboard.
+  const lastWaiting = messages.findLast((message) => runCardOf(message)?.state === 'pending')?.id;
+  const cardView = (message: UIMessage, card: RunCard) => (
+    <RunCardView
+      key={message.id}
+      projectId={projectId}
+      sessionId={sessionId}
+      card={card}
+      controls={message.id === lastWaiting ? waitingCard : undefined}
+      onChange={putCard}
+      onAnswered={() => box.current?.focus()}
+    />
+  );
 
   return (
     <Stack
@@ -468,14 +482,15 @@ function ChatBody({ projectId, sessionId, initial, turn, usage, compaction, pend
           pinned.current = element.scrollHeight - element.scrollTop - element.clientHeight < 40;
         }}
       >
-        {!messages.length && !cards.length && (
+        {!messages.length && (
           <Box spaceY="condensed" paddingTop="spacious" variant="body" tone="muted">
             <SectionHeading>무엇을 도와드릴까요?</SectionHeading>
           </Box>
         )}
         <Box spaceY="comfortable">
-          {cardsAt(0)}
           {messages.map((message, messageIndex) => {
+            const card = runCardOf(message);
+            if (card) return cardView(message, card);
             const { stopped, interrupted } = (message.metadata as { stopped?: boolean; interrupted?: boolean } | undefined) ?? {};
             const undoable = message.role === 'assistant' ? [...new Set(message.parts.flatMap((part) => {
               const id = ((part as { output?: { proposalId?: string } }).output ?? {}).proposalId;
@@ -500,7 +515,7 @@ function ChatBody({ projectId, sessionId, initial, turn, usage, compaction, pend
                     const data = (part as { data: { text: string; kind?: string } }).data;
                     return data.kind === 'decisions' ? <DecisionNotice key={index} text={data.text} /> : <SteerBubble key={index} text={data.text} />;
                   }
-                  if (part.type.startsWith('tool-')) return <ToolPart key={index} part={part as never} proposal={proposalById.get(((part as { output?: { proposalId?: string } }).output ?? {}).proposalId ?? '')} stale={message.id !== messages.at(-1)?.id} onDecide={(id, approved) => addToolApprovalResponse({ id, approved })} onOutput={(toolCallId, output) => void addToolOutput({ tool: part.type.slice(5) as never, toolCallId, output: output as never })} />;
+                  if (part.type.startsWith('tool-')) return <ToolPart key={index} part={part as never} proposal={proposalById.get(((part as { output?: { proposalId?: string } }).output ?? {}).proposalId ?? '')} stale={message.id !== lastMessage?.id} onDecide={(id, approved) => addToolApprovalResponse({ id, approved })} onOutput={(toolCallId, output) => void addToolOutput({ tool: part.type.slice(5) as never, toolCallId, output: output as never })} />;
                   return null;
                 })}
                 {!(busy && message.id === lastMessage?.id) && <MessageActions text={messageText(message)} />}
@@ -508,7 +523,7 @@ function ChatBody({ projectId, sessionId, initial, turn, usage, compaction, pend
               </AssistantMessage>
             );
             const summarized = marker?.index === messageIndex ? <CompactionNotice summary={marker.summary} /> : null;
-            if (!stopped && !interrupted) return <Fragment key={message.id}>{summarized}{view}{cardsAt(messageIndex + 1)}</Fragment>;
+            if (!stopped && !interrupted) return <Fragment key={message.id}>{summarized}{view}</Fragment>;
             return (
               <Fragment key={message.id}>
                 {summarized}
@@ -516,7 +531,6 @@ function ChatBody({ projectId, sessionId, initial, turn, usage, compaction, pend
                 <Inline as="p" gap="tight" variant="caption" tone="muted" role="status">
                   <Icon icon={Square} size="xs" /> {stopped ? '중지됨' : '끊김 · 다음 메시지가 먼저 시작됐습니다'}
                 </Inline>
-                {cardsAt(messageIndex + 1)}
               </Fragment>
             );
           })}

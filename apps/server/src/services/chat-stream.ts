@@ -5,6 +5,7 @@ import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import type { CatalogTool } from './agent-catalog.ts';
 import { proposeChange } from './change-gate.ts';
+import { withStoredCards } from './chat-context.ts';
 import { interjectionPrompt, type Interjection } from './chat-interject.ts';
 import { markStopped, readToEnd, type ChatTurn } from './chat-turns.ts';
 import { refusalText } from './proposal-check.ts';
@@ -30,7 +31,9 @@ export function chatStream(input: {
     generateId: () => crypto.randomUUID(),
     execute: ({ writer }) => input.execute(writer),
     onFinish: ({ messages: final }) => {
-      db.update(s.chatSessions).set({ messages: markStopped(final, turn.signal), ...input.alsoSave?.(final) }).where(eq(s.chatSessions.id, chat.id)).run();
+      // Run cards made or answered while the reply ran are kept (they are saved by their own endpoints).
+      const stored = db.select({ messages: s.chatSessions.messages }).from(s.chatSessions).where(eq(s.chatSessions.id, chat.id)).get()?.messages as UIMessage[] | undefined;
+      db.update(s.chatSessions).set({ messages: withStoredCards(markStopped(final, turn.signal), stored ?? []), ...input.alsoSave?.(final) }).where(eq(s.chatSessions.id, chat.id)).run();
       events.changed(chat.projectId, 'chat');
     },
     onError: errorText,

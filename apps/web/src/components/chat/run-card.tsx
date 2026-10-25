@@ -1,9 +1,10 @@
 import { useEffect, useMemo } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
+import type { RunCard } from '@tw/shared';
 import { Box, Button, Inline, Progress, Spinner, Stack, Text } from '@loca/ui';
-import { cardSummary, planCard, startCard, type RunCard } from '@/lib/chat-run';
-import { runApi } from '@/lib/chat-run-api';
+import { cardSummary } from '@/lib/chat-run';
+import { answerRunCard } from '@/lib/chat-run-api';
 import { keyLabel } from '@/lib/keys';
 import { q } from '@/lib/queries';
 import { AttachChip } from './attach-chip';
@@ -17,38 +18,35 @@ export interface RunCardControls {
 }
 
 /**
- * The 실행 확인 card (docs/CHAT-INPUT-DESIGN.md 3-2): what a /workflow would run on, from the same
- * preflight as the run dialog, with 실행 and 취소. After 실행 the same card follows the run and links to its
- * page. The target is not editable here: cancel and start again to change it.
+ * The 실행 확인 card (docs/CHAT-INPUT-DESIGN.md 3-2): a message of the conversation, kept on the
+ * server. It shows what a /workflow would run on with the numbers it was made with, and 실행 and 취소
+ * answer it once (the server starts the run and records its id on the card). After 실행 the same card
+ * follows the run and links to its page. The target is not editable here: cancel and start again to change it.
  */
-export function RunCardView({ projectId, card, onChange, onAnswered, controls }: {
+export function RunCardView({ projectId, sessionId, card, onChange, onAnswered, controls }: {
   projectId: string;
+  sessionId: string;
   card: RunCard;
-  onChange: (patch: Partial<RunCard>) => void;
+  /** The card as the server now has it (after 실행 or 취소). */
+  onChange: (card: RunCard) => void;
   /** After 실행 or 취소: focus goes back to the box, never stays on a button. */
   onAnswered: () => void;
   /** Set on the newest waiting card, so the box can answer it by key. */
   controls?: { current: RunCardControls | null };
 }) {
-  const api = useMemo(() => runApi(projectId), [projectId]);
-  const waiting = !card.runId && !card.cancelled;
-  // The same key family as the run dialog's preflight (units: lines, statuses and workflows refresh it).
-  const planned = useQuery({ queryKey: ['units', 'chat-run-plan', projectId, card.id], queryFn: () => planCard(api, card), enabled: waiting, retry: false });
-  const start = useMutation({
-    mutationFn: () => startCard(api, card, planned.data!),
-    onSuccess: (run) => {
-      onChange({ runId: run.runId });
+  const waiting = card.state === 'pending';
+  const answer = useMutation({
+    mutationFn: (kind: 'start' | 'cancel') => answerRunCard(sessionId, card.id, kind),
+    onSuccess: (next) => {
+      onChange(next);
       onAnswered();
     },
   });
-  const summary = planned.data ? cardSummary(card.input, planned.data.plan) : null;
-  const canStart = waiting && Boolean(planned.data) && !summary?.empty && !start.isPending;
-  const cancel = () => {
-    onChange({ cancelled: true });
-    onAnswered();
-  };
-  const doStart = () => canStart && start.mutate();
-  const latest = useMemo(() => ({ start: doStart, cancel }), [canStart, planned.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  const summary = cardSummary(card.input, card.plan);
+  const canStart = waiting && !summary.empty && !answer.isPending;
+  const cancel = () => !answer.isPending && answer.mutate('cancel');
+  const doStart = () => canStart && answer.mutate('start');
+  const latest = useMemo(() => ({ start: doStart, cancel }), [canStart, answer.isPending]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!controls || !waiting) return;
     controls.current = latest;
@@ -57,7 +55,7 @@ export function RunCardView({ projectId, card, onChange, onAnswered, controls }:
     };
   }, [controls, waiting, latest]);
 
-  if (card.cancelled)
+  if (card.state === 'cancelled')
     return <Text as="p" variant="caption" tone="muted" role="status">/{card.workflowName} 실행을 취소했습니다.</Text>;
 
   return (
@@ -66,11 +64,7 @@ export function RunCardView({ projectId, card, onChange, onAnswered, controls }:
       <Stack direction="row" wrap gap="tight" aria-label="실행 대상">
         {card.chips.map((chip) => <AttachChip key={`${chip.kind}:${chip.id}`} projectId={projectId} chip={chip} />)}
       </Stack>
-      {card.runId ? <RunProgress projectId={projectId} runId={card.runId} /> : planned.isError ? (
-        <Text as="p" variant="caption" tone="danger" role="alert">{planned.error.message}</Text>
-      ) : !summary ? (
-        <Inline as="p" gap="tight" variant="caption" tone="muted"><Spinner size="xs" /> 세는 중…</Inline>
-      ) : (
+      {card.runId ? <RunProgress projectId={projectId} runId={card.runId} /> : (
         <p>
           {summary.empty ? <Text tone="muted">이 대상에는 실행할 {card.input === 'terms' ? '용어' : '대사'}가 없습니다.</Text> : (
             <>
@@ -82,13 +76,13 @@ export function RunCardView({ projectId, card, onChange, onAnswered, controls }:
           {summary.excluded > 0 && <Text variant="caption" tone="muted"> · 번역 제외 {summary.excluded.toLocaleString()}줄은 빠집니다</Text>}
         </p>
       )}
-      {start.isError && <Text as="p" variant="caption" tone="danger" role="alert">{start.error.message}</Text>}
+      {answer.isError && <Text as="p" variant="caption" tone="danger" role="alert">{answer.error.message}</Text>}
       {waiting && (
         <Inline gap="condensed">
           <Button variant="secondary" disabled={!canStart} onClick={doStart} aria-keyshortcuts="Enter">
-            {start.isPending ? <Spinner /> : null} 실행
+            {answer.isPending && answer.variables === 'start' ? <Spinner /> : null} 실행
           </Button>
-          <Button variant="ghost" onClick={cancel} aria-keyshortcuts="Escape">취소</Button>
+          <Button variant="ghost" disabled={answer.isPending} onClick={cancel} aria-keyshortcuts="Escape">취소</Button>
           <Text variant="caption" tone="muted">입력창이 비었을 때 {keyLabel('Enter')} 실행 · {keyLabel('Esc')} 취소</Text>
         </Inline>
       )}

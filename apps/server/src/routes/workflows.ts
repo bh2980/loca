@@ -1,30 +1,26 @@
 import { Hono } from 'hono';
-import { scopeMismatch } from '../services/run-plan.ts';
+import { fitScope, startWorkflowRun } from '../services/start-run.ts';
 import { and, asc, count, desc, eq, getTableColumns, inArray, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { AI_OUTPUT_IDS, type AiOutput, choiceKey, nodeName, httpParams, FUNCTIONS, type FunctionName, isWholeScriptWorkflow, CONNECTION_KIND_INFO, workflowInput, AUTO_MARK_IDS, type AutoMark, scriptParams, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels, WORKFLOW_TEMPLATES, EMPTY_MODEL_CHOICE } from '@tw/shared';
+import { AI_OUTPUT_IDS, type AiOutput, choiceKey, nodeName, httpParams, FUNCTIONS, type FunctionName, isWholeScriptWorkflow, CONNECTION_KIND_INFO, workflowInput, scriptParams, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels, WORKFLOW_TEMPLATES, EMPTY_MODEL_CHOICE, runScopeSchema } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { calledWorkflowErrors, workflowIssues } from '../services/workflow-issues.ts';
+import { workflowIssues } from '../services/workflow-issues.ts';
 import { events } from '../events.ts';
 import { callHttp, httpOutput, lineView, validateScriptData } from '../engine/functions/index.ts';
 import { runScript } from '../engine/functions/sandbox.ts';
-import { WHOLE_SCRIPT_BUSY, createRunInSteps, FILLING, refuseSecondWholeScript, selectRunTerms, selectRunUnits } from '../engine/run-create.ts';
+import { WHOLE_SCRIPT_BUSY, FILLING, refuseSecondWholeScript, selectRunTerms, selectRunUnits } from '../engine/run-create.ts';
 import { listBatches, preflight } from '../services/preflight.ts';
-import { choiceLabel, snapshotWorkflowModels } from '../services/routes.ts';
+import { choiceLabel } from '../services/routes.ts';
 import { previewRequest } from '../services/request-preview.ts';
 import { continuePreflight, switchedRun } from '../services/run-continue.ts';
 import { deleteWorkflow, saveWorkflow, workflowCallers, WorkflowMutationError } from '../services/workflow-mutations.ts';
 
-const scopeSchema = z.object({ groupIds: z.array(z.string()).optional(), unitIds: z.array(z.string()).optional(), tagIds: z.array(z.string()).optional(), marks: z.array(z.enum(AUTO_MARK_IDS as [AutoMark, ...AutoMark[]])).optional(), statusIds: z.array(z.string()).optional(), termIds: z.array(z.string()).optional() });
+const scopeSchema = runScopeSchema;
 /** A run's scope and, optionally, the models it uses instead of its nodes' own (by AI node id). */
-/** A scope that does not fit the workflow's input (line scenes for terms, the other input's marks…) is refused. */
-const fitScope = (definition: WorkflowDefinition, scope: s.RunScope) => {
-  const mismatch = scopeMismatch(workflowInput(definition), scope);
-  if (mismatch) badRequest(mismatch);
-};
 const runSchema = scopeSchema.extend({ models: runModelsSchema.optional() });
+const runLimitsSchema = z.object({ maxCalls: z.number().int().min(1).optional(), maxInputTokens: z.number().int().min(1).optional() });
 const continueSchema = z.object({ models: runModelsSchema.optional(), retryFailed: z.boolean().default(false) });
 
 /** Connection names now, for logs that keep only the id; a deleted connection reads as its kind. */
@@ -208,22 +204,9 @@ export const workflowRoutes = new Hono<Env>()
       badRequest(error instanceof Error ? error.message : String(error));
     }
   })
-  .post('/workflows/:id/runs', validate('json', runSchema.extend({ limits: z.object({ maxCalls: z.number().int().min(1).optional(), maxInputTokens: z.number().int().min(1).optional() }).optional() })), async (c) => {
-    const { db } = c.var.deps;
-    const stored = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
+  .post('/workflows/:id/runs', validate('json', runSchema.extend({ limits: runLimitsSchema.optional() })), async (c) => {
     const { limits, models, ...scope } = c.req.valid('json');
-    fitScope(stored.definition, scope);
-    // This run's models (the dialog's picks) stand in for the nodes' own; the workflow is not changed.
-    const workflow = { ...stored, definition: withRunModels(stored.definition, models) };
-    const errors = workflowIssues(db, workflow.projectId, workflow.definition, workflow.id).filter((issue) => issue.level === 'error');
-    if (errors.length) badRequest(`워크플로에 오류가 ${errors.length}개 있습니다: ${errors[0].message}`);
-    try {
-      const called = calledWorkflowErrors(db, workflow.projectId, workflow.definition, workflow.id);
-      if (called.length) badRequest(`부르는 워크플로에 오류가 ${called.length}개 있습니다: ${called[0]}`);
-      return c.json(await createRunInSteps(db, { projectId: workflow.projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope, limits }), 201);
-    } catch (error) {
-      badRequest(error instanceof Error ? error.message : String(error));
-    }
+    return c.json(await startWorkflowRun(c.var.deps.db, c.req.param('id'), { scope, models, limits }), 201);
   })
 
   /** Try a script node on one real line. Read-only: nothing is stored. */

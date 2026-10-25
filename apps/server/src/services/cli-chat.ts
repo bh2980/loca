@@ -10,7 +10,7 @@ import { learnImages, logged } from './ai-calls.ts';
 import { acpImages } from './chat-images.ts';
 import { imageDecision, IMAGE_UNSUPPORTED_NOTE } from '@tw/shared';
 import { agentCatalog, jsonSchemaOf, type CatalogTool } from './agent-catalog.ts';
-import { catchUp, handover, textOf, type AnsweredBy } from './chat-context.ts';
+import { catchUp, handover, lastExchange, textOf, transcript, type AnsweredBy } from './chat-context.ts';
 import { fitRecord } from './chat-compaction.ts';
 import { estimateTokens } from '@tw/shared';
 import { takeInterjections, writeInterjections } from './chat-interject.ts';
@@ -122,8 +122,11 @@ export async function cliChatResponse(input: {
   const kind = route.kind as ai.AcpKind;
   const tools = new Map(agentCatalog(db, chat.projectId, { model: route.model }).map((tool) => [tool.name, tool]));
   const saved = chat.agentSession && chat.agentSession.kind === route.kind && chat.agentSession.model === route.model ? chat.agentSession : null;
-  const earlier = messages.slice(0, -1);
-  const last = messages.at(-1);
+  // The new message is the newest that is not a run card (a regenerate can leave cards after it; they go with the message).
+  const last = lastExchange(messages);
+  const lastAt = last ? messages.lastIndexOf(last) : messages.length;
+  const earlier = messages.slice(0, lastAt);
+  const cardsAfter = transcript(messages.slice(lastAt + 1));
   // Messages and decisions that came in since the last turn come after the new message.
   const leftover = takeInterjections(db, chat.id);
   let sessionId: string | undefined;
@@ -158,13 +161,13 @@ export async function cliChatResponse(input: {
       // A new session gets the whole record, its start summarized only when it would not fit the model.
       const context = known
         ? catchUp(earlier, saved?.seen ?? earlier.length)
-        : handover((await fitRecord({ db, chat, route, record: messages, overhead: estimateTokens(input.system) + estimateTokens([...tools.values()].map((tool) => ({ name: tool.name, description: tool.description, input: jsonSchemaOf(tool.schema) }))) + CLI_OVERHEAD, signal: input.turn.signal })).slice(0, -1));
+        : handover((await fitRecord({ db, chat, route, record: messages, overhead: estimateTokens(input.system) + estimateTokens([...tools.values()].map((tool) => ({ name: tool.name, description: tool.description, input: jsonSchemaOf(tool.schema) }))) + CLI_OVERHEAD, signal: input.turn.signal })).filter((message) => message !== last));
       // Images go as prompt blocks when the agent says it takes them; the capability is kept so the composer can warn before sending.
       learnImages(db, route.connectionId, route.model, agent.takesImages());
       const wanted = acpImages(last);
       const decision = imageDecision(agent.takesImages(), wanted.length);
       const images = decision.send ? wanted : [];
-      let prompt = [lead, turnPrompt({ context, view: input.view, text: [last ? textOf(last) : '', decision.dropped ? `(이미지 ${decision.dropped}장은 ${IMAGE_UNSUPPORTED_NOTE}: 보내지 않았습니다)` : ''].filter(Boolean).join('\n'), leftover })].filter(Boolean).join('\n\n---\n\n');
+      let prompt = [lead, turnPrompt({ context, view: input.view, text: [last ? textOf(last) : '', cardsAfter, decision.dropped ? `(이미지 ${decision.dropped}장은 ${IMAGE_UNSUPPORTED_NOTE}: 보내지 않았습니다)` : ''].filter(Boolean).join('\n'), leftover })].filter(Boolean).join('\n\n---\n\n');
       db.update(s.chatSessions).set({ agentSession: { kind: route.kind, model: route.model, id: sessionId, lastTurnAt: Date.now(), seen: known ? saved?.seen : 0 } }).where(eq(s.chatSessions.id, chat.id)).run();
 
       let textId: string | null = null;

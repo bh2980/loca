@@ -1,33 +1,21 @@
-import { describe, expect, it, vi } from 'vitest';
-import { cardSummary, loadCards, planCard, saveCards, startCard, type RunApi, type RunCard, type RunPlanLike } from './chat-run';
+import { describe, expect, it } from 'vitest';
+import type { UIMessage } from 'ai';
+import { runCardMessage, runCardOf, type RunCard, type RunCardPlan } from '@tw/shared';
+import { cardSummary, syncCards, withCard } from './chat-run';
 import { chipHref } from './chat-links';
 
-const plan = (over: Partial<RunPlanLike> = {}): RunPlanLike => ({
+const plan = (over: Partial<RunCardPlan> = {}): RunCardPlan => ({
   lines: { total: 218, excluded: 3 },
   totals: { calls: { min: 40, expected: 44, max: 60 } },
   pace: { seconds: 600, costUsd: 0.42, subscription: false },
   suggestedLimits: { maxCalls: 120, maxInputTokens: 900_000 },
   ...over,
 });
-const card: Pick<RunCard, 'workflowId' | 'chips'> = { workflowId: 'w1', chips: [{ kind: '장면', id: 'g1', label: 'Greywater Ferry' }, { kind: '상태', id: 's1', label: '검토 필요' }] };
-const mockApi = (planned = plan()) => {
-  const api: RunApi = {
-    scope: vi.fn(async () => ({ input: 'lines' as const, scope: { groupIds: ['g1'], statusIds: ['s1'] } })),
-    preflight: vi.fn(async () => planned),
-    start: vi.fn(async () => ({ runId: 'run-1' })),
-  };
-  return api;
-};
+const card = (id: string, over: Partial<RunCard> = {}): RunCard => ({ id, workflowId: 'w1', workflowName: '번역', input: 'lines', chips: [{ kind: '장면', id: 'g1', label: 'Greywater Ferry' }], scope: { groupIds: ['g1'] }, plan: plan(), state: 'pending', createdAt: 1, ...over });
+const text = (id: string, role: 'user' | 'assistant' = 'user'): UIMessage => ({ id, role, parts: [{ type: 'text', text: id }] });
+const message = (value: RunCard) => runCardMessage(value) as unknown as UIMessage;
 
 describe('the run confirm card', () => {
-  it('plans from the picks: their scope, then the same preflight the run dialog asks for', async () => {
-    const api = mockApi();
-    const planned = await planCard(api, card);
-    expect(api.scope).toHaveBeenCalledWith('w1', [{ kind: '장면', id: 'g1' }, { kind: '상태', id: 's1' }]);
-    expect(api.preflight).toHaveBeenCalledWith('w1', { groupIds: ['g1'], statusIds: ['s1'] });
-    expect(planned.plan.lines.total).toBe(218);
-  });
-
   it('shows lines, requests, time and cost in words', () => {
     expect(cardSummary('lines', plan())).toEqual({ targets: '218줄', empty: false, excluded: 3, requests: '44회', time: '10분', money: '약 $0.42' });
     expect(cardSummary('terms', plan({ lines: { total: 12, excluded: 0 } })).targets).toBe('12개');
@@ -35,35 +23,35 @@ describe('the run confirm card', () => {
     expect(cardSummary('lines', plan({ lines: { total: 0, excluded: 5 } })).empty).toBe(true);
   });
 
-  it('nothing runs until 실행: planning only reads, and 실행 starts exactly the planned scope with the suggested caps', async () => {
-    const api = mockApi();
-    const planned = await planCard(api, card);
-    expect(api.start).not.toHaveBeenCalled();
-    expect(await startCard(api, card, planned)).toEqual({ runId: 'run-1' });
-    expect(api.start).toHaveBeenCalledTimes(1);
-    expect(api.start).toHaveBeenCalledWith('w1', { groupIds: ['g1'], statusIds: ['s1'] }, { maxCalls: 120, maxInputTokens: 900_000 });
+  it('is a message of the conversation that reads back as the same card', () => {
+    expect(runCardOf(message(card('c1', { state: 'started', runId: 'run-1' })))).toEqual(card('c1', { state: 'started', runId: 'run-1' }));
+    expect(runCardOf(text('u1'))).toBeNull();
+    expect(runCardOf({ parts: [{ type: 'data-run', data: { id: 'x' } } as never] })).toBeNull();
   });
 
-  it('a scope the server refuses stops the card before any preflight', async () => {
-    const api = mockApi();
-    api.scope = vi.fn(async () => { throw new Error('장면과 대사(인물)는 함께 고를 수 없습니다.'); });
-    await expect(planCard(api, card)).rejects.toThrow('함께');
-    expect(api.preflight).not.toHaveBeenCalled();
-    expect(api.start).not.toHaveBeenCalled();
+  it('a card the server answered replaces its message in the stored conversation, a new one goes to the end', () => {
+    const session = { messages: [text('u1'), message(card('c1'))] as unknown[] };
+    const started = withCard(session, card('c1', { state: 'started', runId: 'run-1' }));
+    expect(started.messages.map((item) => (item as UIMessage).id)).toEqual(['u1', 'c1']);
+    expect(runCardOf(started.messages[1] as UIMessage)?.runId).toBe('run-1');
+    expect(withCard(started, card('c2')).messages.map((item) => (item as UIMessage).id)).toEqual(['u1', 'c1', 'c2']);
   });
 
-  it('keeps the conversation\'s cards in session storage and reads a broken record as none', () => {
-    const store = new Map<string, string>();
-    vi.stubGlobal('sessionStorage', { getItem: (key: string) => store.get(key) ?? null, setItem: (key: string, value: string) => void store.set(key, value) });
-    const cards: RunCard[] = [{ id: 'c1', workflowId: 'w1', workflowName: '번역', input: 'lines', chips: card.chips, after: 4, runId: 'run-1' }];
-    saveCards('s1', cards);
-    expect(loadCards('s1')).toEqual(cards);
-    expect(loadCards('other')).toEqual([]);
-    store.set('tw.chat.runcards.s2', '{not json');
-    expect(loadCards('s2')).toEqual([]);
-    store.set('tw.chat.runcards.s3', JSON.stringify([{ id: 'x' }, cards[0]]));
-    expect(loadCards('s3')).toEqual(cards);
-    vi.unstubAllGlobals();
+  it('joins the screen\'s conversation where the stored one has it, and takes the stored state of one it has', () => {
+    const stored = [text('u1'), text('a1', 'assistant'), message(card('c1')), text('u2'), message(card('c2', { state: 'cancelled' }))];
+    // This window has not seen either card.
+    const joined = syncCards([text('u1'), text('a1', 'assistant'), text('u2')], stored)!;
+    expect(joined.map((item) => item.id)).toEqual(['u1', 'a1', 'c1', 'u2', 'c2']);
+    // Nothing to do once they are there.
+    expect(syncCards(joined, stored)).toBeNull();
+    // Another window started c1.
+    const answered = [...stored.slice(0, 2), message(card('c1', { state: 'started', runId: 'run-1' })), ...stored.slice(3)];
+    const updated = syncCards(joined, answered)!;
+    expect(runCardOf(updated[2]!)?.state).toBe('started');
+    // A reply being streamed into the last message is left as it is.
+    expect(updated[3]).toBe(joined[3]);
+    // A card made while a reply ran (the stored conversation has it after the reply) goes after the message before it.
+    expect(syncCards([text('u1'), text('a1', 'assistant')], [text('u1'), text('a1', 'assistant'), message(card('c3'))])!.map((item) => item.id)).toEqual(['u1', 'a1', 'c3']);
   });
 });
 

@@ -9,7 +9,7 @@ import { events } from '../events.ts';
 import { startCall } from './ai-calls.ts';
 import { AGENT_SYSTEM } from './agent-tools.ts';
 import { gatedTools } from './change-gate.ts';
-import { expandSteers, mergeIncoming, type AnsweredBy } from './chat-context.ts';
+import { expandRecord, isRunCard, lastExchange, mergeIncoming, type AnsweredBy } from './chat-context.ts';
 import { fitRecord } from './chat-compaction.ts';
 import { imageDecision } from '@tw/shared';
 import { incomingImageProblem, withoutImages } from './chat-images.ts';
@@ -50,7 +50,7 @@ export async function runChatTurn(deps: Pick<Deps, 'db' | 'secrets'>, given: typ
   if (!messages.length) throw new Error('보낼 메시지가 없습니다.');
   const answeredBy: AnsweredBy = { kind: route.kind, connectionId: session.connectionId, model: route.model };
 
-  const firstUser = messages.find((message) => message.role === 'user');
+  const firstUser = messages.find((message) => message.role === 'user' && !isRunCard(message));
   const firstText = firstUser?.parts.find((part) => part.type === 'text');
   if (session.title === '새 대화' && firstText && 'text' in firstText) {
     db.update(s.chatSessions).set({ title: chatTitle(firstText.text) }).where(eq(s.chatSessions.id, session.id)).run();
@@ -130,7 +130,8 @@ function apiChatResponse(input: {
 }) {
   const { db, session, route, live, messages, answeredBy, turn } = input;
   const tools = withFittedResults(gatedTools(db, session.projectId, session.id, { model: route.model }));
-  const last = messages.at(-1);
+  // Run cards are not replies: the reply that carries on is the newest message that is not one.
+  const last = lastExchange(messages);
   // A reply whose tool approval was just answered goes on in the same message.
   const messageId = last?.role === 'assistant' ? last.id : crypto.randomUUID();
   return chatStream({
@@ -149,7 +150,7 @@ function apiChatResponse(input: {
       // A model whose list says it takes no images gets the text only (the composer's chip said so).
       const known = db.select({ modelLimits: s.connections.modelLimits }).from(s.connections).where(eq(s.connections.id, session.connectionId!)).get()?.modelLimits[route.model]?.images;
       const sendable = imageDecision(known, 1).send ? fitted : withoutImages(fitted);
-      let modelMessages: ModelMessage[] = await convertToModelMessages(expandSteers(sendable), { ignoreIncompleteToolCalls: true });
+      let modelMessages: ModelMessage[] = await convertToModelMessages(expandRecord(sendable), { ignoreIncompleteToolCalls: true });
       // Messages a previous turn could not take (it stopped for an approval) come first.
       const leftover = takeInterjections(db, session.id);
       if (leftover.length) modelMessages = [...modelMessages, interject(leftover)];
