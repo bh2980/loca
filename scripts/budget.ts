@@ -10,8 +10,9 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { z } from 'zod';
 import * as ai from '../packages/ai/src/index.ts';
-import { importFileSchema, knowledgeTemplate } from '../packages/shared/src/index.ts';
+import { ANALYSIS_WORKFLOW, WORKFLOW_TEMPLATES, analysisTemplate, importFileSchema, type TemplateIds } from '../packages/shared/src/index.ts';
 import { openDatabase } from '../apps/server/src/db/index.ts';
 import * as s from '../apps/server/src/db/schema.ts';
 import { importProject } from '../apps/server/src/services/importer.ts';
@@ -35,15 +36,16 @@ interface Scenario {
   settings?: { maxConsecutiveFailures?: number };
 }
 const SCENARIOS: Scenario[] = [
-  { name: 'translate-cli', workflow: '기본 번역', profiles: ['cli-like'] },
+  { name: 'translate-cli', workflow: '번역', profiles: ['cli-like'] },
   // ~6% of calls fail here, and which ones depends on timing (batches gather on the clock), so three
   // failures in a row — the default pause guard — came up in about 1 run in 4 and made its cost
   // incomparable. This scenario measures what faults cost in a finished run; the guard has its own tests.
-  { name: 'translate-faulty', workflow: '기본 번역', profiles: ['cli-like', 'faulty'], settings: { maxConsecutiveFailures: 10 } },
+  { name: 'translate-faulty', workflow: '번역', profiles: ['cli-like', 'faulty'], settings: { maxConsecutiveFailures: 10 } },
   { name: 'listener-cli', workflow: '청자 추정', profiles: ['cli-like'] },
   { name: 'terms-cli', workflow: '용어 추출', profiles: ['cli-like'] },
-  { name: 'knowledge-cli', workflow: '자료 갱신', profiles: ['cli-like'] },
-  { name: 'analysis-cli', workflow: '작품 분석', profiles: ['cli-like'] },
+  { name: 'people-cli', workflow: '인물·관계 추출', profiles: ['cli-like'] },
+  { name: 'events-cli', workflow: '사건 추출', profiles: ['cli-like'] },
+  { name: 'analysis-cli', workflow: ANALYSIS_WORKFLOW, profiles: ['cli-like'] },
 ];
 
 export interface Metrics {
@@ -76,7 +78,7 @@ function mockPort(options: MockOptions): ModelPort {
       throw new Error('the budget harness has no judge model');
     },
     generate: (async (_route: unknown, request: ai.GenerateRequest<unknown>) => {
-      const out = respond({ system: request.system, user: request.prompt }, options, rand);
+      const out = respond({ system: request.system, user: request.prompt, schema: z.toJSONSchema(request.schema as z.ZodType) }, options, rand);
       if (out.status === 429) throw new ai.ModelError('rate-limit', 'mock rate limit', true);
       const usage: ai.Usage = {
         inputTokens: out.usage.prompt_tokens,
@@ -104,8 +106,14 @@ async function runScenario(scenario: Scenario, size: number): Promise<Metrics> {
   const choice = { connectionId: connection.id, model: 'mock' };
   const { file } = realistic(size);
   const { projectId } = importProject(db, importFileSchema.parse(file), choice);
-  // New projects no longer get "자료 갱신"; it stays a template of "새 워크플로", so the scenario adds it itself.
-  if (scenario.workflow === '자료 갱신') db.insert(s.workflows).values({ projectId, name: scenario.workflow, definition: knowledgeTemplate({ model: choice }) }).run();
+  // New projects get only the first four templates (번역, 청자 추정, 인물·관계 추출, 사건 추출); the others are added here.
+  if (!db.select().from(s.workflows).all().some((row) => row.projectId === projectId && row.name === scenario.workflow)) {
+    const statuses = db.select().from(s.statuses).all().filter((row) => row.projectId === projectId);
+    const status = (key: string) => statuses.find((row) => row.name === key)?.id;
+    const ids: TemplateIds = { model: choice, untranslated: status('미번역'), translated: status('번역됨'), needsReview: status('검토 필요'), confirmed: status('완료'), aiFailedTag: db.select().from(s.tags).all().find((row) => row.projectId === projectId && row.name === 'AI 실패')?.id };
+    const build = scenario.workflow === ANALYSIS_WORKFLOW ? analysisTemplate : WORKFLOW_TEMPLATES.find((template) => template.name === scenario.workflow)?.build;
+    if (build) db.insert(s.workflows).values({ projectId, name: scenario.workflow, definition: build(ids) }).run();
+  }
   let workflow = db.select().from(s.workflows).all().find((row) => row.projectId === projectId && row.name === scenario.workflow);
   if (!workflow) throw new Error(`workflow "${scenario.workflow}" is not among the imported templates`);
   // The run takes its definition from here (a snapshot), so the override needs no write.
@@ -113,7 +121,31 @@ async function runScenario(scenario: Scenario, size: number): Promise<Metrics> {
   const { runId } = createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: { ignoreStatus: true } });
 
   const started = performance.now();
-  await new Runner(db, memoryStore(), mockPort(options)).drain(1_000_000);
+  // A 재요청 node's wait (rate limits, dropped connections) is skipped, not slept: the clock jumps to when the first waiting line is due.
+  const runner = new Runner(db, memoryStore(), mockPort(options));
+  const RealDate = Date;
+  let skipped = 0;
+  const now = () => RealDate.now() + skipped;
+  // `new Date()` and `Date.now()` both follow the skipped time, as the runner reads the clock both ways.
+  globalThis.Date = class extends RealDate {
+    constructor(...args: [] | [number | string | Date]) {
+      if (args.length) super(...(args as [number]));
+      else super(now());
+    }
+    static override now() {
+      return now();
+    }
+  } as DateConstructor;
+  try {
+    for (;;) {
+      await runner.drain(1_000_000);
+      const waiting = db.select({ at: s.runItems.notBefore, state: s.runItems.state }).from(s.runItems).all().flatMap((row) => (row.state === 'queued' && row.at && row.at.getTime() > now() ? [row.at.getTime()] : []));
+      if (!waiting.length) break;
+      skipped += Math.min(...waiting) - now() + 1;
+    }
+  } finally {
+    globalThis.Date = RealDate;
+  }
   const wallSeconds = (performance.now() - started) / 1000;
 
   // The database is fresh per scenario, so every row belongs to this run.
