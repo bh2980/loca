@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { HeaderTabs, HeaderTabsList, SettingsContent, SettingsPageSkeleton, TabsTrigger } from '@loca/ui';
+import { Tabs, TabsList, TabsTrigger, Skeleton, Box, PageBody } from '@loca/ui';
 import { HeaderActions, Page } from '@/components/page';
 import { EditorAiSection } from '@/components/settings/editor-ai';
 import { ExclusionRulesSection } from '@/components/exclusion-rules';
@@ -27,17 +27,17 @@ function EditorSettings() {
   return (
     <Page title="에디터" flush>
       <HeaderActions>
-        <HeaderTabs value={tab} onValueChange={(value) => void navigate({ search: { tab: value === 'ai' ? undefined : (value as Tab) }, replace: true })}>
-          <HeaderTabsList aria-label="에디터 설정">
+        <Tabs stretch value={tab} onValueChange={(value) => void navigate({ search: { tab: value === 'ai' ? undefined : (value as Tab) }, replace: true })}>
+          <TabsList variant="line" fill aria-label="에디터 설정">
             {(Object.keys(TABS) as Tab[]).map((id) => (
               <TabsTrigger key={id} value={id}>
                 {TABS[id]}
               </TabsTrigger>
             ))}
-          </HeaderTabsList>
-        </HeaderTabs>
+          </TabsList>
+        </Tabs>
       </HeaderActions>
-      <SettingsContent>
+      <PageBody>
         {tab === 'ai' ? (
           <EditorAiSection projectId={projectId} />
         ) : project.data ? (
@@ -47,9 +47,12 @@ function EditorSettings() {
             <ExclusionRulesSection projectId={projectId} rules={project.data.exclusionRules} formatRules={project.data.formatRules} sourceLanguage={project.data.sourceLanguage} excludedCount={project.data.excludedCount} />
           )
         ) : (
-          <SettingsPageSkeleton shape="editor" />
+          <Box spaceY="comfortable">
+            <Skeleton height="control" width="1/3" />
+            <Skeleton height="placeholder" width="full" />
+          </Box>
         )}
-      </SettingsContent>
+      </PageBody>
     </Page>
   );
 }

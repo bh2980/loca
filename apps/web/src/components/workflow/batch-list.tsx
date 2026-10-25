@@ -13,7 +13,7 @@ export function BatchList({ list, defaultOpen = false }: { list: List; defaultOp
   return (
     <Collapsible defaultOpen={defaultOpen}>
       <CollapsibleTrigger asChild>
-        <Button variant="ghost" group marginLeft="-condensed">
+        <Button variant="ghost" group flush="start">
           <Icon icon={ChevronRight} turn="group" />
           묶음 {list.total.toLocaleString()}
         </Button>

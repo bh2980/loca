@@ -2,23 +2,24 @@
 @import "tw-animate-css";
 @source "../../../packages/ui/src";
 
+@import "../../../packages/ui/src/tokens/palette.css";
 @import "../../../packages/ui/src/tokens/theme.css";
 @import "../../../packages/ui/src/tokens/system.css";
-@import "../../../packages/ui/src/chat/prose.css";
+@import "../../../packages/ui/src/patterns/prose.css";
 
 /* The dark theme is a class on <html> (lib/theme.ts), set before first paint by index.html. */
 @custom-variant dark (&:is(.dark *));
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply border-default outline-focus/50;
   }
   /* Tight tracking only where the type is large enough to take it; small Korean text needs its room. */
   h1, h2, .text-base, .text-lg, .text-xl {
     letter-spacing: -0.011em;
   }
   body {
-    @apply bg-background text-foreground antialiased font-sans;
+    @apply bg-page text-default antialiased font-sans;
     font-feature-settings: "tnum" 0;
   }
 
@@ -49,7 +50,7 @@
   @supports not selector(::-webkit-scrollbar) {
     * {
       scrollbar-width: thin;
-      scrollbar-color: var(--border) transparent;
+      scrollbar-color: var(--background-color-line) transparent;
     }
   }
   ::-webkit-scrollbar {
@@ -63,10 +64,10 @@
   ::-webkit-scrollbar-thumb {
     border: 2px solid transparent;
     border-radius: 9999px;
-    background: var(--border) padding-box;
+    background: var(--background-color-line) padding-box;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: var(--muted-foreground) padding-box;
+    background: var(--background-color-neutral) padding-box;
   }
 }
 
@@ -78,7 +79,7 @@
 
 /* A line opened from a link flashes once where it landed. */
 @keyframes line-arrived {
-  0%, 30% { background-color: var(--selection); }
+  0%, 30% { background-color: var(--background-color-selected); }
   100% { background-color: transparent; }
 }
 
@@ -99,25 +100,25 @@
   .chip-hue-5 { --chip: var(--token-5); }
   .chip-hue-6 { --chip: var(--token-6); }
   /* A token the source does not have (?). */
-  .token-chip-stray, .cm-token-stray { --chip: var(--warning); }
+  .token-chip-stray, .cm-token-stray { --chip: var(--text-color-warning); }
   /* A proposed token, not in the text yet (Tab puts it in). */
   .cm-token-ghost { @apply border-dashed opacity-60; }
   /* The AI continuation after the cursor (Tab takes it). */
-  .cm-continuation { @apply text-subtle-foreground italic; }
+  .cm-continuation { @apply text-subtle italic; }
   /* A glossary translation in use. */
-  .cm-term-hit { @apply rounded-sm bg-primary/5 underline decoration-primary/40 underline-offset-4; }
+  .cm-term-hit { @apply rounded-sm bg-accent/5 underline decoration-accent/40 underline-offset-4; }
 }
 
 /* React Flow canvases (workflow, dialogue paths, people, events) on the theme's canvas surface and edges. */
 .react-flow {
-  --xy-background-color: var(--graph-canvas);
-  --xy-background-pattern-color: var(--graph-grid);
-  --xy-edge-stroke: var(--graph-edge);
-  --xy-controls-button-background-color: var(--card);
-  --xy-controls-button-background-color-hover: var(--accent);
-  --xy-controls-button-color: var(--foreground);
-  --xy-controls-button-border-color: var(--border);
-  --xy-minimap-background-color: var(--panel);
+  --xy-background-color: var(--background-color-graph-canvas);
+  --xy-background-pattern-color: var(--fill-graph-grid);
+  --xy-edge-stroke: var(--stroke-graph-edge);
+  --xy-controls-button-background-color: var(--background-color-surface);
+  --xy-controls-button-background-color-hover: var(--background-color-hover);
+  --xy-controls-button-color: var(--text-color-default);
+  --xy-controls-button-border-color: var(--border-color-default);
+  --xy-minimap-background-color: var(--background-color-panel);
 }
 /* After a box selection the picked nodes show their own selected outline; React Flow's extra frame around them only gets in the way. */
 .react-flow__nodesselection-rect { display: none; }

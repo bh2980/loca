@@ -8,7 +8,7 @@ import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AUTO_MARK_IDS, AUTO_MARKS, markColor, normalizeTagScopes, REVIEW_TAG, TAG_SCOPE_LABELS, TAG_SCOPES, type AutoMark, type MarkColors } from '@tw/shared';
-import { Box, CellInline, CompactDataTable, EmptyState, FullHeightSplitPane, FullSelectTrigger, SmallStatusIcon, TablePanel, Text, type ColumnDef, AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Button, Select, SelectContent, SelectItem, SelectValue, StatusIcon, TagChip, SettingsContent, SettingsSection, ContextMenuItem, ContextMenuSeparator } from '@loca/ui';
+import { Box, EmptyState, Text, type ColumnDef, AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Button, Select, SelectContent, SelectItem, SelectValue, StatusIcon, TagChip, ContextMenuItem, ContextMenuSeparator, SelectTrigger, Section, PageBody, SplitPane, DataTable, Inline } from '@loca/ui';
 import { Page } from '@/components/page';
 import { MarkChip } from '@/components/status';
 import { client, unwrap } from '@/lib/api';
@@ -157,19 +157,19 @@ function StatusSettings() {
   };
 
   const statusColumns: ColumnDef<StatusRowData, unknown>[] = [
-    { id: 'order', header: '순서', meta: { width: 56, className: 'text-muted-foreground tabular-nums' }, cell: ({ row }) => row.index + 1 },
+    { id: 'order', header: '순서', meta: { width: 56, tone: 'muted', tabular: true }, cell: ({ row }) => row.index + 1 },
     {
       id: 'name',
       header: '이름',
       meta: { hideable: false },
       cell: ({ row }) => (
-        <CellInline weight="medium">
-          <SmallStatusIcon status={row.original} />
+        <Inline as="span" inline gap="condensed" weight="medium">
+          <StatusIcon small status={row.original} />
           {row.original.name}
-        </CellInline>
+        </Inline>
       ),
     },
-    { id: 'kind', header: '종류', meta: { width: 112, className: 'text-muted-foreground' }, cell: ({ row }) => STATUS_KIND[row.original.kind] },
+    { id: 'kind', header: '종류', meta: { width: 112, tone: 'muted' }, cell: ({ row }) => STATUS_KIND[row.original.kind] },
     { id: 'review', header: '검토함', meta: { width: 120 }, cell: ({ row }) => (row.original.inReview ? '표시' : <Text tone="muted">–</Text>) },
     { id: 'units', header: '대사 수', meta: { width: 96, align: 'end' }, cell: ({ row }) => row.original.units.toLocaleString() },
   ];
@@ -191,10 +191,10 @@ function StatusSettings() {
       header: '이름',
       meta: { width: 220, hideable: false },
       cell: ({ row }) => (
-        <CellInline>
+        <Inline as="span" inline gap="condensed">
           {row.original.mark ? <MarkChip mark={row.original.mark} projectId={projectId} /> : <TagChip tag={row.original.tag!} />}
           {(row.original.mark || row.original.tag?.role) && <Text variant="caption" tone="muted">기본</Text>}
-        </CellInline>
+        </Inline>
       ),
     },
     {
@@ -207,13 +207,13 @@ function StatusSettings() {
           onChange={(on) => void navigate({ search: (previous) => ({ ...previous, on: on as TagFilterPlace | undefined }), replace: true })}
         />
       ),
-      meta: { width: 140, label: '붙는 곳', className: 'text-muted-foreground' },
+      meta: { width: 140, label: '붙는 곳', tone: 'muted' },
       cell: ({ row }) => scopeLabel(row.original.mark ? AUTO_MARKS[row.original.mark].on : row.original.tag!.scope),
     },
     {
       id: 'description',
       header: '뜻',
-      meta: { className: 'text-muted-foreground' },
+      meta: { tone: 'muted' },
       cell: ({ row }) =>
         row.original.mark
           ? AUTO_MARKS[row.original.mark].description
@@ -252,20 +252,20 @@ function StatusSettings() {
 
   return (
     <Page title="상태·태그" flush>
-      <FullHeightSplitPane id="settings-statuses" selectionKey={search.status ?? search.tag ?? search.mark} defaultWidth="384px" pane={pane}>
-        <SettingsContent width="wide">
+      <SplitPane fill="height" id="settings-statuses" selectionKey={search.status ?? search.tag ?? search.mark} defaultWidth="384px" pane={pane}>
+        <PageBody width="wide">
           <Box spaceY="wide">
-            <SettingsSection
+            <Section variant="page"
               title="상태"
-              headerActions={
+              actions={
                 <>
                   {statuses && <Text variant="caption" tone="muted" tabular>{statuses.length}개</Text>}
                   <Button variant="outline" onClick={() => open({ status: 'new' })}><Plus /> 추가</Button>
                 </>
               }
             >
-              <TablePanel card>
-                <CompactDataTable
+              <Box overflow="hidden" radius="md" border="all" borderColor="default" background="surface">
+                <DataTable compact
                   id="statuses"
                   columns={statusColumns}
                   rows={statuses}
@@ -308,20 +308,20 @@ function StatusSettings() {
                     );
                   }}
                 />
-              </TablePanel>
-            </SettingsSection>
+              </Box>
+            </Section>
 
-            <SettingsSection
+            <Section variant="page"
               title="태그"
-              headerActions={
+              actions={
                 <>
                   {shownTags && <Text variant="caption" tone="muted" tabular>{shownTags.length}개</Text>}
                   <Button variant="outline" onClick={() => open({ tag: 'new' })}><Plus /> 추가</Button>
                 </>
               }
             >
-              <TablePanel card>
-                <CompactDataTable
+              <Box overflow="hidden" radius="md" border="all" borderColor="default" background="surface">
+                <DataTable compact
                   id="tags"
                   columns={tagColumns}
                   rows={shownTags}
@@ -360,11 +360,11 @@ function StatusSettings() {
                     </>
                   )}
                 />
-              </TablePanel>
-            </SettingsSection>
+              </Box>
+            </Section>
           </Box>
-        </SettingsContent>
-      </FullHeightSplitPane>
+        </PageBody>
+      </SplitPane>
 
       <AlertDialog open={!!removing} onOpenChange={(next) => !next && setRemoving(null)}>
         <AlertDialogContent>
@@ -375,9 +375,9 @@ function StatusSettings() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <Select value={moveTo} onValueChange={setMoveTo}>
-            <FullSelectTrigger aria-label="옮길 상태">
+            <SelectTrigger width="full" aria-label="옮길 상태">
               <SelectValue />
-            </FullSelectTrigger>
+            </SelectTrigger>
             <SelectContent>
               {(statuses ?? [])
                 .filter((status) => !removing?.some((gone) => gone.id === status.id))

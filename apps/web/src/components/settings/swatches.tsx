@@ -1,6 +1,6 @@
 /** The color palette (and a free picker) used by status, tag and mark panes. */
 import { PALETTE, paletteIndex } from '@tw/shared';
-import { Inline, NO_COLOR_PICKER_DEFAULT, PickerSwatch, PickerSwatchInput, SwatchButton, SwatchDot, paletteColor } from '@loca/ui';
+import { Inline, Swatch, SwatchPicker, paletteColor } from '@loca/ui';
 
 /** The free picker's swatch while a palette colour is chosen: the palette's hues around a circle. */
 const WHEEL = `conic-gradient(${PALETTE.slice(1).map((_, index) => `var(--hue-${index + 2})`).join(', ')}, var(--hue-2))`;
@@ -12,15 +12,14 @@ export function Swatches({ value, onChange, onClear }: { value: string; onChange
   return (
     <Inline wrap gap="tight" role="radiogroup" aria-label="색상">
       {onClear && (
-        <SwatchButton type="button" variant="ghost" role="radio" aria-checked={!value} onClick={onClear} selected={!value}>
+        <Swatch type="button" role="radio" aria-checked={!value} onClick={onClear} selected={!value}>
           없음
-        </SwatchButton>
+        </Swatch>
       )}
       {PALETTE.map((color, index) => (
-        <SwatchButton
+        <Swatch
           key={color.hex}
           type="button"
-          variant="ghost"
           size="icon"
           role="radio"
           aria-checked={current === index}
@@ -28,15 +27,18 @@ export function Swatches({ value, onChange, onClear }: { value: string; onChange
           title={color.name}
           onClick={() => onChange(color.hex)}
           selected={current === index}
-        >
-          <SwatchDot style={{ backgroundColor: paletteColor(color.hex) }} />
-        </SwatchButton>
+          color={paletteColor(color.hex)}
+        />
       ))}
       {/* Any other color: the browser's picker, shown filled when the color is not in the palette. */}
-      <PickerSwatch selected={current !== null && current < 0} title="다른 색">
-        <SwatchDot style={current === null || current >= 0 ? { background: WHEEL } : { backgroundColor: paletteColor(value) }} />
-        <PickerSwatchInput aria-label="다른 색" value={value || NO_COLOR_PICKER_DEFAULT} onChange={(event) => onChange(event.target.value)} />
-      </PickerSwatch>
+      <SwatchPicker
+        selected={current !== null && current < 0}
+        title="다른 색"
+        label="다른 색"
+        color={current === null || current >= 0 ? WHEEL : paletteColor(value)}
+        value={value}
+        onValueChange={onChange}
+      />
     </Inline>
   );
 }

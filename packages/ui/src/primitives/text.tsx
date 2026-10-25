@@ -1,8 +1,8 @@
 import { Slot } from "@radix-ui/react-slot"
 import { clsx } from "clsx"
 import type * as React from "react"
-import { type StyleProps, splitStyle, styleVariants } from "../layout/style"
-import type { ElementTag } from "../layout/tags"
+import { type StyleProps, splitStyle, styleVariants } from "./style"
+import type { ElementTag } from "./tags"
 
 type TextVariant = "micro" | "caption" | "body" | "reading" | "title" | "heading" | "label"
 type HeadingVariant = "page" | "page-section" | "section" | "group"

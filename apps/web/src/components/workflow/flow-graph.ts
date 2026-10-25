@@ -96,7 +96,7 @@ export function flowEdges(definition: WorkflowDefinition, { selected, hovered }:
     const branches = all.filter((other) => other.source === edge.source && other.sourceHandle === edge.sourceHandle).length;
     const source = definition.nodes.find((node) => node.id === edge.source);
     const port = source && nodePorts(source).find((item) => item.id === edge.sourceHandle);
-    const tone = edge.sourceHandle === 'error' ? 'var(--destructive)' : ['fail', 'false', 'rejected'].includes(edge.sourceHandle) ? 'var(--warning)' : 'var(--graph-edge)';
+    const tone = edge.sourceHandle === 'error' ? 'var(--stroke-danger)' : ['fail', 'false', 'rejected'].includes(edge.sourceHandle) ? 'var(--stroke-warning)' : 'var(--stroke-graph-edge)';
     return {
       id: edge.id,
       source: edge.source,
@@ -108,7 +108,7 @@ export function flowEdges(definition: WorkflowDefinition, { selected, hovered }:
       markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
       selected: edge.id === selected,
       data: { points: edge.layout?.points, label: port && (branches > 1 ? `${port.label} · 모두 보냄` : port.label), labelPosition: edge.layout?.labelPosition },
-      style: { stroke: edge.id === selected ? 'var(--primary)' : tone, strokeWidth: edge.id === selected || edge.id === hovered ? 3 : 2 },
+      style: { stroke: edge.id === selected ? 'var(--stroke-accent)' : tone, strokeWidth: edge.id === selected || edge.id === hovered ? 3 : 2 },
     };
   });
 }

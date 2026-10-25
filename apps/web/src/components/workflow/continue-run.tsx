@@ -41,7 +41,7 @@ export function ContinueRun({ runId, failed, paused, open: controlledOpen, onOpe
       {!hideTrigger && <DialogTrigger asChild>
         <Button variant={paused ? 'outline' : 'default'}>{paused ? <Play /> : <RotateCcw />} {paused ? '모델 바꿔 재개' : '실패한 줄 다시'}</Button>
       </DialogTrigger>}
-      <Box asChild maxWidthFromSm="lg"><DialogContent aria-describedby={undefined}>
+      <DialogContent aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>{paused ? '모델 바꿔 재개' : '이어서 실행'}</DialogTitle>
         </DialogHeader>
@@ -68,7 +68,7 @@ export function ContinueRun({ runId, failed, paused, open: controlledOpen, onOpe
               changedNote="남은 줄부터"
             />
           )}
-          {plan.isPending && <Box asChild height={24} width="full"><Skeleton /></Box>}
+          {plan.isPending && <Skeleton height="placeholder" width="full" />}
           {plan.isError && <Text as="p" variant="body" tone="danger">{plan.error.message}</Text>}
         </Box>
         {go.isError && <Text as="p" variant="body" tone="danger">{go.error.message}</Text>}
@@ -80,7 +80,7 @@ export function ContinueRun({ runId, failed, paused, open: controlledOpen, onOpe
             <Play /> 이어서 실행
           </Button>
         </DialogFooter>
-      </DialogContent></Box>
+      </DialogContent>
     </Dialog>
   );
 }

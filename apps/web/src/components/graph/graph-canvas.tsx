@@ -1,4 +1,4 @@
-import { Box, CanvasToolbar, GraphCanvasElement, MinimapCanvas, MinimapFrame, SelectionRect } from '@loca/ui';
+import { Box, CanvasToolbar, GraphCanvasElement, GraphMinimap, SelectionRect, CanvasFloat } from '@loca/ui';
 import { paletteIndex } from '@tw/shared';
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode, type Ref } from 'react';
 import { select } from 'd3-selection';
@@ -381,7 +381,7 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
     const view = { minX: -t.x / t.k, minY: -t.y / t.k, maxX: (width - t.x) / t.k, maxY: (height - t.y) / t.k };
     const colors = getCanvasColors();
     const edgeColor = colors.graphEdge;
-    const selectColor = colors.graphSelect;
+    const selectColor = colors.accent;
     const dimmed = focus && focus.size > 0;
     const selectedEdges = selected ? index.adjacent.get(selected) : undefined;
 
@@ -392,7 +392,7 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
     regions.forEach((region) => {
       context.save();
       if (overviewMode) {
-        context.fillStyle = colors.card;
+        context.fillStyle = colors.surface;
         context.strokeStyle = colors.graphNodeLine;
         context.lineWidth = 1 / t.k;
         context.fillRect(region.x - 24, region.y - 24, region.width + 48, region.height + 48);
@@ -404,7 +404,7 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
         context.strokeRect(region.x - 24, region.y - 24, region.width + 48, region.height + 48);
         context.setLineDash([]);
       }
-      context.fillStyle = colors.mutedForeground;
+      context.fillStyle = colors.textMuted;
       context.font = `${13 / Math.max(t.k, 0.05)}px Pretendard, system-ui, sans-serif`;
       // Labels keep their screen size, so zoomed out they are cut to the region's width instead of running into the next one.
       const room = region.width + 48;
@@ -417,7 +417,7 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
     // Loose (hub) edges lie beneath everything else, in a single pass.
     const segments = index.segments;
     if (segments.length) {
-      const muted = colors.mutedForeground;
+      const muted = colors.textMuted;
       const own = selected ? new Set(index.looseByNode.get(selected)) : undefined;
       context.strokeStyle = muted;
       context.lineWidth = Math.max(0.5, 0.75 / t.k);
@@ -457,7 +457,7 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
     if (t.k > 0.08) for (const i of visibleEdges) if (!selectedEdges?.has(String(i)) && !route.has(i)) arrowHead(context, edges[i].points, 8, edgeColor, dimmed ? 0.35 : 1);
     // The emphasised edges (the main route) at full strength, thicker, in the text colour: not the selection's colour.
     if (route.size) {
-      const strong = colors.foreground;
+      const strong = colors.text;
       const shown = visibleEdges.filter((i) => route.has(i) && !selectedEdges?.has(String(i)));
       context.strokeStyle = strong;
       context.lineWidth = Math.max(1.8, 2 / t.k);
@@ -496,15 +496,15 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
         context.globalAlpha = dimmed && !selectedEdges?.has(String(i)) && !route.has(i) ? 0.45 : 1;
         context.beginPath();
         context.roundRect(x, y, w, h, h / 2);
-        context.fillStyle = edge.via ? colors.primarySoft : colors.card;
+        context.fillStyle = edge.via ? colors.accentSoft : colors.surface;
         context.fill();
         context.lineWidth = 1;
-        context.strokeStyle = edge.via ? colors.primary : colors.border;
+        context.strokeStyle = edge.via ? colors.accent : colors.line;
         // A derived edge's label is a summary, not source text: dashed like its line, muted.
         if (edge.derived) context.setLineDash([3, 2]);
         context.stroke();
         context.setLineDash([]);
-        context.fillStyle = edge.via ? colors.primary : colors.mutedForeground;
+        context.fillStyle = edge.via ? colors.accent : colors.textMuted;
         let text = `${edge.via ? '▶ ' : ''}${edge.label}`;
         while (text.length > 2 && context.measureText(text).width > w - 14) text = `${text.slice(0, -2)}…`;
         context.fillText(text, x + 7, y + h / 2 + 0.5);
@@ -514,11 +514,11 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
           const label = labels.join('·');
           context.font = '600 10px Pretendard, system-ui, sans-serif';
           const markerWidth = context.measureText(label).width + 12;
-          context.fillStyle = colors.primary;
+          context.fillStyle = colors.accent;
           context.beginPath();
           context.roundRect(x + w - markerWidth - 2, y - 18, markerWidth, 16, 4);
           context.fill();
-          context.fillStyle = colors.primaryInk;
+          context.fillStyle = colors.onAccentSoft;
           context.fillText(label, x + w - markerWidth + 4, y - 10);
         }
       }
@@ -549,11 +549,11 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
         context.textBaseline = 'middle';
         const markerWidth = context.measureText(label).width + 14;
         const markerHeight = 18;
-        context.fillStyle = colors.primary;
+        context.fillStyle = colors.accent;
         context.beginPath();
         context.roundRect(node.x + node.width - markerWidth, node.y - markerHeight - 3, markerWidth, markerHeight, 5);
         context.fill();
-        context.fillStyle = colors.primaryInk;
+        context.fillStyle = colors.onAccentSoft;
         context.fillText(label, node.x + node.width - markerWidth + 7, node.y - markerHeight / 2 - 3);
         context.textBaseline = 'alphabetic';
       }
@@ -569,9 +569,9 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
         for (const [px, py] of Object.values(portsOf(node, direction))) {
           context.beginPath();
           context.arc(px, py, r, 0, Math.PI * 2);
-          context.fillStyle = colors.mutedForeground;
+          context.fillStyle = colors.textMuted;
           context.fill();
-          context.strokeStyle = colors.card;
+          context.strokeStyle = colors.surface;
           context.stroke();
         }
       }
@@ -580,11 +580,11 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
     if (line) {
       const target = nodeAt(line.x, line.y);
       if (target && target.id !== line.from) {
-        context.strokeStyle = colors.primary;
+        context.strokeStyle = colors.accent;
         context.lineWidth = Math.max(2, 2 / t.k);
         context.strokeRect(target.x - 3, target.y - 3, target.width + 6, target.height + 6);
       }
-      context.strokeStyle = colors.primary;
+      context.strokeStyle = colors.accent;
       context.lineWidth = Math.max(1.6, 1.8 / t.k);
       context.setLineDash([6 / t.k, 4 / t.k]);
       context.beginPath();
@@ -598,12 +598,12 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
         const cx = region.x + region.width / 2, cy = region.y + region.height / 2;
         const size = 15 / t.k;
         context.textAlign = 'center';
-        context.fillStyle = colors.foreground;
+        context.fillStyle = colors.text;
         context.font = `600 ${size}px Pretendard, system-ui, sans-serif`;
         let label = region.label;
         while (label.length > 1 && context.measureText(label).width > region.width + 40) label = `${label.slice(0, -2)}…`;
         context.fillText(label, cx, cy);
-        context.fillStyle = colors.mutedForeground;
+        context.fillStyle = colors.textMuted;
         context.font = `${12 / t.k}px Pretendard, system-ui, sans-serif`;
         context.fillText(`노드 ${regionCounts[i].toLocaleString()}개`, cx, cy + size * 1.4);
         context.textAlign = 'start';
@@ -653,7 +653,7 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
     context.drawImage(overview.image, 0, 0);
     const t = transform.current;
     const s = overview.scale;
-    context.strokeStyle = getCanvasColors().graphSelect;
+    context.strokeStyle = getCanvasColors().accent;
     context.lineWidth = 1.5;
     context.strokeRect(overview.offX + ((-t.x / t.k) - index.bounds.minX) * s, overview.offY + ((-t.y / t.k) - index.bounds.minY) * s, (width / t.k) * s, (height / t.k) * s);
   };
@@ -976,29 +976,27 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
       />
       {box && <SelectionRect style={box} />}
       {toolbar && (
-        <Box key={toolbar.id} ref={toolbarBox} position="absolute" top={0} left={0} zIndex={20} opacity={0}>
+        <CanvasFloat key={toolbar.id} ref={toolbarBox}>
           {toolbar.content}
-        </Box>
+        </CanvasFloat>
       )}
       {anchor && (
-        <Box ref={anchorBox} position="absolute" top={0} left={0} zIndex={20} opacity={0}>
+        <CanvasFloat ref={anchorBox}>
           {anchor.content}
-        </Box>
+        </CanvasFloat>
       )}
       {minimapOpen && (
-        <MinimapFrame>
-          <MinimapCanvas
-            ref={minimap}
-            aria-label="미니맵"
-            onClick={(event) => {
-              const rect = event.currentTarget.getBoundingClientRect();
-              const x = (event.clientX - rect.left - overview.offX) / overview.scale + index.bounds.minX;
-              const y = (event.clientY - rect.top - overview.offY) / overview.scale + index.bounds.minY;
-              const k = transform.current.k;
-              animateTo(zoomIdentity.translate(width / 2 - x * k, height / 2 - y * k).scale(k));
-            }}
-          />
-        </MinimapFrame>
+        <GraphMinimap
+          ref={minimap}
+          aria-label="미니맵"
+          onClick={(event) => {
+            const rect = event.currentTarget.getBoundingClientRect();
+            const x = (event.clientX - rect.left - overview.offX) / overview.scale + index.bounds.minX;
+            const y = (event.clientY - rect.top - overview.offY) / overview.scale + index.bounds.minY;
+            const k = transform.current.k;
+            animateTo(zoomIdentity.translate(width / 2 - x * k, height / 2 - y * k).scale(k));
+          }}
+        />
       )}
       {/* The same canvas toolbar as the other graphs: zoom, fit, 가로·세로, minimap. */}
       <CanvasToolbar
@@ -1018,22 +1016,22 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
 }
 
 function drawHub(context: CanvasRenderingContext2D, node: LayoutNode, hub: HubInfo, options: { selected: boolean; selectColor: string; detailed: boolean; k: number; colors: ReturnType<typeof getCanvasColors> }) {
-  const muted = options.colors.muted;
-  const mutedForeground = options.colors.mutedForeground;
+  const muted = options.colors.sunken;
+  const textMuted = options.colors.textMuted;
   context.beginPath();
   context.roundRect(node.x, node.y, node.width, node.height, node.height / 2);
   context.fillStyle = muted;
   context.fill();
   if (options.selected || options.detailed) {
     context.lineWidth = options.selected ? Math.max(2.5, 2.5 / options.k) : 1;
-    context.strokeStyle = options.selected ? options.selectColor : mutedForeground;
+    context.strokeStyle = options.selected ? options.selectColor : textMuted;
     context.setLineDash(options.selected ? [] : [4, 3]);
     context.stroke();
     context.setLineDash([]);
   }
   if (options.detailed) {
     context.save();
-    context.fillStyle = mutedForeground;
+    context.fillStyle = textMuted;
     context.font = '12px Pretendard, system-ui, sans-serif';
     context.textAlign = 'center';
     context.textBaseline = 'middle';
@@ -1074,17 +1072,17 @@ function arrowHead(context: CanvasRenderingContext2D, points: number[], size: nu
 
 function drawLabel(context: CanvasRenderingContext2D, meta: NodeInfo, node: LayoutNode, colors: ReturnType<typeof getCanvasColors>) {
   context.save();
-  context.fillStyle = colors.foreground;
+  context.fillStyle = colors.text;
   if (meta.kind === 'choice') {
     // A choice: its text in the pill, after the play mark.
     context.beginPath();
     context.rect(node.x + 14, node.y + 4, node.width - 28, node.height - 8);
     context.clip();
     context.font = '500 11px Pretendard, system-ui, sans-serif';
-    context.fillStyle = colors.primary;
+    context.fillStyle = colors.accent;
     context.fillText('▶ 선택지', node.x + 22, node.y + 22);
     context.font = '600 13px Pretendard, system-ui, sans-serif';
-    context.fillStyle = colors.primaryInk;
+    context.fillStyle = colors.onAccentSoft;
     context.fillText(meta.body ?? meta.preview ?? meta.label ?? '', node.x + 22, node.y + 40);
   } else if (meta.kind === 'script' || meta.kind === 'scene' || meta.kind === 'chain') {
     context.beginPath();
@@ -1097,18 +1095,18 @@ function drawLabel(context: CanvasRenderingContext2D, meta: NodeInfo, node: Layo
     }
     context.fillText(meta.title ?? (meta.kind === 'scene' || meta.kind === 'chain' ? (meta.label ?? meta.key) : meta.key), node.x + 12, node.y + 23);
     context.font = '14px Pretendard, system-ui, sans-serif';
-    context.fillStyle = colors.mutedForeground;
+    context.fillStyle = colors.textMuted;
     wrapText(context, meta.body ?? meta.preview ?? meta.label ?? '', node.x + 12, node.y + 44, node.width - 24, 18, 2);
   } else if (meta.kind === 'portal') {
     // Section stand-in: the name sits inside the box.
     context.font = '11px Pretendard, system-ui, sans-serif';
     context.textAlign = 'center';
-    context.fillStyle = colors.mutedForeground;
+    context.fillStyle = colors.textMuted;
     context.fillText(meta.label ?? '', node.x + node.width / 2, node.y + node.height / 2 + 4);
   } else if (node.width > 40) {
     context.font = '11px Pretendard, system-ui, sans-serif';
     context.textAlign = 'center';
-    context.fillStyle = colors.foreground;
+    context.fillStyle = colors.text;
     const text = meta.label ?? meta.kind;
     context.fillText(text.length > 18 ? `${text.slice(0, 17)}…` : text, node.x + node.width / 2, node.y + node.height + 13);
   }

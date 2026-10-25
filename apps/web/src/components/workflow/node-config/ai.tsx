@@ -1,12 +1,12 @@
 /** AI node settings, grouped by the user's task: model, instruction, output, advanced. */
 import { useEffect, useState } from 'react';
 import { AI_OUTPUTS, AI_SCOPES, CONTEXT_FIELDS, CHOICE_SOURCES, CONNECTION_KIND_INFO, BATCH_MODE_LABELS, autoBudgets, contextConfigSchema, INPUT_TYPES, limitsFor, nodeName, previousSteps, type WorkflowSubject, type AiOutput, type AiScope, type BatchConfig, type Capability, type ChoiceSource, type WorkflowNode } from '@tw/shared';
-import { Box, Button, HelpTip, Inline, Input, LargeDialog, NumberInput, SelectField, SelectItem, Stack, Text, Textarea, InspectorSection } from '@loca/ui';
+import { Box, Button, Dialog, DialogContent, DialogHeader, DialogTitle, HelpTip, Inline, Input, NumberInput, SelectField, SelectItem, Stack, Text, Textarea, Section, Field } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
 import { ModelPicker } from '@/components/model-picker';
 import { JsonFieldsEditor } from '@/components/workflow/node-config/json-fields-editor';
 import { numberOrNull } from '@/lib/form-values';
-import { Field, CheckItem, CountRow, StepChips, ToggleRow, outputFieldNames, refsInput, type AiNode, type NodeRefs } from '@/components/workflow/node-config/shared';
+import { CheckItem, CountRow, StepChips, ToggleRow, outputFieldNames, refsInput, type AiNode, type NodeRefs } from '@/components/workflow/node-config/shared';
 
 
 /** Custom choice values, one per line; the text is kept locally so a trailing newline can be typed. */
@@ -16,7 +16,7 @@ function ChoiceValues({ values, onChange }: { values: string[]; onChange: (value
     setText((current) => (current.split('\n').map((item) => item.trim()).filter(Boolean).join('\n') === values.join('\n') ? current : values.join('\n')));
   }, [values]);
   return (
-    <Box asChild minHeight={20} variant="body">
+    <Box asChild minHeight="textarea-sm" variant="body">
       <Textarea
         aria-label="선택지"
         value={text}
@@ -52,7 +52,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
         <ModelPicker need={need} value={config.model} onChange={(model) => set({ model })} />
       </Field>
       <Field label="동시 처리 수" help="AI에 동시에 보내는 요청 수입니다. 늘리면 빨라지지만, API는 요청 한도에 걸리기 쉽고 CLI 연결은 그 수만큼 프로그램이 떠서 컴퓨터가 무거워집니다.">
-        <Box asChild width={28}><NumberInput min={1} max={16} value={config.concurrency} onValueChange={(concurrency) => concurrency !== undefined && set({ concurrency })} /></Box>
+        <Box asChild width="field"><NumberInput min={1} max={16} value={config.concurrency} onValueChange={(concurrency) => concurrency !== undefined && set({ concurrency })} /></Box>
       </Field>
       </>
     );
@@ -60,7 +60,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
 
   return (
     <>
-      <InspectorSection title="지시문" actions={
+      <Section title="지시문" actions={
         <>
           <Button type="button" variant="ghost" size="inline" onClick={() => setExpanded(true)}>크게 열기</Button>
           <AiButton variant="ghost" prompt={`이 AI 노드의 지시문을 ${config.instructions.trim() ? '다듬어줘' : '작성해줘'}.`}>
@@ -68,15 +68,18 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
           </AiButton>
         </>
       }>
-        <Box asChild minHeight={28} variant="body"><Textarea aria-label="지시문" value={config.instructions} onChange={(event) => set({ instructions: event.target.value })} /></Box>
-        <LargeDialog open={expanded} onOpenChange={setExpanded} title={`지시문 · ${nodeName(node)}`}>
-          <Box asChild minHeight={0} grow resize="none" mono variant="body"><Textarea autoFocus aria-label="지시문 크게 편집" value={config.instructions} onChange={(event) => set({ instructions: event.target.value })} /></Box>
-        </LargeDialog>
-      </InspectorSection>
+        <Box asChild minHeight="textarea" variant="body"><Textarea aria-label="지시문" value={config.instructions} onChange={(event) => set({ instructions: event.target.value })} /></Box>
+        <Dialog open={expanded} onOpenChange={setExpanded}>
+          <DialogContent height="dialog">
+            <DialogHeader><DialogTitle>{`지시문 · ${nodeName(node)}`}</DialogTitle></DialogHeader>
+            <Box asChild minHeight={0} grow resize="none" mono variant="body"><Textarea autoFocus aria-label="지시문 크게 편집" value={config.instructions} onChange={(event) => set({ instructions: event.target.value })} /></Box>
+          </DialogContent>
+        </Dialog>
+      </Section>
 
       <AiInputSection node={node} refs={refs} set={set} />
 
-      <InspectorSection title="출력">
+      <Section title="출력">
         <Field label="출력 형태">
           <SelectField value={config.output} onValueChange={(value) => set({ output: value as AiOutput, ...(value !== 'json' && { scope: 'line' as AiScope }) })}>
             {(Object.keys(AI_OUTPUTS) as AiOutput[]).map((output) => <SelectItem key={output} value={output}>{AI_OUTPUTS[output].label}</SelectItem>)}
@@ -107,17 +110,17 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
             <ToggleRow label="‘해당 없음’ 허용" checked={config.choice.allowNone} onChange={(value) => set({ choice: { ...config.choice, allowNone: value } })} />
           </>
         )}
-      </InspectorSection>
+      </Section>
 
-      <InspectorSection title={`문맥 · ${contextOn}개 켬`} defaultOpen={false}>
+      <Section title={`문맥 · ${contextOn}개 켬`} defaultOpen={false}>
         <AiContextFields config={config} set={set} input={input} />
-      </InspectorSection>
+      </Section>
 
-      <InspectorSection title="고급" defaultOpen={false}>
+      <Section title="고급" defaultOpen={false}>
         <>
           {takesTemperature && (
             <Field label="온도">
-              <Box asChild width={28}><NumberInput min={0} max={2} step={0.1} integer={false} optional value={config.temperature} placeholder="기본값" onValueChange={(temperature) => set({ temperature })} /></Box>
+              <Box asChild width="field"><NumberInput min={0} max={2} step={0.1} integer={false} optional value={config.temperature} placeholder="기본값" onValueChange={(temperature) => set({ temperature })} /></Box>
             </Field>
           )}
           <>
@@ -141,10 +144,10 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
             {(config.batch.mode === 'group' || config.batch.mode === 'whole') && (
               <Field
                 label="요청 크기"
-                hint={config.batch.maxTokens === null ? '자동' : '직접 입력'}
+                description={config.batch.maxTokens === null ? '자동' : '직접 입력'}
                 help="요청 한 번에 보내는 원문 양입니다. 클수록 빠르지만 놓치는 내용이 늘어납니다."
               >
-                <Box asChild width={40}>
+                <Box asChild width="field-xl">
                   <Input
                     type="number"
                     min={500}
@@ -163,10 +166,10 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
             )}
           </>
           <Field label="요청 제한 시간 (분)" help="요청 하나의 제한 시간입니다. 넘기면 그 대사들이 오류(시간 초과) 출구로 나갑니다. 다시 보내려면 오류 출구에 재요청 노드를 이으세요.">
-            <Box asChild width={28}><NumberInput min={1} max={240} value={config.timeoutMinutes} onValueChange={(timeoutMinutes) => timeoutMinutes !== undefined && set({ timeoutMinutes })} /></Box>
+            <Box asChild width="field"><NumberInput min={1} max={240} value={config.timeoutMinutes} onValueChange={(timeoutMinutes) => timeoutMinutes !== undefined && set({ timeoutMinutes })} /></Box>
           </Field>
         </>
-      </InspectorSection>
+      </Section>
     </>
   );
 }
@@ -219,7 +222,7 @@ function AiInputSection({ node, refs, set }: { node: AiNode; refs: NodeRefs; set
   const id = (name: string) => `ai-input-${node.id}-${name}`;
   return (
     // Open whenever a step before it returns something, so what it can take in is in sight.
-    <InspectorSection title="입력" defaultOpen={input.previous || steps.length > 0}>
+    <Section title="입력" defaultOpen={input.previous || steps.length > 0}>
       <Box spaceY="normal">
         <CheckItem
           id={id('previous')}
@@ -246,6 +249,6 @@ function AiInputSection({ node, refs, set }: { node: AiNode; refs: NodeRefs; set
           </Box>
         )}
       </Box>
-    </InspectorSection>
+    </Section>
   );
 }

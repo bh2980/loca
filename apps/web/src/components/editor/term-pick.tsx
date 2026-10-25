@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Box, Button, EditorTermPopover, GroupHeading, Input, Popover, PopoverAnchor, Stack, Text } from '@loca/ui';
+import { Box, Button, EditorTermPopover, Input, Popover, PopoverAnchor, Stack, Text, SectionHeading } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { selectionInLine } from './translation-input';
@@ -53,7 +53,7 @@ export function TermPick({ projectId, unitId, children }: { projectId: string; u
                 if (pick.source.trim()) add.mutate(pick);
               }}
             >
-              <GroupHeading>용어로 추가</GroupHeading>
+              <SectionHeading level="group">용어로 추가</SectionHeading>
               <Input aria-label="원문" value={pick.source} onChange={(event) => setPick({ ...pick, source: event.target.value })} />
               <Input aria-label="번역어" placeholder="번역어" value={pick.target} autoFocus onChange={(event) => setPick({ ...pick, target: event.target.value })} />
               {existing && (

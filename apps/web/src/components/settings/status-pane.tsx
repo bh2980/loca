@@ -1,7 +1,7 @@
 /** Right-hand pane to add or edit one status. */
 import { Trash2 } from 'lucide-react';
 import { DEFAULT_STATUS_COLOR } from '@tw/shared';
-import { InspectorSection, InspectorField, InspectorFields, InspectorToggle, InspectorHeader, InspectorBlock, Inspector, Button, FullSelectTrigger, Input, Select, SelectContent, SelectItem, SelectValue } from '@loca/ui';
+import { InspectorToggle, InspectorHeader, Inspector, Button, Input, Select, SelectContent, SelectItem, SelectValue, SelectTrigger, Section, Field, Box } from '@loca/ui';
 import { STATUS_KIND } from '@/lib/labels';
 import { changedFields, useFormFrom } from '@/lib/use-form-from';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
@@ -38,20 +38,20 @@ export function StatusPane({
           {status ? '저장' : '추가'}
         </Button>
       }>
-      {conflicts.length > 0 && <InspectorBlock><ChangedElsewhere fields={conflicts.map((field) => STATUS_FIELD_LABEL[field as keyof StatusForm])} onTakeSaved={takeSaved} onKeepMine={keepMine} /></InspectorBlock>}
-      <InspectorSection title="설정">
-        <InspectorFields>
-          <InspectorField label="이름">
+      {conflicts.length > 0 && <Section><ChangedElsewhere fields={conflicts.map((field) => STATUS_FIELD_LABEL[field as keyof StatusForm])} onTakeSaved={takeSaved} onKeepMine={keepMine} /></Section>}
+      <Section title="설정">
+        <Box spaceY="normal">
+          <Field label="이름">
             <Input value={form.name} placeholder="새 상태 이름" onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} />
-          </InspectorField>
-          <InspectorField label="색상">
+          </Field>
+          <Field label="색상">
             <Swatches value={form.color} onChange={(color) => setForm((current) => ({ ...current, color }))} />
-          </InspectorField>
-          <InspectorField label="종류">
+          </Field>
+          <Field label="종류">
             <Select value={form.kind} onValueChange={(kind) => setForm((current) => ({ ...current, kind: kind as Kind }))}>
-              <FullSelectTrigger aria-label="종류">
+              <SelectTrigger width="full" aria-label="종류">
                 <SelectValue />
-              </FullSelectTrigger>
+              </SelectTrigger>
               <SelectContent>
                 {(Object.keys(STATUS_KIND) as Kind[]).map((kind) => (
                   <SelectItem key={kind} value={kind}>
@@ -60,10 +60,10 @@ export function StatusPane({
                 ))}
               </SelectContent>
             </Select>
-          </InspectorField>
+          </Field>
           <InspectorToggle label="검토함" help="이 상태인 대사를 검토함 목록에 모읍니다." checked={form.inReview} onChange={(inReview) => setForm((current) => ({ ...current, inReview }))} />
-        </InspectorFields>
-      </InspectorSection>
+        </Box>
+      </Section>
     </Inspector>
   );
 }

@@ -1,0 +1,28 @@
+/* Compact markdown for chat replies and document bodies (Markdown). Imported by the app's index.css and by Storybook. */
+@layer components {
+  .prose-markdown {
+    @apply leading-relaxed break-words;
+  }
+  .prose-markdown > * + * {
+    @apply mt-2;
+  }
+  .prose-markdown h1, .prose-markdown h2, .prose-markdown h3 {
+    @apply mt-3 font-semibold;
+  }
+  .prose-markdown h1 { @apply text-base; }
+  .prose-markdown h2, .prose-markdown h3 { @apply text-sm; }
+  .prose-markdown ul { @apply list-disc pl-5; }
+  .prose-markdown ol { @apply list-decimal pl-5; }
+  .prose-markdown li + li { @apply mt-0.5; }
+  .prose-markdown code { @apply rounded bg-sunken px-1 py-0.5 font-mono text-[0.85em]; }
+  .prose-markdown pre { @apply overflow-x-auto rounded-md bg-sunken p-2; }
+  .prose-markdown pre code { @apply bg-transparent p-0; }
+  .prose-markdown a { @apply underline underline-offset-2; }
+  .prose-markdown blockquote { @apply border-l-2 pl-3 text-muted; }
+  .prose-markdown table { @apply w-full border-collapse text-xs; }
+  .prose-markdown th { @apply bg-sunken/60 px-2 py-1 text-left font-medium whitespace-nowrap; }
+  .prose-markdown td { @apply border-t px-2 py-1 align-top; }
+  .prose-markdown hr { @apply my-3 border-default; }
+  .prose-markdown input[type='checkbox'] { @apply mr-1 align-middle; }
+  .prose-markdown ul.contains-task-list { @apply list-none pl-1; }
+}

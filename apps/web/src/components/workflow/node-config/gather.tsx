@@ -1,7 +1,7 @@
 /** 모으기: waits for every request of the step before it and passes their results on as one combined result. */
 import { previousSteps } from '@tw/shared';
-import { Stack, Text } from '@loca/ui';
-import { CheckItem, Field, StepChips, outputFieldNames, type NodeRefs } from '@/components/workflow/node-config/shared';
+import { Stack, Text, Field } from '@loca/ui';
+import { CheckItem, StepChips, outputFieldNames, type NodeRefs } from '@/components/workflow/node-config/shared';
 import type { WorkflowNode } from '@tw/shared';
 
 type GatherNode = Extract<WorkflowNode, { type: 'gather' }>;
@@ -18,7 +18,7 @@ export function GatherConfig({ node, refs, onChange }: { node: GatherNode; refs:
         <StepChips steps={steps} refs={refs} suffix="의 결과" />
       </Field>
       {steps.length > 0 && names.length > 0 && (
-        <Field label="남길 항목" hint="아무것도 고르지 않으면 전부 모읍니다.">
+        <Field label="남길 항목" description="아무것도 고르지 않으면 전부 모읍니다.">
           <Stack direction="row" wrap gapX="comfortable" gapY="condensed">
             {names.map((name) => (
               <CheckItem key={name} id={`gather-${node.id}-${name}`} label={name} checked={node.config.fields.includes(name)} onChange={(on) => set({ fields: on ? [...node.config.fields, name] : node.config.fields.filter((field) => field !== name) })} />

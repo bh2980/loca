@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { isUnsureListener, listenerLabel, type ListenerOrigin, SPECIAL_LISTENERS } from '@tw/shared';
-import { ScriptInlineListenerTrigger, ScriptInput, ScriptSelectTrigger, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectValue, Text } from '@loca/ui';
+import { Input, ScriptInlineListenerTrigger, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue, Text } from '@loca/ui';
 
 const LISTENER_ORIGIN_LABELS: Record<ListenerOrigin, string> = { import: '가져오기', ai: 'AI 추정', human: '사람' };
 const TYPE_NAME = '__type';
@@ -33,8 +33,9 @@ export function ListenerPicker({ line, cast, onPick, inline = false }: {
 
   if (typing !== null)
     return (
-      <ScriptInput
-        place={inline ? 'inlineName' : 'name'}
+      <Input
+        size={inline ? 'xs' : 'sm'}
+        width={inline ? 'field-lg' : 'field-xl'}
         autoFocus
         value={typing}
         onChange={(event) => setTyping(event.target.value)}
@@ -61,9 +62,9 @@ export function ListenerPicker({ line, cast, onPick, inline = false }: {
             label={value === '-' ? '청자 미상' : listenerLabel(value)}
           />
         ) : (
-          <ScriptSelectTrigger size="sm" width="field" aria-label="청자">
+          <SelectTrigger width="field-xl" aria-label="청자">
             <SelectValue />
-          </ScriptSelectTrigger>
+          </SelectTrigger>
         )}
         {/* Inline, the default item-aligned placement lands off screen; open below the text instead. */}
         <SelectContent {...(inline && { position: 'popper' as const, align: 'start' as const })}>

@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation } from '@tanstack/react-router';
 import { ArrowUp, Check, ChevronRight, ImageOff, Paperclip, Pencil, Plus, Square, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AssistantMessage, Box, Button, ChatMarkdown, CompactionNotice as CompactionNoticeView, ComposerInput, ComposerMenu, ErrorNotice, Icon, ImageChip, Inline, MessageActionBar, SectionHeading, SentImage, Spinner, Stack, SteerBubble as SteerBubbleView, Text, Tooltip, TooltipContent, TooltipTrigger, UserMessage } from '@loca/ui';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AssistantMessage, Box, Button, Markdown, CompactionNotice as CompactionNoticeView, ComposerInput, ComposerMenu, Icon, Notice, ImageChip, Inline, MessageActionBar, SectionHeading, SentImage, Spinner, Stack, SteerBubble as SteerBubbleView, Text, Tooltip, TooltipContent, TooltipTrigger, UserMessage } from '@loca/ui';
 import { CopyButton } from '@/components/copy-button';
 import { Elapsed } from '@/components/job-progress';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
@@ -495,7 +495,7 @@ function ChatBody({ projectId, sessionId, initial, turn, usage, compaction, pend
               <AssistantMessage key={message.id}>
                 {message.parts.map((part, index) => {
                   if (part.type === 'text')
-                    return <ChatMarkdown key={index}>{part.text}</ChatMarkdown>;
+                    return <Markdown key={index}>{part.text}</Markdown>;
                   if (part.type === 'data-steer') {
                     const data = (part as { data: { text: string; kind?: string } }).data;
                     return data.kind === 'decisions' ? <DecisionNotice key={index} text={data.text} /> : <SteerBubble key={index} text={data.text} />;
@@ -530,11 +530,11 @@ function ChatBody({ projectId, sessionId, initial, turn, usage, compaction, pend
           )}
           {!busy && !error && lastMessage?.role === 'user' && <TurnState turn={turn} onStop={halt} onRetry={() => void regenerate()} canRetry={ready} />}
           {stalled && (
-            <Inline gap="condensed" radius="md" border="all" background="muted" paddingX="normal" paddingY="condensed" variant="body">
+            <Inline gap="condensed" radius="md" border="all" background="sunken" paddingX="normal" paddingY="condensed" variant="body">
               <Text tone="muted">{finishReason === 'length' ? '모델의 출력 한도에 걸려 멈췄습니다.' : '에이전트가 결과를 말하지 않고 멈췄습니다.'}</Text>
             </Inline>
           )}
-          {error && <ErrorNotice>{error.message}</ErrorNotice>}
+          {error && <Notice tone="danger" as="p">{error.message}</Notice>}
         </Box>
       </Box>
 
@@ -545,7 +545,7 @@ function ChatBody({ projectId, sessionId, initial, turn, usage, compaction, pend
         </AlertDialogContent>
       </AlertDialog>
 
-      <Box shrink={false} border="top" background="background" padding="condensed">
+      <Box shrink={false} border="top" background="page" padding="condensed">
         {run && (
           <Inline wrap marginBottom="snug" gap="tight" aria-label="실행 대상">
             <Text variant="caption" weight="medium">/{run.command.name}</Text>
@@ -834,7 +834,7 @@ function ExternalProposals({ projectId }: { projectId: string }) {
   const [open, setOpen] = useState(true);
   if (!pending.length) return null;
   return (
-    <Box maxHeight="pane" shrink={false} overflow="y" border="bottom" background="background">
+    <Box maxHeight="pane" shrink={false} overflow="y" border="bottom" background="page">
       <Button variant="ghost" size="row" radius="none" paddingX="normal" paddingY="condensed" weight="semibold" onClick={() => setOpen(!open)} aria-expanded={open}>
         <Icon icon={ChevronRight} tone="muted" turn={open} />
         제안 {pending.length.toLocaleString()}개 대기 중
@@ -860,7 +860,7 @@ function TurnState({ turn, onStop, onRetry, canRetry }: { turn: Turn | null; onS
     const rounds = Number(/도구 결과 후 (\d+)/.exec(turn.call?.label ?? '')?.[1] ?? 0);
     const step = turn.call?.status === 'running' ? (rounds ? `도구 결과를 받고 이어서 쓰는 중 (${rounds + 1}번째 요청)` : '답을 쓰는 중') : '도구를 쓰는 중';
     return (
-      <Inline gap="condensed" radius="md" border="all" background="muted" paddingX="normal" paddingY="condensed" variant="body" tone="muted">
+      <Inline gap="condensed" radius="md" border="all" background="sunken" paddingX="normal" paddingY="condensed" variant="body" tone="muted">
         <Spinner />
         <Text minWidth={0} grow>
           {step} · <Elapsed since={new Date(turn.startedAt)} />
@@ -873,7 +873,7 @@ function TurnState({ turn, onStop, onRetry, canRetry }: { turn: Turn | null; onS
   }
   const reason = turn?.call?.status === 'failed' ? turn.call.error : null;
   return (
-    <Inline gap="condensed" radius="md" border="all" background="muted" paddingX="normal" paddingY="condensed" variant="body">
+    <Inline gap="condensed" radius="md" border="all" background="sunken" paddingX="normal" paddingY="condensed" variant="body">
       <Text minWidth={0} grow tone="muted">
         답을 받지 못했습니다.
         <Text display="block" variant="caption">{reason ?? '답이 끝나기 전에 끊겼습니다.'}</Text>

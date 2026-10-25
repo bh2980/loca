@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { FileUp } from 'lucide-react';
-import { Box, Button, Dialog, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, FieldRow, FileDropZone, ImportDialogContent, ImportSummaryRows, Inline, Spinner, Text } from '@loca/ui';
+import { Box, Button, Dialog, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, FileDropZone, Inline, Spinner, Text, DialogContent, KeyValue, KeyValueRow } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 
 type Validation = Awaited<ReturnType<typeof validate>>;
@@ -51,7 +51,7 @@ export function ImportProjectDialog({ trigger }: { trigger?: React.ReactNode }) 
           </Button>
         )}
       </DialogTrigger>
-      <ImportDialogContent aria-describedby={undefined}>
+      <DialogContent aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>새 프로젝트 가져오기</DialogTitle>
         </DialogHeader>
@@ -66,7 +66,7 @@ export function ImportProjectDialog({ trigger }: { trigger?: React.ReactNode }) 
         )}
         {result && 'parseError' in result && <Text as="p" variant="body" tone="danger">JSON을 읽지 못했습니다: {result.parseError}</Text>}
         {result && 'issues' in result && !result.ok && (
-          <Box maxHeight={56} overflow="auto" radius="md" border="all" background="muted" padding="normal" variant="body">
+          <Box maxHeight="scroll" overflow="auto" radius="md" border="all" background="sunken" padding="normal" variant="body">
             <Text as="p" marginBottom="condensed" weight="semibold" tone="danger">형식 오류 {result.issues.length}개 — 아무것도 저장하지 않았습니다.</Text>
             <Box as="ul" spaceY="tight" mono>
               {result.issues.map((issue, index) => (
@@ -78,8 +78,8 @@ export function ImportProjectDialog({ trigger }: { trigger?: React.ReactNode }) 
           </Box>
         )}
         {result && 'summary' in result && result.ok && (
-          <ImportSummaryRows>
-            <FieldRow label="프로젝트">{result.summary.name}</FieldRow>
+          <KeyValue align="start" framed>
+            <KeyValueRow label="프로젝트">{result.summary.name}</KeyValueRow>
             {(
               [
                 ['장면·그룹', result.summary.groups],
@@ -92,14 +92,14 @@ export function ImportProjectDialog({ trigger }: { trigger?: React.ReactNode }) 
                 ['번역 제외로 보이는 원문', result.summary.excluded],
               ] as const
             ).map(([label, value]) => (
-              <FieldRow key={label} label={label}>
+              <KeyValueRow key={label} label={label}>
                 <Text tabular>{value.toLocaleString()}</Text>
-              </FieldRow>
+              </KeyValueRow>
             ))}
-          </ImportSummaryRows>
+          </KeyValue>
         )}
         {result && 'warnings' in result && result.ok && result.warnings.length > 0 && (
-          <Box as="ul" maxHeight={40} spaceY="tight" overflow="auto" radius="md" border="all" padding="normal" variant="body">
+          <Box as="ul" maxHeight="scroll-sm" spaceY="tight" overflow="auto" radius="md" border="all" padding="normal" variant="body">
             {result.warnings.map((warning) => (
               <li key={warning.message}>
                 <Text tone="warning">{warning.message}</Text>
@@ -116,7 +116,7 @@ export function ImportProjectDialog({ trigger }: { trigger?: React.ReactNode }) 
             {create.isPending && <Spinner />} 프로젝트 만들기
           </Button>
         </DialogFooter>
-      </ImportDialogContent>
+      </DialogContent>
     </Dialog>
   );
 }

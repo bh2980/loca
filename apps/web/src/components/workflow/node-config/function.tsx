@@ -3,13 +3,13 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Play, Plus, Trash2 } from 'lucide-react';
 import { APPLY_FUNCTION_NAMES, APPLY_TARGETS, ISSUE_KIND_IDS, ISSUE_KINDS, issueKindOf, TAG_ACTIONS, tagLinesParams, fieldsFromSample, httpParams, nodeOutputFields, applyIssues, DEFAULT_PARTICLE_PATTERN, formatPatternError, FUNCTIONS, functionTakes, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, JSON_FIELD_TYPE_LABELS, nodeName, PALETTE_FUNCTION_NAMES, previousSteps, type ApplyField, type ApplyFunctionName, type ApplyParams, type IssueKind, type TagAction, type TagLinesParams, type CustomFormatRule, type JsonFieldType, type WorkflowDefinition, type FunctionName, type JsonField, type WorkflowNode } from '@tw/shared';
-import { Box, Button, Grid, Inline, Input, NumberInput, InspectorActionRow, InspectorFields, InspectorList, InspectorResult, InspectorToggle, Select, SelectContent, SelectField, SelectItem, SelectTrigger, SelectValue, Stack, Textarea, StatusIcon, TagToggle, Text } from '@loca/ui';
+import { Box, Button, Inline, Input, NumberInput, InspectorActionRow, InspectorList, InspectorResult, InspectorToggle, Select, SelectContent, SelectField, SelectItem, SelectTrigger, SelectValue, Stack, Textarea, StatusIcon, TagToggle, Text, ListItem, Field } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
 import { AiConfirmNote } from '@/components/settings/ai-confirm';
 import { AiRegexInput } from '@/components/ai-regex-input';
 import { client, unwrap } from '@/lib/api';
 import { JsonFieldsEditor } from '@/components/workflow/node-config/json-fields-editor';
-import { Field, StepChips, ToggleRow, refsInput, type FunctionNode, type NodeRefs } from '@/components/workflow/node-config/shared';
+import { StepChips, ToggleRow, refsInput, type FunctionNode, type NodeRefs } from '@/components/workflow/node-config/shared';
 
 // ── function node ─────────────────────────────────────────────────────
 
@@ -46,7 +46,7 @@ export function FunctionConfig({ node, refs, readOnly, onChange }: { node: Funct
   };
 
   return (
-    <InspectorFields>
+    <Box spaceY="normal">
       <Field label="함수">
         <SelectField
           value={fn}
@@ -64,11 +64,11 @@ export function FunctionConfig({ node, refs, readOnly, onChange }: { node: Funct
       </Field>
       {renderBody()}
       {info.async && (
-        <Field label="동시 처리 수" hint="1~8개." help="이 노드가 동시에 보내는 호출 수입니다. 늘리면 빨라지지만, 받는 쪽이 요청 한도에 걸리기 쉽습니다.">
-          <Box asChild width={28}><NumberInput min={1} max={8} value={node.config.concurrency} onValueChange={(concurrency) => concurrency !== undefined && onChange({ ...node, config: { ...node.config, concurrency } })} /></Box>
+        <Field label="동시 처리 수" description="1~8개." help="이 노드가 동시에 보내는 호출 수입니다. 늘리면 빨라지지만, 받는 쪽이 요청 한도에 걸리기 쉽습니다.">
+          <Box asChild width="field"><NumberInput min={1} max={8} value={node.config.concurrency} onValueChange={(concurrency) => concurrency !== undefined && onChange({ ...node, config: { ...node.config, concurrency } })} /></Box>
         </Field>
       )}
-    </InspectorFields>
+    </Box>
   );
 }
 
@@ -109,7 +109,7 @@ function FormatCheckConfig({ params, refs, set }: { params: Record<string, unkno
       <InspectorToggle label="변수 뒤 조사" help="치환자 바로 뒤의 조사(이/가, 을/를 등)가 맞는지 봅니다." checked={Boolean(params.particles)} onChange={(value) => set('particles', value)} />
 
       {Boolean(params.particles) && (
-        <Field label="조사 정규식" hint="비우면 기본 패턴을 씁니다.">
+        <Field label="조사 정규식" description="비우면 기본 패턴을 씁니다.">
           <Box asChild mono variant="caption">
             <Input
               placeholder={DEFAULT_PARTICLE_PATTERN}
@@ -122,12 +122,12 @@ function FormatCheckConfig({ params, refs, set }: { params: Record<string, unkno
       )}
 
       {LENGTH_LIMITS.map(({ key, label, step }) => (
-        <Field key={key} label={label} hint="비우면 확인하지 않습니다.">
+        <Field key={key} label={label} description="비우면 확인하지 않습니다.">
           <NumberInput min={0} step={step} integer={step >= 1} optional placeholder="끔" value={(params[key] as number) || undefined} onValueChange={(next) => set(key, next ?? 0)} />
         </Field>
       ))}
 
-      <Field label="금칙어" hint="쉼표로 구분합니다." help="번역에 이 말이 들어 있으면 검사에 걸립니다.">
+      <Field label="금칙어" description="쉼표로 구분합니다." help="번역에 이 말이 들어 있으면 검사에 걸립니다.">
         <Input value={(params.forbiddenWords as string) ?? ''} placeholder="예: 암튼, 대충" onChange={(event) => set('forbiddenWords', event.target.value)} />
       </Field>
 
@@ -148,11 +148,11 @@ function FormatCheckConfig({ params, refs, set }: { params: Record<string, unkno
               {customRules.map((rule, index) => {
                 const err = rule.pattern.trim() ? formatPatternError(rule.pattern) : '패턴을 입력하세요.';
                 return (
-                  <Box as="li" key={index} spaceY="snug" paddingY="cozy" trimEnds>
+                  <ListItem key={index} spaceY="snug" paddingY="cozy">
                     <Inline gap="snug">
                       <Box asChild grow><Input aria-label="규칙 이름" placeholder="예: 영어 잔존 금지" value={rule.label} onChange={(event) => updateRule(index, { label: event.target.value })} /></Box>
                       <Select value={rule.kind} onValueChange={(value) => updateRule(index, { kind: value as CustomFormatRule['kind'] })}>
-                        <Box asChild width={24} shrink={false}><SelectTrigger aria-label="규칙 종류">
+                        <Box asChild width="field-sm" shrink={false}><SelectTrigger aria-label="규칙 종류">
                           <SelectValue />
                         </SelectTrigger></Box>
                         <SelectContent>
@@ -169,12 +169,12 @@ function FormatCheckConfig({ params, refs, set }: { params: Record<string, unkno
                     </Inline>
                     <Box asChild mono variant="caption"><Input aria-label="패턴" placeholder="예: [A-Za-z]{4,}" value={rule.pattern} spellCheck={false} onChange={(event) => updateRule(index, { pattern: event.target.value })} /></Box>
                     {err && <Text as="p" variant="caption" tone="danger">{err}</Text>}
-                  </Box>
+                  </ListItem>
                 );
               })}
             </InspectorList>
           )}
-          <Button type="button" variant="ghost" marginLeft="-condensed" tone="muted" onClick={addRule}>
+          <Button type="button" variant="ghost" flush="start" tone="muted" onClick={addRule}>
             <Plus /> 규칙
           </Button>
         </Box>
@@ -189,7 +189,7 @@ function SetStatusConfig({ params, refs, set, setMany }: { params: Record<string
     <>
       <Field
         label="바꿀 상태"
-        hint={refs.statuses.find((status) => status.id === params.statusId)?.humanOnly ? '워크플로가 지정하지 않는 상태 → 실행하면 검토함으로 갑니다.' : '고르지 않으면 상태는 그대로 두고 태그만 바꿉니다.'}>
+        description={refs.statuses.find((status) => status.id === params.statusId)?.humanOnly ? '워크플로가 지정하지 않는 상태 → 실행하면 검토함으로 갑니다.' : '고르지 않으면 상태는 그대로 두고 태그만 바꿉니다.'}>
         <SelectField value={(params.statusId as string) ?? 'keep'} onValueChange={(value) => set('statusId', value === 'keep' ? undefined : value)}>
           <SelectItem value="keep">바꾸지 않음</SelectItem>
           {refsInput(refs) === 'terms'
@@ -202,7 +202,7 @@ function SetStatusConfig({ params, refs, set, setMany }: { params: Record<string
         </SelectField>
       </Field>
       {refs.tags.length > 0 && (
-        <Field label="태그" hint="누르면 + 붙이기, 한 번 더 누르면 − 떼기, 또 누르면 그대로 둡니다.">
+        <Field label="태그" description="누르면 + 붙이기, 한 번 더 누르면 − 떼기, 또 누르면 그대로 둡니다.">
           <Stack direction="row" wrap gap="snug">
             {refs.tags.map((tag) => {
               const on = add.includes(tag.id), off = remove.includes(tag.id);
@@ -266,7 +266,7 @@ function TagLinesConfig({ node, params, refs, setMany }: { node: FunctionNode; p
         </SelectField>
       </Field>
 
-      <Field label="고른 태그" hint={`누르면 ${add ? '붙일' : '뗄'} 태그에 넣고, 한 번 더 누르면 뺍니다.`}>
+      <Field label="고른 태그" description={`누르면 ${add ? '붙일' : '뗄'} 태그에 넣고, 한 번 더 누르면 뺍니다.`}>
         <Stack direction="row" wrap gap="snug">
           {!terms &&
             ISSUE_KIND_IDS.map((kind: IssueKind) => chip(params.kinds.includes(kind) || (!add && params.allKinds), ISSUE_KINDS[kind].name, ISSUE_KINDS[kind].color, () => !params.allKinds && toggle('kinds', kind)))}
@@ -277,7 +277,7 @@ function TagLinesConfig({ node, params, refs, setMany }: { node: FunctionNode; p
 
       <Field
         label="앞 단계 결과의 종류"
-        hint={steps.length ? '고르면 그 필드의 값이 태그 이름입니다. 문제 유형은 이름이나 영문 id(speech)로 씁니다.' : undefined}
+        description={steps.length ? '고르면 그 필드의 값이 태그 이름입니다. 문제 유형은 이름이나 영문 id(speech)로 씁니다.' : undefined}
         help="AI 검수의 categories, 검사의 kind처럼 앞 단계가 알려준 문제 유형으로 태그를 정합니다. 고른 태그와 함께 쓸 수 있습니다."
       >
         {steps.length ? (
@@ -322,7 +322,7 @@ function HttpConfig({ params, refs, set }: { params: Record<string, unknown>; re
       <Field label="주소" help="대사마다 바뀌는 값을 주소에 넣을 수도 있습니다.">
         <Box asChild mono variant="caption"><Input value={params.url as string} placeholder="https://api.example.com/spell" onChange={(event) => set('url', event.target.value)} /></Box>
       </Field>
-      <Field label="API 키" help={tools.length ? '요청에 붙일 인증 정보입니다.' : undefined} hint={tools.length ? undefined : '등록된 API 키가 없습니다. 워크플로 › API 키에서 추가하세요.'}>
+      <Field label="API 키" help={tools.length ? '요청에 붙일 인증 정보입니다.' : undefined} description={tools.length ? undefined : '등록된 API 키가 없습니다. 워크플로 › API 키에서 추가하세요.'}>
         <SelectField value={(params.connectionId as string) || 'none'} onValueChange={(value) => set('connectionId', value === 'none' ? '' : value)}>
           <SelectItem value="none">키 없음</SelectItem>
           {tools.map((tool) => (
@@ -333,12 +333,12 @@ function HttpConfig({ params, refs, set }: { params: Record<string, unknown>; re
         </SelectField>
       </Field>
       {params.method === 'POST' && (
-        <Field label="본문" hint={`대사마다 바뀌는 값: ${PLACEHOLDERS}`}>
-          <Box asChild minHeight={28} mono variant="caption"><Textarea spellCheck={false} value={params.body as string} onChange={(event) => set('body', event.target.value)} /></Box>
+        <Field label="본문" description={`대사마다 바뀌는 값: ${PLACEHOLDERS}`}>
+          <Box asChild minHeight="textarea" mono variant="caption"><Textarea spellCheck={false} value={params.body as string} onChange={(event) => set('body', event.target.value)} /></Box>
         </Field>
       )}
       <HttpFields params={params} projectId={refs.projectId} set={set} />
-      <Field label="제한 시간" hint="초 단위, 1–300.">
+      <Field label="제한 시간" description="초 단위, 1–300.">
         <NumberInput min={1} max={300} value={params.timeoutSeconds as number} onValueChange={(next) => next !== undefined && set('timeoutSeconds', next)} />
       </Field>
     </>
@@ -360,11 +360,11 @@ function HttpFields({ params, projectId, set }: { params: Record<string, unknown
     <>
       <JsonFieldsEditor label="결과 칸" fields={fields} descriptionPlaceholder="설명" onChange={(next) => set('fields', next)} />
       {fields.length > 0 && (
-        <Field label="응답에서 가져올 곳" hint="비우면 칸 이름과 같은 키를 씁니다. 예: result.text">
+        <Field label="응답에서 가져올 곳" description="비우면 칸 이름과 같은 키를 씁니다. 예: result.text">
           <Box spaceY="snug">
             {fields.map((field) => (
               <Inline key={field.name} gap="condensed" variant="caption">
-                <Text width={24} shrink={false} truncate mono>{field.name}</Text>
+                <Text width="field-sm" shrink={false} truncate mono>{field.name}</Text>
                 <Box asChild mono variant="caption"><Input placeholder={field.name} value={paths[field.name] ?? ''} onChange={(event) => set('paths', { ...paths, [field.name]: event.target.value })} /></Box>
               </Inline>
             ))}
@@ -379,7 +379,7 @@ function HttpFields({ params, projectId, set }: { params: Record<string, unknown
           test.isPending ? <InspectorResult tone="pending">호출 중</InspectorResult> : test.data ? (
             <InspectorResult
               tone={test.data.ok ? 'ok' : 'error'}
-              detail={<Box as="pre" maxHeight={64} overflow="auto" preserveLines mono>{test.data.ok ? JSON.stringify(test.data.raw, null, 2) : test.data.error}</Box>}>
+              detail={<Box as="pre" maxHeight="scroll-lg" overflow="auto" preserveLines mono>{test.data.ok ? JSON.stringify(test.data.raw, null, 2) : test.data.error}</Box>}>
               {test.data.ok ? (
                 <Inline as="span" gap="condensed">
                   {test.data.ms}ms
@@ -404,7 +404,7 @@ function ScriptConfig({ params, projectId, readOnly, set }: { params: Record<str
   const sampledScript = test.data?.ok ? fieldsFromSample(test.data.raw) : [];
   return (
     <>
-      <Field label="출구" hint="쉼표로 구분합니다." help="코드가 이 중 하나를 port로 반환하면 그 출구로 나갑니다.">
+      <Field label="출구" description="쉼표로 구분합니다." help="코드가 이 중 하나를 port로 반환하면 그 출구로 나갑니다.">
         <Box asChild mono variant="caption">
           <Input
             value={portsText}
@@ -425,7 +425,7 @@ function ScriptConfig({ params, projectId, readOnly, set }: { params: Record<str
           </AiButton>
         }
         help="격리된 곳에서 돌아갑니다. 네트워크·파일에 접근할 수 없고, 한 번에 2초·32MB까지 씁니다.">
-        <Box asChild minHeight={56} mono variant="caption" leading="relaxed"><Textarea spellCheck={false} value={params.code as string} onChange={(event) => set('code', event.target.value)} /></Box>
+        <Box asChild minHeight="textarea-xl" mono variant="caption" leading="relaxed"><Textarea spellCheck={false} value={params.code as string} onChange={(event) => set('code', event.target.value)} /></Box>
       </Field>
       <JsonFieldsEditor label="출력 필드" fields={fields} descriptionPlaceholder="설명" onChange={(next) => set('fields', next)} />
       {!readOnly && (
@@ -444,7 +444,7 @@ function ScriptConfig({ params, projectId, readOnly, set }: { params: Record<str
               <InspectorResult
                 tone={test.data.ok && test.data.validPort ? 'ok' : 'error'}
                 detail={
-                  <Box as="pre" maxHeight={64} overflow="auto" preserveLines mono>
+                  <Box as="pre" maxHeight="scroll-lg" overflow="auto" preserveLines mono>
                     {test.data.ok ? JSON.stringify(test.data.result, null, 2) : test.data.error}
                     {'\n\n입력:\n'}
                     {JSON.stringify(test.data.input, null, 2)}
@@ -516,7 +516,7 @@ function ApplyConfig({ node, fn, params, refs, setMany }: { node: FunctionNode; 
       </Field>
 
       {from && target.shape === 'list' && (
-        <Field label="목록 필드" hint={lists.length ? undefined : '이 노드에는 ‘목록’ 필드가 없습니다.'}>
+        <Field label="목록 필드" description={lists.length ? undefined : '이 노드에는 ‘목록’ 필드가 없습니다.'}>
           <SelectField value={params.list || 'none'} onValueChange={(value) => pickList(value === 'none' ? '' : value)}>
             <SelectItem value="none">고르지 않음</SelectItem>
             {lists.map((field) => (
@@ -542,7 +542,7 @@ function ApplyConfig({ node, fn, params, refs, setMany }: { node: FunctionNode; 
               const options = rowSources.filter((source) => ACCEPTS[field.type].includes(source.type));
               const value = params.map[field.name];
               return (
-                <Grid as="li" key={field.name} columns="labelAndControl" align="center" gap="condensed" paddingY="condensed" trimEnds>
+                <ListItem layout="grid" key={field.name} columns="labelAndControl" align="center" gap="condensed" paddingY="condensed">
                   <Text minWidth={0} variant="body">
                     {field.label}
                     {field.required && <Text tone="danger"> *<Text srOnly>필수</Text></Text>}
@@ -557,7 +557,7 @@ function ApplyConfig({ node, fn, params, refs, setMany }: { node: FunctionNode; 
                       </SelectItem>
                     ))}
                   </SelectField>
-                </Grid>
+                </ListItem>
               );
             })}
           </InspectorList>

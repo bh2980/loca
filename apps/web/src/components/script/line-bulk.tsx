@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { listenerLabel, SPECIAL_LISTENERS } from '@tw/shared';
-import { TagMenu, Checkbox, EditorAction, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectValue, StatusIcon, Text, TranslationColumnHeader, ScriptInput, ScriptSelectionBar, ScriptSelectTrigger } from '@loca/ui';
+import { TagMenu, Checkbox, EditorAction, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue, StatusIcon, Text, TranslationColumnHeader, Input, SelectionBar } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
 import { lineTags, q } from '@/lib/queries';
@@ -111,14 +111,14 @@ export function LineHeadRow({ projectId, rows, bulk, statusList, tags }: { proje
           source={<span>원문{sourceLanguage && <Text marginLeft="tight" tone="subtle">· {sourceLanguage}</Text>}</span>}
           translation={<span>번역{targetLanguage && <Text marginLeft="tight" tone="subtle">· {targetLanguage}</Text>}</span>}
           selection={picked.size > 0 ? (
-            <ScriptSelectionBar count={picked.size} onClear={stopPicking}>
+            <SelectionBar grow count={picked.size} onClear={stopPicking}>
               <EditorAction icon={Check} variant="outline" disabled={!hasAi || check.isPending} aria-label="AI가 정한 줄을 확인함" onClick={() => check.mutate(pickedByAi)}>
                 확인함{hasAi ? ` ${pickedByAi.length}` : ''}
               </EditorAction>
               <Select value="" onValueChange={(statusId) => setStatus.mutate(statusId)}>
-                <ScriptSelectTrigger size="sm" width="narrow" aria-label="상태 바꾸기">
+                <SelectTrigger width="field-sm" fixed aria-label="상태 바꾸기">
                   <SelectValue placeholder="상태" />
-                </ScriptSelectTrigger>
+                </SelectTrigger>
                 <SelectContent>
                   {statusList.map((item) => (
                     <SelectItem key={item.id} value={item.id}>
@@ -135,15 +135,15 @@ export function LineHeadRow({ projectId, rows, bulk, statusList, tags }: { proje
                 onToggle={(tagId, add) => setTag.mutate({ tagId, add })}
               />
               <Select value="" onValueChange={(value) => setTranslate.mutate(value as 'include' | 'exclude')}>
-                <ScriptSelectTrigger size="sm" width="medium" aria-label="번역 대상 바꾸기">
+                <SelectTrigger width="field" fixed aria-label="번역 대상 바꾸기">
                   <SelectValue placeholder="번역 대상" />
-                </ScriptSelectTrigger>
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="include">번역 대상</SelectItem>
                   <SelectItem value="exclude">제외</SelectItem>
                 </SelectContent>
               </Select>
-            </ScriptSelectionBar>
+            </SelectionBar>
           ) : undefined}
         />
       )}
@@ -162,8 +162,9 @@ function BulkListener({ speakers, cast, onPick }: { speakers: string[]; cast: st
   const rest = cast.filter((name) => !speakers.includes(name));
   if (typing !== null)
     return (
-      <ScriptInput
-        place="bulkName"
+      <Input
+        size="default"
+        width="field-xl"
         autoFocus
         value={typing}
         onChange={(event) => setTyping(event.target.value)}
@@ -181,9 +182,9 @@ function BulkListener({ speakers, cast, onPick }: { speakers: string[]; cast: st
     );
   return (
     <Select value="" onValueChange={(next) => (next === TYPE_NAME ? setTyping('') : onPick(next === '-' ? null : next))}>
-      <ScriptSelectTrigger size="sm" width="narrow" aria-label="청자 바꾸기">
+      <SelectTrigger width="field-sm" fixed aria-label="청자 바꾸기">
         <SelectValue placeholder="청자" />
-      </ScriptSelectTrigger>
+      </SelectTrigger>
       <SelectContent>
         <SelectItem value="-">미상</SelectItem>
         {speakers.length > 0 && (

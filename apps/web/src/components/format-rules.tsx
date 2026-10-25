@@ -3,7 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Plus, Sparkles, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { compileFormatRules, FORMAT_PRESET_IDS, FORMAT_PRESETS, formatPatternError, matchTokens, type FormatRules } from '@tw/shared';
-import { Box, Button, Checkbox, GroupHeading, Icon, Inline, RulesAddButton, RulesCountBadge, RulesInput, RulesKindSelectTrigger, RulesPresetCard, RulesPresetExample, RulesPresetGrid, RulesSampleTextarea, RulesSuggestionPanel, RulesSuggestionRow, Select, SelectContent, SelectItem, SelectValue, SettingsSection, Stack, Text } from '@loca/ui';
+import { Box, Button, Checkbox, Icon, Grid, Inline, Count, RulesPresetCard, RulesPresetExample, Select, SelectContent, SelectItem, SelectValue, Stack, Text, Input, SelectTrigger, Textarea, Section, SectionHeading } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { useFormFrom } from '@/lib/use-form-from';
@@ -71,9 +71,11 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
           <Text weight="medium" tone="default">{preset.label}</Text>
           {detected ? (
             count > 0 ? (
-              <RulesCountBadge endAligned>
-                대본 {count.toLocaleString()}줄
-              </RulesCountBadge>
+              <Box asChild marginLeft="auto">
+                <Count>
+                  대본 {count.toLocaleString()}줄
+                </Count>
+              </Box>
             ) : (
               <Text variant="caption" tone="subtle" marginLeft="auto">미등장</Text>
             )
@@ -85,14 +87,14 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
   };
 
   return (
-    <SettingsSection
+    <Section variant="page"
       title="서식 규칙"
-      headerActions={
+      actions={
         <Button variant="outline" onClick={applyAutoDetect} disabled={!detected || detectQuery.isPending}>
           <Icon icon={Sparkles} size="sm" /> 자동 감지
         </Button>
       }
-      actions={
+      footer={
         <Stack direction="row" gap="condensed">
           <Button disabled={!dirty || invalid || save.isPending} onClick={() => save.mutate()}>
             저장
@@ -109,22 +111,22 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
 
       <Box spaceY="comfortable">
         <Box spaceY="condensed">
-          <GroupHeading>치환자</GroupHeading>
-          <RulesPresetGrid>
+          <SectionHeading level="group">치환자</SectionHeading>
+          <Grid columns="twoFromSm" gap="condensed">
             {placeholderPresets.map(renderPresetCard)}
-          </RulesPresetGrid>
+          </Grid>
         </Box>
 
         <Box spaceY="condensed">
-          <GroupHeading>서식 태그</GroupHeading>
-          <RulesPresetGrid>
+          <SectionHeading level="group">서식 태그</SectionHeading>
+          <Grid columns="twoFromSm" gap="condensed">
             {tagPresets.map(renderPresetCard)}
-          </RulesPresetGrid>
+          </Grid>
         </Box>
       </Box>
 
       <Box spaceY="normal">
-        <GroupHeading>정규식</GroupHeading>
+        <SectionHeading level="group">정규식</SectionHeading>
 
         <AiRegexInput
           projectId={projectId}
@@ -137,28 +139,31 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
         />
 
         {detected?.customCandidates && detected.customCandidates.length > 0 && (
-          <RulesSuggestionPanel>
+          <Box spaceY="condensed" radius="md" border="all" borderColor="default" background="sunkenTint" padding="normal">
             <Inline justify="between">
-              <GroupHeading>추천 규칙</GroupHeading>
+              <SectionHeading level="group">추천 규칙</SectionHeading>
             </Inline>
             <Box spaceY="snug">
               {detected.customCandidates.map((cand) => {
                 const alreadyAdded = draft.custom.some((c) => c.pattern === cand.pattern);
                 return (
-                  <RulesSuggestionRow key={cand.pattern}>
+                  <Inline key={cand.pattern} justify="between" gap="condensed" radius="base" border="all" borderColor="subtle" background="pageTint" paddingX="cozy" paddingY="snug" variant="body">
                     <Inline gap="condensed" minWidth={0} truncate>
                       <Text weight="medium" tone="default">{cand.label}</Text>
                       <Text as="code" mono variant="caption" tone="muted">({cand.pattern})</Text>
-                      <RulesCountBadge>
+                      <Count>
                         대본 {cand.count.toLocaleString()}줄
-                      </RulesCountBadge>
+                      </Count>
                       {cand.examples.length > 0 && (
                         <Text truncate variant="caption" tone="muted">
                           예: {cand.examples.slice(0, 3).join('  ')}
                         </Text>
                       )}
                     </Inline>
-                    <RulesAddButton
+                    <Button
+                      variant="outline"
+                      height="control-xs"
+                      paddingX="condensed"
                       disabled={alreadyAdded}
                       onClick={() => {
                         setDraft((current) => ({
@@ -169,12 +174,12 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
                       }}
                     >
                       {alreadyAdded ? '추가됨' : '+ 추가'}
-                    </RulesAddButton>
-                  </RulesSuggestionRow>
+                    </Button>
+                  </Inline>
                 );
               })}
             </Box>
-          </RulesSuggestionPanel>
+          </Box>
         )}
 
         {draft.custom.map((rule, index) => {
@@ -182,17 +187,17 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
           return (
             <Box key={index} spaceY="tight">
               <Inline gap="condensed">
-                <RulesInput role="name" placeholder="이름" value={rule.label} onChange={(event) => setRule(index, { label: event.target.value })} />
+                <Input width="field-md" placeholder="이름" value={rule.label} onChange={(event) => setRule(index, { label: event.target.value })} />
                 <Select value={rule.kind} onValueChange={(kind) => setRule(index, { kind: kind as 'placeholder' | 'tag' })}>
-                  <RulesKindSelectTrigger>
+                  <SelectTrigger width="field">
                     <SelectValue />
-                  </RulesKindSelectTrigger>
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="placeholder">치환자</SelectItem>
                     <SelectItem value="tag">서식 태그</SelectItem>
                   </SelectContent>
                 </Select>
-                <RulesInput role="pattern" placeholder="예: @[a-z]+@" value={rule.pattern} spellCheck={false} onChange={(event) => setRule(index, { pattern: event.target.value })} />
+                <Box asChild grow><Input mono variant="body" placeholder="예: @[a-z]+@" value={rule.pattern} spellCheck={false} onChange={(event) => setRule(index, { pattern: event.target.value })} /></Box>
                 <Button size="icon" variant="ghost" tone="danger" aria-label="규칙 삭제" onClick={() => setDraft((current) => ({ ...current, custom: current.custom.filter((_, i) => i !== index) }))}>
                   <Trash2 />
                 </Button>
@@ -206,16 +211,16 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
         </Button>
       </Box>
 
-      <Box spaceY="snug" radius="md" background="muted" padding="normal">
-        <GroupHeading>시험</GroupHeading>
-        <RulesSampleTextarea value={sample} onChange={(event) => setSample(event.target.value)} />
+      <Box spaceY="snug" radius="md" background="sunken" padding="normal">
+        <SectionHeading level="group">시험</SectionHeading>
+        <Box asChild minHeight="textarea-xs"><Textarea mono variant="body" value={sample} onChange={(event) => setSample(event.target.value)} /></Box>
         {(['placeholder', 'tag'] as const).map((kind) => (
           <Text as="p" key={kind} variant="body">
             <Text tone="muted">{KIND[kind]}: </Text>
-            {found[kind].length ? found[kind].map((token, i) => <Text as="code" key={i} marginRight="tight" radius="base" background="background" paddingX="tight" paddingY="hair" ring="border">{token}</Text>) : <Text tone="muted">없음</Text>}
+            {found[kind].length ? found[kind].map((token, i) => <Text as="code" key={i} marginRight="tight" radius="base" background="page" paddingX="tight" paddingY="hair" ring="line">{token}</Text>) : <Text tone="muted">없음</Text>}
           </Text>
         ))}
       </Box>
-    </SettingsSection>
+    </Section>
   );
 }

@@ -14,34 +14,31 @@ import {
   type ConnectionKind,
 } from '@tw/shared';
 import {
-  Badge,
+  Chip,
   Box,
   Button,
   type ColumnDef,
   DataTable,
   DirtyBar,
   EmptyState,
-  FullHeightSplitPane,
-  FullSelectTrigger,
   Input,
   Inspector,
   InspectorHeader,
   InspectorActionRow,
-  InspectorField,
-  InspectorFields,
   InspectorResult,
-  InspectorSection,
   Select,
   SelectContent,
   SelectItem,
   SelectValue,
-  SettingsContent,
-  SettingsSection,
   Spinner,
   Stack,
-  TablePanel,
   Text,
   Textarea,
+  SelectTrigger,
+  Section,
+  Field,
+  PageBody,
+  SplitPane,
 } from '@loca/ui';
 import { Page } from '@/components/page';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
@@ -92,7 +89,7 @@ function ConnectionsSettingsPage() {
 
   const aiColumns: ColumnDef<ConnectionRow, unknown>[] = [
     { id: 'name', header: '이름', meta: { hideable: false }, cell: ({ row }) => <Text weight="medium">{row.original.name}</Text> },
-    { id: 'kind', header: '종류', meta: { width: 200, className: 'text-muted-foreground' }, cell: ({ row }) => CONNECTION_KIND_INFO[row.original.kind].label },
+    { id: 'kind', header: '종류', meta: { width: 200, tone: 'muted' }, cell: ({ row }) => CONNECTION_KIND_INFO[row.original.kind].label },
     {
       id: 'state',
       header: '상태',
@@ -102,9 +99,9 @@ function ConnectionsSettingsPage() {
   ];
 
   const keyColumns: ColumnDef<KeyRow, unknown>[] = [
-    { id: 'name', header: '이름', meta: { className: 'font-medium', hideable: false }, cell: ({ row }) => row.original.name },
-    { id: 'header', header: '헤더', meta: { className: 'font-mono text-xs text-muted-foreground' }, cell: ({ row }) => row.original.headerTemplate || '–' },
-    { id: 'key', header: '키', meta: { width: 96 }, cell: ({ row }) => <Badge variant={row.original.hasKey ? 'default' : 'outline'}>{row.original.hasKey ? '저장됨' : '없음'}</Badge> },
+    { id: 'name', header: '이름', meta: { weight: 'medium', hideable: false }, cell: ({ row }) => row.original.name },
+    { id: 'header', header: '헤더', meta: { mono: true, variant: 'caption', tone: 'muted' }, cell: ({ row }) => row.original.headerTemplate || '–' },
+    { id: 'key', header: '키', meta: { width: 96 }, cell: ({ row }) => <Chip variant={row.original.hasKey ? 'solid' : 'outline'}>{row.original.hasKey ? '저장됨' : '없음'}</Chip> },
   ];
 
   const pane = search.conn === 'new' ? (
@@ -117,18 +114,18 @@ function ConnectionsSettingsPage() {
 
   return (
     <Page title="연결" flush>
-      <FullHeightSplitPane id="settings-connections" selectionKey={search.conn ?? search.key} defaultWidth="448px" pane={pane}>
-        <SettingsContent width="wide">
+      <SplitPane fill="height" id="settings-connections" selectionKey={search.conn ?? search.key} defaultWidth="448px" pane={pane}>
+        <PageBody width="wide">
           <Box spaceY="wide">
-            <SettingsSection
+            <Section variant="page"
               title="AI 연결"
-              actions={
+              footer={
                 <Button onClick={() => openConn('new')}>
                   <Plus /> 연결 추가
                 </Button>
               }
             >
-              <TablePanel>
+              <Box overflow="hidden" radius="md" border="all" borderColor="default">
                 <DataTable
                   id="connections"
                   columns={aiColumns}
@@ -138,18 +135,18 @@ function ConnectionsSettingsPage() {
                   empty={<EmptyState noun="AI 연결" />}
                   onRowClick={(row) => openConn(row.id === search.conn ? undefined : row.id)}
                 />
-              </TablePanel>
-            </SettingsSection>
+              </Box>
+            </Section>
 
-            <SettingsSection
+            <Section variant="page"
               title="API 키"
-              actions={
+              footer={
                 <Button onClick={() => openKey('new')}>
                   <Plus /> API 키 추가
                 </Button>
               }
             >
-              <TablePanel>
+              <Box overflow="hidden" radius="md" border="all" borderColor="default">
                 <DataTable
                   id="keys"
                   columns={keyColumns}
@@ -159,11 +156,11 @@ function ConnectionsSettingsPage() {
                   empty={<EmptyState noun="API 키" />}
                   onRowClick={(row) => openKey(row.id === search.key ? undefined : row.id)}
                 />
-              </TablePanel>
-            </SettingsSection>
+              </Box>
+            </Section>
           </Box>
-        </SettingsContent>
-      </FullHeightSplitPane>
+        </PageBody>
+      </SplitPane>
     </Page>
   );
 }
@@ -172,9 +169,9 @@ function CapabilityBadges({ kind }: { kind: ConnectionKind }) {
   return (
     <Stack direction="row" wrap gap="tight">
       {CONNECTION_KIND_INFO[kind].capabilities.map((capability) => (
-        <Badge key={capability} variant="secondary">
+        <Chip key={capability} variant="quiet">
           {CAPABILITY_LABEL[capability]}
-        </Badge>
+        </Chip>
       ))}
     </Stack>
   );
@@ -220,9 +217,9 @@ function NewConnection({ onClose, onCreated }: { onClose: () => void; onCreated?
         </Button>
       }>
       <form id="new-connection-form" onSubmit={form.handleSubmit((values) => create.mutate(values))}>
-        <InspectorSection title="설정">
-          <InspectorFields>
-            <InspectorField label="종류" description={<CapabilityBadges kind={kind} />}>
+        <Section title="설정">
+          <Box spaceY="normal">
+            <Field label="종류" description={<CapabilityBadges kind={kind} />}>
               <Controller
                 control={form.control}
                 name="kind"
@@ -236,9 +233,9 @@ function NewConnection({ onClose, onCreated }: { onClose: () => void; onCreated?
                       form.clearErrors();
                     }}
                   >
-                    <FullSelectTrigger>
+                    <SelectTrigger width="full">
                       <SelectValue />
-                    </FullSelectTrigger>
+                    </SelectTrigger>
                     <SelectContent>
                       {CONNECTION_KINDS.filter((value) => value !== 'http').map((value) => (
                         <SelectItem key={value} value={value}>
@@ -249,24 +246,24 @@ function NewConnection({ onClose, onCreated }: { onClose: () => void; onCreated?
                   </Select>
                 )}
               />
-            </InspectorField>
-            <InspectorField label="이름" error={form.formState.errors.name?.message}>
+            </Field>
+            <Field label="이름" error={form.formState.errors.name?.message}>
               <Input {...form.register('name')} aria-invalid={!!form.formState.errors.name} placeholder="예: 회사 OpenAI" />
-            </InspectorField>
+            </Field>
             {info.transport === 'http' ? (
               <>
-                <InspectorField label="주소" error={form.formState.errors.baseUrl?.message}>
+                <Field label="주소" error={form.formState.errors.baseUrl?.message}>
                   <Input {...form.register('baseUrl', { setValueAs: (value: string) => (value ? value : undefined) })} aria-invalid={!!form.formState.errors.baseUrl} />
-                </InspectorField>
-                <InspectorField label="API 키">
+                </Field>
+                <Field label="API 키">
                   <Input type="password" autoComplete="off" {...form.register('apiKey')} />
-                </InspectorField>
+                </Field>
               </>
             ) : (
               <Controller control={form.control} name="executable" render={({ field }) => <ExecutableField key={kind} kind={kind} value={field.value ?? ''} onChange={field.onChange} />} />
             )}
-          </InspectorFields>
-        </InspectorSection>
+          </Box>
+        </Section>
       </form>
     </Inspector>
   );
@@ -376,21 +373,21 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
         )
       }
     >
-      <InspectorSection title="설정">
-        <InspectorFields>
-          <InspectorField label="이름" error={errors.name?.message}>
+      <Section title="설정">
+        <Box spaceY="normal">
+          <Field label="이름" error={errors.name?.message}>
             <Input {...form.register('name')} aria-invalid={!!errors.name} />
-          </InspectorField>
+          </Field>
           {isHttp && (
-            <InspectorField label="주소" error={errors.baseUrl?.message}>
+            <Field label="주소" error={errors.baseUrl?.message}>
               <Input {...form.register('baseUrl')} aria-invalid={!!errors.baseUrl} />
-            </InspectorField>
+            </Field>
           )}
           {info.transport === 'cli' && (
             <Controller control={form.control} name="executable" render={({ field }) => <ExecutableField kind={connection.kind} value={field.value ?? ''} onChange={field.onChange} />} />
           )}
           {isHttp && (
-            <InspectorField
+            <Field
               label={connection.hasKey ? 'API 키 · 저장됨' : 'API 키 · 없음'}
               action={connection.hasKey && (
                 <Button variant="ghost" size="inline" tone="danger" disabled={deleteKey.isPending} onClick={() => deleteKey.mutate()}>
@@ -399,12 +396,12 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
               )}
             >
               <Input type="password" autoComplete="off" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={connection.hasKey ? '바꿀 때만 입력' : '키 입력'} />
-            </InspectorField>
+            </Field>
           )}
-        </InspectorFields>
-      </InspectorSection>
+        </Box>
+      </Section>
 
-      <InspectorSection title="확인">
+      <Section title="확인">
         <div>
           {/* A CLI's 연결 확인 would only run --version, which the 실행 파일 field already shows. */}
           {info.transport !== 'cli' && (
@@ -428,7 +425,7 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
           )}
           {!isTool && <ModelTest connectionId={connection.id} need={need} />}
         </div>
-      </InspectorSection>
+      </Section>
 
     </Inspector>
   );

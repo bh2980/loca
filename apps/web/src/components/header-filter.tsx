@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { EyeOff, ListFilter } from 'lucide-react';
 import type { AutoMark } from '@tw/shared';
-import { Box, Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, FilterCheck, FilterHeaderButton, FilterPopoverContent, FilterSegmentedBar, Icon, Popover, PopoverTrigger, TagChip, Text } from '@loca/ui';
+import { Box, Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, FilterCheck, FilterHeaderButton, Icon, Popover, PopoverTrigger, TagChip, Text, PopoverContent, SegmentedControl } from '@loca/ui';
 import { MarkChip } from '@/components/status';
 
 export interface FilterOption {
@@ -42,7 +42,7 @@ export function HeaderFilter({ label, value, options, onChange, groups }: {
       <PopoverTrigger asChild>
         <FilterHeaderButton label={label} active={active} aria-label={`${label} 필터`} />
       </PopoverTrigger>
-      <FilterPopoverContent>
+      <PopoverContent align="start" width="menu-xl" padding="none">
         <Command>
           {options.length > 8 && <CommandInput placeholder={`${label} 찾기`} />}
           <CommandList>
@@ -70,7 +70,7 @@ export function HeaderFilter({ label, value, options, onChange, groups }: {
             )}
           </CommandList>
         </Command>
-      </FilterPopoverContent>
+      </PopoverContent>
     </Popover>
   );
 }
@@ -83,7 +83,8 @@ export type FilterPick = 'show' | 'hide';
 
 export function FilterModeSwitch({ mode, onMode }: { mode: FilterPick; onMode: (mode: FilterPick) => void }) {
   return (
-    <FilterSegmentedBar
+    <SegmentedControl
+      fill
       ariaLabel="필터 방식"
       value={mode}
       onChange={(value) => onMode(value as FilterPick)}
@@ -168,7 +169,7 @@ export function MarkFilter({ label, groups, onClear }: { label: string; groups: 
       <PopoverTrigger asChild>
         <FilterHeaderButton label={label} active={active} aria-label={`${label} 필터`} />
       </PopoverTrigger>
-      <FilterPopoverContent>
+      <PopoverContent align="start" width="menu-xl" padding="none">
         <Box padding="snug" paddingBottom="none">
           <FilterModeSwitch mode={mode} onMode={setMode} />
         </Box>
@@ -194,7 +195,7 @@ export function MarkFilter({ label, groups, onClear }: { label: string; groups: 
             )}
           </CommandList>
         </Command>
-      </FilterPopoverContent>
+      </PopoverContent>
     </Popover>
   );
 }

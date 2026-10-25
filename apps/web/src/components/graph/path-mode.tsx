@@ -126,7 +126,7 @@ export function PathMode({ projectId, toggle, start, end, via: externalVia, onVi
           onClear={handleClear}
         />
         {route.isError && (
-          <Inline shrink={false} gap="condensed" border="bottom" borderColor="border" background="destructiveFaint" paddingX="normal" paddingY="condensed" variant="body" tone="danger" role="alert">
+          <Inline shrink={false} gap="condensed" border="bottom" borderColor="default" background="dangerFaint" paddingX="normal" paddingY="condensed" variant="body" tone="danger" role="alert">
             <Text minWidth={0} grow truncate>경로를 확인하지 못했습니다.</Text>
             <Button variant="outline" onClick={() => void route.refetch()}>다시 시도</Button>
           </Inline>

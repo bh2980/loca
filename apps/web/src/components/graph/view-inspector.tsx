@@ -2,10 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Sparkles, Trash2 } from 'lucide-react';
-import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
-  Box, Button, Grid, Inspector, InspectorActionRow, InspectorField, InspectorFields, InspectorHeader, InspectorList, InspectorSection, Input, PropertyGrid, PropertyRow, Skeleton, Text,
-} from '@loca/ui';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Box, Button, Inspector, InspectorActionRow, InspectorHeader, InspectorList, Input, Skeleton, Text, ListItem, Section, Field, KeyValue, KeyValueRow } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { chatDock } from '@/lib/chat-dock';
@@ -96,21 +93,21 @@ export function ViewInspector({ projectId, viewId, shownNodes, derivedEdges, onC
         ) : undefined
       }
     >
-      <InspectorSection title="정보">
-        <InspectorFields>
-          <InspectorField label="이름" description={data.request ? <Text preserveLines>요청: {data.request}</Text> : undefined}>
+      <Section title="정보">
+        <Box spaceY="normal">
+          <Field label="이름" description={data.request ? <Text preserveLines>요청: {data.request}</Text> : undefined}>
             <NameInput value={data.label} onSave={(label) => actions.change.mutate({ id: data.id, label })} />
-          </InspectorField>
-        </InspectorFields>
-        <PropertyGrid>
-          <PropertyRow label="수정">{dateTime(data.updatedAt)}</PropertyRow>
-          <PropertyRow label="남긴 노드">{data.nodeIds.length.toLocaleString()}개</PropertyRow>
-          <PropertyRow label="화면 노드">{shownNodes.toLocaleString()}개</PropertyRow>
-          <PropertyRow label="생략 구간">{derivedEdges.toLocaleString()}개</PropertyRow>
-        </PropertyGrid>
-      </InspectorSection>
+          </Field>
+        </Box>
+        <KeyValue>
+          <KeyValueRow label="수정">{dateTime(data.updatedAt)}</KeyValueRow>
+          <KeyValueRow label="남긴 노드">{data.nodeIds.length.toLocaleString()}개</KeyValueRow>
+          <KeyValueRow label="화면 노드">{shownNodes.toLocaleString()}개</KeyValueRow>
+          <KeyValueRow label="생략 구간">{derivedEdges.toLocaleString()}개</KeyValueRow>
+        </KeyValue>
+      </Section>
       {data.missing.length > 0 && (
-        <InspectorSection title="원본에 없음">
+        <Section title="원본에 없음">
           <InspectorActionRow
             label={`남긴 노드 ${data.missing.length.toLocaleString()}개가 원본 그래프에서 사라졌습니다.`}
             action={
@@ -119,7 +116,7 @@ export function ViewInspector({ projectId, viewId, shownNodes, derivedEdges, onC
               </Button>
             }
           />
-        </InspectorSection>
+        </Section>
       )}
       <AlertDialog open={confirming} onOpenChange={setConfirming}>
         <AlertDialogContent>
@@ -151,9 +148,9 @@ export function ViewInspector({ projectId, viewId, shownNodes, derivedEdges, onC
 /** "이 보기에 남긴 이유" above a node's lines, when the AI gave one. */
 export function ViewReason({ reason }: { reason: string }) {
   return (
-    <InspectorSection title="남긴 이유" noShrink>
+    <Section title="남긴 이유" noShrink>
       <Text as="p" variant="body">{reason}</Text>
-    </InspectorSection>
+    </Section>
   );
 }
 
@@ -180,17 +177,17 @@ export function OmittedPane({ projectId, edge, sections, onOpenSource, onClose }
         </Button>
       }
     >
-      <InspectorSection title={`노드 ${ids.length.toLocaleString()} · 대사 ${omitted?.lines.toLocaleString() ?? 0}줄`}>
+      <Section title={`노드 ${ids.length.toLocaleString()} · 대사 ${omitted?.lines.toLocaleString() ?? 0}줄`}>
         {details.length === 0 && <Text as="p" variant="body" tone="muted">생략한 대사가 없습니다.</Text>}
         <InspectorList>
           {details.map((result, index) =>
             result.data ? (
               result.data.units.length ? (
                 result.data.units.map((unit) => (
-                  <Grid as="li" key={unit.id} columns="fieldShrink" gap="normal" paddingY="condensed" variant="body" trimStart>
+                  <ListItem layout="grid" trim="start" key={unit.id} columns="fieldShrink" gap="normal" paddingY="condensed" variant="body">
                     {unit.speaker ? <PersonName projectId={projectId} name={unit.speaker} truncate variant="caption" tone="muted" /> : <Text truncate variant="caption" tone="muted">지문·화면 문구</Text>}
                     <Text minWidth={0} breakWords>{unit.source}</Text>
-                  </Grid>
+                  </ListItem>
                 ))
               ) : (
                 <Box as="li" key={shown[index]} paddingY="condensed" variant="caption" tone="muted">
@@ -199,13 +196,13 @@ export function OmittedPane({ projectId, edge, sections, onOpenSource, onClose }
               )
             ) : (
               <Box as="li" key={shown[index]} paddingY="condensed">
-                <Box asChild height={4}><Skeleton /></Box>
+                <Skeleton height="icon" />
               </Box>
             ),
           )}
         </InspectorList>
         {ids.length > shown.length && <Text as="p" variant="caption" tone="muted">외 노드 {(ids.length - shown.length).toLocaleString()}개</Text>}
-      </InspectorSection>
+      </Section>
     </Inspector>
   );
 }

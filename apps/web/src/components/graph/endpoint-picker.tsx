@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { Box, Button, CanvasSurface, Empty, EmptyDescription, EmptyHeader, EmptyTitle, Grid, Inline, Input, SearchResultButton, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner, Stack, Text } from '@loca/ui';
+import { Box, Button, CanvasSurface, EmptyDescription, EmptyHeader, EmptyTitle, Grid, Inline, Input, ListRow, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner, Stack, Text, EmptyState } from '@loca/ui';
 import { GraphCanvas, type GraphCanvasHandle, type NodeInfo, type Viewport } from '@/components/graph/graph-canvas';
 import { useSize } from '@/hooks/use-size';
 import { q } from '@/lib/queries';
@@ -187,38 +187,38 @@ export function EndpointPicker({ projectId, direction, step, start, end, section
 
   return (
     <Stack as="section" height="full" minHeight={0} grow aria-label="원본 그래프에서 경로 끝점 고르기">
-      <Inline wrap gap="condensed" shrink={false} border="bottom" borderColor="border" paddingX="normal" paddingY="condensed">
+      <Inline wrap gap="condensed" shrink={false} border="bottom" borderColor="default" paddingX="normal" paddingY="condensed">
         <Text variant="caption" weight="medium" tone="muted">{step === 'start' ? '시작 대사 선택' : '끝 대사 선택'}</Text>
         {sections.data && sections.data.length > 1 && (
           <Select value={sectionName} onValueChange={(value) => onSectionChange(value)}>
-            <Box asChild width={56} maxWidth="full"><SelectTrigger aria-label="장 선택"><SelectValue placeholder="장 선택" /></SelectTrigger></Box>
+            <Box asChild width="menu" maxWidth="full"><SelectTrigger aria-label="장 선택"><SelectValue placeholder="장 선택" /></SelectTrigger></Box>
             <SelectContent>{sections.data.map((item) => <SelectItem key={item.name} value={item.name}>{item.name}</SelectItem>)}</SelectContent>
           </Select>
         )}
         {expandedChain && <Button variant="ghost" onClick={() => onGraphNavigation({ chain: undefined, focus: undefined })}>전체 그래프</Button>}
       </Inline>
-      <Grid gap="tight" shrink={false} border="bottom" borderColor="border" paddingX="normal" paddingY="condensed">
+      <Grid gap="tight" shrink={false} border="bottom" borderColor="default" paddingX="normal" paddingY="condensed">
         <Input aria-label="현재 장 그래프에서 대사 찾기" value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="현재 장에서 화자·원문·키로 찾기" />
         {results.length > 0 && (
-          <Box maxHeight={32} overflow="y" radius="md" border="all" borderColor="border" background="card" role="group" aria-label="그래프 검색 결과">
-            {results.map((node) => <SearchResultButton key={node.id} type="button" onClick={() => locate(node.id)}><Text width="full" truncate weight="medium">{node.speaker ? `${node.speaker}: ` : ''}{node.text ?? node.label ?? node.key}</Text><Text variant="caption" tone="muted">{node.key} · 그래프에서 위치 찾기</Text></SearchResultButton>)}
+          <Box maxHeight="scroll-xs" overflow="y" radius="md" border="all" borderColor="default" background="surface" role="group" aria-label="그래프 검색 결과">
+            {results.map((node) => <ListRow as="button" key={node.id} type="button" onClick={() => locate(node.id)}><Text width="full" truncate weight="medium">{node.speaker ? `${node.speaker}: ` : ''}{node.text ?? node.label ?? node.key}</Text><Text variant="caption" tone="muted">{node.key} · 그래프에서 위치 찾기</Text></ListRow>)}
           </Box>
         )}
       </Grid>
       {sections.isError ? (
-        <Box asChild grow><Empty><EmptyHeader><EmptyTitle>그래프 장 목록을 불러오지 못했습니다</EmptyTitle><EmptyDescription>{sections.error.message}</EmptyDescription></EmptyHeader><Button variant="outline" onClick={() => void sections.refetch()}>다시 시도</Button></Empty></Box>
+        <EmptyState size="pane"><EmptyHeader><EmptyTitle>그래프 장 목록을 불러오지 못했습니다</EmptyTitle><EmptyDescription>{sections.error.message}</EmptyDescription></EmptyHeader><Button variant="outline" onClick={() => void sections.refetch()}>다시 시도</Button></EmptyState>
       ) : sections.isPending ? (
         <Inline minHeight={0} grow justify="center" gap="condensed" variant="body" tone="muted" role="status"><Spinner /> 그래프 장을 불러오는 중…</Inline>
       ) : graph.isError ? (
-        <Box asChild grow><Empty><EmptyHeader><EmptyTitle>원본 그래프를 불러오지 못했습니다</EmptyTitle><EmptyDescription>{graph.error.message}</EmptyDescription></EmptyHeader><Button variant="outline" onClick={() => void graph.refetch()}>다시 시도</Button></Empty></Box>
+        <EmptyState size="pane"><EmptyHeader><EmptyTitle>원본 그래프를 불러오지 못했습니다</EmptyTitle><EmptyDescription>{graph.error.message}</EmptyDescription></EmptyHeader><Button variant="outline" onClick={() => void graph.refetch()}>다시 시도</Button></EmptyState>
       ) : graph.data?.status === 'error' || graph.data?.status === 'failed' || graph.data?.status === 'missing' ? (
-        <Box asChild grow><Empty><EmptyHeader><EmptyTitle>원본 그래프를 준비하지 못했습니다</EmptyTitle><EmptyDescription>{graph.data.error ?? '그래프 레이아웃에 실패했습니다.'}</EmptyDescription></EmptyHeader><Button variant="outline" onClick={() => void graph.refetch()}>다시 시도</Button></Empty></Box>
+        <EmptyState size="pane"><EmptyHeader><EmptyTitle>원본 그래프를 준비하지 못했습니다</EmptyTitle><EmptyDescription>{graph.data.error ?? '그래프 레이아웃에 실패했습니다.'}</EmptyDescription></EmptyHeader><Button variant="outline" onClick={() => void graph.refetch()}>다시 시도</Button></EmptyState>
       ) : graph.isPending || graph.data?.status !== 'ready' || !currentLayout ? (
         <Inline minHeight={0} grow justify="center" gap="condensed" variant="body" tone="muted" role="status"><Spinner /> 원본 그래프를 불러오는 중…</Inline>
       ) : !currentLayout.nodes.length ? (
-        <Box asChild grow><Empty><EmptyHeader><EmptyTitle>이 장에 대사가 없습니다</EmptyTitle></EmptyHeader></Empty></Box>
+        <EmptyState size="pane"><EmptyHeader><EmptyTitle>이 장에 대사가 없습니다</EmptyTitle></EmptyHeader></EmptyState>
       ) : (
-        <Box asChild minHeight={0} minWidth={0} grow><CanvasSurface ref={sizeRef} data-testid="endpoint-source-graph">
+        <CanvasSurface ref={sizeRef} data-testid="endpoint-source-graph">
           <GraphCanvas
             key={`${direction}:${sectionName ?? 'all'}:${expandedChain ?? 'source'}:${focusId ?? ''}`}
             nodes={displayedNodes}
@@ -240,7 +240,7 @@ export function EndpointPicker({ projectId, direction, step, start, end, section
             onOpen={() => choose(focusId ?? undefined)}
             onSelect={choose}
           />
-        </CanvasSurface></Box>
+        </CanvasSurface>
       )}
     </Stack>
   );

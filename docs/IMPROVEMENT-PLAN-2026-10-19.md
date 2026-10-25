@@ -11,7 +11,7 @@
 구현 시 아래 규칙을 **예외 없이** 준수해야 합니다:
 
 1. **디자인 토큰 및 컴포넌트 규칙 (`@loca/ui`)**:
-   - 색상은 반드시 `packages/ui/src/tokens/theme.css`의 시맨틱 토큰(`bg-panel`, `bg-muted/20`, `text-foreground`, `text-muted-foreground`, `text-subtle-foreground`, `border-border-subtle`, `text-primary`, `text-success`, `text-warning`, `text-destructive` 등)만 사용합니다. **임의의 Hex 색상이나 Tailwind 팔레트 색상(`bg-blue-500`, `text-emerald-600` 등) 사용 금지**.
+   - 색상은 반드시 `packages/ui/src/tokens/theme.css`의 시맨틱 토큰(`bg-panel`, `bg-sunken/20`, `text-default`, `text-muted`, `text-subtle`, `border-subtle`, `text-accent`, `text-success`, `text-warning`, `text-danger` 등)만 사용합니다. **임의의 Hex 색상이나 Tailwind 팔레트 색상(`bg-blue-500`, `text-emerald-600` 등) 사용 금지**.
    - 텍스트 크기는 `text-base`, `text-sm`, `text-xs`만 사용합니다 (`text-[11px]` 등 임의 픽셀 클래스 금지, 기존 `@loca/ui` 유틸리티인 `text-2xs`만 예외 허용).
    - 네이티브 `<button>` 태그를 직접 쓰지 않고 반드시 `@loca/ui`의 `<Button size="sm" ...>`을 사용합니다.
    - 단축키 표시는 하드코딩(`⌘`, `⌥`)하지 않고 반드시 `apps/web/src/lib/keys.ts`의 `keyLabel()`을 사용합니다.

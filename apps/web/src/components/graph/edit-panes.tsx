@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Trash2 } from 'lucide-react';
-import { Box, Button, Inspector, InspectorBlock, InspectorField, InspectorFields, InspectorHeader, Input, Skeleton, Stack, Text, Textarea } from '@loca/ui';
+import { Box, Button, Inspector, InspectorHeader, Input, Skeleton, Stack, Text, Textarea, Section, Field } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { PersonName } from '@/lib/person-colors';
 
@@ -24,32 +24,32 @@ export function EdgePane({ projectId, edgeId, onOpenNode, onRemove, onClose }: {
   };
   return (
     <Inspector header={<InspectorHeader kind="대사 그래프" name="선" onClose={onClose} />}>
-      <InspectorBlock>
+      <Section>
         {edge.isError ? (
           <Text as="p" variant="body" tone="muted">이 선은 이제 없습니다.</Text>
         ) : !edge.data ? (
-          <Box asChild height={24}><Skeleton /></Box>
+          <Skeleton height="placeholder" />
         ) : (
-          <InspectorFields>
-            <InspectorField label="출처">
+          <Box spaceY="normal">
+            <Field label="출처">
               <Text as="p" variant="body">{ORIGIN_LABELS[edge.data.origin]}</Text>
-            </InspectorField>
+            </Field>
             {edge.data.label && (
-              <InspectorField label="선택지">
+              <Field label="선택지">
                 <Text as="p" variant="body">{edge.data.label}</Text>
-              </InspectorField>
+              </Field>
             )}
-            <InspectorField label="앞">{end('from')}</InspectorField>
-            <InspectorField label="뒤">{end('to')}</InspectorField>
-          </InspectorFields>
+            <Field label="앞">{end('from')}</Field>
+            <Field label="뒤">{end('to')}</Field>
+          </Box>
         )}
-      </InspectorBlock>
+      </Section>
       {onRemove && edge.data && (
-        <InspectorBlock>
+        <Section>
           <Button variant="ghost" tone="danger" onClick={onRemove}>
             <Trash2 /> 삭제
           </Button>
-        </InspectorBlock>
+        </Section>
       )}
     </Inspector>
   );
@@ -80,22 +80,22 @@ export function InsertLinePane({ after, onAdd, onClose }: { after: { speaker: st
         </Stack>
       }
     >
-      <InspectorBlock>
-        <InspectorFields>
-          <InspectorField label="앞 대사">
+      <Section>
+        <Box spaceY="normal">
+          <Field label="앞 대사">
             <Text as="p" truncate variant="body" tone="muted">{[after.speaker, after.text].filter(Boolean).join(': ') || '대사 없음'}</Text>
-          </InspectorField>
-          <InspectorField label="원문">
+          </Field>
+          <Field label="원문">
             <Textarea rows={3} autoFocus value={source} placeholder="원문을 입력하세요" onChange={(event) => setSource(event.target.value)} />
-          </InspectorField>
-          <InspectorField label="화자" description="이름을 그대로 적습니다. 비우면 지문·문구로 봅니다.">
+          </Field>
+          <Field label="화자" description="이름을 그대로 적습니다. 비우면 지문·문구로 봅니다.">
             <Input value={speaker} placeholder="선택 사항" onChange={(event) => setSpeaker(event.target.value)} />
-          </InspectorField>
-          <InspectorField label="청자" description="비우면 미상으로 둡니다.">
+          </Field>
+          <Field label="청자" description="비우면 미상으로 둡니다.">
             <Input value={listener} placeholder="선택 사항" onChange={(event) => setListener(event.target.value)} />
-          </InspectorField>
-        </InspectorFields>
-      </InspectorBlock>
+          </Field>
+        </Box>
+      </Section>
     </Inspector>
   );
 }

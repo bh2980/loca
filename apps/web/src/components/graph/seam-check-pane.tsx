@@ -2,7 +2,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { FileText } from 'lucide-react';
 import { toast } from 'sonner';
-import { Box, InspectorHeader, Inspector, InspectorBlock, InspectorList, InspectorResult, InspectorSection, Button, Inline, SeamStateChip, Text } from '@loca/ui';
+import { Box, InspectorHeader, Inspector, InspectorList, InspectorResult, Button, SeamStateChip, Text, ListItem, Section } from '@loca/ui';
 import { TokenText } from '@/components/editor/source-text';
 import { client, unwrap } from '@/lib/api';
 import { tokenPatternOf } from '@/lib/line-context';
@@ -35,18 +35,18 @@ export function SeamCheckPane({ projectId, nodeId, onClose }: { projectId: strin
 
   const state = data?.check?.state;
   const line = (item: Line) => (
-    <Inline as="li" key={item.unitId} align="start" gap="condensed" group paddingY="condensed" trimEnds data-testid="seam-line">
+    <ListItem layout="inline" key={item.unitId} align="start" gap="condensed" group paddingY="condensed" data-testid="seam-line">
       <Box minWidth={0} grow spaceY="hair" variant="body">
         <Text as="p" variant="caption" tone="muted">{item.speaker ? <PersonName projectId={projectId} name={item.speaker} /> : '지문·문구'}</Text>
         <TokenText text={item.source} source={item.source} pattern={tokens} />
         {item.translation ? <Text asChild tone="muted"><TokenText text={item.translation} source={item.source} pattern={tokens} /></Text> : <Text as="p" variant="caption" tone="muted">번역 없음</Text>}
       </Box>
-      <Button variant="ghost" size="icon-xs" asChild shrink={false} revealOnHover="group">
+      <Button variant="ghost" size="icon-xs" asChild shrink={false} reveal>
         <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: item.groupId, line: item.unitId }} title="번역 화면에서 열기" aria-label="번역 화면에서 열기">
           <FileText />
         </Link>
       </Button>
-    </Inline>
+    </ListItem>
   );
   const lines = (items: Line[], empty: string) =>
     items.length ? <InspectorList>{items.map(line)}</InspectorList> : <Text as="p" variant="body" tone="muted">{empty}</Text>;
@@ -67,23 +67,23 @@ export function SeamCheckPane({ projectId, nodeId, onClose }: { projectId: strin
         ) : undefined
       } loading={detail.isPending}>
       {detail.isError && (
-        <InspectorBlock>
+        <Section>
           <InspectorResult tone="error">이음새 정보를 불러오지 못했습니다: {detail.error.message}</InspectorResult>
-        </InspectorBlock>
+        </Section>
       )}
       {data && state === 'stale' && (
-        <InspectorBlock>
+        <Section>
           <InspectorResult tone="info">점검한 뒤 이 줄들의 번역이 바뀌었습니다.</InspectorResult>
-        </InspectorBlock>
+        </Section>
       )}
       {data && (
         <div data-testid="seam-route">
           {data.before.map((entry, i) => (
-            <InspectorSection key={entry.from} title={data.before.length > 1 ? `이번 길 ${i + 1}/${data.before.length}` : '이번 길'}>
+            <Section key={entry.from} title={data.before.length > 1 ? `이번 길 ${i + 1}/${data.before.length}` : '이번 길'}>
               {lines(entry.lines, '이 갈래에는 이음새 앞 대사가 없습니다.')}
-            </InspectorSection>
+            </Section>
           ))}
-          <InspectorSection title="번역한 길">{lines(data.after, '이음새 뒤에 대사가 없습니다.')}</InspectorSection>
+          <Section title="번역한 길">{lines(data.after, '이음새 뒤에 대사가 없습니다.')}</Section>
         </div>
       )}
     </Inspector>

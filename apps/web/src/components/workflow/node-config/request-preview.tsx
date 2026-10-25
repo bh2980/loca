@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import type { InferResponseType } from 'hono/client';
 import { AI_OUTPUTS, CONTEXT_ITEM_KINDS, CONTEXT_PRIORITY, INPUT_TYPES, JSON_FIELD_TYPE_LABELS, type AiNode, type AiOutput, type BatchConfig } from '@tw/shared';
-import { Box, Button, Inline, InspectorSection, LargeDialog, RequestDetails, RequestPart as Part, SearchableSelect, Skeleton, Text } from '@loca/ui';
+import { Box, Button, Dialog, DialogContent, DialogHeader, DialogTitle, Inline, RequestDetails, RequestPart as Part, Combobox, Skeleton, Text, Section } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 
@@ -23,10 +23,13 @@ export function PromptView({ request, title }: { request: Request; title: string
         </Text>
         <Button variant="ghost" onClick={() => setLarge(true)}>크게 보기</Button>
       </Inline>
-      <Box as="pre" maxHeight={72} overflow="auto" radius="md" background="muted" padding="condensed" variant="caption" preserveLines>{text}</Box>
-      <LargeDialog open={large} onOpenChange={setLarge} title={title} size="lg">
-        <Box as="pre" minHeight={0} grow overflow="auto" radius="md" background="muted" padding="normal" variant="caption" preserveLines>{text}</Box>
-      </LargeDialog>
+      <Box as="pre" maxHeight="scroll-xl" overflow="auto" radius="md" background="sunken" padding="condensed" variant="caption" preserveLines>{text}</Box>
+      <Dialog open={large} onOpenChange={setLarge}>
+        <DialogContent height="dialog-lg">
+          <DialogHeader><DialogTitle>{title}</DialogTitle></DialogHeader>
+          <Box as="pre" minHeight={0} grow overflow="auto" radius="md" background="sunken" padding="normal" variant="caption" preserveLines>{text}</Box>
+        </DialogContent>
+      </Dialog>
       <RequestDetails title="상세">
           <Part title="지시문" size={`${request.instructions.length.toLocaleString()}자`}>
             <Text as="p" variant="body" preserveLines>{request.instructions || '비어 있음'}</Text>
@@ -102,7 +105,7 @@ function SamplePicker({ projectId, subject, value, label, onPick }: { projectId:
       ? (lines.data?.rows ?? []).map((row) => ({ value: row.key, label: `${row.key} · ${row.speaker ? `${row.speaker}: ` : ''}${row.translation || row.source}` }))
       : (terms.data ?? []).filter((term) => term.status !== 'rejected').map((term) => ({ value: term.id, label: term.target ? `${term.source} → ${term.target}` : term.source, searchText: `${term.source} ${term.target}` }));
   return (
-    <SearchableSelect
+    <Combobox
       ariaLabel="샘플"
       value={value}
       selectedLabel={label}
@@ -125,11 +128,11 @@ export function RequestPreview({ projectId, workflowId, node }: { projectId: str
   if (!workflowId) return null;
   const data = request.data;
   return (
-    <InspectorSection title="AI 프롬프트">
+    <Section title="AI 프롬프트">
       <Box spaceY="condensed">
         {data && <SamplePicker projectId={projectId} subject={data.subject} value={data.sample?.value} label={data.sample?.label} onPick={setSample} />}
-        {request.isError ? <Text as="p" variant="body" tone="danger">{request.error.message}</Text> : !data ? <Box asChild height={40}><Skeleton /></Box> : <PromptView request={data} title={`AI 프롬프트 · ${node.label ?? node.id}`} />}
+        {request.isError ? <Text as="p" variant="body" tone="danger">{request.error.message}</Text> : !data ? <Skeleton height="placeholder-xl" /> : <PromptView request={data} title={`AI 프롬프트 · ${node.label ?? node.id}`} />}
       </Box>
-    </InspectorSection>
+    </Section>
   );
 }

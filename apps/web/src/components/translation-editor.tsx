@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { checkFormat, listenerLabel, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatIssue, type FormatRules } from '@tw/shared';
 import { TokenChip, TokenText } from '@/components/editor/source-text';
 import { focusEndOfLine, insertUnitIntoLine, proposeInLine, replaceLineText, TranslationInput } from '@/components/editor/translation-input';
-import { AdvancedDisclosure, Box, Button, Icon, Inline, Text, AiMark, EditorAction, EditorChangeNote, EditorChangedWord, EditorDiffWord, EditorDraftNote, EditorInlineLabel, EditorMenuContent, EditorPreviousDiff, EditorSuggestionItems, EditorSuggestionMore, EditorSuggestionOrigin, EditorSuggestionPanel, EditorSuggestionRow, InlineEditorActions, DropdownMenu, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@loca/ui';
+import { Chip, Box, Button, Icon, Inline, Text, AiMark, EditorAction, EditorChangedWord, EditorDiffWord, EditorDraftNote, EditorPreviousDiff, EditorSuggestionList, EditorSuggestionRow, DropdownMenu, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuContent, Disclosure } from '@loca/ui';
 import { apiFetch } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
 import { wordDiff } from '@/lib/diff';
@@ -212,7 +212,7 @@ export function TranslationEditor({
       {marks}
       {/* What 다듬기 changed in the box and why, while the box still holds its answer. */}
       {assist.done === 'refine' && assist.text === draft && assist.from !== undefined && (
-        <EditorChangeNote>
+        <Box spaceY="hair" radius="md" border="all" background="page" paddingX="condensed" paddingY="snug" variant="body">
           <Text as="p" breakWords preserveLines>
             {wordDiff(assist.from, assist.text).map((part, index) => (
               // Tokens stay chips inside the marked words.
@@ -227,7 +227,7 @@ export function TranslationEditor({
           <Button variant="ghost" size="inline" tone="muted" title={keyLabel('Mod+Z')} onClick={() => replaceLineText(unit.id, assist.from!) || setDraft(assist.from!)}>
             원래대로
           </Button>
-        </EditorChangeNote>
+        </Box>
       )}
       <DraftChecks unitId={unit.id} source={unit.source} draft={draft} units={line.units} terms={line.terms} tags={tags} rules={project.data?.formatRules ?? undefined} targetLanguage={project.data?.targetLanguage} onPlace={placeMissing} />
       <Inline wrap gap="condensed" paddingTop="tight">
@@ -238,16 +238,15 @@ export function TranslationEditor({
             <AiMark by="ai" /> AI 초안
           </Inline>
         )}
-        <InlineEditorActions
-          fixed
-          primary={next ? <EditorAction icon={Check} disabled={save.isPending || !draft.trim()} onClick={() => run(true)} title={keyLabel('Mod+Enter')}>
+        <Inline gap="snug" minWidth={0} shrink={false}>
+          {next ? <EditorAction icon={Check} disabled={save.isPending || !draft.trim()} onClick={() => run(true)} title={keyLabel('Mod+Enter')}>
             {next.name}{onDone ? '하고 다음' : '하기'}
           </EditorAction> : onDone ? <EditorAction icon={ArrowDown} disabled={save.isPending || (dirty && !draft.trim() && statuses.find((status) => status.id === unit.statusId)?.kind === 'final')} onClick={() => run(true)} title={keyLabel('Mod+Enter')}>
             {dirty ? '저장하고 다음 줄' : '다음 줄'}
           </EditorAction> : dirty ? <EditorAction icon={Save} disabled={save.isPending} onClick={() => run(false)} title={keyLabel('Mod+S')}>
             저장
           </EditorAction> : null}
-          ai={hasModel && <>
+          {hasModel && <>
             <EditorAction icon={Languages} variant="ghost" disabled={!!assist.loading} onClick={() => requestAssist('translate')}>
               {draft.trim() ? 'AI 다시' : 'AI 번역'}
             </EditorAction>
@@ -255,18 +254,18 @@ export function TranslationEditor({
               다듬기
             </EditorAction>
           </>}
-          overflow={canShowOverflow && <DropdownMenu>
+          {canShowOverflow && <DropdownMenu>
             <DropdownMenuTrigger asChild><Button variant="ghost" size="icon-sm" aria-label="번역 동작 더보기"><MoreHorizontal /></Button></DropdownMenuTrigger>
-            <EditorMenuContent align="end">
+            <DropdownMenuContent align="end" width="fit">
               {dirty && <>
                 <DropdownMenuItem disabled={save.isPending} onSelect={() => run(false)}><Save /> 저장만 <Text marginLeft="auto" variant="caption" tone="muted">{keyLabel('Mod+S')}</Text></DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => clearDraft()}><Undo2 /> 되돌리기</DropdownMenuItem>
               </>}
               {dirty && completes && <DropdownMenuSeparator />}
               {completes && <DropdownMenuItem disabled={!!ai.loading} onSelect={() => ask(draft)}><Sparkles /> AI 자동완성 <Text marginLeft="auto" variant="caption" tone="muted">{keyLabel('Alt+/')}</Text></DropdownMenuItem>}
-            </EditorMenuContent>
+            </DropdownMenuContent>
           </DropdownMenu>}
-        />
+        </Inline>
       </Inline>
       {(assist.loading || assist.done === 'unchanged' || assist.message || ai.loading || ai.message) && <Inline wrap gap="condensed" variant="caption" tone="muted" aria-live="polite">
         {assist.loading && <Waiting label={assist.loading === 'refine' ? '다듬는 중…' : 'AI 번역 중…'} onCancel={() => (assistPending.current?.abort(), setAssist({}))} />}
@@ -299,13 +298,12 @@ function SuggestionList({ suggestions, source, tokenPattern, onPick }: { suggest
   const shown = all ? suggestions : suggestions.slice(0, VISIBLE_SUGGESTIONS);
   const more = suggestions.length - VISIBLE_SUGGESTIONS;
   return (
-    <EditorSuggestionPanel aria-label="번역 후보와 유사 번역">
-      <EditorSuggestionItems>
+    <EditorSuggestionList label="번역 후보와 유사 번역" onMore={more > 0 ? () => setAll((open) => !open) : undefined} moreLabel={all ? '접기' : `+${more}개 더보기`}>
         {shown.map((suggestion, index) => (
           <li key={suggestion.key}>
             <EditorSuggestionRow hint={keyLabel(`Alt+Shift+${index + 1}`)} hintHidden={index >= VISIBLE_SUGGESTIONS} onPick={() => onPick(suggestion.text)}>
               {/* The label stays on its own line: beside the text it would squeeze a narrow column down to a letter per line. */}
-              <EditorSuggestionOrigin>{suggestion.label}</EditorSuggestionOrigin>
+              <Box asChild maxWidth="full" truncate><Chip variant="outline">{suggestion.label}</Chip></Box>
               <TokenText text={suggestion.text} source={source} pattern={tokenPattern} look="suggestion" />
               {(suggestion.detail || suggestion.reasons?.length) && (
                 <Text as="p" truncate variant="caption" tone="muted">{[suggestion.detail, ...(suggestion.reasons ?? [])].filter(Boolean).join(' · ')}</Text>
@@ -324,9 +322,7 @@ function SuggestionList({ suggestions, source, tokenPattern, onPick }: { suggest
             </EditorSuggestionRow>
           </li>
         ))}
-      </EditorSuggestionItems>
-      {more > 0 && <EditorSuggestionMore onClick={() => setAll((open) => !open)}>{all ? '접기' : `+${more}개 더보기`}</EditorSuggestionMore>}
-    </EditorSuggestionPanel>
+    </EditorSuggestionList>
   );
 }
 
@@ -391,9 +387,9 @@ function PreviousDiff({ unitId, openAtFirst }: { unitId: string; openAtFirst: bo
   ));
   if (!open)
     return (
-      <AdvancedDisclosure label="이전 번역">
+      <Disclosure label="이전 번역">
         <EditorPreviousDiff title="바뀐 곳">{diff}</EditorPreviousDiff>
-      </AdvancedDisclosure>
+      </Disclosure>
     );
   return (
     <EditorPreviousDiff title="바뀐 곳" actions={<Button variant="ghost" size="inline" onClick={() => setOpen(false)}>접기</Button>}>
@@ -479,20 +475,20 @@ function DraftChecks({ unitId, source, draft, units, terms, tags, rules, targetL
         </Button>
       )}
       {unusedTerms.length > 0 && (
-        <EditorInlineLabel title={`번역에 없는 용어: ${unusedTerms.map((term) => `${term.source} → ${term.target}`).join(', ')}`}>
+        <Inline as="span" inline gap="tight" title={`번역에 없는 용어: ${unusedTerms.map((term) => `${term.source} → ${term.target}`).join(', ')}`}>
           <Icon icon={CircleAlert} size="xs" />용어 {unusedTerms.length}
-        </EditorInlineLabel>
+        </Inline>
       )}
       {speechOff && (
-        <EditorInlineLabel title={`말투 규칙은 ${SPEECH_LEVEL_LABELS[speech!.level]}, 지금 번역은 ${SPEECH_LEVEL_LABELS[guessed!]}`}>
+        <Inline as="span" inline gap="tight" title={`말투 규칙은 ${SPEECH_LEVEL_LABELS[speech!.level]}, 지금 번역은 ${SPEECH_LEVEL_LABELS[guessed!]}`}>
           <Icon icon={CircleAlert} size="xs" />말투
-        </EditorInlineLabel>
+        </Inline>
       )}
       {issues.map((issue) => (
-        <EditorInlineLabel key={issue.code} title={issue.message}>
+        <Inline as="span" inline gap="tight" key={issue.code} title={issue.message}>
           <Icon icon={CircleAlert} size="xs" />
           {CHECK_LABELS[issue.code] ?? issue.code}
-        </EditorInlineLabel>
+        </Inline>
       ))}
     </Inline>
   );

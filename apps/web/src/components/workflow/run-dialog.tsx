@@ -4,7 +4,7 @@ import { keepPreviousData, useMutation, useQuery, type UseQueryResult } from '@t
 import type { InferResponseType } from 'hono/client';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { ChevronRight, Play } from 'lucide-react';
-import { Box, Heading, Icon, Inline, ReadinessDot, ScopeRow, SearchInput, Button, Checkbox, Label, RadioGroup, RadioGroupItem, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Skeleton, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue, Spinner, StatusIcon, SectionHeading, FieldRows, FieldRow, Text } from '@loca/ui';
+import { Box, Heading, Icon, Inline, ReadinessDot, ScopeRow, SearchField, Button, Checkbox, Label, RadioGroup, RadioGroupItem, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Skeleton, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue, Spinner, StatusIcon, SectionHeading, Text, Bleed, KeyValue, KeyValueRow } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { INPUT_TYPES, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, TERM_MARK_IDS, WORKFLOW_SUBJECT_IDS, LINE_MARK_IDS, type AutoMark, type LineMark } from '@tw/shared';
 import { MarkChip } from '@/components/status';
@@ -251,7 +251,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
           </Button>
         )}
       </DialogTrigger>}
-      <Box asChild maxWidthFromSm="3xl"><DialogContent>
+      <DialogContent size="lg">
         <DialogHeader>
           {/* With the workflow picker below, the title would only repeat its name. */}
           <DialogTitle>{fixedWorkflowId && workflow ? `${workflow.name} 실행` : '워크플로 실행'}</DialogTitle>
@@ -259,7 +259,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
         </DialogHeader>
 
         {/* Side padding so focus rings and the picked scope are not cut by the scroll box. */}
-        <Box marginX="-tight" maxHeight="70svh" spaceY="roomy" overflow="auto" paddingX="tight" paddingY="hair">
+        <Bleed by="tight" maxHeight="dialog" spaceY="roomy" overflow="auto" paddingX="tight" paddingY="hair">
           {!fixedWorkflowId && (
             <Box spaceY="condensed">
             <Select value={workflowId ?? ''} onValueChange={choose}>
@@ -328,8 +328,8 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
 
             <Box as="fieldset" spaceY="condensed">
               <Heading as="legend" minWidth={0} marginBottom="condensed">필터</Heading>
-              <FieldRows>
-                <FieldRow label="상태">
+              <KeyValue align="start">
+                <KeyValueRow label="상태">
                   <Inline wrap gapX="comfortable" gapY="tight">
                     {terms
                       ? KNOWLEDGE_STATUSES.filter((status) => status !== 'rejected').map((status) => (
@@ -346,8 +346,8 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
                         </Label></Box>
                       ))}
                   </Inline>
-                </FieldRow>
-                <FieldRow label="태그">
+                </KeyValueRow>
+                <KeyValueRow label="태그">
                   <Inline wrap gapX="comfortable" gapY="tight">
                     {(terms ? TERM_MARK_IDS : LINE_MARK_IDS).map((mark) => (
                       <Box asChild key={mark} variant="body" weight="normal"><Label>
@@ -362,8 +362,8 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
                       </Label></Box>
                     ))}
                   </Inline>
-                </FieldRow>
-              </FieldRows>
+                </KeyValueRow>
+              </KeyValue>
             </Box>
 
             <Text as="p" variant="body">
@@ -421,9 +421,9 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
             />
           ) : null}
           {ready && plan.isError && plan.data && <Text as="p" variant="body" tone="danger">계획을 다시 계산하지 못했습니다: {plan.error.message}</Text>}
-          {ready && plan.isPending && <Box asChild height={24} width="full"><Skeleton /></Box>}
+          {ready && plan.isPending && <Skeleton height="placeholder" width="full" />}
 
-        </Box>
+        </Bleed>
 
         {start.isError && <Text as="p" variant="body" tone="danger">{start.error.message}</Text>}
         <DialogFooter>
@@ -435,7 +435,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
             {start.isPending ? <Spinner /> : <Play />} {total ? `${total.toLocaleString()}${unit} 실행` : '실행 시작'}
           </Button>
         </DialogFooter>
-      </DialogContent></Box>
+      </DialogContent>
     </Dialog>
   );
 }
@@ -486,9 +486,9 @@ function ScopePicker({ sections, unit, picked, setPicked, filter, setFilter }: {
   return (
     <Box minWidth={0} overflow="hidden" radius="md" border="all">
       <Box border="bottom" padding="tight">
-        <Box asChild width="full"><SearchInput value={filter} onChange={(value) => setFilter(value ?? '')} placeholder="찾기" end={`${total(all.filter((item) => picked.has(item.id))).toLocaleString()}${unit}`} /></Box>
+        <SearchField size="fill" value={filter} onChange={(value) => setFilter(value ?? '')} placeholder="찾기" end={`${total(all.filter((item) => picked.has(item.id))).toLocaleString()}${unit}`} />
       </Box>
-      <Box maxHeight={64} overflow="auto" padding="tight">
+      <Box maxHeight="scroll-lg" overflow="auto" padding="tight">
         <ScopeRow kind="all">
           <Checkbox checked={state(all)} onCheckedChange={(checked) => setMany(all, checked === true)} />
           <Text minWidth={0} grow>전체</Text>
@@ -509,7 +509,7 @@ function ScopePicker({ sections, unit, picked, setPicked, filter, setFilter }: {
                 <Button
                   variant="ghost"
                   size="icon-xs"
-                  width={4}
+                  width="icon"
                   aria-label={`${section.label} ${expanded ? '접기' : '펼치기'}`}
                   aria-expanded={expanded}
                   onClick={() => toggled(setOpen as SetPicked, section.key, !open.has(section.key))}

@@ -4,7 +4,7 @@ import { ChevronRight, Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import { useQuery } from '@tanstack/react-query';
 import { Page } from '@/components/page';
-import { InspectorHeader, Inspector, InspectorList, InspectorSection, SplitPane, EmptyState, DataTable, type ColumnDef, JobStatusBadge, Box, Button, Icon, Inline, Progress, Spinner, Text, Collapsible, CollapsibleContent, CollapsibleTrigger, Skeleton, ContextMenuItem } from '@loca/ui';
+import { InspectorHeader, Inspector, InspectorList, SplitPane, EmptyState, DataTable, type ColumnDef, RunStatusBadge, Box, Button, Icon, Inline, Progress, Spinner, Text, Collapsible, CollapsibleContent, CollapsibleTrigger, Skeleton, ContextMenuItem, ListItem, Section } from '@loca/ui';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { dateTime, clock } from '@/lib/datetime';
@@ -36,7 +36,7 @@ type Row = {
   kind: keyof typeof JOB_KIND;
   title: string;
   sub: string;
-  status: Parameters<typeof JobStatusBadge>[0]['status'];
+  status: Parameters<typeof RunStatusBadge>[0]['status'];
   error: string | null;
   progress: { done: number; total: number; unit: string } | null;
   stats: Stats | null;
@@ -69,7 +69,7 @@ const columns: ColumnDef<Row, unknown>[] = [
     meta: { width: 200 },
     cell: ({ row }) => (
       <>
-        <JobStatusBadge status={row.original.status} />
+        <RunStatusBadge status={row.original.status} />
         {row.original.error && (
           <Text as="p" marginTop="tight" truncate variant="caption" tone="danger" title={row.original.error}>
             {row.original.error}
@@ -87,7 +87,7 @@ const columns: ColumnDef<Row, unknown>[] = [
       if (!progress) return <Text variant="caption" tone="muted">—</Text>;
       return (
         <Inline gap="normal">
-          <Box asChild height={1.5}><Progress value={progress.total ? (progress.done / progress.total) * 100 : 0} /></Box>
+          <Progress value={progress.total ? (progress.done / progress.total) * 100 : 0} />
           <Text shrink={false} align="end" variant="caption" tabular tone="muted">
             {progress.done.toLocaleString()}/{progress.total.toLocaleString()}
             {progress.unit}
@@ -96,8 +96,8 @@ const columns: ColumnDef<Row, unknown>[] = [
       );
     },
   },
-  { id: 'stats', header: 'AI 호출·토큰', meta: { width: 160, align: 'end', className: 'text-xs text-muted-foreground' }, cell: ({ row }) => tokens(row.original.stats) },
-  { id: 'at', header: '시작', meta: { width: 150, className: 'text-xs text-muted-foreground' }, cell: ({ row }) => startedAt(row.original.at) },
+  { id: 'stats', header: 'AI 호출·토큰', meta: { width: 160, align: 'end', variant: 'caption', tone: 'muted' }, cell: ({ row }) => tokens(row.original.stats) },
+  { id: 'at', header: '시작', meta: { width: 150, variant: 'caption', tone: 'muted' }, cell: ({ row }) => startedAt(row.original.at) },
 ];
 
 
@@ -134,8 +134,7 @@ function Runs() {
 
   return (
     <Page title="실행 기록" flush>
-      <Box asChild height="full">
-      <SplitPane
+      <SplitPane fill="height"
         id="runs" selectionKey={selected?.id}
         defaultWidth="440px"
         pane={selected && <JobCalls key={selected.id} projectId={projectId} job={selected} onClose={() => select(undefined)} />}
@@ -183,7 +182,6 @@ function Runs() {
           empty={<EmptyState noun="실행" />}
         />
       </SplitPane>
-      </Box>
     </Page>
   );
 }
@@ -203,13 +201,13 @@ function JobCalls({ projectId, job, onClose }: { projectId: string; job: { id: s
           )}
         </>
       } onClose={onClose} />} loading={!calls.data}>
-      <InspectorSection title={`AI 호출${calls.data ? ` ${calls.data.calls.length.toLocaleString()}` : ''}`}>
+      <Section title={`AI 호출${calls.data ? ` ${calls.data.calls.length.toLocaleString()}` : ''}`}>
       {calls.data?.calls.length === 0 ? (
         <Text as="p" variant="body" tone="muted">이 작업의 AI 호출 기록이 없습니다.</Text>
       ) : (
         <InspectorList>
           {calls.data?.calls.map((call) => (
-            <Box as="li" key={call.id} spaceY="hair" paddingY="cozy" variant="body" trimEnds>
+            <ListItem key={call.id} spaceY="hair" paddingY="cozy" variant="body">
               <Inline gap="condensed">
                 <Text minWidth={0} grow truncate>{call.label}</Text>
                 {call.status === 'running' ? (
@@ -228,12 +226,12 @@ function JobCalls({ projectId, job, onClose }: { projectId: string; job: { id: s
               </Text>
               {call.error && <Text as="p" variant="caption" breakWords tone="danger">{call.error}</Text>}
               {(call.hasRequest || call.hasResponse) && <SentRequest projectId={projectId} callId={call.id} hasRequest={call.hasRequest} hasResponse={call.hasResponse} />}
-            </Box>
+            </ListItem>
           ))}
         </InspectorList>
       )}
       {calls.data && calls.data.calls.length >= 200 && <Text as="p" variant="caption" tone="muted">최근 200건만 보여 줍니다.</Text>}
-      </InspectorSection>
+      </Section>
     </Inspector>
   );
 }
@@ -246,14 +244,14 @@ function SentRequest({ projectId, callId, hasRequest, hasResponse }: { projectId
     <Box asChild paddingTop="tight">
     <Collapsible open={open} onOpenChange={setOpen}>
       <CollapsibleTrigger asChild>
-        <Button variant="ghost" size="inline" marginLeft="-tight" tone="muted">
+        <Button variant="ghost" size="inline" flush="start" tone="muted">
           <Icon icon={ChevronRight} turn={open} /> {hasRequest ? (hasResponse ? '입출력' : '보낸 내용') : '받은 출력'}
         </Button>
       </CollapsibleTrigger>
       <Box asChild marginTop="tight" spaceY="condensed">
       <CollapsibleContent>
         {!request.data ? (
-          <Box asChild height={16}><Skeleton /></Box>
+          <Skeleton height="placeholder-sm" />
         ) : (
           <>
             {request.data.request != null && <CallText label="보낸 내용" text={request.data.request} />}
@@ -277,7 +275,7 @@ function CallText({ label, text }: { label: string; text: string }) {
           <Copy /> 복사
         </Button>
       </Inline>
-      <Box as="pre" maxHeight={96} overflow="auto" radius="md" border="all" background="muted" padding="condensed" mono variant="caption" breakWords preserveLines>{text}</Box>
+      <Box as="pre" maxHeight="scroll-3xl" overflow="auto" radius="md" border="all" background="sunken" padding="condensed" mono variant="caption" breakWords preserveLines>{text}</Box>
     </Box>
   );
 }

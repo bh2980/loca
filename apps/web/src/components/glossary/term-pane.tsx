@@ -5,7 +5,7 @@ import { Link } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Play, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { Inspector, InspectorHeader, InspectorBlock, InspectorSection, InspectorField, InspectorFields, InspectorList, TagListEditor, DirtyBar, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Inline, Input, KnowledgeLineLink, KnowledgeScrollList, Text, Textarea } from '@loca/ui';
+import { Inspector, InspectorHeader, InspectorList, TagListEditor, DirtyBar, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Inline, Input, ListRow, Text, Textarea, Section, Field, Box } from '@loca/ui';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { confirmLabel, SourceBadge, StateCell, type ItemTag } from '@/components/knowledge/table';
 import { isSettled, PALETTE, TAG_SCOPES, type KnowledgeOrigin, type KnowledgeStatus, type StatusBy } from '@tw/shared';
@@ -33,17 +33,17 @@ export const NEW_TERM = 'new';
 /** The three editable fields of a term, shared by the new-term and edit panes. */
 function TermFields({ form, onChange }: { form: { source: string; target: string; note: string }; onChange: (form: { source: string; target: string; note: string }) => void }) {
   return (
-    <InspectorFields>
-      <InspectorField label="원문" action={form.source ? <CopyButton value={form.source} label="원문 복사" /> : undefined}>
+    <Box spaceY="normal">
+      <Field label="원문" action={form.source ? <CopyButton value={form.source} label="원문 복사" /> : undefined}>
         <Input value={form.source} onChange={(event) => onChange({ ...form, source: event.target.value })} />
-      </InspectorField>
-      <InspectorField label="번역" action={form.target ? <CopyButton value={form.target} label="번역 복사" /> : undefined}>
+      </Field>
+      <Field label="번역" action={form.target ? <CopyButton value={form.target} label="번역 복사" /> : undefined}>
         <Input value={form.target} onChange={(event) => onChange({ ...form, target: event.target.value })} />
-      </InspectorField>
-      <InspectorField label="메모">
+      </Field>
+      <Field label="메모">
         <Textarea rows={4} value={form.note} placeholder="선택" onChange={(event) => onChange({ ...form, note: event.target.value })} />
-      </InspectorField>
-    </InspectorFields>
+      </Field>
+    </Box>
   );
 }
 
@@ -64,7 +64,7 @@ export function NewTermPane({ projectId, onClose, onCreated }: { projectId: stri
           <Plus /> 추가
         </Button>
       }>
-      <InspectorSection title="용어"><TermFields form={form} onChange={setForm} /></InspectorSection>
+      <Section title="용어"><TermFields form={form} onChange={setForm} /></Section>
     </Inspector>
   );
 }
@@ -157,11 +157,11 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
       } onClose={onClose} />}
       footer={dirty ? <DirtyBar dirtyCount={Object.keys(changedFields(form, saved)).length} onRevert={takeSaved} onSave={() => save.mutate()} saving={save.isPending} disabled={!form.source.trim()} /> : (candidate ? <Button variant="outline" disabled={deciding || !term.target.trim()} onClick={() => onDecide(true)}><Check /> {confirmLabel([{ ...term, evidence: [] }])}</Button> : null)}
     >
-      {conflicts.length > 0 && <InspectorBlock><ChangedElsewhere fields={conflicts.map((field) => TERM_FIELD_LABEL[field as keyof typeof TERM_FIELD_LABEL])} onTakeSaved={takeSaved} onKeepMine={keepMine} /></InspectorBlock>}
-      <InspectorSection title="용어">
+      {conflicts.length > 0 && <Section><ChangedElsewhere fields={conflicts.map((field) => TERM_FIELD_LABEL[field as keyof typeof TERM_FIELD_LABEL])} onTakeSaved={takeSaved} onKeepMine={keepMine} /></Section>}
+      <Section title="용어">
         <TermFields form={form} onChange={setForm} />
-      </InspectorSection>
-      <InspectorSection title="태그">
+      </Section>
+      <Section title="태그">
         <TagListEditor
           tags={attachedTags}
           allTags={termTags}
@@ -169,8 +169,8 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
           onCreate={handleCreateTag}
           heading="용어에 붙일 태그"
         />
-      </InspectorSection>
-      <InspectorSection
+      </Section>
+      <Section
         title={`등장 대사 ${usage.data?.count ?? "…"}`}
         actions={
           !!usage.data?.count && (
@@ -186,11 +186,11 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
         {usage.data && usage.data.rows.length === 0 ? (
           <Text as="p" variant="body" tone="muted">이 용어가 나오는 대사가 없습니다.</Text>
         ) : (
-          <KnowledgeScrollList limit={60}>
-            {usage.data?.rows.map((row) => <li key={row.id}><KnowledgeLineLink kind="inset"><Link to="/p/$projectId/script" params={{ projectId }} search={{ group: row.groupId, line: row.id }}><Text variant="caption" tone="muted">{row.groupTitle} · </Text>{row.speaker && <Text weight="medium">{row.speaker}: </Text>}{row.source}{row.translation && <Text display="block" tone="muted">{row.translation}</Text>}</Link></KnowledgeLineLink></li>)}
-          </KnowledgeScrollList>
+          <InspectorList scroll="scroll-list">
+            {usage.data?.rows.map((row) => <li key={row.id}><ListRow as="link" variant="line" inset><Link to="/p/$projectId/script" params={{ projectId }} search={{ group: row.groupId, line: row.id }}><Text variant="caption" tone="muted">{row.groupTitle} · </Text>{row.speaker && <Text weight="medium">{row.speaker}: </Text>}{row.source}{row.translation && <Text display="block" tone="muted">{row.translation}</Text>}</Link></ListRow></li>)}
+          </InspectorList>
         )}
-      </InspectorSection>
+      </Section>
     </Inspector>
   );
 }

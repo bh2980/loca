@@ -155,7 +155,7 @@ function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; ru
     >
       <Background gap={20} size={1} />
       {openCall && (
-        <Box asChild maxHeight="70%" width={80} overflow="auto" radius="md" border="all" background="card" padding="normal" variant="body" shadow="sm"><Panel position="top-left">
+        <Box asChild maxHeight="overlay" width="popover" overflow="auto" radius="md" border="all" background="surface" padding="normal" variant="body" shadow="sm"><Panel position="top-left">
           <Inline marginBottom="condensed" gap="condensed">
             <Text minWidth={0} grow truncate weight="medium" title={run.definition.calls?.[openCall]?.name}>{run.definition.calls?.[openCall]?.name} · 안의 노드</Text>
             <Button variant="ghost" aria-label="닫기" onClick={() => setOpenCall(undefined)}><X /></Button>

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Pencil, Plus, Trash2, X } from 'lucide-react';
-import { Button, ConversationHit, ConversationItem, ConversationMenuContent, ConversationMenuHeading, ConversationMenuTrigger, ConversationRowAction, ConversationSearchField, DropdownMenu, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, Inline, Input, Text } from '@loca/ui';
+import { Check, History, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { Button, ListRow, ConversationRowAction, DropdownMenu, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, Inline, Icon, Input, Text, MenuSearchField, DropdownMenuContent, MenuLabel } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 
@@ -72,11 +72,14 @@ export function ConversationMenu({ projectId, sessions, sessionId, currentTitle,
       }}
     >
       <DropdownMenuTrigger asChild>
-        <ConversationMenuTrigger title={currentTitle ?? '대화 없음'} />
+        <Button variant="ghost" minWidth={0} grow justifyContent="start">
+          <Icon icon={History} tone="muted" />
+          <Text truncate>{currentTitle ?? '대화 없음'}</Text>
+        </Button>
       </DropdownMenuTrigger>
-      <ConversationMenuContent>
-        <ConversationMenuHeading>대화</ConversationMenuHeading>
-        <ConversationSearchField
+      <DropdownMenuContent align="start" width="popover">
+        <MenuLabel tone="strong">대화</MenuLabel>
+        <MenuSearchField
           ref={searchBox}
           value={search}
           onChange={(event) => setSearch(event.target.value)}
@@ -90,7 +93,10 @@ export function ConversationMenu({ projectId, sessions, sessionId, currentTitle,
         {searching ? (
           <>
             {found.map((hit) => (
-              <ConversationHit key={hit.sessionId} title={hit.title} snippet={hit.role !== 'title' ? hit.snippet : undefined} current={hit.sessionId === sessionId} onSelect={() => onPick(hit.sessionId)} onPointerMove={keepSearchFocus} />
+              <ListRow as="menuitem" stacked key={hit.sessionId} selected={hit.sessionId === sessionId} onSelect={() => onPick(hit.sessionId)} onPointerMove={keepSearchFocus}>
+                <Text width="full" truncate>{hit.title}</Text>
+                {hit.role !== 'title' && <Text width="full" variant="caption" weight="normal" tone="muted" truncate>{hit.snippet}</Text>}
+              </ListRow>
             ))}
             {!found.length && <Text as="p" paddingX="condensed" paddingY="snug" variant="body" tone="muted">{hits.isFetching || term !== search.trim() ? '찾는 중…' : '찾는 대화가 없습니다.'}</Text>}
           </>
@@ -119,7 +125,7 @@ export function ConversationMenu({ projectId, sessions, sessionId, currentTitle,
                   </Button>
                 </Inline>
               ) : (
-                <ConversationItem key={session.id} current={session.id === sessionId} onSelect={() => onPick(session.id)}>
+                <ListRow as="menuitem" key={session.id} selected={session.id === sessionId} onSelect={() => onPick(session.id)}>
                   <Text minWidth={0} grow truncate>{session.title}</Text>
                   {session.calls > 0 && (
                     <Text shrink={false} variant="caption" tone="muted" tabular>
@@ -148,7 +154,7 @@ export function ConversationMenu({ projectId, sessions, sessionId, currentTitle,
                   >
                     <Trash2 />
                   </ConversationRowAction>
-                </ConversationItem>
+                </ListRow>
               ),
             )}
             {!sessions?.length && <Text as="p" paddingX="condensed" paddingY="snug" variant="body" tone="muted">아직 대화가 없습니다.</Text>}
@@ -158,7 +164,7 @@ export function ConversationMenu({ projectId, sessions, sessionId, currentTitle,
         <DropdownMenuItem onSelect={onCreate}>
           <Plus /> 새 대화
         </DropdownMenuItem>
-      </ConversationMenuContent>
+      </DropdownMenuContent>
     </DropdownMenu>
   );
 }

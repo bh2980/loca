@@ -1,4 +1,4 @@
-import { Box, Button, Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Empty, EmptyHeader, EmptyTitle, Inline, Text } from '@loca/ui';
+import { Box, Button, Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, EmptyHeader, EmptyTitle, Inline, Text, Bleed, EmptyState } from '@loca/ui';
 import type { PathNodeText } from '@/components/graph/path-graph';
 
 export interface RemainingBranchItem {
@@ -30,8 +30,7 @@ export function RemainingBranches({ open, onOpenChange, branches, unreachable, t
   };
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <Box asChild maxWidthFromSm="xl">
-      <DialogContent>
+      <DialogContent size="md">
         <DialogHeader>
           <DialogTitle>남은 갈래 {branches.length.toLocaleString()}</DialogTitle>
           <DialogDescription>
@@ -40,7 +39,7 @@ export function RemainingBranches({ open, onOpenChange, branches, unreachable, t
           </DialogDescription>
         </DialogHeader>
         {branches.length ? (
-          <Box as="ul" marginX="-condensed" maxHeight="60vh" overflow="y" data-testid="remaining-branches">
+          <Bleed as="ul" by="condensed" maxHeight="popover" overflow="y" data-testid="remaining-branches">
             {branches.map((branch) => (
               <Inline as="li" key={`${branch.fork}:${branch.arm}`} gap="normal" paddingX="condensed" paddingY="condensed">
                 <Box minWidth={0} grow>
@@ -55,17 +54,16 @@ export function RemainingBranches({ open, onOpenChange, branches, unreachable, t
                 </Button>
               </Inline>
             ))}
-          </Box>
+          </Bleed>
         ) : (
-          <Empty>
+          <EmptyState size="pane">
             <EmptyHeader>
               <EmptyTitle>남은 갈래가 없습니다</EmptyTitle>
               
             </EmptyHeader>
-          </Empty>
+          </EmptyState>
         )}
       </DialogContent>
-      </Box>
     </Dialog>
   );
 }

@@ -8,7 +8,7 @@ import { TranslationEditor } from '@/components/translation-editor';
 import { LineSourceText, MarkedSourceText, TokenText } from '@/components/editor/source-text';
 import { LineHints } from '@/components/script/line-row';
 import { usePersonColors } from '@/lib/person-colors';
-import { Box, Button, DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuTrigger, ForkOptionItem, Heading, Icon, Inline, ScriptReadingRow, Skeleton, Stack, TagChip, TagListEditor, Text, type StatusLike } from '@loca/ui';
+import { Box, Button, DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuTrigger, ForkOptionItem, Heading, Icon, Inline, ScriptReadingRow, Skeleton, Stack, TagChip, TagListEditor, Text, type StatusLike, VirtualItem } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { tokenPatternOf } from '@/lib/line-context';
 import { keyLabel } from '@/lib/keys';
@@ -81,11 +81,11 @@ function RouteLineRow({ projectId, row, selected, status, statusList, rules, tag
     <Box role="listitem" paddingY="normal" paddingX="page">
       {stageLabel && <Heading as="h3" variant="group" minWidth={0} marginBottom="condensed" display="block">{stageLabel}</Heading>}
       {loadError ? (
-        <Inline gap="normal" width="full" maxWidth="4xl" role="alert">
+        <Inline gap="normal" width="full" maxWidth="reading" role="alert">
           <Text as="p" variant="body" tone="danger">이 줄을 불러오지 못했습니다.</Text>
           <Button variant="outline" onClick={onRetry}>다시 시도</Button>
         </Inline>
-      ) : <Box asChild height={28} width="full" maxWidth="4xl"><Skeleton aria-label="줄을 불러오는 중" /></Box>}
+      ) : <Skeleton height="placeholder-md" width="full" maxWidth="reading" aria-label="줄을 불러오는 중" />}
     </Box>
   );
 
@@ -341,13 +341,13 @@ export function RouteList({ projectId, sequence, stages, routeKey, untranslatedI
                 <DropdownMenu key={fork.nodeId}>
                   <DropdownMenuTrigger asChild>
                     <Button variant="outline" shrink={false}>
-                      <Text truncate maxWidth="200px">
+                      <Text truncate maxWidth="label-lg">
                         {forkTitle}: {selectedOption?.label ?? '선택'} ({fork.options.length}갈래)
                       </Text>
                       <Icon icon={ChevronDown} size="xs" marginLeft="tight" opacity={60} />
                     </Button>
                   </DropdownMenuTrigger>
-                  <Box asChild width={80}>
+                  <Box asChild width="popover">
                     <DropdownMenuContent align="start">
                       <Text asChild variant="caption" tone="muted">
                         <DropdownMenuLabel>
@@ -371,7 +371,7 @@ export function RouteList({ projectId, sequence, stages, routeKey, untranslatedI
                     <Icon icon={ChevronDown} size="xs" marginLeft="tight" opacity={60} />
                   </Button>
                 </DropdownMenuTrigger>
-                <Box asChild maxHeight={96} width={80} overflow="y">
+                <Box asChild maxHeight="scroll-3xl" width="popover" overflow="y">
                   <DropdownMenuContent align="start">
                     {forks.map((fork, idx) => {
                       const forkTitle = `분기 ${idx + 1}/${forks.length}${fork.label && !fork.label.startsWith('Sibling') ? ` · ${fork.label}` : ''}`;
@@ -398,13 +398,13 @@ export function RouteList({ projectId, sequence, stages, routeKey, untranslatedI
                   <DropdownMenu key={fork.nodeId}>
                     <DropdownMenuTrigger asChild>
                       <Button variant="outline" shrink={false}>
-                        <Text truncate maxWidth="140px">
+                        <Text truncate maxWidth="label-sm">
                           {forkTitle}: {selectedOption?.label ?? '선택'}
                         </Text>
                         <Icon icon={ChevronDown} size="xs" marginLeft="tight" opacity={60} />
                       </Button>
                     </DropdownMenuTrigger>
-                    <Box asChild width={80}>
+                    <Box asChild width="popover">
                       <DropdownMenuContent align="start">
                         <Text asChild variant="caption" tone="muted">
                           <DropdownMenuLabel>
@@ -427,9 +427,9 @@ export function RouteList({ projectId, sequence, stages, routeKey, untranslatedI
         {sequence.length === 0 ? <Text as="p" variant="body" tone="muted" padding="spacious">이 길에는 대사가 없습니다.</Text> : (
           <Box role="list" position="relative" width="full" style={{ height: virtualizer.getTotalSize() }}>
             {virtual.map((entry) => (
-              <Box key={entry.key} data-index={entry.index} ref={virtualizer.measureElement} position="absolute" top={0} left={0} width="full" style={{ transform: `translateY(${entry.start}px)` }}>
+              <VirtualItem key={entry.key} data-index={entry.index} ref={virtualizer.measureElement} style={{ transform: `translateY(${entry.start}px)` }}>
                 {renderLine(entry.index)}
-              </Box>
+              </VirtualItem>
             ))}
           </Box>
         )}

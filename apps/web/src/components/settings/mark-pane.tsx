@@ -1,6 +1,6 @@
 /** Right-hand pane for a built-in automatic tag: only its color is the project's to change. */
 import { AUTO_MARKS, type AutoMark } from '@tw/shared';
-import { InspectorSection, InspectorField, InspectorFields, InspectorHeader, Inspector, PropertyGrid, PropertyRow, Button, TagPreviewChip } from '@loca/ui';
+import { InspectorHeader, Inspector, Button, Box, Chip, Section, Field, KeyValue, KeyValueRow } from '@loca/ui';
 import { scopeLabel } from '@/components/settings/status-types';
 import { Swatches } from '@/components/settings/swatches';
 import { useFormFrom } from '@/lib/use-form-from';
@@ -20,23 +20,25 @@ export function MarkPane({ mark, color, pending, onClose, onSave }: { mark: Auto
           </Button>
         </>
       }>
-      <InspectorSection title="정보">
-        <PropertyGrid>
-          <PropertyRow label="뜻">{info.description}</PropertyRow>
-          <PropertyRow label="미리보기">
-            <TagPreviewChip color={draft}>
-              #{info.name}
-            </TagPreviewChip>
-          </PropertyRow>
-        </PropertyGrid>
-      </InspectorSection>
-      <InspectorSection title="설정">
-        <InspectorFields>
-          <InspectorField label="색상">
+      <Section title="정보">
+        <KeyValue>
+          <KeyValueRow label="뜻">{info.description}</KeyValueRow>
+          <KeyValueRow label="미리보기">
+            <Box asChild radius="base">
+              <Chip variant="tint" color={draft}>
+                #{info.name}
+              </Chip>
+            </Box>
+          </KeyValueRow>
+        </KeyValue>
+      </Section>
+      <Section title="설정">
+        <Box spaceY="normal">
+          <Field label="색상">
             <Swatches value={draft} onChange={setDraft} />
-          </InspectorField>
-        </InspectorFields>
-      </InspectorSection>
+          </Field>
+        </Box>
+      </Section>
     </Inspector>
   );
 }

@@ -64,7 +64,7 @@ function NameField({ name, onRename }: { name: string; onRename: (name: string) 
   };
   if (editing !== null)
     return (
-      <Box asChild height={8} width={60}>
+      <Box asChild height="control" width="menu-lg">
       <Input
         autoFocus
         value={editing}
@@ -581,7 +581,7 @@ function WorkflowEditor() {
   if (!workflow.data || !current)
     return (
       <Page title="워크플로">
-        <Box asChild height={96}><Skeleton /></Box>
+        <Skeleton height="placeholder-page" />
       </Page>
     );
 
@@ -725,7 +725,7 @@ function WorkflowEditor() {
             <PopoverTrigger asChild>
               <Button variant="ghost" tone="muted">워크플로 {calledBy.length}개가 이 워크플로를 부릅니다</Button>
             </PopoverTrigger>
-            <Box asChild width={64} padding="condensed">
+            <Box asChild width="menu-xl" padding="condensed">
             <PopoverContent align="start">
               <Box as="ul" spaceY="hair">
                 {calledBy.map((caller) => (
@@ -746,7 +746,7 @@ function WorkflowEditor() {
         <RunDialog projectId={projectId} workflowId={workflowId} disabled={errorCount > 0 || save.isPending} dirty={Boolean(draft)} />
         {draft && <Button variant="ghost" disabled={save.isPending} onClick={discard}>되돌리기</Button>}
       </HeaderActions>
-      {save.isError && <Inline role="alert" gap="condensed" border="bottom" background="destructiveSoft" paddingX="comfortable" paddingY="condensed" variant="caption" tone="danger">저장하지 못했습니다. 편집은 이 브라우저에 보관됩니다. {save.error.message}<Button variant="outline" disabled={stale || !draft} onClick={() => draft && save.mutate(draft)}>다시 저장</Button></Inline>}
+      {save.isError && <Inline role="alert" gap="condensed" border="bottom" background="dangerSoft" paddingX="comfortable" paddingY="condensed" variant="caption" tone="danger">저장하지 못했습니다. 편집은 이 브라우저에 보관됩니다. {save.error.message}<Button variant="outline" disabled={stale || !draft} onClick={() => draft && save.mutate(draft)}>다시 저장</Button></Inline>}
       {stale && !save.isPending && (
         <Inline gap="normal" border="bottom" background="warningSoft" paddingX="spacious" paddingY="condensed" variant="body" tone="warning">
           편집하는 동안 다른 곳에서 이 워크플로를 저장했습니다({savedAt(workflow.data.updatedAt)}). 이 편집은 그 전 내용을 바탕으로 합니다.
@@ -757,25 +757,24 @@ function WorkflowEditor() {
       )}
       {/* The editor only edits: how a run is going is on its own page (실행 기록 › 그래프). */}
       {activeRun && (
-        <Inline role="status" gap="normal" border="bottom" background="muted" paddingX="comfortable" paddingY="condensed" variant="caption" tone="muted">
+        <Inline role="status" gap="normal" border="bottom" background="sunken" paddingX="comfortable" paddingY="condensed" variant="caption" tone="muted">
           이 워크플로가 {activeRun.status === 'paused' ? '멈춘 채 실행 중' : '실행 중'}입니다. 실행이 끝날 때까지 바뀐 내용은 저장되지 않고 이 브라우저에 보관됩니다.
           <Button variant="outline" asChild>
             <Link to="/p/$projectId/runs/$runId" params={{ projectId, runId: activeRun.id }} search={{ tab: 'graph' }}>진행 보기</Link>
           </Button>
         </Inline>
       )}
-      <Box asChild height="full">
-      <SplitPane
+      <SplitPane fill="height"
         id="workflow"
         selectionKey={selected?.id}
         defaultWidth="360px"
         pane={
           current && !selected && !multi.length ? (
-            <Box height="full" minWidth={0} overflow="hiddenX" background="background">
+            <Box height="full" minWidth={0} overflow="hiddenX" background="page">
               <WorkflowSettings settings={current.definition.settings} onChange={(settings) => setDraft((value) => ({ ...value, definition: { ...value.definition, settings } }))} />
             </Box>
           ) : selected && (
-            <Box height="full" minWidth={0} overflow="hiddenX" background="background">
+            <Box height="full" minWidth={0} overflow="hiddenX" background="page">
               <NodeConfig
                 key={`${selected.id}:${revision}`}
                 node={selected}
@@ -803,9 +802,7 @@ function WorkflowEditor() {
         }
       >
         <Stack direction="row" minHeight={0} grow paddingBottom="statusBar">
-        <Box asChild width="200px" shrink={false} border="right">
         <NodeLibrary groups={palette} onSelect={(item) => addFromLibrary(item.id)} />
-        </Box>
         <CanvasSurface ref={canvasRef} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; }} onDrop={(event) => {
           event.preventDefault();
           const id = event.dataTransfer.getData('application/x-loca-workflow-node');
@@ -884,7 +881,7 @@ function WorkflowEditor() {
             deleteKeyCode={null}
             proOptions={{ hideAttribution: true }}
           >
-            <Background size={1.5} gap={20} color="var(--graph-grid)" />
+            <Background size={1.5} gap={20} color="var(--fill-graph-grid)" />
             <Panel position="bottom-right"><CanvasToolbar zoomPercent={zoom * 100} onZoomIn={() => void flow.zoomIn()} onZoomOut={() => void flow.zoomOut()} onFit={() => fitWholeWorkflow(flow, 200)} onResetZoom={() => void flow.zoomTo(1, { duration: 180 })} onLayout={() => void arrange(direction, true)} layoutLabel="자동 정렬" direction={direction} onDirectionChange={changeDirection} foldsOpen={folds.length ? allFoldsOpen(folds, foldState) : undefined} onToggleFolds={() => setFoldState(setAllFolds(folds, !allFoldsOpen(folds, foldState)))} minimapVisible={minimap} onToggleMinimap={() => setMinimap((value) => !value)} /></Panel>
             {minimap && <MiniMap position="top-right" pannable zoomable />}
             {selected && shown.some((node) => node.id === selected.id) && <NodeToolbar nodeId={selected.id} isVisible position={Position.Top} offset={16}><SelectionToolbox actions={[
@@ -910,7 +907,7 @@ function WorkflowEditor() {
                 />
               </DropdownMenuTrigger>
               {contextMenu.kind === 'node' && (
-                <Box asChild width={48}>
+                <Box asChild width="menu-sm">
                 <DropdownMenuContent align="start" side="bottom" sideOffset={2}>
                   <DropdownMenuItem onSelect={() => select(contextMenu.node.id)}>
                     <Icon icon={SlidersHorizontal} size="sm" />
@@ -959,7 +956,7 @@ function WorkflowEditor() {
                 </Box>
               )}
               {contextMenu.kind === 'nodes' && (
-                <Box asChild width={56}>
+                <Box asChild width="menu">
                 <DropdownMenuContent align="start" side="bottom" sideOffset={2}>
                   <DropdownMenuItem onSelect={() => duplicateNodes(contextMenu.ids)}>
                     <Icon icon={Copy} size="sm" />
@@ -974,7 +971,7 @@ function WorkflowEditor() {
                 </Box>
               )}
               {contextMenu.kind === 'edge' && (
-                <Box asChild width={40}>
+                <Box asChild width="field-xl">
                 <DropdownMenuContent align="start" side="bottom" sideOffset={2}>
                   <DropdownMenuItem
                     variant="destructive"
@@ -989,14 +986,14 @@ function WorkflowEditor() {
                 </Box>
               )}
               {contextMenu.kind === 'pane' && (
-                <Box asChild width={48}>
+                <Box asChild width="menu-sm">
                 <DropdownMenuContent align="start" side="bottom" sideOffset={2}>
                   <DropdownMenuSub>
                     <DropdownMenuSubTrigger>
                       <Icon icon={Plus} size="sm" />
                       <span>노드 추가</span>
                     </DropdownMenuSubTrigger>
-                    <Box asChild width={44}>
+                    <Box asChild width="field-2xl">
                     <DropdownMenuSubContent>
                       {palette.map((group, groupIndex) => (
                         <Fragment key={group.id}>
@@ -1044,7 +1041,6 @@ function WorkflowEditor() {
         </CanvasSurface>
         </Stack>
       </SplitPane>
-      </Box>
       <StatusBarItem>
         <Text marginRight="normal" nowrap tabular>노드 {definitions.length}</Text>
         {issues.length > 0 && <Text tone={errorCount ? 'danger' : 'warning'}>{errorCount ? `오류 ${errorCount}` : `경고 ${issues.length}`} · {issues[0]?.message}</Text>}

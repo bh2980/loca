@@ -1,7 +1,7 @@
 import { clsx } from "clsx"
 import type { LucideIcon } from "lucide-react"
 import type * as React from "react"
-import { type StyleProps, splitStyle, styleVariants } from "../layout/style"
+import { type StyleProps, splitStyle, styleVariants } from "./style"
 
 export type IconProps = Omit<React.SVGProps<SVGSVGElement>, "ref" | "size" | keyof StyleProps> & Pick<StyleProps, "tone" | "display" | "shrink" | "marginLeft" | "marginRight" | "marginTop" | "opacity"> & {
   icon: LucideIcon

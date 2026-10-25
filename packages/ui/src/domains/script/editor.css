@@ -1,0 +1,8 @@
+.speaker-avatar {
+  background-color: var(--speaker-color);
+  color: var(--text-color-default);
+}
+
+.speaker-name {
+  color: var(--speaker-color);
+}

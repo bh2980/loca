@@ -1,4 +1,4 @@
-import { Button, RulesWarningBanner } from '@loca/ui';
+import { Button, Notice } from '@loca/ui';
 
 /**
  * An unsaved edit whose item changed elsewhere meanwhile (a chat proposal accepted, a workflow,
@@ -7,8 +7,9 @@ import { Button, RulesWarningBanner } from '@loca/ui';
  */
 export function ChangedElsewhere({ fields, onTakeSaved, onKeepMine }: { fields?: string[]; onTakeSaved: () => void; onKeepMine: () => void }) {
   return (
-    <RulesWarningBanner
-      message={`고치는 동안 ${fields?.length ? `${fields.join(', ')}이(가)` : '이 항목이'} 다른 곳에서 바뀌었습니다. 아래는 아직 저장하지 않은 내 수정입니다.`}
+    <Notice
+      variant="banner"
+      tone="warning"
       actions={
         <>
           <Button variant="outline" size="inline" paddingX="condensed" onClick={onTakeSaved}>
@@ -19,6 +20,8 @@ export function ChangedElsewhere({ fields, onTakeSaved, onKeepMine }: { fields?:
           </Button>
         </>
       }
-    />
+    >
+      {`고치는 동안 ${fields?.length ? `${fields.join(', ')}이(가)` : '이 항목이'} 다른 곳에서 바뀌었습니다. 아래는 아직 저장하지 않은 내 수정입니다.`}
+    </Notice>
   );
 }

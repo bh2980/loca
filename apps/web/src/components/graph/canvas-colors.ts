@@ -1,13 +1,13 @@
-/** Resolve semantic theme tokens to concrete CSS colors for CanvasRenderingContext2D. */
+/** Resolve the theme's colour tokens to concrete CSS colours for CanvasRenderingContext2D (the names are the tokens in packages/ui tokens/theme.css). */
 export function getCanvasColors(style: CSSStyleDeclaration = getComputedStyle(document.documentElement)) {
   const read = (name: string) => style.getPropertyValue(`--${name}`).trim();
   return {
-    graphCanvas: read('graph-canvas'), graphGrid: read('graph-grid'), graphEdge: read('graph-edge'), graphNode: read('graph-node'),
-    graphNodeLine: read('graph-node-line'), graphSelect: read('graph-select'), foreground: read('foreground'),
-    mutedForeground: read('muted-foreground'), subtleForeground: read('subtle-foreground'), primary: read('primary'), primaryInk: read('primary-ink'),
-    primarySoft: read('primary-soft'), card: read('card'), muted: read('muted'), border: read('border'), review: read('review'),
-    aiSoft: read('ai-soft'), selection: read('selection'), choice: read('graph-kind-choice'), condition: read('graph-kind-condition'),
-    wait: read('graph-kind-wait'), event: read('graph-kind-event'), state: read('graph-kind-state'),
+    graphEdge: read('stroke-graph-edge'), graphNode: read('background-color-graph-node'), graphNodeLine: read('stroke-graph-node'),
+    text: read('text-color-default'), textMuted: read('text-color-muted'),
+    accent: read('background-color-accent'), accentSoft: read('background-color-accent-soft'), onAccentSoft: read('text-color-on-accent-soft'),
+    surface: read('background-color-surface'), sunken: read('background-color-sunken'), line: read('border-color-default'),
+    choice: read('background-color-graph-kind-choice'), condition: read('background-color-graph-kind-condition'),
+    wait: read('background-color-graph-kind-wait'), event: read('background-color-graph-kind-event'), state: read('background-color-graph-kind-state'),
     hues: Array.from({ length: 12 }, (_, index) => read(`hue-${index + 1}`)),
   };
 }

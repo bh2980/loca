@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { CornerDownRight, FileText, Network } from 'lucide-react';
-import { Box, ColumnResizeHandle, FlowRow, Icon, Inline, Inspector, InspectorBlock, InspectorHeader, Button, Skeleton, Text, WayChip } from '@loca/ui';
+import { Box, ColumnResizeHandle, FlowRow, Icon, Inline, Inspector, InspectorHeader, Button, Skeleton, Text, Chip, Section } from '@loca/ui';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { KIND_LABEL } from './shapes';
@@ -14,10 +14,10 @@ import { personStyle, usePersonColors } from '@/lib/person-colors';
 export function SceneNodeDetail({ projectId, groupId, onClose }: { projectId: string; groupId: string; onClose: () => void }) {
   const group = useQuery(q.group(groupId));
   useReportView('graph-node', [group.data && { kind: '장면', id: group.data.id, label: group.data.title }]);
-  if (!group.data) return <Box asChild margin="comfortable" height={24}><Skeleton /></Box>;
+  if (!group.data) return <Skeleton marginTop="comfortable" marginBottom="comfortable" marginLeft="comfortable" marginRight="comfortable" height="placeholder" />;
   return (
     <Inspector
-      header={<InspectorHeader kind="장면" name={group.data.title} status={<Text mono variant="caption" breakAll title={group.data.key}>{group.data.key}</Text>} onClose={onClose} />}
+      header={<InspectorHeader kind="장면" name={group.data.title} status={<Text mono variant="caption" breakWords="all" title={group.data.key}>{group.data.key}</Text>} onClose={onClose} />}
       footer={
         <>
           <Button variant="outline" asChild>
@@ -33,9 +33,9 @@ export function SceneNodeDetail({ projectId, groupId, onClose }: { projectId: st
         </>
       }
     >
-      <InspectorBlock>
+      <Section>
         {group.data.description ? <Text as="p" variant="body">{group.data.description}</Text> : <Text as="p" variant="body" tone="muted">이 장면에는 설명이 없습니다.</Text>}
-      </InspectorBlock>
+      </Section>
     </Inspector>
   );
 }
@@ -179,12 +179,12 @@ export function FlowPane({ projectId, nodeIds, title, way, extra, marked, editin
     >
       {extra}
       {way && way.labels.length > 0 && (
-        <Inline as="p" wrap gap="tight" background="muted" paddingX="comfortable" paddingY="snug" variant="caption" tone="muted">
+        <Inline as="p" wrap gap="tight" background="sunken" paddingX="comfortable" paddingY="snug" variant="caption" tone="muted">
           <Icon icon={CornerDownRight} size="sm" aria-label="들어오는 길" />
           {way.labels.map((label, index) => (
-            <WayChip key={index} choice={label.choice}>
+            <Chip key={index} variant="pill" tone={label.choice ? 'choice' : undefined}>
               {label.choice ? `▶ ${label.text}` : label.text}
-            </WayChip>
+            </Chip>
           ))}
         </Inline>
       )}

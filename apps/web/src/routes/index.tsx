@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { FolderOpen } from 'lucide-react';
-import { SectionHeading, EmptyContent, EmptyHeader, EmptyMedia, EmptyTitle, Box, Inline, Stack, BrandMark, OutlinedEmpty, ProjectCard, ProjectCardLink, ProjectCardSkeleton, ProjectGrid, ProjectListFrame } from '@loca/ui';
+import { SectionHeading, EmptyContent, EmptyHeader, EmptyMedia, EmptyTitle, Box, Inline, Stack, BrandMark, Grid, ProjectCard, ProjectCardLink, ProjectListFrame, Skeleton, EmptyState } from '@loca/ui';
 import { ImportProjectDialog } from '@/components/import-project';
 import { q } from '@/lib/queries';
 
@@ -15,20 +15,19 @@ function Home() {
         <Inline gap="normal">
           <BrandMark />
           <Box>
-            <SectionHeading page as="h1">loca</SectionHeading>
+            <SectionHeading level="page" as="h1">loca</SectionHeading>
           </Box>
         </Inline>
         {!!projects.data?.length && <ImportProjectDialog />}
       </Stack>
 
       {projects.isPending && (
-        <ProjectGrid>
-          <ProjectCardSkeleton />
-          <ProjectCardSkeleton />
-        </ProjectGrid>
+        <Grid columns="twoFromSm" gap="normal">
+          <Skeleton shape="card" count={2} />
+        </Grid>
       )}
       {projects.data?.length === 0 && (
-        <OutlinedEmpty>
+        <EmptyState size="pane">
           <EmptyHeader>
             <EmptyMedia variant="icon">
               <FolderOpen />
@@ -38,9 +37,9 @@ function Home() {
           <EmptyContent>
             <ImportProjectDialog />
           </EmptyContent>
-        </OutlinedEmpty>
+        </EmptyState>
       )}
-      <ProjectGrid>
+      <Grid columns="twoFromSm" gap="normal">
         {projects.data?.map((project) => (
           <ProjectCardLink key={project.id}>
             <Link to="/p/$projectId" params={{ projectId: project.id }}>
@@ -48,7 +47,7 @@ function Home() {
             </Link>
           </ProjectCardLink>
         ))}
-      </ProjectGrid>
+      </Grid>
     </ProjectListFrame>
   );
 }

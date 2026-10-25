@@ -10,15 +10,11 @@ import {
   EmptyState,
   TagMenu,
   Box,
-  KnowledgeLoadingBlock,
-  KnowledgeNameBadge,
-  KnowledgeSplitPane,
-  KnowledgeSummaryText,
   Text,
   FilterChips,
   FilterBar,
   ViewSwitch,
-  Badge,
+  Chip,
   Button,
   Tooltip,
   TooltipContent,
@@ -36,6 +32,8 @@ import {
   AlertDialogFooter,
   AlertDialogCancel,
   AlertDialogAction,
+  Skeleton,
+  SplitPane,
 } from '@loca/ui';
 import { HeaderActions, HeaderViews, Page, StatusBarItem } from '@/components/page';
 import { RelationshipGraph } from '@/components/relationship-graph';
@@ -50,7 +48,7 @@ import { EventFlow } from '@/components/knowledge/event-flow';
 import { lineKey, parseLineKey, useEventFlowActions } from '@/components/knowledge/event-actions';
 import { LineDetail } from '@/components/knowledge/line-detail';
 import { personStyle, usePersonColors } from '@/lib/person-colors';
-import { splitList } from '@/components/chip-input';
+import { splitList } from '@/lib/list-value';
 import { client, unwrap } from '@/lib/api';
 import { DOCUMENT_KIND } from '@/lib/labels';
 import { q, tagsIn, useMarkColors, useReviewTagId } from '@/lib/queries';
@@ -143,10 +141,10 @@ function Knowledge() {
     documents: defineKind({
       rows: documents.data ?? [],
       columns: [
-        { head: '제목', cell: (row) => row.title, className: 'font-medium', width: 240 },
+        { head: '제목', cell: (row) => row.title, weight: 'medium', width: 240 },
         { head: '종류', cell: (row) => DOCUMENT_KIND[row.kind], width: 96 },
-        { head: '문맥', cell: (row) => (row.alwaysInclude ? <Badge variant="outline">넣음</Badge> : null), width: 96 },
-        { head: '내용', cell: (row) => <KnowledgeSummaryText>{row.body.replace(/[#*_>`]+/g, '').replace(/\s+/g, ' ')}</KnowledgeSummaryText> },
+        { head: '문맥', cell: (row) => (row.alwaysInclude ? <Chip variant="outline">넣음</Chip> : null), width: 96 },
+        { head: '내용', cell: (row) => <Text lines={1} tone="muted">{row.body.replace(/[#*_>`]+/g, '').replace(/\s+/g, ' ')}</Text> },
       ],
       fields: [
         { name: 'title', label: '제목', type: 'text' },
@@ -162,11 +160,11 @@ function Knowledge() {
     characters: defineKind({
       rows: people.data?.characters ?? [],
       columns: [
-        { head: '이름', cell: (row) => <Text weight="medium"><span style={personStyle(row.color)}>{row.name}</span>{row.player ? <KnowledgeNameBadge>플레이어</KnowledgeNameBadge> : null}</Text>, width: 220 },
+        { head: '이름', cell: (row) => <Text weight="medium"><span style={personStyle(row.color)}>{row.name}</span>{row.player ? <Box asChild marginLeft="condensed"><Chip variant="outline">플레이어</Chip></Box> : null}</Text>, width: 220 },
         { head: '별칭', cell: (row) => row.aliases.join(', '), width: 180 },
         { head: '성별·나이', cell: (row) => <Text tone="muted">{personLabel(row)}</Text>, width: 120 },
         { head: '역할', cell: (row) => row.role === 'unknown' ? null : CHARACTER_ROLE_LABELS[row.role], width: 90 },
-        { head: '프로필', cell: (row) => <KnowledgeSummaryText>{row.profile}</KnowledgeSummaryText> },
+        { head: '프로필', cell: (row) => <Text lines={1} tone="muted">{row.profile}</Text> },
         { head: '문체', cell: (row) => <Text tone="muted">{styleNames(row.style).join(' · ')}</Text>, width: 180 },
       ],
       fields: [
@@ -189,10 +187,10 @@ function Knowledge() {
     relationships: defineKind({
       rows: people.data?.relationships ?? [],
       columns: [
-        { head: '인물', cell: (row) => `${nameOf.get(row.fromId) ?? '?'} → ${nameOf.get(row.toId) ?? '?'}`, className: 'font-medium', width: 240 },
+        { head: '인물', cell: (row) => `${nameOf.get(row.fromId) ?? '?'} → ${nameOf.get(row.toId) ?? '?'}`, weight: 'medium', width: 240 },
         { head: '관계', cell: (row) => row.kind, width: 160 },
-        { head: '변화', cell: (row) => (row.changes.length ? `${row.changes.length}번` : '—'), className: 'tabular-nums', width: 80 },
-        { head: '설명', cell: (row) => <KnowledgeSummaryText>{row.description}</KnowledgeSummaryText> },
+        { head: '변화', cell: (row) => (row.changes.length ? `${row.changes.length}번` : '—'), tabular: true, width: 80 },
+        { head: '설명', cell: (row) => <Text lines={1} tone="muted">{row.description}</Text> },
       ],
       fields: [
         { name: 'fromId', label: '누가', type: 'character' },
@@ -213,9 +211,9 @@ function Knowledge() {
     events: defineKind({
       rows: storyEvents.data ?? [],
       columns: [
-        { head: '사건', cell: (row) => row.title, className: 'font-medium', width: 260 },
+        { head: '사건', cell: (row) => row.title, weight: 'medium', width: 260 },
         { head: '관련 인물', cell: (row) => row.participants.join(', '), width: 200 },
-        { head: '결과', cell: (row) => <KnowledgeSummaryText>{row.outcome}</KnowledgeSummaryText> },
+        { head: '결과', cell: (row) => <Text lines={1} tone="muted">{row.outcome}</Text> },
       ],
       fields: [
         { name: 'title', label: '제목', type: 'text' },
@@ -232,11 +230,11 @@ function Knowledge() {
     speechRules: defineKind({
       rows: [...(rules.data ?? [])].sort((a, b) => a.fromName.localeCompare(b.fromName) || a.toName.localeCompare(b.toName)),
       columns: [
-        { head: '화자 → 청자', cell: (row) => `${row.fromName} → ${listenerLabel(row.toName)}`, className: 'font-medium', width: 240 },
+        { head: '화자 → 청자', cell: (row) => `${row.fromName} → ${listenerLabel(row.toName)}`, weight: 'medium', width: 240 },
         { head: '말투', cell: (row) => SPEECH_LEVEL_LABELS[row.level], width: 96 },
         { head: '호칭', cell: (row) => row.address || '—', width: 120 },
         { head: '시작', cell: (row) => (row.startKey ? <Text mono variant="caption">{row.startKey}</Text> : '처음부터'), width: 120 },
-        { head: '이유', cell: (row) => <KnowledgeSummaryText>{row.note}</KnowledgeSummaryText> },
+        { head: '이유', cell: (row) => <Text lines={1} tone="muted">{row.note}</Text> },
       ],
       fields: [
         { name: 'fromName', label: '화자', description: '인물 이름이나 별칭', type: 'text' },
@@ -445,7 +443,7 @@ function Knowledge() {
         (column, index): ColumnDef<Row, unknown> => ({
           id: column.head,
           header: column.head,
-          meta: { width: column.width, className: column.className, hideable: index === 0 ? false : undefined },
+          meta: { width: column.width, weight: column.weight, tabular: column.tabular, hideable: index === 0 ? false : undefined },
           cell: ({ row }) => column.cell(row.original),
         })
       ),
@@ -520,7 +518,7 @@ function Knowledge() {
 
   return (
     <Page title="자료" flush>
-      <KnowledgeSplitPane
+      <SplitPane fill="height"
         id="knowledge" selectionKey={search.item}
         defaultWidth="500px"
         pane={
@@ -585,7 +583,7 @@ function Knowledge() {
           <Box minHeight={0} grow>
             {/* Pairs come from speech rules too: laying out before they arrive would lay out twice. */}
             {people.isPending || rules.isPending ? (
-              <KnowledgeLoadingBlock kind="graph" />
+              <Skeleton shape="page" marginTop="comfortable" marginBottom="comfortable" marginLeft="comfortable" marginRight="comfortable" />
             ) : (
               <RelationshipGraph
                 storageKey={`tw.relationships.${projectId}`}
@@ -603,7 +601,7 @@ function Knowledge() {
         ) : timeline ? (
           <Box minHeight={0} grow>
             {pending ? (
-              <KnowledgeLoadingBlock kind="timeline" />
+              <Skeleton height="placeholder-xl" marginTop="comfortable" marginBottom="comfortable" marginLeft="comfortable" marginRight="comfortable" />
             ) : (
               <EventFlow
                 key={direction}
@@ -640,7 +638,7 @@ function Knowledge() {
             rowId={(row) => row.id}
             selected={search.item}
             onRowClick={(row) => set({ item: row.id === search.item ? undefined : row.id })}
-            rowClassName={candidateRow}
+            rowState={candidateRow}
             picked={checked}
             onPick={pick}
             bulk={bulk}
@@ -648,7 +646,7 @@ function Knowledge() {
             rowContextMenu={renderRowContextMenu}
           />
         )}
-      </KnowledgeSplitPane>
+      </SplitPane>
       <AlertDialog open={Boolean(deletingIds)} onOpenChange={(open) => !open && setDeletingIds(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>

@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { CircleAlert, CircleCheck, Network, Pencil } from 'lucide-react';
 import { CopyButton } from '@/components/copy-button';
 import { checkFormat, exclusionReason, isUnknownListener, type LineTranslate, listenerLabel, needsListener, PALETTE, SPEECH_LEVEL_LABELS, speechLevelOf, TAG_SCOPES, type FormatRules, type SpeechLevel } from '@tw/shared';
-import { Select, SelectContent, SelectItem, SelectValue, AiMark, Badge, Box, Button, CandidateCard, DetailCandidateGroup, DetailDialogueTitle, DetailHistoryList, DetailIconLink, DetailIssue, DetailLineKey, DetailSelectTrigger, EditorChangedWord, EditorInlineLabel, Group, Icon, Inline, InspectorBlock, InspectorField, InspectorFields, InspectorHeader, Inspector, InspectorList, InspectorSection, PropertyGrid, PropertyRow, SpeakerIdentity, Stack, StatusIcon, TagChip, TagListEditor, Text } from '@loca/ui';
+import { Select, SelectContent, SelectItem, SelectValue, AiMark, Chip, Box, Button, CandidateCard, DetailIssue, EditorChangedWord, Group, Icon, Inline, InspectorHeader, Inspector, InspectorList, SpeakerIdentity, Stack, StatusIcon, TagChip, TagListEditor, Text, ListItem, SelectTrigger, Section, Field, KeyValue, KeyValueRow } from '@loca/ui';
 import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
 import { AiButton } from '@/components/ai-button';
 import { AiContextPanel } from '@/components/ai-context';
@@ -100,7 +100,15 @@ export function LineDetail({
 
   const title = line ? (
     hasDialogueContext ? (
-      <DetailDialogueTitle speaker={speakerTitle} listener={!unknown && line.listener ? listenerTitle : undefined} />
+      <Inline as="span" inline gap="snug" minWidth={0}>
+        <Text truncate>{speakerTitle}</Text>
+        {!unknown && line.listener && (
+          <>
+            <Text tone="subtle">→</Text>
+            <Text truncate>{listenerTitle}</Text>
+          </>
+        )}
+      </Inline>
     ) : (
       <Text truncate>{line.group.title}</Text>
     )
@@ -120,9 +128,9 @@ export function LineDetail({
 
   const metadata = line && (
     <>
-      {status && <EditorInlineLabel><StatusIcon status={status} />{status.name}</EditorInlineLabel>}
+      {status && <Inline as="span" inline gap="tight"><StatusIcon status={status} />{status.name}</Inline>}
       {line.statusBy === 'ai' && <AiMark by="ai" />}
-      {showScene ? <Text asChild truncate hoverUnderline><Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.group.id, line: line.id }}>{line.group.title}</Link></Text> : <Text truncate>{line.group.title}</Text>}
+      {showScene ? <Text asChild truncate underline="hover"><Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.group.id, line: line.id }}>{line.group.title}</Link></Text> : <Text truncate>{line.group.title}</Text>}
       {line.tagIds.map((id) => {
         const tag = tags.find((item) => item.id === id);
         return tag ? <TagChip key={id} tag={tag} /> : null;
@@ -177,33 +185,33 @@ export function LineDetail({
       footer={line?.statusBy === 'ai' ? <Button type="button" disabled={check.isPending} onClick={() => check.mutate()}>확인함</Button> : undefined}
       loading={!line}
     >
-      {line && editor && <InspectorBlock><TranslationEditor projectId={projectId} unit={{ id: line.id, source: line.source, translation: line.translation, statusId: line.statusId, statusBy: line.statusBy, candidates: line.candidates }} statuses={statuses.data?.statuses ?? []} /></InspectorBlock>}
+      {line && editor && <Section><TranslationEditor projectId={projectId} unit={{ id: line.id, source: line.source, translation: line.translation, statusId: line.statusId, statusBy: line.statusBy, candidates: line.candidates }} statuses={statuses.data?.statuses ?? []} /></Section>}
       {line && (
         <>
-          <InspectorSection title="정보">
-            <PropertyGrid>
-              <PropertyRow label="대사 키">
+          <Section title="정보">
+            <KeyValue>
+              <KeyValueRow label="대사 키">
                 <Inline as="span" align="start" gap="tight" minWidth={0}>
-                  <DetailLineKey>{line.key}</DetailLineKey>
+                  <Text as="code" minWidth={0} grow paddingTop="tight" mono variant="caption" breakWords="all" tone="muted">{line.key}</Text>
                   <CopyButton value={line.key} label="대사 키 복사" />
                 </Inline>
-              </PropertyRow>
-              <PropertyRow label="원문">
+              </KeyValueRow>
+              <KeyValueRow label="원문">
                 <Inline as="span" align="start" gap="tight" minWidth={0}>
                   <Text minWidth={0} grow preserveLines breakWords paddingTop="hair">{line.source}</Text>
                   <CopyButton value={line.source} label="원문 복사" />
                 </Inline>
-              </PropertyRow>
-              <PropertyRow label="장면">
-                {showScene ? <Text asChild display="block" truncate hoverUnderline><Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.group.id, line: line.id }} title={line.group.title}>{line.group.title}</Link></Text> : <Text display="block" truncate title={line.group.title}>{line.group.title}</Text>}
-              </PropertyRow>
+              </KeyValueRow>
+              <KeyValueRow label="장면">
+                {showScene ? <Text asChild display="block" truncate underline="hover"><Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.group.id, line: line.id }} title={line.group.title}>{line.group.title}</Link></Text> : <Text display="block" truncate title={line.group.title}>{line.group.title}</Text>}
+              </KeyValueRow>
               {line.kind === 'dialogue' && (line.graphNodes.length > 0 || group.data?.kind === 'scene') && (
-                <PropertyRow label="대사 그래프">
+                <KeyValueRow label="대사 그래프">
                   {line.graphNodes.length ? (
                     <Box as="ul" spaceY="tight">
                       {line.graphNodes.map((item) => (
                         <Box as="li" key={item.id} minWidth={0}>
-                          <DetailIconLink>
+                          <Stack asChild direction="row" align="center" gap="snug" minWidth={0} underline="hover">
                             <Link
                               to="/p/$projectId/graph"
                               params={{ projectId }}
@@ -212,12 +220,12 @@ export function LineDetail({
                               <Icon icon={Network} size="sm" shrink={false} tone="muted" />
                               <Text minWidth={0} truncate>{item.key}에서 열기</Text>
                             </Link>
-                          </DetailIconLink>
+                          </Stack>
                         </Box>
                       ))}
                     </Box>
                   ) : (
-                    <Text asChild display="block" truncate hoverUnderline>
+                    <Text asChild display="block" truncate underline="hover">
                       <Link
                         to="/p/$projectId/graph"
                         params={{ projectId }}
@@ -227,36 +235,36 @@ export function LineDetail({
                       </Link>
                     </Text>
                   )}
-                </PropertyRow>
+                </KeyValueRow>
               )}
-              {line.speaker && <PropertyRow label="화자"><SpeakerCard projectId={projectId} name={line.speaker}><SpeakerIdentity speaker={line.speaker} color={colorOf(line.speaker)} /></SpeakerCard></PropertyRow>}
-              {line.speech && <PropertyRow label="말투 규칙"><Text asChild display="block" truncate hoverUnderline><Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', item: line.speech.ruleId }} title={line.speech.rule}>{line.speech.rule}</Link></Text></PropertyRow>}
-              {line.speaker && <PropertyRow label="인물"><Text asChild display="block" truncate hoverUnderline><Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'characters', ...(speakerPerson && { item: speakerPerson.id }) }}>보기</Link></Text></PropertyRow>}
-            </PropertyGrid>
+              {line.speaker && <KeyValueRow label="화자"><SpeakerCard projectId={projectId} name={line.speaker}><SpeakerIdentity speaker={line.speaker} color={colorOf(line.speaker)} /></SpeakerCard></KeyValueRow>}
+              {line.speech && <KeyValueRow label="말투 규칙"><Text asChild display="block" truncate underline="hover"><Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', item: line.speech.ruleId }} title={line.speech.rule}>{line.speech.rule}</Link></Text></KeyValueRow>}
+              {line.speaker && <KeyValueRow label="인물"><Text asChild display="block" truncate underline="hover"><Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'characters', ...(speakerPerson && { item: speakerPerson.id }) }}>보기</Link></Text></KeyValueRow>}
+            </KeyValue>
             {line.speaker && <LineHints projectId={projectId} line={{ id: line.id, source: line.source, translation: line.translation, speaker: line.speaker, listener: line.listener, lastRun: lastRun ? { issues: lastRun.data.issues ?? [] } : null }} part="context" />}
-          </InspectorSection>
+          </Section>
 
-          <InspectorSection title="속성">
-            <InspectorFields>
+          <Section title="속성">
+            <Box spaceY="normal">
               {needsListener(line, project.data?.formatRules ?? undefined) && (
-                <InspectorField label="청자">
+                <Field label="청자">
                   <Stack minWidth={0} align="start" gap="tight">
                     <ListenerPicker line={{ speaker: line.speaker, listener: line.listener, listenerOrigin: line.listenerOrigin, listenerConfidence: line.listenerConfidence, sceneNames: line.sceneNames }} cast={cast} onPick={(listener) => patch.mutate({ listener })} />
                   </Stack>
-                </InspectorField>
+                </Field>
               )}
-              <InspectorField label="번역 대상">
+              <Field label="번역 대상">
                 <Select value={line.translate ?? (ruleReason ? 'exclude' : 'include')} onValueChange={(value) => patch.mutate({ translate: value as LineTranslate })}>
-                  <DetailSelectTrigger aria-label="번역 대상">
+                  <SelectTrigger width="full" aria-label="번역 대상">
                     <SelectValue />
-                  </DetailSelectTrigger>
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="include">번역 대상</SelectItem>
                     <SelectItem value="exclude">제외</SelectItem>
                   </SelectContent>
                 </Select>
-              </InspectorField>
-              <InspectorField label="태그">
+              </Field>
+              <Field label="태그">
                 <TagListEditor
                   tags={orderedTags}
                   allTags={tags}
@@ -264,24 +272,24 @@ export function LineDetail({
                   onCreate={createTagInline}
                   heading="줄에 붙일 태그"
                 />
-              </InspectorField>
-              <InspectorField label="메모" action={!line.note && !noting ? <Button variant="ghost" size="inline" onClick={() => setNoting(true)}>메모 추가</Button> : undefined}>
+              </Field>
+              <Field label="메모" action={!line.note && !noting ? <Button variant="ghost" size="inline" onClick={() => setNoting(true)}>메모 추가</Button> : undefined}>
                 {line.note || noting ? <LineNote unitId={line.id} note={line.note} editing={noting} onEditing={setNoting} /> : null}
-              </InspectorField>
-            </InspectorFields>
-          </InspectorSection>
+              </Field>
+            </Box>
+          </Section>
 
           <CandidatesAndMatches unit={line} draft={draft} onUse={useText} tokenPattern={tokenPattern} />
 
           <HistorySection projectId={projectId} history={line.history} />
 
-          <InspectorSection title="검증">
+          <Section title="검증">
             <LineChecks projectId={projectId} source={line.source} text={draft} rules={project.data?.formatRules} targetLanguage={project.data?.targetLanguage} speech={line.speech} lastRun={lastRun ? { runId: lastRun.runId, workflowName: lastRun.workflowName, issues: lastRun.data.issues ?? [] } : null} />
-          </InspectorSection>
+          </Section>
 
-          <InspectorSection title="AI 프롬프트" defaultOpen={false}>
+          <Section title="AI 프롬프트" defaultOpen={false}>
             <AiContextPanel projectId={projectId} unitKey={line.key} unitKind={line.kind} aiNode={aiNode} onAiNode={onAiNode} />
-          </InspectorSection>
+          </Section>
         </>
       )}
     </Inspector>
@@ -300,36 +308,36 @@ function CandidatesAndMatches({ unit, draft, onUse, tokenPattern }: { unit: Line
   const inEditor = (text: string) => draft !== (unit.translation ?? '') && text === draft;
   const useButton = (text: string) => <Button variant="ghost" disabled={inEditor(text)} onClick={() => onUse(text)}>{inEditor(text) ? '초안에 있음' : '쓰기'}</Button>;
   return (
-    <InspectorSection title={`번역 후보 ${unit.candidates.length + rows.length}`} actions={<>
+    <Section title={`번역 후보 ${unit.candidates.length + rows.length}`} actions={<>
       <AiButton variant="ghost" prompt={`${subject}의 번역 후보를 제안해줘.`}>AI 제안</AiButton>
       {unit.translation && <AiButton variant="ghost" send={false} prompt={`${subject}의 번역을 이렇게 다듬어줘: `}>다듬기</AiButton>}
     </>}>
       <Box spaceY="comfortable">
-        <DetailCandidateGroup title={<>{title} <Text weight="normal" tone="muted" tabular>{unit.candidates.length}</Text></>}>
+        <Group spaceY="condensed" title={<>{title} <Text weight="normal" tone="muted" tabular>{unit.candidates.length}</Text></>}>
           <InspectorList>
             {unit.candidates.map((candidate) => {
               const current = candidate.text === (unit.translation ?? null);
               return (
-                <Box as="li" key={candidate.id} paddingY="tight" trimEnds>
+                <ListItem key={candidate.id} paddingY="tight">
                   <CandidateCard
                     text={<TokenText text={candidate.text} source={unit.source} pattern={tokenPattern} />}
                     current={current}
-                    source={<Badge variant="outline">{ORIGIN[candidate.origin]}</Badge>}
+                    source={<Chip variant="outline">{ORIGIN[candidate.origin]}</Chip>}
                     meta={<Text truncate>{[candidate.model, dateTime(candidate.createdAt)].filter(Boolean).join(' · ')}</Text>}
                     action={current ? <Text shrink={false} weight="medium" tone="default">현재 번역</Text> : useButton(candidate.text)}
                   />
-                </Box>
+                </ListItem>
               );
             })}
             {!unit.candidates.length && <Box as="li" paddingY="condensed" variant="body" tone="muted">아직 후보가 없습니다.</Box>}
           </InspectorList>
-        </DetailCandidateGroup>
-        <DetailCandidateGroup title={<>TM <Text weight="normal" tone="muted" tabular>{rows.length}</Text></>}>
+        </Group>
+        <Group spaceY="condensed" title={<>TM <Text weight="normal" tone="muted" tabular>{rows.length}</Text></>}>
           <InspectorList>
             {rows.map((match) => {
               const current = match.translation === (unit.translation ?? null);
               return (
-                <Box as="li" key={match.unitId} paddingY="tight" trimEnds>
+                <ListItem key={match.unitId} paddingY="tight">
                   <CandidateCard
                     text={<>
                       <TokenText text={match.translation} source={unit.source} pattern={tokenPattern} />
@@ -341,31 +349,31 @@ function CandidatesAndMatches({ unit, draft, onUse, tokenPattern }: { unit: Line
                       )}
                     </>}
                     current={current}
-                    source={<Badge variant="outline">{match.score === 100 ? '같은 원문' : `비슷함 ${match.score}%`}{match.final ? '' : ' · 미확정'}</Badge>}
+                    source={<Chip variant="outline">{match.score === 100 ? '같은 원문' : `비슷함 ${match.score}%`}{match.final ? '' : ' · 미확정'}</Chip>}
                     meta={<Text truncate>{[match.speaker, match.listener && `→ ${listenerLabel(match.listener)}`].filter(Boolean).join(' ') || match.groupTitle}</Text>}
                     action={current ? <Text shrink={false} weight="medium" tone="default">현재 번역</Text> : useButton(match.translation)}
                   />
-                </Box>
+                </ListItem>
               );
             })}
             {!rows.length && <Box as="li" paddingY="condensed" variant="body" tone="muted">{matches.isPending ? '찾는 중…' : '같거나 비슷한 원문이 없습니다.'}</Box>}
           </InspectorList>
-        </DetailCandidateGroup>
+        </Group>
       </Box>
-    </InspectorSection>
+    </Section>
   );
 }
 
 /** Runs that touched this line; open only when there are any. */
 function HistorySection({ projectId, history }: { projectId: string; history: LineRecord['history'] }) {
   return (
-    <InspectorSection title={`이력 ${history.length}`} defaultOpen={history.length > 0}>
+    <Section title={`이력 ${history.length}`} defaultOpen={history.length > 0}>
       {history.length ? (
-        <DetailHistoryList>
+        <InspectorList body>
           {history.map((item) => (
-            <Box as="li" key={item.id} spaceY="hair" paddingY="condensed" trimEnds>
+            <ListItem key={item.id} spaceY="hair" paddingY="condensed">
               <Inline minWidth={0} gap="condensed">
-                <Text asChild minWidth={0} grow truncate weight="medium" hoverUnderline>
+                <Text asChild minWidth={0} grow truncate weight="medium" underline="hover">
                   <Link to="/p/$projectId/runs/$runId" params={{ projectId, runId: item.runId }}>
                     {item.workflowName}
                   </Link>
@@ -375,13 +383,13 @@ function HistorySection({ projectId, history }: { projectId: string; history: Li
               </Inline>
               {item.data.issues?.[0] && <Text as="p" truncate variant="caption" tone="warning">{item.data.issues[0]}</Text>}
               {item.error && <Text as="p" variant="caption" tone="danger">{item.error}</Text>}
-            </Box>
+            </ListItem>
           ))}
-        </DetailHistoryList>
+        </InspectorList>
       ) : (
         <Text as="p" variant="body" tone="muted">이 줄이 포함된 실행이 없습니다.</Text>
       )}
-    </InspectorSection>
+    </Section>
   );
 }
 
@@ -391,7 +399,7 @@ function LineChecks({ projectId, source, text, rules, targetLanguage, speech, la
   const guessed = text.trim() ? speechLevelOf(text) : null;
   return (
     <Box spaceY="comfortable">
-      <Group title={lastRun ? <>지적 · <Text asChild weight="normal" tone="muted" hoverUnderline><Link to="/p/$projectId/runs/$runId" params={{ projectId, runId: lastRun.runId }}>{lastRun.workflowName}</Link></Text></> : '지적'}>
+      <Group title={lastRun ? <>지적 · <Text asChild weight="normal" tone="muted" underline="hover"><Link to="/p/$projectId/runs/$runId" params={{ projectId, runId: lastRun.runId }}>{lastRun.workflowName}</Link></Text></> : '지적'}>
         {lastRun?.issues.length ? (
           <Box as="ul" spaceY="tight" variant="body" tone="warning">{lastRun.issues.map((issue, i) => <DetailIssue key={i}>{issue}</DetailIssue>)}</Box>
         ) : (
@@ -401,7 +409,7 @@ function LineChecks({ projectId, source, text, rules, targetLanguage, speech, la
       {speech && (
         <Group title={`말투 → ${speech.others ? "그 밖의 인물" : listenerLabel(speech.listener)}${speech.routeDependent ? ' (루트에 따라 달라 대본 순서 기준)' : speech.byOrder ? ' (그래프 밖이라 대본 순서 기준)' : ''}`}>
           <Inline gap="condensed" variant="body">
-            <Text asChild minWidth={0} truncate hoverUnderline>
+            <Text asChild minWidth={0} truncate underline="hover">
               <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', item: speech.ruleId }}>
                 {speech.rule}
               </Link>

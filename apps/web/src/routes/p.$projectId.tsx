@@ -1,4 +1,4 @@
-import { DockProvider, DockInspector, DockHeader, WorkspaceShell, PageHeader, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle, Button, SidebarTrigger, AppStatusBar, STATUS_BAR_SLOT_ID, Popover, PopoverTrigger, StatusIcon, AccentSpinner, AppShellInset, AppShellProvider, Box, CountBadge, DockPane, FlushGroupHeading, FullPageEmpty, Icon, Inline, NoticeBox, PopoverActionLink, PopoverRowLink, PopoverSectionTitle, RunProgressBar, RunStatusBadge, Stack, StatusBarButton, StatusMeter, StatusPopoverContent, Text, GroupHeading } from '@loca/ui';
+import { DockProvider, DockInspector, DockHeader, WorkspaceShell, PageHeader, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle, Button, SidebarTrigger, AppStatusBar, STATUS_BAR_SLOT_ID, Popover, PopoverTrigger, StatusIcon, SidebarInset, SidebarProvider, Box, Count, DockPane, Icon, Inline, Notice, ListRow, Chip, Meter, Progress, Stack, StatusBarButton, Text, Spinner, TextLink, PopoverContent, SectionHeading, EmptyState } from '@loca/ui';
 import { useCallback, useEffect, useState } from 'react';
 import { createFileRoute, Link, Outlet } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
@@ -19,7 +19,7 @@ export const Route = createFileRoute('/p/$projectId')({
   loader: ({ context, params }) => context.queryClient.ensureQueryData(q.project(params.projectId)),
   component: ProjectLayout,
   errorComponent: ({ error }) => (
-    <FullPageEmpty>
+    <EmptyState size="page">
       <EmptyHeader>
         <EmptyTitle>{error instanceof ApiError && error.status === 404 ? '프로젝트를 찾을 수 없습니다' : '화면을 불러오지 못했습니다'}</EmptyTitle>
         <EmptyDescription>{error instanceof Error ? error.message : String(error)}</EmptyDescription>
@@ -29,7 +29,7 @@ export const Route = createFileRoute('/p/$projectId')({
           <Link to="/">프로젝트 목록으로</Link>
         </Button>
       </EmptyContent>
-    </FullPageEmpty>
+    </EmptyState>
   ),
 });
 
@@ -84,37 +84,37 @@ function ProjectLayout() {
 
   return (
     <DockProvider onActivate={revealProperties} onContentChange={setHasInspector}>
-      <AppShellProvider>
+      <SidebarProvider>
         <AppSidebar projectId={projectId} />
-        <AppShellInset>
+        <SidebarInset>
           <WorkspaceShell open={open} onOpenChange={(next) => { setPropertiesOpen(next); if (!next) chatDock.set(false); }} dock={<>
             <DockHeader mode={chatOpen ? 'agent' : 'properties'} onMode={changeMode} onToggle={toggleDock} unread={unread || waiting > 0} tools={<CommandSearch projectId={projectId} compact />} hasProperties={hasInspector} />
             <DockPane active={!chatOpen}><DockInspector /></DockPane>
             <DockPane active={chatOpen}><ChatPanel projectId={projectId} /></DockPane>
           </>}>
             <PageHeader title={current.item.label} leading={<SidebarTrigger />} tools={!open && <DockHeader mode="properties" onMode={changeMode} onToggle={toggleDock} open={false} tools={<CommandSearch projectId={projectId} compact />} />} />
-            <Stack as="main" minHeight={0} grow overflow="hidden" background="background"><Outlet /></Stack>
+            <Stack as="main" minHeight={0} grow overflow="hidden" background="page"><Outlet /></Stack>
             <AppStatusBar>
               <Popover>
                 <PopoverTrigger asChild>
                   <StatusBarButton gap="condensed">
-                    <StatusMeter variant="footer" statuses={progress.statuses} counts={progress.counts} />
+                    <Meter width="compact" statuses={progress.statuses} counts={progress.counts} />
                     <Text nowrap tabular>
                       확정 {progress.done.toLocaleString()}/{progress.total.toLocaleString()} ({percent}%)
                     </Text>
                   </StatusBarButton>
                 </PopoverTrigger>
-                <StatusPopoverContent side="top" align="start">
+                <PopoverContent side="top" align="start">
                   <Box spaceY="cozy">
-                    <PopoverSectionTitle as="h3" actions={<Text variant="caption" weight="normal" tone="muted" tabular>전체 {progress.total.toLocaleString()}줄 중 {progress.done.toLocaleString()}줄 확정</Text>}>
+                    <SectionHeading ruled as="h3" actions={<Text variant="caption" weight="normal" tone="muted" tabular>전체 {progress.total.toLocaleString()}줄 중 {progress.done.toLocaleString()}줄 확정</Text>}>
                       번역 진행
-                    </PopoverSectionTitle>
+                    </SectionHeading>
                     <Box spaceY="tight">
                       {progress.statuses.map((s) => {
                         const count = progress.counts[s.id] ?? 0;
                         const pct = progress.total > 0 ? Math.round((count / progress.total) * 100) : 0;
                         return (
-                          <PopoverRowLink key={s.id} variant="status">
+                          <ListRow as="link" key={s.id}>
                             <Link
                               to="/p/$projectId/script"
                               params={{ projectId }}
@@ -128,13 +128,13 @@ function ProjectLayout() {
                                 {count.toLocaleString()}줄 ({pct}%)
                               </Text>
                             </Link>
-                          </PopoverRowLink>
+                          </ListRow>
                         );
                       })}
                     </Box>
                     {progress.reviewCount > 0 && (
                       <Box border="top" paddingTop="condensed">
-                        <PopoverRowLink variant="review">
+                        <ListRow as="link" tone="warning">
                           <Link
                             to="/p/$projectId/script"
                             params={{ projectId }}
@@ -146,11 +146,11 @@ function ProjectLayout() {
                             </Inline>
                             <Text weight="medium" tabular>{progress.reviewCount.toLocaleString()}줄</Text>
                           </Link>
-                        </PopoverRowLink>
+                        </ListRow>
                       </Box>
                     )}
                   </Box>
-                </StatusPopoverContent>
+                </PopoverContent>
               </Popover>
 
               <Box id={STATUS_BAR_SLOT_ID} minWidth={0} grow truncate />
@@ -160,7 +160,7 @@ function ProjectLayout() {
                   <StatusBarButton gap="snug" marginLeft="auto">
                     {activeCount > 0 ? (
                       <>
-                        <AccentSpinner />
+                        <Spinner size="xs" tone="accent" />
                         <Text nowrap tabular>
                           {firstActive.workflowName} ({firstActiveDone.toLocaleString()}/{firstActive.total.toLocaleString()})
                           {activeCount > 1 && ` 외 ${activeCount - 1}건`}
@@ -171,20 +171,20 @@ function ProjectLayout() {
                     )}
                   </StatusBarButton>
                 </PopoverTrigger>
-                <StatusPopoverContent wide side="top" align="end">
+                <PopoverContent side="top" align="end" width="popover">
                   <Box spaceY="cozy">
-                    <PopoverSectionTitle
+                    <SectionHeading ruled
                       as="h3"
                       actions={
-                        <PopoverActionLink>
+                        <TextLink asChild variant="caption" weight="normal" tone="muted" underline="always" quiet>
                           <Link to="/p/$projectId/runs" params={{ projectId }}>
                             전체 보기
                           </Link>
-                        </PopoverActionLink>
+                        </TextLink>
                       }
                     >
                       {activeCount > 0 ? `실행 중 ${activeCount}` : '최근 실행'}
-                    </PopoverSectionTitle>
+                    </SectionHeading>
                     <Box spaceY="condensed">
                       {(activeCount > 0 ? progress.activeRuns : progress.recentRuns).length === 0 ? (
                         <Text as="p" paddingY="condensed" align="center" variant="caption" tone="muted">실행 기록이 없습니다.</Text>
@@ -194,21 +194,17 @@ function ProjectLayout() {
                           const pct = run.total > 0 ? Math.round((done / run.total) * 100) : 0;
                           const hasFail = (run.states.failed ?? 0) > 0;
                           return (
-                            <PopoverRowLink key={run.id} variant="run">
+                            <ListRow as="link" key={run.id} density="loose" stacked>
                             <Link
                               to="/p/$projectId/runs/$runId"
                               params={{ projectId, runId: run.id }}
                             >
                               <Inline justify="between" gap="condensed">
                                 <Text truncate>{run.workflowName}</Text>
-                                <RunStatusBadge
-                                  variant={
-                                    run.status === 'running'
-                                      ? 'default'
-                                      : run.status === 'paused' || hasFail
-                                        ? 'destructive'
-                                        : 'secondary'
-                                  }
+                                <Chip
+                                  size="tight"
+                                  variant={run.status === 'running' || run.status === 'paused' || hasFail ? 'solid' : 'quiet'}
+                                  tone={run.status !== 'running' && (run.status === 'paused' || hasFail) ? 'danger' : undefined}
                                 >
                                   {run.status === 'running'
                                     ? '실행 중'
@@ -217,22 +213,22 @@ function ProjectLayout() {
                                       : run.status === 'completed'
                                         ? '완료'
                                         : '취소됨'}
-                                </RunStatusBadge>
+                                </Chip>
                               </Inline>
                               <Inline gap="condensed">
-                                <RunProgressBar value={pct} />
+                                <Progress size="sm" grow value={pct} />
                                 <Text shrink={false} variant="caption" tabular tone="muted">
                                   {done.toLocaleString()}/{run.total.toLocaleString()} ({pct}%)
                                 </Text>
                               </Inline>
                             </Link>
-                            </PopoverRowLink>
+                            </ListRow>
                           );
                         })
                       )}
                     </Box>
                   </Box>
-                </StatusPopoverContent>
+                </PopoverContent>
               </Popover>
 
               <Popover>
@@ -240,33 +236,33 @@ function ProjectLayout() {
                   <StatusBarButton gap="tight" aria-label="알림">
                     <Icon icon={Bell} size="xs" />
                     {hasNotification && (
-                      <Text weight="medium" tabular tone={failedRuns.length > 0 ? 'danger' : 'primary'}>
+                      <Text weight="medium" tabular tone={failedRuns.length > 0 ? 'danger' : 'accent'}>
                         {waiting > 0 ? waiting : '!'}
                       </Text>
                     )}
                   </StatusBarButton>
                 </PopoverTrigger>
-                <StatusPopoverContent wide side="top" align="end">
+                <PopoverContent side="top" align="end" width="popover">
                   <Box spaceY="normal">
-                    <PopoverSectionTitle
+                    <SectionHeading ruled
                       as="h3"
                       actions={
                         waiting > 0 ? (
-                          <CountBadge variant="secondary">
+                          <Count>
                             {waiting}건 대기
-                          </CountBadge>
+                          </Count>
                         ) : undefined
                       }
                     >
                       알림
-                    </PopoverSectionTitle>
+                    </SectionHeading>
                     {waiting > 0 && (
-                      <NoticeBox>
+                      <Notice>
                         <Inline justify="between">
-                          <GroupHeading>대기 중인 제안</GroupHeading>
-                          <CountBadge variant="default">
+                          <SectionHeading level="group">대기 중인 제안</SectionHeading>
+                          <Count tone="accent">
                             {waiting}건
-                          </CountBadge>
+                          </Count>
                         </Inline>
                         <Button
                           variant="outline"
@@ -279,25 +275,25 @@ function ProjectLayout() {
                         >
                           에이전트 열기
                         </Button>
-                      </NoticeBox>
+                      </Notice>
                     )}
                     <Box spaceY="snug">
-                      <FlushGroupHeading
+                      <SectionHeading level="group" marginBottom="none"
                         actions={
-                          <PopoverActionLink>
+                          <TextLink asChild variant="caption" weight="normal" tone="muted" underline="always" quiet>
                             <Link to="/p/$projectId/runs" params={{ projectId }}>
                               실행 기록
                             </Link>
-                          </PopoverActionLink>
+                          </TextLink>
                         }
                       >
                         최근 실행
-                      </FlushGroupHeading>
+                      </SectionHeading>
                       {progress.recentRuns.length === 0 ? (
                         <Text as="p" paddingY="tight" align="center" variant="caption" tone="muted">기록이 없습니다.</Text>
                       ) : (
                         progress.recentRuns.slice(0, 3).map((run) => (
-                          <PopoverRowLink key={run.id} variant="recent">
+                          <ListRow as="link" key={run.id} density="loose">
                             <Link
                               to="/p/$projectId/runs/$runId"
                               params={{ projectId, runId: run.id }}
@@ -305,7 +301,7 @@ function ProjectLayout() {
                               <Inline minWidth={0} gap="snug" truncate>
                                 {run.status === 'completed' && (run.states.failed ?? 0) === 0 && <Icon icon={CheckCircle2} size="xs" shrink={false} tone="success" />}
                                 {((run.states.failed ?? 0) > 0 || run.status === 'cancelled') && <Icon icon={TriangleAlert} size="xs" shrink={false} tone="danger" />}
-                                {run.status === 'running' && <AccentSpinner fixed />}
+                                {run.status === 'running' && <Spinner size="xs" tone="accent" fixed />}
                                 {run.status === 'paused' && <Icon icon={Play} size="xs" shrink={false} tone="warning" />}
                                 <Text truncate>{run.workflowName}</Text>
                               </Inline>
@@ -313,17 +309,17 @@ function ProjectLayout() {
                                 {dateTime(run.createdAt)}
                               </Text>
                             </Link>
-                          </PopoverRowLink>
+                          </ListRow>
                         ))
                       )}
                     </Box>
                   </Box>
-                </StatusPopoverContent>
+                </PopoverContent>
               </Popover>
             </AppStatusBar>
           </WorkspaceShell>
-        </AppShellInset>
-      </AppShellProvider>
+        </SidebarInset>
+      </SidebarProvider>
     </DockProvider>
   );
 }

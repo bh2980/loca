@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ScriptInput, ScriptNoteCard, ScriptNoteMark } from '@loca/ui';
+import { Box, Input, ScriptNoteCard, ScriptNoteMark } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
 
@@ -36,8 +36,7 @@ export function LineNote({ unitId, note, editing, onEditing }: { unitId: string;
     onEditing(false);
   };
   return (
-    <ScriptInput
-      place="note"
+    <Box asChild marginTop="condensed"><Input
       autoFocus
       aria-label="메모"
       placeholder="메모 · Enter 저장"
@@ -55,7 +54,7 @@ export function LineNote({ unitId, note, editing, onEditing }: { unitId: string;
           finish(null);
         }
       }}
-    />
+    /></Box>
   );
 }
 

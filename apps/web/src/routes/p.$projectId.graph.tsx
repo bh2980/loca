@@ -17,7 +17,7 @@ import { LineMenuFor } from '@/components/script/line-menu';
 import { GRAPH_KEYS, useGraphShortcuts } from '@/lib/graph-shortcuts';
 import { keyLabel } from '@/lib/keys';
 
-import { SearchInput, SplitPane, PaneHeader, Button, CanvasOverlay, CanvasSurface, Empty, EmptyDescription, EmptyHeader, EmptyTitle, ScrollArea, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue, Input, Popover, PopoverContent, PopoverTrigger, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, Spinner, Switch, ViewSwitch, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuShortcut, SelectionToolbox, useRevealDock, GraphEndpointBar, Box, Stack, Text, Icon, Inline, CanvasChipLabel, CanvasChipNote, CanvasChip, CanvasToast, ChipDot, FloatingZoomBar, FoundNodeList } from '@loca/ui';
+import { SearchField, SplitPane, PaneHeader, Button, CanvasOverlay, CanvasSurface, EmptyDescription, EmptyHeader, EmptyTitle, ScrollArea, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue, Input, Popover, PopoverContent, PopoverTrigger, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, Spinner, Switch, ViewSwitch, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuShortcut, SelectionToolbox, useRevealDock, GraphEndpointBar, Box, Stack, Text, Icon, Inline, Chip, Notice, FloatingZoomBar, FoundNodeList, Overlay, EmptyState } from '@loca/ui';
 import { useSize } from '@/hooks/use-size';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
@@ -651,7 +651,7 @@ function GraphPage() {
             // Opening another view or section is navigation (a history entry); the pane's selection does not carry over.
             onValueChange={(value) => void navigate({ search: (previous) => ({ ...previous, section: value, node: undefined, omitted: undefined, viewInfo: undefined }) })}
           >
-            <Box asChild width={56}>
+            <Box asChild width="menu">
             <SelectTrigger size="sm" aria-label="보기">
               <Text tone="muted">보기</Text>
               <SelectValue />
@@ -734,7 +734,7 @@ function GraphPage() {
             fill
         pane={
           (search.node || omittedEdge || infoOpen || (dialogue && (search.edge || search.addAfter))) && (
-            <Box height="full" background="background">
+            <Box height="full" background="page">
               {dialogue && search.edge ? (
                 <EdgePane
                   key={search.edge}
@@ -938,7 +938,7 @@ function GraphPage() {
                 />
               </DropdownMenuTrigger>
               {search.scope === 'dialogue' && contextMenu.nodeId && picked.size > 1 && picked.has(contextMenu.nodeId) && (
-                <Box asChild width={60}><DropdownMenuContent align="start" side="bottom" sideOffset={2}>
+                <DropdownMenuContent width="menu-lg" align="start" side="bottom" sideOffset={2}>
                   <DropdownMenuItem onSelect={() => void runPicked(picked)}>
                     <span>워크플로 실행…</span>
                   </DropdownMenuItem>
@@ -956,7 +956,7 @@ function GraphPage() {
                       <DropdownMenuSubTrigger>
                         <span>보기에 추가</span>
                       </DropdownMenuSubTrigger>
-                      <Box asChild maxHeight={72} width={56} overflow="auto"><DropdownMenuSubContent>
+                      <Box asChild maxHeight="scroll-xl" overflow="auto"><DropdownMenuSubContent width="menu">
                         {otherViews.map((saved) => (
                           <DropdownMenuItem key={saved.id} onSelect={() => addToView(saved.id, saved.label, picked)}>
                             <Text truncate>{saved.origin === 'ai' ? '✦ ' : ''}{saved.label}</Text>
@@ -985,10 +985,10 @@ function GraphPage() {
                       </DropdownMenuItem>
                     </>
                   )}
-                </DropdownMenuContent></Box>
+                </DropdownMenuContent>
               )}
               {search.scope === 'dialogue' && contextMenu.nodeId && !(picked.size > 1 && picked.has(contextMenu.nodeId)) && (
-                <Box asChild width={56}><DropdownMenuContent align="start" side="bottom" sideOffset={2}>
+                <DropdownMenuContent width="menu" align="start" side="bottom" sideOffset={2}>
                   <DropdownMenuItem
                     onSelect={() => {
                       const id = contextMenu.nodeId!;
@@ -1141,10 +1141,10 @@ function GraphPage() {
                       </DropdownMenuItem>
                     </>
                   )}
-                </DropdownMenuContent></Box>
+                </DropdownMenuContent>
               )}
               {search.scope === 'scene' && contextMenu.nodeId && (
-                <Box asChild width={48}><DropdownMenuContent align="start" side="bottom" sideOffset={2}>
+                <DropdownMenuContent width="menu-sm" align="start" side="bottom" sideOffset={2}>
                   <DropdownMenuItem
                     onSelect={() => {
                       const id = contextMenu.nodeId!;
@@ -1185,10 +1185,10 @@ function GraphPage() {
                   >
                     <span>상세 열기</span>
                   </DropdownMenuItem>
-                </DropdownMenuContent></Box>
+                </DropdownMenuContent>
               )}
               {contextMenu.edgeId && sceneEditing && (
-                <Box asChild width={48}><DropdownMenuContent align="start" side="bottom" sideOffset={2}>
+                <DropdownMenuContent width="menu-sm" align="start" side="bottom" sideOffset={2}>
                   {(() => {
                     const line = edges.find((edge) => edge.id === contextMenu.edgeId);
                     // A line to or from a connection point (hub) stands for dialogue-graph lines through nodes outside scenes.
@@ -1199,10 +1199,10 @@ function GraphPage() {
                       </DropdownMenuItem>
                     );
                   })()}
-                </DropdownMenuContent></Box>
+                </DropdownMenuContent>
               )}
               {contextMenu.edgeId && !sceneEditing && (
-                <Box asChild width={48}><DropdownMenuContent align="start" side="bottom" sideOffset={2}>
+                <DropdownMenuContent width="menu-sm" align="start" side="bottom" sideOffset={2}>
                   <DropdownMenuItem onSelect={() => openEdge(contextMenu.edgeId)}>
                     <span>상세 열기</span>
                   </DropdownMenuItem>
@@ -1215,10 +1215,10 @@ function GraphPage() {
                       </DropdownMenuItem>
                     </>
                   )}
-                </DropdownMenuContent></Box>
+                </DropdownMenuContent>
               )}
               {!contextMenu.nodeId && !contextMenu.edgeId && (
-                <Box asChild width={48}><DropdownMenuContent align="start" side="bottom" sideOffset={2}>
+                <DropdownMenuContent width="menu-sm" align="start" side="bottom" sideOffset={2}>
                   {editing && nodeClipboard.length > 0 && (
                     <>
                       <DropdownMenuItem onSelect={() => void paste(nodeClipboard)}>
@@ -1247,7 +1247,7 @@ function GraphPage() {
                   >
                     <span>{direction === 'vertical' ? '가로 배치' : '세로 배치'}</span>
                   </DropdownMenuItem>
-                </DropdownMenuContent></Box>
+                </DropdownMenuContent>
               )}
             </DropdownMenu>
           )}
@@ -1256,8 +1256,8 @@ function GraphPage() {
               <PopoverTrigger asChild>
                 <span aria-hidden style={{ position: 'fixed', left: naming.x, top: naming.y, width: 1, height: 1, pointerEvents: 'none' }} />
               </PopoverTrigger>
-              <Box asChild width={72} spaceY="condensed">
-              <PopoverContent align="start">
+              <Box asChild spaceY="condensed">
+              <PopoverContent align="start" width="popover-sm">
                 <Input autoFocus value={newName} maxLength={80} aria-label="보기 이름" placeholder="예: 올렉 사망 분기" onChange={(event) => setNewName(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && makeView()} />
                 <Stack direction="row" justify="end" gap="condensed">
                   <Button variant="ghost" onClick={() => setNaming(null)}>취소</Button>
@@ -1271,25 +1271,23 @@ function GraphPage() {
             <RunDialog projectId={projectId} unitIds={runUnits} unitsLabel="고른 노드" open onOpenChange={(open) => !open && setRunUnits(undefined)} hideTrigger />
           )}
           {(graph.isPending || graph.data?.status === 'pending') && !relayout && (
-            <Inline position="absolute" inset={0} justify="center" gap="condensed" variant="body" tone="muted">
+            <Overlay asChild><Inline justify="center" gap="condensed" variant="body" tone="muted">
               <Spinner /> 그래프 배치를 계산하는 중…
-            </Inline>
+            </Inline></Overlay>
           )}
           {relayout && (
-            <CanvasToast role="status">
+            <Notice variant="floating" placement="canvas" role="status">
               <Spinner /> 바뀐 내용으로 다시 배치하는 중…
-            </CanvasToast>
+            </Notice>
           )}
           {graph.data?.status === 'failed' && <Text as="p" padding="spacious" variant="body" tone="danger">배치에 실패했습니다: {graph.data.error}</Text>}
           {graph.data?.status === 'missing' || (graph.data?.status === 'ready' && !layout?.nodes.length) ? (
-            <Box asChild position="absolute" inset={0}>
-              <Empty>
+            <EmptyState size="pane" overlay>
                 <EmptyHeader>
                   <EmptyTitle>그래프가 없습니다</EmptyTitle>
                   <EmptyDescription>가져온 파일에 그래프 정보가 없습니다.</EmptyDescription>
                 </EmptyHeader>
-              </Empty>
-            </Box>
+              </EmptyState>
           ) : null}
 
           {layout && (
@@ -1297,8 +1295,8 @@ function GraphPage() {
               <CanvasOverlay
                 tools={
                   <>
-                    <Box position="relative" width="26rem" maxWidth="full" minWidth={0} shrink userSelect="none">
-                      <SearchInput value={search.q} onChange={setFind} placeholder="노드 찾기 (키·라벨·첫 대사)" onCanvas />
+                    <Box position="relative" width="card" maxWidth="full" minWidth={0} shrink userSelect="none">
+                      <SearchField value={search.q} onChange={setFind} placeholder="노드 찾기 (키·라벨·첫 대사)" onCanvas />
                       {matches.length > 0 && (
                         <FoundNodeList>
                           {matches.map((node) => (
@@ -1308,7 +1306,7 @@ function GraphPage() {
                                 size="row"
                                 display="flex"
                                 width="full"
-                                items="start"
+                                align="start"
                                 radius="md"
                                 paddingY="tight"
                                 textAlign="start"
@@ -1347,7 +1345,7 @@ function GraphPage() {
                                   setFind(undefined);
                                 }}
                               >
-                                <Text width={14} shrink={false} paddingTop="hair" variant="caption" tone="muted">{KIND_LABEL[node.kind] ?? node.kind}</Text>
+                                <Text width="field-3xs" shrink={false} paddingTop="hair" variant="caption" tone="muted">{KIND_LABEL[node.kind] ?? node.kind}</Text>
                                 <Text minWidth={0} grow>
                                   <Text display="block" truncate variant="body" tone="default">{node.label ?? node.key}</Text>
                                   {node.preview && <Text display="block" truncate variant="caption" tone="muted">{node.preview}</Text>}
@@ -1371,12 +1369,12 @@ function GraphPage() {
                 details={
                   <>
                     {picked.size > 1 && (
-                      <CanvasChipNote>
+                      <Chip as="p" variant="note">
                         노드 {picked.size.toLocaleString()}개 선택
-                      </CanvasChipNote>
+                      </Chip>
                     )}
                     {view && viewDetail.data && (
-                      <CanvasChip kind="actions">
+                      <Chip as="div" variant="bar" removable>
                         <span>
                           보기 "{view.label}" · 남김 {view.nodes.toLocaleString()} · 생략 구간 {derivedEdges.toLocaleString()} · {viewDetail.data.origin === 'ai' ? 'AI' : '직접'}
                           {viewDetail.data.missing.length > 0 && <Text tone="danger"> · 원본에 없음 {viewDetail.data.missing.length.toLocaleString()}</Text>}
@@ -1384,11 +1382,11 @@ function GraphPage() {
                         <Button variant="ghost" onClick={() => void navigate({ search: (previous) => ({ ...previous, viewInfo: true, node: undefined, omitted: undefined, edit: undefined }), replace: true })}>
                           보기
                         </Button>
-                      </CanvasChip>
+                      </Chip>
                     )}
                     {search.mark && mark.data && layout && (
-                      <CanvasChip kind="actions">
-                        <ChipDot />
+                      <Chip as="div" variant="bar" removable>
+                        <Chip.Dot />
                         <span>
                           강조{mark.data.label ? ` "${mark.data.label}"` : ''} · 이 화면 {layout.nodes.filter((node) => highlight?.has(node.id)).length.toLocaleString()} / {mark.data.nodeIds.length.toLocaleString()}개
                         </span>
@@ -1400,16 +1398,16 @@ function GraphPage() {
                         <Button variant="ghost" onClick={() => void navigate({ search: (previous) => ({ ...previous, mark: undefined }), replace: true })}>
                           강조 해제
                         </Button>
-                      </CanvasChip>
+                      </Chip>
                     )}
                     {hidden.length > 0 && (
-                      <CanvasChipLabel>
+                      <Chip as="label" variant="bar" tone="muted">
                         <Switch
                           checked={search.links === 'all'}
                           onCheckedChange={(on) => void navigate({ search: (previous) => ({ ...previous, links: on ? 'all' : undefined }), replace: true })}
                         />
                         장면 경유 연결 {hidden.length.toLocaleString()}
-                      </CanvasChipLabel>
+                      </Chip>
                     )}
                   </>
                 }

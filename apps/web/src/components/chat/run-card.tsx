@@ -61,7 +61,7 @@ export function RunCardView({ projectId, card, onChange, onAnswered, controls }:
     return <Text as="p" variant="caption" tone="muted" role="status">/{card.workflowName} 실행을 취소했습니다.</Text>;
 
   return (
-    <Box spaceY="condensed" radius="md" border="all" background="muted" paddingX="normal" paddingY="condensed" variant="body" role="group" aria-label={`${card.workflowName} 실행 확인`}>
+    <Box spaceY="condensed" radius="md" border="all" background="sunken" paddingX="normal" paddingY="condensed" variant="body" role="group" aria-label={`${card.workflowName} 실행 확인`}>
       <Text as="p" weight="medium">/{card.workflowName}</Text>
       <Stack direction="row" wrap gap="tight" aria-label="실행 대상">
         {card.chips.map((chip) => <AttachChip key={`${chip.kind}:${chip.id}`} projectId={projectId} chip={chip} />)}

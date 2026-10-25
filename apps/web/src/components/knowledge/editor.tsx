@@ -4,14 +4,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { DOCUMENT_KINDS, STYLE_AXES, type StyleAxis, type CharacterRole, type Gender, type AgeBand, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, isSettled, AGE_BAND_LABELS, CHARACTER_ROLE_LABELS, GENDER_LABELS, PALETTE, knowledgeKindScope, type TagScope, type KnowledgeTagKind } from '@tw/shared';
-import { Inspector, InspectorHeader, InspectorBlock, InspectorSection, InspectorFields, InspectorField, InspectorToggle, useControlId, TagListEditor, DirtyBar, Box, Inline, KnowledgeCodeInput, KnowledgeInlineFlex, KnowledgeSelectTrigger, KnowledgeTextarea, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Select, SelectContent, SelectItem, SelectValue, AiMark } from '@loca/ui';
-import { ChipInput, joinList, splitList } from '@/components/chip-input';
+import { TagInput, Inspector, InspectorHeader, InspectorToggle, useControlId, TagListEditor, DirtyBar, Box, Inline, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Select, SelectContent, SelectItem, SelectValue, AiMark, SelectTrigger, Textarea, Section, Field } from '@loca/ui';
+import { joinList, splitList } from '@/lib/list-value';
 import { Swatches } from '@/components/settings/swatches';
 import { useDraft } from '@/lib/drafts';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
 import { DOCUMENT_KIND } from '@/lib/labels';
 import { Evidence, StretchPicker } from '@/components/knowledge/evidence';
-import { confirmLabel, fail, KINDS, SourceBadge, text, type Kind, type KindSpec, type Row, type Field } from '@/components/knowledge/table';
+import { confirmLabel, fail, KINDS, SourceBadge, text, type Kind, type KindSpec, type Row, type Field as KnowledgeField } from '@/components/knowledge/table';
 import { client, unwrap } from '@/lib/api';
 import { q, tagsIn } from '@/lib/queries';
 
@@ -103,23 +103,23 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
   const styleFields = spec.fields.filter((field) => field.type === 'style');
   const basicFields = spec.fields.filter((field) => field.type !== 'long' && field.type !== 'style');
 
-  const fieldView = (field: Field) => {
+  const fieldView = (field: KnowledgeField) => {
     const value = form[field.name];
     const change = (next: Value) => update(field.name, next);
     if (field.type === 'bool') return <InspectorToggle key={field.name} label={field.label} description={field.description} help={field.help} checked={Boolean(value)} onChange={change} />;
     if (field.type === 'key')
       return <StartKeyField key={field.name} projectId={projectId} field={field} value={text(value)} from={text(form.fromName)} to={text(form.toName)} onChange={change} />;
     return (
-      <InspectorField key={field.name} label={field.label} description={field.description} help={field.help}>
+      <Field key={field.name} label={field.label} description={field.description} help={field.help}>
         <FieldInput field={field} value={value} characters={characters} onChange={change} />
-      </InspectorField>
+      </Field>
     );
   };
-  const styleView = (field: Field) => <StyleFields key={field.name} value={form[field.name] as Record<string, string> | null} onChange={(next) => update(field.name, next)} />;
+  const styleView = (field: KnowledgeField) => <StyleFields key={field.name} value={form[field.name] as Record<string, string> | null} onChange={(next) => update(field.name, next)} />;
   const tagsView = row.id && !embedded && (
-    <InspectorField label="태그">
+    <Field label="태그">
       <TagListEditor tags={attachedTags} allTags={knowledgeTags} onToggle={(tagId, add) => tagMutation.mutate({ tagId, add })} onCreate={handleCreateTag} heading="태그" />
-    </InspectorField>
+    </Field>
   );
   // Parts such as a rule's lines sit inside a section of their own in a pane, and under a small heading when embedded.
   const extra = spec.extra?.(row);
@@ -128,32 +128,32 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
   const body = embedded ? (
     <Box spaceY="comfortable">
       {changedElsewhere && <ChangedElsewhere onTakeSaved={clear} onKeepMine={() => setBase(saved)} />}
-      <InspectorFields>
+      <Box spaceY="normal">
         {basicFields.map(fieldView)}
         {longFields.map(fieldView)}
         {styleFields.map(styleView)}
-      </InspectorFields>
+      </Box>
       {extraView}
       <Evidence projectId={projectId} keys={row.evidence} embedded />
     </Box>
   ) : (
     <>
-      {changedElsewhere && <InspectorBlock><ChangedElsewhere onTakeSaved={clear} onKeepMine={() => setBase(saved)} /></InspectorBlock>}
-      <InspectorSection title="기본 정보">
-        <InspectorFields>
+      {changedElsewhere && <Section><ChangedElsewhere onTakeSaved={clear} onKeepMine={() => setBase(saved)} /></Section>}
+      <Section title="기본 정보">
+        <Box spaceY="normal">
           {basicFields.map(fieldView)}
           {tagsView}
-        </InspectorFields>
-      </InspectorSection>
+        </Box>
+      </Section>
       {longFields.length > 0 && (
-        <InspectorSection title="내용">
-          <InspectorFields>{longFields.map(fieldView)}</InspectorFields>
-        </InspectorSection>
+        <Section title="내용">
+          <Box spaceY="normal">{longFields.map(fieldView)}</Box>
+        </Section>
       )}
       {styleFields.length > 0 && (
-        <InspectorSection title="문체">
-          <InspectorFields>{styleFields.map(styleView)}</InspectorFields>
-        </InspectorSection>
+        <Section title="문체">
+          <Box spaceY="normal">{styleFields.map(styleView)}</Box>
+        </Section>
       )}
       {extraView}
       <Evidence projectId={projectId} keys={row.evidence} />
@@ -205,7 +205,7 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
         <Inline as="span" gap="snug">
           <SourceBadge row={row} />
           <span>·</span>
-          {row.status === 'candidate' ? <span>후보</span> : <KnowledgeInlineFlex gap="tight">확정 <AiMark by={row.statusBy} /></KnowledgeInlineFlex>}
+          {row.status === 'candidate' ? <span>후보</span> : <Inline as="span" inline gap="tight">확정 <AiMark by={row.statusBy} /></Inline>}
         </Inline>
       } onClose={onClose} />}
       footer={dirty ? dirtyBar : !official ? confirm() : null}
@@ -216,12 +216,12 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
 }
 
 /** 시작 대사: the key of the line a speech rule starts at, picked from the speaker's lines to that listener. */
-function StartKeyField({ projectId, field, value, from, to, onChange }: { projectId: string; field: Field; value: string; from: string; to: string; onChange: (value: Value) => void }) {
+function StartKeyField({ projectId, field, value, from, to, onChange }: { projectId: string; field: KnowledgeField; value: string; from: string; to: string; onChange: (value: Value) => void }) {
   const [picking, setPicking] = useState(false);
   const line = useQuery(q.linesByKeys(projectId, value ? [value] : []));
   const source = line.data?.[0]?.source;
   return (
-    <InspectorField
+    <Field
       label={field.label}
       description={value ? (source ? `“${source}”부터` : undefined) : '비우면 처음부터 적용됩니다.'}
       action={
@@ -230,7 +230,7 @@ function StartKeyField({ projectId, field, value, from, to, onChange }: { projec
         </Button>
       }
     >
-      <KnowledgeCodeInput value={value} onChange={(event) => onChange(event.target.value.trim() || null)} />
+      <Input mono variant="body" value={value} onChange={(event) => onChange(event.target.value.trim() || null)} />
       {picking && (
         <StretchPicker
           projectId={projectId}
@@ -244,7 +244,7 @@ function StartKeyField({ projectId, field, value, from, to, onChange }: { projec
           onCancel={() => setPicking(false)}
         />
       )}
-    </InspectorField>
+    </Field>
   );
 }
 
@@ -253,7 +253,7 @@ function StyleFields({ value, onChange }: { value: Record<string, string> | null
   return (
     <>
       {(Object.keys(STYLE_AXES) as StyleAxis[]).map((axis) => (
-        <InspectorField key={axis} label={STYLE_AXES[axis].label}>
+        <Field key={axis} label={STYLE_AXES[axis].label}>
           <Select
             value={value?.[axis] ?? NORMAL}
             onValueChange={(next) => {
@@ -261,9 +261,9 @@ function StyleFields({ value, onChange }: { value: Record<string, string> | null
               onChange(next === NORMAL ? rest : { ...rest, [axis]: next });
             }}
           >
-            <KnowledgeSelectTrigger>
+            <SelectTrigger width="full">
               <SelectValue />
-            </KnowledgeSelectTrigger>
+            </SelectTrigger>
             <SelectContent>
               <SelectItem value={NORMAL}>보통</SelectItem>
               {Object.entries(STYLE_AXES[axis].options).map(([option, { name }]) => (
@@ -273,7 +273,7 @@ function StyleFields({ value, onChange }: { value: Record<string, string> | null
               ))}
             </SelectContent>
           </Select>
-        </InspectorField>
+        </Field>
       ))}
     </>
   );
@@ -281,13 +281,13 @@ function StyleFields({ value, onChange }: { value: Record<string, string> | null
 
 const NORMAL = '__normal';
 
-function FieldInput({ field, value, characters, onChange }: { field: Field; value: Value; characters: { id: string; name: string }[]; onChange: (value: Value) => void }) {
-  // The control takes the id of the InspectorField around it (see ControlIdContext).
+function FieldInput({ field, value, characters, onChange }: { field: KnowledgeField; value: Value; characters: { id: string; name: string }[]; onChange: (value: Value) => void }) {
+  // The control takes the id of the Field around it (see ControlIdContext).
   const id = useControlId();
-  if (field.type === 'long') return <KnowledgeTextarea rows={field.name === 'body' ? 6 : 3} mono={field.name === 'body'} value={text(value)} onChange={(event) => onChange(event.target.value)} />;
+  if (field.type === 'long') return <Box asChild leading="relaxed"><Textarea variant="body" rows={field.name === 'body' ? 6 : 3} mono={field.name === 'body'} value={text(value)} onChange={(event) => onChange(event.target.value)} /></Box>;
   if (field.type === 'color') return <Swatches value={text(value)} onChange={onChange} onClear={() => onChange('')} />;
-  if (field.type === 'list') return <ChipInput id={id} value={(value as string[] | null) ?? []} onChange={onChange} suggestions={field.suggestions} placeholder="쉼표나 Enter로 추가" />;
-  if (field.type === 'chips') return <ChipInput id={id} value={splitList(value)} onChange={(chips) => onChange(joinList(chips))} suggestions={field.suggestions} placeholder="쉼표나 Enter로 추가" />;
+  if (field.type === 'list') return <TagInput id={id} value={(value as string[] | null) ?? []} onChange={onChange} suggestions={field.suggestions} placeholder="쉼표나 Enter로 추가" />;
+  if (field.type === 'chips') return <TagInput id={id} value={splitList(value)} onChange={(chips) => onChange(joinList(chips))} suggestions={field.suggestions} placeholder="쉼표나 Enter로 추가" />;
   const options =
     field.type === 'docKind' ? DOCUMENT_KINDS.map((kind) => ({ id: kind, name: DOCUMENT_KIND[kind] }))
     : field.type === 'character' ? characters
@@ -299,9 +299,9 @@ function FieldInput({ field, value, characters, onChange }: { field: Field; valu
   if (options)
     return (
       <Select value={text(value) || (field.type === 'gender' || field.type === 'ageBand' || field.type === 'role' ? 'unknown' : '')} onValueChange={onChange}>
-        <KnowledgeSelectTrigger>
+        <SelectTrigger width="full">
           <SelectValue />
-        </KnowledgeSelectTrigger>
+        </SelectTrigger>
         <SelectContent>
           {options.map((option) => (
             <SelectItem key={option.id} value={option.id}>
