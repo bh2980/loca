@@ -26,6 +26,9 @@ importers:
       vitest:
         specifier: ^5.0.3
         version: 5.0.3(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(vite@8.3.4(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.0))
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
 
   apps/cli:
     dependencies:
@@ -5043,13 +5046,13 @@ snapshots:
 
   '@agentclientprotocol/codex-acp@2.2.2':
     dependencies:
-      '@agentclientprotocol/sdk': 1.9.0(zod@4.6.5)
+      '@agentclientprotocol/sdk': 1.9.0(zod@4.6.7)
       '@openai/codex': 0.160.1
       cross-spawn: 7.0.6
       diff: 9.0.0
       open: 11.0.4
       vscode-jsonrpc: 9.0.3
-      zod: 4.6.5
+      zod: 4.6.7
 
   '@agentclientprotocol/sdk@1.9.0(zod@4.6.5)':
     dependencies:
@@ -6935,7 +6938,7 @@ snapshots:
       jiti: 2.7.0
       magic-string: 0.30.21
       prettier: 3.9.9
-      zod: 4.6.5
+      zod: 4.6.7
     transitivePeerDependencies:
       - supports-color
 
@@ -6949,7 +6952,7 @@ snapshots:
       '@tanstack/router-utils': 1.162.3
       chokidar: 5.0.0
       unplugin: 3.4.0(esbuild@0.28.2)(rolldown@1.2.13)(vite@8.3.4(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.0))
-      zod: 4.6.5
+      zod: 4.6.7
     optionalDependencies:
       '@tanstack/react-router': 1.170.41(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       vite: 8.3.4(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.0)

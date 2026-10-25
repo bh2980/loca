@@ -110,6 +110,13 @@ describe('mock LLM answers match the server schemas', () => {
     expect(body.terms[0].tags.length).toBeGreaterThan(0);
   });
 
+  it('relationship pairs name two different people with one view per direction', async () => {
+    const { relationshipViewsProblem } = await import('./ai-output.ts');
+    const pairs: JsonField = { name: 'relationships', type: 'list', description: '', fields: [{ name: 'between', type: 'strings', description: '' }, { name: 'views', type: 'list', description: '', fields: [{ name: 'from', type: 'string', description: '' }, { name: 'to', type: 'string', description: '' }] }] };
+    const body = JSON.parse(ask(node('json', { scope: 'batch', fields: [pairs] })).content);
+    expect(relationshipViewsProblem(body)).toBeNull();
+  });
+
   it("a whole-script request is read from the script text with the script's own line ids", () => {
     const script = ['## 1 — Scene [s1]', '  L1 MIRA: Hello.', '  L2 JONAS: Hi.', '  L3 [UI]: Start', '  L4 MIRA: Come here.'].join('\n');
     const whole = node('json', { scope: 'batch', fields: [{ name: 'people', type: 'list', description: '', fields: [{ name: 'name', type: 'string', description: '' }, { name: 'evidence', type: 'lines', description: '' }] }] });
