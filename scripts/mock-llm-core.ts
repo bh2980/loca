@@ -173,8 +173,17 @@ function fillDef(def: JsonDef, name: string, ctx: { ids: string[]; speakers: str
       return NAME_FIELD.test(name) && ctx.speakers.length ? ctx.speakers[ctx.at % ctx.speakers.length] : `모의 ${name}`;
   }
 }
-const fillObject = (def: JsonDef, ctx: { ids: string[]; speakers: string[]; source: number; at: number }): Record<string, unknown> =>
-  Object.fromEntries(Object.entries(def.properties ?? {}).map(([name, property]) => [name, fillDef(property, name, ctx)]));
+const fillObject = (def: JsonDef, ctx: { ids: string[]; speakers: string[]; source: number; at: number }): Record<string, unknown> => {
+  const filled = Object.fromEntries(Object.entries(def.properties ?? {}).map(([name, property]) => [name, fillDef(property, name, ctx)]));
+  // A relationship pair names two different people and one view per direction (the server refuses anything else).
+  const view = def.properties?.views?.items;
+  if (def.properties?.between && view?.type === 'object' && ctx.speakers.length >= 2) {
+    const a = ctx.speakers[ctx.at % ctx.speakers.length];
+    const b = ctx.speakers[(ctx.at + 1) % ctx.speakers.length];
+    return { ...filled, between: [a, b], views: [[a, b], [b, a]].map(([from, to], index) => ({ ...fillObject(view, { ...ctx, at: ctx.at + index }), from, to })) };
+  }
+  return filled;
+};
 
 /** Lines mentioning "orders" never pass review, so they end up waiting for a person. */
 const stubborn = (source: string) => /orders/i.test(source);
