@@ -84,7 +84,7 @@ export function PathNodeExtras({ choices, loops, onPick, onAuto }: { choices?: F
         <Section title="되돌아가는 곳">
           <div data-testid="loop-list"><InspectorList body>
             {loops.map((to, index) => (
-              <ListItem key={index} truncate paddingY="snug">
+              <ListItem key={index} truncate paddingY="condensed">
                 ↺ ‹{to}›로 되돌아감
               </ListItem>
             ))}

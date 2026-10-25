@@ -84,11 +84,11 @@ export function ShortcutHelp() {
           <Keyboard />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" width="popover-lg" padding="none" maxHeight="popover-tall">
+      <PopoverContent align="end" width="popover-lg" padding="none" maxHeight="dialog">
         {SECTIONS.map((section) => (
           <ShortcutSection key={section.title}>
             <Heading as="h3" variant="section" minWidth={0} marginBottom="condensed">{section.title}</Heading>
-            <Box as="dl" spaceY="snug" variant="body">
+            <Box as="dl" spaceY="condensed" variant="body">
               {section.keys.map(([keys, what]) => (
                 <Stack key={keys + what} direction="row" align="start" justify="between" gap="normal">
                   <Box as="dt" minWidth={0}>{what}</Box>

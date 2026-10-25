@@ -143,11 +143,11 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
             <Inline justify="between">
               <SectionHeading level="group">추천 규칙</SectionHeading>
             </Inline>
-            <Box spaceY="snug">
+            <Box spaceY="condensed">
               {detected.customCandidates.map((cand) => {
                 const alreadyAdded = draft.custom.some((c) => c.pattern === cand.pattern);
                 return (
-                  <Inline key={cand.pattern} justify="between" gap="condensed" radius="base" border="all" borderColor="subtle" background="pageTint" paddingX="cozy" paddingY="snug" variant="body">
+                  <Inline key={cand.pattern} justify="between" gap="condensed" radius="base" border="all" borderColor="subtle" background="pageTint" paddingX="condensed" paddingY="condensed" variant="body">
                     <Inline gap="condensed" minWidth={0} truncate>
                       <Text weight="medium" tone="default">{cand.label}</Text>
                       <Text as="code" mono variant="caption" tone="muted">({cand.pattern})</Text>
@@ -187,7 +187,7 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
           return (
             <Box key={index} spaceY="tight">
               <Inline gap="condensed">
-                <Input width="field-md" placeholder="이름" value={rule.label} onChange={(event) => setRule(index, { label: event.target.value })} />
+                <Input width="field" placeholder="이름" value={rule.label} onChange={(event) => setRule(index, { label: event.target.value })} />
                 <Select value={rule.kind} onValueChange={(kind) => setRule(index, { kind: kind as 'placeholder' | 'tag' })}>
                   <SelectTrigger width="field">
                     <SelectValue />
@@ -211,9 +211,9 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
         </Button>
       </Box>
 
-      <Box spaceY="snug" radius="md" background="sunken" padding="normal">
+      <Box spaceY="condensed" radius="md" background="sunken" padding="normal">
         <SectionHeading level="group">시험</SectionHeading>
-        <Box asChild minHeight="textarea-xs"><Textarea mono variant="body" value={sample} onChange={(event) => setSample(event.target.value)} /></Box>
+        <Box asChild minHeight="textarea-sm"><Textarea mono variant="body" value={sample} onChange={(event) => setSample(event.target.value)} /></Box>
         {(['placeholder', 'tag'] as const).map((kind) => (
           <Text as="p" key={kind} variant="body">
             <Text tone="muted">{KIND[kind]}: </Text>

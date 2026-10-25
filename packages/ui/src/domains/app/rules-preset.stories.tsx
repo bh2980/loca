@@ -47,13 +47,13 @@ export const FormatRules: Story = {
         </RulesPresetCard>
       </Grid>
       <Box spaceY="condensed" radius="md" border="all" borderColor="default" background="sunkenTint" padding="normal">
-        <Inline justify="between" gap="condensed" radius="base" border="all" borderColor="subtle" background="pageTint" paddingX="cozy" paddingY="snug" variant="body">
+        <Inline justify="between" gap="condensed" radius="base" border="all" borderColor="subtle" background="pageTint" paddingX="condensed" paddingY="condensed" variant="body">
           <Text>@name@</Text>
           <Button variant="outline" height="control-xs" paddingX="condensed">+ 추가</Button>
         </Inline>
       </Box>
-      <Inline gap="condensed"><Input width="field-md" placeholder="이름" /><Box asChild grow><Input mono variant="body" placeholder="예: @[a-z]+@" /></Box></Inline>
-      <Box spaceY="snug" radius="md" background="sunken" padding="normal"><Box asChild minHeight="textarea-xs"><Textarea mono variant="body" defaultValue="Hello {name}" /></Box><Input onSunken mono variant="body" placeholder="원문을 넣어 보세요" /></Box>
+      <Inline gap="condensed"><Input width="field" placeholder="이름" /><Box asChild grow><Input mono variant="body" placeholder="예: @[a-z]+@" /></Box></Inline>
+      <Box spaceY="condensed" radius="md" background="sunken" padding="normal"><Box asChild minHeight="textarea-sm"><Textarea mono variant="body" defaultValue="Hello {name}" /></Box><Input onSunken mono variant="body" placeholder="원문을 넣어 보세요" /></Box>
       <TextLink href="#x" variant="caption" tone="muted" underline="offset" quiet>지금 12줄 제외</TextLink>
     </Stack>
   ),

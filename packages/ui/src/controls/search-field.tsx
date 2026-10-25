@@ -103,7 +103,7 @@ export function MenuSearchField(props: Omit<ComponentProps<typeof Input>, "class
   return (
     <div className="relative px-1 pb-1">
       <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-[60%] text-muted" />
-      <Input className="pl-7" {...props} />
+      <Input className="pl-8" {...props} />
     </div>
   )
 }

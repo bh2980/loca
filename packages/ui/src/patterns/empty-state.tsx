@@ -10,15 +10,15 @@ function subject(noun: string) {
 
 const FRAME = {
   /** A dashed frame that takes the room of its pane. */
-  pane: "flex min-w-0 flex-1 flex-col items-center justify-center gap-5 rounded-md border border-dashed border-default bg-page/50 p-6 text-center text-balance md:p-12",
+  pane: "flex min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-md border border-dashed border-default bg-page/50 p-6 text-center text-balance md:p-12",
   /** The same, centered in the whole window (an error that replaces a page). */
-  page: "flex min-w-0 flex-1 flex-col items-center justify-center gap-5 rounded-md border border-dashed border-default bg-page/50 p-6 text-center text-balance md:p-12 m-auto min-h-svh",
+  page: "flex min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-md border border-dashed border-default bg-page/50 p-6 text-center text-balance md:p-12 m-auto min-h-svh",
 } as const
 
 const INLINE = {
   default: "flex flex-col items-center justify-center px-4 py-12 text-center text-xs text-muted",
   /** Roomier, for a list that has nothing to show. */
-  roomy: "flex flex-col items-center justify-center px-4 py-16 text-center text-xs text-muted",
+  roomy: "flex flex-col items-center justify-center px-4 py-12 text-center text-xs text-muted",
 } as const
 
 export type EmptyStateProps =

@@ -105,7 +105,7 @@ function ProjectLayout() {
                   </StatusBarButton>
                 </PopoverTrigger>
                 <PopoverContent side="top" align="start">
-                  <Box spaceY="cozy">
+                  <Box spaceY="normal">
                     <SectionHeading ruled as="h3" actions={<Text variant="caption" weight="normal" tone="muted" tabular>전체 {progress.total.toLocaleString()}줄 중 {progress.done.toLocaleString()}줄 확정</Text>}>
                       번역 진행
                     </SectionHeading>
@@ -120,7 +120,7 @@ function ProjectLayout() {
                               params={{ projectId }}
                               search={{ statuses: [s.id] }}
                             >
-                              <Inline as="span" gap="snug">
+                              <Inline as="span" gap="tight">
                                 <StatusIcon status={s} />
                                 <span>{s.name}</span>
                               </Inline>
@@ -140,7 +140,7 @@ function ProjectLayout() {
                             params={{ projectId }}
                             search={{ review: true }}
                           >
-                            <Inline as="span" gap="snug">
+                            <Inline as="span" gap="tight">
                               <Icon icon={TriangleAlert} size="sm" />
                               <span>검토 필요</span>
                             </Inline>
@@ -157,7 +157,7 @@ function ProjectLayout() {
 
               <Popover>
                 <PopoverTrigger asChild>
-                  <StatusBarButton gap="snug" marginLeft="auto">
+                  <StatusBarButton gap="tight" marginLeft="auto">
                     {activeCount > 0 ? (
                       <>
                         <Spinner size="xs" tone="accent" />
@@ -172,7 +172,7 @@ function ProjectLayout() {
                   </StatusBarButton>
                 </PopoverTrigger>
                 <PopoverContent side="top" align="end" width="popover">
-                  <Box spaceY="cozy">
+                  <Box spaceY="normal">
                     <SectionHeading ruled
                       as="h3"
                       actions={
@@ -277,7 +277,7 @@ function ProjectLayout() {
                         </Button>
                       </Notice>
                     )}
-                    <Box spaceY="snug">
+                    <Box spaceY="condensed">
                       <SectionHeading level="group" marginBottom="none"
                         actions={
                           <TextLink asChild variant="caption" weight="normal" tone="muted" underline="always" quiet>
@@ -298,7 +298,7 @@ function ProjectLayout() {
                               to="/p/$projectId/runs/$runId"
                               params={{ projectId, runId: run.id }}
                             >
-                              <Inline minWidth={0} gap="snug" truncate>
+                              <Inline minWidth={0} gap="tight" truncate>
                                 {run.status === 'completed' && (run.states.failed ?? 0) === 0 && <Icon icon={CheckCircle2} size="xs" shrink={false} tone="success" />}
                                 {((run.states.failed ?? 0) > 0 || run.status === 'cancelled') && <Icon icon={TriangleAlert} size="xs" shrink={false} tone="danger" />}
                                 {run.status === 'running' && <Spinner size="xs" tone="accent" fixed />}

@@ -148,8 +148,8 @@ function FormatCheckConfig({ params, refs, set }: { params: Record<string, unkno
               {customRules.map((rule, index) => {
                 const err = rule.pattern.trim() ? formatPatternError(rule.pattern) : '패턴을 입력하세요.';
                 return (
-                  <ListItem key={index} spaceY="snug" paddingY="cozy">
-                    <Inline gap="snug">
+                  <ListItem key={index} spaceY="condensed" paddingY="condensed">
+                    <Inline gap="condensed">
                       <Box asChild grow><Input aria-label="규칙 이름" placeholder="예: 영어 잔존 금지" value={rule.label} onChange={(event) => updateRule(index, { label: event.target.value })} /></Box>
                       <Select value={rule.kind} onValueChange={(value) => updateRule(index, { kind: value as CustomFormatRule['kind'] })}>
                         <Box asChild width="field-sm" shrink={false}><SelectTrigger aria-label="규칙 종류">
@@ -203,7 +203,7 @@ function SetStatusConfig({ params, refs, set, setMany }: { params: Record<string
       </Field>
       {refs.tags.length > 0 && (
         <Field label="태그" description="누르면 + 붙이기, 한 번 더 누르면 − 떼기, 또 누르면 그대로 둡니다.">
-          <Stack direction="row" wrap gap="snug">
+          <Stack direction="row" wrap gap="tight">
             {refs.tags.map((tag) => {
               const on = add.includes(tag.id), off = remove.includes(tag.id);
               return (
@@ -267,7 +267,7 @@ function TagLinesConfig({ node, params, refs, setMany }: { node: FunctionNode; p
       </Field>
 
       <Field label="고른 태그" description={`누르면 ${add ? '붙일' : '뗄'} 태그에 넣고, 한 번 더 누르면 뺍니다.`}>
-        <Stack direction="row" wrap gap="snug">
+        <Stack direction="row" wrap gap="tight">
           {!terms &&
             ISSUE_KIND_IDS.map((kind: IssueKind) => chip(params.kinds.includes(kind) || (!add && params.allKinds), ISSUE_KINDS[kind].name, ISSUE_KINDS[kind].color, () => !params.allKinds && toggle('kinds', kind)))}
           {own.map((tag) => chip(params.tagIds.includes(tag.id), tag.name, tag.color, () => toggle('tagIds', tag.id)))}
@@ -361,7 +361,7 @@ function HttpFields({ params, projectId, set }: { params: Record<string, unknown
       <JsonFieldsEditor label="결과 칸" fields={fields} descriptionPlaceholder="설명" onChange={(next) => set('fields', next)} />
       {fields.length > 0 && (
         <Field label="응답에서 가져올 곳" description="비우면 칸 이름과 같은 키를 씁니다. 예: result.text">
-          <Box spaceY="snug">
+          <Box spaceY="condensed">
             {fields.map((field) => (
               <Inline key={field.name} gap="condensed" variant="caption">
                 <Text width="field-sm" shrink={false} truncate mono>{field.name}</Text>
@@ -379,7 +379,7 @@ function HttpFields({ params, projectId, set }: { params: Record<string, unknown
           test.isPending ? <InspectorResult tone="pending">호출 중</InspectorResult> : test.data ? (
             <InspectorResult
               tone={test.data.ok ? 'ok' : 'error'}
-              detail={<Box as="pre" maxHeight="scroll-lg" overflow="auto" preserveLines mono>{test.data.ok ? JSON.stringify(test.data.raw, null, 2) : test.data.error}</Box>}>
+              detail={<Box as="pre" maxHeight="scroll" overflow="auto" preserveLines mono>{test.data.ok ? JSON.stringify(test.data.raw, null, 2) : test.data.error}</Box>}>
               {test.data.ok ? (
                 <Inline as="span" gap="condensed">
                   {test.data.ms}ms
@@ -425,7 +425,7 @@ function ScriptConfig({ params, projectId, readOnly, set }: { params: Record<str
           </AiButton>
         }
         help="격리된 곳에서 돌아갑니다. 네트워크·파일에 접근할 수 없고, 한 번에 2초·32MB까지 씁니다.">
-        <Box asChild minHeight="textarea-xl" mono variant="caption" leading="relaxed"><Textarea spellCheck={false} value={params.code as string} onChange={(event) => set('code', event.target.value)} /></Box>
+        <Box asChild minHeight="textarea-lg" mono variant="caption" leading="relaxed"><Textarea spellCheck={false} value={params.code as string} onChange={(event) => set('code', event.target.value)} /></Box>
       </Field>
       <JsonFieldsEditor label="출력 필드" fields={fields} descriptionPlaceholder="설명" onChange={(next) => set('fields', next)} />
       {!readOnly && (
@@ -444,7 +444,7 @@ function ScriptConfig({ params, projectId, readOnly, set }: { params: Record<str
               <InspectorResult
                 tone={test.data.ok && test.data.validPort ? 'ok' : 'error'}
                 detail={
-                  <Box as="pre" maxHeight="scroll-lg" overflow="auto" preserveLines mono>
+                  <Box as="pre" maxHeight="scroll" overflow="auto" preserveLines mono>
                     {test.data.ok ? JSON.stringify(test.data.result, null, 2) : test.data.error}
                     {'\n\n입력:\n'}
                     {JSON.stringify(test.data.input, null, 2)}

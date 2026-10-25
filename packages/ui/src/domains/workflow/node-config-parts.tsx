@@ -20,12 +20,12 @@ export function SelectField({ value, onValueChange, ariaLabel, children }: { val
 
 /** A field of a JSON field list read as a row: pulled out past the padding, it highlights on hover and takes a focus ring (it opens the field for editing). */
 export function FieldReadRow(props: Omit<React.HTMLAttributes<HTMLDivElement>, "className">) {
-  return <div className="-mx-1.5 min-w-0 cursor-pointer rounded-md px-1.5 py-1 hover:bg-sunken focus-visible:ring-1 focus-visible:ring-focus focus-visible:outline-none" {...props} />
+  return <div className="-mx-1 min-w-0 cursor-pointer rounded-md px-1 py-1 hover:bg-sunken focus-visible:ring-1 focus-visible:ring-focus focus-visible:outline-none" {...props} />
 }
 
 /** The fields of a list field, one step in behind a guide line that is darker while one of them is being edited. */
 export function FieldChildren({ active, children }: { active?: boolean; children: React.ReactNode }) {
-  return <div className={cn("mt-1 ml-1.5 border-l-2 pl-2.5", active ? "border-neutral" : "border-neutral/30")}>{children}</div>
+  return <div className={cn("mt-1 ml-1 border-l-2 pl-2", active ? "border-neutral" : "border-neutral/30")}>{children}</div>
 }
 
 /**
@@ -62,12 +62,12 @@ export function RequestDetails({ title, children }: { title: string; children: R
 export function RequestPart({ title, size, children }: { title: string; size: React.ReactNode; children: React.ReactNode }) {
   return (
     <Collapsible className="border-b border-subtle last:border-b-0">
-      <CollapsibleTrigger className="group flex w-full items-center gap-1.5 py-2 text-left text-sm">
+      <CollapsibleTrigger className="group flex w-full items-center gap-1 py-2 text-left text-sm">
         <Icon icon={ChevronRight} size="sm" tone="muted" shrink={false} turn="group" />
         <span className="font-medium">{title}</span>
         <span className="ml-auto truncate pl-2 text-xs text-muted tabular-nums">{size}</span>
       </CollapsibleTrigger>
-      <CollapsibleContent className="pb-3 pl-5">{children}</CollapsibleContent>
+      <CollapsibleContent className="pb-3 pl-4">{children}</CollapsibleContent>
     </Collapsible>
   )
 }

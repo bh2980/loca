@@ -151,7 +151,7 @@ export const Lists: Story = {
   render: () => (
     <Stack gap="comfortable">
       <InspectorList><ListRow>하윤 · 12-004</ListRow><ListRow>민재 · 12-005</ListRow></InspectorList>
-      <InspectorList body scroll="scroll-xs">
+      <InspectorList body scroll="scroll-sm">
         {Array.from({ length: 12 }, (_, index) => <ListRow key={index} density="loose">12-{String(index + 1).padStart(3, "0")} 줄</ListRow>)}
       </InspectorList>
     </Stack>

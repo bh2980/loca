@@ -129,7 +129,7 @@ function CompactSelectDemo() {
   const [kind, setKind] = useState("all")
   return (
     <Select value={kind} onValueChange={setKind}>
-      <SelectTrigger width="field-lg" aria-label="종류 필터"><SelectValue /></SelectTrigger>
+      <SelectTrigger width="field" aria-label="종류 필터"><SelectValue /></SelectTrigger>
       <SelectContent>
         <SelectItem value="all">모든 종류</SelectItem>
         <SelectItem value="save_character">인물 저장</SelectItem>

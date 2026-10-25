@@ -2,7 +2,6 @@ import * as React from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import { cn } from "../lib/utils";
-import { STYLE } from "../primitives/style";
 
 function Dialog({
   ...props
@@ -47,21 +46,20 @@ function DialogOverlay({
 const DIALOG_SIZE = { sm: "", md: "sm:max-w-xl", lg: "sm:max-w-3xl" } as const;
 
 /** A dialog that shows one thing large is a flex column of a fixed height. */
-const DIALOG_HEIGHT = { dialog: `flex ${STYLE.height.dialog} flex-col`, "dialog-lg": `flex ${STYLE.height["dialog-lg"]} flex-col` } as const;
 
 function DialogContent({
   className,
   children,
   showCloseButton = true,
   size = "sm",
-  height,
+  tall,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean;
   /** The width it stops growing at on a wide screen: `sm` 32rem, `md` 36rem, `lg` 48rem. */
   size?: keyof typeof DIALOG_SIZE;
-  /** For a dialog that shows one thing large (a long text, a prompt): a column of this height (75vh, `dialog-lg` 85vh) for its content to fill. */
-  height?: keyof typeof DIALOG_HEIGHT;
+  /** For a dialog that shows one thing large (a long text, a prompt): a column as tall as the dialog limit (70vh) for its content to fill. */
+  tall?: boolean;
 }) {
   return (
     <DialogPortal data-slot="dialog-portal">
@@ -69,9 +67,9 @@ function DialogContent({
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(
-          "fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border border-default bg-page p-5 shadow-md duration-200 outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 sm:max-w-lg",
+          "fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border border-default bg-page p-4 shadow-md duration-200 outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 sm:max-w-lg",
           DIALOG_SIZE[size],
-          height && DIALOG_HEIGHT[height],
+          tall && "flex h-(--max-height-dialog) flex-col",
           className
         )}
         {...props}
@@ -95,7 +93,7 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="dialog-header"
-      className={cn("flex flex-col gap-1.5 text-left", className)}
+      className={cn("flex flex-col gap-2 text-left", className)}
       {...props}
     />
   );

@@ -11,8 +11,8 @@
   }
   .prose-markdown h1 { @apply text-base; }
   .prose-markdown h2, .prose-markdown h3 { @apply text-sm; }
-  .prose-markdown ul { @apply list-disc pl-5; }
-  .prose-markdown ol { @apply list-decimal pl-5; }
+  .prose-markdown ul { @apply list-disc pl-6; }
+  .prose-markdown ol { @apply list-decimal pl-6; }
   .prose-markdown li + li { @apply mt-0.5; }
   .prose-markdown code { @apply rounded bg-sunken px-1 py-0.5 font-mono text-[0.85em]; }
   .prose-markdown pre { @apply overflow-x-auto rounded-md bg-sunken p-2; }

@@ -18,4 +18,4 @@ const Options = ({ disabled }: { disabled?: boolean }) => (
 export const Default: Story = { render: () => <RadioGroup defaultValue="a"><Options /></RadioGroup> }
 export const Disabled: Story = { render: () => <RadioGroup defaultValue="b"><Options disabled /></RadioGroup> }
 export const Invalid: Story = { render: () => <RadioGroup aria-invalid><Options /></RadioGroup> }
-export const LongText: Story = { render: () => <Stack width="field-xl"><RadioGroup defaultValue="c"><Options /></RadioGroup></Stack> }
+export const LongText: Story = { render: () => <Stack width="field-lg"><RadioGroup defaultValue="c"><Options /></RadioGroup></Stack> }

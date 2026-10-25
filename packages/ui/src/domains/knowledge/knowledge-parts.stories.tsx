@@ -20,7 +20,7 @@ export const FieldsAndBadges: Story = {
       <Input defaultValue="보통 입력" />
       <Inline gap="condensed"><Text weight="medium">하윤<Box asChild marginLeft="condensed"><Chip variant="outline">플레이어</Chip></Box></Text><Chip variant="outline" tone="warning" title="이유">확인 권장</Chip></Inline>
       <Text lines={1} tone="muted">한 줄만 보이고 나머지는 말줄임표로 줄어드는 요약 문장입니다. 한 줄만 보이고 나머지는 말줄임표로 줄어드는 요약 문장입니다.</Text>
-      <Skeleton height="placeholder-xl" />
+      <Skeleton height="placeholder-md" />
     </Stack>
   ),
 }

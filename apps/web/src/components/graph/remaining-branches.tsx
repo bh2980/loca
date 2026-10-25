@@ -39,7 +39,7 @@ export function RemainingBranches({ open, onOpenChange, branches, unreachable, t
           </DialogDescription>
         </DialogHeader>
         {branches.length ? (
-          <Bleed as="ul" by="condensed" maxHeight="popover" overflow="y" data-testid="remaining-branches">
+          <Bleed as="ul" by="condensed" maxHeight="dialog" overflow="y" data-testid="remaining-branches">
             {branches.map((branch) => (
               <Inline as="li" key={`${branch.fork}:${branch.arm}`} gap="normal" paddingX="condensed" paddingY="condensed">
                 <Box minWidth={0} grow>

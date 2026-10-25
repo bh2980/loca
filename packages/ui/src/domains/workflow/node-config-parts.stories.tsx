@@ -44,7 +44,7 @@ export const JsonFieldRows: Story = {
 
 export const TagToggles: Story = {
   render: () => (
-    <Stack direction="row" wrap gap="snug">
+    <Stack direction="row" wrap gap="tight">
       <TagToggle tag={{ name: "붙임", color: "var(--background-color-accent)" }} sign="+" />
       <TagToggle tag={{ name: "뗌", color: "var(--background-color-accent)" }} sign="−" struck />
       <TagToggle tag={{ name: "그대로", color: "var(--background-color-accent)" }} faint />
@@ -69,7 +69,7 @@ export const Large: Story = {
       <>
         <Button variant="outline" onClick={() => setOpen(true)}>크게 보기</Button>
         <Dialog open={open} onOpenChange={setOpen}>
-          <DialogContent height="dialog">
+          <DialogContent tall>
             <DialogHeader><DialogTitle>AI 프롬프트</DialogTitle></DialogHeader>
             <Box as="pre" overflow="auto" radius="md" background="sunken" padding="normal" variant="caption" preserveLines grow minHeight={0}>긴 텍스트</Box>
           </DialogContent>

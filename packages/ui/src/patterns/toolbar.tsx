@@ -17,9 +17,9 @@ export function FilterBar({
   end,
 }: FilterBarProps) {
   return (
-    <div className="flex min-h-9 shrink-0 flex-nowrap items-center gap-1.5 overflow-hidden border-b border-default bg-surface px-3 py-1 backdrop-blur-xs">
-      <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-1.5 overflow-hidden">{children}</div>
-      {end != null && <div className="ml-auto flex min-w-0 shrink-0 flex-nowrap items-center gap-1.5">{end}</div>}
+    <div className="flex min-h-9 shrink-0 flex-nowrap items-center gap-2 overflow-hidden border-b border-default bg-surface px-3 py-1 backdrop-blur-xs">
+      <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-2 overflow-hidden">{children}</div>
+      {end != null && <div className="ml-auto flex min-w-0 shrink-0 flex-nowrap items-center gap-2">{end}</div>}
     </div>
   )
 }
@@ -36,7 +36,7 @@ export function Pager({ page, total, pageSize, onPage }: PagerProps) {
   if (pages <= 1) return null
 
   return (
-    <div className="flex shrink-0 items-center justify-end gap-1.5 border-t border-default bg-page/50 px-3 py-1.5">
+    <div className="flex shrink-0 items-center justify-end gap-2 border-t border-default bg-page/50 px-3 py-2">
       <span className="text-2xs text-muted tabular-nums">
         {(page * pageSize + 1).toLocaleString()}–{Math.min(total, (page + 1) * pageSize).toLocaleString()} / {total.toLocaleString()}
       </span>

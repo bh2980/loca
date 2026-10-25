@@ -4,7 +4,7 @@ import { cn } from "../../lib/utils"
 
 /** Makes the link inside it a status chip (a small rounded target that tints on hover). */
 export function StatusChipLink({ children }: { children: React.ReactNode }) {
-  return <Slot className="flex items-center gap-1.5 rounded-xs px-2 py-1 text-sm hover:bg-sunken transition-colors">{children}</Slot>
+  return <Slot className="flex items-center gap-1 rounded-xs px-2 py-1 text-sm hover:bg-sunken transition-colors">{children}</Slot>
 }
 
 /** The icon tile at the start of a to-do; `alert` tints it as a problem. */

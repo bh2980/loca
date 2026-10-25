@@ -42,7 +42,7 @@ export function HeaderFilter({ label, value, options, onChange, groups }: {
       <PopoverTrigger asChild>
         <FilterHeaderButton label={label} active={active} aria-label={`${label} 필터`} />
       </PopoverTrigger>
-      <PopoverContent align="start" width="menu-xl" padding="none">
+      <PopoverContent align="start" width="menu-lg" padding="none">
         <Command>
           {options.length > 8 && <CommandInput placeholder={`${label} 찾기`} />}
           <CommandList>
@@ -169,8 +169,8 @@ export function MarkFilter({ label, groups, onClear }: { label: string; groups: 
       <PopoverTrigger asChild>
         <FilterHeaderButton label={label} active={active} aria-label={`${label} 필터`} />
       </PopoverTrigger>
-      <PopoverContent align="start" width="menu-xl" padding="none">
-        <Box padding="snug" paddingBottom="none">
+      <PopoverContent align="start" width="menu-lg" padding="none">
+        <Box padding="condensed" paddingBottom="none">
           <FilterModeSwitch mode={mode} onMode={setMode} />
         </Box>
         <Command>

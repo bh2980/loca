@@ -32,7 +32,7 @@ export const Invalid: Story = { render: () => <Switch aria-invalid aria-label="�
 
 export const LongText: Story = {
   render: () => (
-    <Stack width="field-xl">
+    <Stack width="field-lg">
       <Inline gap="condensed" align="start"><Switch id="sl" /><Label htmlFor="sl">아주 긴 설명이 붙은 설정은 좁은 폭에서 여러 줄로 감싸집니다</Label></Inline>
     </Stack>
   ),

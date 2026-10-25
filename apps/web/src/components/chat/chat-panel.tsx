@@ -473,7 +473,7 @@ function ChatBody({ projectId, sessionId, initial, turn, usage, compaction, pend
             <SectionHeading>무엇을 도와드릴까요?</SectionHeading>
           </Box>
         )}
-        <Box spaceY="roomy">
+        <Box spaceY="comfortable">
           {cardsAt(0)}
           {messages.map((message, messageIndex) => {
             const { stopped, interrupted } = (message.metadata as { stopped?: boolean; interrupted?: boolean } | undefined) ?? {};
@@ -513,7 +513,7 @@ function ChatBody({ projectId, sessionId, initial, turn, usage, compaction, pend
               <Fragment key={message.id}>
                 {summarized}
                 {view}
-                <Inline as="p" gap="snug" variant="caption" tone="muted" role="status">
+                <Inline as="p" gap="tight" variant="caption" tone="muted" role="status">
                   <Icon icon={Square} size="xs" /> {stopped ? '중지됨' : '끊김 · 다음 메시지가 먼저 시작됐습니다'}
                 </Inline>
                 {cardsAt(messageIndex + 1)}
@@ -547,7 +547,7 @@ function ChatBody({ projectId, sessionId, initial, turn, usage, compaction, pend
 
       <Box shrink={false} border="top" background="page" padding="condensed">
         {run && (
-          <Inline wrap marginBottom="snug" gap="tight" aria-label="실행 대상">
+          <Inline wrap marginBottom="condensed" gap="tight" aria-label="실행 대상">
             <Text variant="caption" weight="medium">/{run.command.name}</Text>
             {run.chips.map((chip) => (
               <AttachChip key={`${chip.kind}:${chip.id}`} projectId={projectId} chip={chip} onRemove={() => { setRun({ ...run, chips: run.chips.filter((other) => !(other.kind === chip.kind && other.id === chip.id)) }); box.current?.focus(); }} />
@@ -559,7 +559,7 @@ function ChatBody({ projectId, sessionId, initial, turn, usage, compaction, pend
           </Inline>
         )}
         {attached.length > 0 && (
-          <Stack direction="row" wrap marginBottom="snug" gap="tight" aria-label="첨부된 화면 정보">
+          <Stack direction="row" wrap marginBottom="condensed" gap="tight" aria-label="첨부된 화면 정보">
             {attached.map((item) => (
               <AttachChip
                 key={`${item.kind}:${item.id}`}
@@ -576,7 +576,7 @@ function ChatBody({ projectId, sessionId, initial, turn, usage, compaction, pend
           </Stack>
         )}
         {images.length > 0 && (
-          <Inline wrap marginBottom="snug" gap="snug" aria-label="붙인 이미지">
+          <Inline wrap marginBottom="condensed" gap="condensed" aria-label="붙인 이미지">
             {images.map((image) => (
               <ImageChip key={image.id} src={image.url} alt={image.name} dimmed={imageSupport.support === 'no'} removeLabel={`${image.name} 빼기`} onRemove={() => setImages((list) => list.filter((other) => other.id !== image.id))} />
             ))}
@@ -786,7 +786,7 @@ function SteerBubble({ text, waiting = false, onEdit, onCancel }: { text: string
 function SentChips({ projectId, chips }: { projectId: string; chips: ChatChip[] }) {
   if (!chips.length) return null;
   return (
-    <Stack direction="row" wrap marginTop="snug" gap="tight" aria-label="첨부한 항목">
+    <Stack direction="row" wrap marginTop="condensed" gap="tight" aria-label="첨부한 항목">
       {chips.map((chip) => <AttachChip key={`${chip.kind}:${chip.id}`} projectId={projectId} chip={chip} />)}
     </Stack>
   );
@@ -797,7 +797,7 @@ function SentImages({ parts }: { parts: UIMessage['parts'] }) {
   const files = parts.filter((part) => part.type === 'file' && part.mediaType.startsWith('image/')) as { url: string; filename?: string }[];
   if (!files.length) return null;
   return (
-    <Stack direction="row" wrap marginTop="snug" gap="snug">
+    <Stack direction="row" wrap marginTop="condensed" gap="condensed">
       {files.map((file, index) => (
         <SentImage key={index} src={file.url} alt={file.filename ?? '붙인 이미지'} />
       ))}
@@ -821,7 +821,7 @@ function DecisionNotice({ text }: { text: string }) {
   const count = (word: string) => lines.filter((line) => line.includes(word)).length;
   const summary = [['수락되어 반영됨', '반영'], ['수락되어 후보로 추가됨', '후보 추가'], ['거절함', '거절'], ['실패함', '실패']].flatMap(([word, label]) => (count(word) ? [`${label} ${count(word)}`] : [])).join(' · ');
   return (
-    <Inline as="p" gap="snug" variant="caption" tone="muted" title={text}>
+    <Inline as="p" gap="tight" variant="caption" tone="muted" title={text}>
       <Icon icon={Check} size="sm" /> 제안 결과를 에이전트에게 알렸습니다{summary && ` (${summary})`}
     </Inline>
   );

@@ -29,11 +29,11 @@ export const User: Story = {
   render: () => (
     <UserMessage actions={<Actions edit />}>
       <span>1장 장면의 하윤 말투를 반말로 정리해 줘.</span>
-      <Stack direction="row" wrap marginTop="snug" gap="tight" aria-label="첨부한 항목">
+      <Stack direction="row" wrap marginTop="condensed" gap="tight" aria-label="첨부한 항목">
         <AttachmentChip kind="장면" label="1장 · 옥상에서" title="1장 · 옥상에서" onOpen={() => {}} openLabel="장면 1장 · 옥상에서 열기" />
         <AttachmentChip kind="인물" label="하윤" title="하윤" onOpen={() => {}} openLabel="인물 하윤 열기" />
       </Stack>
-      <Stack direction="row" wrap marginTop="snug" gap="snug"><SentImage src={PICTURE} alt="붙인 이미지" /></Stack>
+      <Stack direction="row" wrap marginTop="condensed" gap="condensed"><SentImage src={PICTURE} alt="붙인 이미지" /></Stack>
     </UserMessage>
   ),
 }
@@ -50,7 +50,7 @@ export const Assistant: Story = {
 /** A message sent while a reply was running: waiting for the reply's next step, or already taken in. */
 export const Steer: Story = {
   render: () => (
-    <Stack gap="roomy">
+    <Stack gap="comfortable">
       <SteerBubble
         waiting
         label="전달 대기 중"
@@ -70,9 +70,9 @@ export const Steer: Story = {
 
 export const Status: Story = {
   render: () => (
-    <Stack gap="roomy">
+    <Stack gap="comfortable">
       <Inline as="p" gap="condensed" variant="body" tone="muted"><Spinner /> 생각하는 중…</Inline>
-      <Inline as="p" gap="snug" variant="caption" tone="muted" role="status"><Icon icon={X} size="xs" /> 중지됨</Inline>
+      <Inline as="p" gap="tight" variant="caption" tone="muted" role="status"><Icon icon={X} size="xs" /> 중지됨</Inline>
       <Notice tone="danger" as="p">모델 서버가 응답하지 않습니다. 잠시 뒤 다시 시도하세요.</Notice>
     </Stack>
   ),
@@ -81,7 +81,7 @@ export const Status: Story = {
 /** The pictures pasted into the box; dimmed when the chosen model cannot read pictures. */
 export const PastedImages: Story = {
   render: () => (
-    <Inline wrap gap="snug">
+    <Inline wrap gap="condensed">
       <ImageChip src={PICTURE} alt="캡처 1" removeLabel="캡처 1 빼기" onRemove={() => {}} />
       <ImageChip src={PICTURE} alt="캡처 2" dimmed removeLabel="캡처 2 빼기" onRemove={() => {}} />
       <Text variant="caption" tone="muted">오른쪽: 이 모델은 이미지를 읽지 못합니다</Text>

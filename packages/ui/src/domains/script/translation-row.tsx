@@ -33,13 +33,13 @@ export function ScriptTranslationRow({ checkbox, speaker, status, source, transl
     )
   }
   return (
-    <article className={cn("grid min-w-0 grid-cols-[1.5rem_minmax(0,1fr)_minmax(0,1fr)] gap-x-2 px-3", compact ? "py-2" : layout === "review" ? "py-2.5" : "py-3", state)}>
+    <article className={cn("grid min-w-0 grid-cols-[1.5rem_minmax(0,1fr)_minmax(0,1fr)] gap-x-2 px-3", compact || layout === "review" ? "py-2" : "py-3", state)}>
       <div className="row-span-2 flex justify-center pt-0.5">{checkbox}</div>
-      <div className="min-w-0 border-r border-subtle pr-3.5">
+      <div className="min-w-0 border-r border-subtle pr-3">
         {speaker && <div className="mb-1 min-h-4">{speaker}</div>}
         <div className={cn("min-w-0", compact ? "text-sm leading-5" : "text-sm leading-relaxed")}>{source}</div>
       </div>
-      <div className="min-w-0 pl-1.5">
+      <div className="min-w-0 pl-2">
         {(status || meta) && <div className="mb-1 flex min-h-4 items-center gap-2">{status}{meta && <span className="ml-auto flex items-center gap-1">{meta}</span>}</div>}
         <div className={cn("min-w-0", compact ? "text-sm leading-5" : "text-sm leading-relaxed")}>{translation}</div>
         {actions && <div className="mt-2">{actions}</div>}

@@ -138,7 +138,7 @@ export function ColumnMenu({
         <Button
           variant="ghost"
           size="xs"
-          className="mt-1.5 w-full text-xs text-muted hover:text-default"
+          className="mt-2 w-full text-xs text-muted hover:text-default"
           onClick={onReset}
         >
           기본으로

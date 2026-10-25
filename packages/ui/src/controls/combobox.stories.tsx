@@ -23,7 +23,7 @@ function Controlled({ options = OPTIONS, ...props }: Partial<Parameters<typeof C
 export const Default: Story = { render: () => <Controlled /> }
 export const Selected: Story = { render: () => <Controlled value="minah" /> }
 export const Disabled: Story = { render: () => <Controlled value="minah" disabled /> }
-export const LongText: Story = { render: () => <Stack width="field-xl"><Controlled value="long" /></Stack> }
+export const LongText: Story = { render: () => <Stack width="field-lg"><Controlled value="long" /></Stack> }
 export const EmptyResult: Story = { render: () => <Controlled options={[]} emptyText="등장인물이 없습니다" placeholder="인물 선택" /> }
 /** Only the first fifty matches are mounted. */
 export const ManyOptions: Story = { render: () => <Controlled options={MANY} /> }

@@ -23,9 +23,9 @@ export function PromptView({ request, title }: { request: Request; title: string
         </Text>
         <Button variant="ghost" onClick={() => setLarge(true)}>크게 보기</Button>
       </Inline>
-      <Box as="pre" maxHeight="scroll-xl" overflow="auto" radius="md" background="sunken" padding="condensed" variant="caption" preserveLines>{text}</Box>
+      <Box as="pre" maxHeight="scroll" overflow="auto" radius="md" background="sunken" padding="condensed" variant="caption" preserveLines>{text}</Box>
       <Dialog open={large} onOpenChange={setLarge}>
-        <DialogContent height="dialog-lg">
+        <DialogContent tall>
           <DialogHeader><DialogTitle>{title}</DialogTitle></DialogHeader>
           <Box as="pre" minHeight={0} grow overflow="auto" radius="md" background="sunken" padding="normal" variant="caption" preserveLines>{text}</Box>
         </DialogContent>
@@ -131,7 +131,7 @@ export function RequestPreview({ projectId, workflowId, node }: { projectId: str
     <Section title="AI 프롬프트">
       <Box spaceY="condensed">
         {data && <SamplePicker projectId={projectId} subject={data.subject} value={data.sample?.value} label={data.sample?.label} onPick={setSample} />}
-        {request.isError ? <Text as="p" variant="body" tone="danger">{request.error.message}</Text> : !data ? <Skeleton height="placeholder-xl" /> : <PromptView request={data} title={`AI 프롬프트 · ${node.label ?? node.id}`} />}
+        {request.isError ? <Text as="p" variant="body" tone="danger">{request.error.message}</Text> : !data ? <Skeleton height="placeholder-md" /> : <PromptView request={data} title={`AI 프롬프트 · ${node.label ?? node.id}`} />}
       </Box>
     </Section>
   );

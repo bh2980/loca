@@ -207,7 +207,7 @@ function JobCalls({ projectId, job, onClose }: { projectId: string; job: { id: s
       ) : (
         <InspectorList>
           {calls.data?.calls.map((call) => (
-            <ListItem key={call.id} spaceY="hair" paddingY="cozy" variant="body">
+            <ListItem key={call.id} spaceY="hair" paddingY="condensed" variant="body">
               <Inline gap="condensed">
                 <Text minWidth={0} grow truncate>{call.label}</Text>
                 {call.status === 'running' ? (
@@ -275,7 +275,7 @@ function CallText({ label, text }: { label: string; text: string }) {
           <Copy /> 복사
         </Button>
       </Inline>
-      <Box as="pre" maxHeight="scroll-3xl" overflow="auto" radius="md" border="all" background="sunken" padding="condensed" mono variant="caption" breakWords preserveLines>{text}</Box>
+      <Box as="pre" maxHeight="scroll-lg" overflow="auto" radius="md" border="all" background="sunken" padding="condensed" mono variant="caption" breakWords preserveLines>{text}</Box>
     </Box>
   );
 }

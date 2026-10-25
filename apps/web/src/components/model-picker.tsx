@@ -122,7 +122,7 @@ export function ModelPicker({
           minWidth={grow ? 0 : undefined}
           grow={grow || undefined}
         >
-          <Inline as="span" minWidth={0} gap="snug">
+          <Inline as="span" minWidth={0} gap="tight">
             <Text truncate tone={label ? undefined : 'muted'}>{label ?? (lockConnection ? '모델 고르기' : usable.length || !connections.data ? '모델 고르기' : '쓸 수 있는 AI 연결 없음')}</Text>
             {free && <Box asChild shrink={false} variant="caption"><Chip variant="quiet">무료</Chip></Box>}
           </Inline>
@@ -153,7 +153,7 @@ export function ModelPicker({
                 <Field.Label>모델</Field.Label>
                 <Box asChild radius="md" border="all"><Command>
                   <CommandInput value={query} onValueChange={setQuery} placeholder={list.length ? `모델 ${list.length}개에서 찾기` : '모델 이름 입력'} />
-                  <Box asChild maxHeight="scroll-md"><CommandList>
+                  <Box asChild maxHeight="scroll-sm"><CommandList>
                     <CommandEmpty>{models.isPending ? '모델 목록을 불러오는 중…' : '목록에 없는 모델입니다.'}</CommandEmpty>
                     {typed && !list.includes(typed) && (
                       <CommandGroup heading="직접 입력">

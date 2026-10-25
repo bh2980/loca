@@ -73,7 +73,7 @@ export function ProposalList({ projectId, title, proposals }: { projectId: strin
             </Inline>
             {kinds.length > 1 && (
               <Select value={kind} onValueChange={(value) => { setKind(value); setPicked(new Set()); }}>
-                <SelectTrigger width="field-lg" aria-label="종류 필터">
+                <SelectTrigger width="field" aria-label="종류 필터">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -94,9 +94,9 @@ export function ProposalList({ projectId, title, proposals }: { projectId: strin
               </Button>
             </Inline>
           </Inline>
-          <Box as="ul" maxHeight="scroll-3xl" divide="y" overflow="y" radius="md" border="all">
+          <Box as="ul" maxHeight="scroll-lg" divide="y" overflow="y" radius="md" border="all">
             {shown.map((proposal) => (
-              <Box as="li" key={proposal.id} paddingX="condensed" paddingY="snug">
+              <Box as="li" key={proposal.id} paddingX="condensed" paddingY="condensed">
                 <Inline gap="condensed" variant="caption">
                   <Checkbox checked={picked.has(proposal.id)} onCheckedChange={(on) => toggle([proposal.id], Boolean(on))} aria-label="선택" />
                   <Button variant="ghost" size="row" minWidth={0} grow aria-expanded={expanded === proposal.id} onClick={() => setExpanded(expanded === proposal.id ? null : proposal.id)}>

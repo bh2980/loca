@@ -14,7 +14,7 @@ export const Default: Story = {
       <ContextMenuTrigger>
         <Box padding="spacious" border="all" radius="md"><Text variant="caption" tone="muted">여기를 우클릭하세요</Text></Box>
       </ContextMenuTrigger>
-      <ContextMenuContent width="menu-xl">
+      <ContextMenuContent width="menu-lg">
         <ContextMenuLabel>대사</ContextMenuLabel>
         <ContextMenuItem>복사<ContextMenuShortcut>Ctrl C</ContextMenuShortcut></ContextMenuItem>
         <ContextMenuItem disabled>붙여넣기</ContextMenuItem>

@@ -190,7 +190,7 @@ function ReadingRouteToolCard({ output }: { output: ReturnType<typeof findReadin
     <Text as="p" marginTop="tight">{output.error}</Text>
   </ToolErrorCard>;
   return <ToolCard>
-    <Inline gap="condensed" border="bottom" background="sunken" paddingX="normal" paddingY="snug" variant="body" weight="semibold">
+    <Inline gap="condensed" border="bottom" background="sunken" paddingX="normal" paddingY="condensed" variant="body" weight="semibold">
       <Icon icon={Network} size="sm" tone="muted" />
       <span>경로 대본</span>
       <Text marginLeft="auto" weight="normal" tone="muted">대사 {output.lineCount.toLocaleString()}줄</Text>

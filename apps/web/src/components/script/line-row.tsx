@@ -149,12 +149,12 @@ export function LineHints({ projectId, line, part }: { projectId: string; line: 
   ].filter((item): item is { key: string; label: string; text: string } => !!item);
   if (!rule && !about.length && !items.some(Boolean)) return null;
   return (
-    <Box marginTop="condensed" spaceY="snug" onClick={(event) => event.stopPropagation()}>
+    <Box marginTop="condensed" spaceY="condensed" onClick={(event) => event.stopPropagation()}>
       {/* Under the source: its term chips first (they match the underlines), then who is talking. */}
-      {items.some(Boolean) && <Inline wrap gap="snug">{items}</Inline>}
+      {items.some(Boolean) && <Inline wrap gap="tight">{items}</Inline>}
       {/* Who is talking is a group of its own: tighter lines inside, more room above when chips come first. */}
       {(rule || about.length > 0) && (
-        <Box spaceY="hair" paddingTop={items.some(Boolean) ? 'snug' : undefined}>
+        <Box spaceY="hair" paddingTop={items.some(Boolean) ? 'condensed' : undefined}>
           {rule}
           {about.map((item) => (
             <Text as="p" variant="caption" tone="muted" lines={1} key={item.key} title={item.text}>
@@ -321,13 +321,13 @@ export function LineRow({
     <SpeakerCard projectId={projectId} name={line.speaker}><SpeakerIdentity speaker={line.speaker} color={colorOf(line.speaker)} listener={said ? (who.unknown ? null : who.text) : undefined} listenerIsPerson={!line.listener || !Object.hasOwn(SPECIAL_LISTENERS, line.listener) && !who.unknown} /></SpeakerCard>
   ) : line.kind === 'dialogue' ? <SpeakerIdentity speaker={null} /> : null;
   const identity = (
-    <Inline gap="snug" minWidth={0}>
+    <Inline gap="tight" minWidth={0}>
       {speaker}
       {marked && <Text shrink={false} tone="warning">● {findLabel}</Text>}
     </Inline>
   );
   const statusContent = (
-    <Inline as="span" gap="snug" minWidth={0} variant="caption" tone="muted">
+    <Inline as="span" gap="tight" minWidth={0} variant="caption" tone="muted">
       <StatusIcon status={status} />
       <Text truncate>{status?.name}</Text>
     </Inline>
@@ -374,7 +374,7 @@ export function LineRow({
           </TooltipTrigger>
           <TooltipContent>줄 동작</TooltipContent>
         </Tooltip>
-        <DropdownMenuContent width="menu-md" align="end" onClick={(event) => event.stopPropagation()}>
+        <DropdownMenuContent width="menu" align="end" onClick={(event) => event.stopPropagation()}>
           {menuItems}
         </DropdownMenuContent>
       </DropdownMenu>
@@ -442,7 +442,7 @@ export function LineRow({
             <DropdownMenuTrigger asChild>
               <ScriptMenuAnchor x={menuAt.x} y={menuAt.y} />
             </DropdownMenuTrigger>
-            <DropdownMenuContent width="menu-md" align="start" onClick={(event) => event.stopPropagation()} onCloseAutoFocus={(event) => event.preventDefault()}>
+            <DropdownMenuContent width="menu" align="start" onClick={(event) => event.stopPropagation()} onCloseAutoFocus={(event) => event.preventDefault()}>
               {menuItems}
             </DropdownMenuContent>
           </DropdownMenu>

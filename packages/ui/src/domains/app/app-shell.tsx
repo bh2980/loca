@@ -8,5 +8,5 @@ export function DockPane({ active, children }: { active: boolean; children: Reac
 
 /** A flat button on the status bar (progress, runs, notifications), opening a popover; `gap` and the layout options are the button's. */
 export function StatusBarButton(props: Omit<React.ComponentProps<typeof Button>, "className" | "variant" | "size">) {
-  return <Button variant="ghost" className="h-5 rounded-none px-1.5 text-xs font-normal text-muted hover:bg-hover hover:text-default" {...props} />
+  return <Button variant="ghost" className="h-5 rounded-none px-1 text-xs font-normal text-muted hover:bg-hover hover:text-default" {...props} />
 }

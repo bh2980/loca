@@ -956,7 +956,7 @@ function GraphPage() {
                       <DropdownMenuSubTrigger>
                         <span>보기에 추가</span>
                       </DropdownMenuSubTrigger>
-                      <Box asChild maxHeight="scroll-xl" overflow="auto"><DropdownMenuSubContent width="menu">
+                      <Box asChild maxHeight="scroll" overflow="auto"><DropdownMenuSubContent width="menu">
                         {otherViews.map((saved) => (
                           <DropdownMenuItem key={saved.id} onSelect={() => addToView(saved.id, saved.label, picked)}>
                             <Text truncate>{saved.origin === 'ai' ? '✦ ' : ''}{saved.label}</Text>
@@ -1144,7 +1144,7 @@ function GraphPage() {
                 </DropdownMenuContent>
               )}
               {search.scope === 'scene' && contextMenu.nodeId && (
-                <DropdownMenuContent width="menu-sm" align="start" side="bottom" sideOffset={2}>
+                <DropdownMenuContent width="menu" align="start" side="bottom" sideOffset={2}>
                   <DropdownMenuItem
                     onSelect={() => {
                       const id = contextMenu.nodeId!;
@@ -1188,7 +1188,7 @@ function GraphPage() {
                 </DropdownMenuContent>
               )}
               {contextMenu.edgeId && sceneEditing && (
-                <DropdownMenuContent width="menu-sm" align="start" side="bottom" sideOffset={2}>
+                <DropdownMenuContent width="menu" align="start" side="bottom" sideOffset={2}>
                   {(() => {
                     const line = edges.find((edge) => edge.id === contextMenu.edgeId);
                     // A line to or from a connection point (hub) stands for dialogue-graph lines through nodes outside scenes.
@@ -1202,7 +1202,7 @@ function GraphPage() {
                 </DropdownMenuContent>
               )}
               {contextMenu.edgeId && !sceneEditing && (
-                <DropdownMenuContent width="menu-sm" align="start" side="bottom" sideOffset={2}>
+                <DropdownMenuContent width="menu" align="start" side="bottom" sideOffset={2}>
                   <DropdownMenuItem onSelect={() => openEdge(contextMenu.edgeId)}>
                     <span>상세 열기</span>
                   </DropdownMenuItem>
@@ -1218,7 +1218,7 @@ function GraphPage() {
                 </DropdownMenuContent>
               )}
               {!contextMenu.nodeId && !contextMenu.edgeId && (
-                <DropdownMenuContent width="menu-sm" align="start" side="bottom" sideOffset={2}>
+                <DropdownMenuContent width="menu" align="start" side="bottom" sideOffset={2}>
                   {editing && nodeClipboard.length > 0 && (
                     <>
                       <DropdownMenuItem onSelect={() => void paste(nodeClipboard)}>
@@ -1257,7 +1257,7 @@ function GraphPage() {
                 <span aria-hidden style={{ position: 'fixed', left: naming.x, top: naming.y, width: 1, height: 1, pointerEvents: 'none' }} />
               </PopoverTrigger>
               <Box asChild spaceY="condensed">
-              <PopoverContent align="start" width="popover-sm">
+              <PopoverContent align="start" width="popover">
                 <Input autoFocus value={newName} maxLength={80} aria-label="보기 이름" placeholder="예: 올렉 사망 분기" onChange={(event) => setNewName(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && makeView()} />
                 <Stack direction="row" justify="end" gap="condensed">
                   <Button variant="ghost" onClick={() => setNaming(null)}>취소</Button>
@@ -1295,7 +1295,7 @@ function GraphPage() {
               <CanvasOverlay
                 tools={
                   <>
-                    <Box position="relative" width="card" maxWidth="full" minWidth={0} shrink userSelect="none">
+                    <Box position="relative" width="popover-lg" maxWidth="full" minWidth={0} shrink userSelect="none">
                       <SearchField value={search.q} onChange={setFind} placeholder="노드 찾기 (키·라벨·첫 대사)" onCanvas />
                       {matches.length > 0 && (
                         <FoundNodeList>
@@ -1345,7 +1345,7 @@ function GraphPage() {
                                   setFind(undefined);
                                 }}
                               >
-                                <Text width="field-3xs" shrink={false} paddingTop="hair" variant="caption" tone="muted">{KIND_LABEL[node.kind] ?? node.kind}</Text>
+                                <Text width="field-xs" shrink={false} paddingTop="hair" variant="caption" tone="muted">{KIND_LABEL[node.kind] ?? node.kind}</Text>
                                 <Text minWidth={0} grow>
                                   <Text display="block" truncate variant="body" tone="default">{node.label ?? node.key}</Text>
                                   {node.preview && <Text display="block" truncate variant="caption" tone="muted">{node.preview}</Text>}

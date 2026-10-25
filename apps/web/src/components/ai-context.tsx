@@ -23,15 +23,15 @@ export function ContextItemList({ items, budget }: { items: ContextItem[]; budge
         if (!group.length) return null;
         return (
           <Group key={kind} title={<>{CONTEXT_ITEM_KINDS[kind]} <Text weight="normal" tone="muted" tabular>{group.length}</Text></>}>
-            <Box as="ul" spaceY="snug">
+            <Box as="ul" spaceY="condensed">
               {group.map((item, index) => (
-                <Box as="li" key={`${item.label}-${index}`} radius="md" border="all" paddingX="cozy" paddingY="condensed" variant="body" background={item.included ? undefined : 'sunken'} tone={item.included ? undefined : 'muted'}>
+                <Box as="li" key={`${item.label}-${index}`} radius="md" border="all" paddingX="condensed" paddingY="condensed" variant="body" background={item.included ? undefined : 'sunken'} tone={item.included ? undefined : 'muted'}>
                   <Inline gap="condensed">
                     <Text minWidth={0} grow truncate weight="medium" lineThrough={!item.included} title={item.label}>
                       {item.label}
                     </Text>
                     {!item.included && (
-                      <Box asChild paddingX="snug" paddingY="none" variant="caption" tone="warning">
+                      <Box asChild paddingX="tight" paddingY="none" variant="caption" tone="warning">
                         <Chip variant="outline">
                           상한 초과
                         </Chip>
@@ -74,7 +74,7 @@ export function AiContextPanel({ projectId, unitKey, aiNode, onAiNode }: { proje
           </SelectContent>
         </Select>
       )}
-      {request.isError ? <Text as="p" variant="body" tone="danger">{request.error.message}</Text> : !request.data ? <Skeleton height="placeholder-xl" /> : <PromptView request={request.data} title={`AI 프롬프트 · ${unitKey} · ${picked?.label ?? ''}`} />}
+      {request.isError ? <Text as="p" variant="body" tone="danger">{request.error.message}</Text> : !request.data ? <Skeleton height="placeholder-md" /> : <PromptView request={request.data} title={`AI 프롬프트 · ${unitKey} · ${picked?.label ?? ''}`} />}
     </Box>
   );
 }

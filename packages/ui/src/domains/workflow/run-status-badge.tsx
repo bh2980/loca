@@ -25,7 +25,7 @@ export interface RunStatusBadgeProps {
 /** A run's state as a dot and its name. */
 export function RunStatusBadge({ status }: RunStatusBadgeProps) {
   return (
-    <Inline as="span" inline gap="snug" variant="caption" weight="medium" nowrap>
+    <Inline as="span" inline gap="tight" variant="caption" weight="medium" nowrap>
       <span
         aria-hidden
         className={cn(

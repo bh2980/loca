@@ -186,7 +186,7 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
         {usage.data && usage.data.rows.length === 0 ? (
           <Text as="p" variant="body" tone="muted">이 용어가 나오는 대사가 없습니다.</Text>
         ) : (
-          <InspectorList scroll="scroll-list">
+          <InspectorList scroll="scroll">
             {usage.data?.rows.map((row) => <li key={row.id}><ListRow as="link" variant="line" inset><Link to="/p/$projectId/script" params={{ projectId }} search={{ group: row.groupId, line: row.id }}><Text variant="caption" tone="muted">{row.groupTitle} · </Text>{row.speaker && <Text weight="medium">{row.speaker}: </Text>}{row.source}{row.translation && <Text display="block" tone="muted">{row.translation}</Text>}</Link></ListRow></li>)}
           </InspectorList>
         )}

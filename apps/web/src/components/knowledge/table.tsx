@@ -177,7 +177,7 @@ const sourceOptions: FilterOption[] = KNOWLEDGE_SOURCES.map((value) => ({ value,
 export function StateCell({ row }: { row: Draft }) {
   const candidate = row.status === 'candidate';
   return (
-    <Inline as="span" inline gap="snug">
+    <Inline as="span" inline gap="tight">
       <StatusIcon status={{ kind: candidate ? 'initial' : 'final', color: candidate ? 'var(--text-color-warning)' : 'var(--text-color-success)' }} />
       {KNOWLEDGE_STATUS_LABELS[candidate ? 'candidate' : 'confirmed']}
       {!candidate && <AiMark by={row.statusBy} />}

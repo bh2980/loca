@@ -31,7 +31,7 @@ export const Default: Story = {
 export const Widths: Story = {
   render: () => (
     <Stack gap="condensed" align="start">
-      {(["popover-sm", "popover", "popover-lg", "menu-xl"] as const).map((width) => <Demo key={width} label={width} width={width} />)}
+      {(["popover", "popover-lg", "menu-lg"] as const).map((width) => <Demo key={width} label={width} width={width} />)}
     </Stack>
   ),
 }
@@ -49,7 +49,7 @@ export const Scrolling: Story = {
   render: () => (
     <Popover defaultOpen>
       <PopoverTrigger asChild><Button variant="outline">긴 내용</Button></PopoverTrigger>
-      <PopoverContent maxHeight="scroll-xs">
+      <PopoverContent maxHeight="scroll-sm">
         <Stack gap="condensed">{Array.from({ length: 12 }, (_, index) => <Text key={index} variant="caption">규칙 {index + 1}</Text>)}</Stack>
       </PopoverContent>
     </Popover>
@@ -60,7 +60,7 @@ export const LongText: Story = {
   render: () => (
     <Popover defaultOpen>
       <PopoverTrigger asChild><Button variant="outline">긴 글</Button></PopoverTrigger>
-      <PopoverContent width="popover-sm"><Text variant="caption">{"아주 긴 설명이 좁은 팝오버 안에서 여러 줄로 감싸집니다. ".repeat(4)}</Text></PopoverContent>
+      <PopoverContent width="popover"><Text variant="caption">{"아주 긴 설명이 좁은 팝오버 안에서 여러 줄로 감싸집니다. ".repeat(4)}</Text></PopoverContent>
     </Popover>
   ),
 }

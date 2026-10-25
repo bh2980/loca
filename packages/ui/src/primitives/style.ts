@@ -7,19 +7,16 @@ import { cva, type VariantProps } from "class-variance-authority"
  * graph handle, a row's hover action, a list item's trimmed ends) is a prop of that part, not an option here; sizes take only the
  * names of tokens/system.css, never a number or a length (`pnpm ui-rules` refuses one in this file).
  *
- * Spacing names (padding, margin, gap, space): none 0, hair 2px, tight 4px, snug 6px, condensed 8px, cozy 10px, normal 12px,
- * comfortable 16px, roomy 20px, spacious 24px, wide 32px, section 48px.
+ * Spacing names (padding, margin, gap, space): none 0, hair 2px, tight 4px, condensed 8px, normal 12px, comfortable 16px,
+ * spacious 24px, wide 32px, section 48px.
  */
 export const SPACING_PX = {
   none: 0, // 0
   hair: 2, // 0.5
   tight: 4, // 1
-  snug: 6, // 1.5
   condensed: 8, // 2
-  cozy: 10, // 2.5
   normal: 12, // 3
   comfortable: 16, // 4
-  roomy: 20, // 5
   spacious: 24, // 6
   wide: 32, // 8
   section: 48, // 12
@@ -31,12 +28,9 @@ export const GAP = {
     none: "gap-0",
     hair: "gap-0.5",
     tight: "gap-1",
-    snug: "gap-1.5",
     condensed: "gap-2",
-    cozy: "gap-2.5",
     normal: "gap-3",
     comfortable: "gap-4",
-    roomy: "gap-5",
     spacious: "gap-6",
     wide: "gap-8",
     section: "gap-12",
@@ -45,12 +39,9 @@ export const GAP = {
     none: "gap-x-0",
     hair: "gap-x-0.5",
     tight: "gap-x-1",
-    snug: "gap-x-1.5",
     condensed: "gap-x-2",
-    cozy: "gap-x-2.5",
     normal: "gap-x-3",
     comfortable: "gap-x-4",
-    roomy: "gap-x-5",
     spacious: "gap-x-6",
     wide: "gap-x-8",
     section: "gap-x-12",
@@ -59,12 +50,9 @@ export const GAP = {
     none: "gap-y-0",
     hair: "gap-y-0.5",
     tight: "gap-y-1",
-    snug: "gap-y-1.5",
     condensed: "gap-y-2",
-    cozy: "gap-y-2.5",
     normal: "gap-y-3",
     comfortable: "gap-y-4",
-    roomy: "gap-y-5",
     spacious: "gap-y-6",
     wide: "gap-y-8",
     section: "gap-y-12",
@@ -76,12 +64,9 @@ export const STYLE = {
     none: "p-0",
     hair: "p-0.5",
     tight: "p-1",
-    snug: "p-1.5",
     condensed: "p-2",
-    cozy: "p-2.5",
     normal: "p-3",
     comfortable: "p-4",
-    roomy: "p-5",
     spacious: "p-6",
     wide: "p-8",
     section: "p-12",
@@ -90,12 +75,9 @@ export const STYLE = {
     none: "px-0",
     hair: "px-0.5",
     tight: "px-1",
-    snug: "px-1.5",
     condensed: "px-2",
-    cozy: "px-2.5",
     normal: "px-3",
     comfortable: "px-4",
-    roomy: "px-5",
     spacious: "px-6",
     wide: "px-8",
     section: "px-12",
@@ -105,12 +87,9 @@ export const STYLE = {
     none: "py-0",
     hair: "py-0.5",
     tight: "py-1",
-    snug: "py-1.5",
     condensed: "py-2",
-    cozy: "py-2.5",
     normal: "py-3",
     comfortable: "py-4",
-    roomy: "py-5",
     spacious: "py-6",
     wide: "py-8",
     section: "py-12",
@@ -119,12 +98,9 @@ export const STYLE = {
     none: "pt-0",
     hair: "pt-0.5",
     tight: "pt-1",
-    snug: "pt-1.5",
     condensed: "pt-2",
-    cozy: "pt-2.5",
     normal: "pt-3",
     comfortable: "pt-4",
-    roomy: "pt-5",
     spacious: "pt-6",
     wide: "pt-8",
     section: "pt-12",
@@ -133,12 +109,9 @@ export const STYLE = {
     none: "pb-0",
     hair: "pb-0.5",
     tight: "pb-1",
-    snug: "pb-1.5",
     condensed: "pb-2",
-    cozy: "pb-2.5",
     normal: "pb-3",
     comfortable: "pb-4",
-    roomy: "pb-5",
     spacious: "pb-6",
     wide: "pb-8",
     section: "pb-12",
@@ -149,12 +122,9 @@ export const STYLE = {
     none: "pl-0",
     hair: "pl-0.5",
     tight: "pl-1",
-    snug: "pl-1.5",
     condensed: "pl-2",
-    cozy: "pl-2.5",
     normal: "pl-3",
     comfortable: "pl-4",
-    roomy: "pl-5",
     spacious: "pl-6",
     wide: "pl-8",
     section: "pl-12",
@@ -165,12 +135,9 @@ export const STYLE = {
     none: "pr-0",
     hair: "pr-0.5",
     tight: "pr-1",
-    snug: "pr-1.5",
     condensed: "pr-2",
-    cozy: "pr-2.5",
     normal: "pr-3",
     comfortable: "pr-4",
-    roomy: "pr-5",
     spacious: "pr-6",
     wide: "pr-8",
     section: "pr-12",
@@ -179,12 +146,9 @@ export const STYLE = {
     none: "mt-0",
     hair: "mt-0.5",
     tight: "mt-1",
-    snug: "mt-1.5",
     condensed: "mt-2",
-    cozy: "mt-2.5",
     normal: "mt-3",
     comfortable: "mt-4",
-    roomy: "mt-5",
     spacious: "mt-6",
     wide: "mt-8",
     section: "mt-12",
@@ -194,12 +158,9 @@ export const STYLE = {
     none: "mb-0",
     hair: "mb-0.5",
     tight: "mb-1",
-    snug: "mb-1.5",
     condensed: "mb-2",
-    cozy: "mb-2.5",
     normal: "mb-3",
     comfortable: "mb-4",
-    roomy: "mb-5",
     spacious: "mb-6",
     wide: "mb-8",
     section: "mb-12",
@@ -209,12 +170,9 @@ export const STYLE = {
     none: "ml-0",
     hair: "ml-0.5",
     tight: "ml-1",
-    snug: "ml-1.5",
     condensed: "ml-2",
-    cozy: "ml-2.5",
     normal: "ml-3",
     comfortable: "ml-4",
-    roomy: "ml-5",
     spacious: "ml-6",
     wide: "ml-8",
     section: "ml-12",
@@ -228,12 +186,9 @@ export const STYLE = {
     none: "mr-0",
     hair: "mr-0.5",
     tight: "mr-1",
-    snug: "mr-1.5",
     condensed: "mr-2",
-    cozy: "mr-2.5",
     normal: "mr-3",
     comfortable: "mr-4",
-    roomy: "mr-5",
     spacious: "mr-6",
     wide: "mr-8",
     section: "mr-12",
@@ -244,12 +199,9 @@ export const STYLE = {
     none: "space-y-0",
     hair: "space-y-0.5",
     tight: "space-y-1",
-    snug: "space-y-1.5",
     condensed: "space-y-2",
-    cozy: "space-y-2.5",
     normal: "space-y-3",
     comfortable: "space-y-4",
-    roomy: "space-y-5",
     spacious: "space-y-6",
     wide: "space-y-8",
     section: "space-y-12",
@@ -300,38 +252,35 @@ export const STYLE = {
   /**
    * Sizes are named by use; the values are theme variables in tokens/system.css (`--width-*`, `--max-width-*`, `--height-*`, `--max-height-*`,
    * `--min-height-*`), so a number or a length never appears here. Fractions are shares of the parent.
-   * `field*`: a control or a name column in a row (`field` 7rem, `-3xs` 3.5rem to `-2xl` 11rem); `menu*` / `popover*`: a dropdown or a
-   * floating surface (`menu-2xs` 9rem to `menu-xl` 16rem); `list`: a side list; `card`: a text card; `icon`: a 1rem slot.
+   * `field*`: a control or a name column in a row (`field-xs` 4rem, `-sm` 6, `field` 8, `-lg` 12); `menu*`: a dropdown or its trigger (14rem, `-lg` 16);
+   * `popover*`: a floating surface (20rem, `-lg` 24); `rail`: a side list (12rem); `icon`: a 1rem slot.
    */
   width: {
     full: "w-full", "1/3": "w-1/3", "1/2": "w-1/2", "2/3": "w-2/3", "3/4": "w-3/4",
     icon: "w-icon",
-    "field-3xs": "w-field-3xs", "field-2xs": "w-field-2xs", "field-xs": "w-field-xs", "field-sm": "w-field-sm", field: "w-field",
-    "field-md": "w-field-md", "field-lg": "w-field-lg", "field-xl": "w-field-xl", "field-2xl": "w-field-2xl",
-    "menu-2xs": "w-menu-2xs", "menu-xs": "w-menu-xs", "menu-sm": "w-menu-sm", "menu-md": "w-menu-md", menu: "w-menu", "menu-lg": "w-menu-lg", "menu-xl": "w-menu-xl",
-    "popover-sm": "w-popover-sm", popover: "w-popover", "popover-lg": "w-popover-lg",
-    list: "w-list", card: "w-card",
+    "field-xs": "w-field-xs", "field-sm": "w-field-sm", field: "w-field", "field-lg": "w-field-lg",
+    menu: "w-menu", "menu-lg": "w-menu-lg",
+    popover: "w-popover", "popover-lg": "w-popover-lg",
+    rail: "w-rail",
   },
-  /** `reading` is a page's text column; `label*` cap a truncated name. */
-  maxWidth: { full: "max-w-full", reading: "max-w-reading", form: "max-w-form", column: "max-w-column", "label-sm": "max-w-label-sm", label: "max-w-label", "label-lg": "max-w-label-lg" },
-  /** `field-2xs`: a label column that may grow but never below 4rem. */
-  minWidth: { 0: "min-w-0", "field-2xs": "min-w-field-2xs" },
-  /** `bar` is a pane header; `dialog` / `dialog-lg`: a dialog that shows one thing large (75vh / 85vh); `control*` the height of a small / normal control; `track` a thin progress bar; `placeholder*` a loading block. */
+  /** `reading` is a page's text column; `label` caps a truncated name. */
+  maxWidth: { full: "max-w-full", reading: "max-w-reading", label: "max-w-label" },
+  /** `field-xs`: a label column that may grow but never below 4rem. */
+  minWidth: { 0: "min-w-0", "field-xs": "min-w-field-xs" },
+  /** `bar` is a pane header; `control-xs` / `control-sm` / `control` the height of a small / normal control; `track` a thin progress bar; `icon` a 1rem line; `placeholder*` a loading block (4rem, 8, 12, `placeholder-page` 24). */
   height: {
     full: "h-full", auto: "h-auto", bar: "h-bar", icon: "h-icon", track: "h-track", "control-xs": "h-control-xs", "control-sm": "h-control-sm", control: "h-control",
-    "placeholder-sm": "h-placeholder-sm", "placeholder-block": "h-placeholder-block", placeholder: "h-placeholder", "placeholder-md": "h-placeholder-md", "placeholder-lg": "h-placeholder-lg", "placeholder-xl": "h-placeholder-xl", "placeholder-page": "h-placeholder-page",
-    dialog: "h-dialog", "dialog-lg": "h-dialog-lg",
+    "placeholder-sm": "h-placeholder-sm", "placeholder-md": "h-placeholder-md", "placeholder-lg": "h-placeholder-lg", "placeholder-page": "h-placeholder-page",
   },
-  /** A scrolling area's limit (pair with `overflow`): `scroll*` from 8rem to 24rem; `pane` 45% of the parent; `popover` 60vh; `popover-tall` 80vh; `window` the window less a 2rem margin; `dialog` 70svh; `overlay` 70% of the parent. */
+  /** A scrolling area's limit (pair with `overflow`): `scroll-sm` 12rem, `scroll` 16, `scroll-lg` 24; `pane` 50% of the parent; `dialog` 70vh of the screen. */
   maxHeight: {
-    "scroll-xs": "max-h-scroll-xs", "scroll-sm": "max-h-scroll-sm", "scroll-md": "max-h-scroll-md", scroll: "max-h-scroll",
-    "scroll-list": "max-h-scroll-list", "scroll-lg": "max-h-scroll-lg", "scroll-xl": "max-h-scroll-xl", "scroll-2xl": "max-h-scroll-2xl", "scroll-3xl": "max-h-scroll-3xl",
-    pane: "max-h-pane", popover: "max-h-popover", "popover-tall": "max-h-popover-tall", window: "max-h-window", dialog: "max-h-dialog", overlay: "max-h-overlay",
+    "scroll-sm": "max-h-scroll-sm", scroll: "max-h-scroll", "scroll-lg": "max-h-scroll-lg",
+    pane: "max-h-pane", dialog: "max-h-dialog",
   },
-  /** `0` lets a flex child shrink below its content; `control-sm` a small control's height; `textarea*` a text box's smallest height. */
+  /** `0` lets a flex child shrink below its content; `control-sm` a small control's height; `textarea*` a text box's smallest height (5rem, `textarea` 8, `-lg` 14). */
   minHeight: {
     0: "min-h-0", "control-sm": "min-h-control-sm",
-    "textarea-xs": "min-h-textarea-xs", "textarea-sm": "min-h-textarea-sm", "textarea-md": "min-h-textarea-md", textarea: "min-h-textarea", "textarea-lg": "min-h-textarea-lg", "textarea-xl": "min-h-textarea-xl",
+    "textarea-sm": "min-h-textarea-sm", textarea: "min-h-textarea", "textarea-lg": "min-h-textarea-lg",
   },
   /** A text box that grows with its text; or that cannot be resized by hand. */
   fieldSizing: { content: "field-sizing-content" },

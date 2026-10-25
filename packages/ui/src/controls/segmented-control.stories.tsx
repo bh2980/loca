@@ -20,5 +20,5 @@ export const Variants: Story = { render: () => <Stack gap="condensed">{(["defaul
 export const Disabled: Story = { render: () => <Demo disabled /> }
 export const IconOnly: Story = { render: () => <Demo items={[{ value: "all", label: <List />, name: "목록" }, { value: "todo", label: <Network />, name: "그래프" }]} /> }
 /** `fill`: every segment equally wide across the container. */
-export const Fill: Story = { render: () => <Stack width="menu-xl"><Demo fill /></Stack> }
-export const LongText: Story = { render: () => <Stack width="menu-xl"><Demo fixed items={[{ value: "all", label: "아주 긴 이름의 보기 하나" }, { value: "todo", label: "아주 긴 이름의 보기 둘" }]} /></Stack> }
+export const Fill: Story = { render: () => <Stack width="menu-lg"><Demo fill /></Stack> }
+export const LongText: Story = { render: () => <Stack width="menu-lg"><Demo fixed items={[{ value: "all", label: "아주 긴 이름의 보기 하나" }, { value: "todo", label: "아주 긴 이름의 보기 둘" }]} /></Stack> }

@@ -202,7 +202,7 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
   return (
     <Inspector footerStart={<>{official ? deleteButton : discardButton}</>}
       header={<InspectorHeader kind={KINDS[kind]} name={spec.label(row)} status={
-        <Inline as="span" gap="snug">
+        <Inline as="span" gap="tight">
           <SourceBadge row={row} />
           <span>·</span>
           {row.status === 'candidate' ? <span>후보</span> : <Inline as="span" inline gap="tight">확정 <AiMark by={row.statusBy} /></Inline>}

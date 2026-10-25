@@ -11,7 +11,7 @@ const Pane = ({ children }: { children: string }) => <Box padding="comfortable">
 
 export const Horizontal: Story = {
   render: () => (
-    <Box height="placeholder-xl" border="all" radius="md">
+    <Box height="placeholder-md" border="all" radius="md">
       <ResizablePanelGroup orientation="horizontal">
         <ResizablePanel defaultSize={30} minSize={15}><Pane>목록</Pane></ResizablePanel>
         <ResizableHandle />
@@ -23,7 +23,7 @@ export const Horizontal: Story = {
 
 export const WithHandle: Story = {
   render: () => (
-    <Box height="placeholder-xl" border="all" radius="md">
+    <Box height="placeholder-md" border="all" radius="md">
       <ResizablePanelGroup orientation="horizontal">
         <ResizablePanel defaultSize={50}><Pane>원문</Pane></ResizablePanel>
         <ResizableHandle withHandle />
@@ -35,7 +35,7 @@ export const WithHandle: Story = {
 
 export const Vertical: Story = {
   render: () => (
-    <Box height="placeholder-xl" border="all" radius="md">
+    <Box height="placeholder-md" border="all" radius="md">
       <ResizablePanelGroup orientation="vertical">
         <ResizablePanel defaultSize={50}><Pane>위</Pane></ResizablePanel>
         <ResizableHandle withHandle />

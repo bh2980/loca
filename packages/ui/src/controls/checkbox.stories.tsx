@@ -38,7 +38,7 @@ export const Controlled: Story = {
 
 export const LongText: Story = {
   render: () => (
-    <Stack width="field-xl">
+    <Stack width="field-lg">
       <Inline gap="condensed" align="start"><Checkbox id="cl" /><Label htmlFor="cl">아주 긴 설명이 붙은 항목은 좁은 폭에서 여러 줄로 감싸집니다</Label></Inline>
     </Stack>
   ),

@@ -13,7 +13,7 @@ const AlignContext = createContext<KeyValueAlign>("center")
 export function KeyValue({ align = "center", framed, children }: { align?: KeyValueAlign; framed?: boolean; children?: ReactNode }) {
   return (
     <AlignContext.Provider value={align}>
-      <div className={cn("grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-3 text-sm", align === "center" ? "items-center gap-y-2.5" : "items-start gap-y-2", framed && "rounded-md border p-3")}>
+      <div className={cn("grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-3 text-sm", align === "center" ? "items-center gap-y-2" : "items-start gap-y-2", framed && "rounded-md border p-3")}>
         {children}
       </div>
     </AlignContext.Provider>

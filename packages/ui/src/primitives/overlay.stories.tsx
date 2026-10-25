@@ -33,7 +33,7 @@ export const Bleeds: Story = {
   render: () => (
     <Box padding="comfortable" border="all" borderColor="default" radius="md">
       <Stack gap="condensed">
-        {(["tight", "snug", "condensed"] as const).map((by) => (
+        {(["tight", "condensed"] as const).map((by) => (
           <Bleed key={by} by={by} background="sunken" padding="condensed"><Text variant="caption">{by}</Text></Bleed>
         ))}
       </Stack>

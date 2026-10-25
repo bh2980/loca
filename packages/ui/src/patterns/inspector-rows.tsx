@@ -12,11 +12,11 @@ export function InspectorResult({ tone, children, detail }: { tone: InspectorRes
   const Icon = tone === "ok" ? CheckCircle2 : tone === "error" ? AlertCircle : tone === "pending" ? Loader2 : null
   return (
     <div className="min-w-0 space-y-1 text-xs" role={tone === "error" ? "alert" : "status"}>
-      <p className={cn("flex min-w-0 items-start gap-1.5", tone === "ok" ? "text-success" : tone === "error" ? "text-danger" : "text-muted")}>
+      <p className={cn("flex min-w-0 items-start gap-1", tone === "ok" ? "text-success" : tone === "error" ? "text-danger" : "text-muted")}>
         {Icon && <Icon className={cn("mt-0.5 size-3.5 shrink-0", tone === "pending" && "animate-spin")} />}
         <span className="min-w-0 break-words">{children}</span>
       </p>
-      {detail && <div className="min-w-0 pl-5 text-muted">{detail}</div>}
+      {detail && <div className="min-w-0 pl-4 text-muted">{detail}</div>}
     </div>
   )
 }
@@ -28,7 +28,7 @@ export function InspectorResult({ tone, children, detail }: { tone: InspectorRes
  */
 export function InspectorActionRow({ label, description, action, result, children }: { label: ReactNode; description?: ReactNode; action: ReactNode; result?: ReactNode; children?: ReactNode }) {
   return (
-    <div className="min-w-0 space-y-2 py-2.5 first:pt-0 last:pb-0 [&+&]:border-t [&+&]:border-subtle">
+    <div className="min-w-0 space-y-2 py-2 first:pt-0 last:pb-0 [&+&]:border-t [&+&]:border-subtle">
       <div className="flex min-w-0 items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate text-sm text-default">{label}</p>

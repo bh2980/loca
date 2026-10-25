@@ -77,7 +77,7 @@ function RunDetail() {
         <Box spaceY="normal" padding="comfortable">
           <Skeleton height="control" width="1/2" />
           <Skeleton height="placeholder-sm" />
-          <Skeleton height="placeholder-xl" />
+          <Skeleton height="placeholder-md" />
         </Box>
       </Page>
     );
@@ -280,7 +280,7 @@ function RunDetail() {
               {entry.retried > 0 && ` · 실패한 줄 ${entry.retried.toLocaleString()}개 다시`}
             </Text>
           ))}
-          <Box spaceY="snug">
+          <Box spaceY="condensed">
             <Inline wrap align="baseline" justify="between" gapX="comfortable" variant="body">
               <span>
                 <Text as="b" tabular>{finished.toLocaleString()}</Text>
@@ -329,7 +329,7 @@ function RunDetail() {
             ) : plan.isError ? (
               <Text as="p" paddingY="section" align="center" variant="body" tone="danger">번역 계획을 불러오지 못했습니다: {plan.error.message}</Text>
             ) : (
-              <Skeleton height="placeholder-lg" width="full" />
+              <Skeleton height="placeholder-md" width="full" />
             )}
           </Box>
         ) : (
@@ -349,7 +349,7 @@ function RunDetail() {
                         <Button variant="ghost" group width="full" justifyContent="start" weight="normal">
                           <Icon icon={ChevronRight} tone="muted" turn="group" />
                           {/* The spaces keep the row's words apart when read or copied (#48); the flex gap already spaces them on screen. */}
-                          <Text width="field-md" truncate align="start" weight="medium">{nodeName(step.nodeId)}</Text>{' '}
+                          <Text width="field" truncate align="start" weight="medium">{nodeName(step.nodeId)}</Text>{' '}
                           <Chip variant={step.ok ? 'outline' : 'solid'} tone={step.ok ? undefined : 'danger'}>{step.ok ? '성공' : '실패'}</Chip>{' '}
                           {!step.ok && errorKindLabel(step.errorKind) && <Chip variant="outline">{errorKindLabel(step.errorKind)}</Chip>}{' '}
                           <Text tone="muted">{terms ? `용어 ${step.subjectIds.length}개` : `대사 ${step.subjectIds.length}줄`}</Text>{' '}
@@ -390,7 +390,7 @@ function RunDetail() {
                               </Button>
                             </CollapsibleTrigger>
                             <CollapsibleContent>
-                              <Box as="pre" marginTop="tight" maxHeight="scroll-2xl" overflow="auto" radius="base" background="sunken" padding="condensed" variant="caption" preserveLines>{step.prompt}</Box>
+                              <Box as="pre" marginTop="tight" maxHeight="scroll-lg" overflow="auto" radius="base" background="sunken" padding="condensed" variant="caption" preserveLines>{step.prompt}</Box>
                             </CollapsibleContent>
                           </Collapsible>
                         )}
@@ -403,7 +403,7 @@ function RunDetail() {
                               </Button>
                             </CollapsibleTrigger>
                             <CollapsibleContent>
-                              <Box as="pre" marginTop="tight" maxHeight="scroll-2xl" overflow="auto" radius="base" background="sunken" padding="condensed" variant="caption">{JSON.stringify(step.output, null, 2)}</Box>
+                              <Box as="pre" marginTop="tight" maxHeight="scroll-lg" overflow="auto" radius="base" background="sunken" padding="condensed" variant="caption">{JSON.stringify(step.output, null, 2)}</Box>
                             </CollapsibleContent>
                           </Collapsible>
                         )}

@@ -9,7 +9,7 @@ type NoticeTone = "neutral" | "warning" | "danger"
 /** A box with a fill and a hairline in the tone's color; `inline` ones hold what the notice is about. */
 const INLINE: Record<NoticeTone, string> = {
   /** A box for what waits for a decision, holding a stack of things. */
-  neutral: "space-y-1.5 rounded-md border border-default bg-sunken/40 p-2.5",
+  neutral: "space-y-2 rounded-md border border-default bg-sunken/40 p-3",
   warning: "rounded-md border border-warning/40 bg-warning/5 px-3 py-2 text-sm text-warning",
   /** One failure message. */
   danger: "rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-sm text-danger",
@@ -33,8 +33,8 @@ const TITLED_TONE: Record<NoticeTone, string> = {
 
 /** A small pill that floats: `window` at the bottom of the window (quiet, default text), `canvas` at the top middle of a canvas (it never takes a click). */
 const FLOATING = {
-  window: "fixed bottom-10 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-md border bg-overlay px-3 py-1.5 text-xs text-default shadow-md",
-  canvas: "pointer-events-none absolute top-14 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-md border bg-overlay px-3 py-1.5 text-xs text-muted shadow-sm",
+  window: "fixed bottom-10 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-md border bg-overlay px-3 py-2 text-xs text-default shadow-md",
+  canvas: "pointer-events-none absolute top-14 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-md border bg-overlay px-3 py-2 text-xs text-muted shadow-sm",
 } as const
 
 export type NoticeProps = Omit<React.HTMLAttributes<HTMLElement>, "className" | "title"> & {

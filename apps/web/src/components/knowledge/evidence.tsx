@@ -36,7 +36,7 @@ function Part({ title, actions, embedded, fold, children }: { title: string; act
       </Section>
     );
   return (
-    <Box spaceY="snug">
+    <Box spaceY="condensed">
       {fold ? (
         <Fold label={title}>{children}</Fold>
       ) : (
@@ -107,7 +107,7 @@ export function RuleLines({ projectId, ruleId, candidate, embedded }: { projectI
       )}
       {!!lines.data?.rows.length && (
         <Fold label="대사 보기">
-          <InspectorList scroll="scroll-list">
+          <InspectorList scroll="scroll">
             {lines.data.rows.map((line) => (
               <li key={line.id}>
                 <ListRow as="link" variant="line">
@@ -175,7 +175,7 @@ export function StretchPicker({ projectId, from, to, taken, onPick, onCancel }: 
       ) : lines.data.rows.length === 0 ? (
         <Text as="p" variant="body" tone="muted">청자가 {listenerLabel(to)}로 정해진 {from}의 대사가 없습니다.</Text>
       ) : (
-        <InspectorList scroll="scroll-lg">
+        <InspectorList scroll="scroll">
           {lines.data.rows.map((line) => (
             <li key={line.id}>
               <ListRow as="button" variant="pick" disabled={taken.has(line.key)} onClick={() => onPick(line.key)}>

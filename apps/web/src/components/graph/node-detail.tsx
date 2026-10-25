@@ -14,7 +14,7 @@ import { personStyle, usePersonColors } from '@/lib/person-colors';
 export function SceneNodeDetail({ projectId, groupId, onClose }: { projectId: string; groupId: string; onClose: () => void }) {
   const group = useQuery(q.group(groupId));
   useReportView('graph-node', [group.data && { kind: '장면', id: group.data.id, label: group.data.title }]);
-  if (!group.data) return <Skeleton marginTop="comfortable" marginBottom="comfortable" marginLeft="comfortable" marginRight="comfortable" height="placeholder" />;
+  if (!group.data) return <Skeleton marginTop="comfortable" marginBottom="comfortable" marginLeft="comfortable" marginRight="comfortable" height="placeholder-sm" />;
   return (
     <Inspector
       header={<InspectorHeader kind="장면" name={group.data.title} status={<Text mono variant="caption" breakWords="all" title={group.data.key}>{group.data.key}</Text>} onClose={onClose} />}
@@ -179,7 +179,7 @@ export function FlowPane({ projectId, nodeIds, title, way, extra, marked, editin
     >
       {extra}
       {way && way.labels.length > 0 && (
-        <Inline as="p" wrap gap="tight" background="sunken" paddingX="comfortable" paddingY="snug" variant="caption" tone="muted">
+        <Inline as="p" wrap gap="tight" background="sunken" paddingX="comfortable" paddingY="condensed" variant="caption" tone="muted">
           <Icon icon={CornerDownRight} size="sm" aria-label="들어오는 길" />
           {way.labels.map((label, index) => (
             <Chip key={index} variant="pill" tone={label.choice ? 'choice' : undefined}>

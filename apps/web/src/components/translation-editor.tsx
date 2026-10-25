@@ -212,7 +212,7 @@ export function TranslationEditor({
       {marks}
       {/* What 다듬기 changed in the box and why, while the box still holds its answer. */}
       {assist.done === 'refine' && assist.text === draft && assist.from !== undefined && (
-        <Box spaceY="hair" radius="md" border="all" background="page" paddingX="condensed" paddingY="snug" variant="body">
+        <Box spaceY="hair" radius="md" border="all" background="page" paddingX="condensed" paddingY="condensed" variant="body">
           <Text as="p" breakWords preserveLines>
             {wordDiff(assist.from, assist.text).map((part, index) => (
               // Tokens stay chips inside the marked words.
@@ -238,7 +238,7 @@ export function TranslationEditor({
             <AiMark by="ai" /> AI 초안
           </Inline>
         )}
-        <Inline gap="snug" minWidth={0} shrink={false}>
+        <Inline gap="condensed" minWidth={0} shrink={false}>
           {next ? <EditorAction icon={Check} disabled={save.isPending || !draft.trim()} onClick={() => run(true)} title={keyLabel('Mod+Enter')}>
             {next.name}{onDone ? '하고 다음' : '하기'}
           </EditorAction> : onDone ? <EditorAction icon={ArrowDown} disabled={save.isPending || (dirty && !draft.trim() && statuses.find((status) => status.id === unit.statusId)?.kind === 'final')} onClick={() => run(true)} title={keyLabel('Mod+Enter')}>
@@ -458,7 +458,7 @@ function DraftChecks({ unitId, source, draft, units, terms, tags, rules, targetL
   if (!missing.length && !issues.length && !unusedTerms.length && !speechOff)
     return null;
   return (
-    <Inline wrap gap="snug" variant="caption" tone="warning" onClick={(event) => event.stopPropagation()}>
+    <Inline wrap gap="tight" variant="caption" tone="warning" onClick={(event) => event.stopPropagation()}>
       {missing.length > 0 && <Icon icon={CircleAlert} size="xs" aria-label="빠진 서식" />}
       {missing.map((unit) => (
         <TokenChip

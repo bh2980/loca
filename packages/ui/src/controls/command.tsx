@@ -57,7 +57,7 @@ function CommandDialog({
         </DialogHeader>
         <Command
           shouldFilter={shouldFilter}
-          className="**:data-[slot=command-input-wrapper]:h-10 [&_[cmdk-group-heading]]:px-2.5 [&_[cmdk-group-heading]]:text-2xs [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:text-muted [&_[cmdk-group]]:px-1.5 [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-input-wrapper]_svg]:h-4 [&_[cmdk-input-wrapper]_svg]:w-4 [&_[cmdk-input]]:h-10 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-1.5 [&_[cmdk-item]_svg]:h-3.5 [&_[cmdk-item]_svg]:w-3.5"
+          className="**:data-[slot=command-input-wrapper]:h-10 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:text-2xs [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:text-muted [&_[cmdk-group]]:px-1 [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-input-wrapper]_svg]:h-4 [&_[cmdk-input-wrapper]_svg]:w-4 [&_[cmdk-input]]:h-10 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-2 [&_[cmdk-item]_svg]:h-3.5 [&_[cmdk-item]_svg]:w-3.5"
         >
           {children}
         </Command>
@@ -73,7 +73,7 @@ function CommandInput({
   return (
     <div
       data-slot="command-input-wrapper"
-      className="flex h-8 items-center gap-2 border-b border-default px-2.5"
+      className="flex h-8 items-center gap-2 border-b border-default px-2"
     >
       <Search className="size-3.5 shrink-0 opacity-50" />
       <CommandPrimitive.Input
@@ -110,7 +110,7 @@ function CommandEmpty({
   return (
     <CommandPrimitive.Empty
       data-slot="command-empty"
-      className="py-5 text-center text-xs text-muted"
+      className="py-4 text-center text-xs text-muted"
       {...props}
     />
   )

@@ -89,7 +89,7 @@ export function LineMenuItems({ projectId, line, onEdit, editLabel = '번역 편
       {(onEdit || onOpenDetail) && <DropdownMenuSeparator />}
       <DropdownMenuSub>
         <DropdownMenuSubTrigger>상태 변경</DropdownMenuSubTrigger>
-        <DropdownMenuSubContent width="menu-xs">
+        <DropdownMenuSubContent width="menu">
           {statusList.map((item) => (
             <DropdownMenuCheckboxItem key={item.id} checked={line.statusId === item.id} onCheckedChange={() => line.statusId !== item.id && saveLine.mutate({ unitId: line.id, text: line.translation ?? '', statusId: item.id })}>
               <StatusIcon status={item} />
@@ -101,7 +101,7 @@ export function LineMenuItems({ projectId, line, onEdit, editLabel = '번역 편
       <TagSubMenu tags={tags} state={(tagId) => (line.tagIds.includes(tagId) ? 'all' : 'none')} onToggle={toggleTag} onCreate={createTag} heading="태그" label="태그" icon={false} />
       <DropdownMenuSub>
         <DropdownMenuSubTrigger>{excluded ? '번역 제외' : '번역 대상'}</DropdownMenuSubTrigger>
-        <DropdownMenuSubContent width="menu-2xs">
+        <DropdownMenuSubContent width="menu">
           <DropdownMenuRadioGroup value={excluded ? 'exclude' : 'include'} onValueChange={(value) => patch.mutate({ translate: value as 'include' | 'exclude' })}>
             <DropdownMenuRadioItem value="include">번역 대상</DropdownMenuRadioItem>
             <DropdownMenuRadioItem value="exclude">제외</DropdownMenuRadioItem>

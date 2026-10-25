@@ -18,4 +18,4 @@ export const Underlines: Story = {
 }
 export const Tones: Story = { render: () => <Stack gap="condensed" align="start"><TextLink href="#">inherit</TextLink><TextLink href="#" tone="muted">muted</TextLink><TextLink href="#" tone="muted" quiet>muted, quiet</TextLink></Stack> }
 export const Variants: Story = { render: () => <Stack gap="condensed" align="start"><TextLink href="#" variant="caption">caption</TextLink><TextLink href="#" variant="caption" weight="normal">caption, normal weight</TextLink><TextLink href="#" block>block</TextLink></Stack> }
-export const LongText: Story = { render: () => <Stack width="field-xl"><TextLink href="#" underline="offset">아주 긴 이름의 링크는 좁은 폭에서 여러 줄로 감싸집니다</TextLink></Stack> }
+export const LongText: Story = { render: () => <Stack width="field-lg"><TextLink href="#" underline="offset">아주 긴 이름의 링크는 좁은 폭에서 여러 줄로 감싸집니다</TextLink></Stack> }

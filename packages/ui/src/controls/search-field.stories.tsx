@@ -43,7 +43,7 @@ export const LongText: Story = {
 /** The field at the top of a menu: the text goes out as typed. */
 export const Menu: Story = {
   render: () => (
-    <Stack width="menu-xl" border="all" radius="md" padding="condensed">
+    <Stack width="menu-lg" border="all" radius="md" padding="condensed">
       <MenuSearchField placeholder="필터 검색" />
     </Stack>
   ),

@@ -72,11 +72,11 @@ export function ListRow(props: ListRowProps) {
         : variant === "bordered"
         ? cn("flex items-center gap-4 px-4 py-3 hover:bg-sunken", size === "sm" && "text-sm")
         : variant === "line"
-          ? cn("block py-1.5 text-sm hover:bg-sunken", inset && "px-1")
+          ? cn("block py-2 text-sm hover:bg-sunken", inset && "px-1")
           : cn(
             MENU_ROW,
             stacked ? "block space-y-1" : "flex items-center justify-between",
-            density === "tight" ? "px-1.5 py-1" : "p-1.5",
+            density === "tight" ? "px-1 py-1" : "p-2",
             tone === "warning" ? "text-warning hover:bg-warning/10" : "hover:bg-hover hover:text-default",
           )
     return <Slot className={className} {...rest}>{children}</Slot>
@@ -86,7 +86,7 @@ export function ListRow(props: ListRowProps) {
     return variant === "pick" ? (
       <Button variant="ghost" size="row" className="text-sm" {...rest} />
     ) : (
-      <Button variant="ghost" className="flex h-auto w-full min-w-0 flex-col items-start rounded-none border-b border-default px-2 py-1.5 text-left text-sm last:border-b-0" {...rest} />
+      <Button variant="ghost" className="flex h-auto w-full min-w-0 flex-col items-start rounded-none border-b border-default px-2 py-2 text-left text-sm last:border-b-0" {...rest} />
     )
   }
   if (props.as === "menuitem") {

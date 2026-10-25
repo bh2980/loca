@@ -422,7 +422,7 @@ function Table<T>({
       <>
         {lead && (
           <td
-            className={cn("relative align-middle py-2.5", pickable && "pl-3.5")}
+            className={cn("relative align-middle py-2", pickable && "pl-3")}
             onClick={(event) => event.stopPropagation()}
           >
             {grip && <span className="absolute inset-y-0 left-0 flex items-center">{grip}</span>}
@@ -441,7 +441,7 @@ function Table<T>({
             <td
               key={cell.id}
               className={cn(
-                "px-3 py-2.5 align-middle text-sm text-default",
+                "px-3 py-2 align-middle text-sm text-default",
                 index === 0 && !lead && "pl-4",
                 meta?.wrap ? "break-words whitespace-pre-wrap" : "truncate",
                 meta?.align === "end" && "text-right tabular-nums",
@@ -450,7 +450,7 @@ function Table<T>({
                 meta?.weight === "medium" && "font-medium",
                 meta?.tabular && "tabular-nums",
                 meta?.mono && "font-mono",
-                meta?.dense && "py-1.5"
+                meta?.dense && "py-1"
               )}
             >
               {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -509,7 +509,7 @@ function Table<T>({
               <tr key={group.id}>
                 {lead && !pickable && <th className="h-8" />}
                 {pickable && (
-                  <th className="h-8 pl-3.5 text-left align-middle">
+                  <th className="h-8 pl-3 text-left align-middle">
                     <Checkbox
                       aria-label="모두 선택"
                       disabled={pickableIds.length === 0}
@@ -601,7 +601,7 @@ function Table<T>({
             {loading || !rows ? (
               Array.from({ length: 8 }, (_, i) => (
                 <tr key={i}>
-                  <td colSpan={span} className="px-3.5 py-2">
+                  <td colSpan={span} className="px-3 py-2">
                     <Skeleton
                       shape="line"
                       style={{ width: `${55 + ((i * 17) % 35)}%` }}

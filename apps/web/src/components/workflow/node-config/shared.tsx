@@ -26,7 +26,7 @@ export interface NodeRefs {
 export function StepChips({ steps, refs, suffix }: { steps: WorkflowNode[]; refs: Pick<NodeRefs, 'onOpenNode'>; suffix?: string }) {
   if (!steps.length) return <Text as="p" variant="caption" tone="muted">앞 단계에 결과를 내는 노드가 없습니다. AI·스크립트 노드 뒤에 이으세요.</Text>;
   return (
-    <Inline wrap gap="snug" variant="body">
+    <Inline wrap gap="condensed" variant="body">
       {steps.map((step) => {
         const Glyph = nodeIcon(step);
         const kind = step.type === 'function' ? functionGroup(step.config.fn) : step.type;
@@ -45,7 +45,7 @@ export function StepChips({ steps, refs, suffix }: { steps: WorkflowNode[]; refs
 /** A checkbox with its label (one choice in a row of them). */
 export function CheckItem({ id, label, checked, onChange, title }: { id: string; label: string; checked: boolean; onChange: (on: boolean) => void; title?: string }) {
   return (
-    <Inline as="span" gap="snug" variant="body" title={title}>
+    <Inline as="span" gap="tight" variant="body" title={title}>
       <Checkbox id={id} checked={checked} onCheckedChange={(on) => onChange(on === true)} />
       <label htmlFor={id}>{label}</label>
     </Inline>
@@ -60,7 +60,7 @@ export function CountRow({ label, help, unit, value, fallback, max, onChange }: 
       <Inline as="span" shrink={false} gap="condensed">
         {value > 0 && (
           <Inline as="span" gap="tight" variant="caption" tone="muted">
-            <Box asChild height="control-sm" width="field-3xs" textAlign="end">
+            <Box asChild height="control-sm" width="field-xs" textAlign="end">
               <NumberInput min={1} max={max} value={value} onValueChange={(next) => next !== undefined && onChange(next)} aria-label={`${label} 수`} />
             </Box>
             {unit}

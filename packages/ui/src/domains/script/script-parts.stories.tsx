@@ -32,7 +32,7 @@ export const Rows: Story = {
 export const Bars: Story = {
   render: () => (
     <Stack gap="condensed">
-      <Inline gap="condensed" shrink={false} border="bottom" background="warningFaint" paddingX="comfortable" paddingY="snug" variant="body">1장 전체에서 <Count tone="warning">3</Count> 찾는 중 <Text truncate maxWidth="label" variant="caption" tone="muted">1장 · 옥상에서</Text></Inline>
+      <Inline gap="condensed" shrink={false} border="bottom" background="warningFaint" paddingX="comfortable" paddingY="condensed" variant="body">1장 전체에서 <Count tone="warning">3</Count> 찾는 중 <Text truncate maxWidth="label" variant="caption" tone="muted">1장 · 옥상에서</Text></Inline>
       <Select value="a"><SelectTrigger width="field-sm" fixed><SelectValue /></SelectTrigger><SelectContent><SelectItem value="a">상태</SelectItem></SelectContent></Select>
       <EmptyState variant="roomy" noun="대사" filtered />
     </Stack>

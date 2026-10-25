@@ -71,7 +71,7 @@ export function DockInspector({ empty }: { empty?: ReactNode }) {
   useEffect(() => { setTarget?.(target.current); return () => setTarget?.(null); }, [setTarget]);
   return <div className="relative min-h-0 flex-1">
     <div ref={target} className="h-full min-h-0" />
-    {!dock?.active && <div className="absolute inset-0 overflow-auto p-5 text-sm text-muted">{empty ?? '선택 없음'}</div>}
+    {!dock?.active && <div className="absolute inset-0 overflow-auto p-4 text-sm text-muted">{empty ?? '선택 없음'}</div>}
   </div>;
 }
 
@@ -105,7 +105,7 @@ export function DockHeader({ mode, onMode, unread, tools, onToggle, open = true,
         ]}
       />
     ) : (
-      <span className="inline-flex items-center gap-1.5 px-1.5 text-xs font-medium text-default">
+      <span className="inline-flex items-center gap-1 px-1 text-xs font-medium text-default">
         에이전트
         {unread && <span className="size-1.5 rounded-full bg-accent" aria-label="새 소식" />}
       </span>

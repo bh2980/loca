@@ -17,7 +17,7 @@ export const Fields: Story = {
   render: () => (
     <Field.Group>
       <Input mono defaultValue="/usr/local/bin/codex" />
-      <Inline gap="condensed"><Input width="field-md" type="number" defaultValue={30} /><Input width="field-3xs" align="right" type="number" defaultValue={8} /></Inline>
+      <Inline gap="condensed"><Input width="field" type="number" defaultValue={30} /><Input width="field-xs" align="right" type="number" defaultValue={8} /></Inline>
     </Field.Group>
   ),
 }
@@ -44,7 +44,7 @@ export const Status: Story = {
       <Box overflow="hidden" radius="md" border="all" borderColor="default" background="surface"><Box padding="normal"><Text variant="caption" tone="muted">표 틀</Text></Box></Box>
       <Box spaceY="comfortable">
         <Skeleton height="control" width="1/3" />
-        <Skeleton height="placeholder" width="full" />
+        <Skeleton height="placeholder-sm" width="full" />
       </Box>
     </Stack>
   ),

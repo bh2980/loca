@@ -5,7 +5,7 @@ export type SurfaceWidth = Extract<keyof typeof STYLE.width, `menu${string}` | `
 
 /** What a menu or popover content takes besides its parts: how wide, how much padding, where it stops growing (it scrolls past that). */
 export type SurfaceProps = {
-  /** Its width, by token name (`menu-xl` 16rem, `popover` 20rem ...). */
+  /** Its width, by token name (`menu-lg` 16rem, `popover` 20rem ...). */
   width?: SurfaceWidth
   /** Its padding, by spacing name. */
   padding?: keyof typeof STYLE.padding

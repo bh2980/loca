@@ -26,7 +26,7 @@ export function EditorSuggestionList({ label, onMore, moreLabel, children }: { l
  */
 export function EditorSuggestionRow({ hint, hintHidden, onPick, children }: { hint: string; hintHidden?: boolean; onPick: () => void; children?: React.ReactNode }) {
   return (
-    <Button variant="ghost" size="row" className="group flex h-auto w-full items-start gap-2 rounded-none px-2 py-1.5 text-left hover:bg-hover" onClick={onPick}>
+    <Button variant="ghost" size="row" className="group flex h-auto w-full items-start gap-2 rounded-none px-2 py-2 text-left hover:bg-hover" onClick={onPick}>
       <kbd className={cn("mt-0.5 inline-flex min-w-8 shrink-0 select-none items-center justify-center rounded border border-default bg-surface px-1 py-0.5 font-mono text-2xs font-semibold text-muted group-hover:border-accent/40 group-hover:text-default", hintHidden && "invisible")}>
         {hint}
       </kbd>

@@ -315,7 +315,7 @@ export function RouteList({ projectId, sequence, stages, routeKey, untranslatedI
 
   return (
     <Stack height="full" minHeight={0} data-testid="route-list" data-lines={sequence.length}>
-      <Inline wrap gap="condensed" shrink={false} border="bottom" paddingX="comfortable" paddingY="snug">
+      <Inline wrap gap="condensed" shrink={false} border="bottom" paddingX="comfortable" paddingY="condensed">
         <Text variant="caption" tone="muted" tabular truncate minWidth={0} grow data-testid="route-list-count">
           {sequence.length.toLocaleString()}줄 · 미번역 {remaining.toLocaleString()}
         </Text>
@@ -328,7 +328,7 @@ export function RouteList({ projectId, sequence, stages, routeKey, untranslatedI
       </Inline>
       {forks && forks.length > 0 && (
         <Inline gap="condensed" shrink={false} border="bottom" background="faint" paddingX="comfortable" paddingY="tight" overflow="x" data-testid="route-forks">
-          <Inline as="span" gap="snug" shrink={false} variant="caption" weight="medium" tone="muted">
+          <Inline as="span" gap="tight" shrink={false} variant="caption" weight="medium" tone="muted">
             <Icon icon={GitFork} size="sm" />
             갈림길 ({forks.length})
           </Inline>
@@ -341,7 +341,7 @@ export function RouteList({ projectId, sequence, stages, routeKey, untranslatedI
                 <DropdownMenu key={fork.nodeId}>
                   <DropdownMenuTrigger asChild>
                     <Button variant="outline" shrink={false}>
-                      <Text truncate maxWidth="label-lg">
+                      <Text truncate maxWidth="label">
                         {forkTitle}: {selectedOption?.label ?? '선택'} ({fork.options.length}갈래)
                       </Text>
                       <Icon icon={ChevronDown} size="xs" marginLeft="tight" opacity={60} />
@@ -371,7 +371,7 @@ export function RouteList({ projectId, sequence, stages, routeKey, untranslatedI
                     <Icon icon={ChevronDown} size="xs" marginLeft="tight" opacity={60} />
                   </Button>
                 </DropdownMenuTrigger>
-                <Box asChild maxHeight="scroll-3xl" width="popover" overflow="y">
+                <Box asChild maxHeight="scroll-lg" width="popover" overflow="y">
                   <DropdownMenuContent align="start">
                     {forks.map((fork, idx) => {
                       const forkTitle = `분기 ${idx + 1}/${forks.length}${fork.label && !fork.label.startsWith('Sibling') ? ` · ${fork.label}` : ''}`;
@@ -398,7 +398,7 @@ export function RouteList({ projectId, sequence, stages, routeKey, untranslatedI
                   <DropdownMenu key={fork.nodeId}>
                     <DropdownMenuTrigger asChild>
                       <Button variant="outline" shrink={false}>
-                        <Text truncate maxWidth="label-sm">
+                        <Text truncate maxWidth="label">
                           {forkTitle}: {selectedOption?.label ?? '선택'}
                         </Text>
                         <Icon icon={ChevronDown} size="xs" marginLeft="tight" opacity={60} />

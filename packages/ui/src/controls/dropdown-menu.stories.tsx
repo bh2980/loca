@@ -75,7 +75,7 @@ export const Submenu: Story = {
 export const Widths: Story = {
   render: () => (
     <Stack gap="condensed" align="start">
-      {(["menu-xs", "menu-xl", "trigger", "fit"] as const).map((width) => (
+      {(["menu", "menu-lg", "trigger", "fit"] as const).map((width) => (
         <DropdownMenu key={width}>
           <Trigger>{width}</Trigger>
           <DropdownMenuContent width={width}><DropdownMenuItem>항목 하나</DropdownMenuItem><DropdownMenuItem>항목 둘</DropdownMenuItem></DropdownMenuContent>
@@ -90,7 +90,7 @@ export const ScrollingWithSearch: Story = {
   render: () => (
     <DropdownMenu defaultOpen>
       <Trigger>긴 목록</Trigger>
-      <DropdownMenuContent width="menu-xl" maxHeight="scroll-sm">
+      <DropdownMenuContent width="menu-lg" maxHeight="scroll-sm">
         <MenuSearchField placeholder="검색" />
         {Array.from({ length: 20 }, (_, index) => <DropdownMenuItem key={index}>등장인물 {index + 1}</DropdownMenuItem>)}
       </DropdownMenuContent>
@@ -102,7 +102,7 @@ export const LongText: Story = {
   render: () => (
     <DropdownMenu defaultOpen>
       <Trigger />
-      <DropdownMenuContent width="menu-xs"><DropdownMenuItem>아주 긴 이름의 항목이 좁은 메뉴에서 어떻게 보이는지 확인합니다</DropdownMenuItem></DropdownMenuContent>
+      <DropdownMenuContent width="menu"><DropdownMenuItem>아주 긴 이름의 항목이 좁은 메뉴에서 어떻게 보이는지 확인합니다</DropdownMenuItem></DropdownMenuContent>
     </DropdownMenu>
   ),
 }

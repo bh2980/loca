@@ -70,7 +70,7 @@ export function ComposerMenu({ id, groups, activeId, onActive, onPick, loading, 
                       {row.detail && <span className="min-w-0 flex-1 truncate text-xs text-muted">{row.detail}</span>}
                     </>
                   ) : row.type === "more" ? (
-                    <span className="flex flex-1 items-center justify-center gap-1.5 text-xs text-muted">
+                    <span className="flex flex-1 items-center justify-center gap-1 text-xs text-muted">
                       {row.busy && <Spinner size="xs" />}
                       {row.label}
                     </span>

@@ -601,7 +601,7 @@ function Knowledge() {
         ) : timeline ? (
           <Box minHeight={0} grow>
             {pending ? (
-              <Skeleton height="placeholder-xl" marginTop="comfortable" marginBottom="comfortable" marginLeft="comfortable" marginRight="comfortable" />
+              <Skeleton height="placeholder-md" marginTop="comfortable" marginBottom="comfortable" marginLeft="comfortable" marginRight="comfortable" />
             ) : (
               <EventFlow
                 key={direction}

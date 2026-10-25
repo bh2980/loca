@@ -25,7 +25,7 @@ function ProjectSettings() {
         <PageBody>
           <Box spaceY="comfortable">
             <Skeleton height="control" width="1/2" />
-            <Skeleton height="placeholder-block" />
+            <Skeleton height="placeholder-sm" />
           </Box>
         </PageBody>
       </Page>
