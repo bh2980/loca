@@ -7,22 +7,23 @@
 @source "../src";
 
 @import "../src/fonts/fonts.css";
+@import "../src/tokens/palette.css";
 @import "../src/tokens/theme.css";
 @import "../src/tokens/system.css";
-@import "../src/chat/prose.css";
+@import "../src/patterns/prose.css";
 
 @custom-variant dark (&:is(.dark *));
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply border-default outline-focus/50;
   }
   /* Tight tracking only where the type is large enough to take it; small Korean text needs its room. */
   h1, h2, .text-base, .text-lg, .text-xl {
     letter-spacing: -0.011em;
   }
   body {
-    @apply bg-background text-foreground antialiased font-sans;
+    @apply bg-page text-default antialiased font-sans;
     font-feature-settings: "tnum" 0;
   }
 
@@ -53,7 +54,7 @@
   @supports not selector(::-webkit-scrollbar) {
     * {
       scrollbar-width: thin;
-      scrollbar-color: var(--border) transparent;
+      scrollbar-color: var(--background-color-line) transparent;
     }
   }
   ::-webkit-scrollbar {
@@ -67,9 +68,9 @@
   ::-webkit-scrollbar-thumb {
     border: 2px solid transparent;
     border-radius: 9999px;
-    background: var(--border) padding-box;
+    background: var(--background-color-line) padding-box;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: var(--muted-foreground) padding-box;
+    background: var(--background-color-neutral) padding-box;
   }
 }

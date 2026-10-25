@@ -3,7 +3,7 @@ import { useParams } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { AGENT_ACTIONS, AGENT_RESOURCES, agentSettingsSchema, effectiveAgentPermissions, PERMISSION_MODE_INFO, type AgentAction, type AgentPermissions, type AgentResource, type AgentSettings, type PermissionMode } from '@tw/shared';
 import { PermissionModePicker } from '@/components/chat/permission-mode';
-import { Box, Button, ClearableFieldRow, PermissionMatrix, SettingsSection, Text } from '@loca/ui';
+import { Box, Button, PermissionMatrix, Text, Section, Inline } from '@loca/ui';
 import { ModelPicker } from '@/components/model-picker';
 import { client, unwrap } from '@/lib/api';
 import { optimistic } from '@/lib/optimistic';
@@ -56,8 +56,8 @@ export function AgentTab({ projectId: propProjectId }: { projectId?: string } = 
     <div>
       <Text as="p" role="status" aria-live="polite" srOnly>{save.isPending ? '채팅 설정 저장 중' : save.isSuccess ? '채팅 설정 저장됨' : ''}</Text>
       <Box spaceY="wide">
-        <SettingsSection title="새 대화 모델" description="새 대화가 처음 쓰는 모델. 비워 두면 마지막 대화의 모델을 씁니다.">
-          <ClearableFieldRow>
+        <Section variant="page" title="새 대화 모델" description="새 대화가 처음 쓰는 모델. 비워 두면 마지막 대화의 모델을 씁니다.">
+          <Inline gap="condensed" maxWidth="form">
             <Box minWidth={0} grow>
               <ModelPicker
                 need={['chat']}
@@ -70,19 +70,19 @@ export function AgentTab({ projectId: propProjectId }: { projectId?: string } = 
                 지우기
               </Button>
             )}
-          </ClearableFieldRow>
-        </SettingsSection>
+          </Inline>
+        </Section>
 
-        <SettingsSection title="권한 모드" description="새 대화가 시작하는 모드. 대화마다 바꿀 수 있습니다.">
+        <Section variant="page" title="권한 모드" description="새 대화가 시작하는 모드. 대화마다 바꿀 수 있습니다.">
           <Box spaceY="snug">
             <PermissionModePicker width="medium" value={defaultMode} disabled={!loaded || save.isPending} onChange={(mode) => saveSettings({ ...settings, defaultPermissionMode: mode })} />
             <Text as="p" variant="caption" tone="muted">{PERMISSION_MODE_INFO[defaultMode].description}</Text>
           </Box>
-        </SettingsSection>
+        </Section>
 
         <SavedPromptsSection projectId={projectId} />
 
-        <SettingsSection title="도구 권한" description="채팅 AI와 터미널의 loca call에만 적용됩니다. 삭제는 기본으로 꺼져 있습니다.">
+        <Section variant="page" title="도구 권한" description="채팅 AI와 터미널의 loca call에만 적용됩니다. 삭제는 기본으로 꺼져 있습니다.">
           <PermissionMatrix
             actions={MATRIX_ACTIONS}
             rows={MATRIX_ROWS}
@@ -90,7 +90,7 @@ export function AgentTab({ projectId: propProjectId }: { projectId?: string } = 
             disabled={!loaded || save.isPending}
             onChange={setPermission}
           />
-        </SettingsSection>
+        </Section>
       </Box>
     </div>
   );

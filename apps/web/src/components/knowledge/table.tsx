@@ -4,7 +4,7 @@ import { Check, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { InferResponseType } from 'hono/client';
 import { AUTO_MARKS, markColor, type MarkColors, type AgeBand, type CharacterRole, type CharacterStyle, type Gender, type DOCUMENT_KINDS, type SpeechLevel, type AutoMark, KNOWLEDGE_MARK_IDS, knowledgeMarksOf, matchesMarks, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, sourceOf, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type StatusBy } from '@tw/shared';
-import { DataTable, type ColumnDef, type FilterChip, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, AiMark, Inline, KnowledgeInlineFlex, Stack, StatusIcon, TagChip, Text } from '@loca/ui';
+import { DataTable, type ColumnDef, type FilterChip, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, AiMark, Inline, Stack, StatusIcon, TagChip, Text } from '@loca/ui';
 import { MarkChip } from '@/components/status';
 import { HeaderFilter, MarkFilter, markTagGroups, togglePick, type FilterOption, type FilterPick } from '@/components/header-filter';
 import type { client } from '@/lib/api';
@@ -93,7 +93,8 @@ export type FormOf<R, F extends Field> = { [K in F['name'] & keyof R]: R[K] };
 interface Column<R> {
   head: string;
   cell(row: R): ReactNode;
-  className?: string;
+  weight?: 'medium';
+  tabular?: boolean;
   /** Fixed px width; columns without one share the rest. */
   width?: number;
 }
@@ -131,7 +132,7 @@ export function SourceBadge({ row }: { row: Draft }) {
 }
 
 /** A candidate row: dashed left edge (not used as context until confirmed). */
-export const candidateRow = (row: Draft) => (row.status === 'candidate' ? '[&>td:first-child]:border-l-2 [&>td:first-child]:border-dashed [&>td:first-child]:border-l-warning' : undefined);
+export const candidateRow = (row: Draft) => (row.status === 'candidate' ? ('tentative' as const) : undefined);
 
 export type SourceFilter = KnowledgeSource | undefined;
 /** The 상태 filter (the `status` URL param): rejected items are never listed, so only these two. */
@@ -176,11 +177,11 @@ const sourceOptions: FilterOption[] = KNOWLEDGE_SOURCES.map((value) => ({ value,
 export function StateCell({ row }: { row: Draft }) {
   const candidate = row.status === 'candidate';
   return (
-    <KnowledgeInlineFlex>
-      <StatusIcon status={{ kind: candidate ? 'initial' : 'final', color: candidate ? 'var(--warning)' : 'var(--success)' }} />
+    <Inline as="span" inline gap="snug">
+      <StatusIcon status={{ kind: candidate ? 'initial' : 'final', color: candidate ? 'var(--text-color-warning)' : 'var(--text-color-success)' }} />
       {KNOWLEDGE_STATUS_LABELS[candidate ? 'candidate' : 'confirmed']}
       {!candidate && <AiMark by={row.statusBy} />}
-    </KnowledgeInlineFlex>
+    </Inline>
   );
 }
 
@@ -329,10 +330,10 @@ export function KnowledgeTable({ id, spec, rows, loading, selected, onOpen, pick
   filters: KnowledgeFilterState;
 }) {
   const columns: ColumnDef<Row, unknown>[] = [
-    ...spec.columns.map((column, index): ColumnDef<Row, unknown> => ({ id: column.head, header: column.head, meta: { width: column.width, className: column.className, hideable: index === 0 ? false : undefined }, cell: ({ row }) => column.cell(row.original) })),
+    ...spec.columns.map((column, index): ColumnDef<Row, unknown> => ({ id: column.head, header: column.head, meta: { width: column.width, weight: column.weight, tabular: column.tabular, hideable: index === 0 ? false : undefined }, cell: ({ row }) => column.cell(row.original) })),
     ...metaColumns<Row>((row) => row, filters),
   ];
-  return <DataTable id={id} columns={columns} rows={rows} loading={loading} rowId={(row) => row.id} selected={selected} onRowClick={(row) => onOpen(row.id)} rowClassName={candidateRow} picked={picked} onPick={onPick} bulk={bulk} empty={empty} />;
+  return <DataTable id={id} columns={columns} rows={rows} loading={loading} rowId={(row) => row.id} selected={selected} onRowClick={(row) => onOpen(row.id)} rowState={candidateRow} picked={picked} onPick={onPick} bulk={bulk} empty={empty} />;
 }
 
 function DiscardButton({ count, onConfirm, disabled }: { count: number; onConfirm: () => void; disabled?: boolean }) {

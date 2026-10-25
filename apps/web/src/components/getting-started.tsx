@@ -3,7 +3,7 @@ import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Check, Play, X } from 'lucide-react';
 import { RunDialog } from '@/components/workflow/run-dialog';
-import { Box, Button, Icon, Inline, SectionHeading, Stack, StepList, StepMarker, Text } from '@loca/ui';
+import { Box, Button, Icon, Inline, SectionHeading, Stack, StepMarker, Text } from '@loca/ui';
 import { HeaderActions } from '@/components/page';
 import { q, useReviewTagId } from '@/lib/queries';
 
@@ -140,16 +140,16 @@ export function GettingStarted({ projectId }: { projectId: string }) {
   return (
     <section>
       <Inline justify="between" marginBottom="normal">
-        <SectionHeading page>시작하기</SectionHeading>
+        <SectionHeading level="page">시작하기</SectionHeading>
         <Button variant="ghost" size="icon" aria-label="시작하기 닫기" onClick={() => hide(true)}>
           <X />
         </Button>
       </Inline>
-      <StepList>
+      <Box as="ol" radius="md" border="all" borderColor="default" background="pageSoft">
         {steps.map((step, i) => {
           const current = step === next;
           return (
-            <Stack as="li" direction="row" align="start" gap="comfortable" paddingX="comfortable" paddingY="normal" background={current ? 'muted' : undefined} key={step.key}>
+            <Stack as="li" direction="row" align="start" gap="comfortable" paddingX="comfortable" paddingY="normal" background={current ? 'sunken' : undefined} key={step.key}>
               <StepMarker state={step.done ? 'done' : current ? 'current' : 'todo'}>
                 {step.done ? <Icon icon={Check} size="sm" /> : i + 1}
               </StepMarker>
@@ -164,7 +164,7 @@ export function GettingStarted({ projectId }: { projectId: string }) {
             </Stack>
           );
         })}
-      </StepList>
+      </Box>
     </section>
   );
 }

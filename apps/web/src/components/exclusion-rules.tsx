@@ -4,7 +4,7 @@ import { Link } from '@tanstack/react-router';
 import { Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { EXCLUSION_REASON_LABELS, exclusionReason, formatPatternError, type ExclusionRules, type FormatRules } from '@tw/shared';
-import { Box, Button, Field, FieldContent, FieldDescription, FieldLabel, GroupHeading, Inline, RulesInput, RulesQuietLink, SettingsSection, Stack, Switch, Text } from '@loca/ui';
+import { Box, Button, Field, Inline, Stack, Switch, Text, Input, TextLink, Section, SectionHeading } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { useFormFrom } from '@/lib/use-form-from';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
@@ -36,17 +36,17 @@ export function ExclusionRulesSection({ projectId, rules, formatRules, sourceLan
     setDraft((current) => ({ ...current, patterns: current.patterns.map((rule, i) => (i === index ? { ...rule, ...patch } : rule)) }));
 
   return (
-    <SettingsSection
+    <Section variant="page"
       title="번역 제외"
       description="번역할 대상이 아닌 원문. 진행률·남은 줄·실행·내보내기·검사에서 빠지고, 번역은 건드리지 않습니다. 줄마다 상세에서 직접 정할 수도 있습니다."
-      headerActions={
-        <RulesQuietLink>
+      actions={
+        <TextLink asChild variant="caption" tone="muted" underline="offset" quiet>
           <Link to="/p/$projectId/script" params={{ projectId }} search={{ marks: ['excluded'] }}>
             지금 {excludedCount.toLocaleString()}줄 제외
           </Link>
-        </RulesQuietLink>
+        </TextLink>
       }
-      actions={
+      footer={
         <Stack direction="row" gap="condensed">
           <Button disabled={!dirty || invalid || save.isPending} onClick={() => save.mutate()}>
             저장
@@ -64,23 +64,23 @@ export function ExclusionRulesSection({ projectId, rules, formatRules, sourceLan
         {SWITCHES.map((item) => (
           <Field key={item.key} orientation="horizontal">
             <Switch id={`exclusion-${item.key}`} checked={draft[item.key]} onCheckedChange={(on) => setDraft((current) => ({ ...current, [item.key]: on }))} />
-            <FieldContent>
-              <FieldLabel htmlFor={`exclusion-${item.key}`}>{item.label}</FieldLabel>
-              <FieldDescription>{item.description}</FieldDescription>
-            </FieldContent>
+            <Field.Content>
+              <Field.Label htmlFor={`exclusion-${item.key}`}>{item.label}</Field.Label>
+              <Field.Description>{item.description}</Field.Description>
+            </Field.Content>
           </Field>
         ))}
 
         <Box spaceY="condensed">
-          <GroupHeading>제외 패턴</GroupHeading>
+          <SectionHeading level="group">제외 패턴</SectionHeading>
           <Text as="p" variant="caption" tone="muted">원문이 이 정규식에 맞으면 뺍니다. 예: 개발용 키 ^[A-Z0-9_]+$</Text>
           {draft.patterns.map((rule, index) => {
             const error = rule.pattern.trim() ? formatPatternError(rule.pattern) : '패턴을 입력하세요.';
             return (
               <Box key={index} spaceY="tight">
                 <Inline gap="condensed">
-                  <RulesInput role="name" placeholder="이름" value={rule.label} onChange={(event) => setPattern(index, { label: event.target.value })} />
-                  <RulesInput role="pattern" placeholder="예: ^[A-Z0-9_]+$" value={rule.pattern} spellCheck={false} onChange={(event) => setPattern(index, { pattern: event.target.value })} />
+                  <Input width="field-md" placeholder="이름" value={rule.label} onChange={(event) => setPattern(index, { label: event.target.value })} />
+                  <Box asChild grow><Input mono variant="body" placeholder="예: ^[A-Z0-9_]+$" value={rule.pattern} spellCheck={false} onChange={(event) => setPattern(index, { pattern: event.target.value })} /></Box>
                   <Button size="icon" variant="ghost" tone="danger" aria-label="패턴 삭제" onClick={() => setDraft((current) => ({ ...current, patterns: current.patterns.filter((_, i) => i !== index) }))}>
                     <Trash2 />
                   </Button>
@@ -94,12 +94,12 @@ export function ExclusionRulesSection({ projectId, rules, formatRules, sourceLan
           </Button>
         </Box>
 
-        <Box spaceY="snug" radius="md" background="muted" padding="normal">
-          <GroupHeading>시험</GroupHeading>
-          <RulesInput role="sample" placeholder="원문을 넣어 보세요" value={sample} onChange={(event) => setSample(event.target.value)} />
+        <Box spaceY="snug" radius="md" background="sunken" padding="normal">
+          <SectionHeading level="group">시험</SectionHeading>
+          <Input onSunken mono variant="body" placeholder="원문을 넣어 보세요" value={sample} onChange={(event) => setSample(event.target.value)} />
           {sample && <Text as="p" variant="body">{sampleReason ? <>제외: <Text weight="medium">{EXCLUSION_REASON_LABELS[sampleReason]}</Text></> : <Text tone="muted">번역 대상</Text>}</Text>}
         </Box>
       </Box>
-    </SettingsSection>
+    </Section>
   );
 }

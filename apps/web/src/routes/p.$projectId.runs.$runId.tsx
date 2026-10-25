@@ -9,7 +9,7 @@ import { ContextItemList } from '@/components/ai-context';
 import { LineDetail } from '@/components/line-detail';
 import { TermEditor } from '@/components/glossary/term-pane';
 import { HeaderActions, Page } from '@/components/page';
-import { EmptyState, SectionHeading, DataTable, type ColumnDef, Pager, FilterBar, ActionBar, Separator, SplitPane, JobStatusBadge, StatusBarItem, Alert, AlertDescription, AlertTitle, Badge, Box, Button, Icon, Inline, Text, Collapsible, CollapsibleContent, CollapsibleTrigger, Progress, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Tabs, TabsList, TabsTrigger, Skeleton } from '@loca/ui';
+import { EmptyState, SectionHeading, DataTable, type ColumnDef, Pager, FilterBar, ActionBar, Separator, SplitPane, RunStatusBadge, StatusBarItem, Notice, NoticeDescription, Chip, Box, Button, Icon, Inline, Text, Collapsible, CollapsibleContent, CollapsibleTrigger, Progress, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Tabs, TabsList, TabsTrigger, Skeleton } from '@loca/ui';
 import { HeaderFilter } from '@/components/header-filter';
 import { client, unwrap } from '@/lib/api';
 import { ITEM_STATE } from '@/lib/labels';
@@ -75,9 +75,9 @@ function RunDetail() {
     return (
       <Page title="실행" flush>
         <Box spaceY="normal" padding="comfortable">
-          <Box asChild height={8} width="1/2"><Skeleton /></Box>
-          <Box asChild height={16}><Skeleton /></Box>
-          <Box asChild height={40}><Skeleton /></Box>
+          <Skeleton height="control" width="1/2" />
+          <Skeleton height="placeholder-sm" />
+          <Skeleton height="placeholder-xl" />
         </Box>
       </Page>
     );
@@ -112,7 +112,7 @@ function RunDetail() {
     ...(terms ? [] : [{ id: 'speaker', header: '화자', meta: { width: 112 }, cell: ({ row }) => row.original.speaker ?? '—' } satisfies ColumnDef<Item, unknown>]),
     { id: 'source', header: '원문', meta: { wrap: true, hideable: false }, cell: ({ row }) => row.original.source },
     ...(terms ? [{ id: 'target', header: '현재 표기', meta: { wrap: true }, cell: ({ row }) => row.original.target || '—' } satisfies ColumnDef<Item, unknown>] : []),
-    { id: 'candidate', header: '최신 후보', meta: { wrap: true, className: 'text-muted-foreground' }, cell: ({ row }) => row.original.data.candidateText ?? '—' },
+    { id: 'candidate', header: '최신 후보', meta: { wrap: true, tone: 'muted' }, cell: ({ row }) => row.original.data.candidateText ?? '—' },
     {
       id: 'node',
       header: () => (
@@ -151,7 +151,7 @@ function RunDetail() {
     {
       id: 'verdict',
       header: '결과',
-      meta: { width: 220, wrap: true, className: 'text-xs' },
+      meta: { width: 220, wrap: true, variant: 'caption' },
       cell: ({ row }) => {
         const item = row.original;
         return (
@@ -197,8 +197,7 @@ function RunDetail() {
 
   return (
     <Page title={data.workflowName} flush back={<Button variant="ghost" asChild><Link to="/p/$projectId/runs" params={{ projectId }}><ChevronLeft /> 실행 기록</Link></Button>}>
-      <Box asChild height="full" minHeight={0}>
-      <SplitPane
+      <SplitPane fill="height"
         id="run-lines" selectionKey={search.line}
         defaultWidth="400px"
         pane={
@@ -235,7 +234,7 @@ function RunDetail() {
             </Box>
           </Tabs>
           </Box>
-          <Box asChild marginX="tight" height={4}><Separator orientation="vertical" /></Box>
+          <Box asChild marginLeft="tight" marginRight="tight" height="icon"><Separator orientation="vertical" /></Box>
           {data.status === 'running' && <Button onClick={() => control.mutate('pause')}><Pause /> 일시정지</Button>}
           {data.status === 'paused' && <Button variant={data.limits?.hit ? 'outline' : 'default'} onClick={() => control.mutate('resume')}><Play /> 재개</Button>}
           {data.status === 'completed' && (totals.failed ?? 0) > 0 && !data.filling && <ContinueRun runId={runId} failed={totals.failed ?? 0} paused={false} />}
@@ -246,7 +245,7 @@ function RunDetail() {
         </HeaderActions>
         {data.status === 'paused' && !data.filling && <ContinueRun runId={runId} failed={totals.failed ?? 0} paused hideTrigger open={continueOpen} onOpenChange={setContinueOpen} />}
         {active && stop}
-        <StatusBarItem><JobStatusBadge status={data.status} /></StatusBarItem>
+        <StatusBarItem><RunStatusBadge status={data.status} /></StatusBarItem>
         {view === 'items' && <FilterBar end={items.data ? <Text variant="micro" tabular>{total.toLocaleString()}{terms ? '개' : '줄'}</Text> : undefined}>
           {filtered && (
             <Button variant="ghost" onClick={() => setSearch({ state: undefined, node: undefined, page: undefined, line: undefined }, true)}>
@@ -257,12 +256,10 @@ function RunDetail() {
 
         <Box shrink={false} spaceY="normal" border="bottom" paddingX="comfortable" paddingY="normal">
           {data.status === 'paused' && data.notice && (
-            <Alert variant="destructive">
-              <OctagonAlert />
-              <AlertTitle>실행이 멈췄습니다</AlertTitle>
-              <AlertDescription>{data.notice}</AlertDescription>
+            <Notice tone="danger" icon={<OctagonAlert />} title="실행이 멈췄습니다">
+              <NoticeDescription>{data.notice}</NoticeDescription>
               {data.limits?.hit && !data.filling && <RaiseCaps key={`${data.limits.maxCalls}-${data.limits.maxInputTokens}`} runId={runId} limits={data.limits} />}
-            </Alert>
+            </Notice>
           )}
           <Inline as="p" gap="tight" variant="caption" tone="muted">
             <Text shrink={false}>실행 ID</Text>
@@ -299,7 +296,7 @@ function RunDetail() {
                 </Text>
               )}
             </Inline>
-            <Box asChild height={1.5}><Progress value={data.total ? (finished / data.total) * 100 : 0} /></Box>
+            <Progress value={data.total ? (finished / data.total) * 100 : 0} />
           </Box>
         </Box>
 
@@ -323,7 +320,7 @@ function RunDetail() {
             {plan.data ? (
               plan.data.total ? (
                 <>
-                  <Box asChild marginBottom="normal"><SectionHeading>번역 계획</SectionHeading></Box>
+                  <SectionHeading marginBottom="normal">번역 계획</SectionHeading>
                   <BatchList list={plan.data} defaultOpen />
                 </>
               ) : (
@@ -332,16 +329,16 @@ function RunDetail() {
             ) : plan.isError ? (
               <Text as="p" paddingY="section" align="center" variant="body" tone="danger">번역 계획을 불러오지 못했습니다: {plan.error.message}</Text>
             ) : (
-              <Box asChild height={32} width="full"><Skeleton /></Box>
+              <Skeleton height="placeholder-lg" width="full" />
             )}
           </Box>
         ) : (
           <Box minHeight={0} grow overflow="auto">
             {!steps.data ? (
               <Box spaceY="normal" padding="comfortable">
-                <Box asChild height={4} width="2/3"><Skeleton /></Box>
-                <Box asChild height={4} width="1/2"><Skeleton /></Box>
-                <Box asChild height={4} width="3/4"><Skeleton /></Box>
+                <Skeleton height="icon" width="2/3" />
+                <Skeleton height="icon" width="1/2" />
+                <Skeleton height="icon" width="3/4" />
               </Box>
             ) : (
               <ul>
@@ -352,9 +349,9 @@ function RunDetail() {
                         <Button variant="ghost" group width="full" justifyContent="start" weight="normal">
                           <Icon icon={ChevronRight} tone="muted" turn="group" />
                           {/* The spaces keep the row's words apart when read or copied (#48); the flex gap already spaces them on screen. */}
-                          <Text width={32} truncate align="start" weight="medium">{nodeName(step.nodeId)}</Text>{' '}
-                          <Badge variant={step.ok ? 'outline' : 'destructive'}>{step.ok ? '성공' : '실패'}</Badge>{' '}
-                          {!step.ok && errorKindLabel(step.errorKind) && <Badge variant="outline">{errorKindLabel(step.errorKind)}</Badge>}{' '}
+                          <Text width="field-md" truncate align="start" weight="medium">{nodeName(step.nodeId)}</Text>{' '}
+                          <Chip variant={step.ok ? 'outline' : 'solid'} tone={step.ok ? undefined : 'danger'}>{step.ok ? '성공' : '실패'}</Chip>{' '}
+                          {!step.ok && errorKindLabel(step.errorKind) && <Chip variant="outline">{errorKindLabel(step.errorKind)}</Chip>}{' '}
                           <Text tone="muted">{terms ? `용어 ${step.subjectIds.length}개` : `대사 ${step.subjectIds.length}줄`}</Text>{' '}
                           <Text minWidth={0} truncate tone="muted">{[data.models.find((model) => model.connectionId === step.connectionId)?.name, step.model].filter(Boolean).join(' · ')}</Text>
                           {' '}
@@ -393,7 +390,7 @@ function RunDetail() {
                               </Button>
                             </CollapsibleTrigger>
                             <CollapsibleContent>
-                              <Box as="pre" marginTop="tight" maxHeight={80} overflow="auto" radius="base" background="muted" padding="condensed" variant="caption" preserveLines>{step.prompt}</Box>
+                              <Box as="pre" marginTop="tight" maxHeight="scroll-2xl" overflow="auto" radius="base" background="sunken" padding="condensed" variant="caption" preserveLines>{step.prompt}</Box>
                             </CollapsibleContent>
                           </Collapsible>
                         )}
@@ -406,7 +403,7 @@ function RunDetail() {
                               </Button>
                             </CollapsibleTrigger>
                             <CollapsibleContent>
-                              <Box as="pre" marginTop="tight" maxHeight={80} overflow="auto" radius="base" background="muted" padding="condensed" variant="caption">{JSON.stringify(step.output, null, 2)}</Box>
+                              <Box as="pre" marginTop="tight" maxHeight="scroll-2xl" overflow="auto" radius="base" background="sunken" padding="condensed" variant="caption">{JSON.stringify(step.output, null, 2)}</Box>
                             </CollapsibleContent>
                           </Collapsible>
                         )}
@@ -421,7 +418,6 @@ function RunDetail() {
           </Box>
         )}
       </SplitPane>
-      </Box>
       {data.workflowId && (
         <Text as="p" srOnly>
           <Link to="/p/$projectId/workflows/$workflowId" params={{ projectId, workflowId: data.workflowId }}>

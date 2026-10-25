@@ -169,7 +169,7 @@ function GraphViewLink({ output }: { output: GraphViewOutput }) {
   const { projectId } = useParams({ strict: false }) as { projectId?: string };
   const only = String(output.open.search.section ?? '').startsWith('view:');
   return (
-    <Inline gap="condensed" radius="lg" border="all" background="background" paddingX="normal" paddingY="condensed" variant="caption">
+    <Inline gap="condensed" radius="lg" border="all" background="page" paddingX="normal" paddingY="condensed" variant="caption">
       <Icon icon={Network} size="sm" tone="muted" />
       <Text minWidth={0} grow truncate>
         {output.label} · 노드 {output.nodes.toLocaleString()}개 {only ? '따로 그림' : '강조'}
@@ -190,7 +190,7 @@ function ReadingRouteToolCard({ output }: { output: ReturnType<typeof findReadin
     <Text as="p" marginTop="tight">{output.error}</Text>
   </ToolErrorCard>;
   return <ToolCard>
-    <Inline gap="condensed" border="bottom" background="muted" paddingX="normal" paddingY="snug" variant="body" weight="semibold">
+    <Inline gap="condensed" border="bottom" background="sunken" paddingX="normal" paddingY="snug" variant="body" weight="semibold">
       <Icon icon={Network} size="sm" tone="muted" />
       <span>경로 대본</span>
       <Text marginLeft="auto" weight="normal" tone="muted">대사 {output.lineCount.toLocaleString()}줄</Text>

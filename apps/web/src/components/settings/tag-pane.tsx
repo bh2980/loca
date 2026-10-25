@@ -1,7 +1,7 @@
 /** Right-hand pane to add, edit or delete a project tag. */
 import { Trash2 } from 'lucide-react';
 import { DEFAULT_TAG_COLOR, TAG_SCOPES, TAG_SCOPE_LABELS } from '@tw/shared';
-import { InspectorSection, InspectorField, InspectorFields, InspectorHeader, InspectorBlock, Inspector, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Checkbox, Input, Inline, Label, Stack, Text } from '@loca/ui';
+import { InspectorHeader, Inspector, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Checkbox, Input, Inline, Label, Stack, Text, Section, Field, Box } from '@loca/ui';
 import { scopeLabel, type TagForm, type TagRowData } from '@/components/settings/status-types';
 import { Swatches } from '@/components/settings/swatches';
 import { changedFields, useFormFrom } from '@/lib/use-form-from';
@@ -40,21 +40,21 @@ export function TagPane({ tag, pending, onClose, onSave, onDelete }: { tag?: Tag
           {tag ? '저장' : '추가'}
         </Button>
       }>
-      {conflicts.length > 0 && <InspectorBlock><ChangedElsewhere fields={conflicts.map((field) => TAG_FIELD_LABEL[field as keyof TagForm])} onTakeSaved={takeSaved} onKeepMine={keepMine} /></InspectorBlock>}
-      <InspectorSection title="설정">
-        <InspectorFields>
-          <InspectorField label="이름">
+      {conflicts.length > 0 && <Section><ChangedElsewhere fields={conflicts.map((field) => TAG_FIELD_LABEL[field as keyof TagForm])} onTakeSaved={takeSaved} onKeepMine={keepMine} /></Section>}
+      <Section title="설정">
+        <Box spaceY="normal">
+          <Field label="이름">
             <Input value={form.name} placeholder="새 태그 이름" disabled={!!tag?.role} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} />
-          </InspectorField>
-          <InspectorField label="색상">
+          </Field>
+          <Field label="색상">
             <Swatches value={form.color} onChange={(color) => setForm((current) => ({ ...current, color }))} />
-          </InspectorField>
+          </Field>
           {tag?.role ? (
-            <InspectorField label="붙는 곳" description="역할 태그라 붙는 곳을 바꿀 수 없습니다.">
+            <Field label="붙는 곳" description="역할 태그라 붙는 곳을 바꿀 수 없습니다.">
               <Text as="p" variant="body">{scopeLabel(tag.scope)}</Text>
-            </InspectorField>
+            </Field>
           ) : (
-            <InspectorField label="붙는 곳" description="이미 붙은 곳은 태그를 먼저 떼야 뺄 수 있습니다.">
+            <Field label="붙는 곳" description="이미 붙은 곳은 태그를 먼저 떼야 뺄 수 있습니다.">
               <Stack direction="row" wrap gap="comfortable">
                 {TAG_SCOPES.map((place) => (
                   <Inline key={place} gap="condensed">
@@ -69,10 +69,10 @@ export function TagPane({ tag, pending, onClose, onSave, onDelete }: { tag?: Tag
                   </Inline>
                 ))}
               </Stack>
-            </InspectorField>
+            </Field>
           )}
-        </InspectorFields>
-      </InspectorSection>
+        </Box>
+      </Section>
     </Inspector>
   );
 }

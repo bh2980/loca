@@ -145,10 +145,10 @@ export function LineCard({ projectId, unitId, choice, position, onStep, onClose 
         </Button>
       </Inline>
       {!line ? (
-        <Box asChild height={24}><Skeleton /></Box>
+        <Skeleton height="placeholder" />
       ) : (
         <>
-          <Box asChild maxHeight={40} overflow="auto" variant="body"><LineSourceText projectId={projectId} unitId={line.id} source={line.source} /></Box>
+          <Box asChild maxHeight="scroll-sm" overflow="auto" variant="body"><LineSourceText projectId={projectId} unitId={line.id} source={line.source} /></Box>
           <TranslationEditor
             projectId={projectId}
             key={`editor-${line.id}`}

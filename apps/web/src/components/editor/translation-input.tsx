@@ -366,17 +366,17 @@ const theme = EditorView.theme({
   '&.cm-focused': { outline: 'none' },
   // The base theme sets a monospace font; the box reads like the other fields.
   '.cm-scroller': { fontFamily: 'inherit', lineHeight: '1.5' },
-  '.cm-content': { padding: '0', minHeight: '2.75rem', caretColor: 'var(--foreground)' },
+  '.cm-content': { padding: '0', minHeight: '2.75rem', caretColor: 'var(--text-color-default)' },
   '.cm-line': { padding: '0' },
-  '.cm-placeholder': { color: 'var(--muted-foreground)' },
-  '.cm-tooltip': { border: '1px solid var(--border)', borderRadius: '6px', backgroundColor: 'var(--popover)', color: 'var(--popover-foreground)', overflow: 'hidden', boxShadow: '0 4px 12px rgb(0 0 0 / 0.08)' },
+  '.cm-placeholder': { color: 'var(--text-color-muted)' },
+  '.cm-tooltip': { border: '1px solid var(--border-color-default)', borderRadius: '6px', backgroundColor: 'var(--background-color-overlay)', color: 'var(--text-color-default)', overflow: 'hidden', boxShadow: '0 4px 12px rgb(0 0 0 / 0.08)' },
   '.cm-tooltip.cm-tooltip-autocomplete > ul': { fontFamily: 'inherit', minWidth: '10rem', maxWidth: '20rem' },
   '.cm-tooltip.cm-tooltip-autocomplete > ul > li': { display: 'flex', gap: '0.5rem', padding: '0.25rem 0.5rem' },
-  '.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected]': { backgroundColor: 'var(--accent)', color: 'var(--accent-foreground)' },
+  '.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected]': { backgroundColor: 'var(--background-color-hover)', color: 'var(--text-color-default)' },
   // A chip's tooltip looks like the app's tooltips (dark, small).
-  '.cm-tooltip.cm-tooltip-hover': { backgroundColor: 'var(--foreground)', color: 'var(--background)', border: 'none', borderRadius: '6px', padding: '0.375rem 0.75rem', fontSize: '0.875rem', fontFamily: 'var(--font-mono, monospace)', maxWidth: '28rem', wordBreak: 'break-all' },
+  '.cm-tooltip.cm-tooltip-hover': { backgroundColor: 'var(--background-color-inverse)', color: 'var(--text-color-inverse)', border: 'none', borderRadius: '6px', padding: '0.375rem 0.75rem', fontSize: '0.875rem', fontFamily: 'var(--font-mono, monospace)', maxWidth: '28rem', wordBreak: 'break-all' },
   '.cm-chip-tip-note': { fontFamily: 'var(--font-sans)', opacity: '0.7' },
-  '.cm-completionDetail': { marginLeft: 'auto', color: 'var(--muted-foreground)', fontStyle: 'normal', fontSize: '0.75rem' },
+  '.cm-completionDetail': { marginLeft: 'auto', color: 'var(--text-color-muted)', fontStyle: 'normal', fontSize: '0.75rem' },
 });
 
 /**

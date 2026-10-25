@@ -2,10 +2,10 @@
 import { useState, type ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Play } from 'lucide-react';
+import { ChevronRight, Play } from 'lucide-react';
 import { listenerLabel, SPEECH_LEVEL_LABELS, type SpeechLevel } from '@tw/shared';
 import { RunDialog } from '@/components/workflow/run-dialog';
-import { Box, GroupHeading, InspectorSection, InspectorList, InspectorResult, Button, KnowledgeFold, KnowledgeLineLink, KnowledgeListItem, KnowledgeRowButton, KnowledgeScrollList, KnowledgeSubheadRow, Text } from '@loca/ui';
+import { Box, InspectorList, InspectorResult, Button, Collapsible, CollapsibleContent, CollapsibleTrigger, Icon, Inline, ListRow, Text, TextLink, Section, SectionHeading } from '@loca/ui';
 import { q } from '@/lib/queries';
 import { PersonName } from '@/lib/person-colors';
 
@@ -13,9 +13,14 @@ import { PersonName } from '@/lib/person-colors';
 function Fold({ label, children }: { label: ReactNode; children: ReactNode }) {
   const [open, setOpen] = useState(false);
   return (
-    <KnowledgeFold label={label} open={open} onOpenChange={setOpen}>
-      {children}
-    </KnowledgeFold>
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <CollapsibleTrigger asChild>
+        <Button variant="ghost" size="inline" tone="muted" flush="start">
+          <Icon icon={ChevronRight} turn={open} /> {label}
+        </Button>
+      </CollapsibleTrigger>
+      <CollapsibleContent marginTop="tight">{children}</CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -26,9 +31,9 @@ function Fold({ label, children }: { label: ReactNode; children: ReactNode }) {
 function Part({ title, actions, embedded, fold, children }: { title: string; actions?: ReactNode; embedded?: boolean; fold?: boolean; children: ReactNode }) {
   if (!embedded)
     return (
-      <InspectorSection title={title} actions={actions} defaultOpen={fold ? false : undefined}>
+      <Section title={title} actions={actions} defaultOpen={fold ? false : undefined}>
         {children}
-      </InspectorSection>
+      </Section>
     );
   return (
     <Box spaceY="snug">
@@ -36,10 +41,10 @@ function Part({ title, actions, embedded, fold, children }: { title: string; act
         <Fold label={title}>{children}</Fold>
       ) : (
         <>
-          <KnowledgeSubheadRow spread>
-            <GroupHeading>{title}</GroupHeading>
+          <Inline gap="condensed" minHeight="control-sm" justify="between">
+            <SectionHeading level="group">{title}</SectionHeading>
             {actions}
-          </KnowledgeSubheadRow>
+          </Inline>
           {children}
         </>
       )}
@@ -56,13 +61,13 @@ export function Evidence({ projectId, keys, embedded }: { projectId: string; key
       <InspectorList>
         {lines.data?.map((line) => (
           <li key={line.id}>
-            <KnowledgeLineLink>
+            <ListRow as="link" variant="line">
               <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.groupId, line: line.id }}>
                 <Text variant="caption" tone="muted">{line.groupTitle} · </Text>
                 {line.speaker && <Text weight="medium"><PersonName projectId={projectId} name={line.speaker} />: </Text>}
                 {line.source}
               </Link>
-            </KnowledgeLineLink>
+            </ListRow>
           </li>
         ))}
       </InspectorList>
@@ -102,19 +107,19 @@ export function RuleLines({ projectId, ruleId, candidate, embedded }: { projectI
       )}
       {!!lines.data?.rows.length && (
         <Fold label="대사 보기">
-          <KnowledgeScrollList limit={60}>
+          <InspectorList scroll="scroll-list">
             {lines.data.rows.map((line) => (
               <li key={line.id}>
-                <KnowledgeLineLink>
+                <ListRow as="link" variant="line">
                   <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.groupId, line: line.id }}>
                     <Text variant="caption" tone="muted">{line.groupTitle} · </Text>
                     {line.source}
                     {line.translation && <Text display="block" tone="muted">{line.translation}</Text>}
                   </Link>
-                </KnowledgeLineLink>
+                </ListRow>
               </li>
             ))}
-          </KnowledgeScrollList>
+          </InspectorList>
         </Fold>
       )}
     </Part>
@@ -131,20 +136,22 @@ export function RelationshipChanges({ projectId, changes, embedded }: { projectI
         {changes.map((change) => {
           const line = byKey.get(change.at);
           return (
-            <KnowledgeListItem key={`${change.at}-${change.kind}`} density="loose">
+            <ListRow key={`${change.at}-${change.kind}`} density="loose">
               <p>
                 <Text weight="medium">→ {change.kind}</Text>
                 {change.cause && <Text tone="muted"> · {change.cause}</Text>}
               </p>
               {line && (
-                <KnowledgeLineLink kind="quote">
-                  <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.groupId, line: line.id }}>
-                    {line.speaker && `${line.speaker}: `}
-                    {line.source}
-                  </Link>
-                </KnowledgeLineLink>
+                <Box asChild marginTop="tight">
+                  <TextLink asChild block tone="muted" underline="hover">
+                    <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.groupId, line: line.id }}>
+                      {line.speaker && `${line.speaker}: `}
+                      {line.source}
+                    </Link>
+                  </TextLink>
+                </Box>
               )}
-            </KnowledgeListItem>
+            </ListRow>
           );
         })}
       </InspectorList>
@@ -157,29 +164,29 @@ export function StretchPicker({ projectId, from, to, taken, onPick, onCancel }: 
   const lines = useQuery(q.units(projectId, { speaker: from, listener: to, limit: 300 }));
   return (
     <Box spaceY="tight">
-      <KnowledgeSubheadRow>
-        <GroupHeading>시작 대사 선택</GroupHeading>
+      <Inline gap="condensed" minHeight="control-sm">
+        <SectionHeading level="group">시작 대사 선택</SectionHeading>
         <Button variant="ghost" size="inline" marginLeft="auto" tone="muted" onClick={onCancel}>
           취소
         </Button>
-      </KnowledgeSubheadRow>
+      </Inline>
       {!lines.data ? (
         <Text as="p" variant="body" tone="muted">불러오는 중…</Text>
       ) : lines.data.rows.length === 0 ? (
         <Text as="p" variant="body" tone="muted">청자가 {listenerLabel(to)}로 정해진 {from}의 대사가 없습니다.</Text>
       ) : (
-        <KnowledgeScrollList limit={64}>
+        <InspectorList scroll="scroll-lg">
           {lines.data.rows.map((line) => (
             <li key={line.id}>
-              <KnowledgeRowButton disabled={taken.has(line.key)} onClick={() => onPick(line.key)}>
+              <ListRow as="button" variant="pick" disabled={taken.has(line.key)} onClick={() => onPick(line.key)}>
                 <Text minWidth={0}>
                   <Text variant="caption" tone="muted">{line.groupTitle} · </Text>
                   {line.source}
                 </Text>
-              </KnowledgeRowButton>
+              </ListRow>
             </li>
           ))}
-        </KnowledgeScrollList>
+        </InspectorList>
       )}
     </Box>
   );

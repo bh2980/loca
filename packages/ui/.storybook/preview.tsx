@@ -1,6 +1,6 @@
 import { withThemeByClassName } from "@storybook/addon-themes"
 import type { Preview } from "@storybook/react-vite"
-import { TooltipProvider } from "../src/primitives/tooltip"
+import { TooltipProvider } from "../src/controls/tooltip"
 import "./storybook.css"
 
 const preview: Preview = {
@@ -8,12 +8,12 @@ const preview: Preview = {
     layout: "padded",
     controls: { expanded: true },
     // The tokens first: everything below is built from them.
-    options: { storySort: { order: ["Foundations", "Layout", "Chat", "*"] } },
+    options: { storySort: { order: ["Foundations", "Primitives", "Controls", "Patterns", "Domains", "*"] } },
   },
   decorators: [
     (Story) => (
       <TooltipProvider>
-        <div className="bg-background p-4 text-foreground">
+        <div className="bg-page p-4 text-default">
           <Story />
         </div>
       </TooltipProvider>

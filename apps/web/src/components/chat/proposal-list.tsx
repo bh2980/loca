@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, ChevronRight, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { Box, Button, Checkbox, CompactSelect, Icon, Inline, Spinner, Text } from '@loca/ui';
+import { Box, Button, Checkbox, Icon, Inline, Spinner, Text, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { ProposalCard, type Proposal } from './proposal-card';
@@ -56,7 +56,7 @@ export function ProposalList({ projectId, title, proposals }: { projectId: strin
   const run = (action: 'accept' | 'reject', ids: string[]) => decide.mutate({ ids, action });
 
   return (
-    <Box radius="lg" border="all" background="background" variant="body">
+    <Box radius="lg" border="all" background="page" variant="body">
       <Inline gap="condensed" paddingX="condensed" paddingY="tight">
         <Button variant="ghost" size="row" minWidth={0} grow weight="medium" onClick={() => setOpen(!open)} aria-expanded={open}>
           <Icon icon={ChevronRight} tone="muted" turn={open} />
@@ -72,12 +72,18 @@ export function ProposalList({ projectId, title, proposals }: { projectId: strin
               모두 선택
             </Inline>
             {kinds.length > 1 && (
-              <CompactSelect
-                value={kind}
-                onValueChange={(value) => { setKind(value); setPicked(new Set()); }}
-                options={[{ value: 'all', label: '모든 종류' }, ...kinds.map((tool) => ({ value: tool, label: LABEL[tool] ?? tool }))]}
-                label="종류 필터"
-              />
+              <Select value={kind} onValueChange={(value) => { setKind(value); setPicked(new Set()); }}>
+                <SelectTrigger width="field-lg" aria-label="종류 필터">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {[{ value: 'all', label: '모든 종류' }, ...kinds.map((tool) => ({ value: tool, label: LABEL[tool] ?? tool }))].map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             )}
             <Inline marginLeft="auto" gap="condensed">
               <Button variant="outline" disabled={decide.isPending || !targets.length} onClick={() => run('reject', targets)}>
@@ -88,7 +94,7 @@ export function ProposalList({ projectId, title, proposals }: { projectId: strin
               </Button>
             </Inline>
           </Inline>
-          <Box as="ul" maxHeight={96} divide="y" overflow="y" radius="md" border="all">
+          <Box as="ul" maxHeight="scroll-3xl" divide="y" overflow="y" radius="md" border="all">
             {shown.map((proposal) => (
               <Box as="li" key={proposal.id} paddingX="condensed" paddingY="snug">
                 <Inline gap="condensed" variant="caption">

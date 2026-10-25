@@ -5,7 +5,7 @@ import ELK from 'elkjs/lib/elk-api.js';
 import ElkWorker from 'elkjs/lib/elk-worker.min.js?worker';
 import '@xyflow/react/dist/style.css';
 import { useSize } from '@/hooks/use-size';
-import { ArmChip, Badge, Box, ForkNodeFrame, Inline, PathEdgeLabel, PathNodeButton, PathNodeCard, SeamStateChip, Text } from '@loca/ui';
+import { ArmChip, Chip, Box, ForkNodeFrame, Inline, PathEdgeLabel, PathNodeButton, PathNodeCard, SeamStateChip, Text, FlowHandle } from '@loca/ui';
 import { q } from '@/lib/queries';
 import { useQuery } from '@tanstack/react-query';
 import { foldTranslated, splitBackEdges, windowOf, placeSeams, type Arm, type Hub, type Overview } from '@/components/graph/path-window';
@@ -100,10 +100,10 @@ function HubChips({ arms, loops }: { arms: number; loops: number }) {
   if (!arms && !loops) return null;
   return (
     <Box asChild minWidth={0} truncate tabular>
-      <Badge variant="secondary">
+      <Chip variant="quiet">
         {arms > 0 ? `동시에 열림 ${arms.toLocaleString()}` : '되돌아감'}
         {loops > 0 ? ` · ↺${loops.toLocaleString()}` : ''}
-      </Badge>
+      </Chip>
     </Box>
   );
 }
@@ -122,8 +122,8 @@ function PathNodeView({ data, selected }: NodeProps<PathNode>) {
   const size = boxOfData(data.shape, data);
   const handles = (
     <>
-      <Box asChild forceHidden><Handle type="target" position={Position.Top} /></Box>
-      <Box asChild forceHidden><Handle type="source" position={Position.Bottom} /></Box>
+      <FlowHandle look="hidden"><Handle type="target" position={Position.Top} /></FlowHandle>
+      <FlowHandle look="hidden"><Handle type="source" position={Position.Bottom} /></FlowHandle>
     </>
   );
   if (data.shape === 'more')
@@ -148,7 +148,7 @@ function PathNodeView({ data, selected }: NodeProps<PathNode>) {
   if (data.shape === 'fork')
     return (
       <ForkNodeFrame style={size} selected={selected} data-here={data.here || undefined}>
-        <Inline height={7} width="full" justify="center" gap="tight" radius="full" border="all" background="muted" paddingX="condensed" variant="caption" nowrap tone="muted">
+        <Inline height="control-sm" width="full" justify="center" gap="tight" radius="full" border="all" background="sunken" paddingX="condensed" variant="caption" nowrap tone="muted">
           {data.pill}
           {data.seamMark && <SeamMark state={data.seamMark.state} />}
           {data.arm && <ArmChip arm={data.arm} plain />}
@@ -159,12 +159,12 @@ function PathNodeView({ data, selected }: NodeProps<PathNode>) {
   return (
     <PathNodeCard style={size} here={data.here} selected={selected} data-here={data.here || undefined}>
       <Inline gap="tight" variant="caption" tone="muted">
-        <Text maxWidth={48} truncate shrink={data.shape === 'section' ? false : undefined}>
+        <Text maxWidth="label" truncate shrink={data.shape === 'section' ? false : undefined}>
           {data.shape === 'section' ? (data.translated && data.translated < data.lines ? '구간' : `구간 · ${data.lines.toLocaleString()}줄`) : data.shape === 'choice' ? '선택지' : (data.speaker ?? '지문·화면 문구')}
         </Text>
-        {data.shape !== 'section' && data.lines > 1 && <Box asChild shrink={false}><Badge variant="secondary">{data.lines.toLocaleString()}줄</Badge></Box>}
+        {data.shape !== 'section' && data.lines > 1 && <Box asChild shrink={false}><Chip variant="quiet">{data.lines.toLocaleString()}줄</Chip></Box>}
         {!!data.translated && data.translated < data.lines && (
-          <Box asChild shrink={false} tabular><Badge variant="outline">{data.translated.toLocaleString()}/{data.lines.toLocaleString()}</Badge></Box>
+          <Box asChild shrink={false} tabular><Chip variant="outline">{data.translated.toLocaleString()}/{data.lines.toLocaleString()}</Chip></Box>
         )}
         {!!data.lanes && <HubChips arms={data.hub ? data.hub.arms : data.lanes} loops={data.hub?.loops ?? 0} />}
         {data.seamMark && <SeamMark state={data.seamMark.state} />}
@@ -469,15 +469,15 @@ export function PathGraph({ projectId, slice, texts, checks, at, all, selectedId
       return { edge, reading, id: `${edge.from}>${edge.to}#${i}`, label: seam ? reserve(seam.state) : base, room: seam ? reserve(undefined) : base, seam };
     });
     const flowEdges: Edge[] = drawn.map(({ reading, edge, id, label, seam }) => {
-      const color = reading ? 'var(--muted-foreground)' : 'var(--foreground)';
+      const color = reading ? 'var(--stroke-muted)' : 'var(--stroke-default)';
       return {
         id,
         source: edge.from,
         target: edge.to,
         label,
         data: { seam },
-        labelStyle: { fontSize: 12, fill: 'var(--muted-foreground)' },
-        labelBgStyle: { fill: 'var(--background)' },
+        labelStyle: { fontSize: 12, fill: 'var(--fill-muted)' },
+        labelBgStyle: { fill: 'var(--fill-page)' },
         markerEnd: { type: MarkerType.ArrowClosed, color, width: 14, height: 14 },
         style: reading ? { stroke: color, strokeWidth: 1, strokeDasharray: '4 4', opacity: 0.7 } : { stroke: color, strokeWidth: 1.25, opacity: 0.85 },
       };

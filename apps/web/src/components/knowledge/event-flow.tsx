@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Background, Handle, MarkerType, useConnection, NodeToolbar, Panel, Position, ReactFlow, SelectionMode, type Edge, type Node, type NodeChange, type NodeProps, type ReactFlowInstance } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { Copy, Trash2 } from 'lucide-react';
-import { Box, CanvasToolbar, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger, EmptyState, EventFlowCard, Inline, SelectionToolbox, Stack, Text } from '@loca/ui';
+import { Box, CanvasToolbar, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger, EmptyState, EventFlowCard, Inline, SelectionToolbox, Stack, Text, FlowHandle } from '@loca/ui';
 import { personStyle, usePersonColors } from '@/lib/person-colors';
 import { useIsDark } from '@/lib/theme';
 import { GRAPH_KEYS, useGraphShortcuts } from '@/lib/graph-shortcuts';
@@ -31,7 +31,7 @@ type SectionNode = Node<{ title: string }, 'section'>;
 let eventClipboard: string[] = [];
 
 /** A connecting dot as in the other graphs (with a wider grab area); none where the flow only shows. */
-const dot = (connectable: boolean): 'event' | 'eventIdle' => (connectable ? 'event' : 'eventIdle')
+const dot = (connectable: boolean): 'event' | 'event-idle' => (connectable ? 'event' : 'event-idle')
 
 function EventCard({ data, selected, isConnectable }: NodeProps<EventNode>) {
   const { event } = data;
@@ -44,7 +44,7 @@ function EventCard({ data, selected, isConnectable }: NodeProps<EventNode>) {
       {/* Two dots, since a line has a before and an after: the top (left) one takes a line from the event
           before, the bottom (right) one draws to the event after. Dots only start lines: a drag ends on
           whichever card it is dropped on (EventFlow's onConnectEnd), never snapping to that card's dots. */}
-      <Box asChild flowHandle={dot(isConnectable)}><Handle type="target" position={target} isConnectable={isConnectable} isConnectableEnd={false} title="끌어서 앞 사건과 잇기" /></Box>
+      <FlowHandle look={dot(isConnectable)}><Handle type="target" position={target} isConnectable={isConnectable} isConnectableEnd={false} title="끌어서 앞 사건과 잇기" /></FlowHandle>
       <Stack as="span" direction="row" align="baseline" gap="condensed">
         <Text variant="label" truncate>{event.title}</Text>
         <Text marginLeft="auto" shrink={false}>{data.badge}</Text>
@@ -61,7 +61,7 @@ function EventCard({ data, selected, isConnectable }: NodeProps<EventNode>) {
       </Text>
       {event.summary && <Text variant="caption" tone="muted" lines={2} marginTop="hair">{event.summary}</Text>}
       {data.elsewhere && <Text variant="caption" tone="muted" truncate marginTop="auto">→ {data.elsewhere}</Text>}
-      <Box asChild flowHandle={dot(isConnectable)}><Handle type="source" position={source} isConnectable={isConnectable} isConnectableEnd={false} title="끌어서 다음 사건과 잇기" /></Box>
+      <FlowHandle look={dot(isConnectable)}><Handle type="source" position={source} isConnectable={isConnectable} isConnectableEnd={false} title="끌어서 다음 사건과 잇기" /></FlowHandle>
     </EventFlowCard>
   );
 }
@@ -238,7 +238,7 @@ export function EventFlow({ projectId, events, selected, onOpen, badge, filtered
           .filter((step) => byId.has(step.id) && (step.source === 'added' || sectionOf.get(step.id) === sectionOf.get(event.id)))
           .map((step) => {
             const focus = selectedLine?.fromId === event.id && selectedLine.toId === step.id;
-            const stroke = focus ? 'var(--primary)' : 'var(--graph-edge)';
+            const stroke = focus ? 'var(--stroke-accent)' : 'var(--stroke-graph-edge)';
             return {
               id: `${event.id}>${step.id}`,
               source: event.id,
@@ -246,7 +246,7 @@ export function EventFlow({ projectId, events, selected, onOpen, badge, filtered
               type: 'smoothstep',
               label: step.label ?? undefined,
               labelBgPadding: [4, 2] as [number, number],
-              labelStyle: { fontSize: 12, fill: 'var(--muted-foreground)' },
+              labelStyle: { fontSize: 12, fill: 'var(--fill-muted)' },
               style: { stroke, strokeWidth: focus ? 2.5 : 1.5 },
               // A wide invisible band so a line is easy to click.
               interactionWidth: 16,

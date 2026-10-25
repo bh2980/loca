@@ -3,7 +3,7 @@ import { useMutation } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { SPECIAL_LISTENERS, SPEECH_LEVELS, SPEECH_LEVEL_LABELS, type SpeechLevel } from '@tw/shared';
-import { Button, FieldRow, FieldRows, Grid, Input, KnowledgePairPopoverContent, KnowledgeSelectTrigger, Popover, PopoverTrigger, SearchableSelect, Select, SelectContent, SelectItem, SelectValue, type SearchableSelectOption } from '@loca/ui';
+import { Button, Grid, Input, Popover, PopoverTrigger, Combobox, Select, SelectContent, SelectItem, SelectValue, type ComboboxOption, SelectTrigger, PopoverContent, Box, KeyValue, KeyValueRow } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { pairKey, type Pair } from './pairs';
 
@@ -18,14 +18,14 @@ interface Person {
 }
 
 /** One end of the pair: a picked person, or a new name; listeners can also be 여럿 / 불특정 다수 / 혼잣말 / 그 밖의 인물. */
-function End({ label, value, name, onValue, onName, options, placeholder }: { label: string; value: string; name: string; onValue: (value: string) => void; onName: (name: string) => void; options: SearchableSelectOption[]; placeholder: string }) {
+function End({ label, value, name, onValue, onName, options, placeholder }: { label: string; value: string; name: string; onValue: (value: string) => void; onName: (name: string) => void; options: ComboboxOption[]; placeholder: string }) {
   return (
-    <FieldRow label={label}>
+    <KeyValueRow label={label}>
      <Grid gap="snug">
-      <SearchableSelect ariaLabel={label} value={value} onValueChange={onValue} options={options} placeholder={placeholder} searchPlaceholder="이름 검색" />
+      <Combobox ariaLabel={label} value={value} onValueChange={onValue} options={options} placeholder={placeholder} searchPlaceholder="이름 검색" />
       {value === NEW && <Input aria-label={`${label} 새 이름`} autoFocus value={name} onChange={(event) => onName(event.target.value)} placeholder="새 인물 이름" />}
      </Grid>
-    </FieldRow>
+    </KeyValueRow>
   );
 }
 
@@ -43,7 +43,7 @@ export function AddPairPopover({ projectId, characters, pairs, onCreated }: { pr
   const [level, setLevel] = useState<SpeechLevel>('haeyo');
   const [kind, setKind] = useState('');
 
-  const people: SearchableSelectOption[] = characters.map((c) => ({ value: c.id, label: c.name }));
+  const people: ComboboxOption[] = characters.map((c) => ({ value: c.id, label: c.name }));
   const fromOptions = [...people, { value: NEW, label: '새 인물…' }];
   const toOptions = [
     ...people,
@@ -101,7 +101,7 @@ export function AddPairPopover({ projectId, characters, pairs, onCreated }: { pr
           <Plus /> 관계·말투
         </Button>
       </PopoverTrigger>
-      <KnowledgePairPopoverContent align="end">
+      <Box asChild display="grid" gap="normal"><PopoverContent align="end" width="popover">
         <Grid
           as="form"
           gap="normal"
@@ -110,14 +110,14 @@ export function AddPairPopover({ projectId, characters, pairs, onCreated }: { pr
             if (ready && !submit.isPending) submit.mutate();
           }}
         >
-          <FieldRows>
+          <KeyValue align="start">
           <End label="화자" value={from} name={fromName} onValue={setFrom} onName={setFromName} options={fromOptions} placeholder="말하는 사람" />
           <End label="청자" value={to} name={toName} onValue={setTo} onName={setToName} options={toOptions} placeholder="듣는 사람" />
-          <FieldRow label="말투">
+          <KeyValueRow label="말투">
             <Select value={level} onValueChange={(value) => setLevel(value as SpeechLevel)}>
-              <KnowledgeSelectTrigger aria-label="말투">
+              <SelectTrigger width="full" aria-label="말투">
                 <SelectValue />
-              </KnowledgeSelectTrigger>
+              </SelectTrigger>
               <SelectContent>
                 {SPEECH_LEVELS.map((option) => (
                   <SelectItem key={option} value={option}>
@@ -126,18 +126,18 @@ export function AddPairPopover({ projectId, characters, pairs, onCreated }: { pr
                 ))}
               </SelectContent>
             </Select>
-          </FieldRow>
+          </KeyValueRow>
           {!toSpecial && (
-            <FieldRow label="관계 종류">
+            <KeyValueRow label="관계 종류">
               <Input aria-label="관계 종류" value={kind} onChange={(event) => setKind(event.target.value)} placeholder={`비우면 ‘${DEFAULT_KIND}’`} />
-            </FieldRow>
+            </KeyValueRow>
           )}
-          </FieldRows>
+          </KeyValue>
           <Button type="submit" disabled={!ready || submit.isPending}>
             추가
           </Button>
         </Grid>
-      </KnowledgePairPopoverContent>
+      </PopoverContent></Box>
     </Popover>
   );
 }

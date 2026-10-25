@@ -1,8 +1,8 @@
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { LineMark } from '@tw/shared';
 import { Link } from '@tanstack/react-router';
-import { AppWindow, Check, FileText, Inbox, MessageSquareText, Plus } from 'lucide-react';
-import { Box, Button, ContextMenu, ContextMenuTrigger, Icon, Inline, NavigationBranch, NavigationItem, NavigationPane, ScriptGroupMenuContent, ScriptGroupNavLink, ScriptMarkCount, ScriptNavIcon, ScriptSearchField, ScriptSectionNavLink, ScriptStatusMeter, Text, Tooltip, TooltipContent, TooltipTrigger, type StatusLike } from '@loca/ui';
+import { AppWindow, Check, ChevronRight, FileText, Inbox, MessageSquareText, Plus, type LucideIcon } from 'lucide-react';
+import { Box, Button, Collapsible, CollapsibleContent, CollapsibleTrigger, ContextMenu, ContextMenuTrigger, Icon, Inline, ListRow, Stack, Count, SearchField, Meter, Text, Tooltip, TooltipContent, TooltipTrigger, type StatusLike, ContextMenuContent } from '@loca/ui';
 import { GROUP_KIND, SCRIPT_VIEW, SOURCE_GROUP_LABEL } from '@/lib/labels';
 
 export interface GroupRow {
@@ -40,7 +40,7 @@ function sectionsOf(groups: GroupRow[]) {
 
 export type ScriptScope = { group?: string; review?: true; kind?: GroupRow['kind']; section?: string };
 
-const VIEW_ICON = { scene: <MessageSquareText />, ui: <AppWindow />, document: <FileText /> };
+const VIEW_ICON = { scene: MessageSquareText, ui: AppWindow, document: FileText };
 
 /**
  * Source kinds and chapter navigation down the left of the translation screen, with review pinned below.
@@ -92,7 +92,7 @@ export function GroupList({ projectId, groups, finalIds, initialIds, scope, revi
   const noun = SOURCE_GROUP_LABEL[scope.kind ?? 'scene'];
   const search = (
     <Inline gap="tight">
-      <ScriptSearchField width="fill" value={gq} onChange={onFilter} placeholder={`${noun} 찾기`} />
+      <SearchField size="fill" value={gq} onChange={onFilter} placeholder={`${noun} 찾기`} />
       {onCreate && (
         <Tooltip>
           <TooltipTrigger asChild>
@@ -108,10 +108,12 @@ export function GroupList({ projectId, groups, finalIds, initialIds, scope, revi
       {views?.map((view) => <ScopeLink key={view.kind} projectId={projectId} scope={{ kind: view.kind }} clearPeopleFilters={view.kind !== scope.kind} active={!scope.group && !scope.section && !scope.review && scope.kind === view.kind} icon={VIEW_ICON[view.kind]} label={`전체 ${SCRIPT_VIEW[view.kind]}`} count={view.lines} />)}
     </Box>
   );
-  const reviewNav = <ScopeLink projectId={projectId} scope={{ review: true }} active={Boolean(scope.review)} icon={<Inbox />} label="검토함" count={reviewCount} highlight={reviewCount > 0} />;
+  const reviewNav = <ScopeLink projectId={projectId} scope={{ review: true }} active={Boolean(scope.review)} icon={Inbox} label="검토함" count={reviewCount} highlight={reviewCount > 0} />;
 
   return (
-    <NavigationPane search={<Box spaceY="condensed">{kindsNav}{search}</Box>} footer={reviewNav}>
+    <Stack as="aside" height="full" minHeight={0} background="navigation">
+      <Box shrink={false} border="bottom" borderColor="subtle" padding="condensed"><Box spaceY="condensed">{kindsNav}{search}</Box></Box>
+      <Box grow minHeight={0} overflow="y" padding="tight">
         {!groups && <Text as="p" paddingX="normal" paddingY="condensed" variant="caption" tone="muted">불러오는 중…</Text>}
         {groups?.length === 0 && <Text as="p" paddingX="normal" paddingY="condensed" variant="body" tone="muted">맞는 항목이 없습니다.</Text>}
         {sections.map((section) => {
@@ -121,18 +123,39 @@ export function GroupList({ projectId, groups, finalIds, initialIds, scope, revi
           if (!section.name) return <Fragment key={section.key}>{items}</Fragment>;
           const count = section.groups.reduce((sum, group) => sum + group.total, 0);
           const active = scope.section === section.name;
-          return <NavigationBranch key={section.key} label={section.name} open={open} onOpenChange={(next) => toggle(section.name!, next)} disabled={Boolean(gq)} navigation={
-              <ScriptSectionNavLink active={active}>
+          return <SectionBranch key={section.key} label={section.name} open={open} onOpenChange={(next) => toggle(section.name!, next)} disabled={Boolean(gq)} navigation={
+              <ListRow as="link" variant="nav-section" active={active}>
                 <ScriptLink projectId={projectId} scope={{ kind: scope.kind, section: section.name }} aria-current={active ? 'page' : undefined}>
                   <Text minWidth={0} grow truncate weight="medium">{section.name}</Text>
                   <Text shrink={false} mono variant="caption" tabular tone="subtle">{count.toLocaleString()}</Text>
                 </ScriptLink>
-              </ScriptSectionNavLink>
+              </ListRow>
             }>
             {items}
-          </NavigationBranch>;
+          </SectionBranch>;
         })}
-    </NavigationPane>
+      </Box>
+      <Box as="footer" shrink={false} border="top" borderColor="subtle" padding="condensed">{reviewNav}</Box>
+    </Stack>
+  );
+}
+
+/** A section of scenes: a fold button and the link that selects the section, the scenes under it. */
+function SectionBranch({ label, open, onOpenChange, navigation, disabled, children }: { label: string; open: boolean; onOpenChange: (open: boolean) => void; navigation: ReactNode; disabled: boolean; children: ReactNode }) {
+  return (
+    <Box asChild marginTop="condensed">
+      <Collapsible open={open} onOpenChange={onOpenChange}>
+        <Inline minWidth={0} gap="tight">
+          <CollapsibleTrigger asChild>
+            <Button variant="ghost" size="icon-sm" disabled={disabled} aria-label={`${open ? '접기' : '펴기'} ${label}`} aria-expanded={open} title={`${open ? '접기' : '펴기'} ${label}`}>
+              <Icon icon={ChevronRight} turn={open} />
+            </Button>
+          </CollapsibleTrigger>
+          {navigation}
+        </Inline>
+        <Box asChild paddingLeft="wide"><CollapsibleContent>{children}</CollapsibleContent></Box>
+      </Collapsible>
+    </Box>
   );
 }
 
@@ -169,15 +192,15 @@ function ScriptLink({ projectId, scope, clearPeopleFilters, children, ...props }
   );
 }
 
-function ScopeLink({ projectId, scope, active, icon, label, count, highlight, clearPeopleFilters }: { projectId: string; scope: ScriptScope; active: boolean; icon: ReactNode; label: string; count: number; highlight?: boolean; clearPeopleFilters?: boolean }) {
+function ScopeLink({ projectId, scope, active, icon, label, count, highlight, clearPeopleFilters }: { projectId: string; scope: ScriptScope; active: boolean; icon: LucideIcon; label: string; count: number; highlight?: boolean; clearPeopleFilters?: boolean }) {
   return (
-    <NavigationItem asChild active={active}>
+    <ListRow as="link" variant="nav" active={active}>
       <ScriptLink projectId={projectId} scope={scope} clearPeopleFilters={clearPeopleFilters} aria-current={active ? 'page' : undefined}>
-        <ScriptNavIcon>{icon}</ScriptNavIcon>
+        <Text><Icon icon={icon} size="sm" tone="muted" /></Text>
         <Text minWidth={0} grow truncate>{label}</Text>
         <Text marginLeft="auto" variant="caption" tabular mono weight={highlight ? 'medium' : undefined} tone={highlight ? 'default' : 'subtle'}>{count.toLocaleString()}</Text>
       </ScriptLink>
-    </NavigationItem>
+    </ListRow>
   );
 }
 
@@ -185,12 +208,12 @@ function GroupItem({ projectId, group, progress, statuses, active, indent, marks
   const complete = group.total > 0 && progress.final === group.total;
   const marked = marks?.get(group.id) ?? 0;
   const link = (
-    <ScriptGroupNavLink active={active} complete={complete}>
+    <ListRow as="link" variant="nav-scene" active={active} complete={complete}>
       <ScriptLink projectId={projectId} scope={{ group: group.id }} title={group.title} aria-current={active ? 'page' : undefined}>
         <Inline as="span" minWidth={0} gap="snug">
           <Text minWidth={0} grow truncate>{group.title}</Text>
           {marks ? (
-            marked ? <ScriptMarkCount>{marked}</ScriptMarkCount> : null
+            marked ? <Count tone="warning">{marked}</Count> : null
           ) : complete ? (
             <Icon icon={Check} size="xs" shrink={false} tone="success" aria-label="완료" />
           ) : (
@@ -199,15 +222,15 @@ function GroupItem({ projectId, group, progress, statuses, active, indent, marks
             </Text>
           )}
         </Inline>
-        {!marks && statuses?.length ? <ScriptStatusMeter statuses={statuses} counts={group.statuses} /> : null}
+        {!marks && statuses?.length ? <Meter statuses={statuses} counts={group.statuses} /> : null}
       </ScriptLink>
-    </ScriptGroupNavLink>
+    </ListRow>
   );
   if (!menu) return link;
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>{link}</ContextMenuTrigger>
-      <ScriptGroupMenuContent>{menu}</ScriptGroupMenuContent>
+      <ContextMenuContent width="menu-sm">{menu}</ContextMenuContent>
     </ContextMenu>
   );
 }

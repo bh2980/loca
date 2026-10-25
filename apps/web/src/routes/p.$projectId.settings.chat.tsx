@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { SettingsContent } from '@loca/ui';
+import { PageBody } from '@loca/ui';
 import { Page } from '@/components/page';
 import { AgentTab } from '@/components/settings/agent-tab';
 
@@ -12,9 +12,9 @@ function ChatSettingsPage() {
 
   return (
     <Page title="채팅" flush>
-      <SettingsContent width="wide">
+      <PageBody width="wide">
         <AgentTab projectId={projectId} />
-      </SettingsContent>
+      </PageBody>
     </Page>
   );
 }

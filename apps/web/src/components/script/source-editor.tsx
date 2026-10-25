@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Trash2 } from 'lucide-react';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Box, Button, DirtyBar, Inspector, InspectorBlock, InspectorField, InspectorFields, InspectorHeader, InspectorResult, InspectorSection, Input, PropertyGrid, PropertyRow, ScriptSelectTrigger, Select, SelectContent, SelectItem, SelectValue, Text, Textarea } from '@loca/ui';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Box, Button, DirtyBar, Inspector, InspectorHeader, InspectorResult, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Text, Textarea, Section, Field, KeyValue, KeyValueRow } from '@loca/ui';
 import { client, unwrap, type InferResponseType } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
 import { q } from '@/lib/queries';
@@ -120,62 +120,62 @@ export function SourceEditor({ projectId, kind, groupId, unitId, mode, onClose, 
         : dirty ? <DirtyBar dirtyCount={1} onRevert={() => clearDraft()} onSave={() => save.mutate(draft)} saving={save.isPending} disabled={!canSave} /> : undefined}
     >
       {loadError && (
-        <InspectorSection title="불러오기 실패">
+        <Section title="불러오기 실패">
           <InspectorResult tone="error">{invalidTarget ? '편집할 원문 ID가 없습니다.' : '원문 정보를 불러오지 못했습니다.'}</InspectorResult>
           {!invalidTarget && <Button variant="outline" onClick={() => { void (editingGroup ? group.refetch() : unit.refetch()); }}>다시 시도</Button>}
-        </InspectorSection>
+        </Section>
       )}
       {isGroup ? (
         <>
           {editingGroup && (
-            <InspectorSection title="정보">
-              <PropertyGrid>
-                <PropertyRow label="종류">{SOURCE_GROUP_LABEL[form.kind]}</PropertyRow>
-                <PropertyRow label="안에 든 원문">{groupUnits.isPending ? '개수 불러오는 중…' : `${(count ?? 0).toLocaleString()}개`}</PropertyRow>
-              </PropertyGrid>
-            </InspectorSection>
+            <Section title="정보">
+              <KeyValue>
+                <KeyValueRow label="종류">{SOURCE_GROUP_LABEL[form.kind]}</KeyValueRow>
+                <KeyValueRow label="안에 든 원문">{groupUnits.isPending ? '개수 불러오는 중…' : `${(count ?? 0).toLocaleString()}개`}</KeyValueRow>
+              </KeyValue>
+            </Section>
           )}
-          <InspectorSection title="설정">
-            <InspectorFields>
+          <Section title="설정">
+            <Box spaceY="normal">
               {mode === 'create-group' && (
-                <InspectorField label="종류">
-                  <Select value={form.kind} onValueChange={(value) => update('kind', value)}><ScriptSelectTrigger width="full"><SelectValue /></ScriptSelectTrigger><SelectContent><SelectItem value="scene">장면</SelectItem><SelectItem value="document">문서</SelectItem><SelectItem value="ui">UI 묶음</SelectItem></SelectContent></Select>
-                </InspectorField>
+                <Field label="종류">
+                  <Select value={form.kind} onValueChange={(value) => update('kind', value)}><SelectTrigger width="full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="scene">장면</SelectItem><SelectItem value="document">문서</SelectItem><SelectItem value="ui">UI 묶음</SelectItem></SelectContent></Select>
+                </Field>
               )}
-              <InspectorField label="이름"><Input value={form.title} onChange={(event) => update('title', event.target.value)} placeholder="묶음 이름" /></InspectorField>
-              <InspectorField label="키" description={KEY_HINT}><Input value={form.key} onChange={(event) => update('key', event.target.value)} placeholder="비우면 자동 생성" /></InspectorField>
-              <InspectorField label="장 / 분류"><Input value={form.section} onChange={(event) => update('section', event.target.value)} placeholder="선택 사항" /></InspectorField>
-              <InspectorField label="설명"><Textarea rows={3} value={form.description} onChange={(event) => update('description', event.target.value)} /></InspectorField>
-            </InspectorFields>
-          </InspectorSection>
+              <Field label="이름"><Input value={form.title} onChange={(event) => update('title', event.target.value)} placeholder="묶음 이름" /></Field>
+              <Field label="키" description={KEY_HINT}><Input value={form.key} onChange={(event) => update('key', event.target.value)} placeholder="비우면 자동 생성" /></Field>
+              <Field label="장 / 분류"><Input value={form.section} onChange={(event) => update('section', event.target.value)} placeholder="선택 사항" /></Field>
+              <Field label="설명"><Textarea rows={3} value={form.description} onChange={(event) => update('description', event.target.value)} /></Field>
+            </Box>
+          </Section>
         </>
       ) : (
-        <InspectorSection title="원문">
+        <Section title="원문">
           {groups.isError ? (
             <Box spaceY="condensed"><InspectorResult tone="error">묶음 목록을 불러오지 못했습니다.</InspectorResult><Button variant="outline" onClick={() => void groups.refetch()}>다시 시도</Button></Box>
           ) : (
-            <InspectorFields>
-              <InspectorField label={SOURCE_GROUP_LABEL[form.kind]}>
+            <Box spaceY="normal">
+              <Field label={SOURCE_GROUP_LABEL[form.kind]}>
                 {groups.isPending ? <Text variant="caption" tone="muted">불러오는 중…</Text> : groups.data?.length ? (
-                  <Select value={form.groupId} onValueChange={(value) => update('groupId', value)}><ScriptSelectTrigger width="full"><SelectValue placeholder={`${SOURCE_GROUP_LABEL[form.kind]} 선택`} /></ScriptSelectTrigger><SelectContent>{groups.data.map((item) => <SelectItem key={item.id} value={item.id}>{item.title}</SelectItem>)}</SelectContent></Select>
+                  <Select value={form.groupId} onValueChange={(value) => update('groupId', value)}><SelectTrigger width="full"><SelectValue placeholder={`${SOURCE_GROUP_LABEL[form.kind]} 선택`} /></SelectTrigger><SelectContent>{groups.data.map((item) => <SelectItem key={item.id} value={item.id}>{item.title}</SelectItem>)}</SelectContent></Select>
                 ) : (
                   <Box spaceY="condensed"><Text as="p" variant="body" tone="muted">이 종류의 묶음이 없습니다.</Text>{onCreateGroup && <Button type="button" variant="outline" onClick={onCreateGroup}>{SOURCE_GROUP_LABEL[form.kind]} 추가</Button>}</Box>
                 )}
-              </InspectorField>
-              <InspectorField label="원문" description={editingUnit && unit.data?.translation ? '바꾸면 번역 상태가 처음으로 돌아갑니다. 기존 번역과 후보는 남으니 다시 확인하세요.' : undefined}>
+              </Field>
+              <Field label="원문" description={editingUnit && unit.data?.translation ? '바꾸면 번역 상태가 처음으로 돌아갑니다. 기존 번역과 후보는 남으니 다시 확인하세요.' : undefined}>
                 <Textarea rows={5} value={form.source} onChange={(event) => update('source', event.target.value)} placeholder="원문을 입력하세요" />
-              </InspectorField>
+              </Field>
               {form.kind === 'scene' && <>
-                <InspectorField label="화자" description="이름을 그대로 적습니다. 비우면 지문·문구로 봅니다."><Input value={form.speaker} onChange={(event) => update('speaker', event.target.value)} placeholder="선택 사항" /></InspectorField>
-                <InspectorField label="청자" description="비우면 미상으로 둡니다."><Input value={form.listener} onChange={(event) => update('listener', event.target.value)} placeholder="선택 사항" /></InspectorField>
+                <Field label="화자" description="이름을 그대로 적습니다. 비우면 지문·문구로 봅니다."><Input value={form.speaker} onChange={(event) => update('speaker', event.target.value)} placeholder="선택 사항" /></Field>
+                <Field label="청자" description="비우면 미상으로 둡니다."><Input value={form.listener} onChange={(event) => update('listener', event.target.value)} placeholder="선택 사항" /></Field>
               </>}
-              <InspectorField label="키" description={KEY_HINT}><Input value={form.key} onChange={(event) => update('key', event.target.value)} placeholder="비우면 자동 생성" /></InspectorField>
-            </InspectorFields>
+              <Field label="키" description={KEY_HINT}><Input value={form.key} onChange={(event) => update('key', event.target.value)} placeholder="비우면 자동 생성" /></Field>
+            </Box>
           )}
-        </InspectorSection>
+        </Section>
       )}
       {editingGroup && groupUnits.isError && (
-        <InspectorBlock><Box spaceY="condensed"><InspectorResult tone="error">원문 수를 확인하지 못해 삭제를 막았습니다.</InspectorResult><Button type="button" variant="outline" onClick={() => void groupUnits.refetch()}>다시 시도</Button></Box></InspectorBlock>
+        <Section><Box spaceY="condensed"><InspectorResult tone="error">원문 수를 확인하지 못해 삭제를 막았습니다.</InspectorResult><Button type="button" variant="outline" onClick={() => void groupUnits.refetch()}>다시 시도</Button></Box></Section>
       )}
     </Inspector>
   );

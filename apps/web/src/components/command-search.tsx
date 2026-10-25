@@ -2,7 +2,7 @@ import { useDeferredValue, useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { BookA, FileText, ListTree, MessageSquare, ScrollText, Search, UserRound } from 'lucide-react';
-import { Badge, Box, Button, CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, Inline, Kbd, Text } from '@loca/ui';
+import { Chip, Box, Button, CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, Inline, Kbd, Text } from '@loca/ui';
 import { q } from '@/lib/queries';
 import { keyLabel } from '@/lib/keys';
 import { chatDock } from '@/lib/chat-dock';
@@ -199,9 +199,9 @@ export function CommandSearch({ projectId, compact = false }: { projectId: strin
                   <Box minWidth={0} grow>
                     <Inline gap="snug" truncate>
                       <Text truncate weight="medium">{hit.title}</Text>
-                      <Badge variant="secondary">
+                      <Chip variant="quiet">
                         {hit.role === 'user' ? '질문' : hit.role === 'assistant' ? '답변' : '제목'}
-                      </Badge>
+                      </Chip>
                     </Inline>
                     <Text as="p" truncate variant="caption" tone="muted">{hit.snippet}</Text>
                   </Box>

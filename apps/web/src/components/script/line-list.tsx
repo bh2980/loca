@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Play } from 'lucide-react';
 import { LineDetail } from '@/components/line-detail';
-import { useRevealDock, EditorToolbar, FilterChips, Pager, FilterBar, ActionBar, Button, Box, Inline, Text, ScriptEmptyState, ScriptLineSplit, ScriptRowSkeleton, ScriptSearchField } from '@loca/ui';
+import { useRevealDock, EditorToolbar, FilterChips, Pager, FilterBar, ActionBar, Button, Box, Inline, Text, SearchField, Skeleton, EmptyState, SplitPane } from '@loca/ui';
 import { HeaderActions } from '@/components/page';
 import { tokenPatternOf } from '@/lib/line-context';
 import { RunDialog } from '@/components/workflow/run-dialog';
@@ -229,7 +229,7 @@ export function LineList({
   // lines never reveals it, and closing it keeps the picked line.
   const showDetail = Boolean(search.line && search.detail);
   return (
-    <ScriptLineSplit
+    <SplitPane fill="height"
       id="lines"
       autoActivate={Boolean(dockEditor || showDetail)}
       selectionKey={dockSelectionKey}
@@ -253,7 +253,7 @@ export function LineList({
         {!find && !review && hasLineFilter(search) && <ActionBar aria-label="대사 목록 동작" items={[{ id: 'find-in-scene', label: '장면에서 찾아가기', onSelect: () => onSearch({ mode: 'find', page: undefined }) }]} />}
       </HeaderActions>
       <EditorToolbar><FilterBar>
-        <ScriptSearchField width="toolbar" value={search.q} onChange={(value) => onSearch({ q: value, page: undefined })} placeholder="원문·번역 찾기" />
+        <SearchField size="sm" value={search.q} onChange={(value) => onSearch({ q: value, page: undefined })} placeholder="원문·번역 찾기" />
           <LineFilters
           projectId={projectId}
           statuses={statusList}
@@ -291,12 +291,10 @@ export function LineList({
       <Box minHeight={0} grow overflow="y">
         {!rows ? (
           <Box spaceY="comfortable" padding="comfortable">
-            {Array.from({ length: 6 }, (_, i) => (
-              <ScriptRowSkeleton key={i} />
-            ))}
+            <Skeleton shape="row" count={6} />
           </Box>
         ) : rows.length === 0 ? (
-          <ScriptEmptyState noun={emptyNoun} filtered={!review && hasLineFilter(search)} action={!review && !hasLineFilter(search) ? emptyAction : undefined} />
+          <EmptyState variant="roomy" noun={emptyNoun} filtered={!review && hasLineFilter(search)} action={!review && !hasLineFilter(search) ? emptyAction : undefined} />
         ) : (
           <ul>
             {rows.map((line, index) => {
@@ -346,6 +344,6 @@ export function LineList({
         )}
       </Box>
       <Pager page={page} total={total} pageSize={PAGE_SIZE} onPage={(next) => onSearch({ page: next || undefined, line: undefined })} />
-    </ScriptLineSplit>
+    </SplitPane>
   );
 }

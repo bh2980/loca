@@ -9,10 +9,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubTrigger,
-  ScriptLineSubmenuContent,
   StatusIcon,
   TagSubMenu,
   Text,
+  DropdownMenuSubContent,
 } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
@@ -89,24 +89,24 @@ export function LineMenuItems({ projectId, line, onEdit, editLabel = '번역 편
       {(onEdit || onOpenDetail) && <DropdownMenuSeparator />}
       <DropdownMenuSub>
         <DropdownMenuSubTrigger>상태 변경</DropdownMenuSubTrigger>
-        <ScriptLineSubmenuContent size="wide">
+        <DropdownMenuSubContent width="menu-xs">
           {statusList.map((item) => (
             <DropdownMenuCheckboxItem key={item.id} checked={line.statusId === item.id} onCheckedChange={() => line.statusId !== item.id && saveLine.mutate({ unitId: line.id, text: line.translation ?? '', statusId: item.id })}>
               <StatusIcon status={item} />
               <Text truncate>{item.name}</Text>
             </DropdownMenuCheckboxItem>
           ))}
-        </ScriptLineSubmenuContent>
+        </DropdownMenuSubContent>
       </DropdownMenuSub>
       <TagSubMenu tags={tags} state={(tagId) => (line.tagIds.includes(tagId) ? 'all' : 'none')} onToggle={toggleTag} onCreate={createTag} heading="태그" label="태그" icon={false} />
       <DropdownMenuSub>
         <DropdownMenuSubTrigger>{excluded ? '번역 제외' : '번역 대상'}</DropdownMenuSubTrigger>
-        <ScriptLineSubmenuContent size="narrow">
+        <DropdownMenuSubContent width="menu-2xs">
           <DropdownMenuRadioGroup value={excluded ? 'exclude' : 'include'} onValueChange={(value) => patch.mutate({ translate: value as 'include' | 'exclude' })}>
             <DropdownMenuRadioItem value="include">번역 대상</DropdownMenuRadioItem>
             <DropdownMenuRadioItem value="exclude">제외</DropdownMenuRadioItem>
           </DropdownMenuRadioGroup>
-        </ScriptLineSubmenuContent>
+        </DropdownMenuSubContent>
       </DropdownMenuSub>
       <DropdownMenuSeparator />
       <DropdownMenuItem onClick={() => copy(line.source, '원문')}>원문 복사</DropdownMenuItem>

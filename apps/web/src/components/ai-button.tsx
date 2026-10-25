@@ -12,7 +12,7 @@ import { askAgent } from '@/lib/agent';
 export function AiButton({ prompt, send = true, children, onClick, ...props }: { prompt?: string; send?: boolean } & ComponentProps<typeof Button>) {
   return (
     <Button variant="outline" {...props} onClick={prompt ? () => askAgent(prompt, { send }) : onClick}>
-      <Icon icon={Sparkles} size="sm" tone="primary" /> {children}
+      <Icon icon={Sparkles} size="sm" tone="accent" /> {children}
     </Button>
   );
 }

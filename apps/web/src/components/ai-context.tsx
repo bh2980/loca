@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { CONTEXT_ITEM_KINDS, CONTEXT_PRIORITY, type ContextItem } from '@tw/shared';
-import { Badge, Box, Group, Inline, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Skeleton, Text } from '@loca/ui';
+import { Chip, Box, Group, Inline, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Skeleton, Text } from '@loca/ui';
 import { PromptView, useRequestPreview } from '@/components/workflow/node-config/request-preview';
 import { q } from '@/lib/queries';
 
@@ -25,16 +25,16 @@ export function ContextItemList({ items, budget }: { items: ContextItem[]; budge
           <Group key={kind} title={<>{CONTEXT_ITEM_KINDS[kind]} <Text weight="normal" tone="muted" tabular>{group.length}</Text></>}>
             <Box as="ul" spaceY="snug">
               {group.map((item, index) => (
-                <Box as="li" key={`${item.label}-${index}`} radius="md" border="all" paddingX="cozy" paddingY="condensed" variant="body" background={item.included ? undefined : 'muted'} tone={item.included ? undefined : 'muted'}>
+                <Box as="li" key={`${item.label}-${index}`} radius="md" border="all" paddingX="cozy" paddingY="condensed" variant="body" background={item.included ? undefined : 'sunken'} tone={item.included ? undefined : 'muted'}>
                   <Inline gap="condensed">
                     <Text minWidth={0} grow truncate weight="medium" lineThrough={!item.included} title={item.label}>
                       {item.label}
                     </Text>
                     {!item.included && (
                       <Box asChild paddingX="snug" paddingY="none" variant="caption" tone="warning">
-                        <Badge variant="outline">
+                        <Chip variant="outline">
                           상한 초과
-                        </Badge>
+                        </Chip>
                       </Box>
                     )}
                     <Text shrink={false} variant="caption" tabular tone="muted">{tokens(item.tokens)}</Text>
@@ -74,7 +74,7 @@ export function AiContextPanel({ projectId, unitKey, aiNode, onAiNode }: { proje
           </SelectContent>
         </Select>
       )}
-      {request.isError ? <Text as="p" variant="body" tone="danger">{request.error.message}</Text> : !request.data ? <Box asChild height={40}><Skeleton /></Box> : <PromptView request={request.data} title={`AI 프롬프트 · ${unitKey} · ${picked?.label ?? ''}`} />}
+      {request.isError ? <Text as="p" variant="body" tone="danger">{request.error.message}</Text> : !request.data ? <Skeleton height="placeholder-xl" /> : <PromptView request={request.data} title={`AI 프롬프트 · ${unitKey} · ${picked?.label ?? ''}`} />}
     </Box>
   );
 }

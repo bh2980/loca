@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Box, Button, CanvasSurface, Empty, EmptyDescription, EmptyHeader, EmptyTitle, Inline, Spinner } from '@loca/ui';
+import { Box, Button, CanvasSurface, EmptyDescription, EmptyHeader, EmptyTitle, Inline, Spinner, Overlay, EmptyState } from '@loca/ui';
 import { useSize } from '@/hooks/use-size';
 import { q } from '@/lib/queries';
 import { useQuery } from '@tanstack/react-query';
@@ -92,30 +92,25 @@ export function ReadingRouteGraph({ projectId, stages, routeKey, direction, onDi
   const retry = () => void graph.refetch();
 
   return (
-    <Box asChild height="full" width="full">
-    <CanvasSurface ref={container} grow={false}>
+    <CanvasSurface ref={container} grow={false} fill>
       {graph.isPending ? (
-        <Inline position="absolute" inset={0} justify="center" gap="condensed" variant="body" tone="muted" role="status">
+        <Overlay asChild><Inline justify="center" gap="condensed" variant="body" tone="muted" role="status">
           <Spinner /> 원문 그래프를 불러오는 중…
-        </Inline>
+        </Inline></Overlay>
       ) : graph.isError ? (
-        <Box asChild position="absolute" inset={0}>
-          <Empty>
+        <EmptyState size="pane" overlay>
             <EmptyHeader>
               <EmptyTitle>대사 그래프를 불러오지 못했습니다</EmptyTitle>
               <EmptyDescription>{graph.error.message}</EmptyDescription>
             </EmptyHeader>
             <Button variant="outline" onClick={retry}>다시 시도</Button>
-          </Empty>
-        </Box>
+          </EmptyState>
       ) : !routeNodes.length ? (
-        <Box asChild position="absolute" inset={0}>
-          <Empty>
+        <EmptyState size="pane" overlay>
             <EmptyHeader><EmptyTitle>표시할 대사 노드가 없습니다</EmptyTitle></EmptyHeader>
-          </Empty>
-        </Box>
+          </EmptyState>
       ) : !size.width || !size.height ? (
-        <Box position="absolute" inset={0} role="status" aria-label="그래프 영역 크기를 계산하는 중" />
+        <Overlay role="status" aria-label="그래프 영역 크기를 계산하는 중" />
       ) : (
         <>
           <GraphCanvas
@@ -140,6 +135,5 @@ export function ReadingRouteGraph({ projectId, stages, routeKey, direction, onDi
         </>
       )}
     </CanvasSurface>
-    </Box>
   );
 }

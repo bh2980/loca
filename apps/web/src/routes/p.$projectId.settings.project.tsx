@@ -4,7 +4,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Download, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Page } from '@/components/page';
-import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Box, Button, Input, Field, FieldDescription, FieldLabel, SettingsFieldGroup, SettingsPageSkeleton, Textarea, SettingsSection, SettingsContent } from '@loca/ui';
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Box, Button, Input, Field, Textarea, Skeleton, Section, PageBody } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { changedFields, useFormFrom } from '@/lib/use-form-from';
@@ -22,9 +22,12 @@ function ProjectSettings() {
   if (!project.data)
     return (
       <Page title="프로젝트" flush>
-        <SettingsContent>
-          <SettingsPageSkeleton shape="project" />
-        </SettingsContent>
+        <PageBody>
+          <Box spaceY="comfortable">
+            <Skeleton height="control" width="1/2" />
+            <Skeleton height="placeholder-block" />
+          </Box>
+        </PageBody>
       </Page>
     );
   return <ProjectForm key={project.data.id} projectId={projectId} project={project.data} />;
@@ -54,11 +57,11 @@ function ProjectForm({ projectId, project }: { projectId: string; project: { nam
 
   return (
     <Page title="프로젝트" flush>
-      <SettingsContent>
+      <PageBody>
         <Box spaceY="wide">
-          <SettingsSection
+          <Section variant="page"
             title="기본 정보"
-            actions={
+            footer={
               <>
                 <Button disabled={!dirty || !name.trim() || save.isPending} onClick={() => save.mutate()}>
                   저장
@@ -72,37 +75,37 @@ function ProjectForm({ projectId, project }: { projectId: string; project: { nam
             }
           >
             {conflicts.length > 0 && <ChangedElsewhere fields={conflicts.map((field) => (field === 'name' ? '이름' : '설명'))} onTakeSaved={takeSaved} onKeepMine={keepMine} />}
-            <SettingsFieldGroup>
+            <Field.Group>
               <Field>
-                <FieldLabel htmlFor="project-name">이름</FieldLabel>
+                <Field.Label htmlFor="project-name">이름</Field.Label>
                 <Input id="project-name" value={name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
               </Field>
               <Field>
-                <FieldLabel htmlFor="project-description">설명</FieldLabel>
+                <Field.Label htmlFor="project-description">설명</Field.Label>
                 <Textarea id="project-description" rows={3} value={description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
               </Field>
               <Field>
-                <FieldLabel>언어</FieldLabel>
-                <FieldDescription>
+                <Field.Label>언어</Field.Label>
+                <Field.Description>
                   {project.sourceLanguage} → {project.targetLanguage}
-                </FieldDescription>
+                </Field.Description>
               </Field>
-            </SettingsFieldGroup>
-          </SettingsSection>
+            </Field.Group>
+          </Section>
 
-          <SettingsSection title="AI 문맥">
+          <Section variant="page" title="AI 문맥">
             <AiAutoConfirmSetting projectId={projectId} />
-          </SettingsSection>
+          </Section>
 
-          <SettingsSection title="번역 결과">
+          <Section variant="page" title="번역 결과">
             <Button variant="outline" asChild>
               <a href={`/api/projects/${projectId}/export`} download>
                 <Download /> 내보내기
               </a>
             </Button>
-          </SettingsSection>
+          </Section>
 
-          <SettingsSection tone="danger" title="위험 구역 · 프로젝트 삭제" description="프로젝트의 모든 데이터가 삭제되며 되돌릴 수 없습니다.">
+          <Section variant="page" tone="danger" title="위험 구역 · 프로젝트 삭제" description="프로젝트의 모든 데이터가 삭제되며 되돌릴 수 없습니다.">
             <AlertDialog onOpenChange={() => setConfirmName('')}>
               <AlertDialogTrigger asChild>
                 <Button variant="destructive">
@@ -123,9 +126,9 @@ function ProjectForm({ projectId, project }: { projectId: string; project: { nam
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
-          </SettingsSection>
+          </Section>
         </Box>
-      </SettingsContent>
+      </PageBody>
     </Page>
   );
 }

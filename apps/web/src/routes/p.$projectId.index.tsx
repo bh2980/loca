@@ -3,7 +3,7 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { BookMarked, ChevronRight, CircleAlert, Inbox, MessageSquareQuote, Sparkles, UserRoundSearch, Workflow } from 'lucide-react';
 import { GettingStarted } from '@/components/getting-started';
-import { JobStatusBadge, Box, Button, Heading, Icon, Inline, RowChevron, RowSkeleton, RunCountCell, RunDateCell, RunRowLink, RunTitleCell, Stack, StatusChipLink, StatusIcon, StatusMeter, Text, TodoIcon, TodoRowLink, ProgressKindLabel } from '@loca/ui';
+import { RunStatusBadge, Box, Button, Heading, Icon, Inline, ListRow, Stack, StatusChipLink, StatusIcon, Meter, Text, TodoIcon, Skeleton } from '@loca/ui';
 import { Elapsed, JobProgress } from '@/components/job-progress';
 import { Page } from '@/components/page';
 import { AUTO_MARKS } from '@tw/shared';
@@ -147,8 +147,7 @@ function Home() {
         <Heading variant="page-section" minWidth={0} marginBottom="normal">다음 할 일</Heading>
         {loading ? (
           <Box spaceY="condensed">
-            <RowSkeleton />
-            <RowSkeleton />
+            <Skeleton height="placeholder-sm" count={2} />
           </Box>
         ) : open.length ? (
           <Box as="ul" radius="md" border="all">
@@ -170,11 +169,11 @@ function Home() {
             최종 상태 {total ? Math.round((done / total) * 100) : 0}% · 대사 {total.toLocaleString()}개 · 묶음 {project.data?.groupCount.toLocaleString() ?? '–'}개
           </Text>
         </Stack>
-        <StatusMeter variant="page" statuses={statusList} counts={counts} />
+        <Meter size="md" statuses={statusList} counts={counts} />
         <Box as="ul" marginTop="normal" spaceY="condensed">
           {kindProgress.map(({ kind, statusCounts, lines }) => (
             <Inline as="li" key={kind} wrap gapX="normal" gapY="tight">
-              <ProgressKindLabel>{SCRIPT_VIEW[kind]} · {lines.toLocaleString()}줄</ProgressKindLabel>
+              <Text variant="caption" tone="muted" minWidth="field-2xs">{SCRIPT_VIEW[kind]} · {lines.toLocaleString()}줄</Text>
               <Stack as="ul" direction="row" wrap gapX="tight" gapY="tight">
                 {statusList.map((status) => (
                   <li key={status.id}>
@@ -209,22 +208,22 @@ function Home() {
           <Box as="ul" radius="md" border="all">
             {recent.map((item) => (
               <li key={item.id}>
-                <RunRowLink>
+                <ListRow as="link" variant="bordered" size="sm">
                   <Link
                     {...(item.kind === 'run' ? { to: '/p/$projectId/runs/$runId', params: { projectId, runId: item.id } } : { to: '/p/$projectId/runs', params: { projectId }, search: { job: item.id } })}
                   >
-                    <RunTitleCell>
+                    <Text width="field-xl" shrink={false} truncate>
                       {item.title !== JOB_KIND[item.kind] && <><Text variant="caption" tone="muted" marginRight="tight">{JOB_KIND[item.kind]}</Text>{' '}</>}
                       <Text weight="medium">{item.title}</Text>
-                    </RunTitleCell>{' '}
-                    <JobStatusBadge status={item.status} />{' '}
+                    </Text>{' '}
+                    <RunStatusBadge status={item.status} />{' '}
                     <JobProgress done={item.done} total={item.total} running={item.status === 'running'} grow />{' '}
-                    <RunCountCell>
+                    <Text width="field-sm" shrink={false} align="end" nowrap tone="muted" tabular>
                       {item.status === 'running' && item.total <= 1 ? <Elapsed since={item.at} /> : `${item.done.toLocaleString()}/${item.total.toLocaleString()}`}
-                    </RunCountCell>
-                    <RunDateCell>{dateTime(item.at)}</RunDateCell>
+                    </Text>
+                    <Text display="desktop" width="field-2xl" shrink={false} align="end" variant="caption" nowrap tone="muted">{dateTime(item.at)}</Text>
                   </Link>
-                </RunRowLink>
+                </ListRow>
               </li>
             ))}
           </Box>
@@ -243,8 +242,8 @@ function TodoRow({ todo }: { todo: Todo }) {
         {todo.description && <Text display="block" truncate variant="caption" tone="muted">{todo.description}</Text>}
       </Text>
       <Text variant="reading" weight="semibold" tabular tone={todo.alert ? 'danger' : undefined}>{todo.count.toLocaleString()}</Text>
-      <RowChevron />
+      <Icon icon={ChevronRight} size="md" tone="muted" />
     </>
   );
-  return <TodoRowLink>{cloneElement(todo.link, { children: content })}</TodoRowLink>;
+  return <ListRow as="link" variant="bordered">{cloneElement(todo.link, { children: content })}</ListRow>;
 }

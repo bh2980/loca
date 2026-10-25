@@ -1,5 +1,5 @@
 /** Pieces shared by the node-kind configs: shared field primitives and the node/ref types. */
-import { Box, Button, Checkbox, HelpTip, Inline, NodeKindIcon, NumberInput, InspectorField, InspectorToggle, Switch, Text } from '@loca/ui';
+import { Box, Button, Checkbox, HelpTip, Inline, NodeKindIcon, NumberInput, InspectorToggle, Switch, Text } from '@loca/ui';
 import { CONNECTION_KIND_INFO, functionGroup, leavesResult, nodeName, nodeOutputFields, workflowInput, type ModelLimits, type WorkflowEdge, type WorkflowNode, type WorkflowSubject } from '@tw/shared';
 import { nodeIcon } from '@/components/workflow/node-view';
 
@@ -52,15 +52,6 @@ export function CheckItem({ id, label, checked, onChange, title }: { id: string;
   );
 }
 
-/** A node setting: the panes' one field shape (InspectorField): `hint` how to fill it in (shown), `help` what it is (?). */
-export function Field({ label, hint, help, action, children }: { label: React.ReactNode; hint?: React.ReactNode; help?: React.ReactNode; action?: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <InspectorField label={label} description={hint} help={help} action={action}>
-      {children}
-    </InspectorField>
-  );
-}
-
 /** A context item counted in lines or scenes: a switch like the others, with the count beside it while on (0 = off). */
 export function CountRow({ label, help, unit, value, fallback, max, onChange }: { label: string; help?: string; unit: string; value: number; fallback: number; max: number; onChange: (value: number) => void }) {
   return (
@@ -69,7 +60,7 @@ export function CountRow({ label, help, unit, value, fallback, max, onChange }: 
       <Inline as="span" shrink={false} gap="condensed">
         {value > 0 && (
           <Inline as="span" gap="tight" variant="caption" tone="muted">
-            <Box asChild height={7} width={14} textAlign="end">
+            <Box asChild height="control-sm" width="field-3xs" textAlign="end">
               <NumberInput min={1} max={max} value={value} onValueChange={(next) => next !== undefined && onChange(next)} aria-label={`${label} 수`} />
             </Box>
             {unit}

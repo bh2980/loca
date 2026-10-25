@@ -1,6 +1,6 @@
 import { AGENT_TOOLS, type AgeBand, type AutoMark, type Gender, personLabel, CHARACTER_ROLE_LABELS, type CharacterRole } from '@tw/shared';
 import { MarkChip } from '@/components/status';
-import { Box, ChatMarkdown, GroupHeading, Grid, Inline, Text } from '@loca/ui';
+import { Box, Markdown, Grid, Inline, Text, SectionHeading } from '@loca/ui';
 
 export const LABEL: Record<string, string> = Object.fromEntries(Object.entries(AGENT_TOOLS).map(([name, info]) => [name, info.label]));
 
@@ -15,7 +15,7 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
     );
   const markdown = (value: unknown) =>
     typeof value === 'string' && value ? (
-      <ChatMarkdown framed>{value}</ChatMarkdown>
+      <Markdown framed>{value}</Markdown>
     ) : null;
   const action = input.id ? '수정' : '새로 만들기';
   switch (name) {
@@ -54,14 +54,14 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
         ['documents', '노트', (item: Record<string, unknown>) => String(item.title ?? item.id ?? '')],
       ] as const;
       return (
-        <Box maxHeight={56} spaceY="condensed" overflow="auto">
+        <Box maxHeight="scroll" spaceY="condensed" overflow="auto">
           {sections.map(([key, label, text]) => {
             const items = (input[key] as Record<string, unknown>[] | undefined) ?? [];
             return items.length ? (
               <div key={key}>
-                <GroupHeading>
+                <SectionHeading level="group">
                   {label} {items.length}개
-                </GroupHeading>
+                </SectionHeading>
                 <Box as="ul" spaceY="hair">
                   {items.map((item, index) => (
                     <li key={index}>
@@ -94,7 +94,7 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
           {Object.entries(input).map(([key, value]) => (
             <Grid key={key} columns="field" gap="condensed">
               <Text as="dt" variant="caption" tone="muted">{labels[key] ?? key}</Text>
-              <Text as="dd" minWidth={0} breakWords>{typeof value === 'string' ? value : <Text as="pre" maxHeight={32} overflow="auto" variant="caption" preserveLines>{JSON.stringify(value, null, 2)}</Text>}</Text>
+              <Text as="dd" minWidth={0} breakWords>{typeof value === 'string' ? value : <Text as="pre" maxHeight="scroll-xs" overflow="auto" variant="caption" preserveLines>{JSON.stringify(value, null, 2)}</Text>}</Text>
             </Grid>
           ))}
         </Box>
@@ -136,7 +136,7 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
     case 'save_terms': {
       const terms = (input.terms as { source: string; target: string; id?: string }[]) ?? [];
       return (
-        <Box as="ul" maxHeight={48} spaceY="hair" overflow="auto">
+        <Box as="ul" maxHeight="scroll-md" spaceY="hair" overflow="auto">
           {terms.map((term, index) => (
             <li key={index}>
               {term.id ? '수정' : '추가'} · <b>{term.source}</b> → {term.target || '(번역 없음)'}
@@ -169,7 +169,7 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
             대사 <b>{(counts?.lines ?? changes.length).toLocaleString()}</b>개 · 번역 {translations.toLocaleString()} · 상태 {statuses.toLocaleString()} · 태그 {tagged.toLocaleString()}
             {counts && changes.length < counts.lines && <Text tone="muted"> · 처음 {changes.length}개만 표시</Text>}
           </p>
-          <Box as="ul" maxHeight={56} spaceY="tight" overflow="auto">
+          <Box as="ul" maxHeight="scroll" spaceY="tight" overflow="auto">
             {changes.slice(0, 50).map((change) => (
               <Box as="li" key={change.key} radius="base" border="all" paddingX="condensed" paddingY="tight">
                 <Text mono variant="caption" tone="muted">{change.key}</Text>
@@ -219,11 +219,11 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
           {field('노드', input.nodeId)}
           {field('항목', { instructions: '지시문', expression: '조건식', code: '스크립트 코드' }[input.field as string])}
           {field('설명', input.description)}
-          <Text as="pre" maxHeight={64} overflow="auto" radius="md" border="all" background="muted" padding="condensed" variant="caption" preserveLines>{value}</Text>
+          <Text as="pre" maxHeight="scroll-lg" overflow="auto" radius="md" border="all" background="sunken" padding="condensed" variant="caption" preserveLines>{value}</Text>
         </Box>
       );
     }
     default:
-      return <Text as="pre" maxHeight={48} overflow="auto" variant="caption">{JSON.stringify(input, null, 2)}</Text>;
+      return <Text as="pre" maxHeight="scroll-md" overflow="auto" variant="caption">{JSON.stringify(input, null, 2)}</Text>;
   }
 }

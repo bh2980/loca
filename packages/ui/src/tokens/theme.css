@@ -1,19 +1,150 @@
 /*
- * loca design tokens. One set of semantic names, two themes:
- *   light = "A Slate"   cool slate neutrals (hue 258), one cobalt accent, lines only between regions.
- *   .dark = "C Night"   graphite (hue 265), one signal-teal accent, regions by tone steps.
- * Components use the semantic names only (bg-chrome, text-subtle-foreground, bg-primary …), never raw
- * colours; `pnpm ui-rules` refuses hex values and Tailwind palette names in the app.
+ * Role and component tiers. palette.css holds the raw colours (slate-984, cobalt-530 ...); this file only says which
+ * step plays which role, and nothing else in the app names a step. A role is named per painted property through
+ * Tailwind's namespaces, so the class says what it paints:
  *
- * Surfaces, darkest to lightest in light mode:
- *   chrome   sidebar, status bar, page header strip
- *   panel    right dock, inspector, tree columns
- *   background  the work area
- *   card/popover  raised things (inputs, menus, nodes)
- * Text: foreground → muted-foreground (labels, secondary) → subtle-foreground (meta, placeholders), all ≥ 4.5:1.
- * Status palette: --hue-1 … --hue-12, one hue each, light/dark tuned; the stored colour is the light
- * hex in @tw/shared STATUS_COLORS and the app maps it to the hue variable (packages/ui tokens/palette.ts).
+ *   bg-page  bg-surface  bg-accent  text-default  text-muted  border-default  ring-focus  outline-focus  fill-accent ...
+ *   (--background-color-page, --text-color-default, --border-color-default, --ring-color-focus ...)
+ *
+ * Tailwind's own palette is switched off, so `bg-red-500`, `bg-black` and `text-white` make no CSS: a colour is a role
+ * or it is not a class. Opacity modifiers on a role (`bg-accent/40`) are fine inside packages/ui. `pnpm ui-rules`
+ * checks that every colour class names a token defined here.
+ *
+ * Light = "A Slate": cool slate neutrals (hue 258), one cobalt accent, lines only between regions.
+ * Dark  = "C Night": graphite (hue 265), one signal-teal accent, regions by tone steps, no drawn lines.
+ * The light assignments sit in the @theme block (Tailwind reads the role names from it); .dark reassigns the roles
+ * that differ. Every value is a base step (var(--slate-984)), another role, or a mix of those; never a literal.
+ *
+ * Text: default, muted (labels, secondary) and subtle (meta, placeholders) are all at least 4.5:1 on the work area.
+ * Meaning: red = destructive/error, orange = warning, amber = needs review, green = done, violet = AI.
+ * Status colours are data (--hue-1 ... --hue-12 in palette.css), not roles.
  */
+@theme static {
+  /* Tailwind's default palette off: no bg-red-500, bg-black, text-white. transparent, current and inherit still work. */
+  --color-*: initial;
+
+  /* Background: surfaces, darkest to lightest in the light theme (chrome, panel, page, surface/overlay), then fills and meaning. */
+  --background-color-page: var(--slate-995); /* the work area */
+  --background-color-panel: var(--slate-984); /* right dock, inspector, tree columns */
+  --background-color-chrome: var(--slate-968); /* sidebar, status bar, page header strip */
+  --background-color-navigation: var(--slate-984); /* the list on the left of a page */
+  --background-color-surface: var(--slate-1000); /* raised things: inputs, nodes, cards */
+  --background-color-overlay: var(--slate-1000); /* menus and popovers */
+  --background-color-sunken: var(--slate-955); /* a recessed field or chip */
+  --background-color-quiet: var(--slate-950); /* a quiet fill: segmented controls, kbd */
+  --background-color-hover: var(--slate-945); /* the row or item under the pointer */
+  --background-color-selected: var(--cobalt-910); /* the picked row */
+  --background-color-accent: var(--cobalt-530); /* the one accent: primary button, checked, active */
+  --background-color-accent-soft: var(--cobalt-950); /* a light wash of the accent */
+  --background-color-danger: var(--red-550); /* destructive, error */
+  --background-color-warning: var(--orange-520); /* needs attention */
+  --background-color-success: var(--green-450); /* done */
+  --background-color-review: var(--amber-660); /* needs a person to review */
+  --background-color-ai: var(--violet-470); /* made by AI */
+  --background-color-ai-soft: var(--violet-950); /* a light wash of AI */
+  --background-color-line: var(--slate-910); /* a line drawn as a fill: separators, scrollbar thumbs, resize handles */
+  --background-color-neutral: var(--slate-430); /* a grey dot or stroke drawn as a fill */
+  --background-color-neutral-subtle: var(--slate-520); /* a fainter grey dot */
+  --background-color-inverse: var(--slate-240); /* a dark fill in the light theme and the reverse (tooltip) */
+  --background-color-track: var(--slate-660); /* the off track of a switch */
+  --background-color-scrim: var(--night-0-a40); /* behind a dialog or sheet */
+  --background-color-focus: var(--cobalt-530-a45); /* the focus colour as a fill (a resize handle being dragged) */
+
+  /* Text */
+  --text-color-default: var(--slate-240); /* body */
+  --text-color-muted: var(--slate-430); /* labels, secondary */
+  --text-color-subtle: var(--slate-520); /* meta, placeholders */
+  --text-color-inverse: var(--slate-995); /* on a strong fill: danger, success, inverse */
+  --text-color-on-accent: var(--slate-1000); /* on the accent fill */
+  --text-color-on-accent-soft: var(--cobalt-450); /* on the soft accent wash */
+  --text-color-accent: var(--cobalt-530);
+  --text-color-danger: var(--red-550);
+  --text-color-warning: var(--orange-520);
+  --text-color-success: var(--green-450);
+  --text-color-review: var(--amber-500);
+  --text-color-ai: var(--violet-470);
+
+  /* Border: lines go between regions only; rows and sections use space and surface instead. */
+  --border-color-default: var(--slate-910); /* between regions */
+  --border-color-subtle: var(--slate-940); /* inside a region */
+  --border-color-input: var(--slate-660); /* a field's edge, 3.1:1 on a white field (WCAG 1.4.11) */
+  --border-color-strong: var(--slate-240); /* an outline in the text colour (hover, the main person) */
+  --border-color-neutral: var(--slate-430); /* a grey rule or outline */
+  --border-color-surface: var(--slate-1000); /* a gap cut in the colour of the surface behind */
+  --border-color-focus: var(--cobalt-530-a45); /* a focused field's edge */
+  --border-color-accent: var(--cobalt-530);
+  --border-color-danger: var(--red-550);
+  --border-color-warning: var(--orange-520);
+  --border-color-success: var(--green-450);
+  --border-color-review: var(--amber-660);
+
+  /* Ring, outline, divide, decoration */
+  --ring-color-focus: var(--cobalt-530-a45); /* the focus ring */
+  --ring-color-line: var(--slate-910); /* a hairline drawn as a ring (message bubbles) */
+  --ring-color-strong: var(--slate-240); /* the picked swatch */
+  --ring-color-accent: var(--cobalt-530);
+  --ring-color-danger: var(--red-550); /* an invalid field */
+  --ring-color-warning: var(--orange-520);
+  --outline-color-focus: var(--cobalt-530-a45);
+  --divide-color-subtle: var(--slate-940);
+  --text-decoration-color-accent: var(--cobalt-530);
+  --text-decoration-color-danger: var(--red-550);
+
+  /* Drawn shapes (SVG, React Flow) */
+  --fill-accent: var(--cobalt-530);
+  --fill-muted: var(--slate-430);
+  --fill-page: var(--slate-995);
+  --stroke-default: var(--slate-240);
+  --stroke-muted: var(--slate-430);
+  --stroke-subtle: var(--slate-520);
+  --stroke-accent: var(--cobalt-530);
+  --stroke-danger: var(--red-550);
+  --stroke-warning: var(--orange-520);
+
+  /* Component tier: each token names its part and points at a role or a step. */
+
+  /* Sidebar */
+  --background-color-sidebar: var(--background-color-chrome);
+  --text-color-sidebar: var(--text-color-default);
+  --background-color-sidebar-item: var(--slate-925); /* hover, active, open */
+  --background-color-sidebar-badge: var(--slate-240); /* the project mark at the top */
+
+  /* Dialogue and workflow graphs (canvas-colors.ts reads these by name) */
+  --background-color-graph-canvas: var(--slate-940);
+  --fill-graph-grid: var(--slate-830);
+  --stroke-graph-edge: var(--slate-580);
+  --background-color-graph-node: var(--slate-1000);
+  --stroke-graph-node: var(--slate-760);
+  --background-color-graph-kind-choice: var(--background-color-accent-soft);
+  --background-color-graph-kind-condition: color-mix(in oklch, var(--background-color-review) 18%, var(--background-color-surface));
+  --background-color-graph-kind-wait: var(--background-color-sunken);
+  --background-color-graph-kind-event: color-mix(in oklch, var(--background-color-success) 16%, var(--background-color-surface));
+  /* The status-change kind uses the status hue the node header does (--hue-12 is data, see palette.css). */
+  --background-color-graph-kind-state: color-mix(in oklch, var(--hue-12) 15%, var(--background-color-surface));
+  /* A player's choice in a node's lines: a tint of the accent. */
+  --text-color-graph-choice: var(--text-color-accent);
+  --background-color-graph-choice: var(--background-color-accent);
+  --border-color-graph-choice: var(--border-color-accent);
+
+  /* Workflow node cards: the header wash per kind of node */
+  --background-color-node-header-neutral: var(--background-color-sunken);
+  --background-color-node-header-ai: var(--background-color-ai-soft);
+  --background-color-node-header-check: var(--background-color-accent-soft);
+  --background-color-node-header-flow: color-mix(in oklab, var(--background-color-review) 18%, var(--background-color-surface));
+  --background-color-node-header-status: color-mix(in oklab, var(--background-color-success) 14%, var(--background-color-surface));
+  --background-color-node-header-state: color-mix(in oklab, var(--hue-12) 16%, var(--background-color-surface));
+  --text-color-node-state: var(--hue-12);
+  --background-color-node-state: var(--hue-12);
+
+  /* The floating toolbar over a selection */
+  --background-color-floating-toolbar: var(--slate-240);
+  --text-color-floating-toolbar: var(--slate-970);
+  --background-color-floating-toolbar-hover: color-mix(in oklab, var(--text-color-floating-toolbar) 10%, transparent);
+
+  /* The empty part of a meter */
+  --background-color-meter-track: color-mix(in oklch, var(--text-color-default) 8%, transparent);
+}
+
 :root {
   color-scheme: light;
   --font-ui: "Wanted Sans Variable", "Wanted Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -24,182 +155,103 @@
   --radius-control: 6px;
   --radius-panel: 8px;
   --icon-stroke: 1.75px;
-  --floating-toolbar: oklch(0.24 0.02 262);
-  --floating-toolbar-foreground: oklch(0.97 0.002 262);
-  --node-header-neutral: var(--muted);
-  --node-header-ai: var(--ai-soft);
-  --node-header-check: var(--primary-soft);
-  --node-header-flow: color-mix(in oklab, var(--review) 18%, var(--card));
-  --node-header-status: color-mix(in oklab, var(--success) 14%, var(--card));
-  /* 상태 변경 node: the status hue the graph also uses for states (--graph-kind-state). */
-  --node-header-state: color-mix(in oklab, var(--hue-12) 16%, var(--card));
 
-  --chrome: oklch(0.968 0.006 258);
-  --panel: oklch(0.984 0.004 258);
-  --navigation: oklch(0.984 0.004 258);
-  --background: oklch(0.995 0.002 258);
-  --card: oklch(1 0 0);
-  --popover: oklch(1 0 0);
-
-  --foreground: oklch(0.24 0.02 262);
-  --muted-foreground: oklch(0.43 0.02 262);
-  --subtle-foreground: oklch(0.52 0.018 262);
-  --card-foreground: var(--foreground);
-  --popover-foreground: var(--foreground);
-
-  /* One accent: the primary button, the selection, focus, a selected edge. */
-  --primary: oklch(0.53 0.19 262);
-  --primary-foreground: oklch(1 0 0);
-  --primary-soft: oklch(0.95 0.03 262);
-  --primary-ink: oklch(0.45 0.17 262);
-  --selection: oklch(0.91 0.04 262);
-
-  /* Quiet fills: hover, segmented controls, chips, kbd. */
-  --secondary: oklch(0.95 0.006 258);
-  --secondary-foreground: var(--foreground);
-  --muted: oklch(0.955 0.006 258);
-  --accent: oklch(0.945 0.008 258);
-  --accent-foreground: var(--foreground);
-  --meter-track: color-mix(in oklch, var(--foreground) 8%, transparent);
-
-  /* Meaning. Each hue says one thing: red = destructive/error, orange = warning, amber = needs review,
-     green = done, violet = AI. Text-sized ink variants are ≥ 4.5:1 on the work area. */
-  --destructive: oklch(0.55 0.2 27);
-  --warning: oklch(0.52 0.13 55);
-  --success: oklch(0.45 0.11 152);
-  --review: oklch(0.66 0.15 62);
-  --review-ink: oklch(0.5 0.12 60);
-  --ai: oklch(0.47 0.12 300);
-  --ai-soft: oklch(0.95 0.025 300);
-
-  /* Format token chips (paired by number); away from the accent and the meaning hues. */
-  --token-1: oklch(0.47 0.12 200);
-  --token-2: oklch(0.48 0.11 165);
-  --token-3: oklch(0.5 0.15 350);
-  --token-4: oklch(0.48 0.13 235);
-  --token-5: oklch(0.47 0.1 125);
-  --token-6: oklch(0.47 0.1 320);
-
-  /* Lines go between regions only; rows and sections use space and surface instead. */
-  --border: oklch(0.91 0.008 258);
-  --border-subtle: oklch(0.94 0.005 258);
-  --input: oklch(0.66 0.014 258); /* 3.1:1 on a white field (WCAG 1.4.11) */
-  --ring: oklch(0.53 0.19 262 / 0.45);
-
-  --sidebar: var(--chrome);
-  --sidebar-foreground: var(--foreground);
-  --sidebar-primary: var(--foreground);
-  --sidebar-primary-foreground: var(--primary-foreground);
-  --sidebar-accent: oklch(0.925 0.012 258);
-  --sidebar-accent-foreground: var(--foreground);
-  --sidebar-border: var(--border);
-  --sidebar-ring: var(--ring);
-
-  --graph-canvas: oklch(0.94 0.006 258);
-  --graph-grid: oklch(0.83 0.008 258);
-  --graph-edge: oklch(0.58 0.02 258);
-  --graph-node: oklch(1 0 0);
-  --graph-node-line: oklch(0.76 0.012 258);
-  --graph-select: var(--primary);
-  --graph-kind-choice: var(--primary-soft);
-  --graph-kind-condition: color-mix(in oklch, var(--review) 18%, var(--card));
-  --graph-kind-wait: var(--muted);
-  --graph-kind-event: color-mix(in oklch, var(--success) 16%, var(--card));
-  --graph-kind-state: color-mix(in oklch, var(--hue-12) 15%, var(--card));
-
-  --shadow-color: oklch(0.24 0.02 262 / 0.08);
-
-  --hue-1: oklch(0.6 0.02 258);
-  --hue-2: oklch(0.6 0.17 25);
-  --hue-3: oklch(0.6 0.15 50);
-  --hue-4: oklch(0.6 0.14 72);
-  --hue-5: oklch(0.6 0.14 125);
-  --hue-6: oklch(0.6 0.14 152);
-  --hue-7: oklch(0.6 0.11 185);
-  --hue-8: oklch(0.6 0.12 215);
-  --hue-9: oklch(0.6 0.15 245);
-  --hue-10: oklch(0.6 0.16 272);
-  --hue-11: oklch(0.6 0.15 300);
-  --hue-12: oklch(0.6 0.15 345);
+  /* The colour of every shadow (system.css --shadow-*). */
+  --elevation-color: var(--slate-240-a08);
 }
 
 .dark {
   color-scheme: dark;
   --radius-panel: 10px;
   --icon-stroke: 1.9px;
-  --sidebar-primary: var(--primary);
-  --floating-toolbar: oklch(0.32 0.012 265);
-  --node-header-neutral: var(--muted);
-  --node-header-ai: oklch(0.38 0.055 278);
-  --node-header-check: oklch(0.37 0.05 256);
-  --node-header-flow: color-mix(in oklab, var(--review) 18%, var(--card));
-  --node-header-status: color-mix(in oklab, var(--success) 14%, var(--card));
-  /* 상태 변경 node: the status hue the graph also uses for states (--graph-kind-state). */
-  --node-header-state: color-mix(in oklab, var(--hue-12) 16%, var(--card));
+  --elevation-color: var(--night-0-a35);
 
-  --chrome: oklch(0.17 0.011 265);
-  --panel: oklch(0.235 0.013 265);
-  --navigation: oklch(0.185 0.012 265);
-  --background: oklch(0.205 0.012 265);
-  --card: oklch(0.255 0.014 265);
-  --popover: oklch(0.27 0.014 265);
+  --background-color-page: var(--night-205);
+  --background-color-panel: var(--night-235);
+  --background-color-chrome: var(--night-170);
+  --background-color-navigation: var(--night-185);
+  --background-color-surface: var(--night-255);
+  --background-color-overlay: var(--night-270);
+  --background-color-sunken: var(--night-255);
+  --background-color-quiet: var(--night-290);
+  --background-color-hover: var(--night-290);
+  --background-color-selected: var(--teal-340);
+  --background-color-accent: var(--teal-800);
+  --background-color-accent-soft: var(--teal-320);
+  --background-color-danger: var(--red-700);
+  --background-color-warning: var(--orange-780);
+  --background-color-success: var(--green-800);
+  --background-color-review: var(--amber-800);
+  --background-color-ai: var(--violet-840);
+  --background-color-ai-soft: var(--violet-320);
+  --background-color-line: var(--night-290);
+  --background-color-neutral: var(--night-760);
+  --background-color-neutral-subtle: var(--night-650);
+  --background-color-inverse: var(--night-940);
+  --background-color-track: var(--night-530);
+  --background-color-focus: var(--teal-800-a50);
 
-  --foreground: oklch(0.94 0.008 265);
-  --muted-foreground: oklch(0.76 0.012 265);
-  --subtle-foreground: oklch(0.65 0.014 265);
-
-  --primary: oklch(0.8 0.12 192);
-  --primary-foreground: oklch(0.2 0.03 220);
-  --primary-soft: oklch(0.32 0.05 192);
-  --primary-ink: oklch(0.85 0.1 192);
-  --selection: oklch(0.34 0.07 192);
-
-  --secondary: oklch(0.29 0.014 265);
-  --muted: oklch(0.255 0.013 265);
-  --accent: oklch(0.29 0.016 265);
-  --meter-track: color-mix(in oklch, var(--foreground) 10%, transparent);
-
-  --destructive: oklch(0.7 0.17 25);
-  --warning: oklch(0.78 0.14 60);
-  --success: oklch(0.8 0.13 155);
-  --review: oklch(0.8 0.14 78);
-  --review-ink: oklch(0.84 0.12 80);
-  --ai: oklch(0.84 0.08 300);
-  --ai-soft: oklch(0.32 0.06 300);
-
-  --token-1: oklch(0.82 0.1 310);
-  --token-2: oklch(0.82 0.1 165);
-  --token-3: oklch(0.82 0.11 350);
-  --token-4: oklch(0.8 0.1 235);
-  --token-5: oklch(0.82 0.1 125);
-  --token-6: oklch(0.8 0.1 320);
+  --text-color-default: var(--night-940);
+  --text-color-muted: var(--night-760);
+  --text-color-subtle: var(--night-650);
+  --text-color-inverse: var(--night-205);
+  --text-color-on-accent: var(--teal-200);
+  --text-color-on-accent-soft: var(--teal-850);
+  --text-color-accent: var(--teal-800);
+  --text-color-danger: var(--red-700);
+  --text-color-warning: var(--orange-780);
+  --text-color-success: var(--green-800);
+  --text-color-review: var(--amber-840);
+  --text-color-ai: var(--violet-840);
 
   /* No drawn lines in the dark theme: the region line is one tone step. */
-  --border: oklch(0.29 0.013 265);
-  --border-subtle: oklch(0.255 0.012 265);
-  --input: oklch(0.53 0.015 265); /* 3:1 on a dark field */
-  --ring: oklch(0.8 0.12 192 / 0.5);
+  --border-color-default: var(--night-290);
+  --border-color-subtle: var(--night-255);
+  --border-color-input: var(--night-530); /* 3:1 on a dark field */
+  --border-color-strong: var(--night-940);
+  --border-color-neutral: var(--night-760);
+  --border-color-surface: var(--night-255);
+  --border-color-focus: var(--teal-800-a50);
+  --border-color-accent: var(--teal-800);
+  --border-color-danger: var(--red-700);
+  --border-color-warning: var(--orange-780);
+  --border-color-success: var(--green-800);
+  --border-color-review: var(--amber-800);
 
-  --sidebar-accent: oklch(0.28 0.016 265);
+  --ring-color-focus: var(--teal-800-a50);
+  --ring-color-line: var(--night-290);
+  --ring-color-strong: var(--night-940);
+  --ring-color-accent: var(--teal-800);
+  --ring-color-danger: var(--red-700);
+  --ring-color-warning: var(--orange-780);
+  --outline-color-focus: var(--teal-800-a50);
+  --divide-color-subtle: var(--night-255);
+  --text-decoration-color-accent: var(--teal-800);
+  --text-decoration-color-danger: var(--red-700);
 
-  --graph-canvas: oklch(0.175 0.011 265);
-  --graph-grid: oklch(0.29 0.012 265);
-  --graph-edge: oklch(0.68 0.02 265);
-  --graph-node: oklch(0.31 0.016 265);
-  --graph-node-line: oklch(0.44 0.016 265);
+  --fill-accent: var(--teal-800);
+  --fill-muted: var(--night-760);
+  --fill-page: var(--night-205);
+  --stroke-default: var(--night-940);
+  --stroke-muted: var(--night-760);
+  --stroke-subtle: var(--night-650);
+  --stroke-accent: var(--teal-800);
+  --stroke-danger: var(--red-700);
+  --stroke-warning: var(--orange-780);
 
-  --shadow-color: oklch(0 0 0 / 0.35);
+  --background-color-sidebar-item: var(--night-280);
+  --background-color-sidebar-badge: var(--teal-800);
 
-  --hue-1: oklch(0.72 0.02 265);
-  --hue-2: oklch(0.72 0.15 25);
-  --hue-3: oklch(0.75 0.13 50);
-  --hue-4: oklch(0.8 0.13 75);
-  --hue-5: oklch(0.78 0.13 125);
-  --hue-6: oklch(0.76 0.14 155);
-  --hue-7: oklch(0.76 0.1 185);
-  --hue-8: oklch(0.76 0.11 215);
-  --hue-9: oklch(0.74 0.12 250);
-  --hue-10: oklch(0.74 0.13 275);
-  --hue-11: oklch(0.76 0.12 300);
-  --hue-12: oklch(0.76 0.13 345);
+  --background-color-graph-canvas: var(--night-175);
+  --fill-graph-grid: var(--night-290);
+  --stroke-graph-edge: var(--night-680);
+  --background-color-graph-node: var(--night-310);
+  --stroke-graph-node: var(--night-440);
+
+  --background-color-node-header-ai: var(--violet-380);
+  --background-color-node-header-check: var(--cobalt-370);
+
+  --background-color-floating-toolbar: var(--night-320);
+
+  --background-color-meter-track: color-mix(in oklch, var(--text-color-default) 10%, transparent);
 }

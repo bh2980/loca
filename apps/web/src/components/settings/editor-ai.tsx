@@ -4,7 +4,7 @@ import { ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { AI_PROMPTS, COMPLETE_SYSTEM, CONTEXT_FIELDS, DEFAULT_EDITOR_AI, type EditorAi, type EditorButton } from '@tw/shared';
 import { ModelPicker } from '@/components/model-picker';
-import { Box, Button, Checkbox, Collapsible, CollapsibleContent, CollapsibleTrigger, DisclosureButton, Field, FieldDescription, FieldLabel, FieldNote, FixedLabel, HelpTip, Icon, Inline, InstructionsBody, MonoTextarea, NumberFieldInput, SaveStatusLine, SettingsFieldGroup, SettingsSection, Stack, Switch, Text } from '@loca/ui';
+import { Box, Button, Checkbox, Collapsible, CollapsibleContent, CollapsibleTrigger, Field, HelpTip, Icon, Inline, SaveStatusLine, Stack, Switch, Text, Textarea, Input, Section } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { useFormFrom } from '@/lib/use-form-from';
@@ -12,21 +12,22 @@ import { useFormFrom } from '@/lib/use-form-from';
 /** A text kept locally while typed and saved when the field is left (a prompt is long; one save, not one per key). */
 function SavedText({ id, label, value, storage, rows = 6, onSave }: { id: string; label: string; value: string; storage: string; rows?: number; onSave: (value: string) => void }) {
   const { draft, setDraft } = useFormFrom(value, storage);
-  return <MonoTextarea id={id} aria-label={label} rows={rows} value={draft} onChange={(event) => setDraft(event.target.value)} onBlur={() => draft !== value && onSave(draft)} />;
+  return <Textarea mono id={id} aria-label={label} rows={rows} value={draft} onChange={(event) => setDraft(event.target.value)} onBlur={() => draft !== value && onSave(draft)} />;
 }
 
 /** A whole number kept locally while typed, saved within its bounds when the field is left. */
 function SavedNumber({ id, label, value, min, max, storage, disabled, width, onSave }: { id: string; label?: string; value: number; min: number; max: number; storage: string; disabled?: boolean; width?: 'field' | 'count'; onSave: (value: number) => void }) {
   const { draft, setDraft } = useFormFrom(String(value), storage);
   return (
-    <NumberFieldInput
+    <Input
       id={id}
       aria-label={label}
       type="number"
       min={min}
       max={max}
       disabled={disabled}
-      width={width}
+      width={width === 'count' ? 'field-3xs' : 'field-md'}
+      align={width === 'count' ? 'right' : undefined}
       value={draft}
       onChange={(event) => setDraft(event.target.value)}
       onBlur={() => {
@@ -62,7 +63,7 @@ function Instructions({ id, label, value, preset, presetLabel, storage, onSave }
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
       <Inline gap="condensed" minWidth={0} variant="body">
-        <FixedLabel>{label}</FixedLabel>
+        <Text width="field-2xs" shrink={false}>{label}</Text>
         <Text minWidth={0} grow truncate tone="muted">{own ? `${presetLabel}에서 바꿈` : `${presetLabel} 사용 중`}</Text>
         {own && (
           <Button variant="ghost" onClick={() => onSave(preset)}>
@@ -75,10 +76,10 @@ function Instructions({ id, label, value, preset, presetLabel, storage, onSave }
           </Button>
         </CollapsibleTrigger>
       </Inline>
-      <InstructionsBody>
+      <CollapsibleContent paddingTop="condensed">
         <SavedText id={id} label={`${label} 지시문`} value={value} storage={storage} onSave={onSave} />
-        <FieldNote>출력 형식 안내는 서버가 덧붙입니다.</FieldNote>
-      </InstructionsBody>
+        <Field.Description attached>출력 형식 안내는 서버가 덧붙입니다.</Field.Description>
+      </CollapsibleContent>
     </Collapsible>
   );
 }
@@ -118,19 +119,19 @@ export function EditorAiSection({ projectId }: { projectId: string }) {
   const key = (name: string) => `editor-ai-${name}.${projectId}`;
 
   return (
-    <SettingsSection title="편집기 AI">
-      <SettingsFieldGroup gap="wide">
-        <SettingsFieldGroup>
+    <Section variant="page" title="편집기 AI">
+      <Field.Group gap="wide">
+        <Field.Group>
           <Box>
             <Text as="p" variant="label">AI 번역 · 다듬기</Text>
             <Text as="p" variant="caption" tone="muted">편집기의 두 버튼. 대사 하나를 번역하거나 번역가의 초안을 다듬어 AI 후보로 넣습니다. CLI 연결도 됩니다.</Text>
           </Box>
           <Field>
-            <FieldLabel>모델</FieldLabel>
+            <Field.Label>모델</Field.Label>
             <ModelPicker value={settings.model} onChange={(model) => change({ model })} />
           </Field>
           <Field>
-            <FieldLabel>함께 보낼 것</FieldLabel>
+            <Field.Label>함께 보낼 것</Field.Label>
             <Stack direction="row" wrap gapX="comfortable" gapY="condensed">
               <ContextCheck id="editor-ai-glossary" label={CONTEXT_FIELDS.glossary.label} help={CONTEXT_FIELDS.glossary.help} checked={context.glossary} onChange={(glossary) => setContext({ glossary })} />
               <ContextCheck id="editor-ai-speech" label={CONTEXT_FIELDS.speech.label} help={CONTEXT_FIELDS.speech.help} checked={context.speech} onChange={(speech) => setContext({ speech })} />
@@ -144,7 +145,7 @@ export function EditorAiSection({ projectId }: { projectId: string }) {
             </Stack>
           </Field>
           <Field>
-            <FieldLabel>지시문</FieldLabel>
+            <Field.Label>지시문</Field.Label>
             <Box spaceY="tight">
               {(['translate', 'refine'] as const).map((id) => (
                 <Instructions
@@ -160,25 +161,25 @@ export function EditorAiSection({ projectId }: { projectId: string }) {
               ))}
             </Box>
           </Field>
-        </SettingsFieldGroup>
+        </Field.Group>
 
-        <SettingsFieldGroup>
+        <Field.Group>
           <Field orientation="horizontal">
             <Switch id="editor-ai-on" checked={complete.enabled} onCheckedChange={(enabled) => setComplete({ enabled })} />
-            <FieldLabel htmlFor="editor-ai-on">자동완성</FieldLabel>
+            <Field.Label htmlFor="editor-ai-on">자동완성</Field.Label>
             <Text variant="caption" tone="muted" tabular marginLeft="auto">
               오늘 {project.data?.editorCallsToday ?? 0}/{complete.dailyCap}회
             </Text>
           </Field>
           {/* Indented under the switch: everything here belongs to autocomplete only. */}
-          <SettingsFieldGroup nested>
+          <Field.Group nested>
             <Field>
-              <FieldLabel>모델</FieldLabel>
+              <Field.Label>모델</Field.Label>
               <ModelPicker value={complete.model} onChange={(model) => setComplete({ model })} kinds={['openai']} />
-              <FieldDescription>API 연결만 됩니다.</FieldDescription>
+              <Field.Description>API 연결만 됩니다.</Field.Description>
             </Field>
             <Field>
-              <FieldLabel>함께 보낼 것</FieldLabel>
+              <Field.Label>함께 보낼 것</Field.Label>
               <Stack direction="row" wrap gapX="comfortable" gapY="condensed">
                 <ContextCheck id="editor-ai-complete-glossary" label={CONTEXT_FIELDS.glossary.label} help={CONTEXT_FIELDS.glossary.help} checked={complete.glossary} onChange={(glossary) => setComplete({ glossary })} />
                 <ContextCheck id="editor-ai-complete-speech" label={CONTEXT_FIELDS.speech.label} help={CONTEXT_FIELDS.speech.help} checked={complete.speech} onChange={(speech) => setComplete({ speech })} />
@@ -186,40 +187,40 @@ export function EditorAiSection({ projectId }: { projectId: string }) {
               </Stack>
             </Field>
             <Field>
-              <FieldLabel>지시문</FieldLabel>
+              <Field.Label>지시문</Field.Label>
               <Instructions id="editor-ai-complete-instructions" label="자동완성" value={complete.instructions} preset={COMPLETE_SYSTEM} presetLabel="기본" storage={key('complete-instructions')} onSave={(instructions) => setComplete({ instructions })} />
             </Field>
-          </SettingsFieldGroup>
-        </SettingsFieldGroup>
+          </Field.Group>
+        </Field.Group>
 
         <Collapsible>
           <CollapsibleTrigger asChild>
-            <DisclosureButton>
+            <Button variant="ghost" group flush="start">
               <Icon icon={ChevronRight} turn="group" /> 고급
-            </DisclosureButton>
+            </Button>
           </CollapsibleTrigger>
           <CollapsibleContent>
-            <SettingsFieldGroup lead>
+            <Field.Group lead>
               <Field>
-                <FieldLabel htmlFor="editor-ai-timeout">에디터 AI 제한 시간 (초)</FieldLabel>
+                <Field.Label htmlFor="editor-ai-timeout">에디터 AI 제한 시간 (초)</Field.Label>
                 <SavedNumber id="editor-ai-timeout" value={settings.timeoutSeconds} min={10} max={600} storage={key('timeout')} onSave={(timeoutSeconds) => change({ timeoutSeconds })} />
-                <FieldDescription>AI 번역·다듬기와 서식 규칙의 자연어로 정규식 만들기가 답을 기다리는 시간입니다.</FieldDescription>
+                <Field.Description>AI 번역·다듬기와 서식 규칙의 자연어로 정규식 만들기가 답을 기다리는 시간입니다.</Field.Description>
               </Field>
               <Field>
-                <FieldLabel htmlFor="editor-ai-complete-timeout">자동완성 제한 시간 (초)</FieldLabel>
+                <Field.Label htmlFor="editor-ai-complete-timeout">자동완성 제한 시간 (초)</Field.Label>
                 <SavedNumber id="editor-ai-complete-timeout" value={complete.timeoutSeconds} min={3} max={120} storage={key('complete-timeout')} onSave={(timeoutSeconds) => setComplete({ timeoutSeconds })} />
-                <FieldDescription>이보다 늦은 답은 입력에 도움이 되지 않아 버립니다.</FieldDescription>
+                <Field.Description>이보다 늦은 답은 입력에 도움이 되지 않아 버립니다.</Field.Description>
               </Field>
               <Field>
-                <FieldLabel htmlFor="editor-ai-complete-delay">자동완성 대기 시간 (밀리초)</FieldLabel>
+                <Field.Label htmlFor="editor-ai-complete-delay">자동완성 대기 시간 (밀리초)</Field.Label>
                 <SavedNumber id="editor-ai-complete-delay" value={complete.delayMs} min={0} max={5000} storage={key('complete-delay')} onSave={(delayMs) => setComplete({ delayMs })} />
-                <FieldDescription>대사를 열고 이만큼 머물러야 자동완성을 요청합니다. ↑↓로 지나가는 대사에는 요청하지 않습니다.</FieldDescription>
+                <Field.Description>대사를 열고 이만큼 머물러야 자동완성을 요청합니다. ↑↓로 지나가는 대사에는 요청하지 않습니다.</Field.Description>
               </Field>
               <Field>
-                <FieldLabel htmlFor="editor-ai-cap">자동완성 하루 최대 호출</FieldLabel>
+                <Field.Label htmlFor="editor-ai-cap">자동완성 하루 최대 호출</Field.Label>
                 <SavedNumber id="editor-ai-cap" value={complete.dailyCap} min={1} max={100_000} storage={key('cap')} onSave={(dailyCap) => setComplete({ dailyCap })} />
               </Field>
-            </SettingsFieldGroup>
+            </Field.Group>
           </CollapsibleContent>
         </Collapsible>
 
@@ -227,7 +228,7 @@ export function EditorAiSection({ projectId }: { projectId: string }) {
           status={save.isPending ? 'saving' : save.isSuccess ? 'saved' : save.isError ? 'failed' : 'idle'}
           onRetry={save.variables ? () => save.mutate(save.variables) : undefined}
         />
-      </SettingsFieldGroup>
-    </SettingsSection>
+      </Field.Group>
+    </Section>
   );
 }

@@ -7,7 +7,7 @@ import { GroupList, type GroupRow } from '@/components/script/group-list';
 import { filterChips, isFinding, LineList, linesSearchSchema, type LinesSearch } from '@/components/script/line-list';
 import { lineQueryParams } from '@/components/script/line-filters';
 import { SourceEditor, type SourceEditorMode, type SourceSaved } from '@/components/script/source-editor';
-import { Button, ContextMenuItem, ContextMenuSeparator, ResizableNavigationPanel, EditorToolbarProvider, EditorToolbarSlot, Icon, Inline, PageHeading, ScriptCrumb, ScriptFindBar, ScriptLinesPanel, ScriptPage, ScriptWorkspace, Text, Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
+import { Button, ContextMenuItem, ContextMenuSeparator, EditorToolbarProvider, EditorToolbarSlot, Icon, Inline, PageHeading, ScriptWorkspace, Text, Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
 import { askAgent } from '@/lib/agent';
 import { GROUP_KIND, SCRIPT_VIEW, SOURCE_GROUP_LABEL, SOURCE_UNIT_LABEL } from '@/lib/labels';
 import { q } from '@/lib/queries';
@@ -212,7 +212,7 @@ function Script() {
   const heading = <>
     {iconButton(listOpen ? `${groupNoun} 목록 접기` : `${groupNoun} 목록 펴기`, <Icon icon={ListTree} tone={listOpen ? undefined : 'subtle'} />, toggleList)}
     <Text variant="body" weight="semibold">{search.review ? '검토함' : SCRIPT_VIEW[view]}</Text><Icon icon={ChevronRight} size="xs" tone="muted" />
-    <ScriptCrumb>{group?.title ?? selectedSection ?? (search.review ? '검토 대기' : `전체 ${view === 'scene' ? '대사' : view === 'ui' ? 'UI' : '문서'}`)}</ScriptCrumb>
+    <Text truncate maxWidth="label" variant="caption" tone="muted">{group?.title ?? selectedSection ?? (search.review ? '검토 대기' : `전체 ${view === 'scene' ? '대사' : view === 'ui' ? 'UI' : '문서'}`)}</Text>
     {group && (
       <Inline as="span">
         {iconButton(`이전 ${groupNoun}`, <ChevronLeft />, () => openGroup(ordered[index - 1]?.id), index <= 0)}
@@ -222,29 +222,27 @@ function Script() {
   </>;
 
   return (
-    <ScriptPage frame={Page} title="번역" flush>
+    <Page title="번역" flush column>
       <EditorToolbarProvider>
       <EditorToolbarSlot />
       <PageHeading>{heading}</PageHeading>
-      <ScriptWorkspace orientation="horizontal">
-        <ResizableNavigationPanel id="groups" widthKey="script-groups" defaultWidth={216} open={showGroups}>
-          <GroupList
-            statuses={statuses.data?.statuses}
-            projectId={projectId}
-            groups={groups.data && ordered}
-            finalIds={finalIds}
-            initialIds={initialIds}
-            scope={{ group: search.group, review: search.review, section: search.section, kind: view }}
-            views={views}
-            reviewCount={project.data?.reviewCount ?? 0}
-            gq={search.gq}
-            onFilter={(gq) => onSearch({ gq }, { replace: true })}
-            marks={finding ? perScene : undefined}
-            onCreate={() => openSourceEditor('create-group', view)}
-            menu={groupMenu}
-          />
-        </ResizableNavigationPanel>
-        <ScriptLinesPanel id="lines" minSize="360px">
+      <ScriptWorkspace open={showGroups} navigation={
+            <GroupList
+              statuses={statuses.data?.statuses}
+              projectId={projectId}
+              groups={groups.data && ordered}
+              finalIds={finalIds}
+              initialIds={initialIds}
+              scope={{ group: search.group, review: search.review, section: search.section, kind: view }}
+              views={views}
+              reviewCount={project.data?.reviewCount ?? 0}
+              gq={search.gq}
+              onFilter={(gq) => onSearch({ gq }, { replace: true })}
+              marks={finding ? perScene : undefined}
+              onCreate={() => openSourceEditor('create-group', view)}
+              menu={groupMenu}
+            />
+      }>
           <LineList
             key={`${search.group ?? ''}:${search.section ?? ''}:${search.review ?? ''}:${search.group || search.review ? '' : view}`}
             projectId={projectId}
@@ -264,7 +262,7 @@ function Script() {
             find={finding && search.group ? { ids: new Set(matchRows.filter((row) => row.groupId === search.group).map((row) => row.id)), label: findLabel } : undefined}
             banner={
               finding && (
-                <ScriptFindBar>
+                <Inline gap="condensed" shrink={false} border="bottom" background="warningFaint" paddingX="comfortable" paddingY="snug" variant="body">
                   {/* Says it is the whole scene, the matches marked: the list alone shows only the matches. */}
                   <Text truncate>
                     {SOURCE_GROUP_LABEL[group?.kind ?? view]} 전체에서 <Text weight="medium">{findLabel}</Text> 찾는 중
@@ -296,7 +294,7 @@ function Script() {
                       <X />
                     </Button>
                   </Inline>
-                </ScriptFindBar>
+                </Inline>
               )
             }
             runGroupIds={group ? [group.id] : sectionGroupIds}
@@ -323,9 +321,8 @@ function Script() {
               }), replace: true })}
             /> : undefined}
           />
-        </ScriptLinesPanel>
       </ScriptWorkspace>
       </EditorToolbarProvider>
-    </ScriptPage>
+    </Page>
   );
 }

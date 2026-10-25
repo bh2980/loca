@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { listenerLabel, personLabel, SPEECH_LEVEL_LABELS, SPECIAL_LISTENERS, styleNames } from '@tw/shared';
-import { Box, HoverCard, HoverCardTrigger, Inline, ScriptSpeakerCardContent, ScriptSpeakerCardLink, ScriptSpeakerProfile, Stack, Text } from '@loca/ui';
+import { Box, HoverCard, HoverCardContent, HoverCardTrigger, Inline, Stack, Text } from '@loca/ui';
 import { q } from '@/lib/queries';
 
 /**
@@ -15,9 +15,11 @@ export function SpeakerCard({ projectId, name, children }: { projectId: string; 
   return (
     <HoverCard openDelay={250} closeDelay={100}>
       <HoverCardTrigger asChild>{children}</HoverCardTrigger>
-      <ScriptSpeakerCardContent align="start" onClick={(event) => event.stopPropagation()}>
-        <SpeakerInfo projectId={projectId} name={name} />
-      </ScriptSpeakerCardContent>
+      <Box asChild width="popover" spaceY="condensed" variant="body">
+        <HoverCardContent align="start" onClick={(event) => event.stopPropagation()}>
+          <SpeakerInfo projectId={projectId} name={name} />
+        </HoverCardContent>
+      </Box>
     </HoverCard>
   );
 }
@@ -37,7 +39,7 @@ function SpeakerInfo({ projectId, name }: { projectId: string; name: string }) {
         {character && pending(character.status)}
       </Inline>
       {character?.profile ? (
-        <ScriptSpeakerProfile>{character.profile}</ScriptSpeakerProfile>
+        <Text as="p" lines={4}>{character.profile}</Text>
       ) : null}
       {character?.speech && (
         <Text as="p" lines={2}>
@@ -67,11 +69,11 @@ function SpeakerInfo({ projectId, name }: { projectId: string; name: string }) {
           ))}
         </Box>
       )}
-      <ScriptSpeakerCardLink>
+      <Text asChild display="block" variant="caption" tone="muted" underline="hoverOffset">
         <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'characters', ...(character && { item: character.id }) }}>
           인물 보기
         </Link>
-      </ScriptSpeakerCardLink>
+      </Text>
     </>
   );
 }

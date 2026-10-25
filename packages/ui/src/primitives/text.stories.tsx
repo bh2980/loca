@@ -1,11 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { Inbox } from "lucide-react"
-import { Inline, Stack } from "../layout/stack"
+import { Inline, Stack } from "./stack"
 import { Heading, Text } from "./text"
 import { Icon } from "./icon"
 
 const meta = {
-  title: "Layout/Text and Heading",
+  title: "Primitives/Text",
   component: Text,
   args: { children: "처음 번역하는 장면", variant: "body", tone: "default" },
 } satisfies Meta<typeof Text>
@@ -54,5 +54,36 @@ export const Icons: Story = {
       <Icon icon={Inbox} size="xs" tone="danger" />
       <Text variant="caption" tone="muted">기본 · sm · xs</Text>
     </Inline>
+  ),
+}
+
+/** Every tone a Text can take. */
+export const Tones: Story = {
+  render: () => (
+    <Stack gap="tight">
+      {(["default", "muted", "subtle", "accent", "danger", "warning", "success", "choice"] as const).map((tone) => <Text key={tone} tone={tone}>{tone} · 하윤이 옥상 문을 연다</Text>)}
+    </Stack>
+  ),
+}
+
+/** Every size variant a Text can take. */
+export const Variants: Story = {
+  render: () => (
+    <Stack gap="tight">
+      {(["micro", "caption", "body", "reading", "title", "heading", "label"] as const).map((variant) => <Text key={variant} variant={variant}>{variant} · 하윤이 옥상 문을 연다</Text>)}
+    </Stack>
+  ),
+}
+
+/** Weights, mono, tabular figures and no-wrap. */
+export const Emphasis: Story = {
+  render: () => (
+    <Stack gap="tight">
+      <Text weight="normal">normal</Text>
+      <Text weight="medium">medium</Text>
+      <Text weight="semibold">semibold</Text>
+      <Text mono>12-001 · mono</Text>
+      <Text tabular>1,234줄 · tabular</Text>
+    </Stack>
   ),
 }

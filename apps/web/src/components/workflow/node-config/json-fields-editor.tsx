@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, ChevronRight, MoreHorizontal, Plus, Trash2 } from 'lucide-react';
 import { z } from 'zod';
 import { JSON_FIELD_TYPES, JSON_FIELD_TYPE_LABELS, jsonFieldSchema, type JsonField, type JsonFieldType } from '@tw/shared';
-import { Box, Button, ControlIdContext, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, FieldChildren, FieldReadRow, Icon, Inline, Input, NumberInput, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Switch, Text, Textarea } from '@loca/ui';
+import { Box, Button, ControlIdContext, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, FieldChildren, FieldReadRow, Icon, Inline, Input, NumberInput, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Switch, Text, Textarea, Bleed } from '@loca/ui';
 
 const fieldsSchema = z.array(jsonFieldSchema);
 
@@ -45,9 +45,8 @@ function FieldItem({ field, path, first, last, descriptionPlaceholder, editing, 
             <Button
               variant="ghost"
               size="icon-xs"
-              marginTop="-tight"
-              marginBottom="-tight"
-              width={4}
+              flush="block"
+              width="icon"
               shrink={false}
               tone="muted"
               aria-label={`${field.name || '목록'} ${editing.folded.has(path) ? '펴기' : '접기'}`}
@@ -57,7 +56,7 @@ function FieldItem({ field, path, first, last, descriptionPlaceholder, editing, 
             >
               <Icon icon={ChevronRight} turn={!editing.folded.has(path)} />
             </Button>
-          ) : <Box as="span" width={4} shrink={false} />}
+          ) : <Box as="span" width="icon" shrink={false} />}
           <Text truncate mono variant="body" weight="semibold" tone="default">{field.name || 'name'}</Text>
           <Text marginLeft="tight" shrink={false} variant="caption" tone="muted">{[JSON_FIELD_TYPE_LABELS[field.type], limitsLabel(field), field.type === 'list' && editing.folded.has(path) && `필드 ${field.fields?.length ?? 0}개`].filter(Boolean).join(' · ')}</Text>
         </Inline>
@@ -66,9 +65,9 @@ function FieldItem({ field, path, first, last, descriptionPlaceholder, editing, 
     );
   }
   return (
-    <Box ref={box} marginX="-snug" minWidth={0} spaceY="snug" radius="md" background="muted" padding="snug" onKeyDown={(event) => { if (event.key === 'Escape') { event.stopPropagation(); editing.open(null); } }}>
+    <Bleed ref={box} by="snug" minWidth={0} spaceY="snug" radius="md" background="sunken" padding="snug" onKeyDown={(event) => { if (event.key === 'Escape') { event.stopPropagation(); editing.open(null); } }}>
       <Inline minWidth={0} gap="snug">
-        <Box asChild height={7} minWidth={0} grow mono variant="caption">
+        <Box asChild height="control-sm" minWidth={0} grow mono variant="caption">
           <Input autoFocus value={field.name} placeholder="name" aria-label="이름" onChange={(event) => onChange({ name: event.target.value })} />
         </Box>
         <Select
@@ -79,7 +78,7 @@ function FieldItem({ field, path, first, last, descriptionPlaceholder, editing, 
             onChange({ ...rest, type, ...(type === 'list' && { fields: children ?? [{ name: 'item', type: 'string', description: '' }] }) });
           }}
         >
-          <Box asChild width={28} shrink={false}><SelectTrigger size="sm" aria-label="형식"><SelectValue /></SelectTrigger></Box>
+          <Box asChild width="field" shrink={false}><SelectTrigger size="sm" aria-label="형식"><SelectValue /></SelectTrigger></Box>
           <SelectContent>{JSON_FIELD_TYPES.map((type) => <SelectItem key={type} value={type}>{JSON_FIELD_TYPE_LABELS[type]}</SelectItem>)}</SelectContent>
         </Select>
         <DropdownMenu>
@@ -94,15 +93,15 @@ function FieldItem({ field, path, first, last, descriptionPlaceholder, editing, 
           </DropdownMenuContent>
         </DropdownMenu>
       </Inline>
-      <Box asChild fieldSizing="content" minHeight={7} resize="none" variant="caption">
+      <Box asChild fieldSizing="content" minHeight="control-sm" resize="none" variant="caption">
         <Textarea rows={1} value={field.description} placeholder={descriptionPlaceholder} aria-label="설명" onChange={(event) => onChange({ description: event.target.value })} />
       </Box>
       {field.type === 'number' ? (
         <Inline gap="snug" variant="caption" tone="muted">
           범위
-          <Box asChild height={7} width={20} variant="caption"><NumberInput integer={false} optional aria-label="최소" placeholder="최소" value={field.min} onValueChange={(min) => onChange({ min })} /></Box>
+          <Box asChild height="control-sm" width="field-xs" variant="caption"><NumberInput integer={false} optional aria-label="최소" placeholder="최소" value={field.min} onValueChange={(min) => onChange({ min })} /></Box>
           ~
-          <Box asChild height={7} width={20} variant="caption"><NumberInput integer={false} optional aria-label="최대" placeholder="최대" value={field.max} onValueChange={(max) => onChange({ max })} /></Box>
+          <Box asChild height="control-sm" width="field-xs" variant="caption"><NumberInput integer={false} optional aria-label="최대" placeholder="최대" value={field.max} onValueChange={(max) => onChange({ max })} /></Box>
         </Inline>
       ) : field.type !== 'boolean' && (
         <Inline as="label" gap="snug" variant="caption" tone="muted">
@@ -110,7 +109,7 @@ function FieldItem({ field, path, first, last, descriptionPlaceholder, editing, 
           필수
         </Inline>
       )}
-    </Box>
+    </Bleed>
   );
 }
 
@@ -149,7 +148,7 @@ function FieldRows({ fields, descriptionPlaceholder, path, editing, onChange }: 
           )}
         </Box>
       ))}
-      <Button variant="ghost" marginLeft="-condensed" tone="muted" onClick={add}><Plus /> 필드</Button>
+      <Button variant="ghost" flush="start" tone="muted" onClick={add}><Plus /> 필드</Button>
     </Box>
   );
 }
@@ -194,8 +193,8 @@ export function JsonFieldsEditor({ label, fields, descriptionPlaceholder, onChan
   };
   return (
     <Box minWidth={0} spaceY="snug">
-      <Inline minHeight={7} minWidth={0} justify="between" gap="condensed">
-        <Button variant="ghost" marginLeft="-condensed" minWidth={0} gap="tight" paddingX="condensed" weight="normal" aria-expanded={shown} onClick={() => setShown((value) => !value)}>
+      <Inline minHeight="control-sm" minWidth={0} justify="between" gap="condensed">
+        <Button variant="ghost" flush="start" minWidth={0} gap="tight" paddingX="condensed" weight="normal" aria-expanded={shown} onClick={() => setShown((value) => !value)}>
           <Icon icon={ChevronRight} turn={shown} />
           {label}
           <Text tone="muted" tabular>{fields.length}</Text>
@@ -211,7 +210,7 @@ export function JsonFieldsEditor({ label, fields, descriptionPlaceholder, onChan
         <ControlIdContext.Provider value={undefined}>
           {asSchema ? (
             <Box spaceY="tight">
-              <Box asChild minHeight={40} mono variant="caption"><Textarea aria-label={`${label} JSON`} spellCheck={false} value={text} onChange={(event) => edit(event.target.value)} /></Box>
+              <Box asChild minHeight="textarea-lg" mono variant="caption"><Textarea aria-label={`${label} JSON`} spellCheck={false} value={text} onChange={(event) => edit(event.target.value)} /></Box>
               {error && <Text as="p" variant="caption" tone="danger">{error}</Text>}
             </Box>
           ) : (

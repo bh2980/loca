@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useGraphShortcuts } from '@/lib/graph-shortcuts';
 import { BaseEdge, Background, EdgeLabelRenderer, Handle, MarkerType, NodeToolbar, Panel, Position, ReactFlow, useInternalNode, type Edge, type EdgeProps, type InternalNode, type Node, type NodeChange, type NodeProps, type ReactFlowInstance, SelectionMode } from '@xyflow/react';
-import { Box, Button, CanvasToolbar, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger, Inline, PersonNodeFrame, RelationLabelFrame, SelectionToolbox, Text } from '@loca/ui';
+import { Box, Button, CanvasToolbar, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger, Inline, PersonNodeFrame, RelationLabelFrame, SelectionToolbox, Text, FlowHandle } from '@loca/ui';
 import { Copy, Trash2 } from 'lucide-react';
 import type { RelationshipGraphActions } from '@/components/knowledge/graph-actions';
 import { GRAPH_KEYS } from '@/lib/graph-shortcuts';
@@ -86,8 +86,8 @@ function PersonNodeView({ data, selected, isConnectable }: NodeProps<PersonNode>
       {/* Edges are floating (they attach to the node border). Dragging from the dot (always shown, as the
           workflow editor's ports, with a wider grab area) draws a new relationship; a drop anywhere on
           another person ends it there (connectionRadius). */}
-      <Box asChild flowHandle="anchor"><Handle type="target" position={Position.Top} isConnectableStart={false} /></Box>
-      {isConnectable && <Box asChild flowHandle="port"><Handle type="source" position={Position.Bottom} title="끌어서 관계 잇기" /></Box>}
+      <FlowHandle look="anchor"><Handle type="target" position={Position.Top} isConnectableStart={false} /></FlowHandle>
+      {isConnectable && <FlowHandle look="person"><Handle type="source" position={Position.Bottom} title="끌어서 관계 잇기" /></FlowHandle>}
     </PersonNodeFrame>
   );
 }
@@ -118,7 +118,7 @@ function FloatingEdge({ id, source, target, markerStart, markerEnd, data, select
   const label = { x: 0.25 * from.x + 0.5 * control.x + 0.25 * to.x, y: 0.25 * from.y + 0.5 * control.y + 0.25 * to.y };
   return (
     <>
-      <BaseEdge id={id} path={path} markerStart={markerStart} markerEnd={markerEnd} interactionWidth={20} style={{ stroke: selected || data?.focus ? 'var(--primary)' : 'var(--graph-edge)', strokeWidth: selected ? 2.5 : data?.focus ? 2 : 1.5, opacity: data?.dim ? 0.2 : 1, strokeDasharray: data?.dashed ? '5 4' : undefined }} />
+      <BaseEdge id={id} path={path} markerStart={markerStart} markerEnd={markerEnd} interactionWidth={20} style={{ stroke: selected || data?.focus ? 'var(--stroke-accent)' : 'var(--stroke-graph-edge)', strokeWidth: selected ? 2.5 : data?.focus ? 2 : 1.5, opacity: data?.dim ? 0.2 : 1, strokeDasharray: data?.dashed ? '5 4' : undefined }} />
       {/* Labels of every relationship at once pile up; they show for the selected or hovered person, or on the selected line. */}
       {(selected || data?.showLabel) && (
         <EdgeLabelRenderer>
@@ -129,7 +129,7 @@ function FloatingEdge({ id, source, target, markerStart, markerEnd, data, select
             style={{ transform: `translate(-50%, -50%) translate(${label.x}px, ${label.y}px)`, pointerEvents: 'all' }}
           >
             {data?.rows.map((row) => (
-              <Button key={row.id} variant="ghost" size="inline" justifyContent="start" radius="none" weight={row.selected ? 'medium' : 'normal'} nowrap tone={row.selected || selected || data.focus ? 'primary' : undefined} onClick={(event) => {
+              <Button key={row.id} variant="ghost" size="inline" justifyContent="start" radius="none" weight={row.selected ? 'medium' : 'normal'} nowrap tone={row.selected || selected || data.focus ? 'accent' : undefined} onClick={(event) => {
                   // The line under the label would otherwise take the click and pick the first relationship.
                   event.stopPropagation();
                   data.onPick(row.id);
@@ -317,7 +317,7 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
   const [dragging, setDragging] = useState(false);
   const flowNodes = useMemo(() => nodes.map((node) => (moving[node.id] ? { ...node, position: moving[node.id] } : node)), [nodes, moving]);
   const edges = useMemo<RelationEdge[]>(() => {
-    const marker = { type: MarkerType.ArrowClosed, color: 'var(--subtle-foreground)' };
+    const marker = { type: MarkerType.ArrowClosed, color: 'var(--stroke-subtle)' };
     const result: RelationEdge[] = [];
     for (const list of Map.groupBy(drawable, (relationship) => [relationship.fromId, relationship.toId].sort().join('|')).values()) {
       // One relationship each way: one line, arrows at both ends, both names in its label.

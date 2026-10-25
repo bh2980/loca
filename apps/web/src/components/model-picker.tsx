@@ -3,7 +3,7 @@ import { Link, useParams } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Check, ChevronsUpDown } from 'lucide-react';
 import { CONNECTION_KIND_INFO, isFreeModel, type Capability, type ConnectionKind } from '@tw/shared';
-import { Badge, Box, Button, Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, Field, FieldLabel, Icon, Inline, Popover, PopoverContent, PopoverTrigger, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Stack, Text } from '@loca/ui';
+import { Chip, Box, Button, Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, Field, Icon, Inline, Popover, PopoverContent, PopoverTrigger, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Stack, Text } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 
@@ -124,17 +124,17 @@ export function ModelPicker({
         >
           <Inline as="span" minWidth={0} gap="snug">
             <Text truncate tone={label ? undefined : 'muted'}>{label ?? (lockConnection ? '모델 고르기' : usable.length || !connections.data ? '모델 고르기' : '쓸 수 있는 AI 연결 없음')}</Text>
-            {free && <Box asChild shrink={false} variant="caption"><Badge variant="secondary">무료</Badge></Box>}
+            {free && <Box asChild shrink={false} variant="caption"><Chip variant="quiet">무료</Chip></Box>}
           </Inline>
           <Icon icon={ChevronsUpDown} shrink={false} opacity={50} />
         </Button>
       </PopoverTrigger>
       {/* No focus jump on open: focusing the search field scrolled the pane under the trigger and closed the popover. */}
-      <Box asChild width={80} padding="none"><PopoverContent align="start" onOpenAutoFocus={(event) => event.preventDefault()}>
+      <PopoverContent align="start" width="popover" padding="none" onOpenAutoFocus={(event) => event.preventDefault()}>
         {usable.length ? (
           <Stack gap="normal" padding="normal">
             {!lockConnection && <Field>
-              <FieldLabel>연결</FieldLabel>
+              <Field.Label>연결</Field.Label>
               <Select value={connection?.id} onValueChange={pickConnection}>
                 <Box asChild width="full"><SelectTrigger>
                   <SelectValue placeholder="연결 고르기" />
@@ -150,10 +150,10 @@ export function ModelPicker({
             </Field>}
             {connection && (
               <Field>
-                <FieldLabel>모델</FieldLabel>
+                <Field.Label>모델</Field.Label>
                 <Box asChild radius="md" border="all"><Command>
                   <CommandInput value={query} onValueChange={setQuery} placeholder={list.length ? `모델 ${list.length}개에서 찾기` : '모델 이름 입력'} />
-                  <Box asChild maxHeight={48}><CommandList>
+                  <Box asChild maxHeight="scroll-md"><CommandList>
                     <CommandEmpty>{models.isPending ? '모델 목록을 불러오는 중…' : '목록에 없는 모델입니다.'}</CommandEmpty>
                     {typed && !list.includes(typed) && (
                       <CommandGroup heading="직접 입력">
@@ -168,7 +168,7 @@ export function ModelPicker({
                           <CommandItem key={model} value={model} onSelect={() => pickModel(model)}>
                             <Icon icon={Check} size="md" opacity={model === value?.model ? 100 : 0} />
                             <Text truncate>{model}</Text>
-                            {isFreeModel(connection.kind, model) && <Box asChild marginLeft="auto" shrink={false} variant="caption"><Badge variant="secondary">무료</Badge></Box>}
+                            {isFreeModel(connection.kind, model) && <Box asChild marginLeft="auto" shrink={false} variant="caption"><Chip variant="quiet">무료</Chip></Box>}
                           </CommandItem>
                         ))}
                       </CommandGroup>
@@ -182,7 +182,7 @@ export function ModelPicker({
             {connection?.kind === 'antigravity' && <Text as="p" variant="caption" tone="muted">추론 수준은 모델 이름에 포함됩니다(…-high / -medium / -low).</Text>}
             {connection && efforts.length > 0 && (
               <Field>
-                <FieldLabel>추론 수준</FieldLabel>
+                <Field.Label>추론 수준</Field.Label>
                 <Select
                   value={value?.effort && efforts.includes(value.effort) ? value.effort : DEFAULT_EFFORT}
                   onValueChange={(effort) => {
@@ -218,7 +218,7 @@ export function ModelPicker({
             )}
           </Text>
         )}
-      </PopoverContent></Box>
+      </PopoverContent>
     </Popover>
   );
 }

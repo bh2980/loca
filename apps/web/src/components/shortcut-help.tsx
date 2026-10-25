@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Keyboard } from 'lucide-react';
-import { Box, Button, Heading, Kbd, Popover, PopoverTrigger, ShortcutPopoverContent, ShortcutSection, Stack } from '@loca/ui';
+import { Box, Button, Heading, Kbd, Popover, PopoverTrigger, ShortcutSection, Stack, PopoverContent } from '@loca/ui';
 import { keyLabel } from '@/lib/keys';
 
 /** Every shortcut of the app, by where it works. Keys are written once and shown for the user's platform. */
@@ -84,7 +84,7 @@ export function ShortcutHelp() {
           <Keyboard />
         </Button>
       </PopoverTrigger>
-      <ShortcutPopoverContent align="end">
+      <PopoverContent align="end" width="popover-lg" padding="none" maxHeight="popover-tall">
         {SECTIONS.map((section) => (
           <ShortcutSection key={section.title}>
             <Heading as="h3" variant="section" minWidth={0} marginBottom="condensed">{section.title}</Heading>
@@ -102,7 +102,7 @@ export function ShortcutHelp() {
             </Box>
           </ShortcutSection>
         ))}
-      </ShortcutPopoverContent>
+      </PopoverContent>
     </Popover>
   );
 }

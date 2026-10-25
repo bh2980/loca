@@ -5,7 +5,7 @@ import { Copy, Play, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { WORKFLOW_TEMPLATES } from '@tw/shared';
 import { AiButton } from '@/components/ai-button';
-import { EmptyState, DataTable, type ColumnDef, JobStatusBadge, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Badge, Box, Button, Inline, RowRevealButton, Skeleton, Stack, Text, ContextMenuItem, ContextMenuSeparator, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@loca/ui';
+import { EmptyState, DataTable, type ColumnDef, RunStatusBadge, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Chip, Box, Button, Inline, Skeleton, Stack, Text, ContextMenuItem, ContextMenuSeparator, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@loca/ui';
 import { HeaderActions, Page } from '@/components/page';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { client, unwrap } from '@/lib/api';
@@ -75,12 +75,12 @@ function Workflows() {
       cell: ({ row }) => (
         <Box minWidth={0}>
           <Inline gap="condensed">
-            <Text asChild truncate weight="medium" hoverUnderline>
+            <Text asChild truncate weight="medium" underline="hover">
               <Link to="/p/$projectId/workflows/$workflowId" params={{ projectId, workflowId: row.original.id }} onClick={(event) => event.stopPropagation()}>
                 {row.original.name}
               </Link>
             </Text>
-            {row.original.errorCount > 0 && <Badge variant="destructive">오류 {row.original.errorCount}</Badge>}
+            {row.original.errorCount > 0 && <Chip variant="solid" tone="danger">오류 {row.original.errorCount}</Chip>}
           </Inline>
           {row.original.description && <Text as="p" truncate variant="caption" tone="muted">{row.original.description}</Text>}
         </Box>
@@ -90,7 +90,7 @@ function Workflows() {
     {
       id: 'saved',
       header: '저장',
-      meta: { width: 120, className: 'text-muted-foreground' },
+      meta: { width: 120, tone: 'muted' },
       cell: ({ row }) => dateTime(row.original.updatedAt),
     },
     {
@@ -99,12 +99,12 @@ function Workflows() {
       meta: { width: 220 },
       cell: ({ row }) => {
         const last = runs.data?.find((run) => run.workflowId === row.original.id);
-        if (!runs.data) return <Box asChild height={4} width={24}><Skeleton /></Box>;
+        if (!runs.data) return <Skeleton height="icon" width="field-sm" />;
         if (!last) return <Text tone="muted">—</Text>;
         return (
-          <Inline asChild gap="condensed" hoverUnderline>
+          <Inline asChild gap="condensed" underline="hover">
             <Link to="/p/$projectId/runs/$runId" params={{ projectId, runId: last.id }} onClick={(event) => event.stopPropagation()}>
-              <JobStatusBadge status={last.status} />
+              <RunStatusBadge status={last.status} />
               <Text truncate variant="caption" tone="muted">{dateTime(last.createdAt)}</Text>
             </Link>
           </Inline>
@@ -114,7 +114,7 @@ function Workflows() {
     {
       id: 'run',
       header: () => <Text srOnly>실행</Text>,
-      meta: { width: 88, className: 'py-1.5', label: '실행', hideable: false },
+      meta: { width: 88, dense: true, label: '실행', hideable: false },
       cell: ({ row }) => (
         <div onClick={(event) => event.stopPropagation()}>
           <RunDialog
@@ -133,24 +133,24 @@ function Workflows() {
     {
       id: 'duplicate',
       header: () => <Text srOnly>복제</Text>,
-      meta: { width: 48, className: 'py-1.5', label: '복제', hideable: false },
+      meta: { width: 48, dense: true, label: '복제', hideable: false },
       cell: ({ row }) => (
-        <RowRevealButton aria-label={`${row.original.name} 복제`} disabled={duplicate.isPending} onClick={(event) => { event.stopPropagation(); duplicate.mutate(row.original); }}>
+        <Button variant="ghost" size="icon" reveal="row" aria-label={`${row.original.name} 복제`} disabled={duplicate.isPending} onClick={(event) => { event.stopPropagation(); duplicate.mutate(row.original); }}>
           <Copy />
-        </RowRevealButton>
+        </Button>
       ),
     },
     {
       id: 'delete',
       header: () => <Text srOnly>삭제</Text>,
-      meta: { width: 48, className: 'py-1.5', label: '삭제', hideable: false },
+      meta: { width: 48, dense: true, label: '삭제', hideable: false },
       cell: ({ row }) => (
         <div onClick={(event) => event.stopPropagation()}>
           <AlertDialog>
             <AlertDialogTrigger asChild>
-              <RowRevealButton hover="destructive" aria-label={`${row.original.name} 삭제`}>
+              <Button variant="ghost" size="icon" reveal="row" hoverTone="danger" aria-label={`${row.original.name} 삭제`}>
                 <Trash2 />
-              </RowRevealButton>
+              </Button>
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>
@@ -181,7 +181,7 @@ function Workflows() {
                 <Plus /> 새 워크플로
               </Button>
             </DropdownMenuTrigger>
-            <Box asChild width={80}>
+            <Box asChild width="popover">
             <DropdownMenuContent align="end">
               {/* One list: the blank workflow is a choice like the templates, so it reads the same. */}
               {[{ key: undefined, name: '빈 워크플로', description: '노드 없이 처음부터 만듭니다.' }, ...WORKFLOW_TEMPLATES].map((template, index) => (

@@ -9,6 +9,98 @@
   /* Inspector rhythm: section separation and compact label/control groups. */
   --spacing-inspector-section: 1.25rem;
   --spacing-inspector-compact: 0.8125rem;
+
+  /*
+   * Sizes by use (layout/style.ts takes only these names). Tailwind reads `--width-*` for w-*, `--max-width-*` for max-w-*,
+   * `--height-*` for h-* and min-h-*, `--max-height-*` for max-h-*, `--min-height-*` for min-h-*.
+   */
+
+  /* A 1rem slot (a fold arrow's column, a thin separator). */
+  --width-icon: 1rem;
+  --height-icon: 1rem;
+
+  /* Controls and name columns in a row: 3.5rem to 11rem. */
+  --width-field-3xs: 3.5rem;
+  --width-field-2xs: 4rem;
+  --width-field-xs: 5rem;
+  --width-field-sm: 6rem;
+  --width-field: 7rem;
+  --width-field-md: 8rem;
+  --width-field-lg: 9rem;
+  --width-field-xl: 10rem;
+  --width-field-2xl: 11rem;
+
+  /* A label column that may grow but not shrink below 4rem. */
+  --min-width-field-2xs: 4rem;
+
+  /* Dropdown menus and their triggers. */
+  --width-menu-2xs: 9rem;
+  --width-menu-xs: 11rem;
+  --width-menu-sm: 12rem;
+  --width-menu-md: 13rem;
+  --width-menu: 14rem;
+  --width-menu-lg: 15rem;
+  --width-menu-xl: 16rem;
+
+  /* Floating surfaces and panels over a canvas. */
+  --width-popover-sm: 18rem;
+  --width-popover: 20rem;
+  --width-popover-lg: 24rem;
+
+  /* A side list; a card of sample text. */
+  --width-list: 200px;
+  --width-card: 26rem;
+
+  /* A page's text column; truncated names. */
+  --max-width-reading: 56rem;
+  --max-width-form: 28rem;
+  --max-width-column: 42rem;
+  --max-width-label-sm: 140px;
+  --max-width-label: 12rem;
+  --max-width-label-lg: 200px;
+
+  /* Heights: the pane header bar, controls, the progress track, loading blocks. */
+  --height-bar: 3rem;
+  --height-control-xs: 1.5rem;
+  --height-control-sm: 1.75rem;
+  --height-control: 2rem;
+  --height-track: 0.375rem;
+  --height-placeholder-sm: 4rem;
+  --height-placeholder-block: 5rem;
+  --height-placeholder: 6rem;
+  --height-placeholder-md: 7rem;
+  --height-placeholder-lg: 8rem;
+  --height-placeholder-xl: 10rem;
+  --height-placeholder-page: 24rem;
+
+  /* A dialog that shows one thing large: how tall it is. */
+  --height-dialog: 75vh;
+  --height-dialog-lg: 85vh;
+
+  /* Scrolling areas: the height they stop growing at. */
+  --max-height-scroll-xs: 8rem;
+  --max-height-scroll-sm: 10rem;
+  --max-height-scroll-md: 12rem;
+  --max-height-scroll: 14rem;
+  --max-height-scroll-list: 15rem;
+  --max-height-scroll-lg: 16rem;
+  --max-height-scroll-xl: 18rem;
+  --max-height-scroll-2xl: 20rem;
+  --max-height-scroll-3xl: 24rem;
+  --max-height-pane: 45%;
+  --max-height-popover: 60vh;
+  --max-height-popover-tall: 80vh;
+  --max-height-window: calc(100svh - 2rem);
+  --max-height-dialog: 70svh;
+  --max-height-overlay: 70%;
+
+  /* A text box's smallest height. */
+  --min-height-textarea-xs: 4rem;
+  --min-height-textarea-sm: 5rem;
+  --min-height-textarea-md: 6rem;
+  --min-height-textarea: 7rem;
+  --min-height-textarea-lg: 10rem;
+  --min-height-textarea-xl: 14rem;
 }
 
 @theme inline {
@@ -22,65 +114,11 @@
   /* Shadows belong to floating surfaces only. */
   --shadow-none: 0 0 #0000;
   --shadow-2xs: 0 0 #0000;
-  --shadow-xs: 0 1px 2px 0 var(--shadow-color);
-  --shadow-sm: 0 1px 3px 0 var(--shadow-color);
-  --shadow-md: 0 4px 14px -2px var(--shadow-color);
-  --shadow-lg: 0 10px 28px -4px var(--shadow-color);
+  --shadow-xs: 0 1px 2px 0 var(--elevation-color);
+  --shadow-sm: 0 1px 3px 0 var(--elevation-color);
+  --shadow-md: 0 4px 14px -2px var(--elevation-color);
+  --shadow-lg: 0 10px 28px -4px var(--elevation-color);
 
-  --color-chrome: var(--chrome);
-  --color-panel: var(--panel);
-  --color-navigation: var(--navigation);
-  --color-floating-toolbar: var(--floating-toolbar);
-  --color-floating-toolbar-foreground: var(--floating-toolbar-foreground);
-  --color-node-header-ai: var(--node-header-ai);
-  --color-node-header-check: var(--node-header-check);
-  --color-node-header-flow: var(--node-header-flow);
-  --color-node-header-status: var(--node-header-status);
-  --color-node-header-state: var(--node-header-state);
-  --color-state: var(--hue-12);
-  --color-node-header-neutral: var(--node-header-neutral);
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-subtle-foreground: var(--subtle-foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-primary-soft: var(--primary-soft);
-  --color-primary-ink: var(--primary-ink);
-  --color-selection: var(--selection);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-meter-track: var(--meter-track);
-  --color-destructive: var(--destructive);
-  --color-warning: var(--warning);
-  --color-choice: var(--primary);
-  --color-success: var(--success);
-  --color-review: var(--review);
-  --color-review-ink: var(--review-ink);
-  --color-ai: var(--ai);
-  --color-ai-soft: var(--ai-soft);
-  --color-token-1: var(--token-1);
-  --color-border: var(--border);
-  --color-border-subtle: var(--border-subtle);
-  --color-input: var(--input);
-  --color-ring: var(--ring);
-  --color-sidebar: var(--sidebar);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-ring: var(--sidebar-ring);
-  --color-graph-canvas: var(--graph-canvas);
-  --color-graph-node: var(--graph-node);
   --font-sans: var(--font-ui);
   --font-mono: var(--font-code);
 

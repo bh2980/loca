@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Button, InspectorField, InspectorResult, MonoInput, Text } from '@loca/ui';
+import { Button, InspectorResult, Text, Input, Field } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 
 /**
@@ -22,7 +22,7 @@ export function ExecutableField({ kind, value, onChange }: { kind: string; value
   });
   const found = located.data;
   return (
-    <InspectorField
+    <Field
       label="실행 파일"
       action={
         editing ? (
@@ -36,7 +36,7 @@ export function ExecutableField({ kind, value, onChange }: { kind: string; value
         )
       }
     >
-      {editing && <MonoInput value={value} placeholder="/usr/local/bin/codex" onChange={(event) => onChange(event.target.value)} />}
+      {editing && <Input mono value={value} placeholder="/usr/local/bin/codex" onChange={(event) => onChange(event.target.value)} />}
       {located.isPending ? (
         <InspectorResult tone="pending">찾는 중…</InspectorResult>
       ) : located.isError ? (
@@ -48,6 +48,6 @@ export function ExecutableField({ kind, value, onChange }: { kind: string; value
       ) : (
         <InspectorResult tone="error">{editing && value.trim() ? '이 경로에 실행 파일이 없습니다' : `${found?.command ?? kind}을(를) 찾지 못했습니다. 직접 지정하세요`}</InspectorResult>
       )}
-    </InspectorField>
+    </Field>
   );
 }

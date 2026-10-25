@@ -8,7 +8,7 @@ import { keyLabel } from '@/lib/keys';
 import { q } from '@/lib/queries';
 import type { ViewItem } from '@/lib/view-context';
 import { useDebounced } from './conversation-menu';
-import type { MenuGroup, MenuRow } from '@loca/ui';
+import type { ComposerGroup, ComposerRow } from '@loca/ui';
 
 /** A /workflow that is waiting for its target: what has been picked so far. */
 export interface RunMode {
@@ -69,8 +69,8 @@ export function useComposerMenu(args: {
 
   const taken = (run ? run.chips : picked);
   const chips = new Map<string, ChatChip>();
-  const groups: MenuGroup[] = [];
-  const chipRow = (type: 'screen' | 'item', chip: ChatChip, tag?: string): MenuRow => {
+  const groups: ComposerGroup[] = [];
+  const chipRow = (type: 'screen' | 'item', chip: ChatChip, tag?: string): ComposerRow => {
     const id = `${type}:${chip.kind}:${chip.id}`;
     chips.set(id, chip);
     return { id, type, label: shortLabel(chip.label, 60), detail: chip.detail, tag };
@@ -93,7 +93,7 @@ export function useComposerMenu(args: {
       }
     }
   } else if (menuShown && slash) {
-    const rowOf = (command: Command): MenuRow => ({ id: `command:${command.id}`, type: 'command', label: `/${command.name}`, detail: command.kind === 'workflow' ? command.blocked ?? command.description : command.description });
+    const rowOf = (command: Command): ComposerRow => ({ id: `command:${command.id}`, type: 'command', label: `/${command.name}`, detail: command.kind === 'workflow' ? command.blocked ?? command.description : command.description });
     const flows = shownCommands.filter((command) => command.kind === 'workflow');
     const saved = shownCommands.filter((command) => command.kind === 'prompt');
     if (flows.length) groups.push({ key: 'workflows', heading: '워크플로', rows: flows.map(rowOf) });
@@ -147,7 +147,7 @@ export function useComposerMenu(args: {
     if (next) put(next.value, next.caret);
     else put(command.text, command.text.length);
   };
-  const pickRow = (row: MenuRow) => {
+  const pickRow = (row: ComposerRow) => {
     if (row.type === 'command') {
       const command = shownCommands.find((candidate) => `command:${candidate.id}` === row.id);
       if (command) pickCommand(command);
