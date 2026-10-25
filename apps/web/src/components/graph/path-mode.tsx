@@ -4,7 +4,7 @@ import { HeaderActions, Page } from '@/components/page';
 import { ReadingRouteGraph } from '@/components/graph/reading-route-graph';
 import { RouteList } from '@/components/graph/route-list';
 import { RunDialog } from '@/components/workflow/run-dialog';
-import { Button, CanvasDirectionControl, GraphEndpointBar, GraphScriptSplit, Spinner } from '@loca/ui';
+import { Button, CanvasDirectionControl, GraphEndpointBar, GraphScriptSplit, Inline, Spinner, Stack, Text } from '@loca/ui';
 import type { GraphEndpointStep } from '@loca/ui';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
@@ -113,7 +113,7 @@ export function PathMode({ projectId, toggle, start, end, via: externalVia, onVi
         <CanvasDirectionControl direction={direction} onDirectionChange={onDirectionChange} />
         {found && data.sequence.length > 0 && <RunDialog projectId={projectId} unitIds={data.sequence.map((line) => line.unitId)} unitsLabel="경로 대사" />}
       </HeaderActions>
-      <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+      <Stack height="full" minHeight={0} grow overflow="hidden">
         <GraphEndpointBar
           start={startValue}
           end={endValue}
@@ -121,18 +121,18 @@ export function PathMode({ projectId, toggle, start, end, via: externalVia, onVi
           picking={false}
           canFind={true}
           busy={route.isFetching}
-          status={route.isError ? <span className="text-xs text-destructive" role="status">경로 확인 실패</span> : data?.status === 'unreachable' ? <span className="text-xs text-muted-foreground" role="status">연결되지 않은 구간</span> : undefined}
+          status={route.isError ? <Text variant="caption" tone="danger" role="status">경로 확인 실패</Text> : data?.status === 'unreachable' ? <Text variant="caption" tone="muted" role="status">연결되지 않은 구간</Text> : undefined}
           onBeginPicking={onBeginPicking}
           onClear={handleClear}
         />
         {route.isError && (
-          <div className="flex shrink-0 items-center gap-2 border-b border-border bg-destructive/5 px-3 py-2 text-sm text-destructive" role="alert">
-            <span className="min-w-0 flex-1 truncate">경로를 확인하지 못했습니다.</span>
+          <Inline shrink={false} gap="condensed" border="bottom" borderColor="border" background="destructiveFaint" paddingX="normal" paddingY="condensed" variant="body" tone="danger" role="alert">
+            <Text minWidth={0} grow truncate>경로를 확인하지 못했습니다.</Text>
             <Button variant="outline" onClick={() => void route.refetch()}>다시 시도</Button>
-          </div>
+          </Inline>
         )}
         {found && data.sequence.length > 0 ? (
-          <div className="flex h-full min-h-0 flex-1 overflow-hidden" data-testid="reading-route" data-route-nodes={data.nodeIds.length}>
+          <Stack direction="row" height="full" minHeight={0} grow overflow="hidden" data-testid="reading-route" data-route-nodes={data.nodeIds.length}>
             <GraphScriptSplit
               id="reading-route"
               graph={
@@ -161,13 +161,13 @@ export function PathMode({ projectId, toggle, start, end, via: externalVia, onVi
                 onPickFork={handlePickFork}
               />
             </GraphScriptSplit>
-          </div>
+          </Stack>
         ) : route.isFetching ? (
-          <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
+          <Inline height="full" justify="center" gap="condensed" variant="body" tone="muted">
             <Spinner /> 경로를 확인하는 중…
-          </div>
+          </Inline>
         ) : null}
-      </div>
+      </Stack>
     </Page>
   );
 }

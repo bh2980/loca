@@ -1,6 +1,7 @@
 import { usePageTitle } from "@/lib/view-context"
 import {
   Page as BasePage,
+  ReadingPage,
   HeaderActions,
   HeaderViews,
   HEADER_ACTIONS_ID,
@@ -10,7 +11,9 @@ import {
 
 export { HeaderActions, HeaderViews, HEADER_ACTIONS_ID, StatusBarItem }
 
-export function Page({ title, ...props }: BasePageProps) {
+/** `reading` lays the content in a centered reading column (the project home). */
+export function Page({ title, reading, ...props }: BasePageProps & { reading?: boolean }) {
   usePageTitle(title ?? "")
-  return <BasePage title={title} {...props} />
+  const Frame = reading ? ReadingPage : BasePage
+  return <Frame title={title} {...props} />
 }

@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { DOCUMENT_KINDS, STYLE_AXES, type StyleAxis, type CharacterRole, type Gender, type AgeBand, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, isSettled, AGE_BAND_LABELS, CHARACTER_ROLE_LABELS, GENDER_LABELS, PALETTE, knowledgeKindScope, type TagScope, type KnowledgeTagKind } from '@tw/shared';
-import { Inspector, InspectorHeader, InspectorBlock, InspectorSection, InspectorFields, InspectorField, InspectorToggle, useControlId, TagListEditor, DirtyBar, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, AiMark } from '@loca/ui';
+import { Inspector, InspectorHeader, InspectorBlock, InspectorSection, InspectorFields, InspectorField, InspectorToggle, useControlId, TagListEditor, DirtyBar, Box, Inline, KnowledgeCodeInput, KnowledgeInlineFlex, KnowledgeSelectTrigger, KnowledgeTextarea, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Select, SelectContent, SelectItem, SelectValue, AiMark } from '@loca/ui';
 import { ChipInput, joinList, splitList } from '@/components/chip-input';
 import { Swatches } from '@/components/settings/swatches';
 import { useDraft } from '@/lib/drafts';
@@ -126,7 +126,7 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
   const extraView = embedded && isValidElement<{ embedded?: boolean }>(extra) ? cloneElement(extra, { embedded: true }) : extra;
 
   const body = embedded ? (
-    <div className="space-y-4">
+    <Box spaceY="comfortable">
       {changedElsewhere && <ChangedElsewhere onTakeSaved={clear} onKeepMine={() => setBase(saved)} />}
       <InspectorFields>
         {basicFields.map(fieldView)}
@@ -135,7 +135,7 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
       </InspectorFields>
       {extraView}
       <Evidence projectId={projectId} keys={row.evidence} embedded />
-    </div>
+    </Box>
   ) : (
     <>
       {changedElsewhere && <InspectorBlock><ChangedElsewhere onTakeSaved={clear} onKeepMine={() => setBase(saved)} /></InspectorBlock>}
@@ -159,15 +159,15 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
       <Evidence projectId={projectId} keys={row.evidence} />
     </>
   );
-  const confirm = (className?: string) => (
-    <Button className={className} disabled={save.isPending} onClick={() => onDecide('confirm')}>
+  const confirm = (alignEnd?: boolean) => (
+    <Button marginLeft={alignEnd ? 'auto' : undefined} disabled={save.isPending} onClick={() => onDecide('confirm')}>
       <Check /> {confirmLabel([row])}
     </Button>
   );
   const deleteButton = (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <Button variant="ghost" className="text-destructive">
+        <Button variant="ghost" tone="danger">
           <Trash2 /> 삭제
         </Button>
       </AlertDialogTrigger>
@@ -184,29 +184,29 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
     </AlertDialog>
   );
   const discardButton = (
-    <Button variant="ghost" className="text-destructive" onClick={() => onDecide('discard')}>
+    <Button variant="ghost" tone="danger" onClick={() => onDecide('discard')}>
       <Trash2 /> 버리기
     </Button>
   );
   const dirtyBar = <DirtyBar dirtyCount={1} onRevert={clear} onSave={() => save.mutate(draft)} saving={save.isPending} />;
   if (embedded)
     return (
-      <div className="space-y-4">
+      <Box spaceY="comfortable">
         {body}
-        <div className="flex flex-wrap items-center gap-2">
+        <Inline wrap gap="condensed">
           {official ? deleteButton : discardButton}
-          {dirty ? dirtyBar : !official ? confirm('ml-auto') : null}
-        </div>
-      </div>
+          {dirty ? dirtyBar : !official ? confirm(true) : null}
+        </Inline>
+      </Box>
     );
   return (
     <Inspector footerStart={<>{official ? deleteButton : discardButton}</>}
       header={<InspectorHeader kind={KINDS[kind]} name={spec.label(row)} status={
-        <span className="flex items-center gap-1.5">
+        <Inline as="span" gap="snug">
           <SourceBadge row={row} />
           <span>·</span>
-          {row.status === 'candidate' ? <span>후보</span> : <span className="inline-flex items-center gap-1">확정 <AiMark by={row.statusBy} /></span>}
-        </span>
+          {row.status === 'candidate' ? <span>후보</span> : <KnowledgeInlineFlex gap="tight">확정 <AiMark by={row.statusBy} /></KnowledgeInlineFlex>}
+        </Inline>
       } onClose={onClose} />}
       footer={dirty ? dirtyBar : !official ? confirm() : null}
     >
@@ -230,7 +230,7 @@ function StartKeyField({ projectId, field, value, from, to, onChange }: { projec
         </Button>
       }
     >
-      <Input className="font-mono text-sm" value={value} onChange={(event) => onChange(event.target.value.trim() || null)} />
+      <KnowledgeCodeInput value={value} onChange={(event) => onChange(event.target.value.trim() || null)} />
       {picking && (
         <StretchPicker
           projectId={projectId}
@@ -261,9 +261,9 @@ function StyleFields({ value, onChange }: { value: Record<string, string> | null
               onChange(next === NORMAL ? rest : { ...rest, [axis]: next });
             }}
           >
-            <SelectTrigger className="w-full">
+            <KnowledgeSelectTrigger>
               <SelectValue />
-            </SelectTrigger>
+            </KnowledgeSelectTrigger>
             <SelectContent>
               <SelectItem value={NORMAL}>보통</SelectItem>
               {Object.entries(STYLE_AXES[axis].options).map(([option, { name }]) => (
@@ -284,7 +284,7 @@ const NORMAL = '__normal';
 function FieldInput({ field, value, characters, onChange }: { field: Field; value: Value; characters: { id: string; name: string }[]; onChange: (value: Value) => void }) {
   // The control takes the id of the InspectorField around it (see ControlIdContext).
   const id = useControlId();
-  if (field.type === 'long') return <Textarea rows={field.name === 'body' ? 6 : 3} className={field.name === 'body' ? 'font-mono text-sm leading-relaxed' : 'text-sm leading-relaxed'} value={text(value)} onChange={(event) => onChange(event.target.value)} />;
+  if (field.type === 'long') return <KnowledgeTextarea rows={field.name === 'body' ? 6 : 3} mono={field.name === 'body'} value={text(value)} onChange={(event) => onChange(event.target.value)} />;
   if (field.type === 'color') return <Swatches value={text(value)} onChange={onChange} onClear={() => onChange('')} />;
   if (field.type === 'list') return <ChipInput id={id} value={(value as string[] | null) ?? []} onChange={onChange} suggestions={field.suggestions} placeholder="쉼표나 Enter로 추가" />;
   if (field.type === 'chips') return <ChipInput id={id} value={splitList(value)} onChange={(chips) => onChange(joinList(chips))} suggestions={field.suggestions} placeholder="쉼표나 Enter로 추가" />;
@@ -299,9 +299,9 @@ function FieldInput({ field, value, characters, onChange }: { field: Field; valu
   if (options)
     return (
       <Select value={text(value) || (field.type === 'gender' || field.type === 'ageBand' || field.type === 'role' ? 'unknown' : '')} onValueChange={onChange}>
-        <SelectTrigger className="w-full">
+        <KnowledgeSelectTrigger>
           <SelectValue />
-        </SelectTrigger>
+        </KnowledgeSelectTrigger>
         <SelectContent>
           {options.map((option) => (
             <SelectItem key={option.id} value={option.id}>

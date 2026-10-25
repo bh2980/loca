@@ -1,4 +1,4 @@
-import { CanvasToolbar } from '@loca/ui';
+import { Box, CanvasToolbar, GraphCanvasElement, MinimapCanvas, MinimapFrame, SelectionRect } from '@loca/ui';
 import { paletteIndex } from '@tw/shared';
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode, type Ref } from 'react';
 import { select } from 'd3-selection';
@@ -869,11 +869,10 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
   };
 
   return (
-    <div className="relative" style={{ width, height }}>
-      <canvas
+    <Box position="relative" style={{ width, height }}>
+      <GraphCanvasElement
         ref={canvas}
         style={{ width, height }}
-        className="block cursor-grab touch-none outline-none active:cursor-grabbing focus-visible:ring-2 focus-visible:ring-ring"
         tabIndex={0}
         onMouseDown={(event) => {
           // The middle button pans; without this the browser starts its own autoscroll.
@@ -975,22 +974,21 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
           else if (event.key === 'Escape') props.current.onSelect(undefined);
         }}
       />
-      {box && <div aria-hidden className="pointer-events-none absolute rounded-sm border border-primary bg-primary/10" style={box} />}
+      {box && <SelectionRect style={box} />}
       {toolbar && (
-        <div key={toolbar.id} ref={toolbarBox} className="absolute top-0 left-0 z-20 opacity-0">
+        <Box key={toolbar.id} ref={toolbarBox} position="absolute" top={0} left={0} zIndex={20} opacity={0}>
           {toolbar.content}
-        </div>
+        </Box>
       )}
       {anchor && (
-        <div ref={anchorBox} className="absolute top-0 left-0 z-20 opacity-0">
+        <Box ref={anchorBox} position="absolute" top={0} left={0} zIndex={20} opacity={0}>
           {anchor.content}
-        </div>
+        </Box>
       )}
       {minimapOpen && (
-        <div className="absolute bottom-3 left-3 rounded-md border bg-background/90 shadow-sm">
-          <canvas
+        <MinimapFrame>
+          <MinimapCanvas
             ref={minimap}
-            className="block cursor-pointer rounded-md"
             aria-label="미니맵"
             onClick={(event) => {
               const rect = event.currentTarget.getBoundingClientRect();
@@ -1000,7 +998,7 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
               animateTo(zoomIdentity.translate(width / 2 - x * k, height / 2 - y * k).scale(k));
             }}
           />
-        </div>
+        </MinimapFrame>
       )}
       {/* The same canvas toolbar as the other graphs: zoom, fit, 가로·세로, minimap. */}
       <CanvasToolbar
@@ -1013,9 +1011,9 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
         onDirectionChange={onDirectionChange}
         minimapVisible={minimapOpen}
         onToggleMinimap={() => toggleMinimap(!minimapOpen)}
-        className="absolute right-3 bottom-3 z-30"
+        floating
       />
-    </div>
+    </Box>
   );
 }
 

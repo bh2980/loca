@@ -1,7 +1,7 @@
 import { Link } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Checkbox, Label } from '@loca/ui';
+import { Box, Checkbox, LinkStyle, NormalLabel, Text } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { optimistic } from '@/lib/optimistic';
 import { q } from '@/lib/queries';
@@ -14,12 +14,14 @@ export function AiConfirmNote({ projectId }: { projectId: string }) {
   const project = useQuery(q.project(projectId));
   if (!project.data) return null;
   return (
-    <p className="text-xs text-muted-foreground">
+    <Text as="p" variant="caption" tone="muted">
       AI 결과: {project.data.aiAutoConfirm ? '바로 확정' : '후보'} ·{' '}
-      <Link to="/p/$projectId/settings/project" params={{ projectId }} className="underline underline-offset-2 hover:text-foreground">
-        설정
-      </Link>
-    </p>
+      <LinkStyle>
+        <Link to="/p/$projectId/settings/project" params={{ projectId }}>
+          설정
+        </Link>
+      </LinkStyle>
+    </Text>
   );
 }
 
@@ -40,12 +42,12 @@ export function AiAutoConfirmSetting({ projectId }: { projectId: string }) {
     },
   });
   return (
-    <div className="space-y-1">
-      <Label className="text-sm font-normal">
+    <Box spaceY="tight">
+      <NormalLabel>
         <Checkbox checked={project.data?.aiAutoConfirm ?? true} disabled={!project.data || save.isPending} onCheckedChange={(checked) => save.mutate(checked === true)} />
         AI가 만든 용어·자료를 바로 확정
-      </Label>
-      <p className="pl-6 text-xs text-muted-foreground">끄면 후보로 들어가고, 사람이 확정해야 문맥에 쓰입니다.</p>
-    </div>
+      </NormalLabel>
+      <Text as="p" variant="caption" tone="muted" paddingLeft="spacious">끄면 후보로 들어가고, 사람이 확정해야 문맥에 쓰입니다.</Text>
+    </Box>
   );
 }

@@ -1,7 +1,7 @@
 /** AI node settings, grouped by the user's task: model, instruction, output, advanced. */
 import { useEffect, useState } from 'react';
 import { AI_OUTPUTS, AI_SCOPES, CONTEXT_FIELDS, CHOICE_SOURCES, CONNECTION_KIND_INFO, BATCH_MODE_LABELS, autoBudgets, contextConfigSchema, INPUT_TYPES, limitsFor, nodeName, previousSteps, type WorkflowSubject, type AiOutput, type AiScope, type BatchConfig, type Capability, type ChoiceSource, type WorkflowNode } from '@tw/shared';
-import { Button, HelpTip, Dialog, DialogContent, DialogHeader, DialogTitle, Input, NumberInput, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, InspectorSection } from '@loca/ui';
+import { Box, Button, HelpTip, Inline, Input, LargeDialog, NumberInput, SelectField, SelectItem, Stack, Text, Textarea, InspectorSection } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
 import { ModelPicker } from '@/components/model-picker';
 import { JsonFieldsEditor } from '@/components/workflow/node-config/json-fields-editor';
@@ -16,16 +16,17 @@ function ChoiceValues({ values, onChange }: { values: string[]; onChange: (value
     setText((current) => (current.split('\n').map((item) => item.trim()).filter(Boolean).join('\n') === values.join('\n') ? current : values.join('\n')));
   }, [values]);
   return (
-    <Textarea
-      aria-label="선택지"
-      value={text}
-      placeholder={'한 줄에 하나씩\n예: Casual'}
-      className="min-h-20 text-sm"
-      onChange={(event) => {
-        setText(event.target.value);
-        onChange(event.target.value.split('\n').map((item) => item.trim()).filter(Boolean));
-      }}
-    />
+    <Box asChild minHeight={20} variant="body">
+      <Textarea
+        aria-label="선택지"
+        value={text}
+        placeholder={'한 줄에 하나씩\n예: Casual'}
+        onChange={(event) => {
+          setText(event.target.value);
+          onChange(event.target.value.split('\n').map((item) => item.trim()).filter(Boolean));
+        }}
+      />
+    </Box>
   );
 }
 
@@ -51,7 +52,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
         <ModelPicker need={need} value={config.model} onChange={(model) => set({ model })} />
       </Field>
       <Field label="동시 처리 수" help="AI에 동시에 보내는 요청 수입니다. 늘리면 빨라지지만, API는 요청 한도에 걸리기 쉽고 CLI 연결은 그 수만큼 프로그램이 떠서 컴퓨터가 무거워집니다.">
-        <NumberInput min={1} max={16} className="w-28" value={config.concurrency} onValueChange={(concurrency) => concurrency !== undefined && set({ concurrency })} />
+        <Box asChild width={28}><NumberInput min={1} max={16} value={config.concurrency} onValueChange={(concurrency) => concurrency !== undefined && set({ concurrency })} /></Box>
       </Field>
       </>
     );
@@ -67,33 +68,26 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
           </AiButton>
         </>
       }>
-        <Textarea aria-label="지시문" value={config.instructions} onChange={(event) => set({ instructions: event.target.value })} className="min-h-28 text-sm" />
-        <Dialog open={expanded} onOpenChange={setExpanded}>
-          <DialogContent className="flex h-[75vh] max-w-3xl flex-col">
-            <DialogHeader><DialogTitle>지시문 · {nodeName(node)}</DialogTitle></DialogHeader>
-            <Textarea autoFocus aria-label="지시문 크게 편집" value={config.instructions} onChange={(event) => set({ instructions: event.target.value })} className="min-h-0 flex-1 resize-none font-mono text-sm" />
-          </DialogContent>
-        </Dialog>
+        <Box asChild minHeight={28} variant="body"><Textarea aria-label="지시문" value={config.instructions} onChange={(event) => set({ instructions: event.target.value })} /></Box>
+        <LargeDialog open={expanded} onOpenChange={setExpanded} title={`지시문 · ${nodeName(node)}`}>
+          <Box asChild minHeight={0} grow resize="none" mono variant="body"><Textarea autoFocus aria-label="지시문 크게 편집" value={config.instructions} onChange={(event) => set({ instructions: event.target.value })} /></Box>
+        </LargeDialog>
       </InspectorSection>
 
       <AiInputSection node={node} refs={refs} set={set} />
 
       <InspectorSection title="출력">
         <Field label="출력 형태">
-          <Select value={config.output} onValueChange={(value) => set({ output: value as AiOutput, ...(value !== 'json' && { scope: 'line' as AiScope }) })}>
-            <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {(Object.keys(AI_OUTPUTS) as AiOutput[]).map((output) => <SelectItem key={output} value={output}>{AI_OUTPUTS[output].label}</SelectItem>)}
-            </SelectContent>
-          </Select>
+          <SelectField value={config.output} onValueChange={(value) => set({ output: value as AiOutput, ...(value !== 'json' && { scope: 'line' as AiScope }) })}>
+            {(Object.keys(AI_OUTPUTS) as AiOutput[]).map((output) => <SelectItem key={output} value={output}>{AI_OUTPUTS[output].label}</SelectItem>)}
+          </SelectField>
         </Field>
         {config.output === 'json' && (
           <>
             <Field label="출력 단위">
-              <Select value={config.scope} onValueChange={(value) => set({ scope: value as AiScope })}>
-                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>{(Object.keys(AI_SCOPES) as AiScope[]).map((scope) => <SelectItem key={scope} value={scope}>{scope === 'line' ? `${INPUT_TYPES[input].label}마다` : AI_SCOPES[scope]}</SelectItem>)}</SelectContent>
-              </Select>
+              <SelectField value={config.scope} onValueChange={(value) => set({ scope: value as AiScope })}>
+                {(Object.keys(AI_SCOPES) as AiScope[]).map((scope) => <SelectItem key={scope} value={scope}>{scope === 'line' ? `${INPUT_TYPES[input].label}마다` : AI_SCOPES[scope]}</SelectItem>)}
+              </SelectField>
             </Field>
             <JsonFieldsEditor label="출력 필드" fields={config.fields} descriptionPlaceholder="AI에게 주는 설명" onChange={(fields) => set({ fields })} />
           </>
@@ -101,10 +95,9 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
         {config.output === 'choice' && (
           <>
             <Field label="선택지 출처">
-              <Select value={config.choice.source} onValueChange={(value) => set({ choice: { ...config.choice, source: value as ChoiceSource } })}>
-                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>{(Object.keys(CHOICE_SOURCES) as ChoiceSource[]).map((source) => <SelectItem key={source} value={source}>{CHOICE_SOURCES[source]}</SelectItem>)}</SelectContent>
-              </Select>
+              <SelectField value={config.choice.source} onValueChange={(value) => set({ choice: { ...config.choice, source: value as ChoiceSource } })}>
+                {(Object.keys(CHOICE_SOURCES) as ChoiceSource[]).map((source) => <SelectItem key={source} value={source}>{CHOICE_SOURCES[source]}</SelectItem>)}
+              </SelectField>
             </Field>
             {config.choice.source === 'custom' && (
               <Field label="선택지">
@@ -124,12 +117,12 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
         <>
           {takesTemperature && (
             <Field label="온도">
-              <NumberInput min={0} max={2} step={0.1} integer={false} optional className="w-28" value={config.temperature} placeholder="기본값" onValueChange={(temperature) => set({ temperature })} />
+              <Box asChild width={28}><NumberInput min={0} max={2} step={0.1} integer={false} optional value={config.temperature} placeholder="기본값" onValueChange={(temperature) => set({ temperature })} /></Box>
             </Field>
           )}
           <>
-            <Field label={<span className="flex items-center gap-1">요청 단위<HelpTip>AI 요청 한 번에 항목을 어떻게 묶어 보낼지 정합니다.</HelpTip></span>}>
-              <Select
+            <Field label={<Inline as="span" gap="tight">요청 단위<HelpTip>AI 요청 한 번에 항목을 어떻게 묶어 보낼지 정합니다.</HelpTip></Inline>}>
+              <SelectField
                 value={config.batch.mode}
                 onValueChange={(value) =>
                   set({
@@ -142,13 +135,8 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
                   })
                 }
               >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {INPUT_TYPES[input].batchModes.map((mode) => <SelectItem key={mode} value={mode}>{mode === 'unit' ? `${INPUT_TYPES[input].label} 하나씩` : BATCH_MODE_LABELS[mode]}</SelectItem>)}
-                </SelectContent>
-              </Select>
+                {INPUT_TYPES[input].batchModes.map((mode) => <SelectItem key={mode} value={mode}>{mode === 'unit' ? `${INPUT_TYPES[input].label} 하나씩` : BATCH_MODE_LABELS[mode]}</SelectItem>)}
+              </SelectField>
             </Field>
             {(config.batch.mode === 'group' || config.batch.mode === 'whole') && (
               <Field
@@ -156,15 +144,16 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
                 hint={config.batch.maxTokens === null ? '자동' : '직접 입력'}
                 help="요청 한 번에 보내는 원문 양입니다. 클수록 빠르지만 놓치는 내용이 늘어납니다."
               >
-                <Input
-                  type="number"
-                  min={500}
-                  max={10_000_000}
-                  className="w-40"
-                  value={config.batch.maxTokens ?? ''}
-                  placeholder={autoLines.toLocaleString()}
-                  onChange={(event) => set({ batch: { ...config.batch, maxTokens: numberOrNull(event.target.value) } })}
-                />
+                <Box asChild width={40}>
+                  <Input
+                    type="number"
+                    min={500}
+                    max={10_000_000}
+                    value={config.batch.maxTokens ?? ''}
+                    placeholder={autoLines.toLocaleString()}
+                    onChange={(event) => set({ batch: { ...config.batch, maxTokens: numberOrNull(event.target.value) } })}
+                  />
+                </Box>
               </Field>
             )}
             {config.batch.mode === 'count' && (
@@ -174,7 +163,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
             )}
           </>
           <Field label="요청 제한 시간 (분)" help="요청 하나의 제한 시간입니다. 넘기면 그 대사들이 오류(시간 초과) 출구로 나갑니다. 다시 보내려면 오류 출구에 재요청 노드를 이으세요.">
-            <NumberInput min={1} max={240} className="w-28" value={config.timeoutMinutes} onValueChange={(timeoutMinutes) => timeoutMinutes !== undefined && set({ timeoutMinutes })} />
+            <Box asChild width={28}><NumberInput min={1} max={240} value={config.timeoutMinutes} onValueChange={(timeoutMinutes) => timeoutMinutes !== undefined && set({ timeoutMinutes })} /></Box>
           </Field>
         </>
       </InspectorSection>
@@ -189,20 +178,20 @@ export function AiContextFields({ config, set, input }: { config: Pick<AiNode['c
   const setContext = (patch: Partial<typeof context>) => set({ context: { ...context, ...patch } });
   return (
     <>
-      <div className="space-y-2.5">
+      <Box spaceY="cozy">
         {lines ? <>
             <CountRow label={CONTEXT_FIELDS.precedingLines.label} help={CONTEXT_FIELDS.precedingLines.help} unit="줄" value={context.precedingLines} fallback={8} max={50} onChange={(value) => setContext({ precedingLines: value })} />
             {context.precedingLines > 0 && (
-              <div className="pl-4">
+              <Box paddingLeft="comfortable">
                 <ToggleRow label={CONTEXT_FIELDS.precedingTranslations.label} help={CONTEXT_FIELDS.precedingTranslations.help} checked={context.precedingTranslations} onChange={(value) => setContext({ precedingTranslations: value })} />
-              </div>
+              </Box>
             )}
             <CountRow label={CONTEXT_FIELDS.previousScenes.label} help={CONTEXT_FIELDS.previousScenes.help} unit="개" value={context.previousScenes} fallback={1} max={10} onChange={(value) => setContext({ previousScenes: value })} />
         </> : (
             <CountRow label={CONTEXT_FIELDS.examples.label} help={CONTEXT_FIELDS.examples.help} unit="줄" value={context.examples} fallback={2} max={5} onChange={(value) => setContext({ examples: value })} />
         )}
-      </div>
-      <div className="space-y-2.5 border-t border-border-subtle pt-3">
+      </Box>
+      <Box spaceY="cozy" border="top" borderColor="subtle" paddingTop="normal">
         <ToggleRow label={CONTEXT_FIELDS.candidate.label} help={CONTEXT_FIELDS.candidate.help} checked={config.include.candidate} onChange={(value) => set({ include: { ...config.include, candidate: value } })} />
         <ToggleRow label={CONTEXT_FIELDS.glossary.label} help={CONTEXT_FIELDS.glossary.help} checked={context.glossary} onChange={(value) => setContext({ glossary: value })} />
         {lines && <ToggleRow label={CONTEXT_FIELDS.speech.label} help={CONTEXT_FIELDS.speech.help} checked={context.speech} onChange={(value) => setContext({ speech: value })} />}
@@ -210,7 +199,7 @@ export function AiContextFields({ config, set, input }: { config: Pick<AiNode['c
         <ToggleRow label={CONTEXT_FIELDS.characters.label} help={CONTEXT_FIELDS.characters.help} checked={context.characters} onChange={(value) => setContext({ characters: value })} />
         <ToggleRow label={CONTEXT_FIELDS.relationships.label} help={CONTEXT_FIELDS.relationships.help} checked={context.relationships} onChange={(value) => setContext({ relationships: value })} />
         <ToggleRow label={CONTEXT_FIELDS.documents.label} help={CONTEXT_FIELDS.documents.help} checked={context.documents} onChange={(value) => setContext({ documents: value })} />
-      </div>
+      </Box>
     </>
   );
 }
@@ -231,7 +220,7 @@ function AiInputSection({ node, refs, set }: { node: AiNode; refs: NodeRefs; set
   return (
     // Open whenever a step before it returns something, so what it can take in is in sight.
     <InspectorSection title="입력" defaultOpen={input.previous || steps.length > 0}>
-      <div className="space-y-3">
+      <Box spaceY="normal">
         <CheckItem
           id={id('previous')}
           label="앞 단계 결과도 함께 보내기"
@@ -240,23 +229,23 @@ function AiInputSection({ node, refs, set }: { node: AiNode; refs: NodeRefs; set
           onChange={(previous) => setInput({ previous, fields: [], ...(previous ? (gathered && batch ? { lines: false } : {}) : { lines: true }) })}
         />
         {input.previous && (
-          <div className="space-y-3 pl-6">
+          <Box spaceY="normal" paddingLeft="spacious">
             <StepChips steps={steps} refs={refs} suffix="의 결과" />
             {names.length > 0 && (
-              <div className="space-y-1.5">
-                <p className="text-xs text-muted-foreground">보낼 항목</p>
-                <div className="flex flex-wrap gap-x-4 gap-y-2">
+              <Box spaceY="snug">
+                <Text as="p" variant="caption" tone="muted">보낼 항목</Text>
+                <Stack direction="row" wrap gapX="comfortable" gapY="condensed">
                   {names.map((name) => (
                     <CheckItem key={name} id={id(`field-${name}`)} label={name} checked={input.fields.includes(name)} onChange={(on) => setInput({ fields: on ? [...input.fields, name] : input.fields.filter((field) => field !== name) })} />
                   ))}
-                </div>
-                <p className="text-xs text-muted-foreground">아무것도 고르지 않으면 전부 보냅니다.</p>
-              </div>
+                </Stack>
+                <Text as="p" variant="caption" tone="muted">아무것도 고르지 않으면 전부 보냅니다.</Text>
+              </Box>
             )}
             {(batch || gathered) && <CheckItem id={id('lines')} label="대사도 함께 보내기" checked={input.lines} onChange={(lines) => setInput({ lines })} />}
-          </div>
+          </Box>
         )}
-      </div>
+      </Box>
     </InspectorSection>
   );
 }

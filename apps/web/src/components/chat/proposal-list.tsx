@@ -3,10 +3,9 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, ChevronRight, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { Button, Checkbox, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner } from '@loca/ui';
+import { Box, Button, Checkbox, CompactSelect, Icon, Inline, Spinner, Text } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
-import { cn } from '@/lib/utils';
 import { ProposalCard, type Proposal } from './proposal-card';
 import { LABEL } from './change-preview';
 
@@ -57,61 +56,54 @@ export function ProposalList({ projectId, title, proposals }: { projectId: strin
   const run = (action: 'accept' | 'reject', ids: string[]) => decide.mutate({ ids, action });
 
   return (
-    <div className="rounded-lg border bg-background text-sm">
-      <div className="flex items-center gap-2 px-2 py-1">
-        <Button variant="ghost" size="row" className="min-w-0 flex-1 font-medium" onClick={() => setOpen(!open)} aria-expanded={open}>
-          <ChevronRight className={cn('text-muted-foreground transition-transform', open && 'rotate-90')} />
-          <span className="truncate">{title}</span>
-          <span className="shrink-0 font-normal text-muted-foreground tabular-nums">{proposals.length.toLocaleString()}개</span>
+    <Box radius="lg" border="all" background="background" variant="body">
+      <Inline gap="condensed" paddingX="condensed" paddingY="tight">
+        <Button variant="ghost" size="row" minWidth={0} grow weight="medium" onClick={() => setOpen(!open)} aria-expanded={open}>
+          <Icon icon={ChevronRight} tone="muted" turn={open} />
+          <Text truncate>{title}</Text>
+          <Text shrink={false} weight="normal" tone="muted" tabular>{proposals.length.toLocaleString()}개</Text>
         </Button>
-      </div>
+      </Inline>
       {open && (
-        <div className="space-y-2 border-t px-3 py-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <label className="flex items-center gap-2 text-xs">
+        <Box spaceY="condensed" border="top" paddingX="normal" paddingY="condensed">
+          <Inline wrap gap="condensed">
+            <Inline as="label" gap="condensed" variant="caption">
               <Checkbox checked={allPicked ? true : pickedShown.length ? 'indeterminate' : false} onCheckedChange={(on) => toggle(shownIds, Boolean(on))} aria-label="모두 선택" />
               모두 선택
-            </label>
+            </Inline>
             {kinds.length > 1 && (
-              <Select value={kind} onValueChange={(value) => { setKind(value); setPicked(new Set()); }}>
-                <SelectTrigger size="sm" className="w-36 text-xs" aria-label="종류 필터">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">모든 종류</SelectItem>
-                  {kinds.map((tool) => (
-                    <SelectItem key={tool} value={tool}>
-                      {LABEL[tool] ?? tool}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <CompactSelect
+                value={kind}
+                onValueChange={(value) => { setKind(value); setPicked(new Set()); }}
+                options={[{ value: 'all', label: '모든 종류' }, ...kinds.map((tool) => ({ value: tool, label: LABEL[tool] ?? tool }))]}
+                label="종류 필터"
+              />
             )}
-            <div className="ml-auto flex items-center gap-2">
+            <Inline marginLeft="auto" gap="condensed">
               <Button variant="outline" disabled={decide.isPending || !targets.length} onClick={() => run('reject', targets)}>
                 <X /> {countLabel}거절
               </Button>
               <Button disabled={decide.isPending || !targets.length} onClick={() => run('accept', targets)}>
                 {decide.isPending ? <Spinner /> : <Check />} {countLabel}수락
               </Button>
-            </div>
-          </div>
-          <ul className="max-h-96 divide-y overflow-y-auto rounded-md border">
+            </Inline>
+          </Inline>
+          <Box as="ul" maxHeight={96} divide="y" overflow="y" radius="md" border="all">
             {shown.map((proposal) => (
-              <li key={proposal.id} className="px-2 py-1.5">
-                <div className="flex items-center gap-2 text-xs">
+              <Box as="li" key={proposal.id} paddingX="condensed" paddingY="snug">
+                <Inline gap="condensed" variant="caption">
                   <Checkbox checked={picked.has(proposal.id)} onCheckedChange={(on) => toggle([proposal.id], Boolean(on))} aria-label="선택" />
-                  <Button variant="ghost" size="row" className="min-w-0 flex-1" aria-expanded={expanded === proposal.id} onClick={() => setExpanded(expanded === proposal.id ? null : proposal.id)}>
-                    <span className="shrink-0 text-muted-foreground">{LABEL[proposal.tool] ?? proposal.tool}</span>
-                    <span className="truncate">{summary(proposal, names)}</span>
+                  <Button variant="ghost" size="row" minWidth={0} grow aria-expanded={expanded === proposal.id} onClick={() => setExpanded(expanded === proposal.id ? null : proposal.id)}>
+                    <Text shrink={false} tone="muted">{LABEL[proposal.tool] ?? proposal.tool}</Text>
+                    <Text truncate>{summary(proposal, names)}</Text>
                   </Button>
-                </div>
-                {expanded === proposal.id && <div className="mt-2"><ProposalCard proposal={proposal} /></div>}
-              </li>
+                </Inline>
+                {expanded === proposal.id && <Box marginTop="condensed"><ProposalCard proposal={proposal} /></Box>}
+              </Box>
             ))}
-          </ul>
-        </div>
+          </Box>
+        </Box>
       )}
-    </div>
+    </Box>
   );
 }

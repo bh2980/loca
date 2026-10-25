@@ -36,7 +36,7 @@ import { entryStarts, flowEdges, nodeSummary, openPorts, targetStatus } from '@/
 import { allFoldsOpen, computeFolds, foldContaining, foldedDefinition, foldIssues, foldPlacements, foldText, isFoldOpen, openFoldContaining, setAllFolds, toggleFold, type Fold } from '@/components/workflow/fold';
 import { useFoldState } from '@/components/workflow/use-fold-state';
 import { RunDialog } from '@/components/workflow/run-dialog';
-import { SplitPane, PageHeading, HeaderActions, NodeLibrary, CanvasToolbar, CanvasSurface, SelectionToolbox, type CanvasDirection, type NodeLibraryGroup, Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent, DropdownMenuLabel, Input, Skeleton, Popover, PopoverContent, PopoverTrigger } from '@loca/ui';
+import { SplitPane, PageHeading, HeaderActions, NodeLibrary, CanvasToolbar, CanvasSurface, SelectionToolbox, type CanvasDirection, type NodeLibraryGroup, Box, Button, Icon, Inline, Stack, Text, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent, DropdownMenuLabel, Input, Skeleton, Popover, PopoverContent, PopoverTrigger } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { tagsIn, q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
@@ -64,23 +64,24 @@ function NameField({ name, onRename }: { name: string; onRename: (name: string) 
   };
   if (editing !== null)
     return (
+      <Box asChild height={8} width={60}>
       <Input
         autoFocus
         value={editing}
         onChange={(event) => setEditing(event.target.value)}
         onBlur={() => done(true)}
         onKeyDown={(event) => (event.key === 'Enter' ? done(true) : event.key === 'Escape' && done(false))}
-        className="h-8 w-60"
         aria-label="워크플로 이름"
       />
+      </Box>
     );
   return (
-    <span className="flex min-w-0 items-center gap-0.5">
-      <span className="truncate font-medium text-foreground">{name}</span>
+    <Inline as="span" minWidth={0} gap="hair">
+      <Text truncate weight="medium" tone="default">{name}</Text>
       <Button variant="ghost" size="icon-xs" aria-label="이름 바꾸기" onClick={() => ((cancelled.current = false), setEditing(name))}>
         <Pencil />
       </Button>
-    </span>
+    </Inline>
   );
 }
 
@@ -580,7 +581,7 @@ function WorkflowEditor() {
   if (!workflow.data || !current)
     return (
       <Page title="워크플로">
-        <Skeleton className="h-96" />
+        <Box asChild height={96}><Skeleton /></Box>
       </Page>
     );
 
@@ -717,62 +718,64 @@ function WorkflowEditor() {
   return (
     <Page title={current.name || '워크플로'} flush>
       <PageHeading>
-        <Link to="/p/$projectId/workflows" params={{ projectId }} className="text-xs text-muted-foreground">워크플로</Link><ChevronRight className="size-3 text-muted-foreground" />
+        <Text asChild variant="caption" tone="muted"><Link to="/p/$projectId/workflows" params={{ projectId }}>워크플로</Link></Text><Icon icon={ChevronRight} size="xs" tone="muted" />
         <NameField name={current.name} onRename={(name) => setDraft((value) => ({ ...value, name }))} />
         {calledBy.length > 0 && (
           <Popover>
             <PopoverTrigger asChild>
-              <Button variant="ghost" size="sm" className="text-xs text-muted-foreground">워크플로 {calledBy.length}개가 이 워크플로를 부릅니다</Button>
+              <Button variant="ghost" tone="muted">워크플로 {calledBy.length}개가 이 워크플로를 부릅니다</Button>
             </PopoverTrigger>
-            <PopoverContent align="start" className="w-64 p-2">
-              <ul className="space-y-0.5">
+            <Box asChild width={64} padding="condensed">
+            <PopoverContent align="start">
+              <Box as="ul" spaceY="hair">
                 {calledBy.map((caller) => (
                   <li key={caller.id}>
-                    <Button variant="ghost" size="sm" className="w-full justify-start font-normal" asChild>
-                      <Link to="/p/$projectId/workflows/$workflowId" params={{ projectId, workflowId: caller.id }}><span className="truncate">{caller.name}</span></Link>
+                    <Button variant="ghost" width="full" justifyContent="start" weight="normal" asChild>
+                      <Link to="/p/$projectId/workflows/$workflowId" params={{ projectId, workflowId: caller.id }}><Text truncate>{caller.name}</Text></Link>
                     </Button>
                   </li>
                 ))}
-              </ul>
+              </Box>
             </PopoverContent>
+            </Box>
           </Popover>
         )}
-        <span className="truncate text-xs text-muted-foreground" role="status">{save.isPending ? '저장 중…' : save.isError ? '저장 실패 · 편집 보관됨' : draft ? '저장 대기' : `자동 저장됨 ${savedAt(workflow.data.updatedAt)}`}</span>
+        <Text truncate variant="caption" tone="muted" role="status">{save.isPending ? '저장 중…' : save.isError ? '저장 실패 · 편집 보관됨' : draft ? '저장 대기' : `자동 저장됨 ${savedAt(workflow.data.updatedAt)}`}</Text>
       </PageHeading>
       <HeaderActions>
         <RunDialog projectId={projectId} workflowId={workflowId} disabled={errorCount > 0 || save.isPending} dirty={Boolean(draft)} />
         {draft && <Button variant="ghost" disabled={save.isPending} onClick={discard}>되돌리기</Button>}
       </HeaderActions>
-      {save.isError && <div role="alert" className="flex items-center gap-2 border-b bg-destructive/10 px-4 py-2 text-xs text-destructive">저장하지 못했습니다. 편집은 이 브라우저에 보관됩니다. {save.error.message}<Button variant="outline" disabled={stale || !draft} onClick={() => draft && save.mutate(draft)}>다시 저장</Button></div>}
+      {save.isError && <Inline role="alert" gap="condensed" border="bottom" background="destructiveSoft" paddingX="comfortable" paddingY="condensed" variant="caption" tone="danger">저장하지 못했습니다. 편집은 이 브라우저에 보관됩니다. {save.error.message}<Button variant="outline" disabled={stale || !draft} onClick={() => draft && save.mutate(draft)}>다시 저장</Button></Inline>}
       {stale && !save.isPending && (
-        <div className="flex items-center gap-3 border-b bg-warning/10 px-6 py-2 text-sm text-warning">
+        <Inline gap="normal" border="bottom" background="warningSoft" paddingX="spacious" paddingY="condensed" variant="body" tone="warning">
           편집하는 동안 다른 곳에서 이 워크플로를 저장했습니다({savedAt(workflow.data.updatedAt)}). 이 편집은 그 전 내용을 바탕으로 합니다.
           <Button variant="outline" onClick={discard}>
             최신 불러오기
           </Button>
-        </div>
+        </Inline>
       )}
       {/* The editor only edits: how a run is going is on its own page (실행 기록 › 그래프). */}
       {activeRun && (
-        <div role="status" className="flex items-center gap-3 border-b bg-muted px-4 py-2 text-xs text-muted-foreground">
+        <Inline role="status" gap="normal" border="bottom" background="muted" paddingX="comfortable" paddingY="condensed" variant="caption" tone="muted">
           이 워크플로가 {activeRun.status === 'paused' ? '멈춘 채 실행 중' : '실행 중'}입니다. 실행이 끝날 때까지 바뀐 내용은 저장되지 않고 이 브라우저에 보관됩니다.
           <Button variant="outline" asChild>
             <Link to="/p/$projectId/runs/$runId" params={{ projectId, runId: activeRun.id }} search={{ tab: 'graph' }}>진행 보기</Link>
           </Button>
-        </div>
+        </Inline>
       )}
+      <Box asChild height="full">
       <SplitPane
         id="workflow"
         selectionKey={selected?.id}
         defaultWidth="360px"
-        className="h-full"
         pane={
           current && !selected && !multi.length ? (
-            <div className="h-full min-w-0 overflow-x-hidden bg-background">
+            <Box height="full" minWidth={0} overflow="hiddenX" background="background">
               <WorkflowSettings settings={current.definition.settings} onChange={(settings) => setDraft((value) => ({ ...value, definition: { ...value.definition, settings } }))} />
-            </div>
+            </Box>
           ) : selected && (
-            <div className="h-full min-w-0 overflow-x-hidden bg-background">
+            <Box height="full" minWidth={0} overflow="hiddenX" background="background">
               <NodeConfig
                 key={`${selected.id}:${revision}`}
                 node={selected}
@@ -795,12 +798,14 @@ function WorkflowEditor() {
                 onDelete={deleteSelected}
                 onClose={() => select(undefined)}
               />
-            </div>
+            </Box>
           )
         }
       >
-        <div className="flex min-h-0 flex-1 pb-7">
-        <NodeLibrary groups={palette} onSelect={(item) => addFromLibrary(item.id)} className="w-[200px] shrink-0 border-r border-border" />
+        <Stack direction="row" minHeight={0} grow paddingBottom="statusBar">
+        <Box asChild width="200px" shrink={false} border="right">
+        <NodeLibrary groups={palette} onSelect={(item) => addFromLibrary(item.id)} />
+        </Box>
         <CanvasSurface ref={canvasRef} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; }} onDrop={(event) => {
           event.preventDefault();
           const id = event.dataTransfer.getData('application/x-loca-workflow-node');
@@ -905,9 +910,10 @@ function WorkflowEditor() {
                 />
               </DropdownMenuTrigger>
               {contextMenu.kind === 'node' && (
-                <DropdownMenuContent align="start" side="bottom" sideOffset={2} className="w-48">
+                <Box asChild width={48}>
+                <DropdownMenuContent align="start" side="bottom" sideOffset={2}>
                   <DropdownMenuItem onSelect={() => select(contextMenu.node.id)}>
-                    <SlidersHorizontal className="size-3.5" />
+                    <Icon icon={SlidersHorizontal} size="sm" />
                     <span>설정 열기</span>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
@@ -920,7 +926,7 @@ function WorkflowEditor() {
                       );
                     }}
                   >
-                    <Copy className="size-3.5" />
+                    <Icon icon={Copy} size="sm" />
                     <span>복제</span>
                   </DropdownMenuItem>
                   {(() => {
@@ -934,7 +940,7 @@ function WorkflowEditor() {
                           removeEdges(incidentEdges.map((e) => e.id));
                         }}
                       >
-                        <Unlink className="size-3.5" />
+                        <Icon icon={Unlink} size="sm" />
                         <span>연결 끊기</span>
                       </DropdownMenuItem>
                     );
@@ -946,45 +952,52 @@ function WorkflowEditor() {
                       deleteNode(contextMenu.node.id);
                     }}
                   >
-                    <Trash2 className="size-3.5" />
+                    <Icon icon={Trash2} size="sm" />
                     <span>삭제</span>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
+                </Box>
               )}
               {contextMenu.kind === 'nodes' && (
-                <DropdownMenuContent align="start" side="bottom" sideOffset={2} className="w-56">
+                <Box asChild width={56}>
+                <DropdownMenuContent align="start" side="bottom" sideOffset={2}>
                   <DropdownMenuItem onSelect={() => duplicateNodes(contextMenu.ids)}>
-                    <Copy className="size-3.5" />
+                    <Icon icon={Copy} size="sm" />
                     <span>{contextMenu.ids.length}개 복제</span>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem variant="destructive" onSelect={() => deleteNodes(contextMenu.ids)}>
-                    <Trash2 className="size-3.5" />
+                    <Icon icon={Trash2} size="sm" />
                     <span>{contextMenu.ids.length}개 삭제</span>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
+                </Box>
               )}
               {contextMenu.kind === 'edge' && (
-                <DropdownMenuContent align="start" side="bottom" sideOffset={2} className="w-40">
+                <Box asChild width={40}>
+                <DropdownMenuContent align="start" side="bottom" sideOffset={2}>
                   <DropdownMenuItem
                     variant="destructive"
                     onSelect={() => {
                       removeEdges([contextMenu.edgeId]);
                     }}
                   >
-                    <Trash2 className="size-3.5" />
+                    <Icon icon={Trash2} size="sm" />
                     <span>연결 삭제</span>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
+                </Box>
               )}
               {contextMenu.kind === 'pane' && (
-                <DropdownMenuContent align="start" side="bottom" sideOffset={2} className="w-48">
+                <Box asChild width={48}>
+                <DropdownMenuContent align="start" side="bottom" sideOffset={2}>
                   <DropdownMenuSub>
                     <DropdownMenuSubTrigger>
-                      <Plus className="size-3.5" />
+                      <Icon icon={Plus} size="sm" />
                       <span>노드 추가</span>
                     </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent className="w-44">
+                    <Box asChild width={44}>
+                    <DropdownMenuSubContent>
                       {palette.map((group, groupIndex) => (
                         <Fragment key={group.id}>
                           {groupIndex > 0 && <DropdownMenuSeparator />}
@@ -1003,35 +1016,38 @@ function WorkflowEditor() {
                         </Fragment>
                       ))}
                     </DropdownMenuSubContent>
+                    </Box>
                   </DropdownMenuSub>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onSelect={() => void arrange(direction, true)}>
-                    <LayoutGrid className="size-3.5" />
+                    <Icon icon={LayoutGrid} size="sm" />
                     <span>자동 정렬</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem onSelect={() => fitWholeWorkflow(flow, 200)}>
-                    <Maximize className="size-3.5" />
+                    <Icon icon={Maximize} size="sm" />
                     <span>화면에 맞춤</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem onSelect={() => void flow.zoomTo(1, { duration: 180 })}>
-                    <Focus className="size-3.5" />
+                    <Icon icon={Focus} size="sm" />
                     <span>100% 배율</span>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onSelect={() => changeDirection(direction === 'vertical' ? 'horizontal' : 'vertical')}>
-                    {direction === 'vertical' ? <ArrowLeftRight className="size-3.5" /> : <ArrowUpDown className="size-3.5" />}
+                    {direction === 'vertical' ? <Icon icon={ArrowLeftRight} size="sm" /> : <Icon icon={ArrowUpDown} size="sm" />}
                     <span>{direction === 'vertical' ? '가로 배치' : '세로 배치'}</span>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
+                </Box>
               )}
             </DropdownMenu>
           )}
         </CanvasSurface>
-        </div>
+        </Stack>
       </SplitPane>
+      </Box>
       <StatusBarItem>
-        <span className="mr-3 whitespace-nowrap tabular-nums">노드 {definitions.length}</span>
-        {issues.length > 0 && <span className={errorCount ? 'text-destructive' : 'text-warning'}>{errorCount ? `오류 ${errorCount}` : `경고 ${issues.length}`} · {issues[0]?.message}</span>}
+        <Text marginRight="normal" nowrap tabular>노드 {definitions.length}</Text>
+        {issues.length > 0 && <Text tone={errorCount ? 'danger' : 'warning'}>{errorCount ? `오류 ${errorCount}` : `경고 ${issues.length}`} · {issues[0]?.message}</Text>}
       </StatusBarItem>
     </Page>
   );

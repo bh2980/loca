@@ -4,7 +4,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Play, ScanSearch } from 'lucide-react';
 import { toast } from 'sonner';
-import { DataTable, type ColumnDef, EmptyState, TagMenu, SplitPane, FilterChips, SearchInput, FilterBar, ActionBar, type FilterChip, Button, useRevealDock, ContextMenuItem, ContextMenuSeparator, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Spinner } from '@loca/ui';
+import { DataTable, type ColumnDef, EmptyState, TagMenu, KnowledgeSplitPane, FilterChips, SearchInput, FilterBar, ActionBar, type FilterChip, Button, Text, useRevealDock, ContextMenuItem, ContextMenuSeparator, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Spinner } from '@loca/ui';
 import { HeaderFilter, MarkFilter, markTagGroups, togglePick, type FilterPick } from '@/components/header-filter';
 import { NEW_TERM, NewTermPane, TermEditor, type Term } from '@/components/glossary/term-pane';
 import { RunDialog } from '@/components/workflow/run-dialog';
@@ -155,9 +155,9 @@ function Glossary() {
   ];
 
   const columns: ColumnDef<Term, unknown>[] = [
-    { id: 'source', header: '원문', meta: { hideable: false }, cell: ({ row }) => <span className="font-medium">{row.original.source}</span> },
-    { id: 'target', header: '번역', cell: ({ row }) => row.original.target || <span className="text-muted-foreground">—</span> },
-    { id: 'lines', header: "등장", meta: { width: 72 }, cell: ({ row }) => row.original.lines ?? <span className="text-muted-foreground">—</span> },
+    { id: 'source', header: '원문', meta: { hideable: false }, cell: ({ row }) => <Text weight="medium">{row.original.source}</Text> },
+    { id: 'target', header: '번역', cell: ({ row }) => row.original.target || <Text tone="muted">—</Text> },
+    { id: 'lines', header: "등장", meta: { width: 72 }, cell: ({ row }) => row.original.lines ?? <Text tone="muted">—</Text> },
     { id: 'note', header: '메모', meta: { className: 'text-muted-foreground' }, cell: ({ row }) => row.original.note },
     {
       id: 'state',
@@ -189,10 +189,9 @@ function Glossary() {
 
   return (
     <Page title="용어집" flush>
-      <SplitPane
+      <KnowledgeSplitPane
         id="glossary" selectionKey={creating ? "new" : selected?.id}
         defaultWidth="380px"
-        className="h-full"
         pane={
           creating ? (
             <NewTermPane key="new" projectId={projectId} onClose={() => select(undefined)} onCreated={(id) => select(id)} />
@@ -216,7 +215,7 @@ function Glossary() {
             {
               id: 'discover',
               label: '대본에서 찾기',
-              icon: discover.isPending ? <Spinner className="size-3.5" /> : <ScanSearch />,
+              icon: discover.isPending ? <Spinner /> : <ScanSearch />,
               disabled: discover.isPending,
               priority: 10,
               overflow: 'never',
@@ -232,7 +231,7 @@ function Glossary() {
           ]} />
         </HeaderActions>
         <RunDialog projectId={projectId} subject="terms" termIds={runTermIds} hideTrigger open={runOpen} onOpenChange={setRunOpen} />
-        <FilterBar end={terms.data && <><AiConfirmNote projectId={projectId} /><span className="text-2xs font-medium text-subtle-foreground tabular-nums">{rows.length.toLocaleString()}개{needle ? ` / 전체 ${all.length.toLocaleString()}개` : ''}</span></>}>
+        <FilterBar end={terms.data && <><AiConfirmNote projectId={projectId} /><Text variant="micro" weight="medium" tone="subtle" tabular>{rows.length.toLocaleString()}개{needle ? ` / 전체 ${all.length.toLocaleString()}개` : ''}</Text></>}>
           <SearchInput value={search.q} placeholder="원문·번역·메모 검색" onChange={(value) => void navigate({ search: (previous) => ({ ...previous, q: value }), replace: true })} />
           <FilterChips chips={chips} />
         </FilterBar>
@@ -329,7 +328,7 @@ function Glossary() {
             </>
           }
         />
-      </SplitPane>
+      </KnowledgeSplitPane>
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>

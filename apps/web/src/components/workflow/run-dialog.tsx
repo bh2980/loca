@@ -4,7 +4,7 @@ import { keepPreviousData, useMutation, useQuery, type UseQueryResult } from '@t
 import type { InferResponseType } from 'hono/client';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { ChevronRight, Play } from 'lucide-react';
-import { SearchInput, Button, Checkbox, Label, RadioGroup, RadioGroupItem, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Skeleton, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue, Spinner, StatusIcon, SectionHeading, FieldRows, FieldRow } from '@loca/ui';
+import { Box, Heading, Icon, Inline, ReadinessDot, ScopeRow, SearchInput, Button, Checkbox, Label, RadioGroup, RadioGroupItem, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Skeleton, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue, Spinner, StatusIcon, SectionHeading, FieldRows, FieldRow, Text } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { INPUT_TYPES, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, TERM_MARK_IDS, WORKFLOW_SUBJECT_IDS, LINE_MARK_IDS, type AutoMark, type LineMark } from '@tw/shared';
 import { MarkChip } from '@/components/status';
@@ -13,7 +13,6 @@ import { Pace, RunCaps, RunModels } from './run-estimate';
 import { startLimits, type CapEdits } from '@/lib/run-limits';
 import { tagsIn, q } from '@/lib/queries';
 import { SCRIPT_VIEW } from '@/lib/labels';
-import { cn } from '@/lib/utils';
 
 type GroupKind = 'scene' | 'ui' | 'document';
 const KIND_ORDER: GroupKind[] = ['scene', 'ui', 'document'];
@@ -252,21 +251,21 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
           </Button>
         )}
       </DialogTrigger>}
-      <DialogContent className="sm:max-w-3xl">
+      <Box asChild maxWidthFromSm="3xl"><DialogContent>
         <DialogHeader>
           {/* With the workflow picker below, the title would only repeat its name. */}
           <DialogTitle>{fixedWorkflowId && workflow ? `${workflow.name} 실행` : '워크플로 실행'}</DialogTitle>
-          {dirty ? <DialogDescription className="text-warning">저장하지 않은 편집은 들어가지 않습니다.</DialogDescription> : <DialogDescription className="sr-only">실행할 범위를 고르고 시작합니다.</DialogDescription>}
+          {dirty ? <Box asChild tone="warning"><DialogDescription>저장하지 않은 편집은 들어가지 않습니다.</DialogDescription></Box> : <Box asChild srOnly><DialogDescription>실행할 범위를 고르고 시작합니다.</DialogDescription></Box>}
         </DialogHeader>
 
         {/* Side padding so focus rings and the picked scope are not cut by the scroll box. */}
-        <div className="-mx-1 max-h-[70svh] space-y-5 overflow-auto px-1 py-0.5">
+        <Box marginX="-tight" maxHeight="70svh" spaceY="roomy" overflow="auto" paddingX="tight" paddingY="hair">
           {!fixedWorkflowId && (
-            <div className="space-y-2">
+            <Box spaceY="condensed">
             <Select value={workflowId ?? ''} onValueChange={choose}>
-              <SelectTrigger className="w-full" aria-label="워크플로">
+              <Box asChild width="full"><SelectTrigger aria-label="워크플로">
                 <SelectValue placeholder="워크플로 선택" />
-              </SelectTrigger>
+              </SelectTrigger></Box>
               <SelectContent>
                 {WORKFLOW_SUBJECT_IDS.map((input) => {
                   const rows = pickable?.filter((item) => item.input === input) ?? [];
@@ -275,7 +274,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
                       <SelectLabel>{INPUT_TYPES[input].label} 입력</SelectLabel>
                       {rows.map((item) => (
                         <SelectItem key={item.id} value={item.id} disabled={item.errorCount > 0}>
-                          {item.name} {item.errorCount > 0 && <span className="text-muted-foreground">· 오류 있음</span>}
+                          {item.name} {item.errorCount > 0 && <Text tone="muted">· 오류 있음</Text>}
                         </SelectItem>
                       ))}
                     </SelectGroup>
@@ -283,100 +282,100 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
                 })}
               </SelectContent>
             </Select>
-            <p className="text-xs text-muted-foreground">
+            <Text as="p" variant="caption" tone="muted">
               {!pickable?.length && '저장된 워크플로가 없습니다. '}
-              <Link to="/p/$projectId/workflows" params={{ projectId }} className="underline underline-offset-2">워크플로 관리</Link>
-            </p>
-            </div>
+              <Text asChild underline="offset"><Link to="/p/$projectId/workflows" params={{ projectId }}>워크플로 관리</Link></Text>
+            </Text>
+            </Box>
           )}
 
-          <section className="space-y-4">
-            <fieldset className="space-y-2">
-              <SectionHeading as="legend" className="mb-2">대상</SectionHeading>
+          <Box as="section" spaceY="comfortable">
+            <Box as="fieldset" spaceY="condensed">
+              <Heading as="legend" minWidth={0} marginBottom="condensed">대상</Heading>
               {/* A choice only when the dialog came with items picked; otherwise the list is the whole choice. */}
               {(terms ? termIds?.length : unitIds?.length || groupIds?.length) ? (
-                <RadioGroup value={scopeTarget} onValueChange={(value) => setScopeTarget(value as ScopeTarget)} className="gap-2">
+                <Box asChild gap="condensed"><RadioGroup value={scopeTarget} onValueChange={(value) => setScopeTarget(value as ScopeTarget)}>
                   {terms && termIds?.length ? (
-                    <Label className="text-sm font-normal">
+                    <Box asChild variant="body" weight="normal"><Label>
                       <RadioGroupItem value="units" />
                       고른 용어 {termIds.length.toLocaleString()}개
-                    </Label>
+                    </Label></Box>
                   ) : null}
                   {!terms && unitIds?.length ? (
-                    <Label className="text-sm font-normal">
+                    <Box asChild variant="body" weight="normal"><Label>
                       <RadioGroupItem value="units" />
                       {unitsLabel ?? '고른 대사'} {unitIds.length.toLocaleString()}줄
-                    </Label>
+                    </Label></Box>
                   ) : null}
                   {!terms && groupIds?.length ? (
-                    <Label className="text-sm font-normal">
+                    <Box asChild variant="body" weight="normal"><Label>
                       <RadioGroupItem value="here" />
                       {here?.length === 1 ? `지금 연 묶음 (${here[0].title})` : `지금 연 묶음 ${groupIds.length}개`}
-                    </Label>
+                    </Label></Box>
                   ) : null}
-                  <Label className="text-sm font-normal">
+                  <Box asChild variant="body" weight="normal"><Label>
                     <RadioGroupItem value="groups" />
                     직접 고르기
-                  </Label>
-                </RadioGroup>
+                  </Label></Box>
+                </RadioGroup></Box>
               ) : null}
               {scopeTarget === 'groups' && (
-                <div className={cn((terms ? termIds?.length : unitIds?.length || groupIds?.length) && 'ml-6')}>
+                <Box marginLeft={(terms ? termIds?.length : unitIds?.length || groupIds?.length) ? 'spacious' : undefined}>
                   <ScopePicker sections={sections} unit={unit} picked={terms ? pickedTerms : pickedScenes} setPicked={terms ? setPickedTerms : setPickedScenes} filter={sceneFilter} setFilter={setSceneFilter} />
-                </div>
+                </Box>
               )}
-            </fieldset>
+            </Box>
 
-            <fieldset className="space-y-2">
-              <SectionHeading as="legend" className="mb-2">필터</SectionHeading>
+            <Box as="fieldset" spaceY="condensed">
+              <Heading as="legend" minWidth={0} marginBottom="condensed">필터</Heading>
               <FieldRows>
                 <FieldRow label="상태">
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                  <Inline wrap gapX="comfortable" gapY="tight">
                     {terms
                       ? KNOWLEDGE_STATUSES.filter((status) => status !== 'rejected').map((status) => (
-                          <Label key={status} className="text-sm font-normal">
+                          <Box asChild key={status} variant="body" weight="normal"><Label>
                             <Checkbox checked={pickedStatuses.has(status)} onCheckedChange={(checked) => toggled(setPickedStatuses, status, checked === true)} />
                             {KNOWLEDGE_STATUS_LABELS[status]}
-                          </Label>
+                          </Label></Box>
                         ))
                       : (statuses.data?.statuses ?? []).map((status) => (
-                        <Label key={status.id} className="text-sm font-normal">
+                        <Box asChild key={status.id} variant="body" weight="normal"><Label>
                           <Checkbox checked={pickedStatuses.has(status.id)} onCheckedChange={(checked) => toggled(setPickedStatuses, status.id, checked === true)} />
                           <StatusIcon status={status} />
                           {status.name}
-                        </Label>
+                        </Label></Box>
                       ))}
-                  </div>
+                  </Inline>
                 </FieldRow>
                 <FieldRow label="태그">
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                  <Inline wrap gapX="comfortable" gapY="tight">
                     {(terms ? TERM_MARK_IDS : LINE_MARK_IDS).map((mark) => (
-                      <Label key={mark} className="text-sm font-normal">
+                      <Box asChild key={mark} variant="body" weight="normal"><Label>
                         <Checkbox checked={pickedMarks.has(mark)} onCheckedChange={(checked) => toggled(setPickedMarks, mark, checked === true)} />
                         <MarkChip mark={mark as AutoMark} />
-                      </Label>
+                      </Label></Box>
                     ))}
                     {tags.map((tag) => (
-                      <Label key={tag.id} className="text-sm font-normal">
+                      <Box asChild key={tag.id} variant="body" weight="normal"><Label>
                         <Checkbox checked={pickedTags.has(tag.id)} onCheckedChange={(checked) => toggled(setPickedTags, tag.id, checked === true)} />
                         #{tag.name}
-                      </Label>
+                      </Label></Box>
                     ))}
-                  </div>
+                  </Inline>
                 </FieldRow>
               </FieldRows>
-            </fieldset>
+            </Box>
 
-            <p className="text-sm">
+            <Text as="p" variant="body">
               {!ready ? null : total === undefined && plan.isError ? (
-                <span className="text-destructive">
+                <Text tone="danger">
                   {terms ? '용어' : '줄'} 수를 세지 못했습니다: {plan.error.message}{' '}
                   <Button variant="ghost" size="inline" onClick={() => void plan.refetch()}>
                     다시 시도
                   </Button>
-                </span>
+                </Text>
               ) : total === undefined ? (
-                <span className="text-muted-foreground">
+                <Text tone="muted">
                   세는 중…
                   {slow && (
                     <>
@@ -386,21 +385,21 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
                       </Button>
                     </>
                   )}
-                </span>
+                </Text>
               ) : total === 0 ? (
-                <span className="text-muted-foreground">{terms ? (termIds?.length ? '고른 용어 중 실행할 것이 없습니다.' : '조건에 맞는 용어가 없습니다. 필터를 줄이거나 용어집에서 용어를 골라 실행하세요.') : '이 범위에는 실행할 대사가 없습니다.'}</span>
+                <Text tone="muted">{terms ? (termIds?.length ? '고른 용어 중 실행할 것이 없습니다.' : '조건에 맞는 용어가 없습니다. 필터를 줄이거나 용어집에서 용어를 골라 실행하세요.') : '이 범위에는 실행할 대사가 없습니다.'}</Text>
               ) : (
                 <>
-                  <b className="font-medium tabular-nums">{total.toLocaleString()}{unit}</b>{terms ? '를' : '을'} 실행합니다
-                  {data!.lines.translated > 0 && <span className="text-muted-foreground"> (그중 이미 {terms ? '표기가 있는 용어' : '번역 있는 줄'} {data!.lines.translated.toLocaleString()})</span>}
+                  <Text as="b" weight="medium" tabular>{total.toLocaleString()}{unit}</Text>{terms ? '를' : '을'} 실행합니다
+                  {data!.lines.translated > 0 && <Text tone="muted"> (그중 이미 {terms ? '표기가 있는 용어' : '번역 있는 줄'} {data!.lines.translated.toLocaleString()})</Text>}
                 </>
               )}
-              {data && data.lines.excluded > 0 && <span className="text-muted-foreground"> · 번역 제외 {data.lines.excluded.toLocaleString()}줄은 빠집니다</span>}
-            </p>
+              {data && data.lines.excluded > 0 && <Text tone="muted"> · 번역 제외 {data.lines.excluded.toLocaleString()}줄은 빠집니다</Text>}
+            </Text>
             {!terms && wholeProject && Boolean(total) && (
-              <p className="text-xs text-warning">프로젝트 전체입니다. 처음이면 장면 하나로 먼저 시험해 보세요.</p>
+              <Text as="p" variant="caption" tone="warning">프로젝트 전체입니다. 처음이면 장면 하나로 먼저 시험해 보세요.</Text>
             )}
-          </section>
+          </Box>
 
           {/* Listeners, speech rules and glossary checks are about lines: a term run has none of them. */}
           {data && total && !terms ? (
@@ -421,12 +420,12 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
               onReset={(nodeId) => setRunModels(({ [nodeId]: _gone, ...rest }) => rest)}
             />
           ) : null}
-          {ready && plan.isError && plan.data && <p className="text-sm text-destructive">계획을 다시 계산하지 못했습니다: {plan.error.message}</p>}
-          {ready && plan.isPending && <Skeleton className="h-24 w-full" />}
+          {ready && plan.isError && plan.data && <Text as="p" variant="body" tone="danger">계획을 다시 계산하지 못했습니다: {plan.error.message}</Text>}
+          {ready && plan.isPending && <Box asChild height={24} width="full"><Skeleton /></Box>}
 
-        </div>
+        </Box>
 
-        {start.isError && <p className="text-sm text-destructive">{start.error.message}</p>}
+        {start.isError && <Text as="p" variant="body" tone="danger">{start.error.message}</Text>}
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>
             취소
@@ -436,7 +435,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
             {start.isPending ? <Spinner /> : <Play />} {total ? `${total.toLocaleString()}${unit} 실행` : '실행 시작'}
           </Button>
         </DialogFooter>
-      </DialogContent>
+      </DialogContent></Box>
     </Dialog>
   );
 }
@@ -475,65 +474,64 @@ function ScopePicker({ sections, unit, picked, setPicked, filter, setFilter }: {
       for (const item of list) on ? next.add(item.id) : next.delete(item.id);
       return next;
     });
-  const row = 'flex min-w-0 items-center gap-2 rounded px-2 py-1 text-sm hover:bg-muted';
   const itemRow = (item: PickSection['items'][number]) => (
     <li key={item.id}>
-      <label className={row}>
+      <ScopeRow>
         <Checkbox checked={picked.has(item.id)} onCheckedChange={(checked) => toggled(setPicked, item.id, checked === true)} />
-        <span className="min-w-0 flex-1 truncate">{item.title}</span>
-        <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{item.detail}</span>
-      </label>
+        <Text minWidth={0} grow truncate>{item.title}</Text>
+        <Text shrink={false} variant="caption" tone="muted" tabular>{item.detail}</Text>
+      </ScopeRow>
     </li>
   );
   return (
-    <div className="min-w-0 overflow-hidden rounded-md border">
-      <div className="border-b p-1">
-        <SearchInput value={filter} onChange={(value) => setFilter(value ?? '')} placeholder="찾기" className="w-full" end={`${total(all.filter((item) => picked.has(item.id))).toLocaleString()}${unit}`} />
-      </div>
-      <div className="max-h-64 overflow-auto p-1">
-        <label className={cn(row, 'font-medium')}>
+    <Box minWidth={0} overflow="hidden" radius="md" border="all">
+      <Box border="bottom" padding="tight">
+        <Box asChild width="full"><SearchInput value={filter} onChange={(value) => setFilter(value ?? '')} placeholder="찾기" end={`${total(all.filter((item) => picked.has(item.id))).toLocaleString()}${unit}`} /></Box>
+      </Box>
+      <Box maxHeight={64} overflow="auto" padding="tight">
+        <ScopeRow kind="all">
           <Checkbox checked={state(all)} onCheckedChange={(checked) => setMany(all, checked === true)} />
-          <span className="min-w-0 flex-1">전체</span>
-          <span className="shrink-0 text-xs font-normal text-muted-foreground tabular-nums">{total(all).toLocaleString()}{unit}</span>
-        </label>
+          <Text minWidth={0} grow>전체</Text>
+          <Text shrink={false} variant="caption" weight="normal" tone="muted" tabular>{total(all).toLocaleString()}{unit}</Text>
+        </ScopeRow>
         {sections.filter((section) => section.items.length).map((section) => {
           if (!section.label)
             return (
-              <ul key={section.key} className="ml-4">
+              <Box as="ul" key={section.key} marginLeft="comfortable">
                 {shownOf(section).map(itemRow)}
-              </ul>
+              </Box>
             );
           const expanded = Boolean(needle) || open.has(section.key);
           return (
             <div key={section.key}>
               {/* Each level steps in by 16px: 전체 → section → its items. The fold arrow sits in that step. */}
-              <div className="flex min-w-0 items-center pl-2">
+              <Inline minWidth={0} paddingLeft="condensed">
                 <Button
                   variant="ghost"
                   size="icon-xs"
-                  className="w-4"
+                  width={4}
                   aria-label={`${section.label} ${expanded ? '접기' : '펼치기'}`}
                   aria-expanded={expanded}
                   onClick={() => toggled(setOpen as SetPicked, section.key, !open.has(section.key))}
                 >
-                  <ChevronRight className={cn('transition-transform', expanded && 'rotate-90')} />
+                  <Icon icon={ChevronRight} turn={expanded} />
                 </Button>
-                <label className={cn(row, 'min-w-0 flex-1 pl-0')}>
+                <ScopeRow kind="section">
                   <Checkbox checked={state(section.items)} onCheckedChange={(checked) => setMany(section.items, checked === true)} />
-                  <span className="min-w-0 flex-1 truncate">{section.label}</span>
-                  <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{section.items.length.toLocaleString()}개{unit === '줄' && ` · ${total(section.items).toLocaleString()}줄`}</span>
-                </label>
-              </div>
+                  <Text minWidth={0} grow truncate>{section.label}</Text>
+                  <Text shrink={false} variant="caption" tone="muted" tabular>{section.items.length.toLocaleString()}개{unit === '줄' && ` · ${total(section.items).toLocaleString()}줄`}</Text>
+                </ScopeRow>
+              </Inline>
               {expanded && (
-                <ul className="ml-8">
+                <Box as="ul" marginLeft="wide">
                   {shownOf(section).map(itemRow)}
-                </ul>
+                </Box>
               )}
             </div>
           );
         })}
-      </div>
-    </div>
+      </Box>
+    </Box>
   );
 }
 
@@ -596,23 +594,23 @@ function Readiness({ projectId, readiness, oneScene, onLeave }: { projectId: str
   // A workflow that neither writes nor judges translations with this context has nothing to get ready.
   if (!rows.length) return null;
   return (
-    <section className="space-y-2">
+    <Box as="section" spaceY="condensed">
       <SectionHeading>준비 상태</SectionHeading>
-      <ul className="rounded-md border text-sm">
+      <Box as="ul" radius="md" border="all" variant="body">
         {rows.map((row, index) => (
-          <li key={index} className="flex items-center gap-2 px-3 py-1.5">
-            <span className={cn('size-2 shrink-0 rounded-full', row.ok ? 'bg-success' : 'bg-warning')} />
-            <span className={cn('min-w-0 flex-1 truncate', row.ok && 'text-muted-foreground')} title={typeof row.text === 'string' ? row.text : undefined}>
+          <Inline as="li" key={index} gap="condensed" paddingX="normal" paddingY="snug">
+            <ReadinessDot ok={row.ok} />
+            <Text minWidth={0} grow truncate tone={row.ok ? 'muted' : undefined} title={typeof row.text === 'string' ? row.text : undefined}>
               {row.text}
-            </span>
+            </Text>
             {row.link && (
-              <Button variant="ghost" size="inline" className="shrink-0" asChild>
+              <Button variant="ghost" size="inline" shrink={false} asChild>
                 {row.link}
               </Button>
             )}
-          </li>
+          </Inline>
         ))}
-      </ul>
-    </section>
+      </Box>
+    </Box>
   );
 }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Keyboard } from 'lucide-react';
-import { Button, Kbd, Popover, PopoverContent, PopoverTrigger, SectionHeading } from '@loca/ui';
+import { Box, Button, Heading, Kbd, Popover, PopoverTrigger, ShortcutPopoverContent, ShortcutSection, Stack } from '@loca/ui';
 import { keyLabel } from '@/lib/keys';
 
 /** Every shortcut of the app, by where it works. Keys are written once and shown for the user's platform. */
@@ -84,25 +84,25 @@ export function ShortcutHelp() {
           <Keyboard />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="max-h-[80vh] w-96 overflow-auto p-0">
+      <ShortcutPopoverContent align="end">
         {SECTIONS.map((section) => (
-          <section key={section.title} className="border-b px-4 py-3 last:border-b-0">
-            <SectionHeading as="h3" className="mb-2">{section.title}</SectionHeading>
-            <dl className="space-y-1.5 text-sm">
+          <ShortcutSection key={section.title}>
+            <Heading as="h3" variant="section" minWidth={0} marginBottom="condensed">{section.title}</Heading>
+            <Box as="dl" spaceY="snug" variant="body">
               {section.keys.map(([keys, what]) => (
-                <div key={keys + what} className="flex items-start justify-between gap-3">
-                  <dt className="min-w-0">{what}</dt>
-                  <dd className="flex shrink-0 gap-1">
+                <Stack key={keys + what} direction="row" align="start" justify="between" gap="normal">
+                  <Box as="dt" minWidth={0}>{what}</Box>
+                  <Stack as="dd" direction="row" shrink={false} gap="tight">
                     {shown(keys).map((key) => (
                       <Kbd key={key}>{key}</Kbd>
                     ))}
-                  </dd>
-                </div>
+                  </Stack>
+                </Stack>
               ))}
-            </dl>
-          </section>
+            </Box>
+          </ShortcutSection>
         ))}
-      </PopoverContent>
+      </ShortcutPopoverContent>
     </Popover>
   );
 }

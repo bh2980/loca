@@ -7,7 +7,7 @@ import { GroupList, type GroupRow } from '@/components/script/group-list';
 import { filterChips, isFinding, LineList, linesSearchSchema, type LinesSearch } from '@/components/script/line-list';
 import { lineQueryParams } from '@/components/script/line-filters';
 import { SourceEditor, type SourceEditorMode, type SourceSaved } from '@/components/script/source-editor';
-import { Button, ContextMenuItem, ContextMenuSeparator, ResizableNavigationPanel, EditorToolbarProvider, EditorToolbarSlot, PageHeading, ResizablePanel, ResizablePanelGroup, Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
+import { Button, ContextMenuItem, ContextMenuSeparator, ResizableNavigationPanel, EditorToolbarProvider, EditorToolbarSlot, Icon, Inline, PageHeading, ScriptCrumb, ScriptFindBar, ScriptLinesPanel, ScriptPage, ScriptWorkspace, Text, Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
 import { askAgent } from '@/lib/agent';
 import { GROUP_KIND, SCRIPT_VIEW, SOURCE_GROUP_LABEL, SOURCE_UNIT_LABEL } from '@/lib/labels';
 import { q } from '@/lib/queries';
@@ -210,23 +210,23 @@ function Script() {
   );
 
   const heading = <>
-    {iconButton(listOpen ? `${groupNoun} 목록 접기` : `${groupNoun} 목록 펴기`, <ListTree className={listOpen ? undefined : 'text-subtle-foreground'} />, toggleList)}
-    <span className="text-sm font-semibold">{search.review ? '검토함' : SCRIPT_VIEW[view]}</span><ChevronRight className="size-3 text-muted-foreground" />
-    <span className="max-w-48 truncate text-xs text-muted-foreground">{group?.title ?? selectedSection ?? (search.review ? '검토 대기' : `전체 ${view === 'scene' ? '대사' : view === 'ui' ? 'UI' : '문서'}`)}</span>
+    {iconButton(listOpen ? `${groupNoun} 목록 접기` : `${groupNoun} 목록 펴기`, <Icon icon={ListTree} tone={listOpen ? undefined : 'subtle'} />, toggleList)}
+    <Text variant="body" weight="semibold">{search.review ? '검토함' : SCRIPT_VIEW[view]}</Text><Icon icon={ChevronRight} size="xs" tone="muted" />
+    <ScriptCrumb>{group?.title ?? selectedSection ?? (search.review ? '검토 대기' : `전체 ${view === 'scene' ? '대사' : view === 'ui' ? 'UI' : '문서'}`)}</ScriptCrumb>
     {group && (
-      <span className="flex items-center">
+      <Inline as="span">
         {iconButton(`이전 ${groupNoun}`, <ChevronLeft />, () => openGroup(ordered[index - 1]?.id), index <= 0)}
         {iconButton(`다음 ${groupNoun}`, <ChevronRight />, () => openGroup(ordered[index + 1]?.id), index < 0 || index >= ordered.length - 1)}
-      </span>
+      </Inline>
     )}
   </>;
 
   return (
-    <Page title="번역" flush className="flex flex-col">
+    <ScriptPage frame={Page} title="번역" flush>
       <EditorToolbarProvider>
       <EditorToolbarSlot />
       <PageHeading>{heading}</PageHeading>
-      <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
+      <ScriptWorkspace orientation="horizontal">
         <ResizableNavigationPanel id="groups" widthKey="script-groups" defaultWidth={216} open={showGroups}>
           <GroupList
             statuses={statuses.data?.statuses}
@@ -244,7 +244,7 @@ function Script() {
             menu={groupMenu}
           />
         </ResizableNavigationPanel>
-        <ResizablePanel id="lines" minSize="360px" className="flex min-w-0 flex-col">
+        <ScriptLinesPanel id="lines" minSize="360px">
           <LineList
             key={`${search.group ?? ''}:${search.section ?? ''}:${search.review ?? ''}:${search.group || search.review ? '' : view}`}
             projectId={projectId}
@@ -264,15 +264,15 @@ function Script() {
             find={finding && search.group ? { ids: new Set(matchRows.filter((row) => row.groupId === search.group).map((row) => row.id)), label: findLabel } : undefined}
             banner={
               finding && (
-                <div className="flex shrink-0 items-center gap-2 border-b bg-warning/5 px-4 py-1.5 text-sm">
+                <ScriptFindBar>
                   {/* Says it is the whole scene, the matches marked: the list alone shows only the matches. */}
-                  <span className="truncate">
-                    {SOURCE_GROUP_LABEL[group?.kind ?? view]} 전체에서 <span className="font-medium">{findLabel}</span> 찾는 중
-                  </span>
-                  <span className="text-xs whitespace-nowrap text-muted-foreground tabular-nums">
+                  <Text truncate>
+                    {SOURCE_GROUP_LABEL[group?.kind ?? view]} 전체에서 <Text weight="medium">{findLabel}</Text> 찾는 중
+                  </Text>
+                  <Text variant="caption" nowrap tone="muted" tabular>
                     {!matches.data ? '찾는 중…' : !matchRows.length ? '해당하는 줄이 없습니다' : `${position >= 0 ? (position + 1).toLocaleString() : '–'} / ${matchRows.length.toLocaleString()}줄 · 이 ${SOURCE_GROUP_LABEL[group?.kind ?? view]} ${(perScene.get(search.group ?? '') ?? 0).toLocaleString()}줄`}
-                  </span>
-                  <span className="ml-auto flex items-center gap-1">
+                  </Text>
+                  <Inline as="span" marginLeft="auto" gap="tight">
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button variant="ghost" size="icon" aria-label="이전 줄" disabled={!matchRows.length} onClick={() => step(-1)}>
@@ -295,8 +295,8 @@ function Script() {
                     <Button variant="ghost" size="icon" aria-label="필터 지우기" onClick={() => onSearch(clearFilters)}>
                       <X />
                     </Button>
-                  </span>
-                </div>
+                  </Inline>
+                </ScriptFindBar>
               )
             }
             runGroupIds={group ? [group.id] : sectionGroupIds}
@@ -323,9 +323,9 @@ function Script() {
               }), replace: true })}
             /> : undefined}
           />
-        </ResizablePanel>
-      </ResizablePanelGroup>
+        </ScriptLinesPanel>
+      </ScriptWorkspace>
       </EditorToolbarProvider>
-    </Page>
+    </ScriptPage>
   );
 }

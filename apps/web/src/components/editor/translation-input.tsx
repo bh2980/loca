@@ -6,7 +6,7 @@ import { acceptCompletion, autocompletion, completionStatus, type CompletionCont
 import { chipHue, chipLabel, numberTokens, type TokenKind, type TokenUnit } from '@/lib/tokens';
 import type { TagInsert } from '@/lib/tag-placement';
 import { splitTokens, type SourcePart } from '@/lib/line-context';
-import { cn } from '@/lib/utils';
+import { EditorInputBox } from '@loca/ui';
 
 /** Marks a replacement that came from the value prop, so it is not echoed back as typing. */
 const fromOwner = Annotation.define<boolean>();
@@ -204,7 +204,6 @@ export interface TranslationInputProps {
   /** Changing this to a non-zero number puts the cursor at the end of the text. */
   focusKey?: number;
   placeholder?: string;
-  className?: string;
 }
 
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -523,12 +522,6 @@ export function TranslationInput(props: TranslationInputProps) {
   }, [props.focusKey]);
 
   return (
-    <div
-      ref={host}
-      className={cn(
-        'min-h-16 rounded-md border border-input bg-background px-3 py-2 text-base shadow-2xs transition-all focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/40 md:text-sm',
-        props.className,
-      )}
-    />
+    <EditorInputBox ref={host} />
   );
 }

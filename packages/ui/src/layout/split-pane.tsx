@@ -12,6 +12,8 @@ export interface SplitPaneProps {
   children: ReactNode
   defaultWidth?: string
   className?: string
+  /** Fills its (positioned) parent instead of taking its size from the flow. */
+  fill?: boolean
   style?: CSSProperties
   autoActivate?: boolean
 }
@@ -25,10 +27,12 @@ export function SplitPane({
   selectionKey,
   children,
   defaultWidth = "420px",
-  className,
+  className: given,
+  fill,
   style,
   autoActivate,
 }: SplitPaneProps) {
+  const className = cn(fill && "absolute inset-0", given)
   const dock = useHasDock()
   if (dock) return <div className={cn('flex min-h-0 min-w-0 flex-1 flex-col', className)} style={style}>
     <DockContent selectionKey={selectionKey} autoActivate={autoActivate}>{pane}</DockContent>

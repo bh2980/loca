@@ -1,6 +1,7 @@
 import { useId, type ReactNode } from "react"
 import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react"
 import { cn } from "../lib/utils"
+import { STYLE } from "../layout/style"
 import { ControlIdContext } from "../primitives/control-id"
 import { Switch } from "../primitives/switch"
 import { HelpTip } from "../primitives/tooltip"
@@ -12,10 +13,10 @@ import { HelpTip } from "../primitives/tooltip"
  * empty means); `help` (a ? beside the label) says what the setting is and what changing it does.
  * Read-only values use PropertyRow instead.
  */
-export function InspectorField({ label, description, help, error, action, children, className }: { label: ReactNode; description?: ReactNode; help?: ReactNode; error?: ReactNode; action?: ReactNode; children: ReactNode; className?: string }) {
+export function InspectorField({ label, description, help, error, action, children, width, className }: { label: ReactNode; description?: ReactNode; help?: ReactNode; error?: ReactNode; action?: ReactNode; children: ReactNode; /** A fixed width, by the Tailwind step (`36`), for a field in a row of fields. */ width?: keyof typeof STYLE.width; className?: string }) {
   const id = useId()
   return (
-    <div className={cn("min-w-0 space-y-1.5", className)}>
+    <div className={cn("min-w-0 space-y-1.5", width && STYLE.width[width], className)}>
       <div className="flex min-h-5 min-w-0 items-center justify-between gap-2">
         <span className="flex min-w-0 items-center gap-1">
           <label htmlFor={id} className="min-w-0 truncate text-xs text-muted-foreground">
@@ -88,6 +89,6 @@ export function InspectorToggle({ label, description, help, checked, disabled, o
 }
 
 /** Rows of a list inside a section (lines, calls, rules): divided by hairlines, never boxed. */
-export function InspectorList({ children, className }: { children: ReactNode; className?: string }) {
-  return <ul className={cn("min-w-0 divide-y divide-border-subtle", className)}>{children}</ul>
+export function InspectorList({ children, className, body }: { children: ReactNode; className?: string; /** Rows in the body type (text-sm). */ body?: boolean }) {
+  return <ul className={cn("min-w-0 divide-y divide-border-subtle", body && "text-sm", className)}>{children}</ul>
 }

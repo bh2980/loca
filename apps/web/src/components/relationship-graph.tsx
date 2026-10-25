@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useGraphShortcuts } from '@/lib/graph-shortcuts';
 import { BaseEdge, Background, EdgeLabelRenderer, Handle, MarkerType, NodeToolbar, Panel, Position, ReactFlow, useInternalNode, type Edge, type EdgeProps, type InternalNode, type Node, type NodeChange, type NodeProps, type ReactFlowInstance, SelectionMode } from '@xyflow/react';
-import { Button, CanvasToolbar, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger, SelectionToolbox } from '@loca/ui';
+import { Box, Button, CanvasToolbar, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger, Inline, PersonNodeFrame, RelationLabelFrame, SelectionToolbox, Text } from '@loca/ui';
 import { Copy, Trash2 } from 'lucide-react';
 import type { RelationshipGraphActions } from '@/components/knowledge/graph-actions';
 import { GRAPH_KEYS } from '@/lib/graph-shortcuts';
@@ -9,7 +9,6 @@ import { keyLabel } from '@/lib/keys';
 import ELK from 'elkjs/lib/elk.bundled.js';
 import '@xyflow/react/dist/style.css';
 import type { CharacterRole } from '@tw/shared';
-import { cn } from '@/lib/utils';
 import { personStyle } from '@/lib/person-colors';
 import { relationRow } from '@/lib/relation-label';
 import { useIsDark } from '@/lib/theme';
@@ -77,17 +76,19 @@ type RelationEdge = Edge<{ offset: number; rows: LabelRow[]; dim: boolean; focus
 
 function PersonNodeView({ data, selected, isConnectable }: NodeProps<PersonNode>) {
   return (
-    <div
-      className={cn('group/person flex items-center justify-center rounded-md border border-border bg-background px-3 text-xs font-medium shadow-none transition-opacity', data.role === 'main' && 'border-2 border-foreground/70 font-semibold', data.role === 'minor' && 'border-dashed text-muted-foreground', (selected || data.target) && 'border-primary ring-1 ring-primary/40', data.dim && !data.target && 'opacity-30')}
+    <PersonNodeFrame
+      role={data.role}
+      active={selected || data.target}
+      dim={data.dim && !data.target}
       style={{ width: NODE_WIDTH, height: NODE_HEIGHT }}
     >
-      <span className="truncate" style={personStyle(data.color)}>{data.label}</span>
+      <Text truncate style={personStyle(data.color)}>{data.label}</Text>
       {/* Edges are floating (they attach to the node border). Dragging from the dot (always shown, as the
           workflow editor's ports, with a wider grab area) draws a new relationship; a drop anywhere on
           another person ends it there (connectionRadius). */}
-      <Handle type="target" position={Position.Top} isConnectableStart={false} className="!top-1/2 !size-1 !border-0 !opacity-0" />
-      {isConnectable && <Handle type="source" position={Position.Bottom} title="끌어서 관계 잇기" className="!size-2.5 !border-2 !border-card !bg-muted-foreground after:absolute after:-inset-2 after:content-[''] hover:!bg-primary group-hover/person:!bg-primary" />}
-    </div>
+      <Box asChild flowHandle="anchor"><Handle type="target" position={Position.Top} isConnectableStart={false} /></Box>
+      {isConnectable && <Box asChild flowHandle="port"><Handle type="source" position={Position.Bottom} title="끌어서 관계 잇기" /></Box>}
+    </PersonNodeFrame>
   );
 }
 
@@ -121,13 +122,14 @@ function FloatingEdge({ id, source, target, markerStart, markerEnd, data, select
       {/* Labels of every relationship at once pile up; they show for the selected or hovered person, or on the selected line. */}
       {(selected || data?.showLabel) && (
         <EdgeLabelRenderer>
-          <div
+          <RelationLabelFrame
             data-relation-label
-            className={cn('nodrag nopan absolute flex flex-col rounded border bg-background text-xs shadow-xs', (selected || data?.focus) && 'border-primary', data?.dim && 'opacity-30')}
+            active={selected || data?.focus}
+            dim={data?.dim}
             style={{ transform: `translate(-50%, -50%) translate(${label.x}px, ${label.y}px)`, pointerEvents: 'all' }}
           >
             {data?.rows.map((row) => (
-              <Button key={row.id} variant="ghost" size="inline" className={cn('justify-start rounded-none font-normal whitespace-nowrap', row.selected ? 'font-medium text-primary' : (selected || data.focus) && 'text-primary')} onClick={(event) => {
+              <Button key={row.id} variant="ghost" size="inline" justifyContent="start" radius="none" weight={row.selected ? 'medium' : 'normal'} nowrap tone={row.selected || selected || data.focus ? 'primary' : undefined} onClick={(event) => {
                   // The line under the label would otherwise take the click and pick the first relationship.
                   event.stopPropagation();
                   data.onPick(row.id);
@@ -135,7 +137,7 @@ function FloatingEdge({ id, source, target, markerStart, markerEnd, data, select
                 {row.text}
               </Button>
             ))}
-          </div>
+          </RelationLabelFrame>
         </EdgeLabelRenderer>
       )}
     </>
@@ -348,7 +350,7 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
     return result;
   }, [drawable, selectedRelationshipId, emphasis, onSelectRelationship]);
 
-  if (!positions) return <div className="flex h-full items-center justify-center text-sm text-muted-foreground">배치 계산 중…</div>;
+  if (!positions) return <Inline height="full" justify="center" variant="body" tone="muted">배치 계산 중…</Inline>;
   const menuCharacter = menuFor?.length === 1 ? characters.find((character) => character.id === menuFor[0]) : undefined;
   /** The picked set after React Flow's select changes (a box, a ⌘/Ctrl+click; a plain click is settled in onNodeClick). */
   const pick = (changes: NodeChange<PersonNode>[]) => {
@@ -367,7 +369,7 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
   return (
     <ContextMenu onOpenChange={(open) => !open && setMenu(null)}>
     <ContextMenuTrigger asChild>
-    <div className="h-full w-full">
+    <Box height="full" width="full">
     <ReactFlow colorMode={dark ? 'dark' : 'light'}
       key={viewKey.current}
       nodes={flowNodes}
@@ -454,7 +456,7 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
         </NodeToolbar>
       )}
     </ReactFlow>
-    </div>
+    </Box>
     </ContextMenuTrigger>
     {menu && (
       <ContextMenuContent>

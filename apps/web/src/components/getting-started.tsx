@@ -3,10 +3,9 @@ import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Check, Play, X } from 'lucide-react';
 import { RunDialog } from '@/components/workflow/run-dialog';
-import { Button, SectionHeading } from '@loca/ui';
+import { Box, Button, Icon, Inline, SectionHeading, Stack, StepList, StepMarker, Text } from '@loca/ui';
 import { HeaderActions } from '@/components/page';
 import { q, useReviewTagId } from '@/lib/queries';
-import { cn } from '@/lib/utils';
 
 interface Step {
   key: string;
@@ -140,32 +139,32 @@ export function GettingStarted({ projectId }: { projectId: string }) {
 
   return (
     <section>
-      <div className="mb-3 flex items-center justify-between">
+      <Inline justify="between" marginBottom="normal">
         <SectionHeading page>시작하기</SectionHeading>
         <Button variant="ghost" size="icon" aria-label="시작하기 닫기" onClick={() => hide(true)}>
           <X />
         </Button>
-      </div>
-      <ol className="rounded-md border border-border bg-background/50">
+      </Inline>
+      <StepList>
         {steps.map((step, i) => {
           const current = step === next;
           return (
-            <li key={step.key} className={cn('flex items-start gap-4 px-4 py-3', current && 'bg-muted')}>
-              <span className={cn('mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full border text-xs tabular-nums', step.done ? 'border-success bg-success text-background' : current ? 'border-foreground font-medium text-foreground' : 'text-muted-foreground')}>
-                {step.done ? <Check className="size-3.5" /> : i + 1}
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className={cn('text-sm font-medium', step.done && 'text-muted-foreground')}>
+            <Stack as="li" direction="row" align="start" gap="comfortable" paddingX="comfortable" paddingY="normal" background={current ? 'muted' : undefined} key={step.key}>
+              <StepMarker state={step.done ? 'done' : current ? 'current' : 'todo'}>
+                {step.done ? <Icon icon={Check} size="sm" /> : i + 1}
+              </StepMarker>
+              <Box minWidth={0} grow>
+                <Text as="p" variant="label" tone={step.done ? 'muted' : undefined}>
                   {step.title}
-                  {step.optional && <span className="ml-2 text-xs font-normal text-muted-foreground">선택</span>}
-                </p>
-                {!step.done && step.why && <p className="mt-0.5 text-xs text-muted-foreground">{step.why}</p>}
-              </div>
-              {!step.done && (current || step.optional) && <div className="shrink-0">{step.action(current)}</div>}
-            </li>
+                  {step.optional && <Text variant="caption" weight="normal" tone="muted" marginLeft="condensed">선택</Text>}
+                </Text>
+                {!step.done && step.why && <Text as="p" variant="caption" tone="muted" marginTop="hair">{step.why}</Text>}
+              </Box>
+              {!step.done && (current || step.optional) && <Box shrink={false}>{step.action(current)}</Box>}
+            </Stack>
           );
         })}
-      </ol>
+      </StepList>
     </section>
   );
 }

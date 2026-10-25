@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Trash2 } from 'lucide-react';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, DirtyBar, Inspector, InspectorBlock, InspectorField, InspectorFields, InspectorHeader, InspectorResult, InspectorSection, Input, PropertyGrid, PropertyRow, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea } from '@loca/ui';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Box, Button, DirtyBar, Inspector, InspectorBlock, InspectorField, InspectorFields, InspectorHeader, InspectorResult, InspectorSection, Input, PropertyGrid, PropertyRow, ScriptSelectTrigger, Select, SelectContent, SelectItem, SelectValue, Text, Textarea } from '@loca/ui';
 import { client, unwrap, type InferResponseType } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
 import { q } from '@/lib/queries';
@@ -101,7 +101,7 @@ export function SourceEditor({ projectId, kind, groupId, unitId, mode, onClose, 
 
   return (
     <Inspector footerStart={(editingGroup || editingUnit) ? (<><AlertDialog>
-            <AlertDialogTrigger asChild><Button type="button" variant="ghost" className="text-destructive"><Trash2 /> {editingGroup ? '묶음 삭제' : '원문 삭제'}</Button></AlertDialogTrigger>
+            <AlertDialogTrigger asChild><Button type="button" variant="ghost" tone="danger"><Trash2 /> {editingGroup ? '묶음 삭제' : '원문 삭제'}</Button></AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>
                 <AlertDialogTitle>{editingGroup ? '묶음과 원문을 삭제할까요?' : '원문을 삭제할까요?'}</AlertDialogTitle>
@@ -116,7 +116,7 @@ export function SourceEditor({ projectId, kind, groupId, unitId, mode, onClose, 
       header={<InspectorHeader kind={isGroup ? SOURCE_GROUP_LABEL[form.kind] : SOURCE_UNIT_LABEL[form.kind]} name={heading} onClose={onClose} />}
       loading={loading}
       footer={creating
-        ? <>{!canSave && !save.isPending && <span className="mr-auto text-xs text-muted-foreground">{whyDisabled}</span>}<Button disabled={!canSave} onClick={() => save.mutate(draft)} aria-busy={save.isPending}>{save.isPending ? '추가 중' : '추가'}</Button></>
+        ? <>{!canSave && !save.isPending && <Text marginRight="auto" variant="caption" tone="muted">{whyDisabled}</Text>}<Button disabled={!canSave} onClick={() => save.mutate(draft)} aria-busy={save.isPending}>{save.isPending ? '추가 중' : '추가'}</Button></>
         : dirty ? <DirtyBar dirtyCount={1} onRevert={() => clearDraft()} onSave={() => save.mutate(draft)} saving={save.isPending} disabled={!canSave} /> : undefined}
     >
       {loadError && (
@@ -139,7 +139,7 @@ export function SourceEditor({ projectId, kind, groupId, unitId, mode, onClose, 
             <InspectorFields>
               {mode === 'create-group' && (
                 <InspectorField label="종류">
-                  <Select value={form.kind} onValueChange={(value) => update('kind', value)}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="scene">장면</SelectItem><SelectItem value="document">문서</SelectItem><SelectItem value="ui">UI 묶음</SelectItem></SelectContent></Select>
+                  <Select value={form.kind} onValueChange={(value) => update('kind', value)}><ScriptSelectTrigger width="full"><SelectValue /></ScriptSelectTrigger><SelectContent><SelectItem value="scene">장면</SelectItem><SelectItem value="document">문서</SelectItem><SelectItem value="ui">UI 묶음</SelectItem></SelectContent></Select>
                 </InspectorField>
               )}
               <InspectorField label="이름"><Input value={form.title} onChange={(event) => update('title', event.target.value)} placeholder="묶음 이름" /></InspectorField>
@@ -152,14 +152,14 @@ export function SourceEditor({ projectId, kind, groupId, unitId, mode, onClose, 
       ) : (
         <InspectorSection title="원문">
           {groups.isError ? (
-            <div className="space-y-2"><InspectorResult tone="error">묶음 목록을 불러오지 못했습니다.</InspectorResult><Button variant="outline" onClick={() => void groups.refetch()}>다시 시도</Button></div>
+            <Box spaceY="condensed"><InspectorResult tone="error">묶음 목록을 불러오지 못했습니다.</InspectorResult><Button variant="outline" onClick={() => void groups.refetch()}>다시 시도</Button></Box>
           ) : (
             <InspectorFields>
               <InspectorField label={SOURCE_GROUP_LABEL[form.kind]}>
-                {groups.isPending ? <span className="text-xs text-muted-foreground">불러오는 중…</span> : groups.data?.length ? (
-                  <Select value={form.groupId} onValueChange={(value) => update('groupId', value)}><SelectTrigger className="w-full"><SelectValue placeholder={`${SOURCE_GROUP_LABEL[form.kind]} 선택`} /></SelectTrigger><SelectContent>{groups.data.map((item) => <SelectItem key={item.id} value={item.id}>{item.title}</SelectItem>)}</SelectContent></Select>
+                {groups.isPending ? <Text variant="caption" tone="muted">불러오는 중…</Text> : groups.data?.length ? (
+                  <Select value={form.groupId} onValueChange={(value) => update('groupId', value)}><ScriptSelectTrigger width="full"><SelectValue placeholder={`${SOURCE_GROUP_LABEL[form.kind]} 선택`} /></ScriptSelectTrigger><SelectContent>{groups.data.map((item) => <SelectItem key={item.id} value={item.id}>{item.title}</SelectItem>)}</SelectContent></Select>
                 ) : (
-                  <div className="space-y-2"><p className="text-sm text-muted-foreground">이 종류의 묶음이 없습니다.</p>{onCreateGroup && <Button type="button" variant="outline" onClick={onCreateGroup}>{SOURCE_GROUP_LABEL[form.kind]} 추가</Button>}</div>
+                  <Box spaceY="condensed"><Text as="p" variant="body" tone="muted">이 종류의 묶음이 없습니다.</Text>{onCreateGroup && <Button type="button" variant="outline" onClick={onCreateGroup}>{SOURCE_GROUP_LABEL[form.kind]} 추가</Button>}</Box>
                 )}
               </InspectorField>
               <InspectorField label="원문" description={editingUnit && unit.data?.translation ? '바꾸면 번역 상태가 처음으로 돌아갑니다. 기존 번역과 후보는 남으니 다시 확인하세요.' : undefined}>
@@ -175,7 +175,7 @@ export function SourceEditor({ projectId, kind, groupId, unitId, mode, onClose, 
         </InspectorSection>
       )}
       {editingGroup && groupUnits.isError && (
-        <InspectorBlock><div className="space-y-2"><InspectorResult tone="error">원문 수를 확인하지 못해 삭제를 막았습니다.</InspectorResult><Button type="button" variant="outline" onClick={() => void groupUnits.refetch()}>다시 시도</Button></div></InspectorBlock>
+        <InspectorBlock><Box spaceY="condensed"><InspectorResult tone="error">원문 수를 확인하지 못해 삭제를 막았습니다.</InspectorResult><Button type="button" variant="outline" onClick={() => void groupUnits.refetch()}>다시 시도</Button></Box></InspectorBlock>
       )}
     </Inspector>
   );

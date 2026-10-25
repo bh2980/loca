@@ -1,27 +1,12 @@
 import { useState, type ReactNode } from 'react';
-import { ChevronRight } from 'lucide-react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import type { InferResponseType } from 'hono/client';
 import { AI_OUTPUTS, CONTEXT_ITEM_KINDS, CONTEXT_PRIORITY, INPUT_TYPES, JSON_FIELD_TYPE_LABELS, type AiNode, type AiOutput, type BatchConfig } from '@tw/shared';
-import { Button, Collapsible, CollapsibleContent, CollapsibleTrigger, Dialog, DialogContent, DialogHeader, DialogTitle, InspectorSection, SearchableSelect, Skeleton } from '@loca/ui';
+import { Box, Button, Inline, InspectorSection, LargeDialog, RequestDetails, RequestPart as Part, SearchableSelect, Skeleton, Text } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 
 type Request = InferResponseType<(typeof client.workflows)[':id']['nodes'][':nodeId']['request']['$get'], 200>;
-
-/** One folded part of 상세: its name and size are visible, the content opens on demand. */
-function Part({ title, size, children }: { title: string; size: ReactNode; children: ReactNode }) {
-  return (
-    <Collapsible className="border-b border-border-subtle last:border-b-0">
-      <CollapsibleTrigger className="group flex w-full items-center gap-1.5 py-2 text-left text-sm">
-        <ChevronRight className="size-3.5 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-90" />
-        <span className="font-medium">{title}</span>
-        <span className="ml-auto truncate pl-2 text-xs text-muted-foreground tabular-nums">{size}</span>
-      </CollapsibleTrigger>
-      <CollapsibleContent className="pb-3 pl-5">{children}</CollapsibleContent>
-    </Collapsible>
-  );
-}
 
 /** The request one AI node sends (no model call): the prompt itself first, then what it is made of. */
 export function PromptView({ request, title }: { request: Request; title: string }) {
@@ -29,75 +14,66 @@ export function PromptView({ request, title }: { request: Request; title: string
   const unit = INPUT_TYPES[request.subject].unit;
   const text = `${request.system}\n\n${request.prompt}`;
   const byKind = CONTEXT_PRIORITY.map((kind) => ({ kind, items: request.context.filter((item) => item.kind === kind && item.included) })).filter((group) => group.items.length);
-  if (!request.sample) return <p className="text-sm text-muted-foreground">보낼 항목이 없습니다.</p>;
+  if (!request.sample) return <Text as="p" variant="body" tone="muted">보낼 항목이 없습니다.</Text>;
   return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2">
-        <p className="min-w-0 flex-1 text-xs text-muted-foreground">
+    <Box spaceY="condensed">
+      <Inline gap="condensed">
+        <Text as="p" minWidth={0} grow variant="caption" tone="muted">
           요청 1건 · {request.total.toLocaleString()}{unit} · 약 {request.promptTokens.toLocaleString()} 토큰
-        </p>
-        <Button size="sm" variant="ghost" onClick={() => setLarge(true)}>크게 보기</Button>
-      </div>
-      <pre className="max-h-72 overflow-auto rounded-md bg-muted p-2 text-xs whitespace-pre-wrap">{text}</pre>
-      <Dialog open={large} onOpenChange={setLarge}>
-        <DialogContent className="flex h-[85vh] max-w-4xl flex-col">
-          <DialogHeader><DialogTitle>{title}</DialogTitle></DialogHeader>
-          <pre className="min-h-0 flex-1 overflow-auto rounded-md bg-muted p-3 text-xs whitespace-pre-wrap">{text}</pre>
-        </DialogContent>
-      </Dialog>
-      <Collapsible>
-        <CollapsibleTrigger className="group flex items-center gap-1 text-xs font-semibold">
-          <ChevronRight className="size-3.5 transition-transform group-data-[state=open]:rotate-90" />
-          상세
-        </CollapsibleTrigger>
-        <CollapsibleContent className="pt-1">
+        </Text>
+        <Button variant="ghost" onClick={() => setLarge(true)}>크게 보기</Button>
+      </Inline>
+      <Box as="pre" maxHeight={72} overflow="auto" radius="md" background="muted" padding="condensed" variant="caption" preserveLines>{text}</Box>
+      <LargeDialog open={large} onOpenChange={setLarge} title={title} size="lg">
+        <Box as="pre" minHeight={0} grow overflow="auto" radius="md" background="muted" padding="normal" variant="caption" preserveLines>{text}</Box>
+      </LargeDialog>
+      <RequestDetails title="상세">
           <Part title="지시문" size={`${request.instructions.length.toLocaleString()}자`}>
-            <p className="text-sm whitespace-pre-wrap">{request.instructions || '비어 있음'}</p>
+            <Text as="p" variant="body" preserveLines>{request.instructions || '비어 있음'}</Text>
           </Part>
           <Part title="답 형식" size={request.output === 'json' ? `칸 ${request.fields.length}개` : AI_OUTPUTS[request.output].label}>
             {request.output === 'json' ? (
-              <ul className="space-y-1 text-sm">
+              <Box as="ul" spaceY="tight" variant="body">
                 {request.fields.map((field) => (
                   <li key={field.name}>
-                    <span className="font-medium">{field.name}</span> <span className="text-xs text-muted-foreground">{JSON_FIELD_TYPE_LABELS[field.type]}</span>
-                    {field.description && <p className="text-xs text-muted-foreground">{field.description}</p>}
+                    <Text weight="medium">{field.name}</Text> <Text variant="caption" tone="muted">{JSON_FIELD_TYPE_LABELS[field.type]}</Text>
+                    {field.description && <Text as="p" variant="caption" tone="muted">{field.description}</Text>}
                   </li>
                 ))}
-              </ul>
+              </Box>
             ) : (
-              <p className="text-sm text-muted-foreground">{AI_OUTPUTS[request.output].description}</p>
+              <Text as="p" variant="body" tone="muted">{AI_OUTPUTS[request.output].description}</Text>
             )}
           </Part>
           <Part title="문맥" size={byKind.length ? byKind.map((group) => `${CONTEXT_ITEM_KINDS[group.kind]} ${group.items.length}`).join(' · ') : '없음'}>
             {byKind.length ? (
-              <div className="space-y-2">
+              <Box spaceY="condensed">
                 {byKind.map((group) => (
                   <div key={group.kind}>
-                    <p className="text-xs font-medium">{CONTEXT_ITEM_KINDS[group.kind]}</p>
-                    <ul className="text-sm text-muted-foreground">
-                      {group.items.slice(0, 20).map((item, index) => <li key={`${item.label}-${index}`} className="truncate" title={item.reason}>{item.label}</li>)}
-                      {group.items.length > 20 && <li className="text-xs">외 {(group.items.length - 20).toLocaleString()}개</li>}
-                    </ul>
+                    <Text as="p" variant="caption" weight="medium">{CONTEXT_ITEM_KINDS[group.kind]}</Text>
+                    <Box as="ul" variant="body" tone="muted">
+                      {group.items.slice(0, 20).map((item, index) => <Box as="li" key={`${item.label}-${index}`} truncate title={item.reason}>{item.label}</Box>)}
+                      {group.items.length > 20 && <Box as="li" variant="caption">외 {(group.items.length - 20).toLocaleString()}개</Box>}
+                    </Box>
                   </div>
                 ))}
-              </div>
+              </Box>
             ) : (
-              <p className="text-sm text-muted-foreground">항목 외에 넣는 문맥이 없습니다.</p>
+              <Text as="p" variant="body" tone="muted">항목 외에 넣는 문맥이 없습니다.</Text>
             )}
           </Part>
           <Part title="항목" size={`${request.total.toLocaleString()}${unit}`}>
-            <ul className="space-y-1 text-sm">
+            <Box as="ul" spaceY="tight" variant="body">
               {request.items.map((item) => (
-                <li key={item.label} className="truncate">
-                  <span className="text-xs text-muted-foreground">{item.label}</span> {item.text}
-                </li>
+                <Box as="li" key={item.label} truncate>
+                  <Text variant="caption" tone="muted">{item.label}</Text> {item.text}
+                </Box>
               ))}
-              {request.total > request.items.length && <li className="text-xs text-muted-foreground">외 {(request.total - request.items.length).toLocaleString()}{unit}</li>}
-            </ul>
+              {request.total > request.items.length && <Box as="li" variant="caption" tone="muted">외 {(request.total - request.items.length).toLocaleString()}{unit}</Box>}
+            </Box>
           </Part>
-        </CollapsibleContent>
-      </Collapsible>
-    </div>
+      </RequestDetails>
+    </Box>
   );
 }
 
@@ -150,10 +126,10 @@ export function RequestPreview({ projectId, workflowId, node }: { projectId: str
   const data = request.data;
   return (
     <InspectorSection title="AI 프롬프트">
-      <div className="space-y-2">
+      <Box spaceY="condensed">
         {data && <SamplePicker projectId={projectId} subject={data.subject} value={data.sample?.value} label={data.sample?.label} onPick={setSample} />}
-        {request.isError ? <p className="text-sm text-destructive">{request.error.message}</p> : !data ? <Skeleton className="h-40" /> : <PromptView request={data} title={`AI 프롬프트 · ${node.label ?? node.id}`} />}
-      </div>
+        {request.isError ? <Text as="p" variant="body" tone="danger">{request.error.message}</Text> : !data ? <Box asChild height={40}><Skeleton /></Box> : <PromptView request={data} title={`AI 프롬프트 · ${node.label ?? node.id}`} />}
+      </Box>
     </InspectorSection>
   );
 }

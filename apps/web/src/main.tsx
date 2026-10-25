@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createRouter, RouterProvider } from '@tanstack/react-router';
 import { toast } from 'sonner';
-import { Spinner, Toaster, TooltipProvider } from '@loca/ui';
+import { ServerNotice, Toaster, TooltipProvider } from '@loca/ui';
 import { isServerDown, setChangeListener, useServerDown } from '@/lib/api';
 import { refetchKeys } from '@/lib/live';
 import { routeTree } from './routeTree.gen';
@@ -36,9 +36,7 @@ const router = createRouter({
 function ServerDownNotice() {
   if (!useServerDown()) return null;
   return (
-    <div role="status" className="fixed bottom-10 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-md border bg-popover px-3 py-1.5 text-xs text-popover-foreground shadow-md">
-      <Spinner className="size-3" />서버에 연결하는 중…
-    </div>
+    <ServerNotice>서버에 연결하는 중…</ServerNotice>
   );
 }
 

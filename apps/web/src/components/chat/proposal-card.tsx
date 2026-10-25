@@ -1,8 +1,8 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Check, Wrench, X } from 'lucide-react';
+import { Check, X } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { Button, Input, Spinner } from '@loca/ui';
+import { Box, Button, Inline, Input, Spinner, Stack, Text, ToolCard, ToolCardHeader } from '@loca/ui';
 import { acceptedLabel } from '@tw/shared';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
@@ -60,31 +60,31 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
   const failure = proposal.status === 'failed' ? String((proposal.result as { error?: string } | null)?.error ?? '') : '';
   const skipped = proposal.status === 'accepted' ? ((proposal.result as { skipped?: unknown[] } | null)?.skipped?.length ?? 0) : 0;
   return (
-    <div className="overflow-hidden rounded-lg border bg-background text-sm">
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 border-b bg-muted px-3 py-1.5 text-sm font-semibold">
-        <CardTitle>{LABEL[proposal.tool] ?? proposal.tool}</CardTitle>
-        {proposal.source === 'cli' && <span className="font-normal text-muted-foreground">· CLI</span>}
-        <span className="ml-auto text-right text-xs font-normal">
-          {proposal.undoneAt ? <span className="ml-auto text-muted-foreground">되돌림</span> : proposal.status !== 'pending' && (
-            <span className={proposal.status === 'accepted' ? 'text-success' : proposal.status === 'failed' ? 'text-destructive' : 'text-muted-foreground'}>
-              {proposal.decidedBy && proposal.decidedBy !== 'person' && `${DECIDED_BY[proposal.decidedBy]} `}
-              {proposal.status === 'accepted' ? acceptedLabel(proposal.tool).short : proposal.status === 'failed' && proposal.decidedBy && proposal.decidedBy !== 'person' ? '적용하려 했지만 실패' : STATUS[proposal.status]}
-              {failure && ` · ${failure}`}
-              {proposal.status === 'rejected' && proposal.reason && ` · ${proposal.reason}`}
-              {skipped > 0 && ` · ${skipped.toLocaleString()}개는 건너뜀`}
-            </span>
-          )}
-          {decide.isPending && <Spinner className="size-3" />}
-        </span>
-      </div>
-      <div className="px-3 py-2 text-sm">
+    <ToolCard>
+      <ToolCardHeader title={LABEL[proposal.tool] ?? proposal.tool} suffix={proposal.source === 'cli' && <Text weight="normal" tone="muted">· CLI</Text>}>
+        {proposal.undoneAt ? <Text marginLeft="auto" tone="muted">되돌림</Text> : proposal.status !== 'pending' && (
+          <Text tone={proposal.status === 'accepted' ? 'success' : proposal.status === 'failed' ? 'danger' : 'muted'}>
+            {proposal.decidedBy && proposal.decidedBy !== 'person' && `${DECIDED_BY[proposal.decidedBy]} `}
+            {proposal.status === 'accepted' ? acceptedLabel(proposal.tool).short : proposal.status === 'failed' && proposal.decidedBy && proposal.decidedBy !== 'person' ? '적용하려 했지만 실패' : STATUS[proposal.status]}
+            {failure && ` · ${failure}`}
+            {proposal.status === 'rejected' && proposal.reason && ` · ${proposal.reason}`}
+            {skipped > 0 && ` · ${skipped.toLocaleString()}개는 건너뜀`}
+          </Text>
+        )}
+        {decide.isPending && <Spinner size="xs" />}
+      </ToolCardHeader>
+      <Box paddingX="normal" paddingY="condensed" variant="body">
         <ChangePreview name={proposal.tool} input={proposal.input} pending={proposal.status === 'pending'} />
         {proposal.report && <ProposalReport report={proposal.report} />}
-        {proposal.status === 'pending' && proposal.review && <p className="mt-2 border-t pt-2 text-muted-foreground">자동 검토가 넘김: {proposal.review}</p>}
-      </div>
+        {proposal.status === 'pending' && proposal.review && <Text as="p" marginTop="condensed" border="top" paddingTop="condensed" tone="muted">자동 검토가 넘김: {proposal.review}</Text>}
+      </Box>
       {proposal.status === 'pending' && rejecting && (
-        <form
-          className="flex items-center gap-2 border-t px-3 py-2"
+        <Inline
+          as="form"
+          gap="condensed"
+          border="top"
+          paddingX="normal"
+          paddingY="condensed"
           onSubmit={(event) => {
             event.preventDefault();
             decide.mutate('reject');
@@ -97,22 +97,22 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
           <Button type="submit" variant="outline" disabled={decide.isPending}>
             <X /> 거절
           </Button>
-        </form>
+        </Inline>
       )}
       {proposal.status === 'pending' && !rejecting && (
-        <div className="flex justify-end gap-2 border-t px-3 py-2">
+        <Stack direction="row" justify="end" gap="condensed" border="top" paddingX="normal" paddingY="condensed">
           <Button variant="outline" disabled={decide.isPending} onClick={() => setRejecting(true)}>
             <X /> 거절
           </Button>
           <Button disabled={decide.isPending} onClick={() => decide.mutate('accept')}>
             <Check /> 수락
           </Button>
-        </div>
+        </Stack>
       )}
       {proposal.sessionId && proposal.status === 'accepted' && proposal.undo && 'calls' in proposal.undo && proposal.undo.calls > 0 && !proposal.undoneAt && (
-        <div className="flex justify-end border-t px-3 py-2"><Button variant="outline" disabled={undo.isPending} onClick={() => undo.mutate([proposal.id])}>{undo.isPending ? <Spinner /> : null} 되돌리기</Button></div>
+        <Stack direction="row" justify="end" border="top" paddingX="normal" paddingY="condensed"><Button variant="outline" disabled={undo.isPending} onClick={() => undo.mutate([proposal.id])}>{undo.isPending ? <Spinner /> : null} 되돌리기</Button></Stack>
       )}
-    </div>
+    </ToolCard>
   );
 }
 
@@ -121,7 +121,7 @@ function ProposalReport({ report }: { report: NonNullable<Proposal['report']> & 
   const dropped = report.counts?.dropped ?? report.dropped.length;
   const warnings = report.counts?.warnings ?? report.warnings.length;
   return (
-    <div className="mt-2 space-y-1 border-t pt-2 text-muted-foreground">
+    <Box marginTop="condensed" spaceY="tight" border="top" paddingTop="condensed" tone="muted">
       {dropped > 0 && (
         <p>
           제안할 때 뺀 줄 {dropped.toLocaleString()}개: {report.dropped.slice(0, 3).map((entry) => `${entry.key} ${entry.reason}`).join(' · ')}
@@ -129,21 +129,11 @@ function ProposalReport({ report }: { report: NonNullable<Proposal['report']> & 
         </p>
       )}
       {warnings > 0 && (
-        <p className="text-warning">
+        <Text as="p" tone="warning">
           경고 {warnings.toLocaleString()}개: {report.warnings.slice(0, 3).map((entry) => `${entry.key} ${entry.issues[0]}`).join(' · ')}
           {warnings > 3 && ' …'}
-        </p>
+        </Text>
       )}
-    </div>
-  );
-}
-
-/** A card's title on one line (narrow panel: the status wraps below instead of breaking the title). */
-function CardTitle({ children }: { children: string }) {
-  return (
-    <span className="flex min-w-0 items-center gap-2 whitespace-nowrap" title={children}>
-      <Wrench className="size-3.5 shrink-0 text-muted-foreground" />
-      <span className="truncate">{children}</span>
-    </span>
+    </Box>
   );
 }

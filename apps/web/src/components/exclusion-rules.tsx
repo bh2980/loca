@@ -4,7 +4,7 @@ import { Link } from '@tanstack/react-router';
 import { Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { EXCLUSION_REASON_LABELS, exclusionReason, formatPatternError, type ExclusionRules, type FormatRules } from '@tw/shared';
-import { Button, Field, FieldContent, FieldDescription, FieldLabel, GroupHeading, Input, SettingsSection, Switch } from '@loca/ui';
+import { Box, Button, Field, FieldContent, FieldDescription, FieldLabel, GroupHeading, Inline, RulesInput, RulesQuietLink, SettingsSection, Stack, Switch, Text } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { useFormFrom } from '@/lib/use-form-from';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
@@ -40,12 +40,14 @@ export function ExclusionRulesSection({ projectId, rules, formatRules, sourceLan
       title="번역 제외"
       description="번역할 대상이 아닌 원문. 진행률·남은 줄·실행·내보내기·검사에서 빠지고, 번역은 건드리지 않습니다. 줄마다 상세에서 직접 정할 수도 있습니다."
       headerActions={
-        <Link to="/p/$projectId/script" params={{ projectId }} search={{ marks: ['excluded'] }} className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground">
-          지금 {excludedCount.toLocaleString()}줄 제외
-        </Link>
+        <RulesQuietLink>
+          <Link to="/p/$projectId/script" params={{ projectId }} search={{ marks: ['excluded'] }}>
+            지금 {excludedCount.toLocaleString()}줄 제외
+          </Link>
+        </RulesQuietLink>
       }
       actions={
-        <div className="flex gap-2">
+        <Stack direction="row" gap="condensed">
           <Button disabled={!dirty || invalid || save.isPending} onClick={() => save.mutate()}>
             저장
           </Button>
@@ -54,11 +56,11 @@ export function ExclusionRulesSection({ projectId, rules, formatRules, sourceLan
               되돌리기
             </Button>
           )}
-        </div>
+        </Stack>
       }
     >
       {conflicts.length > 0 && <ChangedElsewhere onTakeSaved={takeSaved} onKeepMine={keepMine} />}
-      <div className="space-y-4">
+      <Box spaceY="comfortable">
         {SWITCHES.map((item) => (
           <Field key={item.key} orientation="horizontal">
             <Switch id={`exclusion-${item.key}`} checked={draft[item.key]} onCheckedChange={(on) => setDraft((current) => ({ ...current, [item.key]: on }))} />
@@ -69,35 +71,35 @@ export function ExclusionRulesSection({ projectId, rules, formatRules, sourceLan
           </Field>
         ))}
 
-        <div className="space-y-2">
+        <Box spaceY="condensed">
           <GroupHeading>제외 패턴</GroupHeading>
-          <p className="text-xs text-muted-foreground">원문이 이 정규식에 맞으면 뺍니다. 예: 개발용 키 ^[A-Z0-9_]+$</p>
+          <Text as="p" variant="caption" tone="muted">원문이 이 정규식에 맞으면 뺍니다. 예: 개발용 키 ^[A-Z0-9_]+$</Text>
           {draft.patterns.map((rule, index) => {
             const error = rule.pattern.trim() ? formatPatternError(rule.pattern) : '패턴을 입력하세요.';
             return (
-              <div key={index} className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <Input className="w-32" placeholder="이름" value={rule.label} onChange={(event) => setPattern(index, { label: event.target.value })} />
-                  <Input className="flex-1 font-mono text-sm" placeholder="예: ^[A-Z0-9_]+$" value={rule.pattern} spellCheck={false} onChange={(event) => setPattern(index, { pattern: event.target.value })} />
-                  <Button size="icon" variant="ghost" className="text-destructive" aria-label="패턴 삭제" onClick={() => setDraft((current) => ({ ...current, patterns: current.patterns.filter((_, i) => i !== index) }))}>
+              <Box key={index} spaceY="tight">
+                <Inline gap="condensed">
+                  <RulesInput role="name" placeholder="이름" value={rule.label} onChange={(event) => setPattern(index, { label: event.target.value })} />
+                  <RulesInput role="pattern" placeholder="예: ^[A-Z0-9_]+$" value={rule.pattern} spellCheck={false} onChange={(event) => setPattern(index, { pattern: event.target.value })} />
+                  <Button size="icon" variant="ghost" tone="danger" aria-label="패턴 삭제" onClick={() => setDraft((current) => ({ ...current, patterns: current.patterns.filter((_, i) => i !== index) }))}>
                     <Trash2 />
                   </Button>
-                </div>
-                {error && <p className="text-xs text-destructive">{error}</p>}
-              </div>
+                </Inline>
+                {error && <Text as="p" variant="caption" tone="danger">{error}</Text>}
+              </Box>
             );
           })}
           <Button variant="outline" onClick={() => setDraft((current) => ({ ...current, patterns: [...current.patterns, { label: '', pattern: '' }] }))}>
             <Plus /> 패턴 추가
           </Button>
-        </div>
+        </Box>
 
-        <div className="space-y-1.5 rounded-md bg-muted p-3">
+        <Box spaceY="snug" radius="md" background="muted" padding="normal">
           <GroupHeading>시험</GroupHeading>
-          <Input className="bg-background font-mono text-sm" placeholder="원문을 넣어 보세요" value={sample} onChange={(event) => setSample(event.target.value)} />
-          {sample && <p className="text-sm">{sampleReason ? <>제외: <span className="font-medium">{EXCLUSION_REASON_LABELS[sampleReason]}</span></> : <span className="text-muted-foreground">번역 대상</span>}</p>}
-        </div>
-      </div>
+          <RulesInput role="sample" placeholder="원문을 넣어 보세요" value={sample} onChange={(event) => setSample(event.target.value)} />
+          {sample && <Text as="p" variant="body">{sampleReason ? <>제외: <Text weight="medium">{EXCLUSION_REASON_LABELS[sampleReason]}</Text></> : <Text tone="muted">번역 대상</Text>}</Text>}
+        </Box>
+      </Box>
     </SettingsSection>
   );
 }

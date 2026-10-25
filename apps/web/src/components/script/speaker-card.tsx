@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { listenerLabel, personLabel, SPEECH_LEVEL_LABELS, SPECIAL_LISTENERS, styleNames } from '@tw/shared';
-import { HoverCard, HoverCardContent, HoverCardTrigger } from '@loca/ui';
+import { Box, HoverCard, HoverCardTrigger, Inline, ScriptSpeakerCardContent, ScriptSpeakerCardLink, ScriptSpeakerProfile, Stack, Text } from '@loca/ui';
 import { q } from '@/lib/queries';
 
 /**
@@ -15,9 +15,9 @@ export function SpeakerCard({ projectId, name, children }: { projectId: string; 
   return (
     <HoverCard openDelay={250} closeDelay={100}>
       <HoverCardTrigger asChild>{children}</HoverCardTrigger>
-      <HoverCardContent align="start" className="w-80 space-y-2 text-sm" onClick={(event) => event.stopPropagation()}>
+      <ScriptSpeakerCardContent align="start" onClick={(event) => event.stopPropagation()}>
         <SpeakerInfo projectId={projectId} name={name} />
-      </HoverCardContent>
+      </ScriptSpeakerCardContent>
     </HoverCard>
   );
 }
@@ -28,48 +28,50 @@ function SpeakerInfo({ projectId, name }: { projectId: string; name: string }) {
   const lower = name.toLowerCase();
   const character = characters.data?.characters.find((item) => item.name.toLowerCase() === lower || item.aliases.some((alias) => alias.toLowerCase() === lower));
   const own = (rules.data ?? []).filter((rule) => rule.fromName.toLowerCase() === (character?.name ?? name).toLowerCase());
-  const pending = (status: string) => status !== 'confirmed' && <span className="text-xs text-muted-foreground"> · 확인 전</span>;
+  const pending = (status: string) => status !== 'confirmed' && <Text variant="caption" tone="muted"> · 확인 전</Text>;
   return (
     <>
-      <p className="flex min-w-0 items-center gap-2 font-semibold">
-        <span className="truncate">{character?.name ?? name}</span>
-        {character && personLabel(character) && <span className="text-xs font-normal text-muted-foreground"> · {personLabel(character)}</span>}
+      <Inline as="p" minWidth={0} gap="condensed" weight="semibold">
+        <Text truncate>{character?.name ?? name}</Text>
+        {character && personLabel(character) && <Text variant="caption" weight="normal" tone="muted"> · {personLabel(character)}</Text>}
         {character && pending(character.status)}
-      </p>
+      </Inline>
       {character?.profile ? (
-        <p className="line-clamp-4">{character.profile}</p>
+        <ScriptSpeakerProfile>{character.profile}</ScriptSpeakerProfile>
       ) : null}
       {character?.speech && (
-        <p className="line-clamp-2">
-          <span className="text-xs text-muted-foreground">말버릇 </span>
+        <Text as="p" lines={2}>
+          <Text variant="caption" tone="muted">말버릇 </Text>
           {character.speech}
-        </p>
+        </Text>
       )}
       {styleNames(character?.style).length > 0 && (
         <p>
-          <span className="text-xs text-muted-foreground">문체 </span>
+          <Text variant="caption" tone="muted">문체 </Text>
           {styleNames(character?.style).join(' · ')}
         </p>
       )}
       {own.length > 0 && (
-        <ul className="space-y-0.5 border-t pt-2">
+        <Box as="ul" spaceY="hair" border="top" paddingTop="condensed">
           {own.map((rule) => (
-            <li key={rule.id} className="flex gap-2">
-              <span className="flex min-w-0 items-center gap-1.5 truncate text-muted-foreground">
+            <Stack as="li" key={rule.id} direction="row" gap="condensed">
+              <Inline as="span" minWidth={0} gap="snug" truncate tone="muted">
                 → {listenerLabel(rule.toName)}
-              </span>
-              <span className="ml-auto shrink-0">
+              </Inline>
+              <Text marginLeft="auto" shrink={false}>
                 {SPEECH_LEVEL_LABELS[rule.level]}
                 {rule.address && ` · “${rule.address}”`}
                 {pending(rule.status)}
-              </span>
-            </li>
+              </Text>
+            </Stack>
           ))}
-        </ul>
+        </Box>
       )}
-      <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'characters', ...(character && { item: character.id }) }} className="block text-xs text-muted-foreground underline-offset-2 hover:underline">
-        인물 보기
-      </Link>
+      <ScriptSpeakerCardLink>
+        <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'characters', ...(character && { item: character.id }) }}>
+          인물 보기
+        </Link>
+      </ScriptSpeakerCardLink>
     </>
   );
 }

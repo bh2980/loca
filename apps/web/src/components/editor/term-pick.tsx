@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Button, GroupHeading, Input, Popover, PopoverAnchor, PopoverContent } from '@loca/ui';
+import { Box, Button, EditorTermPopover, GroupHeading, Input, Popover, PopoverAnchor, Stack, Text } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { selectionInLine } from './translation-input';
@@ -43,10 +43,11 @@ export function TermPick({ projectId, unitId, children }: { projectId: string; u
       {children}
       <Popover open={!!pick} onOpenChange={(open) => !open && setPick(undefined)}>
         {pick && <PopoverAnchor virtualRef={{ current: { getBoundingClientRect: () => pick.rect } }} />}
-        <PopoverContent side="bottom" align="start" className="w-72 space-y-2 p-3" onOpenAutoFocus={(event) => event.preventDefault()}>
+        <EditorTermPopover side="bottom" align="start" onOpenAutoFocus={(event) => event.preventDefault()}>
           {pick && (
-            <form
-              className="space-y-2"
+            <Box
+              as="form"
+              spaceY="condensed"
               onSubmit={(event) => {
                 event.preventDefault();
                 if (pick.source.trim()) add.mutate(pick);
@@ -56,21 +57,21 @@ export function TermPick({ projectId, unitId, children }: { projectId: string; u
               <Input aria-label="원문" value={pick.source} onChange={(event) => setPick({ ...pick, source: event.target.value })} />
               <Input aria-label="번역어" placeholder="번역어" value={pick.target} autoFocus onChange={(event) => setPick({ ...pick, target: event.target.value })} />
               {existing && (
-                <p className="text-xs text-warning">
+                <Text as="p" variant="caption" tone="warning">
                   이미 있습니다: {existing.source} → {existing.target || '(번역 없음)'}
-                </p>
+                </Text>
               )}
-              <div className="flex justify-end gap-2">
+              <Stack direction="row" justify="end" gap="condensed">
                 <Button type="button" variant="ghost" onClick={() => setPick(undefined)}>
                   취소
                 </Button>
                 <Button type="submit" disabled={add.isPending || !pick.source.trim()}>
                   추가
                 </Button>
-              </div>
-            </form>
+              </Stack>
+            </Box>
           )}
-        </PopoverContent>
+        </EditorTermPopover>
       </Popover>
     </div>
   );

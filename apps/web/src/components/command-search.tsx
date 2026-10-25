@@ -2,7 +2,7 @@ import { useDeferredValue, useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { BookA, FileText, ListTree, MessageSquare, ScrollText, Search, UserRound } from 'lucide-react';
-import { Badge, Button, CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, Kbd } from '@loca/ui';
+import { Badge, Box, Button, CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, Inline, Kbd, Text } from '@loca/ui';
 import { q } from '@/lib/queries';
 import { keyLabel } from '@/lib/keys';
 import { chatDock } from '@/lib/chat-dock';
@@ -109,26 +109,25 @@ export function CommandSearch({ projectId, compact = false }: { projectId: strin
       </Button>
       <CommandDialog open={open} onOpenChange={setOpen} shouldFilter={false} title="검색" description="장면, 용어, 인물, 자료, 대사(원문·번역·화자·ID), 대화 기록에서 찾습니다.">
         <CommandInput value={text} onValueChange={setText} placeholder="찾을 내용을 입력하세요" />
-        <div className="flex items-center gap-1 border-b px-3 py-1.5 overflow-x-auto">
+        <Inline gap="tight" border="bottom" paddingX="normal" paddingY="snug" overflow="x">
           {SCOPES.map((item) => (
             <Button
               key={item.id}
-              size="sm"
               variant={scope === item.id ? 'secondary' : 'ghost'}
               onClick={() => setScope(item.id)}
             >
               {item.label}
             </Button>
           ))}
-        </div>
+        </Inline>
         <CommandList>
           {query && <CommandEmpty>{isFetching ? '찾는 중…' : '결과가 없습니다.'}</CommandEmpty>}
           {(scope === 'all' || scope === 'scenes') && !!sceneHits.length && (
             <CommandGroup heading="장면">
               {sceneHits.map((scene) => (
                 <CommandItem key={scene.id} value={`scene-${scene.id}`} onSelect={() => go(() => void navigate({ to: '/p/$projectId/script', params: { projectId }, search: { group: scene.id } }))}>
-                  <ListTree /> <span className="truncate">{scene.title}</span>
-                  <span className="ml-auto text-xs text-muted-foreground tabular-nums">{scene.total}줄</span>
+                  <ListTree /> <Text truncate>{scene.title}</Text>
+                  <Text marginLeft="auto" variant="caption" tone="muted" tabular>{scene.total}줄</Text>
                 </CommandItem>
               ))}
             </CommandGroup>
@@ -137,8 +136,8 @@ export function CommandSearch({ projectId, compact = false }: { projectId: strin
             <CommandGroup heading="용어">
               {terms.map((term) => (
                 <CommandItem key={term.id} value={`term-${term.id}`} onSelect={() => go(() => void navigate({ to: '/p/$projectId/glossary', params: { projectId }, search: { term: term.id } }))}>
-                  <BookA /> <span className="truncate">{term.source}</span>
-                  {term.target && <span className="truncate text-muted-foreground">→ {term.target}</span>}
+                  <BookA /> <Text truncate>{term.source}</Text>
+                  {term.target && <Text truncate tone="muted">→ {term.target}</Text>}
                 </CommandItem>
               ))}
             </CommandGroup>
@@ -147,8 +146,8 @@ export function CommandSearch({ projectId, compact = false }: { projectId: strin
             <CommandGroup heading="인물">
               {people.map((person) => (
                 <CommandItem key={person.id} value={`person-${person.id}`} onSelect={() => go(() => void navigate({ to: '/p/$projectId/knowledge', params: { projectId }, search: { tab: 'people', display: 'characters', item: person.id } }))}>
-                  <UserRound /> <span className="truncate">{person.name}</span>
-                  {!!person.aliases.length && <span className="truncate text-muted-foreground">{person.aliases.join(', ')}</span>}
+                  <UserRound /> <Text truncate>{person.name}</Text>
+                  {!!person.aliases.length && <Text truncate tone="muted">{person.aliases.join(', ')}</Text>}
                 </CommandItem>
               ))}
             </CommandGroup>
@@ -157,7 +156,7 @@ export function CommandSearch({ projectId, compact = false }: { projectId: strin
             <CommandGroup heading="자료">
               {documents.map((doc) => (
                 <CommandItem key={doc.id} value={`doc-${doc.id}`} onSelect={() => go(() => void navigate({ to: '/p/$projectId/knowledge', params: { projectId }, search: { tab: 'documents', item: doc.id } }))}>
-                  <ScrollText /> <span className="truncate">{doc.title}</span>
+                  <ScrollText /> <Text truncate>{doc.title}</Text>
                 </CommandItem>
               ))}
             </CommandGroup>
@@ -171,15 +170,15 @@ export function CommandSearch({ projectId, compact = false }: { projectId: strin
                   onSelect={() => go(() => void navigate({ to: '/p/$projectId/script', params: { projectId }, search: { group: line.groupId, line: line.id } }))}
                 >
                   <FileText />
-                  <div className="min-w-0">
-                    <p className="truncate">
-                      {line.speaker && <span className="text-muted-foreground"><PersonName projectId={projectId} name={line.speaker} />: </span>}
+                  <Box minWidth={0}>
+                    <Text as="p" truncate>
+                      {line.speaker && <Text tone="muted"><PersonName projectId={projectId} name={line.speaker} />: </Text>}
                       {line.source}
-                    </p>
-                    <p className="truncate text-xs text-muted-foreground">
+                    </Text>
+                    <Text as="p" truncate variant="caption" tone="muted">
                       {line.groupTitle} · {line.key}
-                    </p>
-                  </div>
+                    </Text>
+                  </Box>
                 </CommandItem>
               ))}
             </CommandGroup>
@@ -197,15 +196,15 @@ export function CommandSearch({ projectId, compact = false }: { projectId: strin
                   }
                 >
                   <MessageSquare />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5 truncate">
-                      <span className="truncate font-medium">{hit.title}</span>
+                  <Box minWidth={0} grow>
+                    <Inline gap="snug" truncate>
+                      <Text truncate weight="medium">{hit.title}</Text>
                       <Badge variant="secondary">
                         {hit.role === 'user' ? '질문' : hit.role === 'assistant' ? '답변' : '제목'}
                       </Badge>
-                    </div>
-                    <p className="truncate text-xs text-muted-foreground">{hit.snippet}</p>
-                  </div>
+                    </Inline>
+                    <Text as="p" truncate variant="caption" tone="muted">{hit.snippet}</Text>
+                  </Box>
                 </CommandItem>
               ))}
             </CommandGroup>

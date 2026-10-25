@@ -1,7 +1,6 @@
 import { useId, useRef, useState } from 'react';
 import { X } from 'lucide-react';
-import { Button } from '@loca/ui';
-import { cn } from '@/lib/utils';
+import { Box, Button, ChipField, ChipSuggestionItem, ChipSuggestionList, ChipTag, ChipTextInput } from '@loca/ui';
 
 /**
  * Several short values in one field (forms of address, aliases, people): typing a comma or Enter
@@ -24,27 +23,23 @@ export function ChipInput({ id, value, onChange, suggestions = [], placeholder }
   const offered = [...new Set(suggestions)].filter((option) => !value.includes(option) && (!needle || option.toLowerCase().includes(needle))).slice(0, 6);
 
   return (
-    <div className="relative">
-      <div
-        className={cn('flex min-h-9 w-full flex-wrap items-center gap-1 rounded-md border bg-background px-2 py-1 text-sm shadow-xs', focused && 'border-ring ring-[3px] ring-ring/50')}
-        onClick={() => input.current?.focus()}
-      >
+    <Box position="relative">
+      <ChipField focused={focused} onClick={() => input.current?.focus()}>
         {value.map((chip) => (
-          <span key={chip} className="inline-flex items-center gap-0.5 rounded bg-muted py-0.5 pr-0.5 pl-2 text-xs">
+          <ChipTag key={chip}>
             {chip}
             <Button variant="ghost" size="icon-xs" aria-label={`${chip} 빼기`} onClick={(event) => (event.stopPropagation(), onChange(value.filter((item) => item !== chip)))}>
               <X />
             </Button>
-          </span>
+          </ChipTag>
         ))}
-        <input
+        <ChipTextInput
           ref={input}
           id={id}
           value={text}
           placeholder={value.length ? undefined : placeholder}
           aria-autocomplete="list"
           aria-controls={listId}
-          className="min-w-24 flex-1 bg-transparent py-0.5 outline-none placeholder:text-muted-foreground"
           onFocus={() => setFocused(true)}
           // Leaving the field keeps what was typed as a chip; the delay lets a suggestion click land first.
           onBlur={() => setTimeout(() => (setFocused(false), text.trim() && add(text)), 120)}
@@ -56,19 +51,17 @@ export function ChipInput({ id, value, onChange, suggestions = [], placeholder }
             } else if (event.key === 'Backspace' && !text && value.length) onChange(value.slice(0, -1));
           }}
         />
-      </div>
+      </ChipField>
       {focused && offered.length > 0 && (
-        <ul id={listId} role="listbox" className="absolute z-20 mt-1 w-full rounded-md border bg-popover p-1 shadow-md">
+        <ChipSuggestionList id={listId}>
           {offered.map((option) => (
-            <li key={option} role="option" aria-selected={false}>
-              <Button variant="ghost" size="row" className="text-sm" onMouseDown={(event) => event.preventDefault()} onClick={() => add(option)}>
-                {option}
-              </Button>
-            </li>
+            <ChipSuggestionItem key={option} onPick={() => add(option)}>
+              {option}
+            </ChipSuggestionItem>
           ))}
-        </ul>
+        </ChipSuggestionList>
       )}
-    </div>
+    </Box>
   );
 }
 

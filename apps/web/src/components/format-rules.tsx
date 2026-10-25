@@ -3,7 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Plus, Sparkles, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { compileFormatRules, FORMAT_PRESET_IDS, FORMAT_PRESETS, formatPatternError, matchTokens, type FormatRules } from '@tw/shared';
-import { Badge, Button, Checkbox, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, SettingsSection, GroupHeading } from '@loca/ui';
+import { Box, Button, Checkbox, GroupHeading, Icon, Inline, RulesAddButton, RulesCountBadge, RulesInput, RulesKindSelectTrigger, RulesPresetCard, RulesPresetExample, RulesPresetGrid, RulesSampleTextarea, RulesSuggestionPanel, RulesSuggestionRow, Select, SelectContent, SelectItem, SelectValue, SettingsSection, Stack, Text } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { useFormFrom } from '@/lib/use-form-from';
@@ -62,27 +62,25 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
     const count = match?.count ?? 0;
     const examples = match?.examples ?? [];
     return (
-      <label key={id} className="flex flex-col gap-1.5 rounded-md border border-border bg-card p-3 text-sm transition-colors hover:bg-muted/50 cursor-pointer">
-        <div className="flex items-center gap-2">
+      <RulesPresetCard key={id}>
+        <Inline gap="condensed">
           <Checkbox
             checked={draft.presets.includes(id)}
             onCheckedChange={(checked) => togglePreset(id, Boolean(checked))}
           />
-          <span className="font-medium text-foreground">{preset.label}</span>
+          <Text weight="medium" tone="default">{preset.label}</Text>
           {detected ? (
             count > 0 ? (
-              <Badge variant="secondary" className="ml-auto text-xs">
+              <RulesCountBadge endAligned>
                 대본 {count.toLocaleString()}줄
-              </Badge>
+              </RulesCountBadge>
             ) : (
-              <span className="ml-auto text-xs text-subtle-foreground">미등장</span>
+              <Text variant="caption" tone="subtle" marginLeft="auto">미등장</Text>
             )
           ) : null}
-        </div>
-        <div className="pl-6 font-mono text-xs text-muted-foreground truncate">
-          {examples.length > 0 ? <><span className="font-sans text-subtle-foreground">대본에서 찾은 예 </span>{examples.join('   ')}</> : preset.example}
-        </div>
-      </label>
+        </Inline>
+        <RulesPresetExample lead="대본에서 찾은 예" found={examples} fallback={preset.example} />
+      </RulesPresetCard>
     );
   };
 
@@ -91,11 +89,11 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
       title="서식 규칙"
       headerActions={
         <Button variant="outline" onClick={applyAutoDetect} disabled={!detected || detectQuery.isPending}>
-          <Sparkles className="size-3.5" /> 자동 감지
+          <Icon icon={Sparkles} size="sm" /> 자동 감지
         </Button>
       }
       actions={
-        <div className="flex gap-2">
+        <Stack direction="row" gap="condensed">
           <Button disabled={!dirty || invalid || save.isPending} onClick={() => save.mutate()}>
             저장
           </Button>
@@ -104,28 +102,28 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
               되돌리기
             </Button>
           )}
-        </div>
+        </Stack>
       }
     >
       {conflicts.length > 0 && <ChangedElsewhere onTakeSaved={takeSaved} onKeepMine={keepMine} />}
 
-      <div className="space-y-4">
-        <div className="space-y-2">
+      <Box spaceY="comfortable">
+        <Box spaceY="condensed">
           <GroupHeading>치환자</GroupHeading>
-          <div className="grid gap-2 sm:grid-cols-2">
+          <RulesPresetGrid>
             {placeholderPresets.map(renderPresetCard)}
-          </div>
-        </div>
+          </RulesPresetGrid>
+        </Box>
 
-        <div className="space-y-2">
+        <Box spaceY="condensed">
           <GroupHeading>서식 태그</GroupHeading>
-          <div className="grid gap-2 sm:grid-cols-2">
+          <RulesPresetGrid>
             {tagPresets.map(renderPresetCard)}
-          </div>
-        </div>
-      </div>
+          </RulesPresetGrid>
+        </Box>
+      </Box>
 
-      <div className="space-y-3">
+      <Box spaceY="normal">
         <GroupHeading>정규식</GroupHeading>
 
         <AiRegexInput
@@ -139,31 +137,28 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
         />
 
         {detected?.customCandidates && detected.customCandidates.length > 0 && (
-          <div className="rounded-md border border-border bg-muted/40 p-3 space-y-2">
-            <div className="flex items-center justify-between">
+          <RulesSuggestionPanel>
+            <Inline justify="between">
               <GroupHeading>추천 규칙</GroupHeading>
-            </div>
-            <div className="space-y-1.5">
+            </Inline>
+            <Box spaceY="snug">
               {detected.customCandidates.map((cand) => {
                 const alreadyAdded = draft.custom.some((c) => c.pattern === cand.pattern);
                 return (
-                  <div key={cand.pattern} className="flex items-center justify-between gap-2 text-sm rounded border border-border-subtle bg-background/50 px-2.5 py-1.5">
-                    <div className="flex min-w-0 items-center gap-2 truncate">
-                      <span className="font-medium text-foreground">{cand.label}</span>
-                      <code className="font-mono text-xs text-muted-foreground">({cand.pattern})</code>
-                      <Badge variant="secondary" className="text-xs">
+                  <RulesSuggestionRow key={cand.pattern}>
+                    <Inline gap="condensed" minWidth={0} truncate>
+                      <Text weight="medium" tone="default">{cand.label}</Text>
+                      <Text as="code" mono variant="caption" tone="muted">({cand.pattern})</Text>
+                      <RulesCountBadge>
                         대본 {cand.count.toLocaleString()}줄
-                      </Badge>
+                      </RulesCountBadge>
                       {cand.examples.length > 0 && (
-                        <span className="truncate text-xs text-muted-foreground">
+                        <Text truncate variant="caption" tone="muted">
                           예: {cand.examples.slice(0, 3).join('  ')}
-                        </span>
+                        </Text>
                       )}
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-6 text-xs px-2"
+                    </Inline>
+                    <RulesAddButton
                       disabled={alreadyAdded}
                       onClick={() => {
                         setDraft((current) => ({
@@ -174,53 +169,53 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
                       }}
                     >
                       {alreadyAdded ? '추가됨' : '+ 추가'}
-                    </Button>
-                  </div>
+                    </RulesAddButton>
+                  </RulesSuggestionRow>
                 );
               })}
-            </div>
-          </div>
+            </Box>
+          </RulesSuggestionPanel>
         )}
 
         {draft.custom.map((rule, index) => {
           const error = rule.pattern.trim() ? formatPatternError(rule.pattern) : '패턴을 입력하세요.';
           return (
-            <div key={index} className="space-y-1">
-              <div className="flex items-center gap-2">
-                <Input className="w-32" placeholder="이름" value={rule.label} onChange={(event) => setRule(index, { label: event.target.value })} />
+            <Box key={index} spaceY="tight">
+              <Inline gap="condensed">
+                <RulesInput role="name" placeholder="이름" value={rule.label} onChange={(event) => setRule(index, { label: event.target.value })} />
                 <Select value={rule.kind} onValueChange={(kind) => setRule(index, { kind: kind as 'placeholder' | 'tag' })}>
-                  <SelectTrigger className="w-28">
+                  <RulesKindSelectTrigger>
                     <SelectValue />
-                  </SelectTrigger>
+                  </RulesKindSelectTrigger>
                   <SelectContent>
                     <SelectItem value="placeholder">치환자</SelectItem>
                     <SelectItem value="tag">서식 태그</SelectItem>
                   </SelectContent>
                 </Select>
-                <Input className="flex-1 font-mono text-sm" placeholder="예: @[a-z]+@" value={rule.pattern} spellCheck={false} onChange={(event) => setRule(index, { pattern: event.target.value })} />
-                <Button size="icon" variant="ghost" className="text-destructive" aria-label="규칙 삭제" onClick={() => setDraft((current) => ({ ...current, custom: current.custom.filter((_, i) => i !== index) }))}>
+                <RulesInput role="pattern" placeholder="예: @[a-z]+@" value={rule.pattern} spellCheck={false} onChange={(event) => setRule(index, { pattern: event.target.value })} />
+                <Button size="icon" variant="ghost" tone="danger" aria-label="규칙 삭제" onClick={() => setDraft((current) => ({ ...current, custom: current.custom.filter((_, i) => i !== index) }))}>
                   <Trash2 />
                 </Button>
-              </div>
-              {error && <p className="text-xs text-destructive">{error}</p>}
-            </div>
+              </Inline>
+              {error && <Text as="p" variant="caption" tone="danger">{error}</Text>}
+            </Box>
           );
         })}
         <Button variant="outline" onClick={() => setDraft((current) => ({ ...current, custom: [...current.custom, { label: '', kind: 'placeholder', pattern: '' }] }))}>
           <Plus /> 규칙 추가
         </Button>
-      </div>
+      </Box>
 
-      <div className="space-y-1.5 rounded-md bg-muted p-3">
+      <Box spaceY="snug" radius="md" background="muted" padding="normal">
         <GroupHeading>시험</GroupHeading>
-        <Textarea className="min-h-16 bg-background font-mono text-sm" value={sample} onChange={(event) => setSample(event.target.value)} />
+        <RulesSampleTextarea value={sample} onChange={(event) => setSample(event.target.value)} />
         {(['placeholder', 'tag'] as const).map((kind) => (
-          <p key={kind} className="text-sm">
-            <span className="text-muted-foreground">{KIND[kind]}: </span>
-            {found[kind].length ? found[kind].map((token, i) => <code key={i} className="mr-1 rounded bg-background px-1 py-0.5 ring-1 ring-border">{token}</code>) : <span className="text-muted-foreground">없음</span>}
-          </p>
+          <Text as="p" key={kind} variant="body">
+            <Text tone="muted">{KIND[kind]}: </Text>
+            {found[kind].length ? found[kind].map((token, i) => <Text as="code" key={i} marginRight="tight" radius="base" background="background" paddingX="tight" paddingY="hair" ring="border">{token}</Text>) : <Text tone="muted">없음</Text>}
+          </Text>
         ))}
-      </div>
+      </Box>
     </SettingsSection>
   );
 }

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { Input } from '@loca/ui';
+import { Box, Inline, RulesInput, Text } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
 import { client, unwrap } from '@/lib/api';
 
@@ -26,10 +26,10 @@ export function AiRegexInput({ projectId, target, onRule }: { projectId: string;
     if (prompt.trim() && !make.isPending) make.mutate();
   };
   return (
-    <div className="space-y-1">
-      <div className="flex items-center gap-2">
-        <Input
-          className="flex-1"
+    <Box spaceY="tight">
+      <Inline gap="condensed">
+        <RulesInput
+          role="prompt"
           placeholder="예: 대괄호 두 개로 감싼 변수 [[ID]]"
           aria-label="AI로 만들 규칙 설명"
           maxLength={500}
@@ -49,8 +49,8 @@ export function AiRegexInput({ projectId, target, onRule }: { projectId: string;
         <AiButton disabled={!prompt.trim() || make.isPending} onClick={run}>
           {make.isPending ? '만드는 중…' : '만들기'}
         </AiButton>
-      </div>
-      {make.isError && <p className="text-xs text-destructive">{make.error.message}</p>}
-    </div>
+      </Inline>
+      {make.isError && <Text as="p" variant="caption" tone="danger">{make.error.message}</Text>}
+    </Box>
   );
 }

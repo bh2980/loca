@@ -2,9 +2,8 @@ import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { LineMark } from '@tw/shared';
 import { Link } from '@tanstack/react-router';
 import { AppWindow, Check, FileText, Inbox, MessageSquareText, Plus } from 'lucide-react';
-import { Button, ContextMenu, ContextMenuContent, ContextMenuTrigger, SearchInput, NavigationBranch, NavigationItem, NavigationPane, StatusBar, Tooltip, TooltipContent, TooltipTrigger, commonNavigationItem, type StatusLike } from '@loca/ui';
+import { Box, Button, ContextMenu, ContextMenuTrigger, Icon, Inline, NavigationBranch, NavigationItem, NavigationPane, ScriptGroupMenuContent, ScriptGroupNavLink, ScriptMarkCount, ScriptNavIcon, ScriptSearchField, ScriptSectionNavLink, ScriptStatusMeter, Text, Tooltip, TooltipContent, TooltipTrigger, type StatusLike } from '@loca/ui';
 import { GROUP_KIND, SCRIPT_VIEW, SOURCE_GROUP_LABEL } from '@/lib/labels';
-import { cn } from '@/lib/utils';
 
 export interface GroupRow {
   id: string;
@@ -92,8 +91,8 @@ export function GroupList({ projectId, groups, finalIds, initialIds, scope, revi
 
   const noun = SOURCE_GROUP_LABEL[scope.kind ?? 'scene'];
   const search = (
-    <div className="flex items-center gap-1">
-      <SearchInput value={gq} onChange={onFilter} placeholder={`${noun} 찾기`} className="w-full" />
+    <Inline gap="tight">
+      <ScriptSearchField width="fill" value={gq} onChange={onFilter} placeholder={`${noun} 찾기`} />
       {onCreate && (
         <Tooltip>
           <TooltipTrigger asChild>
@@ -102,19 +101,19 @@ export function GroupList({ projectId, groups, finalIds, initialIds, scope, revi
           <TooltipContent>{noun} 추가</TooltipContent>
         </Tooltip>
       )}
-    </div>
+    </Inline>
   );
   const kindsNav = (
-    <nav aria-label="원본 종류" className="space-y-1">
+    <Box as="nav" aria-label="원본 종류" spaceY="tight">
       {views?.map((view) => <ScopeLink key={view.kind} projectId={projectId} scope={{ kind: view.kind }} clearPeopleFilters={view.kind !== scope.kind} active={!scope.group && !scope.section && !scope.review && scope.kind === view.kind} icon={VIEW_ICON[view.kind]} label={`전체 ${SCRIPT_VIEW[view.kind]}`} count={view.lines} />)}
-    </nav>
+    </Box>
   );
   const reviewNav = <ScopeLink projectId={projectId} scope={{ review: true }} active={Boolean(scope.review)} icon={<Inbox />} label="검토함" count={reviewCount} highlight={reviewCount > 0} />;
 
   return (
-    <NavigationPane search={<div className="space-y-2">{kindsNav}{search}</div>} footer={reviewNav}>
-        {!groups && <p className="px-3 py-2 text-xs text-muted-foreground">불러오는 중…</p>}
-        {groups?.length === 0 && <p className="px-3 py-2 text-sm text-muted-foreground">맞는 항목이 없습니다.</p>}
+    <NavigationPane search={<Box spaceY="condensed">{kindsNav}{search}</Box>} footer={reviewNav}>
+        {!groups && <Text as="p" paddingX="normal" paddingY="condensed" variant="caption" tone="muted">불러오는 중…</Text>}
+        {groups?.length === 0 && <Text as="p" paddingX="normal" paddingY="condensed" variant="body" tone="muted">맞는 항목이 없습니다.</Text>}
         {sections.map((section) => {
           // A scene search shows its matches wherever they are; otherwise sections default to closed unless opened or active.
           const open = Boolean(gq) || !section.name || expanded.has(section.name);
@@ -123,10 +122,12 @@ export function GroupList({ projectId, groups, finalIds, initialIds, scope, revi
           const count = section.groups.reduce((sum, group) => sum + group.total, 0);
           const active = scope.section === section.name;
           return <NavigationBranch key={section.key} label={section.name} open={open} onOpenChange={(next) => toggle(section.name!, next)} disabled={Boolean(gq)} navigation={
-              <ScriptLink projectId={projectId} scope={{ kind: scope.kind, section: section.name }} aria-current={active ? 'page' : undefined} className={commonNavigationItem(active, 'min-w-0 flex-1')}>
-                <span className="min-w-0 flex-1 truncate font-medium">{section.name}</span>
-                <span className="shrink-0 font-mono text-xs tabular-nums text-subtle-foreground">{count.toLocaleString()}</span>
-              </ScriptLink>
+              <ScriptSectionNavLink active={active}>
+                <ScriptLink projectId={projectId} scope={{ kind: scope.kind, section: section.name }} aria-current={active ? 'page' : undefined}>
+                  <Text minWidth={0} grow truncate weight="medium">{section.name}</Text>
+                  <Text shrink={false} mono variant="caption" tabular tone="subtle">{count.toLocaleString()}</Text>
+                </ScriptLink>
+              </ScriptSectionNavLink>
             }>
             {items}
           </NavigationBranch>;
@@ -136,7 +137,7 @@ export function GroupList({ projectId, groups, finalIds, initialIds, scope, revi
 }
 
 /** A link that changes what the center shows, keeping the list's own search and its automatic marks. */
-function ScriptLink({ projectId, scope, clearPeopleFilters, className, children, ...props }: { projectId: string; scope: ScriptScope; clearPeopleFilters?: boolean; className?: string; children: ReactNode; title?: string; 'aria-current'?: 'page' }) {
+function ScriptLink({ projectId, scope, clearPeopleFilters, children, ...props }: { projectId: string; scope: ScriptScope; clearPeopleFilters?: boolean; /** Set by the navigation parts that wrap this link. */ className?: string; children: ReactNode; title?: string; 'aria-current'?: 'page' }) {
   return (
     <Link
       to="/p/$projectId/script"
@@ -161,7 +162,6 @@ function ScriptLink({ projectId, scope, clearPeopleFilters, className, children,
         section: undefined,
         ...scope,
       })}
-      className={className}
       {...props}
     >
       {children}
@@ -173,9 +173,9 @@ function ScopeLink({ projectId, scope, active, icon, label, count, highlight, cl
   return (
     <NavigationItem asChild active={active}>
       <ScriptLink projectId={projectId} scope={scope} clearPeopleFilters={clearPeopleFilters} aria-current={active ? 'page' : undefined}>
-        <span className="[&_svg]:size-3.5 [&_svg]:text-muted-foreground">{icon}</span>
-        <span className="min-w-0 flex-1 truncate">{label}</span>
-        <span className={cn('ml-auto text-xs tabular-nums font-mono', highlight ? 'font-medium text-foreground' : 'text-subtle-foreground')}>{count.toLocaleString()}</span>
+        <ScriptNavIcon>{icon}</ScriptNavIcon>
+        <Text minWidth={0} grow truncate>{label}</Text>
+        <Text marginLeft="auto" variant="caption" tabular mono weight={highlight ? 'medium' : undefined} tone={highlight ? 'default' : 'subtle'}>{count.toLocaleString()}</Text>
       </ScriptLink>
     </NavigationItem>
   );
@@ -185,37 +185,29 @@ function GroupItem({ projectId, group, progress, statuses, active, indent, marks
   const complete = group.total > 0 && progress.final === group.total;
   const marked = marks?.get(group.id) ?? 0;
   const link = (
-    <ScriptLink
-      projectId={projectId}
-      scope={{ group: group.id }}
-      title={group.title}
-      aria-current={active ? 'page' : undefined}
-      className={commonNavigationItem(active, cn(
-        'h-auto min-h-7 flex-col items-stretch gap-1 py-1 px-2',
-        !active && 'text-foreground/90',
-        complete && !active && 'text-subtle-foreground'
-      ))}
-    >
-      <span className="flex min-w-0 items-center gap-1.5">
-        <span className="min-w-0 flex-1 truncate">{group.title}</span>
-      {marks ? (
-        marked ? <span className="shrink-0 rounded-sm bg-warning/15 px-1.5 py-0.5 text-xs font-mono text-warning tabular-nums">{marked}</span> : null
-      ) : complete ? (
-        <Check className="size-3 shrink-0 text-success" aria-label="완료" />
-      ) : (
-        <span className="shrink-0 text-xs font-mono text-subtle-foreground tabular-nums" title={`번역함 ${progress.translated}줄 · 확정 ${progress.final}줄 / 전체 ${group.total}줄`} aria-label={`번역함 ${progress.translated} / ${group.total}`}>
-          {progress.translated}/{group.total}
-        </span>
-      )}
-      </span>
-      {!marks && statuses?.length ? <StatusBar statuses={statuses} counts={group.statuses} className="h-1 w-full" /> : null}
-    </ScriptLink>
+    <ScriptGroupNavLink active={active} complete={complete}>
+      <ScriptLink projectId={projectId} scope={{ group: group.id }} title={group.title} aria-current={active ? 'page' : undefined}>
+        <Inline as="span" minWidth={0} gap="snug">
+          <Text minWidth={0} grow truncate>{group.title}</Text>
+          {marks ? (
+            marked ? <ScriptMarkCount>{marked}</ScriptMarkCount> : null
+          ) : complete ? (
+            <Icon icon={Check} size="xs" shrink={false} tone="success" aria-label="완료" />
+          ) : (
+            <Text shrink={false} variant="caption" mono tone="subtle" tabular title={`번역함 ${progress.translated}줄 · 확정 ${progress.final}줄 / 전체 ${group.total}줄`} aria-label={`번역함 ${progress.translated} / ${group.total}`}>
+              {progress.translated}/{group.total}
+            </Text>
+          )}
+        </Inline>
+        {!marks && statuses?.length ? <ScriptStatusMeter statuses={statuses} counts={group.statuses} /> : null}
+      </ScriptLink>
+    </ScriptGroupNavLink>
   );
   if (!menu) return link;
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>{link}</ContextMenuTrigger>
-      <ContextMenuContent className="w-48">{menu}</ContextMenuContent>
+      <ScriptGroupMenuContent>{menu}</ScriptGroupMenuContent>
     </ContextMenu>
   );
 }

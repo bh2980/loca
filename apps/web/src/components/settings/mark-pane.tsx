@@ -1,6 +1,6 @@
 /** Right-hand pane for a built-in automatic tag: only its color is the project's to change. */
 import { AUTO_MARKS, type AutoMark } from '@tw/shared';
-import { InspectorSection, InspectorField, InspectorFields, InspectorHeader, Inspector, PropertyGrid, PropertyRow, Button, chipStyle } from '@loca/ui';
+import { InspectorSection, InspectorField, InspectorFields, InspectorHeader, Inspector, PropertyGrid, PropertyRow, Button, TagPreviewChip } from '@loca/ui';
 import { scopeLabel } from '@/components/settings/status-types';
 import { Swatches } from '@/components/settings/swatches';
 import { useFormFrom } from '@/lib/use-form-from';
@@ -24,9 +24,9 @@ export function MarkPane({ mark, color, pending, onClose, onSave }: { mark: Auto
         <PropertyGrid>
           <PropertyRow label="뜻">{info.description}</PropertyRow>
           <PropertyRow label="미리보기">
-            <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium" style={chipStyle(draft)}>
+            <TagPreviewChip color={draft}>
               #{info.name}
-            </span>
+            </TagPreviewChip>
           </PropertyRow>
         </PropertyGrid>
       </InspectorSection>

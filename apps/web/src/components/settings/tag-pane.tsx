@@ -1,7 +1,7 @@
 /** Right-hand pane to add, edit or delete a project tag. */
 import { Trash2 } from 'lucide-react';
 import { DEFAULT_TAG_COLOR, TAG_SCOPES, TAG_SCOPE_LABELS } from '@tw/shared';
-import { InspectorSection, InspectorField, InspectorFields, InspectorHeader, InspectorBlock, Inspector, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Checkbox, Input, Label } from '@loca/ui';
+import { InspectorSection, InspectorField, InspectorFields, InspectorHeader, InspectorBlock, Inspector, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Checkbox, Input, Inline, Label, Stack, Text } from '@loca/ui';
 import { scopeLabel, type TagForm, type TagRowData } from '@/components/settings/status-types';
 import { Swatches } from '@/components/settings/swatches';
 import { changedFields, useFormFrom } from '@/lib/use-form-from';
@@ -16,11 +16,11 @@ export function TagPane({ tag, pending, onClose, onSave, onDelete }: { tag?: Tag
   const dirty = !tag || changed;
   return (
     <Inspector footerStart={tag && onDelete ? (<>{tag.role ? (
-            <p className="text-xs text-muted-foreground">역할 태그는 지울 수 없습니다. 색상만 바꿀 수 있습니다.</p>
+            <Text as="p" variant="caption" tone="muted">역할 태그는 지울 수 없습니다. 색상만 바꿀 수 있습니다.</Text>
           ) : (
             <AlertDialog>
               <AlertDialogTrigger asChild>
-                <Button variant="ghost" className="text-destructive">
+                <Button variant="ghost" tone="danger">
                   <Trash2 /> 태그 삭제
                 </Button>
               </AlertDialogTrigger>
@@ -51,13 +51,13 @@ export function TagPane({ tag, pending, onClose, onSave, onDelete }: { tag?: Tag
           </InspectorField>
           {tag?.role ? (
             <InspectorField label="붙는 곳" description="역할 태그라 붙는 곳을 바꿀 수 없습니다.">
-              <p className="text-sm">{scopeLabel(tag.scope)}</p>
+              <Text as="p" variant="body">{scopeLabel(tag.scope)}</Text>
             </InspectorField>
           ) : (
             <InspectorField label="붙는 곳" description="이미 붙은 곳은 태그를 먼저 떼야 뺄 수 있습니다.">
-              <div className="flex flex-wrap gap-4">
+              <Stack direction="row" wrap gap="comfortable">
                 {TAG_SCOPES.map((place) => (
-                  <div key={place} className="flex items-center gap-2">
+                  <Inline key={place} gap="condensed">
                     <Checkbox
                       id={`tag-scope-${place}`}
                       checked={form.scope.includes(place)}
@@ -66,9 +66,9 @@ export function TagPane({ tag, pending, onClose, onSave, onDelete }: { tag?: Tag
                       onCheckedChange={(on) => setForm((current) => ({ ...current, scope: TAG_SCOPES.filter((other) => (other === place ? on === true : current.scope.includes(other))) }))}
                     />
                     <Label htmlFor={`tag-scope-${place}`}>{TAG_SCOPE_LABELS[place]}</Label>
-                  </div>
+                  </Inline>
                 ))}
-              </div>
+              </Stack>
             </InspectorField>
           )}
         </InspectorFields>

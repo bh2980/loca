@@ -4,7 +4,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Download, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Page } from '@/components/page';
-import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Field, FieldDescription, FieldGroup, FieldLabel, Skeleton, Textarea, SettingsSection, SettingsContent } from '@loca/ui';
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Box, Button, Input, Field, FieldDescription, FieldLabel, SettingsFieldGroup, SettingsPageSkeleton, Textarea, SettingsSection, SettingsContent } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { changedFields, useFormFrom } from '@/lib/use-form-from';
@@ -23,10 +23,7 @@ function ProjectSettings() {
     return (
       <Page title="프로젝트" flush>
         <SettingsContent>
-          <div className="space-y-4">
-            <Skeleton className="h-8 w-1/2" />
-            <Skeleton className="h-20" />
-          </div>
+          <SettingsPageSkeleton shape="project" />
         </SettingsContent>
       </Page>
     );
@@ -58,7 +55,7 @@ function ProjectForm({ projectId, project }: { projectId: string; project: { nam
   return (
     <Page title="프로젝트" flush>
       <SettingsContent>
-        <div className="space-y-8">
+        <Box spaceY="wide">
           <SettingsSection
             title="기본 정보"
             actions={
@@ -75,7 +72,7 @@ function ProjectForm({ projectId, project }: { projectId: string; project: { nam
             }
           >
             {conflicts.length > 0 && <ChangedElsewhere fields={conflicts.map((field) => (field === 'name' ? '이름' : '설명'))} onTakeSaved={takeSaved} onKeepMine={keepMine} />}
-            <FieldGroup className="gap-4">
+            <SettingsFieldGroup>
               <Field>
                 <FieldLabel htmlFor="project-name">이름</FieldLabel>
                 <Input id="project-name" value={name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
@@ -90,7 +87,7 @@ function ProjectForm({ projectId, project }: { projectId: string; project: { nam
                   {project.sourceLanguage} → {project.targetLanguage}
                 </FieldDescription>
               </Field>
-            </FieldGroup>
+            </SettingsFieldGroup>
           </SettingsSection>
 
           <SettingsSection title="AI 문맥">
@@ -127,7 +124,7 @@ function ProjectForm({ projectId, project }: { projectId: string; project: { nam
               </AlertDialogContent>
             </AlertDialog>
           </SettingsSection>
-        </div>
+        </Box>
       </SettingsContent>
     </Page>
   );

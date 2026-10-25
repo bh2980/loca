@@ -1,4 +1,4 @@
-import { FoldChip, type FoldChipProps } from '@loca/ui';
+import { EdgeLabelPill, EdgeLabelRow, FoldChip, type FoldChipProps } from '@loca/ui';
 import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath, type Edge, type EdgeProps } from '@xyflow/react';
 
 export interface WorkflowEdgeData extends Record<string, unknown> {
@@ -38,18 +38,12 @@ export function WorkflowEdgeView({
   return <>
     <BaseEdge id={id} path={path} markerEnd={markerEnd} style={{ ...style, strokeLinejoin: 'round', strokeLinecap: 'round' }} interactionWidth={26} />
     {data?.fold ? <EdgeLabelRenderer>
-      <div
-        className="nodrag nopan pointer-events-none absolute flex items-center gap-1"
-        style={{ transform: `translate(-50%, -50%) translate(${labelPosition.x}px, ${labelPosition.y}px)` }}
-      >
-        {data.label && <span className="rounded-sm border border-border bg-card px-1.5 py-0.5 text-xs leading-4 text-foreground shadow-2xs">{data.label}</span>}
+      <EdgeLabelRow style={{ transform: `translate(-50%, -50%) translate(${labelPosition.x}px, ${labelPosition.y}px)` }}>
+        {data.label && <EdgeLabelPill>{data.label}</EdgeLabelPill>}
         <FoldChip {...data.fold} />
-      </div>
+      </EdgeLabelRow>
     </EdgeLabelRenderer> : data?.label && <EdgeLabelRenderer>
-      <div
-        className="pointer-events-none absolute rounded-sm border border-border bg-card px-1.5 py-0.5 text-xs leading-4 text-foreground shadow-2xs"
-        style={{ transform: `translate(-50%, -50%) translate(${labelPosition.x}px, ${labelPosition.y}px)` }}
-      >{data.label}</div>
+      <EdgeLabelPill floating style={{ transform: `translate(-50%, -50%) translate(${labelPosition.x}px, ${labelPosition.y}px)` }}>{data.label}</EdgeLabelPill>
     </EdgeLabelRenderer>}
   </>;
 }

@@ -9,7 +9,7 @@ import { ContextItemList } from '@/components/ai-context';
 import { LineDetail } from '@/components/line-detail';
 import { TermEditor } from '@/components/glossary/term-pane';
 import { HeaderActions, Page } from '@/components/page';
-import { EmptyState, SectionHeading, DataTable, type ColumnDef, Pager, FilterBar, ActionBar, Separator, SplitPane, JobStatusBadge, StatusBarItem, Alert, AlertDescription, AlertTitle, Badge, Button, Collapsible, CollapsibleContent, CollapsibleTrigger, Progress, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Tabs, TabsList, TabsTrigger, Skeleton } from '@loca/ui';
+import { EmptyState, SectionHeading, DataTable, type ColumnDef, Pager, FilterBar, ActionBar, Separator, SplitPane, JobStatusBadge, StatusBarItem, Alert, AlertDescription, AlertTitle, Badge, Box, Button, Icon, Inline, Text, Collapsible, CollapsibleContent, CollapsibleTrigger, Progress, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Tabs, TabsList, TabsTrigger, Skeleton } from '@loca/ui';
 import { HeaderFilter } from '@/components/header-filter';
 import { client, unwrap } from '@/lib/api';
 import { ITEM_STATE } from '@/lib/labels';
@@ -74,11 +74,11 @@ function RunDetail() {
   if (!run.data)
     return (
       <Page title="실행" flush>
-        <div className="space-y-3 p-4">
-          <Skeleton className="h-8 w-1/2" />
-          <Skeleton className="h-16" />
-          <Skeleton className="h-40" />
-        </div>
+        <Box spaceY="normal" padding="comfortable">
+          <Box asChild height={8} width="1/2"><Skeleton /></Box>
+          <Box asChild height={16}><Skeleton /></Box>
+          <Box asChild height={40}><Skeleton /></Box>
+        </Box>
       </Page>
     );
   const data = run.data;
@@ -142,9 +142,9 @@ function RunDetail() {
       meta: { width: 128, label: '상태' },
       cell: ({ row }) => (
         <>
-          {row.original.retry ? <span className="text-xs">{retryState(row.original.retry.times, row.original.retry.max)}</span> : ITEM_STATE[row.original.state]}
-          {row.original.state === 'done' && row.original.statusName && <span className="text-muted-foreground"> → {row.original.statusName}</span>}
-          {Object.values(row.original.visits).some((count) => count > 1) && <span className="text-xs text-muted-foreground"> · 재방문 {Math.max(...Object.values(row.original.visits)) - 1}</span>}
+          {row.original.retry ? <Text variant="caption">{retryState(row.original.retry.times, row.original.retry.max)}</Text> : ITEM_STATE[row.original.state]}
+          {row.original.state === 'done' && row.original.statusName && <Text tone="muted"> → {row.original.statusName}</Text>}
+          {Object.values(row.original.visits).some((count) => count > 1) && <Text variant="caption" tone="muted"> · 재방문 {Math.max(...Object.values(row.original.visits)) - 1}</Text>}
         </>
       ),
     },
@@ -156,23 +156,23 @@ function RunDetail() {
         const item = row.original;
         return (
           <>
-            {item.retry && <p className="text-muted-foreground" title={item.retry.message}>{retryReason(item.retry)}</p>}
-            {item.error && <p className="text-destructive">{item.error}</p>}
-            {!!item.data.issues?.length && <p className="text-warning">{item.data.issues.join(' / ')}</p>}
-            {!!item.data.notes?.length && <p className="text-muted-foreground">{item.data.notes.join(' / ')}</p>}
+            {item.retry && <Text as="p" tone="muted" title={item.retry.message}>{retryReason(item.retry)}</Text>}
+            {item.error && <Text as="p" tone="danger">{item.error}</Text>}
+            {!!item.data.issues?.length && <Text as="p" tone="warning">{item.data.issues.join(' / ')}</Text>}
+            {!!item.data.notes?.length && <Text as="p" tone="muted">{item.data.notes.join(' / ')}</Text>}
             {Object.entries(item.data.outputs ?? {})
               .filter(([, output]) => typeof output.passed === 'boolean')
               .map(([nodeId, output]) => (
-                <p key={nodeId} className={output.passed ? 'text-success' : 'text-warning'}>
+                <Text as="p" key={nodeId} tone={output.passed ? 'success' : 'warning'}>
                   {nodeName(nodeId)} {output.passed ? '통과' : '실패'}
-                </p>
+                </Text>
               ))}
             {Object.entries(item.data.outputs ?? {})
               .filter(([, output]) => 'confidence' in output && 'value' in output)
               .map(([nodeId, output]) => (
-                <p key={`choice:${nodeId}`} className="text-muted-foreground">
+                <Text as="p" key={`choice:${nodeId}`} tone="muted">
                   {nodeName(nodeId)}: {output.value == null ? '해당 없음' : String(output.value)} (확신도 {Number(output.confidence).toFixed(2)})
-                </p>
+                </Text>
               ))}
           </>
         );
@@ -197,16 +197,16 @@ function RunDetail() {
 
   return (
     <Page title={data.workflowName} flush back={<Button variant="ghost" asChild><Link to="/p/$projectId/runs" params={{ projectId }}><ChevronLeft /> 실행 기록</Link></Button>}>
+      <Box asChild height="full" minHeight={0}>
       <SplitPane
         id="run-lines" selectionKey={search.line}
         defaultWidth="400px"
-        className="h-full min-h-0"
         pane={
           search.line && (terms ? (
             selectedTerm ? (
               <TermEditor key={selectedTerm.id} projectId={projectId} term={selectedTerm} onClose={() => setSearch({ line: undefined }, true)} onDecide={(accept) => decide.mutate(accept)} deciding={decide.isPending} />
             ) : (
-              <p className="p-4 text-sm text-muted-foreground">{termList.isSuccess ? '용어집에서 사라진 용어입니다.' : '용어를 불러오는 중…'}</p>
+              <Text as="p" padding="comfortable" variant="body" tone="muted">{termList.isSuccess ? '용어집에서 사라진 용어입니다.' : '용어를 불러오는 중…'}</Text>
             )
           ) : (
             <LineDetail
@@ -222,16 +222,20 @@ function RunDetail() {
         }
       >
         <HeaderActions>
-          <Tabs value={view} onValueChange={(value) => setSearch({ tab: value === 'steps' || value === 'plan' || value === 'graph' ? value : undefined }, true)} className="self-stretch">
-            <TabsList variant="line" className="h-full border-b-0" aria-label="보기">
+          <Box asChild alignSelf="stretch">
+          <Tabs value={view} onValueChange={(value) => setSearch({ tab: value === 'steps' || value === 'plan' || value === 'graph' ? value : undefined }, true)}>
+            <Box asChild height="full" border="noBottom">
+            <TabsList variant="line" aria-label="보기">
               <TabsTrigger value="items">{terms ? '용어별' : '대사별'}</TabsTrigger>
               <TabsTrigger value="graph">그래프</TabsTrigger>
               <TabsTrigger value="steps">AI 호출</TabsTrigger>
               {/* Terms are not planned in scene batches: there is no plan to show. */}
               {data.subject !== 'terms' && <TabsTrigger value="plan">번역 계획</TabsTrigger>}
             </TabsList>
+            </Box>
           </Tabs>
-          <Separator orientation="vertical" className="mx-1 h-4" />
+          </Box>
+          <Box asChild marginX="tight" height={4}><Separator orientation="vertical" /></Box>
           {data.status === 'running' && <Button onClick={() => control.mutate('pause')}><Pause /> 일시정지</Button>}
           {data.status === 'paused' && <Button variant={data.limits?.hit ? 'outline' : 'default'} onClick={() => control.mutate('resume')}><Play /> 재개</Button>}
           {data.status === 'completed' && (totals.failed ?? 0) > 0 && !data.filling && <ContinueRun runId={runId} failed={totals.failed ?? 0} paused={false} />}
@@ -243,7 +247,7 @@ function RunDetail() {
         {data.status === 'paused' && !data.filling && <ContinueRun runId={runId} failed={totals.failed ?? 0} paused hideTrigger open={continueOpen} onOpenChange={setContinueOpen} />}
         {active && stop}
         <StatusBarItem><JobStatusBadge status={data.status} /></StatusBarItem>
-        {view === 'items' && <FilterBar end={items.data ? <span className="text-2xs tabular-nums">{total.toLocaleString()}{terms ? '개' : '줄'}</span> : undefined}>
+        {view === 'items' && <FilterBar end={items.data ? <Text variant="micro" tabular>{total.toLocaleString()}{terms ? '개' : '줄'}</Text> : undefined}>
           {filtered && (
             <Button variant="ghost" onClick={() => setSearch({ state: undefined, node: undefined, page: undefined, line: undefined }, true)}>
               필터 지우기
@@ -251,7 +255,7 @@ function RunDetail() {
           )}
         </FilterBar>}
 
-        <div className="shrink-0 space-y-3 border-b px-4 py-3">
+        <Box shrink={false} spaceY="normal" border="bottom" paddingX="comfortable" paddingY="normal">
           {data.status === 'paused' && data.notice && (
             <Alert variant="destructive">
               <OctagonAlert />
@@ -260,44 +264,44 @@ function RunDetail() {
               {data.limits?.hit && !data.filling && <RaiseCaps key={`${data.limits.maxCalls}-${data.limits.maxInputTokens}`} runId={runId} limits={data.limits} />}
             </Alert>
           )}
-          <p className="flex items-center gap-1 text-xs text-muted-foreground">
-            <span className="shrink-0">실행 ID</span>
-            <code className="truncate font-mono">{runId}</code>
+          <Inline as="p" gap="tight" variant="caption" tone="muted">
+            <Text shrink={false}>실행 ID</Text>
+            <Text as="code" truncate mono>{runId}</Text>
             <CopyButton value={runId} label="실행 ID 복사" />
-          </p>
-          <p className="truncate text-xs text-muted-foreground">
+          </Inline>
+          <Text as="p" truncate variant="caption" tone="muted">
             {dateTime(data.createdAt)} 시작 · 모델 {data.models.map((model) => model.label).join(', ') || '없음'}
-          </p>
+          </Text>
           {data.byModel.length > 1 && (
-            <p className="text-xs text-muted-foreground">
+            <Text as="p" variant="caption" tone="muted">
               연결별 호출: {data.byModel.map((row) => `${[row.name, row.model].filter(Boolean).join(' · ') || '알 수 없음'} ${row.steps}회${row.failed ? `(실패 ${row.failed})` : ''}`).join(', ')}
-            </p>
+            </Text>
           )}
           {data.continuations.map((entry, index) => (
-            <p key={index} className="text-xs text-muted-foreground">
+            <Text as="p" key={index} variant="caption" tone="muted">
               {dateTime(entry.at)} 이어서 실행{entry.changes.length > 0 && ` · ${entry.changes.map((change) => `${nodeName(change.nodeId)}: ${change.from} → ${change.to}`).join(', ')}`}
               {entry.retried > 0 && ` · 실패한 줄 ${entry.retried.toLocaleString()}개 다시`}
-            </p>
+            </Text>
           ))}
-          <div className="space-y-1.5">
-            <div className="flex flex-wrap items-baseline justify-between gap-x-4 text-sm">
+          <Box spaceY="snug">
+            <Inline wrap align="baseline" justify="between" gapX="comfortable" variant="body">
               <span>
-                <b className="tabular-nums">{finished.toLocaleString()}</b>
-                <span className="text-muted-foreground tabular-nums"> / {data.total.toLocaleString()} {terms ? '용어' : '대사'} 처리 · {data.total ? Math.round((finished / data.total) * 100) : 0}%</span>
+                <Text as="b" tabular>{finished.toLocaleString()}</Text>
+                <Text tone="muted" tabular> / {data.total.toLocaleString()} {terms ? '용어' : '대사'} 처리 · {data.total ? Math.round((finished / data.total) * 100) : 0}%</Text>
               </span>
               {data.usage && (
-                <span className="text-xs text-muted-foreground tabular-nums">
+                <Text variant="caption" tone="muted" tabular>
                   AI 호출 {data.usage.steps} · 실패 {data.usage.failed ?? 0} · 입력 {data.usage.inputTokens.toLocaleString()}
                   {data.usage.cachedInputTokens > 0 && ` (캐시 ${data.usage.cachedInputTokens.toLocaleString()})`} · 출력 {data.usage.outputTokens.toLocaleString()}
                   {data.usage.costUsd != null && ` · 보고된 비용 $${data.usage.costUsd.toFixed(4)}`}
                   {data.limits?.maxCalls != null && ` · 호출 상한 ${data.limits.maxCalls.toLocaleString()}회`}
                   {data.limits?.maxInputTokens != null && ` · 입력 상한 ${data.limits.maxInputTokens.toLocaleString()}`}
-                </span>
+                </Text>
               )}
-            </div>
-            <Progress value={data.total ? (finished / data.total) * 100 : 0} className="h-1.5" />
-          </div>
-        </div>
+            </Inline>
+            <Box asChild height={1.5}><Progress value={data.total ? (finished / data.total) * 100 : 0} /></Box>
+          </Box>
+        </Box>
 
         {view === 'items' ? (
           <DataTable id="run-items"
@@ -311,116 +315,119 @@ function RunDetail() {
             footer={<Pager page={search.page ?? 0} total={total} pageSize={PAGE} onPage={(page) => setSearch({ page: page || undefined })} />}
           />
         ) : view === 'graph' ? (
-          <div className="min-h-0 flex-1">
+          <Box minHeight={0} grow>
             <RunGraph projectId={projectId} run={data} selected={search.node} onOpenNode={(node) => setSearch({ tab: undefined, node, state: undefined, page: undefined, line: undefined })} />
-          </div>
+          </Box>
         ) : view === 'plan' ? (
-          <div className="min-h-0 flex-1 overflow-auto p-4">
+          <Box minHeight={0} grow overflow="auto" padding="comfortable">
             {plan.data ? (
               plan.data.total ? (
                 <>
-                  <SectionHeading className="mb-3">번역 계획</SectionHeading>
+                  <Box asChild marginBottom="normal"><SectionHeading>번역 계획</SectionHeading></Box>
                   <BatchList list={plan.data} defaultOpen />
                 </>
               ) : (
                 <EmptyState noun="저장된 번역 계획" />
               )
             ) : plan.isError ? (
-              <p className="py-12 text-center text-sm text-destructive">번역 계획을 불러오지 못했습니다: {plan.error.message}</p>
+              <Text as="p" paddingY="section" align="center" variant="body" tone="danger">번역 계획을 불러오지 못했습니다: {plan.error.message}</Text>
             ) : (
-              <Skeleton className="h-32 w-full" />
+              <Box asChild height={32} width="full"><Skeleton /></Box>
             )}
-          </div>
+          </Box>
         ) : (
-          <div className="min-h-0 flex-1 overflow-auto">
+          <Box minHeight={0} grow overflow="auto">
             {!steps.data ? (
-              <div className="space-y-3 p-4">
-                <Skeleton className="h-4 w-2/3" />
-                <Skeleton className="h-4 w-1/2" />
-                <Skeleton className="h-4 w-3/4" />
-              </div>
+              <Box spaceY="normal" padding="comfortable">
+                <Box asChild height={4} width="2/3"><Skeleton /></Box>
+                <Box asChild height={4} width="1/2"><Skeleton /></Box>
+                <Box asChild height={4} width="3/4"><Skeleton /></Box>
+              </Box>
             ) : (
               <ul>
                 {steps.data.map((step) => (
-                  <li key={step.id} className="px-4 py-2 text-sm">
+                  <Box as="li" key={step.id} paddingX="comfortable" paddingY="condensed" variant="body">
                     <Collapsible>
                       <CollapsibleTrigger asChild>
-                        <Button variant="ghost" className="group w-full justify-start font-normal">
-                          <ChevronRight className="text-muted-foreground transition-transform group-data-[state=open]:rotate-90" />
+                        <Button variant="ghost" group width="full" justifyContent="start" weight="normal">
+                          <Icon icon={ChevronRight} tone="muted" turn="group" />
                           {/* The spaces keep the row's words apart when read or copied (#48); the flex gap already spaces them on screen. */}
-                          <span className="w-32 truncate text-left font-medium">{nodeName(step.nodeId)}</span>{' '}
+                          <Text width={32} truncate align="start" weight="medium">{nodeName(step.nodeId)}</Text>{' '}
                           <Badge variant={step.ok ? 'outline' : 'destructive'}>{step.ok ? '성공' : '실패'}</Badge>{' '}
                           {!step.ok && errorKindLabel(step.errorKind) && <Badge variant="outline">{errorKindLabel(step.errorKind)}</Badge>}{' '}
-                          <span className="text-muted-foreground">{terms ? `용어 ${step.subjectIds.length}개` : `대사 ${step.subjectIds.length}줄`}</span>{' '}
-                          <span className="min-w-0 truncate text-muted-foreground">{[data.models.find((model) => model.connectionId === step.connectionId)?.name, step.model].filter(Boolean).join(' · ')}</span>
+                          <Text tone="muted">{terms ? `용어 ${step.subjectIds.length}개` : `대사 ${step.subjectIds.length}줄`}</Text>{' '}
+                          <Text minWidth={0} truncate tone="muted">{[data.models.find((model) => model.connectionId === step.connectionId)?.name, step.model].filter(Boolean).join(' · ')}</Text>
                           {' '}
-                          <span className="ml-auto text-xs text-muted-foreground tabular-nums">
+                          <Text marginLeft="auto" variant="caption" tone="muted" tabular>
                             {((new Date(step.finishedAt).getTime() - new Date(step.startedAt).getTime()) / 1000).toFixed(1)}s
                             {step.inputTokens != null && ` · 입력 ${step.inputTokens.toLocaleString()}${step.cachedInputTokens ? `(캐시 ${step.cachedInputTokens.toLocaleString()})` : ''} · 출력 ${(step.outputTokens ?? 0).toLocaleString()}`}
                             {step.costUsd != null && ` · $${step.costUsd.toFixed(4)}`}
-                          </span>
+                          </Text>
                         </Button>
                       </CollapsibleTrigger>
-                      <CollapsibleContent className="mt-2 space-y-2 pl-9">
-                        {step.error && <p className="text-destructive">{[errorKindLabel(step.errorKind), step.error].filter(Boolean).join(' · ')}</p>}
+                      <Box asChild marginTop="condensed" spaceY="condensed" paddingLeft="indent">
+                      <CollapsibleContent>
+                        {step.error && <Text as="p" tone="danger">{[errorKindLabel(step.errorKind), step.error].filter(Boolean).join(' · ')}</Text>}
                         {Array.isArray(step.context) && (
                           <Collapsible>
                             <CollapsibleTrigger asChild>
-                              <Button variant="ghost" className="group font-normal text-muted-foreground">
-                                <ChevronRight className="transition-transform group-data-[state=open]:rotate-90" />
+                              <Button variant="ghost" group weight="normal" tone="muted">
+                                <Icon icon={ChevronRight} turn="group" />
                                 넣은 문맥 {step.context.filter((item) => item.included).length}개
                                 {step.context.some((item) => !item.included) && ` · 상한 초과 ${step.context.filter((item) => !item.included).length}`}
                               </Button>
                             </CollapsibleTrigger>
                             <CollapsibleContent>
-                              <div className="mt-2">
+                              <Box marginTop="condensed">
                                 <ContextItemList items={step.context} />
-                              </div>
+                              </Box>
                             </CollapsibleContent>
                           </Collapsible>
                         )}
                         {step.prompt && (
                           <Collapsible>
                             <CollapsibleTrigger asChild>
-                              <Button variant="ghost" className="group font-normal text-muted-foreground">
-                                <ChevronRight className="transition-transform group-data-[state=open]:rotate-90" />
+                              <Button variant="ghost" group weight="normal" tone="muted">
+                                <Icon icon={ChevronRight} turn="group" />
                                 보낸 프롬프트
                               </Button>
                             </CollapsibleTrigger>
                             <CollapsibleContent>
-                              <pre className="mt-1 max-h-80 overflow-auto rounded bg-muted p-2 text-xs whitespace-pre-wrap">{step.prompt}</pre>
+                              <Box as="pre" marginTop="tight" maxHeight={80} overflow="auto" radius="base" background="muted" padding="condensed" variant="caption" preserveLines>{step.prompt}</Box>
                             </CollapsibleContent>
                           </Collapsible>
                         )}
                         {step.output != null && (
                           <Collapsible>
                             <CollapsibleTrigger asChild>
-                              <Button variant="ghost" className="group font-normal text-muted-foreground">
-                                <ChevronRight className="transition-transform group-data-[state=open]:rotate-90" />
+                              <Button variant="ghost" group weight="normal" tone="muted">
+                                <Icon icon={ChevronRight} turn="group" />
                                 응답
                               </Button>
                             </CollapsibleTrigger>
                             <CollapsibleContent>
-                              <pre className="mt-1 max-h-80 overflow-auto rounded bg-muted p-2 text-xs">{JSON.stringify(step.output, null, 2)}</pre>
+                              <Box as="pre" marginTop="tight" maxHeight={80} overflow="auto" radius="base" background="muted" padding="condensed" variant="caption">{JSON.stringify(step.output, null, 2)}</Box>
                             </CollapsibleContent>
                           </Collapsible>
                         )}
                       </CollapsibleContent>
+                      </Box>
                     </Collapsible>
-                  </li>
+                  </Box>
                 ))}
-                {steps.data.length === 0 && <li className="px-4 py-6 text-sm text-muted-foreground">아직 AI 호출이 없습니다.</li>}
+                {steps.data.length === 0 && <Text as="li" paddingX="comfortable" paddingY="spacious" variant="body" tone="muted">아직 AI 호출이 없습니다.</Text>}
               </ul>
             )}
-          </div>
+          </Box>
         )}
       </SplitPane>
+      </Box>
       {data.workflowId && (
-        <p className="sr-only">
+        <Text as="p" srOnly>
           <Link to="/p/$projectId/workflows/$workflowId" params={{ projectId, workflowId: data.workflowId }}>
             워크플로 열기
           </Link>
-        </p>
+        </Text>
       )}
     </Page>
   );

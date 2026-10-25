@@ -8,12 +8,11 @@ import { TranslationEditor } from '@/components/translation-editor';
 import { LineSourceText, MarkedSourceText, TokenText } from '@/components/editor/source-text';
 import { LineHints } from '@/components/script/line-row';
 import { usePersonColors } from '@/lib/person-colors';
-import { Button, GroupHeading, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger, ScriptReadingRow, Skeleton, TagChip, TagListEditor, type StatusLike } from '@loca/ui';
+import { Box, Button, DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuTrigger, ForkOptionItem, Heading, Icon, Inline, ScriptReadingRow, Skeleton, Stack, TagChip, TagListEditor, Text, type StatusLike } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { tokenPatternOf } from '@/lib/line-context';
 import { keyLabel } from '@/lib/keys';
 import { lineTags, q } from '@/lib/queries';
-import { cn } from '@/lib/utils';
 import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
 import type { InferResponseType } from '@/lib/api';
 
@@ -79,15 +78,15 @@ function RouteLineRow({ projectId, row, selected, status, statusList, rules, tag
   });
 
   if (!row) return (
-    <div role="listitem" className="px-4 py-3 sm:px-6">
-      {stageLabel && <GroupHeading className="mb-2 block">{stageLabel}</GroupHeading>}
+    <Box role="listitem" paddingY="normal" paddingX="page">
+      {stageLabel && <Heading as="h3" variant="group" minWidth={0} marginBottom="condensed" display="block">{stageLabel}</Heading>}
       {loadError ? (
-        <div className="flex w-full max-w-4xl items-center gap-3" role="alert">
-          <p className="text-sm text-destructive">이 줄을 불러오지 못했습니다.</p>
+        <Inline gap="normal" width="full" maxWidth="4xl" role="alert">
+          <Text as="p" variant="body" tone="danger">이 줄을 불러오지 못했습니다.</Text>
           <Button variant="outline" onClick={onRetry}>다시 시도</Button>
-        </div>
-      ) : <Skeleton className="h-28 w-full max-w-4xl" aria-label="줄을 불러오는 중" />}
-    </div>
+        </Inline>
+      ) : <Box asChild height={28} width="full" maxWidth="4xl"><Skeleton aria-label="줄을 불러오는 중" /></Box>}
+    </Box>
   );
 
   const attachedTags = row.tagIds ? tags.filter((tag) => row.tagIds.includes(tag.id)) : [];
@@ -113,7 +112,7 @@ function RouteLineRow({ projectId, row, selected, status, statusList, rules, tag
   };
 
   const marks = (
-    <div className="mt-1 flex flex-wrap items-center gap-1" role="group" aria-label="이 줄의 태그" onClick={(event) => event.stopPropagation()}>
+    <Inline wrap gap="tight" marginTop="tight" role="group" aria-label="이 줄의 태그" onClick={(event) => event.stopPropagation()}>
       <TagListEditor
         tags={orderedTags}
         allTags={tags}
@@ -121,15 +120,15 @@ function RouteLineRow({ projectId, row, selected, status, statusList, rules, tag
         onCreate={handleCreateTag}
         heading="대사 태그"
       />
-    </div>
+    </Inline>
   );
 
   const tagRow = orderedTags.length > 0 ? (
-    <div className="mt-1 flex flex-wrap gap-1" role="group" aria-label="이 줄의 태그">
+    <Stack direction="row" wrap gap="tight" marginTop="tight" role="group" aria-label="이 줄의 태그">
       {orderedTags.map((tag) => (
         <TagChip key={tag.id} tag={tag} />
       ))}
-    </div>
+    </Stack>
   ) : null;
 
   const narration = row.kind === 'dialogue' && !row.speaker?.trim();
@@ -137,22 +136,21 @@ function RouteLineRow({ projectId, row, selected, status, statusList, rules, tag
   const said = needsListener(row, rules) || (Boolean(row.listener) && (row.listenerOrigin === 'human' || row.listenerOrigin === 'import'));
   const listener = said ? (unknownListener ? null : listenerLabel(row.listener!)) : undefined;
   const listenerIsPerson = !row.listener || (!Object.hasOwn(SPECIAL_LISTENERS, row.listener) && !unknownListener);
-  const sourceClass = cn('whitespace-pre-wrap', narration && 'text-muted-foreground', row.kind === 'document' && 'leading-relaxed');
   // Same as the script list: glossary words are underlined in every line; the picked one gets their chips and the speech/relationship summary.
   const source = selected ? (
     <>
-      <LineSourceText projectId={projectId} unitId={row.id} source={row.source} translation={row.translation} className={sourceClass} />
+      <Text asChild preserveLines tone={narration ? 'muted' : undefined} leading={row.kind === 'document' ? 'relaxed' : undefined}><LineSourceText projectId={projectId} unitId={row.id} source={row.source} translation={row.translation} /></Text>
       <LineHints projectId={projectId} line={{ id: row.id, source: row.source, translation: row.translation, speaker: row.speaker, listener: row.listener, lastRun: null }} part="context" />
     </>
-  ) : <MarkedSourceText projectId={projectId} text={row.source} pattern={tokenPattern} className={sourceClass} />;
+  ) : <Text asChild preserveLines tone={narration ? 'muted' : undefined} leading={row.kind === 'document' ? 'relaxed' : undefined}><MarkedSourceText projectId={projectId} text={row.source} pattern={tokenPattern} /></Text>;
   const translation = selected ? (
     <TranslationEditor key={`editor-${row.id}`} projectId={projectId} unit={row} statuses={statusList} focusKey={focusTick} marks={marks} onEscape={onEscape} onDone={onDone} />
   ) : (
     <>
       {row.translation ? (
-        <TokenText text={row.translation} source={row.source} pattern={tokenPattern} className="whitespace-pre-wrap" />
+        <Text asChild preserveLines><TokenText text={row.translation} source={row.source} pattern={tokenPattern} /></Text>
       ) : (
-        <span className="text-subtle-foreground select-none">미번역</span>
+        <Text tone="subtle" userSelect="none">미번역</Text>
       )}
       {tagRow}
     </>
@@ -160,7 +158,7 @@ function RouteLineRow({ projectId, row, selected, status, statusList, rules, tag
 
   return (
     <div role="listitem" data-unit={row.id} data-selected={selected || undefined} onClick={() => !selected && onSelect()}>
-      {stageLabel && <GroupHeading className="block px-4 pt-3 sm:px-6">{stageLabel}</GroupHeading>}
+      {stageLabel && <Heading as="h3" variant="group" minWidth={0} display="block" paddingX="page" paddingTop="normal">{stageLabel}</Heading>}
       <ScriptReadingRow speaker={row.speaker} speakerColor={colorOf(row.speaker)} listener={listener} listenerIsPerson={listenerIsPerson} status={status} statusBy={row.statusBy} source={source} translation={translation} selected={selected} />
     </div>
   );
@@ -316,24 +314,24 @@ export function RouteList({ projectId, sequence, stages, routeKey, untranslatedI
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col" data-testid="route-list" data-lines={sequence.length}>
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-1.5">
-        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground tabular-nums" data-testid="route-list-count">
+    <Stack height="full" minHeight={0} data-testid="route-list" data-lines={sequence.length}>
+      <Inline wrap gap="condensed" shrink={false} border="bottom" paddingX="comfortable" paddingY="snug">
+        <Text variant="caption" tone="muted" tabular truncate minWidth={0} grow data-testid="route-list-count">
           {sequence.length.toLocaleString()}줄 · 미번역 {remaining.toLocaleString()}
-        </span>
+        </Text>
         <Button variant="ghost" disabled={previousUntranslated === undefined} title={`앞의 미번역 줄 (${keyLabel('Alt+Shift+N')})`} onClick={() => goUntranslated(-1)}>
           <ChevronUp /> 이전 미번역
         </Button>
         <Button variant="ghost" disabled={nextUntranslated === undefined} title={`뒤의 미번역 줄 (${keyLabel('Alt+N')})`} onClick={() => goUntranslated(1)}>
           <ChevronDown /> 다음 미번역
         </Button>
-      </div>
+      </Inline>
       {forks && forks.length > 0 && (
-        <div className="flex shrink-0 items-center gap-2 border-b bg-muted/20 px-4 py-1 overflow-x-auto" data-testid="route-forks">
-          <span className="flex shrink-0 items-center gap-1.5 text-xs font-medium text-muted-foreground">
-            <GitFork className="size-3.5" />
+        <Inline gap="condensed" shrink={false} border="bottom" background="faint" paddingX="comfortable" paddingY="tight" overflow="x" data-testid="route-forks">
+          <Inline as="span" gap="snug" shrink={false} variant="caption" weight="medium" tone="muted">
+            <Icon icon={GitFork} size="sm" />
             갈림길 ({forks.length})
-          </span>
+          </Inline>
           {forks.length === 1 ? (
             (() => {
               const fork = forks[0]!;
@@ -342,43 +340,25 @@ export function RouteList({ projectId, sequence, stages, routeKey, untranslatedI
               return (
                 <DropdownMenu key={fork.nodeId}>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="outline" className="shrink-0">
-                      <span className="max-w-[200px] truncate">
+                    <Button variant="outline" shrink={false}>
+                      <Text truncate maxWidth="200px">
                         {forkTitle}: {selectedOption?.label ?? '선택'} ({fork.options.length}갈래)
-                      </span>
-                      <ChevronDown className="ml-1 size-3 opacity-60" />
+                      </Text>
+                      <Icon icon={ChevronDown} size="xs" marginLeft="tight" opacity={60} />
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start" className="w-80">
-                    <DropdownMenuLabel className="text-xs text-muted-foreground">
-                      {forkTitle} 선택 ({fork.options.length}갈래)
-                    </DropdownMenuLabel>
-                    {fork.options.map((opt) => {
-                      const isSelected = opt.targetId === fork.selectedId;
-                      return (
-                        <DropdownMenuItem
-                          key={opt.targetId}
-                          onSelect={() => onPickFork?.(fork.nodeId, opt.targetId)}
-                          className={cn(
-                            'flex flex-col items-start gap-0.5 py-1.5 cursor-pointer',
-                            isSelected && 'font-medium bg-muted/40'
-                          )}
-                        >
-                          <div className="flex w-full items-center justify-between text-sm">
-                            <span className="truncate font-medium">{opt.label}</span>
-                            {isSelected && (
-                              <span className="text-xs text-primary font-medium">선택됨</span>
-                            )}
-                          </div>
-                          {opt.preview && opt.preview !== opt.label && (
-                            <span className="line-clamp-2 text-xs text-muted-foreground font-normal">
-                              {opt.preview}
-                            </span>
-                          )}
-                        </DropdownMenuItem>
-                      );
-                    })}
-                  </DropdownMenuContent>
+                  <Box asChild width={80}>
+                    <DropdownMenuContent align="start">
+                      <Text asChild variant="caption" tone="muted">
+                        <DropdownMenuLabel>
+                          {forkTitle} 선택 ({fork.options.length}갈래)
+                        </DropdownMenuLabel>
+                      </Text>
+                      {fork.options.map((opt) => (
+                        <ForkOptionItem key={opt.targetId} label={opt.label} preview={opt.preview} selected={opt.targetId === fork.selectedId} onSelect={() => onPickFork?.(fork.nodeId, opt.targetId)} />
+                      ))}
+                    </DropdownMenuContent>
+                  </Box>
                 </DropdownMenu>
               );
             })()
@@ -386,48 +366,30 @@ export function RouteList({ projectId, sequence, stages, routeKey, untranslatedI
             <>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" className="shrink-0">
+                  <Button variant="outline" shrink={false}>
                     <span>갈림길 {forks.length}곳 선택</span>
-                    <ChevronDown className="ml-1 size-3 opacity-60" />
+                    <Icon icon={ChevronDown} size="xs" marginLeft="tight" opacity={60} />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="max-h-96 w-80 overflow-y-auto">
-                  {forks.map((fork, idx) => {
-                    const forkTitle = `분기 ${idx + 1}/${forks.length}${fork.label && !fork.label.startsWith('Sibling') ? ` · ${fork.label}` : ''}`;
-                    return (
-                      <div key={fork.nodeId} className={idx > 0 ? 'border-t border-border-subtle pt-1 mt-1' : ''}>
-                        <DropdownMenuLabel className="text-xs text-muted-foreground">
-                          {forkTitle}
-                        </DropdownMenuLabel>
-                        {fork.options.map((opt) => {
-                          const isSelected = opt.targetId === fork.selectedId;
-                          return (
-                            <DropdownMenuItem
-                              key={opt.targetId}
-                              onSelect={() => onPickFork?.(fork.nodeId, opt.targetId)}
-                              className={cn(
-                                'flex flex-col items-start gap-0.5 py-1.5 cursor-pointer',
-                                isSelected && 'font-medium bg-muted/40'
-                              )}
-                            >
-                              <div className="flex w-full items-center justify-between text-sm">
-                                <span className="truncate font-medium">{opt.label}</span>
-                                {isSelected && (
-                                  <span className="text-xs text-primary font-medium">선택됨</span>
-                                )}
-                              </div>
-                              {opt.preview && opt.preview !== opt.label && (
-                                <span className="line-clamp-2 text-xs text-muted-foreground font-normal">
-                                  {opt.preview}
-                                </span>
-                              )}
-                            </DropdownMenuItem>
-                          );
-                        })}
-                      </div>
-                    );
-                  })}
-                </DropdownMenuContent>
+                <Box asChild maxHeight={96} width={80} overflow="y">
+                  <DropdownMenuContent align="start">
+                    {forks.map((fork, idx) => {
+                      const forkTitle = `분기 ${idx + 1}/${forks.length}${fork.label && !fork.label.startsWith('Sibling') ? ` · ${fork.label}` : ''}`;
+                      return (
+                        <Box key={fork.nodeId} border={idx > 0 ? 'top' : undefined} borderColor={idx > 0 ? 'subtle' : undefined} paddingTop={idx > 0 ? 'tight' : undefined} marginTop={idx > 0 ? 'tight' : undefined}>
+                          <Text asChild variant="caption" tone="muted">
+                            <DropdownMenuLabel>
+                              {forkTitle}
+                            </DropdownMenuLabel>
+                          </Text>
+                          {fork.options.map((opt) => (
+                            <ForkOptionItem key={opt.targetId} label={opt.label} preview={opt.preview} selected={opt.targetId === fork.selectedId} onSelect={() => onPickFork?.(fork.nodeId, opt.targetId)} />
+                          ))}
+                        </Box>
+                      );
+                    })}
+                  </DropdownMenuContent>
+                </Box>
               </DropdownMenu>
               {forks.slice(0, 2).map((fork, idx) => {
                 const selectedOption = fork.options.find((opt) => opt.targetId === fork.selectedId) ?? fork.options[0];
@@ -435,61 +397,43 @@ export function RouteList({ projectId, sequence, stages, routeKey, untranslatedI
                 return (
                   <DropdownMenu key={fork.nodeId}>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="outline" className="shrink-0">
-                        <span className="max-w-[140px] truncate">
+                      <Button variant="outline" shrink={false}>
+                        <Text truncate maxWidth="140px">
                           {forkTitle}: {selectedOption?.label ?? '선택'}
-                        </span>
-                        <ChevronDown className="ml-1 size-3 opacity-60" />
+                        </Text>
+                        <Icon icon={ChevronDown} size="xs" marginLeft="tight" opacity={60} />
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start" className="w-80">
-                      <DropdownMenuLabel className="text-xs text-muted-foreground">
-                        {forkTitle} 선택 ({fork.options.length}갈래)
-                      </DropdownMenuLabel>
-                      {fork.options.map((opt) => {
-                        const isSelected = opt.targetId === fork.selectedId;
-                        return (
-                          <DropdownMenuItem
-                            key={opt.targetId}
-                            onSelect={() => onPickFork?.(fork.nodeId, opt.targetId)}
-                            className={cn(
-                              'flex flex-col items-start gap-0.5 py-1.5 cursor-pointer',
-                              isSelected && 'font-medium bg-muted/40'
-                            )}
-                          >
-                            <div className="flex w-full items-center justify-between text-sm">
-                              <span className="truncate font-medium">{opt.label}</span>
-                              {isSelected && (
-                                <span className="text-xs text-primary font-medium">선택됨</span>
-                              )}
-                            </div>
-                            {opt.preview && opt.preview !== opt.label && (
-                              <span className="line-clamp-2 text-xs text-muted-foreground font-normal">
-                                {opt.preview}
-                              </span>
-                            )}
-                          </DropdownMenuItem>
-                        );
-                      })}
-                    </DropdownMenuContent>
+                    <Box asChild width={80}>
+                      <DropdownMenuContent align="start">
+                        <Text asChild variant="caption" tone="muted">
+                          <DropdownMenuLabel>
+                            {forkTitle} 선택 ({fork.options.length}갈래)
+                          </DropdownMenuLabel>
+                        </Text>
+                        {fork.options.map((opt) => (
+                          <ForkOptionItem key={opt.targetId} label={opt.label} preview={opt.preview} selected={opt.targetId === fork.selectedId} onSelect={() => onPickFork?.(fork.nodeId, opt.targetId)} />
+                        ))}
+                      </DropdownMenuContent>
+                    </Box>
                   </DropdownMenu>
                 );
               })}
             </>
           )}
-        </div>
+        </Inline>
       )}
-      <div ref={parent} className="min-h-0 flex-1 overflow-y-auto" data-testid="route-scroll" onScroll={onScroll}>
-        {sequence.length === 0 ? <p className="p-6 text-sm text-muted-foreground">이 길에는 대사가 없습니다.</p> : (
-          <div role="list" className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
+      <Box ref={parent} minHeight={0} grow overflow="y" data-testid="route-scroll" onScroll={onScroll}>
+        {sequence.length === 0 ? <Text as="p" variant="body" tone="muted" padding="spacious">이 길에는 대사가 없습니다.</Text> : (
+          <Box role="list" position="relative" width="full" style={{ height: virtualizer.getTotalSize() }}>
             {virtual.map((entry) => (
-              <div key={entry.key} data-index={entry.index} ref={virtualizer.measureElement} className="absolute top-0 left-0 w-full" style={{ transform: `translateY(${entry.start}px)` }}>
+              <Box key={entry.key} data-index={entry.index} ref={virtualizer.measureElement} position="absolute" top={0} left={0} width="full" style={{ transform: `translateY(${entry.start}px)` }}>
                 {renderLine(entry.index)}
-              </div>
+              </Box>
             ))}
-          </div>
+          </Box>
         )}
-      </div>
-    </div>
+      </Box>
+    </Stack>
   );
 }

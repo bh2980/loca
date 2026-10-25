@@ -2,9 +2,8 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { FileUp } from 'lucide-react';
-import { Button, Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, FieldRow, FieldRows, Spinner } from '@loca/ui';
+import { Box, Button, Dialog, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, FieldRow, FileDropZone, ImportDialogContent, ImportSummaryRows, Inline, Spinner, Text } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
-import { cn } from '@/lib/utils';
 
 type Validation = Awaited<ReturnType<typeof validate>>;
 const validate = (body: unknown) => unwrap(client.projects.validate.$post({ json: body }));
@@ -52,49 +51,34 @@ export function ImportProjectDialog({ trigger }: { trigger?: React.ReactNode }) 
           </Button>
         )}
       </DialogTrigger>
-      <DialogContent className="sm:max-w-lg" aria-describedby={undefined}>
+      <ImportDialogContent aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>새 프로젝트 가져오기</DialogTitle>
         </DialogHeader>
         {/* Click to pick, or drop the file here. */}
-        <label
-          className={cn('flex cursor-pointer flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border px-4 py-8 text-sm text-muted-foreground hover:bg-muted transition-colors', dragging && 'border-primary bg-muted text-foreground')}
-          onDragOver={(event) => {
-            event.preventDefault();
-            event.dataTransfer.dropEffect = 'copy';
-            setDragging(true);
-          }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={(event) => {
-            event.preventDefault();
-            setDragging(false);
-            void load(event.dataTransfer.files[0]);
-          }}
-        >
-          <FileUp className="size-5" />
-          {file ? <span className="font-medium text-foreground">{file.name}</span> : dragging ? '여기에 놓기' : '파일을 끌어다 놓거나 눌러서 선택'}
-          <input type="file" accept=".json,application/json" className="sr-only" onChange={(event) => void load(event.currentTarget.files?.[0])} />
-        </label>
+        <FileDropZone accept=".json,application/json" dragging={dragging} onDraggingChange={setDragging} onFile={(picked) => void load(picked)}>
+          {file ? <Text weight="medium" tone="default">{file.name}</Text> : dragging ? '여기에 놓기' : '파일을 끌어다 놓거나 눌러서 선택'}
+        </FileDropZone>
         {checking && (
-          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Inline as="p" gap="condensed" variant="body" tone="muted">
             <Spinner /> 파일을 검사하는 중…
-          </p>
+          </Inline>
         )}
-        {result && 'parseError' in result && <p className="text-sm text-destructive">JSON을 읽지 못했습니다: {result.parseError}</p>}
+        {result && 'parseError' in result && <Text as="p" variant="body" tone="danger">JSON을 읽지 못했습니다: {result.parseError}</Text>}
         {result && 'issues' in result && !result.ok && (
-          <div className="max-h-56 overflow-auto rounded-md border bg-muted p-3 text-sm">
-            <p className="mb-2 font-semibold text-destructive">형식 오류 {result.issues.length}개 — 아무것도 저장하지 않았습니다.</p>
-            <ul className="space-y-1 font-mono">
+          <Box maxHeight={56} overflow="auto" radius="md" border="all" background="muted" padding="normal" variant="body">
+            <Text as="p" marginBottom="condensed" weight="semibold" tone="danger">형식 오류 {result.issues.length}개 — 아무것도 저장하지 않았습니다.</Text>
+            <Box as="ul" spaceY="tight" mono>
               {result.issues.map((issue, index) => (
                 <li key={index}>
-                  <span className="text-muted-foreground">{issue.path || '(root)'}</span> {issue.message}
+                  <Text tone="muted">{issue.path || '(root)'}</Text> {issue.message}
                 </li>
               ))}
-            </ul>
-          </div>
+            </Box>
+          </Box>
         )}
         {result && 'summary' in result && result.ok && (
-          <FieldRows className="rounded-md border p-3">
+          <ImportSummaryRows>
             <FieldRow label="프로젝트">{result.summary.name}</FieldRow>
             {(
               [
@@ -109,20 +93,20 @@ export function ImportProjectDialog({ trigger }: { trigger?: React.ReactNode }) 
               ] as const
             ).map(([label, value]) => (
               <FieldRow key={label} label={label}>
-                <span className="tabular-nums">{value.toLocaleString()}</span>
+                <Text tabular>{value.toLocaleString()}</Text>
               </FieldRow>
             ))}
-          </FieldRows>
+          </ImportSummaryRows>
         )}
         {result && 'warnings' in result && result.ok && result.warnings.length > 0 && (
-          <ul className="max-h-40 space-y-1 overflow-auto rounded-md border p-3 text-sm">
+          <Box as="ul" maxHeight={40} spaceY="tight" overflow="auto" radius="md" border="all" padding="normal" variant="body">
             {result.warnings.map((warning) => (
               <li key={warning.message}>
-                <span className="text-warning">{warning.message}</span>
-                {warning.examples.length > 0 && <span className="block truncate font-mono text-xs text-muted-foreground">예: {warning.examples.join(', ')}</span>}
+                <Text tone="warning">{warning.message}</Text>
+                {warning.examples.length > 0 && <Text display="block" truncate mono variant="caption" tone="muted">예: {warning.examples.join(', ')}</Text>}
               </li>
             ))}
-          </ul>
+          </Box>
         )}
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>
@@ -132,7 +116,7 @@ export function ImportProjectDialog({ trigger }: { trigger?: React.ReactNode }) 
             {create.isPending && <Spinner />} 프로젝트 만들기
           </Button>
         </DialogFooter>
-      </DialogContent>
+      </ImportDialogContent>
     </Dialog>
   );
 }

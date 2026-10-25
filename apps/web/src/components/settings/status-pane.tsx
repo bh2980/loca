@@ -1,7 +1,7 @@
 /** Right-hand pane to add or edit one status. */
 import { Trash2 } from 'lucide-react';
 import { DEFAULT_STATUS_COLOR } from '@tw/shared';
-import { InspectorSection, InspectorField, InspectorFields, InspectorToggle, InspectorHeader, InspectorBlock, Inspector, Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@loca/ui';
+import { InspectorSection, InspectorField, InspectorFields, InspectorToggle, InspectorHeader, InspectorBlock, Inspector, Button, FullSelectTrigger, Input, Select, SelectContent, SelectItem, SelectValue } from '@loca/ui';
 import { STATUS_KIND } from '@/lib/labels';
 import { changedFields, useFormFrom } from '@/lib/use-form-from';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
@@ -31,7 +31,7 @@ export function StatusPane({
   const { draft: form, setDraft: setForm, dirty: changed, conflicts, keepMine, takeSaved } = useFormFrom(saved, status && `status.${status.id}`);
   const dirty = !status || changed;
   return (
-    <Inspector footerStart={onDelete ? (<><Button variant="ghost" className="text-destructive" disabled={count < 2} title={count < 2 ? '상태가 하나뿐이면 지울 수 없습니다' : undefined} onClick={onDelete}>
+    <Inspector footerStart={onDelete ? (<><Button variant="ghost" tone="danger" disabled={count < 2} title={count < 2 ? '상태가 하나뿐이면 지울 수 없습니다' : undefined} onClick={onDelete}>
             <Trash2 /> 상태 삭제
           </Button></>) : undefined} header={<InspectorHeader kind="상태" name={status ? status.name : '상태 추가'} status={status ? `대사 ${status.units.toLocaleString()}개` : undefined} onClose={onClose} />} footer={
         <Button disabled={!form.name.trim() || !dirty || pending} onClick={() => onSave(form, changedFields(form, saved))}>
@@ -49,9 +49,9 @@ export function StatusPane({
           </InspectorField>
           <InspectorField label="종류">
             <Select value={form.kind} onValueChange={(kind) => setForm((current) => ({ ...current, kind: kind as Kind }))}>
-              <SelectTrigger className="w-full" aria-label="종류">
+              <FullSelectTrigger aria-label="종류">
                 <SelectValue />
-              </SelectTrigger>
+              </FullSelectTrigger>
               <SelectContent>
                 {(Object.keys(STATUS_KIND) as Kind[]).map((kind) => (
                   <SelectItem key={kind} value={kind}>

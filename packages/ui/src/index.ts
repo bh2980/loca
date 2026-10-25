@@ -98,3 +98,41 @@ export * from "./editor/graph-endpoint-bar"
 export { usePanelWidth } from './layout/use-panel-width'
 export * from "./canvas/canvas-overlay"
 export * from "./canvas/canvas-surface"
+
+// Layout and text primitives: screens are built from these, never from classes.
+export * from "./layout/style"
+export * from "./layout/box"
+export * from "./layout/stack"
+export * from "./layout/grid"
+export * from "./layout/tags"
+export * from "./primitives/text"
+export * from "./primitives/icon"
+
+// Chat parts (presentational; the app wires data and behaviour)
+export * from "./chat/markdown"
+export * from "./chat/message"
+export * from "./chat/attachment-chip"
+export * from "./chat/context-meter"
+export * from "./chat/composer"
+export * from "./chat/tool-card"
+export * from "./chat/conversation-menu"
+export * from "./chat/select"
+
+// Editor and data parts of the screens
+export * from "./data/filter-parts"
+export * from "./editor/editor-input-box"
+export * from "./editor/editor-suggestions"
+export * from "./editor/editor-diff"
+export * from "./editor/editor-tokens"
+export * from "./editor/editor-misc"
+export * from "./editor/detail-parts"
+export * from "./editor/script-line-parts"
+export * from "./editor/script-controls"
+export * from "./editor/script-layout"
+
+// Screen parts
+export * from "./workflow"
+export * from "./graph"
+export * from "./knowledge"
+export * from "./settings"
+export * from "./app"

@@ -1,8 +1,7 @@
 import { useMemo } from 'react';
 import { Shapes } from 'lucide-react';
 import { isContentKind, type NodeType } from '@tw/shared';
-import { Button, GroupHeading, Popover, PopoverContent, PopoverTrigger } from '@loca/ui';
-import { cn } from '@/lib/utils';
+import { Box, Button, Heading, Popover, PopoverContent, PopoverTrigger, Text } from '@loca/ui';
 import { KIND_LABEL } from './shapes';
 
 interface Row {
@@ -44,45 +43,48 @@ export function TypeLegend({ nodes, nodeTypes, active, onPick }: {
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="outline" className={cn('bg-background', active && 'border-[color:var(--graph-select)]')}>
+        <Button variant="outline" background="background" borderColor={active ? 'select' : undefined}>
           <Shapes /> 노드 종류
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-96 p-0">
-        <div className="max-h-[60vh] overflow-auto py-1">
+      <Box asChild width={96} padding="none">
+      <PopoverContent align="start">
+        <Box maxHeight="60vh" overflow="auto" paddingY="tight">
           {groups.map((group) => (
-            <section key={group.title} className="px-1 py-1">
-              <GroupHeading className="block px-2 pt-1">{group.title}</GroupHeading>
+            <Box as="section" key={group.title} paddingX="tight" paddingY="tight">
+              <Heading as="h3" variant="group" minWidth={0} display="block" paddingX="condensed" paddingTop="tight">{group.title}</Heading>
               <ul>
                 {group.rows.map((row) => (
                   <li key={row.key}>
                     <Button
                       variant="ghost"
                       size="row"
-                      className={cn('items-start', active === row.key && 'bg-muted')}
+                      items="start"
+                      background={active === row.key ? 'muted' : undefined}
                       onClick={() => onPick(active === row.key ? undefined : row.key)}
                     >
-                      <span className="mt-0.5 w-16 shrink-0 text-xs text-muted-foreground">{KIND_LABEL[row.kind] ?? row.kind}</span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm">{row.label}</span>
-                        {!row.key.startsWith('kind:') && row.label !== row.key && <span className="block truncate font-mono text-xs text-muted-foreground">{row.key}</span>}
-                      </span>
-                      <span className="text-xs text-muted-foreground tabular-nums">{row.count.toLocaleString()}</span>
+                      <Text marginTop="hair" width={16} shrink={false} variant="caption" tone="muted">{KIND_LABEL[row.kind] ?? row.kind}</Text>
+                      <Text minWidth={0} grow>
+                        <Text display="block" truncate variant="body">{row.label}</Text>
+                        {!row.key.startsWith('kind:') && row.label !== row.key && <Text display="block" truncate mono variant="caption" tone="muted">{row.key}</Text>}
+                      </Text>
+                      <Text variant="caption" tone="muted" tabular>{row.count.toLocaleString()}</Text>
                     </Button>
                   </li>
                 ))}
               </ul>
-            </section>
+            </Box>
           ))}
-        </div>
+        </Box>
         {active && (
-          <div className="border-t p-2">
-            <Button variant="ghost" className="w-full" onClick={() => onPick(undefined)}>
+          <Box border="top" padding="condensed">
+            <Button variant="ghost" width="full" onClick={() => onPick(undefined)}>
               강조 해제
             </Button>
-          </div>
+          </Box>
         )}
       </PopoverContent>
+      </Box>
     </Popover>
   );
 }

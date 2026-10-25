@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { isUnsureListener, listenerLabel, type ListenerOrigin, SPECIAL_LISTENERS } from '@tw/shared';
-import { Input, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@loca/ui';
-import { cn } from '@/lib/utils';
+import { ScriptInlineListenerTrigger, ScriptInput, ScriptSelectTrigger, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectValue, Text } from '@loca/ui';
 
 const LISTENER_ORIGIN_LABELS: Record<ListenerOrigin, string> = { import: '가져오기', ai: 'AI 추정', human: '사람' };
 const TYPE_NAME = '__type';
@@ -34,7 +33,8 @@ export function ListenerPicker({ line, cast, onPick, inline = false }: {
 
   if (typing !== null)
     return (
-      <Input
+      <ScriptInput
+        place={inline ? 'inlineName' : 'name'}
         autoFocus
         value={typing}
         onChange={(event) => setTyping(event.target.value)}
@@ -46,7 +46,6 @@ export function ListenerPicker({ line, cast, onPick, inline = false }: {
         }}
         onBlur={() => setTyping(null)}
         placeholder="이름"
-        className={inline ? 'h-6 w-36 text-xs' : 'w-40'}
         aria-label="청자 이름"
       />
     );
@@ -55,17 +54,16 @@ export function ListenerPicker({ line, cast, onPick, inline = false }: {
       <Select value={value} onValueChange={(next) => (next === TYPE_NAME ? setTyping('') : onPick(next === '-' ? null : next))}>
         {inline ? (
           // Reads as the speaker row's text; the small chevron says it can be changed.
-          <SelectTrigger
+          <ScriptInlineListenerTrigger
             aria-label="청자 바꾸기"
             onClick={(event) => event.stopPropagation()}
-            className={cn('h-auto min-w-0 gap-0.5 border-0 data-[size=default]:h-auto bg-transparent p-0 text-xs shadow-none hover:underline dark:bg-transparent dark:hover:bg-transparent [&>svg]:size-3', value === '-' ? 'text-warning' : 'text-muted-foreground')}
-          >
-            <span className="inline-flex min-w-0 items-center gap-1.5 truncate"><span className="truncate">→ {value === '-' ? '청자 미상' : listenerLabel(value)}</span></span>
-          </SelectTrigger>
+            unknown={value === '-'}
+            label={value === '-' ? '청자 미상' : listenerLabel(value)}
+          />
         ) : (
-          <SelectTrigger size="sm" className="w-40" aria-label="청자">
+          <ScriptSelectTrigger size="sm" width="field" aria-label="청자">
             <SelectValue />
-          </SelectTrigger>
+          </ScriptSelectTrigger>
         )}
         {/* Inline, the default item-aligned placement lands off screen; open below the text instead. */}
         <SelectContent {...(inline && { position: 'popper' as const, align: 'start' as const })}>
@@ -75,7 +73,7 @@ export function ListenerPicker({ line, cast, onPick, inline = false }: {
               <SelectLabel>이 장면 인물</SelectLabel>
               {scene.map((name) => (
                 <SelectItem key={name} value={name}>
-                  <span className="truncate">{name}</span>
+                  <Text truncate>{name}</Text>
                 </SelectItem>
               ))}
             </SelectGroup>
@@ -93,17 +91,17 @@ export function ListenerPicker({ line, cast, onPick, inline = false }: {
               <SelectLabel>다른 인물</SelectLabel>
               {rest.map((person) => (
                 <SelectItem key={person.name} value={person.name}>
-                  <span className="truncate">{person.name}</span>
+                  <Text truncate>{person.name}</Text>
                   {person.player && ' · 플레이어'}
                 </SelectItem>
               ))}
             </SelectGroup>
           )}
-          {value !== '-' && !listed.has(value) && <SelectItem value={value}><span className="truncate">{value}</span></SelectItem>}
+          {value !== '-' && !listed.has(value) && <SelectItem value={value}><Text truncate>{value}</Text></SelectItem>}
           <SelectItem value={TYPE_NAME}>직접 입력…</SelectItem>
         </SelectContent>
       </Select>
-      {hint && !inline && <span className={cn('text-xs', unsure ? 'text-warning' : 'text-muted-foreground')}>{hint}</span>}
+      {hint && !inline && <Text variant="caption" tone={unsure ? 'warning' : 'muted'}>{hint}</Text>}
     </>
   );
 }

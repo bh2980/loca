@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { FolderOpen, Languages } from 'lucide-react';
-import { Card, CardDescription, SectionHeading, CardHeader, CardTitle, Empty, EmptyContent, EmptyHeader, EmptyMedia, EmptyTitle, Skeleton } from '@loca/ui';
+import { FolderOpen } from 'lucide-react';
+import { SectionHeading, EmptyContent, EmptyHeader, EmptyMedia, EmptyTitle, Box, Inline, Stack, BrandMark, OutlinedEmpty, ProjectCard, ProjectCardLink, ProjectCardSkeleton, ProjectGrid, ProjectListFrame } from '@loca/ui';
 import { ImportProjectDialog } from '@/components/import-project';
 import { q } from '@/lib/queries';
 
@@ -10,27 +10,25 @@ export const Route = createFileRoute('/')({ component: Home });
 function Home() {
   const projects = useQuery(q.projects());
   return (
-    <div className="mx-auto flex min-h-svh max-w-4xl flex-col px-6 py-12">
-      <header className="mb-8 flex items-end justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="flex size-8 items-center justify-center rounded-xs bg-primary text-primary-foreground">
-            <Languages className="size-4" />
-          </div>
-          <div>
+    <ProjectListFrame>
+      <Stack as="header" direction="row" align="end" justify="between" gap="comfortable" marginBottom="wide">
+        <Inline gap="normal">
+          <BrandMark />
+          <Box>
             <SectionHeading page as="h1">loca</SectionHeading>
-          </div>
-        </div>
+          </Box>
+        </Inline>
         {!!projects.data?.length && <ImportProjectDialog />}
-      </header>
+      </Stack>
 
       {projects.isPending && (
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Skeleton className="h-24" />
-          <Skeleton className="h-24" />
-        </div>
+        <ProjectGrid>
+          <ProjectCardSkeleton />
+          <ProjectCardSkeleton />
+        </ProjectGrid>
       )}
       {projects.data?.length === 0 && (
-        <Empty className="border">
+        <OutlinedEmpty>
           <EmptyHeader>
             <EmptyMedia variant="icon">
               <FolderOpen />
@@ -40,24 +38,17 @@ function Home() {
           <EmptyContent>
             <ImportProjectDialog />
           </EmptyContent>
-        </Empty>
+        </OutlinedEmpty>
       )}
-      <div className="grid gap-3 sm:grid-cols-2">
+      <ProjectGrid>
         {projects.data?.map((project) => (
-          <Link key={project.id} to="/p/$projectId" params={{ projectId: project.id }} className="rounded-md focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none">
-            <Card className="h-full border-border shadow-none transition-colors hover:bg-muted hover:border-border">
-              <CardHeader className="p-4">
-                <CardTitle className="truncate text-sm font-semibold">{project.name}</CardTitle>
-                <CardDescription className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <span className="uppercase font-mono">{project.sourceLanguage}</span>→<span className="uppercase font-mono">{project.targetLanguage}</span>
-                  <span>·</span>
-                  <span className="tabular-nums">대사 {project.units.toLocaleString()}개</span>
-                </CardDescription>
-              </CardHeader>
-            </Card>
-          </Link>
+          <ProjectCardLink key={project.id}>
+            <Link to="/p/$projectId" params={{ projectId: project.id }}>
+              <ProjectCard name={project.name} sourceLanguage={project.sourceLanguage} targetLanguage={project.targetLanguage} units={project.units} />
+            </Link>
+          </ProjectCardLink>
         ))}
-      </div>
-    </div>
+      </ProjectGrid>
+    </ProjectListFrame>
   );
 }

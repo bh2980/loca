@@ -1,6 +1,6 @@
 import type { ComponentProps } from 'react';
 import { Sparkles } from 'lucide-react';
-import { Button } from '@loca/ui';
+import { Button, Icon } from '@loca/ui';
 import { askAgent } from '@/lib/agent';
 
 /**
@@ -12,7 +12,7 @@ import { askAgent } from '@/lib/agent';
 export function AiButton({ prompt, send = true, children, onClick, ...props }: { prompt?: string; send?: boolean } & ComponentProps<typeof Button>) {
   return (
     <Button variant="outline" {...props} onClick={prompt ? () => askAgent(prompt, { send }) : onClick}>
-      <Sparkles className="size-3.5 text-primary" /> {children}
+      <Icon icon={Sparkles} size="sm" tone="primary" /> {children}
     </Button>
   );
 }

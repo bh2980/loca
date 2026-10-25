@@ -14,6 +14,8 @@ export interface InspectorSectionProps {
   collapsible?: boolean
   id?: string
   className?: string
+  /** Keeps its height in a column that scrolls (it never shrinks). */
+  noShrink?: boolean
 }
 
 const inspectorBlockStyles = "scroll-mt-4 border-b border-border-subtle px-4 py-3.5"
@@ -28,11 +30,12 @@ export function InspectorBlock({ children, className, id }: { children?: ReactNo
  * a chevron on each one is noise. Only long or occasional parts fold (문맥, 고급, 프롬프트, 이력): give
  * them `defaultOpen`.
  */
-export function InspectorSection({ title, children, actions, defaultOpen, collapsible, id, className }: InspectorSectionProps) {
+export function InspectorSection({ title, children, actions, defaultOpen, collapsible, id, className, noShrink }: InspectorSectionProps) {
+  const extra = cn(className, noShrink && "shrink-0")
   const folds = collapsible ?? defaultOpen !== undefined
   if (!folds)
     return (
-      <section id={id} className={cn(inspectorBlockStyles, "space-y-3", className)}>
+      <section id={id} className={cn(inspectorBlockStyles, "space-y-3", extra)}>
         <div className="flex min-h-7 items-center justify-between gap-2">
           <h3 className="min-w-0 truncate text-sm font-semibold text-foreground">{title}</h3>
           {actions && <div className="flex shrink-0 items-center gap-1">{actions}</div>}
@@ -42,7 +45,7 @@ export function InspectorSection({ title, children, actions, defaultOpen, collap
     )
   return (
     <Collapsible defaultOpen={defaultOpen ?? true} asChild>
-      <section id={id} className={cn(inspectorBlockStyles, "space-y-3", className)}>
+      <section id={id} className={cn(inspectorBlockStyles, "space-y-3", extra)}>
         <div className="flex min-h-7 items-center justify-between gap-2">
           <CollapsibleTrigger asChild>
             <Button

@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
 
 /** A small icon button that puts a value on the clipboard (the CLI and chat take ids and keys as typed text). */
-export function CopyButton({ value, label = '복사', className }: { value: string; label?: string; className?: string }) {
+export function CopyButton({ value, label = '복사' }: { value: string; label?: string }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -11,7 +11,7 @@ export function CopyButton({ value, label = '복사', className }: { value: stri
           type="button"
           variant="ghost"
           size="icon-xs"
-          className={className ?? 'text-muted-foreground'}
+          tone="muted"
           aria-label={label}
           onClick={(event) => {
             event.stopPropagation();
