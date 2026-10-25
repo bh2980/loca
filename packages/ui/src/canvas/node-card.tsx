@@ -1,6 +1,7 @@
 import type { ReactNode } from "react"
 import { AlertCircle, AlertTriangle } from "lucide-react"
 import { cn } from "../lib/utils"
+import { STYLE } from "../layout/style"
 import type { CanvasDirection } from "./canvas-direction-control"
 import { FoldChip, type FoldChipProps } from "./fold-chip"
 
@@ -33,7 +34,8 @@ export interface NodeCardProps {
   selected?: boolean
   disabled?: boolean
   direction?: CanvasDirection
-  className?: string
+  /** A fixed width by Tailwind step (the card is as wide as its parent by default). */
+  width?: 48 | 56 | 72
   /** Lines start here: a 시작 mark before the input, which opens the start settings when given a handler. */
   start?: { label?: string; onOpen?: () => void }
   /** This node is folded away when closed (a tag node on a line): a small 접기 above it folds it back. */
@@ -56,7 +58,7 @@ export const NODE_CARD_KIND_APPEARANCE: Record<NodeCardKind, { label: string; ic
 }
 
 /** Compact workflow node shared by graph renderers: capsule for entry/end, chamfered diamond for condition, rounded rectangle for actions. */
-export function NodeCard({ kind, icon, title, summary, inputHandle, outputs = [], errors = 0, warnings = 0, live, parallel, selected, disabled, direction = "vertical", className, start, foldClose }: NodeCardProps) {
+export function NodeCard({ kind, icon, title, summary, inputHandle, outputs = [], errors = 0, warnings = 0, live, parallel, selected, disabled, direction = "vertical", width, start, foldClose }: NodeCardProps) {
   const style = NODE_CARD_KIND_APPEARANCE[kind]
   const hasLive = live && live.queued + live.running + live.failed + (live.passed ?? 0) + (live.retry ? 1 : 0) > 0
   const isHorizontal = direction === "horizontal"
@@ -128,7 +130,7 @@ export function NodeCard({ kind, icon, title, summary, inputHandle, outputs = []
       "relative flex w-full overflow-visible",
       isHorizontal ? "min-h-16" : "",
       disabled && "opacity-55",
-      className,
+      width && STYLE.width[width],
     )}>
       {inputHandle}
       <div className={cn(

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Button, CanvasSurface, Empty, EmptyDescription, EmptyHeader, EmptyTitle, Spinner } from '@loca/ui';
+import { Box, Button, CanvasSurface, Empty, EmptyDescription, EmptyHeader, EmptyTitle, Inline, Spinner } from '@loca/ui';
 import { useSize } from '@/hooks/use-size';
 import { q } from '@/lib/queries';
 import { useQuery } from '@tanstack/react-query';
@@ -92,25 +92,30 @@ export function ReadingRouteGraph({ projectId, stages, routeKey, direction, onDi
   const retry = () => void graph.refetch();
 
   return (
-    <CanvasSurface ref={container} grow={false} className="h-full w-full">
+    <Box asChild height="full" width="full">
+    <CanvasSurface ref={container} grow={false}>
       {graph.isPending ? (
-        <div className="absolute inset-0 flex items-center justify-center gap-2 text-sm text-muted-foreground" role="status">
+        <Inline position="absolute" inset={0} justify="center" gap="condensed" variant="body" tone="muted" role="status">
           <Spinner /> 원문 그래프를 불러오는 중…
-        </div>
+        </Inline>
       ) : graph.isError ? (
-        <Empty className="absolute inset-0">
-          <EmptyHeader>
-            <EmptyTitle>대사 그래프를 불러오지 못했습니다</EmptyTitle>
-            <EmptyDescription>{graph.error.message}</EmptyDescription>
-          </EmptyHeader>
-          <Button variant="outline" onClick={retry}>다시 시도</Button>
-        </Empty>
+        <Box asChild position="absolute" inset={0}>
+          <Empty>
+            <EmptyHeader>
+              <EmptyTitle>대사 그래프를 불러오지 못했습니다</EmptyTitle>
+              <EmptyDescription>{graph.error.message}</EmptyDescription>
+            </EmptyHeader>
+            <Button variant="outline" onClick={retry}>다시 시도</Button>
+          </Empty>
+        </Box>
       ) : !routeNodes.length ? (
-        <Empty className="absolute inset-0">
-          <EmptyHeader><EmptyTitle>표시할 대사 노드가 없습니다</EmptyTitle></EmptyHeader>
-        </Empty>
+        <Box asChild position="absolute" inset={0}>
+          <Empty>
+            <EmptyHeader><EmptyTitle>표시할 대사 노드가 없습니다</EmptyTitle></EmptyHeader>
+          </Empty>
+        </Box>
       ) : !size.width || !size.height ? (
-        <div className="absolute inset-0" role="status" aria-label="그래프 영역 크기를 계산하는 중" />
+        <Box position="absolute" inset={0} role="status" aria-label="그래프 영역 크기를 계산하는 중" />
       ) : (
         <>
           <GraphCanvas
@@ -135,5 +140,6 @@ export function ReadingRouteGraph({ projectId, stages, routeKey, direction, onDi
         </>
       )}
     </CanvasSurface>
+    </Box>
   );
 }

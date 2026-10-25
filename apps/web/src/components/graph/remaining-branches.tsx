@@ -1,4 +1,4 @@
-import { Button, Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Empty, EmptyHeader, EmptyTitle } from '@loca/ui';
+import { Box, Button, Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Empty, EmptyHeader, EmptyTitle, Inline, Text } from '@loca/ui';
 import type { PathNodeText } from '@/components/graph/path-graph';
 
 export interface RemainingBranchItem {
@@ -30,7 +30,8 @@ export function RemainingBranches({ open, onOpenChange, branches, unreachable, t
   };
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl">
+      <Box asChild maxWidthFromSm="xl">
+      <DialogContent>
         <DialogHeader>
           <DialogTitle>남은 갈래 {branches.length.toLocaleString()}</DialogTitle>
           <DialogDescription>
@@ -39,22 +40,22 @@ export function RemainingBranches({ open, onOpenChange, branches, unreachable, t
           </DialogDescription>
         </DialogHeader>
         {branches.length ? (
-          <ul className="-mx-2 max-h-[60vh] overflow-y-auto" data-testid="remaining-branches">
+          <Box as="ul" marginX="-condensed" maxHeight="60vh" overflow="y" data-testid="remaining-branches">
             {branches.map((branch) => (
-              <li key={`${branch.fork}:${branch.arm}`} className="flex items-center gap-3 px-2 py-2">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm">{branch.label ?? line(branch.arm) ?? '이름 없는 갈래'}</p>
-                  <p className="truncate text-xs text-muted-foreground" title={line(branch.firstNode) ?? undefined}>
-                    <span className="tabular-nums">미번역 {branch.untranslated.toLocaleString()} / {branch.lines.toLocaleString()}줄</span>
+              <Inline as="li" key={`${branch.fork}:${branch.arm}`} gap="normal" paddingX="condensed" paddingY="condensed">
+                <Box minWidth={0} grow>
+                  <Text as="p" truncate variant="body">{branch.label ?? line(branch.arm) ?? '이름 없는 갈래'}</Text>
+                  <Text as="p" truncate variant="caption" tone="muted" title={line(branch.firstNode) ?? undefined}>
+                    <Text tabular>미번역 {branch.untranslated.toLocaleString()} / {branch.lines.toLocaleString()}줄</Text>
                     {line(branch.firstNode) && ` · ${line(branch.firstNode)}`}
-                  </p>
-                </div>
+                  </Text>
+                </Box>
                 <Button variant="outline" disabled={busy} onClick={() => onGo(branch)}>
                   이 갈래로
                 </Button>
-              </li>
+              </Inline>
             ))}
-          </ul>
+          </Box>
         ) : (
           <Empty>
             <EmptyHeader>
@@ -64,6 +65,7 @@ export function RemainingBranches({ open, onOpenChange, branches, unreachable, t
           </Empty>
         )}
       </DialogContent>
+      </Box>
     </Dialog>
   );
 }

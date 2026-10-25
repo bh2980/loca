@@ -1,6 +1,6 @@
 /**
  * UI consistency check: screens are built from the shared parts, so these
- * patterns must not appear outside components/ui. Run with `pnpm ui-rules`; part of `pnpm verify`.
+ * patterns must not appear in apps/web. Run with `pnpm ui-rules`; part of `pnpm verify`.
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
@@ -18,6 +18,11 @@ const LEGACY_RULES: { name: string; pattern: RegExp }[] = [
   { name: 'styled heading (use SectionHeading / GroupHeading, or FieldRow labels)', pattern: /<(h[1-6]|legend)\b[^>]*className=/ },
 
 ];
+/**
+ * Screens say layout with Box/Stack/Inline/Grid/Text/Heading/Icon (props by token name) or a @loca/ui
+ * part, and never write a class: anything the primitives cannot say becomes a part in packages/ui.
+ */
+const CLASS_RULE = { name: 'className in a screen (use Box/Stack/Inline/Grid/Text or a @loca/ui part)', pattern: /\bclassName=/ };
 const TOKEN_RULES: { name: string; pattern: RegExp }[] = [
   { name: 'legacy accent token (use primary)', pattern: /accent-indigo/ },
   { name: 'legacy surface token (use a semantic surface)', pattern: /surface-(?:1|2|elevated)/ },
@@ -39,7 +44,7 @@ const files = (dir: string): string[] =>
 let failures = 0;
 for (const file of files(root))
   readFileSync(file, 'utf8').split('\n').forEach((line, i) => {
-    for (const rule of [...LEGACY_RULES, ...TOKEN_RULES]) if (rule.pattern.test(line)) {
+    for (const rule of [...LEGACY_RULES, ...TOKEN_RULES, CLASS_RULE]) if (rule.pattern.test(line)) {
       failures++; console.log(`apps/web/src/${path.relative(root, file)}:${i + 1}  ${rule.name}`);
     }
   });

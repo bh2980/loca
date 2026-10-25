@@ -3,7 +3,7 @@ import { useParams } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { AGENT_ACTIONS, AGENT_RESOURCES, agentSettingsSchema, effectiveAgentPermissions, PERMISSION_MODE_INFO, type AgentAction, type AgentPermissions, type AgentResource, type AgentSettings, type PermissionMode } from '@tw/shared';
 import { PermissionModePicker } from '@/components/chat/permission-mode';
-import { Button, PermissionMatrix, SettingsSection } from '@loca/ui';
+import { Box, Button, ClearableFieldRow, PermissionMatrix, SettingsSection, Text } from '@loca/ui';
 import { ModelPicker } from '@/components/model-picker';
 import { client, unwrap } from '@/lib/api';
 import { optimistic } from '@/lib/optimistic';
@@ -54,30 +54,30 @@ export function AgentTab({ projectId: propProjectId }: { projectId?: string } = 
 
   return (
     <div>
-      <p role="status" aria-live="polite" className="sr-only">{save.isPending ? '채팅 설정 저장 중' : save.isSuccess ? '채팅 설정 저장됨' : ''}</p>
-      <div className="space-y-8">
+      <Text as="p" role="status" aria-live="polite" srOnly>{save.isPending ? '채팅 설정 저장 중' : save.isSuccess ? '채팅 설정 저장됨' : ''}</Text>
+      <Box spaceY="wide">
         <SettingsSection title="새 대화 모델" description="새 대화가 처음 쓰는 모델. 비워 두면 마지막 대화의 모델을 씁니다.">
-          <div className="flex max-w-md items-center gap-2">
-            <div className="min-w-0 flex-1">
+          <ClearableFieldRow>
+            <Box minWidth={0} grow>
               <ModelPicker
                 need={['chat']}
                 value={settings.chatModel ?? { connectionId: '', model: '' }}
                 onChange={(next) => next.connectionId && next.model && saveSettings({ ...settings, chatModel: next })}
               />
-            </div>
+            </Box>
             {settings.chatModel && (
               <Button variant="ghost" disabled={!loaded || save.isPending} onClick={() => saveSettings({ ...settings, chatModel: null })}>
                 지우기
               </Button>
             )}
-          </div>
+          </ClearableFieldRow>
         </SettingsSection>
 
         <SettingsSection title="권한 모드" description="새 대화가 시작하는 모드. 대화마다 바꿀 수 있습니다.">
-          <div className="space-y-1.5">
-            <PermissionModePicker className="w-48" value={defaultMode} disabled={!loaded || save.isPending} onChange={(mode) => saveSettings({ ...settings, defaultPermissionMode: mode })} />
-            <p className="text-xs text-muted-foreground">{PERMISSION_MODE_INFO[defaultMode].description}</p>
-          </div>
+          <Box spaceY="snug">
+            <PermissionModePicker width="medium" value={defaultMode} disabled={!loaded || save.isPending} onChange={(mode) => saveSettings({ ...settings, defaultPermissionMode: mode })} />
+            <Text as="p" variant="caption" tone="muted">{PERMISSION_MODE_INFO[defaultMode].description}</Text>
+          </Box>
         </SettingsSection>
 
         <SavedPromptsSection projectId={projectId} />
@@ -91,7 +91,7 @@ export function AgentTab({ projectId: propProjectId }: { projectId?: string } = 
             onChange={setPermission}
           />
         </SettingsSection>
-      </div>
+      </Box>
     </div>
   );
 }

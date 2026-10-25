@@ -8,7 +8,7 @@ import { keyLabel } from '@/lib/keys';
 import { q } from '@/lib/queries';
 import type { ViewItem } from '@/lib/view-context';
 import { useDebounced } from './conversation-menu';
-import type { MenuGroup, MenuRow } from './composer-menu';
+import type { MenuGroup, MenuRow } from '@loca/ui';
 
 /** A /workflow that is waiting for its target: what has been picked so far. */
 export interface RunMode {

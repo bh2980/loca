@@ -21,19 +21,3 @@ export function SectionTitle({ className, children, ...props }: React.HTMLAttrib
     </h2>
   );
 }
-
-export function BodyText({ className, children, ...props }: React.HTMLAttributes<HTMLParagraphElement>) {
-  return (
-    <p className={cn('text-sm text-foreground leading-normal', className)} {...props}>
-      {children}
-    </p>
-  );
-}
-
-export function MetaText({ className, children, ...props }: React.HTMLAttributes<HTMLSpanElement>) {
-  return (
-    <span className={cn('text-xs text-muted-foreground font-normal', className)} {...props}>
-      {children}
-    </span>
-  );
-}

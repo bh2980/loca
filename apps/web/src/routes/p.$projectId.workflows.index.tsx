@@ -5,7 +5,7 @@ import { Copy, Play, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { WORKFLOW_TEMPLATES } from '@tw/shared';
 import { AiButton } from '@/components/ai-button';
-import { EmptyState, DataTable, type ColumnDef, JobStatusBadge, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Badge, Button, Skeleton, ContextMenuItem, ContextMenuSeparator, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@loca/ui';
+import { EmptyState, DataTable, type ColumnDef, JobStatusBadge, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Badge, Box, Button, Inline, RowRevealButton, Skeleton, Stack, Text, ContextMenuItem, ContextMenuSeparator, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@loca/ui';
 import { HeaderActions, Page } from '@/components/page';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { client, unwrap } from '@/lib/api';
@@ -73,15 +73,17 @@ function Workflows() {
       header: '이름',
       meta: { hideable: false },
       cell: ({ row }) => (
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <Link to="/p/$projectId/workflows/$workflowId" params={{ projectId, workflowId: row.original.id }} className="truncate font-medium hover:underline" onClick={(event) => event.stopPropagation()}>
-              {row.original.name}
-            </Link>
+        <Box minWidth={0}>
+          <Inline gap="condensed">
+            <Text asChild truncate weight="medium" hoverUnderline>
+              <Link to="/p/$projectId/workflows/$workflowId" params={{ projectId, workflowId: row.original.id }} onClick={(event) => event.stopPropagation()}>
+                {row.original.name}
+              </Link>
+            </Text>
             {row.original.errorCount > 0 && <Badge variant="destructive">오류 {row.original.errorCount}</Badge>}
-          </div>
-          {row.original.description && <p className="truncate text-xs text-muted-foreground">{row.original.description}</p>}
-        </div>
+          </Inline>
+          {row.original.description && <Text as="p" truncate variant="caption" tone="muted">{row.original.description}</Text>}
+        </Box>
       ),
     },
     { id: 'nodes', header: '노드', meta: { width: 64, align: 'end' }, cell: ({ row }) => row.original.nodeCount },
@@ -97,19 +99,21 @@ function Workflows() {
       meta: { width: 220 },
       cell: ({ row }) => {
         const last = runs.data?.find((run) => run.workflowId === row.original.id);
-        if (!runs.data) return <Skeleton className="h-4 w-24" />;
-        if (!last) return <span className="text-muted-foreground">—</span>;
+        if (!runs.data) return <Box asChild height={4} width={24}><Skeleton /></Box>;
+        if (!last) return <Text tone="muted">—</Text>;
         return (
-          <Link to="/p/$projectId/runs/$runId" params={{ projectId, runId: last.id }} className="flex items-center gap-2 hover:underline" onClick={(event) => event.stopPropagation()}>
-            <JobStatusBadge status={last.status} />
-            <span className="truncate text-xs text-muted-foreground">{dateTime(last.createdAt)}</span>
-          </Link>
+          <Inline asChild gap="condensed" hoverUnderline>
+            <Link to="/p/$projectId/runs/$runId" params={{ projectId, runId: last.id }} onClick={(event) => event.stopPropagation()}>
+              <JobStatusBadge status={last.status} />
+              <Text truncate variant="caption" tone="muted">{dateTime(last.createdAt)}</Text>
+            </Link>
+          </Inline>
         );
       },
     },
     {
       id: 'run',
-      header: () => <span className="sr-only">실행</span>,
+      header: () => <Text srOnly>실행</Text>,
       meta: { width: 88, className: 'py-1.5', label: '실행', hideable: false },
       cell: ({ row }) => (
         <div onClick={(event) => event.stopPropagation()}>
@@ -128,25 +132,25 @@ function Workflows() {
     },
     {
       id: 'duplicate',
-      header: () => <span className="sr-only">복제</span>,
+      header: () => <Text srOnly>복제</Text>,
       meta: { width: 48, className: 'py-1.5', label: '복제', hideable: false },
       cell: ({ row }) => (
-        <Button variant="ghost" size="icon" className="text-muted-foreground opacity-0 group-hover/row:opacity-100 hover:text-foreground focus-visible:opacity-100" aria-label={`${row.original.name} 복제`} disabled={duplicate.isPending} onClick={(event) => { event.stopPropagation(); duplicate.mutate(row.original); }}>
+        <RowRevealButton aria-label={`${row.original.name} 복제`} disabled={duplicate.isPending} onClick={(event) => { event.stopPropagation(); duplicate.mutate(row.original); }}>
           <Copy />
-        </Button>
+        </RowRevealButton>
       ),
     },
     {
       id: 'delete',
-      header: () => <span className="sr-only">삭제</span>,
+      header: () => <Text srOnly>삭제</Text>,
       meta: { width: 48, className: 'py-1.5', label: '삭제', hideable: false },
       cell: ({ row }) => (
         <div onClick={(event) => event.stopPropagation()}>
           <AlertDialog>
             <AlertDialogTrigger asChild>
-              <Button variant="ghost" size="icon" className="text-muted-foreground opacity-0 group-hover/row:opacity-100 hover:text-destructive focus-visible:opacity-100" aria-label={`${row.original.name} 삭제`}>
+              <RowRevealButton hover="destructive" aria-label={`${row.original.name} 삭제`}>
                 <Trash2 />
-              </Button>
+              </RowRevealButton>
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>
@@ -166,7 +170,7 @@ function Workflows() {
 
   return (
     <Page title="워크플로" flush>
-      <div className="flex h-full min-h-0 flex-col">
+      <Stack height="full" minHeight={0}>
         <HeaderActions>
           <AiButton send={false} prompt="이런 워크플로를 만들어줘: ">
             AI로 만들기
@@ -177,18 +181,22 @@ function Workflows() {
                 <Plus /> 새 워크플로
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-80">
+            <Box asChild width={80}>
+            <DropdownMenuContent align="end">
               {/* One list: the blank workflow is a choice like the templates, so it reads the same. */}
               {[{ key: undefined, name: '빈 워크플로', description: '노드 없이 처음부터 만듭니다.' }, ...WORKFLOW_TEMPLATES].map((template, index) => (
                 <Fragment key={template.key ?? 'blank'}>
                   {index === 1 && <DropdownMenuSeparator />}
-                  <DropdownMenuItem className="flex-col items-start gap-0.5" onClick={() => create.mutate(template.key)}>
-                    <span className="font-medium">{template.name}</span>
-                    <span className="text-xs text-muted-foreground">{template.description}</span>
-                  </DropdownMenuItem>
+                  <Stack asChild gap="hair" align="start">
+                    <DropdownMenuItem onClick={() => create.mutate(template.key)}>
+                      <Text weight="medium">{template.name}</Text>
+                      <Text variant="caption" tone="muted">{template.description}</Text>
+                    </DropdownMenuItem>
+                  </Stack>
                 </Fragment>
               ))}
             </DropdownMenuContent>
+            </Box>
           </DropdownMenu>
         </HeaderActions>
         <DataTable id="workflows"
@@ -213,7 +221,7 @@ function Workflows() {
             </>
           )}
         />
-      </div>
+      </Stack>
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>

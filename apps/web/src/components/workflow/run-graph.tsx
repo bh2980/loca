@@ -8,7 +8,7 @@ import { Background, Panel, ReactFlow, ReactFlowProvider, useNodesInitialized, u
 import '@xyflow/react/dist/style.css';
 import { useQuery } from '@tanstack/react-query';
 import type { WorkflowDefinition } from '@tw/shared';
-import { Button, CanvasToolbar, type CanvasDirection } from '@loca/ui';
+import { Box, Button, CanvasToolbar, Inline, Text, type CanvasDirection } from '@loca/ui';
 import { X } from 'lucide-react';
 import { ITEM_STATE } from '@/lib/labels';
 import { callMembers, callOf, collapseCalls, liveCounts, topCallIds } from '@/components/workflow/run-calls';
@@ -155,25 +155,25 @@ function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; ru
     >
       <Background gap={20} size={1} />
       {openCall && (
-        <Panel position="top-left" className="max-h-[70%] w-80 overflow-auto rounded-md border bg-card p-3 text-sm shadow-sm">
-          <div className="mb-2 flex items-center gap-2">
-            <span className="min-w-0 flex-1 truncate font-medium" title={run.definition.calls?.[openCall]?.name}>{run.definition.calls?.[openCall]?.name} · 안의 노드</span>
-            <Button variant="ghost" size="sm" aria-label="닫기" onClick={() => setOpenCall(undefined)}><X /></Button>
-          </div>
-          <ul className="space-y-1">
+        <Box asChild maxHeight="70%" width={80} overflow="auto" radius="md" border="all" background="card" padding="normal" variant="body" shadow="sm"><Panel position="top-left">
+          <Inline marginBottom="condensed" gap="condensed">
+            <Text minWidth={0} grow truncate weight="medium" title={run.definition.calls?.[openCall]?.name}>{run.definition.calls?.[openCall]?.name} · 안의 노드</Text>
+            <Button variant="ghost" aria-label="닫기" onClick={() => setOpenCall(undefined)}><X /></Button>
+          </Inline>
+          <Box as="ul" spaceY="tight">
             {callMembers(run.definition, openCall, run.nodes).map((member) => (
-              <li key={member.node.id} className={member.depth ? 'pl-4' : undefined}>
-                <Button variant="ghost" size="sm" className="h-auto w-full justify-between gap-2 py-1 font-normal" title="이 노드의 대사 보기" onClick={() => onOpenNode(member.node.id)}>
-                  <span className="min-w-0 truncate text-left">{member.name}</span>
-                  <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+              <Box as="li" key={member.node.id} paddingLeft={member.depth ? 'comfortable' : undefined}>
+                <Button variant="ghost" height="auto" width="full" justifyContent="between" gap="condensed" paddingY="tight" weight="normal" title="이 노드의 대사 보기" onClick={() => onOpenNode(member.node.id)}>
+                  <Text minWidth={0} truncate align="start">{member.name}</Text>
+                  <Text shrink={false} variant="caption" tone="muted" tabular>
                     {(Object.keys(ITEM_STATE) as (keyof typeof ITEM_STATE)[]).filter((state) => member.counts[state]).map((state) => `${ITEM_STATE[state]} ${member.counts[state]!.toLocaleString()}`).join(' · ') || '대사 없음'}
-                  </span>
+                  </Text>
                 </Button>
-              </li>
+              </Box>
             ))}
-          </ul>
-          <Button variant="outline" size="sm" className="mt-2 w-full" onClick={() => onOpenNode(openCall)}>이 호출의 대사 전체 보기</Button>
-        </Panel>
+          </Box>
+          <Button variant="outline" marginTop="condensed" width="full" onClick={() => onOpenNode(openCall)}>이 호출의 대사 전체 보기</Button>
+        </Panel></Box>
       )}
       <Panel position="bottom-right">
         <CanvasToolbar zoomPercent={zoom * 100} onZoomIn={() => void flow.zoomIn()} onZoomOut={() => void flow.zoomOut()} onFit={() => void flow.fitView({ ...FIT, duration: 200 })} onResetZoom={() => void flow.zoomTo(1, { duration: 180 })} foldsOpen={folds.length ? allFoldsOpen(folds, foldState) : undefined} onToggleFolds={() => setFoldState(setAllFolds(folds, !allFoldsOpen(folds, foldState)))} />

@@ -5,12 +5,10 @@ import ELK from 'elkjs/lib/elk-api.js';
 import ElkWorker from 'elkjs/lib/elk-worker.min.js?worker';
 import '@xyflow/react/dist/style.css';
 import { useSize } from '@/hooks/use-size';
-import { Button, Badge, Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
-import { SeamStateChip } from '@/components/graph/seam-check-pane';
+import { ArmChip, Badge, Box, ForkNodeFrame, Inline, PathEdgeLabel, PathNodeButton, PathNodeCard, SeamStateChip, Text } from '@loca/ui';
 import { q } from '@/lib/queries';
 import { useQuery } from '@tanstack/react-query';
 import { foldTranslated, splitBackEdges, windowOf, placeSeams, type Arm, type Hub, type Overview } from '@/components/graph/path-window';
-import { cn } from '@/lib/utils';
 import { useIsDark } from '@/lib/theme';
 
 /** What a slice block needs from the graph's node list (the first line of a node). */
@@ -84,30 +82,16 @@ const elk = new ELK({ workerFactory: () => new ElkWorker() });
 /** The first lines after a seam, with their translation: these stay open where the translated stretch behind them folds. */
 function SeamLines({ seam }: { seam: NonNullable<PathNodeData['seam']> }) {
   const detail = useQuery(q.seamDetail(seam.projectId, seam.nodeId)).data;
-  if (!detail) return <p className="text-xs text-muted-foreground">불러오는 중…</p>;
+  if (!detail) return <Text as="p" variant="caption" tone="muted">불러오는 중…</Text>;
   return (
-    <ul className="space-y-0.5" data-testid="seam-open-lines">
+    <Box as="ul" spaceY="hair" data-testid="seam-open-lines">
       {detail.after.map((line) => (
-        <li key={line.unitId} className="min-w-0">
-          <p className="truncate text-sm leading-snug">{line.source}</p>
-          <p className="truncate text-xs text-muted-foreground">{line.translation || '번역 없음'}</p>
-        </li>
+        <Box as="li" key={line.unitId} minWidth={0}>
+          <Text as="p" truncate variant="body" leading="snug">{line.source}</Text>
+          <Text as="p" truncate variant="caption" tone="muted">{line.translation || '번역 없음'}</Text>
+        </Box>
       ))}
-    </ul>
-  );
-}
-
-/** 'i/n': this starts one of several choices that open at the same place. It is not a story connection, and says so. */
-function ArmChip({ arm, className }: { arm: Arm; className?: string }) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Badge variant="secondary" className={cn('shrink-0 tabular-nums', className)} data-testid="arm-chip">
-          {arm.index}/{arm.count}
-        </Badge>
-      </TooltipTrigger>
-      <TooltipContent>{'함께 열리는 선택지 · 이야기 연결 아님'}</TooltipContent>
-    </Tooltip>
+    </Box>
   );
 }
 
@@ -115,20 +99,22 @@ function ArmChip({ arm, className }: { arm: Arm; className?: string }) {
 function HubChips({ arms, loops }: { arms: number; loops: number }) {
   if (!arms && !loops) return null;
   return (
-    <Badge variant="secondary" className="min-w-0 truncate tabular-nums">
-      {arms > 0 ? `동시에 열림 ${arms.toLocaleString()}` : '되돌아감'}
-      {loops > 0 ? ` · ↺${loops.toLocaleString()}` : ''}
-    </Badge>
+    <Box asChild minWidth={0} truncate tabular>
+      <Badge variant="secondary">
+        {arms > 0 ? `동시에 열림 ${arms.toLocaleString()}` : '되돌아감'}
+        {loops > 0 ? ` · ↺${loops.toLocaleString()}` : ''}
+      </Badge>
+    </Box>
   );
 }
 
 /** The seam's marker on its own node: used when the edge into it is not drawn. */
 function SeamMark({ state }: { state: 'checked' | 'stale' | undefined }) {
   return (
-    <span className="flex shrink-0 items-center gap-1" data-testid="seam-mark">
+    <Inline as="span" gap="tight" shrink={false} data-testid="seam-mark">
       이음새
-      <SeamStateChip state={state} className="h-4 px-1.5 text-xs" />
-    </span>
+      <SeamStateChip state={state} compact />
+    </Inline>
   );
 }
 
@@ -136,63 +122,63 @@ function PathNodeView({ data, selected }: NodeProps<PathNode>) {
   const size = boxOfData(data.shape, data);
   const handles = (
     <>
-      <Handle type="target" position={Position.Top} className="!pointer-events-none !opacity-0" />
-      <Handle type="source" position={Position.Bottom} className="!pointer-events-none !opacity-0" />
+      <Box asChild forceHidden><Handle type="target" position={Position.Top} /></Box>
+      <Box asChild forceHidden><Handle type="source" position={Position.Bottom} /></Box>
     </>
   );
   if (data.shape === 'more')
     return (
-      <div style={size} className="flex items-center">
-        <Button variant="outline" className="nodrag h-full w-full rounded-full border-dashed bg-background/60 font-normal text-muted-foreground" aria-label={data.hint} title={data.hint} onClick={data.onMove}>
+      <Inline style={size}>
+        <PathNodeButton round aria-label={data.hint} title={data.hint} onClick={data.onMove}>
           …
-        </Button>
+        </PathNodeButton>
         {handles}
-      </div>
+      </Inline>
     );
   if (data.shape === 'folded')
     return (
-      <div style={size} className="flex items-center">
-        <Button variant="outline" className="nodrag h-full w-full border-dashed bg-muted font-normal text-muted-foreground" onClick={data.onExpand}>
+      <Inline style={size}>
+        <PathNodeButton onClick={data.onExpand}>
           번역함 · {data.lines.toLocaleString()}줄
-          {data.arm && <ArmChip arm={data.arm} className="ml-2" />}
-        </Button>
+          {data.arm && <ArmChip arm={data.arm} spaced />}
+        </PathNodeButton>
         {handles}
-      </div>
+      </Inline>
     );
   if (data.shape === 'fork')
     return (
-      <div style={size} className={cn('flex flex-col items-center gap-1', selected && 'ring-2 ring-primary/30')} data-here={data.here || undefined}>
-        <div className="flex h-7 w-full items-center justify-center gap-1 rounded-full border bg-muted px-2 text-xs whitespace-nowrap text-muted-foreground">
+      <ForkNodeFrame style={size} selected={selected} data-here={data.here || undefined}>
+        <Inline height={7} width="full" justify="center" gap="tight" radius="full" border="all" background="muted" paddingX="condensed" variant="caption" nowrap tone="muted">
           {data.pill}
           {data.seamMark && <SeamMark state={data.seamMark.state} />}
-          {data.arm && <ArmChip arm={data.arm} className="h-auto border-0 bg-transparent px-0 font-normal text-muted-foreground" />}
-        </div>
+          {data.arm && <ArmChip arm={data.arm} plain />}
+        </Inline>
         {handles}
-      </div>
+      </ForkNodeFrame>
     );
   return (
-    <div style={size} className={cn('relative flex flex-col justify-center gap-0.5 overflow-hidden rounded-lg border bg-background px-3 py-1.5 text-sm shadow-xs', data.here && 'shadow-[inset_3px_0_0_var(--primary)]', selected && 'border-primary ring-2 ring-primary/30')} data-here={data.here || undefined}>
-      <div className="flex items-center gap-1 text-xs text-muted-foreground">
-        <span className={cn('max-w-48 truncate', data.shape === 'section' && 'shrink-0')}>
+    <PathNodeCard style={size} here={data.here} selected={selected} data-here={data.here || undefined}>
+      <Inline gap="tight" variant="caption" tone="muted">
+        <Text maxWidth={48} truncate shrink={data.shape === 'section' ? false : undefined}>
           {data.shape === 'section' ? (data.translated && data.translated < data.lines ? '구간' : `구간 · ${data.lines.toLocaleString()}줄`) : data.shape === 'choice' ? '선택지' : (data.speaker ?? '지문·화면 문구')}
-        </span>
-        {data.shape !== 'section' && data.lines > 1 && <Badge variant="secondary" className="shrink-0">{data.lines.toLocaleString()}줄</Badge>}
+        </Text>
+        {data.shape !== 'section' && data.lines > 1 && <Box asChild shrink={false}><Badge variant="secondary">{data.lines.toLocaleString()}줄</Badge></Box>}
         {!!data.translated && data.translated < data.lines && (
-          <Badge variant="outline" className="shrink-0 tabular-nums">{data.translated.toLocaleString()}/{data.lines.toLocaleString()}</Badge>
+          <Box asChild shrink={false} tabular><Badge variant="outline">{data.translated.toLocaleString()}/{data.lines.toLocaleString()}</Badge></Box>
         )}
         {!!data.lanes && <HubChips arms={data.hub ? data.hub.arms : data.lanes} loops={data.hub?.loops ?? 0} />}
         {data.seamMark && <SeamMark state={data.seamMark.state} />}
         {data.arm && <ArmChip arm={data.arm} />}
-      </div>
+      </Inline>
       {data.seam && data.shape !== 'section' ? (
         <SeamLines seam={data.seam} />
       ) : (
-      <p className="line-clamp-2 text-sm leading-snug">
+      <Text as="p" lines={2} variant="body" leading="snug">
         {data.shape === 'choice' ? `▶ ${data.text ?? ''}` : data.shape === 'section' ? (data.text ? `${data.speaker ? `${data.speaker}: ` : ''}${data.text}` : '대사 없는 이어짐') : (data.text ?? '')}
-      </p>
+      </Text>
       )}
       {handles}
-    </div>
+    </PathNodeCard>
   );
 }
 
@@ -226,21 +212,20 @@ function RoutedEdge({ id, sourceX, sourceY, targetX, targetY, markerEnd, style, 
       <BaseEdge id={id} path={path} markerEnd={markerEnd} style={style} />
       {data?.label && route?.label && (
         <EdgeLabelRenderer>
-          <div
-            className="nodrag nopan pointer-events-none absolute flex items-center gap-1 rounded-sm bg-background px-1 text-xs text-muted-foreground"
+          <PathEdgeLabel
             style={{ transform: `translate(${route.label.x}px, ${route.label.y}px)`, width: route.label.width }}
             title={data.label}
           >
             {data.seam ? (
               <>
-                {data.seam.base && <span className="min-w-0 truncate">{data.seam.base}</span>}
-                <span className="shrink-0">이음새</span>
-                <SeamStateChip state={data.seam.state} className="h-4 px-1.5 text-xs" />
+                {data.seam.base && <Text minWidth={0} truncate>{data.seam.base}</Text>}
+                <Text shrink={false}>이음새</Text>
+                <SeamStateChip state={data.seam.state} compact />
               </>
             ) : (
-              <span className="truncate">{data.label}</span>
+              <Text truncate>{data.label}</Text>
             )}
-          </div>
+          </PathEdgeLabel>
         </EdgeLabelRenderer>
       )}
     </>
@@ -532,9 +517,9 @@ export function PathGraph({ projectId, slice, texts, checks, at, all, selectedId
 
   if (failed || !positions || positions.key !== key)
     return (
-      <div ref={frame} className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
-        {failed ? <span className="text-destructive">배치에 실패했습니다: {failed}</span> : '배치 계산 중…'}
-      </div>
+      <Inline ref={frame} height="full" width="full" justify="center" variant="body" tone="muted">
+        {failed ? <Text tone="danger">배치에 실패했습니다: {failed}</Text> : '배치 계산 중…'}
+      </Inline>
     );
   const saved = readViewport(projectId, key);
   const placed = items.filter((item) => positions.at[item.id]);
@@ -549,7 +534,7 @@ export function PathGraph({ projectId, slice, texts, checks, at, all, selectedId
   const fitted = size.width && size.height ? Math.min(size.width / right, size.height / bottom) : 1;
   const opening = all && fitted < MIN_FIT_ZOOM ? placed.filter((item) => positions.at[item.id].y < size.height / OPEN_ZOOM).map((item) => ({ id: item.id })) : undefined;
   return (
-    <div ref={frame} className="h-full w-full" data-path-nodes={placed.length}>
+    <Box ref={frame} height="full" width="full" data-path-nodes={placed.length}>
     <ReactFlow colorMode={dark ? 'dark' : 'light'}
       key={key}
       nodes={nodes}
@@ -579,6 +564,6 @@ export function PathGraph({ projectId, slice, texts, checks, at, all, selectedId
       <Background />
       <Controls showInteractive={false} />
     </ReactFlow>
-    </div>
+    </Box>
   );
 }

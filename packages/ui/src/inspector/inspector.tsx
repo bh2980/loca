@@ -11,6 +11,8 @@ export interface InspectorProps {
   loading?: boolean
   className?: string
   bodyClassName?: string
+  /** The body without padding or spacing: its children are full-width rows. */
+  flush?: boolean
   /** The footer's left side: the pane's destructive action (삭제, 버리기), apart from the primary action on the right. */
   footerStart?: ReactNode
 }
@@ -33,6 +35,7 @@ export function Inspector({
   loading = false,
   className,
   bodyClassName,
+  flush,
   footerStart,
 }: InspectorProps) {
   return (
@@ -47,7 +50,7 @@ export function Inspector({
             <Skeleton className="h-3.5 w-2/3" />
           </div>
         ) : (
-          <div className={cn("space-y-0", bodyClassName)}>{children}</div>
+          <div className={cn("space-y-0", flush && "p-0", bodyClassName)}>{children}</div>
         )}
       </ScrollArea>
       {((footer != null && footer !== false) || footerStart) && <InspectorFooter start={footerStart}>{footer}</InspectorFooter>}

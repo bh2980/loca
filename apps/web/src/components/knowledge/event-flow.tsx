@@ -2,8 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Background, Handle, MarkerType, useConnection, NodeToolbar, Panel, Position, ReactFlow, SelectionMode, type Edge, type Node, type NodeChange, type NodeProps, type ReactFlowInstance } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { Copy, Trash2 } from 'lucide-react';
-import { CanvasToolbar, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger, EmptyState, SelectionToolbox } from '@loca/ui';
-import { cn } from '@/lib/utils';
+import { Box, CanvasToolbar, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger, EmptyState, EventFlowCard, Inline, SelectionToolbox, Stack, Text } from '@loca/ui';
 import { personStyle, usePersonColors } from '@/lib/person-colors';
 import { useIsDark } from '@/lib/theme';
 import { GRAPH_KEYS, useGraphShortcuts } from '@/lib/graph-shortcuts';
@@ -32,7 +31,7 @@ type SectionNode = Node<{ title: string }, 'section'>;
 let eventClipboard: string[] = [];
 
 /** A connecting dot as in the other graphs (with a wider grab area); none where the flow only shows. */
-const dot = (connectable: boolean) => (connectable ? "!size-3 !border-2 !border-card !bg-muted-foreground after:absolute after:-inset-3 after:content-[''] hover:!bg-primary group-hover/event:!bg-primary" : '!opacity-0')
+const dot = (connectable: boolean): 'event' | 'eventIdle' => (connectable ? 'event' : 'eventIdle')
 
 function EventCard({ data, selected, isConnectable }: NodeProps<EventNode>) {
   const { event } = data;
@@ -41,16 +40,16 @@ function EventCard({ data, selected, isConnectable }: NodeProps<EventNode>) {
   const target = data.direction === 'vertical' ? Position.Top : Position.Left;
   const source = data.direction === 'vertical' ? Position.Bottom : Position.Right;
   return (
-    <div className={cn('group/event flex flex-col rounded-md border bg-background px-3 py-2 text-left shadow-xs', (selected || data.target) && 'border-primary ring-2 ring-primary/30', drawing && 'hover:border-primary hover:ring-2 hover:ring-primary/30', event.status === 'candidate' && 'border-dashed')} style={CARD}>
+    <EventFlowCard framed={selected || data.target} drawing={drawing} candidate={event.status === 'candidate'} style={CARD}>
       {/* Two dots, since a line has a before and an after: the top (left) one takes a line from the event
           before, the bottom (right) one draws to the event after. Dots only start lines: a drag ends on
           whichever card it is dropped on (EventFlow's onConnectEnd), never snapping to that card's dots. */}
-      <Handle type="target" position={target} isConnectable={isConnectable} isConnectableEnd={false} title="끌어서 앞 사건과 잇기" className={dot(isConnectable)} />
-      <span className="flex items-baseline gap-2">
-        <span className="truncate text-sm font-medium">{event.title}</span>
-        <span className="ml-auto shrink-0">{data.badge}</span>
-      </span>
-      <span className="truncate text-xs text-muted-foreground">
+      <Box asChild flowHandle={dot(isConnectable)}><Handle type="target" position={target} isConnectable={isConnectable} isConnectableEnd={false} title="끌어서 앞 사건과 잇기" /></Box>
+      <Stack as="span" direction="row" align="baseline" gap="condensed">
+        <Text variant="label" truncate>{event.title}</Text>
+        <Text marginLeft="auto" shrink={false}>{data.badge}</Text>
+      </Stack>
+      <Text variant="caption" tone="muted" truncate>
         {event.at?.scene}
         {event.at?.scene && event.participants.length > 0 && ' — '}
         {event.participants.map((name, index) => (
@@ -59,16 +58,16 @@ function EventCard({ data, selected, isConnectable }: NodeProps<EventNode>) {
             <span style={personStyle(data.colorOf(name))}>{name}</span>
           </span>
         ))}
-      </span>
-      {event.summary && <span className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{event.summary}</span>}
-      {data.elsewhere && <span className="mt-auto truncate text-xs text-muted-foreground">→ {data.elsewhere}</span>}
-      <Handle type="source" position={source} isConnectable={isConnectable} isConnectableEnd={false} title="끌어서 다음 사건과 잇기" className={dot(isConnectable)} />
-    </div>
+      </Text>
+      {event.summary && <Text variant="caption" tone="muted" lines={2} marginTop="hair">{event.summary}</Text>}
+      {data.elsewhere && <Text variant="caption" tone="muted" truncate marginTop="auto">→ {data.elsewhere}</Text>}
+      <Box asChild flowHandle={dot(isConnectable)}><Handle type="source" position={source} isConnectable={isConnectable} isConnectableEnd={false} title="끌어서 다음 사건과 잇기" /></Box>
+    </EventFlowCard>
   );
 }
 
 function SectionTitle({ data }: NodeProps<SectionNode>) {
-  return <div className="text-base font-semibold whitespace-nowrap">{data.title}</div>;
+  return <Text as="div" variant="reading" weight="semibold" nowrap>{data.title}</Text>;
 }
 
 const nodeTypes = { event: EventCard, section: SectionTitle };
@@ -269,13 +268,13 @@ export function EventFlow({ projectId, events, selected, onOpen, badge, filtered
   }
 
   if (!events.length) return <EmptyState noun="사건" filtered={filtered} />;
-  if (!layout) return <div className="flex h-full items-center justify-center text-sm text-muted-foreground">배치 계산 중…</div>;
+  if (!layout) return <Inline height="full" justify="center" variant="body" tone="muted">배치 계산 중…</Inline>;
   const one = selection.length === 1 && !picked.size ? selection[0] : undefined;
   const menuLine = menu?.kind === 'line' ? menu.line : undefined;
   return (
     <ContextMenu onOpenChange={(open) => !open && setMenu(null)}>
     <ContextMenuTrigger asChild>
-    <div ref={frame} className="h-full">
+    <Box ref={frame} height="full">
     <ReactFlow colorMode={dark ? 'dark' : 'light'}
       key={viewKey.current}
       nodes={flowNodes}
@@ -385,7 +384,7 @@ export function EventFlow({ projectId, events, selected, onOpen, badge, filtered
         </NodeToolbar>
       )}
     </ReactFlow>
-    </div>
+    </Box>
     </ContextMenuTrigger>
     {menu && (
       <ContextMenuContent>

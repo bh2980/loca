@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { Sparkles, Trash2 } from 'lucide-react';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
-  Button, Inspector, InspectorActionRow, InspectorField, InspectorFields, InspectorHeader, InspectorList, InspectorSection, Input, PropertyGrid, PropertyRow, Skeleton,
+  Box, Button, Grid, Inspector, InspectorActionRow, InspectorField, InspectorFields, InspectorHeader, InspectorList, InspectorSection, Input, PropertyGrid, PropertyRow, Skeleton, Text,
 } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
@@ -84,7 +84,7 @@ export function ViewInspector({ projectId, viewId, shownNodes, derivedEdges, onC
   const data = view.data;
   const ai = data.origin === 'ai';
   return (
-    <Inspector footerStart={<><Button variant="ghost" className="text-destructive" onClick={() => setConfirming(true)}>
+    <Inspector footerStart={<><Button variant="ghost" tone="danger" onClick={() => setConfirming(true)}>
           <Trash2 /> 보기 삭제
         </Button></>}
       header={<InspectorHeader kind={ai ? 'AI 보기' : '보기'} name={data.label} onClose={onClose} />}
@@ -98,7 +98,7 @@ export function ViewInspector({ projectId, viewId, shownNodes, derivedEdges, onC
     >
       <InspectorSection title="정보">
         <InspectorFields>
-          <InspectorField label="이름" description={data.request ? <span className="whitespace-pre-wrap">요청: {data.request}</span> : undefined}>
+          <InspectorField label="이름" description={data.request ? <Text preserveLines>요청: {data.request}</Text> : undefined}>
             <NameInput value={data.label} onSave={(label) => actions.change.mutate({ id: data.id, label })} />
           </InspectorField>
         </InspectorFields>
@@ -151,8 +151,8 @@ export function ViewInspector({ projectId, viewId, shownNodes, derivedEdges, onC
 /** "이 보기에 남긴 이유" above a node's lines, when the AI gave one. */
 export function ViewReason({ reason }: { reason: string }) {
   return (
-    <InspectorSection title="남긴 이유" className="shrink-0">
-      <p className="text-sm">{reason}</p>
+    <InspectorSection title="남긴 이유" noShrink>
+      <Text as="p" variant="body">{reason}</Text>
     </InspectorSection>
   );
 }
@@ -181,30 +181,30 @@ export function OmittedPane({ projectId, edge, sections, onOpenSource, onClose }
       }
     >
       <InspectorSection title={`노드 ${ids.length.toLocaleString()} · 대사 ${omitted?.lines.toLocaleString() ?? 0}줄`}>
-        {details.length === 0 && <p className="text-sm text-muted-foreground">생략한 대사가 없습니다.</p>}
+        {details.length === 0 && <Text as="p" variant="body" tone="muted">생략한 대사가 없습니다.</Text>}
         <InspectorList>
           {details.map((result, index) =>
             result.data ? (
               result.data.units.length ? (
                 result.data.units.map((unit) => (
-                  <li key={unit.id} className="grid grid-cols-[5rem_minmax(0,1fr)] gap-3 py-2 text-sm first:pt-0">
-                    {unit.speaker ? <PersonName projectId={projectId} name={unit.speaker} className="truncate text-xs text-muted-foreground" /> : <span className="truncate text-xs text-muted-foreground">지문·화면 문구</span>}
-                    <span className="min-w-0 break-words">{unit.source}</span>
-                  </li>
+                  <Grid as="li" key={unit.id} columns="fieldShrink" gap="normal" paddingY="condensed" variant="body" trimStart>
+                    {unit.speaker ? <PersonName projectId={projectId} name={unit.speaker} truncate variant="caption" tone="muted" /> : <Text truncate variant="caption" tone="muted">지문·화면 문구</Text>}
+                    <Text minWidth={0} breakWords>{unit.source}</Text>
+                  </Grid>
                 ))
               ) : (
-                <li key={shown[index]} className="py-2 text-xs text-muted-foreground">
+                <Box as="li" key={shown[index]} paddingY="condensed" variant="caption" tone="muted">
                   대사 없는 노드 · {result.data.label ?? result.data.key}
-                </li>
+                </Box>
               )
             ) : (
-              <li key={shown[index]} className="py-2">
-                <Skeleton className="h-4" />
-              </li>
+              <Box as="li" key={shown[index]} paddingY="condensed">
+                <Box asChild height={4}><Skeleton /></Box>
+              </Box>
             ),
           )}
         </InspectorList>
-        {ids.length > shown.length && <p className="text-xs text-muted-foreground">외 노드 {(ids.length - shown.length).toLocaleString()}개</p>}
+        {ids.length > shown.length && <Text as="p" variant="caption" tone="muted">외 노드 {(ids.length - shown.length).toLocaleString()}개</Text>}
       </InspectorSection>
     </Inspector>
   );

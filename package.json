@@ -19,7 +19,9 @@
     "samples:showcase": "tsx scripts/showcase-sample.ts",
     "mock-llm": "tsx scripts/mock-llm.ts",
     "loca": "node apps/cli/bin/loca.mjs",
-    "ui-rules": "tsx scripts/ui-rules.ts"
+    "ui-rules": "tsx scripts/ui-rules.ts",
+    "storybook": "pnpm --filter @loca/ui storybook",
+    "build-storybook": "pnpm --filter @loca/ui build-storybook"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

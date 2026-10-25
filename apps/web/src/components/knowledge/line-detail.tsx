@@ -1,5 +1,5 @@
 import { Trash2 } from 'lucide-react';
-import { Button, Inspector, InspectorBlock, InspectorField, InspectorHeader } from '@loca/ui';
+import { Button, Inspector, InspectorBlock, InspectorField, InspectorHeader, KnowledgeArrow, Stack, Text } from '@loca/ui';
 import type { FlowEvent } from './event-flow';
 
 const ORIGIN_LABELS: Record<string, string> = { human: '사람', ai: 'AI', import: '가져오기', script: '대본' };
@@ -17,25 +17,25 @@ export function LineDetail({ from, to, onOpen, onRemove, onClose }: { from: Flow
       <InspectorBlock>
         <InspectorField label="출처">
           {step.source === 'graph' ? (
-            <p className="text-sm">
-              대사 그래프에서 계산했습니다. 플레이어가 {from.at?.key ? <code className="text-xs">{from.at.key}</code> : '앞 사건'} 대사에서 {to.at?.key ? <code className="text-xs">{to.at.key}</code> : '뒤 사건'} 대사로 갈 수 있습니다.
-              {step.label && <span className="block text-muted-foreground">선택지: {step.label}</span>}
-            </p>
+            <Text as="p" variant="body">
+              대사 그래프에서 계산했습니다. 플레이어가 {from.at?.key ? <Text as="code" variant="caption">{from.at.key}</Text> : '앞 사건'} 대사에서 {to.at?.key ? <Text as="code" variant="caption">{to.at.key}</Text> : '뒤 사건'} 대사로 갈 수 있습니다.
+              {step.label && <Text display="block" tone="muted">선택지: {step.label}</Text>}
+            </Text>
           ) : (
-            <p className="text-sm">직접 이었습니다 ({ORIGIN_LABELS[step.origin] ?? step.origin}). 대사 그래프에는 없는 연결입니다.</p>
+            <Text as="p" variant="body">직접 이었습니다 ({ORIGIN_LABELS[step.origin] ?? step.origin}). 대사 그래프에는 없는 연결입니다.</Text>
           )}
         </InspectorField>
         <InspectorField label="사건">
-          <span className="flex flex-wrap gap-1">
-            <Button size="sm" variant="ghost" onClick={() => onOpen(from.id)}>{from.title}</Button>
-            <span className="self-center text-muted-foreground">→</span>
-            <Button size="sm" variant="ghost" onClick={() => onOpen(to.id)}>{to.title}</Button>
-          </span>
+          <Stack as="span" direction="row" wrap gap="tight">
+            <Button variant="ghost" onClick={() => onOpen(from.id)}>{from.title}</Button>
+            <KnowledgeArrow>→</KnowledgeArrow>
+            <Button variant="ghost" onClick={() => onOpen(to.id)}>{to.title}</Button>
+          </Stack>
         </InspectorField>
       </InspectorBlock>
       {onRemove && (
         <InspectorBlock>
-          <Button size="sm" variant="ghost" className="text-destructive" onClick={onRemove}>
+          <Button variant="ghost" tone="danger" onClick={onRemove}>
             <Trash2 /> 삭제
           </Button>
         </InspectorBlock>

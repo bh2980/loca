@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Trash2 } from 'lucide-react';
-import { Button, Inspector, InspectorBlock, InspectorField, InspectorFields, InspectorHeader, Input, Skeleton, Textarea } from '@loca/ui';
+import { Box, Button, Inspector, InspectorBlock, InspectorField, InspectorFields, InspectorHeader, Input, Skeleton, Stack, Text, Textarea } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { PersonName } from '@/lib/person-colors';
 
@@ -14,11 +14,11 @@ export function EdgePane({ projectId, edgeId, onOpenNode, onRemove, onClose }: {
   const end = (side: 'from' | 'to') => {
     const node = edge.data![side];
     return (
-      <Button variant="ghost" size="sm" className="h-auto w-full justify-start py-1.5 text-left" onClick={() => onOpenNode(node.id)}>
-        <span className="min-w-0">
-          <span className="block truncate text-xs text-muted-foreground">{node.speaker ? <PersonName projectId={projectId} name={node.speaker} /> : (node.label ?? node.kind)} · {node.key}</span>
-          {node.text && <span className="block truncate text-sm">{node.text}</span>}
-        </span>
+      <Button variant="ghost" height="auto" width="full" justifyContent="start" paddingY="snug" textAlign="start" onClick={() => onOpenNode(node.id)}>
+        <Box as="span" minWidth={0}>
+          <Text display="block" truncate variant="caption" tone="muted">{node.speaker ? <PersonName projectId={projectId} name={node.speaker} /> : (node.label ?? node.kind)} · {node.key}</Text>
+          {node.text && <Text display="block" truncate variant="body">{node.text}</Text>}
+        </Box>
       </Button>
     );
   };
@@ -26,17 +26,17 @@ export function EdgePane({ projectId, edgeId, onOpenNode, onRemove, onClose }: {
     <Inspector header={<InspectorHeader kind="대사 그래프" name="선" onClose={onClose} />}>
       <InspectorBlock>
         {edge.isError ? (
-          <p className="text-sm text-muted-foreground">이 선은 이제 없습니다.</p>
+          <Text as="p" variant="body" tone="muted">이 선은 이제 없습니다.</Text>
         ) : !edge.data ? (
-          <Skeleton className="h-24" />
+          <Box asChild height={24}><Skeleton /></Box>
         ) : (
           <InspectorFields>
             <InspectorField label="출처">
-              <p className="text-sm">{ORIGIN_LABELS[edge.data.origin]}</p>
+              <Text as="p" variant="body">{ORIGIN_LABELS[edge.data.origin]}</Text>
             </InspectorField>
             {edge.data.label && (
               <InspectorField label="선택지">
-                <p className="text-sm">{edge.data.label}</p>
+                <Text as="p" variant="body">{edge.data.label}</Text>
               </InspectorField>
             )}
             <InspectorField label="앞">{end('from')}</InspectorField>
@@ -46,7 +46,7 @@ export function EdgePane({ projectId, edgeId, onOpenNode, onRemove, onClose }: {
       </InspectorBlock>
       {onRemove && edge.data && (
         <InspectorBlock>
-          <Button size="sm" variant="ghost" className="text-destructive" onClick={onRemove}>
+          <Button variant="ghost" tone="danger" onClick={onRemove}>
             <Trash2 /> 삭제
           </Button>
         </InspectorBlock>
@@ -73,17 +73,17 @@ export function InsertLinePane({ after, onAdd, onClose }: { after: { speaker: st
     <Inspector
       header={<InspectorHeader kind="대사 그래프" name="뒤에 대사 추가" onClose={onClose} />}
       footer={
-        <div className="flex justify-end">
-          <Button size="sm" disabled={!source.trim() || saving} onClick={() => void add()}>
+        <Stack direction="row" justify="end">
+          <Button disabled={!source.trim() || saving} onClick={() => void add()}>
             추가
           </Button>
-        </div>
+        </Stack>
       }
     >
       <InspectorBlock>
         <InspectorFields>
           <InspectorField label="앞 대사">
-            <p className="truncate text-sm text-muted-foreground">{[after.speaker, after.text].filter(Boolean).join(': ') || '대사 없음'}</p>
+            <Text as="p" truncate variant="body" tone="muted">{[after.speaker, after.text].filter(Boolean).join(': ') || '대사 없음'}</Text>
           </InspectorField>
           <InspectorField label="원문">
             <Textarea rows={3} autoFocus value={source} placeholder="원문을 입력하세요" onChange={(event) => setSource(event.target.value)} />

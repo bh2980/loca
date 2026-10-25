@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { Button, Progress, Spinner } from '@loca/ui';
+import { Box, Button, Inline, Progress, Spinner, Stack, Text } from '@loca/ui';
 import { cardSummary, planCard, startCard, type RunCard } from '@/lib/chat-run';
 import { runApi } from '@/lib/chat-run-api';
 import { keyLabel } from '@/lib/keys';
@@ -58,41 +58,41 @@ export function RunCardView({ projectId, card, onChange, onAnswered, controls }:
   }, [controls, waiting, latest]);
 
   if (card.cancelled)
-    return <p className="text-xs text-muted-foreground" role="status">/{card.workflowName} 실행을 취소했습니다.</p>;
+    return <Text as="p" variant="caption" tone="muted" role="status">/{card.workflowName} 실행을 취소했습니다.</Text>;
 
   return (
-    <div className="space-y-2 rounded-md border bg-muted px-3 py-2 text-sm" role="group" aria-label={`${card.workflowName} 실행 확인`}>
-      <p className="font-medium">/{card.workflowName}</p>
-      <div className="flex flex-wrap gap-1" aria-label="실행 대상">
+    <Box spaceY="condensed" radius="md" border="all" background="muted" paddingX="normal" paddingY="condensed" variant="body" role="group" aria-label={`${card.workflowName} 실행 확인`}>
+      <Text as="p" weight="medium">/{card.workflowName}</Text>
+      <Stack direction="row" wrap gap="tight" aria-label="실행 대상">
         {card.chips.map((chip) => <AttachChip key={`${chip.kind}:${chip.id}`} projectId={projectId} chip={chip} />)}
-      </div>
+      </Stack>
       {card.runId ? <RunProgress projectId={projectId} runId={card.runId} /> : planned.isError ? (
-        <p className="text-xs text-destructive" role="alert">{planned.error.message}</p>
+        <Text as="p" variant="caption" tone="danger" role="alert">{planned.error.message}</Text>
       ) : !summary ? (
-        <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Spinner className="size-3" /> 세는 중…</p>
+        <Inline as="p" gap="snug" variant="caption" tone="muted"><Spinner size="xs" /> 세는 중…</Inline>
       ) : (
         <p>
-          {summary.empty ? <span className="text-muted-foreground">이 대상에는 실행할 {card.input === 'terms' ? '용어' : '대사'}가 없습니다.</span> : (
+          {summary.empty ? <Text tone="muted">이 대상에는 실행할 {card.input === 'terms' ? '용어' : '대사'}가 없습니다.</Text> : (
             <>
-              대상 <b className="font-medium tabular-nums">{summary.targets}</b> · AI 요청 <b className="font-medium tabular-nums">{summary.requests}</b>
+              대상 <Text as="b" weight="medium" tabular>{summary.targets}</Text> · AI 요청 <Text as="b" weight="medium" tabular>{summary.requests}</Text>
               {summary.time && ` · 약 ${summary.time}`}
               {summary.money && ` · ${summary.money}`}
             </>
           )}
-          {summary.excluded > 0 && <span className="text-xs text-muted-foreground"> · 번역 제외 {summary.excluded.toLocaleString()}줄은 빠집니다</span>}
+          {summary.excluded > 0 && <Text variant="caption" tone="muted"> · 번역 제외 {summary.excluded.toLocaleString()}줄은 빠집니다</Text>}
         </p>
       )}
-      {start.isError && <p className="text-xs text-destructive" role="alert">{start.error.message}</p>}
+      {start.isError && <Text as="p" variant="caption" tone="danger" role="alert">{start.error.message}</Text>}
       {waiting && (
-        <div className="flex items-center gap-2">
+        <Inline gap="condensed">
           <Button variant="secondary" disabled={!canStart} onClick={doStart} aria-keyshortcuts="Enter">
             {start.isPending ? <Spinner /> : null} 실행
           </Button>
           <Button variant="ghost" onClick={cancel} aria-keyshortcuts="Escape">취소</Button>
-          <span className="text-xs text-muted-foreground">입력창이 비었을 때 {keyLabel('Enter')} 실행 · {keyLabel('Esc')} 취소</span>
-        </div>
+          <Text variant="caption" tone="muted">입력창이 비었을 때 {keyLabel('Enter')} 실행 · {keyLabel('Esc')} 취소</Text>
+        </Inline>
       )}
-    </div>
+    </Box>
   );
 }
 
@@ -103,14 +103,14 @@ function RunProgress({ projectId, runId }: { projectId: string; runId: string })
   const done = run ? (run.states.done ?? 0) + (run.states.failed ?? 0) + (run.states.cancelled ?? 0) : 0;
   const percent = run?.total ? Math.round((done / run.total) * 100) : 0;
   return (
-    <div className="space-y-1.5" role="status">
+    <Box spaceY="snug" role="status">
       <Progress value={run?.status === 'completed' ? 100 : percent} aria-label="실행 진행" />
-      <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+      <Inline as="p" wrap gapX="condensed" variant="caption" tone="muted">
         <span>{run ? STATUS[run.status] : '시작하는 중…'}</span>
-        {run && <span className="tabular-nums">{done.toLocaleString()} / {run.total.toLocaleString()}</span>}
-        {run && (run.states.failed ?? 0) > 0 && <span className="tabular-nums">실패 {run.states.failed!.toLocaleString()}</span>}
-        <Link to="/p/$projectId/runs/$runId" params={{ projectId, runId }} className="ml-auto underline underline-offset-2">실행 보기</Link>
-      </p>
-    </div>
+        {run && <Text tabular>{done.toLocaleString()} / {run.total.toLocaleString()}</Text>}
+        {run && (run.states.failed ?? 0) > 0 && <Text tabular>실패 {run.states.failed!.toLocaleString()}</Text>}
+        <Text asChild marginLeft="auto" underline="offset"><Link to="/p/$projectId/runs/$runId" params={{ projectId, runId }}>실행 보기</Link></Text>
+      </Inline>
+    </Box>
   );
 }

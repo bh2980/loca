@@ -1,9 +1,8 @@
 import { useState, type ReactNode } from 'react';
-import { Check, EyeOff, ListFilter } from 'lucide-react';
+import { EyeOff, ListFilter } from 'lucide-react';
 import type { AutoMark } from '@tw/shared';
-import { Button, Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, Popover, PopoverContent, PopoverTrigger, SegmentedControl, TagChip } from '@loca/ui';
+import { Box, Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, FilterCheck, FilterHeaderButton, FilterPopoverContent, FilterSegmentedBar, Icon, Popover, PopoverTrigger, TagChip, Text } from '@loca/ui';
 import { MarkChip } from '@/components/status';
-import { cn } from '@/lib/utils';
 
 export interface FilterOption {
   value: string;
@@ -33,20 +32,17 @@ export function HeaderFilter({ label, value, options, onChange, groups }: {
   };
   const item = (option: FilterOption, selected: boolean, apply: (value: string | undefined) => void) => (
     <CommandItem key={option.value} value={`${option.keywords ?? option.value} ${option.value}`} onSelect={() => pick(selected ? undefined : option.value, apply)}>
-      <Check className={cn('size-3.5', selected ? 'opacity-100' : 'opacity-0')} />
-      <span className="truncate">{option.label}</span>
-      {option.hint && <span className="ml-auto shrink-0 text-xs text-muted-foreground tabular-nums">{option.hint}</span>}
+      <FilterCheck on={selected} />
+      <Text truncate>{option.label}</Text>
+      {option.hint && <Text variant="caption" tone="muted" tabular marginLeft="auto" shrink={false}>{option.hint}</Text>}
     </CommandItem>
   );
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="ghost" size="inline" className={cn('-mx-1 text-muted-foreground', active && 'text-primary')} aria-label={`${label} 필터`}>
-          {label}
-          <ListFilter className={active ? 'opacity-100' : 'opacity-40'} />
-        </Button>
+        <FilterHeaderButton label={label} active={active} aria-label={`${label} 필터`} />
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-64 p-0">
+      <FilterPopoverContent>
         <Command>
           {options.length > 8 && <CommandInput placeholder={`${label} 찾기`} />}
           <CommandList>
@@ -60,7 +56,7 @@ export function HeaderFilter({ label, value, options, onChange, groups }: {
                   for (const group of groups ?? []) group.onChange(undefined);
                 }}
               >
-                <Check className={cn('size-3.5', active ? 'opacity-0' : 'opacity-100')} />
+                <FilterCheck on={!active} />
                 전체
               </CommandItem>
               {options.map((option) => item(option, value === option.value, onChange))}
@@ -74,7 +70,7 @@ export function HeaderFilter({ label, value, options, onChange, groups }: {
             )}
           </CommandList>
         </Command>
-      </PopoverContent>
+      </FilterPopoverContent>
     </Popover>
   );
 }
@@ -87,9 +83,8 @@ export type FilterPick = 'show' | 'hide';
 
 export function FilterModeSwitch({ mode, onMode }: { mode: FilterPick; onMode: (mode: FilterPick) => void }) {
   return (
-    <SegmentedControl
+    <FilterSegmentedBar
       ariaLabel="필터 방식"
-      className="flex w-full [&>*]:flex-1"
       value={mode}
       onChange={(value) => onMode(value as FilterPick)}
       items={[
@@ -102,7 +97,7 @@ export function FilterModeSwitch({ mode, onMode }: { mode: FilterPick; onMode: (
 
 /** A row's pick: ✓ shown only, an eye shut for hidden, nothing when not picked. */
 export function PickIcon({ state }: { state: FilterPick | undefined }) {
-  return state === 'hide' ? <EyeOff className="size-3.5 text-muted-foreground" aria-label="숨김" /> : <Check className={cn('size-3.5', state ? 'opacity-100' : 'opacity-0')} aria-label={state ? '이것만 보기' : undefined} />;
+  return state === 'hide' ? <Icon icon={EyeOff} size="sm" tone="muted" aria-label="숨김" /> : <FilterCheck on={Boolean(state)} aria-label={state ? '이것만 보기' : undefined} />;
 }
 
 /**
@@ -171,20 +166,17 @@ export function MarkFilter({ label, groups, onClear }: { label: string; groups: 
   return (
     <Popover onOpenChange={(open) => open && setMode('show')}>
       <PopoverTrigger asChild>
-        <Button variant="ghost" size="inline" className={cn('-mx-1 text-muted-foreground', active && 'text-primary')} aria-label={`${label} 필터`}>
-          {label}
-          <ListFilter className={active ? 'opacity-100' : 'opacity-40'} />
-        </Button>
+        <FilterHeaderButton label={label} active={active} aria-label={`${label} 필터`} />
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-64 p-0">
-        <div className="p-1.5 pb-0">
+      <FilterPopoverContent>
+        <Box padding="snug" paddingBottom="none">
           <FilterModeSwitch mode={mode} onMode={setMode} />
-        </div>
+        </Box>
         <Command>
           <CommandList>
             <CommandGroup>
               <CommandItem value="__all__" onSelect={onClear}>
-                <Check className={cn('size-3.5', active ? 'opacity-0' : 'opacity-100')} />
+                <FilterCheck on={!active} />
                 전체
               </CommandItem>
             </CommandGroup>
@@ -194,7 +186,7 @@ export function MarkFilter({ label, groups, onClear }: { label: string; groups: 
                   {group.options.map((option) => (
                     <CommandItem key={option.key} value={option.key} onSelect={() => option.onPick(mode)}>
                       <PickIcon state={option.state} />
-                      <span className="truncate">{option.label}</span>
+                      <Text truncate>{option.label}</Text>
                     </CommandItem>
                   ))}
                 </CommandGroup>
@@ -202,7 +194,7 @@ export function MarkFilter({ label, groups, onClear }: { label: string; groups: 
             )}
           </CommandList>
         </Command>
-      </PopoverContent>
+      </FilterPopoverContent>
     </Popover>
   );
 }

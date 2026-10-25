@@ -15,11 +15,14 @@ import {
 } from '@tw/shared';
 import {
   Badge,
+  Box,
   Button,
   type ColumnDef,
   DataTable,
   DirtyBar,
   EmptyState,
+  FullHeightSplitPane,
+  FullSelectTrigger,
   Input,
   Inspector,
   InspectorHeader,
@@ -31,12 +34,13 @@ import {
   Select,
   SelectContent,
   SelectItem,
-  SelectTrigger,
   SelectValue,
   SettingsContent,
   SettingsSection,
   Spinner,
-  SplitPane,
+  Stack,
+  TablePanel,
+  Text,
   Textarea,
 } from '@loca/ui';
 import { Page } from '@/components/page';
@@ -47,7 +51,6 @@ import { ExecutableField } from '@/components/settings/executable-field';
 import { client, unwrap, type InferResponseType } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
-import { cn } from '@/lib/utils';
 import { dateTime } from '@/lib/datetime';
 
 export const Route = createFileRoute('/p/$projectId/settings/connections')({
@@ -88,13 +91,13 @@ function ConnectionsSettingsPage() {
   ]);
 
   const aiColumns: ColumnDef<ConnectionRow, unknown>[] = [
-    { id: 'name', header: '이름', meta: { hideable: false }, cell: ({ row }) => <span className="font-medium">{row.original.name}</span> },
+    { id: 'name', header: '이름', meta: { hideable: false }, cell: ({ row }) => <Text weight="medium">{row.original.name}</Text> },
     { id: 'kind', header: '종류', meta: { width: 200, className: 'text-muted-foreground' }, cell: ({ row }) => CONNECTION_KIND_INFO[row.original.kind].label },
     {
       id: 'state',
       header: '상태',
       meta: { width: 120 },
-      cell: ({ row: { original: connection } }) => (CONNECTION_KIND_INFO[connection.kind].transport === 'http' && !connection.hasKey ? <span className="text-warning">키 없음</span> : null),
+      cell: ({ row: { original: connection } }) => (CONNECTION_KIND_INFO[connection.kind].transport === 'http' && !connection.hasKey ? <Text tone="warning">키 없음</Text> : null),
     },
   ];
 
@@ -114,9 +117,9 @@ function ConnectionsSettingsPage() {
 
   return (
     <Page title="연결" flush>
-      <SplitPane id="settings-connections" selectionKey={search.conn ?? search.key} defaultWidth="448px" className="h-full" pane={pane}>
+      <FullHeightSplitPane id="settings-connections" selectionKey={search.conn ?? search.key} defaultWidth="448px" pane={pane}>
         <SettingsContent width="wide">
-          <div className="space-y-8">
+          <Box spaceY="wide">
             <SettingsSection
               title="AI 연결"
               actions={
@@ -125,7 +128,7 @@ function ConnectionsSettingsPage() {
                 </Button>
               }
             >
-              <div className="overflow-hidden rounded-md border border-border">
+              <TablePanel>
                 <DataTable
                   id="connections"
                   columns={aiColumns}
@@ -135,7 +138,7 @@ function ConnectionsSettingsPage() {
                   empty={<EmptyState noun="AI 연결" />}
                   onRowClick={(row) => openConn(row.id === search.conn ? undefined : row.id)}
                 />
-              </div>
+              </TablePanel>
             </SettingsSection>
 
             <SettingsSection
@@ -146,7 +149,7 @@ function ConnectionsSettingsPage() {
                 </Button>
               }
             >
-              <div className="overflow-hidden rounded-md border border-border">
+              <TablePanel>
                 <DataTable
                   id="keys"
                   columns={keyColumns}
@@ -156,24 +159,24 @@ function ConnectionsSettingsPage() {
                   empty={<EmptyState noun="API 키" />}
                   onRowClick={(row) => openKey(row.id === search.key ? undefined : row.id)}
                 />
-              </div>
+              </TablePanel>
             </SettingsSection>
-          </div>
+          </Box>
         </SettingsContent>
-      </SplitPane>
+      </FullHeightSplitPane>
     </Page>
   );
 }
 
 function CapabilityBadges({ kind }: { kind: ConnectionKind }) {
   return (
-    <div className="flex flex-wrap gap-1">
+    <Stack direction="row" wrap gap="tight">
       {CONNECTION_KIND_INFO[kind].capabilities.map((capability) => (
         <Badge key={capability} variant="secondary">
           {CAPABILITY_LABEL[capability]}
         </Badge>
       ))}
-    </div>
+    </Stack>
   );
 }
 
@@ -233,9 +236,9 @@ function NewConnection({ onClose, onCreated }: { onClose: () => void; onCreated?
                       form.clearErrors();
                     }}
                   >
-                    <SelectTrigger className="w-full">
+                    <FullSelectTrigger>
                       <SelectValue />
-                    </SelectTrigger>
+                    </FullSelectTrigger>
                     <SelectContent>
                       {CONNECTION_KINDS.filter((value) => value !== 'http').map((value) => (
                         <SelectItem key={value} value={value}>
@@ -390,7 +393,7 @@ function ConnectionPane({ connection, onClose }: { connection: ConnectionRow; on
             <InspectorField
               label={connection.hasKey ? 'API 키 · 저장됨' : 'API 키 · 없음'}
               action={connection.hasKey && (
-                <Button variant="ghost" size="inline" className="text-destructive" disabled={deleteKey.isPending} onClick={() => deleteKey.mutate()}>
+                <Button variant="ghost" size="inline" tone="danger" disabled={deleteKey.isPending} onClick={() => deleteKey.mutate()}>
                   키 삭제
                 </Button>
               )}
@@ -454,27 +457,27 @@ function ModelTest({ connectionId, need }: { connectionId: string; need: Capabil
       result={
         result &&
         (result.ok ? (
-          <InspectorResult tone="ok" detail={<span className="font-mono">{result.model} · {result.ms.toLocaleString()}ms</span>}>
-            <span className="whitespace-pre-wrap text-foreground">{result.text}</span>
+          <InspectorResult tone="ok" detail={<Text mono>{result.model} · {result.ms.toLocaleString()}ms</Text>}>
+            <Text preserveLines tone="default">{result.text}</Text>
           </InspectorResult>
         ) : (
-          <InspectorResult tone="error" detail={<span className="font-mono">{result.ms.toLocaleString()}ms</span>}>{result.detail}</InspectorResult>
+          <InspectorResult tone="error" detail={<Text mono>{result.ms.toLocaleString()}ms</Text>}>{result.detail}</InspectorResult>
         ))
       }
     >
       <ModelPicker lockConnection need={need} value={choice} onChange={setChoice} />
       <Textarea rows={2} value={source} onChange={(event) => setSource(event.target.value)} placeholder="번역해 볼 원문" />
       {!!tests.data?.length && (
-        <ul className="space-y-0.5 text-xs text-muted-foreground">
+        <Box as="ul" spaceY="hair" variant="caption" tone="muted">
           {tests.data.slice(0, 3).map((call) => (
-            <li key={call.id} className="flex items-baseline justify-between gap-3">
-              <span className="tabular-nums">{dateTime(call.startedAt)} · {call.model}</span>
-              <span className={cn('min-w-0 truncate', call.status === 'failed' && 'text-destructive')}>
+            <Stack as="li" key={call.id} direction="row" align="baseline" justify="between" gap="normal">
+              <Text tabular>{dateTime(call.startedAt)} · {call.model}</Text>
+              <Text minWidth={0} truncate tone={call.status === 'failed' ? 'danger' : undefined}>
                 {call.status === 'running' ? '진행 중' : call.status === 'failed' ? `실패${call.error ? `: ${call.error}` : ''}` : `${((new Date(call.finishedAt!).getTime() - new Date(call.startedAt).getTime()) / 1000).toFixed(1)}초`}
-              </span>
-            </li>
+              </Text>
+            </Stack>
           ))}
-        </ul>
+        </Box>
       )}
     </InspectorActionRow>
   );

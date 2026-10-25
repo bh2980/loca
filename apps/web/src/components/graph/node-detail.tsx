@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { CornerDownRight, FileText, Network, PencilLine } from 'lucide-react';
-import { Inspector, InspectorBlock, InspectorHeader, Button, Skeleton } from '@loca/ui';
+import { CornerDownRight, FileText, Network } from 'lucide-react';
+import { Box, ColumnResizeHandle, FlowRow, Icon, Inline, Inspector, InspectorBlock, InspectorHeader, Button, Skeleton, Text, WayChip } from '@loca/ui';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { KIND_LABEL } from './shapes';
-import { cn } from '@/lib/utils';
 import { TokenText } from '@/components/editor/source-text';
 import { tokenPatternOf } from '@/lib/line-context';
 import { personStyle, usePersonColors } from '@/lib/person-colors';
@@ -15,10 +14,10 @@ import { personStyle, usePersonColors } from '@/lib/person-colors';
 export function SceneNodeDetail({ projectId, groupId, onClose }: { projectId: string; groupId: string; onClose: () => void }) {
   const group = useQuery(q.group(groupId));
   useReportView('graph-node', [group.data && { kind: '장면', id: group.data.id, label: group.data.title }]);
-  if (!group.data) return <Skeleton className="m-4 h-24" />;
+  if (!group.data) return <Box asChild margin="comfortable" height={24}><Skeleton /></Box>;
   return (
     <Inspector
-      header={<InspectorHeader kind="장면" name={group.data.title} status={<span className="font-mono text-xs break-all" title={group.data.key}>{group.data.key}</span>} onClose={onClose} />}
+      header={<InspectorHeader kind="장면" name={group.data.title} status={<Text mono variant="caption" breakAll title={group.data.key}>{group.data.key}</Text>} onClose={onClose} />}
       footer={
         <>
           <Button variant="outline" asChild>
@@ -35,7 +34,7 @@ export function SceneNodeDetail({ projectId, groupId, onClose }: { projectId: st
       }
     >
       <InspectorBlock>
-        {group.data.description ? <p className="text-sm">{group.data.description}</p> : <p className="text-sm text-muted-foreground">이 장면에는 설명이 없습니다.</p>}
+        {group.data.description ? <Text as="p" variant="body">{group.data.description}</Text> : <Text as="p" variant="body" tone="muted">이 장면에는 설명이 없습니다.</Text>}
       </InspectorBlock>
     </Inspector>
   );
@@ -111,21 +110,21 @@ export function FlowPane({ projectId, nodeIds, title, way, extra, marked, editin
   const speakers = nodes.flatMap((node) => node.units.map((unit) => unit.speaker ?? '지문·문구'));
   const fitted = Math.min(180, Math.max(56, ...speakers.map((name) => name.length * 7 + 8)));
   const width = speakerWidth ?? fitted;
-  const row = (key: string, who: ReactNode, what: ReactNode, options: { className?: string; scrollTo?: boolean; unitId?: string } = {}) => (
-    <li
+  const row = (key: string, who: ReactNode, what: ReactNode, options: { tint?: 'choice' | 'muted' | 'here'; scrollTo?: boolean; unitId?: string } = {}) => (
+    <FlowRow
       key={key}
+      who={who}
+      what={what}
+      editable={Boolean(options.unitId)}
+      editing={Boolean(options.unitId && options.unitId === editing)}
+      tint={options.tint}
       data-marked={options.scrollTo || undefined}
       data-editing={(options.unitId && options.unitId === editing) || undefined}
-      className={cn('group relative grid gap-3 px-4 py-2', options.unitId && 'cursor-pointer hover:bg-muted focus-visible:bg-muted focus-visible:outline-none', options.unitId && options.unitId === editing && 'bg-primary/5 shadow-[inset_2px_0_0_var(--primary)]', options.className)}
       style={{ gridTemplateColumns: `${width}px minmax(0,1fr)` }}
       tabIndex={options.unitId ? 0 : undefined}
       onClick={options.unitId ? () => onEdit(options.unitId!) : undefined}
       onKeyDown={options.unitId ? (event) => { if (event.key === 'Enter' && event.target === event.currentTarget) onEdit(options.unitId!); } : undefined}
-    >
-      <span className="truncate pt-px text-xs text-muted-foreground">{who}</span>
-      <div className="min-w-0 text-sm">{what}</div>
-      {options.unitId && <PencilLine className="absolute top-2.5 right-3 size-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100" />}
-    </li>
+    />
   );
   const lines = nodes.flatMap((node) => {
     const choice = node.units[0];
@@ -135,13 +134,13 @@ export function FlowPane({ projectId, nodeIds, title, way, extra, marked, editin
           node.id,
           '선택지',
           <>
-            <p className="font-medium text-choice">▶ {choice?.source ?? node.label ?? node.key}</p>
-            {choice?.translation && <p className="text-muted-foreground">{choice.translation}</p>}
+            <Text as="p" weight="medium" tone="choice">▶ {choice?.source ?? node.label ?? node.key}</Text>
+            {choice?.translation && <Text as="p" tone="muted">{choice.translation}</Text>}
           </>,
-          { className: 'bg-choice/5', unitId: choice?.id },
+          { tint: 'choice', unitId: choice?.id },
         ),
       ];
-    if (!node.units.length) return [row(node.id, KIND_LABEL[node.kind] ?? node.kind, <span className="text-muted-foreground">{node.label ?? node.typeInfo?.label ?? ''}</span>, { className: 'bg-muted' })];
+    if (!node.units.length) return [row(node.id, KIND_LABEL[node.kind] ?? node.kind, <Text tone="muted">{node.label ?? node.typeInfo?.label ?? ''}</Text>, { tint: 'muted' })];
     return node.units.map((unit) => {
       const here = node.id === marked;
       return row(
@@ -149,9 +148,9 @@ export function FlowPane({ projectId, nodeIds, title, way, extra, marked, editin
         unit.speaker ? <span style={personStyle(colorOf(unit.speaker))}>{unit.speaker}</span> : '지문·문구',
         <>
           <TokenText text={unit.source} source={unit.source} pattern={tokens} />
-          {unit.translation && <TokenText text={unit.translation} source={unit.source} pattern={tokens} className="text-muted-foreground" />}
+          {unit.translation && <Text asChild tone="muted"><TokenText text={unit.translation} source={unit.source} pattern={tokens} /></Text>}
         </>,
-        { className: here ? 'bg-primary/5 shadow-[inset_2px_0_0_var(--primary)]' : undefined, scrollTo: here, unitId: unit.id },
+        { tint: here ? 'here' : undefined, scrollTo: here, unitId: unit.id },
       );
     });
   });
@@ -167,7 +166,7 @@ export function FlowPane({ projectId, nodeIds, title, way, extra, marked, editin
         />
       }
       loading={loading && !nodes.length}
-      bodyClassName="space-y-0 p-0"
+      flush
       footer={
         first?.group && (
           <Button variant="outline" asChild>
@@ -180,22 +179,19 @@ export function FlowPane({ projectId, nodeIds, title, way, extra, marked, editin
     >
       {extra}
       {way && way.labels.length > 0 && (
-        <p className="flex flex-wrap items-center gap-1 bg-muted px-4 py-1.5 text-xs text-muted-foreground">
-          <CornerDownRight className="size-3.5" aria-label="들어오는 길" />
+        <Inline as="p" wrap gap="tight" background="muted" paddingX="comfortable" paddingY="snug" variant="caption" tone="muted">
+          <Icon icon={CornerDownRight} size="sm" aria-label="들어오는 길" />
           {way.labels.map((label, index) => (
-            <span key={index} className={cn('rounded-full border px-1.5', label.choice ? 'border-choice/30 bg-choice/10 text-choice' : 'bg-background')}>
+            <WayChip key={index} choice={label.choice}>
               {label.choice ? `▶ ${label.text}` : label.text}
-            </span>
+            </WayChip>
           ))}
-        </p>
+        </Inline>
       )}
-      <div ref={list} className="relative">
+      <Box ref={list} position="relative">
         {/* The speaker column's edge: drag to widen or narrow it. */}
-        <div
-          role="separator"
-          aria-orientation="vertical"
+        <ColumnResizeHandle
           aria-label="화자 칸 폭"
-          className="absolute top-0 bottom-0 z-10 w-2 cursor-col-resize hover:bg-border/60"
           style={{ left: width + 16 + 2 }}
           onPointerDown={(event) => {
             const start = event.clientX;
@@ -208,7 +204,7 @@ export function FlowPane({ projectId, nodeIds, title, way, extra, marked, editin
           onDoubleClick={() => setSpeakerWidth(undefined)}
         />
         <ol>{lines}</ol>
-      </div>
+      </Box>
     </Inspector>
   );
 }

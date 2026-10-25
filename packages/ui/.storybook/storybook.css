@@ -1,0 +1,75 @@
+/*
+ * What the app compiles (apps/web/src/index.css): the same Tailwind entry, tokens, fonts and base rules, so a story looks like the app.
+ * The dark theme is a class on <html>; the toolbar's theme switch sets it.
+ */
+@import "tailwindcss";
+@import "tw-animate-css";
+@source "../src";
+
+@import "../src/fonts/fonts.css";
+@import "../src/tokens/theme.css";
+@import "../src/tokens/system.css";
+@import "../src/chat/prose.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  /* Tight tracking only where the type is large enough to take it; small Korean text needs its room. */
+  h1, h2, .text-base, .text-lg, .text-xl {
+    letter-spacing: -0.011em;
+  }
+  body {
+    @apply bg-background text-foreground antialiased font-sans;
+    font-feature-settings: "tnum" 0;
+  }
+
+  /* Lucide strokes a little heavier than its default hairline so icons hold up beside 500-weight text (theme.css). */
+  svg.lucide,
+  [data-slot="button"] svg,
+  button svg {
+    stroke-width: var(--icon-stroke);
+  }
+
+  /* Fine-tuned button icon proportions */
+  [data-slot="button"] svg:not([class*='size-']),
+  button svg:not([class*='size-']) {
+    width: 0.8125rem; /* 13px */
+    height: 0.8125rem;
+  }
+
+  [data-slot="button"][data-size="xs"] svg:not([class*='size-']),
+  [data-slot="button"][data-size="inline"] svg:not([class*='size-']),
+  button[data-size="xs"] svg:not([class*='size-']),
+  button[data-size="inline"] svg:not([class*='size-']) {
+    width: 0.75rem; /* 12px */
+    height: 0.75rem;
+  }
+  /* Every native scrollbar looks like shadcn's ScrollArea: a thin rounded thumb in the border colour,
+     no track, a little darker on hover. One rule instead of wrapping each scrolling box. */
+  /* Chromium ignores the ::-webkit rules when the standard properties are set, so those are only for others. */
+  @supports not selector(::-webkit-scrollbar) {
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 9999px;
+    background: var(--border) padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--muted-foreground) padding-box;
+  }
+}

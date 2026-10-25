@@ -4,7 +4,7 @@ import { Check, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { InferResponseType } from 'hono/client';
 import { AUTO_MARKS, markColor, type MarkColors, type AgeBand, type CharacterRole, type CharacterStyle, type Gender, type DOCUMENT_KINDS, type SpeechLevel, type AutoMark, KNOWLEDGE_MARK_IDS, knowledgeMarksOf, matchesMarks, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, sourceOf, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type StatusBy } from '@tw/shared';
-import { DataTable, type ColumnDef, type FilterChip, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, AiMark, StatusIcon, TagChip } from '@loca/ui';
+import { DataTable, type ColumnDef, type FilterChip, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, AiMark, Inline, KnowledgeInlineFlex, Stack, StatusIcon, TagChip, Text } from '@loca/ui';
 import { MarkChip } from '@/components/status';
 import { HeaderFilter, MarkFilter, markTagGroups, togglePick, type FilterOption, type FilterPick } from '@/components/header-filter';
 import type { client } from '@/lib/api';
@@ -127,7 +127,7 @@ export const text = (value: unknown) => (typeof value === 'string' ? value : '')
 
 /** 출처: who wrote the content (작품 분석, 워크플로·채팅, 대본에서 찾음, 가져오기, 사람). */
 export function SourceBadge({ row }: { row: Draft }) {
-  return <span className="text-xs text-muted-foreground">{SOURCE_LABELS[sourceOf(row)]}</span>;
+  return <Text variant="caption" tone="muted">{SOURCE_LABELS[sourceOf(row)]}</Text>;
 }
 
 /** A candidate row: dashed left edge (not used as context until confirmed). */
@@ -157,7 +157,7 @@ export function TagCell({ tags, known, marks }: { tags?: ItemTag[]; known: TagIn
   });
   if (!shown.length && !marks?.length) return null;
   return (
-    <span className="flex flex-wrap gap-1">
+    <Stack as="span" direction="row" wrap gap="tight">
       {marks?.map((mark) => (
         <MarkChip key={mark} mark={mark} />
       ))}
@@ -166,7 +166,7 @@ export function TagCell({ tags, known, marks }: { tags?: ItemTag[]; known: TagIn
           <TagChip tag={item.info} />
         </span>
       ))}
-    </span>
+    </Stack>
   );
 }
 
@@ -176,11 +176,11 @@ const sourceOptions: FilterOption[] = KNOWLEDGE_SOURCES.map((value) => ({ value,
 export function StateCell({ row }: { row: Draft }) {
   const candidate = row.status === 'candidate';
   return (
-    <span className="inline-flex items-center gap-1.5">
+    <KnowledgeInlineFlex>
       <StatusIcon status={{ kind: candidate ? 'initial' : 'final', color: candidate ? 'var(--warning)' : 'var(--success)' }} />
       {KNOWLEDGE_STATUS_LABELS[candidate ? 'candidate' : 'confirmed']}
       {!candidate && <AiMark by={row.statusBy} />}
-    </span>
+    </KnowledgeInlineFlex>
   );
 }
 
@@ -287,11 +287,11 @@ export function knowledgeFilterChips(filters: KnowledgeFilterState, markColors?:
 /** 출처 and 상태 filters for displays without a table header (graph, timeline), in the toolbar. */
 export function KnowledgeFilters(filters: KnowledgeFilterState) {
   return (
-    <div className="flex items-center gap-3 text-xs text-muted-foreground">
+    <Inline gap="normal" variant="caption" tone="muted">
       <HeaderFilter label="상태" value={filters.status} options={statusOptions} onChange={(value) => filters.onChange({ status: value as StatusFilter })} />
       <TagFilter filters={filters} />
       <HeaderFilter label="출처" value={filters.source} options={sourceOptions} onChange={(value) => filters.onChange({ source: value as SourceFilter })} />
-    </div>
+    </Inline>
   );
 }
 
@@ -308,7 +308,7 @@ export function BulkDecide({ picked, actionable, confirmable = actionable, pendi
         <Check /> {confirmLabel(confirmable)}
       </Button>
       <DiscardButton count={actionable.length} disabled={actionable.length === 0 || pending} onConfirm={onDiscard} />
-      {picked > actionable.length && <span className="text-xs text-muted-foreground">사람이 정한 {picked - actionable.length}개는 건너뜁니다</span>}
+      {picked > actionable.length && <Text variant="caption" tone="muted">사람이 정한 {picked - actionable.length}개는 건너뜁니다</Text>}
     </>
   );
 }
@@ -339,7 +339,7 @@ function DiscardButton({ count, onConfirm, disabled }: { count: number; onConfir
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <Button variant="ghost" className="text-destructive" disabled={disabled}>
+        <Button variant="ghost" tone="danger" disabled={disabled}>
           <Trash2 /> 버리기
         </Button>
       </AlertDialogTrigger>

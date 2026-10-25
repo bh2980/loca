@@ -2,26 +2,20 @@
 import { useState, type ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronRight, Play } from 'lucide-react';
+import { Play } from 'lucide-react';
 import { listenerLabel, SPEECH_LEVEL_LABELS, type SpeechLevel } from '@tw/shared';
 import { RunDialog } from '@/components/workflow/run-dialog';
-import { GroupHeading, InspectorSection, InspectorList, InspectorResult, Button, Collapsible, CollapsibleContent, CollapsibleTrigger } from '@loca/ui';
+import { Box, GroupHeading, InspectorSection, InspectorList, InspectorResult, Button, KnowledgeFold, KnowledgeLineLink, KnowledgeListItem, KnowledgeRowButton, KnowledgeScrollList, KnowledgeSubheadRow, Text } from '@loca/ui';
 import { q } from '@/lib/queries';
-import { cn } from '@/lib/utils';
 import { PersonName } from '@/lib/person-colors';
 
 /** A list that stays folded until asked for (a rule's lines, evidence inside a pair): the pane shows what to decide first. */
 function Fold({ label, children }: { label: ReactNode; children: ReactNode }) {
   const [open, setOpen] = useState(false);
   return (
-    <Collapsible open={open} onOpenChange={setOpen}>
-      <CollapsibleTrigger asChild>
-        <Button variant="ghost" size="inline" className="-ml-1 text-muted-foreground">
-          <ChevronRight className={cn('transition-transform', open && 'rotate-90')} /> {label}
-        </Button>
-      </CollapsibleTrigger>
-      <CollapsibleContent className="mt-1">{children}</CollapsibleContent>
-    </Collapsible>
+    <KnowledgeFold label={label} open={open} onOpenChange={setOpen}>
+      {children}
+    </KnowledgeFold>
   );
 }
 
@@ -37,23 +31,21 @@ function Part({ title, actions, embedded, fold, children }: { title: string; act
       </InspectorSection>
     );
   return (
-    <div className="space-y-1.5">
+    <Box spaceY="snug">
       {fold ? (
         <Fold label={title}>{children}</Fold>
       ) : (
         <>
-          <div className="flex min-h-7 items-center justify-between gap-2">
+          <KnowledgeSubheadRow spread>
             <GroupHeading>{title}</GroupHeading>
             {actions}
-          </div>
+          </KnowledgeSubheadRow>
           {children}
         </>
       )}
-    </div>
+    </Box>
   );
 }
-
-const lineLink = 'block py-1.5 text-sm hover:bg-muted';
 
 /** The lines a draft cites, opening in the script. Keys that are not lines were already dropped by the server. Omitted when there are none. */
 export function Evidence({ projectId, keys, embedded }: { projectId: string; keys: string[]; embedded?: boolean }) {
@@ -64,11 +56,13 @@ export function Evidence({ projectId, keys, embedded }: { projectId: string; key
       <InspectorList>
         {lines.data?.map((line) => (
           <li key={line.id}>
-            <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.groupId, line: line.id }} className={lineLink}>
-              <span className="text-xs text-muted-foreground">{line.groupTitle} · </span>
-              {line.speaker && <span className="font-medium"><PersonName projectId={projectId} name={line.speaker} />: </span>}
-              {line.source}
-            </Link>
+            <KnowledgeLineLink>
+              <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.groupId, line: line.id }}>
+                <Text variant="caption" tone="muted">{line.groupTitle} · </Text>
+                {line.speaker && <Text weight="medium"><PersonName projectId={projectId} name={line.speaker} />: </Text>}
+                {line.source}
+              </Link>
+            </KnowledgeLineLink>
           </li>
         ))}
       </InspectorList>
@@ -108,17 +102,19 @@ export function RuleLines({ projectId, ruleId, candidate, embedded }: { projectI
       )}
       {!!lines.data?.rows.length && (
         <Fold label="대사 보기">
-          <InspectorList className="max-h-60 overflow-auto">
+          <KnowledgeScrollList limit={60}>
             {lines.data.rows.map((line) => (
               <li key={line.id}>
-                <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.groupId, line: line.id }} className={lineLink}>
-                  <span className="text-xs text-muted-foreground">{line.groupTitle} · </span>
-                  {line.source}
-                  {line.translation && <span className="block text-muted-foreground">{line.translation}</span>}
-                </Link>
+                <KnowledgeLineLink>
+                  <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.groupId, line: line.id }}>
+                    <Text variant="caption" tone="muted">{line.groupTitle} · </Text>
+                    {line.source}
+                    {line.translation && <Text display="block" tone="muted">{line.translation}</Text>}
+                  </Link>
+                </KnowledgeLineLink>
               </li>
             ))}
-          </InspectorList>
+          </KnowledgeScrollList>
         </Fold>
       )}
     </Part>
@@ -135,18 +131,20 @@ export function RelationshipChanges({ projectId, changes, embedded }: { projectI
         {changes.map((change) => {
           const line = byKey.get(change.at);
           return (
-            <li key={`${change.at}-${change.kind}`} className="py-2 text-sm first:pt-0 last:pb-0">
+            <KnowledgeListItem key={`${change.at}-${change.kind}`} density="loose">
               <p>
-                <span className="font-medium">→ {change.kind}</span>
-                {change.cause && <span className="text-muted-foreground"> · {change.cause}</span>}
+                <Text weight="medium">→ {change.kind}</Text>
+                {change.cause && <Text tone="muted"> · {change.cause}</Text>}
               </p>
               {line && (
-                <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.groupId, line: line.id }} className="mt-1 block text-muted-foreground hover:underline">
-                  {line.speaker && `${line.speaker}: `}
-                  {line.source}
-                </Link>
+                <KnowledgeLineLink kind="quote">
+                  <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.groupId, line: line.id }}>
+                    {line.speaker && `${line.speaker}: `}
+                    {line.source}
+                  </Link>
+                </KnowledgeLineLink>
               )}
-            </li>
+            </KnowledgeListItem>
           );
         })}
       </InspectorList>
@@ -158,31 +156,31 @@ export function RelationshipChanges({ projectId, changes, embedded }: { projectI
 export function StretchPicker({ projectId, from, to, taken, onPick, onCancel }: { projectId: string; from: string; to: string; taken: Set<string>; onPick: (key: string) => void; onCancel: () => void }) {
   const lines = useQuery(q.units(projectId, { speaker: from, listener: to, limit: 300 }));
   return (
-    <div className="space-y-1">
-      <div className="flex min-h-7 items-center gap-2">
+    <Box spaceY="tight">
+      <KnowledgeSubheadRow>
         <GroupHeading>시작 대사 선택</GroupHeading>
-        <Button variant="ghost" size="inline" className="ml-auto text-muted-foreground" onClick={onCancel}>
+        <Button variant="ghost" size="inline" marginLeft="auto" tone="muted" onClick={onCancel}>
           취소
         </Button>
-      </div>
+      </KnowledgeSubheadRow>
       {!lines.data ? (
-        <p className="text-sm text-muted-foreground">불러오는 중…</p>
+        <Text as="p" variant="body" tone="muted">불러오는 중…</Text>
       ) : lines.data.rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">청자가 {listenerLabel(to)}로 정해진 {from}의 대사가 없습니다.</p>
+        <Text as="p" variant="body" tone="muted">청자가 {listenerLabel(to)}로 정해진 {from}의 대사가 없습니다.</Text>
       ) : (
-        <InspectorList className="max-h-64 overflow-auto">
+        <KnowledgeScrollList limit={64}>
           {lines.data.rows.map((line) => (
             <li key={line.id}>
-              <Button variant="ghost" size="row" className="text-sm" disabled={taken.has(line.key)} onClick={() => onPick(line.key)}>
-                <span className="min-w-0">
-                  <span className="text-xs text-muted-foreground">{line.groupTitle} · </span>
+              <KnowledgeRowButton disabled={taken.has(line.key)} onClick={() => onPick(line.key)}>
+                <Text minWidth={0}>
+                  <Text variant="caption" tone="muted">{line.groupTitle} · </Text>
                   {line.source}
-                </span>
-              </Button>
+                </Text>
+              </KnowledgeRowButton>
             </li>
           ))}
-        </InspectorList>
+        </KnowledgeScrollList>
       )}
-    </div>
+    </Box>
   );
 }

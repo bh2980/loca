@@ -1,4 +1,4 @@
-import { InspectorField, InspectorFields, InspectorList, InspectorSection, Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from '@loca/ui';
+import { Box, InspectorField, InspectorFields, InspectorList, InspectorSection, Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from '@loca/ui';
 import type { PathNodeText, PathSlice } from '@/components/graph/path-graph';
 import type { OverviewNode } from '@/components/graph/path-window';
 
@@ -56,9 +56,11 @@ export function PathNodeExtras({ choices, loops, onPick, onAuto }: { choices?: F
           <InspectorFields>
             <InspectorField label="이 선택에서 따라갈 갈래" description={`다른 선택 ${choices.count.toLocaleString()}개`}>
               <Select value={chosen?.id ?? ''} onValueChange={(value) => (value === AUTO ? onAuto(choices.forkNodeId) : onPick(choices.forkNodeId, value))}>
-                <SelectTrigger className="w-full" data-testid="fork-menu">
-                  <SelectValue placeholder="갈래 고르기" />
-                </SelectTrigger>
+                <Box asChild width="full">
+                  <SelectTrigger data-testid="fork-menu">
+                    <SelectValue placeholder="갈래 고르기" />
+                  </SelectTrigger>
+                </Box>
                 <SelectContent>
                   {choices.arms.map((arm) => (
                     <SelectItem key={arm.id} value={arm.id}>
@@ -80,11 +82,11 @@ export function PathNodeExtras({ choices, loops, onPick, onAuto }: { choices?: F
       )}
       {loops.length > 0 && (
         <InspectorSection title="되돌아가는 곳">
-          <div data-testid="loop-list"><InspectorList className="text-sm">
+          <div data-testid="loop-list"><InspectorList body>
             {loops.map((to, index) => (
-              <li key={index} className="truncate py-1.5 first:pt-0 last:pb-0">
+              <Box as="li" key={index} truncate paddingY="snug" trimEnds>
                 ↺ ‹{to}›로 되돌아감
-              </li>
+              </Box>
             ))}
           </InspectorList></div>
         </InspectorSection>

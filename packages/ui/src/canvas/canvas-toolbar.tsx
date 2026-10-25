@@ -19,6 +19,8 @@ export interface CanvasToolbarProps {
   /** Folded side nodes: every fold open (then the button folds them) or not. Omit when the graph has none. */
   foldsOpen?: boolean
   onToggleFolds?: () => void
+  /** Floats over the canvas's lower right corner (the toolbar of a drawn graph). */
+  floating?: boolean
   className?: string
 }
 
@@ -29,8 +31,8 @@ const COMPACT = "hidden @2xl/canvas:inline"
 /** Between groups (zoom · fit · layout · direction · minimap); --border alone is too faint on the popover surface. */
 const Divider = () => <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-muted-foreground/30" />
 
-export function CanvasToolbar({ zoomPercent, onZoomIn, onZoomOut, onFit, onResetZoom, onLayout, minimapVisible, onToggleMinimap, layoutLabel, direction, onDirectionChange, directionDisabled, foldsOpen, onToggleFolds, className }: CanvasToolbarProps) {
-  return <div role="toolbar" aria-label="캔버스 도구" className={cn("flex h-9 items-center gap-0.5 rounded-md border border-border bg-popover px-1 shadow-sm", className)}>
+export function CanvasToolbar({ zoomPercent, onZoomIn, onZoomOut, onFit, onResetZoom, onLayout, minimapVisible, onToggleMinimap, layoutLabel, direction, onDirectionChange, directionDisabled, foldsOpen, onToggleFolds, floating, className }: CanvasToolbarProps) {
+  return <div role="toolbar" aria-label="캔버스 도구" className={cn("flex h-9 items-center gap-0.5 rounded-md border border-border bg-popover px-1 shadow-sm", floating && "absolute right-3 bottom-3 z-30", className)}>
     <Button variant="ghost" size="icon-xs" aria-label="축소" onClick={onZoomOut}><Minus /></Button>
     {onResetZoom ? (
       <Button variant="ghost" size="xs" className="min-w-10 px-1 text-xs tabular-nums text-muted-foreground" aria-label="읽기 크기 100%" title="읽기 크기 100%" onClick={onResetZoom}>{Math.round(zoomPercent)}%</Button>

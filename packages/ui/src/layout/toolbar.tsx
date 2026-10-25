@@ -44,6 +44,8 @@ export interface SearchInputProps {
   onChange: (value: string | undefined) => void
   placeholder: string
   className?: string
+  /** The wider, card-colored box laid over a canvas (fills its wrapper). */
+  onCanvas?: boolean
   end?: ReactNode
 }
 
@@ -52,6 +54,7 @@ export function SearchInput({
   onChange,
   placeholder,
   className,
+  onCanvas,
   end,
 }: SearchInputProps) {
   const [text, setText] = useState(value ?? "")
@@ -90,7 +93,7 @@ export function SearchInput({
   }
 
   return (
-    <InputGroup className={cn("h-7 w-60 rounded-xs", className)}>
+    <InputGroup className={cn("h-7 w-60 rounded-xs", onCanvas && "w-full bg-card border-border shadow-2xs text-xs rounded-md", className)}>
       <InputGroupAddon>
         <Search className="size-3.5 opacity-60" />
       </InputGroupAddon>

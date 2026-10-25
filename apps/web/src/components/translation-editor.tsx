@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { checkFormat, listenerLabel, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatIssue, type FormatRules } from '@tw/shared';
 import { TokenChip, TokenText } from '@/components/editor/source-text';
 import { focusEndOfLine, insertUnitIntoLine, proposeInLine, replaceLineText, TranslationInput } from '@/components/editor/translation-input';
-import { AdvancedDisclosure, Badge, Button, GroupHeading, AiMark, EditorAction, InlineEditorActions, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@loca/ui';
+import { AdvancedDisclosure, Box, Button, Icon, Inline, Text, AiMark, EditorAction, EditorChangeNote, EditorChangedWord, EditorDiffWord, EditorDraftNote, EditorInlineLabel, EditorMenuContent, EditorPreviousDiff, EditorSuggestionItems, EditorSuggestionMore, EditorSuggestionOrigin, EditorSuggestionPanel, EditorSuggestionRow, InlineEditorActions, DropdownMenu, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@loca/ui';
 import { apiFetch } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
 import { wordDiff } from '@/lib/diff';
@@ -15,7 +15,6 @@ import type { TokenUnit } from '@/lib/tokens';
 import { useSaveLine } from '@/lib/line-save';
 import { offerSameSource } from '@/lib/same-source';
 import { q } from '@/lib/queries';
-import { cn } from '@/lib/utils';
 import { keyLabel } from '@/lib/keys';
 
 interface Status {
@@ -49,7 +48,6 @@ export function TranslationEditor({
   onEscape,
   focusKey,
   marks,
-  className,
 }: {
   projectId: string;
   unit: { id: string; source: string; translation: string | null; statusId: string; statusBy?: 'ai' | 'human'; candidates?: { id: string; text: string }[] };
@@ -60,7 +58,6 @@ export function TranslationEditor({
   focusKey?: number;
   /** List rows supply their single shared tag row directly below the input. */
   marks?: ReactNode;
-  className?: string;
 }) {
   const [draft, setDraft, clearDraft] = useDraft(`line:${unit.id}`, unit.translation ?? '');
   const dirty = draft !== (unit.translation ?? '');
@@ -191,10 +188,9 @@ export function TranslationEditor({
   const canShowOverflow = dirty;
 
   return (
-    <div className={cn('space-y-2', className)} onClick={(event) => event.stopPropagation()}>
+    <Box spaceY="condensed" onClick={(event) => event.stopPropagation()}>
       <TranslationInput
         unitId={unit.id}
-        className="text-base leading-6 md:text-base"
         value={draft}
         onChange={setDraft}
         source={unit.source}
@@ -216,34 +212,34 @@ export function TranslationEditor({
       {marks}
       {/* What 다듬기 changed in the box and why, while the box still holds its answer. */}
       {assist.done === 'refine' && assist.text === draft && assist.from !== undefined && (
-        <div className="space-y-0.5 rounded-md border bg-background px-2 py-1.5 text-sm">
-          <p className="break-words whitespace-pre-wrap">
+        <EditorChangeNote>
+          <Text as="p" breakWords preserveLines>
             {wordDiff(assist.from, assist.text).map((part, index) => (
               // Tokens stay chips inside the marked words.
-              <TokenText key={index} text={part.text} source={unit.source} pattern={line.tokenPattern} className={cn('inline', part.change === 'removed' && 'text-destructive line-through decoration-destructive/60', part.change === 'added' && 'rounded-sm bg-success/15 text-success')} />
+              <TokenText key={index} text={part.text} source={unit.source} pattern={line.tokenPattern} look={part.change ?? 'plain'} />
             ))}
-          </p>
+          </Text>
           {assist.reasons?.map((reason) => (
-            <p key={reason} className="text-xs text-muted-foreground">
+            <Text as="p" key={reason} variant="caption" tone="muted">
               {reason}
-            </p>
+            </Text>
           ))}
-          <Button variant="ghost" size="inline" className="text-muted-foreground" title={keyLabel('Mod+Z')} onClick={() => replaceLineText(unit.id, assist.from!) || setDraft(assist.from!)}>
+          <Button variant="ghost" size="inline" tone="muted" title={keyLabel('Mod+Z')} onClick={() => replaceLineText(unit.id, assist.from!) || setDraft(assist.from!)}>
             원래대로
           </Button>
-        </div>
+        </EditorChangeNote>
       )}
       <DraftChecks unitId={unit.id} source={unit.source} draft={draft} units={line.units} terms={line.terms} tags={tags} rules={project.data?.formatRules ?? undefined} targetLanguage={project.data?.targetLanguage} onPlace={placeMissing} />
-      <div className="flex flex-wrap items-center gap-2 pt-1">
-        {dirty && <span className="order-last text-xs font-medium text-warning">초안 보관됨</span>}
-        {save.isPending && <span className="text-xs text-muted-foreground" aria-live="polite">저장 중…</span>}
+      <Inline wrap gap="condensed" paddingTop="tight">
+        {dirty && <EditorDraftNote>초안 보관됨</EditorDraftNote>}
+        {save.isPending && <Text variant="caption" tone="muted" aria-live="polite">저장 중…</Text>}
         {marks === undefined && !dirty && unit.statusBy === 'ai' && (
-          <span className="flex items-center gap-1 text-xs text-muted-foreground">
+          <Inline as="span" gap="tight" variant="caption" tone="muted">
             <AiMark by="ai" /> AI 초안
-          </span>
+          </Inline>
         )}
         <InlineEditorActions
-          className="shrink-0"
+          fixed
           primary={next ? <EditorAction icon={Check} disabled={save.isPending || !draft.trim()} onClick={() => run(true)} title={keyLabel('Mod+Enter')}>
             {next.name}{onDone ? '하고 다음' : '하기'}
           </EditorAction> : onDone ? <EditorAction icon={ArrowDown} disabled={save.isPending || (dirty && !draft.trim() && statuses.find((status) => status.id === unit.statusId)?.kind === 'final')} onClick={() => run(true)} title={keyLabel('Mod+Enter')}>
@@ -261,24 +257,24 @@ export function TranslationEditor({
           </>}
           overflow={canShowOverflow && <DropdownMenu>
             <DropdownMenuTrigger asChild><Button variant="ghost" size="icon-sm" aria-label="번역 동작 더보기"><MoreHorizontal /></Button></DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="min-w-48">
+            <EditorMenuContent align="end">
               {dirty && <>
-                <DropdownMenuItem disabled={save.isPending} onSelect={() => run(false)}><Save /> 저장만 <span className="ml-auto text-xs text-muted-foreground">{keyLabel('Mod+S')}</span></DropdownMenuItem>
+                <DropdownMenuItem disabled={save.isPending} onSelect={() => run(false)}><Save /> 저장만 <Text marginLeft="auto" variant="caption" tone="muted">{keyLabel('Mod+S')}</Text></DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => clearDraft()}><Undo2 /> 되돌리기</DropdownMenuItem>
               </>}
               {dirty && completes && <DropdownMenuSeparator />}
-              {completes && <DropdownMenuItem disabled={!!ai.loading} onSelect={() => ask(draft)}><Sparkles /> AI 자동완성 <span className="ml-auto text-xs text-muted-foreground">{keyLabel('Alt+/')}</span></DropdownMenuItem>}
-            </DropdownMenuContent>
+              {completes && <DropdownMenuItem disabled={!!ai.loading} onSelect={() => ask(draft)}><Sparkles /> AI 자동완성 <Text marginLeft="auto" variant="caption" tone="muted">{keyLabel('Alt+/')}</Text></DropdownMenuItem>}
+            </EditorMenuContent>
           </DropdownMenu>}
         />
-      </div>
-      {(assist.loading || assist.done === 'unchanged' || assist.message || ai.loading || ai.message) && <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground" aria-live="polite">
+      </Inline>
+      {(assist.loading || assist.done === 'unchanged' || assist.message || ai.loading || ai.message) && <Inline wrap gap="condensed" variant="caption" tone="muted" aria-live="polite">
         {assist.loading && <Waiting label={assist.loading === 'refine' ? '다듬는 중…' : 'AI 번역 중…'} onCancel={() => (assistPending.current?.abort(), setAssist({}))} />}
         {assist.done === 'unchanged' && <span>다듬을 곳이 없습니다</span>}
         {assist.message && <span role="alert">{assist.message}</span>}
         {ai.loading && <Waiting label="자동완성 받는 중…" onCancel={() => (pending.current?.abort(), setAi({ dismissed: true }))} />}
         {ai.message && <span role="alert">{ai.message}</span>}
-      </div>}
+      </Inline>}
       {!dirty && <PreviousDiff unitId={unit.id} openAtFirst={unit.statusBy === 'ai'} />}
       {suggestions.length > 0 && (
         <SuggestionList
@@ -288,7 +284,7 @@ export function TranslationEditor({
           onPick={(text) => replaceLineText(unit.id, text) || setDraft(text)}
         />
       )}
-    </div>
+    </Box>
   );
 }
 
@@ -303,48 +299,34 @@ function SuggestionList({ suggestions, source, tokenPattern, onPick }: { suggest
   const shown = all ? suggestions : suggestions.slice(0, VISIBLE_SUGGESTIONS);
   const more = suggestions.length - VISIBLE_SUGGESTIONS;
   return (
-    <div className="overflow-hidden rounded-md border border-border bg-panel" aria-label="번역 후보와 유사 번역">
-      <ol className="divide-y divide-border-subtle">
+    <EditorSuggestionPanel aria-label="번역 후보와 유사 번역">
+      <EditorSuggestionItems>
         {shown.map((suggestion, index) => (
           <li key={suggestion.key}>
-            <Button
-              variant="ghost"
-              size="row"
-              className="group flex h-auto w-full items-start gap-2 rounded-none px-2 py-1.5 text-left hover:bg-accent"
-              onClick={() => onPick(suggestion.text)}
-            >
-              <kbd className={cn('mt-0.5 inline-flex min-w-8 shrink-0 select-none items-center justify-center rounded border border-border bg-card px-1 py-0.5 font-mono text-2xs font-semibold text-muted-foreground group-hover:border-primary/40 group-hover:text-foreground', index >= VISIBLE_SUGGESTIONS && 'invisible')}>
-                {keyLabel(`Alt+Shift+${index + 1}`)}
-              </kbd>
-              <div className="min-w-0 flex-1 space-y-0.5">
-                {/* The label stays on its own line: beside the text it would squeeze a narrow column down to a letter per line. */}
-                <Badge variant="outline" className="max-w-full truncate">{suggestion.label}</Badge>
-                <TokenText text={suggestion.text} source={source} pattern={tokenPattern} className="block min-w-0 text-sm leading-5 text-foreground [overflow-wrap:anywhere]" />
-                {(suggestion.detail || suggestion.reasons?.length) && (
-                  <p className="truncate text-xs text-muted-foreground">{[suggestion.detail, ...(suggestion.reasons ?? [])].filter(Boolean).join(' · ')}</p>
-                )}
-                {suggestion.diff && (
-                  <p className="text-xs text-muted-foreground">
-                    <span className="mr-1 text-subtle-foreground">원문 차이</span>
-                    {suggestion.diff.map((word, at) => (
-                      <span key={at} className={cn(word.changed && 'rounded-xs bg-warning/15 px-0.5 font-medium text-warning')}>
-                        {at > 0 && ' '}
-                        {word.text}
-                      </span>
-                    ))}
-                  </p>
-                )}
-              </div>
-            </Button>
+            <EditorSuggestionRow hint={keyLabel(`Alt+Shift+${index + 1}`)} hintHidden={index >= VISIBLE_SUGGESTIONS} onPick={() => onPick(suggestion.text)}>
+              {/* The label stays on its own line: beside the text it would squeeze a narrow column down to a letter per line. */}
+              <EditorSuggestionOrigin>{suggestion.label}</EditorSuggestionOrigin>
+              <TokenText text={suggestion.text} source={source} pattern={tokenPattern} look="suggestion" />
+              {(suggestion.detail || suggestion.reasons?.length) && (
+                <Text as="p" truncate variant="caption" tone="muted">{[suggestion.detail, ...(suggestion.reasons ?? [])].filter(Boolean).join(' · ')}</Text>
+              )}
+              {suggestion.diff && (
+                <Text as="p" variant="caption" tone="muted">
+                  <Text tone="subtle" marginRight="tight">원문 차이</Text>
+                  {suggestion.diff.map((word, at) => (
+                    <EditorChangedWord key={at} changed={word.changed}>
+                      {at > 0 && ' '}
+                      {word.text}
+                    </EditorChangedWord>
+                  ))}
+                </Text>
+              )}
+            </EditorSuggestionRow>
           </li>
         ))}
-      </ol>
-      {more > 0 && (
-        <Button variant="ghost" size="inline" className="h-auto w-full justify-center rounded-none border-t border-border-subtle py-1 text-xs text-muted-foreground" onClick={() => setAll((open) => !open)}>
-          {all ? '접기' : `+${more}개 더보기`}
-        </Button>
-      )}
-    </div>
+      </EditorSuggestionItems>
+      {more > 0 && <EditorSuggestionMore onClick={() => setAll((open) => !open)}>{all ? '접기' : `+${more}개 더보기`}</EditorSuggestionMore>}
+    </EditorSuggestionPanel>
   );
 }
 
@@ -403,23 +385,20 @@ function PreviousDiff({ unitId, openAtFirst }: { unitId: string; openAtFirst: bo
   const previous = at >= 0 ? candidates.slice(at + 1).find((candidate) => candidate.text.trim() !== current.text.trim()) : undefined;
   if (!current || !previous) return null;
   const diff = wordDiff(previous.text, current.text).map((part, index) => (
-    <span key={index} className={cn(part.change === 'removed' && 'text-destructive line-through decoration-destructive/60', part.change === 'added' && 'rounded-sm bg-success/15 text-success')}>
+    <EditorDiffWord key={index} change={part.change === 'removed' || part.change === 'added' ? part.change : undefined}>
       {part.text}
-    </span>
+    </EditorDiffWord>
   ));
   if (!open)
     return (
       <AdvancedDisclosure label="이전 번역">
-        <div className="rounded-md border bg-background px-3 py-2 text-sm"><GroupHeading className="mb-1">바뀐 곳</GroupHeading><p className="break-words whitespace-pre-wrap">{diff}</p></div>
+        <EditorPreviousDiff title="바뀐 곳">{diff}</EditorPreviousDiff>
       </AdvancedDisclosure>
     );
   return (
-    <div className="rounded-md border bg-background px-3 py-2 text-sm">
-      <GroupHeading className="mb-1" actions={<Button variant="ghost" size="inline" onClick={() => setOpen(false)}>접기</Button>}>
-        바뀐 곳
-      </GroupHeading>
-      <p className="break-words whitespace-pre-wrap">{diff}</p>
-    </div>
+    <EditorPreviousDiff title="바뀐 곳" actions={<Button variant="ghost" size="inline" onClick={() => setOpen(false)}>접기</Button>}>
+      {diff}
+    </EditorPreviousDiff>
   );
 }
 
@@ -440,12 +419,12 @@ function Waiting({ label, onCancel }: { label: string; onCancel: () => void }) {
     return () => clearInterval(timer);
   }, []);
   return (
-    <span className="flex items-center gap-1 text-xs text-muted-foreground tabular-nums">
+    <Inline as="span" gap="tight" variant="caption" tone="muted" tabular>
       {label}{seconds > 0 && ` ${seconds}초`}
-      <Button variant="ghost" size="inline" className="text-muted-foreground" onClick={onCancel} title="취소 (Esc)">
+      <Button variant="ghost" size="inline" tone="muted" onClick={onCancel} title="취소 (Esc)">
         취소
       </Button>
-    </span>
+    </Inline>
   );
 }
 
@@ -483,8 +462,8 @@ function DraftChecks({ unitId, source, draft, units, terms, tags, rules, targetL
   if (!missing.length && !issues.length && !unusedTerms.length && !speechOff)
     return null;
   return (
-    <div className="flex flex-wrap items-center gap-1.5 text-xs text-warning" onClick={(event) => event.stopPropagation()}>
-      {missing.length > 0 && <CircleAlert className="size-3" aria-label="빠진 서식" />}
+    <Inline wrap gap="snug" variant="caption" tone="warning" onClick={(event) => event.stopPropagation()}>
+      {missing.length > 0 && <Icon icon={CircleAlert} size="xs" aria-label="빠진 서식" />}
       {missing.map((unit) => (
         <TokenChip
           key={unit.number}
@@ -495,26 +474,26 @@ function DraftChecks({ unitId, source, draft, units, terms, tags, rules, targetL
         />
       ))}
       {tags.placed.length > 0 && (
-        <Button variant="ghost" size="inline" className="text-xs text-muted-foreground" title={keyLabel('Alt+T')} onClick={onPlace}>
+        <Button variant="ghost" size="inline" tone="muted" title={keyLabel('Alt+T')} onClick={onPlace}>
           제자리에 넣기
         </Button>
       )}
       {unusedTerms.length > 0 && (
-        <span className="inline-flex items-center gap-1" title={`번역에 없는 용어: ${unusedTerms.map((term) => `${term.source} → ${term.target}`).join(', ')}`}>
-          <CircleAlert className="size-3" />용어 {unusedTerms.length}
-        </span>
+        <EditorInlineLabel title={`번역에 없는 용어: ${unusedTerms.map((term) => `${term.source} → ${term.target}`).join(', ')}`}>
+          <Icon icon={CircleAlert} size="xs" />용어 {unusedTerms.length}
+        </EditorInlineLabel>
       )}
       {speechOff && (
-        <span className="inline-flex items-center gap-1" title={`말투 규칙은 ${SPEECH_LEVEL_LABELS[speech!.level]}, 지금 번역은 ${SPEECH_LEVEL_LABELS[guessed!]}`}>
-          <CircleAlert className="size-3" />말투
-        </span>
+        <EditorInlineLabel title={`말투 규칙은 ${SPEECH_LEVEL_LABELS[speech!.level]}, 지금 번역은 ${SPEECH_LEVEL_LABELS[guessed!]}`}>
+          <Icon icon={CircleAlert} size="xs" />말투
+        </EditorInlineLabel>
       )}
       {issues.map((issue) => (
-        <span key={issue.code} className="inline-flex items-center gap-1" title={issue.message}>
-          <CircleAlert className="size-3" />
+        <EditorInlineLabel key={issue.code} title={issue.message}>
+          <Icon icon={CircleAlert} size="xs" />
           {CHECK_LABELS[issue.code] ?? issue.code}
-        </span>
+        </EditorInlineLabel>
       ))}
-    </div>
+    </Inline>
   );
 }

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Play } from 'lucide-react';
 import { LineDetail } from '@/components/line-detail';
-import { useRevealDock, SplitPane, EditorToolbar, FilterChips, Pager, SearchInput, FilterBar, ActionBar, EmptyState, Button, Skeleton } from '@loca/ui';
+import { useRevealDock, EditorToolbar, FilterChips, Pager, FilterBar, ActionBar, Button, Box, Inline, Text, ScriptEmptyState, ScriptLineSplit, ScriptRowSkeleton, ScriptSearchField } from '@loca/ui';
 import { HeaderActions } from '@/components/page';
 import { tokenPatternOf } from '@/lib/line-context';
 import { RunDialog } from '@/components/workflow/run-dialog';
@@ -229,12 +229,11 @@ export function LineList({
   // lines never reveals it, and closing it keeps the picked line.
   const showDetail = Boolean(search.line && search.detail);
   return (
-    <SplitPane
+    <ScriptLineSplit
       id="lines"
       autoActivate={Boolean(dockEditor || showDetail)}
       selectionKey={dockSelectionKey}
       defaultWidth="380px"
-      className="h-full min-h-0"
       pane={dockEditor ?? (
         showDetail && search.line ? (
           <LineDetail
@@ -254,7 +253,7 @@ export function LineList({
         {!find && !review && hasLineFilter(search) && <ActionBar aria-label="대사 목록 동작" items={[{ id: 'find-in-scene', label: '장면에서 찾아가기', onSelect: () => onSearch({ mode: 'find', page: undefined }) }]} />}
       </HeaderActions>
       <EditorToolbar><FilterBar>
-        <SearchInput value={search.q} onChange={(value) => onSearch({ q: value, page: undefined })} placeholder="원문·번역 찾기" className="w-56" />
+        <ScriptSearchField width="toolbar" value={search.q} onChange={(value) => onSearch({ q: value, page: undefined })} placeholder="원문·번역 찾기" />
           <LineFilters
           projectId={projectId}
           statuses={statusList}
@@ -278,26 +277,26 @@ export function LineList({
             clear: () => onSearch({ ...chip.clear, page: undefined }),
           }))}
         />
-        <span className="ml-auto whitespace-nowrap text-xs text-muted-foreground">{review && "검토함 · "}{total.toLocaleString()}줄</span>
+        <Text marginLeft="auto" nowrap variant="caption" tone="muted">{review && "검토함 · "}{total.toLocaleString()}줄</Text>
       </FilterBar></EditorToolbar>
       {banner}
-      {showScene && (matches.isPending || lines.isPlaceholderData) && <p className="px-3 py-2 text-xs text-muted-foreground" role="status">{groupNoun}별 전체 선택 목록을 불러오는 중입니다.</p>}
+      {showScene && (matches.isPending || lines.isPlaceholderData) && <Text as="p" paddingX="normal" paddingY="condensed" variant="caption" tone="muted" role="status">{groupNoun}별 전체 선택 목록을 불러오는 중입니다.</Text>}
       {showScene && matches.isError && !lines.isPlaceholderData && (
-        <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground" role="alert">
+        <Inline gap="condensed" paddingX="normal" paddingY="condensed" variant="caption" tone="muted" role="alert">
           <span>{groupNoun}별 전체 선택 목록을 불러오지 못했습니다.</span>
           <Button variant="outline" onClick={() => void matches.refetch()}>다시 시도</Button>
-        </div>
+        </Inline>
       )}
       {!!rows?.length && <LineHeadRow projectId={projectId} rows={rows} bulk={bulk} statusList={statusList} tags={lineTags(statuses.data?.tags)} />}
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <Box minHeight={0} grow overflow="y">
         {!rows ? (
-          <div className="space-y-4 p-4">
+          <Box spaceY="comfortable" padding="comfortable">
             {Array.from({ length: 6 }, (_, i) => (
-              <Skeleton key={i} className="h-10" />
+              <ScriptRowSkeleton key={i} />
             ))}
-          </div>
+          </Box>
         ) : rows.length === 0 ? (
-          <EmptyState className="py-16" noun={emptyNoun} filtered={!review && hasLineFilter(search)} action={!review && !hasLineFilter(search) ? emptyAction : undefined} />
+          <ScriptEmptyState noun={emptyNoun} filtered={!review && hasLineFilter(search)} action={!review && !hasLineFilter(search) ? emptyAction : undefined} />
         ) : (
           <ul>
             {rows.map((line, index) => {
@@ -345,8 +344,8 @@ export function LineList({
             })}
           </ul>
         )}
-      </div>
+      </Box>
       <Pager page={page} total={total} pageSize={PAGE_SIZE} onPage={(next) => onSearch({ page: next || undefined, line: undefined })} />
-    </SplitPane>
+    </ScriptLineSplit>
   );
 }

@@ -9,13 +9,17 @@ import { CHARACTER_ROLE_LABELS, OTHERS_LISTENER, PALETTE, parseMarks, type AutoM
 import {
   EmptyState,
   TagMenu,
-  SplitPane,
+  Box,
+  KnowledgeLoadingBlock,
+  KnowledgeNameBadge,
+  KnowledgeSplitPane,
+  KnowledgeSummaryText,
+  Text,
   FilterChips,
   FilterBar,
   ViewSwitch,
   Badge,
   Button,
-  Skeleton,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -142,7 +146,7 @@ function Knowledge() {
         { head: '제목', cell: (row) => row.title, className: 'font-medium', width: 240 },
         { head: '종류', cell: (row) => DOCUMENT_KIND[row.kind], width: 96 },
         { head: '문맥', cell: (row) => (row.alwaysInclude ? <Badge variant="outline">넣음</Badge> : null), width: 96 },
-        { head: '내용', cell: (row) => <span className="line-clamp-1 text-muted-foreground">{row.body.replace(/[#*_>`]+/g, '').replace(/\s+/g, ' ')}</span> },
+        { head: '내용', cell: (row) => <KnowledgeSummaryText>{row.body.replace(/[#*_>`]+/g, '').replace(/\s+/g, ' ')}</KnowledgeSummaryText> },
       ],
       fields: [
         { name: 'title', label: '제목', type: 'text' },
@@ -158,12 +162,12 @@ function Knowledge() {
     characters: defineKind({
       rows: people.data?.characters ?? [],
       columns: [
-        { head: '이름', cell: (row) => <span className="font-medium"><span style={personStyle(row.color)}>{row.name}</span>{row.player ? <Badge variant="outline" className="ml-2">플레이어</Badge> : null}</span>, width: 220 },
+        { head: '이름', cell: (row) => <Text weight="medium"><span style={personStyle(row.color)}>{row.name}</span>{row.player ? <KnowledgeNameBadge>플레이어</KnowledgeNameBadge> : null}</Text>, width: 220 },
         { head: '별칭', cell: (row) => row.aliases.join(', '), width: 180 },
-        { head: '성별·나이', cell: (row) => <span className="text-muted-foreground">{personLabel(row)}</span>, width: 120 },
+        { head: '성별·나이', cell: (row) => <Text tone="muted">{personLabel(row)}</Text>, width: 120 },
         { head: '역할', cell: (row) => row.role === 'unknown' ? null : CHARACTER_ROLE_LABELS[row.role], width: 90 },
-        { head: '프로필', cell: (row) => <span className="line-clamp-1 text-muted-foreground">{row.profile}</span> },
-        { head: '문체', cell: (row) => <span className="text-muted-foreground">{styleNames(row.style).join(' · ')}</span>, width: 180 },
+        { head: '프로필', cell: (row) => <KnowledgeSummaryText>{row.profile}</KnowledgeSummaryText> },
+        { head: '문체', cell: (row) => <Text tone="muted">{styleNames(row.style).join(' · ')}</Text>, width: 180 },
       ],
       fields: [
         { name: 'name', label: '이름', type: 'text' },
@@ -188,7 +192,7 @@ function Knowledge() {
         { head: '인물', cell: (row) => `${nameOf.get(row.fromId) ?? '?'} → ${nameOf.get(row.toId) ?? '?'}`, className: 'font-medium', width: 240 },
         { head: '관계', cell: (row) => row.kind, width: 160 },
         { head: '변화', cell: (row) => (row.changes.length ? `${row.changes.length}번` : '—'), className: 'tabular-nums', width: 80 },
-        { head: '설명', cell: (row) => <span className="line-clamp-1 text-muted-foreground">{row.description}</span> },
+        { head: '설명', cell: (row) => <KnowledgeSummaryText>{row.description}</KnowledgeSummaryText> },
       ],
       fields: [
         { name: 'fromId', label: '누가', type: 'character' },
@@ -211,7 +215,7 @@ function Knowledge() {
       columns: [
         { head: '사건', cell: (row) => row.title, className: 'font-medium', width: 260 },
         { head: '관련 인물', cell: (row) => row.participants.join(', '), width: 200 },
-        { head: '결과', cell: (row) => <span className="line-clamp-1 text-muted-foreground">{row.outcome}</span> },
+        { head: '결과', cell: (row) => <KnowledgeSummaryText>{row.outcome}</KnowledgeSummaryText> },
       ],
       fields: [
         { name: 'title', label: '제목', type: 'text' },
@@ -231,8 +235,8 @@ function Knowledge() {
         { head: '화자 → 청자', cell: (row) => `${row.fromName} → ${listenerLabel(row.toName)}`, className: 'font-medium', width: 240 },
         { head: '말투', cell: (row) => SPEECH_LEVEL_LABELS[row.level], width: 96 },
         { head: '호칭', cell: (row) => row.address || '—', width: 120 },
-        { head: '시작', cell: (row) => (row.startKey ? <span className="font-mono text-xs">{row.startKey}</span> : '처음부터'), width: 120 },
-        { head: '이유', cell: (row) => <span className="line-clamp-1 text-muted-foreground">{row.note}</span> },
+        { head: '시작', cell: (row) => (row.startKey ? <Text mono variant="caption">{row.startKey}</Text> : '처음부터'), width: 120 },
+        { head: '이유', cell: (row) => <KnowledgeSummaryText>{row.note}</KnowledgeSummaryText> },
       ],
       fields: [
         { name: 'fromName', label: '화자', description: '인물 이름이나 별칭', type: 'text' },
@@ -516,10 +520,9 @@ function Knowledge() {
 
   return (
     <Page title="자료" flush>
-      <SplitPane
+      <KnowledgeSplitPane
         id="knowledge" selectionKey={search.item}
         defaultWidth="500px"
-        className="h-full"
         pane={
           selected ? (
             <DraftEditor
@@ -574,15 +577,15 @@ function Knowledge() {
           {!pairsView && !graph && !timeline && spec.create && <Button disabled={create.isPending} onClick={() => create.mutate()}><Plus /> {KINDS[tableKind]}</Button>}
           <RunDialog projectId={projectId} trigger={<Button variant="ghost"><Play /> 워크플로 실행</Button>} />
         </HeaderActions>
-        <FilterBar end={<><AiConfirmNote projectId={projectId} /><span className="text-2xs font-medium text-subtle-foreground tabular-nums">{count}</span></>}>
+        <FilterBar end={<><AiConfirmNote projectId={projectId} /><Text variant="micro" weight="medium" tone="subtle" tabular>{count}</Text></>}>
           {(graph || timeline) && <KnowledgeFilters {...filters} />}
           <FilterChips chips={chips} />
         </FilterBar>
         {graph ? (
-          <div className="min-h-0 flex-1">
+          <Box minHeight={0} grow>
             {/* Pairs come from speech rules too: laying out before they arrive would lay out twice. */}
             {people.isPending || rules.isPending ? (
-              <Skeleton className="m-4 h-64" />
+              <KnowledgeLoadingBlock kind="graph" />
             ) : (
               <RelationshipGraph
                 storageKey={`tw.relationships.${projectId}`}
@@ -596,11 +599,11 @@ function Knowledge() {
                 actions={graphActions}
               />
             )}
-          </div>
+          </Box>
         ) : timeline ? (
-          <div className="min-h-0 flex-1">
+          <Box minHeight={0} grow>
             {pending ? (
-              <Skeleton className="m-4 h-40" />
+              <KnowledgeLoadingBlock kind="timeline" />
             ) : (
               <EventFlow
                 key={direction}
@@ -615,7 +618,7 @@ function Knowledge() {
                 badge={(event) => <SourceBadge row={rows.find((row) => row.id === event.id)!} />}
               />
             )}
-          </div>
+          </Box>
         ) : pairsView ? (
           <PairTable
             colorOf={colorOf}
@@ -645,7 +648,7 @@ function Knowledge() {
             rowContextMenu={renderRowContextMenu}
           />
         )}
-      </SplitPane>
+      </KnowledgeSplitPane>
       <AlertDialog open={Boolean(deletingIds)} onOpenChange={(open) => !open && setDeletingIds(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>

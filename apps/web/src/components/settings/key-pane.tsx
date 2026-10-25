@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Inspector, InspectorField, InspectorFields, InspectorHeader, InspectorSection } from '@loca/ui';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, MonoInput, Text, Inspector, InspectorField, InspectorFields, InspectorHeader, InspectorSection } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 
 export type KeyRow = { id: string; name: string; headerTemplate: string | null; hasKey: boolean };
@@ -43,7 +43,7 @@ export function KeyPane({ row, onClose, onCreated }: { row?: KeyRow; onClose: ()
   return (
     <Inspector footerStart={row ? (<><AlertDialog>
             <AlertDialogTrigger asChild>
-              <Button variant="ghost" className="text-destructive">
+              <Button variant="ghost" tone="danger">
                 <Trash2 /> API 키 삭제
               </Button>
             </AlertDialogTrigger>
@@ -61,7 +61,7 @@ export function KeyPane({ row, onClose, onCreated }: { row?: KeyRow; onClose: ()
         <>
           {row && dirty && (
             <>
-              <span className="mr-auto text-xs text-muted-foreground">바뀐 곳이 있습니다</span>
+              <Text variant="caption" tone="muted" marginRight="auto">바뀐 곳이 있습니다</Text>
               <Button variant="outline" disabled={save.isPending} onClick={revert}>되돌리기</Button>
             </>
           )}
@@ -76,7 +76,7 @@ export function KeyPane({ row, onClose, onCreated }: { row?: KeyRow; onClose: ()
             <Input value={name} placeholder="예: 맞춤법 검사기 키" onChange={(event) => setName(event.target.value)} />
           </InspectorField>
           <InspectorField label="헤더" description="{key}는 저장한 키로 바뀝니다.">
-            <Input className="font-mono text-sm" value={header} onChange={(event) => setHeader(event.target.value)} />
+            <MonoInput textSize="body" value={header} onChange={(event) => setHeader(event.target.value)} />
           </InspectorField>
           <InspectorField label={row ? `키 · ${row.hasKey ? '저장됨' : '없음'}` : '키'}>
             <Input type="password" autoComplete="off" value={secret} placeholder={row ? '바꿀 때만 입력' : undefined} onChange={(event) => setSecret(event.target.value)} />

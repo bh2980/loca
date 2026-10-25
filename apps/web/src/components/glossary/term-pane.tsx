@@ -5,7 +5,7 @@ import { Link } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Play, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { Inspector, InspectorHeader, InspectorBlock, InspectorSection, InspectorField, InspectorFields, InspectorList, TagListEditor, DirtyBar, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Textarea } from '@loca/ui';
+import { Inspector, InspectorHeader, InspectorBlock, InspectorSection, InspectorField, InspectorFields, InspectorList, TagListEditor, DirtyBar, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Inline, Input, KnowledgeLineLink, KnowledgeScrollList, Text, Textarea } from '@loca/ui';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { confirmLabel, SourceBadge, StateCell, type ItemTag } from '@/components/knowledge/table';
 import { isSettled, PALETTE, TAG_SCOPES, type KnowledgeOrigin, type KnowledgeStatus, type StatusBy } from '@tw/shared';
@@ -130,7 +130,7 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
   return (
     <Inspector footerStart={<><AlertDialog>
             <AlertDialogTrigger asChild>
-              <Button variant="ghost" className="text-destructive">
+              <Button variant="ghost" tone="danger">
                 <Trash2 /> 용어 삭제
               </Button>
             </AlertDialogTrigger>
@@ -146,14 +146,14 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
             </AlertDialogContent>
           </AlertDialog>
           {candidate && (
-            <Button variant="ghost" className="text-destructive" disabled={deciding} onClick={() => onDecide(false)}>버리기</Button>
+            <Button variant="ghost" tone="danger" disabled={deciding} onClick={() => onDecide(false)}>버리기</Button>
           )}</>}
       header={<InspectorHeader kind="용어" name={term.source} status={
-        <span className="flex items-center gap-2">
+        <Inline as="span" gap="condensed">
           <SourceBadge row={{ ...term, evidence: [] }} />
           <span>·</span>
           {term.status === 'candidate' ? <span>후보</span> : <StateCell row={{ ...term, evidence: [] }} />}
-        </span>
+        </Inline>
       } onClose={onClose} />}
       footer={dirty ? <DirtyBar dirtyCount={Object.keys(changedFields(form, saved)).length} onRevert={takeSaved} onSave={() => save.mutate()} saving={save.isPending} disabled={!form.source.trim()} /> : (candidate ? <Button variant="outline" disabled={deciding || !term.target.trim()} onClick={() => onDecide(true)}><Check /> {confirmLabel([{ ...term, evidence: [] }])}</Button> : null)}
     >
@@ -184,11 +184,11 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
         }
       >
         {usage.data && usage.data.rows.length === 0 ? (
-          <p className="text-sm text-muted-foreground">이 용어가 나오는 대사가 없습니다.</p>
+          <Text as="p" variant="body" tone="muted">이 용어가 나오는 대사가 없습니다.</Text>
         ) : (
-          <InspectorList className="max-h-60 overflow-auto">
-            {usage.data?.rows.map((row) => <li key={row.id}><Link to="/p/$projectId/script" params={{ projectId }} search={{ group: row.groupId, line: row.id }} className="block px-1 py-1.5 text-sm hover:bg-muted"><span className="text-xs text-muted-foreground">{row.groupTitle} · </span>{row.speaker && <span className="font-medium">{row.speaker}: </span>}{row.source}{row.translation && <span className="block text-muted-foreground">{row.translation}</span>}</Link></li>)}
-          </InspectorList>
+          <KnowledgeScrollList limit={60}>
+            {usage.data?.rows.map((row) => <li key={row.id}><KnowledgeLineLink kind="inset"><Link to="/p/$projectId/script" params={{ projectId }} search={{ group: row.groupId, line: row.id }}><Text variant="caption" tone="muted">{row.groupTitle} · </Text>{row.speaker && <Text weight="medium">{row.speaker}: </Text>}{row.source}{row.translation && <Text display="block" tone="muted">{row.translation}</Text>}</Link></KnowledgeLineLink></li>)}
+          </KnowledgeScrollList>
         )}
       </InspectorSection>
     </Inspector>

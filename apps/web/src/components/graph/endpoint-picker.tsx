@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { Button, CanvasSurface, Empty, EmptyDescription, EmptyHeader, EmptyTitle, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner } from '@loca/ui';
+import { Box, Button, CanvasSurface, Empty, EmptyDescription, EmptyHeader, EmptyTitle, Grid, Inline, Input, SearchResultButton, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner, Stack, Text } from '@loca/ui';
 import { GraphCanvas, type GraphCanvasHandle, type NodeInfo, type Viewport } from '@/components/graph/graph-canvas';
 import { useSize } from '@/hooks/use-size';
 import { q } from '@/lib/queries';
@@ -186,39 +186,39 @@ export function EndpointPicker({ projectId, direction, step, start, end, section
   }, [expanded, chain, endpointMarkers, start, end]);
 
   return (
-    <section className="flex h-full min-h-0 flex-1 flex-col" aria-label="원본 그래프에서 경로 끝점 고르기">
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-3 py-2">
-        <span className="text-xs font-medium text-muted-foreground">{step === 'start' ? '시작 대사 선택' : '끝 대사 선택'}</span>
+    <Stack as="section" height="full" minHeight={0} grow aria-label="원본 그래프에서 경로 끝점 고르기">
+      <Inline wrap gap="condensed" shrink={false} border="bottom" borderColor="border" paddingX="normal" paddingY="condensed">
+        <Text variant="caption" weight="medium" tone="muted">{step === 'start' ? '시작 대사 선택' : '끝 대사 선택'}</Text>
         {sections.data && sections.data.length > 1 && (
           <Select value={sectionName} onValueChange={(value) => onSectionChange(value)}>
-            <SelectTrigger className="w-56 max-w-full" aria-label="장 선택"><SelectValue placeholder="장 선택" /></SelectTrigger>
+            <Box asChild width={56} maxWidth="full"><SelectTrigger aria-label="장 선택"><SelectValue placeholder="장 선택" /></SelectTrigger></Box>
             <SelectContent>{sections.data.map((item) => <SelectItem key={item.name} value={item.name}>{item.name}</SelectItem>)}</SelectContent>
           </Select>
         )}
         {expandedChain && <Button variant="ghost" onClick={() => onGraphNavigation({ chain: undefined, focus: undefined })}>전체 그래프</Button>}
-      </div>
-      <div className="grid shrink-0 gap-1 border-b border-border px-3 py-2">
+      </Inline>
+      <Grid gap="tight" shrink={false} border="bottom" borderColor="border" paddingX="normal" paddingY="condensed">
         <Input aria-label="현재 장 그래프에서 대사 찾기" value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="현재 장에서 화자·원문·키로 찾기" />
         {results.length > 0 && (
-          <div className="max-h-32 overflow-y-auto rounded-md border border-border bg-card" role="group" aria-label="그래프 검색 결과">
-            {results.map((node) => <Button key={node.id} type="button" variant="ghost" className="flex h-auto w-full min-w-0 flex-col items-start rounded-none border-b border-border px-2 py-1.5 text-left text-sm last:border-b-0" onClick={() => locate(node.id)}><span className="w-full truncate font-medium">{node.speaker ? `${node.speaker}: ` : ''}{node.text ?? node.label ?? node.key}</span><span className="text-xs text-muted-foreground">{node.key} · 그래프에서 위치 찾기</span></Button>)}
-          </div>
+          <Box maxHeight={32} overflow="y" radius="md" border="all" borderColor="border" background="card" role="group" aria-label="그래프 검색 결과">
+            {results.map((node) => <SearchResultButton key={node.id} type="button" onClick={() => locate(node.id)}><Text width="full" truncate weight="medium">{node.speaker ? `${node.speaker}: ` : ''}{node.text ?? node.label ?? node.key}</Text><Text variant="caption" tone="muted">{node.key} · 그래프에서 위치 찾기</Text></SearchResultButton>)}
+          </Box>
         )}
-      </div>
+      </Grid>
       {sections.isError ? (
-        <Empty className="flex-1"><EmptyHeader><EmptyTitle>그래프 장 목록을 불러오지 못했습니다</EmptyTitle><EmptyDescription>{sections.error.message}</EmptyDescription></EmptyHeader><Button variant="outline" onClick={() => void sections.refetch()}>다시 시도</Button></Empty>
+        <Box asChild grow><Empty><EmptyHeader><EmptyTitle>그래프 장 목록을 불러오지 못했습니다</EmptyTitle><EmptyDescription>{sections.error.message}</EmptyDescription></EmptyHeader><Button variant="outline" onClick={() => void sections.refetch()}>다시 시도</Button></Empty></Box>
       ) : sections.isPending ? (
-        <div className="flex min-h-0 flex-1 items-center justify-center gap-2 text-sm text-muted-foreground" role="status"><Spinner /> 그래프 장을 불러오는 중…</div>
+        <Inline minHeight={0} grow justify="center" gap="condensed" variant="body" tone="muted" role="status"><Spinner /> 그래프 장을 불러오는 중…</Inline>
       ) : graph.isError ? (
-        <Empty className="flex-1"><EmptyHeader><EmptyTitle>원본 그래프를 불러오지 못했습니다</EmptyTitle><EmptyDescription>{graph.error.message}</EmptyDescription></EmptyHeader><Button variant="outline" onClick={() => void graph.refetch()}>다시 시도</Button></Empty>
+        <Box asChild grow><Empty><EmptyHeader><EmptyTitle>원본 그래프를 불러오지 못했습니다</EmptyTitle><EmptyDescription>{graph.error.message}</EmptyDescription></EmptyHeader><Button variant="outline" onClick={() => void graph.refetch()}>다시 시도</Button></Empty></Box>
       ) : graph.data?.status === 'error' || graph.data?.status === 'failed' || graph.data?.status === 'missing' ? (
-        <Empty className="flex-1"><EmptyHeader><EmptyTitle>원본 그래프를 준비하지 못했습니다</EmptyTitle><EmptyDescription>{graph.data.error ?? '그래프 레이아웃에 실패했습니다.'}</EmptyDescription></EmptyHeader><Button variant="outline" onClick={() => void graph.refetch()}>다시 시도</Button></Empty>
+        <Box asChild grow><Empty><EmptyHeader><EmptyTitle>원본 그래프를 준비하지 못했습니다</EmptyTitle><EmptyDescription>{graph.data.error ?? '그래프 레이아웃에 실패했습니다.'}</EmptyDescription></EmptyHeader><Button variant="outline" onClick={() => void graph.refetch()}>다시 시도</Button></Empty></Box>
       ) : graph.isPending || graph.data?.status !== 'ready' || !currentLayout ? (
-        <div className="flex min-h-0 flex-1 items-center justify-center gap-2 text-sm text-muted-foreground" role="status"><Spinner /> 원본 그래프를 불러오는 중…</div>
+        <Inline minHeight={0} grow justify="center" gap="condensed" variant="body" tone="muted" role="status"><Spinner /> 원본 그래프를 불러오는 중…</Inline>
       ) : !currentLayout.nodes.length ? (
-        <Empty className="flex-1"><EmptyHeader><EmptyTitle>이 장에 대사가 없습니다</EmptyTitle></EmptyHeader></Empty>
+        <Box asChild grow><Empty><EmptyHeader><EmptyTitle>이 장에 대사가 없습니다</EmptyTitle></EmptyHeader></Empty></Box>
       ) : (
-        <CanvasSurface ref={sizeRef} className="min-h-0 min-w-0 flex-1" data-testid="endpoint-source-graph">
+        <Box asChild minHeight={0} minWidth={0} grow><CanvasSurface ref={sizeRef} data-testid="endpoint-source-graph">
           <GraphCanvas
             key={`${direction}:${sectionName ?? 'all'}:${expandedChain ?? 'source'}:${focusId ?? ''}`}
             nodes={displayedNodes}
@@ -240,8 +240,8 @@ export function EndpointPicker({ projectId, direction, step, start, end, section
             onOpen={() => choose(focusId ?? undefined)}
             onSelect={choose}
           />
-        </CanvasSurface>
+        </CanvasSurface></Box>
       )}
-    </section>
+    </Stack>
   );
 }

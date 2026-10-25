@@ -1,7 +1,6 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { paletteColor } from '@loca/ui';
-import { cn } from '@/lib/utils';
+import { paletteColor, Text, type TextProps } from '@loca/ui';
 import { q } from '@/lib/queries';
 
 /**
@@ -25,11 +24,11 @@ export function usePersonColors(projectId: string) {
 export const personStyle = (color: string | undefined) => (color ? { color: paletteColor(color) } : undefined);
 
 /** A name as text, in the person's color when it has one. */
-export function PersonName({ projectId, name, className }: { projectId: string; name: string; className?: string }) {
+export function PersonName({ projectId, name, ...text }: { projectId: string; name: string } & Omit<TextProps, 'children' | 'style'>) {
   const colorOf = usePersonColors(projectId);
   return (
-    <span className={cn(className)} style={personStyle(colorOf(name))}>
+    <Text {...text} style={personStyle(colorOf(name))}>
       {name}
-    </span>
+    </Text>
   );
 }

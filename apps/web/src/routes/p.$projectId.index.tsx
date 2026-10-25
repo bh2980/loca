@@ -3,12 +3,11 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { BookMarked, ChevronRight, CircleAlert, Inbox, MessageSquareQuote, Sparkles, UserRoundSearch, Workflow } from 'lucide-react';
 import { GettingStarted } from '@/components/getting-started';
-import { JobStatusBadge, Button, SectionHeading, Skeleton, StatusBar, StatusIcon } from '@loca/ui';
+import { JobStatusBadge, Box, Button, Heading, Icon, Inline, RowChevron, RowSkeleton, RunCountCell, RunDateCell, RunRowLink, RunTitleCell, Stack, StatusChipLink, StatusIcon, StatusMeter, Text, TodoIcon, TodoRowLink, ProgressKindLabel } from '@loca/ui';
 import { Elapsed, JobProgress } from '@/components/job-progress';
 import { Page } from '@/components/page';
 import { AUTO_MARKS } from '@tw/shared';
 import { q, useReviewTagId } from '@/lib/queries';
-import { cn } from '@/lib/utils';
 import { dateTime } from '@/lib/datetime';
 import { useProgress } from '@/lib/use-progress';
 import { SCRIPT_VIEW } from '@/lib/labels';
@@ -28,7 +27,7 @@ interface Todo {
   /** Something is wrong (a run stopped), not just waiting. */
   alert?: boolean;
   /** The destination, already filtered; the row is rendered inside it. */
-  link: ReactElement<{ className?: string; children?: ReactNode }>;
+  link: ReactElement<{ children?: ReactNode }>;
 }
 
 /**
@@ -142,90 +141,93 @@ function Home() {
   const open = todos.filter((todo) => todo.count > 0);
 
   return (
-    <Page title="홈" className="mx-auto w-full max-w-5xl space-y-8 py-8">
+    <Page title="홈" reading>
       <GettingStarted projectId={projectId} />
       <section>
-        <SectionHeading page className="mb-3">다음 할 일</SectionHeading>
+        <Heading variant="page-section" minWidth={0} marginBottom="normal">다음 할 일</Heading>
         {loading ? (
-          <div className="space-y-2">
-            <Skeleton className="h-16" />
-            <Skeleton className="h-16" />
-          </div>
+          <Box spaceY="condensed">
+            <RowSkeleton />
+            <RowSkeleton />
+          </Box>
         ) : open.length ? (
-          <ul className="rounded-md border border-border">
+          <Box as="ul" radius="md" border="all">
             {open.map((todo) => (
               <li key={todo.key}>
                 <TodoRow todo={todo} />
               </li>
             ))}
-          </ul>
+          </Box>
         ) : (
-          <p className="rounded-md border border-border px-4 py-6 text-sm text-muted-foreground">지금 할 일이 없습니다.</p>
+          <Text as="p" radius="md" border="all" paddingX="comfortable" paddingY="spacious" variant="body" tone="muted">지금 할 일이 없습니다.</Text>
         )}
       </section>
 
       <section>
-        <div className="mb-3 flex items-baseline gap-3">
-          <SectionHeading page>번역 진행</SectionHeading>
-          <span className="text-xs text-muted-foreground tabular-nums">
+        <Stack direction="row" align="baseline" gap="normal" marginBottom="normal">
+          <Heading variant="page-section" minWidth={0}>번역 진행</Heading>
+          <Text variant="caption" tone="muted" tabular>
             최종 상태 {total ? Math.round((done / total) * 100) : 0}% · 대사 {total.toLocaleString()}개 · 묶음 {project.data?.groupCount.toLocaleString() ?? '–'}개
-          </span>
-        </div>
-        <StatusBar statuses={statusList} counts={counts} className="h-1.5" />
-        <ul className="mt-3 space-y-2">
+          </Text>
+        </Stack>
+        <StatusMeter variant="page" statuses={statusList} counts={counts} />
+        <Box as="ul" marginTop="normal" spaceY="condensed">
           {kindProgress.map(({ kind, statusCounts, lines }) => (
-            <li key={kind} className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <span className="min-w-16 text-xs text-muted-foreground">{SCRIPT_VIEW[kind]} · {lines.toLocaleString()}줄</span>
-              <ul className="flex flex-wrap gap-x-1 gap-y-1">
+            <Inline as="li" key={kind} wrap gapX="normal" gapY="tight">
+              <ProgressKindLabel>{SCRIPT_VIEW[kind]} · {lines.toLocaleString()}줄</ProgressKindLabel>
+              <Stack as="ul" direction="row" wrap gapX="tight" gapY="tight">
                 {statusList.map((status) => (
                   <li key={status.id}>
-                    <Link to="/p/$projectId/script" params={{ projectId }} search={{ kind, statuses: [status.id], mode: 'find' }} className="flex items-center gap-1.5 rounded-xs px-2 py-1 text-sm hover:bg-muted transition-colors">
-                      <StatusIcon status={status} />
-                      {status.name}
-                      <span className="text-xs text-muted-foreground tabular-nums">{(statusCounts[status.id] ?? 0).toLocaleString()}</span>
-                    </Link>
+                    <StatusChipLink>
+                      <Link to="/p/$projectId/script" params={{ projectId }} search={{ kind, statuses: [status.id], mode: 'find' }}>
+                        <StatusIcon status={status} />
+                        {status.name}
+                        <Text variant="caption" tone="muted" tabular>{(statusCounts[status.id] ?? 0).toLocaleString()}</Text>
+                      </Link>
+                    </StatusChipLink>
                   </li>
                 ))}
-              </ul>
-            </li>
+              </Stack>
+            </Inline>
           ))}
-        </ul>
+        </Box>
       </section>
 
       <section>
-        <div className="mb-3 flex items-center gap-3">
-          <SectionHeading page>실행</SectionHeading>
-          <span className="text-xs text-muted-foreground">{active.length ? `진행 중 ${active.length}개` : '진행 중인 실행이 없습니다.'}</span>
-          <Button variant="ghost" className="ml-auto text-xs" asChild>
+        <Inline gap="normal" marginBottom="normal">
+          <Heading variant="page-section" minWidth={0}>실행</Heading>
+          <Text variant="caption" tone="muted">{active.length ? `진행 중 ${active.length}개` : '진행 중인 실행이 없습니다.'}</Text>
+          <Button variant="ghost" marginLeft="auto" asChild>
             <Link to="/p/$projectId/runs" params={{ projectId }}>
-              실행 기록 <ChevronRight className="size-3.5" />
+              실행 기록 <Icon icon={ChevronRight} size="sm" />
             </Link>
           </Button>
-        </div>
+        </Inline>
         {runs.data?.length === 0 ? (
-          <p className="rounded-md border border-border px-4 py-6 text-sm text-muted-foreground">아직 실행한 적이 없습니다.</p>
+          <Text as="p" radius="md" border="all" paddingX="comfortable" paddingY="spacious" variant="body" tone="muted">아직 실행한 적이 없습니다.</Text>
         ) : (
-          <ul className="rounded-md border border-border">
+          <Box as="ul" radius="md" border="all">
             {recent.map((item) => (
               <li key={item.id}>
-                <Link
-                  {...(item.kind === 'run' ? { to: '/p/$projectId/runs/$runId', params: { projectId, runId: item.id } } : { to: '/p/$projectId/runs', params: { projectId }, search: { job: item.id } })}
-                  className="flex items-center gap-4 px-4 py-3 text-sm hover:bg-muted"
-                >
-                  <span className="w-40 shrink-0 truncate">
-                    {item.title !== JOB_KIND[item.kind] && <><span className="mr-1 text-xs text-muted-foreground">{JOB_KIND[item.kind]}</span>{' '}</>}
-                    <span className="font-medium">{item.title}</span>
-                  </span>{' '}
-                  <JobStatusBadge status={item.status} />{' '}
-                  <JobProgress done={item.done} total={item.total} running={item.status === 'running'} className="min-w-16 flex-1" />{' '}
-                  <span className="w-24 shrink-0 text-right whitespace-nowrap text-muted-foreground tabular-nums">
-                    {item.status === 'running' && item.total <= 1 ? <Elapsed since={item.at} /> : `${item.done.toLocaleString()}/${item.total.toLocaleString()}`}
-                  </span>
-                  <span className="hidden w-44 shrink-0 text-right text-xs whitespace-nowrap text-muted-foreground xl:block">{dateTime(item.at)}</span>
-                </Link>
+                <RunRowLink>
+                  <Link
+                    {...(item.kind === 'run' ? { to: '/p/$projectId/runs/$runId', params: { projectId, runId: item.id } } : { to: '/p/$projectId/runs', params: { projectId }, search: { job: item.id } })}
+                  >
+                    <RunTitleCell>
+                      {item.title !== JOB_KIND[item.kind] && <><Text variant="caption" tone="muted" marginRight="tight">{JOB_KIND[item.kind]}</Text>{' '}</>}
+                      <Text weight="medium">{item.title}</Text>
+                    </RunTitleCell>{' '}
+                    <JobStatusBadge status={item.status} />{' '}
+                    <JobProgress done={item.done} total={item.total} running={item.status === 'running'} grow />{' '}
+                    <RunCountCell>
+                      {item.status === 'running' && item.total <= 1 ? <Elapsed since={item.at} /> : `${item.done.toLocaleString()}/${item.total.toLocaleString()}`}
+                    </RunCountCell>
+                    <RunDateCell>{dateTime(item.at)}</RunDateCell>
+                  </Link>
+                </RunRowLink>
               </li>
             ))}
-          </ul>
+          </Box>
         )}
       </section>
     </Page>
@@ -235,14 +237,14 @@ function Home() {
 function TodoRow({ todo }: { todo: Todo }) {
   const content = (
     <>
-      <span className={cn('flex size-9 shrink-0 items-center justify-center rounded-md bg-muted [&_svg]:size-4', todo.alert && 'bg-destructive/10 text-destructive')}>{todo.icon}</span>
-      <span className="min-w-0 flex-1">
-        <span className="block text-sm font-medium">{todo.title}</span>
-        {todo.description && <span className="block truncate text-xs text-muted-foreground">{todo.description}</span>}
-      </span>
-      <span className={cn('text-base font-semibold tabular-nums', todo.alert && 'text-destructive')}>{todo.count.toLocaleString()}</span>
-      <ChevronRight className="size-4 text-muted-foreground" />
+      <TodoIcon alert={todo.alert}>{todo.icon}</TodoIcon>
+      <Text minWidth={0} grow>
+        <Text display="block" variant="label">{todo.title}</Text>
+        {todo.description && <Text display="block" truncate variant="caption" tone="muted">{todo.description}</Text>}
+      </Text>
+      <Text variant="reading" weight="semibold" tabular tone={todo.alert ? 'danger' : undefined}>{todo.count.toLocaleString()}</Text>
+      <RowChevron />
     </>
   );
-  return cloneElement(todo.link, { className: 'flex items-center gap-4 px-4 py-3 hover:bg-muted', children: content });
+  return <TodoRowLink>{cloneElement(todo.link, { children: content })}</TodoRowLink>;
 }

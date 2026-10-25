@@ -5,7 +5,7 @@ import { ChevronDown } from 'lucide-react';
 import { AUTO_MARKS, type AutoMark, LINE_MARK_IDS, type LineMark, parseMarks } from '@tw/shared';
 import { FilterModeSwitch, markTagGroups, pickOf, PickIcon, togglePick, type FilterPick } from '@/components/header-filter';
 import { knownListenerFilter, toggleLineMarkFilter, unknownListenerFilter } from '@/lib/line-filter-state';
-import { Button, Input, DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger, StatusIcon } from '@loca/ui';
+import { Box, Button, DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuTrigger, Inline, ScriptFilterGroupLabel, ScriptFilterMenuContent, ScriptFilterSubmenuContent, ScriptInput, StatusIcon, Text } from '@loca/ui';
 import { q } from '@/lib/queries';
 import { PersonName } from '@/lib/person-colors';
 
@@ -162,13 +162,13 @@ export function LineFilters({ projectId, statuses, tags, speakers, listeners, un
   };
   const groups = markTagGroups({ marks: LINE_MARK_IDS, picked: search.marks, hidden: hiddenMarksOf(search), onMark: (mark, mode) => pickMark(mark as LineMark, mode), tags, pickedTags: search.tags, hiddenTags: search.hideTags, onTag: pickTag, projectId, tagHeading: '내 태그', issueHeading: '문제 유형' });
   return (
-    <div className="flex min-w-0 items-center gap-0.5">
+    <Inline minWidth={0} gap="hair">
       <DropdownMenu onOpenChange={(open) => open && setStatusMode('show')}>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" className="text-muted-foreground">상태 <ChevronDown /></Button>
+          <Button variant="ghost" tone="muted">상태 <ChevronDown /></Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="max-h-[70svh] w-60 overflow-y-auto">
-          <div className="p-1"><FilterModeSwitch mode={statusMode} onMode={setStatusMode} /></div>
+        <ScriptFilterMenuContent align="start" width="wide">
+          <Box padding="tight"><FilterModeSwitch mode={statusMode} onMode={setStatusMode} /></Box>
           <DropdownMenuGroup>
             {statuses.map((status) => (
               <DropdownMenuItem
@@ -184,15 +184,15 @@ export function LineFilters({ projectId, statuses, tags, speakers, listeners, un
               </DropdownMenuItem>
             ))}
           </DropdownMenuGroup>
-        </DropdownMenuContent>
+        </ScriptFilterMenuContent>
       </DropdownMenu>
       {withSpeakers && <DropdownMenu onOpenChange={(open) => (open ? setSpeakerMode('show') : (setSpeakerNeedle(''), setListenerNeedle('')))}>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" className="text-muted-foreground">화자 <ChevronDown /></Button>
+          <Button variant="ghost" tone="muted">화자 <ChevronDown /></Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="max-h-[70svh] w-56 overflow-y-auto">
-          <div className="p-1"><FilterModeSwitch mode={speakerMode} onMode={setSpeakerMode} /></div>
-          <Input value={speakerNeedle} onChange={(event) => setSpeakerNeedle(event.target.value)} onKeyDown={(event) => event.stopPropagation()} placeholder="이름 찾기" className="mb-1" aria-label="화자 찾기" />
+        <ScriptFilterMenuContent align="start" width="narrow">
+          <Box padding="tight"><FilterModeSwitch mode={speakerMode} onMode={setSpeakerMode} /></Box>
+          <ScriptInput place="menuSearch" value={speakerNeedle} onChange={(event) => setSpeakerNeedle(event.target.value)} onKeyDown={(event) => event.stopPropagation()} placeholder="이름 찾기" aria-label="화자 찾기" />
           {shownSpeakers.map((speaker) => (
             <DropdownMenuItem
               key={speaker.name}
@@ -203,49 +203,49 @@ export function LineFilters({ projectId, statuses, tags, speakers, listeners, un
               }}
             >
               <PickIcon state={pickOf(search.speakers, search.hideSpeakers, speaker.name)} />
-              <PersonName projectId={projectId} name={speaker.name} className="min-w-0 flex-1 truncate" />
-              <span className="text-xs text-muted-foreground tabular-nums">{speaker.lines.toLocaleString()}</span>
+              <Text asChild minWidth={0} grow truncate><PersonName projectId={projectId} name={speaker.name} /></Text>
+              <Text variant="caption" tone="muted" tabular>{speaker.lines.toLocaleString()}</Text>
             </DropdownMenuItem>
           ))}
-          {shownSpeakers.length === 0 && <p className="px-2 py-1 text-xs text-muted-foreground">일치하는 화자가 없습니다.</p>}
+          {shownSpeakers.length === 0 && <Text as="p" paddingX="condensed" paddingY="tight" variant="caption" tone="muted">일치하는 화자가 없습니다.</Text>}
           <DropdownMenuSeparator />
           <DropdownMenuSub>
             <DropdownMenuSubTrigger inset>청자</DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="max-h-[70svh] w-56 overflow-y-auto">
-              <Input value={listenerNeedle} onChange={(event) => setListenerNeedle(event.target.value)} onKeyDown={(event) => event.stopPropagation()} placeholder="이름 찾기" className="mb-1" aria-label="청자 찾기" />
+            <ScriptFilterSubmenuContent>
+              <ScriptInput place="menuSearch" value={listenerNeedle} onChange={(event) => setListenerNeedle(event.target.value)} onKeyDown={(event) => event.stopPropagation()} placeholder="이름 찾기" aria-label="청자 찾기" />
               <DropdownMenuCheckboxItem checked={Boolean(search.marks?.includes('unknownListener'))} onSelect={(event) => event.preventDefault()} onCheckedChange={(on) => onSearch(unknownListenerFilter(search, on))}>
-                <span className="min-w-0 flex-1 truncate">청자 미상</span>
-                {!listenersPending && !listenersError && <span className="text-xs text-muted-foreground tabular-nums">{unknownListenerCount.toLocaleString()}</span>}
+                <Text minWidth={0} grow truncate>청자 미상</Text>
+                {!listenersPending && !listenersError && <Text variant="caption" tone="muted" tabular>{unknownListenerCount.toLocaleString()}</Text>}
               </DropdownMenuCheckboxItem>
               <DropdownMenuSeparator />
-              {listenersPending && <p role="status" className="px-2 py-1 text-xs text-muted-foreground">청자 목록을 불러오는 중…</p>}
+              {listenersPending && <Text as="p" role="status" paddingX="condensed" paddingY="tight" variant="caption" tone="muted">청자 목록을 불러오는 중…</Text>}
               {listenersError && (
                 <>
-                  <p role="alert" className="px-2 py-1 text-xs text-muted-foreground">청자 목록을 불러오지 못했습니다. 연결을 확인하고 다시 시도해 주세요.</p>
+                  <Text as="p" role="alert" paddingX="condensed" paddingY="tight" variant="caption" tone="muted">청자 목록을 불러오지 못했습니다. 연결을 확인하고 다시 시도해 주세요.</Text>
                   <DropdownMenuItem onSelect={(event) => { event.preventDefault(); onRetryListeners(); }}>다시 시도</DropdownMenuItem>
                 </>
               )}
               {!listenersPending && !listenersError && shownListeners.map((listener) => (
                 <DropdownMenuCheckboxItem key={listener.name} checked={search.listener === listener.name} onSelect={(event) => event.preventDefault()} onCheckedChange={(on) => onSearch(knownListenerFilter(search, listener.name, on))}>
-                  <span className="min-w-0 flex-1 truncate">{listener.name}</span>
-                  <span className="text-xs text-muted-foreground tabular-nums">{listener.lines.toLocaleString()}</span>
+                  <Text minWidth={0} grow truncate>{listener.name}</Text>
+                  <Text variant="caption" tone="muted" tabular>{listener.lines.toLocaleString()}</Text>
                 </DropdownMenuCheckboxItem>
               ))}
-              {!listenersPending && !listenersError && shownListeners.length === 0 && <p className="px-2 py-1 text-xs text-muted-foreground">{listeners.length === 0 && !listenerNeedle ? '정해진 청자가 없습니다.' : '일치하는 청자가 없습니다.'}</p>}
-            </DropdownMenuSubContent>
+              {!listenersPending && !listenersError && shownListeners.length === 0 && <Text as="p" paddingX="condensed" paddingY="tight" variant="caption" tone="muted">{listeners.length === 0 && !listenerNeedle ? '정해진 청자가 없습니다.' : '일치하는 청자가 없습니다.'}</Text>}
+            </ScriptFilterSubmenuContent>
           </DropdownMenuSub>
-        </DropdownMenuContent>
+        </ScriptFilterMenuContent>
       </DropdownMenu>}
       <DropdownMenu onOpenChange={(open) => open && setTagMode('show')}>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" className="text-muted-foreground">태그 <ChevronDown /></Button>
+          <Button variant="ghost" tone="muted">태그 <ChevronDown /></Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="max-h-[70svh] w-60 overflow-y-auto">
-          <div className="p-1"><FilterModeSwitch mode={tagMode} onMode={setTagMode} /></div>
+        <ScriptFilterMenuContent align="start" width="wide">
+          <Box padding="tight"><FilterModeSwitch mode={tagMode} onMode={setTagMode} /></Box>
           {/* Automatic marks, user tags and issue types: shown ones narrow the list together, hidden ones leave lines out. */}
           {groups.map((group) => (
             <Fragment key={group.heading}>
-              <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">{group.heading}</DropdownMenuLabel>
+              <ScriptFilterGroupLabel>{group.heading}</ScriptFilterGroupLabel>
               {group.options.map((option) => (
                 <DropdownMenuItem key={option.key} onSelect={(event) => { event.preventDefault(); option.onPick(tagMode); }}>
                   <PickIcon state={option.state} />
@@ -256,14 +256,14 @@ export function LineFilters({ projectId, statuses, tags, speakers, listeners, un
           ))}
           {!tags.some((tag) => !tag.role) && (
             <>
-              <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">내 태그</DropdownMenuLabel>
+              <ScriptFilterGroupLabel>내 태그</ScriptFilterGroupLabel>
               <DropdownMenuItem asChild inset>
                 <Link to="/p/$projectId/settings/statuses" params={{ projectId }}>태그 만들기</Link>
               </DropdownMenuItem>
             </>
           )}
-        </DropdownMenuContent>
+        </ScriptFilterMenuContent>
       </DropdownMenu>
-    </div>
+    </Inline>
   );
 }

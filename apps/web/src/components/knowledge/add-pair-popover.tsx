@@ -3,7 +3,7 @@ import { useMutation } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { SPECIAL_LISTENERS, SPEECH_LEVELS, SPEECH_LEVEL_LABELS, type SpeechLevel } from '@tw/shared';
-import { Button, FieldRow, FieldRows, Input, Popover, PopoverContent, PopoverTrigger, SearchableSelect, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, type SearchableSelectOption } from '@loca/ui';
+import { Button, FieldRow, FieldRows, Grid, Input, KnowledgePairPopoverContent, KnowledgeSelectTrigger, Popover, PopoverTrigger, SearchableSelect, Select, SelectContent, SelectItem, SelectValue, type SearchableSelectOption } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { pairKey, type Pair } from './pairs';
 
@@ -21,10 +21,10 @@ interface Person {
 function End({ label, value, name, onValue, onName, options, placeholder }: { label: string; value: string; name: string; onValue: (value: string) => void; onName: (name: string) => void; options: SearchableSelectOption[]; placeholder: string }) {
   return (
     <FieldRow label={label}>
-     <div className="grid gap-1.5">
+     <Grid gap="snug">
       <SearchableSelect ariaLabel={label} value={value} onValueChange={onValue} options={options} placeholder={placeholder} searchPlaceholder="이름 검색" />
       {value === NEW && <Input aria-label={`${label} 새 이름`} autoFocus value={name} onChange={(event) => onName(event.target.value)} placeholder="새 인물 이름" />}
-     </div>
+     </Grid>
     </FieldRow>
   );
 }
@@ -101,9 +101,10 @@ export function AddPairPopover({ projectId, characters, pairs, onCreated }: { pr
           <Plus /> 관계·말투
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="grid w-80 gap-3">
-        <form
-          className="grid gap-3"
+      <KnowledgePairPopoverContent align="end">
+        <Grid
+          as="form"
+          gap="normal"
           onSubmit={(event) => {
             event.preventDefault();
             if (ready && !submit.isPending) submit.mutate();
@@ -114,9 +115,9 @@ export function AddPairPopover({ projectId, characters, pairs, onCreated }: { pr
           <End label="청자" value={to} name={toName} onValue={setTo} onName={setToName} options={toOptions} placeholder="듣는 사람" />
           <FieldRow label="말투">
             <Select value={level} onValueChange={(value) => setLevel(value as SpeechLevel)}>
-              <SelectTrigger aria-label="말투" className="w-full">
+              <KnowledgeSelectTrigger aria-label="말투">
                 <SelectValue />
-              </SelectTrigger>
+              </KnowledgeSelectTrigger>
               <SelectContent>
                 {SPEECH_LEVELS.map((option) => (
                   <SelectItem key={option} value={option}>
@@ -135,8 +136,8 @@ export function AddPairPopover({ projectId, characters, pairs, onCreated }: { pr
           <Button type="submit" disabled={!ready || submit.isPending}>
             추가
           </Button>
-        </form>
-      </PopoverContent>
+        </Grid>
+      </KnowledgePairPopoverContent>
     </Popover>
   );
 }

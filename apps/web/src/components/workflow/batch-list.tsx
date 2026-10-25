@@ -1,6 +1,6 @@
 import type { InferResponseType } from 'hono/client';
 import { ChevronRight } from 'lucide-react';
-import { Button, Collapsible, CollapsibleContent, CollapsibleTrigger } from '@loca/ui';
+import { Box, Button, Collapsible, CollapsibleContent, CollapsibleTrigger, Icon, Text } from '@loca/ui';
 import type { client } from '@/lib/api';
 
 type List = InferResponseType<(typeof client.runs)[':id']['plan']['$get'], 200>;
@@ -13,35 +13,35 @@ export function BatchList({ list, defaultOpen = false }: { list: List; defaultOp
   return (
     <Collapsible defaultOpen={defaultOpen}>
       <CollapsibleTrigger asChild>
-        <Button variant="ghost" className="group -ml-2">
-          <ChevronRight className="transition-transform group-data-[state=open]:rotate-90" />
+        <Button variant="ghost" group marginLeft="-condensed">
+          <Icon icon={ChevronRight} turn="group" />
           묶음 {list.total.toLocaleString()}
         </Button>
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <ul className="mt-2 rounded-md border">
+        <Box as="ul" marginTop="condensed" radius="md" border="all">
           {list.batches.map((batch, index) => (
-            <li key={index} className="space-y-1 px-3 py-2 text-sm">
-              <p className="text-xs text-muted-foreground tabular-nums">
+            <Box as="li" key={index} spaceY="tight" paddingX="normal" paddingY="condensed" variant="body">
+              <Text as="p" variant="caption" tone="muted" tabular>
                 #{index + 1} · {batch.lines.toLocaleString()}줄 · 원문 토큰 {batch.tokens.toLocaleString()}
-              </p>
-              <ul className="space-y-0.5">
+              </Text>
+              <Box as="ul" spaceY="hair">
                 {batch.scenes.map((scene) => (
                   <li key={scene.groupId}>
-                    {scene.title} <span className="tabular-nums text-muted-foreground">({scene.lines})</span>
+                    {scene.title} <Text tabular tone="muted">({scene.lines})</Text>
                     {scene.joined && (
-                      <span className="ml-1.5 text-xs text-muted-foreground">
+                      <Text marginLeft="snug" variant="caption" tone="muted">
                         ← {JOINED[scene.joined.why]}
                         {scene.joined.why === 'speaker' && `: ${scene.joined.speakers.join(', ')}`}
-                      </span>
+                      </Text>
                     )}
                   </li>
                 ))}
-              </ul>
-            </li>
+              </Box>
+            </Box>
           ))}
-        </ul>
-        {list.total > list.batches.length && <p className="mt-1 text-xs text-muted-foreground">앞 {list.batches.length.toLocaleString()}개만 보여 줍니다.</p>}
+        </Box>
+        {list.total > list.batches.length && <Text as="p" marginTop="tight" variant="caption" tone="muted">앞 {list.batches.length.toLocaleString()}개만 보여 줍니다.</Text>}
       </CollapsibleContent>
     </Collapsible>
   );

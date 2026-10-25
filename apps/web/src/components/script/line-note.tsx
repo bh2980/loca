@@ -1,11 +1,9 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { StickyNote } from 'lucide-react';
 import { toast } from 'sonner';
-import { Button, Input, Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
+import { ScriptInput, ScriptNoteCard, ScriptNoteMark } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
-import { cn } from '@/lib/utils';
 
 /** Saves a line's note (empty removes it), shown at once. */
 function useSaveNote(unitId: string) {
@@ -31,19 +29,16 @@ export function LineNote({ unitId, note, editing, onEditing }: { unitId: string;
   if (!editing && !note) return null;
   if (!editing)
     return (
-      <Button variant="ghost" size="row" className="mt-2 h-auto items-start gap-1.5 rounded-md border border-warning/30 bg-warning/5 py-1.5 text-left text-sm font-normal whitespace-pre-wrap" onClick={() => (setText(note), onEditing(true))}>
-        <StickyNote className="mt-0.5 size-3.5 shrink-0 text-warning" />
-        <span className="min-w-0 break-words">{note}</span>
-      </Button>
+      <ScriptNoteCard note={note} onClick={() => (setText(note), onEditing(true))} />
     );
   const finish = (value: string | null) => {
     if (value !== null && value.trim() !== note) save.mutate(value);
     onEditing(false);
   };
   return (
-    <Input
+    <ScriptInput
+      place="note"
       autoFocus
-      className="mt-2"
       aria-label="메모"
       placeholder="메모 · Enter 저장"
       value={text}
@@ -65,14 +60,7 @@ export function LineNote({ unitId, note, editing, onEditing }: { unitId: string;
 }
 
 /** A line's note as a small mark beside the speaker in the list; the note itself on hover. */
-export function NoteMark({ note, className }: { note: string; className?: string }) {
+export function NoteMark({ note }: { note: string }) {
   if (!note) return null;
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <StickyNote className={cn('size-3.5 shrink-0 text-warning', className)} aria-label="메모 있음" />
-      </TooltipTrigger>
-      <TooltipContent className="max-w-sm text-sm whitespace-pre-wrap">{note}</TooltipContent>
-    </Tooltip>
-  );
+  return <ScriptNoteMark note={note} />;
 }

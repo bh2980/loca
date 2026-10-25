@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Play, RotateCcw } from 'lucide-react';
-import { Button, Checkbox, Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Skeleton } from '@loca/ui';
+import { Box, Button, Checkbox, Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Inline, Skeleton, Text } from '@loca/ui';
 import type { ModelValue } from '@/components/model-picker';
 import { client, unwrap } from '@/lib/api';
 import { Pace, RunModels } from './run-estimate';
@@ -41,23 +41,23 @@ export function ContinueRun({ runId, failed, paused, open: controlledOpen, onOpe
       {!hideTrigger && <DialogTrigger asChild>
         <Button variant={paused ? 'outline' : 'default'}>{paused ? <Play /> : <RotateCcw />} {paused ? '모델 바꿔 재개' : '실패한 줄 다시'}</Button>
       </DialogTrigger>}
-      <DialogContent className="sm:max-w-lg" aria-describedby={undefined}>
+      <Box asChild maxWidthFromSm="lg"><DialogContent aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>{paused ? '모델 바꿔 재개' : '이어서 실행'}</DialogTitle>
         </DialogHeader>
-        <div className="space-y-4">
+        <Box spaceY="comfortable">
           {failed > 0 && (
-            <label className="flex items-center gap-2 text-sm">
+            <Inline as="label" gap="condensed" variant="body">
               <Checkbox checked={retryFailed} onCheckedChange={(checked) => setRetryFailed(Boolean(checked))} />
               실패한 줄 {failed.toLocaleString()}개도 실패한 단계부터 다시
-            </label>
+            </Inline>
           )}
           {data && (
-            <p className="text-sm">
-              남은 줄 <b className="tabular-nums">{data.lines.toLocaleString()}</b>
-            </p>
+            <Text as="p" variant="body">
+              남은 줄 <Text as="b" tabular>{data.lines.toLocaleString()}</Text>
+            </Text>
           )}
-          {nothing && <p className="text-sm text-muted-foreground">이어서 처리할 대사가 없습니다.</p>}
+          {nothing && <Text as="p" variant="body" tone="muted">이어서 처리할 대사가 없습니다.</Text>}
           {data && !nothing && <Pace data={data.plan} />}
           {data && !nothing && (
             <RunModels
@@ -68,10 +68,10 @@ export function ContinueRun({ runId, failed, paused, open: controlledOpen, onOpe
               changedNote="남은 줄부터"
             />
           )}
-          {plan.isPending && <Skeleton className="h-24 w-full" />}
-          {plan.isError && <p className="text-sm text-destructive">{plan.error.message}</p>}
-        </div>
-        {go.isError && <p className="text-sm text-destructive">{go.error.message}</p>}
+          {plan.isPending && <Box asChild height={24} width="full"><Skeleton /></Box>}
+          {plan.isError && <Text as="p" variant="body" tone="danger">{plan.error.message}</Text>}
+        </Box>
+        {go.isError && <Text as="p" variant="body" tone="danger">{go.error.message}</Text>}
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>
             닫기
@@ -80,7 +80,7 @@ export function ContinueRun({ runId, failed, paused, open: controlledOpen, onOpe
             <Play /> 이어서 실행
           </Button>
         </DialogFooter>
-      </DialogContent>
+      </DialogContent></Box>
     </Dialog>
   );
 }

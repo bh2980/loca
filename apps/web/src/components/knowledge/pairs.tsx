@@ -5,7 +5,7 @@ import type { ReactNode } from 'react';
 import type { InferRequestType } from 'hono/client';
 import { toast } from 'sonner';
 import { type AutoMark, isSpecialListener, knowledgeMarksOf, listenerLabel, matchesMarks, OTHERS_LISTENER, PALETTE, SPEECH_LEVEL_LABELS } from '@tw/shared';
-import { EmptyState, DataTable, type ColumnDef, Inspector, InspectorHeader, InspectorSection, InspectorBlock, InspectorField, InspectorList, InspectorResult, TagListEditor, Badge, Button } from '@loca/ui';
+import { EmptyState, DataTable, type ColumnDef, Inspector, InspectorHeader, InspectorSection, InspectorBlock, InspectorField, InspectorList, InspectorResult, TagListEditor, Badge, Box, Button, Icon, Inline, KnowledgeListItem, KnowledgeReviewBadge, Text } from '@loca/ui';
 import { DraftEditor } from '@/components/knowledge/editor';
 import { StretchPicker } from '@/components/knowledge/evidence';
 import { candidateRow, fail, isHidden, matches, metaColumns, SourceBadge, type Draft, type KnowledgeFilterState, type KindSpec, type RelationshipRow, type SourceFilter, type StatusFilter, type SpeechRuleRow } from '@/components/knowledge/table';
@@ -13,7 +13,6 @@ import { splitList } from '@/components/chip-input';
 import { personStyle } from '@/lib/person-colors';
 import { client, unwrap } from '@/lib/api';
 import { q, tagsIn, useReviewTagId } from '@/lib/queries';
-import { cn } from '@/lib/utils';
 
 /**
  * One speaker → listener direction: the relationship (a fact of the story) and the speech rules
@@ -81,9 +80,9 @@ export const pairItems = (pair: Pair) => [...(pair.relationship ? [{ kind: 'rela
 /** Why the app marked an item for a look (its tag's note), or null. */
 const reviewOf = (row: Draft, reviewTag?: string) => row.tags?.find((tag) => tag.id === reviewTag)?.note ?? null;
 const ReviewBadge = ({ reasons }: { reasons: string }) => (
-  <Badge variant="outline" className="border-warning text-warning" title={reasons}>
+  <KnowledgeReviewBadge title={reasons}>
     확인 권장
-  </Badge>
+  </KnowledgeReviewBadge>
 );
 const levelsText = (rules: SpeechRuleRow[]) => rules.map((rule) => SPEECH_LEVEL_LABELS[rule.level]).join(' → ');
 
@@ -102,8 +101,8 @@ export function PairTable({ pairs, loading, selected, picked, onPick, onOpen, bu
 }) {
   const columns: ColumnDef<Pair, unknown>[] = [
     { id: 'pair', header: '화자 → 청자', meta: { width: 240, className: 'font-medium', hideable: false }, cell: ({ row: { original: pair } }) => <><span style={personStyle(colorOf?.(pair.from))}>{pair.from}</span> → <span style={personStyle(colorOf?.(pair.to))}>{listenerLabel(pair.to)}</span></> },
-    { id: 'relationship', header: '관계', meta: { width: 200 }, cell: ({ row: { original: pair } }) => (pair.relationship ? pair.relationship.kind : <span className="text-muted-foreground">—</span>) },
-    { id: 'speech', header: '말투', cell: ({ row: { original: pair } }) => (pair.rules.length ? levelsText(pair.rules) : <span className="text-muted-foreground">—</span>) },
+    { id: 'relationship', header: '관계', meta: { width: 200 }, cell: ({ row: { original: pair } }) => (pair.relationship ? pair.relationship.kind : <Text tone="muted">—</Text>) },
+    { id: 'speech', header: '말투', cell: ({ row: { original: pair } }) => (pair.rules.length ? levelsText(pair.rules) : <Text tone="muted">—</Text>) },
     ...metaColumns<Pair>(pairSummary, filters, pairMarks),
   ];
   return (
@@ -228,38 +227,38 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
       >
         {picking && <StretchPicker projectId={projectId} from={pair.from} to={pair.to} taken={new Set(pair.rules.map((rule) => rule.startKey ?? ''))} onPick={(key) => addStretch.mutate(key)} onCancel={() => setPicking(false)} />}
         {rules.length === 0 && (
-          <p className="text-sm text-muted-foreground">
+          <Text as="p" variant="body" tone="muted">
             {!isSpecialListener(pair.to) && others?.rules.length
               ? `규칙이 없어 ${pair.from}의 ‘그 밖의 인물’ 규칙(${SPEECH_LEVEL_LABELS[others.rules[0].level]})이 쓰입니다.`
               : '말투 규칙이 없습니다.'}
-          </p>
+          </Text>
         )}
         <InspectorList>
           {rules.map((rule) => {
             const open = openRule === rule.id;
             const review = reviewOf(rule, reviewTag);
             return (
-              <li key={rule.id} className="py-1 first:pt-0 last:pb-0">
+              <KnowledgeListItem key={rule.id}>
                 <Button variant="ghost" size="row" aria-expanded={open} onClick={() => setOpenRule(open ? undefined : rule.id)}>
-                  <ChevronRight className={cn('text-muted-foreground transition-transform', open && 'rotate-90')} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-xs text-muted-foreground">{startLabel(rule)}</span>
-                    <span className="flex items-center gap-2">
-                      <span className="font-medium">{SPEECH_LEVEL_LABELS[rule.level]}</span>
-                      {rule.address ? <span className="truncate text-muted-foreground">호칭 {splitList(rule.address).map((form) => `“${form}”`).join(' · ')}</span> : null}
+                  <Icon icon={ChevronRight} tone="muted" turn={open} />
+                  <Text minWidth={0} grow>
+                    <Text display="block" variant="caption" tone="muted" truncate>{startLabel(rule)}</Text>
+                    <Inline as="span" gap="condensed">
+                      <Text weight="medium">{SPEECH_LEVEL_LABELS[rule.level]}</Text>
+                      {rule.address ? <Text tone="muted" truncate>호칭 {splitList(rule.address).map((form) => `“${form}”`).join(' · ')}</Text> : null}
                       {review && <ReviewBadge reasons={review} />}
-                    </span>
-                  </span>
+                    </Inline>
+                  </Text>
                   {rule.status === 'candidate' && <Badge variant="outline">후보</Badge>}
                   <SourceBadge row={rule} />
                 </Button>
                 {open && (
-                  <div className="space-y-3 pt-2 pb-2 pl-6">
+                  <Box spaceY="normal" paddingTop="condensed" paddingBottom="condensed" paddingLeft="spacious">
                     {review && <InspectorResult tone="info">확인 권장: {review}</InspectorResult>}
                     <DraftEditor embedded projectId={projectId} kind="speechRules" spec={ruleSpec} row={rule} characters={characters} onDecide={(action) => onDecide('speechRules', [rule.id], action)} />
-                  </div>
+                  </Box>
                 )}
-              </li>
+              </KnowledgeListItem>
             );
           })}
         </InspectorList>
@@ -267,7 +266,7 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
           <Button
             variant="ghost"
             size="inline"
-            className="text-muted-foreground"
+            tone="muted"
             onClick={() => (others ? onOpenPair(others.key) : addRule({ fromName: pair.from, toName: OTHERS_LISTENER, level: 'haeyo', address: '' }).then(() => onOpenPair(pairKey(pair.from, OTHERS_LISTENER))))}
           >
             {others?.rules.length ? `${pair.from} → 그 밖의 인물: ${SPEECH_LEVEL_LABELS[others.rules[0].level]}` : `${pair.from} → 그 밖의 인물 말투`}
@@ -280,10 +279,10 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
         defaultOpen={Boolean(pair.relationship && (pair.relationship.status === 'candidate' || !pair.relationship.description))}
         actions={
           pair.relationship && (
-            <span className="flex items-center gap-1.5">
+            <Inline as="span" gap="snug">
               {pair.relationship.status === 'candidate' && <Badge variant="outline">후보</Badge>}
               <SourceBadge row={pair.relationship} />
-            </span>
+            </Inline>
           )
         }
       >
@@ -300,7 +299,7 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
           />
         ) : (
           <>
-            <p className="text-sm text-muted-foreground">{!pair.fromId || !pair.toId ? '두 사람이 모두 인물 목록에 있어야 관계를 만들 수 있습니다.' : '정해진 관계가 없습니다.'}</p>
+            <Text as="p" variant="body" tone="muted">{!pair.fromId || !pair.toId ? '두 사람이 모두 인물 목록에 있어야 관계를 만들 수 있습니다.' : '정해진 관계가 없습니다.'}</Text>
             <Button variant="outline" disabled={!pair.fromId || !pair.toId || !relationships.create || addRelationship.isPending} onClick={() => addRelationship.mutate()}>
               <Plus /> 관계 추가
             </Button>

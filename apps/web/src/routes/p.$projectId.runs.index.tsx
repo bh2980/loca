@@ -4,10 +4,9 @@ import { ChevronRight, Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import { useQuery } from '@tanstack/react-query';
 import { Page } from '@/components/page';
-import { InspectorHeader, Inspector, InspectorList, InspectorSection, SplitPane, EmptyState, DataTable, type ColumnDef, JobStatusBadge, Button, Progress, Spinner, Collapsible, CollapsibleContent, CollapsibleTrigger, Skeleton, ContextMenuItem } from '@loca/ui';
+import { InspectorHeader, Inspector, InspectorList, InspectorSection, SplitPane, EmptyState, DataTable, type ColumnDef, JobStatusBadge, Box, Button, Icon, Inline, Progress, Spinner, Text, Collapsible, CollapsibleContent, CollapsibleTrigger, Skeleton, ContextMenuItem } from '@loca/ui';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
-import { cn } from '@/lib/utils';
 import { dateTime, clock } from '@/lib/datetime';
 
 interface RunsSearch {
@@ -53,12 +52,12 @@ const columns: ColumnDef<Row, unknown>[] = [
     cell: ({ row }) => (
       <>
         {/* Real spaces between label and value, so the row reads (and copies) as words, not one run (#48). */}
-        <span className="mr-1 text-xs text-muted-foreground">{JOB_KIND[row.original.kind]}</span>{' '}
-        <span className="font-medium">{row.original.title}</span>
+        <Text variant="caption" tone="muted" marginRight="tight">{JOB_KIND[row.original.kind]}</Text>{' '}
+        <Text weight="medium">{row.original.title}</Text>
         {row.original.sub && (
           <>
             {' '}
-            <span className="ml-1 text-xs text-muted-foreground">{row.original.sub}</span>
+            <Text variant="caption" tone="muted" marginLeft="tight">{row.original.sub}</Text>
           </>
         )}
       </>
@@ -72,9 +71,9 @@ const columns: ColumnDef<Row, unknown>[] = [
       <>
         <JobStatusBadge status={row.original.status} />
         {row.original.error && (
-          <p className="mt-1 truncate text-xs text-destructive" title={row.original.error}>
+          <Text as="p" marginTop="tight" truncate variant="caption" tone="danger" title={row.original.error}>
             {row.original.error}
-          </p>
+          </Text>
         )}
       </>
     ),
@@ -85,15 +84,15 @@ const columns: ColumnDef<Row, unknown>[] = [
     meta: { width: 200 },
     cell: ({ row }) => {
       const progress = row.original.progress;
-      if (!progress) return <span className="text-xs text-muted-foreground">—</span>;
+      if (!progress) return <Text variant="caption" tone="muted">—</Text>;
       return (
-        <div className="flex items-center gap-3">
-          <Progress value={progress.total ? (progress.done / progress.total) * 100 : 0} className="h-1.5" />
-          <span className="shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+        <Inline gap="normal">
+          <Box asChild height={1.5}><Progress value={progress.total ? (progress.done / progress.total) * 100 : 0} /></Box>
+          <Text shrink={false} align="end" variant="caption" tabular tone="muted">
             {progress.done.toLocaleString()}/{progress.total.toLocaleString()}
             {progress.unit}
-          </span>
-        </div>
+          </Text>
+        </Inline>
       );
     },
   },
@@ -135,10 +134,10 @@ function Runs() {
 
   return (
     <Page title="실행 기록" flush>
+      <Box asChild height="full">
       <SplitPane
         id="runs" selectionKey={selected?.id}
         defaultWidth="440px"
-        className="h-full"
         pane={selected && <JobCalls key={selected.id} projectId={projectId} job={selected} onClose={() => select(undefined)} />}
       >
         <DataTable id="runs"
@@ -184,6 +183,7 @@ function Runs() {
           empty={<EmptyState noun="실행" />}
         />
       </SplitPane>
+      </Box>
     </Page>
   );
 }
@@ -192,7 +192,7 @@ function Runs() {
 function JobCalls({ projectId, job, onClose }: { projectId: string; job: { id: string; kind: keyof typeof JOB_KIND; title: string; stats: Stats | null }; onClose: () => void }) {
   const calls = useQuery(q.aiCalls(projectId, undefined, job.id));
   return (
-    <Inspector header={<InspectorHeader kind={JOB_KIND[job.kind]} name={job.title} status={<span className="tabular-nums">AI 호출 · 입력/출력 {tokens(job.stats)}</span>} actions={
+    <Inspector header={<InspectorHeader kind={JOB_KIND[job.kind]} name={job.title} status={<Text tabular>AI 호출 · 입력/출력 {tokens(job.stats)}</Text>} actions={
         <>
           {job.kind === 'run' && (
             <Button asChild variant="ghost">
@@ -205,34 +205,34 @@ function JobCalls({ projectId, job, onClose }: { projectId: string; job: { id: s
       } onClose={onClose} />} loading={!calls.data}>
       <InspectorSection title={`AI 호출${calls.data ? ` ${calls.data.calls.length.toLocaleString()}` : ''}`}>
       {calls.data?.calls.length === 0 ? (
-        <p className="text-sm text-muted-foreground">이 작업의 AI 호출 기록이 없습니다.</p>
+        <Text as="p" variant="body" tone="muted">이 작업의 AI 호출 기록이 없습니다.</Text>
       ) : (
         <InspectorList>
           {calls.data?.calls.map((call) => (
-            <li key={call.id} className="space-y-0.5 py-2.5 text-sm first:pt-0 last:pb-0">
-              <div className="flex items-center gap-2">
-                <span className="min-w-0 flex-1 truncate">{call.label}</span>
+            <Box as="li" key={call.id} spaceY="hair" paddingY="cozy" variant="body" trimEnds>
+              <Inline gap="condensed">
+                <Text minWidth={0} grow truncate>{call.label}</Text>
                 {call.status === 'running' ? (
-                  <span className="inline-flex items-center gap-1 text-xs">
-                    <Spinner className="size-3" /> 진행 중
-                  </span>
+                  <Inline as="span" inline gap="tight" variant="caption">
+                    <Spinner size="xs" /> 진행 중
+                  </Inline>
                 ) : call.status === 'failed' ? (
-                  <span className="text-xs text-destructive">실패</span>
+                  <Text variant="caption" tone="danger">실패</Text>
                 ) : (
-                  <span className="text-xs text-muted-foreground">{seconds(call.startedAt, call.finishedAt)}</span>
+                  <Text variant="caption" tone="muted">{seconds(call.startedAt, call.finishedAt)}</Text>
                 )}
-              </div>
-              <p className="text-xs text-muted-foreground tabular-nums">
+              </Inline>
+              <Text as="p" variant="caption" tone="muted" tabular>
                 {clock(call.startedAt)} · {call.connectionName ?? '연결 없음'} · {call.model}
                 {call.inputTokens != null && ` · 입력 ${call.inputTokens.toLocaleString()}${call.cachedInputTokens ? `(캐시 ${call.cachedInputTokens.toLocaleString()})` : ''} / 출력 ${(call.outputTokens ?? 0).toLocaleString()}`}
-              </p>
-              {call.error && <p className="text-xs break-words text-destructive">{call.error}</p>}
+              </Text>
+              {call.error && <Text as="p" variant="caption" breakWords tone="danger">{call.error}</Text>}
               {(call.hasRequest || call.hasResponse) && <SentRequest projectId={projectId} callId={call.id} hasRequest={call.hasRequest} hasResponse={call.hasResponse} />}
-            </li>
+            </Box>
           ))}
         </InspectorList>
       )}
-      {calls.data && calls.data.calls.length >= 200 && <p className="text-xs text-muted-foreground">최근 200건만 보여 줍니다.</p>}
+      {calls.data && calls.data.calls.length >= 200 && <Text as="p" variant="caption" tone="muted">최근 200건만 보여 줍니다.</Text>}
       </InspectorSection>
     </Inspector>
   );
@@ -243,15 +243,17 @@ function SentRequest({ projectId, callId, hasRequest, hasResponse }: { projectId
   const [open, setOpen] = useState(false);
   const request = useQuery({ ...q.aiCallRequest(projectId, callId), enabled: open });
   return (
-    <Collapsible open={open} onOpenChange={setOpen} className="pt-1">
+    <Box asChild paddingTop="tight">
+    <Collapsible open={open} onOpenChange={setOpen}>
       <CollapsibleTrigger asChild>
-        <Button variant="ghost" size="inline" className="-ml-1 text-muted-foreground">
-          <ChevronRight className={cn('transition-transform', open && 'rotate-90')} /> {hasRequest ? (hasResponse ? '입출력' : '보낸 내용') : '받은 출력'}
+        <Button variant="ghost" size="inline" marginLeft="-tight" tone="muted">
+          <Icon icon={ChevronRight} turn={open} /> {hasRequest ? (hasResponse ? '입출력' : '보낸 내용') : '받은 출력'}
         </Button>
       </CollapsibleTrigger>
-      <CollapsibleContent className="mt-1 space-y-2">
+      <Box asChild marginTop="tight" spaceY="condensed">
+      <CollapsibleContent>
         {!request.data ? (
-          <Skeleton className="h-16" />
+          <Box asChild height={16}><Skeleton /></Box>
         ) : (
           <>
             {request.data.request != null && <CallText label="보낸 내용" text={request.data.request} />}
@@ -259,21 +261,23 @@ function SentRequest({ projectId, callId, hasRequest, hasResponse }: { projectId
           </>
         )}
       </CollapsibleContent>
+      </Box>
     </Collapsible>
+    </Box>
   );
 }
 
 function CallText({ label, text }: { label: string; text: string }) {
   return (
-    <div className="space-y-1">
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+    <Box spaceY="tight">
+      <Inline gap="condensed" variant="caption" tone="muted">
         <span>{label}</span>
-        <span className="tabular-nums">{text.length.toLocaleString()}자 · 약 {Math.round(new TextEncoder().encode(text).length / 4).toLocaleString()} 토큰 (추정)</span>
-        <Button variant="ghost" size="inline" className="ml-auto" onClick={() => void navigator.clipboard.writeText(text).then(() => toast.success(`${label}을 복사했습니다`))}>
+        <Text tabular>{text.length.toLocaleString()}자 · 약 {Math.round(new TextEncoder().encode(text).length / 4).toLocaleString()} 토큰 (추정)</Text>
+        <Button variant="ghost" size="inline" marginLeft="auto" onClick={() => void navigator.clipboard.writeText(text).then(() => toast.success(`${label}을 복사했습니다`))}>
           <Copy /> 복사
         </Button>
-      </div>
-      <pre className="max-h-96 overflow-auto rounded-md border bg-muted p-2 font-mono text-xs break-words whitespace-pre-wrap">{text}</pre>
-    </div>
+      </Inline>
+      <Box as="pre" maxHeight={96} overflow="auto" radius="md" border="all" background="muted" padding="condensed" mono variant="caption" breakWords preserveLines>{text}</Box>
+    </Box>
   );
 }

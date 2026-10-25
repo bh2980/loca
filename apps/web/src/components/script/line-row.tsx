@@ -1,7 +1,7 @@
 /** One row of the line list, with the hints and links that open under the picked line. */
 import { useMemo, useState, type ComponentProps, type ReactNode, type RefObject } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, CircleAlert, Ellipsis, PanelRight } from 'lucide-react';
+import { Ellipsis, PanelRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { AUTO_MARKS, compileFormatRules, isUnknownListener, lineExclusion, listenerLabel, needsListener, PALETTE, SPECIAL_LISTENERS, TAG_SCOPES, type FormatRules, type LineMark, type ListenerOrigin, mentions, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
 import { MarkChip } from '@/components/status';
@@ -14,7 +14,6 @@ import {
   Button,
   Checkbox,
   AiMark,
-  StatusIcon,
   TagChip,
   TagSubMenu,
   Tooltip,
@@ -22,14 +21,30 @@ import {
   TooltipTrigger,
   DropdownMenu,
   DropdownMenuTrigger,
-  DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
   SpeakerIdentity,
-  TranslationRow,
-  SceneSectionHeader,
+  Box,
+  Inline,
+  Stack,
+  Text,
+  ScriptChipButton,
+  ScriptHintChip,
+  ScriptListItem,
+  ScriptLineMenuContent,
+  ScriptMenuAnchor,
+  ScriptRowIdentity,
+  ScriptRowStatus,
+  ScriptReviewIssue,
+  ScriptSceneRow,
+  ScriptSourceStyle,
+  ScriptSpeakerFact,
+  ScriptSpeechRule,
+  ScriptTermChip,
+  ScriptTranslationRow,
+  ScriptUntranslated,
   DropdownMenuCheckboxItem,
   DropdownMenuSub,
   DropdownMenuSubTrigger,
@@ -39,7 +54,6 @@ import {
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { SOURCE_GROUP_LABEL, SOURCE_UNIT_LABEL } from '@/lib/labels';
-import { cn } from '@/lib/utils';
 import { SpeakerCard } from '@/components/script/speaker-card';
 import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
 import { useDraft } from '@/lib/drafts';
@@ -81,31 +95,20 @@ export function LineHints({ projectId, line, part }: { projectId: string; line: 
   }, [terms.data, line.source, project.data?.formatRules]);
 
   const hint = (key: string, ok: boolean | null, label: ReactNode, title?: string) => (
-    <span key={key} title={title} className={cn('inline-flex items-center gap-1 rounded-md border border-border bg-card px-1.5 py-0.5 text-xs shadow-2xs', ok === false && 'border-warning/40 text-warning')}>
-      {ok === true && <Check className="size-3 text-success" />}
-      {ok === false && <CircleAlert className="size-3" />}
-      {label}
-    </span>
+    <ScriptHintChip key={key} ok={ok} title={title}>{label}</ScriptHintChip>
   );
   // A term chip puts its translation at the cursor of the line's editor; it turns to a warning when the draft lacks it.
   const termChip = (term: { id: string; source: string; target: string }) => {
     const ok = text ? text.toLowerCase().includes(term.target.toLowerCase()) : null;
     return (
-      <Button
+      <ScriptTermChip
         key={term.id}
-        type="button"
-        variant="ghost"
-        size="inline"
+        ok={ok}
+        source={term.source}
+        target={term.target}
         title={ok === false ? '번역에 없음' : undefined}
         onClick={() => { if (!insertIntoLine(line.id, term.target)) toast.info('번역 칸이 열려 있지 않습니다.'); }}
-        className={cn('h-auto gap-1 rounded-md border border-border bg-card px-1.5 py-0.5 text-xs font-normal shadow-2xs hover:bg-accent', ok === false && 'border-warning/40 text-warning')}
-      >
-        {ok === true && <Check className="size-3 text-success" />}
-        {ok === false && <CircleAlert className="size-3" />}
-        <span>{term.source}</span>
-        <span className="text-subtle-foreground">→</span>
-        <span className="font-medium">{term.target}</span>
-      </Button>
+      />
     );
   };
   const context = used.map(termChip);
@@ -114,16 +117,14 @@ export function LineHints({ projectId, line, part }: { projectId: string; line: 
   const items = [...(part !== 'result' ? context : []), ...(part !== 'context' ? result : [])];
   // The speech rule for this speaker → listener, written out under the source (it used to hide in a chip's tooltip).
   const rule = part !== 'result' && speech && (
-    <p key="speech" className={cn('flex items-start gap-1 text-xs', guessed && guessed !== speech.level ? 'text-warning' : 'text-muted-foreground')}>
-      {guessed === speech.level && <Check className="mt-0.5 size-3 shrink-0 text-success" />}
-      {guessed && guessed !== speech.level && <CircleAlert className="mt-0.5 size-3 shrink-0" />}
+    <ScriptSpeechRule key="speech" state={guessed === speech.level ? 'kept' : guessed ? 'broken' : 'plain'}>
       <span>
         말투 → {listenerLabel(speech.listener)}
         {speech.level !== 'other' && ` · ${SPEECH_LEVEL_LABELS[speech.level]}`}
         {guessed && guessed !== speech.level && ` (지금 ${SPEECH_LEVEL_LABELS[guessed]})`}
         {speech.rule && speech.rule !== SPEECH_LEVEL_LABELS[speech.level] && ` · ${speech.rule}`}
       </span>
-    </p>
+    </ScriptSpeechRule>
   );
   // Who is talking, in a line each: the speaker's habit and how they stand with the listener (the card has the rest).
   const named = (name: string | null | undefined) => {
@@ -139,21 +140,21 @@ export function LineHints({ projectId, line, part }: { projectId: string; line: 
   ].filter((item): item is { key: string; label: string; text: string } => !!item);
   if (!rule && !about.length && !items.some(Boolean)) return null;
   return (
-    <div className="mt-2 space-y-1.5" onClick={(event) => event.stopPropagation()}>
+    <Box marginTop="condensed" spaceY="snug" onClick={(event) => event.stopPropagation()}>
       {/* Under the source: its term chips first (they match the underlines), then who is talking. */}
-      {items.some(Boolean) && <div className="flex flex-wrap items-center gap-1.5">{items}</div>}
+      {items.some(Boolean) && <Inline wrap gap="snug">{items}</Inline>}
       {/* Who is talking is a group of its own: tighter lines inside, more room above when chips come first. */}
       {(rule || about.length > 0) && (
-        <div className={cn('space-y-0.5', items.some(Boolean) && 'pt-1.5')}>
+        <Box spaceY="hair" paddingTop={items.some(Boolean) ? 'snug' : undefined}>
           {rule}
           {about.map((item) => (
-            <p key={item.key} className="line-clamp-1 text-xs text-muted-foreground" title={item.text}>
+            <ScriptSpeakerFact key={item.key} title={item.text}>
               {item.label} · {item.text}
-            </p>
+            </ScriptSpeakerFact>
           ))}
-        </div>
+        </Box>
       )}
-    </div>
+    </Box>
   );
 }
 
@@ -276,54 +277,48 @@ export function LineRow({
   };
 
   const tagRow = marks.length || orderedTags.length ? (
-    <div className="mt-1 flex flex-wrap gap-1" role="group" aria-label="이 줄의 태그" onClick={(event) => event.stopPropagation()}>
+    <Stack direction="row" wrap gap="tight" marginTop="tight" role="group" aria-label="이 줄의 태그" onClick={(event) => event.stopPropagation()}>
       {marks.map((mark) => (
-        <Button key={mark} variant="ghost" size="inline" className="h-auto p-0 hover:bg-transparent" title={`#${AUTO_MARKS[mark].name} 줄만 보기`} onClick={() => onFilterMark(mark)}>
+        <ScriptChipButton key={mark} title={`#${AUTO_MARKS[mark].name} 줄만 보기`} onClick={() => onFilterMark(mark)}>
           <MarkChip mark={mark} projectId={projectId} />
-        </Button>
+        </ScriptChipButton>
       ))}
       {orderedTags.map((tag) => (
-        <Button key={tag.id} variant="ghost" size="inline" className="h-auto p-0 hover:bg-transparent" title={`#${tag.name} 줄만 보기`} onClick={() => onFilterTag(tag.id)}>
+        <ScriptChipButton key={tag.id} title={`#${tag.name} 줄만 보기`} onClick={() => onFilterTag(tag.id)}>
           <TagChip tag={tag} />
-        </Button>
+        </ScriptChipButton>
       ))}
-    </div>
+    </Stack>
   ) : null;
   // Lines nobody says read apart from dialogue without a label on every row: narration is muted
   // (stage directions), a document reads as prose, a UI string is one dense row with its key.
   const narration = line.kind === 'dialogue' && !line.speaker?.trim();
-  const sourceClass = narration ? 'text-muted-foreground' : line.kind === 'document' ? 'leading-relaxed' : undefined;
+  const sourceTone = narration ? 'narration' : line.kind === 'document' ? 'document' : undefined;
   const header = newScene && (
-    <li className="group/scene mx-3 my-3 select-none">
-      <SceneSectionHeader
-        title={line.groupTitle}
-        count={sceneSelection?.count}
-        checkbox={sceneSelection && <Checkbox aria-label={`${line.groupTitle} 현재 검색 조건에 맞는 모든 줄 선택${sceneSelection.count ? `, ${sceneSelection.count}` : ''}`} checked={sceneSelection.checked} disabled={sceneSelection.disabled} onCheckedChange={(checked) => sceneSelection.onChange(checked === true)} />}
-        trailing={onOpenScene && <Button variant="ghost" size="inline" onClick={() => onOpenScene(line.groupId, line.id)}>{SOURCE_GROUP_LABEL[line.groupKind]} 열기</Button>}
-        className="rounded-md bg-muted/50 py-2.5 text-sm ring-1 ring-inset ring-border"
-      />
-    </li>
+    <ScriptSceneRow
+      title={line.groupTitle}
+      count={sceneSelection?.count}
+      checkbox={sceneSelection && <Checkbox aria-label={`${line.groupTitle} 현재 검색 조건에 맞는 모든 줄 선택${sceneSelection.count ? `, ${sceneSelection.count}` : ''}`} checked={sceneSelection.checked} disabled={sceneSelection.disabled} onCheckedChange={(checked) => sceneSelection.onChange(checked === true)} />}
+      trailing={onOpenScene && <Button variant="ghost" size="inline" onClick={() => onOpenScene(line.groupId, line.id)}>{SOURCE_GROUP_LABEL[line.groupKind]} 열기</Button>}
+    />
   );
   const checkbox = <Checkbox aria-label={`${line.key} 선택`} checked={isPicked} onClick={(event) => event.stopPropagation()} onCheckedChange={(checked) => onPick(Boolean(checked))} />;
   const colorOf = usePersonColors(projectId);
   const addLineLabel = `이 ${SOURCE_GROUP_LABEL[line.groupKind]}에 ${SOURCE_UNIT_LABEL[line.groupKind]} 추가`;
   // Lines without a speaker (UI strings, documents) show their key in its place, level with the status opposite.
   const speaker = line.kind === 'ui' || line.kind === 'document' ? (
-    <span className="truncate font-mono text-xs text-muted-foreground" title={line.key}>{line.key}</span>
+    <Text truncate mono variant="caption" tone="muted" title={line.key}>{line.key}</Text>
   ) : line.speaker ? (
     <SpeakerCard projectId={projectId} name={line.speaker}><SpeakerIdentity speaker={line.speaker} color={colorOf(line.speaker)} listener={said ? (who.unknown ? null : who.text) : undefined} listenerIsPerson={!line.listener || !Object.hasOwn(SPECIAL_LISTENERS, line.listener) && !who.unknown} /></SpeakerCard>
   ) : line.kind === 'dialogue' ? <SpeakerIdentity speaker={null} /> : null;
   const identity = (
-    <div className="flex min-w-0 items-center gap-1.5">
-      {speaker}
-      {marked && <span className="shrink-0 text-warning">● {findLabel}</span>}
-    </div>
+    <ScriptRowIdentity found={marked} findLabel={findLabel}>{speaker}</ScriptRowIdentity>
   );
-  const statusContent = <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground"><StatusIcon status={status} /><span className="truncate">{status?.name}</span></span>;
+  const statusContent = <ScriptRowStatus status={status} />;
   const aiMeta = line.statusBy === 'ai' ? (
-    <Button variant="ghost" size="inline" className="h-auto p-0 hover:bg-transparent" title={`#${AUTO_MARKS.ai.name} 줄만 보기`} onClick={(event) => (event.stopPropagation(), onFilterMark('ai'))}>
+    <ScriptChipButton title={`#${AUTO_MARKS.ai.name} 줄만 보기`} onClick={(event) => (event.stopPropagation(), onFilterMark('ai'))}>
       <AiMark by="ai" />
-    </Button>
+    </ScriptChipButton>
   ) : null;
   // One menu for the line, the same from ⋯, from a right-click on the row (opened at the pointer) and on its graph node.
   const menuItems = (
@@ -340,11 +335,11 @@ export function LineRow({
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
   // The line's actions sit at the right end of the header of the picked row: the details pane, and everything else in ⋯.
   const actions = selected ? (
-    <span className="flex items-center gap-0.5" onClick={(event) => event.stopPropagation()}>
+    <Inline as="span" gap="hair" onClick={(event) => event.stopPropagation()}>
       {onOpenDetail && (
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button type="button" variant="ghost" size="icon-xs" className="text-muted-foreground" aria-label="상세 열기" onClick={onOpenDetail}>
+            <Button type="button" variant="ghost" size="icon-xs" tone="muted" aria-label="상세 열기" onClick={onOpenDetail}>
               <PanelRight />
             </Button>
           </TooltipTrigger>
@@ -355,41 +350,41 @@ export function LineRow({
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
-              <Button type="button" variant="ghost" size="icon-xs" className="text-muted-foreground" aria-label="줄 동작">
+              <Button type="button" variant="ghost" size="icon-xs" tone="muted" aria-label="줄 동작">
                 <Ellipsis />
               </Button>
             </DropdownMenuTrigger>
           </TooltipTrigger>
           <TooltipContent>줄 동작</TooltipContent>
         </Tooltip>
-        <DropdownMenuContent align="end" className="w-52" onClick={(event) => event.stopPropagation()}>
+        <ScriptLineMenuContent align="end" onClick={(event) => event.stopPropagation()}>
           {menuItems}
-        </DropdownMenuContent>
+        </ScriptLineMenuContent>
       </DropdownMenu>
-    </span>
+    </Inline>
   ) : null;
   const source = selected ? (
     <>
-      <LineSourceText projectId={projectId} unitId={line.id} source={line.source} translation={line.translation} className={cn('text-base leading-6', sourceClass)} />
+      <ScriptSourceStyle open tone={sourceTone}><LineSourceText projectId={projectId} unitId={line.id} source={line.source} translation={line.translation} /></ScriptSourceStyle>
       <LineHints projectId={projectId} line={{ id: line.id, source: line.source, translation: line.translation, speaker: line.speaker, listener: line.listener, lastRun: null }} part="context" />
       <LineNote key={`note-${line.id}`} unitId={line.id} note={line.note} editing={noting} onEditing={onNoting} />
     </>
-  ) : <MarkedSourceText projectId={projectId} text={line.source} pattern={tokenPattern} className={cn(sourceClass)} />;
+  ) : <ScriptSourceStyle open={false} tone={sourceTone}><MarkedSourceText projectId={projectId} text={line.source} pattern={tokenPattern} /></ScriptSourceStyle>;
   const translation = selected ? (
     <>
       <TranslationEditor key={`editor-${line.id}`} projectId={projectId} unit={line} statuses={statusList} focusKey={focusTick} marks={tagRow} onEscape={onEscape} onDone={onDone} />
-      {review && !!line.lastRun?.issues.length && <ReviewIssue issue={line.lastRun.issues[0]} />}
+      {review && !!line.lastRun?.issues.length && <ScriptReviewIssue issue={line.lastRun.issues[0]} />}
     </>
   ) : (
     <>
-      {line.translation ? <TokenText text={line.translation} source={line.source} pattern={tokenPattern} /> : <span className="text-subtle-foreground select-none">미번역</span>}
-      {review && !!line.lastRun?.issues.length && <ReviewIssue issue={line.lastRun.issues[0]} />}
+      {line.translation ? <TokenText text={line.translation} source={line.source} pattern={tokenPattern} /> : <ScriptUntranslated />}
+      {review && !!line.lastRun?.issues.length && <ScriptReviewIssue issue={line.lastRun.issues[0]} />}
       {tagRow}
     </>
   );
   const compact = line.kind === 'ui' && !selected && !review;
   const row = (
-    <TranslationRow
+    <ScriptTranslationRow
       checkbox={checkbox}
       speaker={identity}
       status={statusContent}
@@ -399,7 +394,7 @@ export function LineRow({
       selected={selected}
       compact={compact}
       layout="grid"
-      className={cn(selected ? 'bg-selection' : 'cursor-pointer hover:bg-accent', marked && !selected && 'bg-warning/5')}
+      flagged={marked}
     />
   );
   const saveLine = useSaveLine();
@@ -407,37 +402,34 @@ export function LineRow({
   return (
     <>
       {header}
-      <li
+      <ScriptListItem
         ref={rowRef}
         onClick={onSelect}
-        className={cn('transition-colors', selected ? 'bg-selection' : 'cursor-pointer', marked && !selected && 'bg-warning/5')}
+        selected={selected}
+        flagged={marked}
         style={arrived ? { animation: 'line-arrived 2s ease-out' } : undefined}
         onAnimationEnd={onArrivedEnd}
       >
-        <div
-          className="w-full"
+        <Box
+          width="full"
           onContextMenu={(event) => {
             event.preventDefault();
             setMenuAt({ x: event.clientX, y: event.clientY });
           }}
         >
           {row}
-        </div>
+        </Box>
         {menuAt && (
           <DropdownMenu open onOpenChange={(open) => !open && setMenuAt(null)} modal={false}>
             <DropdownMenuTrigger asChild>
-              <span aria-hidden className="pointer-events-none fixed size-0" style={{ left: menuAt.x, top: menuAt.y }} />
+              <ScriptMenuAnchor x={menuAt.x} y={menuAt.y} />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-52" onClick={(event) => event.stopPropagation()} onCloseAutoFocus={(event) => event.preventDefault()}>
+            <ScriptLineMenuContent align="start" onClick={(event) => event.stopPropagation()} onCloseAutoFocus={(event) => event.preventDefault()}>
               {menuItems}
-            </DropdownMenuContent>
+            </ScriptLineMenuContent>
           </DropdownMenu>
         )}
-      </li>
+      </ScriptListItem>
     </>
   );
-}
-
-function ReviewIssue({ issue }: { issue: string }) {
-  return <p className="mt-1 flex items-start gap-1 text-xs text-warning"><CircleAlert className="mt-0.5 size-3 shrink-0" /><span className="line-clamp-2">{issue}</span></p>;
 }

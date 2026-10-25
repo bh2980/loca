@@ -1,6 +1,6 @@
 import type { InferResponseType } from 'hono/client';
 import { Link } from '@tanstack/react-router';
-import { Button, InspectorField, NumberInput, SectionHeading } from '@loca/ui';
+import { Box, Button, Grid, InspectorField, Inline, NumberInput, SectionHeading, Stack, Text } from '@loca/ui';
 import type { CapEdits, Caps } from '@/lib/run-limits';
 import { splitBasis, splitTitle } from '@/lib/split-text';
 import { paceParts } from '@/lib/run-summary';
@@ -17,37 +17,39 @@ export type PlanData = InferResponseType<(typeof client.workflows)[':id']['prefl
 export function Pace({ data, projectId }: { data: PlanData; projectId?: string }) {
   const { callText, time, money } = paceParts(data);
   return (
-    <section className="space-y-2">
+    <Box as="section" spaceY="condensed">
       <SectionHeading>예상</SectionHeading>
-      <p className="text-sm">
-        AI 요청 <b className="font-medium tabular-nums">{callText}</b>
+      <Text as="p" variant="body">
+        AI 요청 <Text as="b" weight="medium" tabular>{callText}</Text>
         {time !== null && (
           <>
             {' · 약 '}
-            <b className="font-medium">{time}</b>
+            <Text as="b" weight="medium">{time}</Text>
           </>
         )}
         {money && ` · ${money}`}
-      </p>
+      </Text>
       {data.nodes.length > 0 && (
-        <div className="space-y-1.5">
+        <Box spaceY="snug">
           {data.nodes.map((node) => (
             <div key={node.nodeId}>
-              <p className="text-sm">{splitTitle(node.name, node.split)}</p>
-              <p className="text-xs text-muted-foreground">{splitBasis(node.split)}</p>
+              <Text as="p" variant="body">{splitTitle(node.name, node.split)}</Text>
+              <Text as="p" variant="caption" tone="muted">{splitBasis(node.split)}</Text>
             </div>
           ))}
-        </div>
+        </Box>
       )}
       {projectId && data.load.runs > 0 && (
-        <p className="text-xs text-warning" role="status">
+        <Text as="p" variant="caption" tone="warning" role="status">
           다른 실행 {data.load.runs}개가 AI 요청을 최대 {data.load.max}개까지 동시에 보내는 중입니다. 이 실행을 시작하면 최대 {data.load.max + data.load.added}개가 됩니다.{' '}
-          <Link to="/p/$projectId/runs" params={{ projectId }} className="underline underline-offset-2">
-            실행 기록 보기
-          </Link>
-        </p>
+          <Text asChild underline="offset">
+            <Link to="/p/$projectId/runs" params={{ projectId }}>
+              실행 기록 보기
+            </Link>
+          </Text>
+        </Text>
       )}
-    </section>
+    </Box>
   );
 }
 
@@ -58,27 +60,27 @@ export function Pace({ data, projectId }: { data: PlanData; projectId?: string }
  */
 export function RunModels({ nodes, picked, onPick, onReset, changedNote = '이번 실행만' }: { nodes: PlanData['nodes']; picked: Record<string, ModelValue>; onPick: (nodeId: string, value: ModelValue) => void; onReset: (nodeId: string) => void; /** Says how far a picked model reaches. */ changedNote?: string }) {
   return (
-    <section className="space-y-2">
+    <Box as="section" spaceY="condensed">
       <SectionHeading>모델</SectionHeading>
       {nodes.map((node) => {
         const own = node.choice.connectionId && node.choice.model ? node.choice : null;
         const changed = Boolean(picked[node.nodeId]);
         return (
-          <div key={node.nodeId} className="flex min-w-0 flex-wrap items-center gap-2">
-            {nodes.length > 1 && <span className="w-28 shrink-0 truncate text-sm">{node.name}</span>}
-            <ModelPicker value={picked[node.nodeId] ?? own} onChange={(value) => onPick(node.nodeId, value)} className="min-w-0 flex-1" />
+          <Inline key={node.nodeId} minWidth={0} wrap gap="condensed">
+            {nodes.length > 1 && <Text width={28} shrink={false} truncate variant="body">{node.name}</Text>}
+            <ModelPicker value={picked[node.nodeId] ?? own} onChange={(value) => onPick(node.nodeId, value)} grow />
             {changed && (
-              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Inline as="span" gap="tight" variant="caption" tone="muted">
                 {changedNote}
                 <Button variant="ghost" size="inline" onClick={() => onReset(node.nodeId)}>
                   원래대로
                 </Button>
-              </span>
+              </Inline>
             )}
-          </div>
+          </Inline>
         );
       })}
-    </section>
+    </Box>
   );
 }
 
@@ -86,13 +88,13 @@ export function RunModels({ nodes, picked, onPick, onReset, changedNote = '이�
 export function RunCaps({ suggested, edits, onChange }: { suggested: Caps | undefined; edits: CapEdits; onChange: (edits: CapEdits) => void }) {
   const shown = (key: keyof Caps) => (edits[key] === undefined ? suggested?.[key] : edits[key]);
   return (
-    <div className="grid gap-3 sm:grid-cols-2">
+    <Grid columns="twoFromSm" gap="normal">
       <InspectorField label="호출 상한" description="비우면 상한 없이 실행합니다." help="이만큼 쓰면 실행을 멈춥니다. 재요청 노드가 있으면 그 여유분이 들어 있습니다.">
         <NumberInput optional min={1} value={shown('maxCalls')} onValueChange={(next) => onChange({ ...edits, maxCalls: next ?? null })} />
       </InspectorField>
       <InspectorField label="입력 상한" description="비우면 상한 없이 실행합니다." help="실행 전체가 AI에 보내는 입력 토큰(캐시 포함)이 이만큼 되기 전에 멈춥니다.">
         <NumberInput optional min={1} value={shown('maxInputTokens')} onValueChange={(next) => onChange({ ...edits, maxInputTokens: next ?? null })} />
       </InspectorField>
-    </div>
+    </Grid>
   );
 }

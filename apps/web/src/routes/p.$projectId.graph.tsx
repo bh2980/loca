@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeftRight, ClipboardPaste, CopyPlus, ListOrdered, Trash2, FilePlus2, FolderPlus, MinusCircle, ArrowUpDown, Copy, ExternalLink, Flag, Focus, Maximize, Minus, Network, Play, Plus, Route as RouteIcon, SlidersHorizontal, Sparkles } from 'lucide-react';
+import { ArrowLeftRight, ClipboardPaste, CopyPlus, ListOrdered, Trash2, FilePlus2, FolderPlus, MinusCircle, ArrowUpDown, Copy, ExternalLink, Flag, Focus, Network, Play, Route as RouteIcon, SlidersHorizontal, Sparkles } from 'lucide-react';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { GraphCanvas, type GraphCanvasHandle, type LayoutEdge, type NodeInfo, type Viewport } from '@/components/graph/graph-canvas';
 import { LINE_CARD_WIDTH, LineCard } from '@/components/graph/line-card';
@@ -17,7 +17,7 @@ import { LineMenuFor } from '@/components/script/line-menu';
 import { GRAPH_KEYS, useGraphShortcuts } from '@/lib/graph-shortcuts';
 import { keyLabel } from '@/lib/keys';
 
-import { SearchInput, SplitPane, PaneHeader, Button, CanvasOverlay, CanvasSurface, Empty, EmptyDescription, EmptyHeader, EmptyTitle, ScrollArea, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue, Input, Popover, PopoverContent, PopoverTrigger, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, Spinner, Switch, ViewSwitch, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuShortcut, SelectionToolbox, useRevealDock, GraphEndpointBar } from '@loca/ui';
+import { SearchInput, SplitPane, PaneHeader, Button, CanvasOverlay, CanvasSurface, Empty, EmptyDescription, EmptyHeader, EmptyTitle, ScrollArea, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue, Input, Popover, PopoverContent, PopoverTrigger, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, Spinner, Switch, ViewSwitch, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuShortcut, SelectionToolbox, useRevealDock, GraphEndpointBar, Box, Stack, Text, Icon, Inline, CanvasChipLabel, CanvasChipNote, CanvasChip, CanvasToast, ChipDot, FloatingZoomBar, FoundNodeList } from '@loca/ui';
 import { useSize } from '@/hooks/use-size';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
@@ -618,7 +618,6 @@ function GraphPage() {
         {dialogue && (
           <Button
             variant={isPicking ? 'secondary' : 'outline'}
-            size="sm"
             onClick={() => void navigate({
               search: (prev) => isPicking
                 ? {
@@ -637,7 +636,7 @@ function GraphPage() {
                   },
             })}
           >
-            <RouteIcon className="size-3.5 mr-1" />
+            <Icon icon={RouteIcon} size="sm" marginRight="tight" />
             {isPicking ? '취소' : '경로 따라 번역'}
           </Button>
         )}
@@ -652,15 +651,17 @@ function GraphPage() {
             // Opening another view or section is navigation (a history entry); the pane's selection does not carry over.
             onValueChange={(value) => void navigate({ search: (previous) => ({ ...previous, section: value, node: undefined, omitted: undefined, viewInfo: undefined }) })}
           >
-            <SelectTrigger size="sm" className="w-56" aria-label="보기">
-              <span className="text-muted-foreground">보기</span>
+            <Box asChild width={56}>
+            <SelectTrigger size="sm" aria-label="보기">
+              <Text tone="muted">보기</Text>
               <SelectValue />
             </SelectTrigger>
+            </Box>
             <SelectContent>
               <SelectItem value="all">전체</SelectItem>
               {sections.map((section) => (
                 <SelectItem key={section.name} value={section.name}>
-                  {section.name} <span className="text-muted-foreground">· {section.nodes.toLocaleString()}</span>
+                  {section.name} <Text tone="muted">· {section.nodes.toLocaleString()}</Text>
                 </SelectItem>
               ))}
               {(savedViews.length > 0 || view) && (
@@ -670,8 +671,8 @@ function GraphPage() {
                     <SelectLabel>저장된 보기</SelectLabel>
                     {savedViews.map((saved) => (
                       <SelectItem key={saved.id} value={`view:${saved.id}`}>
-                        {saved.origin === 'ai' && <span className="text-muted-foreground">✦ </span>}
-                        {saved.label} <span className="text-muted-foreground">· {saved.nodes.toLocaleString()}개</span>
+                        {saved.origin === 'ai' && <Text tone="muted">✦ </Text>}
+                        {saved.label} <Text tone="muted">· {saved.nodes.toLocaleString()}개</Text>
                       </SelectItem>
                     ))}
                     {view && chosen && !savedViews.some((saved) => `view:${saved.id}` === chosen) && <SelectItem value={chosen}>{view.label}</SelectItem>}
@@ -682,7 +683,7 @@ function GraphPage() {
           </Select>
         )}
       </HeaderActions>
-      <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+      <Stack height="full" minHeight={0} grow overflow="hidden">
         {isPicking && (
           <GraphEndpointBar
             start={startValue}
@@ -725,15 +726,15 @@ function GraphPage() {
             }}
           />
         )}
-        <div className="relative min-h-0 flex-1 overflow-hidden">
+        <Box position="relative" minHeight={0} grow overflow="hidden">
           <SplitPane
             id="graph"
             selectionKey={isPicking ? undefined : search.node ?? (search.edge ? `edge:${search.edge}` : search.addAfter ? `add:${search.addAfter}` : omittedEdge ? `omitted:${omittedEdge.id}` : infoOpen ? 'view-info' : undefined)}
             defaultWidth="380px"
-            className="absolute inset-0"
+            fill
         pane={
           (search.node || omittedEdge || infoOpen || (dialogue && (search.edge || search.addAfter))) && (
-            <div className="h-full bg-background">
+            <Box height="full" background="background">
               {dialogue && search.edge ? (
                 <EdgePane
                   key={search.edge}
@@ -777,17 +778,17 @@ function GraphPage() {
                   onDeleted={() => void navigate({ search: (previous) => ({ ...previous, section: undefined, viewInfo: undefined, node: undefined }) })}
                 />
               ) : !search.node ? null : search.scope === 'scene' && hubs.has(search.node) ? (
-                <aside className="flex h-full flex-col text-sm">
+                <Stack as="aside" height="full" variant="body">
                   <PaneHeader kicker="장면 그래프" title="연결점" onClose={() => select(undefined)} />
-                  <p className="px-4 py-3 text-muted-foreground">
+                  <Text as="p" paddingX="comfortable" paddingY="normal" tone="muted">
                     장면에 속하지 않는 노드 {hubs.get(search.node)!.nodes.toLocaleString()}개가 장면 {hubs.get(search.node)!.scenes.toLocaleString()}개를 잇습니다
-                  </p>
-                </aside>
+                  </Text>
+                </Stack>
               ) : search.scope === 'dialogue' ? (
                 // One pane for a node and a folded run alike: their lines, read in order.
-                <div className="flex h-full min-h-0 flex-col">
+                <Stack height="full" minHeight={0}>
                   {viewId && reasonOf(search.node) && <ViewReason reason={reasonOf(search.node)!} />}
-                  <div className="min-h-0 flex-1">
+                  <Box minHeight={0} grow>
                     <FlowPane
                       key={search.node}
                       projectId={projectId}
@@ -799,12 +800,12 @@ function GraphPage() {
                       title={info.get(chainOf.get(search.node) ?? search.node)?.title ?? info.get(chainOf.get(search.node) ?? search.node)?.label ?? ''}
                       onClose={() => select(undefined)}
                     />
-                  </div>
-                </div>
+                  </Box>
+                </Stack>
               ) : search.scope === 'scene' ? (
                 <SceneNodeDetail projectId={projectId} groupId={search.node} onClose={() => select(undefined)} />
               ) : null}
-            </div>
+            </Box>
           )
         }
       >
@@ -937,7 +938,7 @@ function GraphPage() {
                 />
               </DropdownMenuTrigger>
               {search.scope === 'dialogue' && contextMenu.nodeId && picked.size > 1 && picked.has(contextMenu.nodeId) && (
-                <DropdownMenuContent align="start" side="bottom" sideOffset={2} className="w-60">
+                <Box asChild width={60}><DropdownMenuContent align="start" side="bottom" sideOffset={2}>
                   <DropdownMenuItem onSelect={() => void runPicked(picked)}>
                     <span>워크플로 실행…</span>
                   </DropdownMenuItem>
@@ -955,13 +956,13 @@ function GraphPage() {
                       <DropdownMenuSubTrigger>
                         <span>보기에 추가</span>
                       </DropdownMenuSubTrigger>
-                      <DropdownMenuSubContent className="max-h-72 w-56 overflow-auto">
+                      <Box asChild maxHeight={72} width={56} overflow="auto"><DropdownMenuSubContent>
                         {otherViews.map((saved) => (
                           <DropdownMenuItem key={saved.id} onSelect={() => addToView(saved.id, saved.label, picked)}>
-                            <span className="truncate">{saved.origin === 'ai' ? '✦ ' : ''}{saved.label}</span>
+                            <Text truncate>{saved.origin === 'ai' ? '✦ ' : ''}{saved.label}</Text>
                           </DropdownMenuItem>
                         ))}
-                      </DropdownMenuSubContent>
+                      </DropdownMenuSubContent></Box>
                     </DropdownMenuSub>
                   )}
                   {viewId && (
@@ -984,10 +985,10 @@ function GraphPage() {
                       </DropdownMenuItem>
                     </>
                   )}
-                </DropdownMenuContent>
+                </DropdownMenuContent></Box>
               )}
               {search.scope === 'dialogue' && contextMenu.nodeId && !(picked.size > 1 && picked.has(contextMenu.nodeId)) && (
-                <DropdownMenuContent align="start" side="bottom" sideOffset={2} className="w-56">
+                <Box asChild width={56}><DropdownMenuContent align="start" side="bottom" sideOffset={2}>
                   <DropdownMenuItem
                     onSelect={() => {
                       const id = contextMenu.nodeId!;
@@ -1140,10 +1141,10 @@ function GraphPage() {
                       </DropdownMenuItem>
                     </>
                   )}
-                </DropdownMenuContent>
+                </DropdownMenuContent></Box>
               )}
               {search.scope === 'scene' && contextMenu.nodeId && (
-                <DropdownMenuContent align="start" side="bottom" sideOffset={2} className="w-48">
+                <Box asChild width={48}><DropdownMenuContent align="start" side="bottom" sideOffset={2}>
                   <DropdownMenuItem
                     onSelect={() => {
                       const id = contextMenu.nodeId!;
@@ -1184,10 +1185,10 @@ function GraphPage() {
                   >
                     <span>상세 열기</span>
                   </DropdownMenuItem>
-                </DropdownMenuContent>
+                </DropdownMenuContent></Box>
               )}
               {contextMenu.edgeId && sceneEditing && (
-                <DropdownMenuContent align="start" side="bottom" sideOffset={2} className="w-48">
+                <Box asChild width={48}><DropdownMenuContent align="start" side="bottom" sideOffset={2}>
                   {(() => {
                     const line = edges.find((edge) => edge.id === contextMenu.edgeId);
                     // A line to or from a connection point (hub) stands for dialogue-graph lines through nodes outside scenes.
@@ -1198,10 +1199,10 @@ function GraphPage() {
                       </DropdownMenuItem>
                     );
                   })()}
-                </DropdownMenuContent>
+                </DropdownMenuContent></Box>
               )}
               {contextMenu.edgeId && !sceneEditing && (
-                <DropdownMenuContent align="start" side="bottom" sideOffset={2} className="w-48">
+                <Box asChild width={48}><DropdownMenuContent align="start" side="bottom" sideOffset={2}>
                   <DropdownMenuItem onSelect={() => openEdge(contextMenu.edgeId)}>
                     <span>상세 열기</span>
                   </DropdownMenuItem>
@@ -1214,10 +1215,10 @@ function GraphPage() {
                       </DropdownMenuItem>
                     </>
                   )}
-                </DropdownMenuContent>
+                </DropdownMenuContent></Box>
               )}
               {!contextMenu.nodeId && !contextMenu.edgeId && (
-                <DropdownMenuContent align="start" side="bottom" sideOffset={2} className="w-48">
+                <Box asChild width={48}><DropdownMenuContent align="start" side="bottom" sideOffset={2}>
                   {editing && nodeClipboard.length > 0 && (
                     <>
                       <DropdownMenuItem onSelect={() => void paste(nodeClipboard)}>
@@ -1246,7 +1247,7 @@ function GraphPage() {
                   >
                     <span>{direction === 'vertical' ? '가로 배치' : '세로 배치'}</span>
                   </DropdownMenuItem>
-                </DropdownMenuContent>
+                </DropdownMenuContent></Box>
               )}
             </DropdownMenu>
           )}
@@ -1255,36 +1256,40 @@ function GraphPage() {
               <PopoverTrigger asChild>
                 <span aria-hidden style={{ position: 'fixed', left: naming.x, top: naming.y, width: 1, height: 1, pointerEvents: 'none' }} />
               </PopoverTrigger>
-              <PopoverContent align="start" className="w-72 space-y-2">
+              <Box asChild width={72} spaceY="condensed">
+              <PopoverContent align="start">
                 <Input autoFocus value={newName} maxLength={80} aria-label="보기 이름" placeholder="예: 올렉 사망 분기" onChange={(event) => setNewName(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && makeView()} />
-                <div className="flex justify-end gap-2">
+                <Stack direction="row" justify="end" gap="condensed">
                   <Button variant="ghost" onClick={() => setNaming(null)}>취소</Button>
                   <Button disabled={!newName.trim() || viewActions.create.isPending} onClick={makeView}>보기 만들기</Button>
-                </div>
+                </Stack>
               </PopoverContent>
+              </Box>
             </Popover>
           )}
           {runUnits && (
             <RunDialog projectId={projectId} unitIds={runUnits} unitsLabel="고른 노드" open onOpenChange={(open) => !open && setRunUnits(undefined)} hideTrigger />
           )}
           {(graph.isPending || graph.data?.status === 'pending') && !relayout && (
-            <div className="absolute inset-0 flex items-center justify-center gap-2 text-sm text-muted-foreground">
+            <Inline position="absolute" inset={0} justify="center" gap="condensed" variant="body" tone="muted">
               <Spinner /> 그래프 배치를 계산하는 중…
-            </div>
+            </Inline>
           )}
           {relayout && (
-            <div className="pointer-events-none absolute top-14 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-md border bg-popover px-3 py-1.5 text-xs text-muted-foreground shadow-sm" role="status">
+            <CanvasToast role="status">
               <Spinner /> 바뀐 내용으로 다시 배치하는 중…
-            </div>
+            </CanvasToast>
           )}
-          {graph.data?.status === 'failed' && <p className="p-6 text-sm text-destructive">배치에 실패했습니다: {graph.data.error}</p>}
+          {graph.data?.status === 'failed' && <Text as="p" padding="spacious" variant="body" tone="danger">배치에 실패했습니다: {graph.data.error}</Text>}
           {graph.data?.status === 'missing' || (graph.data?.status === 'ready' && !layout?.nodes.length) ? (
-            <Empty className="absolute inset-0">
-              <EmptyHeader>
-                <EmptyTitle>그래프가 없습니다</EmptyTitle>
-                <EmptyDescription>가져온 파일에 그래프 정보가 없습니다.</EmptyDescription>
-              </EmptyHeader>
-            </Empty>
+            <Box asChild position="absolute" inset={0}>
+              <Empty>
+                <EmptyHeader>
+                  <EmptyTitle>그래프가 없습니다</EmptyTitle>
+                  <EmptyDescription>가져온 파일에 그래프 정보가 없습니다.</EmptyDescription>
+                </EmptyHeader>
+              </Empty>
+            </Box>
           ) : null}
 
           {layout && (
@@ -1292,16 +1297,21 @@ function GraphPage() {
               <CanvasOverlay
                 tools={
                   <>
-                    <div className="relative w-[26rem] max-w-full min-w-0 shrink select-none">
-                      <SearchInput value={search.q} onChange={setFind} placeholder="노드 찾기 (키·라벨·첫 대사)" className="w-full h-7 bg-card border-border shadow-2xs text-xs rounded-md" />
+                    <Box position="relative" width="26rem" maxWidth="full" minWidth={0} shrink userSelect="none">
+                      <SearchInput value={search.q} onChange={setFind} placeholder="노드 찾기 (키·라벨·첫 대사)" onCanvas />
                       {matches.length > 0 && (
-                        <ul className="absolute left-0 top-full z-50 mt-1 max-h-72 w-full overflow-auto rounded-lg border border-border bg-popover/95 p-1 text-sm shadow-md backdrop-blur-md">
+                        <FoundNodeList>
                           {matches.map((node) => (
                             <li key={node.id}>
                               <Button
                                 variant="ghost"
                                 size="row"
-                                className="flex w-full items-start gap-2 rounded-md py-1 text-left"
+                                display="flex"
+                                width="full"
+                                items="start"
+                                radius="md"
+                                paddingY="tight"
+                                textAlign="start"
                                 onClick={() => {
                                   if (dialogue && isPicking) {
                                     const targetId = resolveChainEndpoint(node.id, currentStep, layout?.chains, graph.data?.nodes);
@@ -1337,17 +1347,17 @@ function GraphPage() {
                                   setFind(undefined);
                                 }}
                               >
-                                <span className="w-14 shrink-0 pt-0.5 text-xs text-muted-foreground">{KIND_LABEL[node.kind] ?? node.kind}</span>
-                                <span className="min-w-0 flex-1">
-                                  <span className="block truncate text-sm text-foreground">{node.label ?? node.key}</span>
-                                  {node.preview && <span className="block truncate text-xs text-muted-foreground">{node.preview}</span>}
-                                </span>
+                                <Text width={14} shrink={false} paddingTop="hair" variant="caption" tone="muted">{KIND_LABEL[node.kind] ?? node.kind}</Text>
+                                <Text minWidth={0} grow>
+                                  <Text display="block" truncate variant="body" tone="default">{node.label ?? node.key}</Text>
+                                  {node.preview && <Text display="block" truncate variant="caption" tone="muted">{node.preview}</Text>}
+                                </Text>
                               </Button>
                             </li>
                           ))}
-                        </ul>
+                        </FoundNodeList>
                       )}
-                    </div>
+                    </Box>
                     {search.scope === 'dialogue' && (
                       <TypeLegend
                         nodes={graph.data!.nodes}
@@ -1361,24 +1371,24 @@ function GraphPage() {
                 details={
                   <>
                     {picked.size > 1 && (
-                      <p className="max-w-3xl rounded-md border border-border bg-card px-2.5 py-1 text-sm text-muted-foreground shadow-2xs select-none">
+                      <CanvasChipNote>
                         노드 {picked.size.toLocaleString()}개 선택
-                      </p>
+                      </CanvasChipNote>
                     )}
                     {view && viewDetail.data && (
-                      <div className="flex max-w-full flex-wrap items-center gap-2 rounded-md border border-border bg-card py-1 pr-1.5 pl-2.5 text-sm shadow-2xs backdrop-blur-xs select-none">
+                      <CanvasChip kind="actions">
                         <span>
                           보기 "{view.label}" · 남김 {view.nodes.toLocaleString()} · 생략 구간 {derivedEdges.toLocaleString()} · {viewDetail.data.origin === 'ai' ? 'AI' : '직접'}
-                          {viewDetail.data.missing.length > 0 && <span className="text-destructive"> · 원본에 없음 {viewDetail.data.missing.length.toLocaleString()}</span>}
+                          {viewDetail.data.missing.length > 0 && <Text tone="danger"> · 원본에 없음 {viewDetail.data.missing.length.toLocaleString()}</Text>}
                         </span>
                         <Button variant="ghost" onClick={() => void navigate({ search: (previous) => ({ ...previous, viewInfo: true, node: undefined, omitted: undefined, edit: undefined }), replace: true })}>
                           보기
                         </Button>
-                      </div>
+                      </CanvasChip>
                     )}
                     {search.mark && mark.data && layout && (
-                      <div className="flex max-w-full flex-wrap items-center gap-2 rounded-md border border-border bg-card py-1 pr-1.5 pl-2.5 text-sm shadow-2xs backdrop-blur-xs select-none">
-                        <span className="size-1.5 rounded-full bg-primary" />
+                      <CanvasChip kind="actions">
+                        <ChipDot />
                         <span>
                           강조{mark.data.label ? ` "${mark.data.label}"` : ''} · 이 화면 {layout.nodes.filter((node) => highlight?.has(node.id)).length.toLocaleString()} / {mark.data.nodeIds.length.toLocaleString()}개
                         </span>
@@ -1390,59 +1400,31 @@ function GraphPage() {
                         <Button variant="ghost" onClick={() => void navigate({ search: (previous) => ({ ...previous, mark: undefined }), replace: true })}>
                           강조 해제
                         </Button>
-                      </div>
+                      </CanvasChip>
                     )}
                     {hidden.length > 0 && (
-                      <label className="flex max-w-full flex-wrap items-center gap-2 rounded-md border border-border bg-card px-2.5 py-1 text-sm text-muted-foreground shadow-2xs backdrop-blur-xs select-none">
+                      <CanvasChipLabel>
                         <Switch
                           checked={search.links === 'all'}
                           onCheckedChange={(on) => void navigate({ search: (previous) => ({ ...previous, links: on ? 'all' : undefined }), replace: true })}
                         />
                         장면 경유 연결 {hidden.length.toLocaleString()}
-                      </label>
+                      </CanvasChipLabel>
                     )}
                   </>
                 }
               />
 
               {/* Minimal floating zoom bar (Figma / Miro style) */}
-              <div className="absolute right-3 bottom-3 flex items-center rounded-lg border border-border bg-card shadow-xs backdrop-blur-md overflow-hidden select-none">
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="축소"
-                  onClick={() => canvas.current?.zoomBy(0.7)}
-                  className="rounded-none hover:bg-accent text-muted-foreground hover:text-foreground"
-                >
-                  <Minus className="size-3.5" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="확대"
-                  onClick={() => canvas.current?.zoomBy(1.4)}
-                  className="rounded-none hover:bg-accent text-muted-foreground hover:text-foreground"
-                >
-                  <Plus className="size-3.5" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="전체 맞춤"
-                  onClick={() => canvas.current?.fit()}
-                  className="rounded-none hover:bg-accent text-muted-foreground hover:text-foreground"
-                >
-                  <Maximize className="size-3.5" />
-                </Button>
-              </div>
+              <FloatingZoomBar onZoomOut={() => canvas.current?.zoomBy(0.7)} onZoomIn={() => canvas.current?.zoomBy(1.4)} onFit={() => canvas.current?.fit()} />
 
 
             </>
           )}
         </CanvasSurface>
       </SplitPane>
-    </div>
-  </div>
+    </Box>
+  </Stack>
 </Page>
   );
 }

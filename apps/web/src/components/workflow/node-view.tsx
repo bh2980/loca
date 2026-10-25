@@ -2,7 +2,7 @@ import { memo, useEffect } from 'react';
 import { Handle, Position, useUpdateNodeInternals, type Node, type NodeProps } from '@xyflow/react';
 import { BookPlus, Braces, CircleDot, Code, Combine, Flag, GitFork, Globe, ListChecks, MessageCircleQuestion, NotebookPen, RotateCcw, ScanSearch, Workflow, Sparkles, SpellCheck, Tag, UserCheck } from 'lucide-react';
 import { functionGroup, nodeName, nodePorts, type WorkflowNode } from '@tw/shared';
-import { NodeCard, type CanvasDirection, type FoldChipProps } from '@loca/ui';
+import { Box, NodeCard, type CanvasDirection, type FoldChipProps } from '@loca/ui';
 
 type Icon = typeof Sparkles;
 
@@ -34,9 +34,9 @@ export function nodeIcon(node: WorkflowNode): Icon {
 export const workflowPortTone = (port: string): 'neutral' | 'warning' | 'destructive' => port === 'error'
   ? 'destructive'
   : ['fail', 'false', 'rejected'].includes(port) ? 'warning' : 'neutral';
-const handleClass = (port: string) => {
+const handleTone = (port: string) => {
   const tone = workflowPortTone(port);
-  return `!size-2.5 !border-2 !border-card ${tone === 'destructive' ? '!bg-destructive' : tone === 'warning' ? '!bg-warning' : '!bg-muted-foreground'}`;
+  return tone === 'destructive' ? 'workflowDestructive' : tone === 'warning' ? 'workflowWarning' : 'workflow';
 };
 const portHelp: Record<string, string> = {
   error: '오류: 모델이나 함수 실행 중 문제가 생겼을 때',
@@ -74,23 +74,22 @@ export const WorkflowNodeView = memo(function WorkflowNodeView({ id, data, selec
   const ports = nodePorts(node);
   const isEntry = node.type === 'entry';
   const isVertical = direction === 'vertical';
-  const inputHandle = !isEntry && <Handle type="target" position={isVertical ? Position.Top : Position.Left} id="in" aria-label="입력" className="!size-2.5 !border-2 !border-card !bg-muted-foreground" />;
+  const inputHandle = !isEntry && <Box asChild flowHandle="workflow"><Handle type="target" position={isVertical ? Position.Top : Position.Left} id="in" aria-label="입력" /></Box>;
   const outputs = ports.map((port, index) => ({
     id: port.id,
     label: port.id === 'error' ? '오류' : port.label,
     tone: workflowPortTone(port.id),
     open: open.includes(port.id),
     fold: folds?.[port.id],
-    handle: <Handle
+    handle: <Box asChild flowHandle={handleTone(port.id)}><Handle
       type="source"
       position={isVertical ? Position.Bottom : Position.Right}
       id={port.id}
       aria-label={portHelp[port.id] ?? port.label}
-      className={handleClass(port.id)}
       style={isVertical
         ? { left: `${((index + 0.5) / (ports.length || 1)) * 100}%` }
         : { top: `${((index + 0.5) / (ports.length || 1)) * 100}%` }}
-    />,
+    /></Box>,
   }));
   const kind = node.type === 'function' ? (node.config.fn === 'setStatus' ? 'status' : functionGroup(node.config.fn)) : node.type;
   const detail = node.type === 'function' && node.config.fn === 'setStatus'
@@ -113,6 +112,6 @@ export const WorkflowNodeView = memo(function WorkflowNodeView({ id, data, selec
     selected={selected}
     start={start}
     foldClose={foldClose}
-    className={isEntry ? 'w-48' : isVertical ? 'w-56' : 'w-72'}
+    width={isEntry ? 48 : isVertical ? 56 : 72}
   />;
 });

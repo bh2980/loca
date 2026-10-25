@@ -2,23 +2,13 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { FileText } from 'lucide-react';
 import { toast } from 'sonner';
-import { InspectorHeader, Inspector, InspectorBlock, InspectorList, InspectorResult, InspectorSection, Badge, Button } from '@loca/ui';
+import { Box, InspectorHeader, Inspector, InspectorBlock, InspectorList, InspectorResult, InspectorSection, Button, Inline, SeamStateChip, Text } from '@loca/ui';
 import { TokenText } from '@/components/editor/source-text';
 import { client, unwrap } from '@/lib/api';
 import { tokenPatternOf } from '@/lib/line-context';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
-import { cn } from '@/lib/utils';
 import { PersonName } from '@/lib/person-colors';
-
-export type SeamState = 'checked' | 'stale';
-
-/** 점검함 / 바뀜 / 미점검: color only where it means something (바뀜 asks for another look). */
-export function SeamStateChip({ state, className }: { state: SeamState | undefined; className?: string }) {
-  if (state === 'checked') return <Badge variant="outline" className={cn('border-success/40 text-success', className)}>점검함</Badge>;
-  if (state === 'stale') return <Badge variant="outline" className={cn('border-warning/40 text-warning', className)}>바뀜</Badge>;
-  return <Badge variant="outline" className={cn('text-muted-foreground', className)}>미점검</Badge>;
-}
 
 type Line = { unitId: string; key: string; groupId: string; speaker: string | null; source: string; translation: string | null };
 
@@ -45,21 +35,21 @@ export function SeamCheckPane({ projectId, nodeId, onClose }: { projectId: strin
 
   const state = data?.check?.state;
   const line = (item: Line) => (
-    <li key={item.unitId} className="group flex items-start gap-2 py-2 first:pt-0 last:pb-0" data-testid="seam-line">
-      <div className="min-w-0 flex-1 space-y-0.5 text-sm">
-        <p className="text-xs text-muted-foreground">{item.speaker ? <PersonName projectId={projectId} name={item.speaker} /> : '지문·문구'}</p>
+    <Inline as="li" key={item.unitId} align="start" gap="condensed" group paddingY="condensed" trimEnds data-testid="seam-line">
+      <Box minWidth={0} grow spaceY="hair" variant="body">
+        <Text as="p" variant="caption" tone="muted">{item.speaker ? <PersonName projectId={projectId} name={item.speaker} /> : '지문·문구'}</Text>
         <TokenText text={item.source} source={item.source} pattern={tokens} />
-        {item.translation ? <TokenText text={item.translation} source={item.source} pattern={tokens} className="text-muted-foreground" /> : <p className="text-xs text-muted-foreground">번역 없음</p>}
-      </div>
-      <Button variant="ghost" size="icon-xs" asChild className="shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100">
+        {item.translation ? <Text asChild tone="muted"><TokenText text={item.translation} source={item.source} pattern={tokens} /></Text> : <Text as="p" variant="caption" tone="muted">번역 없음</Text>}
+      </Box>
+      <Button variant="ghost" size="icon-xs" asChild shrink={false} revealOnHover="group">
         <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: item.groupId, line: item.unitId }} title="번역 화면에서 열기" aria-label="번역 화면에서 열기">
           <FileText />
         </Link>
       </Button>
-    </li>
+    </Inline>
   );
   const lines = (items: Line[], empty: string) =>
-    items.length ? <InspectorList>{items.map(line)}</InspectorList> : <p className="text-sm text-muted-foreground">{empty}</p>;
+    items.length ? <InspectorList>{items.map(line)}</InspectorList> : <Text as="p" variant="body" tone="muted">{empty}</Text>;
 
   return (
     <Inspector header={<InspectorHeader kind="경로" name="이음새" status={data && <SeamStateChip state={state} />} onClose={onClose} />} footer={

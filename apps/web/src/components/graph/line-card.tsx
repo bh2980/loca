@@ -7,7 +7,7 @@ import { PALETTE, TAG_SCOPES } from '@tw/shared';
 import { LineHints } from '@/components/script/line-row';
 import { TranslationEditor } from '@/components/translation-editor';
 import { LineSourceText } from '@/components/editor/source-text';
-import { Button, Skeleton, TagListEditor } from '@loca/ui';
+import { Box, Button, FloatingCard, Inline, Skeleton, TagListEditor, Text } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { lineTags, q } from '@/lib/queries';
 import { keyLabel } from '@/lib/keys';
@@ -80,7 +80,7 @@ export function LineCard({ projectId, unitId, choice, position, onStep, onClose 
   };
 
   const marks = line && (
-    <div className="mt-1 flex flex-wrap items-center gap-1" role="group" aria-label="이 줄의 태그" onClick={(event) => event.stopPropagation()}>
+    <Inline wrap gap="tight" marginTop="tight" role="group" aria-label="이 줄의 태그" onClick={(event) => event.stopPropagation()}>
       <TagListEditor
         tags={orderedTags}
         allTags={tags}
@@ -88,7 +88,7 @@ export function LineCard({ projectId, unitId, choice, position, onStep, onClose 
         onCreate={handleCreateTag}
         heading="대사 태그"
       />
-    </div>
+    </Inline>
   );
 
   const [noting, setNoting] = useState(false);
@@ -100,10 +100,9 @@ export function LineCard({ projectId, unitId, choice, position, onStep, onClose 
   }, [unitId, line]);
 
   return (
-    <div
+    <FloatingCard
       ref={card}
       tabIndex={-1}
-      className="flex flex-col gap-2 rounded-lg border bg-popover outline-none p-3 text-popover-foreground shadow-lg"
       style={{ width: LINE_CARD_WIDTH }}
       onKeyDown={(event) => {
         if (event.defaultPrevented) return;
@@ -116,15 +115,15 @@ export function LineCard({ projectId, unitId, choice, position, onStep, onClose 
         }
       }}
     >
-      <div className="flex items-center gap-1">
-        <span className="min-w-0 flex-1 truncate text-sm font-medium">
+      <Inline gap="tight">
+        <Text variant="label" truncate minWidth={0} grow>
           {choice ? '선택지' : line && (
             <SpeakerCard projectId={projectId} name={line.speaker}>
               {line.speaker ? <PersonName projectId={projectId} name={line.speaker} /> : <span>지문·문구</span>}
             </SpeakerCard>
           )}
-        </span>
-        {position && <span className="text-xs text-muted-foreground tabular-nums">{position}</span>}
+        </Text>
+        {position && <Text variant="caption" tone="muted" tabular>{position}</Text>}
         <Button variant="ghost" size="icon-xs" aria-label={`이전 줄 (${keyLabel('Alt+Up')})`} title={`이전 줄 (${keyLabel('Alt+Up')})`} onClick={() => onStep(-1)}>
           <ChevronUp />
         </Button>
@@ -144,12 +143,12 @@ export function LineCard({ projectId, unitId, choice, position, onStep, onClose 
         <Button variant="ghost" size="icon-xs" aria-label="닫기 (Esc)" title="닫기 (Esc)" onClick={onClose}>
           <X />
         </Button>
-      </div>
+      </Inline>
       {!line ? (
-        <Skeleton className="h-24" />
+        <Box asChild height={24}><Skeleton /></Box>
       ) : (
         <>
-          <LineSourceText projectId={projectId} unitId={line.id} source={line.source} className="max-h-40 overflow-auto text-sm" />
+          <Box asChild maxHeight={40} overflow="auto" variant="body"><LineSourceText projectId={projectId} unitId={line.id} source={line.source} /></Box>
           <TranslationEditor
             projectId={projectId}
             key={`editor-${line.id}`}
@@ -164,6 +163,6 @@ export function LineCard({ projectId, unitId, choice, position, onStep, onClose 
           <LineHints projectId={projectId} line={{ ...line, lastRun: null }} />
         </>
       )}
-    </div>
+    </FloatingCard>
   );
 }

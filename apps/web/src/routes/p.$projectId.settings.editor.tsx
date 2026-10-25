@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { SettingsContent, Skeleton, Tabs, TabsList, TabsTrigger } from '@loca/ui';
+import { HeaderTabs, HeaderTabsList, SettingsContent, SettingsPageSkeleton, TabsTrigger } from '@loca/ui';
 import { HeaderActions, Page } from '@/components/page';
 import { EditorAiSection } from '@/components/settings/editor-ai';
 import { ExclusionRulesSection } from '@/components/exclusion-rules';
@@ -27,15 +27,15 @@ function EditorSettings() {
   return (
     <Page title="에디터" flush>
       <HeaderActions>
-        <Tabs value={tab} onValueChange={(value) => void navigate({ search: { tab: value === 'ai' ? undefined : (value as Tab) }, replace: true })} className="self-stretch">
-          <TabsList variant="line" className="h-full border-b-0" aria-label="에디터 설정">
+        <HeaderTabs value={tab} onValueChange={(value) => void navigate({ search: { tab: value === 'ai' ? undefined : (value as Tab) }, replace: true })}>
+          <HeaderTabsList aria-label="에디터 설정">
             {(Object.keys(TABS) as Tab[]).map((id) => (
               <TabsTrigger key={id} value={id}>
                 {TABS[id]}
               </TabsTrigger>
             ))}
-          </TabsList>
-        </Tabs>
+          </HeaderTabsList>
+        </HeaderTabs>
       </HeaderActions>
       <SettingsContent>
         {tab === 'ai' ? (
@@ -47,10 +47,7 @@ function EditorSettings() {
             <ExclusionRulesSection projectId={projectId} rules={project.data.exclusionRules} formatRules={project.data.formatRules} sourceLanguage={project.data.sourceLanguage} excludedCount={project.data.excludedCount} />
           )
         ) : (
-          <div className="space-y-4">
-            <Skeleton className="h-8 w-1/3" />
-            <Skeleton className="h-24 w-full" />
-          </div>
+          <SettingsPageSkeleton shape="editor" />
         )}
       </SettingsContent>
     </Page>

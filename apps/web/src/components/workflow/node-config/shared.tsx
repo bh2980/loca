@@ -1,5 +1,5 @@
 /** Pieces shared by the node-kind configs: shared field primitives and the node/ref types. */
-import { Button, Checkbox, HelpTip, Input, NumberInput, InspectorField, InspectorToggle, NODE_CARD_KIND_APPEARANCE, Switch, cn } from '@loca/ui';
+import { Box, Button, Checkbox, HelpTip, Inline, NodeKindIcon, NumberInput, InspectorField, InspectorToggle, Switch, Text } from '@loca/ui';
 import { CONNECTION_KIND_INFO, functionGroup, leavesResult, nodeName, nodeOutputFields, workflowInput, type ModelLimits, type WorkflowEdge, type WorkflowNode, type WorkflowSubject } from '@tw/shared';
 import { nodeIcon } from '@/components/workflow/node-view';
 
@@ -24,31 +24,31 @@ export interface NodeRefs {
 
 /** The step(s) a node takes its result from, as small chips with the node's icon; a click opens that node. */
 export function StepChips({ steps, refs, suffix }: { steps: WorkflowNode[]; refs: Pick<NodeRefs, 'onOpenNode'>; suffix?: string }) {
-  if (!steps.length) return <p className="text-xs text-muted-foreground">앞 단계에 결과를 내는 노드가 없습니다. AI·스크립트 노드 뒤에 이으세요.</p>;
+  if (!steps.length) return <Text as="p" variant="caption" tone="muted">앞 단계에 결과를 내는 노드가 없습니다. AI·스크립트 노드 뒤에 이으세요.</Text>;
   return (
-    <div className="flex flex-wrap items-center gap-1.5 text-sm">
+    <Inline wrap gap="snug" variant="body">
       {steps.map((step) => {
-        const Icon = nodeIcon(step);
+        const Glyph = nodeIcon(step);
         const kind = step.type === 'function' ? functionGroup(step.config.fn) : step.type;
         return (
-          <Button key={step.id} variant="outline" size="sm" className="h-7 gap-1.5 px-2" disabled={!refs.onOpenNode} onClick={() => refs.onOpenNode?.(step.id)} title="이 노드 열기">
-            <Icon className={cn('size-3.5', NODE_CARD_KIND_APPEARANCE[kind].icon)} />
+          <Button key={step.id} variant="outline" paddingX="condensed" disabled={!refs.onOpenNode} onClick={() => refs.onOpenNode?.(step.id)} title="이 노드 열기">
+            <NodeKindIcon icon={Glyph} kind={kind} />
             {nodeName(step)}
           </Button>
         );
       })}
-      {suffix && <span className="text-muted-foreground">{suffix}</span>}
-    </div>
+      {suffix && <Text tone="muted">{suffix}</Text>}
+    </Inline>
   );
 }
 
 /** A checkbox with its label (one choice in a row of them). */
 export function CheckItem({ id, label, checked, onChange, title }: { id: string; label: string; checked: boolean; onChange: (on: boolean) => void; title?: string }) {
   return (
-    <span className="flex items-center gap-1.5 text-sm" title={title}>
+    <Inline as="span" gap="snug" variant="body" title={title}>
       <Checkbox id={id} checked={checked} onCheckedChange={(on) => onChange(on === true)} />
       <label htmlFor={id}>{label}</label>
-    </span>
+    </Inline>
   );
 }
 
@@ -64,23 +64,25 @@ export function Field({ label, hint, help, action, children }: { label: React.Re
 /** A context item counted in lines or scenes: a switch like the others, with the count beside it while on (0 = off). */
 export function CountRow({ label, help, unit, value, fallback, max, onChange }: { label: string; help?: string; unit: string; value: number; fallback: number; max: number; onChange: (value: number) => void }) {
   return (
-    <div className="flex min-w-0 items-center justify-between gap-3 text-sm">
-      <span className="flex min-w-0 items-center gap-1">{label}{help && <HelpTip>{help}</HelpTip>}</span>
-      <span className="flex shrink-0 items-center gap-2">
+    <Inline minWidth={0} justify="between" gap="normal" variant="body">
+      <Inline as="span" minWidth={0} gap="tight">{label}{help && <HelpTip>{help}</HelpTip>}</Inline>
+      <Inline as="span" shrink={false} gap="condensed">
         {value > 0 && (
-          <span className="flex items-center gap-1 text-xs text-muted-foreground">
-            <NumberInput min={1} max={max} value={value} onValueChange={(next) => next !== undefined && onChange(next)} className="h-7 w-14 text-right" aria-label={`${label} 수`} />
+          <Inline as="span" gap="tight" variant="caption" tone="muted">
+            <Box asChild height={7} width={14} textAlign="end">
+              <NumberInput min={1} max={max} value={value} onValueChange={(next) => next !== undefined && onChange(next)} aria-label={`${label} 수`} />
+            </Box>
             {unit}
-          </span>
+          </Inline>
         )}
         <Switch checked={value > 0} onCheckedChange={(on) => onChange(on ? fallback : 0)} aria-label={label} />
-      </span>
-    </div>
+      </Inline>
+    </Inline>
   );
 }
 
 export function ToggleRow({ label, help, checked, onChange }: { label: string; help?: string; checked: boolean; onChange: (value: boolean) => void }) {
-  return <InspectorToggle label={<span className="flex items-center gap-1">{label}{help && <HelpTip>{help}</HelpTip>}</span>} checked={checked} onChange={onChange} />;
+  return <InspectorToggle label={<Inline as="span" gap="tight">{label}{help && <HelpTip>{help}</HelpTip>}</Inline>} checked={checked} onChange={onChange} />;
 }
 
 

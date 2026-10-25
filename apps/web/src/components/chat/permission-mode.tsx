@@ -1,33 +1,28 @@
 import { ShieldCheck, ShieldOff, ShieldQuestion } from 'lucide-react';
 import { PERMISSION_MODE_INFO, PERMISSION_MODES, type PermissionMode } from '@tw/shared';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@loca/ui';
-import { cn } from '@/lib/utils';
+import { ModeSelect } from '@loca/ui';
 
 const ICON = { ask: ShieldQuestion, auto: ShieldCheck, bypass: ShieldOff } as const;
+const OPTIONS = PERMISSION_MODES.map((mode) => ({ value: mode, label: PERMISSION_MODE_INFO[mode].label, description: PERMISSION_MODE_INFO[mode].description }));
 
 /**
  * How the agent's changes are decided (#45): a card each, auto review, or bypass. In the composer it
  * is the conversation's mode; in settings, the mode new conversations start in.
  */
-export function PermissionModePicker({ value, onChange, compact = false, className, disabled = false, open, onOpenChange }: { open?: boolean; onOpenChange?: (open: boolean) => void; value: PermissionMode; onChange: (mode: PermissionMode) => void; compact?: boolean; className?: string; disabled?: boolean }) {
-  const Icon = ICON[value];
+export function PermissionModePicker({ value, onChange, compact = false, width, disabled = false, open, onOpenChange }: { open?: boolean; onOpenChange?: (open: boolean) => void; value: PermissionMode; onChange: (mode: PermissionMode) => void; compact?: boolean; /** `medium` fixes the trigger at 12rem (settings rows). */ width?: 'medium'; disabled?: boolean }) {
   return (
-    <Select open={open} onOpenChange={onOpenChange} value={value} onValueChange={(next) => onChange(next as PermissionMode)} disabled={disabled}>
-      <SelectTrigger size="sm" className={cn(compact && 'border-0 bg-transparent px-1.5 shadow-none', value === 'bypass' && 'text-warning', className)} aria-label="변경 권한 모드">
-        <Icon />
-        {/* Closed, the picker shows the mode's name only; the menu explains each. */}
-        <SelectValue>{PERMISSION_MODE_INFO[value].label}</SelectValue>
-      </SelectTrigger>
-      <SelectContent className="max-w-80">
-        {PERMISSION_MODES.map((mode) => (
-          <SelectItem key={mode} value={mode}>
-            <span className="flex flex-col gap-0.5 whitespace-normal">
-              <span>{PERMISSION_MODE_INFO[mode].label}</span>
-              <span className="text-xs text-muted-foreground">{PERMISSION_MODE_INFO[mode].description}</span>
-            </span>
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <ModeSelect
+      open={open}
+      onOpenChange={onOpenChange}
+      value={value}
+      options={OPTIONS}
+      icon={ICON[value]}
+      onValueChange={(next) => onChange(next as PermissionMode)}
+      label="변경 권한 모드"
+      compact={compact}
+      warn={value === 'bypass'}
+      width={width}
+      disabled={disabled}
+    />
   );
 }

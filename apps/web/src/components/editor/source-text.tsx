@@ -1,11 +1,10 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { termMatcher } from '@tw/shared';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
+import { EditorSourceParagraph, EditorTermMark, EditorTokenChip, EditorTokenText, EditorTokenTip, Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
 import { q } from '@/lib/queries';
 import { splitTokens, useLineContext, type SourcePart } from '@/lib/line-context';
 import { chipHue, chipLabel, type TokenUnit } from '@/lib/tokens';
-import { cn } from '@/lib/utils';
 import { useDraft } from '@/lib/drafts';
 import { placeTags } from '@/lib/tag-placement';
 import { insertIntoLine, insertUnitIntoLine } from './translation-input';
@@ -17,10 +16,10 @@ import { keyLabel } from '@/lib/keys';
  * underlined (hover for the translation). With the line's editor open, clicking either puts it at
  * the cursor.
  */
-export function SourceText({ parts, units = [], unitId, missing = [], className }: { parts: SourcePart[]; units?: TokenUnit[]; unitId?: string; missing?: number[]; className?: string }) {
+export function SourceText({ parts, units = [], unitId, missing = [] }: { parts: SourcePart[]; units?: TokenUnit[]; unitId?: string; missing?: number[] }) {
   const insert = (text: string) => unitId && insertIntoLine(unitId, text);
   return (
-    <p className={cn('break-words whitespace-pre-wrap', className)}>
+    <EditorSourceParagraph>
       {parts.map((part, index) => {
         if (part.token !== undefined)
           return (
@@ -45,12 +44,12 @@ export function SourceText({ parts, units = [], unitId, missing = [], className 
           return (
             <Tooltip key={index}>
               <TooltipTrigger asChild>
-                <span
-                  className={cn('underline decoration-primary/40 decoration-2 underline-offset-4', unitId && 'cursor-pointer hover:decoration-primary')}
+                <EditorTermMark
+                  pickable={!!unitId}
                   onMouseDown={(event) => unitId && (event.preventDefault(), insert(part.term!.target))}
                 >
                   {part.text}
-                </span>
+                </EditorTermMark>
               </TooltipTrigger>
               <TooltipContent>
                 {part.term.source} → {part.term.target}
@@ -59,12 +58,12 @@ export function SourceText({ parts, units = [], unitId, missing = [], className 
           );
         return <span key={index}>{part.text}</span>;
       })}
-    </p>
+    </EditorSourceParagraph>
   );
 }
 
 /** The source of the line being edited, with its tokens and terms (see SourceText); tokens the draft still lacks are ringed. */
-export function LineSourceText({ projectId, unitId, source, translation, className }: { projectId: string; unitId: string; source: string; translation?: string | null; className?: string }) {
+export function LineSourceText({ projectId, unitId, source, translation }: { projectId: string; unitId: string; source: string; translation?: string | null }) {
   const line = useLineContext(projectId, source);
   const [draft] = useDraft(`line:${unitId}`, translation ?? '');
   const missing = useMemo(() => {
@@ -75,7 +74,7 @@ export function LineSourceText({ projectId, unitId, source, translation, classNa
   // Selecting words in it offers to add them to the glossary.
   return (
     <TermPick projectId={projectId} unitId={unitId}>
-      <SourceText parts={line.parts} units={line.units} unitId={unitId} missing={missing} className={className} />
+      <SourceText parts={line.parts} units={line.units} unitId={unitId} missing={missing} />
     </TermPick>
   );
 }
@@ -85,30 +84,29 @@ export function TokenChip({ part, hint, onPick, missing = false }: { part: Sourc
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span
-          className={cn('token-chip', chipHue(part.token?.number ?? 0), !part.token?.number && 'token-chip-stray', missing && 'ring-1 ring-warning', onPick && 'cursor-pointer hover:border-ring')}
+        <EditorTokenChip
+          hue={chipHue(part.token?.number ?? 0)}
+          stray={!part.token?.number}
+          missing={missing}
+          pickable={!!onPick}
           onMouseDown={onPick && ((event) => (event.preventDefault(), onPick()))}
         >
           {chipLabel(part.token?.kind ?? 'single', part.token?.number ?? 0)}
-        </span>
+        </EditorTokenChip>
       </TooltipTrigger>
-      <TooltipContent className="max-w-md text-sm">
-        <span className="font-mono break-all">{part.text}</span>
-        {!part.token?.number && <span className="block opacity-70">원문에 없는 서식</span>}
-        {hint && <span className="block opacity-70">{hint}</span>}
-      </TooltipContent>
+      <EditorTokenTip text={part.text} stray={!part.token?.number} hint={hint} />
     </Tooltip>
   );
 }
 
 /** Read-only text (a line in the list, a translation) with its format tokens as numbered chips. */
-export function TokenText({ text, source, pattern, className }: { text: string; source: string; pattern: RegExp | null; className?: string }) {
+export function TokenText({ text, source, pattern, look }: { text: string; source: string; pattern: RegExp | null; look?: 'suggestion' | 'removed' | 'added' | 'plain' }) {
   const parts = splitTokens(text, source, pattern);
   return (
     // A span (block), so it can sit inside a button as well as a list row.
-    <span className={cn('block break-words whitespace-pre-wrap', className)}>
+    <EditorTokenText look={look}>
       {parts.map((part, index) => (part.token !== undefined ? <TokenChip key={index} part={part} /> : <span key={index}>{part.text}</span>))}
-    </span>
+    </EditorTokenText>
   );
 }
 
@@ -161,11 +159,11 @@ function cutTerms(text: string, used: ConfirmedTerm[]) {
  * terms with a dotted underline (the translation in its title), so the list shows which words the
  * glossary has before a line is picked.
  */
-export function MarkedSourceText({ projectId, text, pattern, className }: { projectId: string; text: string; pattern: RegExp | null; className?: string }) {
+export function MarkedSourceText({ projectId, text, pattern }: { projectId: string; text: string; pattern: RegExp | null }) {
   const matcher = useConfirmedTermMatcher(projectId);
   const parts = splitTokens(text, text, pattern);
   return (
-    <span className={cn('block break-words whitespace-pre-wrap', className)}>
+    <EditorTokenText>
       {parts.map((part, index) => {
         if (part.token !== undefined) return <TokenChip key={index} part={part} />;
         const used = matcher?.find(part.text) ?? [];
@@ -174,7 +172,7 @@ export function MarkedSourceText({ projectId, text, pattern, className }: { proj
           <span key={index}>
             {cutTerms(part.text, used).map((piece, at) =>
               piece.term ? (
-                <span key={at} title={`${piece.term.source} → ${piece.term.target}`} className="underline decoration-primary/45 decoration-dotted underline-offset-4">{piece.text}</span>
+                <EditorTermMark key={at} dotted title={`${piece.term.source} → ${piece.term.target}`}>{piece.text}</EditorTermMark>
               ) : (
                 <span key={at}>{piece.text}</span>
               ),
@@ -182,6 +180,6 @@ export function MarkedSourceText({ projectId, text, pattern, className }: { proj
           </span>
         );
       })}
-    </span>
+    </EditorTokenText>
   );
 }

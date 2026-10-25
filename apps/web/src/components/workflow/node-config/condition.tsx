@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { Plus, X } from 'lucide-react';
 import { type AutoMark, CONDITION_MARK_IDS, INPUT_TYPES, ITEM_ERROR_KIND_IDS, ITEM_ERROR_KINDS, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, nodeName, type WorkflowNode } from '@tw/shared';
 import { MarkChip } from '@/components/status';
-import { Button, cn, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Input, NumberInput, InspectorFields, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, StatusIcon, Switch, TagChip, Textarea } from '@loca/ui';
+import { Box, Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Input, NumberInput, InspectorFields, Inline, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, StatusIcon, Switch, TagChip, Text, Textarea } from '@loca/ui';
 import { comparableFields, conditionExpression, parseCondition, type Clause, type Condition, type FieldOperator, type Join } from '@/components/workflow/node-config/condition-clauses';
 import { AiButton } from '@/components/ai-button';
 import { Field, refsInput, type ConditionNode, type NodeRefs } from '@/components/workflow/node-config/shared';
@@ -23,10 +23,10 @@ type Addable = keyof typeof ADDABLE;
 const INPUT_ROWS = new Set<string>([...INPUT_TYPES.lines.conditionRows, ...INPUT_TYPES.terms.conditionRows]);
 
 
-function Pick({ value, onChange, label, className, children }: { value: string; onChange: (value: string) => void; label: string; className?: string; children: React.ReactNode }) {
+function Pick({ value, onChange, label, width, mono, children }: { value: string; onChange: (value: string) => void; label: string; width: 16 | 20 | 28 | 32 | 36 | 40; mono?: boolean; children: React.ReactNode }) {
   return (
     <Select value={value} onValueChange={onChange}>
-      <SelectTrigger size="sm" className={cn('min-w-0', className)} aria-label={label}><SelectValue /></SelectTrigger>
+      <Box asChild minWidth={0} width={width} mono={mono}><SelectTrigger size="sm" aria-label={label}><SelectValue /></SelectTrigger></Box>
       <SelectContent>{children}</SelectContent>
     </Select>
   );
@@ -35,7 +35,7 @@ function Pick({ value, onChange, label, className, children }: { value: string; 
 /** = / ≠ between a property and its value, or 있음/없음 after one. */
 function Negate({ not, words, onChange }: { not?: boolean; words: [string, string]; onChange: (not: boolean) => void }) {
   return (
-    <Pick label="조건 방향" value={not ? 'not' : 'is'} onChange={(value) => onChange(value === 'not')} className={words[0] === '=' ? 'w-16' : 'w-20'}>
+    <Pick label="조건 방향" value={not ? 'not' : 'is'} onChange={(value) => onChange(value === 'not')} width={words[0] === '=' ? 16 : 20}>
       <SelectItem value="is">{words[0]}</SelectItem>
       <SelectItem value="not">{words[1]}</SelectItem>
     </Pick>
@@ -97,15 +97,15 @@ export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { nod
     const set = (next: Clause) => setClause(index, next);
     switch (clause.kind) {
       case 'status':
-        return <>상태 <Negate not={clause.not} words={['=', '≠']} onChange={(not) => set({ ...clause, not })} /> <Pick label="상태" value={clause.statusId} onChange={(statusId) => set({ ...clause, statusId })} className="w-36">{statuses.map((st) => <SelectItem key={st.id} value={st.id}><StatusIcon status={st} /> {st.name}</SelectItem>)}</Pick></>;
+        return <>상태 <Negate not={clause.not} words={['=', '≠']} onChange={(not) => set({ ...clause, not })} /> <Pick label="상태" value={clause.statusId} onChange={(statusId) => set({ ...clause, statusId })} width={36}>{statuses.map((st) => <SelectItem key={st.id} value={st.id}><StatusIcon status={st} /> {st.name}</SelectItem>)}</Pick></>;
       case 'lineKind':
-        return <>종류 <Negate not={clause.not} words={['=', '≠']} onChange={(not) => set({ ...clause, not })} /> <Pick label="종류" value={clause.value} onChange={(value) => set({ ...clause, value })} className="w-32">{Object.entries(KIND_LABELS).map(([key, name]) => <SelectItem key={key} value={key}>{name}</SelectItem>)}</Pick></>;
+        return <>종류 <Negate not={clause.not} words={['=', '≠']} onChange={(not) => set({ ...clause, not })} /> <Pick label="종류" value={clause.value} onChange={(value) => set({ ...clause, value })} width={32}>{Object.entries(KIND_LABELS).map(([key, name]) => <SelectItem key={key} value={key}>{name}</SelectItem>)}</Pick></>;
       case 'tag':
-        return <>태그 <Pick label="태그" value={clause.tagId} onChange={(tagId) => set({ ...clause, tagId })} className="w-36">{tags.map((tg) => <SelectItem key={tg.id} value={tg.id}><TagChip tag={tg} /></SelectItem>)}</Pick> <Negate not={clause.not} words={['있음', '없음']} onChange={(not) => set({ ...clause, not })} /></>;
+        return <>태그 <Pick label="태그" value={clause.tagId} onChange={(tagId) => set({ ...clause, tagId })} width={36}>{tags.map((tg) => <SelectItem key={tg.id} value={tg.id}><TagChip tag={tg} /></SelectItem>)}</Pick> <Negate not={clause.not} words={['있음', '없음']} onChange={(not) => set({ ...clause, not })} /></>;
       case 'mark':
-        return <>자동 태그 <Pick label="자동 태그" value={clause.mark} onChange={(mark) => set({ ...clause, mark })} className="w-40">{CONDITION_MARK_IDS.map((id) => <SelectItem key={id} value={id}><MarkChip mark={id as AutoMark} /></SelectItem>)}</Pick> <Negate not={clause.not} words={['있음', '없음']} onChange={(not) => set({ ...clause, not })} /></>;
+        return <>자동 태그 <Pick label="자동 태그" value={clause.mark} onChange={(mark) => set({ ...clause, mark })} width={40}>{CONDITION_MARK_IDS.map((id) => <SelectItem key={id} value={id}><MarkChip mark={id as AutoMark} /></SelectItem>)}</Pick> <Negate not={clause.not} words={['있음', '없음']} onChange={(not) => set({ ...clause, not })} /></>;
       case 'visits':
-        return <><Pick label="노드" value={clause.nodeId} onChange={(nodeId) => set({ ...clause, nodeId })} className="w-36">{others.map((other) => <SelectItem key={other.id} value={other.id}>{nodeName(other)}</SelectItem>)}</Pick> 방문 <NumberInput min={1} className="h-8 w-14" aria-label="방문 횟수" value={clause.limit} onValueChange={(limit) => limit !== undefined && set({ ...clause, limit })} /> 회 미만</>;
+        return <><Pick label="노드" value={clause.nodeId} onChange={(nodeId) => set({ ...clause, nodeId })} width={36}>{others.map((other) => <SelectItem key={other.id} value={other.id}>{nodeName(other)}</SelectItem>)}</Pick> 방문 <Box asChild height={8} width={14}><NumberInput min={1} aria-label="방문 횟수" value={clause.limit} onValueChange={(limit) => limit !== undefined && set({ ...clause, limit })} /></Box> 회 미만</>;
       case 'field': {
         const fields = fieldsOf(clause.nodeId);
         const field = fields.find((item) => item.name === clause.field);
@@ -118,27 +118,27 @@ export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { nod
         const ops = (Object.keys(FIELD_OPERATORS) as FieldOperator[]).filter((item) => (type === 'number' ? item !== 'filled' : type === 'boolean' ? item === '==' : item === '==' || item === '!=' || item === 'filled'));
         return (
           <>
-            <Pick label="노드" value={clause.nodeId} onChange={(nodeId) => { const first = fieldsOf(nodeId)[0]; set({ ...clause, nodeId, field: first?.name ?? '' }); }} className="w-36">{outputs.map((entry) => <SelectItem key={entry.node.id} value={entry.node.id}>{nodeName(entry.node)}</SelectItem>)}</Pick>
-            <Pick label="필드" value={clause.field} onChange={pickField} className="w-32 font-mono">{fields.map((item) => <SelectItem key={item.name} value={item.name}>{item.name}</SelectItem>)}</Pick>
+            <Pick label="노드" value={clause.nodeId} onChange={(nodeId) => { const first = fieldsOf(nodeId)[0]; set({ ...clause, nodeId, field: first?.name ?? '' }); }} width={36}>{outputs.map((entry) => <SelectItem key={entry.node.id} value={entry.node.id}>{nodeName(entry.node)}</SelectItem>)}</Pick>
+            <Pick label="필드" value={clause.field} onChange={pickField} width={32} mono>{fields.map((item) => <SelectItem key={item.name} value={item.name}>{item.name}</SelectItem>)}</Pick>
             {type === 'boolean' ? (
-              <Pick label="값" value={clause.value === false ? 'false' : 'true'} onChange={(value) => set({ ...clause, op: '==', value: value === 'true' })} className="w-20"><SelectItem value="true">참</SelectItem><SelectItem value="false">거짓</SelectItem></Pick>
+              <Pick label="값" value={clause.value === false ? 'false' : 'true'} onChange={(value) => set({ ...clause, op: '==', value: value === 'true' })} width={20}><SelectItem value="true">참</SelectItem><SelectItem value="false">거짓</SelectItem></Pick>
             ) : (
               <>
-                <Pick label="비교" value={clause.op} onChange={(value) => set({ ...clause, op: value as FieldOperator })} className={clause.op === 'filled' ? 'w-36' : 'w-16'}>{ops.map((item) => <SelectItem key={item} value={item}>{FIELD_OPERATORS[item]}</SelectItem>)}</Pick>
-                {clause.op !== 'filled' && <Input type={type === 'number' ? 'number' : 'text'} step={type === 'number' ? 0.05 : undefined} className="h-8 w-20" aria-label="비교할 값" value={String(clause.value)} onChange={(event) => set({ ...clause, value: type === 'number' ? Number(event.target.value) : event.target.value })} />}
+                <Pick label="비교" value={clause.op} onChange={(value) => set({ ...clause, op: value as FieldOperator })} width={clause.op === 'filled' ? 36 : 16}>{ops.map((item) => <SelectItem key={item} value={item}>{FIELD_OPERATORS[item]}</SelectItem>)}</Pick>
+                {clause.op !== 'filled' && <Box asChild height={8} width={20}><Input type={type === 'number' ? 'number' : 'text'} step={type === 'number' ? 0.05 : undefined} aria-label="비교할 값" value={String(clause.value)} onChange={(event) => set({ ...clause, value: type === 'number' ? Number(event.target.value) : event.target.value })} /></Box>}
               </>
             )}
           </>
         );
       }
       case 'error':
-        return <>실패 종류 <Negate not={clause.not} words={['=', '≠']} onChange={(not) => set({ ...clause, not })} /> <Pick label="실패 종류" value={clause.errorKind} onChange={(errorKind) => set({ ...clause, errorKind: errorKind as typeof clause.errorKind })} className="w-36">{ITEM_ERROR_KIND_IDS.map((id) => <SelectItem key={id} value={id}>{ITEM_ERROR_KINDS[id]}</SelectItem>)}</Pick></>;
+        return <>실패 종류 <Negate not={clause.not} words={['=', '≠']} onChange={(not) => set({ ...clause, not })} /> <Pick label="실패 종류" value={clause.errorKind} onChange={(errorKind) => set({ ...clause, errorKind: errorKind as typeof clause.errorKind })} width={36}>{ITEM_ERROR_KIND_IDS.map((id) => <SelectItem key={id} value={id}>{ITEM_ERROR_KINDS[id]}</SelectItem>)}</Pick></>;
       case 'termStatus':
-        return <>용어 상태 <Negate not={clause.not} words={['=', '≠']} onChange={(not) => set({ ...clause, not })} /> <Pick label="용어 상태" value={clause.status} onChange={(status) => set({ ...clause, status })} className="w-28">{KNOWLEDGE_STATUSES.map((status) => <SelectItem key={status} value={status}>{KNOWLEDGE_STATUS_LABELS[status]}</SelectItem>)}</Pick></>;
+        return <>용어 상태 <Negate not={clause.not} words={['=', '≠']} onChange={(not) => set({ ...clause, not })} /> <Pick label="용어 상태" value={clause.status} onChange={(status) => set({ ...clause, status })} width={28}>{KNOWLEDGE_STATUSES.map((status) => <SelectItem key={status} value={status}>{KNOWLEDGE_STATUS_LABELS[status]}</SelectItem>)}</Pick></>;
       case 'hasTarget':
         return <>표기 <Negate not={clause.not} words={['있음', '없음']} onChange={(not) => set({ ...clause, not })} /></>;
       case 'uses':
-        return <>쓰인 대사 <Pick label="비교" value={clause.op} onChange={(value) => set({ ...clause, op: value as '>=' | '<=' })} className="w-16"><SelectItem value=">=">≥</SelectItem><SelectItem value="<=">≤</SelectItem></Pick> <NumberInput min={0} className="h-8 w-20" aria-label="쓰인 대사 수" value={clause.value} onValueChange={(value) => value !== undefined && set({ ...clause, value })} /> 줄</>;
+        return <>쓰인 대사 <Pick label="비교" value={clause.op} onChange={(value) => set({ ...clause, op: value as '>=' | '<=' })} width={16}><SelectItem value=">=">≥</SelectItem><SelectItem value="<=">≤</SelectItem></Pick> <Box asChild height={8} width={20}><NumberInput min={0} aria-label="쓰인 대사 수" value={clause.value} onValueChange={(value) => value !== undefined && set({ ...clause, value })} /></Box> 줄</>;
       case 'listener':
         return <>청자 <Negate not={clause.not} words={['있음', '없음']} onChange={(not) => set({ ...clause, not })} /></>;
       case 'candidate':
@@ -163,55 +163,56 @@ export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { nod
       <Field
         label="조건"
         action={
-          <div className="flex shrink-0 items-center gap-2">
+          <Inline shrink={false} gap="condensed">
             {!json && condition.clauses.length > 1 && (
-              <Pick label="묶는 방식" value={condition.join} onChange={(join) => write({ ...condition, join: join as Join })} className="w-32">
+              <Pick label="묶는 방식" value={condition.join} onChange={(join) => write({ ...condition, join: join as Join })} width={32}>
                 <SelectItem value="and">모두 만족</SelectItem>
                 <SelectItem value="or">하나라도 만족</SelectItem>
               </Pick>
             )}
-            <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Inline as="label" gap="snug" variant="caption" tone="muted">
               JSON
               <Switch checked={json} disabled={!parsed} onCheckedChange={setAsJson} />
-            </label>
-          </div>
+            </Inline>
+          </Inline>
         }
       >
         {json ? (
-          <div className="space-y-1">
-            <Textarea
-              value={text}
-              spellCheck={false}
-              readOnly={readOnly}
-              className="min-h-28 font-mono text-xs"
-              onChange={(event) => {
-                setText(event.target.value);
-                try {
-                  onChange({ ...node, config: { ...node.config, expression: JSON.parse(event.target.value) } });
-                  setError(null);
-                } catch {
-                  setError('JSON 형식이 아닙니다.');
-                }
-              }}
-            />
-            {error && <p className="text-xs text-destructive">{error}</p>}
-          </div>
+          <Box spaceY="tight">
+            <Box asChild minHeight={28} mono variant="caption">
+              <Textarea
+                value={text}
+                spellCheck={false}
+                readOnly={readOnly}
+                onChange={(event) => {
+                  setText(event.target.value);
+                  try {
+                    onChange({ ...node, config: { ...node.config, expression: JSON.parse(event.target.value) } });
+                    setError(null);
+                  } catch {
+                    setError('JSON 형식이 아닙니다.');
+                  }
+                }}
+              />
+            </Box>
+            {error && <Text as="p" variant="caption" tone="danger">{error}</Text>}
+          </Box>
         ) : (
-          <div className="space-y-1.5">
+          <Box spaceY="snug">
             {condition.clauses.map((clause, index) => (
-              <div key={index} className="flex min-w-0 items-center gap-1.5 text-sm">
-                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">{row(clause, index)}</div>
+              <Inline key={index} minWidth={0} gap="snug" variant="body">
+                <Inline minWidth={0} grow wrap gap="snug">{row(clause, index)}</Inline>
                 {!readOnly && (
-                  <Button size="icon-sm" variant="ghost" className="shrink-0 text-muted-foreground" aria-label="조건 빼기" onClick={() => removeClause(index)}>
+                  <Button size="icon-sm" variant="ghost" shrink={false} tone="muted" aria-label="조건 빼기" onClick={() => removeClause(index)}>
                     <X />
                   </Button>
                 )}
-              </div>
+              </Inline>
             ))}
             {!readOnly && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" className="-ml-2 text-muted-foreground"><Plus /> 조건</Button>
+                  <Button variant="ghost" marginLeft="-condensed" tone="muted"><Plus /> 조건</Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start">
                   {addable.map((kind) => (
@@ -220,7 +221,7 @@ export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { nod
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
-          </div>
+          </Box>
         )}
       </Field>
     </InspectorFields>
