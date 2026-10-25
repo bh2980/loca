@@ -68,7 +68,7 @@ export function ContinueRun({ runId, failed, paused, open: controlledOpen, onOpe
               changedNote="남은 줄부터"
             />
           )}
-          {plan.isPending && <Skeleton height="placeholder" width="full" />}
+          {plan.isPending && <Skeleton height="placeholder-sm" width="full" />}
           {plan.isError && <Text as="p" variant="body" tone="danger">{plan.error.message}</Text>}
         </Box>
         {go.isError && <Text as="p" variant="body" tone="danger">{go.error.message}</Text>}

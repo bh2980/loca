@@ -49,7 +49,7 @@ function EditorSettings() {
         ) : (
           <Box spaceY="comfortable">
             <Skeleton height="control" width="1/3" />
-            <Skeleton height="placeholder" width="full" />
+            <Skeleton height="placeholder-sm" width="full" />
           </Box>
         )}
       </PageBody>

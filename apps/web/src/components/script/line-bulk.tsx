@@ -164,7 +164,7 @@ function BulkListener({ speakers, cast, onPick }: { speakers: string[]; cast: st
     return (
       <Input
         size="default"
-        width="field-xl"
+        width="field-lg"
         autoFocus
         value={typing}
         onChange={(event) => setTyping(event.target.value)}

@@ -4,7 +4,7 @@ import { Box } from "../../primitives/box"
 
 /** A card with a checkbox and what it stands for; the whole card toggles it (a preset of format rules). */
 export function RulesPresetCard(props: Omit<React.LabelHTMLAttributes<HTMLLabelElement>, "className">) {
-  return <label className="flex cursor-pointer flex-col gap-1.5 rounded-md border border-default bg-surface p-3 text-sm transition-colors hover:bg-sunken/50" {...props} />
+  return <label className="flex cursor-pointer flex-col gap-2 rounded-md border border-default bg-surface p-3 text-sm transition-colors hover:bg-sunken/50" {...props} />
 }
 
 /**

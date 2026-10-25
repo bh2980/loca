@@ -725,7 +725,7 @@ function WorkflowEditor() {
             <PopoverTrigger asChild>
               <Button variant="ghost" tone="muted">워크플로 {calledBy.length}개가 이 워크플로를 부릅니다</Button>
             </PopoverTrigger>
-            <Box asChild width="menu-xl" padding="condensed">
+            <Box asChild width="menu-lg" padding="condensed">
             <PopoverContent align="start">
               <Box as="ul" spaceY="hair">
                 {calledBy.map((caller) => (
@@ -907,7 +907,7 @@ function WorkflowEditor() {
                 />
               </DropdownMenuTrigger>
               {contextMenu.kind === 'node' && (
-                <Box asChild width="menu-sm">
+                <Box asChild width="menu">
                 <DropdownMenuContent align="start" side="bottom" sideOffset={2}>
                   <DropdownMenuItem onSelect={() => select(contextMenu.node.id)}>
                     <Icon icon={SlidersHorizontal} size="sm" />
@@ -971,7 +971,7 @@ function WorkflowEditor() {
                 </Box>
               )}
               {contextMenu.kind === 'edge' && (
-                <Box asChild width="field-xl">
+                <Box asChild width="field-lg">
                 <DropdownMenuContent align="start" side="bottom" sideOffset={2}>
                   <DropdownMenuItem
                     variant="destructive"
@@ -986,14 +986,14 @@ function WorkflowEditor() {
                 </Box>
               )}
               {contextMenu.kind === 'pane' && (
-                <Box asChild width="menu-sm">
+                <Box asChild width="menu">
                 <DropdownMenuContent align="start" side="bottom" sideOffset={2}>
                   <DropdownMenuSub>
                     <DropdownMenuSubTrigger>
                       <Icon icon={Plus} size="sm" />
                       <span>노드 추가</span>
                     </DropdownMenuSubTrigger>
-                    <Box asChild width="field-2xl">
+                    <Box asChild width="field-lg">
                     <DropdownMenuSubContent>
                       {palette.map((group, groupIndex) => (
                         <Fragment key={group.id}>

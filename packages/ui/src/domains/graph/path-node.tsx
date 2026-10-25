@@ -28,7 +28,7 @@ export function PathNodeCard({ selected, here, ...props }: Omit<React.ComponentP
   return (
     <div
       className={cn(
-        "relative flex flex-col justify-center gap-0.5 overflow-hidden rounded-lg border bg-page px-3 py-1.5 text-sm shadow-xs",
+        "relative flex flex-col justify-center gap-0.5 overflow-hidden rounded-lg border bg-page px-3 py-2 text-sm shadow-xs",
         here && "shadow-[inset_3px_0_0_var(--border-color-accent)]",
         selected && "border-accent ring-2 ring-accent/30",
       )}

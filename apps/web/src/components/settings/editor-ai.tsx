@@ -26,7 +26,7 @@ function SavedNumber({ id, label, value, min, max, storage, disabled, width, onS
       min={min}
       max={max}
       disabled={disabled}
-      width={width === 'count' ? 'field-3xs' : 'field-md'}
+      width={width === 'count' ? 'field-xs' : 'field'}
       align={width === 'count' ? 'right' : undefined}
       value={draft}
       onChange={(event) => setDraft(event.target.value)}
@@ -42,7 +42,7 @@ function SavedNumber({ id, label, value, min, max, storage, disabled, width, onS
 /** One thing sent with the line, as a checkbox; a count (앞 대사 n줄) sits beside it while it is on. */
 function ContextCheck({ id, label, help, checked, onChange, count }: { id: string; label: string; help?: string; checked: boolean; onChange: (on: boolean) => void; count?: { value: number; max: number; unit: string; storage: string; onSave: (value: number) => void } }) {
   return (
-    <Inline as="span" gap="snug" variant="body">
+    <Inline as="span" gap="tight" variant="body">
       <Checkbox id={id} checked={checked} onCheckedChange={(on) => onChange(on === true)} />
       <label htmlFor={id}>{label}</label>
       {help && <HelpTip>{help}</HelpTip>}
@@ -63,7 +63,7 @@ function Instructions({ id, label, value, preset, presetLabel, storage, onSave }
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
       <Inline gap="condensed" minWidth={0} variant="body">
-        <Text width="field-2xs" shrink={false}>{label}</Text>
+        <Text width="field-xs" shrink={false}>{label}</Text>
         <Text minWidth={0} grow truncate tone="muted">{own ? `${presetLabel}에서 바꿈` : `${presetLabel} 사용 중`}</Text>
         {own && (
           <Button variant="ghost" onClick={() => onSave(preset)}>

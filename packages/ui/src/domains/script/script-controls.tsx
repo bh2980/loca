@@ -9,7 +9,7 @@ export function ScriptInlineListenerTrigger({ unknown, label, ...props }: Omit<C
       {...props}
       className={cn("h-auto min-w-0 gap-0.5 border-0 data-[size=default]:h-auto bg-transparent p-0 text-xs shadow-none hover:underline dark:bg-transparent dark:hover:bg-transparent [&>svg]:size-3", unknown ? "text-warning" : "text-muted")}
     >
-      <span className="inline-flex min-w-0 items-center gap-1.5 truncate"><span className="truncate">→ {label}</span></span>
+      <span className="inline-flex min-w-0 items-center gap-1 truncate"><span className="truncate">→ {label}</span></span>
     </SelectTrigger>
   )
 }

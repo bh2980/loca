@@ -5,9 +5,9 @@ import { chipStyle } from "./palette"
 
 /** The small pill that solid, quiet and outline chips share. */
 const PILL =
-  "inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-sm px-1.5 py-0.5 text-xs font-medium whitespace-nowrap transition-colors focus-visible:border-focus focus-visible:ring-[2px] focus-visible:ring-focus/40 [&>svg]:pointer-events-none [&>svg]:size-3"
-const TINT = "inline-flex items-center rounded-sm px-1.5 py-0.5 text-xs font-medium whitespace-nowrap"
-const CARD = "rounded-md border border-default bg-surface px-1.5 py-0.5 text-xs shadow-2xs"
+  "inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-sm px-1 py-0.5 text-xs font-medium whitespace-nowrap transition-colors focus-visible:border-focus focus-visible:ring-[2px] focus-visible:ring-focus/40 [&>svg]:pointer-events-none [&>svg]:size-3"
+const TINT = "inline-flex items-center rounded-sm px-1 py-0.5 text-xs font-medium whitespace-nowrap"
+const CARD = "rounded-md border border-default bg-surface px-1 py-0.5 text-xs shadow-2xs"
 const FLOAT = "rounded-md border border-default bg-surface text-sm shadow-2xs select-none"
 
 type Tone = "accent" | "danger" | "success" | "warning" | "muted" | "choice"
@@ -64,11 +64,11 @@ function variantClass(variant: NonNullable<ChipProps["variant"]>, tone: Tone | u
     case "card":
       return cn(button ? "h-auto gap-1" : "inline-flex items-center gap-1", CARD, button && "font-normal hover:bg-hover", tone === "warning" && "border-warning/40 text-warning")
     case "pill":
-      return cn("rounded-full border px-1.5", tone === "choice" ? "border-graph-choice/30 bg-graph-choice/10 text-graph-choice" : "bg-page")
+      return cn("rounded-full border px-1", tone === "choice" ? "border-graph-choice/30 bg-graph-choice/10 text-graph-choice" : "bg-page")
     case "note":
-      return cn(FLOAT, "max-w-3xl px-2.5 py-1 text-muted")
+      return cn(FLOAT, "max-w-3xl px-2 py-1 text-muted")
     case "bar":
-      return cn(FLOAT, "flex max-w-full flex-wrap items-center gap-2 py-1 backdrop-blur-xs", removable ? "pr-1.5 pl-2.5" : "px-2.5", tone === "muted" && "text-muted")
+      return cn(FLOAT, "flex max-w-full flex-wrap items-center gap-2 py-1 backdrop-blur-xs", removable ? "pr-1 pl-2" : "px-2", tone === "muted" && "text-muted")
     case "bare":
       return "h-auto p-0 hover:bg-transparent"
   }

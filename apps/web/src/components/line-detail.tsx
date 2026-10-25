@@ -100,7 +100,7 @@ export function LineDetail({
 
   const title = line ? (
     hasDialogueContext ? (
-      <Inline as="span" inline gap="snug" minWidth={0}>
+      <Inline as="span" inline gap="tight" minWidth={0}>
         <Text truncate>{speakerTitle}</Text>
         {!unknown && line.listener && (
           <>
@@ -211,7 +211,7 @@ export function LineDetail({
                     <Box as="ul" spaceY="tight">
                       {line.graphNodes.map((item) => (
                         <Box as="li" key={item.id} minWidth={0}>
-                          <Stack asChild direction="row" align="center" gap="snug" minWidth={0} underline="hover">
+                          <Stack asChild direction="row" align="center" gap="tight" minWidth={0} underline="hover">
                             <Link
                               to="/p/$projectId/graph"
                               params={{ projectId }}
@@ -430,7 +430,7 @@ function LineChecks({ projectId, source, text, rules, targetLanguage, speech, la
             ))}
           </Box>
         ) : (
-          <Inline as="p" gap="snug" variant="body" tone="success">
+          <Inline as="p" gap="tight" variant="body" tone="success">
             <Icon icon={CircleCheck} size="sm" />
             원문과 맞습니다.
           </Inline>

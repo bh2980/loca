@@ -38,7 +38,7 @@ export function SavedPromptsSection({ projectId }: { projectId: string }) {
 
   return (
     <Section variant="page" title="저장한 지시" description={`채팅 입력창에서 /를 눌러 워크플로 아래 목록에서 고릅니다. 입력창에 채워질 뿐 보내지지는 않아, 고쳐서 보낼 수 있습니다. 지시문에 ${PROMPT_TARGET}를 쓰면 고를 때 그 자리에서 @ 첨부 목록이 열리고, 고른 항목의 짧은 이름이 들어갑니다.`}>
-      <Box maxWidth="column" spaceY="condensed">
+      <Box maxWidth="reading" spaceY="condensed">
         {list.length === 0 && editing === null && <Text as="p" variant="body" tone="muted">저장한 지시가 없습니다.</Text>}
         {list.map((prompt, index) =>
           editing?.index === index ? null : (
@@ -58,11 +58,11 @@ export function SavedPromptsSection({ projectId }: { projectId: string }) {
         )}
         {editing && (
           <Box spaceY="condensed" radius="md" border="all" background="page" padding="normal">
-            <Inline gap="snug">
+            <Inline gap="tight">
               <Text variant="body" tone="muted">/</Text>
               <Box asChild maxWidth="label"><Input value={editing.name} placeholder="이름" aria-label="지시 이름" autoFocus onChange={(event) => setEditing({ ...editing, name: event.target.value })} /></Box>
             </Inline>
-            <Box asChild minHeight="textarea-md"><Textarea value={editing.text} placeholder="입력창에 채울 내용" aria-label="지시 내용" onChange={(event) => setEditing({ ...editing, text: event.target.value })} /></Box>
+            <Box asChild minHeight="textarea-sm"><Textarea value={editing.text} placeholder="입력창에 채울 내용" aria-label="지시 내용" onChange={(event) => setEditing({ ...editing, text: event.target.value })} /></Box>
             {problem && <Text as="p" variant="caption" tone="danger">{problem}</Text>}
             <Stack direction="row" gap="condensed">
               <Button disabled={!candidate || Boolean(problem) || save.isPending} onClick={commit}>저장</Button>

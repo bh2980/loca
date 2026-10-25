@@ -47,14 +47,14 @@ function SelectTrigger({
       data-slot="select-trigger"
       data-size={size}
       className={cn(
-        "flex w-fit min-w-0 max-w-full items-center justify-between gap-1.5 rounded-md border border-default bg-page px-2.5 py-1 text-xs whitespace-nowrap shadow-xs transition-colors",
+        "flex w-fit min-w-0 max-w-full items-center justify-between gap-1 rounded-md border border-default bg-page px-2 py-1 text-xs whitespace-nowrap shadow-xs transition-colors",
         "outline-none hover:bg-sunken focus-visible:border-focus focus-visible:ring-1 focus-visible:ring-focus disabled:cursor-not-allowed disabled:opacity-50",
         "data-[size=xs]:h-6 data-[size=xs]:px-2 data-[size=xs]:text-2xs",
-        "data-[size=sm]:h-7 data-[size=sm]:px-2.5 data-[size=sm]:text-xs",
+        "data-[size=sm]:h-7 data-[size=sm]:px-2 data-[size=sm]:text-xs",
         "data-[size=default]:h-8 data-[size=default]:px-3 data-[size=default]:text-sm",
-        "*:data-[slot=select-value]:min-w-0 *:data-[slot=select-value]:flex-1 *:data-[slot=select-value]:overflow-hidden *:data-[slot=select-value]:text-ellipsis *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-1.5 [&_[data-slot=select-value]>span]:min-w-0 [&_[data-slot=select-value]>span]:truncate",
+        "*:data-[slot=select-value]:min-w-0 *:data-[slot=select-value]:flex-1 *:data-[slot=select-value]:overflow-hidden *:data-[slot=select-value]:text-ellipsis *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-1 [&_[data-slot=select-value]>span]:min-w-0 [&_[data-slot=select-value]>span]:truncate",
         "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5 [&_svg:not([class*='text-'])]:text-muted",
-        bare && "border-0 bg-transparent px-1.5 shadow-none",
+        bare && "border-0 bg-transparent px-1 shadow-none",
         width && STYLE.width[width],
         fixed && "shrink-0",
         className
@@ -115,7 +115,7 @@ function SelectLabel({
   return (
     <SelectPrimitive.Label
       data-slot="select-label"
-      className={cn("flex flex-col items-start gap-0.5 px-2 py-1.5 text-xs font-semibold text-default", className)}
+      className={cn("flex flex-col items-start gap-0.5 px-2 py-2 text-xs font-semibold text-default", className)}
       {...props}
     >
       <span>{children}</span>
@@ -133,7 +133,7 @@ function SelectItem({
     <SelectPrimitive.Item
       data-slot="select-item"
       className={cn(
-        "relative flex w-full cursor-default select-none items-center gap-2 rounded-xs py-1 pr-7 pl-2 text-xs outline-none transition-colors",
+        "relative flex w-full cursor-default select-none items-center gap-2 rounded-xs py-1 pr-8 pl-2 text-xs outline-none transition-colors",
         "focus:bg-hover focus:text-default data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
         "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
         className

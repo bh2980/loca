@@ -5,7 +5,7 @@ import { cn } from '../lib/utils';
 import { GAP, type StyleProps, splitStyle, styleVariants } from '../primitives/style';
 
 const buttonVariants = cva(
-  "inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md text-xs font-medium tracking-tight whitespace-nowrap transition-all outline-none focus-visible:border-focus focus-visible:ring-[2px] focus-visible:ring-focus/40 disabled:pointer-events-none disabled:opacity-40 aria-invalid:border-danger aria-invalid:ring-danger/20 select-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+  "inline-flex shrink-0 items-center justify-center gap-1 rounded-md text-xs font-medium tracking-tight whitespace-nowrap transition-all outline-none focus-visible:border-focus focus-visible:ring-[2px] focus-visible:ring-focus/40 disabled:pointer-events-none disabled:opacity-40 aria-invalid:border-danger aria-invalid:ring-danger/20 select-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
   {
     variants: {
       variant: {
@@ -23,16 +23,16 @@ const buttonVariants = cva(
         link: "text-accent underline-offset-4 hover:underline",
       },
       size: {
-        default: "h-8 px-3 py-1.5 rounded-md",
+        default: "h-8 px-3 py-2 rounded-md",
         xs: "h-6 gap-1 rounded-sm px-2 text-2xs [&_svg:not([class*='size-'])]:size-3",
-        sm: "h-7 gap-1.5 rounded-md px-2.5 text-xs [&_svg:not([class*='size-'])]:size-3.5",
-        lg: "h-9 rounded-md px-4 text-sm has-[>svg]:px-3.5 [&_svg:not([class*='size-'])]:size-4",
+        sm: "h-7 gap-1 rounded-md px-2 text-xs [&_svg:not([class*='size-'])]:size-3.5",
+        lg: "h-9 rounded-md px-4 text-sm has-[>svg]:px-3 [&_svg:not([class*='size-'])]:size-4",
         icon: "size-8 rounded-md [&_svg:not([class*='size-'])]:size-3.5",
         "icon-xs": "size-6 rounded-sm [&_svg:not([class*='size-'])]:size-3",
         "icon-sm": "size-7 rounded-md [&_svg:not([class*='size-'])]:size-3.5",
         "icon-lg": "size-9 rounded-md [&_svg:not([class*='size-'])]:size-4",
         inline: "h-auto gap-1 rounded-sm px-1 py-0.5 text-xs font-medium [&_svg:not([class*='size-'])]:size-3",
-        row: "h-auto w-full justify-start gap-2 px-2 py-1.5 text-left font-normal whitespace-normal rounded-sm",
+        row: "h-auto w-full justify-start gap-2 px-2 py-2 text-left font-normal whitespace-normal rounded-sm",
       },
     },
     defaultVariants: {

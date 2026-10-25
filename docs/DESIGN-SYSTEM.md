@@ -14,18 +14,18 @@
 
 ### 1-1. 색
 
-**원시 단계** (`tokens/palette.css`) — 계열 이름 + 밝기(oklch L × 1000). 이름은 전역이고 테마가 계열을 갖지 않는다. 어느 단계가 어느 역할을 하는지는 theme.css가 정한다.
+**원시 단계** (`tokens/palette.css`) — 회색은 번호(`slate-1..12`, `night-1..12`), 강조·의미 색은 계열 이름 + 밝기(oklch L × 1000). 이름은 전역이고 테마가 계열을 갖지 않는다. 어느 단계가 어느 역할을 하는지는 theme.css가 정한다.
 
 | 계열 | 단계 | 쓰임 |
 |---|---|---|
-| `slate` | 1000 995 984 970 968 955 950 945 940 925 910 830 760 660 580 520 430 240 (+`240-a08`) | 밝은 테마의 바탕·면·선·글자 (hue 258, 글자 262) |
-| `night` | 940 760 680 650 530 440 320 310 290 280 270 255 235 205 185 175 170 (+`0-a35`, `0-a40`) | 어두운 테마의 바탕·면·선·글자 (hue 265) |
+| `slate` | 1 … 12 | 밝은 테마의 바탕·면·선·글자 (hue 258, 글자 262) |
+| `night` | 1 … 12 | 어두운 테마의 바탕·면·선·글자 (hue 265) |
 | `cobalt` | 950 910 530 450 370 (+`530-a45`) | 밝은 테마의 강조 하나 (버튼·선택·초점)와 그 옅은 파랑 |
 | `teal` | 850 800 340 320 200 (+`800-a50`) | 어두운 테마의 강조 하나 |
 | `red` `orange` `amber` `green` `violet` | 둘 다 | 위험 · 경고 · 검토 필요 · 완료 · AI |
 | `hue-1..12` `token-1..6` | 테마마다 값이 따로 | 데이터 색: 사용자가 고르는 상태 색, 서식 토큰 칩 짝. 코드가 직접 쓸 수 있는 유일한 원시 값(`var(--hue-${n})`) |
 
-`-aNN`은 같은 색의 투명도(`cobalt-530-a45` = 45%). 합친 단계(같은 밝기, 채도 차 0.004 이하, 색상 차 8 이하): `slate-940`(옅은 선 + 그래프 바탕), `night-290`(선 · 조용한 채움 · 올린 줄 · 그래프 격자), `night-255`(꺼진 칸 · 면 · 옅은 선).
+`-aNN`은 같은 색의 투명도(`cobalt-530-a45` = 45%). 회색의 투명도(그림자 `--elevation-color`, 막 `bg-scrim`)는 theme.css가 단계를 `color-mix`로 섞어 만든다. 강조·의미 색 계열은 밝기 이름을 그대로 둔다(`cobalt-530` …): 회색처럼 번호가 뜻을 갖지 않고 단계 수도 계열마다 달라, 번호로 바꿔도 얻는 규칙이 없다.
 
 **역할** (`tokens/theme.css`) — 칠하는 속성마다 Tailwind 이름공간(`--background-color-*` `--text-color-*` `--border-color-*` `--ring-color-*` `--outline-color-*` `--divide-color-*` `--text-decoration-color-*` `--fill-*` `--stroke-*`)으로 이름을 둬서 클래스가 무엇을 칠하는지 말한다(`bg-page` `text-muted` `border-default` `ring-focus`). 밝은 값은 `@theme static` 블록에(Tailwind가 이름을 거기서 읽는다), 어두운 값은 `.dark`에 둔다. 값은 원시 단계, 다른 역할, 또는 그 둘의 섞음뿐이고 숫자 리터럴은 없다. shadcn 이름(`primary`, `muted-foreground`, `destructive` …)과 옛 이름으로 잇는 별칭은 없다. `bg-accent/40`처럼 역할에 투명도를 붙이는 것은 packages/ui 안에서 쓸 수 있다.
 
@@ -71,24 +71,59 @@
 
 **옛것은 남기지 않는다** — 새 이름으로 바꾸면서 옛 이름·별칭·쓰지 않는 부품·되돌림용 코드는 지운다. 바뀌지 않는 것은 화면에 그려지는 값(색·크기)뿐이다.
 
+#### 회색 단계 (12단계)
+
+회색은 테마마다 12단계이고 번호가 뜻을 가진다(Radix 관례). 역할은 단계 번호로만 가리킨다.
+
+| 단계 | 뜻 | 밝은 `slate-n` (L) | 어두운 `night-n` (L) | 가리키는 역할 |
+|---|---|---|---|---|
+| 1 | 가장 낮은 바탕 | 1.000 (흰색) | 0.175 | 밝은: surface·overlay·graph-node·on-accent / 어두운: chrome·graph-canvas |
+| 2 | 작업 영역 | 0.995 | 0.19 | page·inverse 글자·fill-page / 어두운: navigation |
+| 3 | 옆 창 | 0.984 | 0.205 | panel·navigation / 어두운: page·inverse 글자·fill-page |
+| 4 | 띠 | 0.968 | 0.235 | chrome·floating-toolbar 글자 / 어두운: panel |
+| 5 | 꺼진 칸·올린 줄 | 0.952 | 0.255 | sunken·quiet·hover / 어두운: surface·sunken·border-subtle·divide-subtle·border-surface |
+| 6 | 옅은 선·사이드바 올림 | 0.938 | 0.27 | border-subtle·divide-subtle·graph-canvas·sidebar-item / 어두운: overlay |
+| 7 | 영역 사이 선 | 0.91 | 0.29 | border·line / 어두운: hover·quiet·border·line·sidebar-item·graph-grid |
+| 8 | 진한 선 | 0.83 | 0.32 | graph-grid·graph-node-line / 어두운: graph-node·floating-toolbar |
+| 9 | 입력칸 선 | 0.66 | 0.53 | border-input·track / 어두운: border-input·track·graph-node-line |
+| 10 | 흐린 글자·중간 채움 | 0.52 | 0.66 | subtle 글자·neutral-subtle·stroke-subtle·graph-edge(밝은) / 어두운: subtle 글자·neutral-subtle·graph-edge |
+| 11 | 보조 글자 | 0.43 | 0.76 | muted 글자·neutral·border-neutral·fill-muted / 어두운: 같음 |
+| 12 | 본문 글자 | 0.24 | 0.94 | default 글자·inverse 채움·border-strong·sidebar-badge·floating-toolbar 배경 / 어두운: default 글자·inverse 채움·border-strong |
+
+밝은 단계는 hue 258(1–9)·262(10–12), 어두운 단계는 hue 265. 글자 단계(10–12)는 page 위에서 4.5:1 이상, 입력칸 선(9)은 입력칸 면 위에서 3:1 이상. 어두운 9단계는 처음 안(0.50)이 어두운 면 위에서 2.6:1이라 옛 입력칸 선 밝기(0.53, 3.0:1)로 둔다.
+
 ### 1-2. 크기
 
 숫자나 길이가 아니라 쓰임새 이름만 쓴다. 값은 `tokens/system.css` 한 곳(Tailwind 테마 변수 `--width-*` `--max-width-*` `--height-*` `--max-height-*` `--min-height-*`)에 있고, `primitives/style.ts`의 `width` `maxWidth` `height` `maxHeight` `minHeight`가 이 이름을 받는다. `pnpm ui-rules`는 `style.ts`에 `w-28` `w-[200px]` 같은 값이 들어오거나 정의 없는 이름을 쓰는 것을 막는다.
 
 | 종류 | 이름 (값) | 쓰는 곳 |
 |---|---|---|
-| 간격 | none 0 · hair 2 · tight 4 · snug 6 · condensed 8 · cozy 10 · normal 12 · comfortable 16 · roomy 20 · spacious 24 · wide 32 · section 48 (px) | `padding*` `margin*` `gap*` `spaceY` |
+| 간격 | none 0 · hair 2 · tight 4 · condensed 8 · normal 12 · comfortable 16 · spacious 24 · wide 32 · section 48 (px) | `padding*` `margin*` `gap*` `spaceY`, 부품 안쪽도 이 단계만 |
 | 너비 `icon` | 1rem | 접기 화살표 자리 |
-| 너비 `field-*` | 3xs 3.5rem · 2xs 4 · xs 5 · sm 6 · (없음) 7 · md 8 · lg 9 · xl 10 · 2xl 11 | 숫자·선택 입력칸, 행의 이름 열, 설명 달린 칸(`InspectorField`) |
-| 너비 `menu*` | sm 12rem · (없음) 14 · lg 15 · xl 16 | 드롭다운 메뉴와 그 방아쇠 |
-| 너비 `popover*` | sm 18rem · (없음) 20 · lg 24 | 떠 있는 면, 캔버스 위 패널, 모델 고르기 |
-| 너비 `list` `card` | 200px · 26rem | 워크플로 옆 목록 · 글 카드 |
-| 최대 너비 | `reading` 56rem · `label-sm` 140px · `label` 12rem · `label-lg` 200px | 글 열 · 줄여 보이는 이름 |
-| 높이 | `bar` 3rem · `icon` 1rem · `track` 0.375rem · `control-sm` 1.75rem · `control` 2rem | 창 머리 · 얇은 구분선·불러오는 줄 · 진행 막대 · 작은/보통 입력 |
-| 높이 `placeholder*` | sm 4rem · (없음) 6 · md 7 · lg 8 · xl 10 · page 24 | 불러오는 자리 |
-| 최대 높이 `scroll*` | xs 8rem · sm 10 · md 12 · (없음) 14 · lg 16 · xl 18 · 2xl 20 · 3xl 24 | 스크롤 영역이 커지다 멈추는 높이 |
-| 최대 높이 | `pane` 45% · `popover` 60vh · `dialog` 70svh · `overlay` 70% | 부모 대비 · 화면 대비 |
-| 최소 높이 | `control-sm` 1.75rem · `textarea-sm` 5rem · `textarea` 7 · `textarea-lg` 10 · `textarea-xl` 14 | 글상자 |
+| 너비 `field-*` | xs 4rem · sm 6 · (없음) 8 · lg 12 | 숫자·선택 입력칸, 행의 이름 열 (`minWidth` `field-xs`: 4rem 밑으로 줄지 않는 이름 열) |
+| 너비 `menu*` | (없음) 14rem · lg 16 | 드롭다운 메뉴와 그 방아쇠 |
+| 너비 `popover*` | (없음) 20rem · lg 24 | 떠 있는 면, 캔버스 위 패널, 글 카드 |
+| 너비 `rail` | 12rem | 화면 옆 목록(워크플로 노드 목록) |
+| 최대 너비 | `reading` 56rem · `label` 12rem | 글 열 · 줄여 보이는 이름 |
+| 높이 | `bar` 3rem · `icon` 1rem · `track` 0.375rem · `control-xs` 1.5rem · `control-sm` 1.75 · `control` 2 | 창 머리 · 구분선 · 진행 막대 · 입력 높이 |
+| 높이 `placeholder*` | sm 4rem · md 8 · lg 12 · page 24 | 불러오는 자리 |
+| 최대 높이 `scroll*` | sm 12rem · (없음) 16 · lg 24 | 스크롤 영역이 커지다 멈추는 높이 |
+| 최대 높이 | `pane` 50% · `dialog` 70vh | 부모 대비 · 화면 대비. 대화창이 하나를 크게 보일 때는 `DialogContent tall`(70vh 높이의 열) |
+| 최소 높이 | `control-sm` 1.75rem · `textarea-sm` 5rem · `textarea` 8 · `textarea-lg` 14 | 글상자 |
+
+단계를 줄일 때 옛 값은 가장 가까운 단계로 옮긴다(같은 거리면 입력칸·메뉴·스크롤 영역은 큰 쪽, 불러오는 자리는 작은 쪽). 간격 6px은 아이콘과 글자 사이·칩 안쪽이면 4, 그 밖은 8. 10px은 촘촘한 줄·작은 조작부 안쪽이면 8, 묶음 사이면 12. 20px은 창 안이면 16, 화면 구역 사이면 24. 부품 안쪽의 Tailwind 간격도 같은 단계만 쓴다(0.5 1 2 3 4 6 8 12): 1.5 → 1 또는 2, 2.5 → 2 또는 3, 3.5 → 3, 5 → 4, 7 → 8. 아이콘·상자 크기(`size-3.5`)는 간격이 아니라 그대로 둔다.
+
+#### 값 정리 (2026-10-26)
+
+체계는 그대로 두고 값만 규칙적으로 맞췄다. 화면이 조금 달라지는 것은 승인된 변경이다. 합치거나 없앤 단계:
+
+- 회색: 밝은 18단계 → `slate-1..12`, 어두운 17단계 → `night-1..12`. 회색의 투명도 단계(`slate-240-a08`, `night-0-a35`, `night-0-a40`)는 없애고 `color-mix`로 대신한다.
+- 간격: `snug`(6) `cozy`(10) `roomy`(20) 삭제. `snug` → `tight` 또는 `condensed`, `cozy` → `condensed` 또는 `normal`, `roomy` → `comfortable`.
+- 너비: `field-3xs` `field-2xs` → `field-xs`; `field-xs` → `field-sm`; `field-md` `field-lg` → `field`; `field-xl` `field-2xl` → `field-lg`; `menu-2xs` `-xs` `-sm` `-md` → `menu`; `menu-xl` → `menu-lg`; `popover-sm` → `popover`; `card` → `popover-lg`; `list` → `rail`(12rem).
+- 최대 너비: `label-sm` `label-lg` → `label`; `form` `column` → `reading`.
+- 높이: `placeholder`(6rem) `-block` → `placeholder-sm`; `placeholder-lg` `-xl` → `placeholder-md`(8rem); `height` `dialog` `dialog-lg`(75vh 85vh) → `DialogContent tall`.
+- 최대 높이: `scroll-xs` `-md` → `scroll-sm`; `scroll-list` `-lg` `-xl` → `scroll`; `scroll-2xl` `-3xl` → `scroll-lg`; `pane` 45% → 50%; `popover` `popover-tall` `window` → `dialog`(70vh); `overlay` → `pane`.
+- 최소 높이: `textarea-xs` `-md` → `textarea-sm`; `textarea-lg` → `textarea`(8rem); `textarea-xl` → `textarea-lg`.
 
 한 부품만 쓰는 크기·위치(React Flow 연결점, 덮는 자리, 목록 줄의 여백 제거)는 `style.ts`가 아니라 그 부품의 prop이다: `FlowHandle` `Overlay` `CanvasFloat` `VirtualItem` `Bleed` `ListItem` `AlertRow`, `Button`의 `flush` `align` `reveal` `group`, `DialogContent`의 `size`. 옵션 전체 목록은 `packages/ui/README.md`.
 
@@ -124,7 +159,7 @@
 | `Combobox` | 옵션 목록 | SearchableSelect |
 | `TagInput` | `value` `onChange` `suggestions` `placeholder` (쉼표·Enter로 태그가 되고, 칸을 떠나면 입력한 글이 태그로 남는다) | ChipField, ChipTextInput, ChipSuggestionList, ChipSuggestionItem, ChipInput |
 | `Collapsible` (`CollapsibleContent`) | `paddingTop` `paddingBottom` `paddingLeft` `marginTop` (접혀 있어도 빈 숨은 요소로 남는다) | InstructionsBody, KnowledgeFold |
-| `Dialog` (`DialogContent`) | `size` (`sm` 32rem · `md` 36rem · `lg` 48rem) `height` (`dialog` `dialog-lg`) | LargeDialog, ImportDialogContent |
+| `Dialog` (`DialogContent`) | `size` (`sm` 32rem · `md` 36rem · `lg` 48rem) `tall` | LargeDialog, ImportDialogContent |
 | `PopoverContent` · `DropdownMenuContent` · `DropdownMenuSubContent` · `ContextMenuContent` | `width` `padding` `maxHeight` (메뉴는 `trigger` `fit`도) | StatusPopoverContent, FilterPopoverContent, KnowledgePairPopoverContent, ShortcutPopoverContent, ScriptLineMenuContent, ScriptLineSubmenuContent, ScriptFilterMenuContent, ScriptFilterSubmenuContent, ScriptGroupMenuContent, EditorMenuContent, ProjectMenuContent, SettingsMenuContent, ConversationMenuContent |
 | `Spinner` | `size` `tone` `fixed` | AccentSpinner |
 | `TextLink` | `tone` `quiet` `underline` `variant` `weight` `block` `asChild` | RulesQuietLink, LinkStyle, PopoverActionLink |
@@ -171,7 +206,7 @@
 
 ## 3. 검사 (`pnpm ui-rules`)
 - `apps/web`: `className=` 금지, 날 `<button>` 금지, 임의 글자 크기 금지.
-- 원시 색 단계(`slate-984`, `var(--cobalt-530)` …)는 `tokens/` 밖에서 쓰지 않는다. (`hue-n` `token-n`은 데이터 색이라 예외)
+- 원시 색 단계(`slate-3`, `night-3`, `var(--cobalt-530)` …)는 `tokens/` 밖에서 쓰지 않는다. (`hue-n` `token-n`은 데이터 색이라 예외)
 - 쓰는 색 클래스(`bg-*` `text-*` `border-*` `ring-*` `outline-*` `divide-*` `fill-*` `stroke-*` `decoration-*`)는 모두 `theme.css`에 정의된 이름이어야 한다(오타나 `text-info`처럼 정의 없는 이름이 조용히 아무것도 칠하지 않는 일을 막는다). 색 코드 리터럴 금지.
 - `patterns/` `controls/` `primitives/`의 부품 이름과 파일에 업무 이름(Script, Knowledge, Workflow, Graph, Chat, Rules …)이 없다.
 - 의존 방향: `primitives`는 `controls`·`patterns`·`domains`를, `controls`는 `patterns`·`domains`를, `patterns`는 `domains`를 가져오지 않는다.

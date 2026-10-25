@@ -29,8 +29,8 @@ const TOKEN_RULES: { name: string; pattern: RegExp }[] = [
   { name: 'muted text opacity (use text-subtle)', pattern: /text-muted\/\d+/ },
   { name: 'large radius (use rounded-lg)', pattern: /rounded-(?:xl|2xl|3xl)/ },
   { name: 'hex color literal (use a role from tokens/theme.css)', pattern: /([\'"`])#[0-9a-fA-F]{3,8}\b/ },
-  // Base tier (tokens/palette.css): only the token files name a family step, as a class or as var(--slate-984).
-  { name: 'base palette step outside packages/ui/src/tokens (use a role from tokens/theme.css)', pattern: /(?<![\w])(?:slate|night|cobalt|teal|red|orange|amber|green|violet|gray|zinc|neutral|stone|yellow|lime|emerald|cyan|sky|blue|indigo|purple|fuchsia|pink|rose)-\d{2,4}(?:-a\d+)?(?![\w-])/ },
+  // Base tier (tokens/palette.css): only the token files name a family step, as a class or as var(--slate-3).
+  { name: 'base palette step outside packages/ui/src/tokens (use a role from tokens/theme.css)', pattern: /(?<![\w])(?:slate|night|cobalt|teal|red|orange|amber|green|violet|gray|zinc|neutral|stone|yellow|lime|emerald|cyan|sky|blue|indigo|purple|fuchsia|pink|rose)-\d{1,4}(?:-a\d+)?(?![\w-])/ },
 ];
 
 /**

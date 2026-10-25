@@ -30,7 +30,7 @@ export function BatchList({ list, defaultOpen = false }: { list: List; defaultOp
                   <li key={scene.groupId}>
                     {scene.title} <Text tabular tone="muted">({scene.lines})</Text>
                     {scene.joined && (
-                      <Text marginLeft="snug" variant="caption" tone="muted">
+                      <Text marginLeft="tight" variant="caption" tone="muted">
                         ← {JOINED[scene.joined.why]}
                         {scene.joined.why === 'speaker' && `: ${scene.joined.speakers.join(', ')}`}
                       </Text>

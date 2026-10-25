@@ -24,8 +24,8 @@ export const Default: Story = { render: () => <Demo label="열기" /> }
 /** `size` is the width it stops growing at. */
 export const Sizes: Story = { render: () => <Inline gap="condensed">{(["sm", "md", "lg"] as const).map((size) => <Demo key={size} label={`size ${size}`} size={size} />)}</Inline> }
 
-/** `height`: a dialog that shows one thing large is a column of this height. */
-export const Heights: Story = { render: () => <Inline gap="condensed">{(["dialog", "dialog-lg"] as const).map((height) => <Demo key={height} label={`height ${height}`} height={height} />)}</Inline> }
+/** `tall`: a dialog that shows one thing large is a column as tall as the dialog limit. */
+export const Tall: Story = { render: () => <Demo label="tall" tall /> }
 
 export const WithoutCloseButton: Story = { render: () => <Demo label="닫기 버튼 없음" showCloseButton={false} /> }
 

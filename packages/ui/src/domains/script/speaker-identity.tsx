@@ -8,7 +8,7 @@ export function SpeakerIdentity({ speaker, listener, listenerIsPerson: _listener
   const label = name || "화자 없음"
   const speakerColor = name && color ? paletteColor(color) : "var(--text-color-muted)"
   return (
-    <span className="inline-flex min-w-0 items-center gap-1.5 text-xs">
+    <span className="inline-flex min-w-0 items-center gap-1 text-xs">
       <span className="speaker-name truncate font-medium text-muted" style={{ "--speaker-color": speakerColor } as CSSProperties}>{label}</span>
       {Boolean(listener?.trim()) && (
         <>

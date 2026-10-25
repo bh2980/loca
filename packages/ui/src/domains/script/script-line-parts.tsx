@@ -45,7 +45,7 @@ export function ScriptSourceStyle({ open, tone, children }: { open: boolean; ton
 /** A person's note on a line, shown as a button that opens it for editing. */
 export function ScriptNoteCard({ note, onClick }: { note: string; onClick: () => void }) {
   return (
-    <Button variant="ghost" size="row" className="mt-2 h-auto items-start gap-1.5 rounded-md border border-warning/30 bg-warning/5 py-1.5 text-left text-sm font-normal whitespace-pre-wrap" onClick={onClick}>
+    <Button variant="ghost" size="row" className="mt-2 h-auto items-start gap-1 rounded-md border border-warning/30 bg-warning/5 py-2 text-left text-sm font-normal whitespace-pre-wrap" onClick={onClick}>
       <Icon icon={StickyNote} size="sm" marginTop="hair" shrink={false} tone="warning" />
       <span className="min-w-0 break-words">{note}</span>
     </Button>

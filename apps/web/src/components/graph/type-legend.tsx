@@ -49,7 +49,7 @@ export function TypeLegend({ nodes, nodeTypes, active, onPick }: {
       </PopoverTrigger>
       <Box asChild width="popover-lg" padding="none">
       <PopoverContent align="start">
-        <Box maxHeight="popover" overflow="auto" paddingY="tight">
+        <Box maxHeight="dialog" overflow="auto" paddingY="tight">
           {groups.map((group) => (
             <Box as="section" key={group.title} paddingX="tight" paddingY="tight">
               <Heading as="h3" variant="group" minWidth={0} display="block" paddingX="condensed" paddingTop="tight">{group.title}</Heading>
@@ -63,7 +63,7 @@ export function TypeLegend({ nodes, nodeTypes, active, onPick }: {
                       background={active === row.key ? 'sunken' : undefined}
                       onClick={() => onPick(active === row.key ? undefined : row.key)}
                     >
-                      <Text marginTop="hair" width="field-2xs" shrink={false} variant="caption" tone="muted">{KIND_LABEL[row.kind] ?? row.kind}</Text>
+                      <Text marginTop="hair" width="field-xs" shrink={false} variant="caption" tone="muted">{KIND_LABEL[row.kind] ?? row.kind}</Text>
                       <Text minWidth={0} grow>
                         <Text display="block" truncate variant="body">{row.label}</Text>
                         {!row.key.startsWith('kind:') && row.label !== row.key && <Text display="block" truncate mono variant="caption" tone="muted">{row.key}</Text>}

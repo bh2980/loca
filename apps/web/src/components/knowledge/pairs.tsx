@@ -279,7 +279,7 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
         defaultOpen={Boolean(pair.relationship && (pair.relationship.status === 'candidate' || !pair.relationship.description))}
         actions={
           pair.relationship && (
-            <Inline as="span" gap="snug">
+            <Inline as="span" gap="tight">
               {pair.relationship.status === 'candidate' && <Chip variant="outline">후보</Chip>}
               <SourceBadge row={pair.relationship} />
             </Inline>

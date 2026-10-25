@@ -67,7 +67,7 @@ export const SpaceAndDivide: Story = {
 /** A limited height that scrolls. */
 export const Scrolling: Story = {
   render: () => (
-    <Box maxHeight="scroll-xs" overflow="y" radius="md" border="all" padding="condensed">
+    <Box maxHeight="scroll-sm" overflow="y" radius="md" border="all" padding="condensed">
       {Array.from({ length: 12 }, (_, i) => <Text key={i} as="p" variant="caption">대사 {i + 1}번</Text>)}
     </Box>
   ),

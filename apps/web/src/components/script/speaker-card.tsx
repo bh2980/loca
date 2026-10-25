@@ -57,7 +57,7 @@ function SpeakerInfo({ projectId, name }: { projectId: string; name: string }) {
         <Box as="ul" spaceY="hair" border="top" paddingTop="condensed">
           {own.map((rule) => (
             <Stack as="li" key={rule.id} direction="row" gap="condensed">
-              <Inline as="span" minWidth={0} gap="snug" truncate tone="muted">
+              <Inline as="span" minWidth={0} gap="tight" truncate tone="muted">
                 → {listenerLabel(rule.toName)}
               </Inline>
               <Text marginLeft="auto" shrink={false}>

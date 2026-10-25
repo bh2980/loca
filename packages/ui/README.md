@@ -20,17 +20,14 @@ Workbench의 화면 부품과 토큰. 화면은 여기 있는 부품만으로 �
 | none | 0 | 0 |
 | hair | 2 | 0.5 |
 | tight | 4 | 1 |
-| snug | 6 | 1.5 |
 | condensed | 8 | 2 |
-| cozy | 10 | 2.5 |
 | normal | 12 | 3 |
 | comfortable | 16 | 4 |
-| roomy | 20 | 5 |
 | spacious | 24 | 6 |
 | wide | 32 | 8 |
 | section | 48 | 12 |
 
-`padding*`, `margin*`(+`auto`), `gap*`, `spaceY`가 이 이름을 씁니다.
+`padding*`, `margin*`(+`auto`), `gap*`, `spaceY`가 이 이름을 씁니다. 6px은 아이콘과 글자 사이·칩 안쪽이면 `tight`, 그 밖은 `condensed`; 10px은 촘촘한 줄·조작부 안쪽이면 `condensed`, 묶음 사이면 `normal`; 20px은 창 안이면 `comfortable`, 구역 사이면 `spacious`. 부품 안쪽의 Tailwind 간격도 0.5 1 2 3 4 6 8 12만 씁니다.
 
 ### 크기 이름
 
@@ -38,12 +35,12 @@ Workbench의 화면 부품과 토큰. 화면은 여기 있는 부품만으로 �
 
 | 옵션 | 이름 (값) |
 | --- | --- |
-| `width` | `icon` (1rem) · 입력칸·이름 열 `field-3xs` (3.5rem) `field-2xs` (4) `field-xs` (5) `field-sm` (6) `field` (7) `field-md` (8) `field-lg` (9) `field-xl` (10) `field-2xl` (11) · 메뉴 `menu-sm` (12rem) `menu` (14) `menu-lg` (15) `menu-xl` (16) · 떠 있는 면 `popover-sm` (18rem) `popover` (20) `popover-lg` (24) · `list` (200px, 옆 목록) · `card` (26rem, 글 카드) |
-| `maxWidth` | `full` · `reading` (56rem, 글 열) · 줄여 보이는 이름 `label-sm` (140px) `label` (12rem) `label-lg` (200px) |
-| `height` | `full` `auto` · `bar` (3rem, 창 머리) · `icon` (1rem) · `track` (0.375rem, 진행 막대) · `control-sm` (1.75rem) `control` (2rem) · 불러오는 자리 `placeholder-sm` (4rem) `placeholder` (6) `placeholder-md` (7) `placeholder-lg` (8) `placeholder-xl` (10) `placeholder-page` (24) |
-| `maxHeight` | 스크롤 영역 `scroll-xs` (8rem) `scroll-sm` (10) `scroll-md` (12) `scroll` (14) `scroll-lg` (16) `scroll-xl` (18) `scroll-2xl` (20) `scroll-3xl` (24) · `pane` (부모의 45%) · `popover` (60vh) · `dialog` (70svh) · `overlay` (부모의 70%) |
-| `minHeight` | `0` · `control-sm` (1.75rem) · 글상자 `textarea-sm` (5rem) `textarea` (7) `textarea-lg` (10) `textarea-xl` (14) |
-| `minWidth` | `0` |
+| `width` | `icon` (1rem) · 입력칸·이름 열 `field-xs` (4rem) `field-sm` (6) `field` (8) `field-lg` (12) · 메뉴 `menu` (14rem) `menu-lg` (16) · 떠 있는 면·글 카드 `popover` (20rem) `popover-lg` (24) · `rail` (12rem, 옆 목록) |
+| `maxWidth` | `full` · `reading` (56rem, 글 열) · `label` (12rem, 줄여 보이는 이름) |
+| `height` | `full` `auto` · `bar` (3rem, 창 머리) · `icon` (1rem) · `track` (0.375rem, 진행 막대) · `control-xs` (1.5rem) `control-sm` (1.75) `control` (2) · 불러오는 자리 `placeholder-sm` (4rem) `placeholder-md` (8) `placeholder-lg` (12) `placeholder-page` (24) |
+| `maxHeight` | 스크롤 영역 `scroll-sm` (12rem) `scroll` (16) `scroll-lg` (24) · `pane` (부모의 50%) · `dialog` (화면의 70vh) |
+| `minHeight` | `0` · `control-sm` (1.75rem) · 글상자 `textarea-sm` (5rem) `textarea` (8) `textarea-lg` (14) |
+| `minWidth` | `0` · `field-xs` (4rem) |
 
 ### 글자 크기와 색
 
@@ -66,11 +63,11 @@ Workbench의 화면 부품과 토큰. 화면은 여기 있는 부품만으로 �
 배치: `grow` `shrink` `overflow` `position`(`relative`) `display`(`block` `flex`) `alignSelf` `justifyContent` `fieldSizing` `resize` `cursor` `opacity` `userSelect`.
 글자: `variant` `tone` `weight` `mono` `tabular` `truncate` `lines` `leading` `lineThrough` `underline`(`true` `offset` `hover`) `preserveLines` `breakWords`(`true` `all`) `nowrap` `textAlign` `srOnly`.
 
-한 부품이나 한 라이브러리만 쓰는 옵션은 여기 없고 그 부품의 prop입니다: React Flow 연결점의 모양은 `FlowHandle look`, 위에 덮는 자리는 `Overlay` · `CanvasFloat` · `VirtualItem`, 부모 안쪽 여백을 넘는 상자는 `Bleed by`, 목록 첫·마지막 줄의 여백 제거와 줄 호버 묶음은 `ListItem trim` · `group`, 버튼의 정렬·호버 표시·접힘 화살표 묶음은 `Button flush` · `align` · `reveal` · `group`, 대화창 너비는 `DialogContent size`, 경고 안 줄은 `AlertRow`.
+한 부품이나 한 라이브러리만 쓰는 옵션은 여기 없고 그 부품의 prop입니다: React Flow 연결점의 모양은 `FlowHandle look`, 위에 덮는 자리는 `Overlay` · `CanvasFloat` · `VirtualItem`, 부모 안쪽 여백을 넘는 상자는 `Bleed by`, 목록 첫·마지막 줄의 여백 제거와 줄 호버 묶음은 `ListItem trim` · `group`, 버튼의 정렬·호버 표시·접힘 화살표 묶음은 `Button flush` · `align` · `reveal` · `group`, 대화창 너비·높이는 `DialogContent size` · `tall`, 경고 안 줄은 `AlertRow`.
 
 ## 색 토큰
 
-세 단입니다. 원시(`tokens/palette.css`: `slate-984`, `cobalt-530` …) → 역할(`tokens/theme.css`: 칠하는 속성마다 `bg-page`, `text-muted`, `border-default`, `ring-focus` …) → 부품 전용(`bg-sidebar`, `stroke-graph-edge`, `bg-node-header-ai` …). 부품과 화면은 역할만 쓰고 원시 단계 이름은 `tokens/` 밖에 쓰지 않습니다. Tailwind의 기본 색은 꺼져 있어(`bg-red-500`, `text-white`는 CSS가 생기지 않습니다) 클래스의 색은 모두 theme.css에 정의된 이름이어야 하며 `pnpm ui-rules`가 확인합니다. 이름 목록과 옛 이름 대응은 `docs/DESIGN-SYSTEM.md` 1-1입니다. `Box`의 `background`(`page` `sunken` `panel` `sidebar` `surface` `overlay` …), `borderColor`(`default` `subtle` `accent`), `ring`(`line` `focus`)도 같은 역할 이름입니다.
+세 단입니다. 원시(`tokens/palette.css`: 회색은 `slate-1..12` · `night-1..12`, 강조·의미는 `cobalt-530` …) → 역할(`tokens/theme.css`: 칠하는 속성마다 `bg-page`, `text-muted`, `border-default`, `ring-focus` …) → 부품 전용(`bg-sidebar`, `stroke-graph-edge`, `bg-node-header-ai` …). 부품과 화면은 역할만 쓰고 원시 단계 이름은 `tokens/` 밖에 쓰지 않습니다. Tailwind의 기본 색은 꺼져 있어(`bg-red-500`, `text-white`는 CSS가 생기지 않습니다) 클래스의 색은 모두 theme.css에 정의된 이름이어야 하며 `pnpm ui-rules`가 확인합니다. 이름 목록과 옛 이름 대응은 `docs/DESIGN-SYSTEM.md` 1-1입니다. `Box`의 `background`(`page` `sunken` `panel` `sidebar` `surface` `overlay` …), `borderColor`(`default` `subtle` `accent`), `ring`(`line` `focus`)도 같은 역할 이름입니다.
 
 ## 폴더
 

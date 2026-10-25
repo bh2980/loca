@@ -19,7 +19,7 @@ export interface InspectorProps {
 
 function InspectorFooter({ children, start }: { children?: ReactNode; start?: ReactNode }) {
   return (
-    <footer className="flex shrink-0 flex-wrap items-center gap-2 border-t border-default bg-panel px-4 py-2.5">
+    <footer className="flex shrink-0 flex-wrap items-center gap-2 border-t border-default bg-panel px-4 py-2">
       {start && <div className="flex items-center gap-2">{start}</div>}
       {children != null && children !== false && <div className="ml-auto flex flex-wrap items-center justify-end gap-2">{children}</div>}
     </footer>
@@ -43,7 +43,7 @@ export function Inspector({
       {tabs}
       <ScrollArea className="min-h-0 flex-1">
         {loading ? (
-          <div className="space-y-inspector-compact p-4" aria-label="불러오는 중" aria-busy="true">
+          <div className="space-y-3 p-4" aria-label="불러오는 중" aria-busy="true">
             <Skeleton shape="line" width="1/2" />
             <Skeleton height="placeholder-sm" />
             <Skeleton shape="line" width="2/3" />

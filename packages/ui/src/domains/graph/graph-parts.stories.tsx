@@ -58,7 +58,7 @@ export const FlowRows: Story = {
     const style = { gridTemplateColumns: `${width}px minmax(0,1fr)` }
     return (
       <Box position="relative" border="all">
-        <Inline as="p" wrap gap="tight" background="sunken" paddingX="comfortable" paddingY="snug" variant="caption" tone="muted">
+        <Inline as="p" wrap gap="tight" background="sunken" paddingX="comfortable" paddingY="condensed" variant="caption" tone="muted">
           <Chip variant="pill" tone="choice">▶ 문을 연다</Chip>
           <Chip variant="pill">조건: 열쇠</Chip>
         </Inline>

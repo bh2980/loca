@@ -14,7 +14,7 @@ export function EdgePane({ projectId, edgeId, onOpenNode, onRemove, onClose }: {
   const end = (side: 'from' | 'to') => {
     const node = edge.data![side];
     return (
-      <Button variant="ghost" height="auto" width="full" justifyContent="start" paddingY="snug" textAlign="start" onClick={() => onOpenNode(node.id)}>
+      <Button variant="ghost" height="auto" width="full" justifyContent="start" paddingY="condensed" textAlign="start" onClick={() => onOpenNode(node.id)}>
         <Box as="span" minWidth={0}>
           <Text display="block" truncate variant="caption" tone="muted">{node.speaker ? <PersonName projectId={projectId} name={node.speaker} /> : (node.label ?? node.kind)} · {node.key}</Text>
           {node.text && <Text display="block" truncate variant="body">{node.text}</Text>}
@@ -28,7 +28,7 @@ export function EdgePane({ projectId, edgeId, onOpenNode, onRemove, onClose }: {
         {edge.isError ? (
           <Text as="p" variant="body" tone="muted">이 선은 이제 없습니다.</Text>
         ) : !edge.data ? (
-          <Skeleton height="placeholder" />
+          <Skeleton height="placeholder-sm" />
         ) : (
           <Box spaceY="normal">
             <Field label="출처">

@@ -35,7 +35,7 @@ export function ListenerPicker({ line, cast, onPick, inline = false }: {
     return (
       <Input
         size={inline ? 'xs' : 'sm'}
-        width={inline ? 'field-lg' : 'field-xl'}
+        width={inline ? 'field' : 'field-lg'}
         autoFocus
         value={typing}
         onChange={(event) => setTyping(event.target.value)}
@@ -62,7 +62,7 @@ export function ListenerPicker({ line, cast, onPick, inline = false }: {
             label={value === '-' ? '청자 미상' : listenerLabel(value)}
           />
         ) : (
-          <SelectTrigger width="field-xl" aria-label="청자">
+          <SelectTrigger width="field-lg" aria-label="청자">
             <SelectValue />
           </SelectTrigger>
         )}

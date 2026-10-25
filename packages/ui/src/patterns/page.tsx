@@ -82,17 +82,17 @@ export function Page({
       </PageHeading>}
       {hasDock && actions && <HeaderActions>{actions}</HeaderActions>}
       {toolbar && !hasDock && (
-        <div className="flex min-h-10 shrink-0 flex-wrap items-center gap-2 border-b border-default bg-page/50 px-3.5 py-1.5 backdrop-blur-xs">
+        <div className="flex min-h-10 shrink-0 flex-wrap items-center gap-2 border-b border-default bg-page/50 px-3 py-2 backdrop-blur-xs">
           {back && <div className="-ml-1 shrink-0">{back}</div>}
           <div className="min-w-0 flex-1 truncate text-xs text-muted">
             {meta}
           </div>
-          {actions && <div className="flex shrink-0 items-center gap-1.5">{actions}</div>}
+          {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
         </div>
       )}
       <div
         className={cn(
-          flush ? "relative min-h-0 flex-1" : "min-h-0 flex-1 px-5 pt-3.5 pb-6",
+          flush ? "relative min-h-0 flex-1" : "min-h-0 flex-1 px-4 pt-3 pb-6",
           reading && "mx-auto w-full max-w-5xl space-y-8 py-8",
           column && "flex flex-col"
         )}

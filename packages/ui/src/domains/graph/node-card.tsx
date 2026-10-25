@@ -72,7 +72,7 @@ export function NodeCard({ kind, icon, title, summary, inputHandle, outputs = []
     <>
       <div className={cn("min-w-0 flex-1", isHorizontal ? "flex flex-col justify-center" : "")}>
         <div className={cn(
-          "flex min-h-8 items-center gap-2 px-2.5 py-1.5",
+          "flex min-h-8 items-center gap-2 px-2 py-2",
           isHorizontal
             ? cn("rounded-tl-md rounded-tr-none rounded-b-none", isCapsule && "rounded-tl-full")
             : cn("rounded-t-md rounded-b-none", isCapsule && "rounded-t-full"),
@@ -93,8 +93,8 @@ export function NodeCard({ kind, icon, title, summary, inputHandle, outputs = []
             <span className="flex shrink-0 items-center gap-1 text-xs text-warning" title={`${warnings}개 주의`}><AlertTriangle className="size-3" />{warnings}</span>
           ) : null}
         </div>
-        {summary && <p className={cn("px-2.5 py-1.5 text-xs text-muted", isHorizontal ? "line-clamp-2" : "min-h-7 truncate")}>{summary}</p>}
-        {hasLive && <div className="flex gap-2 border-t border-subtle px-2.5 py-1 text-xs tabular-nums">
+        {summary && <p className={cn("px-2 py-2 text-xs text-muted", isHorizontal ? "line-clamp-2" : "min-h-7 truncate")}>{summary}</p>}
+        {hasLive && <div className="flex gap-2 border-t border-subtle px-2 py-1 text-xs tabular-nums">
           {live.limit !== undefined && (live.calls ?? 0) > 0 && <span className="font-medium text-default" title="동시에 보낸 요청 / 이 노드가 한 번에 보낼 수 있는 요청(동시 처리 수)">요청 {live.calls}/{live.limit}</span>}
           {live.retry && <span className="text-warning">{live.retry}</span>}
           {live.running > 0 && <span className="font-medium text-default">처리 {live.running}</span>}

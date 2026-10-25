@@ -44,7 +44,7 @@ export const Sizes: Story = {
 export const Widths: Story = {
   render: () => (
     <Stack gap="condensed">
-      {(["field-xs", "field", "field-xl", "menu-xl"] as const).map((width) => (
+      {(["field-sm", "field", "field-lg", "menu-lg"] as const).map((width) => (
         <Select key={width} defaultValue="draft">
           <SelectTrigger width={width} aria-label={width}><SelectValue /></SelectTrigger>
           <Items />
@@ -94,7 +94,7 @@ export const Invalid: Story = {
 export const LongText: Story = {
   render: () => (
     <Select defaultValue="long">
-      <SelectTrigger width="field-xl" aria-label="상태"><SelectValue /></SelectTrigger>
+      <SelectTrigger width="field-lg" aria-label="상태"><SelectValue /></SelectTrigger>
       <Items />
     </Select>
   ),

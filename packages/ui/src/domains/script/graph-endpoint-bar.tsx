@@ -33,7 +33,7 @@ export function GraphEndpointBar({ start, end, step, picking, canFind, busy, sta
       aria-pressed={picking && step === which}
       title={value?.label}
       aria-label={`${which === "start" ? "시작 대사" : "끝 대사"}${value ? `: ${value.label}` : " 선택 안 됨"}`}
-      className={cn("h-7 max-w-xs min-w-0 justify-start gap-1.5 px-2.5 text-xs", picking && step === which && "border-accent bg-accent/5")}
+      className={cn("h-7 max-w-xs min-w-0 justify-start gap-1 px-2 text-xs", picking && step === which && "border-accent bg-accent/5")}
       onClick={() => picking ? onStepChange?.(which) : onBeginPicking?.(which)}
     >
       <span className="shrink-0 font-semibold text-muted">{which === "start" ? "시작" : "끝"}:</span>
@@ -47,7 +47,7 @@ export function GraphEndpointBar({ start, end, step, picking, canFind, busy, sta
       {endpoint("start", start)}
       <Icon icon={ArrowRight} size="sm" shrink={false} tone="muted" aria-hidden="true" />
       {endpoint("end", end)}
-      <Inline marginLeft="auto" gap="snug">
+      <Inline marginLeft="auto" gap="condensed">
         {picking ? (
           <>
             <Button size="sm" disabled={!canFind || busy} onClick={onFind}>{busy ? "경로를 찾는 중…" : "경로 만들기"}</Button>

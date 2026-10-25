@@ -28,7 +28,7 @@ export function FoldChip({ text, open, errors = 0, warnings = 0, live, onToggle 
       onClick={(event) => { event.stopPropagation(); onToggle() }}
       onDoubleClick={(event) => event.stopPropagation()}
       className={cn(
-        "nodrag nopan pointer-events-auto flex max-w-56 items-center gap-1.5 rounded-full border border-dashed border-neutral/60 bg-surface px-2 py-0.5 text-xs leading-4 text-muted hover:border-strong hover:text-default",
+        "nodrag nopan pointer-events-auto flex max-w-56 items-center gap-1 rounded-full border border-dashed border-neutral/60 bg-surface px-2 py-0.5 text-xs leading-4 text-muted hover:border-strong hover:text-default",
         errors > 0 && "border-danger/70",
       )}
     >

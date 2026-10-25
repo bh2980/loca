@@ -69,7 +69,7 @@ export function RunCardView({ projectId, card, onChange, onAnswered, controls }:
       {card.runId ? <RunProgress projectId={projectId} runId={card.runId} /> : planned.isError ? (
         <Text as="p" variant="caption" tone="danger" role="alert">{planned.error.message}</Text>
       ) : !summary ? (
-        <Inline as="p" gap="snug" variant="caption" tone="muted"><Spinner size="xs" /> 세는 중…</Inline>
+        <Inline as="p" gap="tight" variant="caption" tone="muted"><Spinner size="xs" /> 세는 중…</Inline>
       ) : (
         <p>
           {summary.empty ? <Text tone="muted">이 대상에는 실행할 {card.input === 'terms' ? '용어' : '대사'}가 없습니다.</Text> : (
@@ -103,7 +103,7 @@ function RunProgress({ projectId, runId }: { projectId: string; runId: string })
   const done = run ? (run.states.done ?? 0) + (run.states.failed ?? 0) + (run.states.cancelled ?? 0) : 0;
   const percent = run?.total ? Math.round((done / run.total) * 100) : 0;
   return (
-    <Box spaceY="snug" role="status">
+    <Box spaceY="condensed" role="status">
       <Progress value={run?.status === 'completed' ? 100 : percent} aria-label="실행 진행" />
       <Inline as="p" wrap gapX="condensed" variant="caption" tone="muted">
         <span>{run ? STATUS[run.status] : '시작하는 중…'}</span>

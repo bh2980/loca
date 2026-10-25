@@ -25,7 +25,7 @@ const Items = () => (
 
 export const Default: Story = {
   render: () => (
-    <Box width="menu-xl" border="all" radius="md">
+    <Box width="menu-lg" border="all" radius="md">
       <Command><CommandInput placeholder="명령 검색" /><Items /></Command>
     </Box>
   ),
@@ -33,7 +33,7 @@ export const Default: Story = {
 
 export const Empty: Story = {
   render: () => (
-    <Box width="menu-xl" border="all" radius="md">
+    <Box width="menu-lg" border="all" radius="md">
       <Command><CommandInput placeholder="명령 검색" defaultValue="없는 명령" /><Items /></Command>
     </Box>
   ),

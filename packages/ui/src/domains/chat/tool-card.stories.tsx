@@ -68,7 +68,7 @@ export const ProposalAccepted: Story = {
     <ToolCard>
       <ToolCardHeader title="용어 저장"><Text tone="success">자동 검토로 용어집에 반영됨</Text></ToolCardHeader>
       <Box paddingX="normal" paddingY="condensed" variant="body">
-        <Box as="ul" maxHeight="scroll-md" spaceY="hair" overflow="auto">
+        <Box as="ul" maxHeight="scroll-sm" spaceY="hair" overflow="auto">
           <li>추가 · <b>옥상</b> → rooftop</li>
           <li>추가 · <b>하윤</b> → Hayun</li>
         </Box>
@@ -117,7 +117,7 @@ export const RunCardWaiting: Story = {
 const Run = ({ percent, status, failed }: { percent: number; status: string; failed?: number }) => (
   <Box spaceY="condensed" radius="md" border="all" background="sunken" paddingX="normal" paddingY="condensed" variant="body" role="group">
     <Text as="p" weight="medium">/초벌 번역</Text>
-    <Box spaceY="snug" role="status">
+    <Box spaceY="condensed" role="status">
       <Progress value={percent} aria-label="실행 진행" />
       <Inline as="p" wrap gapX="condensed" variant="caption" tone="muted">
         <span>{status}</span>
@@ -146,7 +146,7 @@ export const GraphLink: Story = {
 export const ReadingRoute: Story = {
   render: () => (
     <ToolCard>
-      <Inline gap="condensed" border="bottom" background="sunken" paddingX="normal" paddingY="snug" variant="body" weight="semibold">
+      <Inline gap="condensed" border="bottom" background="sunken" paddingX="normal" paddingY="condensed" variant="body" weight="semibold">
         <Icon icon={Network} size="sm" tone="muted" />
         <span>경로 대본</span>
         <Text marginLeft="auto" weight="normal" tone="muted">대사 42줄</Text>

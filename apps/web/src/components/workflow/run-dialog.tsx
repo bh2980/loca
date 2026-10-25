@@ -259,7 +259,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
         </DialogHeader>
 
         {/* Side padding so focus rings and the picked scope are not cut by the scroll box. */}
-        <Bleed by="tight" maxHeight="dialog" spaceY="roomy" overflow="auto" paddingX="tight" paddingY="hair">
+        <Bleed by="tight" maxHeight="dialog" spaceY="comfortable" overflow="auto" paddingX="tight" paddingY="hair">
           {!fixedWorkflowId && (
             <Box spaceY="condensed">
             <Select value={workflowId ?? ''} onValueChange={choose}>
@@ -421,7 +421,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
             />
           ) : null}
           {ready && plan.isError && plan.data && <Text as="p" variant="body" tone="danger">계획을 다시 계산하지 못했습니다: {plan.error.message}</Text>}
-          {ready && plan.isPending && <Skeleton height="placeholder" width="full" />}
+          {ready && plan.isPending && <Skeleton height="placeholder-sm" width="full" />}
 
         </Bleed>
 
@@ -488,7 +488,7 @@ function ScopePicker({ sections, unit, picked, setPicked, filter, setFilter }: {
       <Box border="bottom" padding="tight">
         <SearchField size="fill" value={filter} onChange={(value) => setFilter(value ?? '')} placeholder="찾기" end={`${total(all.filter((item) => picked.has(item.id))).toLocaleString()}${unit}`} />
       </Box>
-      <Box maxHeight="scroll-lg" overflow="auto" padding="tight">
+      <Box maxHeight="scroll" overflow="auto" padding="tight">
         <ScopeRow kind="all">
           <Checkbox checked={state(all)} onCheckedChange={(checked) => setMany(all, checked === true)} />
           <Text minWidth={0} grow>전체</Text>
@@ -598,7 +598,7 @@ function Readiness({ projectId, readiness, oneScene, onLeave }: { projectId: str
       <SectionHeading>준비 상태</SectionHeading>
       <Box as="ul" radius="md" border="all" variant="body">
         {rows.map((row, index) => (
-          <Inline as="li" key={index} gap="condensed" paddingX="normal" paddingY="snug">
+          <Inline as="li" key={index} gap="condensed" paddingX="normal" paddingY="condensed">
             <ReadinessDot ok={row.ok} />
             <Text minWidth={0} grow truncate tone={row.ok ? 'muted' : undefined} title={typeof row.text === 'string' ? row.text : undefined}>
               {row.text}

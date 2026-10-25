@@ -28,10 +28,10 @@ export function NodeLibrary({ groups, onSelect, onDragStart, placeholder = "노�
     const needle = query.trim().toLocaleLowerCase()
     return groups.map((group) => ({ ...group, items: group.items.filter((item) => !needle || `${item.label} ${item.description ?? ""} ${group.label}`.toLocaleLowerCase().includes(needle)) })).filter((group) => group.items.length)
   }, [groups, query])
-  return <section className="flex min-h-0 w-list shrink-0 flex-col border-r bg-navigation" aria-label="노드 라이브러리">
+  return <section className="flex min-h-0 w-rail shrink-0 flex-col border-r bg-navigation" aria-label="노드 라이브러리">
     <label className="relative m-2 block shrink-0">
       <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted" />
-      <Input aria-label="노드 검색" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={placeholder} className="h-7 pl-7 text-xs" />
+      <Input aria-label="노드 검색" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={placeholder} className="h-7 pl-8 text-xs" />
     </label>
     <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
       {filtered.map((group) => <div key={group.id} className="mb-3">

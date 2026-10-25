@@ -65,9 +65,9 @@ export const Invalid: Story = { render: () => <Button variant="outline" aria-inv
 /** `size="row"` is a full-width list row that wraps. */
 export const LongText: Story = {
   render: () => (
-    <Stack gap="condensed" width="menu-xl">
+    <Stack gap="condensed" width="menu-lg">
       <Button variant="outline" size="row">이 문장은 아주 길어서 버튼 안에서 여러 줄로 감싸져야 하며 줄바꿈 후에도 정렬이 유지되어야 합니다</Button>
-      <Button variant="outline" width="menu-2xs">이 문장은 아주 길어서 버튼 폭을 넘칩니다</Button>
+      <Button variant="outline" width="menu">이 문장은 아주 길어서 버튼 폭을 넘칩니다</Button>
     </Stack>
   ),
 }

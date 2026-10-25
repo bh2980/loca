@@ -60,13 +60,13 @@ function FieldItem({ field, path, first, last, descriptionPlaceholder, editing, 
           <Text truncate mono variant="body" weight="semibold" tone="default">{field.name || 'name'}</Text>
           <Text marginLeft="tight" shrink={false} variant="caption" tone="muted">{[JSON_FIELD_TYPE_LABELS[field.type], limitsLabel(field), field.type === 'list' && editing.folded.has(path) && `필드 ${field.fields?.length ?? 0}개`].filter(Boolean).join(' · ')}</Text>
         </Inline>
-        {field.description && <Text as="p" paddingLeft="roomy" variant="caption" preserveLines tone="muted">{field.description}</Text>}
+        {field.description && <Text as="p" paddingLeft="comfortable" variant="caption" preserveLines tone="muted">{field.description}</Text>}
       </FieldReadRow>
     );
   }
   return (
-    <Bleed ref={box} by="snug" minWidth={0} spaceY="snug" radius="md" background="sunken" padding="snug" onKeyDown={(event) => { if (event.key === 'Escape') { event.stopPropagation(); editing.open(null); } }}>
-      <Inline minWidth={0} gap="snug">
+    <Bleed ref={box} by="condensed" minWidth={0} spaceY="condensed" radius="md" background="sunken" padding="condensed" onKeyDown={(event) => { if (event.key === 'Escape') { event.stopPropagation(); editing.open(null); } }}>
+      <Inline minWidth={0} gap="condensed">
         <Box asChild height="control-sm" minWidth={0} grow mono variant="caption">
           <Input autoFocus value={field.name} placeholder="name" aria-label="이름" onChange={(event) => onChange({ name: event.target.value })} />
         </Box>
@@ -97,14 +97,14 @@ function FieldItem({ field, path, first, last, descriptionPlaceholder, editing, 
         <Textarea rows={1} value={field.description} placeholder={descriptionPlaceholder} aria-label="설명" onChange={(event) => onChange({ description: event.target.value })} />
       </Box>
       {field.type === 'number' ? (
-        <Inline gap="snug" variant="caption" tone="muted">
+        <Inline gap="condensed" variant="caption" tone="muted">
           범위
-          <Box asChild height="control-sm" width="field-xs" variant="caption"><NumberInput integer={false} optional aria-label="최소" placeholder="최소" value={field.min} onValueChange={(min) => onChange({ min })} /></Box>
+          <Box asChild height="control-sm" width="field-sm" variant="caption"><NumberInput integer={false} optional aria-label="최소" placeholder="최소" value={field.min} onValueChange={(min) => onChange({ min })} /></Box>
           ~
-          <Box asChild height="control-sm" width="field-xs" variant="caption"><NumberInput integer={false} optional aria-label="최대" placeholder="최대" value={field.max} onValueChange={(max) => onChange({ max })} /></Box>
+          <Box asChild height="control-sm" width="field-sm" variant="caption"><NumberInput integer={false} optional aria-label="최대" placeholder="최대" value={field.max} onValueChange={(max) => onChange({ max })} /></Box>
         </Inline>
       ) : field.type !== 'boolean' && (
-        <Inline as="label" gap="snug" variant="caption" tone="muted">
+        <Inline as="label" gap="tight" variant="caption" tone="muted">
           <Switch checked={!!field.required} onCheckedChange={(required) => onChange({ required: required || undefined })} />
           필수
         </Inline>
@@ -192,7 +192,7 @@ export function JsonFieldsEditor({ label, fields, descriptionPlaceholder, onChan
     onChange(result.data);
   };
   return (
-    <Box minWidth={0} spaceY="snug">
+    <Box minWidth={0} spaceY="condensed">
       <Inline minHeight="control-sm" minWidth={0} justify="between" gap="condensed">
         <Button variant="ghost" flush="start" minWidth={0} gap="tight" paddingX="condensed" weight="normal" aria-expanded={shown} onClick={() => setShown((value) => !value)}>
           <Icon icon={ChevronRight} turn={shown} />
@@ -200,7 +200,7 @@ export function JsonFieldsEditor({ label, fields, descriptionPlaceholder, onChan
           <Text tone="muted" tabular>{fields.length}</Text>
         </Button>
         {shown && (
-          <Inline as="label" shrink={false} gap="snug" variant="caption" tone="muted">
+          <Inline as="label" shrink={false} gap="tight" variant="caption" tone="muted">
             JSON
             <Switch checked={asSchema} onCheckedChange={setAsSchema} />
           </Inline>
@@ -210,7 +210,7 @@ export function JsonFieldsEditor({ label, fields, descriptionPlaceholder, onChan
         <ControlIdContext.Provider value={undefined}>
           {asSchema ? (
             <Box spaceY="tight">
-              <Box asChild minHeight="textarea-lg" mono variant="caption"><Textarea aria-label={`${label} JSON`} spellCheck={false} value={text} onChange={(event) => edit(event.target.value)} /></Box>
+              <Box asChild minHeight="textarea" mono variant="caption"><Textarea aria-label={`${label} JSON`} spellCheck={false} value={text} onChange={(event) => edit(event.target.value)} /></Box>
               {error && <Text as="p" variant="caption" tone="danger">{error}</Text>}
             </Box>
           ) : (

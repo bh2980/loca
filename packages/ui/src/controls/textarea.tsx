@@ -26,7 +26,7 @@ function Textarea({
       id={useControlId(id)}
       data-slot="textarea"
       className={cn(
-        "flex min-h-[60px] w-full rounded-md border border-default bg-page px-2.5 py-1.5 text-xs shadow-xs transition-colors outline-none",
+        "flex min-h-[60px] w-full rounded-md border border-default bg-page px-2 py-2 text-xs shadow-xs transition-colors outline-none",
         "placeholder:text-muted hover:border-default",
         "focus-visible:border-focus focus-visible:ring-1 focus-visible:ring-focus disabled:cursor-not-allowed disabled:opacity-50",
         mono && "font-mono",

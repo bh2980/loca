@@ -25,7 +25,7 @@ export function ModeSelect({ value, options, icon: Icon, onValueChange, label, c
   const selected = options.find((option) => option.value === value)
   return (
     <Select open={open} onOpenChange={onOpenChange} value={value} onValueChange={onValueChange} disabled={disabled}>
-      <SelectTrigger bare={compact} width={width === "medium" ? "menu-sm" : undefined} className={cn(warn && "text-warning")} aria-label={label}>
+      <SelectTrigger bare={compact} width={width === "medium" ? "menu" : undefined} className={cn(warn && "text-warning")} aria-label={label}>
         <Icon />
         {/* Closed, the select shows the mode's name only; the list explains each. */}
         <SelectValue>{selected?.label}</SelectValue>

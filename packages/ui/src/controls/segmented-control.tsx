@@ -39,9 +39,9 @@ export function SegmentedControl({ value, onChange, items, ariaLabel, disabled, 
           aria-label={item.name}
           title={item.name}
           disabled={disabled}
-          className="h-6 rounded-sm px-2.5 text-xs font-medium text-muted transition-colors hover:text-default data-[state=on]:bg-page data-[state=on]:text-default data-[state=on]:shadow-xs"
+          className="h-6 rounded-sm px-2 text-xs font-medium text-muted transition-colors hover:text-default data-[state=on]:bg-page data-[state=on]:text-default data-[state=on]:shadow-xs"
         >
-          <span className="inline-flex items-center gap-1.5 [&_svg]:size-3.5 [&_svg]:stroke-[1.65]">{item.label}</span>
+          <span className="inline-flex items-center gap-1 [&_svg]:size-3.5 [&_svg]:stroke-[1.65]">{item.label}</span>
         </ToggleGroupItem>
       ))}
     </ToggleGroup>

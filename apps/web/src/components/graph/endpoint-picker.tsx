@@ -200,7 +200,7 @@ export function EndpointPicker({ projectId, direction, step, start, end, section
       <Grid gap="tight" shrink={false} border="bottom" borderColor="default" paddingX="normal" paddingY="condensed">
         <Input aria-label="현재 장 그래프에서 대사 찾기" value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="현재 장에서 화자·원문·키로 찾기" />
         {results.length > 0 && (
-          <Box maxHeight="scroll-xs" overflow="y" radius="md" border="all" borderColor="default" background="surface" role="group" aria-label="그래프 검색 결과">
+          <Box maxHeight="scroll-sm" overflow="y" radius="md" border="all" borderColor="default" background="surface" role="group" aria-label="그래프 검색 결과">
             {results.map((node) => <ListRow as="button" key={node.id} type="button" onClick={() => locate(node.id)}><Text width="full" truncate weight="medium">{node.speaker ? `${node.speaker}: ` : ''}{node.text ?? node.label ?? node.key}</Text><Text variant="caption" tone="muted">{node.key} · 그래프에서 위치 찾기</Text></ListRow>)}
           </Box>
         )}

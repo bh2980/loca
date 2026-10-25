@@ -21,7 +21,7 @@ interface Person {
 function End({ label, value, name, onValue, onName, options, placeholder }: { label: string; value: string; name: string; onValue: (value: string) => void; onName: (name: string) => void; options: ComboboxOption[]; placeholder: string }) {
   return (
     <KeyValueRow label={label}>
-     <Grid gap="snug">
+     <Grid gap="condensed">
       <Combobox ariaLabel={label} value={value} onValueChange={onValue} options={options} placeholder={placeholder} searchPlaceholder="이름 검색" />
       {value === NEW && <Input aria-label={`${label} 새 이름`} autoFocus value={name} onChange={(event) => onName(event.target.value)} placeholder="새 인물 이름" />}
      </Grid>

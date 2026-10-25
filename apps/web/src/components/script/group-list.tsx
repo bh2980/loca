@@ -210,7 +210,7 @@ function GroupItem({ projectId, group, progress, statuses, active, indent, marks
   const link = (
     <ListRow as="link" variant="nav-scene" active={active} complete={complete}>
       <ScriptLink projectId={projectId} scope={{ group: group.id }} title={group.title} aria-current={active ? 'page' : undefined}>
-        <Inline as="span" minWidth={0} gap="snug">
+        <Inline as="span" minWidth={0} gap="tight">
           <Text minWidth={0} grow truncate>{group.title}</Text>
           {marks ? (
             marked ? <Count tone="warning">{marked}</Count> : null
@@ -230,7 +230,7 @@ function GroupItem({ projectId, group, progress, statuses, active, indent, marks
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>{link}</ContextMenuTrigger>
-      <ContextMenuContent width="menu-sm">{menu}</ContextMenuContent>
+      <ContextMenuContent width="menu">{menu}</ContextMenuContent>
     </ContextMenu>
   );
 }

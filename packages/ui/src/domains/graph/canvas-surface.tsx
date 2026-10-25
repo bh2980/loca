@@ -23,9 +23,9 @@ export function CanvasSurface({ grow = true, fill, ...props }: Omit<ComponentPro
 /** Shared, stacked header region for canvas search, filters, and status details. */
 export function CanvasOverlay({ tools, details }: { tools: ReactNode; details?: ReactNode }) {
   return (
-    <div className="pointer-events-none absolute inset-x-3 top-3 z-30 flex flex-col items-start gap-1.5">
-      <div className="flex w-fit max-w-full min-w-0 flex-wrap items-start gap-1.5 pointer-events-auto">{tools}</div>
-      {details && <div className="flex max-w-full flex-col items-start gap-1.5 pointer-events-auto">{details}</div>}
+    <div className="pointer-events-none absolute inset-x-3 top-3 z-30 flex flex-col items-start gap-2">
+      <div className="flex w-fit max-w-full min-w-0 flex-wrap items-start gap-2 pointer-events-auto">{tools}</div>
+      {details && <div className="flex max-w-full flex-col items-start gap-2 pointer-events-auto">{details}</div>}
     </div>
   )
 }

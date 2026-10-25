@@ -70,7 +70,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
       }>
         <Box asChild minHeight="textarea" variant="body"><Textarea aria-label="지시문" value={config.instructions} onChange={(event) => set({ instructions: event.target.value })} /></Box>
         <Dialog open={expanded} onOpenChange={setExpanded}>
-          <DialogContent height="dialog">
+          <DialogContent tall>
             <DialogHeader><DialogTitle>{`지시문 · ${nodeName(node)}`}</DialogTitle></DialogHeader>
             <Box asChild minHeight={0} grow resize="none" mono variant="body"><Textarea autoFocus aria-label="지시문 크게 편집" value={config.instructions} onChange={(event) => set({ instructions: event.target.value })} /></Box>
           </DialogContent>
@@ -147,7 +147,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
                 description={config.batch.maxTokens === null ? '자동' : '직접 입력'}
                 help="요청 한 번에 보내는 원문 양입니다. 클수록 빠르지만 놓치는 내용이 늘어납니다."
               >
-                <Box asChild width="field-xl">
+                <Box asChild width="field-lg">
                   <Input
                     type="number"
                     min={500}
@@ -181,7 +181,7 @@ export function AiContextFields({ config, set, input }: { config: Pick<AiNode['c
   const setContext = (patch: Partial<typeof context>) => set({ context: { ...context, ...patch } });
   return (
     <>
-      <Box spaceY="cozy">
+      <Box spaceY="normal">
         {lines ? <>
             <CountRow label={CONTEXT_FIELDS.precedingLines.label} help={CONTEXT_FIELDS.precedingLines.help} unit="줄" value={context.precedingLines} fallback={8} max={50} onChange={(value) => setContext({ precedingLines: value })} />
             {context.precedingLines > 0 && (
@@ -194,7 +194,7 @@ export function AiContextFields({ config, set, input }: { config: Pick<AiNode['c
             <CountRow label={CONTEXT_FIELDS.examples.label} help={CONTEXT_FIELDS.examples.help} unit="줄" value={context.examples} fallback={2} max={5} onChange={(value) => setContext({ examples: value })} />
         )}
       </Box>
-      <Box spaceY="cozy" border="top" borderColor="subtle" paddingTop="normal">
+      <Box spaceY="normal" border="top" borderColor="subtle" paddingTop="normal">
         <ToggleRow label={CONTEXT_FIELDS.candidate.label} help={CONTEXT_FIELDS.candidate.help} checked={config.include.candidate} onChange={(value) => set({ include: { ...config.include, candidate: value } })} />
         <ToggleRow label={CONTEXT_FIELDS.glossary.label} help={CONTEXT_FIELDS.glossary.help} checked={context.glossary} onChange={(value) => setContext({ glossary: value })} />
         {lines && <ToggleRow label={CONTEXT_FIELDS.speech.label} help={CONTEXT_FIELDS.speech.help} checked={context.speech} onChange={(value) => setContext({ speech: value })} />}
@@ -235,7 +235,7 @@ function AiInputSection({ node, refs, set }: { node: AiNode; refs: NodeRefs; set
           <Box spaceY="normal" paddingLeft="spacious">
             <StepChips steps={steps} refs={refs} suffix="의 결과" />
             {names.length > 0 && (
-              <Box spaceY="snug">
+              <Box spaceY="condensed">
                 <Text as="p" variant="caption" tone="muted">보낼 항목</Text>
                 <Stack direction="row" wrap gapX="comfortable" gapY="condensed">
                   {names.map((name) => (

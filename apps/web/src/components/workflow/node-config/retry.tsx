@@ -26,7 +26,7 @@ export function RetryConfig({ node, onChange }: { node: RetryNode; onChange: (no
         <Box asChild width="field"><NumberInput min={0} max={3600} value={wait} onValueChange={(next) => next !== undefined && set({ wait: next })} /></Box>
       </Field>
       <Field label="모델" description="다시 보낼 때 쓸 모델입니다." help="'같은 모델'은 AI 노드에 정한 모델(여러 개면 그 모델들)로 보냅니다. 다른 모델을 고르면 이 대사들만 그 모델로 같은 AI 노드에 다시 보냅니다. 모델이 같은 대사끼리 묶어 보냅니다.">
-        <Box spaceY="snug">
+        <Box spaceY="condensed">
           <SelectField value={model ? 'other' : 'same'} onValueChange={(next) => set({ model: next === 'other' ? { connectionId: '', model: '' } : null })}>
             <SelectItem value="same">같은 모델</SelectItem>
             <SelectItem value="other">다른 모델</SelectItem>

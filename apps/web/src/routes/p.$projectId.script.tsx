@@ -262,7 +262,7 @@ function Script() {
             find={finding && search.group ? { ids: new Set(matchRows.filter((row) => row.groupId === search.group).map((row) => row.id)), label: findLabel } : undefined}
             banner={
               finding && (
-                <Inline gap="condensed" shrink={false} border="bottom" background="warningFaint" paddingX="comfortable" paddingY="snug" variant="body">
+                <Inline gap="condensed" shrink={false} border="bottom" background="warningFaint" paddingX="comfortable" paddingY="condensed" variant="body">
                   {/* Says it is the whole scene, the matches marked: the list alone shows only the matches. */}
                   <Text truncate>
                     {SOURCE_GROUP_LABEL[group?.kind ?? view]} 전체에서 <Text weight="medium">{findLabel}</Text> 찾는 중

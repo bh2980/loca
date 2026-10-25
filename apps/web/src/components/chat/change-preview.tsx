@@ -94,7 +94,7 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
           {Object.entries(input).map(([key, value]) => (
             <Grid key={key} columns="field" gap="condensed">
               <Text as="dt" variant="caption" tone="muted">{labels[key] ?? key}</Text>
-              <Text as="dd" minWidth={0} breakWords>{typeof value === 'string' ? value : <Text as="pre" maxHeight="scroll-xs" overflow="auto" variant="caption" preserveLines>{JSON.stringify(value, null, 2)}</Text>}</Text>
+              <Text as="dd" minWidth={0} breakWords>{typeof value === 'string' ? value : <Text as="pre" maxHeight="scroll-sm" overflow="auto" variant="caption" preserveLines>{JSON.stringify(value, null, 2)}</Text>}</Text>
             </Grid>
           ))}
         </Box>
@@ -136,7 +136,7 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
     case 'save_terms': {
       const terms = (input.terms as { source: string; target: string; id?: string }[]) ?? [];
       return (
-        <Box as="ul" maxHeight="scroll-md" spaceY="hair" overflow="auto">
+        <Box as="ul" maxHeight="scroll-sm" spaceY="hair" overflow="auto">
           {terms.map((term, index) => (
             <li key={index}>
               {term.id ? '수정' : '추가'} · <b>{term.source}</b> → {term.target || '(번역 없음)'}
@@ -219,11 +219,11 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
           {field('노드', input.nodeId)}
           {field('항목', { instructions: '지시문', expression: '조건식', code: '스크립트 코드' }[input.field as string])}
           {field('설명', input.description)}
-          <Text as="pre" maxHeight="scroll-lg" overflow="auto" radius="md" border="all" background="sunken" padding="condensed" variant="caption" preserveLines>{value}</Text>
+          <Text as="pre" maxHeight="scroll" overflow="auto" radius="md" border="all" background="sunken" padding="condensed" variant="caption" preserveLines>{value}</Text>
         </Box>
       );
     }
     default:
-      return <Text as="pre" maxHeight="scroll-md" overflow="auto" variant="caption">{JSON.stringify(input, null, 2)}</Text>;
+      return <Text as="pre" maxHeight="scroll-sm" overflow="auto" variant="caption">{JSON.stringify(input, null, 2)}</Text>;
   }
 }

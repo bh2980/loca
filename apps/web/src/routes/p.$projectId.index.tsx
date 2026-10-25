@@ -173,7 +173,7 @@ function Home() {
         <Box as="ul" marginTop="normal" spaceY="condensed">
           {kindProgress.map(({ kind, statusCounts, lines }) => (
             <Inline as="li" key={kind} wrap gapX="normal" gapY="tight">
-              <Text variant="caption" tone="muted" minWidth="field-2xs">{SCRIPT_VIEW[kind]} · {lines.toLocaleString()}줄</Text>
+              <Text variant="caption" tone="muted" minWidth="field-xs">{SCRIPT_VIEW[kind]} · {lines.toLocaleString()}줄</Text>
               <Stack as="ul" direction="row" wrap gapX="tight" gapY="tight">
                 {statusList.map((status) => (
                   <li key={status.id}>
@@ -212,7 +212,7 @@ function Home() {
                   <Link
                     {...(item.kind === 'run' ? { to: '/p/$projectId/runs/$runId', params: { projectId, runId: item.id } } : { to: '/p/$projectId/runs', params: { projectId }, search: { job: item.id } })}
                   >
-                    <Text width="field-xl" shrink={false} truncate>
+                    <Text width="field-lg" shrink={false} truncate>
                       {item.title !== JOB_KIND[item.kind] && <><Text variant="caption" tone="muted" marginRight="tight">{JOB_KIND[item.kind]}</Text>{' '}</>}
                       <Text weight="medium">{item.title}</Text>
                     </Text>{' '}
@@ -221,7 +221,7 @@ function Home() {
                     <Text width="field-sm" shrink={false} align="end" nowrap tone="muted" tabular>
                       {item.status === 'running' && item.total <= 1 ? <Elapsed since={item.at} /> : `${item.done.toLocaleString()}/${item.total.toLocaleString()}`}
                     </Text>
-                    <Text display="desktop" width="field-2xl" shrink={false} align="end" variant="caption" nowrap tone="muted">{dateTime(item.at)}</Text>
+                    <Text display="desktop" width="field-lg" shrink={false} align="end" variant="caption" nowrap tone="muted">{dateTime(item.at)}</Text>
                   </Link>
                 </ListRow>
               </li>

@@ -98,7 +98,7 @@ export function ConversationMenu({ projectId, sessions, sessionId, currentTitle,
                 {hit.role !== 'title' && <Text width="full" variant="caption" weight="normal" tone="muted" truncate>{hit.snippet}</Text>}
               </ListRow>
             ))}
-            {!found.length && <Text as="p" paddingX="condensed" paddingY="snug" variant="body" tone="muted">{hits.isFetching || term !== search.trim() ? '찾는 중…' : '찾는 대화가 없습니다.'}</Text>}
+            {!found.length && <Text as="p" paddingX="condensed" paddingY="condensed" variant="body" tone="muted">{hits.isFetching || term !== search.trim() ? '찾는 중…' : '찾는 대화가 없습니다.'}</Text>}
           </>
         ) : (
           <>
@@ -157,7 +157,7 @@ export function ConversationMenu({ projectId, sessions, sessionId, currentTitle,
                 </ListRow>
               ),
             )}
-            {!sessions?.length && <Text as="p" paddingX="condensed" paddingY="snug" variant="body" tone="muted">아직 대화가 없습니다.</Text>}
+            {!sessions?.length && <Text as="p" paddingX="condensed" paddingY="condensed" variant="body" tone="muted">아직 대화가 없습니다.</Text>}
           </>
         )}
         <DropdownMenuSeparator />

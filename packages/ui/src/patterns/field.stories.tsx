@@ -64,9 +64,9 @@ export const Widths: Story = {
   decorators: [(Story) => <Box style={{ width: 640 }}><Story /></Box>],
   render: () => (
     <Inline gap="comfortable" align="start">
-      <Field label="이름" width="field-lg"><Input defaultValue="하윤" /></Field>
+      <Field label="이름" width="field"><Input defaultValue="하윤" /></Field>
       <Field label="나이" width="field-sm"><Input defaultValue="17" /></Field>
-      <Field label="말투" width="field-xl"><Input defaultValue="친구에게는 반말" /></Field>
+      <Field label="말투" width="field-lg"><Input defaultValue="친구에게는 반말" /></Field>
     </Inline>
   ),
 }

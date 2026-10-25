@@ -145,7 +145,7 @@ export function LineCard({ projectId, unitId, choice, position, onStep, onClose 
         </Button>
       </Inline>
       {!line ? (
-        <Skeleton height="placeholder" />
+        <Skeleton height="placeholder-sm" />
       ) : (
         <>
           <Box asChild maxHeight="scroll-sm" overflow="auto" variant="body"><LineSourceText projectId={projectId} unitId={line.id} source={line.source} /></Box>

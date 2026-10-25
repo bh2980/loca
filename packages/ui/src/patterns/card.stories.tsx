@@ -39,7 +39,7 @@ export const LongText: Story = {
         <CardTitle>아주 긴 카드 제목은 폭을 넘으면 다음 줄로 이어집니다 아주 긴 카드 제목</CardTitle>
         <CardDescription>설명도 길어지면 줄이 바뀌며, 카드는 내용만큼 늘어납니다. 설명도 길어지면 줄이 바뀝니다.</CardDescription>
       </CardHeader>
-      <Box paddingX="roomy"><Text variant="body">카드의 본문은 호출하는 쪽이 채웁니다.</Text></Box>
+      <Box paddingX="comfortable"><Text variant="body">카드의 본문은 호출하는 쪽이 채웁니다.</Text></Box>
     </Card>
   ),
 }

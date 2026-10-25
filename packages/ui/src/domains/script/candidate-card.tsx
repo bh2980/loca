@@ -10,7 +10,7 @@ export function CandidateCard({ text, source, meta, action, current = false }: {
   current?: boolean
 }) {
   return (
-    <article className={cn("flex min-w-0 flex-col gap-2 rounded-lg bg-surface p-3.5", current ? "border border-accent" : "border border-transparent")}>
+    <article className={cn("flex min-w-0 flex-col gap-2 rounded-lg bg-surface p-3", current ? "border border-accent" : "border border-transparent")}>
       <div className="min-w-0 text-sm leading-5">{text}</div>
       {(source || meta || action) && <div className="flex min-w-0 items-center gap-2 text-xs text-muted">{source}{meta && <div className="min-w-0 flex-1 truncate">{meta}</div>}{action}</div>}
     </article>

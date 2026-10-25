@@ -14,7 +14,7 @@ export function VirtualItem({ className, ...props }: BoxProps) {
   return <Box className={clsx("absolute top-0 left-0 w-full", className)} {...props} />
 }
 
-const BLEED = { tight: "-mx-1", snug: "-mx-1.5", condensed: "-mx-2" } as const
+const BLEED = { tight: "-mx-1", condensed: "-mx-2" } as const
 
 /** A block that reaches past its parent's side padding by this much (a scrolling list that leaves room for focus rings, an editor card). */
 export function Bleed({ by, className, ...props }: BoxProps & { by: keyof typeof BLEED }) {

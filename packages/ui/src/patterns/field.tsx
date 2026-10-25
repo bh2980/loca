@@ -35,7 +35,7 @@ interface LabelledFieldProps {
   error?: ReactNode
   action?: ReactNode
   children: ReactNode
-  /** A fixed width, by size name (`field-lg`), for a field in a row of fields. */
+  /** A fixed width, by size name (`field`), for a field in a row of fields. */
   width?: keyof typeof STYLE.width
 }
 
@@ -46,7 +46,7 @@ export type FieldProps = LabelledFieldProps | FormFieldProps
 function LabelledField({ label, description, help, error, action, children, width }: LabelledFieldProps) {
   const id = useId()
   return (
-    <div className={cn("min-w-0 space-y-1.5", width && STYLE.width[width])}>
+    <div className={cn("min-w-0 space-y-2", width && STYLE.width[width])}>
       <div className="flex min-h-5 min-w-0 items-center justify-between gap-2">
         <span className="flex min-w-0 items-center gap-1">
           <label htmlFor={id} className="min-w-0 truncate text-xs text-muted">
@@ -81,7 +81,7 @@ function FormField({ orientation = "vertical", ...props }: FormFieldProps) {
 }
 
 function FieldContent(props: Omit<ComponentProps<"div">, "className">) {
-  return <div data-slot="field-content" className="group/field-content flex flex-1 flex-col gap-1.5 leading-snug" {...props} />
+  return <div data-slot="field-content" className="group/field-content flex flex-1 flex-col gap-2 leading-snug" {...props} />
 }
 
 /** `choice` is the label of a checkbox or switch on its own line: body size, normal weight, no field styling. */
@@ -109,7 +109,7 @@ function FieldDescription({ attached, ...props }: Omit<ComponentProps<"p">, "cla
       data-slot="field-description"
       className={cn(
         "text-sm leading-normal font-normal text-muted group-has-[[data-orientation=horizontal]]/field:text-balance",
-        "last:mt-0 nth-last-2:-mt-1 [[data-variant=legend]+&]:-mt-1.5",
+        "last:mt-0 nth-last-2:-mt-1 [[data-variant=legend]+&]:-mt-2",
         "[&>a]:underline [&>a]:underline-offset-4 [&>a:hover]:text-accent",
         attached && "mt-1"
       )}

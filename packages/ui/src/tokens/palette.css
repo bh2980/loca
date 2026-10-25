@@ -1,65 +1,49 @@
 /*
- * Base tier: raw colour values and nothing else. A step is named family + lightness (oklch L x 1000),
- * so --slate-984 is oklch(0.984 ...). Base names are global: a theme does not own a family, theme.css
- * decides which step plays which role. Nothing outside packages/ui/src/tokens refers to these names
- * (`pnpm ui-rules` refuses it); screens and parts use the roles in theme.css.
+ * Base tier: raw colour values and nothing else. Nothing outside packages/ui/src/tokens refers to these names
+ * (`pnpm ui-rules` refuses it); screens and parts use the roles in theme.css, which say which step plays which role.
  *
- *   slate   light neutrals (hue 258, text 262)      night   dark neutrals (hue 265)
+ * The two neutral scales have 12 numbered steps each, 1 (lowest surface) to 12 (body text), the same meaning in both themes:
+ * --slate-1 ... --slate-12 (light, hue 258, text steps 262) and --night-1 ... --night-12 (dark, hue 265). Their lightness
+ * (oklch L) is what the number means; docs/DESIGN-SYSTEM.md lists the steps and the roles that point at them.
+ *
  *   cobalt  light accent (hue 262) and its blues    teal    dark accent (hue 192)
  *   red orange amber green violet   meaning: danger, warning, needs review, done, AI
  *
- * A step with a suffix is the same colour with alpha: --cobalt-530-a45 is cobalt-530 at 45%.
+ * A meaning or accent step is named family + lightness (oklch L x 1000), so --cobalt-530 is oklch(0.53 ...). A suffix is the
+ * same colour with alpha: --cobalt-530-a45 is cobalt-530 at 45%. Alpha of a neutral (shadow, scrim) is a color-mix of its step in theme.css.
  *
  * Data colours are the one exception: --hue-1 ... --hue-12 (the status colours the user picks) and
  * --token-1 ... --token-6 (format token chips) stay per theme under these names, and code may
  * reference them directly (`var(--hue-${n})` in tokens/status.tsx, the settings swatches, index.css).
- *
- * Steps that differ only by a hair were merged into one (same lightness, chroma within 0.004, hue within 8):
- *   slate-940   border-subtle 0.005 + graph canvas 0.006
- *   night-290   border 0.013 + quiet fill 0.014 + hover fill 0.016 + graph grid 0.012
- *   night-255   sunken 0.013 + surface 0.014 + subtle border 0.012
  */
 :root {
-  --slate-1000: oklch(1 0 0);
-  --slate-995: oklch(0.995 0.002 258);
-  --slate-984: oklch(0.984 0.004 258);
-  --slate-970: oklch(0.97 0.002 262);
-  --slate-968: oklch(0.968 0.006 258);
-  --slate-955: oklch(0.955 0.006 258);
-  --slate-950: oklch(0.95 0.006 258);
-  --slate-945: oklch(0.945 0.008 258);
-  --slate-940: oklch(0.94 0.005 258);
-  --slate-925: oklch(0.925 0.012 258);
-  --slate-910: oklch(0.91 0.008 258);
-  --slate-830: oklch(0.83 0.008 258);
-  --slate-760: oklch(0.76 0.012 258);
-  --slate-660: oklch(0.66 0.014 258);
-  --slate-580: oklch(0.58 0.02 258);
-  --slate-520: oklch(0.52 0.018 262);
-  --slate-430: oklch(0.43 0.02 262);
-  --slate-240: oklch(0.24 0.02 262);
-  --slate-240-a08: oklch(0.24 0.02 262 / 0.08);
+  /* Light neutrals: 1 lowest surface ... 12 body text. */
+  --slate-1: oklch(1 0 0);
+  --slate-2: oklch(0.995 0.002 258);
+  --slate-3: oklch(0.984 0.004 258);
+  --slate-4: oklch(0.968 0.006 258);
+  --slate-5: oklch(0.952 0.006 258);
+  --slate-6: oklch(0.938 0.006 258);
+  --slate-7: oklch(0.91 0.008 258);
+  --slate-8: oklch(0.83 0.008 258);
+  --slate-9: oklch(0.66 0.014 258);
+  --slate-10: oklch(0.52 0.018 262);
+  --slate-11: oklch(0.43 0.02 262);
+  --slate-12: oklch(0.24 0.02 262);
 
-  --night-940: oklch(0.94 0.008 265);
-  --night-760: oklch(0.76 0.012 265);
-  --night-680: oklch(0.68 0.02 265);
-  --night-650: oklch(0.65 0.014 265);
-  --night-530: oklch(0.53 0.015 265);
-  --night-440: oklch(0.44 0.016 265);
-  --night-320: oklch(0.32 0.012 265);
-  --night-310: oklch(0.31 0.016 265);
-  --night-290: oklch(0.29 0.013 265);
-  --night-280: oklch(0.28 0.016 265);
-  --night-270: oklch(0.27 0.014 265);
-  --night-255: oklch(0.255 0.013 265);
-  --night-235: oklch(0.235 0.013 265);
-  --night-205: oklch(0.205 0.012 265);
-  --night-185: oklch(0.185 0.012 265);
-  --night-175: oklch(0.175 0.011 265);
-  --night-170: oklch(0.17 0.011 265);
-  --night-0-a35: oklch(0 0 0 / 0.35);
-  /* The scrim behind a dialog or sheet, black at 40% in both themes (written in oklab as Tailwind's black/40 was). */
-  --night-0-a40: oklab(0 0 0 / 0.4);
+  /* Dark neutrals: the same twelve numbers, hue 265. */
+  --night-1: oklch(0.175 0.011 265);
+  --night-2: oklch(0.19 0.012 265);
+  --night-3: oklch(0.205 0.012 265);
+  --night-4: oklch(0.235 0.013 265);
+  --night-5: oklch(0.255 0.013 265);
+  --night-6: oklch(0.27 0.014 265);
+  --night-7: oklch(0.29 0.013 265);
+  --night-8: oklch(0.32 0.012 265);
+  --night-9: oklch(0.53 0.015 265);
+  --night-10: oklch(0.66 0.014 265);
+  --night-11: oklch(0.76 0.012 265);
+  --night-12: oklch(0.94 0.008 265);
 
   --cobalt-950: oklch(0.95 0.03 262);
   --cobalt-910: oklch(0.91 0.04 262);

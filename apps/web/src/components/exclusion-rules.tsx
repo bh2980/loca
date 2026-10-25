@@ -79,7 +79,7 @@ export function ExclusionRulesSection({ projectId, rules, formatRules, sourceLan
             return (
               <Box key={index} spaceY="tight">
                 <Inline gap="condensed">
-                  <Input width="field-md" placeholder="이름" value={rule.label} onChange={(event) => setPattern(index, { label: event.target.value })} />
+                  <Input width="field" placeholder="이름" value={rule.label} onChange={(event) => setPattern(index, { label: event.target.value })} />
                   <Box asChild grow><Input mono variant="body" placeholder="예: ^[A-Z0-9_]+$" value={rule.pattern} spellCheck={false} onChange={(event) => setPattern(index, { pattern: event.target.value })} /></Box>
                   <Button size="icon" variant="ghost" tone="danger" aria-label="패턴 삭제" onClick={() => setDraft((current) => ({ ...current, patterns: current.patterns.filter((_, i) => i !== index) }))}>
                     <Trash2 />
@@ -94,7 +94,7 @@ export function ExclusionRulesSection({ projectId, rules, formatRules, sourceLan
           </Button>
         </Box>
 
-        <Box spaceY="snug" radius="md" background="sunken" padding="normal">
+        <Box spaceY="condensed" radius="md" background="sunken" padding="normal">
           <SectionHeading level="group">시험</SectionHeading>
           <Input onSunken mono variant="body" placeholder="원문을 넣어 보세요" value={sample} onChange={(event) => setSample(event.target.value)} />
           {sample && <Text as="p" variant="body">{sampleReason ? <>제외: <Text weight="medium">{EXCLUSION_REASON_LABELS[sampleReason]}</Text></> : <Text tone="muted">번역 대상</Text>}</Text>}

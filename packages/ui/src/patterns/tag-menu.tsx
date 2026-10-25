@@ -158,11 +158,11 @@ export function TagListEditor({
   const assignableTags = allTags.filter((t) => !t.role)
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+    <div className="flex flex-wrap items-center gap-1" onClick={(e) => e.stopPropagation()}>
       {tags.map((tag) => (
         <span
           key={tag.id}
-          className="inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-xs font-medium whitespace-nowrap"
+          className="inline-flex items-center gap-1 rounded-sm px-1 py-0.5 text-xs font-medium whitespace-nowrap"
           style={chipStyle(tag.color)}
         >
           #{tag.name}

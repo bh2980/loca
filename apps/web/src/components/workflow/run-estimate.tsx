@@ -30,7 +30,7 @@ export function Pace({ data, projectId }: { data: PlanData; projectId?: string }
         {money && ` · ${money}`}
       </Text>
       {data.nodes.length > 0 && (
-        <Box spaceY="snug">
+        <Box spaceY="condensed">
           {data.nodes.map((node) => (
             <div key={node.nodeId}>
               <Text as="p" variant="body">{splitTitle(node.name, node.split)}</Text>

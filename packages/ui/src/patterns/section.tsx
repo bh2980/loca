@@ -61,7 +61,7 @@ export function Section(props: SectionProps) {
   return <PaneSection {...props} />
 }
 
-const PANE_BLOCK = "scroll-mt-4 border-b border-subtle px-4 py-3.5"
+const PANE_BLOCK = "scroll-mt-4 border-b border-subtle px-4 py-3"
 
 function PaneSection({ title, children, actions, defaultOpen, collapsible, id, noShrink }: PaneSectionProps) {
   const extra = noShrink && "shrink-0"
@@ -91,7 +91,7 @@ function PaneSection({ title, children, actions, defaultOpen, collapsible, id, n
               type="button"
               variant="ghost"
               size="sm"
-              className="group -ml-1.5 h-7 min-w-0 flex-1 justify-start gap-1.5 px-1.5 text-sm font-semibold text-default hover:bg-hover/50"
+              className="group -ml-1 h-7 min-w-0 flex-1 justify-start gap-1 px-1 text-sm font-semibold text-default hover:bg-hover/50"
             >
               <ChevronDown className="size-3.5 shrink-0 text-muted transition-transform group-data-[state=closed]:-rotate-90" />
               <span className="truncate">{title}</span>
@@ -150,7 +150,7 @@ export function SectionHeading({ children, actions, level = "section", as, ruled
 }
 
 /** A titled group inside a section: its heading, then its content (text-sm), `spaceY` apart. */
-export function Group({ title, actions, spaceY = "snug", children }: { title: ReactNode; actions?: ReactNode; spaceY?: keyof typeof STYLE.spaceY; children?: ReactNode }) {
+export function Group({ title, actions, spaceY = "condensed", children }: { title: ReactNode; actions?: ReactNode; spaceY?: keyof typeof STYLE.spaceY; children?: ReactNode }) {
   return (
     <Box as="section" minWidth={0} spaceY={spaceY} variant="body">
       <SectionHeading level="group" actions={actions}>{title}</SectionHeading>

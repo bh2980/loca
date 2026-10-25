@@ -16,7 +16,7 @@ export function ToolCard({ children }: { children: React.ReactNode }) {
  */
 export function ToolCardHeader({ title, suffix, children }: { title: string; suffix?: React.ReactNode; children?: React.ReactNode }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 border-b bg-sunken px-3 py-1.5 text-sm font-semibold">
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 border-b bg-sunken px-3 py-2 text-sm font-semibold">
       <span className="flex min-w-0 items-center gap-2 whitespace-nowrap" title={title}>
         <Wrench className="size-3.5 shrink-0 text-muted" />
         <span className="truncate">{title}</span>
@@ -31,7 +31,7 @@ export function ToolCardHeader({ title, suffix, children }: { title: string; suf
 export function ToolCallRow({ status, label, detail, output, defaultOpen }: { status: "running" | "done" | "error"; label: string; detail?: React.ReactNode; output?: string; defaultOpen?: boolean }) {
   return (
     <Collapsible defaultOpen={defaultOpen}>
-      <CollapsibleTrigger className="group flex items-center gap-1.5 text-xs text-muted hover:text-default">
+      <CollapsibleTrigger className="group flex items-center gap-1 text-xs text-muted hover:text-default">
         {status === "error" ? <CircleAlert className="size-3.5 text-danger" /> : status === "done" ? <Check className="size-3.5" /> : <Spinner />}
         {label}
         {detail}
@@ -47,7 +47,7 @@ export function ToolCallRow({ status, label, detail, output, defaultOpen }: { st
 /** A line of source text with where it comes from; long text is clamped and opens in full. */
 export function SourceExcerpt({ heading, text, expandLabel }: { heading: string; text: string; expandLabel: string }) {
   return (
-    <Collapsible className="min-w-0 rounded-md bg-sunken/50 px-2 py-1.5">
+    <Collapsible className="min-w-0 rounded-md bg-sunken/50 px-2 py-2">
       <CollapsibleTrigger className="group flex w-full min-w-0 flex-col items-start text-left">
         <span className="text-subtle">{heading}</span>
         <span className="mt-0.5 line-clamp-2 break-words text-default" title={text}>{text}</span>
@@ -73,7 +73,7 @@ export function ToolErrorCard({ children }: { children: React.ReactNode }) {
 export function CompactionNotice({ title, open, onToggle, children }: { title: string; open: boolean; onToggle: () => void; children: React.ReactNode }) {
   return (
     <div className="text-xs text-muted" role="status">
-      <Button variant="ghost" size="row" className="gap-1.5 px-0 text-xs" onClick={onToggle} aria-expanded={open}>
+      <Button variant="ghost" size="row" className="gap-1 px-0 text-xs" onClick={onToggle} aria-expanded={open}>
         <ChevronRight className={cn("size-3.5 transition-transform", open && "rotate-90")} />
         {title}
       </Button>

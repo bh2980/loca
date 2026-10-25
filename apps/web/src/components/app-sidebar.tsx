@@ -73,7 +73,7 @@ export function AppSidebar({ projectId }: { projectId: string }) {
           <SidebarMenuLabel placement="vanishing">{group.label}</SidebarMenuLabel>
         </SidebarMenuButton>
       </DropdownMenuTrigger>
-      <DropdownMenuContent side="top" align="start" width="menu-xl" maxHeight="window">
+      <DropdownMenuContent side="top" align="start" width="menu-lg" maxHeight="dialog">
         <DropdownMenuLabel>설정</DropdownMenuLabel>
         {group.items.map((navItem) => <SettingsItem key={navItem.id} navItem={navItem} projectId={projectId} active={current.item.id === navItem.id} />)}
         <DropdownMenuSeparator />

@@ -109,7 +109,7 @@ export function CommandSearch({ projectId, compact = false }: { projectId: strin
       </Button>
       <CommandDialog open={open} onOpenChange={setOpen} shouldFilter={false} title="검색" description="장면, 용어, 인물, 자료, 대사(원문·번역·화자·ID), 대화 기록에서 찾습니다.">
         <CommandInput value={text} onValueChange={setText} placeholder="찾을 내용을 입력하세요" />
-        <Inline gap="tight" border="bottom" paddingX="normal" paddingY="snug" overflow="x">
+        <Inline gap="tight" border="bottom" paddingX="normal" paddingY="condensed" overflow="x">
           {SCOPES.map((item) => (
             <Button
               key={item.id}
@@ -197,7 +197,7 @@ export function CommandSearch({ projectId, compact = false }: { projectId: strin
                 >
                   <MessageSquare />
                   <Box minWidth={0} grow>
-                    <Inline gap="snug" truncate>
+                    <Inline gap="tight" truncate>
                       <Text truncate weight="medium">{hit.title}</Text>
                       <Chip variant="quiet">
                         {hit.role === 'user' ? '질문' : hit.role === 'assistant' ? '답변' : '제목'}
