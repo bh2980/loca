@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { importFileSchema } from '@tw/shared';
+import { importFileSchema, NOT_A_PERSON_NOTE, UNRESOLVED_RELATIONSHIP_KIND } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { aiSaveCharacters, aiSaveDocument, aiSaveEvents, aiSaveRelationships, relationshipRows, aiSaveSpeechRules, aiSaveTerms, aiSetLineListeners, canonicalNames } from './ai-knowledge.ts';
+import { aiSaveCharacters, aiSaveDocument, aiSaveEvents, aiSaveRelationships, relationshipRows, aiSaveSpeechRules, aiSaveTerms, aiSaveUnresolvedPairs, aiSetLineListeners, canonicalNames, mergeFoundPeople } from './ai-knowledge.ts';
 import { importProject } from './importer.ts';
 import { tagsOf } from './knowledge-tags.ts';
 
 /** Why a rule is marked 확인 권장 (its tag's note), or undefined. */
+const characterReview = (db: Parameters<typeof tagsOf>[0], id: string) => tagsOf(db, 'characters', [id]).get(id)?.find((tag) => tag.note)?.note ?? undefined;
 const reviewOf = (db: Parameters<typeof tagsOf>[0], id: string) => tagsOf(db, 'speechRules', [id]).get(id)?.find((tag) => tag.note)?.note ?? undefined;
 
 function setup() {
@@ -250,5 +251,104 @@ describe('AI knowledge writes', () => {
     expect(result.skipped.map((entry) => entry.key)).toEqual(['a2', 'a3', 'zz']);
     expect(lines(db, projectId).get('a1')).toMatchObject({ listener: 'Bob', listenerOrigin: 'ai', listenerConfidence: 0.9 });
     expect(lines(db, projectId).get('a3')).toMatchObject({ listener: 'Captain', listenerOrigin: 'import' });
+  });
+  it('saves pairs with no relationship as candidates to look at, whatever 바로 확정 says, and drops pairs with someone who is not a character', () => {
+    const { db, projectId, write } = setup();
+    aiSaveCharacters(db as never, write, [{ name: 'Alice' }, { name: 'Bob' }, { name: 'Cleo' }]);
+    const all = () => db.select().from(s.relationships).where(eq(s.relationships.projectId, projectId)).all();
+    expect(aiSaveRelationships(db as never, write, [{ from: 'Alice', to: 'Cleo', kind: '친구' }])).toMatchObject({ added: 1 });
+    const result = aiSaveUnresolvedPairs(db as never, write, [
+      { between: ['Alice', 'Bob'], reason: '대사에 근거 없음' },
+      { between: ['bob', 'ALICE'], reason: '같은 쌍 또 나옴' },
+      { between: ['Cleo', 'Alice'], reason: '이미 관계가 있음' },
+      { between: ['Alice', 'Door'], reason: '사람이 아님' },
+      { between: ['Alice'], reason: '한 명뿐' },
+    ]);
+    expect(result).toEqual({ added: 1, kept: 2, dropped: ['Alice ↔ Door: 사람이 아님', 'Alice: 한 명뿐'] });
+    const row = all().find((rel) => rel.kind === UNRESOLVED_RELATIONSHIP_KIND)!;
+    expect(row).toMatchObject({ description: '대사에 근거 없음', status: 'candidate', statusBy: 'ai', origin: 'ai' });
+    expect(tagsOf(db, 'relationships', [row.id]).get(row.id)?.[0]?.note).toContain('대사에 근거 없음');
+    // Saving the same pair again adds nothing, even after a person rejected the candidate.
+    db.update(s.relationships).set({ status: 'rejected', statusBy: 'human' }).where(eq(s.relationships.id, row.id)).run();
+    expect(aiSaveUnresolvedPairs(db as never, write, [{ between: ['Alice', 'Bob'], reason: 'again' }])).toMatchObject({ added: 0, kept: 1 });
+    expect(all()).toHaveLength(2);
+  });
+
+  it('lets a real relationship for the pair take the place of its 관계 미확인 candidate, in either direction', () => {
+    const { db, projectId, write } = setup();
+    aiSaveCharacters(db as never, write, [{ name: 'Alice' }, { name: 'Bob' }]);
+    aiSaveUnresolvedPairs(db as never, write, [{ between: ['Alice', 'Bob'], reason: '근거 없음' }]);
+    const all = () => db.select().from(s.relationships).where(eq(s.relationships.projectId, projectId)).all();
+    const placeholder = all()[0]!;
+    expect(aiSaveRelationships(db as never, write, [{ from: 'Bob', to: 'Alice', kind: '부하' }])).toMatchObject({ added: 1 });
+    expect(all().map((rel) => rel.kind)).toEqual(['부하']);
+    expect(tagsOf(db, 'relationships', [placeholder.id]).get(placeholder.id) ?? []).toEqual([]);
+    // A candidate a person already decided on is not a placeholder any more: it stays, and still blocks nothing.
+    aiSaveCharacters(db as never, write, [{ name: 'Cleo' }]);
+    aiSaveUnresolvedPairs(db as never, write, [{ between: ['Alice', 'Cleo'], reason: '근거 없음' }]);
+    db.update(s.relationships).set({ status: 'rejected', statusBy: 'human' }).where(eq(s.relationships.kind, UNRESOLVED_RELATIONSHIP_KIND)).run();
+    expect(aiSaveRelationships(db as never, write, [{ from: 'Cleo', to: 'Alice', kind: '친구' }])).toMatchObject({ added: 1 });
+    expect(all().map((rel) => rel.kind).sort()).toEqual([UNRESOLVED_RELATIONSHIP_KIND, '부하', '친구'].sort());
+  });
+
+  it('drops pairs of kind notPerson and counts them; the other kinds become candidates', () => {
+    const { db, projectId, write } = setup();
+    aiSaveCharacters(db as never, write, [{ name: 'Alice' }, { name: 'Bob' }, { name: 'Cleo' }]);
+    const result = aiSaveUnresolvedPairs(db as never, write, [
+      { between: ['Alice', 'Bob'], kind: 'notPerson', reason: '사람이 아님' },
+      { between: ['Alice', 'Cleo'], kind: 'noEvidence', reason: '대사에 근거 없음' },
+      { between: ['Bob', 'Cleo'], kind: 'undecided', reason: '부분마다 다름' },
+    ]);
+    expect(result).toEqual({ added: 2, kept: 0, notPerson: 1, dropped: [] });
+    expect(db.select().from(s.relationships).where(eq(s.relationships.projectId, projectId)).all()).toHaveLength(2);
+  });
+
+  it('makes no character of a name in notPeople, and only flags a stored character of that name (whoever made it) for a person to decide', () => {
+    const { db, projectId, write } = setup();
+    aiSaveCharacters(db as never, write, [{ name: 'Alice', aliases: ['Al'] }, { name: 'Telephone' }]);
+    db.update(s.characters).set({ origin: 'human', statusBy: 'human' }).where(eq(s.characters.name, 'Telephone')).run();
+    const before = db.select().from(s.characters).where(eq(s.characters.projectId, projectId)).all();
+    const counts = aiSaveCharacters(db as never, write, [{ name: 'Alice' }, { name: 'OBJECTIVE' }, { name: 'Telephone', newFacts: [{ text: '전화기다' }] }, { name: 'Bob' }], [
+      { name: 'objective', reason: '게임 목표 문구' },
+      { name: 'Telephone', reason: '장치' },
+    ]);
+    expect(counts).toMatchObject({ added: 1, notPeople: 2, flagged: 1 });
+    const names = db.select().from(s.characters).where(eq(s.characters.projectId, projectId)).all().map((person) => person.name).sort();
+    expect(names).toEqual(['Alice', 'Bob', 'Telephone']);
+    const phone = db.select().from(s.characters).where(eq(s.characters.name, 'Telephone')).get()!;
+    expect(phone).toEqual(before.find((person) => person.name === 'Telephone')!);
+    expect(characterReview(db, phone.id)).toBe(`${NOT_A_PERSON_NOTE}장치`);
+    expect(characterReview(db, before.find((person) => person.name === 'Alice')!.id)).toBeUndefined();
+  });
+
+  it('makes one character of two names of one run that the alias rule links, and relationships and speech rules naming either land on it', () => {
+    const { db, projectId, write } = setup();
+    const counts = aiSaveCharacters(db as never, write, [
+      { name: 'Voltaire', gender: 'male', newFacts: [{ text: '형사다' }] },
+      { name: 'Inspector Voltaire', aliases: ['The Inspector'], newFacts: [{ text: '경감 직함' }], role: 'main' },
+      { name: 'Alice' },
+    ]);
+    expect(counts).toMatchObject({ added: 2, merged: 1 });
+    const people = db.select().from(s.characters).where(eq(s.characters.projectId, projectId)).all();
+    expect(people.map((person) => person.name).sort()).toEqual(['Alice', 'Inspector Voltaire']);
+    const voltaire = people.find((person) => person.name === 'Inspector Voltaire')!;
+    expect(voltaire.aliases.sort()).toEqual(['The Inspector', 'Voltaire']);
+    expect(voltaire).toMatchObject({ gender: 'male', role: 'main' });
+    expect(voltaire.profile).toBe('형사다\n경감 직함');
+    // Either name reaches the one character.
+    expect(aiSaveRelationships(db as never, write, [{ from: 'Voltaire', to: 'Alice', kind: '동료' }, { from: 'Alice', to: 'Inspector Voltaire', kind: '동료' }])).toMatchObject({ added: 2, unresolved: [] });
+    expect(aiSaveRelationships(db as never, write, [{ from: 'The Inspector', to: 'Alice', kind: '동료' }])).toMatchObject({ added: 0 });
+    expect(aiSaveSpeechRules(db as never, write, [{ fromName: 'Voltaire', toName: 'Alice', level: 'hae' }, { fromName: 'Inspector Voltaire', toName: 'Alice', level: 'haeyo' }])).toMatchObject({ added: 1, kept: 1 });
+    expect(aiSaveUnresolvedPairs(db as never, write, [{ between: ['Voltaire', 'Alice'], kind: 'noEvidence', reason: '근거 없음' }])).toMatchObject({ added: 0, kept: 1 });
+  });
+
+  it('links names of one run by the same rule as stored ones, and none when a single word fits several names', () => {
+    const person = (name: string, aliases: string[] = []) => ({ name, aliases });
+    expect(mergeFoundPeople([person('Mara'), person('Mara Holt')]).people.map((p) => p.name)).toEqual(['Mara Holt']);
+    expect(mergeFoundPeople([person('Mara Holt'), person('Mara')]).people.map((p) => p.name)).toEqual(['Mara Holt']);
+    expect(mergeFoundPeople([person('Mara'), person('Mara Holt'), person('Mara Quinn')]).merged).toBe(0);
+    expect(mergeFoundPeople([person('Kai'), person('Mara Holt')]).merged).toBe(0);
+    // A name listed as another entry's alias links nothing.
+    expect(mergeFoundPeople([person('KAI'), person('MIRA', ['Captain', 'KAI'])]).merged).toBe(0);
   });
 });

@@ -7,12 +7,47 @@ import { politenessOf, speechLevelOf, styleInstruction, styleNames } from './kno
 import { ANALYSIS_WORKFLOW, analysisTemplate, defaultWorkflows, eventExtractionTemplate, listenerTemplate, peopleRelationsTemplate, termExtractionTemplate, translationTemplate, WORKFLOW_TEMPLATES } from './defaults.ts';
 import { APPLY_TARGETS } from './functions.ts';
 import { AI_PRESETS, AI_PROMPTS, presetConfig } from './presets.ts';
+import { CONTEXT_FIELDS } from './context.ts';
 import { APPLY_PALETTE_ORDER, fieldsFromSample, FUNCTION_NAMES, functionGroup } from './functions.ts';
-import { applyIssues, nodeOutputFields, nodePorts, pickPaths, previousStepId, previousSteps, readinessUses, retrySummary, retryModel, retryOrigins, retryScaleText, resendsOf, definitionModels, ITEM_ERROR_KINDS, validateWorkflow, workflowDefinitionSchema, workflowNodeSchema, type RetryNode, type WorkflowDefinition, type WorkflowNode } from './workflow.ts';
+import { applyIssues, contextConfigSchema, nodeOutputFields, nodePorts, pickPaths, previousStepId, previousSteps, readinessUses, retrySummary, retryModel, retryOrigins, retryScaleText, resendsOf, definitionModels, ITEM_ERROR_KINDS, validateWorkflow, workflowDefinitionSchema, workflowNodeSchema, type RetryNode, type WorkflowDefinition, type WorkflowNode } from './workflow.ts';
 
 const model = { connectionId: 'c', model: 'm' };
 const ids = { model, untranslated: 's0', translated: 's1', needsReview: 's2', confirmed: 's3', aiFailedTag: 't0' };
 const refs = { workflows: [], connections: new Map([['c', 'openai']]), statusIds: new Set(['s0', 's1', 's2', 's3']), tagIds: new Set(['t0']), toolConnectionIds: new Set<string>() };
+
+describe('인물·관계 추출 template and the talking pairs', () => {
+  it('turns 대화 쌍 on for the scene node and the merge node, and carries the pairs without a relationship through the gather to 관계 저장', () => {
+    const definition = workflowDefinitionSchema.parse(peopleRelationsTemplate(ids));
+    const node = (id: string) => definition.nodes.find((entry) => entry.id === id) as unknown as { config: Record<string, any> };
+    expect(node('people').config.context).toMatchObject({ pairs: true, pairMinTurns: 3 });
+    expect(node('merge').config.context).toMatchObject({ pairs: true, pairMinTurns: 3 });
+    expect(node('gather').config.fields).toEqual(expect.arrayContaining(['pairsWithoutRelationship.between', 'pairsWithoutRelationship.reason']));
+    expect(node('people').config.fields.map((field: { name: string }) => field.name)).toContain('pairsWithoutRelationship');
+    expect(node('merge').config.fields.map((field: { name: string }) => field.name)).toContain('unresolvedPairs');
+    expect(node('save-relationships').config.params.unresolved).toBe('unresolvedPairs');
+    expect(node('people').config.instructions).toContain('pairsWithoutRelationship');
+    expect(node('merge').config.instructions).toContain('unresolvedPairs');
+    // Non-people and the kind of an unresolved pair ride the same way.
+    expect(node('gather').config.fields).toEqual(expect.arrayContaining(['pairsWithoutRelationship.kind', 'notPeople.name', 'notPeople.reason']));
+    for (const id of ['people', 'merge']) expect(node(id).config.fields.map((field: { name: string }) => field.name)).toContain('notPeople');
+    for (const [id, list] of [['people', 'pairsWithoutRelationship'], ['merge', 'unresolvedPairs']] as const) {
+      const kind = node(id).config.fields.find((field: { name: string }) => field.name === list).fields.find((field: { name: string }) => field.name === 'kind');
+      expect(kind).toMatchObject({ required: true });
+      expect(kind.description).toContain('notPerson, noEvidence, undecided');
+    }
+    expect(node('save-characters').config.params.notPeople).toBe('notPeople');
+    expect(node('people').config.instructions).toContain('is not a character');
+    expect(node('merge').config.instructions).toContain('Inspector Voltaire');
+    expect(node('merge').config.instructions).toContain('never in "characters"');
+  });
+
+  it('keeps the 대화 쌍 setting inside its bounds and off by default', () => {
+    expect(contextConfigSchema.parse({})).toMatchObject({ pairs: false, pairMinTurns: 3 });
+    expect(contextConfigSchema.safeParse({ pairMinTurns: 0 }).success).toBe(false);
+    expect(contextConfigSchema.safeParse({ pairMinTurns: 21 }).success).toBe(false);
+    expect(CONTEXT_FIELDS.pairs.help).toContain('이 횟수 이상인 쌍만 보냅니다');
+  });
+});
 
 describe('workflow validation', () => {
   it('every registry template validates without issues when all ids are given', () => {

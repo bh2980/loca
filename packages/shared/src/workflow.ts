@@ -20,6 +20,10 @@ export const contextConfigSchema = z.object({
   speech: z.boolean().default(true),
   /** Every confirmed character's name, aliases and player flag, so the model can name people not mentioned in the batch. */
   cast: z.boolean().default(false),
+  /** Pairs of people who talk to each other in the sent lines (talkingPairs), with how many lines show it. */
+  pairs: z.boolean().default(false),
+  /** Only pairs with at least this many turns are sent. */
+  pairMinTurns: z.number().int().min(1).max(20).default(3),
   precedingLines: z.number().int().min(0).max(50).default(8),
   previousScenes: z.number().int().min(0).max(10).default(1),
   /**
@@ -182,7 +186,7 @@ export const INPUT_TYPES = {
     /** AI batch modes: the core (count, unit) and scenes / the whole script. */
     batchModes: ['group', 'count', 'unit', 'whole'],
     /** AI context settings that only lines have. */
-    contextFields: ['precedingLines', 'precedingTranslations', 'previousScenes', 'speech'],
+    contextFields: ['precedingLines', 'precedingTranslations', 'previousScenes', 'speech', 'pairs', 'pairMinTurns'],
     /** Condition rows that only lines have (the core: node result, visits, failure, translation). */
     conditionRows: ['status', 'lineKind', 'tag', 'mark', 'listener'],
   },

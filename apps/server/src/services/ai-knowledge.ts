@@ -1,5 +1,5 @@
-import { and, eq } from 'drizzle-orm';
-import { AGE_BANDS, aiStatus, CHARACTER_ROLES, DOCUMENT_KINDS, GENDERS, isSpecialListener, SPEECH_LEVELS, TERM_KIND_LABELS, TERM_KINDS } from '@tw/shared';
+import { and, eq, inArray, ne } from 'drizzle-orm';
+import { AGE_BANDS, aiStatus, CHARACTER_ROLES, DOCUMENT_KINDS, GENDERS, isSpecialListener, SPEECH_LEVELS, TERM_KIND_LABELS, TERM_KINDS, NOT_A_PERSON_NOTE, UNRESOLVED_RELATIONSHIP_KIND } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { markForReview } from './knowledge-tags.ts';
@@ -137,6 +137,56 @@ export function appendFacts(stored: string, list: AiFact[]) {
   return { text: added.length ? text : stored, added };
 }
 const union = (...lists: string[][]) => [...new Set(lists.flat())];
+
+/**
+ * People found in one answer that are the same person, by the rule canonicalNames applies to stored people
+ * (the single-word name or alias of one is a whole word of the other's name: "Voltaire" and "Inspector
+ * Voltaire"; the same name twice also counts; aliases never link two entries): they become ONE entry, named by the most complete name (the
+ * one with most words, else the first), the other names as aliases, facts and evidence joined. A single word
+ * that is a word of several different found names links none of them. No other heuristic.
+ */
+export function mergeFoundPeople<T extends AiCharacterItem & { aliases: string[] }>(people: T[]): { people: T[]; merged: number } {
+  const parent = people.map((_, index) => index);
+  const root = (index: number): number => (parent[index] === index ? index : (parent[index] = root(parent[index]!)));
+  const links: { from: number; to: number }[] = [];
+  people.forEach((person, index) => {
+    const others = people.map((other, at) => ({ other, at })).filter(({ at }) => at !== index);
+    // Names only: a name another entry lists as its alias is that entry's claim, not a link (as two stored people are never merged).
+    const map = canonicalNames(others.map(({ other }) => ({ name: other.name, aliases: [] })), [{ name: person.name, aliases: [] }]);
+    const target = map.get(lower(person.name));
+    const match = target === undefined ? undefined : others.find(({ other }) => same(other.name, target));
+    if (match) links.push({ from: index, to: match.at });
+  });
+  // A name that fits several different found names links none of them.
+  const byTarget = new Map<number, Set<string>>();
+  for (const { from, to } of links) byTarget.set(to, (byTarget.get(to) ?? new Set()).add(lower(people[from]!.name)));
+  for (const { from, to } of links) if ((byTarget.get(to)?.size ?? 0) === 1) parent[root(from)] = root(to);
+  const groups = new Map<number, T[]>();
+  people.forEach((person, index) => groups.set(root(index), [...(groups.get(root(index)) ?? []), person]));
+  const words = (name: string) => name.trim().split(/\s+/).length;
+  const result = [...groups.values()].map((group) => {
+    if (group.length === 1) return group[0]!;
+    const lead = group.reduce((best, person) => (words(person.name) > words(best.name) ? person : best), group[0]!);
+    const gathered = group.flatMap((person) => namesOf(person));
+    const aliases = gathered.filter((name, index) => !same(name, lead.name) && gathered.findIndex((other) => same(other, name)) === index);
+    const known = <K extends 'gender' | 'ageBand' | 'role'>(key: K) => group.map((person) => person[key]).find((value) => value && value !== 'unknown');
+    return {
+      ...lead,
+      aliases,
+      newFacts: group.flatMap((person) => person.newFacts ?? []),
+      newSpeech: group.flatMap((person) => person.newSpeech ?? []),
+      gender: known('gender') ?? lead.gender,
+      ageBand: known('ageBand') ?? lead.ageBand,
+      role: known('role') ?? lead.role,
+      player: group.some((person) => person.player === true) || undefined,
+      evidence: union(...group.map((person) => strings(person.evidence))),
+    };
+  });
+  return { people: result, merged: people.length - result.length };
+}
+
+/** A speaker label the AI says is not a person, with why. */
+export interface AiNotPerson { name?: string; reason?: string }
 /**
  * Characters: a new one lands as a draft whose profile and speech description are its new facts, one per
  * line. One already in the cast, whoever made it, is never rewritten: it gains the new names it goes by
@@ -145,9 +195,22 @@ const union = (...lists: string[][]) => [...new Set(lists.flat())];
  * speech are appended to the end of its profile and speech description, each on its own line, unless the
  * text already says it. The evidence lines of an appended fact are added to the person's evidence.
  */
-export function aiSaveCharacters(tx: Tx, write: AiWrite, items: AiCharacterItem[]) {
-  const counts = { added: 0, filled: 0, appended: 0 };
-  const people = items.filter((item) => item.name?.trim()).map((item) => ({ ...item, name: item.name.trim(), aliases: strings(item.aliases) }));
+export function aiSaveCharacters(tx: Tx, write: AiWrite, items: AiCharacterItem[], notPeople: AiNotPerson[] = []) {
+  const counts = { added: 0, filled: 0, appended: 0, merged: 0, notPeople: 0, flagged: 0 };
+  const notNamed = new Map(notPeople.filter((entry) => entry.name?.trim()).map((entry) => [lower(entry.name!), entry.reason?.trim() || '이유를 적지 않았습니다']));
+  // A name the AI says is not a person makes no character; a stored character of that name only gets 확인 권장 for a person to decide.
+  const all = tx.select({ id: s.characters.id, name: s.characters.name, aliases: s.characters.aliases }).from(s.characters).where(and(eq(s.characters.projectId, write.projectId), ne(s.characters.status, 'rejected'))).all();
+  for (const [name, reason] of notNamed) {
+    const hit = all.find((person) => namesOf(person).some((candidate) => lower(candidate) === name));
+    if (!hit) continue;
+    markForReview(tx, write.projectId, 'characters', hit.id, [`${NOT_A_PERSON_NOTE}${reason}`]);
+    counts.flagged++;
+  }
+  const named = items.filter((item) => item.name?.trim()).map((item) => ({ ...item, name: item.name.trim(), aliases: strings(item.aliases) }));
+  const kept = named.filter((item) => !notNamed.has(lower(item.name)));
+  counts.notPeople = named.length - kept.length;
+  const { people, merged } = mergeFoundPeople(kept);
+  counts.merged = merged;
   const { stored, live, canon, idByName } = cast(tx, write.projectId, people);
   const known = new Set(stored.flatMap((c) => namesOf(c).map(lower)));
   for (const c of people) {
@@ -197,7 +260,9 @@ export function aiSaveCharacters(tx: Tx, write: AiWrite, items: AiCharacterItem[
     }
     counts.added++;
   }
-  return counts;
+  // What only some answers do is reported only when it happened.
+  const { merged: joined, notPeople: skippedNames, flagged, ...base } = counts;
+  return { ...base, ...(joined && { merged: joined }), ...(skippedNames && { notPeople: skippedNames }), ...(flagged && { flagged }) };
 }
 
 export interface AiRelationshipChange { at?: string; kind?: string; cause?: string }
@@ -236,7 +301,10 @@ export function relationshipRows(pairs: AiRelationshipPair[]): AiRelationshipIte
 export function aiSaveRelationships(tx: Tx, write: AiWrite, items: AiRelationshipItem[]) {
   const counts = { added: 0, changed: 0, unresolved: [] as string[] };
   const { canon, idByName } = cast(tx, write.projectId, items.flatMap((item) => [{ name: item.from ?? '', aliases: [] }, { name: item.to ?? '', aliases: [] }]).filter((p) => p.name));
-  const rels = tx.select().from(s.relationships).where(eq(s.relationships.projectId, write.projectId)).all();
+  const all = tx.select().from(s.relationships).where(eq(s.relationships.projectId, write.projectId)).all();
+  // "관계 미확인" rows are not relationships: a real one for the pair takes their place (an AI one nobody looked at goes), and they never block it.
+  const rels = all.filter((rel) => rel.kind !== UNRESOLVED_RELATIONSHIP_KIND);
+  let placeholders = all.filter((rel) => rel.kind === UNRESOLVED_RELATIONSHIP_KIND && rel.status === 'candidate' && rel.statusBy === 'ai');
   for (const item of items) {
     const fromId = idByName.get(lower(canon(item.from ?? '')));
     const toId = idByName.get(lower(canon(item.to ?? '')));
@@ -246,6 +314,13 @@ export function aiSaveRelationships(tx: Tx, write: AiWrite, items: AiRelationshi
     }
     const changes = (item.changes ?? []).flatMap((change) => (change.at && change.kind?.trim() ? [{ at: change.at, kind: change.kind.trim(), cause: change.cause ?? '' }] : []));
     const evidence = strings(item.evidence);
+    const stale = placeholders.filter((rel) => (rel.fromId === fromId && rel.toId === toId) || (rel.fromId === toId && rel.toId === fromId));
+    if (stale.length) {
+      const ids = stale.map((rel) => rel.id);
+      tx.delete(s.knowledgeTags).where(and(eq(s.knowledgeTags.kind, 'relationships'), inArray(s.knowledgeTags.itemId, ids))).run();
+      tx.delete(s.relationships).where(inArray(s.relationships.id, ids)).run();
+      placeholders = placeholders.filter((rel) => !ids.includes(rel.id));
+    }
     const pair = rels.filter((rel) => rel.fromId === fromId && rel.toId === toId);
     if (!pair.length) {
       rels.push(tx.insert(s.relationships).values({ projectId: write.projectId, fromId, toId, kind: item.kind.trim(), description: item.description ?? '', mutual: item.mutual === true, changes, evidence, ...draft(write) }).returning().get());
@@ -261,6 +336,50 @@ export function aiSaveRelationships(tx: Tx, write: AiWrite, items: AiRelationshi
     counts.changed++;
   }
   return counts;
+}
+
+/** A pair the AI could not give a relationship, with why. */
+export interface AiUnresolvedPair { between?: string[]; reason?: string; kind?: string }
+/**
+ * Pairs of people who talk to each other that the AI wrote no relationship for. Each pair of two stored
+ * characters becomes a candidate relationship of kind "관계 미확인" (never confirmed, whatever 바로 확정
+ * says), the AI's reason as its description and 확인 권장 on it, so a person sees what is missing. A pair
+ * that already has a relationship in either direction (or an earlier "관계 미확인" row, even a rejected one)
+ * gets nothing. A pair with someone who is not a stored character (no person, an extra, a misspelling) is
+ * dropped and listed in `dropped`, so the step reports it. A pair of kind notPerson (one of them is not a
+ * person) is dropped and only counted in `notPerson`.
+ */
+export function aiSaveUnresolvedPairs(tx: Tx, write: AiWrite, items: AiUnresolvedPair[]) {
+  const counts = { added: 0, kept: 0, notPerson: 0, dropped: [] as string[] };
+  const names = items.flatMap((item) => strings(item.between).slice(0, 2).map((name) => ({ name, aliases: [] })));
+  const { canon, idByName } = cast(tx, write.projectId, names);
+  const rels = tx.select({ fromId: s.relationships.fromId, toId: s.relationships.toId }).from(s.relationships).where(eq(s.relationships.projectId, write.projectId)).all();
+  const seen = new Set<string>();
+  for (const item of items) {
+    if (item.kind === 'notPerson') {
+      counts.notPerson++;
+      continue;
+    }
+    const between = strings(item.between);
+    const label = `${between.join(' ↔ ')}${item.reason?.trim() ? `: ${item.reason.trim()}` : ''}`;
+    const [a, b] = between.map((name) => idByName.get(lower(canon(name))));
+    if (between.length !== 2 || !a || !b || a === b) {
+      counts.dropped.push(label);
+      continue;
+    }
+    const key = [a, b].sort().join('|');
+    if (seen.has(key) || rels.some((rel) => (rel.fromId === a && rel.toId === b) || (rel.fromId === b && rel.toId === a))) {
+      counts.kept++;
+      continue;
+    }
+    seen.add(key);
+    const reason = item.reason?.trim() || '이유를 적지 않았습니다';
+    const row = tx.insert(s.relationships).values({ projectId: write.projectId, fromId: a, toId: b, kind: UNRESOLVED_RELATIONSHIP_KIND, description: reason, mutual: true, status: 'candidate', statusBy: 'ai', origin: 'ai' }).returning({ id: s.relationships.id }).get();
+    markForReview(tx, write.projectId, 'relationships', row.id, [`${UNRESOLVED_RELATIONSHIP_KIND}: ${reason}`]);
+    counts.added++;
+  }
+  const { notPerson, ...rest } = counts;
+  return { ...rest, ...(notPerson && { notPerson }) };
 }
 
 export interface AiSpeechRuleItem { fromName: string; toName: string; level: string; address?: string; note?: string; startKey?: string | null; evidence?: string[] }

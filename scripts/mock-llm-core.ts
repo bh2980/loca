@@ -163,6 +163,8 @@ function fillDef(def: JsonDef, name: string, ctx: { ids: string[]; speakers: str
       return ctx.source % 2 === 0;
     case 'array': {
       const item = def.items ?? {};
+      // The mock reads every speaker as a person: no speaker label is reported as not one.
+      if (name === 'notPeople') return [];
       if (item.type === 'object') return [0, 1].map((n) => fillObject(item, { ...ctx, at: ctx.at + n }));
       if (item.type === 'string' && /ids of the request's lines/.test(def.description ?? '')) return ctx.ids.slice(0, 2);
       return [fillDef(item, name, ctx)];
@@ -182,6 +184,8 @@ const fillObject = (def: JsonDef, ctx: { ids: string[]; speakers: string[]; sour
     const b = ctx.speakers[(ctx.at + 1) % ctx.speakers.length];
     return { ...filled, between: [a, b], views: [[a, b], [b, a]].map(([from, to], index) => ({ ...fillObject(view, { ...ctx, at: ctx.at + index }), from, to })) };
   }
+  // A pair with no relationship (pairsWithoutRelationship / unresolvedPairs): two different people and a reason.
+  if (def.properties?.between && def.properties.reason && ctx.speakers.length >= 2) return { ...filled, between: [ctx.speakers[ctx.at % ctx.speakers.length], ctx.speakers[(ctx.at + 1) % ctx.speakers.length]], kind: 'noEvidence', reason: '대사에 근거 없음' };
   return filled;
 };
 

@@ -222,7 +222,7 @@ export const APPLY_TARGETS = {
   saveRelationships: {
     label: '관계 저장',
     description:
-      '두 인물의 관계를 방향마다 넣습니다(한 쌍에 한 방향 또는 두 방향). 두 방향의 관계와 변화가 같으면 쌍방 관계 하나로 저장합니다. 이미 있는 관계는 종류·설명을 그대로 두고, 새 변화만 변화 목록 끝에 덧붙입니다(같은 대사의 변화는 건너뜀).',
+      '두 인물의 관계를 방향마다 넣습니다(한 쌍에 한 방향 또는 두 방향). 두 방향의 관계와 변화가 같으면 쌍방 관계 하나로 저장합니다. 이미 있는 관계는 종류·설명을 그대로 두고, 새 변화만 변화 목록 끝에 덧붙입니다(같은 대사의 변화는 건너뜀). ‘확인 못 한 쌍’ 목록을 고르면 그 쌍은 관계 ‘관계 미확인’(후보, 이유는 설명, 확인 권장 표시)으로 넣어 사람이 보게 하고, 관계가 없는 쌍이 이미 있으면 건너뛰며, 저장된 인물이 아닌 사람이 낀 쌍은 넣지 않고 결과에 센 수만 남깁니다. ‘사람이 아님’으로 표시된 쌍은 넣지 않고 센 수만 남깁니다. 나중에 같은 쌍의 진짜 관계가 저장되면 이 ‘관계 미확인’ 후보는 그 관계로 바뀝니다.',
     shape: 'list',
     fields: [
       {
@@ -305,6 +305,10 @@ export const applyParams = z.object({
   list: z.string().default(''),
   /** Target field → source field (inside the list item for `list`, inside the output otherwise). */
   map: z.record(z.string(), z.string()).default({}),
+  /** 관계 저장 only: the list field of the output whose items are pairs of people with no relationship to write ({ between, reason }); they are saved as pairs to look at, never as relationships. Empty = not used. */
+  unresolved: z.string().optional(),
+  /** 인물 저장 only: the list field of the output ({ name, reason }) naming speaker labels that are not people: no character is made for them, and a stored character of that name gets 확인 권장 ("인물이 아닐 수 있음"), nothing else changes. Empty = not used. */
+  notPeople: z.string().optional(),
 });
 export type ApplyParams = z.infer<typeof applyParams>;
 

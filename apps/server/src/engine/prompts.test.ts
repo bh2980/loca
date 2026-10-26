@@ -9,6 +9,7 @@ const node = (config: Record<string, unknown>) => workflowNodeSchema.parse({ id:
 const context: BatchContext = {
   scenes: { g1: { title: 'Scene' } },
   previousScenes: [],
+  pairs: [],
   documents: [],
   aiNotes: { characters: [], relationships: [], documents: [] },
   characters: [],
@@ -106,5 +107,14 @@ describe('buildPrompt system message', () => {
   it('the format of a whole-script input is a separate neutral sentence', () => {
     expect(INPUT_SCRIPT).toContain('L<n> <Speaker>: <text>');
     expect(INPUT_SCRIPT).not.toMatch(/Korean|translator|Do NOT/);
+  });
+  it('sends the talking pairs as a section of the request and says what they are, only when there are some', () => {
+    const ai = node({ output: 'json', scope: 'batch' });
+    const withPairs = buildPrompt(ai, languages, { ...context, pairs: [{ a: 'JONAS', b: 'MIRA', turns: 4 }] }, lines);
+    expect(JSON.parse(withPairs.prompt).talkingPairs).toEqual([{ a: 'JONAS', b: 'MIRA', turns: 4 }]);
+    expect(withPairs.system).toContain('"talkingPairs" lists pairs of people who talk to each other');
+    const without = buildPrompt(ai, languages, context, lines);
+    expect(JSON.parse(without.prompt)).not.toHaveProperty('talkingPairs');
+    expect(without.system).not.toContain('talkingPairs');
   });
 });

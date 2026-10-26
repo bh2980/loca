@@ -564,6 +564,36 @@ function ApplyConfig({ node, fn, params, refs, setMany }: { node: FunctionNode; 
         </Field>
       )}
 
+      {from && fn === 'saveCharacters' && (
+        <Field
+          label="사람이 아닌 이름 목록"
+          help="이 목록의 이름({ name, reason })은 인물로 만들지 않습니다. 같은 이름의 저장된 인물은 바꾸거나 지우지 않고 ‘인물이 아닐 수 있음: 이유’ 확인 권장 표시만 붙여 사람이 정하게 합니다.">
+          <SelectField value={params.notPeople || 'none'} onValueChange={(value) => setMany({ notPeople: value === 'none' ? '' : value })}>
+            <SelectItem value="none">쓰지 않음</SelectItem>
+            {lists.filter((field) => field.name !== params.list).map((field) => (
+              <SelectItem key={field.name} value={field.name}>
+                {field.name}
+              </SelectItem>
+            ))}
+          </SelectField>
+        </Field>
+      )}
+
+      {from && fn === 'saveRelationships' && (
+        <Field
+          label="확인 못 한 쌍 목록"
+          help="이 목록의 쌍({ between, reason })은 관계가 아니라 ‘관계 미확인’ 후보로 넣습니다: 이유는 설명에, 확인 권장 표시와 함께. ‘사람이 아님’(notPerson)으로 표시된 쌍과 저장된 인물이 아닌 사람이 낀 쌍은 넣지 않고, 결과에 센 수만 남깁니다.">
+          <SelectField value={params.unresolved || 'none'} onValueChange={(value) => setMany({ unresolved: value === 'none' ? '' : value })}>
+            <SelectItem value="none">쓰지 않음</SelectItem>
+            {lists.filter((field) => field.name !== params.list).map((field) => (
+              <SelectItem key={field.name} value={field.name}>
+                {field.name}
+              </SelectItem>
+            ))}
+          </SelectField>
+        </Field>
+      )}
+
       {(target.shape !== 'line' || (fn === 'saveCandidate' && refsInput(refs) === 'terms')) && <AiConfirmNote projectId={refs.projectId} />}
 
 

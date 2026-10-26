@@ -11,6 +11,7 @@ import { buildPrompt, outputSchema, type PromptLine } from './prompts.ts';
 const context: BatchContext = {
   scenes: { g1: { title: 'Scene' } },
   previousScenes: [],
+  pairs: [],
   documents: [],
   aiNotes: { characters: [], relationships: [], documents: [] },
   characters: [],

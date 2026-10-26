@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { importFileSchema, peopleRelationsTemplate, validateWorkflow, workflowDefinitionSchema } from '@tw/shared';
+import { importFileSchema, peopleRelationsTemplate, UNRESOLVED_RELATIONSHIP_KIND, validateWorkflow, workflowDefinitionSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
@@ -45,10 +45,10 @@ describe('인물·관계 추출 template, end to end', () => {
       generate: async (_route, request) => {
         seen.push(request);
         stored.push({ nova: db.select().from(s.characters).where(eq(s.characters.name, 'NOVA')).all().length, relationships: db.select().from(s.relationships).all().length, speechRules: db.select().from(s.speechRules).all().length });
-        if (merging(request)) return { object: { characters: [person('MIRA', { aliases: ['Captain', 'KAI'], newFacts: [{ text: '선장, 부하를 아낀다', evidence: ['g1-0'] }, { text: '가져온 자리표시자', evidence: [] }], newSpeech: [{ text: '짧게 말한다', evidence: ['g3-0'] }], role: 'main', gender: 'female' }), person('KAI', { aliases: ['Kay'], newFacts: [{ text: '새 AI 사실', evidence: [] }], role: 'supporting' }), person('NOVA', { newFacts: [{ text: '정비사', evidence: ['g3-1'] }, { text: '말수가 적다', evidence: [] }] })], relationships: [{ between: ['MIRA', 'NOVA'], views: [{ from: 'NOVA', to: 'MIRA', kind: '선장', description: '선장을 따른다', changes: [{ at: ['g1-0'], kind: '은인', cause: '구조' }, { at: ['g3-1'], kind: '믿는 선장', cause: '수리' }], evidence: ['L1', 'g3-0'] }, { from: 'MIRA', to: 'NOVA', kind: '정비사', description: '', changes: [], evidence: [] }, ] }], speechRules: [{ fromName: 'MIRA', toName: 'NOVA', level: 'hae', address: '', note: '상관', startKey: [], evidence: ['g1-0'] }, { fromName: 'MIRA', toName: 'group', level: 'hae', address: '', note: '', startKey: [], evidence: [] }] }, usage: {} } as never;
+        if (merging(request)) return { object: { notPeople: [], characters: [person('MIRA', { aliases: ['Captain', 'KAI'], newFacts: [{ text: '선장, 부하를 아낀다', evidence: ['g1-0'] }, { text: '가져온 자리표시자', evidence: [] }], newSpeech: [{ text: '짧게 말한다', evidence: ['g3-0'] }], role: 'main', gender: 'female' }), person('KAI', { aliases: ['Kay'], newFacts: [{ text: '새 AI 사실', evidence: [] }], role: 'supporting' }), person('NOVA', { newFacts: [{ text: '정비사', evidence: ['g3-1'] }, { text: '말수가 적다', evidence: [] }] })], unresolvedPairs: [], relationships: [{ between: ['MIRA', 'NOVA'], views: [{ from: 'NOVA', to: 'MIRA', kind: '선장', description: '선장을 따른다', changes: [{ at: ['g1-0'], kind: '은인', cause: '구조' }, { at: ['g3-1'], kind: '믿는 선장', cause: '수리' }], evidence: ['L1', 'g3-0'] }, { from: 'MIRA', to: 'NOVA', kind: '정비사', description: '', changes: [], evidence: [] }, ] }], speechRules: [{ fromName: 'MIRA', toName: 'NOVA', level: 'hae', address: '', note: '상관', startKey: [], evidence: ['g1-0'] }, { fromName: 'MIRA', toName: 'group', level: 'hae', address: '', note: '', startKey: [], evidence: [] }] }, usage: {} } as never;
         const scene = /S(\d)/.exec(request.prompt)![1];
         const rule = { fromName: 'MIRA', toName: 'NOVA', level: scene === '2' ? 'haeyo' : 'hae', address: '', note: '', startKey: [], evidence: ['L1'] };
-        return { object: { characters: [person('MIRA', { aliases: scene === '0' ? ['Captain'] : [], newFacts: [{ text: `장면 ${scene}의 MIRA`, evidence: ['L1'] }], role: 'main' }), ...(scene === '2' ? [person('NOVA', { newFacts: [{ text: '정비사', evidence: ['L2'] }] })] : [])], relationships: scene === '2' ? [{ between: ['MIRA', 'NOVA'], views: [{ from: 'MIRA', to: 'NOVA', kind: '정비사', description: '', changes: [{ at: ['L2'], kind: '믿는 정비사', cause: '' }], evidence: ['L2'] }] }] : [], speechRules: [rule] }, usage: {} } as never;
+        return { object: { notPeople: [], characters: [person('MIRA', { aliases: scene === '0' ? ['Captain'] : [], newFacts: [{ text: `장면 ${scene}의 MIRA`, evidence: ['L1'] }], role: 'main' }), ...(scene === '2' ? [person('NOVA', { newFacts: [{ text: '정비사', evidence: ['L2'] }] })] : [])], pairsWithoutRelationship: [], relationships: scene === '2' ? [{ between: ['MIRA', 'NOVA'], views: [{ from: 'MIRA', to: 'NOVA', kind: '정비사', description: '', changes: [{ at: ['L2'], kind: '믿는 정비사', cause: '' }], evidence: ['L2'] }] }] : [], speechRules: [rule] }, usage: {} } as never;
       },
     };
     await new Runner(db, memoryStore(), port).drain();
@@ -99,5 +99,58 @@ describe('인물·관계 추출 template, end to end', () => {
     const known = JSON.parse(combine[0]!.prompt) as { characters?: { name: string; profile: string; speech?: string; role?: string }[]; speechRules?: { from: string; to: string; level: string }[] };
     expect(known.characters).toMatchObject([{ name: 'MIRA', profile: '가져온 자리표시자', speech: '가져온 말버릇', role: 'minor' }]);
     expect(known.speechRules).toEqual([{ from: 'MIRA', to: 'group', level: 'haeyo' }]);
+  });
+  it('lists the talking pairs (per request and over the whole run) and saves the pairs the merge could not resolve as candidates to look at', async () => {
+    const db = openDatabase(':memory:');
+    const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1' }).returning().get();
+    const choice = { connectionId: connection.id, model: 'm' };
+    const groups = [1, 2, 3].map((n) => ({ key: `g${n}`, title: `Scene ${n}` }));
+    // Every scene is KAI then MIRA: one turn per scene, three over the run.
+    const units = groups.flatMap((group) => ['KAI', 'MIRA'].map((speaker, n) => ({ key: `${group.key}-${n}`, group: group.key, speaker, source: `${speaker} says ${group.key}` })));
+    const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Pairs' }, groups, units }), choice);
+    db.insert(s.characters).values([{ projectId, name: 'MIRA', status: 'confirmed' }, { projectId, name: 'KAI', status: 'confirmed' }]).run();
+    const aiFailed = db.select().from(s.tags).where(eq(s.tags.role, 'aiFailed')).get()!;
+    const template = peopleRelationsTemplate({ model: choice, aiFailedTag: aiFailed.id });
+    const definition = workflowDefinitionSchema.parse({
+      ...template,
+      nodes: template.nodes.map((node) => (node.id === 'people' && node.type === 'ai' ? { ...node, config: { ...node.config, batch: { mode: 'count', size: 2 }, context: { ...node.config.context, pairMinTurns: 1 } } } : node)),
+    });
+    const workflow = db.insert(s.workflows).values({ projectId, name: '인물·관계 추출', definition }).returning().get();
+    const { runId } = createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, definition), scope: {} });
+
+    const seen: { system: string; prompt: string }[] = [];
+    const port: ModelPort = {
+      judge: async () => {
+        throw new Error('unused');
+      },
+      generate: async (_route, request) => {
+        seen.push(request);
+        if (request.system.includes('An earlier node read the script'))
+          return { object: { notPeople: [], characters: [], relationships: [], speechRules: [], unresolvedPairs: [{ between: ['KAI', 'MIRA'], kind: 'noEvidence', reason: '대사에 근거 없음' }, { between: ['MIRA', 'Door'], kind: 'noEvidence', reason: '대사에 근거 없음' }, { between: ['MIRA', 'OBJECTIVE'], kind: 'notPerson', reason: '사람이 아님' }] }, usage: {} } as never;
+        return { object: { notPeople: [], characters: [], relationships: [], speechRules: [], pairsWithoutRelationship: [{ between: ['KAI', 'MIRA'], kind: 'noEvidence', reason: '대사에 근거 없음' }] }, usage: {} } as never;
+      },
+    };
+    await new Runner(db, memoryStore(), port).drain();
+
+    const merging = (request: { system: string }) => request.system.includes('An earlier node read the script');
+    // Each scene request lists the pair with its one turn (the node's 대화 쌍 setting is 1); the merge lists it over all three scenes (its setting is the default 3).
+    const sceneRequests = seen.filter((request) => !merging(request));
+    expect(sceneRequests).toHaveLength(3);
+    for (const request of sceneRequests) expect(JSON.parse(request.prompt).talkingPairs).toEqual([{ a: 'KAI', b: 'MIRA', turns: 1 }]);
+    const merge = seen.find(merging)!;
+    expect(JSON.parse(merge.prompt).talkingPairs).toEqual([{ a: 'KAI', b: 'MIRA', turns: 3 }]);
+    expect(merge.system).toContain('"talkingPairs" lists pairs of people');
+    // The parts handed to the merge carry the pairs without a relationship.
+    expect(JSON.parse(merge.prompt).previous[0].parts[0].pairsWithoutRelationship).toEqual([{ between: ['KAI', 'MIRA'], kind: 'noEvidence', reason: '대사에 근거 없음' }]);
+
+    // The unresolved pair is a candidate to look at, never a confirmed relationship; the pair with a non-person is dropped and counted.
+    const rows = db.select().from(s.relationships).where(eq(s.relationships.projectId, projectId)).all();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ kind: UNRESOLVED_RELATIONSHIP_KIND, description: '대사에 근거 없음', status: 'candidate', statusBy: 'ai', origin: 'ai' });
+    const marks = db.select().from(s.knowledgeTags).where(eq(s.knowledgeTags.itemId, rows[0]!.id)).all();
+    expect(marks).toHaveLength(1);
+    expect(marks[0]!.note).toContain('대사에 근거 없음');
+    const saved = db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all().flatMap((item) => (item.data.outputs?.['save-relationships'] ? [item.data.outputs['save-relationships'] as Record<string, unknown>] : []));
+    expect(saved[0]).toMatchObject({ applied: true, unresolvedPairs: { added: 1, kept: 0, notPerson: 1, dropped: 1 }, droppedPairs: ['MIRA ↔ Door: 대사에 근거 없음'] });
   });
 });
