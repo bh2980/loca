@@ -277,4 +277,35 @@ describe('context builder', () => {
     expect(relTower.changes).toBeUndefined();
     expect(ctxTower.relationships.find((r) => r.kind === 'secret_alliance')).toBeDefined();
   });
+  it('lists the pairs that talk in the batch (listener, else the line right before), only from minTurns on', () => {
+    const { db, projectId, rows } = setup();
+    const batch = rows.filter((row) => row.key.startsWith('arrival.'));
+    // Without listeners the sample's arrival scene is MIRA/JONAS lines in turn.
+    const adjacent = buildContext(db, projectId, batch, config({ pairs: true, pairMinTurns: 1 })).pairs;
+    expect(adjacent.length).toBeGreaterThan(0);
+    expect(adjacent.every((pair) => pair.a.toLowerCase() < pair.b.toLowerCase())).toBe(true);
+    // A listener on every line counts speaker → listener instead.
+    for (const row of batch) if (row.speaker) db.update(s.units).set({ listener: row.speaker === 'MIRA' ? 'JONAS' : 'MIRA', listenerOrigin: 'human' }).where(eq(s.units.id, row.id)).run();
+    const spoken = batch.filter((row) => row.speaker === 'MIRA' || row.speaker === 'JONAS').length;
+    const withListeners = buildContext(db, projectId, batch, config({ pairs: true, pairMinTurns: 1 }));
+    expect(withListeners.pairs).toEqual([{ a: 'JONAS', b: 'MIRA', turns: spoken }]);
+    const item = withListeners.items.find((entry) => entry.kind === 'pair');
+    expect(item).toMatchObject({ label: '1쌍', included: true });
+    expect(item?.reason).toContain('1번 이상');
+    // minTurns above the count leaves the pair (and the item) out; switched off sends nothing.
+    expect(buildContext(db, projectId, batch, config({ pairs: true, pairMinTurns: spoken + 1 })).pairs).toEqual([]);
+    expect(buildContext(db, projectId, batch, config({ pairs: true, pairMinTurns: spoken + 1 })).items.some((entry) => entry.kind === 'pair')).toBe(false);
+    expect(buildContext(db, projectId, batch, config({ pairs: false })).pairs).toEqual([]);
+  });
+
+  it('counts the pairs of a request that reads earlier results over the run\'s lines, not over the batch', () => {
+    const { db, projectId, rows } = setup();
+    const carrier = rows.slice(0, 1);
+    const runLines = rows.map((row) => ({ groupId: row.groupId, speaker: row.speaker, listener: null }));
+    const merged = buildContext(db, projectId, carrier, config({ pairs: true, pairMinTurns: 1 }), '[]', runLines);
+    expect(merged.pairs.length).toBeGreaterThan(0);
+    expect(merged.items.find((entry) => entry.kind === 'pair')?.reason).toContain(`이번 실행이 읽은 대사 ${rows.length}줄`);
+    // No lines given: nothing to count.
+    expect(buildContext(db, projectId, carrier, config({ pairs: true, pairMinTurns: 1 }), '[]').pairs).toEqual([]);
+  });
 });

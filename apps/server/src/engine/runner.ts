@@ -8,7 +8,7 @@ import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import type { ItemData, ItemState } from '../db/schema.ts';
 import { events, type Topic } from '../events.ts';
-import { buildContext } from '../services/context.ts';
+import { buildContext, runPairLines } from '../services/context.ts';
 import { resolveRoute } from '../services/routes.ts';
 import type { SecretStore } from '../services/secrets.ts';
 import { runAsyncFunction, syncFunctions, type FunctionInput } from './functions/index.ts';
@@ -886,7 +886,7 @@ export class Runner {
     } else {
       // A request that reads earlier results instead of lines (a merge) asks about the people those results name.
       const parts = !node.config.input.lines && node.config.input.previous ? JSON.stringify(lines.flatMap((line) => (line.previous === undefined ? [] : [line.previous]))) : undefined;
-      const context = terms?.context ?? buildContext(this.db, run.projectId, rows, node.config.context, parts);
+      const context = terms?.context ?? buildContext(this.db, run.projectId, rows, node.config.context, parts, parts !== undefined && node.config.context.pairs ? runPairLines(this.db, run.id) : undefined);
       step.context = context.items;
       built = buildPrompt(node, languages, context, lines, choiceOptions);
     }

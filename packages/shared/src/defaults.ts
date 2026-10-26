@@ -289,6 +289,8 @@ export function termTranslationTemplate(ids: TemplateIds): WorkflowDefinition {
  */
 const MERGED_PATHS = [
   ...['name', 'aliases', 'newFacts.text', 'newFacts.evidence', 'newSpeech.text', 'newSpeech.evidence', 'player', 'gender', 'ageBand', 'role'].map((field) => `characters.${field}`),
+  ...['between', 'kind', 'reason'].map((field) => `pairsWithoutRelationship.${field}`),
+  ...['name', 'reason'].map((field) => `notPeople.${field}`),
   ...['between', 'views.from', 'views.to', 'views.kind', 'views.description', 'views.evidence', 'views.changes.at', 'views.changes.kind', 'views.changes.cause'].map((field) => `relationships.${field}`),
   ...['fromName', 'toName', 'level', 'address', 'note', 'startKey', 'evidence'].map((field) => `speechRules.${field}`),
 ];
@@ -321,8 +323,8 @@ export function peopleRelationsTemplate(ids: TemplateIds): WorkflowDefinition {
         config: presetConfig('peopleMerge', ids.model, { input: { lines: false, previous: true, fields: [] } }),
       },
       ...resendNodes('merge', 3),
-      saveList('save-characters', 'saveCharacters', 'peopleMerge', 'characters', 4),
-      saveList('save-relationships', 'saveRelationships', 'peopleMerge', 'relationships', 5),
+      saveList('save-characters', 'saveCharacters', 'peopleMerge', 'characters', 4, 0, { notPeople: 'notPeople' }),
+      saveList('save-relationships', 'saveRelationships', 'peopleMerge', 'relationships', 5, 0, { unresolved: 'unresolvedPairs' }),
       saveList('save-speech-rules', 'saveSpeechRules', 'peopleMerge', 'speechRules', 6),
     ],
     edges: [...chain('entry', 'people', 'gather', 'merge', 'save-characters', 'save-relationships', 'save-speech-rules'), ...resendEdges('people', 'people-failed'), ...resendEdges('merge')],

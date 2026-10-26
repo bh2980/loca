@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray, lt } from 'drizzle-orm';
-import { CONTEXT_PRIORITY, contextConfigSchema, contextTokens, estimateTokens, isSpecialListener, listenerLabel, mentions, personNote, styleInstruction, termMatcher, type AgeBand, type ContextConfig, type ContextItem, type ContextItemKind, type Gender, type RelationshipChange } from '@tw/shared';
+import { CONTEXT_PRIORITY, contextConfigSchema, contextTokens, estimateTokens, isSpecialListener, listenerLabel, mentions, personNote, styleInstruction, talkingPairs, termMatcher, type AgeBand, type PairLine, type TalkingPair, type ContextConfig, type ContextItem, type ContextItemKind, type Gender, type RelationshipChange } from '@tw/shared';
 import type { Db } from '../db/index.ts';
-import { documents as documentsTable, graphEdges, graphNodes, groups, units } from '../db/schema.ts';
+import { documents as documentsTable, graphEdges, graphNodes, groups, runItems, units } from '../db/schema.ts';
 import { cachedKnowledge, describeRule, graphOrder, knowledgeOf, knownListener, scriptOrder, speechRuleIndex } from './speech.ts';
 import { deriveSceneEdges } from './scene-graph.ts';
 
@@ -50,6 +50,8 @@ export interface BatchContext {
   /** Every confirmed character, for naming people who are not mentioned in the batch. */
   cast: { name: string; aliases: string[]; player?: true; gender?: string; age?: string }[];
   relationships: { from: string; to: string; kind: string; description: string; mutual: boolean; changes?: RelationshipChange[] }[];
+  /** Pairs of people who talk to each other in the request's lines (or, for a request reading earlier results, in all the lines of the run), with their turns. */
+  pairs: TalkingPair[];
   /**
    * Items AI confirmed that no person has looked at (✦), kept apart from the facts above
    * so the model does not take a guess for a settled fact.
@@ -219,6 +221,8 @@ export function buildContext(
   batch: { id: string; key: string; groupId: string; sort: number; speaker: string | null; source: string }[],
   stored: Partial<ContextConfig>,
   parts?: string,
+  /** The lines a run read, for a request that reads earlier results (a merge): its 대화 쌍 are counted over these instead of the batch. */
+  runLines?: PairLine[],
 ): BatchContext {
   // Saved workflows may predate a setting; the schema fills its default.
   const config = contextConfigSchema.parse(stored ?? {});
@@ -227,8 +231,8 @@ export function buildContext(
   const text = parts ?? batch.map((unit) => `${unit.speaker ?? ''}\n${unit.source}`).join('\n');
   const groupIds = [...new Set(batch.map((unit) => unit.groupId))];
   const sceneRows = db.select().from(groups).where(inArray(groups.id, groupIds)).all();
-  const result: BatchContext = { scenes: Object.fromEntries(sceneRows.map((row) => [row.id, { title: row.title }])), previousScenes: [], documents: [], characters: [], cast: [], relationships: [], aiNotes: { characters: [], relationships: [], documents: [] }, terms: [], speechRules: [], speech: {}, voices: {}, people: {}, preceding: {}, items: [], budget: { limit: contextTokens(config), used: 0 } };
-  const candidates: Record<ContextItemKind, Candidate[]> = { term: [], speech: [], cast: [], preceding: [], character: [], relationship: [], scene: [], previousScene: [], document: [] };
+  const result: BatchContext = { scenes: Object.fromEntries(sceneRows.map((row) => [row.id, { title: row.title }])), previousScenes: [], documents: [], characters: [], cast: [], relationships: [], pairs: [], aiNotes: { characters: [], relationships: [], documents: [] }, terms: [], speechRules: [], speech: {}, voices: {}, people: {}, preceding: {}, items: [], budget: { limit: contextTokens(config), used: 0 } };
+  const candidates: Record<ContextItemKind, Candidate[]> = { term: [], speech: [], cast: [], pair: [], preceding: [], character: [], relationship: [], scene: [], previousScene: [], document: [] };
 
   if (config.glossary) {
     const used = knowledge.terms().matcher.find(text).map(({ source, target, note }) => ({ source, target, note }));
@@ -318,6 +322,21 @@ export function buildContext(
         keep: () => (result.speech[line.id] = entry),
       });
     }
+  }
+
+  if (config.pairs) {
+    const lines = parts !== undefined ? (runLines ?? []) : batchPairLines(db, batch.map((unit) => unit.id));
+    const pairs = talkingPairs(lines, config.pairMinTurns);
+    if (pairs.length)
+      candidates.pair.push({
+        item: {
+          kind: 'pair',
+          label: `${pairs.length}쌍`,
+          reason: `${parts !== undefined ? `이번 실행이 읽은 대사 ${lines.length.toLocaleString()}줄` : `보내는 대사 ${lines.length.toLocaleString()}줄`}에서 ${config.pairMinTurns}번 이상 말을 주고받은 쌍 (청자가 있으면 화자→청자, 없으면 바로 이어 말한 사람)`,
+        },
+        payload: pairs,
+        keep: () => (result.pairs = pairs),
+      });
   }
 
   if (config.cast) {
@@ -485,6 +504,22 @@ export function buildContext(
     }
   return result;
 }
+
+/** The spoken lines `unitIds` as pair counting reads them, in script order; an unsure AI listener counts as none. */
+function batchPairLines(db: Db, unitIds: string[]): PairLine[] {
+  if (!unitIds.length) return [];
+  return pairLinesOf(db.select(pairColumns).from(units).where(inArray(units.id, unitIds)).orderBy(units.seq).all());
+}
+
+/** Every line a run reads (its items that did not fail or stop) as pair counting reads them, in script order. */
+export function runPairLines(db: Db, runId: string): PairLine[] {
+  const read = db.select({ id: runItems.subjectId }).from(runItems).where(and(eq(runItems.runId, runId), inArray(runItems.state, ['queued', 'running', 'done'])));
+  return pairLinesOf(db.select(pairColumns).from(units).where(inArray(units.id, read)).orderBy(units.seq).all());
+}
+
+const pairColumns = { groupId: units.groupId, speaker: units.speaker, listener: units.listener, listenerOrigin: units.listenerOrigin, listenerConfidence: units.listenerConfidence };
+const pairLinesOf = (rows: { groupId: string; speaker: string | null; listener: string | null; listenerOrigin: 'import' | 'ai' | 'human' | null; listenerConfidence: number | null }[]): PairLine[] =>
+  rows.map((row) => ({ groupId: row.groupId, speaker: row.speaker, listener: knownListener(row) }));
 
 /** Speakers of each scene, in order of first line: who a "group" listener means. */
 function speakersOf(db: Db, groupIds: string[]) {

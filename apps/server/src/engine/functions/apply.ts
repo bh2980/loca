@@ -4,7 +4,7 @@ import { AGE_BANDS, APPLY_FUNCTION_NAMES, APPLY_TARGETS, applyParams, DOCUMENT_K
 import type { Db } from '../../db/index.ts';
 import * as s from '../../db/schema.ts';
 import type { Topic } from '../../events.ts';
-import { aiSaveCharacters, aiSaveDocument, aiSaveEvents, aiSaveRelationships, relationshipRows, aiSaveSpeechRules, aiSaveTerms, aiSetLineListeners, type AiWrite } from '../../services/ai-knowledge.ts';
+import { aiSaveCharacters, aiSaveDocument, aiSaveEvents, aiSaveRelationships, relationshipRows, aiSaveSpeechRules, aiSaveTerms, aiSaveUnresolvedPairs, aiSetLineListeners, type AiWrite } from '../../services/ai-knowledge.ts';
 import { addCandidate } from '../../services/candidates.ts';
 import { aiAutoConfirmOf } from '../../services/status-by.ts';
 import { setKnowledgeTag } from '../../services/knowledge-tags.ts';
@@ -104,7 +104,27 @@ interface Context {
   params: ApplyParams;
   run: typeof s.runs.$inferSelect | undefined;
   write: AiWrite;
+  /** The previous step's result the items were read from. */
+  output: Item;
 }
+
+/** 관계 저장's "확인 못 한 쌍": the entries of the output's list that params.unresolved names. */
+const unresolvedPairsOf = (params: ApplyParams, output: Item): { between: string[]; reason: string; kind: string }[] => {
+  if (!params.unresolved) return [];
+  const list = get(output, params.unresolved);
+  return (Array.isArray(list) ? list : []).flatMap((entry) =>
+    entry && typeof entry === 'object' ? [{ between: coerce({ name: 'between', label: '', type: 'strings' }, (entry as Item).between) as string[], reason: coerce({ name: 'reason', label: '', type: 'string' }, (entry as Item).reason) as string, kind: coerce({ name: 'kind', label: '', type: 'string' }, (entry as Item).kind) as string }] : [],
+  );
+};
+
+/** 인물 저장's "사람이 아닌 이름": the entries of the output's list that params.notPeople names. */
+const notPeopleOf = (params: ApplyParams, output: Item): { name: string; reason: string }[] => {
+  if (!params.notPeople) return [];
+  const list = get(output, params.notPeople);
+  return (Array.isArray(list) ? list : []).flatMap((entry) =>
+    entry && typeof entry === 'object' ? [{ name: coerce({ name: 'name', label: '', type: 'string' }, (entry as Item).name) as string, reason: coerce({ name: 'reason', label: '', type: 'string' }, (entry as Item).reason) as string }] : [],
+  );
+};
 
 /** How each list target writes its items; the counts it reports. Line targets get one item. */
 interface Handler {
@@ -118,15 +138,21 @@ const HANDLERS: Record<Exclude<ApplyFunctionName, ItemTarget>, Handler> = {
     write: (items, { tx, write }) => aiSaveTerms(tx, write, items as never),
   },
   saveCharacters: {
-    write: (items, { tx, write }) => aiSaveCharacters(tx, write, items as never),
+    write: (items, { tx, write, params, output }) => aiSaveCharacters(tx, write, items as never, notPeopleOf(params, output)),
   },
   saveRelationships: {
-    write: (items, { tx, write }) => {
+    write: (items, { tx, write, params, output }) => {
       const pairs = items.map((item) => ({
         views: ((item.views as Item[]) ?? []).map((view) => ({ ...view, changes: ((view.changes as Item[]) ?? []).map((change) => ({ at: first(change.at), kind: change.kind as string, cause: change.cause as string })) })),
       }));
       const { unresolved, ...counts } = aiSaveRelationships(tx, write, relationshipRows(pairs as never));
-      return { ...counts, ...(unresolved.length ? { unresolved } : {}) };
+      const without = unresolvedPairsOf(params, output);
+      const noRelationship = without.length ? aiSaveUnresolvedPairs(tx, write, without) : null;
+      return {
+        ...counts,
+        ...(unresolved.length ? { unresolved } : {}),
+        ...(noRelationship && { unresolvedPairs: { added: noRelationship.added, kept: noRelationship.kept, ...(noRelationship.notPerson && { notPerson: noRelationship.notPerson }), dropped: noRelationship.dropped.length }, ...(noRelationship.dropped.length ? { droppedPairs: noRelationship.dropped } : {}) }),
+      };
     },
   },
   saveSpeechRules: {
@@ -171,13 +197,15 @@ function run(fn: ApplyFunctionName, tx: Tx, raw: unknown, input: FunctionInput):
   if (target.shape !== 'line' && (output as { batchLeader?: boolean }).batchLeader === false) return { port: 'out', output: { batchSkipped: true } };
 
   const { items, skipped } = applyItems(fn, params, output);
-  if (!items.length) return { port: 'out', output: { applied: false, items: 0, skipped, reason: skipped ? '필수 필드가 비어 있어 건너뛰었습니다.' : '반영할 항목이 없습니다.' } };
+  const hasUnresolved = (fn === 'saveRelationships' && unresolvedPairsOf(params, output).length > 0) || (fn === 'saveCharacters' && notPeopleOf(params, output).length > 0);
+  if (!items.length && !hasUnresolved) return { port: 'out', output: { applied: false, items: 0, skipped, reason: skipped ? '필수 필드가 비어 있어 건너뛰었습니다.' : '반영할 항목이 없습니다.' } };
   const context: Context = {
     tx,
     input,
     params,
     run,
     write: { projectId: input.projectId, runId: input.runId, autoConfirm: aiAutoConfirmOf(tx as unknown as Db, input.projectId) },
+    output,
   };
   const nodeId = input.item.nodeId;
   const base = { projectId: input.projectId, runId: input.runId, nodeId };

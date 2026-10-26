@@ -25,3 +25,4 @@ export * from './source-mutations.ts';
 export * from './reading-route.ts';
 export * from './graph-contract.ts';
 export * from './workflow-calls.ts';
+export * from './talking-pairs.ts';

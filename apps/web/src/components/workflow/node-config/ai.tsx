@@ -43,7 +43,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
   // What auto would pick for this node's own model, shown while the field is empty.
   const autoLines = autoBudgets(limitsFor(connection && { modelLimits: connection.modelLimits ?? {} }, config.model.model), config.output, config.batch.mode).lines;
   const takesTemperature = connection ? CONNECTION_KIND_INFO[connection.kind].transport !== 'cli' && connection.kind !== 'systemone' : false;
-  const contextOn = [config.include.candidate, context.glossary, context.speech, context.precedingLines > 0, context.previousScenes > 0, context.cast, context.characters, context.relationships, context.documents].filter(Boolean).length;
+  const contextOn = [config.include.candidate, context.glossary, context.speech, context.precedingLines > 0, context.previousScenes > 0, context.pairs, context.cast, context.characters, context.relationships, context.documents].filter(Boolean).length;
 
   if (part === 'model') {
     return (
@@ -198,6 +198,7 @@ export function AiContextFields({ config, set, input }: { config: Pick<AiNode['c
         <ToggleRow label={CONTEXT_FIELDS.candidate.label} help={CONTEXT_FIELDS.candidate.help} checked={config.include.candidate} onChange={(value) => set({ include: { ...config.include, candidate: value } })} />
         <ToggleRow label={CONTEXT_FIELDS.glossary.label} help={CONTEXT_FIELDS.glossary.help} checked={context.glossary} onChange={(value) => setContext({ glossary: value })} />
         {lines && <ToggleRow label={CONTEXT_FIELDS.speech.label} help={CONTEXT_FIELDS.speech.help} checked={context.speech} onChange={(value) => setContext({ speech: value })} />}
+        {lines && <CountRow label={CONTEXT_FIELDS.pairs.label} help={CONTEXT_FIELDS.pairs.help} unit="번 이상" value={context.pairs ? context.pairMinTurns : 0} fallback={context.pairMinTurns} max={20} onChange={(value) => setContext(value > 0 ? { pairs: true, pairMinTurns: value } : { pairs: false })} />}
         <ToggleRow label={CONTEXT_FIELDS.cast.label} help={CONTEXT_FIELDS.cast.help} checked={context.cast} onChange={(value) => setContext({ cast: value })} />
         <ToggleRow label={CONTEXT_FIELDS.characters.label} help={CONTEXT_FIELDS.characters.help} checked={context.characters} onChange={(value) => setContext({ characters: value })} />
         <ToggleRow label={CONTEXT_FIELDS.relationships.label} help={CONTEXT_FIELDS.relationships.help} checked={context.relationships} onChange={(value) => setContext({ relationships: value })} />

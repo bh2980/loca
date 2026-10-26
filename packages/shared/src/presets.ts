@@ -1,4 +1,5 @@
 import { EMPTY_MODEL_CHOICE } from './model-choice.ts';
+import { UNRESOLVED_PAIR_KINDS } from './talking-pairs.ts';
 import { AGE_BANDS, CHARACTER_ROLES, GENDERS, SPEECH_LEVEL_GUIDE, SPEECH_LEVELS, TERM_KINDS } from './knowledge.ts';
 import type { DraftModelChoice } from './model-choice.ts';
 import type { JsonFieldType } from './functions.ts';
@@ -46,9 +47,13 @@ const KNOWN_CAST =
 // ---- the rules of each part of a script reading (once SECTION_RULES / CONTRACT, hidden in the server) ----
 
 const RULE_CHARACTERS =
-  '- characters: everyone who speaks or is addressed often. "newFacts" lists who they are and what they do in the story and "newSpeech" how they talk in the source (register, habits): one short Korean sentence per entry, each only when these lines show it and the stored profile or speech description (the same person under "characters", when given) does not already say it, with the line ids that show it; empty when nothing is new. Stored text is never rewritten: only new entries are added to its end. Mark the player character (the one the player controls or who is addressed as "you" by the game, even if it never speaks) with "player": true. Give "gender" (male, female, other = neither, e.g. an android or a spirit) and "ageBand" (child, teen, young, middle, old) only when the lines show it (pronouns, forms of address, stated age, role); otherwise "unknown". Give "role": main when the story centres on them, supporting when they recur and take part in the plot, minor when they have few lines; use "unknown" when unclear. Name everyone as the source does, in the source language; an unnamed player character gets the role the game uses (e.g. "Detective", "Captain"), never a translated name.';
+  '- characters: people (or person-like beings, e.g. an AI or a spirit) who speak or are spoken to often. A speaker label that is UI text, an objective, a device, a place or a sound effect is not a character. "newFacts" lists who they are and what they do in the story and "newSpeech" how they talk in the source (register, habits): one short Korean sentence per entry, each only when these lines show it and the stored profile or speech description (the same person under "characters", when given) does not already say it, with the line ids that show it; empty when nothing is new. Stored text is never rewritten: only new entries are added to its end. Mark the player character (the one the player controls or who is addressed as "you" by the game, even if it never speaks) with "player": true. Give "gender" (male, female, other = neither, e.g. an android or a spirit) and "ageBand" (child, teen, young, middle, old) only when the lines show it (pronouns, forms of address, stated age, role); otherwise "unknown". Give "role": main when the story centres on them, supporting when they recur and take part in the plot, minor when they have few lines; use "unknown" when unclear. Name everyone as the source does, in the source language; an unnamed player character gets the role the game uses (e.g. "Detective", "Captain"), never a translated name.';
+const RULE_NOT_PEOPLE =
+  '- notPeople: speaker labels in these lines that are not people (UI text, objectives, devices, places, sound effects): "name" as the script writes it, "reason" one short Korean phrase. They are not characters: write no character, relationship or speech rule for them.';
 const RULE_RELATIONSHIPS =
   '- relationships: one entry per pair of people who matter, named as the script does ("between"), with one or two "views", each a direction of the pair ("from" → "to"). Give a direction only when the script shows how "from" sees or treats "to"; when the relationship is the same both ways (동료, 연인, 형제·자매, 친구) give both directions. A view says who "to" is to "from" in "kind": ONE short noun (e.g. 부하, 두목, 언니, 협력자), never both people\'s roles ("두목-부하"), never several joined ("동료 / 파트너"), never a change ("협력에서 적대로"). When "from"\'s view of "to" changes, add to that view\'s "changes" the line id ("at") where it changes, the new relationship in "kind" (again one short noun) and why in "cause".';
+const RULE_TALKING_PAIRS =
+  '- talkingPairs: when the input has "talkingPairs", those are the pairs of people who talk to each other in these lines ("a", "b") with the number of lines that show it ("turns"). For every listed pair either write the relationship in "relationships" (between + views as above) or list the pair in "pairsWithoutRelationship" with "kind" (notPerson when one of them is a label in "notPeople", noEvidence when the lines show no relationship, undecided otherwise) and a short Korean "reason". A listed pair must not be left out of both. You may also write relationships for pairs that are not listed when the lines show them.';
 const RULE_EVENTS = '- events: what happened, its cause and its outcome, the people involved; include events that later lines refer back to.';
 const RULE_SPEECH_RULES = `- speechRules: for every speaker → listener direction with several lines (the listener may also be "group", "public", "self" or "others": how the speaker talks to several people present, to an unspecified audience, to themself, or to anyone else without a profile or an extra of their own), the Korean speech level the translation should use, one of: ${SPEECH_LEVEL_GUIDE}. Decide from the relationship (age, rank, intimacy, hostility, era and setting) as a Korean translator would; narration-like or written addresses often take 해라체, close friends 해체. "address" is how the speaker should address the listener in Korean (e.g. "수사관님", "언니"); when several forms are used, separate them with commas (e.g. "행크 경위님, 경위님"); empty if none. If the level changes at some point (falling out, reconciliation, promotion), give one rule per stretch: "startKey" is the line id where the new stretch begins (empty for the first). Do not mark a single sarcastic or emotional line as a change. "note" says why.`;
 const RULE_TERMS = `- terms: names and words whose Korean form must stay the same across the whole translation: people, places, organizations, products and technology, coined words and in-world concepts (also lower-case ones, such as a slang word, a species or a drug), ranks and titles, and interface words that recur. Not ordinary words. Skip what the glossary already has. "source" exactly as the script writes it, "kind" one of ${TERM_KINDS.join(', ')}, "meaning" one short Korean sentence, "target" the Korean form a translator should use (names by Korean loanword convention), "evidence" a few lines where it appears. At most about 150, the most important first.`;
@@ -90,6 +95,17 @@ const relationshipFields: JsonField[] = [
       field('cause', 'string', 'Why it changes.'),
     ]),
   ]),
+];
+/** A pair of people with no relationship to write, and why (the unlisted / unresolved pairs of the talking-pairs context). */
+const pairWithoutFields: JsonField[] = [
+  field('between', 'strings', 'The two people of the pair, named as in "talkingPairs": exactly two names.'),
+  { ...field('kind', 'string', `Why there is no relationship, one of: ${UNRESOLVED_PAIR_KINDS.join(', ')}. notPerson = one of them is not a person (a UI text, objective, device, place, sound effect), noEvidence = the lines show no relationship, undecided = there is evidence but it does not settle one.`), required: true },
+  field('reason', 'string', 'Why there is no relationship to write, one short Korean phrase (e.g. 사람이 아님, 대사에 근거 없음).'),
+];
+/** A speaker label that is not a person, and why. */
+const notPeopleFields: JsonField[] = [
+  field('name', 'string', 'The speaker label exactly as the script writes it.'),
+  field('reason', 'string', 'Why it is not a person, one short Korean phrase (e.g. 게임 목표 문구, 장치, 장소, 효과음).'),
 ];
 const speechRuleFields: JsonField[] = [
   field('fromName', 'string', 'The speaker, named as the script does.'),
@@ -254,12 +270,14 @@ export const AI_PROMPTS = {
     output: 'json',
     scope: 'batch',
     include: { candidate: false },
-    context: { glossary: false, cast: true, characters: true, relationships: true, documents: true, speech: true, precedingLines: 8, previousScenes: 1 },
+    context: { glossary: false, cast: true, characters: true, relationships: true, documents: true, speech: true, pairs: true, precedingLines: 8, previousScenes: 1 },
     // Bigger requests get shorter answers: on a 2,200-line script, 3,000 tokens found the most relationships and speech rules (1,000 contradicted itself, 102,000 found half).
     batch: { mode: 'group', maxTokens: 3_000 },
     fields: [
       listField('characters', 'People these lines add, and people already in the cast that these lines show something about (role, gender, age band, other names, new facts); empty when there is nothing.', characterFields),
+      listField('notPeople', 'Speaker labels in these lines that are not people (UI text, objectives, devices, places, sound effects), each with a short Korean reason; empty when there are none.', notPeopleFields),
       listField('relationships', 'Pairs of people whose relationship these lines start or change, with a view for each direction the script shows.', relationshipFields),
+      listField('pairsWithoutRelationship', 'Pairs listed in "talkingPairs" that get no relationship from these lines, each with a short Korean reason; empty when every listed pair has a relationship or none are listed.', pairWithoutFields),
       listField('speechRules', 'Speaker → listener speech levels these lines show.', speechRuleFields),
     ],
     instructions: [
@@ -268,7 +286,9 @@ export const AI_PROMPTS = {
       KNOWN_CAST,
       EVIDENCE_RULES,
       RULE_CHARACTERS,
+      RULE_NOT_PEOPLE,
       RULE_RELATIONSHIPS,
+      RULE_TALKING_PAIRS,
       RULE_SPEECH_RULES,
     ].join('\n'),
   },
@@ -280,18 +300,22 @@ export const AI_PROMPTS = {
     include: { candidate: false },
     // The gathered parts go in; the cast keeps the names people fixed, and what is stored about the people they name
     // (profile, speech, role, gender, age band, aliases, relationships, speech rules) tells what is already known.
-    context: { ...READING_CONTEXT, characters: true, relationships: true, speech: true },
+    context: { ...READING_CONTEXT, characters: true, relationships: true, speech: true, pairs: true },
     input: { previous: true, fields: [] },
     fields: [
       listField('characters', 'Every person the parts name, once.', characterFields.filter((entry) => entry.name !== 'evidence')),
+      listField('notPeople', 'Every speaker label the parts report as not a person, once each; never a name that is in "characters".', notPeopleFields),
       listField('relationships', 'One per pair of people that the parts report, two views each, the changes of a view in script order.', relationshipFields),
+      listField('unresolvedPairs', 'Pairs listed in "talkingPairs" that still have no relationship after combining the parts, each with a short Korean reason; empty when every listed pair has a relationship.', pairWithoutFields),
       listField('speechRules', 'One per speaker → listener stretch.', speechRuleFields),
     ],
     instructions: [
-      'An earlier node read the script scene by scene; "previous" holds what it found ("parts", one per request, in script order): the people, relationships and speech rules each part reports, new ones and ones about people already in the cast. Combine them into one answer:',
-      '- characters: one entry per person. The same person under different names is ONE entry: use the cast name (or, for a new person, the name the parts use most) as "name" and put every other name in "aliases" (all of the parts\' aliases and other names, once each). "newFacts" and "newSpeech" are lists of new entries, never a rewritten profile: collect the parts\' entries, each fact once (drop repeats of the same fact, and every fact the stored profile or speech description of that person under "characters" or "aiNotes" already says), each with the line ids ("evidence") its parts give; leave them empty when nothing is new. For a person not stored yet they form the profile and the speech description. Do not retell scenes. For gender, ageBand and role take the strongest evidence: what most parts say, otherwise the part that states it; "unknown" only when no part knows (role: the highest one a part gives, since a person who is main in one part is main). player is true if any part says so. Never invent a person no part names.',
+      'An earlier node read the script scene by scene; "previous" holds what it found ("parts", one per request, in script order): the people, speaker labels that are not people ("notPeople"), relationships, pairs without a relationship and speech rules each part reports, new ones and ones about people already in the cast. Combine them into one answer:',
+      '- characters: one entry per person. The same person under different names is ONE entry: use the cast name (or, for a new person, the name the parts use most) as "name" and put every other name in "aliases" (all of the parts\' aliases and other names, once each). "newFacts" and "newSpeech" are lists of new entries, never a rewritten profile: collect the parts\' entries, each fact once (drop repeats of the same fact, and every fact the stored profile or speech description of that person under "characters" or "aiNotes" already says), each with the line ids ("evidence") its parts give; leave them empty when nothing is new. For a person not stored yet they form the profile and the speech description. Do not retell scenes. For gender, ageBand and role take the strongest evidence: what most parts say, otherwise the part that states it; "unknown" only when no part knows (role: the highest one a part gives, since a person who is main in one part is main). player is true if any part says so. Never invent a person no part names. When two names are the same person (a title, rank, full name or nickname of the other: "Inspector Voltaire" and "Voltaire"), output ONE character, the most complete name, with the other names in "aliases", and use that one name in relationships, unresolvedPairs and speech rules.',
+      '- notPeople: collect the parts\' "notPeople" once each (same label, one entry; keep a reason). A label the parts report as not a person is never in "characters", "relationships" or "speechRules"; if the parts disagree about a label (one calls it a person, another not), decide from the evidence they give, and when it is still unclear leave it out of "notPeople" and keep it a character.',
       '- A person who is stored comes with their stored profile, speech description, role, gender, age band and aliases under "characters" (unverified AI ones under "aiNotes"), the stored relationships under "relationships" and the stored speech rules under "speechRules": that is what is already known, and it is never rewritten. Return only what the parts add to it.',
       '- relationships: one entry per pair of people ("between"), with one or two views, each a direction (give a direction only when a part shows how "from" sees or treats "to"; when the relationship is the same both ways (동료, 연인, 형제·자매, 친구) give both). Merge the parts\' entries of the same pair (in either order of names) into one: for each direction given one "kind" (ONE short noun for who "to" is to "from", never both roles, never several joined, never a change) and one description that fit the whole story, and every change of that view once, in script order (the order of the parts), with the line id ("at") the part gives and the new relationship in its "kind". A change is a new relationship, so a pair that goes from allies to enemies is kind 협력자 with a change to 적. Never invent a line id; keep the evidence ids of the parts. A stored relationship of the pair keeps its kind and description: add only the changes the parts show that the stored changes do not have (at another line).',
+      '- unresolvedPairs: "talkingPairs" lists the pairs of people who talk to each other in all the lines this run read ("a", "b", "turns" = lines that show it). The parts give relationships and, in "pairsWithoutRelationship", pairs they found no relationship for. Every listed pair must end up either in "relationships" (merged from the parts, in either order of names) or in "unresolvedPairs" with "kind" (notPerson when one of them is in "notPeople", noEvidence when no part shows a relationship, undecided when the parts disagree or the evidence does not settle one) and a short Korean "reason". A pair one part leaves without a relationship but another part gives one for gets the relationship. Relationships the parts report for pairs that are not listed stay in "relationships". Never invent a relationship the parts do not show.',
       '- speechRules: one entry per speaker → listener stretch. When parts disagree on the level, decide from the relationship and from what most of the evidence shows. Keep a change of level (a "startKey" line id) only when the parts show a lasting change, not one scene\'s tone; a rule that only differs by one scene\'s tone is one entry without "startKey". A stored rule for the same speaker → listener and the same stretch stays: do not give another level for it, only rules for a new stretch (another "startKey") or a new pair. Keep the line ids ("startKey", evidence) from the parts, never invent one.',
       '- Name people as the characters list does (the cast name, or the name the parts use most).',
       KNOWN_CAST,

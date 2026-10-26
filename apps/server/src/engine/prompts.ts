@@ -155,6 +155,7 @@ export const projectParts = (context: BatchContext) => ({
   glossary: context.terms.length ? context.terms : undefined,
   characters: context.characters.length ? context.characters : undefined,
   relationships: context.relationships.length ? context.relationships : undefined,
+  talkingPairs: context.pairs.length ? context.pairs : undefined,
   speechRules: context.speechRules.length ? context.speechRules : undefined,
   aiNotes: hasAiNotes(context) ? { ...(context.aiNotes.characters.length && { characters: context.aiNotes.characters }), ...(context.aiNotes.relationships.length && { relationships: context.aiNotes.relationships }), ...(context.aiNotes.documents.length && { documents: context.aiNotes.documents }) } : undefined,
 });
@@ -177,6 +178,9 @@ export function buildPrompt(
       : '',
     Object.keys(context.scenes).length > 1
       ? 'Lines are grouped by scene, in script order. A new scene can jump in time, place or company: do not carry a conversation, a listener or a speech level across scenes unless the lines show it.'
+      : '',
+    context.pairs.length
+      ? '"talkingPairs" lists pairs of people who talk to each other in the lines this request covers: "a" and "b" are their names as the script writes them and "turns" is how many lines show it (a line with a listener counts speaker → listener, one without counts with the line right before it by someone else).'
       : '',
     Object.keys(context.people).length ? '"people" gives the gender and age of speakers and listeners: let Korean forms of address and speech levels fit them.' : '',
     [...context.relationships, ...context.aiNotes.relationships].some((r) => r.changes?.length)
