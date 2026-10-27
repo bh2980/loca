@@ -1,11 +1,11 @@
 import { useEffect } from 'react';
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { BookOpen, Check, ChevronsUpDown, Languages, Monitor, Moon, Plus, Settings2, Sun, Workflow } from 'lucide-react';
-import { Sidebar, SidebarBrand, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuBadge, SidebarMenuButton, SidebarMenuIcon, SidebarMenuItem, SidebarRail, DropdownMenu, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuRadioItem, Icon, SidebarGroup, SidebarGroupLabel, SidebarMenuLabel, Text, DropdownMenuContent, MenuLabel } from '@loca/ui';
+import { BookOpen, Check, ChevronsUpDown, Languages, Plus, Settings2, Workflow } from 'lucide-react';
+import { Sidebar, SidebarBrand, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuBadge, SidebarMenuButton, SidebarMenuIcon, SidebarMenuItem, SidebarRail, DropdownMenu, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, Icon, SidebarGroup, SidebarGroupLabel, SidebarMenuLabel, Text, DropdownMenuContent, MenuLabel } from '@loca/ui';
 import { holds, NAV_GROUPS, useCurrentNav, type NavGroup, type NavItem } from '@/lib/nav';
 import { q } from '@/lib/queries';
-import { setTheme, useTheme, type ThemeChoice } from '@/lib/theme';
+import { ThemeMenuItems } from '@/components/theme-menu';
 
 const lastKey = (projectId: string, itemId: string) => `tw.nav.${projectId}.${itemId}`;
 const readLast = (projectId: string, itemId: string): { pathname: string; search: Record<string, unknown> } | null => {
@@ -44,15 +44,10 @@ function SettingsItem({ navItem, projectId, active }: { navItem: NavItem; projec
   </DropdownMenuItem>;
 }
 
-const THEMES: { value: ThemeChoice; label: string; icon: typeof Sun }[] = [
-  { value: 'light', label: '밝게', icon: Sun }, { value: 'dark', label: '어둡게', icon: Moon }, { value: 'system', label: '시스템 설정', icon: Monitor },
-];
-
 const GROUP_ICONS = { translate: Languages, knowledge: BookOpen, automation: Workflow };
 
 export function AppSidebar({ projectId }: { projectId: string }) {
   const navigate = useNavigate();
-  const theme = useTheme();
   const projects = useQuery(q.projects());
   const project = useQuery(q.project(projectId));
   const info = projects.data?.find((entry) => entry.id === projectId);
@@ -77,10 +72,7 @@ export function AppSidebar({ projectId }: { projectId: string }) {
         <DropdownMenuLabel>설정</DropdownMenuLabel>
         {group.items.map((navItem) => <SettingsItem key={navItem.id} navItem={navItem} projectId={projectId} active={current.item.id === navItem.id} />)}
         <DropdownMenuSeparator />
-        <MenuLabel>화면 테마</MenuLabel>
-        <DropdownMenuRadioGroup value={theme} onValueChange={(value) => setTheme(value as ThemeChoice)}>
-          {THEMES.map((entry) => <DropdownMenuRadioItem key={entry.value} value={entry.value} compact><entry.icon /> {entry.label}</DropdownMenuRadioItem>)}
-        </DropdownMenuRadioGroup>
+        <ThemeMenuItems />
       </DropdownMenuContent>
     </DropdownMenu></SidebarMenuItem></SidebarMenu></SidebarGroup>;
     const GroupIcon = GROUP_ICONS[group.id as keyof typeof GROUP_ICONS];

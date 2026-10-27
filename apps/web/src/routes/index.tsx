@@ -1,8 +1,9 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { FolderOpen } from 'lucide-react';
-import { Button, SectionHeading, EmptyContent, EmptyHeader, EmptyMedia, EmptyTitle, Box, Inline, Stack, BrandMark, Grid, ProjectCard, ProjectCardLink, ProjectListFrame, Skeleton, EmptyState } from '@loca/ui';
+import { FolderOpen, Settings2 } from 'lucide-react';
+import { Button, SectionHeading, EmptyContent, EmptyHeader, EmptyMedia, EmptyTitle, Box, Inline, Stack, BrandMark, Grid, ProjectCard, ProjectCardLink, ProjectListFrame, Skeleton, EmptyState, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@loca/ui';
 import { ImportProjectDialog } from '@/components/import-project';
+import { ThemeMenuItems } from '@/components/theme-menu';
 import { q } from '@/lib/queries';
 
 export const Route = createFileRoute('/')({ component: Home });
@@ -19,9 +20,18 @@ function Home() {
           </Box>
         </Inline>
         <Inline gap="condensed">
-          <Button asChild variant="ghost">
-            <Link to="/settings">설정</Link>
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost"><Settings2 /> 설정</Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" width="menu-lg">
+              <DropdownMenuItem asChild>
+                <Link to="/settings">새 프로젝트 기본값</Link>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <ThemeMenuItems />
+            </DropdownMenuContent>
+          </DropdownMenu>
           {!!projects.data?.length && <ImportProjectDialog />}
         </Inline>
       </Stack>

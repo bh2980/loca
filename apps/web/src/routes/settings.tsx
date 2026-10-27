@@ -25,20 +25,13 @@ function SettingsLayout() {
         </Link>
       }
       nav={
-        <>
-          <AppSettingsNavGroup title="새 프로젝트 기본값" note="새로 만드는 프로젝트에만 쓰입니다. 이미 있는 프로젝트는 각 프로젝트 설정의 '홈 기본값'에서 가져옵니다.">
-            {DEFAULTS.map((item) => (
-              <AppSettingsNavItem key={item.to} active={pathname.startsWith(item.to)}>
-                <Link to={item.to}>{item.label}</Link>
-              </AppSettingsNavItem>
-            ))}
-          </AppSettingsNavGroup>
-          <AppSettingsNavGroup title="화면">
-            <AppSettingsNavItem active={pathname.startsWith('/settings/appearance')}>
-              <Link to="/settings/appearance">테마</Link>
+        <AppSettingsNavGroup title="새 프로젝트 기본값" note="새로 만드는 프로젝트에만 쓰입니다. 이미 있는 프로젝트는 각 프로젝트 설정의 '홈 기본값'에서 가져옵니다.">
+          {DEFAULTS.map((item) => (
+            <AppSettingsNavItem key={item.to} active={pathname.startsWith(item.to)}>
+              <Link to={item.to}>{item.label}</Link>
             </AppSettingsNavItem>
-          </AppSettingsNavGroup>
-        </>
+          ))}
+        </AppSettingsNavGroup>
       }
     >
       <Outlet />

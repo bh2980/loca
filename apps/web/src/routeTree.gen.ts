@@ -13,7 +13,6 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as PProjectIdRouteImport } from './routes/p.$projectId'
 import { Route as SettingsIndexRouteImport } from './routes/settings.index'
-import { Route as SettingsAppearanceRouteImport } from './routes/settings.appearance'
 import { Route as PProjectIdIndexRouteImport } from './routes/p.$projectId.index'
 import { Route as PProjectIdGlossaryRouteImport } from './routes/p.$projectId.glossary'
 import { Route as PProjectIdGraphRouteImport } from './routes/p.$projectId.graph'
@@ -54,11 +53,6 @@ const PProjectIdRoute = PProjectIdRouteImport.update({
 const SettingsIndexRoute = SettingsIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => SettingsRoute,
-} as any)
-const SettingsAppearanceRoute = SettingsAppearanceRouteImport.update({
-  id: '/appearance',
-  path: '/appearance',
   getParentRoute: () => SettingsRoute,
 } as any)
 const PProjectIdIndexRoute = PProjectIdIndexRouteImport.update({
@@ -180,7 +174,6 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/settings': typeof SettingsRouteWithChildren
   '/p/$projectId': typeof PProjectIdRouteWithChildren
-  '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/': typeof SettingsIndexRoute
   '/p/$projectId/glossary': typeof PProjectIdGlossaryRoute
   '/p/$projectId/graph': typeof PProjectIdGraphRoute
@@ -206,7 +199,6 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings': typeof SettingsIndexRoute
   '/p/$projectId/glossary': typeof PProjectIdGlossaryRoute
   '/p/$projectId/graph': typeof PProjectIdGraphRoute
@@ -235,7 +227,6 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/settings': typeof SettingsRouteWithChildren
   '/p/$projectId': typeof PProjectIdRouteWithChildren
-  '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/': typeof SettingsIndexRoute
   '/p/$projectId/glossary': typeof PProjectIdGlossaryRoute
   '/p/$projectId/graph': typeof PProjectIdGraphRoute
@@ -265,7 +256,6 @@ export interface FileRouteTypes {
     | '/'
     | '/settings'
     | '/p/$projectId'
-    | '/settings/appearance'
     | '/settings/'
     | '/p/$projectId/glossary'
     | '/p/$projectId/graph'
@@ -291,7 +281,6 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/settings/appearance'
     | '/settings'
     | '/p/$projectId/glossary'
     | '/p/$projectId/graph'
@@ -319,7 +308,6 @@ export interface FileRouteTypes {
     | '/'
     | '/settings'
     | '/p/$projectId'
-    | '/settings/appearance'
     | '/settings/'
     | '/p/$projectId/glossary'
     | '/p/$projectId/graph'
@@ -378,13 +366,6 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/settings/'
       preLoaderRoute: typeof SettingsIndexRouteImport
-      parentRoute: typeof SettingsRoute
-    }
-    '/settings/appearance': {
-      id: '/settings/appearance'
-      path: '/appearance'
-      fullPath: '/settings/appearance'
-      preLoaderRoute: typeof SettingsAppearanceRouteImport
       parentRoute: typeof SettingsRoute
     }
     '/p/$projectId/': {
@@ -538,7 +519,6 @@ declare module '@tanstack/react-router' {
 }
 
 interface SettingsRouteChildren {
-  SettingsAppearanceRoute: typeof SettingsAppearanceRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
   SettingsDefaultsChatRoute: typeof SettingsDefaultsChatRoute
   SettingsDefaultsConnectionsRoute: typeof SettingsDefaultsConnectionsRoute
@@ -548,7 +528,6 @@ interface SettingsRouteChildren {
 }
 
 const SettingsRouteChildren: SettingsRouteChildren = {
-  SettingsAppearanceRoute: SettingsAppearanceRoute,
   SettingsIndexRoute: SettingsIndexRoute,
   SettingsDefaultsChatRoute: SettingsDefaultsChatRoute,
   SettingsDefaultsConnectionsRoute: SettingsDefaultsConnectionsRoute,
