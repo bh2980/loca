@@ -42,7 +42,7 @@ export const projectRoutes = new Hono<Env>()
   })
   .post('/', validate('json', importFileSchema), (c) => {
     const { db } = c.var.deps;
-    const summary = importProject(db, c.req.valid('json'));
+    const summary = importProject(db, c.req.valid('json'), undefined, c.var.deps.secrets);
     void computeLayouts(db, summary.projectId);
     events.changed(undefined, 'projects');
     return c.json(summary, 201);

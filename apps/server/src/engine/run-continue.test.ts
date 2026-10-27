@@ -20,6 +20,8 @@ function setup() {
   const groups = [{ key: 'g', title: 'G' }];
   const units = Array.from({ length: 4 }, (_, index) => ({ key: `u${index}`, group: 'g', source: `L${index}` }));
   const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups, units }), { connectionId: a.id, model: 'bad' });
+  // Connections belong to the project a workflow runs in.
+  db.update(s.connections).set({ projectId }).run();
   const workflow = db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).get()!;
   const definition = { ...withoutTerms(workflow.definition), nodes: withoutTerms(workflow.definition).nodes.map((node) => (node.type === 'ai' ? { ...node, config: { ...node.config, batch: { mode: 'count' as const, size: 1, maxTokens: 6_000 } } } : node)) };
   db.update(s.workflows).set({ definition }).where(eq(s.workflows.id, workflow.id)).run();

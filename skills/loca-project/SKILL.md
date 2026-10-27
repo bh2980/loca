@@ -58,6 +58,16 @@ loca call update_project_settings @"$W/settings.json"
 - `editorAi`: 편집기 AI. AI 번역·다듬기 버튼은 `model`(CLI 연결도 됨), `context`(함께 보낼 것)를 같이 쓰고, `translate`·`refine`에는 각자의 `instructions`·`include`만 있습니다(빈 값은 AI 번역·AI 다듬기 프리셋으로 채움, 워크플로 노드와 따로). `complete`는 자동완성(`enabled`, API 연결 `model`, `instructions`, `precedingLines`, `glossary`, `speech`, `timeoutSeconds`, `delayMs`(대사를 열고 기다린 뒤 자동 요청, 기본 500), `dailyCap`). `timeoutSeconds`(기본 60)는 AI 번역·다듬기·자연어로 정규식 만들기의 제한 시간.
 - 채팅 설정(권한 모드, 도구 권한, 새 대화 모델)은 에이전트가 바꿀 수 없습니다.
 
+## 홈 설정 (새 프로젝트 기본값)
+새 프로젝트는 만들어질 때 홈 설정(연결, 에디터 AI, 채팅 설정, 저장한 지시, AI 결과 바로 확정, 상태, 태그, 워크플로)을 **한 번 복사**합니다. 그 뒤로 홈을 바꿔도 이미 있는 프로젝트는 그대로입니다. 서식 규칙·번역 제외·표시 색은 프로젝트마다 따로입니다.
+```
+loca defaults                                    # 홈 기본값 보기 (--json)
+loca defaults pull statuses workflows            # 이 프로젝트로 가져오기 제안 (앱에서 수락)
+```
+- 가져오기: `editorAi`·`aiAutoConfirm`은 홈 값으로 바뀌고, `prompts`·`statuses`·`tags`는 없는 이름만 더하며, `workflows`는 새 워크플로로 더합니다.
+- 연결(API 키)과 채팅 권한 설정은 사람이 앱의 프로젝트 설정에서 가져옵니다. 홈 설정을 고치거나 프로젝트 설정을 홈으로 올리는 것도 사람만 앱에서 합니다.
+- 연결은 프로젝트마다 따로입니다. `--model 연결:모델`의 연결 이름은 이 프로젝트의 연결에서 찾습니다.
+
 ## 원문 구조: 장면·묶음·원문
 묶음은 종류가 셋입니다: 장면(`scene`, 대사) · 문서 묶음(`document`, 안의 항목이 문서) · UI 묶음(`ui`, 안의 항목이 UI 문자열).
 ```

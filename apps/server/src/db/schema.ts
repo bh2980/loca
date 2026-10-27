@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { customType, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import type { AppDefaults } from '@tw/shared';
 import { AGE_BANDS, CHARACTER_ROLES, GENDERS, KNOWLEDGE_TAG_KINDS, TAG_ROLES, type TagRole, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, EVENT_LINK_KINDS, GRAPH_ORIGINS, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, PERMISSION_MODES, type CharacterStyle, type EditorAi, type ExclusionRules, type ModelLimits, LINE_TRANSLATE, type AutoMark, type MarkColors, type ContextItem, type FormatRules, type ItemErrorKind, type NodeType, type RelationshipChange, type WorkflowDefinition, workflowDefinitionSchema, WORKFLOW_SUBJECT_IDS, type WorkflowSubject } from '@tw/shared';
 import type { Usage } from '@tw/ai';
 
@@ -472,9 +473,13 @@ export const speechRules = sqliteTable(
 );
 
 
-/** App-wide: connections are shared by every project. Secrets live in the OS keyring. */
+/**
+ * A project's connections, or the home's (no project): a new project gets copies of the home's
+ * (docs/DESIGN-APP-SETTINGS-2026-10-27.md). Secrets live in the OS keyring, under the connection's id.
+ */
 export const connections = sqliteTable('connections', {
   id: id(),
+  projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }),
   kind: text('kind', { enum: ['openai', 'systemone', 'codex', 'claude', 'grok', 'antigravity', 'opencode', 'http'] }).notNull(),
   name: text('name').notNull(),
   baseUrl: text('base_url'),
@@ -735,5 +740,14 @@ export const chatSessions = sqliteTable('chat_sessions', {
   /** Messages sent while a turn was running that no turn has taken yet (#44); kept here so a restart does not lose them. */
   pendingSteers: json<string[]>('pending_steers').notNull().default(sql`'[]'`),
   createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+/** 홈 설정: one row ('app'), the defaults a new project is made from (appDefaultsSchema; {} = the app's defaults). */
+export const appSettings = sqliteTable('app_settings', {
+  id: text('id').primaryKey().default('app'),
+  defaults: json<Partial<AppDefaults>>('defaults').notNull().default(sql`'{}'`),
+  /** One-time steps done on this data (e.g. 'connections-per-project'). */
+  done: json<string[]>('done').notNull().default(sql`'[]'`),
   updatedAt: updatedAt(),
 });

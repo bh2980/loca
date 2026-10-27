@@ -14,6 +14,7 @@ import { closeStaleCalls } from './services/ai-calls.ts';
 import { closeInterruptedProposals } from './services/proposals.ts';
 import { computeLayouts, projectsMissingSections, projectsWithOldLayouts, projectsWithoutLayouts } from './services/layout.ts';
 import { keyringStore, memoryStore } from './services/secrets.ts';
+import { splitConnections } from './services/connection-split.ts';
 
 // A stray rejected promise (a client that vanished, a failed background job) must not take the server down.
 process.on('unhandledRejection', (reason) => console.error('unhandled rejection', reason));
@@ -23,8 +24,12 @@ process.on('uncaughtException', (error) => {
   process.exit(1);
 });
 
-const db = openDatabase(path.join(config.dataDir, 'workbench.sqlite'));
+const dbFile = path.join(config.dataDir, 'workbench.sqlite');
+const db = openDatabase(dbFile);
 const secrets = process.env.WORKBENCH_SECRETS === 'memory' ? memoryStore() : keyringStore;
+// Once, on data from before per-project connections: every project gets its own copies.
+const split = splitConnections(db, secrets, dbFile);
+if (split) console.log(`연결을 프로젝트 ${split}개에 복사했습니다 (이전 DB는 backups/에 있습니다).`);
 // Requests a stopped server never heard back from are closed as failed in the AI log.
 closeStaleCalls(db);
 // Proposals a stopped server was still applying are closed as failed, not run again (see closeInterruptedProposals).

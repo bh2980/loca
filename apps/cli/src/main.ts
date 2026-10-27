@@ -614,6 +614,27 @@ program
     for (const row of rows) console.log(`/${row.name}\n${row.text.split('\n').map((line) => `  ${line}`).join('\n')}`);
   });
 
+const defaults = program.command('defaults').description('홈 설정: 새 프로젝트가 만들어질 때 한 번 복사해 가는 기본값. 이미 있는 프로젝트에는 저절로 반영되지 않습니다');
+defaults
+  .command('show', { isDefault: true })
+  .description('홈 기본값 보기 (연결 이름·종류, 에디터 AI, 채팅 설정, 저장한 지시, 상태, 태그, 워크플로). 고치기는 앱의 홈 › 설정에서 사람이 합니다')
+  .action(async () => {
+    type Defaults = { connections: { name: string; kind: string }[]; aiAutoConfirm: boolean; statuses: { name: string; kind: string; inReview: boolean }[]; tags: { name: string }[]; workflows: { templates: string[]; saved: { name: string }[] }; agentSettings: { prompts: { name: string }[] } };
+    const data = await readTool<Defaults>('read_app_defaults');
+    if (globals().json) return print(data);
+    const kind: Record<string, string> = { initial: '시작', normal: '중간', final: '최종' };
+    console.log(`연결: ${data.connections.map((row) => `${row.name}(${row.kind})`).join(', ') || '(없음)'}`);
+    console.log(`상태: ${data.statuses.map((row) => `${row.name}[${kind[row.kind] ?? row.kind}${row.inReview ? '·검토함' : ''}]`).join(', ')}`);
+    console.log(`태그: ${data.tags.map((row) => row.name).join(', ') || '(없음)'}`);
+    console.log(`워크플로: 템플릿 ${data.workflows.templates.join(', ') || '(없음)'} · 저장한 것 ${data.workflows.saved.map((row) => row.name).join(', ') || '(없음)'}`);
+    console.log(`저장한 지시: ${data.agentSettings.prompts.map((row) => `/${row.name}`).join(', ') || '(없음)'}`);
+    console.log(`AI 결과 바로 확정: ${data.aiAutoConfirm ? '켬' : '끔'}`);
+  });
+defaults
+  .command('pull <섹션...>')
+  .description('홈 기본값을 이 프로젝트로 가져오기를 제안 (앱에서 수락). 섹션: editorAi, prompts, aiAutoConfirm, statuses, tags, workflows. 연결과 채팅 권한은 앱에서 사람이 가져옵니다')
+  .action(async (sections: string[]) => print(await proposeTool('pull_app_defaults', { sections })));
+
 /** `--model` specs ("연결:모델" for every AI node, "노드=연결:모델" for one) as plan_run / start_run take them. */
 function runModels(specs: string[] | undefined) {
   if (!specs?.length) return undefined;

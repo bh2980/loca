@@ -652,6 +652,13 @@
       "when": 1792664790837,
       "tag": "0092_retry_visible",
       "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "6",
+      "when": 1793050893572,
+      "tag": "0093_app_settings",
+      "breakpoints": true
     }
   ]
 }

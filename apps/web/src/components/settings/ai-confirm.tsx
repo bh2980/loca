@@ -1,10 +1,10 @@
 import { Link } from '@tanstack/react-router';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Box, Checkbox, Text, TextLink, Field } from '@loca/ui';
-import { client, unwrap } from '@/lib/api';
-import { optimistic } from '@/lib/optimistic';
 import { q } from '@/lib/queries';
+import type { SettingsTarget } from '@/lib/settings-target';
+import { useTargetSettings } from '@/lib/target-settings';
 
 /**
  * Where AI results that are knowledge or terms are written or listed: how they land under the
@@ -26,25 +26,15 @@ export function AiConfirmNote({ projectId }: { projectId: string }) {
 }
 
 /**
- * The project's AI 문맥 switch: AI results that are knowledge or terms are confirmed right away
+ * The AI 문맥 switch of a project or of the home's defaults: AI results that are knowledge or terms are confirmed right away
  * (✦ until a person looks) or land as candidates a person confirms. Lines are not touched by it.
  */
-export function AiAutoConfirmSetting({ projectId }: { projectId: string }) {
-  const queryClient = useQueryClient();
-  const project = useQuery(q.project(projectId));
-  const save = useMutation({
-    mutationFn: (aiAutoConfirm: boolean) => unwrap(client.projects[':projectId'].$patch({ param: { projectId }, json: { aiAutoConfirm } })),
-    onMutate: async (aiAutoConfirm) => ({ undo: await optimistic(queryClient, [{ key: q.project(projectId).queryKey, update: (data: object) => ({ ...data, aiAutoConfirm }) }]) }),
-    onSuccess: () => toast.success('저장했습니다.'),
-    onError: (error, _next, context) => {
-      context?.undo();
-      toast.error(error.message);
-    },
-  });
+export function AiAutoConfirmSetting({ target }: { target: SettingsTarget }) {
+  const { loaded, aiAutoConfirm, save } = useTargetSettings(target);
   return (
     <Box spaceY="tight">
       <Field.Label variant="choice">
-        <Checkbox checked={project.data?.aiAutoConfirm ?? true} disabled={!project.data || save.isPending} onCheckedChange={(checked) => save.mutate(checked === true)} />
+        <Checkbox checked={aiAutoConfirm} disabled={!loaded || save.isPending} onCheckedChange={(checked) => save.mutate({ aiAutoConfirm: checked === true }, { onSuccess: () => toast.success('저장했습니다.') })} />
         AI가 만든 용어·자료를 바로 확정
       </Field.Label>
       <Text as="p" variant="caption" tone="muted" paddingLeft="spacious">끄면 후보로 들어가고, 사람이 확정해야 문맥에 쓰입니다.</Text>

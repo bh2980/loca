@@ -1,12 +1,10 @@
 import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronRight } from 'lucide-react';
-import { toast } from 'sonner';
 import { AI_PROMPTS, COMPLETE_SYSTEM, CONTEXT_FIELDS, DEFAULT_EDITOR_AI, type EditorAi, type EditorButton } from '@tw/shared';
 import { ModelPicker } from '@/components/model-picker';
 import { Box, Button, Checkbox, Collapsible, CollapsibleContent, CollapsibleTrigger, Field, HelpTip, Icon, Inline, SaveStatusLine, Stack, Switch, Text, Textarea, Input, Section } from '@loca/ui';
-import { client, unwrap } from '@/lib/api';
-import { q } from '@/lib/queries';
+import { targetScope, type SettingsTarget } from '@/lib/settings-target';
+import { useTargetSettings } from '@/lib/target-settings';
 import { useFormFrom } from '@/lib/use-form-from';
 
 /** A text kept locally while typed and saved when the field is left (a prompt is long; one save, not one per key). */
@@ -85,38 +83,22 @@ function Instructions({ id, label, value, preset, presetLabel, storage, onSave }
 }
 
 /**
- * The editor's AI, per project. AI 번역 and 다듬기 share one model (any connection, a CLI too) and what
+ * The editor's AI, of a project or of the home's defaults. AI 번역 and 다듬기 share one model (any connection, a CLI too) and what
  * is sent with the line, each button with its own instructions (from the AI 번역 / AI 다듬기 presets);
  * the continuation (자동완성) answers as the person types, so it has its own API model. Time limits
  * and caps are under 고급. Materials are sent whether or not a person confirmed them (the context's default).
  */
-export function EditorAiSection({ projectId }: { projectId: string }) {
-  const project = useQuery(q.project(projectId));
-  const queryClient = useQueryClient();
-  const settings: EditorAi = project.data?.editorAi ?? DEFAULT_EDITOR_AI;
-  // Shown at once: the project's cached settings change before the server answers (undone on failure).
-  const save = useMutation({
-    mutationFn: (editorAi: EditorAi) => unwrap(client.projects[':projectId'].$patch({ param: { projectId }, json: { editorAi } })),
-    onMutate: async (editorAi) => {
-      const key = q.project(projectId).queryKey;
-      await queryClient.cancelQueries({ queryKey: key });
-      const before = queryClient.getQueryData(key);
-      queryClient.setQueryData(key, (old) => (old ? { ...old, editorAi } : old));
-      return { before };
-    },
-    onError: (error, _value, context) => {
-      if (context?.before) queryClient.setQueryData(q.project(projectId).queryKey, context.before);
-      toast.error(error.message);
-    },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: q.project(projectId).queryKey }),
-  });
+export function EditorAiSection({ target }: { target: SettingsTarget }) {
+  const { editorAi: settings, editorCallsToday, save: saveSettings } = useTargetSettings(target);
+  // Shown at once: the cached settings change before the server answers (undone on failure).
+  const save = { ...saveSettings, mutate: (editorAi: EditorAi) => saveSettings.mutate({ editorAi }) };
   const change = (patch: Partial<EditorAi>) => save.mutate({ ...settings, ...patch });
   const context = settings.context;
   const setContext = (patch: Partial<EditorAi['context']>) => change({ context: { ...context, ...patch } });
   const setButton = (id: EditorButton, patch: Partial<EditorAi[EditorButton]>) => change({ [id]: { ...settings[id], ...patch } });
   const complete = settings.complete;
   const setComplete = (patch: Partial<EditorAi['complete']>) => change({ complete: { ...complete, ...patch } });
-  const key = (name: string) => `editor-ai-${name}.${projectId}`;
+  const key = (name: string) => `editor-ai-${name}.${targetScope(target)}`;
 
   return (
     <Section variant="page" title="편집기 AI">
@@ -128,7 +110,7 @@ export function EditorAiSection({ projectId }: { projectId: string }) {
           </Box>
           <Field>
             <Field.Label>모델</Field.Label>
-            <ModelPicker value={settings.model} onChange={(model) => change({ model })} />
+            <ModelPicker target={target} value={settings.model} onChange={(model) => change({ model })} />
           </Field>
           <Field>
             <Field.Label>함께 보낼 것</Field.Label>
@@ -167,15 +149,17 @@ export function EditorAiSection({ projectId }: { projectId: string }) {
           <Field orientation="horizontal">
             <Switch id="editor-ai-on" checked={complete.enabled} onCheckedChange={(enabled) => setComplete({ enabled })} />
             <Field.Label htmlFor="editor-ai-on">자동완성</Field.Label>
-            <Text variant="caption" tone="muted" tabular marginLeft="auto">
-              오늘 {project.data?.editorCallsToday ?? 0}/{complete.dailyCap}회
-            </Text>
+            {editorCallsToday !== undefined && (
+              <Text variant="caption" tone="muted" tabular marginLeft="auto">
+                오늘 {editorCallsToday}/{complete.dailyCap}회
+              </Text>
+            )}
           </Field>
           {/* Indented under the switch: everything here belongs to autocomplete only. */}
           <Field.Group nested>
             <Field>
               <Field.Label>모델</Field.Label>
-              <ModelPicker value={complete.model} onChange={(model) => setComplete({ model })} kinds={['openai']} />
+              <ModelPicker target={target} value={complete.model} onChange={(model) => setComplete({ model })} kinds={['openai']} />
               <Field.Description>API 연결만 됩니다.</Field.Description>
             </Field>
             <Field>
@@ -225,8 +209,8 @@ export function EditorAiSection({ projectId }: { projectId: string }) {
         </Collapsible>
 
         <SaveStatusLine
-          status={save.isPending ? 'saving' : save.isSuccess ? 'saved' : save.isError ? 'failed' : 'idle'}
-          onRetry={save.variables ? () => save.mutate(save.variables) : undefined}
+          status={saveSettings.isPending ? 'saving' : saveSettings.isSuccess ? 'saved' : saveSettings.isError ? 'failed' : 'idle'}
+          onRetry={saveSettings.variables ? () => saveSettings.mutate(saveSettings.variables) : undefined}
         />
       </Field.Group>
     </Section>

@@ -1,29 +1,16 @@
 import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Pencil, Plus, Trash2 } from 'lucide-react';
-import { toast } from 'sonner';
 import { PROMPT_TARGET, savedPromptSchema, savedPromptsSchema, type SavedPrompt } from '@tw/shared';
 import { Box, Button, Inline, Stack, Text, Input, Textarea, Section } from '@loca/ui';
-import { client, unwrap } from '@/lib/api';
-import { q } from '@/lib/queries';
+import type { SettingsTarget } from '@/lib/settings-target';
+import { useTargetPrompts } from '@/lib/target-settings';
 
-/** 저장한 지시: prompts kept for the project and called as /name in the chat box. Edited in place, saved whole. */
-export function SavedPromptsSection({ projectId }: { projectId: string }) {
-  const queryClient = useQueryClient();
-  const prompts = useQuery(q.prompts(projectId));
-  const list = prompts.data ?? [];
+/** 저장한 지시: prompts kept for the project (or the home's defaults) and called as /name in the chat box. Edited in place, saved whole. */
+export function SavedPromptsSection({ target }: { target: SettingsTarget }) {
+  const { list, pending, save: savePrompts } = useTargetPrompts(target);
   // `index` -1: a new one at the end.
   const [editing, setEditing] = useState<{ index: number; name: string; text: string } | null>(null);
-
-  const save = useMutation({
-    mutationFn: (next: SavedPrompt[]) => unwrap(client.projects[':projectId'].prompts.$put({ param: { projectId }, json: { prompts: next } })),
-    onMutate: (next) => {
-      queryClient.setQueryData(q.prompts(projectId).queryKey, next);
-    },
-    onSuccess: () => toast.success('저장한 지시를 저장했습니다.'),
-    onError: (error) => toast.error(error.message),
-    onSettled: () => void queryClient.invalidateQueries({ queryKey: q.prompts(projectId).queryKey }),
-  });
+  const save = { isPending: pending, mutate: savePrompts };
 
   const draft = editing && savedPromptSchema.safeParse({ name: editing.name, text: editing.text });
   const next = editing && draft?.success ? list.map((item, index) => (index === editing.index ? draft.data : item)) : null;

@@ -145,7 +145,7 @@ function WorkflowEditor() {
   const [minimap, setMinimap] = useState(false);
   const workflow = useQuery(q.workflow(workflowId));
   const statuses = useQuery(q.statuses(projectId));
-  const connections = useQuery(q.connections());
+  const connections = useQuery(q.connections({ kind: 'project', projectId }));
   const runs = useQuery(q.runs(projectId));
   const workflows = useQuery(q.workflows(projectId));
   const activeRun = runs.data?.find((run) => run.workflowId === workflowId && (run.status === 'running' || run.status === 'paused'));

@@ -35,12 +35,12 @@ export const runModelInput = z.record(z.string(), z.object({ connection: z.strin
 export type RunModelInput = z.infer<typeof runModelInput>;
 
 /** `runModelInput` as the run takes it (by node id and connection id); what did not resolve is returned as `unknown`. */
-export function resolveRunModels(db: Db, definition: WorkflowDefinition, input: RunModelInput | undefined) {
+export function resolveRunModels(db: Db, projectId: string, definition: WorkflowDefinition, input: RunModelInput | undefined) {
   const models: RunModels = {};
   const unknown: string[] = [];
   if (!input) return { models, unknown };
   // API-key (http) connections are for tools, not AI nodes: the run refuses them, so the preview does too.
-  const connections = db.select({ id: s.connections.id, name: s.connections.name }).from(s.connections).where(ne(s.connections.kind, 'http')).all();
+  const connections = db.select({ id: s.connections.id, name: s.connections.name }).from(s.connections).where(and(eq(s.connections.projectId, projectId), ne(s.connections.kind, 'http'))).all();
   const ai = definition.nodes.filter((node) => node.type === 'ai');
   for (const [key, pick] of Object.entries(input)) {
     const connection = connections.find((row) => row.id === pick.connection) ?? connections.find((row) => row.name.toLowerCase() === pick.connection.toLowerCase());
@@ -116,7 +116,7 @@ export async function planRun(db: Db, projectId: string, input: PlanInput) {
   const mismatch = scopeMismatch(workflowInput(workflow.definition), scope);
   if (mismatch) return { ok: false as const, error: mismatch };
   if (unknown.length) return { ok: false as const, error: `찾지 못함: ${unknown.slice(0, 10).join(', ')}` };
-  const picked = resolveRunModels(db, workflow.definition, input.models);
+  const picked = resolveRunModels(db, projectId, workflow.definition, input.models);
   if (picked.unknown.length) return { ok: false as const, error: `찾지 못함: ${picked.unknown.join(', ')}` };
   let planned;
   try {

@@ -26,3 +26,6 @@ export interface TagRowData {
 export const scopeLabel = (scope: readonly TagScope[]) => (TAG_SCOPES.every((place) => scope.includes(place)) ? '어디든' : TAG_SCOPES.filter((place) => scope.includes(place)).map((place) => TAG_SCOPE_LABELS[place]).join(' · '));
 export type TagForm = { name: string; color: string; scope: TagScope[] };
 export type StatusForm = { name: string; color: string; kind: Kind; inReview: boolean };
+
+/** A status or tag as the home's defaults hold it: no lines carry it yet, so no count. */
+export type WithoutUnits<T extends { units: number }> = Omit<T, 'units'> & { units?: number };

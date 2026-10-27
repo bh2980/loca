@@ -1,4 +1,4 @@
-import { AGENT_TOOLS, type AgeBand, type AutoMark, type Gender, personLabel, CHARACTER_ROLE_LABELS, type CharacterRole } from '@tw/shared';
+import { AGENT_TOOLS, APP_DEFAULT_SECTION_LABELS, type AppDefaultSection, type AgeBand, type AutoMark, type Gender, personLabel, CHARACTER_ROLE_LABELS, type CharacterRole } from '@tw/shared';
 import { MarkChip } from '@/components/status';
 import { Box, Markdown, Grid, Inline, Text, SectionHeading } from '@loca/ui';
 
@@ -86,6 +86,10 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
           {pending && <Text as="p" tone="danger">수락하면 바로 지워지고 되돌릴 수 없습니다. 이 항목에 걸린 관계·태그 연결도 함께 지워집니다.</Text>}
         </Box>
       );
+    }
+    case 'pull_app_defaults': {
+      const sections = Array.isArray(input.sections) ? (input.sections as AppDefaultSection[]) : [];
+      return <Text as="p">홈 기본값에서 가져옴: {sections.map((section) => APP_DEFAULT_SECTION_LABELS[section] ?? section).join(', ')}. 상태·태그·저장한 지시는 없는 이름만 더하고, 워크플로는 새로 더합니다.</Text>;
     }
     case 'update_project_settings': {
       const labels: Record<string, string> = { name: '이름', description: '설명', formatRules: '서식 규칙', aiAutoConfirm: 'AI 문맥', editorAi: '편집기 AI', markColors: '표시 색' };

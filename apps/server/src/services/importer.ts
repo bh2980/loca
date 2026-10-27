@@ -1,12 +1,8 @@
-import {
-  DEFAULT_STATUSES,
-  defaultWorkflows,
-  detectFormatRules,
-  ISSUE_KINDS,
-  type DraftModelChoice,
-  type ImportFile,
-} from '@tw/shared';
+import { and, eq, isNull } from 'drizzle-orm';
+import { detectFormatRules, templateStatusIds, type DraftModelChoice, type ImportFile } from '@tw/shared';
 import type { Db } from '../db/index.ts';
+import { copyKeys, seedProject, type KeyCopy } from './app-defaults.ts';
+import type { SecretStore } from './secrets.ts';
 import { attachUnitTags } from './tag-scope.ts';
 
 /** Colors for tags that came with the file, in turn. */
@@ -26,10 +22,15 @@ export interface ImportSummary {
   graphEdges: number;
 }
 
-/** Creates a project from a validated standard file. Everything lands in one transaction or nothing does. */
-export function importProject(db: Db, file: ImportFile, model: DraftModelChoice = { connectionId: '', model: '' }): ImportSummary {
+/**
+ * Creates a project from a validated standard file, starting from the 홈 설정 (seedProject: its
+ * connections, statuses, tags, editor and chat settings, workflows). Everything lands in one
+ * transaction or nothing does; the copied connections' keys follow when `secrets` is given.
+ */
+export function importProject(db: Db, file: ImportFile, model: DraftModelChoice = { connectionId: '', model: '' }, secrets?: SecretStore): ImportSummary {
   const projectId = crypto.randomUUID();
   let addedNodes = 0;
+  let keys: KeyCopy[] = [];
   db.transaction((tx) => {
     const detected = !file.project.formatRules ? detectFormatRules(file.units.map((u) => u.source)) : null;
     const formatRules = file.project.formatRules ?? (detected && detected.recommendedPresets.length > 0 ? { presets: detected.recommendedPresets, custom: [] } : undefined);
@@ -45,15 +46,13 @@ export function importProject(db: Db, file: ImportFile, model: DraftModelChoice 
       })
       .run();
 
-    const statusIds = Object.fromEntries(DEFAULT_STATUSES.map((status) => [status.key, crypto.randomUUID()]));
-    insertMany(
-      tx,
-      s.statuses,
-      DEFAULT_STATUSES.map((status, sort) => ({ id: statusIds[status.key], projectId, name: status.name, color: status.color, kind: status.kind, inReview: status.inReview, sort })),
-    );
-
-    // Tags every project starts with (the app's own, found again by role).
-    const aiFailedTagId = tx.insert(s.tags).values({ projectId, name: ISSUE_KINDS.aiFailed.name, color: ISSUE_KINDS.aiFailed.color, role: 'aiFailed' }).returning({ id: s.tags.id }).get().id;
+    // Before the lines: they take its statuses, and the file's tags join its tags by name.
+    keys = seedProject(tx, projectId, model).keys;
+    const statuses = tx.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).all().sort((a, b) => a.sort - b.sort);
+    const picked = templateStatusIds(statuses);
+    // A line that comes with a translation starts in the first in-between status outside the review inbox (번역됨), or the first status.
+    const startStatus = picked.untranslated ?? statuses[0]!.id;
+    const translatedStatus = picked.translated ?? startStatus;
 
     const groupIds = new Map<string, string>();
     insertMany(
@@ -90,7 +89,7 @@ export function importProject(db: Db, file: ImportFile, model: DraftModelChoice 
         source: unit.source,
         translation: unit.translation ?? null,
         candidateId,
-        statusId: unit.translation ? statusIds.translated : statusIds.untranslated,
+        statusId: unit.translation ? translatedStatus : startStatus,
         meta: unit.meta,
       });
     });
@@ -112,7 +111,8 @@ export function importProject(db: Db, file: ImportFile, model: DraftModelChoice 
     // Tags from the game data: one project tag per distinct name.
     const tagNames = [...new Set(file.units.flatMap((unit) => unit.tags))];
     if (tagNames.length) {
-      const tagIds = new Map(tagNames.map((name, index) => [name, tx.insert(s.tags).values({ projectId, name, color: TAG_COLORS[index % TAG_COLORS.length] }).returning({ id: s.tags.id }).get().id]));
+      const ownTag = (name: string) => tx.select({ id: s.tags.id }).from(s.tags).where(and(eq(s.tags.projectId, projectId), eq(s.tags.name, name), isNull(s.tags.role))).get()?.id;
+      const tagIds = new Map(tagNames.map((name, index) => [name, ownTag(name) ?? tx.insert(s.tags).values({ projectId, name, color: TAG_COLORS[index % TAG_COLORS.length] }).returning({ id: s.tags.id }).get().id]));
       const unitsOf = new Map<string, string[]>();
       for (const unit of file.units) for (const name of unit.tags) unitsOf.set(name, [...(unitsOf.get(name) ?? []), unitIds.get(unit.key)!]);
       for (const [name, tagId] of tagIds) attachUnitTags(tx, projectId, unitsOf.get(name) ?? [], { add: [tagId] }, { onMisplaced: 'skip' });
@@ -186,9 +186,8 @@ export function importProject(db: Db, file: ImportFile, model: DraftModelChoice 
       file.speechRules.map((rule) => ({ projectId, fromName: rule.from, toName: rule.to, level: rule.level, address: rule.address, note: rule.note, startKey: rule.start ?? null, origin: 'import' as const })),
     );
     insertMany(tx, s.terms, file.terms.map((term) => ({ projectId, ...term })));
-
-    for (const workflow of defaultWorkflows({ model, untranslated: statusIds.untranslated, translated: statusIds.translated, aiFailedTag: aiFailedTagId, needsReview: statusIds.needsReview, confirmed: statusIds.confirmed })) tx.insert(s.workflows).values({ projectId, ...workflow }).run();
   });
+  copyKeys(secrets, keys);
   return {
     projectId,
     groups: file.groups.length,

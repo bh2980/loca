@@ -26,7 +26,7 @@ interface Step {
  * person closes it (kept per project in this browser; '시작하기' in the header brings it back).
  */
 export function GettingStarted({ projectId }: { projectId: string }) {
-  const connections = useQuery(q.connections());
+  const connections = useQuery(q.connections({ kind: 'project', projectId }));
   const characters = useQuery(q.characters(projectId));
   const rules = useQuery(q.speechRules(projectId));
   const reviewTag = useReviewTagId(projectId);

@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { runNodeName, validateWorkflow, workflowRefOf, type WorkflowDefinition } from '@tw/shared';
 import { expandedDefinition } from '../engine/expand-calls.ts';
 import type { Db } from '../db/index.ts';
@@ -10,10 +10,10 @@ export function workflowIssues(db: Db, projectId: string, definition: WorkflowDe
   return validateWorkflow(definition, {
     workflows: workflowRefsOf(db, projectId),
     workflowId,
-    connections: new Map(db.select({ id: s.connections.id, kind: s.connections.kind }).from(s.connections).all().filter((row) => row.kind !== 'http').map((row) => [row.id, row.kind])),
+    connections: new Map(db.select({ id: s.connections.id, kind: s.connections.kind }).from(s.connections).where(eq(s.connections.projectId, projectId)).all().filter((row) => row.kind !== 'http').map((row) => [row.id, row.kind])),
     statusIds: ids(db.select({ id: s.statuses.id }).from(s.statuses).where(eq(s.statuses.projectId, projectId)).all()),
     tagIds: ids(db.select({ id: s.tags.id }).from(s.tags).where(eq(s.tags.projectId, projectId)).all()),
-    toolConnectionIds: ids(db.select({ id: s.connections.id }).from(s.connections).where(eq(s.connections.kind, 'http')).all()),
+    toolConnectionIds: ids(db.select({ id: s.connections.id }).from(s.connections).where(and(eq(s.connections.projectId, projectId), eq(s.connections.kind, 'http'))).all()),
   });
 }
 

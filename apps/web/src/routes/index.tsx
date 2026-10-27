@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { FolderOpen } from 'lucide-react';
-import { SectionHeading, EmptyContent, EmptyHeader, EmptyMedia, EmptyTitle, Box, Inline, Stack, BrandMark, Grid, ProjectCard, ProjectCardLink, ProjectListFrame, Skeleton, EmptyState } from '@loca/ui';
+import { Button, SectionHeading, EmptyContent, EmptyHeader, EmptyMedia, EmptyTitle, Box, Inline, Stack, BrandMark, Grid, ProjectCard, ProjectCardLink, ProjectListFrame, Skeleton, EmptyState } from '@loca/ui';
 import { ImportProjectDialog } from '@/components/import-project';
 import { q } from '@/lib/queries';
 
@@ -18,7 +18,12 @@ function Home() {
             <SectionHeading level="page" as="h1">loca</SectionHeading>
           </Box>
         </Inline>
-        {!!projects.data?.length && <ImportProjectDialog />}
+        <Inline gap="condensed">
+          <Button asChild variant="ghost">
+            <Link to="/settings">설정</Link>
+          </Button>
+          {!!projects.data?.length && <ImportProjectDialog />}
+        </Inline>
       </Stack>
 
       {projects.isPending && (
