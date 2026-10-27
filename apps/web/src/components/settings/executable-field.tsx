@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Button, InspectorResult, Text, Input, Field } from '@loca/ui';
-import { client, unwrap } from '@/lib/api';
+import { unwrap } from '@/lib/api';
+import { connectionsApi, targetScope, type SettingsTarget } from '@/lib/settings-target';
 
 /**
  * A CLI connection's executable: by default the app finds it (PATH and the usual install dirs) and
  * shows the file it found and its version; "직접 지정" opens a path field for a binary it cannot find.
  * The browser cannot open a file dialog on the server's disk, so the server checks what is typed.
  */
-export function ExecutableField({ kind, value, onChange }: { kind: string; value: string; onChange: (value: string) => void }) {
+export function ExecutableField({ target, kind, value, onChange }: { target: SettingsTarget; kind: string; value: string; onChange: (value: string) => void }) {
   const [editing, setEditing] = useState(Boolean(value));
   const [checked, setChecked] = useState(value);
   useEffect(() => {
@@ -16,8 +17,8 @@ export function ExecutableField({ kind, value, onChange }: { kind: string; value
     return () => clearTimeout(timer);
   }, [value]);
   const located = useQuery({
-    queryKey: ['connections', 'locate', kind, checked],
-    queryFn: () => unwrap(client.connections.locate.$post({ json: { kind, executable: checked || undefined } })),
+    queryKey: ['connections', targetScope(target), 'locate', kind, checked],
+    queryFn: () => unwrap(connectionsApi(target).locate({ kind, executable: checked || undefined })),
     staleTime: 30_000,
   });
   const found = located.data;

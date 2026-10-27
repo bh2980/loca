@@ -14,7 +14,9 @@ export type Topic =
   | 'runs'
   | 'chat'
   | 'proposals'
-  | 'calls';
+  | 'calls'
+  /** 홈 설정 (app_settings): read by no project query. */
+  | 'app';
 
 /**
  * Queries that read beyond their own topic's tables, so a change also refreshes them. Kept here,

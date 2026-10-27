@@ -5,7 +5,7 @@ import { InspectorToggle, InspectorHeader, Inspector, Button, Input, Select, Sel
 import { STATUS_KIND } from '@/lib/labels';
 import { changedFields, useFormFrom } from '@/lib/use-form-from';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
-import { type Kind, type StatusForm, type StatusRowData } from '@/components/settings/status-types';
+import { type Kind, type StatusForm, type StatusRowData, type WithoutUnits } from '@/components/settings/status-types';
 import { Swatches } from '@/components/settings/swatches';
 
 /** Add or edit one status: its fields are a draft until saved (rows are reordered by dragging in the table). */
@@ -19,7 +19,8 @@ export function StatusPane({
   onSave,
   onDelete,
 }: {
-  status?: StatusRowData;
+  /** `units` left out (the home's defaults): no line count is shown. */
+  status?: WithoutUnits<StatusRowData>;
   count?: number;
   pending: boolean;
   onClose: () => void;
@@ -33,7 +34,7 @@ export function StatusPane({
   return (
     <Inspector footerStart={onDelete ? (<><Button variant="ghost" tone="danger" disabled={count < 2} title={count < 2 ? '상태가 하나뿐이면 지울 수 없습니다' : undefined} onClick={onDelete}>
             <Trash2 /> 상태 삭제
-          </Button></>) : undefined} header={<InspectorHeader kind="상태" name={status ? status.name : '상태 추가'} status={status ? `대사 ${status.units.toLocaleString()}개` : undefined} onClose={onClose} />} footer={
+          </Button></>) : undefined} header={<InspectorHeader kind="상태" name={status ? status.name : '상태 추가'} status={status?.units !== undefined ? `대사 ${status.units.toLocaleString()}개` : undefined} onClose={onClose} />} footer={
         <Button disabled={!form.name.trim() || !dirty || pending} onClick={() => onSave(form, changedFields(form, saved))}>
           {status ? '저장' : '추가'}
         </Button>

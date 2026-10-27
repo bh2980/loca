@@ -4,7 +4,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Check, ChevronsUpDown } from 'lucide-react';
 import { CONNECTION_KIND_INFO, isFreeModel, type Capability, type ConnectionKind } from '@tw/shared';
 import { Chip, Box, Button, Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, Field, Icon, Inline, Popover, PopoverContent, PopoverTrigger, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Stack, Text } from '@loca/ui';
-import { client, unwrap } from '@/lib/api';
+import { unwrap } from '@/lib/api';
+import { connectionsApi, targetScope, type SettingsTarget } from '@/lib/settings-target';
 import { q } from '@/lib/queries';
 
 /** Which AI a place of use calls. Empty strings: nothing picked yet. */
@@ -17,10 +18,10 @@ export interface ModelValue {
 const DEFAULT_EFFORT = '__default';
 
 /** A connection's models, as it lists them (APIs can list hundreds; CLIs may list none). */
-function useModels(connectionId: string | undefined) {
+function useModels(target: SettingsTarget, connectionId: string | undefined) {
   return useQuery({
-    queryKey: ['connections', connectionId, 'models'],
-    queryFn: () => unwrap(client.connections[':id'].models.$get({ param: { id: connectionId! } })),
+    queryKey: ['connections', targetScope(target), connectionId, 'models'],
+    queryFn: () => unwrap(connectionsApi(target).models(connectionId!)),
     enabled: !!connectionId,
     staleTime: 60_000,
     retry: false,
@@ -28,8 +29,8 @@ function useModels(connectionId: string | undefined) {
 }
 
 /** "connection · model · effort" for a value, or null when nothing (or a deleted connection) is picked. */
-function useModelLabel(value: ModelValue | null | undefined) {
-  const connections = useQuery(q.connections());
+function useModelLabel(target: SettingsTarget, value: ModelValue | null | undefined) {
+  const connections = useQuery(q.connections(target));
   const connection = value?.connectionId ? connections.data?.find((item) => item.id === value.connectionId) : undefined;
   if (!value?.connectionId || !value.model) return null;
   // Until the connections arrive the name is unknown, not deleted.
@@ -50,6 +51,7 @@ export function ModelPicker({
   compact,
   id,
   grow,
+  target: targetProp,
   open: openProp,
   onOpenChange,
 }: {
@@ -68,13 +70,16 @@ export function ModelPicker({
   id?: string;
   /** Shares the width of a row with what is beside it (instead of filling it). */
   grow?: boolean;
+  /** Whose connections are offered; left out, the project of the current route. */
+  target?: SettingsTarget;
 }) {
   const params = useParams({ strict: false });
-  const connections = useQuery(q.connections());
+  const target: SettingsTarget = targetProp ?? { kind: 'project', projectId: params.projectId! };
+  const connections = useQuery(q.connections(target));
   const usable = (connections.data ?? []).filter((item) => (!kinds || kinds.includes(item.kind)) && CONNECTION_KIND_INFO[item.kind].capabilities.some((capability) => need.includes(capability)));
   const connection = usable.find((item) => item.id === value?.connectionId);
   const efforts = connection ? CONNECTION_KIND_INFO[connection.kind].efforts : [];
-  const fullLabel = useModelLabel(value);
+  const fullLabel = useModelLabel(target, value);
   const label = lockConnection ? [value?.model, value?.effort].filter(Boolean).join(' · ') || null : fullLabel;
   const free = connection ? isFreeModel(connection.kind, value?.model) : false;
   const [ownOpen, setOwnOpen] = useState(false);
@@ -86,7 +91,7 @@ export function ModelPicker({
   const [query, setQuery] = useState('');
   // Listed once the picker has been opened (a CLI may start a process to list them), and kept while it closes.
   const [opened, setOpened] = useState(false);
-  const models = useModels(opened || open ? value?.connectionId || undefined : undefined);
+  const models = useModels(target, opened || open ? value?.connectionId || undefined : undefined);
   const list = models.data?.models ?? [];
   const typed = query.trim();
 
@@ -209,11 +214,17 @@ export function ModelPicker({
         ) : (
           <Text as="p" padding="normal" variant="body" tone="muted">
             {connections.isPending ? '연결을 불러오는 중…' : '여기에 쓸 수 있는 AI 연결이 없습니다. '}
-            {!connections.isPending && params.projectId && (
+            {!connections.isPending && (
               <Text asChild underline>
-                <Link to="/p/$projectId/settings/connections" params={{ projectId: params.projectId }} onClick={() => setOpen(false)}>
-                  AI 연결 추가
-                </Link>
+                {target.kind === 'project' ? (
+                  <Link to="/p/$projectId/settings/connections" params={{ projectId: target.projectId }} onClick={() => setOpen(false)}>
+                    AI 연결 추가
+                  </Link>
+                ) : (
+                  <Link to="/settings/defaults/connections" onClick={() => setOpen(false)}>
+                    AI 연결 추가
+                  </Link>
+                )}
               </Text>
             )}
           </Text>

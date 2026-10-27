@@ -1,13 +1,10 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useParams } from '@tanstack/react-router';
 import { toast } from 'sonner';
-import { AGENT_ACTIONS, AGENT_RESOURCES, agentSettingsSchema, effectiveAgentPermissions, PERMISSION_MODE_INFO, type AgentAction, type AgentPermissions, type AgentResource, type AgentSettings, type PermissionMode } from '@tw/shared';
+import { AGENT_ACTIONS, AGENT_RESOURCES, effectiveAgentPermissions, PERMISSION_MODE_INFO, type AgentAction, type AgentPermissions, type AgentResource, type AgentSettings, type PermissionMode } from '@tw/shared';
 import { PermissionModePicker } from '@/components/chat/permission-mode';
 import { Box, Button, PermissionMatrix, Text, Section, Inline } from '@loca/ui';
 import { ModelPicker } from '@/components/model-picker';
-import { client, unwrap } from '@/lib/api';
-import { optimistic } from '@/lib/optimistic';
-import { q } from '@/lib/queries';
+import type { SettingsTarget } from '@/lib/settings-target';
+import { useTargetSettings } from '@/lib/target-settings';
 import { SavedPromptsSection } from './saved-prompts';
 
 const RESOURCES = Object.keys(AGENT_RESOURCES) as AgentResource[];
@@ -19,27 +16,14 @@ const MATRIX_ROWS = RESOURCES.map((id) => {
   return { id, label: resource.label, supported: resource.actions as readonly AgentAction[], ...('description' in resource && { description: resource.description }) };
 });
 
-export function AgentTab({ projectId: propProjectId }: { projectId?: string } = {}) {
-  const params = useParams({ strict: false }) as { projectId?: string };
-  const projectId = propProjectId ?? params.projectId!;
-  const queryClient = useQueryClient();
-  const project = useQuery(q.project(projectId));
-  const loaded = !!project.data;
-  const settings = agentSettingsSchema.parse(project.data?.agentSettings ?? {});
+export function AgentTab({ target }: { target: SettingsTarget }) {
+  const { loaded, agentSettings: settings, save: saveAgent } = useTargetSettings(target);
+  const save = {
+    ...saveAgent,
+    mutate: (next: AgentSettings) => saveAgent.mutate({ agentSettings: next }, { onSuccess: () => toast.success('채팅 설정을 저장했습니다.') }),
+  };
   const permissions = effectiveAgentPermissions(settings);
   const defaultMode: PermissionMode = settings.defaultPermissionMode;
-
-  const save = useMutation({
-    mutationFn: (next: AgentSettings) => unwrap(client.projects[':projectId'].$patch({ param: { projectId }, json: { agentSettings: next } })),
-    onMutate: async (next) => ({
-      undo: await optimistic(queryClient, [{ key: ['units', 'project', projectId], update: (data: { agentSettings: object }) => ({ ...data, agentSettings: next }) }]),
-    }),
-    onSuccess: () => toast.success('채팅 설정을 저장했습니다.'),
-    onError: (error, _next, context) => {
-      context?.undo();
-      toast.error(error.message);
-    },
-  });
 
   const saveSettings = (next: AgentSettings, nextPermissions: AgentPermissions = effectiveAgentPermissions(settings)) => {
     save.mutate({ ...next, disabledTools: [], permissions: nextPermissions });
@@ -60,6 +44,7 @@ export function AgentTab({ projectId: propProjectId }: { projectId?: string } = 
           <Inline gap="condensed" maxWidth="reading">
             <Box minWidth={0} grow>
               <ModelPicker
+                target={target}
                 need={['chat']}
                 value={settings.chatModel ?? { connectionId: '', model: '' }}
                 onChange={(next) => next.connectionId && next.model && saveSettings({ ...settings, chatModel: next })}
@@ -80,7 +65,7 @@ export function AgentTab({ projectId: propProjectId }: { projectId?: string } = 
           </Box>
         </Section>
 
-        <SavedPromptsSection projectId={projectId} />
+        <SavedPromptsSection target={target} />
 
         <Section variant="page" title="도구 권한" description="채팅 AI와 터미널의 loca call에만 적용됩니다. 삭제는 기본으로 꺼져 있습니다.">
           <PermissionMatrix

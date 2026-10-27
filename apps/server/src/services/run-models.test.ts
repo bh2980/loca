@@ -12,8 +12,8 @@ function setup() {
   const db = openDatabase(':memory:');
   const file = importFileSchema.parse(JSON.parse(readFileSync(new URL('../../../../samples/relay-station.json', import.meta.url), 'utf8')));
   const { projectId } = importProject(db, file);
-  const own = db.insert(s.connections).values({ kind: 'openai', name: 'Own', baseUrl: 'http://localhost:1/v1' }).returning().get();
-  const other = db.insert(s.connections).values({ kind: 'openai', name: 'Other', baseUrl: 'http://localhost:2/v1' }).returning().get();
+  const own = db.insert(s.connections).values({ kind: 'openai', projectId, name: 'Own', baseUrl: 'http://localhost:1/v1' }).returning().get();
+  const other = db.insert(s.connections).values({ kind: 'openai', projectId, name: 'Other', baseUrl: 'http://localhost:2/v1' }).returning().get();
   // Every AI node of every workflow runs on Own unless a run says otherwise.
   for (const workflow of db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).all()) {
     const definition = { ...workflow.definition, nodes: workflow.definition.nodes.map((node) => (node.type === 'ai' ? { ...node, config: { ...node.config, model: { connectionId: own.id, model: 'own-model' } } } : node)) };

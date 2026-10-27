@@ -3,18 +3,20 @@ import { useMutation } from '@tanstack/react-query';
 import { Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Text, Inspector, InspectorHeader, Section, Field, Box } from '@loca/ui';
-import { client, unwrap } from '@/lib/api';
+import { unwrap } from '@/lib/api';
+import { connectionsApi, type SettingsTarget } from '@/lib/settings-target';
 
 export type KeyRow = { id: string; name: string; headerTemplate: string | null; hasKey: boolean };
 export const DEFAULT_HEADER = 'Authorization: Bearer {key}';
 const fail = (error: Error) => toast.error(error.message);
 
-export function KeyPane({ row, onClose, onCreated }: { row?: KeyRow; onClose: () => void; onCreated: (id: string) => void }) {
+export function KeyPane({ target, row, onClose, onCreated }: { target: SettingsTarget; row?: KeyRow; onClose: () => void; onCreated: (id: string) => void }) {
+  const api = connectionsApi(target);
   const [name, setName] = useState(row?.name ?? '');
   const [header, setHeader] = useState(row?.headerTemplate ?? DEFAULT_HEADER);
   const [secret, setSecret] = useState('');
   const create = useMutation({
-    mutationFn: () => unwrap(client.connections.$post({ json: { kind: 'http', name: name.trim(), headerTemplate: header.trim() || undefined, apiKey: secret.trim() || undefined } })),
+    mutationFn: () => unwrap(api.create({ kind: 'http', name: name.trim(), headerTemplate: header.trim() || undefined, apiKey: secret.trim() || undefined })),
     onSuccess: (created) => {
       toast.success('API 키를 추가했습니다.');
       onCreated(created.id);
@@ -23,8 +25,8 @@ export function KeyPane({ row, onClose, onCreated }: { row?: KeyRow; onClose: ()
   });
   const save = useMutation({
     mutationFn: async () => {
-      await unwrap(client.connections[':id'].$patch({ param: { id: row!.id }, json: { name: name.trim(), headerTemplate: header.trim() } }));
-      if (secret.trim()) await unwrap(client.connections[':id'].key.$put({ param: { id: row!.id }, json: { apiKey: secret.trim() } }));
+      await unwrap(api.patch(row!.id, { name: name.trim(), headerTemplate: header.trim() }));
+      if (secret.trim()) await unwrap(api.putKey(row!.id, secret.trim()));
     },
     onSuccess: () => {
       setSecret('');
@@ -32,7 +34,7 @@ export function KeyPane({ row, onClose, onCreated }: { row?: KeyRow; onClose: ()
     },
     onError: fail,
   });
-  const remove = useMutation({ mutationFn: () => unwrap(client.connections[':id'].$delete({ param: { id: row!.id } })), onSuccess: onClose, onError: fail });
+  const remove = useMutation({ mutationFn: () => unwrap(api.remove(row!.id)), onSuccess: onClose, onError: fail });
   const revert = () => {
     setName(row?.name ?? '');
     setHeader(row?.headerTemplate ?? DEFAULT_HEADER);

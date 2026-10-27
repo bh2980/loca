@@ -59,7 +59,7 @@ function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; ru
   const flow = useReactFlow();
   const { zoom } = useViewport();
   const statuses = useQuery(q.statuses(projectId));
-  const connections = useQuery(q.connections());
+  const connections = useQuery(q.connections({ kind: 'project', projectId }));
   // Each call is one card (its nodes are listed when it is opened); the run's own definition has them expanded.
   const definition = useMemo(() => collapseCalls(run.definition), [run.definition]);
   const [openCall, setOpenCall] = useState<string>();

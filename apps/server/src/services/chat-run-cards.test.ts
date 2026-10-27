@@ -15,6 +15,7 @@ const setup = () => {
   const db = openDatabase(':memory:');
   const connection = db.insert(s.connections).values({ kind: 'openai', name: 'mock', baseUrl: 'http://mock/v1' }).returning().get();
   const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'a', title: 'Ferry' }], units: [{ key: 'u1', group: 'a', source: 'one' }, { key: 'u2', group: 'a', source: 'two' }] }), { connectionId: connection.id, model: 'm' });
+  db.update(s.connections).set({ projectId }).where(eq(s.connections.id, connection.id)).run();
   const workflow = db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).all().find((item) => item.name === '번역')!;
   const group = db.select().from(s.groups).get()!;
   const sessionId = db.insert(s.chatSessions).values({ projectId, title: '새 대화' }).returning().get().id;

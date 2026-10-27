@@ -13,7 +13,7 @@ function ChatSettingsPage() {
   return (
     <Page title="채팅" flush>
       <PageBody width="wide">
-        <AgentTab projectId={projectId} />
+        <AgentTab target={{ kind: 'project', projectId }} />
       </PageBody>
     </Page>
   );

@@ -3,7 +3,7 @@ import { Box } from "../../primitives/box"
 import { Grid } from "../../primitives/grid"
 import { Stack } from "../../primitives/stack"
 import { Text } from "../../primitives/text"
-import { BrandMark, ProjectCard, ProjectCardLink, ProjectListFrame } from "./app-project-list"
+import { AppSettingsFrame, AppSettingsNavGroup, AppSettingsNavItem, BrandMark, ProjectCard, ProjectCardLink, ProjectListFrame } from "./app-project-list"
 import { FileDropZone } from "./app-import"
 import { StatusChipLink } from "./app-project-home"
 import { useState } from "react"
@@ -105,5 +105,29 @@ export const StatusPopover: Story = {
         <Text variant="caption" tone="muted">4/10</Text>
       </Stack>
     </Notice>
+  ),
+}
+
+/** The home settings frame: grouped links on the left, the page on the right. */
+export const SettingsFrame: Story = {
+  decorators: [(Story) => <Box style={{ width: 860, height: 420 }}><Story /></Box>],
+  render: () => (
+    <AppSettingsFrame
+      brand={<Stack direction="row" gap="condensed"><BrandMark /><Text weight="semibold">프로젝트 목록</Text></Stack>}
+      nav={
+        <>
+          <AppSettingsNavGroup title="새 프로젝트 기본값" note="새로 만드는 프로젝트에만 쓰입니다. 이미 있는 프로젝트는 각 프로젝트 설정의 '홈 기본값'에서 가져옵니다.">
+            <AppSettingsNavItem active><a href="#connections">연결</a></AppSettingsNavItem>
+            <AppSettingsNavItem><a href="#statuses">상태·태그</a></AppSettingsNavItem>
+            <AppSettingsNavItem><a href="#editor">에디터 AI</a></AppSettingsNavItem>
+          </AppSettingsNavGroup>
+          <AppSettingsNavGroup title="화면">
+            <AppSettingsNavItem><a href="#appearance">테마</a></AppSettingsNavItem>
+          </AppSettingsNavGroup>
+        </>
+      }
+    >
+      <Box padding="normal"><Text>본문</Text></Box>
+    </AppSettingsFrame>
   ),
 }

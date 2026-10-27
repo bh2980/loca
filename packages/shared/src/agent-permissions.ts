@@ -45,6 +45,7 @@ const fixed: Record<string, AgentPermission[]> = {
   update_tag: [p('tags', 'update')], delete_tag: [p('tags', 'delete')],
   delete_workflow: [p('workflows', 'delete')], edit_workflow_node: [p('workflows', 'update')], start_run: [p('workflows', 'run')],
   read_project_settings: read('project'), update_project_settings: [p('project', 'update')],
+  read_app_defaults: read('project'), pull_app_defaults: [p('project', 'update')],
   web_search: read('web'), read_web_page: read('web'),
 };
 const isRecord = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);

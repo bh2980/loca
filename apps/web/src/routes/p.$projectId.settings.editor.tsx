@@ -39,7 +39,7 @@ function EditorSettings() {
       </HeaderActions>
       <PageBody>
         {tab === 'ai' ? (
-          <EditorAiSection projectId={projectId} />
+          <EditorAiSection target={{ kind: 'project', projectId }} />
         ) : project.data ? (
           tab === 'format' ? (
             <FormatRulesSection projectId={projectId} rules={project.data.formatRules} />

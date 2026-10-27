@@ -373,6 +373,7 @@ const INVERSES: Record<string, Inverse> = {
     after: (_db, _proposal, before) => isRecord(before.values)
       ? { calls: [call('update_project_settings', before.values)] } : { calls: [] },
   },
+  pull_app_defaults: { after: () => none('가져온 값은 홈 기본값으로 바뀌어 있어 되돌릴 수 없습니다') },
   propose_translation: { after: () => none('후보만 추가했고 현재 번역은 그대로입니다') },
   start_run: { after: () => none('실행 기록은 되돌릴 수 없습니다') },
   delete_items: { after: () => none('삭제된 항목은 되살릴 수 없습니다') },

@@ -88,6 +88,8 @@ export const AGENT_TOOLS: Record<string, { target: AgentToolTarget; action: Agen
   tag_items: tool('settings', 'change', '태그 붙이기·떼기'),
   read_project_settings: tool('project', 'read', '프로젝트 설정 조회'),
   update_project_settings: tool('project', 'change', '프로젝트 설정 변경'),
+  read_app_defaults: tool('project', 'read', '홈 기본값 조회'),
+  pull_app_defaults: tool('project', 'change', '홈 기본값 가져오기'),
   web_search: tool('web', 'read', '웹 검색'),
   read_web_page: tool('web', 'read', '웹 페이지 읽기'),
 };

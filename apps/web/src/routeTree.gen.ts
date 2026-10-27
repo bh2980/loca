@@ -10,14 +10,21 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as PProjectIdRouteImport } from './routes/p.$projectId'
+import { Route as SettingsIndexRouteImport } from './routes/settings.index'
+import { Route as SettingsAppearanceRouteImport } from './routes/settings.appearance'
 import { Route as PProjectIdIndexRouteImport } from './routes/p.$projectId.index'
 import { Route as PProjectIdGlossaryRouteImport } from './routes/p.$projectId.glossary'
 import { Route as PProjectIdGraphRouteImport } from './routes/p.$projectId.graph'
 import { Route as PProjectIdKeysRouteImport } from './routes/p.$projectId.keys'
 import { Route as PProjectIdKnowledgeRouteImport } from './routes/p.$projectId.knowledge'
 import { Route as PProjectIdScriptRouteImport } from './routes/p.$projectId.script'
-import { Route as PProjectIdAiConnectionsRouteImport } from './routes/p.$projectId.ai.connections'
+import { Route as SettingsDefaultsChatRouteImport } from './routes/settings.defaults.chat'
+import { Route as SettingsDefaultsConnectionsRouteImport } from './routes/settings.defaults.connections'
+import { Route as SettingsDefaultsEditorRouteImport } from './routes/settings.defaults.editor'
+import { Route as SettingsDefaultsStatusesRouteImport } from './routes/settings.defaults.statuses'
+import { Route as SettingsDefaultsWorkflowsRouteImport } from './routes/settings.defaults.workflows'
 import { Route as PProjectIdAiUsageRouteImport } from './routes/p.$projectId.ai.usage'
 import { Route as PProjectIdRunsIndexRouteImport } from './routes/p.$projectId.runs.index'
 import { Route as PProjectIdRunsRunIdRouteImport } from './routes/p.$projectId.runs.$runId'
@@ -34,10 +41,25 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PProjectIdRoute = PProjectIdRouteImport.update({
   id: '/p/$projectId',
   path: '/p/$projectId',
   getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsIndexRoute = SettingsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsAppearanceRoute = SettingsAppearanceRouteImport.update({
+  id: '/appearance',
+  path: '/appearance',
+  getParentRoute: () => SettingsRoute,
 } as any)
 const PProjectIdIndexRoute = PProjectIdIndexRouteImport.update({
   id: '/',
@@ -69,11 +91,34 @@ const PProjectIdScriptRoute = PProjectIdScriptRouteImport.update({
   path: '/script',
   getParentRoute: () => PProjectIdRoute,
 } as any)
-const PProjectIdAiConnectionsRoute = PProjectIdAiConnectionsRouteImport.update({
-  id: '/ai/connections',
-  path: '/ai/connections',
-  getParentRoute: () => PProjectIdRoute,
+const SettingsDefaultsChatRoute = SettingsDefaultsChatRouteImport.update({
+  id: '/defaults/chat',
+  path: '/defaults/chat',
+  getParentRoute: () => SettingsRoute,
 } as any)
+const SettingsDefaultsConnectionsRoute =
+  SettingsDefaultsConnectionsRouteImport.update({
+    id: '/defaults/connections',
+    path: '/defaults/connections',
+    getParentRoute: () => SettingsRoute,
+  } as any)
+const SettingsDefaultsEditorRoute = SettingsDefaultsEditorRouteImport.update({
+  id: '/defaults/editor',
+  path: '/defaults/editor',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsDefaultsStatusesRoute =
+  SettingsDefaultsStatusesRouteImport.update({
+    id: '/defaults/statuses',
+    path: '/defaults/statuses',
+    getParentRoute: () => SettingsRoute,
+  } as any)
+const SettingsDefaultsWorkflowsRoute =
+  SettingsDefaultsWorkflowsRouteImport.update({
+    id: '/defaults/workflows',
+    path: '/defaults/workflows',
+    getParentRoute: () => SettingsRoute,
+  } as any)
 const PProjectIdAiUsageRoute = PProjectIdAiUsageRouteImport.update({
   id: '/ai/usage',
   path: '/ai/usage',
@@ -133,14 +178,21 @@ const PProjectIdWorkflowsWorkflowIdRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/settings': typeof SettingsRouteWithChildren
   '/p/$projectId': typeof PProjectIdRouteWithChildren
+  '/settings/appearance': typeof SettingsAppearanceRoute
+  '/settings/': typeof SettingsIndexRoute
   '/p/$projectId/glossary': typeof PProjectIdGlossaryRoute
   '/p/$projectId/graph': typeof PProjectIdGraphRoute
   '/p/$projectId/keys': typeof PProjectIdKeysRoute
   '/p/$projectId/knowledge': typeof PProjectIdKnowledgeRoute
   '/p/$projectId/script': typeof PProjectIdScriptRoute
+  '/settings/defaults/chat': typeof SettingsDefaultsChatRoute
+  '/settings/defaults/connections': typeof SettingsDefaultsConnectionsRoute
+  '/settings/defaults/editor': typeof SettingsDefaultsEditorRoute
+  '/settings/defaults/statuses': typeof SettingsDefaultsStatusesRoute
+  '/settings/defaults/workflows': typeof SettingsDefaultsWorkflowsRoute
   '/p/$projectId/': typeof PProjectIdIndexRoute
-  '/p/$projectId/ai/connections': typeof PProjectIdAiConnectionsRoute
   '/p/$projectId/ai/usage': typeof PProjectIdAiUsageRoute
   '/p/$projectId/runs/$runId': typeof PProjectIdRunsRunIdRoute
   '/p/$projectId/settings/chat': typeof PProjectIdSettingsChatRoute
@@ -154,13 +206,19 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/settings/appearance': typeof SettingsAppearanceRoute
+  '/settings': typeof SettingsIndexRoute
   '/p/$projectId/glossary': typeof PProjectIdGlossaryRoute
   '/p/$projectId/graph': typeof PProjectIdGraphRoute
   '/p/$projectId/keys': typeof PProjectIdKeysRoute
   '/p/$projectId/knowledge': typeof PProjectIdKnowledgeRoute
   '/p/$projectId/script': typeof PProjectIdScriptRoute
+  '/settings/defaults/chat': typeof SettingsDefaultsChatRoute
+  '/settings/defaults/connections': typeof SettingsDefaultsConnectionsRoute
+  '/settings/defaults/editor': typeof SettingsDefaultsEditorRoute
+  '/settings/defaults/statuses': typeof SettingsDefaultsStatusesRoute
+  '/settings/defaults/workflows': typeof SettingsDefaultsWorkflowsRoute
   '/p/$projectId': typeof PProjectIdIndexRoute
-  '/p/$projectId/ai/connections': typeof PProjectIdAiConnectionsRoute
   '/p/$projectId/ai/usage': typeof PProjectIdAiUsageRoute
   '/p/$projectId/runs/$runId': typeof PProjectIdRunsRunIdRoute
   '/p/$projectId/settings/chat': typeof PProjectIdSettingsChatRoute
@@ -175,14 +233,21 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/settings': typeof SettingsRouteWithChildren
   '/p/$projectId': typeof PProjectIdRouteWithChildren
+  '/settings/appearance': typeof SettingsAppearanceRoute
+  '/settings/': typeof SettingsIndexRoute
   '/p/$projectId/glossary': typeof PProjectIdGlossaryRoute
   '/p/$projectId/graph': typeof PProjectIdGraphRoute
   '/p/$projectId/keys': typeof PProjectIdKeysRoute
   '/p/$projectId/knowledge': typeof PProjectIdKnowledgeRoute
   '/p/$projectId/script': typeof PProjectIdScriptRoute
+  '/settings/defaults/chat': typeof SettingsDefaultsChatRoute
+  '/settings/defaults/connections': typeof SettingsDefaultsConnectionsRoute
+  '/settings/defaults/editor': typeof SettingsDefaultsEditorRoute
+  '/settings/defaults/statuses': typeof SettingsDefaultsStatusesRoute
+  '/settings/defaults/workflows': typeof SettingsDefaultsWorkflowsRoute
   '/p/$projectId/': typeof PProjectIdIndexRoute
-  '/p/$projectId/ai/connections': typeof PProjectIdAiConnectionsRoute
   '/p/$projectId/ai/usage': typeof PProjectIdAiUsageRoute
   '/p/$projectId/runs/$runId': typeof PProjectIdRunsRunIdRoute
   '/p/$projectId/settings/chat': typeof PProjectIdSettingsChatRoute
@@ -198,14 +263,21 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/settings'
     | '/p/$projectId'
+    | '/settings/appearance'
+    | '/settings/'
     | '/p/$projectId/glossary'
     | '/p/$projectId/graph'
     | '/p/$projectId/keys'
     | '/p/$projectId/knowledge'
     | '/p/$projectId/script'
+    | '/settings/defaults/chat'
+    | '/settings/defaults/connections'
+    | '/settings/defaults/editor'
+    | '/settings/defaults/statuses'
+    | '/settings/defaults/workflows'
     | '/p/$projectId/'
-    | '/p/$projectId/ai/connections'
     | '/p/$projectId/ai/usage'
     | '/p/$projectId/runs/$runId'
     | '/p/$projectId/settings/chat'
@@ -219,13 +291,19 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/settings/appearance'
+    | '/settings'
     | '/p/$projectId/glossary'
     | '/p/$projectId/graph'
     | '/p/$projectId/keys'
     | '/p/$projectId/knowledge'
     | '/p/$projectId/script'
+    | '/settings/defaults/chat'
+    | '/settings/defaults/connections'
+    | '/settings/defaults/editor'
+    | '/settings/defaults/statuses'
+    | '/settings/defaults/workflows'
     | '/p/$projectId'
-    | '/p/$projectId/ai/connections'
     | '/p/$projectId/ai/usage'
     | '/p/$projectId/runs/$runId'
     | '/p/$projectId/settings/chat'
@@ -239,14 +317,21 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/settings'
     | '/p/$projectId'
+    | '/settings/appearance'
+    | '/settings/'
     | '/p/$projectId/glossary'
     | '/p/$projectId/graph'
     | '/p/$projectId/keys'
     | '/p/$projectId/knowledge'
     | '/p/$projectId/script'
+    | '/settings/defaults/chat'
+    | '/settings/defaults/connections'
+    | '/settings/defaults/editor'
+    | '/settings/defaults/statuses'
+    | '/settings/defaults/workflows'
     | '/p/$projectId/'
-    | '/p/$projectId/ai/connections'
     | '/p/$projectId/ai/usage'
     | '/p/$projectId/runs/$runId'
     | '/p/$projectId/settings/chat'
@@ -261,6 +346,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  SettingsRoute: typeof SettingsRouteWithChildren
   PProjectIdRoute: typeof PProjectIdRouteWithChildren
 }
 
@@ -273,12 +359,33 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/p/$projectId': {
       id: '/p/$projectId'
       path: '/p/$projectId'
       fullPath: '/p/$projectId'
       preLoaderRoute: typeof PProjectIdRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/settings/': {
+      id: '/settings/'
+      path: '/'
+      fullPath: '/settings/'
+      preLoaderRoute: typeof SettingsIndexRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/appearance': {
+      id: '/settings/appearance'
+      path: '/appearance'
+      fullPath: '/settings/appearance'
+      preLoaderRoute: typeof SettingsAppearanceRouteImport
+      parentRoute: typeof SettingsRoute
     }
     '/p/$projectId/': {
       id: '/p/$projectId/'
@@ -322,12 +429,40 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PProjectIdScriptRouteImport
       parentRoute: typeof PProjectIdRoute
     }
-    '/p/$projectId/ai/connections': {
-      id: '/p/$projectId/ai/connections'
-      path: '/ai/connections'
-      fullPath: '/p/$projectId/ai/connections'
-      preLoaderRoute: typeof PProjectIdAiConnectionsRouteImport
-      parentRoute: typeof PProjectIdRoute
+    '/settings/defaults/chat': {
+      id: '/settings/defaults/chat'
+      path: '/defaults/chat'
+      fullPath: '/settings/defaults/chat'
+      preLoaderRoute: typeof SettingsDefaultsChatRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/defaults/connections': {
+      id: '/settings/defaults/connections'
+      path: '/defaults/connections'
+      fullPath: '/settings/defaults/connections'
+      preLoaderRoute: typeof SettingsDefaultsConnectionsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/defaults/editor': {
+      id: '/settings/defaults/editor'
+      path: '/defaults/editor'
+      fullPath: '/settings/defaults/editor'
+      preLoaderRoute: typeof SettingsDefaultsEditorRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/defaults/statuses': {
+      id: '/settings/defaults/statuses'
+      path: '/defaults/statuses'
+      fullPath: '/settings/defaults/statuses'
+      preLoaderRoute: typeof SettingsDefaultsStatusesRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/defaults/workflows': {
+      id: '/settings/defaults/workflows'
+      path: '/defaults/workflows'
+      fullPath: '/settings/defaults/workflows'
+      preLoaderRoute: typeof SettingsDefaultsWorkflowsRouteImport
+      parentRoute: typeof SettingsRoute
     }
     '/p/$projectId/ai/usage': {
       id: '/p/$projectId/ai/usage'
@@ -402,6 +537,30 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface SettingsRouteChildren {
+  SettingsAppearanceRoute: typeof SettingsAppearanceRoute
+  SettingsIndexRoute: typeof SettingsIndexRoute
+  SettingsDefaultsChatRoute: typeof SettingsDefaultsChatRoute
+  SettingsDefaultsConnectionsRoute: typeof SettingsDefaultsConnectionsRoute
+  SettingsDefaultsEditorRoute: typeof SettingsDefaultsEditorRoute
+  SettingsDefaultsStatusesRoute: typeof SettingsDefaultsStatusesRoute
+  SettingsDefaultsWorkflowsRoute: typeof SettingsDefaultsWorkflowsRoute
+}
+
+const SettingsRouteChildren: SettingsRouteChildren = {
+  SettingsAppearanceRoute: SettingsAppearanceRoute,
+  SettingsIndexRoute: SettingsIndexRoute,
+  SettingsDefaultsChatRoute: SettingsDefaultsChatRoute,
+  SettingsDefaultsConnectionsRoute: SettingsDefaultsConnectionsRoute,
+  SettingsDefaultsEditorRoute: SettingsDefaultsEditorRoute,
+  SettingsDefaultsStatusesRoute: SettingsDefaultsStatusesRoute,
+  SettingsDefaultsWorkflowsRoute: SettingsDefaultsWorkflowsRoute,
+}
+
+const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
+  SettingsRouteChildren,
+)
+
 interface PProjectIdRouteChildren {
   PProjectIdGlossaryRoute: typeof PProjectIdGlossaryRoute
   PProjectIdGraphRoute: typeof PProjectIdGraphRoute
@@ -409,7 +568,6 @@ interface PProjectIdRouteChildren {
   PProjectIdKnowledgeRoute: typeof PProjectIdKnowledgeRoute
   PProjectIdScriptRoute: typeof PProjectIdScriptRoute
   PProjectIdIndexRoute: typeof PProjectIdIndexRoute
-  PProjectIdAiConnectionsRoute: typeof PProjectIdAiConnectionsRoute
   PProjectIdAiUsageRoute: typeof PProjectIdAiUsageRoute
   PProjectIdRunsRunIdRoute: typeof PProjectIdRunsRunIdRoute
   PProjectIdSettingsChatRoute: typeof PProjectIdSettingsChatRoute
@@ -429,7 +587,6 @@ const PProjectIdRouteChildren: PProjectIdRouteChildren = {
   PProjectIdKnowledgeRoute: PProjectIdKnowledgeRoute,
   PProjectIdScriptRoute: PProjectIdScriptRoute,
   PProjectIdIndexRoute: PProjectIdIndexRoute,
-  PProjectIdAiConnectionsRoute: PProjectIdAiConnectionsRoute,
   PProjectIdAiUsageRoute: PProjectIdAiUsageRoute,
   PProjectIdRunsRunIdRoute: PProjectIdRunsRunIdRoute,
   PProjectIdSettingsChatRoute: PProjectIdSettingsChatRoute,
@@ -448,6 +605,7 @@ const PProjectIdRouteWithChildren = PProjectIdRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  SettingsRoute: SettingsRouteWithChildren,
   PProjectIdRoute: PProjectIdRouteWithChildren,
 }
 export const routeTree = rootRouteImport
