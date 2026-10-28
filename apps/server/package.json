@@ -25,7 +25,6 @@
     "hono": "^4.13.13",
     "html-to-text": "9.0.5",
     "json-logic-js": "^2.0.5",
-    "p-queue": "^9.3.3",
     "quickjs-emscripten": "^0.32.0",
     "tsx": "^4.23.15",
     "zod": "^4.6.5"

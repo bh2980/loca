@@ -659,6 +659,20 @@
       "when": 1793050893572,
       "tag": "0093_app_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "6",
+      "when": 1793139897065,
+      "tag": "0094_term_usage_invalidation",
+      "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "6",
+      "when": 1793140327080,
+      "tag": "0095_connection_key_copies",
+      "breakpoints": true
     }
   ]
 }

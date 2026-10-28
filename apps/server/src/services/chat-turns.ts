@@ -20,12 +20,14 @@ interface Turn {
   after: (() => void)[];
 }
 const turns = new Map<string, Turn>();
+export const deletingChats = new Set<string>();
 
 
 /** Why a turn's signal aborted when a newer turn of the conversation took over (not the person's 중단). */
 export const SUPERSEDED = 'superseded';
 
 export function startTurn(projectId: string, sessionId: string) {
+  if (deletingChats.has(sessionId)) throw new Error('삭제 중인 대화입니다.');
   // Callers wait for a running turn first (turnEnded); one still going after that is cut off here.
   turns.get(sessionId)?.controller.abort(SUPERSEDED);
   const controller = new AbortController();

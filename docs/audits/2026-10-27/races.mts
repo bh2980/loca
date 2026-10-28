@@ -1,0 +1,14 @@
+import { openDatabase } from '../../../apps/server/src/db/index.ts';
+import * as s from '../../../apps/server/src/db/schema.ts';
+import { importProject } from '../../../apps/server/src/services/importer.ts';
+import { importFileSchema } from '../../../packages/shared/src/import-format.ts';
+import { saveView, updateView, viewSection, readView } from '../../../apps/server/src/services/graph-views.ts';
+import { optimistic, unitChanges, patchedLine } from '../../../apps/web/src/lib/optimistic.ts';
+import { QueryClient } from '../../../apps/web/node_modules/@tanstack/react-query/build/modern/index.js';
+const db=openDatabase(':memory:');
+const {projectId}=importProject(db,importFileSchema.parse({format:'loca/v1',project:{name:'audit-race'},groups:[{key:'g',title:'G'}],units:[{key:'u',group:'g',source:'A'},{key:'v',group:'g',source:'B'}],graph:{nodes:[{key:'n1',units:['u']},{key:'n2',units:['v']}],edges:[{from:'n1',to:'n2'}]}}));
+const ids=db.select().from(s.graphNodes).all().map(n=>n.id);const id=saveView(db,projectId,ids,'before');const pending=viewSection(db,projectId,id); updateView(db,projectId,id,{remove:[ids[1]],label:'after'});await pending;await viewSection(db,projectId,id);
+const row=db.select().from(s.graphLayouts).all().find(r=>r.section===`view:${id}`)!;
+console.log(JSON.stringify({case:'stale_view_layout',actualViewNodes:readView(db,projectId,id)?.nodeIds.length,storedLayoutNodes:row.data?.view?.nodes,storedLabel:row.data?.view?.label,status:row.status}));
+db.$client.close();
+const qc=new QueryClient();const key=['units','list','audit'];qc.setQueryData(key,{rows:[{id:'a',translation:'old-a'},{id:'b',translation:'old-b'}]});const undoA=await optimistic(qc,unitChanges(['a'],patchedLine({translation:'new-a'})));await optimistic(qc,unitChanges(['b'],patchedLine({translation:'new-b'})));qc.setQueryData(key,{rows:[{id:'a',translation:'old-a'},{id:'b',translation:'server-confirmed-b'}]});undoA();console.log(JSON.stringify({case:'rollback_erases_other_success',data:qc.getQueryData(key)}));qc.clear();

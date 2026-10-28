@@ -6,7 +6,7 @@ import * as s from '../db/schema.ts';
 import { importProject } from './importer.ts';
 import { createGroup, updateGroup, deleteGroup, createUnit, updateUnit, deleteUnits } from './source-mutations.ts';
 import { FILLING } from '../engine/run-create.ts';
-vi.mock('./layout.ts', () => ({ computeLayouts: vi.fn(async () => {}) }));
+vi.mock('./layout.ts', () => ({ computeLayouts: vi.fn(async () => {}), cancelViewLayouts: vi.fn() }));
 
 const databases: ReturnType<typeof openDatabase>[] = [];
 afterEach(() => { for (const db of databases.splice(0)) db.$client.close(); });

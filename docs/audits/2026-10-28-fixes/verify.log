@@ -1,0 +1,63 @@
+
+> translation-workbench@ verify /Users/bh2980/Desktop/translation_workbench
+> pnpm -r exec tsc --noEmit -p . && pnpm ui-rules && vitest run && pnpm budget
+
+
+> translation-workbench@ ui-rules /Users/bh2980/Desktop/translation_workbench
+> tsx scripts/ui-rules.ts
+
+UI rules: ok
+
+ RUN  v5.0.3 /Users/bh2980/Desktop/translation_workbench
+
+
+ Test Files  167 passed (167)
+      Tests  1111 passed (1111)
+   Start at  15:50:20
+   Duration  56.62s (tests 75%, import 24%, transform 2%)
+
+
+> translation-workbench@ budget /Users/bh2980/Desktop/translation_workbench
+> tsx scripts/budget.ts
+
+running translate-cli (9000 lines)...
+running translate-faulty (9000 lines)...
+running listener-cli (9000 lines)...
+running terms-cli (9000 lines)...
+running people-cli (9000 lines)...
+running events-cli (9000 lines)...
+running analysis-cli (9000 lines)...
+                       translate-cli  translate-faulty  listener-cli  terms-cli  people-cli  events-cli  analysis-cli
+lines in scope                 8,944             8,944         8,944      8,944       8,944       8,944         8,944
+run status                 completed         completed     completed  completed   completed   completed     completed
+unfinished lines                   0                 0             0          0           0           0             0
+model calls                      238               541            60         60         121          60             1
+  failed calls                     0                32             0          0           0           0             0
+calls per 100 lines             2.66              6.05          0.67       0.67        1.35        0.67          0.01
+lines per call (mean)         151.88             72.79        149.07     149.07        74.6      149.07          8944
+calls with <= 5 lines           0.0%             17.0%          0.0%       0.0%        2.5%        0.0%          0.0%
+input tokens               7,264,052        14,129,502     1,610,457  1,502,099   3,325,361   1,471,139       172,539
+input tokens per line          812.2           1,579.8         180.1      167.9       371.8       164.5          19.3
+cached input tokens        2,380,000         5,290,000       600,000    600,000   1,210,000     600,000        10,000
+fixed overhead share           65.5%             76.6%         74.5%      79.9%       72.8%       81.6%         11.6%
+output tokens                563,449           562,026       110,487      3,420      65,788       4,233           640
+failed lines                0 (0.0%)          0 (0.0%)      0 (0.0%)   0 (0.0%)    1 (0.0%)    0 (0.0%)      0 (0.0%)
+harness seconds                   28              24.6           3.1        2.6           3         2.4           9.1
+
+translate-cli: calls by node AI 번역 60, AI 검수 91, AI 수정 31, AI 용어 추출 56
+
+translate-faulty: calls by node AI 번역 86, AI 검수 217, AI 용어 추출 103, AI 수정 135
+
+listener-cli: calls by node AI 청자 추정 60
+
+terms-cli: calls by node AI 용어 추출 60
+
+people-cli: calls by node AI 인물·관계 추출 118, AI 인물·관계 합치기 3
+
+events-cli: calls by node AI 사건 추출 60
+
+analysis-cli: calls by node 작품 분석 1
+
+harness total: 78s
+
+budget ok

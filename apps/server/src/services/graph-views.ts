@@ -3,7 +3,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { lineFilterSchema, nodesBetween } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { nodeSetLayout } from './layout.ts';
+import { nodeSetLayout, cancelViewLayouts } from './layout.ts';
 import type { LayoutDirection } from './layout-types.ts';
 import { events } from '../events.ts';
 import { allLines } from './script-query.ts';
@@ -69,15 +69,38 @@ export function pickNodes(db: Db, projectId: string, pick: NodePick) {
     nodes: db.select({ id: s.graphNodes.id, key: s.graphNodes.key, kind: s.graphNodes.kind, unitIds: s.graphNodes.unitIds }).from(s.graphNodes).where(eq(s.graphNodes.projectId, projectId)).all(),
     edges: db.select({ from: s.graphEdges.fromId, to: s.graphEdges.toId }).from(s.graphEdges).where(eq(s.graphEdges.projectId, projectId)).all(),
   }));
-  // Exact references only: a line key or id names the nodes holding that line, a node key or id the node.
+  // Resolve every reference against one index, including lines with no graph node.
+  const references = lazy(() => {
+    const index = new Map<string, Set<string>>();
+    const byUnit = new Map<string, Set<string>>();
+    const add = (key: string, ids: Iterable<string>) => {
+      const found = index.get(key) ?? new Set<string>();
+      for (const id of ids) found.add(id);
+      index.set(key, found);
+    };
+    for (const node of graph().nodes) {
+      add(node.id, [node.id]);
+      add(node.key, [node.id]);
+      for (const id of node.unitIds) {
+        const found = byUnit.get(id) ?? new Set<string>();
+        found.add(node.id);
+        byUnit.set(id, found);
+      }
+    }
+    for (const unit of db.select({ id: s.units.id, key: s.units.key }).from(s.units).where(eq(s.units.projectId, projectId)).all()) {
+      const ids = byUnit.get(unit.id) ?? [];
+      add(unit.id, ids);
+      add(unit.key, ids);
+    }
+    return index;
+  });
   const resolve = (refs: string[]) => {
-    const { nodes: all } = graph();
     const ids = new Set<string>();
-    const units = refs.length ? db.select({ id: s.units.id, key: s.units.key }).from(s.units).where(eq(s.units.projectId, projectId)).all().filter((unit) => refs.includes(unit.id) || refs.includes(unit.key)) : [];
-    const unitIds = new Set(units.map((unit) => unit.id));
-    for (const node of all) if (refs.includes(node.id) || refs.includes(node.key) || node.unitIds.some((id) => unitIds.has(id))) ids.add(node.id);
-    const known = new Set([...units.flatMap((unit) => [unit.id, unit.key]), ...all.filter((node) => ids.has(node.id)).flatMap((node) => [node.id, node.key])]);
-    unknown.push(...refs.filter((ref) => !known.has(ref)));
+    for (const ref of refs) {
+      const found = references().get(ref);
+      if (found) for (const id of found) ids.add(id);
+      else unknown.push(ref);
+    }
     return ids;
   };
   if (pick.between) {
@@ -133,10 +156,11 @@ export function updateView(db: Db, projectId: string, id: string, change: { labe
   if (!view) return null;
   const remove = new Set(change.remove ?? []);
   const nodeIds = [...new Set([...view.nodeIds.filter((nodeId) => !remove.has(nodeId)), ...(change.add ?? [])])].sort();
-  const changed = nodeIds.join(',') !== view.nodeIds.join(',');
+  const changed = nodeIds.join(',') !== view.nodeIds.join(',') || Boolean(change.label?.trim() && change.label.trim() !== view.label);
   const reasons = Object.fromEntries(Object.entries(view.reasons).filter(([nodeId]) => nodeIds.includes(nodeId)));
   db.transaction((tx) => {
     tx.update(s.graphViews).set({ label: change.label?.trim() || view.label, nodeIds, reasons, updatedAt: new Date() }).where(eq(s.graphViews.id, id)).run();
+    if (changed) cancelViewLayouts(projectId, `view:${id}`);
     if (changed) tx.delete(s.graphLayouts).where(and(eq(s.graphLayouts.projectId, projectId), eq(s.graphLayouts.section, `view:${id}`))).run();
   });
   events.changed(projectId, 'graph');
@@ -144,6 +168,7 @@ export function updateView(db: Db, projectId: string, id: string, change: { labe
 }
 
 export function deleteView(db: Db, projectId: string, id: string) {
+  cancelViewLayouts(projectId, `view:${id}`);
   db.transaction((tx) => {
     tx.delete(s.graphLayouts).where(and(eq(s.graphLayouts.projectId, projectId), eq(s.graphLayouts.section, `view:${id}`))).run();
     tx.delete(s.graphViews).where(and(eq(s.graphViews.id, id), eq(s.graphViews.projectId, projectId))).run();

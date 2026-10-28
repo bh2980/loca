@@ -1,3 +1,4 @@
+import { createAndAttachTag } from '@/lib/create-tag';
 /** Detail panes for a glossary term: edit one, or add a new one. */
 import { CopyButton } from '@/components/copy-button';
 import { useState } from 'react';
@@ -8,7 +9,7 @@ import { toast } from 'sonner';
 import { Inspector, InspectorHeader, InspectorList, TagListEditor, DirtyBar, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Inline, Input, ListRow, Text, Textarea, Section, Field, Box } from '@loca/ui';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { confirmLabel, SourceBadge, StateCell, type ItemTag } from '@/components/knowledge/table';
-import { isSettled, PALETTE, TAG_SCOPES, type KnowledgeOrigin, type KnowledgeStatus, type StatusBy } from '@tw/shared';
+import { isSettled, TAG_SCOPES, type KnowledgeOrigin, type KnowledgeStatus, type StatusBy } from '@tw/shared';
 import { client, unwrap } from '@/lib/api';
 import { changedFields, useFormFrom } from '@/lib/use-form-from';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
@@ -114,13 +115,7 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
 
   const handleCreateTag = async (name: string) => {
     try {
-      const color = (PALETTE[termTags.length % PALETTE.length] as any).light ?? PALETTE[termTags.length % PALETTE.length].hex;
-      const created = await unwrap(client.projects[':projectId'].tags.$post({
-        param: { projectId },
-        json: { name, color, scope: [...TAG_SCOPES] },
-      }));
-      await tagMutation.mutateAsync({ tagId: created.id, add: true });
-      queryClient.invalidateQueries({ queryKey: ['statuses', projectId] });
+      await createAndAttachTag(projectId, name, termTags.length, [...TAG_SCOPES], (tagId) => tagMutation.mutateAsync({ tagId: tagId, add: true }));
       toast.success(`'${name}' 태그를 만들고 용어에 붙였습니다.`);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : '태그를 만들지 못했습니다.');

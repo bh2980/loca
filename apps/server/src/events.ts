@@ -38,7 +38,7 @@ const IMPLIES: Partial<Record<Topic, Topic[]>> = {
   terms: ['units'],
   workflows: ['units'],
   projects: ['units'],
-  units: ['statuses'],
+  units: ['statuses', 'terms'],
   statuses: ['workflows'],
   connections: ['workflows'],
   calls: ['runs'],

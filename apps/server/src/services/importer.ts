@@ -187,7 +187,7 @@ export function importProject(db: Db, file: ImportFile, model: DraftModelChoice 
     );
     insertMany(tx, s.terms, file.terms.map((term) => ({ projectId, ...term })));
   });
-  copyKeys(secrets, keys);
+  copyKeys(db, secrets, keys);
   return {
     projectId,
     groups: file.groups.length,

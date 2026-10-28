@@ -48,7 +48,7 @@ export const connectionRoutes = new Hono<Env>()
   .get('/', (c) => {
     const { db, secrets } = c.var.deps;
     const rows = db.select().from(s.connections).where(inScope(scopeOf(c))).orderBy(asc(s.connections.name)).all();
-    return c.json(rows.map((row) => ({ ...row, hasKey: secrets.get(row.id) !== null })));
+    return c.json(rows.map((row) => ({ ...row, hasKey: secrets.get(row.id) !== null, keyCopyPending: !!db.select().from(s.connectionKeyCopies).where(eq(s.connectionKeyCopies.targetId, row.id)).get() })));
   })
   .post('/', validate('json', connectionInputSchema.extend({ apiKey: z.string().optional() })), (c) => {
     const { db, secrets } = c.var.deps;
@@ -85,12 +85,14 @@ export const connectionRoutes = new Hono<Env>()
     const { db, secrets } = c.var.deps;
     scoped(c, c.req.param('id'));
     secrets.set(c.req.param('id'), c.req.valid('json').apiKey);
+    db.delete(s.connectionKeyCopies).where(eq(s.connectionKeyCopies.targetId, c.req.param('id'))).run();
     events.changed(scopeOf(c) ?? undefined, 'connections');
     return c.json({ ok: true });
   })
   .delete('/:id/key', (c) => {
     scoped(c, c.req.param('id'));
     c.var.deps.secrets.delete(c.req.param('id'));
+    c.var.deps.db.delete(s.connectionKeyCopies).where(eq(s.connectionKeyCopies.targetId, c.req.param('id'))).run();
     events.changed(scopeOf(c) ?? undefined, 'connections');
     return c.json({ ok: true });
   })

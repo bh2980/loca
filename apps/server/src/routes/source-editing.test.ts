@@ -6,7 +6,7 @@ import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
 import { sourceRoutes } from './source.ts';
-vi.mock('../services/layout.ts', () => ({ computeLayouts: vi.fn(async () => {}) }));
+vi.mock('../services/layout.ts', () => ({ computeLayouts: vi.fn(async () => {}), cancelViewLayouts: vi.fn() }));
 const db = openDatabase(':memory:');
 afterEach(() => db.$client.close());
 

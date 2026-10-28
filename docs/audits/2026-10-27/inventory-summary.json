@@ -1,0 +1,147 @@
+{
+  "tracked": 1054,
+  "types": {
+    "configuration-or-doc": 65,
+    "implementation": 528,
+    "test": 161,
+    "migration": 94,
+    "generated": 96,
+    "asset": 17,
+    "storybook": 93
+  },
+  "unusedDirectDependencyCandidates": [
+    {
+      "manifest": "apps/server/package.json",
+      "dependency": "p-queue",
+      "localLiteralReferences": 0,
+      "elsewhere": []
+    },
+    {
+      "manifest": "apps/web/package.json",
+      "dependency": "@dnd-kit/core",
+      "localLiteralReferences": 0,
+      "elsewhere": [
+        "packages/ui/src/patterns/column-menu.tsx",
+        "packages/ui/src/patterns/data-table.tsx"
+      ]
+    },
+    {
+      "manifest": "apps/web/package.json",
+      "dependency": "@dnd-kit/sortable",
+      "localLiteralReferences": 0,
+      "elsewhere": [
+        "packages/ui/src/patterns/column-menu.tsx",
+        "packages/ui/src/patterns/data-table.tsx"
+      ]
+    },
+    {
+      "manifest": "apps/web/package.json",
+      "dependency": "@dnd-kit/utilities",
+      "localLiteralReferences": 0,
+      "elsewhere": [
+        "packages/ui/src/patterns/column-menu.tsx",
+        "packages/ui/src/patterns/data-table.tsx"
+      ]
+    },
+    {
+      "manifest": "apps/web/package.json",
+      "dependency": "@tanstack/react-table",
+      "localLiteralReferences": 0,
+      "elsewhere": [
+        "packages/ui/src/patterns/data-table.tsx"
+      ]
+    },
+    {
+      "manifest": "apps/web/package.json",
+      "dependency": "class-variance-authority",
+      "localLiteralReferences": 0,
+      "elsewhere": [
+        "packages/ui/src/controls/button.tsx",
+        "packages/ui/src/controls/input-group.tsx",
+        "packages/ui/src/controls/tabs.tsx",
+        "packages/ui/src/controls/toggle-group.tsx",
+        "packages/ui/src/controls/toggle.tsx",
+        "packages/ui/src/domains/app/sidebar.tsx",
+        "packages/ui/src/patterns/empty-state.tsx",
+        "packages/ui/src/patterns/field.tsx"
+      ]
+    },
+    {
+      "manifest": "apps/web/package.json",
+      "dependency": "cmdk",
+      "localLiteralReferences": 0,
+      "elsewhere": [
+        "packages/ui/src/controls/command.tsx"
+      ]
+    },
+    {
+      "manifest": "apps/web/package.json",
+      "dependency": "radix-ui",
+      "localLiteralReferences": 0,
+      "elsewhere": []
+    },
+    {
+      "manifest": "apps/web/package.json",
+      "dependency": "react-markdown",
+      "localLiteralReferences": 0,
+      "elsewhere": [
+        "packages/ui/src/patterns/markdown.tsx"
+      ]
+    },
+    {
+      "manifest": "apps/web/package.json",
+      "dependency": "react-resizable-panels",
+      "localLiteralReferences": 0,
+      "elsewhere": [
+        "packages/ui/src/controls/resizable.tsx",
+        "packages/ui/src/domains/script/graph-script-split.tsx",
+        "packages/ui/src/domains/script/script-layout.tsx",
+        "packages/ui/src/lib/use-panel-width.ts",
+        "packages/ui/src/patterns/right-dock.tsx",
+        "packages/ui/src/patterns/split-pane.tsx"
+      ]
+    },
+    {
+      "manifest": "apps/web/package.json",
+      "dependency": "remark-gfm",
+      "localLiteralReferences": 0,
+      "elsewhere": [
+        "packages/ui/src/patterns/markdown.tsx"
+      ]
+    },
+    {
+      "manifest": "packages/ai/package.json",
+      "dependency": "typebox",
+      "localLiteralReferences": 0,
+      "elsewhere": []
+    },
+    {
+      "manifest": "packages/shared/package.json",
+      "dependency": "graphology-dag",
+      "localLiteralReferences": 0,
+      "elsewhere": []
+    },
+    {
+      "manifest": "packages/ui/package.json",
+      "dependency": "@hookform/resolvers",
+      "localLiteralReferences": 0,
+      "elsewhere": [
+        "apps/web/src/components/settings/connections.tsx"
+      ]
+    },
+    {
+      "manifest": "packages/ui/package.json",
+      "dependency": "@radix-ui/react-avatar",
+      "localLiteralReferences": 0,
+      "elsewhere": []
+    },
+    {
+      "manifest": "packages/ui/package.json",
+      "dependency": "react-hook-form",
+      "localLiteralReferences": 0,
+      "elsewhere": [
+        "apps/web/src/components/settings/connections.tsx"
+      ]
+    }
+  ]
+}

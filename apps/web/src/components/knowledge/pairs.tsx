@@ -1,10 +1,11 @@
+import { createAndAttachTag } from '@/lib/create-tag';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronRight, Plus } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { InferRequestType } from 'hono/client';
 import { toast } from 'sonner';
-import { type AutoMark, isSpecialListener, knowledgeMarksOf, listenerLabel, matchesMarks, OTHERS_LISTENER, PALETTE, SPEECH_LEVEL_LABELS } from '@tw/shared';
+import { type AutoMark, isSpecialListener, knowledgeMarksOf, listenerLabel, matchesMarks, OTHERS_LISTENER, SPEECH_LEVEL_LABELS } from '@tw/shared';
 import { EmptyState, DataTable, type ColumnDef, Inspector, InspectorHeader, InspectorList, InspectorResult, TagListEditor, Chip, Box, Button, Icon, Inline, ListRow, Text, Section, Field } from '@loca/ui';
 import { DraftEditor } from '@/components/knowledge/editor';
 import { StretchPicker } from '@/components/knowledge/evidence';
@@ -194,13 +195,7 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
 
   const handleCreatePairTag = async (name: string) => {
     try {
-      const color = (PALETTE[knowledgeTags.length % PALETTE.length] as any).light ?? PALETTE[knowledgeTags.length % PALETTE.length].hex;
-      const created = await unwrap(client.projects[':projectId'].tags.$post({
-        param: { projectId },
-        json: { name, color, scope: ['people'] },
-      }));
-      await pairTagMutation.mutateAsync({ tagId: created.id, add: true });
-      queryClient.invalidateQueries({ queryKey: ['statuses', projectId] });
+      await createAndAttachTag(projectId, name, knowledgeTags.length, ['people'], (tagId) => pairTagMutation.mutateAsync({ tagId: tagId, add: true }));
       toast.success(`'${name}' 태그를 만들고 항목에 붙였습니다.`);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : '태그를 만들지 못했습니다.');

@@ -1,9 +1,10 @@
+import { createAndAttachTag } from '@/lib/create-tag';
 /** The detail editor for one knowledge item: fields, unsaved edits that survive navigation, decide/discard. */
 import { cloneElement, isValidElement, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { DOCUMENT_KINDS, STYLE_AXES, type StyleAxis, type CharacterRole, type Gender, type AgeBand, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, isSettled, AGE_BAND_LABELS, CHARACTER_ROLE_LABELS, GENDER_LABELS, PALETTE, knowledgeKindScope, type TagScope, type KnowledgeTagKind } from '@tw/shared';
+import { DOCUMENT_KINDS, STYLE_AXES, type StyleAxis, type CharacterRole, type Gender, type AgeBand, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, isSettled, AGE_BAND_LABELS, CHARACTER_ROLE_LABELS, GENDER_LABELS, knowledgeKindScope, type TagScope, type KnowledgeTagKind } from '@tw/shared';
 import { TagInput, Inspector, InspectorHeader, InspectorToggle, useControlId, TagListEditor, DirtyBar, Box, Inline, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Select, SelectContent, SelectItem, SelectValue, AiMark, SelectTrigger, Textarea, Section, Field } from '@loca/ui';
 import { joinList, splitList } from '@/lib/list-value';
 import { Swatches } from '@/components/settings/swatches';
@@ -86,13 +87,7 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
 
   const handleCreateTag = async (name: string) => {
     try {
-      const color = (PALETTE[knowledgeTags.length % PALETTE.length] as any).light ?? PALETTE[knowledgeTags.length % PALETTE.length].hex;
-      const created = await unwrap(client.projects[':projectId'].tags.$post({
-        param: { projectId },
-        json: { name, color, scope: [scope] },
-      }));
-      await tagMutation.mutateAsync({ tagId: created.id, add: true });
-      queryClient.invalidateQueries({ queryKey: ['statuses', projectId] });
+      await createAndAttachTag(projectId, name, knowledgeTags.length, [scope], (tagId) => tagMutation.mutateAsync({ tagId: tagId, add: true }));
       toast.success(`'${name}' 태그를 만들고 항목에 붙였습니다.`);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : '태그를 만들지 못했습니다.');

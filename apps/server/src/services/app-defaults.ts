@@ -59,12 +59,26 @@ export function markStepDone(db: Tx, step: string) {
   db.insert(s.appSettings).values({ id: APP, done }).onConflictDoUpdate({ target: s.appSettings.id, set: { done } }).run();
 }
 
-export function copyKeys(secrets: SecretStore | undefined, copies: KeyCopy[]) {
-  if (!secrets) return;
-  for (const [from, to] of copies) {
-    const key = secrets.get(from);
-    if (key !== null) secrets.set(to, key);
+/** Retries committed copies before allowing a connection to use any key left in the keyring. */
+export function connectionKey(db: Tx, secrets: SecretStore, id: string, visiting = new Set<string>()): string | null {
+  const pending = db.select().from(s.connectionKeyCopies).where(eq(s.connectionKeyCopies.targetId, id)).get();
+  if (pending) {
+    if (visiting.has(id)) throw new Error('연결 키 복사가 서로를 참조합니다. 연결 설정에서 키를 다시 저장하세요.');
+    visiting.add(id);
+    if (!db.select({ id: s.connections.id }).from(s.connections).where(eq(s.connections.id, pending.sourceId)).get())
+      throw new Error('복사할 연결이 없어 키 복사를 마치지 못했습니다. 연결 설정에서 키를 다시 저장하세요.');
+    const key = connectionKey(db, secrets, pending.sourceId, visiting);
+    if (key !== null) secrets.set(id, key);
+    else if (secrets.get(id) !== null) secrets.delete(id);
+    db.delete(s.connectionKeyCopies).where(eq(s.connectionKeyCopies.targetId, id)).run();
   }
+  return secrets.get(id);
+}
+
+export function copyKeys(db: Tx, secrets: SecretStore | undefined, copies?: KeyCopy[]) {
+  if (!secrets) return;
+  const ids = copies?.map(([, to]) => to) ?? db.select({ id: s.connectionKeyCopies.targetId }).from(s.connectionKeyCopies).all().map((row) => row.id);
+  for (const id of ids) connectionKey(db, secrets, id);
 }
 
 /** Editor AI and chat settings with their connections moved; a strict choice (continuation, new chat model) left without one is cleared. */
@@ -95,6 +109,7 @@ export function copyConnections(tx: Tx, from: string | null, to: string | null):
       ? (tx.update(s.connections).set(fields).where(eq(s.connections.id, existing.id)).run(), existing.id)
       : tx.insert(s.connections).values({ ...fields, projectId: to }).returning({ id: s.connections.id }).get().id;
     ids.set(id, targetId);
+    tx.insert(s.connectionKeyCopies).values({ targetId, sourceId: id }).onConflictDoUpdate({ target: s.connectionKeyCopies.targetId, set: { sourceId: id } }).run();
     keys.push([id, targetId]);
   }
   return { ids, keys };
@@ -179,6 +194,7 @@ export type SectionReport = Partial<Record<AppDefaultSection, string>>;
  * they are (lines and workflows point at them), and home workflows are added as new ones.
  */
 export function pullDefaults(db: Db, projectId: string, sections: AppDefaultSection[], secrets?: SecretStore): SectionReport {
+  copyKeys(db, secrets);
   const report: SectionReport = {};
   const keys: KeyCopy[] = [];
   db.transaction((tx) => {
@@ -227,7 +243,7 @@ export function pullDefaults(db: Db, projectId: string, sections: AppDefaultSect
       report.workflows = `${workflows.length}개 추가`;
     }
   });
-  copyKeys(secrets, keys);
+  copyKeys(db, secrets, keys);
   const topics = [
     'projects',
     ...(sections.includes('connections') ? (['connections'] as const) : []),
@@ -263,6 +279,7 @@ function workflowRefs(tx: Pick<Db, 'select'>, projectId: string, definition: Wor
  * are added to the home's saved workflows, their ids kept as names.
  */
 export function pushDefaults(db: Db, projectId: string, sections: AppDefaultSection[], workflowIds: string[] = [], secrets?: SecretStore): SectionReport {
+  copyKeys(db, secrets);
   const report: SectionReport = {};
   const keys: KeyCopy[] = [];
   db.transaction((tx) => {
@@ -312,7 +329,7 @@ export function pushDefaults(db: Db, projectId: string, sections: AppDefaultSect
     }
     writeAppDefaults(tx, patch);
   });
-  copyKeys(secrets, keys);
+  copyKeys(db, secrets, keys);
   if (sections.includes('connections')) events.changed(undefined, 'connections');
   return report;
 }

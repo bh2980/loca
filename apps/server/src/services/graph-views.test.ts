@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { importFileSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
@@ -55,4 +55,16 @@ describe('graph views', () => {
     deleteView(db, projectId, id);
     expect(readView(db, projectId, id)).toBeUndefined();
   });
+});
+
+it('resolves many keep references with one script scan', () => {
+  const { db, projectId } = setup();
+  const keys = db.select({ key: s.units.key }).from(s.units).all().map((row) => row.key);
+  const prepare = vi.spyOn(db.$client, 'prepare');
+  try {
+    const picked = pickNodes(db, projectId, { keep: Array.from({ length: 2000 }, (_, i) => ({ ref: keys[i % keys.length] })) });
+    expect(picked.nodeIds.length).toBeGreaterThan(0);
+    expect(picked.unknown).toEqual([]);
+    expect(prepare.mock.calls.filter(([sql]) => /from "units"/.test(sql))).toHaveLength(1);
+  } finally { prepare.mockRestore(); db.$client.close(); }
 });

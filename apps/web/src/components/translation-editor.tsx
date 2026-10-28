@@ -1,3 +1,4 @@
+import { ChangedElsewhere } from './changed-elsewhere';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, Check, CircleAlert, Languages, MoreHorizontal, Save, Sparkles, Undo2, WandSparkles } from 'lucide-react';
@@ -59,7 +60,7 @@ export function TranslationEditor({
   /** List rows supply their single shared tag row directly below the input. */
   marks?: ReactNode;
 }) {
-  const [draft, setDraft, clearDraft] = useDraft(`line:${unit.id}`, unit.translation ?? '');
+  const [draft, setDraft, clearDraft, base] = useDraft(`line:${unit.id}`, unit.translation ?? '');
   const dirty = draft !== (unit.translation ?? '');
   const next = nextStatus(statuses, unit.statusId);
   const line = useLineContext(projectId, unit.source);
@@ -152,11 +153,15 @@ export function TranslationEditor({
       toast.error('번역을 입력한 뒤 확정하세요.');
       return;
     }
+    if (dirty && base !== (unit.translation ?? '')) {
+      toast.error('다른 곳에서 바뀐 번역을 확인하고 어느 내용을 유지할지 선택하세요.');
+      return;
+    }
     const changed = dirty;
     const statusId = advance && next ? next.id : undefined;
     if (!changed && !statusId) return onDone?.(advance);
     save.mutate(
-      { unitId: unit.id, ...(changed && { text: sent, base: unit.translation ?? '' }), statusId },
+      { unitId: unit.id, ...(changed && { text: sent, base }), statusId },
       {
         onSuccess: () => {
           // Only the draft that was sent: anything typed after it stays a draft.
@@ -189,6 +194,7 @@ export function TranslationEditor({
 
   return (
     <Box spaceY="condensed" onClick={(event) => event.stopPropagation()}>
+      {dirty && base !== (unit.translation ?? '') && <ChangedElsewhere fields={['번역']} onTakeSaved={() => clearDraft()} onKeepMine={() => { clearDraft(); setDraft(draft); }} />}
       <TranslationInput
         unitId={unit.id}
         value={draft}

@@ -141,7 +141,18 @@ export function dialogueJob(db: Db, projectId: string, direction: LayoutDirectio
 const projectExists = (db: Db, projectId: string) => !!db.select({ id: projects.id }).from(projects).where(eq(projects.id, projectId)).get();
 
 const VIEW = '보기';
-const viewJobs = new Map<string, Promise<void>>();
+interface ViewJob { promise: Promise<void>; worker?: Worker; cancelled: boolean }
+const viewJobs = new Map<string, ViewJob>();
+
+/** Invalidate in-flight results together with the stored layouts. */
+export function cancelViewLayouts(projectId: string, key?: string) {
+  const prefix = `${projectId}:${key ? `${key}:` : ''}`;
+  for (const [id, job] of viewJobs) if (id.startsWith(prefix)) {
+    job.cancelled = true;
+    void job.worker?.terminate().catch(() => {});
+    viewJobs.delete(id);
+  }
+}
 
 /**
  * A chosen set of dialogue-graph nodes laid out on its own, once (a few hundred nodes take a
@@ -151,13 +162,16 @@ const viewJobs = new Map<string, Promise<void>>();
 export function nodeSetLayout(db: Db, projectId: string, key: string, nodeIds: string[], label = '', direction: LayoutDirection = 'vertical'): Promise<void> {
   const jobKey = `${projectId}:${key}:${direction}`;
   const running = viewJobs.get(jobKey);
-  if (running) return running;
-  const job = computeNodeSetLayout(db, projectId, key, nodeIds, label, direction).finally(() => viewJobs.delete(jobKey));
+  if (running) return running.promise;
+  const job: ViewJob = { promise: Promise.resolve(), cancelled: false };
   viewJobs.set(jobKey, job);
-  return job;
+  job.promise = computeNodeSetLayout(db, projectId, key, nodeIds, label, direction, job).finally(() => {
+    if (viewJobs.get(jobKey) === job) viewJobs.delete(jobKey);
+  });
+  return job.promise;
 }
 
-async function computeNodeSetLayout(db: Db, projectId: string, key: string, nodeIds: string[], label: string, direction: LayoutDirection) {
+async function computeNodeSetLayout(db: Db, projectId: string, key: string, nodeIds: string[], label: string, direction: LayoutDirection, job: ViewJob) {
   const existing = db.select({ status: graphLayouts.status, version: sql<number>`coalesce(json_extract(${graphLayouts.data}, '$.version'), 0)` }).from(graphLayouts).where(and(eq(graphLayouts.projectId, projectId), eq(graphLayouts.scope, 'dialogue'), eq(graphLayouts.section, key), eq(graphLayouts.direction, direction))).get();
   if (existing?.status === 'ready' && existing.version >= LAYOUT_VERSION) return;
   save(db, projectId, 'dialogue', { status: 'pending', data: null, error: null }, key, direction);
@@ -182,13 +196,15 @@ async function computeNodeSetLayout(db: Db, projectId: string, key: string, node
           return { id: node.id, width, height, group: node.groupId, section: chosen.has(node.id) ? VIEW : node.groupId ? `scene:${node.groupId}` : null };
         }),
       },
-      () => {},
+      (worker) => { job.worker = worker; },
     );
   } catch (error) {
+    if (job.cancelled || !projectExists(db, projectId)) return;
     save(db, projectId, 'dialogue', { status: 'failed', error: error instanceof Error ? error.message : String(error) }, key, direction);
     events.changed(projectId, 'graph');
     return;
   }
+  if (job.cancelled || !projectExists(db, projectId)) return;
   data.edges = data.edges.map((edge) => (via.has(edge.id) ? { ...edge, derived: true as const, omitted: omitted.get(edge.id) } : edge));
   // Portals name the scene the lines continue in, and keep its id to open it.
   data.portals = data.portals?.map((portal) => {
@@ -269,6 +285,7 @@ export function projectsWithoutLayouts(db: Db) {
 
 /** Stops the layout of a project that is being deleted; its result would have nowhere to go. */
 export function cancelLayout(projectId: string) {
+  cancelViewLayouts(projectId);
   const state = active.get(projectId);
   if (!state) return;
   state.cancelled = true;

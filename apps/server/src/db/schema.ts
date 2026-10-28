@@ -490,6 +490,12 @@ export const connections = sqliteTable('connections', {
   modelLimits: json<Record<string, ModelLimits>>('model_limits').notNull().default(sql`'{}'`),
 });
 
+/** A committed connection copy whose OS credential still needs applying; never contains secrets. */
+export const connectionKeyCopies = sqliteTable('connection_key_copies', {
+  targetId: text('target_id').primaryKey().references(() => connections.id, { onDelete: 'cascade' }),
+  sourceId: text('source_id').notNull(),
+});
+
 export const workflows = sqliteTable('workflows', {
   id: id(),
   projectId: projectId(),

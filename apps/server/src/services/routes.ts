@@ -3,6 +3,7 @@ import type { ResolvedRoute } from '@tw/ai';
 import { choiceKey, CONNECTION_KIND_INFO, definitionModels, type Capability, type ConnectionKind, type ModelChoice, type WorkflowDefinition } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import { connections, type AiSnapshot, type RouteSnapshot } from '../db/schema.ts';
+import { connectionKey } from './app-defaults.ts';
 import type { SecretStore } from './secrets.ts';
 
 type Connection = typeof connections.$inferSelect;
@@ -42,7 +43,7 @@ export function snapshotChoices(db: Db, choices: ModelChoice[]): Record<string, 
 /** Every model a workflow may call (its AI nodes' and what its 재요청 nodes send lines back on), frozen for a run. */
 export const snapshotWorkflowModels = (db: Db, definition: WorkflowDefinition) => snapshotChoices(db, definitionModels(definition));
 
-export function resolveRoute(snapshot: AiSnapshot, secrets: SecretStore): ResolvedRoute {
+export function resolveRoute(db: Db, snapshot: AiSnapshot, secrets: SecretStore): ResolvedRoute {
   const { route } = snapshot;
   return {
     connectionId: route.connectionId,
@@ -51,7 +52,7 @@ export function resolveRoute(snapshot: AiSnapshot, secrets: SecretStore): Resolv
     executable: route.executable ?? undefined,
     model: route.model,
     effort: route.effort ?? undefined,
-    apiKey: secrets.get(route.connectionId) ?? undefined,
+    apiKey: connectionKey(db, secrets, route.connectionId) ?? undefined,
   };
 }
 
@@ -65,7 +66,7 @@ export function liveChoice(db: Db, choice: ModelChoice, secrets: SecretStore, ne
   const kind = snapshot.route.kind as ConnectionKind;
   if (!CONNECTION_KIND_INFO[kind].capabilities.includes(need))
     throw new Error(need === 'chat' ? `${CONNECTION_KIND_INFO[kind].label} 연결은 채팅에 쓸 수 없습니다.` : `${CONNECTION_KIND_INFO[kind].label} 연결은 판정 전용이라 여기에 쓸 수 없습니다.`);
-  return { snapshot, route: resolveRoute(snapshot, secrets) };
+  return { snapshot, route: resolveRoute(db, snapshot, secrets) };
 }
 
 export function connectionRoute(db: Db, connectionId: string, secrets: SecretStore) {
@@ -76,6 +77,6 @@ export function connectionRoute(db: Db, connectionId: string, secrets: SecretSto
     kind: connection.kind,
     baseUrl: connection.baseUrl ?? undefined,
     executable: connection.executable ?? undefined,
-    apiKey: secrets.get(connection.id) ?? undefined,
+    apiKey: connectionKey(db, secrets, connection.id) ?? undefined,
   };
 }

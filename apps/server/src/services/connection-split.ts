@@ -17,6 +17,7 @@ const STEP = 'connections-per-project';
  * first (`backups/` next to it). Returns how many projects were moved.
  */
 export function splitConnections(db: Db, secrets: SecretStore, file?: string): number {
+  copyKeys(db, secrets);
   if (stepDone(db, STEP)) return 0;
   const projects = db.select({ id: s.projects.id, editorAi: s.projects.editorAi, agentSettings: s.projects.agentSettings }).from(s.projects).all();
   const shared = db.select({ id: s.connections.id }).from(s.connections).where(isNull(s.connections.projectId)).all();
@@ -37,8 +38,9 @@ export function splitConnections(db: Db, secrets: SecretStore, file?: string): n
           if (chat.connectionId && copied.ids.has(chat.connectionId)) tx.update(s.chatSessions).set({ connectionId: copied.ids.get(chat.connectionId)! }).where(eq(s.chatSessions.id, chat.id)).run();
         tx.update(s.projects).set({ editorAi: remapIds(project.editorAi, copied.ids), agentSettings: remapIds(project.agentSettings, copied.ids) }).where(eq(s.projects.id, project.id)).run();
       }
-    markStepDone(tx, STEP);
   });
-  copyKeys(secrets, keys);
+  copyKeys(db, secrets, keys);
+  // The name-based copies are idempotent: a keyring failure retries the same IDs on startup.
+  markStepDone(db, STEP);
   return shared.length ? projects.length : 0;
 }

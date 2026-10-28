@@ -5,7 +5,7 @@ import type { Env } from '../context.ts';
 import { openDatabase } from '../db/index.ts';
 import { importProject } from '../services/importer.ts';
 import { workflowRoutes } from './workflows.ts';
-vi.mock('../services/layout.ts', () => ({ computeLayouts: vi.fn(async () => {}) }));
+vi.mock('../services/layout.ts', () => ({ computeLayouts: vi.fn(async () => {}), cancelViewLayouts: vi.fn() }));
 const db = openDatabase(':memory:');
 afterEach(() => db.$client.close());
 

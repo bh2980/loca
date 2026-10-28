@@ -1,10 +1,10 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { cliGenerate, cliModels, cliVersion } from './cli.ts';
+import { cliGenerate as generate, cliModels, cliVersion } from './cli.ts';
 import { ModelError } from './errors.ts';
 import type { ResolvedRoute } from './types.ts';
 
@@ -34,7 +34,9 @@ const request = (overrides: { timeoutMs?: number; signal?: AbortSignal } = {}) =
 });
 const route = (kind: Kind, bin: string): ResolvedRoute => ({ kind, executable: path.join(FAKE_DIR, bin), model: 'fake' });
 
-const callDirs = () => readdirSync(tmpdir()).filter((name) => name.startsWith('tw-call-'));
+let tempRoot: string;
+const cliGenerate: typeof generate = (route, request) => generate(route, request, tempRoot);
+const callDirs = () => readdirSync(tempRoot).filter((name) => name.startsWith('tw-call-'));
 async function failure(promise: Promise<unknown>): Promise<ModelError> {
   try {
     await promise;
@@ -66,6 +68,7 @@ beforeEach(() => {
   saved = Object.fromEntries(KEYS.map((key) => [key, process.env[key]]));
   process.env.FAKE_CLI_FIXED_TOKENS = String(FIXED);
   process.env.FAKE_CLI_CACHED_TOKENS = String(CACHED);
+  tempRoot = mkdtempSync(path.join(tmpdir(), 'tw-cli-test-'));
   before = callDirs();
 });
 afterEach(() => {
@@ -74,7 +77,8 @@ afterEach(() => {
     else process.env[key] = saved[key];
   }
   // Every call removes its temp folder, also after a failure, timeout or cancel.
-  expect(callDirs().filter((name) => !before.includes(name))).toEqual([]);
+  try { expect(callDirs().filter((name) => !before.includes(name))).toEqual([]); }
+  finally { rmSync(tempRoot, { recursive: true, force: true }); }
 });
 
 describe.each(KINDS)('fake $kind CLI', ({ kind, bin, anthropicStyle, reportsCost }) => {

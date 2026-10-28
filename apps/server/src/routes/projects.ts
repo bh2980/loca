@@ -1,3 +1,4 @@
+import { deleteChat } from '../services/chat-delete.ts';
 import { Hono } from 'hono';
 import { and, asc, count, desc, eq, notInArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
@@ -89,22 +90,16 @@ export const projectRoutes = new Hono<Env>()
     const rows = db.select({ source: s.units.source }).from(s.units).where(eq(s.units.projectId, projectId)).all();
     return c.json(detectFormatRules(rows.map((r) => r.source)));
   })
-  .get('/projects/:projectId/detect-format-rules', (c) => {
-    const { db } = c.var.deps;
-    const projectId = c.req.param('projectId');
-    found(db.select({ id: s.projects.id }).from(s.projects).where(eq(s.projects.id, projectId)).get(), '프로젝트');
-    const rows = db.select({ source: s.units.source }).from(s.units).where(eq(s.units.projectId, projectId)).all();
-    return c.json(detectFormatRules(rows.map((r) => r.source)));
-  })
   .patch('/:projectId', validate('json', projectSettingsInput.extend({ agentSettings: agentSettingsSchema.optional() })), (c) => {
     found(updateProjectSettings(c.var.deps.db, c.req.param('projectId'), c.req.valid('json')) ?? undefined, '프로젝트');
     return c.json({ ok: true });
   })
-  .delete('/:projectId', (c) => {
+  .delete('/:projectId', async (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     const active = db.select({ id: s.runs.id }).from(s.runs).where(and(eq(s.runs.projectId, projectId), eq(s.runs.status, 'running'))).all();
     for (const run of active) c.var.deps.runner.cancel(run.id);
+    for (const chat of db.select({ id: s.chatSessions.id }).from(s.chatSessions).where(eq(s.chatSessions.projectId, projectId)).all()) await deleteChat(db, chat.id);
     cancelLayout(projectId);
     db.delete(s.projects).where(eq(s.projects.id, projectId)).run();
     forgetProjectContext(projectId);

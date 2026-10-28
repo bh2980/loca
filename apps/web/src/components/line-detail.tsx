@@ -1,10 +1,11 @@
+import { createAndAttachTag } from '@/lib/create-tag';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { CircleAlert, CircleCheck, Network, Pencil } from 'lucide-react';
 import { CopyButton } from '@/components/copy-button';
-import { checkFormat, exclusionReason, isUnknownListener, type LineTranslate, listenerLabel, needsListener, PALETTE, SPEECH_LEVEL_LABELS, speechLevelOf, TAG_SCOPES, type FormatRules, type SpeechLevel } from '@tw/shared';
+import { checkFormat, exclusionReason, isUnknownListener, type LineTranslate, listenerLabel, needsListener, SPEECH_LEVEL_LABELS, speechLevelOf, TAG_SCOPES, type FormatRules, type SpeechLevel } from '@tw/shared';
 import { Select, SelectContent, SelectItem, SelectValue, AiMark, Chip, Box, Button, CandidateCard, DetailIssue, EditorChangedWord, Group, Icon, Inline, InspectorHeader, Inspector, InspectorList, SpeakerIdentity, Stack, StatusIcon, TagChip, TagListEditor, Text, ListItem, SelectTrigger, Section, Field, KeyValue, KeyValueRow } from '@loca/ui';
 import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
 import { AiButton } from '@/components/ai-button';
@@ -144,15 +145,7 @@ export function LineDetail({
   const createTagInline = async (name: string) => {
     if (!line) return;
     try {
-      const color = (PALETTE[tags.length % PALETTE.length] as any).light ?? PALETTE[tags.length % PALETTE.length].hex;
-      const res = await unwrap(client.projects[':projectId'].tags.$post({
-        param: { projectId },
-        json: { name, color, scope: [...TAG_SCOPES] },
-      }));
-      await patch.mutateAsync({ tagIds: [...line.tagIds, res.id] });
-      queryClient.invalidateQueries({ queryKey: ['statuses', projectId] });
-      queryClient.invalidateQueries({ queryKey: ['units', projectId] });
-      queryClient.invalidateQueries({ queryKey: ['unit', line.id] });
+      await createAndAttachTag(projectId, name, tags.length, [...TAG_SCOPES], (tagId) => patch.mutateAsync({ tagIds: [...line.tagIds, tagId] }));
       toast.success(`'${name}' 태그를 만들고 줄에 붙였습니다.`);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : '태그를 만들지 못했습니다.');

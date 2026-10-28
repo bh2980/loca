@@ -1,0 +1,55 @@
+[
+  {
+    "case": "undo_loses_tags",
+    "before": 1,
+    "restored": true,
+    "people": 1,
+    "tagsAfter": 0
+  },
+  {
+    "case": "migration_not_retryable_after_key_failure",
+    "thrown": "Error: simulated credential store unavailable",
+    "done": true,
+    "retry": 0,
+    "targetHasKey": false
+  },
+  {
+    "case": "connection_copy_retains_old_key",
+    "newUrl": "https://new.invalid/v1",
+    "retainsOldKey": true
+  },
+  {
+    "case": "term_usage_stale_after_source_edit",
+    "before": 1,
+    "cachedAfter": 1,
+    "actualAfter": 0
+  },
+  {
+    "case": "graph_keep_scale",
+    "requested": 1,
+    "kept": 1,
+    "queries": 4,
+    "ms": 11
+  },
+  {
+    "case": "graph_keep_scale",
+    "requested": 100,
+    "kept": 100,
+    "queries": 103,
+    "ms": 216
+  },
+  {
+    "case": "graph_keep_scale",
+    "requested": 500,
+    "kept": 500,
+    "queries": 503,
+    "ms": 1075
+  },
+  {
+    "case": "graph_keep_scale",
+    "requested": 2000,
+    "kept": 2000,
+    "queries": 2003,
+    "ms": 4295
+  }
+]

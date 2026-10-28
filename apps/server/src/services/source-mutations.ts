@@ -8,7 +8,7 @@ import { inList } from '../db/chunk.ts';
 import { badRequest, found } from '../http-errors.ts';
 import { events } from '../events.ts';
 import { FILLING } from '../engine/run-create.ts';
-import { computeLayouts } from './layout.ts';
+import { computeLayouts, cancelViewLayouts } from './layout.ts';
 
 export type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 type Reader = Pick<Db, 'select' | 'get'>;
@@ -52,6 +52,7 @@ export function refreshNodeGroups(tx: Tx, projectId: string) {
  * being laid out again) until computeLayouts replaces them. Views are laid out on demand, so theirs go.
  */
 export function invalidate(tx: Tx, projectId: string) {
+  cancelViewLayouts(projectId);
   tx.delete(s.graphLayouts).where(and(eq(s.graphLayouts.projectId, projectId), like(s.graphLayouts.section, 'view:%'))).run();
   tx.update(s.graphLayouts).set({ status: 'pending', error: null }).where(eq(s.graphLayouts.projectId, projectId)).run();
 }
