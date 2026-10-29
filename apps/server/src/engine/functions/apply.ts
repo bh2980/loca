@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { get } from 'es-toolkit/compat';
-import { AGE_BANDS, APPLY_FUNCTION_NAMES, APPLY_TARGETS, applyParams, DOCUMENT_KINDS, ISSUE_KIND_IDS, ISSUE_KINDS, issueKindOf, previousStepId, tagLinesParams, tagScope, type IssueKind, aiStatus, TERM_KIND_LABELS, TERM_KINDS, UNKNOWN_LISTENER, withSourceEdges, type ApplyField, type ApplyFunctionName, type ApplyParams } from '@tw/shared';
+import { AGE_BANDS, APPLY_FUNCTION_NAMES, APPLY_TARGETS, applyParams, DOCUMENT_KINDS, ISSUE_KIND_IDS, ISSUE_KINDS, issueKindOf, previousStepId, tagLinesParams, tagScope, type IssueKind, aiStatus, TERM_KIND_LABELS, TERM_KINDS, UNKNOWN_LISTENER, withMainTarget, withSourceEdges, withTargetCandidate, type ApplyField, type ApplyFunctionName, type ApplyParams } from '@tw/shared';
 import type { Db } from '../../db/index.ts';
 import * as s from '../../db/schema.ts';
 import type { Topic } from '../../events.ts';
@@ -286,11 +286,15 @@ function runTerm(context: Context, item: Item): FunctionResult {
   if (!current) return { port: 'out', output: { applied: false, reason: '용어가 없습니다.' } };
   const target = typeof item.text === 'string' ? item.text.trim() : '';
   if (!target) return { port: 'out', output: { applied: false, reason: '번역이 비어 있습니다.' } };
-  if (current.statusBy === 'human' && current.target.trim() && current.target !== target) return { port: 'out', candidate: target, output: { applied: false }, issues: [HUMAN_OWNED_NOTE] };
+  // A person's form stays the main one; the AI's is kept among the term's candidates.
+  if (current.statusBy === 'human' && current.target.trim() && current.target !== target) {
+    tx.update(s.terms).set({ targetCandidates: withTargetCandidate(current, target) }).where(eq(s.terms.id, current.id)).run();
+    return { port: 'out', candidate: target, output: { applied: false }, issues: [HUMAN_OWNED_NOTE] };
+  }
   const note = typeof item.note === 'string' && item.note.trim() ? item.note.trim() : current.note;
   // A candidate that gets its form lands as the AI 문맥 switch says; a term already decided keeps its status.
   const status = current.status === 'candidate' ? aiStatus(context.write.autoConfirm) : current.status;
-  tx.update(s.terms).set({ target, note, status, origin: 'ai', statusBy: 'ai', runId: input.runId }).where(eq(s.terms.id, current.id)).run();
+  tx.update(s.terms).set({ ...withMainTarget(current, target), note, status, origin: 'ai', statusBy: 'ai', runId: input.runId }).where(eq(s.terms.id, current.id)).run();
   return { port: 'out', candidate: target, output: { applied: true } };
 }
 

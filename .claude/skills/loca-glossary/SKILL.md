@@ -9,7 +9,7 @@ description: Build and maintain the glossary of a loca project — find where te
 
 ## 읽기
 ```
-loca terms                         # 원문 → 번역어, 상태, 나온 줄(대본에서 쓰인 대사 수), 표시(#), 태그, id. -q, --status, --mark, --tag, --unreviewed, --limit, --jsonl
+loca terms                         # 원문 → 번역어(다른 번역어 후보, 적용 범위), 상태, 나온 줄(대본에서 쓰인 대사 수), 표시(#), 태그, id. -q, --status, --mark, --tag, --unreviewed, --limit, --jsonl
 loca terms --unreviewed            # 확인 안 한 용어(후보 또는 AI 초안): 번역 전에 사람이 볼 목록
 loca terms usage <원문|id>          # 그 용어가 쓰인 대사 (앱 용어 창과 같은 낱말 단위 매칭)
 loca lines --q "Guild" --all --jsonl   # 임의 글자 검색
@@ -44,3 +44,9 @@ loca runs plan 용어 번역 --term Guild                        # 특정 용어
 loca runs start 용어 번역 --status 후보 --mark emptyTarget   # 시작 제안 (앱에서 수락)
 ```
 표기를 얻은 후보는 프로젝트 설정 `aiAutoConfirm`에 따라 바로 확정되거나 후보로 남습니다. AI가 채운 것은 `loca terms --unreviewed`로 사람이 확인합니다.
+
+## 번역어 후보와 적용 범위
+- 용어의 `target`이 메인 번역어이고, 번역 문맥과 용어 검사에는 메인만 쓰입니다. 다른 번역어는 `targetCandidates`에 남습니다(이전 메인, AI가 낸 다른 표기).
+- 메인을 바꾸려면 `save_terms`로 그 후보를 `target`으로 보냅니다. 이전 메인은 후보로 내려갑니다.
+- AI 용어 추출이 다른 번역어를 내면: "AI 결과 바로 확정"이 켜져 있고 사람이 정한 메인이 아니면 메인이 되고, 아니면 후보로 들어갑니다.
+- 버튼 이름 같은 UI 낱말은 `"scope":"ui","matchCase":true`로 두면 대사 속 같은 낱말("help me")에 걸리지 않습니다. 서로 다른 원문이 같은 번역어면 `#번역어 중복`이 붙습니다(알림만).

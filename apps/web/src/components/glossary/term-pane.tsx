@@ -28,6 +28,8 @@ export interface Term {
   examples: string[];
   scope: TermScope;
   matchCase: boolean;
+  /** Other Korean forms (a former main one, an AI's), newest first. */
+  targetCandidates: string[];
   duplicateTarget?: boolean;
   tags?: ItemTag[];
 }
@@ -103,6 +105,12 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
     onSuccess: () => toast.success('저장했습니다.'),
     onError: (error) => toast.error(error.message),
   });
+  // 메인으로: the candidate becomes the form used; the former main one stays a candidate (server side).
+  const makeMain = useMutation({
+    mutationFn: (target: string) => unwrap(client.projects[':projectId'].terms[':id'].$patch({ param: { projectId, id: term.id }, json: { target } })),
+    onSuccess: (_, target) => toast.success(`'${target}'을(를) 메인 번역어로 바꿨습니다.`),
+    onError: (error) => toast.error(error.message),
+  });
   const remove = useMutation({
     mutationFn: () => unwrap(client.projects[':projectId'].terms[':id'].$delete({ param: { projectId, id: term.id } })),
     onSuccess: () => {
@@ -176,6 +184,20 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
       <Section title="용어">
         <TermFields form={form} onChange={setForm} />
       </Section>
+      {term.targetCandidates.length > 0 && (
+        <Section title={`다른 번역어 ${term.targetCandidates.length}`}>
+          <InspectorList>
+            {term.targetCandidates.map((form) => (
+              <ListRow key={form}>
+                <Inline justify="between" align="center" gap="normal">
+                  <Text>{form}</Text>
+                  <Button variant="ghost" disabled={dirty || makeMain.isPending} onClick={() => makeMain.mutate(form)}>메인으로</Button>
+                </Inline>
+              </ListRow>
+            ))}
+          </InspectorList>
+        </Section>
+      )}
       <Section title="태그">
         <TagListEditor
           tags={attachedTags}

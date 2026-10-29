@@ -1,0 +1,1 @@
+ALTER TABLE `terms` ADD `target_candidates` text DEFAULT '[]' NOT NULL;

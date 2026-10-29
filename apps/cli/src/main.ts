@@ -663,7 +663,7 @@ const terms = program
   .option('--limit <n>', '최대 몇 개까지')
   .option('--jsonl', '한 줄에 하나씩 JSON으로 출력')
   .action(async (options: { q?: string; status?: string[]; mark?: string[]; unreviewed?: boolean; tag?: string[]; limit?: string; jsonl?: boolean }) => {
-    type Term = { id: string; source: string; target: string; note: string; status: KnowledgeStatus; statusBy: string; lines: number | null; examples: string[]; marks: string[]; tags: string[] };
+    type Term = { id: string; source: string; target: string; targetCandidates?: string[]; scope?: string; matchCase?: boolean; note: string; status: KnowledgeStatus; statusBy: string; lines: number | null; examples: string[]; marks: string[]; tags: string[] };
     const wanted = options.limit ? Number(options.limit) : Infinity;
     const rows: Term[] = [];
     let total = 0;
@@ -678,7 +678,7 @@ const terms = program
     if (options.jsonl) return printJsonl(rows);
     if (globals().json) return printList(total, rows);
     for (const term of rows)
-      console.log(`${String(term.lines ?? '?').padStart(5)}줄  ${term.source} → ${term.target || '(번역어 없음)'}  [${KNOWLEDGE_STATUS_LABELS[term.status]}]  ${withMarks('', term.marks, term.tags)}  (${term.id})${term.note ? `\n         ${short(term.note, 100)}` : ''}`);
+      console.log(`${String(term.lines ?? '?').padStart(5)}줄  ${term.source} → ${term.target || '(번역어 없음)'}${term.targetCandidates?.length ? ` (다른 번역어: ${term.targetCandidates.join(', ')})` : ''}${term.scope ? ` · ${term.scope === 'ui' ? 'UI 줄만' : '대사·문서만'}` : ''}${term.matchCase ? ' · 대소문자 일치' : ''}  [${KNOWLEDGE_STATUS_LABELS[term.status]}]  ${withMarks('', term.marks, term.tags)}  (${term.id})${term.note ? `\n         ${short(term.note, 100)}` : ''}`);
   });
 
 terms

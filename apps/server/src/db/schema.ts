@@ -369,6 +369,8 @@ export const terms = sqliteTable(
     scope: text('scope', { enum: TERM_SCOPE_IDS as [TermScope, ...TermScope[]] }).notNull().default('all'),
     /** Matched in its exact case only ("Help" the button, not "help" the verb). */
     matchCase: integer('match_case', { mode: 'boolean' }).notNull().default(false),
+    /** Other Korean forms it has had or been offered (a former main, an AI's form), newest first; `target` is the one used. */
+    targetCandidates: json<string[]>('target_candidates').notNull().default(sql`'[]'`),
     updatedAt: updatedAt(),
   },
   // One term per source, whatever its case.

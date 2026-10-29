@@ -118,6 +118,23 @@ export function termMarksOf(term: { status: KnowledgeStatus; statusBy: StatusBy;
 }
 
 /**
+ * A term's Korean forms after `next` becomes the main one (`target`, the one used): the former main
+ * goes to the front of the candidates, and `next` leaves them. Like a line's candidates, nothing is lost.
+ */
+export function withMainTarget(term: { target: string; targetCandidates: readonly string[] }, next: string): { target: string; targetCandidates: string[] } {
+  const target = next.trim();
+  const former = term.target.trim();
+  return { target, targetCandidates: [...new Set([...(former && former !== target ? [former] : []), ...term.targetCandidates])].filter((form) => form && form !== target) };
+}
+
+/** A term's candidates with `form` offered (an AI's form while the main one stays): unchanged when it is the main one or already there. */
+export function withTargetCandidate(term: { target: string; targetCandidates: readonly string[] }, form: string): string[] {
+  const offered = form.trim();
+  if (!offered || offered === term.target.trim() || term.targetCandidates.includes(offered)) return [...term.targetCandidates];
+  return [offered, ...term.targetCandidates];
+}
+
+/**
  * The terms with `duplicateTarget`: another term of a different source (case aside) that is not
  * rejected has the same Korean form (Ava and Joy both 조이). Only a mark: two sources may rightly
  * share a translation, and a project that confirms AI terms right away chose that.

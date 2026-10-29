@@ -349,7 +349,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
     }),
     list_terms: tool({
       description:
-        'Glossary entries (not rejected ones) as the glossary page lists them: source, target, note, status (candidate = not used yet), statusBy (ai = no person has decided), lines (how many script lines use it, 나온 줄), examples (keys of its first lines), marks (ai, emptyTarget = no Korean form, unused = not in the script) and tags. Filter with q, status (candidate / confirmed), marks, unreviewed (candidate or AI-decided), tags (all). Returns total and one page; use offset to page through.',
+        'Glossary entries (not rejected ones) as the glossary page lists them: source, target (the main Korean form), targetCandidates (other forms it had or an AI offered; making one the main = save_terms with that target), scope and matchCase when set, note, status (candidate = not used yet), statusBy (ai = no person has decided), lines (how many script lines use it, 나온 줄), examples (keys of its first lines), marks (ai, emptyTarget = no Korean form, unused = not in the script) and tags. Filter with q, status (candidate / confirmed), marks, unreviewed (candidate or AI-decided), tags (all). Returns total and one page; use offset to page through.',
       inputSchema: z.object({ ...termFilterInput, ...page }),
       execute: (input) => listTerms(db, projectId, input),
     }),
@@ -590,7 +590,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       execute: (input) => saveKnowledgeItem(db, projectId, 'documents', input, saver),
     }),
     save_terms: tool({
-      description: 'Add glossary entries, or update existing ones by id. An update changes only the fields you send (leave out what stays). Tags go on with tag_items, not here.',
+      description: 'Add glossary entries, or update existing ones by id. An update changes only the fields you send (leave out what stays). target is the main Korean form (the one translations must use); a new target keeps the former one in targetCandidates. scope (all / ui / dialogue) limits the lines it applies to and matchCase matches its exact case only (an interface word such as "Help": scope ui, matchCase true). Tags go on with tag_items, not here.',
       inputSchema: z.object({ terms: z.array(upsert(termInput)).min(1).max(200) }),
       needsApproval: true,
       execute: ({ terms }) => {

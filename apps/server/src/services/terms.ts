@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray, like, ne, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { aiStatus, matchesMarks, termMarksOf, TERM_MARK_IDS, withDuplicateTargets, type AutoMark } from '@tw/shared';
+import { aiStatus, matchesMarks, termMarksOf, TERM_MARK_IDS, withDuplicateTargets, withMainTarget, withTargetCandidate, type AutoMark } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
@@ -49,14 +49,18 @@ export function saveTerm(tx: Tx, projectId: string, term: TermSave, options: { i
   if (same && same.id !== mine.id) tx.delete(s.terms).where(eq(s.terms.id, same.id)).run();
   // A new source, scope or case rule matches other lines: counted again.
   const changesSource = (source !== undefined && source !== mine.source) || (term.scope !== undefined && term.scope !== mine.scope) || (term.matchCase !== undefined && term.matchCase !== mine.matchCase);
-  const row = tx.update(s.terms).set({ ...values, ...(changesSource && { lines: null }), ...bySaver(tx, s.terms, projectId, mine.id, values, saver) }).where(eq(s.terms.id, mine.id)).returning().get();
+  // A new main form keeps the former one among the candidates (the pane's 메인으로 sends a candidate here).
+  const forms = term.target !== undefined && term.target.trim() !== mine.target.trim() ? withMainTarget(mine, term.target) : {};
+  const row = tx.update(s.terms).set({ ...values, ...forms, ...(changesSource && { lines: null }), ...bySaver(tx, s.terms, projectId, mine.id, values, saver) }).where(eq(s.terms.id, mine.id)).returning().get();
   return { ok: true as const, row };
 }
 
 /**
  * A term an AI found (the work analysis, an addTerms node). A source already in the glossary keeps
- * what it has: only an empty translation, note or examples are filled, and a rejected one stays as
- * the person left it. A new one lands as AI › 사용 방식 says (without a Korean form: a candidate).
+ * its note and examples (only empty ones are filled), and a rejected one stays as the person left it.
+ * A Korean form other than its main one becomes the main one when AI results are confirmed right away
+ * and no person chose the current one (the former main stays a candidate); otherwise it is kept as a
+ * candidate. A new term lands as AI › 사용 방식 says (without a Korean form: a candidate).
  */
 export function upsertAiTerm(
   tx: Tx,
@@ -71,7 +75,16 @@ export function upsertAiTerm(
   const known = termBySource(tx, projectId, source);
   if (known) {
     if (known.status === 'rejected') return 'unchanged';
-    const fill = { ...(!known.target.trim() && target && { target }), ...(!known.note.trim() && note && { note }), ...(!known.examples.length && examples.length && { examples }) };
+    const takesMain = target && target !== known.target.trim() && (!known.target.trim() || (options.autoConfirm && known.statusBy !== 'human'));
+    const offered = target && !takesMain ? withTargetCandidate(known, target) : known.targetCandidates;
+    const fill = {
+      // Filling an empty form keeps whoever decided the term; replacing a form makes it the AI's.
+      ...(takesMain && withMainTarget(known, target)),
+      ...(takesMain && known.target.trim() && { statusBy: 'ai' as const, origin: 'ai' as const, runId: options.runId ?? null }),
+      ...(offered.length !== known.targetCandidates.length && { targetCandidates: offered }),
+      ...(!known.note.trim() && note && { note }),
+      ...(!known.examples.length && examples.length && { examples }),
+    };
     if (!Object.keys(fill).length) return 'unchanged';
     tx.update(s.terms).set(fill).where(eq(s.terms.id, known.id)).run();
     return 'filled';
@@ -177,6 +190,6 @@ export function listTerms(db: Db, projectId: string, input: KnowledgeFilter & { 
   const page = input.limit === undefined ? matched.slice(offset) : matched.slice(offset, offset + input.limit);
   return {
     total: matched.length,
-    terms: page.map(({ id, source, target, note, status, statusBy, lines, examples, marks, tags }) => ({ id, source, target, note, status, statusBy, lines, examples, marks, tags })),
+    terms: page.map(({ id, source, target, targetCandidates, scope, matchCase, note, status, statusBy, lines, examples, marks, tags }) => ({ id, source, target, ...(targetCandidates.length && { targetCandidates }), ...(scope !== 'all' && { scope }), ...(matchCase && { matchCase }), note, status, statusBy, lines, examples, marks, tags })),
   };
 }
