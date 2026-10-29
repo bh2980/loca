@@ -14,6 +14,6 @@
 | `loca-import-format` | 게임 추출 결과를 표준 파일(`loca/v1`)로 바꾸는 변환기 |
 
 ## 설치
-- Claude Code: 저장소의 `.claude/skills/`가 이 폴더의 스킬을 가리킵니다. 저장소를 열면 바로 보입니다. 다른 프로젝트에서 쓰려면 각 폴더를 `~/.claude/skills/`에 복사하거나 링크합니다.
+- Claude Code: 스킬이 저장소의 `.claude/skills/`에 있어 저장소를 열면 바로 보입니다(Windows 포함). 다른 프로젝트에서 쓰려면 각 폴더를 `~/.claude/skills/`에 복사하거나 링크합니다.
 - Codex 등: 각 폴더를 그 에이전트의 스킬 폴더(예: `~/.codex/skills/`)에 복사하거나 링크합니다. `loca` 스킬도 함께 둡니다.
 - `loca` 명령: 저장소 루트에서 `pnpm --silent loca …`로 쓰거나, `apps/cli`에서 `npm link`를 한 번 해서 어디서나 `loca`로 씁니다. `--silent`가 없으면 pnpm이 stdout에 안내 줄을 찍어 `--json` 출력이 깨집니다.
