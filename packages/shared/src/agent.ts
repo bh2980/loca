@@ -73,6 +73,7 @@ export const AGENT_TOOLS: Record<string, { target: AgentToolTarget; action: Agen
   plan_run: tool('workflows', 'read', '워크플로 실행 계획 조회'),
   list_terms: tool('terms', 'read', '용어집 조회'),
   save_terms: tool('terms', 'change', '용어 저장'),
+  discover_terms: tool('terms', 'change', '대본에서 용어 후보 찾기'),
   harness_reference: tool('workflows', 'read', '워크플로 구조 확인'),
   read_workflow: tool('workflows', 'read', '워크플로 읽기'),
   read_run: tool('workflows', 'read', '실행 기록 읽기'),
@@ -80,10 +81,12 @@ export const AGENT_TOOLS: Record<string, { target: AgentToolTarget; action: Agen
   delete_workflow: tool('workflows', 'delete', '워크플로 삭제'),
   edit_workflow_node: tool('workflows', 'change', '편집기 노드 수정'),
   start_run: tool('workflows', 'run', '워크플로 실행'),
+  continue_run: tool('workflows', 'run', '실행 이어 하기'),
   save_status: tool('settings', 'change', '상태·태그 만들기'),
   update_status: tool('settings', 'change', '상태 수정'),
   delete_status: tool('settings', 'delete', '상태 삭제'),
   update_tag: tool('settings', 'change', '태그 수정'),
+  order_settings: tool('settings', 'change', '상태·태그 순서 바꾸기'),
   delete_tag: tool('settings', 'delete', '태그 삭제'),
   tag_items: tool('settings', 'change', '태그 붙이기·떼기'),
   read_project_settings: tool('project', 'read', '프로젝트 설정 조회'),
@@ -146,6 +149,8 @@ export const agentSettingsSchema = z.object({
   chatModel: modelChoiceSchema.nullable().default(null),
   /** The permission mode a new conversation starts in. */
   defaultPermissionMode: z.enum(PERMISSION_MODES).default('ask'),
+  /** How changes from the terminal (`loca`, an agent with a shell) are decided; it has no conversation of its own. */
+  terminalPermissionMode: z.enum(PERMISSION_MODES).default('ask'),
   /** 저장한 지시: /name in the chat box inserts the text. */
   prompts: savedPromptsSchema.default([]),
 });

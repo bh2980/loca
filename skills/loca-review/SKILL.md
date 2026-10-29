@@ -5,7 +5,7 @@ description: Review translations in a loca project for glossary violations, inco
 
 # loca로 번역 점검하기
 
-공통 규칙(연결, 제안, 권한, 표시, 작업 폴더)은 README를 따릅니다.
+공통 규칙(연결, 제안, 권한, 표시, 작업 폴더, 터미널 권한 모드)은 `loca` 스킬을 따릅니다.
 
 ## 한 번에 찾기
 찾은 게 있으면 종료 코드 1, 없으면 0이라 끝 단계의 게이트로 씁니다(예: `loca check format -g s1 && loca import …`).

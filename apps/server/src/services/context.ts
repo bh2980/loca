@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, lt } from 'drizzle-orm';
 import { CONTEXT_PRIORITY, contextConfigSchema, contextTokens, estimateTokens, isSpecialListener, listenerLabel, mentions, personNote, styleInstruction, talkingPairs, termMatcher, type AgeBand, type PairLine, type TalkingPair, type ContextConfig, type ContextItem, type ContextItemKind, type Gender, type RelationshipChange } from '@tw/shared';
 import type { Db } from '../db/index.ts';
+import { inChunks } from '../db/chunk.ts';
 import { documents as documentsTable, graphEdges, graphNodes, groups, runItems, units } from '../db/schema.ts';
 import { cachedKnowledge, describeRule, graphOrder, knowledgeOf, knownListener, scriptOrder, speechRuleIndex } from './speech.ts';
 import { deriveSceneEdges } from './scene-graph.ts';
@@ -202,6 +203,45 @@ const graphIndex = (db: Db, projectId: string) => {
   return index;
 };
 export const forgetProjectContext = (projectId: string) => indexes.delete(projectId);
+
+/** Lines as an export carries them before a line: oldest first. */
+type ShownLine = { key: string; speaker: string | null; source: string; translation: string | null };
+
+/**
+ * The lines before each of these, as an AI node is given them (buildContext): back along the dialogue
+ * graph, split by branch where ways join; in scene order for a line the graph does not hold. Unlike a
+ * batch's context nothing is left out for having been shown already, since an export line stands alone.
+ */
+export function precedingLines(db: Db, projectId: string, unitIds: string[], limit: number) {
+  const index = graphIndex(db, projectId);
+  const wanted = new Map<string, PrecedingIds>();
+  const own = new Map(unitIds.length ? inChunksSelect(db, unitIds).map((row) => [row.id, row]) : []);
+  for (const unitId of unitIds) {
+    const fromGraph = index.precedingUnitIds(unitId, limit);
+    const unit = own.get(unitId);
+    wanted.set(
+      unitId,
+      fromGraph ??
+        ({
+          lines: unit ? db.select({ id: units.id }).from(units).where(and(eq(units.groupId, unit.groupId), lt(units.sort, unit.sort))).orderBy(desc(units.sort)).limit(limit).all().map((row) => row.id) : [],
+          branches: [],
+          moreBranches: 0,
+        } satisfies PrecedingIds),
+    );
+  }
+  const all = [...new Set([...wanted.values()].flatMap((ids) => [...ids.lines, ...ids.branches.flatMap((branch) => branch.units)]))];
+  const rows = new Map(all.length ? inChunksSelect(db, all).map((row) => [row.id, row]) : []);
+  const lineOf = (ids: string[]): ShownLine[] => ids.flatMap((id) => (rows.has(id) ? [rows.get(id)!] : [])).map(({ key, speaker, source, translation }) => ({ key, speaker, source, translation })).reverse();
+  return new Map(
+    [...wanted].map(([unitId, ids]) => [
+      unitId,
+      { lines: lineOf(ids.lines), branches: ids.branches.map((branch, at) => ({ label: branch.labels.join(' › ') || `갈래 ${at + 1}`, lines: lineOf(branch.units) })).filter((branch) => branch.lines.length), moreBranches: ids.moreBranches },
+    ]),
+  );
+}
+
+const inChunksSelect = (db: Db, ids: string[]) =>
+  inChunks(ids, (slice) => db.select({ id: units.id, key: units.key, groupId: units.groupId, sort: units.sort, speaker: units.speaker, source: units.source, translation: units.translation }).from(units).where(inArray(units.id, slice)).all());
 
 /** A candidate piece of context and how to keep it if it fits. */
 interface Candidate {

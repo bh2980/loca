@@ -5,7 +5,7 @@ description: Read and maintain a loca project's knowledge that AI translation us
 
 # loca 작품 자료 다루기
 
-공통 규칙(연결, 제안, 권한, 표시)은 README를 따릅니다. 자료는 번역 문맥으로 쓰입니다: **확정(confirmed)** 된 자료만 AI 노드에 들어가고, 후보는 들어가지 않습니다. AI가 확정한 자료(#AI 초안)도 이미 쓰이고 있으니, 틀린 것을 보면 고쳐서 제안합니다(사람이 수락하면 정한 쪽이 사람이 됩니다).
+공통 규칙(연결, 제안, 권한, 표시, 터미널 권한 모드)은 `loca` 스킬을 따릅니다. 자료는 번역 문맥으로 쓰입니다: **확정(confirmed)** 된 자료만 AI 노드에 들어가고, 후보는 들어가지 않습니다. AI가 확정한 자료(#AI 초안)도 이미 쓰이고 있으니, 틀린 것을 보면 고쳐서 제안합니다(사람이 수락하면 정한 쪽이 사람이 됩니다).
 
 ## 읽기
 파일은 작업 폴더에 받습니다: `W=$(loca workspace new knowledge)`

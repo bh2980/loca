@@ -46,7 +46,7 @@ export const refusalText = (refused: { error: string; hint?: string }) => [refus
 /** Change tools that edit an existing row when given its id, and where that row lives. */
 const BY_ID: Record<string, { field: string; what: string; exists: (db: Db, projectId: string, id: string) => boolean }> = {};
 const scoped =
-  (table: typeof s.characters | typeof s.relationships | typeof s.speechRules | typeof s.storyEvents | typeof s.documents | typeof s.workflows | typeof s.groups | typeof s.units) =>
+  (table: typeof s.characters | typeof s.relationships | typeof s.speechRules | typeof s.storyEvents | typeof s.documents | typeof s.workflows | typeof s.groups | typeof s.units | typeof s.runs) =>
   (db: Db, projectId: string, id: string) =>
     Boolean(db.select({ id: table.id }).from(table).where(and(eq(table.id, id), eq(table.projectId, projectId))).get());
 for (const [tool, field, what, exists] of [
@@ -57,6 +57,7 @@ for (const [tool, field, what, exists] of [
   ['save_document', 'id', '노트', scoped(s.documents)],
   ['save_workflow', 'id', '워크플로', scoped(s.workflows)],
   ['start_run', 'workflowId', '워크플로', scoped(s.workflows)],
+  ['continue_run', 'runId', '실행', scoped(s.runs)],
   ['propose_translation', 'unitId', '대사', scoped(s.units)],
   ['save_group_summary', 'groupId', '장면', scoped(s.groups)],
 ] as const)

@@ -49,6 +49,17 @@ describe('change gate (#45)', () => {
     expect(db.select().from(s.candidates).where(eq(s.candidates.text, '안녕')).get()?.model).toBe('gpt-test');
   });
 
+  it('the terminal follows the project\'s terminal permission mode, not a conversation\'s', async () => {
+    const { db, projectId, chat } = setup('bypass');
+    const asked = await proposeChange(db, { projectId, sessionId: null, source: 'cli', tool: 'save_character', input: { name: 'Bob' }, terminal: true });
+    expect(asked).toMatchObject({ ok: true, applied: false, status: 'pending' });
+    const project = db.select().from(s.projects).where(eq(s.projects.id, projectId)).get()!;
+    db.update(s.projects).set({ agentSettings: { ...project.agentSettings, terminalPermissionMode: 'bypass' } }).where(eq(s.projects.id, projectId)).run();
+    const applied = await proposeChange(db, { projectId, sessionId: chat.id, source: 'cli', tool: 'save_character', input: { name: 'Carol' }, terminal: true });
+    expect(applied).toMatchObject({ ok: true, applied: true, status: 'accepted' });
+    expect(characterNamed(db, 'Carol')).toBeDefined();
+  });
+
   it('bypass: applies at once, records who decided, and does not tell the agent twice', async () => {
     const { db, projectId, chat } = setup('bypass');
     const gate = await proposeChange(db, { projectId, sessionId: chat.id, source: 'cli', tool: 'save_character', input: { name: 'Bob' } });

@@ -5,11 +5,11 @@ description: Translate game script lines in a loca project from the terminal in 
 
 # loca로 대사 번역하기
 
-공통 규칙(연결, 제안, 권한, 표시, 작업 폴더)은 README를 따릅니다.
+공통 규칙(연결, 제안, 권한, 표시, 작업 폴더, 터미널 권한 모드)은 `loca` 스킬을 따릅니다.
 
 ## 원칙
 - **대사를 하나씩 조회·저장하지 않습니다.** 범위를 한 번에 내보내고, 파일에서 번역하고, 한 번에 돌려보냅니다. 돌려보낸 변경은 제안 1건이 됩니다.
-- 대량 번역은 프로젝트의 워크플로로 돌리는 편이 나을 수 있습니다(AI 노드에 연결과 모델이 정해져 있을 때). 그럴 땐 `loca-workflows`의 순서로 실행을 제안합니다.
+- 대량 초벌은 프로젝트의 워크플로로 돌립니다(AI 노드에 연결과 모델이 정해져 있을 때). 순서는 `loca` 스킬의 "혼자 끝까지"와 `loca-workflows`입니다. 직접 번역은 소량(실패·걸린 줄, 어려운 장면, 다듬기)에 씁니다.
 
 ## 순서
 1. 작업 폴더와 범위
@@ -22,7 +22,13 @@ description: Translate game script lines in a loca project from the terminal in 
    ```
    loca export --section "Chapter 1" --untranslated --context 4 --terms -o "$W/ch1.jsonl"
    ```
-   한 줄 = 한 대사: `key`, `rev`, `group`, `speaker`, `listener`(알 때만), `speechRule`(그 화자→청자의 확정 말투 규칙, 있을 때만), `source`, `translation`, `marks`, `before`(앞 대사), `terms`(지켜야 할 용어).
+   한 줄 = 한 대사입니다. 필드:
+   - `key`, `rev`, `group`, `speaker`, `source`, `translation`, `marks`
+   - `listener`: 알 때만
+   - `speechRule`: 그 화자→청자의 확정 말투 규칙, 있을 때만
+   - `before`: 앞 대사. AI 노드처럼 대사 그래프를 거슬러 갑니다.
+   - `beforeBranches`: 갈래가 합쳐지는 곳이면 `[{label: 선택지, lines}]`. 플레이어는 이 중 한 갈래를 거쳐 오니, 어느 갈래에서 와도 자연스럽게 번역합니다.
+   - `terms`: 지켜야 할 용어
    - #청자 미상(`unknownListener`) 줄은 말투를 모르는 줄이니 추측하지 말고 사용자에게 알립니다(고치는 법은 `loca-knowledge`).
    - #번역 불일치(`diverged`)는 같은 원문이 다르게 번역된 줄이니 맞춰 줍니다.
 3. 인물 말투가 더 필요하면 `loca call list_characters`, `loca knowledge speech-rules`로 읽습니다.
@@ -37,9 +43,17 @@ description: Translate game script lines in a loca project from the terminal in 
    loca import "$W/ch1.out.jsonl" --model <번역한 모델 이름>
    ```
    경고(자리표시자, 용어)가 있으면 고쳐서 다시 `--dry-run`. 충돌은 그사이 사람이 고친 줄이라 건너뜁니다(덮어쓰지 않음).
-6. 제안 ID와 요약을 알립니다. 끝나면 `loca workspace clean ch1-translate`.
+6. 반영됐는지 제안으로 기다리는지(터미널 권한 모드), 몇 줄인지 알립니다. 오류·충돌 줄이 있으면 `import`는 종료 코드 1입니다(나머지 줄은 들어감). 끝나면 `loca workspace clean ch1-translate`.
 
 import 파일의 줄에는 번역 말고도 `status`(상태 이름), `addTags`·`removeTags`(대사에 붙는 태그만), `listener`(사람이 확정한 청자), `translate`(`exclude` 번역에서 뺌 · `include` 번역함 · `null` 규칙대로)를 넣을 수 있습니다. #번역 제외 줄은 내보내기에 나오지 않으니 번역할 필요가 없습니다.
+
+## 대사 그래프의 한 흐름 따라 번역하기
+사람이 앱에서 떼어 둔 보기(또는 `loca views create --between <시작키> <끝키>`로 만든 보기)를 범위로 씁니다.
+```
+loca views show "<보기>"                                    # 흐름 순서, 갈림(⤷)과 합쳐짐(⤶), 선택지 이름
+loca export --view "<보기>" --untranslated -c 4 -t -o "$W/flow.jsonl"   # 흐름 순서로, 갈래별 앞 대사와 함께
+```
+번역·검사·import는 위와 같습니다. 워크플로로 돌릴 때는 `loca runs start <워크플로> --view "<보기>" --wait`.
 
 ## 다듬기(이미 번역된 줄)
 `--translated`로 내보내고 `translation`을 고친 뒤 같은 방식으로 import합니다. 바뀌지 않은 줄은 자동으로 빠집니다.

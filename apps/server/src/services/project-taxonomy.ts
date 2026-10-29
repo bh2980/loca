@@ -69,6 +69,15 @@ export function orderTags(db: Db, projectId: string, ids: string[]) {
   return { ok: true as const };
 }
 
+/** Statuses in this order (the settings page's drag), by id; ones not named keep their place after them. */
+export function orderStatuses(db: Db, projectId: string, ids: string[]) {
+  db.transaction((tx) => {
+    ids.forEach((id, sort) => tx.update(s.statuses).set({ sort }).where(and(eq(s.statuses.id, id), eq(s.statuses.projectId, projectId))).run());
+  });
+  events.changed(projectId, 'statuses');
+  return { ok: true as const };
+}
+
 export function createTag(db: Db, projectId: string, input: unknown) {
   const sort = db.select({ max: sql<number>`coalesce(max(${s.tags.sort}), -1)` }).from(s.tags).where(eq(s.tags.projectId, projectId)).get()!.max + 1;
   const row = db.insert(s.tags).values({ ...tagInput.parse(input), projectId, sort }).returning().get();

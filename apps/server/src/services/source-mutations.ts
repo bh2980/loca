@@ -9,6 +9,7 @@ import { badRequest, found } from '../http-errors.ts';
 import { events } from '../events.ts';
 import { FILLING } from '../engine/run-create.ts';
 import { computeLayouts, cancelViewLayouts } from './layout.ts';
+import { forgetProjectContext } from './context.ts';
 
 export type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 type Reader = Pick<Db, 'select' | 'get'>;
@@ -57,6 +58,8 @@ export function invalidate(tx: Tx, projectId: string) {
   tx.update(s.graphLayouts).set({ status: 'pending', error: null }).where(eq(s.graphLayouts.projectId, projectId)).run();
 }
 export function changed(db: Db, projectId: string) {
+  // The dialogue graph the AI context and exports walk back along is cached per project.
+  forgetProjectContext(projectId);
   events.changed(projectId, 'units', 'graph');
   // Every orientation that has a stored layout is laid out again (one after another, see computeLayouts).
   const directions = db.selectDistinct({ direction: s.graphLayouts.direction }).from(s.graphLayouts).where(eq(s.graphLayouts.projectId, projectId)).all().map((row) => row.direction);

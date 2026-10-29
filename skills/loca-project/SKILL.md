@@ -5,7 +5,15 @@ description: Set up and maintain a loca project's own structure and settings —
 
 # loca 프로젝트 설정과 원문 구조
 
-공통 규칙(연결, 제안, 권한)은 README를 따릅니다. 아래 도구는 모두 `loca call <도구> <입력>`으로 부르고, 바꾸는 도구는 제안이 됩니다. 입력 형식은 `loca tools <도구>`로 먼저 봅니다.
+공통 규칙(연결, 제안, 권한, 터미널 권한 모드)은 `loca` 스킬을 따릅니다. 아래 도구는 모두 `loca call <도구> <입력>`으로 부르고, 바꾸는 도구는 터미널 권한 모드에 따라 바로 반영되거나 제안이 됩니다. 입력 형식은 `loca tools <도구>`로 먼저 봅니다.
+
+## 프로젝트 만들기
+표준 파일(`loca/v1`, 변환기는 `loca-import-format`)로 새 프로젝트를 만듭니다. 있던 프로젝트는 건드리지 않습니다.
+```
+loca format check "$W/game.loca.json"           # 앱 없이 검사: 형식 오류, 개수, 경고
+loca projects import "$W/game.loca.json"        # 새 프로젝트. 출력의 id를 LOCA_PROJECT로
+```
+- 새 프로젝트는 홈 설정의 기본값(상태, 태그, 워크플로, 연결 등)을 복사해 갑니다. 연결의 API 키는 사람이 앱에서 넣습니다. `loca connections`에서 "(키 없음)"이면 사용자에게 알립니다.
 
 ## 상태
 번역 상태는 사용자가 정합니다. 종류는 `initial`(시작) · `normal`(중간) · `final`(최종)이고, 시작과 최종은 하나 이상 남아야 합니다. `inReview`가 켜진 상태의 대사는 검토함에 모입니다.
@@ -17,7 +25,7 @@ loca call delete_status '{"ids":["…","…"],"moveTo":"<남길 상태 id>"}'   
 ```
 - 최종 상태로 바꾸거나 옮길 때 번역이 빈 대사가 있으면 거절됩니다.
 - 지운 상태를 쓰던 워크플로 노드는 검증에 실패하니, 지운 뒤 `loca workflows list`의 오류 수를 확인하고 `loca-workflows`로 고칩니다.
-- 순서는 앱의 설정 › 상태·태그에서 끌어서 바꿉니다(CLI 없음).
+- 순서: `loca statuses order <앞에 둘 이름...>` (빠진 것은 지금 순서대로 뒤에. 되돌리기는 `loca proposals undo`).
 
 ## 태그
 태그는 붙는 곳(`scope`)에만 붙습니다: `lines` 대사 · `terms` 용어집 · `people` 인물·관계 · `events` 사건 · `documents` 노트 (`knowledge`는 people·documents·events 셋). 앱 기본 태그(문제 유형, 확인 권장)는 검사가 아니라 워크플로의 태그 붙이기 노드가 붙이고(처음 붙일 때 만들어짐), 번역문이 바뀌면 문제 유형은 떨어집니다. 이 태그는 이름·붙는 곳을 바꾸거나 지울 수 없고 색만 바꿀 수 있습니다.
@@ -28,7 +36,7 @@ loca call update_tag '{"id":"…","scope":["terms","documents"]}'   # 이미 붙
 loca call delete_tag '{"ids":["…"]}'               # 붙어 있던 곳에서도 함께 떨어짐
 ```
 - 대사에 붙이고 떼기는 import 파일의 `addTags`·`removeTags`(`loca-translate`), 용어·자료에는 `tag_items`(`loca-glossary`, `loca-knowledge`).
-- 순서는 앱에서 끌어서 바꿉니다.
+- 순서: `loca tags order <앞에 둘 이름...>`.
 
 ## 저장한 지시
 앱 설정 › 채팅에서 사용자가 프로젝트마다 저장해 두는 프롬프트(이름과 내용)입니다. 사용자가 채팅 입력창의 `/` 목록(워크플로 아래 ‘저장한 지시’)에서 골라 입력창에 채우는 용도이고, 이 CLI·스킬에서 실행하거나 바꾸지 않습니다. 읽기만 합니다. 내용에 `{대상}`이 있으면 고를 때 그 자리에서 `@` 첨부 목록이 열려, 사용자가 고른 항목(대사·장면·인물·관계·말투 규칙·사건·노트·용어·태그·상태·워크플로·실행 기록)이 메시지에 칩으로 붙고 그 자리는 항목의 짧은 이름이 됩니다. 앱에 박힌 `/` 명령은 없고, `/워크플로이름`은 그 워크플로를 사용자가 고른 대상으로 실행하는 확인 카드를 띄웁니다(비용이 드는 일이라 사용자가 [실행]을 눌러야 시작).
@@ -52,6 +60,7 @@ loca call read_project_settings                     # exclusionRules: empty, for
 loca call read_project_settings                  # 이름, 설명, formatRules, aiAutoConfirm, editorAi, markColors
 loca call update_project_settings @"$W/settings.json"
 ```
+- 정규식이 필요하면 `loca regex "<무엇을 찾을지>" --target token|check`로 만듭니다. 에디터 AI 모델을 한 번 부르고 저장하지 않으니, 결과를 규칙에 넣어 보냅니다.
 - 보낸 항목은 **통째로 바뀝니다.** 먼저 읽고, 바꿀 객체(예: `formatRules`) 전체를 고쳐서 보냅니다.
 - `formatRules`: 형식 검사가 지키는 자리표시자 프리셋(중괄호 변수, printf, 마크업 태그 등)과 직접 만든 패턴. 바꾼 뒤 `loca check format`으로 결과가 기대대로인지 봅니다.
 - `aiAutoConfirm`(앱: 설정 › 프로젝트 › AI 문맥): AI가 만든 용어·자료를 바로 확정할지(true, 기본) 후보로 둘지(false). 문맥에는 확정된 용어·자료만 들어갑니다. 대사의 상태는 바꾸지 않습니다(대사 상태는 사람이나 워크플로의 상태 변경 노드만 바꿈). 사용자가 정하는 설정이니 묻고 바꿉니다.
@@ -78,7 +87,7 @@ loca call create_unit '{"groupId":"…","key":"letter_01","source":"…","speake
 loca call update_unit '{"unitId":"…","source":"…"}'   # 원문을 바꾸면 그 줄 상태가 처음으로 돌아감. groupId로 같은 종류의 다른 묶음으로 옮김
 ```
 
-대사 그래프도 프로젝트 데이터라 고칠 수 있습니다(가져온 파일이 원본이 아님). 대사·노드는 키로 부르고, 바꾼 것은 제안으로 올라가 사람이 앱에서 수락합니다. 직접 그은 선과 넣은 대사는 "AI가 만듦"으로 남습니다.
+대사 그래프도 프로젝트 데이터라 고칠 수 있습니다(가져온 파일이 원본이 아님). 대사·노드는 키로 부르고, 바꾼 것은 터미널 권한 모드에 따라 바로 반영되거나 제안이 됩니다. 직접 그은 선과 넣은 대사는 "AI가 만듦"으로 남습니다.
 ```
 loca call link_lines '{"from":"<키>","to":"<키>","action":"link"}'      # 선 잇기(label로 선택지 이름), "unlink"면 지우기
 loca call add_line_after '{"after":"<키>","source":"…","speaker":"Mira"}' # 그 대사 바로 뒤: 다음 대사가 하나면 사이에, 갈래면 새 갈래로

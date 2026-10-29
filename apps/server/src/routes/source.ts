@@ -5,7 +5,7 @@ import { and, asc, count, desc, eq, gt, inArray, like, lt, ne, notInArray, notLi
 import { z } from 'zod';
 import { createGroupSchema, updateGroupSchema, createUnitSchema, updateUnitSchema, isSpecialListener, LINE_TRANSLATE, type NodeType } from '@tw/shared';
 import { createGroup, updateGroup, deleteGroup, createUnit, updateUnit, deleteUnits } from '../services/source-mutations.ts';
-import { deleteNodes, duplicateNodes, edgeDetail, insertLineAfter, linkInOrder, linkNodes, linkScenes, undoGraphEdit, unlinkEdges, unlinkScenes } from '../services/graph-edit.ts';
+import { deleteNodes, duplicateNodes, edgeDetail, insertLineAfter, linkInOrder, linkNodes, linkScenes, nodeByKey, undoGraphEdit, unlinkEdges, unlinkScenes } from '../services/graph-edit.ts';
 import { attachUnitTags } from '../services/tag-scope.ts';
 import { assertProjectRefs } from '../services/project-refs.ts';
 import { LineConflict, saveLine, saveSameText, saveStatuses } from '../services/line-save.ts';
@@ -751,9 +751,13 @@ export const sourceRoutes = new Hono<Env>()
     });
   })
   /** Rename a view, or add / leave out nodes (its layout is made again). */
-  .patch('/projects/:projectId/graph/views/:id', validate('json', z.object({ label: z.string().trim().min(1).max(80).optional(), add: z.array(z.string().min(1)).max(5000).default([]), remove: z.array(z.string().min(1)).max(5000).default([]) })), (c) => {
+  .patch('/projects/:projectId/graph/views/:id', validate('json', z.object({ label: z.string().trim().min(1).max(80).optional(), add: z.array(z.string().min(1)).max(5000).default([]), remove: z.array(z.string().min(1)).max(5000).default([]), addKeys: z.array(z.string().min(1)).max(5000).default([]), removeKeys: z.array(z.string().min(1)).max(5000).default([]) })), (c) => {
     const { db } = c.var.deps;
-    const view = found(updateView(db, c.req.param('projectId'), c.req.param('id'), c.req.valid('json')) ?? undefined, '보기');
+    const projectId = c.req.param('projectId');
+    // Line or node keys (the CLI) become the nodes holding them.
+    const { addKeys, removeKeys, ...change } = c.req.valid('json');
+    const byKey = (keys: string[]) => keys.map((key) => nodeByKey(db, projectId, key));
+    const view = found(updateView(db, projectId, c.req.param('id'), { ...change, add: [...change.add, ...byKey(addKeys)], remove: [...change.remove, ...byKey(removeKeys)] }) ?? undefined, '보기');
     return c.json({ id: view.id, label: view.label, nodes: view.nodeIds.length });
   })
   .delete('/projects/:projectId/graph/views/:id', (c) => {

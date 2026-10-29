@@ -1,4 +1,4 @@
-import { checkAgentPermission } from './agent-permission-check.ts';
+import { checkAgentPermission, projectAgentSettings } from './agent-permission-check.ts';
 import { tool, type ToolSet } from 'ai';
 import { eq } from 'drizzle-orm';
 import type { z } from 'zod';
@@ -61,13 +61,16 @@ export type GateResult =
   | { ok: false; error: string; hint?: string }
   | { ok: true; proposalId: string; applied: boolean; status: s.ProposalStatus; result?: unknown; review?: string; text: string; report: s.ProposalReport | null };
 
-export async function proposeChange(db: Db, request: { projectId: string; sessionId: string | null; model?: string | null; source: 'cli' | 'api'; tool: string; input: Record<string, unknown> }): Promise<GateResult> {
+/** The terminal has no conversation: its changes follow the project's terminal permission mode. */
+export const terminalPermissionMode = (db: Db, projectId: string): PermissionMode => projectAgentSettings(db, projectId).terminalPermissionMode;
+
+export async function proposeChange(db: Db, request: { projectId: string; sessionId: string | null; model?: string | null; source: 'cli' | 'api'; tool: string; input: Record<string, unknown>; terminal?: boolean }): Promise<GateResult> {
   const denied = checkAgentPermission(db, request.projectId, request.tool, request.input);
   if (denied) return { ok: false, error: denied };
   const prepared = await prepareProposal(db, request.projectId, request.tool, request.input);
   if (!prepared.ok) return prepared;
   // Read now, not at turn start: switching to bypass while the agent works applies from its next change.
-  const mode = permissionModeOf(db, request.sessionId);
+  const mode = request.terminal ? terminalPermissionMode(db, request.projectId) : permissionModeOf(db, request.sessionId);
   const review = mode === 'auto' ? autoReview(request.tool, prepared.input, prepared.report) : null;
   const proposal = propose(db, { projectId: request.projectId, sessionId: request.sessionId, model: request.model, source: request.source, tool: request.tool, input: prepared.input, report: prepared.report, review: review?.reason ?? null });
   if (mode === 'bypass' || review?.pass) {

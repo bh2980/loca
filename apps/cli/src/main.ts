@@ -104,20 +104,50 @@ async function readTool<T = Record<string, any>>(name: string, input: Record<str
   if (result && typeof result === 'object' && typeof result.error === 'string') throw new CliError(result.error);
   return result as T;
 }
-/** A change tool: filed as a proposal the person accepts in the app. Prints what was left out and returns the proposal. */
-async function proposeTool(name: string, input: Record<string, unknown>): Promise<{ proposalId: string }> {
+/** What became of a change: applied now (the terminal permission mode allowed it), failed while applying, or waiting for the person. */
+type Outcome = { proposalId: string; applied: boolean; status: string; result?: unknown; review?: string | null };
+
+/** A change tool, through the terminal permission mode. Prints what the check left out and returns the outcome. */
+async function proposeTool(name: string, input: Record<string, unknown>): Promise<Outcome> {
   const response = await unwrap(api().projects[':projectId'].tools[':name'].$post({ param: { projectId: await projectId(), name }, json: input }));
   if (!response.proposed) {
     const result = (response as { result?: { error?: string } }).result;
     throw new CliError(result?.error ?? `${name}은(는) 제안을 만들지 않았습니다.`);
   }
-  const report = (response as { report?: { dropped?: { key: string; reason: string }[]; warnings?: { key: string; issues: string[] }[] } | null }).report;
+  logDropped((response as { report?: Report }).report);
+  const outcome = response as unknown as Outcome;
+  return { proposalId: outcome.proposalId, applied: outcome.applied, status: outcome.status, result: outcome.result, review: outcome.review };
+}
+
+type Report = { dropped?: { key: string; reason: string }[]; warnings?: { key: string; issues: string[] }[] } | null | undefined;
+/** What the check left out and why (a duplicate term, a tag that cannot go there, a stale line), not just the first. */
+const logDropped = (report: Report) => {
   for (const entry of report?.dropped?.slice(0, 20) ?? []) log(`  뺌  ${entry.key}: ${entry.reason}`);
   for (const entry of report?.warnings?.slice(0, 20) ?? []) log(`  경고  ${entry.key}: ${entry.issues.join(' / ')}`);
-  return { proposalId: response.proposalId as string };
-}
-/** Where proposals are decided. */
+};
+
+/** Where waiting proposals are decided. */
 const ACCEPT_HINT = 'loca 앱 채팅 패널의 ‘제안’에서 수락하면 반영됩니다';
+const failure = (result: unknown) => (result && typeof result === 'object' && typeof (result as { error?: unknown }).error === 'string' ? (result as { error: string }).error : JSON.stringify(result));
+
+/** Says what became of a change; a change that failed while applying fails the command. */
+function reportOutcome(outcome: Outcome, what = '변경') {
+  if (outcome.applied) return console.log(`${what}: 반영했습니다 (${outcome.proposalId}, 터미널 권한 모드).`);
+  if (outcome.status === 'failed') {
+    process.exitCode = 1;
+    return console.log(`${what}: 반영하려 했지만 실패했습니다 (${outcome.proposalId}): ${failure(outcome.result)}`);
+  }
+  console.log(`${what}: 제안으로 올렸습니다 (${outcome.proposalId}). ${ACCEPT_HINT}.${outcome.review ? `\n자동 검토가 넘김: ${outcome.review}` : ''}\n기다리려면: loca proposals wait ${outcome.proposalId}`);
+}
+
+/** --json prints the outcome; otherwise one sentence. */
+const printOutcome = (outcome: Outcome, what?: string) => {
+  if (globals().json) {
+    if (outcome.status === 'failed') process.exitCode = 1;
+    return print(outcome);
+  }
+  reportOutcome(outcome, what);
+};
 
 /** A workflow by id, exact name, or part of its name. */
 async function resolveWorkflow(ref: string) {
@@ -142,21 +172,108 @@ async function resolveGroups(refs: string[] | undefined) {
   });
 }
 
+/** The groups of these sections (장·출처), by id, for run scopes that take groups; with `--group` too, both must hold. */
+async function sectionGroups(sections: string[] | undefined, groups: string[] | undefined) {
+  if (!sections?.length) return groups;
+  const all = await unwrap(api().projects[':projectId'].groups.$get({ param: { projectId: await projectId() }, query: {} }));
+  const inSections = all.filter((group) => group.section && sections.includes(group.section));
+  if (!inSections.length) throw new CliError(`구역을 찾지 못했습니다: ${sections.join(', ')} (loca stats sections로 확인)`);
+  const picked = groups?.length ? (await resolveGroups(groups))!.map((group) => group.id) : null;
+  const ids = inSections.map((group) => group.id).filter((id) => !picked || picked.includes(id));
+  if (!ids.length) throw new CliError('고른 장면·묶음이 그 구역에 없습니다.');
+  return ids;
+}
+
+/** Every line of a saved view (id and key), for run scopes that take lines. */
+async function viewLines(view: string) {
+  const rows: { id: string; key: string }[] = [];
+  for (let offset = 0; ; ) {
+    const page = await unwrap(api().projects[':projectId'].lines.find.$post({ param: { projectId: await projectId() }, json: { view, offset, limit: 1000 } }));
+    rows.push(...page.rows.map((row) => ({ id: row.id, key: row.key })));
+    offset += page.rows.length;
+    if (!page.rows.length || offset >= page.total) break;
+  }
+  if (!rows.length) throw new CliError(`보기에 대사가 없습니다: ${view}`);
+  return rows;
+}
+
 /** A tool result cut for length says so (fitResult); the command tells how to narrow it. */
 const warnTruncated = (result: { truncated?: { shown: number; total: number } }, hint: string) => {
   if (result.truncated) log(`결과가 길어 ${result.truncated.shown}/${result.truncated.total}개만 받았습니다. ${hint}`);
 };
 
+/** A file's text, or stdin for "-"; a file that cannot be read is said plainly, not as a stack trace. */
+function readText(file: string): string {
+  try {
+    return readFileSync(file === '-' ? 0 : file, 'utf8');
+  } catch (error) {
+    throw new CliError(`파일을 읽지 못했습니다: ${file} (${(error as NodeJS.ErrnoException).code ?? (error instanceof Error ? error.message : String(error))})`);
+  }
+}
+
 /** JSON from an argument: literal JSON, @path to a file, or - for stdin (no shell quoting needed). */
 function readJsonArg(value: string | undefined): unknown {
   if (value === undefined) return {};
-  const text = value === '-' ? readFileSync(0, 'utf8') : value.startsWith('@') ? readFileSync(value.slice(1), 'utf8') : value;
+  const text = value === '-' ? readText('-') : value.startsWith('@') ? readText(value.slice(1)) : value;
   try {
     return JSON.parse(text);
   } catch {
     throw new CliError('JSON을 읽지 못했습니다. 직접 쓰기 어려우면 @파일 또는 - (표준 입력)으로 넘기세요.');
   }
 }
+
+/**
+ * Waits on the app's change events (the same SSE stream the screens use; nothing polls): runs
+ * `check` once connected and again after each change to `topic` in this project, until it returns
+ * a value. `timeout` is in minutes.
+ */
+async function waitFor<T>(topic: string, check: () => Promise<T | undefined>, timeout?: number): Promise<T> {
+  const id = await projectId();
+  const controller = new AbortController();
+  const timer = timeout ? setTimeout(() => controller.abort(new CliError(`${timeout}분 동안 끝나지 않아 기다리기를 멈췄습니다. 하던 일은 앱에서 계속됩니다.`)), timeout * 60_000) : undefined;
+  try {
+    let response: Response;
+    try {
+      response = await fetch(`${globals().url.replace(/\/+$/, '')}/api/events`, { signal: controller.signal, headers: { accept: 'text/event-stream' } });
+    } catch {
+      throw new CliError(`loca 앱(${globals().url})에 연결하지 못했습니다. 앱이 켜져 있는지 확인하세요.`);
+    }
+    if (!response.ok || !response.body) throw new CliError(`변경 알림을 받지 못했습니다 (HTTP ${response.status}).`);
+    const first = await check();
+    if (first !== undefined) return first;
+    const decoder = new TextDecoder();
+    let buffer = '';
+    for await (const chunk of response.body) {
+      buffer += decoder.decode(chunk as Uint8Array, { stream: true });
+      let end: number;
+      while ((end = buffer.indexOf('\n\n')) >= 0) {
+        const block = buffer.slice(0, end);
+        buffer = buffer.slice(end + 2);
+        if (!/^event: change$/m.test(block)) continue;
+        const data = /^data: (.*)$/m.exec(block)?.[1];
+        const event = data ? (JSON.parse(data) as { projectId?: string; topics: string[] }) : null;
+        if (!event || (event.projectId && event.projectId !== id) || !event.topics.includes(topic)) continue;
+        const done = await check();
+        if (done !== undefined) return done;
+      }
+    }
+    throw new CliError('앱과의 연결이 끊겼습니다. 다시 기다리려면 같은 명령을 실행하세요.');
+  } catch (error) {
+    if (controller.signal.aborted && controller.signal.reason instanceof CliError) throw controller.signal.reason;
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    controller.abort();
+  }
+}
+
+type Proposal = { id: string; tool: string; status: 'pending' | 'running' | 'accepted' | 'rejected' | 'failed'; result?: unknown; reason?: string | null };
+/** Until the person (or the permission mode) has decided a proposal and it has been applied. */
+const waitProposal = (id: string, timeout?: number) =>
+  waitFor('proposals', async () => {
+    const proposal = (await unwrap(api().projects[':projectId'].proposals[':id'].$get({ param: { projectId: await projectId(), id } }))) as Proposal;
+    return proposal.status === 'pending' || proposal.status === 'running' ? undefined : proposal;
+  }, timeout);
 
 // ── line filters ─────────────────────────────────────────────────────
 
@@ -179,6 +296,7 @@ interface FilterOptions {
   translated?: boolean;
   untranslated?: boolean;
   key?: string[];
+  view?: string;
   limit?: string;
   offset?: string;
 }
@@ -203,6 +321,7 @@ function withFilters(command: Command) {
     .option('--translated', '번역이 있는 대사만')
     .option('--untranslated', '번역이 없는 대사만')
     .option('--key <keys...>', '대사 키')
+    .option('--view <보기>', '대사 그래프의 저장된 보기(이름·id) 안의 대사. export는 보기의 흐름 순서로')
     .option('--limit <n>', '한 번에 가져올 수 (최대 1000)')
     .option('--offset <n>', '건너뛸 수');
 }
@@ -226,6 +345,7 @@ function filterFrom(options: FilterOptions): LineFilterInput {
     hideMarks: options.hideMark,
     translated: options.translated ? true : options.untranslated ? false : undefined,
     keys: options.key,
+    view: options.view,
     limit: options.limit ? Number(options.limit) : undefined,
     offset: options.offset ? Number(options.offset) : undefined,
   };
@@ -233,13 +353,31 @@ function filterFrom(options: FilterOptions): LineFilterInput {
 
 // ── commands ─────────────────────────────────────────────────────────
 
-program
-  .command('projects')
+const projects = program.command('projects').description('프로젝트: 목록, 표준 파일로 새로 만들기');
+
+projects
+  .command('list', { isDefault: true })
   .description('프로젝트 목록')
   .action(async () => {
-    const projects = await unwrap(api().cli.projects.$get());
-    if (globals().json) return print(projects);
-    for (const project of projects) console.log(`${project.name}  (${project.id})`);
+    const rows = await unwrap(api().cli.projects.$get());
+    if (globals().json) return print(rows);
+    for (const project of rows) console.log(`${project.name}  (${project.id})`);
+  });
+
+projects
+  .command('import <파일>')
+  .description('표준 파일(loca/v1)로 새 프로젝트 만들기 (앱의 가져오기와 같음; 있던 프로젝트는 건드리지 않음). 먼저 loca format check로 검사합니다. 새 프로젝트는 홈 설정의 기본값을 복사해 가고, 연결 키는 사람이 앱에서 넣습니다')
+  .action(async (file: string) => {
+    const data = readJsonArg(file === '-' ? '-' : `@${file}`);
+    const checked = await unwrap(api().projects.validate.$post({ json: data }));
+    if (!checked.ok) {
+      process.exitCode = 1;
+      if (globals().json) return print(checked);
+      return console.log(`형식 오류 ${checked.issues.length}개 (loca format check ${file}로 자세히):\n${checked.issues.slice(0, 20).map((issue) => `  ${issue.path || '(파일)'}: ${issue.message}`).join('\n')}`);
+    }
+    const summary = await unwrap(api().projects.$post({ json: data as never }));
+    if (globals().json) return print(summary);
+    console.log(`프로젝트를 만들었습니다: ${checked.summary.name}  (${summary.projectId})\n  묶음 ${summary.groups} · 대사 ${summary.units} · 그래프 노드 ${summary.graphNodes} · 연결 ${summary.graphEdges}\n  이 프로젝트로: LOCA_PROJECT=${summary.projectId}`);
   });
 
 withFilters(program.command('lines').description('대사 찾기. 필터를 조합합니다. 한 번에 --limit(기본 200)개, --all이면 끝까지'))
@@ -386,8 +524,8 @@ program
       console.log(`${String(row.untranslated).padStart(6)} 미번역 / ${String(row.lines).padStart(6)}  ${row.group ?? row.section}`);
   });
 
-withFilters(program.command('export').description('번역할 대사를 JSONL로 내보내기 (key와 rev 포함). 번역해서 import로 돌려보냅니다'))
-  .option('-c, --context <n>', '대사마다 앞 대사 몇 줄을 문맥으로 붙일지', '0')
+withFilters(program.command('export').description('번역할 대사를 JSONL로 내보내기 (key와 rev 포함). 번역해서 import로 돌려보냅니다. --view면 보기의 흐름 순서로'))
+  .option('-c, --context <n>', '대사마다 앞 대사 몇 줄을 문맥으로 붙일지 (AI 노드처럼 대사 그래프를 거슬러: before, 갈래가 합쳐지는 곳은 beforeBranches)', '0')
   .option('-t, --terms', '대사에 나오는 확정 용어를 붙이기')
   .option('-o, --out <파일>', '저장할 파일 (없으면 표준 출력)')
   .action(async (options: FilterOptions & { context: string; terms?: boolean; out?: string }) => {
@@ -408,7 +546,7 @@ program
   .addOption(new Option('--origin <누가>', '번역한 쪽').choices(['ai', 'human']).default('ai'))
   .option('--model <이름>', '번역한 모델 이름 (후보에 기록)')
   .action(async (file: string, options: { dryRun?: boolean; origin: 'ai' | 'human'; model?: string }) => {
-    const text = file === '-' ? readFileSync(0, 'utf8') : readFileSync(file, 'utf8');
+    const text = readText(file);
     const changes = text
       .split(/\r?\n/)
       .map((line, index) => ({ line, index }))
@@ -428,6 +566,8 @@ program
     const report = await unwrap(
       api().projects[':projectId'].import.$post({ param: { projectId: await projectId() }, json: { changes, origin: options.origin, model: options.model, dryRun: Boolean(options.dryRun) } }),
     );
+    // Lines that could not go in fail the command, so a script stops on them (the rest still went in).
+    if (report.errors.length || report.conflicts.length || ('status' in report && report.status === 'failed')) process.exitCode = 1;
     if (globals().json) return print(report);
     console.log(`줄 ${report.total} · 바뀔 줄 ${report.changes} · 그대로 ${report.unchanged ?? 0} · 충돌 ${report.conflicts.length} · 오류 ${report.errors.length} · 경고 ${report.warnings.length}`);
     for (const entry of report.errors.slice(0, 20)) console.log(`  오류  ${entry.key}: ${entry.reason}`);
@@ -435,7 +575,7 @@ program
     for (const entry of report.warnings.slice(0, 20)) console.log(`  경고  ${entry.key}: ${entry.issues.join(' / ')}`);
     const hidden = Math.max(0, report.errors.length - 20) + Math.max(0, report.conflicts.length - 20) + Math.max(0, report.warnings.length - 20);
     if (hidden) console.log(`  … ${hidden.toLocaleString()}개 더 (--json으로 전부 보기)`);
-    if (report.proposalId) console.log(`\n제안을 올렸습니다 (${report.proposalId}). ${ACCEPT_HINT}.`);
+    if (report.proposalId && 'applied' in report) reportOutcome({ proposalId: report.proposalId, applied: report.applied, status: report.status, review: report.review }, '\n번역 변경');
     else if (!options.dryRun) console.log('\n올릴 변경이 없어 제안을 만들지 않았습니다.');
   });
 
@@ -488,18 +628,17 @@ program
 
 program
   .command('call <도구> [입력]')
-  .description('에이전트 도구를 직접 호출. 입력은 JSON, @파일, 또는 - (표준 입력). 변경 도구는 제안으로 올라갑니다')
+  .description('에이전트 도구를 직접 호출. 입력은 JSON, @파일, 또는 - (표준 입력). 변경 도구는 터미널 권한 모드에 따라 바로 반영되거나 제안으로 기다립니다')
   .action(async (name: string, input: string | undefined) => {
     const result = await unwrap(
       api().projects[':projectId'].tools[':name'].$post({ param: { projectId: await projectId(), name }, json: readJsonArg(input) as Record<string, unknown> }),
     );
     if (result.proposed) {
       log(result.message);
-      // What the check left out and why (a duplicate term, a tag that cannot go there, a stale line), not just the first.
-      const report = (result as { report?: { dropped?: { key: string; reason: string }[]; warnings?: { key: string; issues: string[] }[] } | null }).report;
-      for (const entry of report?.dropped?.slice(0, 20) ?? []) log(`  뺌  ${entry.key}: ${entry.reason}`);
-      for (const entry of report?.warnings?.slice(0, 20) ?? []) log(`  경고  ${entry.key}: ${entry.issues.join(' / ')}`);
-      return print({ proposalId: result.proposalId });
+      logDropped((result as { report?: Report }).report);
+      const outcome = result as unknown as Outcome;
+      if (outcome.status === 'failed') process.exitCode = 1;
+      return print({ proposalId: outcome.proposalId, applied: outcome.applied, status: outcome.status, ...(outcome.applied || outcome.status === 'failed' ? { result: outcome.result } : {}) });
     }
     // A graph pick comes back with where to open it; say it as a link.
     const open = (result.result as { open?: { to: string; search?: Record<string, string> } } | undefined)?.open;
@@ -556,6 +695,11 @@ terms
     for (const line of data.lines) console.log(`${line.key}  ${line.speaker ?? '—'}: ${short(line.source)}${line.translation ? `\n    → ${short(line.translation)}` : ''}`);
   });
 
+terms
+  .command('discover')
+  .description('대본에서 용어 후보 찾기 (앱 용어집의 "대본에서 찾기", 모델을 부르지 않음): 새 것은 후보로 더하고 있던 것은 나온 줄 수만 갱신. 터미널 권한 모드를 따름')
+  .action(async () => printOutcome(await proposeTool('discover_terms', {}), '용어 후보 찾기'));
+
 const KNOWLEDGE_KINDS = {
   documents: { tool: 'read_documents', pick: undefined, label: '노트' },
   characters: { tool: 'list_characters', pick: 'characters', label: '인물' },
@@ -590,7 +734,7 @@ program
     for (const row of rows) console.log(`${name(row)}  [${KNOWLEDGE_STATUS_LABELS[row.status as KnowledgeStatus]}]  ${withMarks('', row.marks, row.tags)}  (${row.id})`);
   });
 
-program
+const tagsCommand = program
   .command('tags')
   .description('프로젝트 태그와 기본 표시(#)의 붙는 곳(대사·자료·용어집), 종류, 색, 쓰인 대사·항목 수. 태그는 붙는 곳에만 붙일 수 있고 다른 곳은 거절됩니다')
   .action(async () => {
@@ -603,6 +747,11 @@ program
     console.log('\n자동 표시 (앱이 대본에서 읽는 사실. 붙이는 게 아니라 조건으로 필터·실행 범위에 씁니다)');
     for (const mark of data.marks) row({ ...mark, name: mark.name }, '자동');
   });
+
+tagsCommand
+  .command('order <이름...>')
+  .description('태그 순서 바꾸기 (앞에 둘 것부터, 빠진 것은 지금 순서대로 뒤에). 터미널 권한 모드를 따름')
+  .action(async (names: string[]) => printOutcome(await proposeTool('order_settings', { type: 'tag', names }), '태그 순서'));
 
 program
   .command('prompts')
@@ -633,7 +782,7 @@ defaults
 defaults
   .command('pull <섹션...>')
   .description('홈 기본값을 이 프로젝트로 가져오기를 제안 (앱에서 수락). 섹션: editorAi, prompts, aiAutoConfirm, statuses, tags, workflows. 연결과 채팅 권한은 앱에서 사람이 가져옵니다')
-  .action(async (sections: string[]) => print(await proposeTool('pull_app_defaults', { sections })));
+  .action(async (sections: string[]) => printOutcome(await proposeTool('pull_app_defaults', { sections }), '홈 기본값 가져오기'));
 
 /** `--model` specs ("연결:모델" for every AI node, "노드=연결:모델" for one) as plan_run / start_run take them. */
 function runModels(specs: string[] | undefined) {
@@ -650,7 +799,7 @@ function runModels(specs: string[] | undefined) {
 
 // ── statuses, workflows, runs, proposals, graph views ─────────────────
 
-program
+const statusesCommand = program
   .command('statuses')
   .description('번역 상태: 종류(시작·중간·최종), 순서, 검토함 표시')
   .action(async () => {
@@ -660,6 +809,11 @@ program
     const kind: Record<string, string> = { initial: '시작', normal: '중간', final: '최종' };
     for (const row of rows) console.log(`${row.name.padEnd(10)} ${kind[row.kind] ?? row.kind}${row.inReview ? ' · 검토함' : ''}  (${row.id})`);
   });
+
+statusesCommand
+  .command('order <이름...>')
+  .description('상태 순서 바꾸기 (앞에 둘 것부터, 빠진 것은 지금 순서대로 뒤에). 터미널 권한 모드를 따름')
+  .action(async (names: string[]) => printOutcome(await proposeTool('order_settings', { type: 'status', names }), '상태 순서'));
 
 const workflows = program.command('workflows').description('워크플로: 목록, 노드·연결·검증 보기, 파일로 고쳐 제안하기');
 
@@ -704,9 +858,7 @@ workflows
   .action(async (file: string) => {
     const input = readJsonArg(file === '-' ? '-' : `@${file}`) as Record<string, unknown>;
     const { issues: _issues, ...workflow } = input;
-    const { proposalId } = await proposeTool('save_workflow', workflow);
-    if (globals().json) return print({ proposalId });
-    console.log(`제안을 올렸습니다 (${proposalId}). ${ACCEPT_HINT}.`);
+    printOutcome(await proposeTool('save_workflow', workflow), '워크플로 저장');
   });
 
 workflows
@@ -719,7 +871,35 @@ workflows
     console.log(typeof data === 'string' ? data : JSON.stringify(data, null, 2));
   });
 
-const runs = program.command('runs').description('워크플로 실행: 목록, 진행 보기, 미리보기, 시작 요청');
+workflows
+  .command('test <워크플로> <노드>')
+  .description('스크립트·HTTP 노드를 대사 하나로 시험 (앱의 노드 시험과 같음, 아무것도 저장하지 않음). 워크플로는 이름·id 또는 show --json으로 받은 파일(저장 전 수정본). HTTP 노드는 실제로 요청을 보내고 프로젝트의 첫 대사를 씁니다. AI 노드는 loca context로 문맥·프롬프트를 봅니다')
+  .option('--key <키>', '스크립트 노드: 이 대사로 (없으면 첫 대사)')
+  .action(async (ref: string, nodeId: string, options: { key?: string }) => {
+    type Node = { id: string; type: string; config: { fn?: string; params?: Record<string, any> } };
+    const definition = existsSync(ref) && statSync(ref).isFile()
+      ? (readJsonArg(`@${ref}`) as { definition: { nodes: Node[] } }).definition
+      : (await readTool<{ definition: { nodes: Node[] } }>('read_workflow', { workflowId: (await resolveWorkflow(ref)).id })).definition;
+    const node = definition.nodes.find((candidate) => candidate.id === nodeId);
+    if (!node) throw new CliError(`노드가 없습니다: ${nodeId} (${definition.nodes.map((candidate) => candidate.id).join(', ')})`);
+    const params = node.config.params ?? {};
+    const id = await projectId();
+    let result: { ok: boolean; error?: string; ms: number } & Record<string, unknown>;
+    if (node.type === 'function' && node.config.fn === 'script') {
+      const unitId = options.key ? (await unwrap(api().projects[':projectId'].lines.find.$post({ param: { projectId: id }, json: { keys: [options.key], limit: 1 } }))).rows[0]?.id : undefined;
+      if (options.key && !unitId) throw new CliError(`대사를 찾을 수 없습니다: ${options.key}`);
+      result = await unwrap(api().projects[':projectId']['script-test'].$post({ param: { projectId: id }, json: { code: params.code ?? '', ports: params.ports ?? ['out'], fields: params.fields ?? [], unitId } }));
+    } else if (node.type === 'function' && node.config.fn === 'http') {
+      result = await unwrap(api().projects[':projectId']['http-test'].$post({ param: { projectId: id }, json: { params: params as never } }));
+    } else throw new CliError(`${node.type}${node.config.fn ? `(${node.config.fn})` : ''} 노드는 시험할 수 없습니다. 스크립트·HTTP 노드만 됩니다${node.type === 'ai' ? '. AI 노드는 loca context <키> -n ' + node.id + ' --prompt' : ''}.`);
+    if (!result.ok) process.exitCode = 1;
+    if (globals().json) return print(result);
+    if (!result.ok) return console.log(`실패 (${result.ms}ms): ${result.error}`);
+    const { input: _input, ms, ok: _ok, ...rest } = result;
+    console.log(`성공 (${ms}ms)\n${JSON.stringify(rest, null, 2)}`);
+  });
+
+const runs = program.command('runs').description('워크플로 실행: 목록, 미리보기, 시작, 기다리기, 일시정지·이어 하기·취소, 실패한 줄 다시');
 
 runs
   .command('list')
@@ -736,15 +916,120 @@ runs
     if (data.failingNodes.length) console.log(`\n실패가 많은 노드:\n${data.failingNodes.map((node) => `  ${node.workflow} › ${node.node}: ${node.failedLines}줄`).join('\n')}`);
   });
 
+type RunView = { id: string; workflow: string; status: 'running' | 'paused' | 'cancelled' | 'completed'; notice: string | null; filling?: boolean; subject?: 'lines' | 'terms'; total: number; states: Partial<Record<'queued' | 'running' | 'done' | 'failed' | 'cancelled', number>>; nodes: { nodeId: string; state: string; count: number }[]; ends: { nodeId: string; node: string; count: number }[]; errors: { kind: string; nodeId: string; node: string; message: string; count: number }[]; failures: { key?: string | null; unitId?: string; nodeId?: string; error?: string | null }[]; errored?: { unitId: string; key: string | null }[] };
+const RUN_STATUS: Record<RunView['status'], string> = { running: '진행 중', paused: '일시정지', cancelled: '취소됨', completed: '끝남' };
+const readRun = (id: string) => readTool<RunView>('read_run', { runId: id });
+/** A run that stopped by itself or was finished; a run paused by a cap or failures counts as stopped too, one still being filled with lines does not. */
+const runSettled = (run: RunView) => run.status !== 'running' && !run.filling;
+
+/** Where a run stands and what to do next. A run that did not finish cleanly fails the command. */
+async function printRun(run: RunView, options: { nodes?: boolean } = {}) {
+  const errored = run.errors.reduce((sum, error) => sum + error.count, 0);
+  if (run.status !== 'completed' || run.states.failed || errored) process.exitCode = 1;
+  if (globals().json) return print(run);
+  const unit = run.subject === 'terms' ? '개' : '줄';
+  const count = (state: keyof RunView['states']) => (run.states[state] ?? 0).toLocaleString();
+  console.log(`${run.workflow} [${RUN_STATUS[run.status]}] ${run.subject === 'terms' ? '용어' : '대사'} ${run.total.toLocaleString()}${unit}  (${run.id})`);
+  console.log(`  끝남 ${count('done')} · 실패 ${count('failed')} · 남음 ${((run.states.queued ?? 0) + (run.states.running ?? 0)).toLocaleString()} · 취소 ${count('cancelled')}`);
+  if (run.notice) console.log(`  멈춘 이유: ${run.notice}`);
+  if (run.ends.length) console.log(`  끝난 곳: ${run.ends.map((end) => `${end.node} ${end.count.toLocaleString()}`).join(' · ')}`);
+  if (errored) console.log(`  실패했거나 오류로 빠진 ${run.subject === 'terms' ? '용어' : '줄'} ${errored.toLocaleString()}:\n${run.errors.map((error) => `    ${error.node} · ${error.kind} ${error.count.toLocaleString()} — ${short(error.message, 100)}`).join('\n')}`);
+  if (options.nodes) for (const node of run.nodes) console.log(`  ${node.nodeId.padEnd(16)} ${node.state.padEnd(9)} ${node.count.toLocaleString()}`);
+  if (run.failures.length) console.log(`\n실패${(run.states.failed ?? 0) > run.failures.length ? ` (${run.failures.length}개만)` : ''}:\n${run.failures.map((failure) => `  ${failure.key ?? failure.unitId ?? ''} ${failure.nodeId ? `[${failure.nodeId}] ` : ''}${short(failure.error ?? '', 120)}`).join('\n')}`);
+  const next = [
+    run.states.failed && run.status !== 'cancelled' && `실패한 ${run.subject === 'terms' ? '용어' : '줄'} 다시: loca runs continue ${run.id} --retry-failed --wait`,
+    errored && run.status !== 'running' && `실패했거나 오류로 빠진 것만 새로 실행: loca runs start "${run.workflow}" --rerun-errors ${run.id} --wait (모델을 바꾸려면 --model)`,
+    run.status === 'paused' && `이어서: loca runs resume ${run.id} --wait`,
+    run.status === 'running' && `끝날 때까지: loca runs wait ${run.id}`,
+    run.status === 'completed' && run.subject !== 'terms' && '결과 점검: loca check terms · loca check format (범위는 -g/--key로)',
+  ].filter(Boolean);
+  if (next.length) console.log(`\n다음:\n${next.map((line) => `  ${line}`).join('\n')}`);
+  console.log(`앱에서 보기: ${appLink(`/p/${await projectId()}/runs/${run.id}`)}`);
+}
+
+/** Until the run is no longer running, saying how far it got now and then (on stderr). */
+async function waitRun(id: string, timeout?: number) {
+  let said = 0;
+  const run = await waitFor('runs', async () => {
+    const current = await readRun(id);
+    if (runSettled(current)) return current;
+    if (Date.now() - said > 5_000) {
+      said = Date.now();
+      log(`  ${current.workflow}: 끝남 ${(current.states.done ?? 0).toLocaleString()} / ${current.total.toLocaleString()} · 실패 ${(current.states.failed ?? 0).toLocaleString()}`);
+    }
+    return undefined;
+  }, timeout);
+  await printRun(run);
+}
+
+/** A run change (start, resume, continue) waited on when asked: the proposal first, then the run. */
+async function followRun(outcome: Outcome, options: { wait?: boolean; timeout?: string }, what: string) {
+  const timeout = options.timeout ? Number(options.timeout) : undefined;
+  let result = outcome.result;
+  if (!outcome.applied) {
+    if (outcome.status === 'failed' || !options.wait) return printOutcome(outcome, what);
+    log(`${what}: 제안으로 올렸습니다 (${outcome.proposalId}). ${ACCEPT_HINT}. 결정을 기다립니다…`);
+    const decided = await waitProposal(outcome.proposalId, timeout);
+    if (decided.status !== 'accepted') {
+      process.exitCode = 1;
+      return console.log(`${what}: ${decided.status === 'rejected' ? `거절됐습니다${decided.reason ? `: ${decided.reason}` : ''}` : `실패했습니다: ${failure(decided.result)}`} (${decided.id})`);
+    }
+    result = decided.result;
+  } else if (!options.wait) return printOutcome(outcome, what);
+  const runId = (result as { runId?: string } | null)?.runId;
+  if (!runId) throw new CliError(`실행 id를 받지 못했습니다: ${JSON.stringify(result)}`);
+  log(`실행 ${runId}: 끝날 때까지 기다립니다…`);
+  await waitRun(runId, timeout);
+}
+
 runs
   .command('show <id>')
-  .description('한 실행의 노드별 진행(상태별 대사·용어 수)과 최근 실패')
-  .action(async (id: string) => {
-    const data = await readTool<{ id: string; workflow: string; status: string; subject?: 'lines' | 'terms'; total: number; nodes: { nodeId: string; state: string; count: number }[]; failures: { key?: string; unitId?: string; nodeId?: string; error?: string }[] }>('read_run', { runId: id });
-    if (globals().json) return print(data);
-    console.log(`${data.workflow} [${data.status}] ${data.subject === 'terms' ? `용어 ${data.total.toLocaleString()}개` : `대사 ${data.total.toLocaleString()}줄`}\n${appLink(`/p/${await projectId()}/runs/${data.id}`)}`);
-    for (const node of data.nodes) console.log(`  ${node.nodeId.padEnd(16)} ${node.state.padEnd(9)} ${node.count.toLocaleString()}`);
-    if (data.failures.length) console.log(`\n최근 실패:\n${data.failures.map((failure) => `  ${failure.key ?? failure.unitId ?? ''} ${failure.nodeId ? `[${failure.nodeId}] ` : ''}${short(failure.error ?? '', 120)}`).join('\n')}`);
+  .description('한 실행의 상태, 끝난·실패한·남은 수, 멈춘 이유, 실패한 줄, 다음에 할 명령. 끝나지 않았거나 실패가 있으면 종료 코드 1')
+  .option('--nodes', '노드별·상태별 수도')
+  .action(async (id: string, options: { nodes?: boolean }) => printRun(await readRun(id), options));
+
+runs
+  .command('wait <id>')
+  .description('실행이 끝나거나 멈출 때까지 기다린 뒤 show와 같은 요약 (앱의 변경 알림을 받아 기다림). 깨끗하게 끝나지 않으면 종료 코드 1')
+  .option('--timeout <분>', '이만큼 지나면 기다리기만 멈춤')
+  .action(async (id: string, options: { timeout?: string }) => waitRun(id, options.timeout ? Number(options.timeout) : undefined));
+
+for (const [action, description] of [
+  ['pause', '실행 일시정지 (보낸 요청은 끝까지 받고 멈춤). 비용이 들지 않아 권한 모드와 상관없이 바로 됩니다'],
+  ['cancel', '실행 취소 (남은 줄은 하지 않고, 이미 반영된 결과는 그대로). 취소한 실행은 이어서 할 수 없습니다'],
+] as const)
+  runs
+    .command(`${action} <id>`)
+    .description(description)
+    .action(async (id: string) => {
+      await unwrap(api().runs[':id'][':action{pause|resume|cancel}'].$post({ param: { id, action } }));
+      const run = await readRun(id);
+      if (globals().json) return print(run);
+      console.log(`${run.workflow}: ${RUN_STATUS[run.status]} (${run.id})`);
+    });
+
+runs
+  .command('resume <id>')
+  .description('일시정지한 실행 이어 하기 (AI 비용이 들어 터미널 권한 모드를 따름: 바로 되거나 제안으로 기다림)')
+  .option('--max-calls <n>', '호출 상한을 이만큼으로 (none이면 없앰)')
+  .option('--max-input-tokens <n>', '입력 토큰 상한을 이만큼으로 (none이면 없앰)')
+  .option('--wait', '실행이 끝날 때까지 기다린 뒤 요약')
+  .option('--timeout <분>', '--wait을 이만큼만')
+  .action(async (id: string, options: { maxCalls?: string; maxInputTokens?: string; wait?: boolean; timeout?: string }) => {
+    const cap = (value: string | undefined) => (value === undefined ? undefined : value === 'none' ? null : Number(value));
+    const limits = options.maxCalls !== undefined || options.maxInputTokens !== undefined ? { maxCalls: cap(options.maxCalls), maxInputTokens: cap(options.maxInputTokens) } : undefined;
+    await followRun(await proposeTool('continue_run', { runId: id, limits }), options, '실행 이어 하기');
+  });
+
+runs
+  .command('continue <id>')
+  .description('멈췄거나 끝난 실행을 이어서: --retry-failed면 실패한 줄을 실패한 단계부터 다시, --model이면 이 실행의 AI 단계만 다른 모델로. 터미널 권한 모드를 따름')
+  .option('--retry-failed', '실패한 줄 다시')
+  .option('--model <specs...>', 'plan과 같은 "연결:모델" 또는 "노드=연결:모델"')
+  .option('--wait', '실행이 끝날 때까지 기다린 뒤 요약')
+  .option('--timeout <분>', '--wait을 이만큼만')
+  .action(async (id: string, options: { retryFailed?: boolean; model?: string[]; wait?: boolean; timeout?: string }) => {
+    await followRun(await proposeTool('continue_run', { runId: id, retryFailed: Boolean(options.retryFailed), models: runModels(options.model) }), options, '실행 이어 하기');
   });
 
 runs
@@ -757,7 +1042,12 @@ runs
   .option('--term <terms...>', '용어 입력 워크플로만: 이 용어(원문·id)만. 없으면 진입 노드의 용어 상태·표시 조건(많이 쓰인 순)')
   .option('--status <statuses...>', '이 상태인 것만 (대사: 상태 이름·id, 용어: 후보·확정·버림). 없으면 모든 상태')
   .option('--model <specs...>', '이번 실행만 다른 모델로: "연결:모델"(모든 AI 단계) 또는 "노드=연결:모델" (연결·노드는 이름이나 id). 워크플로는 바뀌지 않습니다')
-  .action(async (workflow: string, options: { group?: string[]; key?: string[]; mark?: string[]; tag?: string[]; term?: string[]; status?: string[]; model?: string[] }) => {
+  .option('--view <보기>', '대사 그래프의 저장된 보기(이름·id) 안의 대사만')
+  .option('--section <sections...>', '구역(장·출처)의 장면·묶음만')
+  .action(async (workflow: string, options: { group?: string[]; key?: string[]; mark?: string[]; tag?: string[]; term?: string[]; status?: string[]; model?: string[]; view?: string; section?: string[] }) => {
+    const groups = await sectionGroups(options.section, options.group);
+    const keys = options.view ? (await viewLines(options.view)).map((row) => row.key).filter((key) => !options.key || options.key.includes(key)) : options.key;
+    if (keys && !keys.length) throw new CliError('고른 대사가 보기에 없습니다.');
     type Names = { count: number; examples: string[]; names: string[]; more: boolean };
     const data = await readTool<{
       workflow: { id: string; name: string };
@@ -769,7 +1059,7 @@ runs
       pace: { seconds: number | null; costUsd: number | null; subscription: boolean };
       load: { runs: number; max: number; added: number };
       readiness: { dialogueLines: number; unknownListenerLines: number; candidateRules: Names; candidateTerms: Names; pairsWithoutRule: { count: number; examples: string[] } };
-    }>('plan_run', { workflow, groups: options.group, keys: options.key, tags: options.tag, marks: options.mark, terms: options.term, statuses: options.status, models: runModels(options.model) });
+    }>('plan_run', { workflow, groups, keys, tags: options.tag, marks: options.mark, terms: options.term, statuses: options.status, models: runModels(options.model) });
     if (globals().json) return print(data);
     const range = (value: { min: number; expected: number | null; max: number }) => (value.expected !== null ? `약 ${value.expected.toLocaleString()} (${value.min.toLocaleString()}~${value.max.toLocaleString()})` : `${value.min.toLocaleString()}~${value.max.toLocaleString()}`);
     console.log(`${data.workflow.name} 실행 미리보기`);
@@ -792,7 +1082,7 @@ runs
 
 runs
   .command('start <워크플로>')
-  .description('실행 시작을 제안으로 올리기 (AI 호출에 비용이 들어 앱에서 수락해야 시작합니다). 범위는 plan과 같고(대사 입력 워크플로는 대사 범위, 용어 입력 워크플로는 --term), 먼저 plan으로 확인하세요')
+  .description('실행 시작 (AI 호출에 비용이 들어 터미널 권한 모드를 따름: 바로 반영이면 시작, 아니면 앱에서 수락할 때까지 제안으로 기다림). 범위는 plan과 같고(대사 입력 워크플로는 대사 범위, 용어 입력 워크플로는 --term), 먼저 plan으로 확인하세요. --wait이면 끝날 때까지 기다린 뒤 요약')
   .option('-g, --group <groups...>', '장면·묶음 (키·id·제목)')
   .option('--key <keys...>', '대사 키')
   .addOption(new Option('--mark <marks...>', '자동 표시가 모두 붙은 것 (대사 입력: 대사 표시, 용어 입력: 용어 표시)').choices([...new Set([...LINE_MARK_IDS, ...TERM_MARK_IDS])]))
@@ -800,16 +1090,36 @@ runs
   .option('--term <terms...>', '용어 입력 워크플로만: 이 용어(원문·id)만. 없으면 진입 노드의 용어 상태·표시 조건(많이 쓰인 순)')
   .option('--status <statuses...>', 'plan과 같은 상태 조건')
   .option('--model <specs...>', 'plan과 같은 "연결:모델" 또는 "노드=연결:모델"')
-  .action(async (ref: string, options: { group?: string[]; key?: string[]; mark?: string[]; tag?: string[]; term?: string[]; status?: string[]; model?: string[] }) => {
+  .option('--view <보기>', '대사 그래프의 저장된 보기(이름·id) 안의 대사만')
+  .option('--section <sections...>', '구역(장·출처)의 장면·묶음만')
+  .option('--rerun-errors <실행id>', '그 실행에서 실패했거나 오류 출구로 빠진 대사·용어만 (다른 범위 조건과 함께 쓰면 모두 만족)')
+  .option('--wait', '(제안이면 결정을 기다린 뒤) 실행이 끝날 때까지 기다리고 요약. 깨끗하게 끝나지 않으면 종료 코드 1')
+  .option('--timeout <분>', '--wait을 이만큼만')
+  .action(async (ref: string, options: { group?: string[]; key?: string[]; mark?: string[]; tag?: string[]; term?: string[]; status?: string[]; model?: string[]; view?: string; section?: string[]; rerunErrors?: string; wait?: boolean; timeout?: string }) => {
     const workflow = await resolveWorkflow(ref);
-    const groups = await resolveGroups(options.group);
-    const unitIds = options.key?.length ? (await unwrap(api().projects[':projectId'].lines.find.$post({ param: { projectId: await projectId() }, json: { keys: options.key, limit: 1000 } }))).rows.map((row) => row.id) : undefined;
+    const groupIds = options.section?.length ? await sectionGroups(options.section, options.group) : (await resolveGroups(options.group))?.map((group) => group.id);
+    let unitIds = options.key?.length ? (await unwrap(api().projects[':projectId'].lines.find.$post({ param: { projectId: await projectId() }, json: { keys: options.key, limit: 1000 } }))).rows.map((row) => row.id) : undefined;
+    let termIds = options.term;
+    if (options.view) {
+      const ids = new Set((await viewLines(options.view)).map((row) => row.id));
+      unitIds = unitIds ? unitIds.filter((id) => ids.has(id)) : [...ids];
+    }
+    if (options.rerunErrors) {
+      const earlier = await unwrap(api().projects[':projectId'].runs[':runId'].errors.$get({ param: { projectId: await projectId(), runId: options.rerunErrors } }));
+      const what = earlier.subject === 'terms' ? '용어' : '대사';
+      if (!earlier.items.length) throw new CliError(`그 실행에는 실패했거나 오류로 빠진 ${what}가 없습니다.`);
+      log(`${earlier.workflow} 실행에서 다시 할 ${what} ${earlier.items.length.toLocaleString()}개`);
+      // Like every other scope option, it narrows what the rest picked.
+      if (earlier.subject === 'terms') termIds = termIds ? earlier.items.filter((item) => termIds!.includes(item.unitId) || termIds!.includes(item.key ?? '')).map((item) => item.unitId) : earlier.items.map((item) => item.unitId);
+      else unitIds = unitIds ? unitIds.filter((id) => earlier.items.some((item) => item.unitId === id)) : earlier.items.map((item) => item.unitId);
+    }
+    // An empty list reads as "no condition" on the server: refuse it here instead of running everything.
+    if ((unitIds && !unitIds.length) || (termIds && !termIds.length)) throw new CliError('범위 조건을 모두 만족하는 대사·용어가 없습니다.');
     const tagIds = options.tag?.length
       ? (await readTool<{ tags: { id: string; name: string }[] }>('list_tags')).tags.filter((tag) => options.tag!.includes(tag.name)).map((tag) => tag.id)
       : undefined;
-    const { proposalId } = await proposeTool('start_run', { workflowId: workflow.id, groupIds: groups?.map((group) => group.id), unitIds, tagIds, marks: options.mark, termIds: options.term, statuses: options.status, models: runModels(options.model) });
-    if (globals().json) return print({ proposalId });
-    console.log(`실행 요청을 올렸습니다 (${proposalId}). ${ACCEPT_HINT}. 시작한 뒤에는 loca runs list로 봅니다.`);
+    const outcome = await proposeTool('start_run', { workflowId: workflow.id, groupIds, unitIds, tagIds, marks: options.mark, termIds, statuses: options.status, models: runModels(options.model) });
+    await followRun(outcome, options, '실행 시작');
   });
 
 const graph = program.command('graph').description('대사 그래프 잇기(변경은 제안으로 올라가 앱에서 수락). 장면 연결은 저장되지 않고 대사 그래프에서 계산됩니다');
@@ -819,18 +1129,14 @@ graph
   .description('대사(또는 노드 키)에서 대사로 선 하나 잇기를 제안으로 올리기')
   .option('--label <이름>', '선택지 이름')
   .action(async (from: string, to: string, options: { label?: string }) => {
-    const { proposalId } = await proposeTool('link_lines', { from, to, action: 'link', label: options.label });
-    if (globals().json) return print({ proposalId });
-    console.log(`제안을 올렸습니다 (${proposalId}). ${ACCEPT_HINT}.`);
+    printOutcome(await proposeTool('link_lines', { from, to, action: 'link', label: options.label }), '선 잇기');
   });
 
 graph
   .command('unlink <from키> <to키>')
   .description('두 대사 사이의 선을 지우는 제안 올리기')
   .action(async (from: string, to: string) => {
-    const { proposalId } = await proposeTool('link_lines', { from, to, action: 'unlink' });
-    if (globals().json) return print({ proposalId });
-    console.log(`제안을 올렸습니다 (${proposalId}). ${ACCEPT_HINT}.`);
+    printOutcome(await proposeTool('link_lines', { from, to, action: 'unlink' }), '선 지우기');
   });
 
 graph
@@ -838,9 +1144,7 @@ graph
   .description('장면 A의 마지막 대사 → 장면 B의 첫 대사로 선을 잇는 제안 올리기 (장면은 키·id·제목). --unlink이면 두 장면을 바로 잇는 선을 지웁니다')
   .option('--unlink', '잇지 않고 끊기')
   .action(async (from: string, to: string, options: { unlink?: boolean }) => {
-    const { proposalId } = await proposeTool('link_scenes', { pairs: [{ from, to }], action: options.unlink ? 'unlink' : 'link' });
-    if (globals().json) return print({ proposalId });
-    console.log(`제안을 올렸습니다 (${proposalId}). ${ACCEPT_HINT}.`);
+    printOutcome(await proposeTool('link_scenes', { pairs: [{ from, to }], action: options.unlink ? 'unlink' : 'link' }), '장면 잇기');
   });
 
 graph
@@ -850,9 +1154,7 @@ graph
   .option('--line <keys...>', '대사 키: 이 대사들의 노드끼리만 (장면별로)')
   .action(async (options: { scene?: string[]; line?: string[] }) => {
     if (!options.scene?.length && !options.line?.length) throw new CliError('--scene 또는 --line을 하나 이상 주세요.');
-    const { proposalId } = await proposeTool('link_in_order', { scenes: options.scene ?? [], lines: options.line ?? [] });
-    if (globals().json) return print({ proposalId });
-    console.log(`제안을 올렸습니다 (${proposalId}). ${ACCEPT_HINT}.`);
+    printOutcome(await proposeTool('link_in_order', { scenes: options.scene ?? [], lines: options.line ?? [] }), '대본 순서로 잇기');
   });
 
 const proposals = program.command('proposals').description('CLI가 올린 제안: 목록과 결정 상태 (결정은 앱에서)');
@@ -887,7 +1189,29 @@ proposals
     console.log(`${proposal.tool}: ${proposal.status === 'accepted' ? acceptedLabel(proposal.tool).decided : word[proposal.status]}${proposal.result ? `\n${JSON.stringify(proposal.result)}` : ''}`);
   });
 
-const views = program.command('views').description('대사 그래프의 저장된 보기(고른 노드만 남긴 간략 그래프): 목록, 링크, 만들기');
+proposals
+  .command('wait <id>')
+  .description('제안이 결정되고 반영될 때까지 기다리기 (앱의 변경 알림을 받아 기다림). 거절·실패면 종료 코드 1')
+  .option('--timeout <분>', '이만큼 지나면 기다리기만 멈춤')
+  .action(async (id: string, options: { timeout?: string }) => {
+    const proposal = await waitProposal(id, options.timeout ? Number(options.timeout) : undefined);
+    if (proposal.status !== 'accepted') process.exitCode = 1;
+    if (globals().json) return print(proposal);
+    console.log(`${proposal.tool}: ${proposal.status === 'accepted' ? acceptedLabel(proposal.tool).decided : proposal.status === 'rejected' ? `거절됨${proposal.reason ? ` (${proposal.reason})` : ''}` : `수락했지만 실패: ${failure(proposal.result)}`}`);
+  });
+
+proposals
+  .command('undo <id...>')
+  .description('터미널 권한 모드로 반영된 변경 되돌리기 (최근 것부터, 그사이 바뀐 대사는 건너뜀). 사람이 수락한 제안은 앱에서 되돌립니다')
+  .action(async (ids: string[]) => {
+    const answered = await unwrap(api().projects[':projectId'].proposals.undo.$post({ param: { projectId: await projectId() }, json: { ids } }));
+    const results = [...answered, ...ids.filter((id) => !answered.some((result) => result.id === id)).map((id) => ({ id, ok: false, error: '이 터미널이 올린 제안이 아닙니다 (loca proposals list로 확인)', skipped: undefined as string[] | undefined }))];
+    if (results.some((result) => !result.ok)) process.exitCode = 1;
+    if (globals().json) return print(results);
+    for (const result of results) console.log(`${result.id}: ${result.ok ? `되돌렸습니다${result.skipped?.length ? ` (그사이 바뀌어 건너뜀: ${result.skipped.slice(0, 10).join(', ')})` : ''}` : result.error}`);
+  });
+
+const views = program.command('views').description('대사 그래프의 저장된 보기(고른 노드만 남긴 간략 그래프): 목록, 흐름대로 읽기, 만들기·고치기·지우기. 보기는 lines·export·check·runs의 --view 범위로 씁니다');
 
 const viewLink = async (id: string) => appLink(`/p/${await projectId()}/graph`, { scope: 'dialogue', section: `view:${id}` });
 
@@ -934,6 +1258,83 @@ views
     console.log(`노드 ${result.nodes.toLocaleString()}개로 ${options.mode === 'view' ? '보기를 저장했습니다' : '강조했습니다'}: ${link}`);
   });
 
+views
+  .command('show <보기>')
+  .description('보기의 대사를 흐름 순서로 (보기 안에서 들어오고 나가는 길과 선택지 이름 포함). 보기는 이름·id')
+  .option('--jsonl', '노드마다 한 줄 JSON')
+  .action(async (ref: string, options: { jsonl?: boolean }) => {
+    type Way = { key: string; label: string | null };
+    const flow = await unwrap(api().projects[':projectId'].views[':ref'].flow.$get({ param: { projectId: await projectId(), ref: encodeURIComponent(ref) } }));
+    log(`${flow.view.label}: 노드 ${flow.nodes.length.toLocaleString()}개 · 대사 ${flow.nodes.reduce((sum, node) => sum + node.lines.length, 0).toLocaleString()}줄  (${flow.view.id})`);
+    if (options.jsonl) return printJsonl(flow.nodes);
+    if (globals().json) return print(flow);
+    const ways = (list: Way[]) => list.map((way) => `${way.key}${way.label ? ` [${short(way.label, 30)}]` : ''}`).join(', ');
+    for (const node of flow.nodes) {
+      if (node.from.length > 1) console.log(`  ⤶ 갈래가 합쳐짐: ${ways(node.from)}`);
+      if (!node.lines.length) console.log(`  · ${node.label ?? node.key}`);
+      for (const line of node.lines) console.log(`${line.key}  [${line.status ?? '—'}] ${line.speaker ?? '—'}${line.listener ? ` → ${line.listener}` : ''}: ${short(line.source, 100)}${line.translation ? `\n    → ${short(line.translation, 100)}` : ''}`);
+      if (node.to.length > 1 || node.to.some((way) => way.label)) console.log(`  ⤷ ${node.to.length > 1 ? '갈림' : '다음'}: ${ways(node.to)}`);
+    }
+    console.log(`\n앱에서 보기: ${await viewLink(flow.view.id)}`);
+  });
+
+views
+  .command('update <보기>')
+  .description('보기 이름 바꾸기, 대사(그 대사를 가진 노드) 더하기·빼기. 번역 데이터는 바꾸지 않아 바로 저장됩니다')
+  .option('--label <이름>', '새 이름')
+  .option('--add <keys...>', '더할 대사·노드 키')
+  .option('--remove <keys...>', '뺄 대사·노드 키')
+  .action(async (ref: string, options: { label?: string; add?: string[]; remove?: string[] }) => {
+    const flow = await unwrap(api().projects[':projectId'].views[':ref'].flow.$get({ param: { projectId: await projectId(), ref: encodeURIComponent(ref) } }));
+    const view = await unwrap(api().projects[':projectId'].graph.views[':id'].$patch({ param: { projectId: await projectId(), id: flow.view.id }, json: { label: options.label, addKeys: options.add ?? [], removeKeys: options.remove ?? [] } }));
+    if (globals().json) return print(view);
+    console.log(`${view.label}: 노드 ${view.nodes.toLocaleString()}개  ${await viewLink(view.id)}`);
+  });
+
+views
+  .command('delete <보기>')
+  .description('보기 지우기 (대사·그래프는 그대로)')
+  .action(async (ref: string) => {
+    const flow = await unwrap(api().projects[':projectId'].views[':ref'].flow.$get({ param: { projectId: await projectId(), ref: encodeURIComponent(ref) } }));
+    await unwrap(api().projects[':projectId'].graph.views[':id'].$delete({ param: { projectId: await projectId(), id: flow.view.id } }));
+    console.log(`지웠습니다: ${flow.view.label}`);
+  });
+
+// ── connections, regex helper ─────────────────────────────────────
+
+const connections = program.command('connections').description('이 프로젝트의 AI·HTTP 연결: 목록과 모델 시험. 연결 추가·키는 사람이 앱에서 합니다');
+
+connections
+  .command('list', { isDefault: true })
+  .description('연결 이름, 종류, 주소, 키가 있는지 (키 값은 보이지 않음)')
+  .action(async () => {
+    const rows = await unwrap(api().projects[':projectId'].connections.$get({ param: { projectId: await projectId() } }));
+    if (globals().json) return printList(rows.length, rows.map(({ id, name, kind, baseUrl, hasKey }) => ({ id, name, kind, baseUrl, hasKey })));
+    for (const row of rows) console.log(`${row.name.padEnd(16)} ${row.kind.padEnd(12)} ${row.baseUrl ?? ''}${row.hasKey ? '' : '  (키 없음)'}  (${row.id})`);
+  });
+
+connections
+  .command('test <연결> <모델> [원문]')
+  .description('연결로 짧은 번역 한 번 (앱의 모델 시험과 같음, 프로젝트에 기록하지 않음). 요청 한 번만큼 비용이 듭니다')
+  .action(async (ref: string, model: string, source: string | undefined) => {
+    const rows = await unwrap(api().projects[':projectId'].connections.$get({ param: { projectId: await projectId() } }));
+    const connection = rows.find((row) => row.id === ref) ?? rows.find((row) => row.name.toLowerCase() === ref.toLowerCase());
+    if (!connection) throw new CliError(`연결을 찾지 못했습니다: ${ref} (${rows.map((row) => row.name).join(', ')})`);
+    const result = await unwrap(api().connections[':id'].test.$post({ param: { id: connection.id }, json: { model, source: source ?? 'Hello. Is this thing on?' } }));
+    if (!result.ok) process.exitCode = 1;
+    if (globals().json) return print(result);
+    console.log(result.ok ? `${result.model} (${result.ms}ms): ${result.text}` : `실패 (${result.ms}ms): ${result.detail}`);
+  });
+
+program
+  .command('regex <설명>')
+  .description('자연어로 정규식 만들기 (앱 설정의 서식 규칙·번역 제외와 같음): 에디터 AI 모델을 한 번 부르고, 아무것도 저장하지 않습니다. 쓰려면 update_project_settings로 규칙에 넣습니다')
+  .addOption(new Option('--target <대상>', 'token: 자리표시자·태그 패턴, check: 형식 검사 규칙').choices(['token', 'check']).default('token'))
+  .action(async (prompt: string, options: { target: 'token' | 'check' }) => {
+    const result = await unwrap(api().projects[':projectId']['generate-regex'].$post({ param: { projectId: await projectId() }, json: { prompt, target: options.target } }));
+    print(result);
+  });
+
 // ── standard file, without the app ───────────────────────────────────
 
 const format = program.command('format').description('표준 파일(loca/v1) 규격과 검사. 앱이 꺼져 있어도 됩니다');
@@ -949,7 +1350,7 @@ format
   .action((file: string) => {
     let data: unknown;
     try {
-      data = JSON.parse(file === '-' ? readFileSync(0, 'utf8') : readFileSync(file, 'utf8'));
+      data = JSON.parse(readText(file));
     } catch (error) {
       throw new CliError(`JSON을 읽지 못했습니다: ${error instanceof Error ? error.message : String(error)}`);
     }
