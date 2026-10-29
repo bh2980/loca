@@ -109,5 +109,5 @@ description: Common rules for working on a loca translation project from the ter
 5. 보고: 몇 줄이 초벌됐는지, 남은 문제(실패·검토 필요·점검 결과)와 사람이 결정할 것을 짧게 알립니다.
 
 ## 설치
-- Claude Code: 이 저장소의 `.claude/skills/`가 `skills/`의 각 스킬을 가리켜, 저장소를 열면 바로 보입니다. 다른 곳에서 쓰려면 각 폴더를 `~/.claude/skills/`에 복사하거나 링크합니다.
+- Claude Code: 스킬이 이 저장소의 `.claude/skills/`에 있어 저장소를 열면 바로 보입니다(Windows 포함). 다른 곳에서 쓰려면 각 폴더를 `~/.claude/skills/`에 복사하거나 링크합니다.
 - Codex 등: 각 폴더를 그 에이전트의 스킬 폴더(예: `~/.codex/skills/`)에 복사하거나 링크합니다.

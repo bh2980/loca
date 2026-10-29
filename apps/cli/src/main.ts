@@ -1476,7 +1476,7 @@ workspace
     }
   });
 
-/** The command tree, for the test that keeps skills/ in step with it. */
+/** The command tree, for the test that keeps .claude/skills/ in step with it. */
 export { program };
 
 // Run when started as the CLI (bin/loca.mjs runs this file); importing it only builds the tree.
