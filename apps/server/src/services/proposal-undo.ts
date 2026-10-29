@@ -1,4 +1,4 @@
-import { and, eq, inArray, or } from 'drizzle-orm';
+import { and, asc, eq, inArray, or } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import type { KnowledgeKind } from '../db/schema.ts';
@@ -365,6 +365,13 @@ const INVERSES: Record<string, Inverse> = {
       })] }
       : none('새 워크플로는 되돌릴 수 없습니다'),
   },
+  order_settings: {
+    before: (db, proposal) => {
+      const table = proposal.input.type === 'status' ? s.statuses : s.tags;
+      return { ids: db.select({ id: table.id }).from(table).where(eq(table.projectId, proposal.projectId)).orderBy(asc(table.sort)).all().map((row) => row.id) };
+    },
+    after: (_db, proposal, before) => (Array.isArray(before.ids) && before.ids.length ? { calls: [call('order_settings', { type: proposal.input.type, names: before.ids })] } : { calls: [] }),
+  },
   update_project_settings: {
     before: (db, proposal) => {
       const settings = readProjectSettings(db, proposal.projectId);
@@ -376,6 +383,8 @@ const INVERSES: Record<string, Inverse> = {
   pull_app_defaults: { after: () => none('가져온 값은 홈 기본값으로 바뀌어 있어 되돌릴 수 없습니다') },
   propose_translation: { after: () => none('후보만 추가했고 현재 번역은 그대로입니다') },
   start_run: { after: () => none('실행 기록은 되돌릴 수 없습니다') },
+  continue_run: { after: () => none('실행 기록은 되돌릴 수 없습니다') },
+  discover_terms: { after: () => none('찾은 후보는 용어집에서 지웁니다') },
   delete_items: { after: () => none('삭제된 항목은 되살릴 수 없습니다') },
 };
 

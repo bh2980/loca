@@ -708,6 +708,42 @@
 - **목록은 이름으로 잇는다.** 가져오기는 상태·태그·저장한 지시 중 없는 이름만 더하고(대사가 가리키는 기존 것은 건드리지 않음), 워크플로는 새로 더한다. 올린 워크플로는 상태·태그·연결 id를 이름으로 적어 두고(`savedWorkflowSchema.refs`), 복사할 때 그 프로젝트의 같은 이름(상태는 종류·검토함으로도)을 찾는다. 못 찾으면 비워 두어 워크플로 검증이 묻는다.
 - **채팅·CLI:** `read_app_defaults`(읽기), `pull_app_defaults`(제안, 연결·채팅 권한은 빼고), `loca defaults`, `loca defaults pull <섹션...>`. 홈 설정을 고치거나 올리는 일은 사람만 앱에서 한다.
 
+---
+
+### 과제 8: 앱 없이 에이전트가 끝까지 (CLI, 2026-10-30)
+
+사람은 앱에서 연결·권한·워크플로를 세팅하고 디버깅할 때 앱을 켠다. 나머지는 코딩 에이전트가 `loca`로 스스로 판단해 하고, 채팅으로 결과만 보고한다. 앱으로 하는 일 대부분이 CLI로도 된다.
+
+- **터미널 권한 모드:** 프로젝트 설정 `agentSettings.terminalPermissionMode`(수락/거절 · 자동 검토 · 바로 반영, 기본 수락/거절). 설정 › 채팅에서 사람이 정한다.
+  - 터미널에는 대화가 없어 이 모드 하나를 따른다. 모드의 뜻은 채팅 대화의 권한 모드와 같다(`change-gate.ts`, 자동 검토는 실행·삭제·20개 넘는 변경·경고를 묻는다).
+  - `loca import`도 같은 관문을 지난다.
+  - 바로 반영된 것도 제안 기록에 남는다(`decidedBy` auto/bypass).
+  - 터미널은 모드가 반영한 것만 `loca proposals undo`로 되돌린다. 사람이 수락한 것은 앱에서 되돌린다.
+- **바로 하는 것(관문 없음):** 저장된 보기 만들기·고치기·지우기(번역 데이터가 아님), 실행 일시정지·취소(비용 없음), 새 프로젝트 만들기(`loca projects import`, 있던 프로젝트를 건드리지 않음), 노드·연결 시험(저장 안 함).
+- **기다리기는 SSE:** `loca proposals wait`, `loca runs wait`, `runs start/resume/continue --wait`는 `/api/events`의 변경 알림을 받을 때마다 상태를 다시 읽는다. 반복 조회는 하지 않는다.
+- **실행 운영:**
+  - `continue_run` 도구(채팅·CLI 공용, 실행 권한)가 일시정지한 실행을 이어 하거나, 멈춘·끝난 실행을 실패 다시 보내기·다른 모델로 이어 한다. 러너의 `resumeRun`·`continueRun`을 DB 함수로 나눠 도구와 러너가 같이 쓴다.
+  - `read_run`은 `notice`, 상태별 수, 끝난 곳(`ends`), **실패했거나 오류 출구로 빠진 줄**(`errors`, `errored`)을 준다.
+  - 오류로 빠진 줄은 오류가 지워진 뒤에도 경로에서 찾는다(마지막 AI·HTTP·스크립트 시도가 `error`). 기본 워크플로는 AI 오류를 `검토 필요로`로 보내 "끝남"으로 마치기 때문이다.
+  - `loca runs start --rerun-errors <실행>`은 그 줄만 새로 실행한다.
+- **대사 그래프 보기를 범위로:**
+  - `lineFilterSchema.view`(이름·id)로 `lines`·`export`·`check`·`runs plan/start --view`가 보기 안의 대사만 고른다.
+  - `viewFlow`가 보기를 흐름 순서로 세운다: 보기 안의 선을 따르고, 선이 말하지 않는 곳(여러 시작, 나란한 갈래, 고리의 입구)은 대본 순서를 쓴다.
+  - `loca views show`는 갈림·합쳐짐·선택지를 보여 준다. 내보내기는 보기를 흐름 순서로 낸다.
+- **내보내기 문맥은 AI 노드와 같다:** `export -c N`의 `before`는 대본 순서가 아니라 대사 그래프를 거슬러 간다(`precedingLines`, AI 노드의 `GraphIndex` 그대로). 갈래가 합쳐지는 곳은 `beforeBranches`로 나눈다.
+- **그 밖에 CLI로 연 것:**
+  - `loca workflows test`: 스크립트·HTTP 노드 시험, 저장 전 파일도 된다.
+  - `loca connections`: 목록과 모델 시험. 연결 추가와 키는 사람만 한다.
+  - `loca regex`
+  - `loca terms discover`: `discover_terms` 도구.
+  - `loca statuses order`·`loca tags order`: `order_settings` 도구, 되돌리기 가능.
+  - `loca projects import`
+- **CLI로 열지 않은 것:**
+  - 에디터의 한 줄 AI 번역·다듬기: 에이전트가 직접 번역(export/import)하거나 워크플로를 쓴다.
+  - 자료·용어의 "사람이 확인함": 사람의 판단을 표시하는 것이라 사람만 한다.
+  - 연결·키·권한·홈 설정: 사람만 한다.
+- **skills:** 공통 규칙은 `skills/loca`(혼자 끝까지 하는 순서 포함)로 옮겼다. 저장소의 `.claude/skills/`가 `skills/`를 가리켜 Claude Code가 저장소를 열면 바로 찾는다.
+
 ## 3. 단계별 실행 및 검증 체크리스트 (2026-10-19 개정)
 
 1. **정리 — 첫 구현에서 개정과 맞지 않는 부분 제거**

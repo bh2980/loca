@@ -8,7 +8,7 @@ import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { forgetProjectContext } from '../services/context.ts';
 import { excludedSql, markConditions, translatableSql } from '../services/line-marks.ts';
-import { createStatus, createTag, deleteStatuses, deleteTags, orderTags, projectTags, TaxonomyMutationError, updateStatus, updateTag } from '../services/project-taxonomy.ts';
+import { createStatus, createTag, deleteStatuses, deleteTags, orderStatuses, orderTags, projectTags, TaxonomyMutationError, updateStatus, updateTag } from '../services/project-taxonomy.ts';
 import { projectSettingsInput, updateProjectSettings } from '../services/project-settings.ts';
 import { importProject } from '../services/importer.ts';
 import type { DecidedTable } from '../services/status-by.ts';
@@ -157,15 +157,7 @@ export const projectRoutes = new Hono<Env>()
     }
     return c.json({ ok: true });
   })
-  .put('/:projectId/statuses/order', validate('json', z.object({ ids: z.array(z.string()) })), (c) => {
-    const { db } = c.var.deps;
-    const projectId = c.req.param('projectId');
-    db.transaction((tx) => {
-      c.req.valid('json').ids.forEach((id, sort) => tx.update(s.statuses).set({ sort }).where(and(eq(s.statuses.id, id), eq(s.statuses.projectId, projectId))).run());
-    });
-    events.changed(projectId, 'statuses');
-    return c.json({ ok: true });
-  })
+  .put('/:projectId/statuses/order', validate('json', z.object({ ids: z.array(z.string()) })), (c) => c.json(orderStatuses(c.var.deps.db, c.req.param('projectId'), c.req.valid('json').ids)))
   /** Lines in the deleted statuses move to `moveTo`; workflows that still reference them fail validation. */
   .post('/:projectId/statuses/delete', validate('json', z.object({ ids: z.array(z.string()).min(1), moveTo: z.string() })), (c) => {
     const { ids, moveTo } = c.req.valid('json');

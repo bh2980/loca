@@ -2,9 +2,9 @@ import { agentToolAvailable } from '@tw/shared';
 import { checkAgentPermission, projectAgentSettings } from './agent-permission-check.ts';
 import { tool } from 'ai';
 import { HTTPException } from 'hono/http-exception';
-import { and, asc, count, desc, eq, inArray, isNull, like, ne, or } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNull, like, ne, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { APPLY_TARGETS, INPUT_TYPES, workflowInput, AI_OUTPUTS, DEFAULT_TAG_COLOR, AI_PRESETS, AI_PRESET_IDS, type AiPresetId, aiNodeConfigSchema, KNOWLEDGE_TAG_KINDS, patchOf, TAG_SCOPES, withRunModels, AUTO_MARKS, batchChangeSchema, CONDITION_MARK_IDS, CONNECTION_KIND_INFO, ITEM_ERROR_KIND_IDS, createGroupSchema, createUnitSchema, deleteUnitsSchema, findReadingRouteInputSchema, FUNCTIONS, LINE_MARK_IDS, lineFilterSchema, lineMarksSchema, NODE_TYPES, sourceOf, updateGroupSchema, updateUnitSchema, workflowDefinitionSchema, functionTakes } from '@tw/shared';
+import { APPLY_TARGETS, INPUT_TYPES, isWholeScriptWorkflow, nodeName, workflowInput, AI_OUTPUTS, DEFAULT_TAG_COLOR, AI_PRESETS, AI_PRESET_IDS, type AiPresetId, aiNodeConfigSchema, KNOWLEDGE_TAG_KINDS, patchOf, TAG_SCOPES, withRunModels, AUTO_MARKS, batchChangeSchema, CONDITION_MARK_IDS, CONNECTION_KIND_INFO, ITEM_ERROR_KIND_IDS, createGroupSchema, createUnitSchema, deleteUnitsSchema, findReadingRouteInputSchema, FUNCTIONS, LINE_MARK_IDS, lineFilterSchema, lineMarksSchema, NODE_TYPES, sourceOf, updateGroupSchema, updateUnitSchema, workflowDefinitionSchema, functionTakes } from '@tw/shared';
 import { z as zod } from 'zod';
 import type { Db } from '../db/index.ts';
 import { byPerson } from './status-by.ts';
@@ -17,11 +17,14 @@ import { characterInput, documentInput, eventInput, relationshipInput, speechRul
 import { describeRule, knownListener, speechRuleIndex } from './speech.ts';
 import { calledWorkflowErrors, workflowIssues } from './workflow-issues.ts';
 import { statusInput, tagInput } from '../schemas/projects.ts';
-import { createStatus, createTag, deleteStatuses, deleteTags, TaxonomyMutationError, updateStatus, updateTag } from './project-taxonomy.ts';
+import { createStatus, createTag, deleteStatuses, deleteTags, orderStatuses, orderTags, TaxonomyMutationError, updateStatus, updateTag } from './project-taxonomy.ts';
 import { deleteWorkflow, saveWorkflow, WorkflowMutationError } from './workflow-mutations.ts';
 import { createGroup, createUnit, deleteGroup, deleteUnits, updateGroup, updateUnit } from './source-mutations.ts';
 import { mentions } from './context.ts';
-import { createRunInSteps, selectRunTerms, selectRunUnits } from '../engine/run-create.ts';
+import { createRunInSteps, FILLING, refuseSecondWholeScript, selectRunTerms, selectRunUnits } from '../engine/run-create.ts';
+import { continueRun, resumeRun } from '../engine/runner.ts';
+import { switchedRun } from './run-continue.ts';
+import { groupRunErrors, runErrors } from './run-errors.ts';
 import { snapshotWorkflowModels } from './routes.ts';
 import { readWebPage, webSearch } from './web.ts';
 import { deleteItems, DELETABLE_KINDS } from './item-delete.ts';
@@ -33,7 +36,7 @@ const PULLABLE = ['editorAi', 'prompts', 'aiAutoConfirm', 'statuses', 'tags', 'w
 import { pickNodes, saveView, sectionWithMost, viewSection, VIEW_LIMIT } from './graph-views.ts';
 import { asNew, characterByName as characterByNameOf, saveCharacterItem, saveKnowledgeItem, saveRelationshipItem, sent } from './knowledge-save.ts';
 import { aiSetLineListeners } from './ai-knowledge.ts';
-import { listTerms, saveTerm, termFilterInput } from './terms.ts';
+import { discoverAndSave, listTerms, saveTerm, termFilterInput } from './terms.ts';
 import { annotateKnowledge, knowledgeFilterInput } from './knowledge-list.ts';
 import { findTerm, termUsage } from './term-usage.ts';
 import { tagOverview } from './tag-overview.ts';
@@ -60,7 +63,8 @@ class TagRefused extends Error {}
 /** A failed knowledge item undoes the whole save_knowledge batch. */
 class KnowledgeRefused extends Error {}
 
-export function agentTools(db: Db, projectId: string, author: { model: string | null } = { model: null }) {
+/** `unrestricted`: every tool whatever the project's agent permissions, for undoing an accepted change (its inverse may be a delete the agent is not allowed). */
+export function agentTools(db: Db, projectId: string, author: { model: string | null } = { model: null }, options: { unrestricted?: boolean } = {}) {
   const changed = (...topics: Parameters<typeof events.changed>[1][]) => events.changed(projectId, ...topics);
   /**
    * A save tool's input: everything optional and without defaults, so an update (with id) changes
@@ -452,15 +456,34 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       },
     }),
     read_run: tool({
-      description: 'A run\'s progress: counts per node and state, plus recent failures. subject says what the counts are: lines or terms (total, nodes[].count and failures[].unitId are line ids or term ids).',
-      inputSchema: z.object({ runId: z.string() }),
-      execute: ({ runId }) => {
-        const run = db.select({ id: s.runs.id, workflow: s.runs.workflowName, status: s.runs.status, subject: s.runs.subject, total: s.runs.total }).from(s.runs).where(and(eq(s.runs.id, runId), eq(s.runs.projectId, projectId))).get();
+      description: 'A run\'s progress: status (running, paused, completed, cancelled) and why it paused (notice), item counts per state and per node and state, where finished items ended (ends: the node they stopped at, by name) and the errors that sent items out through an error exit (errors: kind, node, message, count — such items are done, not failed, when the workflow routes errors to e.g. a status node), and recent failures with the line key (or term source). errored: true lists every item that failed or left through an error exit (unitId, key), to start a new run on just those. subject says what the counts are: lines or terms (total, nodes[].count and failures[].unitId are line ids or term ids).',
+      inputSchema: z.object({ runId: z.string(), errored: z.boolean().default(false) }),
+      execute: ({ runId, errored }) => {
+        const run = db.select({ id: s.runs.id, workflow: s.runs.workflowName, status: s.runs.status, notice: s.runs.notice, subject: s.runs.subject, total: s.runs.total, definition: s.runs.definition }).from(s.runs).where(and(eq(s.runs.id, runId), eq(s.runs.projectId, projectId))).get();
         if (!run) return { error: '실행을 찾을 수 없습니다.' };
+        const label = (nodeId: string) => {
+          const node = run.definition.nodes.find((candidate) => candidate.id === nodeId);
+          return node ? nodeName(node) : nodeId;
+        };
+        const ends = db.select({ nodeId: s.runItems.nodeId, count: count() }).from(s.runItems).where(and(eq(s.runItems.runId, runId), eq(s.runItems.state, 'done'))).groupBy(s.runItems.nodeId).all().map((row) => ({ ...row, node: label(row.nodeId) }));
+        // Reading every item's path is work: a running run (polled while an agent waits) gets it once it stops.
+        const failedOrErrored = run.status === 'running' && !errored ? [] : runErrors(db, run);
+        const errors = groupRunErrors(failedOrErrored);
+        const erroredItems = errored ? failedOrErrored.map(({ unitId, key }) => ({ unitId, key })) : undefined;
+        const { definition: _definition, ...shown } = run;
+        const failed = and(eq(s.runItems.runId, runId), eq(s.runItems.state, 'failed'));
+        const failures = run.subject === 'terms'
+          ? db.select({ unitId: s.runItems.subjectId, key: s.terms.source, nodeId: s.runItems.nodeId, error: s.runItems.error }).from(s.runItems).leftJoin(s.terms, eq(s.terms.id, s.runItems.subjectId)).where(failed).limit(20).all()
+          : db.select({ unitId: s.runItems.subjectId, key: s.units.key, nodeId: s.runItems.nodeId, error: s.runItems.error }).from(s.runItems).leftJoin(s.units, eq(s.units.id, s.runItems.subjectId)).where(failed).orderBy(asc(s.units.seq)).limit(20).all();
         return {
-          ...run,
+          ...shown,
+          filling: run.notice === FILLING,
+          ends,
+          errors,
+          ...(erroredItems && { errored: erroredItems }),
+          states: Object.fromEntries(db.select({ state: s.runItems.state, count: count() }).from(s.runItems).where(eq(s.runItems.runId, runId)).groupBy(s.runItems.state).all().map((row) => [row.state, row.count])),
           nodes: db.select({ nodeId: s.runItems.nodeId, state: s.runItems.state, count: count() }).from(s.runItems).where(eq(s.runItems.runId, runId)).groupBy(s.runItems.nodeId, s.runItems.state).all(),
-          failures: db.select({ unitId: s.runItems.subjectId, nodeId: s.runItems.nodeId, error: s.runItems.error }).from(s.runItems).where(and(eq(s.runItems.runId, runId), eq(s.runItems.state, 'failed'))).limit(20).all(),
+          failures,
         };
       },
     }),
@@ -707,6 +730,46 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         }
       },
     }),
+    discover_terms: tool({
+      description: '용어집의 "대본에서 찾기": find glossary candidates across the script by code, without a model (bracketed terms, katakana, capitalized phrases, repeated n-grams, character names), and add the new ones as candidates (status candidate; existing terms only get their line counts and examples refreshed). Then list_terms with status candidate to review them; an AI node or save_terms fills in targets.',
+      inputSchema: z.object({}),
+      needsApproval: true,
+      execute: () => ({ ok: true, ...discoverAndSave(db, projectId) }),
+    }),
+    continue_run: tool({
+      description:
+        'Go on with a paused or finished run (AI calls cost money/quota, so the user approves it first, as for start_run). retryFailed: its failed lines go again from the step they failed in (the workflow\'s retry path applies again). models: other models for some AI steps of this run only (' + MODELS_HELP + '). A paused run with neither just resumes; limits raise or clear (null) its call and input-token caps. read_run shows what is left and why it stopped. A cancelled run cannot go on: start a new one.',
+      inputSchema: z.object({
+        runId: z.string(),
+        retryFailed: z.boolean().default(false),
+        models: runModelInput.optional().describe(MODELS_HELP),
+        limits: z.object({ maxCalls: z.number().int().min(1).nullable().optional(), maxInputTokens: z.number().int().min(1).nullable().optional() }).optional(),
+      }),
+      needsApproval: true,
+      execute: async ({ runId, retryFailed, models, limits }) => {
+        const run = db.select().from(s.runs).where(and(eq(s.runs.id, runId), eq(s.runs.projectId, projectId))).get();
+        if (!run) return { ok: false, error: '실행을 찾을 수 없습니다.' };
+        try {
+          if (isWholeScriptWorkflow(run.definition)) refuseSecondWholeScript(db, projectId, run.id);
+        } catch (error) {
+          return { ok: false, error: error instanceof Error ? error.message : String(error) };
+        }
+        // Node ids of the run's own definition (calls already expanded), as the run page's 다른 모델로 takes them.
+        const picked = resolveRunModels(db, projectId, run.definition, models);
+        if (picked.unknown.length) return { ok: false, error: `찾지 못함: ${picked.unknown.join(', ')}` };
+        if (run.status === 'paused' && !retryFailed && !Object.keys(picked.models).length) {
+          if (!resumeRun(db, run.id, limits)) return { ok: false, error: '이어서 할 수 없는 실행입니다 (대사를 넣는 중이거나 이미 진행 중).' };
+          events.changed(projectId, 'runs');
+          return { ok: true, runId: run.id, resumed: true };
+        }
+        const switched = switchedRun(db, run, picked.models);
+        if (!switched.ok) return switched;
+        const result = continueRun(db, run.id, { definition: switched.definition, models: switched.models, changes: switched.changes, retryFailed }, limits);
+        if (!result.ok) return result;
+        events.changed(projectId, 'runs');
+        return { ok: true, runId: run.id, retried: result.retried, changes: switched.changes };
+      },
+    }),
     propose_changes: tool({
       description:
         'Change many lines in one proposal: new translations (added as candidates and made current), statuses, tags. Pass each line\'s rev from find_lines so lines changed meanwhile are skipped, not overwritten. Use this instead of many propose_translation calls.',
@@ -782,6 +845,22 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
           if (error instanceof TaxonomyMutationError) return { ok: false, error: error.message };
           throw error;
         }
+      },
+    }),
+    order_settings: tool({
+      description: 'Put statuses or tags in this order (the settings page drag). names: names or ids, first to last; ones not named follow in their present order.',
+      inputSchema: z.object({ type: z.enum(['status', 'tag']), names: z.array(z.string().min(1)).min(1) }),
+      needsApproval: true,
+      execute: ({ type, names }) => {
+        const table = type === 'status' ? s.statuses : s.tags;
+        const rows = db.select({ id: table.id, name: table.name }).from(table).where(eq(table.projectId, projectId)).orderBy(asc(table.sort)).all();
+        const picked = names.map((name) => rows.find((row) => row.id === name || row.name === name));
+        const unknown = names.filter((_, at) => !picked[at]);
+        if (unknown.length) return { ok: false, error: `찾지 못함: ${unknown.join(', ')}` };
+        const first = new Set(picked.map((row) => row!.id));
+        const ids = [...first, ...rows.map((row) => row.id).filter((id) => !first.has(id))];
+        (type === 'status' ? orderStatuses : orderTags)(db, projectId, ids);
+        return { ok: true, order: ids.map((id) => rows.find((row) => row.id === id)!.name) };
       },
     }),
     update_tag: tool({
@@ -906,7 +985,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       execute: ({ kind, ids }) => deleteItems(db, projectId, kind, ids),
     }),
     read_project_settings: tool({
-      description: "The project's settings: name, description, format rules (placeholder presets and custom patterns the format check keeps), exclusion rules (번역 제외: which sources are not for translation — blank, format tokens only, no letters, no letter of the source language, patterns), AI 문맥 (aiAutoConfirm: true = AI results that are knowledge or terms are confirmed right away and so used as AI context; false = they are candidates a person confirms; lines are never affected), editor AI, mark colours, and the agent settings (switched-off tools, default permission mode; read-only for you).",
+      description: "The project's settings: name, description, format rules (placeholder presets and custom patterns the format check keeps), exclusion rules (번역 제외: which sources are not for translation — blank, format tokens only, no letters, no letter of the source language, patterns), AI 문맥 (aiAutoConfirm: true = AI results that are knowledge or terms are confirmed right away and so used as AI context; false = they are candidates a person confirms; lines are never affected), editor AI, mark colours, and the agent settings (switched-off tools, default permission mode, terminalPermissionMode — how changes from the terminal `loca` are decided; read-only for you).",
       inputSchema: z.object({}),
       execute: () => readProjectSettings(db, projectId) ?? { error: '프로젝트를 찾을 수 없습니다.' },
     }),
@@ -929,6 +1008,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
     }),
   };
   const every = { ...all, ...bulk };
+  if (options.unrestricted) return every;
   const settings = projectAgentSettings(db, projectId);
   return Object.fromEntries(Object.entries(every).filter(([name]) => agentToolAvailable(settings, name)).map(([name, definition]) => {
     const original = definition as unknown as { execute?: (input: Record<string, unknown>, options: unknown) => unknown };

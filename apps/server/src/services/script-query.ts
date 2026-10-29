@@ -10,6 +10,8 @@ import { refusesListener, setHumanListener } from './listeners.ts';
 import { hiddenMarkConditions, knownListenerSql, markConditions, translatableSql } from './line-marks.ts';
 import { lineTextFilter } from './line-text.ts';
 import { describeRule, knowledgeOf, knownListener, speechMismatch, speechRuleIndex } from './speech.ts';
+import { precedingLines } from './context.ts';
+import { viewUnitIds } from './view-flow.ts';
 
 /**
  * Reading and batch-changing the script, shared by the CLI routes and the chat's tools so both
@@ -85,6 +87,7 @@ export function findLines(db: Db, projectId: string, filter: LineFilter, options
   // Asking for translated or untranslated lines (exports, checks) asks for lines to translate: 번역 제외 lines stay out.
   if (filter.translated !== undefined) where.push(filter.translated ? sql`${s.units.translation} is not null and ${s.units.translation} != ''` : sql`(${s.units.translation} is null or ${s.units.translation} = '')`, translatableSql(projectId));
   if (filter.keys?.length) where.push(inList(s.units.key, filter.keys));
+  if (filter.view) where.push(inList(s.units.id, viewUnitIds(db, projectId, filter.view)));
   if (options.seq) where.push(sql`${s.units.seq} >= ${options.seq[0]} and ${s.units.seq} < ${options.seq[1]}`);
 
   // Mentions need whole-word matching (and {ALIAS} placeholders), so they are checked in code
@@ -340,22 +343,20 @@ function unitsByKey(db: Pick<Db, 'select'>, projectId: string, keys: string[]) {
 
 /** Lines plus what a translator needs, one object per line (written as JSONL by the CLI). */
 export function exportLines(db: Db, projectId: string, filter: LineFilter, options: { before: number; terms: boolean; all: boolean }) {
-  const lines = findLines(db, projectId, filter, { all: options.all, diverged: true }).rows;
+  let lines: LineRow[];
+  if (filter.view) {
+    // A view is read along its flow (see viewFlow), not in script order, and paged in that order.
+    const order = new Map(viewUnitIds(db, projectId, filter.view).map((id, at) => [id, at]));
+    const all = findLines(db, projectId, filter, { all: true, diverged: true }).rows.sort((a, b) => order.get(a.id)! - order.get(b.id)!);
+    lines = options.all ? all : all.slice(filter.offset, filter.offset + filter.limit);
+  } else lines = findLines(db, projectId, filter, { all: options.all, diverged: true }).rows;
   const terms = options.terms ? knowledgeOf(db, projectId).terms() : null;
-  const groupLines = new Map<string, { id: string; speaker: string | null; source: string; translation: string | null }[]>();
-  const units = new Map(inChunks(lines.map((line) => line.id), (slice) => db.select({ id: s.units.id, groupId: s.units.groupId }).from(s.units).where(inArray(s.units.id, slice)).all()).map((row) => [row.id, row.groupId]));
   // The confirmed speech rule of each line's speaker → listener pair, as the translator must follow it.
   const rules = speechRuleIndex(db, projectId).resolve(lines.map((line) => ({ key: line.key, speaker: line.speaker, listener: line.listener, listenerOrigin: 'human' as const, listenerConfidence: null })));
+  // The lines before each one along the dialogue graph, by branch where ways join: what an AI node is given.
+  const preceding = options.before > 0 ? precedingLines(db, projectId, lines.map((line) => line.id), options.before) : null;
   return lines.map((line) => {
-    let before: { speaker: string | null; source: string; translation: string | null }[] = [];
-    if (options.before > 0) {
-      const groupId = units.get(line.id)!;
-      if (!groupLines.has(groupId))
-        groupLines.set(groupId, db.select({ id: s.units.id, speaker: s.units.speaker, source: s.units.source, translation: s.units.translation }).from(s.units).where(eq(s.units.groupId, groupId)).orderBy(asc(s.units.seq)).all());
-      const siblings = groupLines.get(groupId)!;
-      const index = siblings.findIndex((row) => row.id === line.id);
-      before = siblings.slice(Math.max(0, index - options.before), index).map(({ speaker, source, translation }) => ({ speaker, source, translation }));
-    }
+    const before = preceding?.get(line.id);
     const used = (terms?.matcher.find(line.source) ?? []).map((term) => ({ source: term.source, target: term.target, note: term.note }));
     const rule = rules.get(line.key);
     return {
@@ -371,7 +372,7 @@ export function exportLines(db: Db, projectId: string, filter: LineFilter, optio
       status: line.status,
       tags: line.tags,
       marks: line.marks,
-      ...(options.before > 0 ? { before } : {}),
+      ...(before ? { before: before.lines, ...(before.branches.length ? { beforeBranches: before.branches, ...(before.moreBranches ? { moreBranches: before.moreBranches } : {}) } : {}) } : {}),
       ...(options.terms ? { terms: used } : {}),
     };
   });

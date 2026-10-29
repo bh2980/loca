@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { editorAiSchema, exclusionRulesSchema, formatRulesSchema, markColorsSchema, type AgentSettings } from '@tw/shared';
+import { agentSettingsSchema, editorAiSchema, exclusionRulesSchema, formatRulesSchema, markColorsSchema, type AgentSettings } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
@@ -30,5 +30,5 @@ export function updateProjectSettings(db: Db, projectId: string, patch: z.infer<
 
 export function readProjectSettings(db: Db, projectId: string) {
   const row = db.select({ name: s.projects.name, description: s.projects.description, formatRules: s.projects.formatRules, exclusionRules: s.projects.exclusionRules, aiAutoConfirm: s.projects.aiAutoConfirm, editorAi: s.projects.editorAi, markColors: s.projects.markColors, agentSettings: s.projects.agentSettings }).from(s.projects).where(eq(s.projects.id, projectId)).get();
-  return row ? { ...row, exclusionRules: exclusionRulesSchema.parse(row.exclusionRules), editorAi: editorAiSchema.parse(row.editorAi) } : null;
+  return row ? { ...row, exclusionRules: exclusionRulesSchema.parse(row.exclusionRules), editorAi: editorAiSchema.parse(row.editorAi), agentSettings: agentSettingsSchema.parse(row.agentSettings ?? {}) } : null;
 }

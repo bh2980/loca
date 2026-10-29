@@ -33,6 +33,8 @@ export const lineFilterSchema = z.object({
   hideMarks: lineMarksSchema.optional(),
   translated: z.boolean().optional(),
   keys: z.array(z.string().min(1)).optional(),
+  /** Lines of a saved dialogue graph view (id or label): a part of the graph someone picked out. */
+  view: z.string().min(1).optional(),
   offset: z.number().int().min(0).default(0),
   limit: z.number().int().min(1).max(1000).default(200),
 });

@@ -65,6 +65,13 @@ export function AgentTab({ target }: { target: SettingsTarget }) {
           </Box>
         </Section>
 
+        <Section variant="page" title="터미널 권한 모드" description="터미널의 loca(셸을 쓰는 코딩 에이전트 포함)가 바꾸는 일에 적용됩니다. 터미널에는 대화가 없어 이 모드 하나를 따릅니다.">
+          <Box spaceY="condensed">
+            <PermissionModePicker width="medium" value={settings.terminalPermissionMode} disabled={!loaded || save.isPending} onChange={(mode) => saveSettings({ ...settings, terminalPermissionMode: mode })} />
+            <Text as="p" variant="caption" tone="muted">{PERMISSION_MODE_INFO[settings.terminalPermissionMode].description}</Text>
+          </Box>
+        </Section>
+
         <SavedPromptsSection target={target} />
 
         <Section variant="page" title="도구 권한" description="채팅 AI와 터미널의 loca call에만 적용됩니다. 삭제는 기본으로 꺼져 있습니다.">

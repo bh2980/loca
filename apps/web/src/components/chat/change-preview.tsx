@@ -212,6 +212,17 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
         </Box>
       );
     }
+    case 'continue_run': {
+      const models = Object.keys((input.models as Record<string, unknown> | undefined) ?? {}).length;
+      return (
+        <Box as="dl" spaceY="tight">
+          {field('실행', input.runId)}
+          {field('실패한 대사', input.retryFailed ? '실패한 단계부터 다시' : '그대로 두기')}
+          {models > 0 && field('다른 모델', `AI 단계 ${models}개`)}
+          {pending && <Text as="p" tone="muted">수락하면 실행이 이어지고 AI 호출 비용이 듭니다.</Text>}
+        </Box>
+      );
+    }
     case 'propose_translation':
       return <Box as="dl" spaceY="tight">{field('번역', input.text)}{field('메모', input.note)}</Box>;
     case 'save_group_summary':

@@ -43,7 +43,7 @@ const fixed: Record<string, AgentPermission[]> = {
   propose_translation: [p('script', 'update')], propose_changes: [p('script', 'update')], set_listeners: [p('script', 'update')], link_events: [p('events', 'update')], link_lines: [p('script', 'update')], link_scenes: [p('script', 'update')], link_in_order: [p('script', 'update')], add_line_after: [p('script', 'create')], delete_lines: [p('script', 'delete')], save_group_summary: [p('scenes', 'update')],
   update_status: [p('statuses', 'update')], delete_status: [p('statuses', 'delete')],
   update_tag: [p('tags', 'update')], delete_tag: [p('tags', 'delete')],
-  delete_workflow: [p('workflows', 'delete')], edit_workflow_node: [p('workflows', 'update')], start_run: [p('workflows', 'run')],
+  delete_workflow: [p('workflows', 'delete')], edit_workflow_node: [p('workflows', 'update')], start_run: [p('workflows', 'run')], continue_run: [p('workflows', 'run')], discover_terms: [p('terms', 'create')],
   read_project_settings: read('project'), update_project_settings: [p('project', 'update')],
   read_app_defaults: read('project'), pull_app_defaults: [p('project', 'update')],
   web_search: read('web'), read_web_page: read('web'),
@@ -61,6 +61,7 @@ export function requiredAgentPermissions(name: string, input: Record<string, unk
   if (name === 'delete_items') return deletable.includes(input.kind as typeof deletable[number]) ? [p(input.kind as AgentResource, 'delete')] : null;
   if (name === 'tag_items') return [...knowledge, 'terms'].includes(input.kind as typeof knowledge[number]) ? [p(input.kind as AgentResource, 'update')] : null;
   if (name === 'save_status') return input.type === 'status' || input.type === 'tag' ? [p(input.type === 'status' ? 'statuses' : 'tags', 'create')] : null;
+  if (name === 'order_settings') return input.type === 'status' || input.type === 'tag' ? [p(input.type === 'status' ? 'statuses' : 'tags', 'update')] : null;
   if (name === 'save_workflow') return [p('workflows', typeof input.id === 'string' && input.id ? 'update' : 'create')];
   if (name === 'check_script') return read('script', ...(input.kind === 'terms' ? ['terms' as const] : input.kind === 'speech' ? ['speechRules' as const] : []));
   if (name === 'script_stats') return input.of === 'runs' ? read('workflows') : read('script', 'scenes', 'statuses');
@@ -81,6 +82,7 @@ export function agentToolPermissionOptions(name: string): AgentPermission[][] {
   if (name === 'delete_items') return deletable.map((kind) => [p(kind, 'delete')]);
   if (name === 'tag_items') return [...knowledge, 'terms' as const].map((kind) => [p(kind, 'update')]);
   if (name === 'save_status') return [[p('statuses', 'create')], [p('tags', 'create')]];
+  if (name === 'order_settings') return [[p('statuses', 'update')], [p('tags', 'update')]];
   if (name === 'save_workflow') return [[p('workflows', 'create')], [p('workflows', 'update')]];
   if (name === 'check_script') return [read('script'), read('script', 'terms'), read('script', 'speechRules')];
   if (name === 'script_stats') return [read('workflows'), read('script', 'scenes', 'statuses')];

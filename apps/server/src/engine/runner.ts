@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import { and, asc, count, desc, eq, gt, gte, inArray, isNull, lte, ne, notInArray, or, sql } from 'drizzle-orm';
 import jsonLogic from 'json-logic-js';
 import * as ai from '@tw/ai';
@@ -114,6 +115,90 @@ const isAsync = (node: WorkflowNode) =>
  * candidate/output/issues on the line and routes it. State lives in the database, so a restart
  * resumes from queued items.
  */
+/** How a paused or finished run goes on (#41): its definition and model snapshots from now, and whether its failed lines go again. */
+export type RunContinue = { definition: WorkflowDefinition; models: Record<string, s.AiSnapshot>; changes: s.RunContinuation['changes']; retryFailed: boolean };
+
+/**
+ * Resumes a paused run in the database; the runner picks it up on its next tick. `limits` replaces
+ * the run's caps first (null clears one); a cap not named stays. The runner and the agent's
+ * continue_run both use it.
+ */
+export function resumeRun(db: Db, runId: string, limits?: RunCaps) {
+  // A run still being filled (createRunInSteps) starts by itself once all its lines are in.
+  const current = db.select({ status: s.runs.status, limits: s.runs.limits }).from(s.runs).where(eq(s.runs.id, runId)).get();
+  const next = withCaps(current?.limits ?? null, current?.status === 'paused' ? limits : undefined);
+  const resumed = db.update(s.runs).set({ status: 'running', notice: null, limits: next }).where(and(eq(s.runs.id, runId), eq(s.runs.status, 'paused'), or(isNull(s.runs.notice), ne(s.runs.notice, FILLING)))).run().changes > 0;
+  if (resumed) woken.emit('wake', runId);
+  return resumed;
+}
+
+type RunCaps = { maxCalls?: number | null; maxInputTokens?: number | null };
+/** A run's caps with these replacing them (null clears one; a cap not named stays), without the cap that stopped it. */
+function withCaps(current: s.RunLimits | null, caps: RunCaps | undefined): s.RunLimits | null {
+  let next = current;
+  if (caps) {
+    const merged: s.RunLimits = { ...current };
+    for (const key of ['maxCalls', 'maxInputTokens'] as const) {
+      if (caps[key] === null) delete merged[key];
+      else if (caps[key] !== undefined) merged[key] = caps[key];
+    }
+    next = merged.maxCalls || merged.maxInputTokens ? merged : null;
+  } else if (next) next = { ...next };
+  if (next) delete next.hit;
+  return next;
+}
+
+/** Runs that resumeRun / continueRun set going: a runner wakes them now instead of when a 재요청 wait it slept on ends. */
+const woken = new EventEmitter();
+
+/**
+ * Continues a paused or finished run in the database, optionally on other models and with its failed
+ * lines re-queued at the step they failed in; the runner picks it up on its next tick. The new
+ * definition and model snapshots are the run's own; the workflow is not changed. Calls already made
+ * keep the connection they went out through (run_steps).
+ */
+export function continueRun(db: Db, runId: string, next: RunContinue, caps?: RunCaps) {
+  const result = db.transaction((tx) => {
+    const run = tx.select().from(s.runs).where(eq(s.runs.id, runId)).get();
+    if (!run) return { ok: false as const, error: '없는 실행입니다.' };
+    if (run.status === 'running') return { ok: false as const, error: '실행 중에는 바꿀 수 없습니다. 먼저 일시정지하세요.' };
+    if (run.status === 'cancelled') return { ok: false as const, error: '취소한 실행은 이어서 할 수 없습니다. 새로 실행하세요.' };
+    if (run.notice === FILLING) return { ok: false as const, error: '아직 대사를 넣는 중입니다.' };
+    let retried = 0;
+    if (next.retryFailed) {
+      // Failed lines, and lines a pause caught on their way through an error path (queued with a failure).
+      const failed = tx
+        .select()
+        .from(s.runItems)
+        .where(and(eq(s.runItems.runId, runId), inArray(s.runItems.state, ['failed', 'queued'])))
+        .all()
+        .filter((item) => item.state === 'failed' || item.data.error);
+      // A line goes back to the node that failed it,
+      // arriving there as for the first time so the workflow's retry path applies again.
+      const known = new Set(next.definition.nodes.map((node) => node.id));
+      for (const item of failed) {
+        const failedAt = item.data.error?.nodeId;
+        const nodeId = failedAt && known.has(failedAt) ? failedAt : item.nodeId;
+        tx.update(s.runItems)
+          .set({ state: 'queued', nodeId, error: null, notBefore: null, visits: { ...item.visits, [nodeId]: 1 }, data: { ...item.data, retry: undefined, error: undefined } })
+          .where(eq(s.runItems.id, item.id))
+          .run();
+      }
+      retried = failed.length;
+    }
+    const open = tx.select({ id: s.runItems.id }).from(s.runItems).where(and(eq(s.runItems.runId, runId), inArray(s.runItems.state, ['queued', 'running']))).limit(1).all();
+    if (!open.length) return { ok: false as const, error: '이어서 처리할 대사가 없습니다.' };
+    const continuation: s.RunContinuation = { at: Date.now(), changes: next.changes, retried };
+    tx.update(s.runs)
+      .set({ definition: next.definition, models: next.models, status: 'running', notice: null, finishedAt: null, continuations: [...run.continuations, continuation], ...(caps && { limits: withCaps(run.limits, caps) }) })
+      .where(eq(s.runs.id, runId))
+      .run();
+    return { ok: true as const, retried };
+  });
+  if (result.ok) woken.emit('wake', runId);
+  return result;
+}
+
 export class Runner {
   private timer?: NodeJS.Timeout;
   private ticking = false;
@@ -128,7 +213,11 @@ export class Runner {
     private model: ModelPort = { generate: ai.generate, judge: ai.judge },
   ) {}
 
+  /** The runner hears runs set going outside it (the agent's continue_run). */
+  private onWake = (runId: string) => this.wake(runId);
+
   start(intervalMs = 300) {
+    woken.on('wake', this.onWake);
     // Calls cut off by a restart are retried from the node they were waiting at.
     this.db.update(s.runItems).set({ state: 'queued' }).where(eq(s.runItems.state, 'running')).run();
     this.timer = setInterval(() => void this.tick(), intervalMs);
@@ -136,6 +225,7 @@ export class Runner {
 
   async stop() {
     clearInterval(this.timer);
+    woken.off('wake', this.onWake);
     for (const runId of [...this.sleeping.keys()]) this.wake(runId);
     for (const controller of this.aborts.values()) controller.abort();
     await Promise.allSettled([...this.inflight.values()].flatMap((set) => [...set]));
@@ -200,68 +290,16 @@ export class Runner {
     this.notify(runId);
   }
 
-  /** `limits` replaces the run's caps first (null clears one); a cap not named stays. */
+  /** resumeRun, and the run goes on at once. */
   resume(runId: string, limits?: { maxCalls?: number | null; maxInputTokens?: number | null }) {
-    // A run still being filled (createRunInSteps) starts by itself once all its lines are in.
-    const current = this.db.select({ status: s.runs.status, limits: s.runs.limits }).from(s.runs).where(eq(s.runs.id, runId)).get();
-    let next = current?.limits ?? null;
-    if (limits && current?.status === 'paused') {
-      const merged: s.RunLimits = { ...current.limits };
-      for (const key of ['maxCalls', 'maxInputTokens'] as const) {
-        if (limits[key] === null) delete merged[key];
-        else if (limits[key] !== undefined) merged[key] = limits[key];
-      }
-      next = merged.maxCalls || merged.maxInputTokens ? merged : null;
-    } else if (next) next = { ...next };
-    if (next) delete next.hit;
     this.wake(runId);
-    this.db.update(s.runs).set({ status: 'running', notice: null, limits: next }).where(and(eq(s.runs.id, runId), eq(s.runs.status, 'paused'), or(isNull(s.runs.notice), ne(s.runs.notice, FILLING)))).run();
+    resumeRun(this.db, runId, limits);
     this.notify(runId);
   }
 
-  /**
-   * Continues a paused or finished run (#41), optionally on other models and with its failed lines
-   * re-queued at the step they failed in. The new definition and model snapshots are the run's own;
-   * the workflow is not changed. Calls already made keep the connection they went out through (run_steps).
-   */
-  continue(runId: string, next: { definition: WorkflowDefinition; models: Record<string, s.AiSnapshot>; changes: s.RunContinuation['changes']; retryFailed: boolean }) {
-    const result = this.db.transaction((tx) => {
-      const run = tx.select().from(s.runs).where(eq(s.runs.id, runId)).get();
-      if (!run) return { ok: false as const, error: '없는 실행입니다.' };
-      if (run.status === 'running') return { ok: false as const, error: '실행 중에는 바꿀 수 없습니다. 먼저 일시정지하세요.' };
-      if (run.status === 'cancelled') return { ok: false as const, error: '취소한 실행은 이어서 할 수 없습니다. 새로 실행하세요.' };
-      if (run.notice === FILLING) return { ok: false as const, error: '아직 대사를 넣는 중입니다.' };
-      let retried = 0;
-      if (next.retryFailed) {
-        // Failed lines, and lines a pause caught on their way through an error path (queued with a failure).
-        const failed = tx
-          .select()
-          .from(s.runItems)
-          .where(and(eq(s.runItems.runId, runId), inArray(s.runItems.state, ['failed', 'queued'])))
-          .all()
-          .filter((item) => item.state === 'failed' || item.data.error);
-        // A line goes back to the node that failed it,
-        // arriving there as for the first time so the workflow's retry path applies again.
-        const known = new Set(next.definition.nodes.map((node) => node.id));
-        for (const item of failed) {
-          const failedAt = item.data.error?.nodeId;
-          const nodeId = failedAt && known.has(failedAt) ? failedAt : item.nodeId;
-          tx.update(s.runItems)
-            .set({ state: 'queued', nodeId, error: null, notBefore: null, visits: { ...item.visits, [nodeId]: 1 }, data: { ...item.data, retry: undefined, error: undefined } })
-            .where(eq(s.runItems.id, item.id))
-            .run();
-        }
-        retried = failed.length;
-      }
-      const open = tx.select({ id: s.runItems.id }).from(s.runItems).where(and(eq(s.runItems.runId, runId), inArray(s.runItems.state, ['queued', 'running']))).limit(1).all();
-      if (!open.length) return { ok: false as const, error: '이어서 처리할 대사가 없습니다.' };
-      const continuation: s.RunContinuation = { at: Date.now(), changes: next.changes, retried };
-      tx.update(s.runs)
-        .set({ definition: next.definition, models: next.models, status: 'running', notice: null, finishedAt: null, continuations: [...run.continuations, continuation] })
-        .where(eq(s.runs.id, runId))
-        .run();
-      return { ok: true as const, retried };
-    });
+  /** continueRun, and the run goes on at once. */
+  continue(runId: string, next: RunContinue) {
+    const result = continueRun(this.db, runId, next);
     if (result.ok) {
       this.wake(runId);
       this.notify(runId);

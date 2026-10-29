@@ -5,7 +5,7 @@ description: Build and maintain the glossary of a loca project — find where te
 
 # loca 용어집 다루기
 
-공통 규칙(연결, 제안, 권한, 표시, 작업 폴더)은 README를 따릅니다. 확정 용어만 번역 문맥에 들어가고, 후보는 들어가지 않습니다. AI가 만든 용어가 바로 확정될지는 프로젝트 설정 `aiAutoConfirm` 하나가 정합니다(`loca-project`).
+공통 규칙(연결, 제안, 권한, 표시, 작업 폴더, 터미널 권한 모드)은 `loca` 스킬을 따릅니다. 확정 용어만 번역 문맥에 들어가고, 후보는 들어가지 않습니다. AI가 만든 용어가 바로 확정될지는 프로젝트 설정 `aiAutoConfirm` 하나가 정합니다(`loca-project`).
 
 ## 읽기
 ```
@@ -16,6 +16,13 @@ loca lines --q "Guild" --all --jsonl   # 임의 글자 검색
 loca check terms                   # 확정 용어를 어긴 번역
 ```
 읽기 도구를 직접 쓰면 결과가 길 때 `truncated`가 붙으니 `offset`·`limit`으로 넘깁니다: `loca call list_terms '{"marks":["unused"],"limit":50}'`
+
+## 대본에서 후보 찾기
+```
+loca terms discover                # 앱의 "대본에서 찾기": 괄호 속 말, 가타카나, 대문자 구, 반복되는 말, 인물 이름을 코드로 찾아 새 것은 후보로 더함 (모델 안 부름)
+loca terms --status 후보 --limit 50  # 찾은 후보 보기
+```
+번역어 채우기는 용어 입력 워크플로(`termTranslate` 프리셋)를 `loca runs start <워크플로> --mark emptyTarget --wait`으로 돌리거나, 소량은 아래처럼 직접 제안합니다.
 
 ## 새 용어 제안
 1. 원문에서 반복되는 고유명사(조직·장소·제품·별칭)를 용례와 함께 확인합니다.
