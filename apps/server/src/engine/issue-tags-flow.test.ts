@@ -51,8 +51,9 @@ describe('the default 번역 workflow tags through its 태그 붙이기 nodes', 
     createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: {} });
     await new Runner(db, memoryStore(), port).drain();
 
-    // At the second review the failed line carries the two kinds the review named; the other has none.
-    expect(duringSecondReview).toEqual([['말투', '용어'], []]);
+    // At the second review the failed line carries 말투 from the review; 용어 came off when 용어 검사 (code, before
+    // the review) found the glossary kept, as 형식 검사 does with 형식. The other line has none.
+    expect(duringSecondReview).toEqual([['말투'], []]);
     // The kinds came into the project when they were first put on, and a pass took them off again.
     expect(db.select().from(s.tags).all().map((tag) => tag.role).sort()).toEqual(['aiFailed', 'speech', 'term']);
     expect(issueTagsOf(db, 'u1')).toEqual([]);

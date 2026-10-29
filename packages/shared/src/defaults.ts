@@ -163,6 +163,14 @@ const statusNode = (id: string, label: string, statusId: string, row: number, co
   label,
   config: { fn: 'setStatus', params: { statusId, addTagIds: [], removeTagIds: [] }, concurrency: 2 },
 });
+/** 용어 검사: a confirmed glossary term in the source whose Korean form the translation lacks fails the line (no model call). */
+const glossaryCheckNode = (row: number, column = 0): WorkflowNode => ({
+  id: 'glossary',
+  type: 'function',
+  position: at(row, column),
+  label: '용어 검사',
+  config: { fn: 'glossaryCheck', params: {}, concurrency: 2 },
+});
 const formatCheckNode = (row: number, column = 0): WorkflowNode => ({
   id: 'check',
   type: 'function',
@@ -205,12 +213,12 @@ const speechEdges = [
 ];
 
 /**
- * 번역: a larger flow with a review loop: untranslated → AI 번역 → 번역 저장 → 형식 검사 → AI 검수 →
+ * 번역: a larger flow with a review loop: untranslated → AI 번역 → 번역 저장 → 형식 검사 → 용어 검사 → AI 검수 →
  * 완료로 → AI 용어 추출 → 용어 저장;
  * checks only judge, so each exit has the 태그 붙이기 node that records it: a failing check or review
  * puts its kind on the line (형식, or the review's categories), a passing one takes off only the kinds
  * it covers (the format check 형식, the review every 문제 유형);
- * a failing line is revised by AI 수정 (it reads the translation and what the check or review found; each
+ * a failing line is revised by AI 수정 (it reads the translation and what a check or the review found; each
  * revision is written as the translation again and checked again) while AI 수정 has run fewer than 3
  * times, then is set to "검토 필요", a status shown in the review inbox. People take it from there; the
  * run itself ends. Translations are written, not proposed, because a translation flow proposing every
@@ -244,6 +252,10 @@ function reviewLoop(ids: TemplateIds, judgeSpeech: boolean): WorkflowDefinition 
       formatCheckNode(3),
       tagNode('untag-format', '형식 태그 떼기', 'remove', { from: 'kind' }, 4),
       tagNode('tag-format', '형식 태그 붙이기', 'add', { from: 'kind' }, 4, 1),
+      // Glossary use is checked by code, not left to AI 검수 alone.
+      glossaryCheckNode(4.5),
+      tagNode('untag-term', '용어 태그 떼기', 'remove', { from: 'kind' }, 4.75),
+      tagNode('tag-term', '용어 태그 붙이기', 'add', { from: 'kind' }, 4.75, 1),
       // 말투 판정: which speech level the translation uses, compared with the line's rule. A judging
       // connection (System One) answers this quickly; an unsure answer leaves it to AI 검수.
       ...(judgeSpeech ? speechNodes(ids) : []),
@@ -259,7 +271,7 @@ function reviewLoop(ids: TemplateIds, judgeSpeech: boolean): WorkflowDefinition 
         type: 'condition',
         position: at(8, 3),
         label: 'AI 수정 3회 미만?',
-        config: { expression: { '<': [{ var: 'visits.revise' }, 3] }, description: "'AI 수정'을 3회 미만 지났으면 다시 수정합니다. 형식 검사, 말투 판정, AI 검수 어느 쪽 실패든 한 번으로 셉니다." },
+        config: { expression: { '<': [{ var: 'visits.revise' }, 3] }, description: "'AI 수정'을 3회 미만 지났으면 다시 수정합니다. 형식 검사, 용어 검사, 말투 판정, AI 검수 어느 쪽 실패든 한 번으로 셉니다." },
       },
       statusNode('escalate', '검토 필요로', ids.needsReview ?? '', 8, 4),
       aiNode('revise', 'revise', ids.model, 9, 3, 'AI 수정'),
@@ -274,7 +286,11 @@ function reviewLoop(ids: TemplateIds, judgeSpeech: boolean): WorkflowDefinition 
     edges: [
       ...chain('entry', 'translate', 'save', 'check'),
       edge('check', 'pass', 'untag-format'),
-      edge('untag-format', 'out', judgeSpeech ? 'speech' : 'review'),
+      edge('untag-format', 'out', 'glossary'),
+      edge('glossary', 'pass', 'untag-term'),
+      edge('untag-term', 'out', judgeSpeech ? 'speech' : 'review'),
+      edge('glossary', 'fail', 'tag-term'),
+      edge('tag-term', 'out', 'retry'),
       edge('check', 'fail', 'tag-format'),
       edge('tag-format', 'out', 'retry'),
       ...(judgeSpeech ? speechEdges : []),
