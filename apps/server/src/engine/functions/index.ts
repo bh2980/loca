@@ -70,7 +70,7 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     if (text === null) return { port: 'fail', issues: [NEEDS_CANDIDATE], output: { text, passed: false, issues: [NEEDS_CANDIDATE], kind: 'term' } };
     const issues = knowledgeOf(tx as unknown as Db, input.projectId)
       .glossary()
-      .matcher.find(sourceOf(input))
+      .matcher.find(sourceOf(input), input.subject === 'lines' ? input.unit.kind : undefined)
       .filter((term) => !text.toLowerCase().includes(term.target.toLowerCase()))
       .map((term) => `용어 "${term.source}"은(는) "${term.target}"(으)로 옮겨야 합니다.`);
     return { port: issues.length ? 'fail' : 'pass', issues, output: { text, passed: !issues.length, issues, kind: 'term' } };

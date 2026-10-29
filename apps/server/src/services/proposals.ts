@@ -6,6 +6,7 @@ import { events } from '../events.ts';
 import { agentCatalog } from './agent-catalog.ts';
 import { projectAgentSettings } from './agent-permission-check.ts';
 import { captureUndo, dropConflicts, isRecord, orderedCalls, rebaseLineCall, rememberLineRevisions } from './proposal-undo.ts';
+import { proposalSaver } from './status-by.ts';
 
 /** Stores a proposal; callers check it first with prepareProposal (proposal-check.ts). */
 export function propose(db: Pick<Db, 'insert'>, input: { projectId: string; sessionId: string | null; model?: string | null; source: 'cli' | 'api'; tool: string; input: Record<string, unknown>; report?: s.ProposalReport | null; review?: string | null }) {
@@ -75,7 +76,7 @@ export async function decideProposal(db: Db, id: string, accept: boolean, by: 'p
   if (!accept) return claimed;
   let status: 'accepted' | 'failed' = 'accepted';
   let result: unknown = null;
-  const tool = agentCatalog(db, proposal.projectId, { model: proposal.model ?? null }, { unrestricted: undoing }).find((candidate) => candidate.name === proposal.tool && candidate.changes);
+  const tool = agentCatalog(db, proposal.projectId, { model: proposal.model ?? null, saver: proposalSaver(by) }, { unrestricted: undoing }).find((candidate) => candidate.name === proposal.tool && candidate.changes);
   const undoAfter = captureUndo(db, proposal);
   try {
     if (!tool) throw new Error(`알 수 없는 도구입니다: ${proposal.tool}`);

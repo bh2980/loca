@@ -5,7 +5,7 @@ import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { characterInput, documentInput, eventInput, relationshipInput, speechRuleInput } from '../schemas/knowledge.ts';
 import { saveCharacter } from './characters.ts';
-import { byPerson } from './status-by.ts';
+import { bySaver, PERSON, type Saver } from './status-by.ts';
 
 /**
  * A person's save of one knowledge item — the chat/CLI save_* tools, an accepted proposal (a workflow's
@@ -31,31 +31,31 @@ export const characterByName = (db: Db, projectId: string, name: string) =>
     .all()
     .find((character) => [character.name, ...character.aliases].some((alias) => alias.toLowerCase() === name.toLowerCase()));
 
-export function saveCharacterItem(db: Db, projectId: string, { id, ...input }: Record<string, unknown> & { id?: string }): SaveResult {
+export function saveCharacterItem(db: Db, projectId: string, { id, ...input }: Record<string, unknown> & { id?: string }, saver: Saver = PERSON): SaveResult {
   if (id) {
-    const saved = saveCharacter(db, projectId, sent(input), id);
+    const saved = saveCharacter(db, projectId, sent(input), id, saver);
     return saved ? { ok: true, id: saved.id } : { ok: false, error: '없는 인물입니다.' };
   }
   const fresh = asNew(characterInput, input);
   if (!fresh.ok) return fresh;
   const existing = characterByName(db, projectId, fresh.data.name);
   if (existing) return { ok: false, error: '같은 이름의 인물이 이미 있습니다.', hint: `그 인물을 고치려면 id=${existing.id}로 다시 제안하세요.` };
-  const saved = saveCharacter(db, projectId, fresh.data);
+  const saved = saveCharacter(db, projectId, fresh.data, undefined, saver);
   return saved ? { ok: true, id: saved.id } : { ok: false, error: '없는 인물입니다.' };
 }
 
-export function saveRelationshipItem(db: Db, projectId: string, { id, from, to, ...input }: Record<string, unknown> & { id?: string; from?: string; to?: string }): SaveResult {
+export function saveRelationshipItem(db: Db, projectId: string, { id, from, to, ...input }: Record<string, unknown> & { id?: string; from?: string; to?: string }, saver: Saver = PERSON): SaveResult {
   const a = from === undefined ? undefined : characterByName(db, projectId, from);
   const b = to === undefined ? undefined : characterByName(db, projectId, to);
   if ((from !== undefined && !a) || (to !== undefined && !b)) return { ok: false, error: `인물을 먼저 만들어야 합니다: ${from !== undefined && !a ? from : to}` };
   const ends = { ...(a && { fromId: a.id }), ...(b && { toId: b.id }) };
   if (id) {
     const values = { ...sent(input), ...ends };
-    if (!db.update(s.relationships).set({ ...values, ...byPerson(db, s.relationships, projectId, id, values) }).where(and(eq(s.relationships.id, id), eq(s.relationships.projectId, projectId))).run().changes) return { ok: false, error: '없는 관계입니다.' };
+    if (!db.update(s.relationships).set({ ...values, ...bySaver(db, s.relationships, projectId, id, values, saver) }).where(and(eq(s.relationships.id, id), eq(s.relationships.projectId, projectId))).run().changes) return { ok: false, error: '없는 관계입니다.' };
   } else {
     const fresh = asNew(relationshipInput, { ...input, ...ends });
     if (!fresh.ok) return fresh;
-    id = db.insert(s.relationships).values({ ...fresh.data, projectId }).returning().get().id;
+    id = db.insert(s.relationships).values({ ...fresh.data, projectId, origin: saver.origin, statusBy: saver.statusBy }).returning().get().id;
   }
   events.changed(projectId, 'knowledge');
   return { ok: true, id };
@@ -68,18 +68,18 @@ const SAVES = {
 } as const;
 
 /** Speech rules, events and documents: the same create-or-patch, differing only by table and schema. */
-export function saveKnowledgeItem(db: Db, projectId: string, kind: keyof typeof SAVES, { id, ...input }: Record<string, unknown> & { id?: string }): SaveResult {
+export function saveKnowledgeItem(db: Db, projectId: string, kind: keyof typeof SAVES, { id, ...input }: Record<string, unknown> & { id?: string }, saver: Saver = PERSON): SaveResult {
   const { table, schema, missing } = SAVES[kind];
   // One id/projectId column shape across these tables; the cast only picks it.
   const t = table as typeof s.speechRules;
   if (id) {
-    // Accepted by a person: like an edit in the app (byPerson also takes 확인 권장 off).
+    // Like an edit in the app, by whoever saved it (a person's save also takes 확인 권장 off).
     const values = sent(input);
-    if (!db.update(t).set({ ...values, ...byPerson(db, table, projectId, id, values) } as never).where(and(eq(t.id, id), eq(t.projectId, projectId))).run().changes) return { ok: false, error: missing };
+    if (!db.update(t).set({ ...values, ...bySaver(db, table, projectId, id, values, saver) } as never).where(and(eq(t.id, id), eq(t.projectId, projectId))).run().changes) return { ok: false, error: missing };
   } else {
     const fresh = asNew(schema, input);
     if (!fresh.ok) return fresh;
-    id = db.insert(t).values({ ...fresh.data, projectId } as never).returning().get().id;
+    id = db.insert(t).values({ ...fresh.data, projectId, origin: saver.origin, statusBy: saver.statusBy } as never).returning().get().id;
   }
   events.changed(projectId, 'knowledge');
   return { ok: true, id };

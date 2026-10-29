@@ -1,5 +1,5 @@
 import { and, asc, eq } from 'drizzle-orm';
-import { isSpecialListener, isUnsureListener, OTHERS_LISTENER, SPEECH_LEVEL_LABELS, politenessOfLevel, speechLevelOf, termMatcher, type Politeness, type SpeechLevel } from '@tw/shared';
+import { isSpecialListener, isUnsureListener, OTHERS_LISTENER, SPEECH_LEVEL_LABELS, speechLevelOf, glossaryMatcher, termMatcher, type SpeechLevel } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { buildGraphOrder } from './graph-order.ts';
@@ -116,13 +116,13 @@ export function knowledgeOf(db: Db, projectId: string) {
     terms: () =>
       cachedKnowledge(db, projectId, 'terms', ['terms'], () => {
         const rows = db.select().from(s.terms).where(and(eq(s.terms.projectId, projectId), eq(s.terms.status, 'confirmed'))).all();
-        return { rows, matcher: termMatcher(rows, (term) => term.source) };
+        return { rows, matcher: glossaryMatcher(rows) };
       }),
     /** Confirmed terms that have a translation, with a matcher: what a translation must contain. */
     glossary: () =>
       cachedKnowledge(db, projectId, 'glossary', ['terms'], () => {
         const rows = db.select().from(s.terms).where(and(eq(s.terms.projectId, projectId), eq(s.terms.status, 'confirmed'))).all().filter((term) => term.target.trim());
-        return { rows, matcher: termMatcher(rows, (term) => term.source) };
+        return { rows, matcher: glossaryMatcher(rows) };
       }),
     /** Confirmed characters with a matcher over names and aliases. */
     characters: () =>
@@ -252,26 +252,6 @@ export const describeRule = (rule: Rule) => {
   const forms = rule.address.split(',').map((form) => form.trim()).filter(Boolean);
   return [SPEECH_LEVEL_LABELS[rule.level], forms.length && `호칭 ${forms.map((form) => `"${form}"`).join(' 또는 ')}`].filter(Boolean).join(', ');
 };
-
-/** "해요체", "해체": the level name without its 반말 hint. */
-const levelName = (level: SpeechLevel) => SPEECH_LEVEL_LABELS[level].replace(/\(.*\)/u, '');
-const politenessLabel = (level: SpeechLevel, politeness: Politeness) => `${politeness === 'polite' ? '존댓말' : '반말'}(${levelName(level)})`;
-
-/**
- * Does the translation end on the rule's side of 존댓말/반말? Only those two axes are compared:
- * speakers mix neighbouring levels (해체 with "-다", 해요체 with 하십시오체). Null when the ending
- * cannot be guessed from the text.
- */
-export function speechMismatch(rule: Rule, translation: string | null): string | null {
-  if (!translation || rule.level === 'other') return null;
-  const wanted = politenessOfLevel(rule.level);
-  const guessed = speechLevelOf(translation);
-  const actual = politenessOfLevel(guessed);
-  if (!wanted || !guessed || !actual || wanted === actual) return null;
-  // "-ㅂ시다/읍시다" (let's) is also how a 반말 speaker proposes things in official translations.
-  if (wanted === 'plain' && guessed === 'hasipsio' && /시다[\s.,!?…~"'”’)\]]*$/u.test(translation.replace(/<[^>]+>|\{[^}]*\}/g, '').trim())) return null;
-  return `말투 규칙은 ${politenessLabel(rule.level, wanted)}인데 번역은 ${politenessLabel(guessed, actual)}로 끝납니다(어미로 추정).`;
-}
 
 /** The lines a rule governs now: its speaker → listener pair, within its stretch. For "affected lines → re-run". */
 export function ruleLines(db: Db, projectId: string, ruleId: string) {

@@ -138,16 +138,16 @@ describe('one term per source', () => {
     const { db, mine } = setup();
     const { projectId } = mine;
     const rejected = db.insert(s.terms).values({ projectId, source: 'Old', status: 'rejected', origin: 'ai', statusBy: 'human' }).returning().get();
-    const revived = saveTerm(db, projectId, { source: 'old', target: '옛' }, { by: 'person' });
+    const revived = saveTerm(db, projectId, { source: 'old', target: '옛' }, {});
     expect(revived.ok && revived.row.id).toBe(rejected.id);
     expect(revived.ok && revived.row.status).not.toBe('rejected');
 
     const gone = db.insert(s.terms).values({ projectId, source: 'Gone', status: 'rejected' }).returning().get();
     const keep = db.insert(s.terms).values({ projectId, source: 'Keep' }).returning().get();
-    expect(saveTerm(db, projectId, { source: 'gone' }, { id: keep.id, by: 'person' }).ok).toBe(true);
+    expect(saveTerm(db, projectId, { source: 'gone' }, { id: keep.id }).ok).toBe(true);
     expect(db.select().from(s.terms).where(eq(s.terms.id, gone.id)).get()).toBeUndefined();
 
-    const dup = saveTerm(db, projectId, { source: 'GONE' }, { by: 'person' });
+    const dup = saveTerm(db, projectId, { source: 'GONE' }, {});
     expect(dup.ok).toBe(false);
   });
 });

@@ -2,10 +2,11 @@ import { EventEmitter } from 'node:events';
 import { and, asc, count, desc, eq, gt, gte, inArray, isNull, lte, ne, notInArray, or, sql } from 'drizzle-orm';
 import jsonLogic from 'json-logic-js';
 import * as ai from '@tw/ai';
-import { estimateTokens, batchConfigSchema, batchTokens, lineCostIn, FUNCTIONS, functionTakes, INPUT_TYPES, choiceKey, lineMarksOf, runNodeName, type AiNode, type ConditionData, type FunctionName, type ItemErrorKind, pickPaths, previousStepId, retryModel, type FunctionNode, type RetryNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+import { CONNECTION_KIND_INFO, judgmentProblem, SPEECH_LEVEL_LABELS, estimateTokens, batchConfigSchema, batchTokens, lineCostIn, FUNCTIONS, functionTakes, INPUT_TYPES, choiceKey, lineMarksOf, runNodeName, type AiNode, type ConditionData, type FunctionName, type ItemErrorKind, pickPaths, previousStepId, retryModel, type FunctionNode, type RetryNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
 type GatherNode = Extract<WorkflowNode, { type: 'gather' }>;
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
+import { speechRuleIndex } from '../services/speech.ts';
 import * as s from '../db/schema.ts';
 import type { ItemData, ItemState } from '../db/schema.ts';
 import { events, type Topic } from '../events.ts';
@@ -19,6 +20,7 @@ import { readAiOutput, type Outcome } from './ai-output.ts';
 import { buildPrompt, isBatchScope, outputSchema, promptLineId, type PromptLine } from './prompts.ts';
 import { wholeScriptRequest } from './whole-script.ts';
 import { resolveChoiceOptions } from '../services/choice-options.ts';
+import { judgmentOutcome, judgmentQuestions } from './judgment.ts';
 import { logged } from '../services/ai-calls.ts';
 import { outputCutOff } from '../services/whole-script-limits.ts';
 import { loadTerms, RETRY_FACTOR, RETRY_MODEL, termCondition, termInput, termPrompt, waitingTerms } from './subjects.ts';
@@ -210,7 +212,7 @@ export class Runner {
   constructor(
     private db: Db,
     private secrets: SecretStore,
-    private model: ModelPort = { generate: ai.generate, judge: ai.judge },
+    private model: ModelPort = { generate: ai.generate, ask: ai.ask },
   ) {}
 
   /** The runner hears runs set going outside it (the agent's continue_run). */
@@ -394,7 +396,7 @@ export class Runner {
     const routing = this.node(run, item.nodeId)?.type === 'condition';
     const failure =
       port === 'error' ? (kind || !previous ? { kind: kind ?? 'other', message: error ?? '', nodeId: item.nodeId } : { ...previous, message: error || previous.message }) : routing ? previous : undefined;
-    item = { ...item, data: { ...item.data, error: failure } };
+    item = { ...item, data: { ...item.data, error: failure, ...(port === 'error' && failure && { lastError: failure }) } };
     const edges = definition.edges.filter((candidate) => candidate.source === item.nodeId && candidate.sourceHandle === port);
     const path = [...item.data.path, { nodeId: item.nodeId, port, at: Date.now() }].slice(-200);
     const moved = (target: string | undefined) => {
@@ -735,7 +737,9 @@ export class Runner {
           const finalStatus = tx.select({ kind: s.statuses.kind }).from(s.statuses).where(eq(s.statuses.id, unit.statusId)).get()?.kind === 'final';
           const rules = tx.select({ rules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, run.projectId)).get()?.rules;
           const marks = lineMarksOf(unit, finalStatus, rules);
-          data = { ...common, candidate: item.data.candidateText ?? unit.translation, unit: { kind: unit.kind, speaker: unit.speaker, listener: unit.listener, statusId: unit.statusId, tagIds: input.tagIds, marks } };
+          // Only a condition that reads the line's speech rule pays for resolving it.
+          const rule = JSON.stringify(node.config.expression ?? null).includes('unit.speechLevel') ? speechRuleIndex(tx as unknown as Db, run.projectId).resolve([unit]).get(unit.key)?.rule : undefined;
+          data = { ...common, candidate: item.data.candidateText ?? unit.translation, unit: { kind: unit.kind, speaker: unit.speaker, listener: unit.listener, statusId: unit.statusId, tagIds: input.tagIds, marks, speechLevel: rule ? SPEECH_LEVEL_LABELS[rule.level] : null } };
         }
         try {
           return this.route(tx, run, item, jsonLogic.apply(node.config.expression as jsonLogic.RulesLogic, data) ? 'true' : 'false');
@@ -838,9 +842,10 @@ export class Runner {
     const model = run.models[modelKey];
     if (!model) return this.failBatch(run, batch, { runId: run.id, nodeId: node.id, subjectIds: batch.map((item) => item.subjectId), startedAt: new Date() }, new Error('이 노드의 AI 연결이 실행을 시작할 때 없었습니다. 노드에서 연결과 모델을 다시 고르고 새로 실행하세요.'));
     const route = resolveRoute(this.db, model, this.secrets);
-    if (route.kind === 'systemone') {
-      if (run.subject !== 'lines') return this.failBatch(run, batch, { runId: run.id, nodeId: node.id, subjectIds: batch.map((item) => item.subjectId), startedAt: new Date() }, new Error('System One 연결은 대사 워크플로에서만 쓸 수 있습니다.'));
-      return this.judgeLines(run, node, batch, route, signal);
+    // A connection that judges instead of writing answers typed questions, one line at a time.
+    if (!CONNECTION_KIND_INFO[route.kind].capabilities.includes('generate')) {
+      if (run.subject !== 'lines') return this.failBatch(run, batch, { runId: run.id, nodeId: node.id, subjectIds: batch.map((item) => item.subjectId), startedAt: new Date() }, new Error('판정 연결은 대사 워크플로에서만 쓸 수 있습니다.'));
+      return this.askLines(run, node, batch, route, signal);
     }
     await this.callLines(run, node, model, route, batch, signal);
   }
@@ -980,10 +985,18 @@ export class Runner {
     }
   }
 
-  /** A judge model (System One) answers one line at a time and only supports verdicts. */
-  private async judgeLines(run: Run, node: AiNode, batch: Item[], route: ai.ResolvedRoute, signal: AbortSignal) {
+  /**
+   * A connection that judges instead of writing (no 'generate' capability, e.g. System One): each line
+   * is one state, with the same context an AI node is given (the line's listener and speech rule
+   * included), and the node's output becomes typed questions (judgmentQuestions). Outputs it cannot
+   * fill are refused by the workflow check (judgmentProblem) and again here.
+   */
+  private async askLines(run: Run, node: AiNode, batch: Item[], route: ai.ResolvedRoute, signal: AbortSignal) {
     const step: StepRecord = { runId: run.id, nodeId: node.id, connectionId: route.connectionId ?? null, model: route.model, subjectIds: batch.map((item) => item.subjectId), startedAt: new Date() };
-    if (node.config.output !== 'verdict') return this.failBatch(run, batch, step, new Error('System One 연결은 출력 형태가 "판정"인 AI 노드에서만 쓸 수 있습니다.'));
+    const problem = judgmentProblem(node.config);
+    if (problem) return this.failBatch(run, batch, step, new Error(problem));
+    const options = node.config.output === 'choice' ? resolveChoiceOptions(this.db, run.projectId, node.config.choice) : [];
+    const questions = judgmentQuestions(node, options);
     const { rows, lines } = this.promptLines(batch, run.definition, node);
     const context = buildContext(this.db, run.projectId, rows, node.config.context);
     step.context = context.items;
@@ -992,21 +1005,21 @@ export class Runner {
       let attempts: ai.Attempt[] = [];
       const judged: ai.Usage[] = [];
       for (const line of lines) {
+        const state = {
+          line: { kind: line.kind, speaker: line.speaker, source: line.source, translation: line.candidate ?? '' },
+          speech: context.speech[line.unitId] ?? null,
+          scene: context.scenes[line.groupId] ?? null,
+          characters: context.characters,
+          glossary: context.terms,
+        };
         const outcome = await ai.callOnce(
           route,
-          (route) =>
-            logged(this.db, { projectId: run.projectId, kind: 'run', refId: run.id, label: `${runNodeName(run.definition, node)} · 판정 1줄` }, route, () => this.model.judge(route, {
-              state: { source: line.source, translation: line.candidate ?? '', speaker: line.speaker, context: { scene: context.scenes[line.groupId] ?? null, characters: context.characters, glossary: context.terms } },
-              instructions: node.config.instructions.trim() || 'Is this translation acceptable as is?',
-              timeoutMs: node.config.timeoutMinutes * 60_000,
-              signal,
-            })),
+          (route) => logged(this.db, { projectId: run.projectId, kind: 'run', refId: run.id, label: `${runNodeName(run.definition, node)} · 판정 1줄` }, route, () => this.model.ask(route, { state, questions, timeoutMs: node.config.timeoutMinutes * 60_000, signal })),
           signal,
         );
         attempts = [...attempts, ...outcome.attempts];
         judged.push(outcome.result.usage);
-        const issues = outcome.result.passed ? [] : ['System One이 수정 필요로 판정했습니다.'];
-        outcomes.push({ port: outcome.result.passed ? 'pass' : 'fail', issues, output: { passed: outcome.result.passed, issues, confidence: outcome.result.confidence } });
+        outcomes.push(judgmentOutcome(node, outcome.result.answers));
       }
       this.db.transaction((tx) => {
         batch.forEach((item, index) => this.record(tx, run, item, outcomes[index]));

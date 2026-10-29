@@ -1,6 +1,6 @@
-import { and, count, eq, inArray, sql } from 'drizzle-orm';
+import { and, count, eq, inArray, like, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
-import { batchConfigSchema, isWholeScriptWorkflow, matchesMarks, termMarksOf, workflowInput, type AiNode, type AutoMark, type LineMark, type WorkflowDefinition } from '@tw/shared';
+import { batchConfigSchema, isWholeScriptWorkflow, matchesMarks, termMarksOf, withDuplicateTargets, workflowInput, type AiNode, type AutoMark, type LineMark, type WorkflowDefinition } from '@tw/shared';
 import { tagsOf } from '../services/knowledge-tags.ts';
 import { fillTermUsage } from '../services/term-usage.ts';
 import { inChunks, inList } from '../db/chunk.ts';
@@ -8,7 +8,7 @@ import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import type { ItemData } from '../db/schema.ts';
 import { events } from '../events.ts';
-import { excludedSql, markConditions, translatableSql } from '../services/line-marks.ts';
+import { excludedSql, knownListenerSql, markConditions, translatableSql } from '../services/line-marks.ts';
 import { resolveBudgets } from '../services/budgets.ts';
 import { snapshotWorkflowModels } from '../services/routes.ts';
 import { expandedDefinition } from './expand-calls.ts';
@@ -35,6 +35,14 @@ function scopeConditions(db: Db, projectId: string, scope: s.RunScope) {
   for (const tagId of scope.tagIds ?? []) conditions.push(inArray(s.units.id, db.select({ id: s.unitTags.unitId }).from(s.unitTags).where(eq(s.unitTags.tagId, tagId))));
   // A lines run only carries line marks (scopeMismatch refuses the others before a run or preview).
   conditions.push(...markConditions(projectId, scope.marks as LineMark[] | undefined));
+  // Who says it, to whom, what kind of line, what text: the line list's rules (services/script-query.ts findLines).
+  if (scope.speakers?.length) conditions.push(inList(s.units.speaker, scope.speakers));
+  if (scope.listeners?.length) {
+    const names = scope.listeners.filter((name) => name !== '-');
+    conditions.push(or(...(names.length ? [and(inList(s.units.listener, names), knownListenerSql)!] : []), ...(scope.listeners.includes('-') ? markConditions(projectId, ['unknownListener']) : []))!);
+  }
+  if (scope.kinds?.length) conditions.push(inList(s.units.kind, scope.kinds));
+  if (scope.q?.trim()) conditions.push(like(s.units.source, `%${scope.q.trim()}%`));
   return conditions;
 }
 
@@ -53,7 +61,7 @@ export function selectRunTerms(db: Db, projectId: string, scope: s.RunScope): st
   const named = scope.termIds?.length ? new Set(scope.termIds) : null;
   const statuses = scope.statusIds ?? [];
   const marks = (scope.marks ?? []) as AutoMark[];
-  const rows = db.select().from(s.terms).where(eq(s.terms.projectId, projectId)).all();
+  const rows = withDuplicateTargets(db.select().from(s.terms).where(eq(s.terms.projectId, projectId)).all());
   const tags = scope.tagIds?.length ? tagsOf(db, 'terms', rows.map((term) => term.id)) : null;
   return rows
     .filter((term) => (!named || named.has(term.id)) && (statuses.length ? statuses.includes(term.status) : term.status !== 'rejected') && matchesMarks(termMarksOf(term), marks) && (!tags || scope.tagIds!.every((id) => tags.get(term.id)?.some((tag) => tag.id === id))))

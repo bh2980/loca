@@ -491,7 +491,7 @@ withFilters(
   .action(async (kind: string, options: FilterOptions & { ratio: string; jsonl?: boolean }) => {
     if (!(kind in CHECK_KINDS)) throw new CliError(`점검 종류는 ${Object.keys(CHECK_KINDS).join(', ')} 중 하나입니다.`);
     const items = (await unwrap(
-      api().projects[':projectId'].checks[':kind{terms|consistency|format|length|speech}'].$post({
+      api().projects[':projectId'].checks[':kind{terms|consistency|format|length}'].$post({
         param: { projectId: await projectId(), kind: kind as 'terms' },
         json: { filter: filterFrom(options), ratio: Number(options.ratio) },
       }),
@@ -507,7 +507,7 @@ withFilters(
         for (const variant of item.variants as { translation: string; keys: string[] }[]) console.log(`    → ${short(variant.translation)}  (${variant.keys.length}곳: ${variant.keys.slice(0, 3).join(', ')}${variant.keys.length > 3 ? '…' : ''})`);
       } else {
         const detail =
-          kind === 'terms' ? `"${item.term}" → "${item.expected}"` : kind === 'format' ? (item.issues as string[]).join(' / ') : kind === 'speech' ? `${item.speaker} → ${item.listener}: ${item.rule} · ${item.issue}` : `×${item.ratio}`;
+          kind === 'terms' ? `"${item.term}" → "${item.expected}"` : kind === 'format' ? (item.issues as string[]).join(' / ') : `×${item.ratio}`;
         console.log(`${item.key}  ${detail}\n    ${short(String(item.source))}\n    → ${short(String(item.translation))}`);
       }
     }
@@ -819,7 +819,7 @@ const workflows = program.command('workflows').description('워크플로: 목록
 
 workflows
   .command('list')
-  .description('워크플로 목록과 노드 수, 오류 수, 시작의 대상 상태')
+  .description('워크플로 목록과 노드 수, 오류 수')
   .action(async () => {
     const rows = await unwrap(api().projects[':projectId'].workflows.$get({ param: { projectId: await projectId() } }));
     if (globals().json) return printList(rows.length, rows);
@@ -836,7 +836,7 @@ workflows
     if (globals().json) return print({ id: data.id, name: data.name, description: data.description, definition: data.definition, issues: data.issues });
     const names = new Map((await unwrap(api().projects[':projectId'].workflows.$get({ param: { projectId: await projectId() } }))).map((item) => [item.id, item.name]));
     const summary = (node: Node) =>
-      node.type === 'entry' ? `대상 상태 ${node.config.statusIds?.length ?? 0}개`
+      node.type === 'entry' ? `대상 ${node.config.input === 'terms' ? '용어' : '대사'} (실행 범위로 고름)`
       : node.type === 'ai' ? `${node.config.output}·${node.config.scope ?? 'line'}${node.config.preset ? ` · 프리셋 ${node.config.preset}` : ''} · ${node.config.model?.model || '모델 없음'} · 동시 ${node.config.concurrency ?? 1}${node.config.fields?.length ? ` · 필드 ${node.config.fields.map((field: { name: string }) => field.name).join(', ')}` : ''}`
       : node.type === 'function' ? `${node.config.fn}${node.config.fn === 'http' || node.config.fn === 'script' ? ` · 동시 ${node.config.concurrency ?? 2}` : ''}`
       : node.type === 'condition' ? JSON.stringify(node.config.expression)
@@ -1044,7 +1044,11 @@ runs
   .option('--model <specs...>', '이번 실행만 다른 모델로: "연결:모델"(모든 AI 단계) 또는 "노드=연결:모델" (연결·노드는 이름이나 id). 워크플로는 바뀌지 않습니다')
   .option('--view <보기>', '대사 그래프의 저장된 보기(이름·id) 안의 대사만')
   .option('--section <sections...>', '구역(장·출처)의 장면·묶음만')
-  .action(async (workflow: string, options: { group?: string[]; key?: string[]; mark?: string[]; tag?: string[]; term?: string[]; status?: string[]; model?: string[]; view?: string; section?: string[] }) => {
+  .option('-s, --speaker <names...>', '이 화자의 대사만 (이름·별칭·화자 키)')
+  .option('--listener <names...>', '이 청자에게 하는 대사만 (- = 청자 미상)')
+  .option('--kind <kinds...>', '대사 종류만 (dialogue, ui …)')
+  .option('-q, --q <글자>', '원문에 이 글자가 있는 대사만')
+  .action(async (workflow: string, options: { group?: string[]; key?: string[]; mark?: string[]; tag?: string[]; term?: string[]; status?: string[]; model?: string[]; view?: string; section?: string[]; speaker?: string[]; listener?: string[]; kind?: string[]; q?: string }) => {
     const groups = await sectionGroups(options.section, options.group);
     const keys = options.view ? (await viewLines(options.view)).map((row) => row.key).filter((key) => !options.key || options.key.includes(key)) : options.key;
     if (keys && !keys.length) throw new CliError('고른 대사가 보기에 없습니다.');
@@ -1059,7 +1063,7 @@ runs
       pace: { seconds: number | null; costUsd: number | null; subscription: boolean };
       load: { runs: number; max: number; added: number };
       readiness: { dialogueLines: number; unknownListenerLines: number; candidateRules: Names; candidateTerms: Names; pairsWithoutRule: { count: number; examples: string[] } };
-    }>('plan_run', { workflow, groups, keys, tags: options.tag, marks: options.mark, terms: options.term, statuses: options.status, models: runModels(options.model) });
+    }>('plan_run', { workflow, groups, keys, tags: options.tag, marks: options.mark, terms: options.term, statuses: options.status, speakers: options.speaker, listeners: options.listener, kinds: options.kind, q: options.q, models: runModels(options.model) });
     if (globals().json) return print(data);
     const range = (value: { min: number; expected: number | null; max: number }) => (value.expected !== null ? `약 ${value.expected.toLocaleString()} (${value.min.toLocaleString()}~${value.max.toLocaleString()})` : `${value.min.toLocaleString()}~${value.max.toLocaleString()}`);
     console.log(`${data.workflow.name} 실행 미리보기`);
@@ -1092,13 +1096,20 @@ runs
   .option('--model <specs...>', 'plan과 같은 "연결:모델" 또는 "노드=연결:모델"')
   .option('--view <보기>', '대사 그래프의 저장된 보기(이름·id) 안의 대사만')
   .option('--section <sections...>', '구역(장·출처)의 장면·묶음만')
+  .option('-s, --speaker <names...>', 'plan과 같은 화자 조건')
+  .option('--listener <names...>', 'plan과 같은 청자 조건 (- = 청자 미상)')
+  .option('--kind <kinds...>', 'plan과 같은 대사 종류 조건')
+  .option('-q, --q <글자>', 'plan과 같은 원문 글자 조건')
   .option('--rerun-errors <실행id>', '그 실행에서 실패했거나 오류 출구로 빠진 대사·용어만 (다른 범위 조건과 함께 쓰면 모두 만족)')
   .option('--wait', '(제안이면 결정을 기다린 뒤) 실행이 끝날 때까지 기다리고 요약. 깨끗하게 끝나지 않으면 종료 코드 1')
   .option('--timeout <분>', '--wait을 이만큼만')
-  .action(async (ref: string, options: { group?: string[]; key?: string[]; mark?: string[]; tag?: string[]; term?: string[]; status?: string[]; model?: string[]; view?: string; section?: string[]; rerunErrors?: string; wait?: boolean; timeout?: string }) => {
+  .action(async (ref: string, options: { group?: string[]; key?: string[]; mark?: string[]; tag?: string[]; term?: string[]; status?: string[]; model?: string[]; view?: string; section?: string[]; speaker?: string[]; listener?: string[]; kind?: string[]; q?: string; rerunErrors?: string; wait?: boolean; timeout?: string }) => {
     const workflow = await resolveWorkflow(ref);
     const groupIds = options.section?.length ? await sectionGroups(options.section, options.group) : (await resolveGroups(options.group))?.map((group) => group.id);
-    let unitIds = options.key?.length ? (await unwrap(api().projects[':projectId'].lines.find.$post({ param: { projectId: await projectId() }, json: { keys: options.key, limit: 1000 } }))).rows.map((row) => row.id) : undefined;
+    let unitIds: string[] | undefined;
+    // A page of keys at a time: one request is capped at 1000 lines.
+    for (let at = 0; options.key?.length && at < options.key.length; at += 1000)
+      unitIds = [...(unitIds ?? []), ...(await unwrap(api().projects[':projectId'].lines.find.$post({ param: { projectId: await projectId() }, json: { keys: options.key.slice(at, at + 1000), limit: 1000 } }))).rows.map((row) => row.id)];
     let termIds = options.term;
     if (options.view) {
       const ids = new Set((await viewLines(options.view)).map((row) => row.id));
@@ -1118,7 +1129,7 @@ runs
     const tagIds = options.tag?.length
       ? (await readTool<{ tags: { id: string; name: string }[] }>('list_tags')).tags.filter((tag) => options.tag!.includes(tag.name)).map((tag) => tag.id)
       : undefined;
-    const outcome = await proposeTool('start_run', { workflowId: workflow.id, groupIds, unitIds, tagIds, marks: options.mark, termIds, statuses: options.status, models: runModels(options.model) });
+    const outcome = await proposeTool('start_run', { workflowId: workflow.id, groupIds, unitIds, tagIds, marks: options.mark, termIds, statuses: options.status, speakers: options.speaker, listeners: options.listener, kinds: options.kind, q: options.q, models: runModels(options.model) });
     await followRun(outcome, options, '실행 시작');
   });
 

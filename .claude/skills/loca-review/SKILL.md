@@ -14,9 +14,8 @@ loca check terms            # 확정 용어를 안 쓴 번역
 loca check consistency      # 같은 원문인데 번역이 다른 곳 (#번역 불일치)
 loca check format           # 자리표시자·태그·줄바꿈 (프로젝트 서식 규칙 기준)
 loca check length --kind ui --ratio 1.5   # 원문보다 1.5배 넘게 긴 UI 문자열
-loca check speech           # 화자→청자 말투 규칙과 번역 끝 어미가 다른 곳 (어미로 추정)
 ```
-범위는 `lines`와 같은 필터로 좁힙니다(`--section`, `--speaker`, `--listener`, `--group`, `--status`, `--tag`). speech 결과는 추정이라 짧은 말·인용은 직접 확인합니다. 많으면 `--jsonl`로 작업 폴더(`W=$(loca workspace new review)`)에 받아 읽습니다.
+범위는 `lines`와 같은 필터로 좁힙니다(`--section`, `--speaker`, `--listener`, `--group`, `--status`, `--tag`). 말투가 규칙과 맞는지는 점검 명령이 아니라 번역 워크플로의 말투 판정이 봅니다. 많으면 `--jsonl`로 작업 폴더(`W=$(loca workspace new review)`)에 받아 읽습니다.
 
 ## 번역이 문맥 탓인지 볼 때
 `loca context <키>`는 워크플로의 AI 노드가 그 대사를 번역할 때 보내는 문맥을 보여 줍니다: 앞 대사와 갈래, 넣은 항목과 이유, 상한 때문에 뺀 것. `-n <노드 id>`로 다른 노드, `--prompt`로 프롬프트 전문. 모델은 부르지 않습니다. 빠진 용어·말투 규칙·청자가 원인이면 `loca-glossary`·`loca-knowledge`로 자료부터 고칩니다.

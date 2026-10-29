@@ -4,7 +4,7 @@ import { useMemo, useState, type ComponentProps, type ReactNode, type RefObject 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, CircleAlert, Ellipsis, PanelRight } from 'lucide-react';
 import { toast } from 'sonner';
-import { AUTO_MARKS, compileFormatRules, isUnknownListener, lineExclusion, listenerLabel, needsListener, SPECIAL_LISTENERS, TAG_SCOPES, type FormatRules, type LineMark, type ListenerOrigin, mentions, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
+import { AUTO_MARKS, compileFormatRules, isUnknownListener, lineExclusion, listenerLabel, needsListener, SPECIAL_LISTENERS, TAG_SCOPES, type FormatRules, type LineMark, type ListenerOrigin, glossaryMatcher, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
 import { MarkChip } from '@/components/status';
 import { TranslationEditor } from '@/components/translation-editor';
 import { LineSourceText, MarkedSourceText, TokenText } from '@/components/editor/source-text';
@@ -74,7 +74,7 @@ function listenerText(line: { kind: string; speaker: string | null; source: stri
 /**
  * Context and last-run guidance for the selected line's inspector.
  */
-export function LineHints({ projectId, line, part }: { projectId: string; line: { id: string; source: string; translation: string | null; speaker?: string | null; listener?: string | null; lastRun: { issues: string[] } | null }; part?: 'context' | 'result' }) {
+export function LineHints({ projectId, line, part }: { projectId: string; line: { id: string; source: string; kind?: string; translation: string | null; speaker?: string | null; listener?: string | null; lastRun: { issues: string[] } | null }; part?: 'context' | 'result' }) {
   const unit = useQuery(q.unit(line.id));
   const people = useQuery(q.characters(projectId));
   const terms = useQuery(q.terms(projectId));
@@ -87,8 +87,8 @@ export function LineHints({ projectId, line, part }: { projectId: string; line: 
   const used = useMemo(() => {
     const { placeholder, tag } = compileFormatRules(project.data?.formatRules ?? undefined);
     const plain = [placeholder, tag].reduce((text, pattern) => withoutTokens(text, pattern), line.source);
-    return (terms.data ?? []).filter((term) => term.status === 'confirmed' && term.target && mentions(plain, term.source));
-  }, [terms.data, line.source, project.data?.formatRules]);
+    return glossaryMatcher((terms.data ?? []).filter((term) => term.status === 'confirmed' && term.target)).find(plain, line.kind);
+  }, [terms.data, line.source, line.kind, project.data?.formatRules]);
 
   const hint = (key: string, ok: boolean | null, label: ReactNode, title?: string) => (
     <Chip key={key} variant="card" tone={ok === false ? 'warning' : undefined} title={title}>

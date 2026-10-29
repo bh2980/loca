@@ -24,7 +24,7 @@ async function run({ source = 'Hello', translate = (line: Entry) => `번역 ${li
   const calls = { translate: 0, review: 0, revise: 0, terms: 0 };
   const revisePrompts: Entry[] = [];
   const port: ModelPort = {
-    judge: async () => {
+    ask: async () => {
       throw new Error('unused');
     },
     generate: async (_route, request) => {
@@ -33,6 +33,8 @@ async function run({ source = 'Hello', translate = (line: Entry) => `번역 ${li
         return { object: { terms: [{ source: 'Hello', target: '안녕', kind: 'other', meaning: '인사', evidence: [] }] }, usage: {} } as never;
       }
       const lines = promptEntries<Entry>(request.prompt);
+      // 말투 판정: not sure, so the line goes on to AI 검수 (the speech-match branch is tested in judgment flows).
+      if (request.system.includes('Which Korean speech level')) return { object: { results: lines.map((line) => ({ id: line.id, value: '', confidence: 0 })) }, usage: {} } as never;
       if (request.system.includes('Review each')) {
         const review = ++calls.review;
         return { object: { results: lines.map((line) => { const passed = passes(line, review); return { id: line.id, passed, issues: passed ? [] : ['말투가 어색합니다'], categories: passed ? [] : ['speech'] }; }) }, usage: {} } as never;

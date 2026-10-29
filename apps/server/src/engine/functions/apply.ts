@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { get } from 'es-toolkit/compat';
-import { AGE_BANDS, APPLY_FUNCTION_NAMES, APPLY_TARGETS, applyParams, DOCUMENT_KINDS, ISSUE_KIND_IDS, ISSUE_KINDS, issueKindOf, previousStepId, tagLinesParams, tagScope, type IssueKind, aiStatus, TERM_KIND_LABELS, TERM_KINDS, UNKNOWN_LISTENER, type ApplyField, type ApplyFunctionName, type ApplyParams } from '@tw/shared';
+import { AGE_BANDS, APPLY_FUNCTION_NAMES, APPLY_TARGETS, applyParams, DOCUMENT_KINDS, ISSUE_KIND_IDS, ISSUE_KINDS, issueKindOf, previousStepId, tagLinesParams, tagScope, type IssueKind, aiStatus, TERM_KIND_LABELS, TERM_KINDS, UNKNOWN_LISTENER, withSourceEdges, type ApplyField, type ApplyFunctionName, type ApplyParams } from '@tw/shared';
 import type { Db } from '../../db/index.ts';
 import * as s from '../../db/schema.ts';
 import type { Topic } from '../../events.ts';
@@ -221,7 +221,8 @@ function runLine(fn: 'saveCandidate' | 'setListener', context: Context, item: It
   const { tx, input, run: runRow } = context;
   const unit = lineOf(input);
   if (fn === 'saveCandidate') {
-    const text = item.text as string;
+    // The model's text without its edges, with the source's: a lost trailing newline is not a format error.
+    const text = withSourceEdges(unit.source, item.text as string);
     const candidateId = addCandidate(tx, { unitId: unit.id, text, origin: 'ai', runId: input.runId, nodeId: base.nodeId });
     if (!runRow) return { port: 'out', candidate: text, output: { applied: false, candidateId } };
     const { applied } = applyRunCandidate(tx, runRow, unit.id, candidateId, text);

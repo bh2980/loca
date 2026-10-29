@@ -12,6 +12,10 @@ export type Clause =
   | { kind: 'tag'; tagId: string; not?: boolean }
   | { kind: 'mark'; mark: string; not?: boolean }
   | { kind: 'listener'; not?: boolean }
+  /** Whether the line's speaker → listener pair has a confirmed speech rule (unit.speechLevel). */
+  | { kind: 'speechRule'; not?: boolean }
+  /** Whether an AI node's choice (말투 등급) is the rule's speech level. */
+  | { kind: 'speechMatch'; nodeId: string; not?: boolean }
   | { kind: 'candidate'; not?: boolean }
   /** A term's status (terms input). */
   | { kind: 'termStatus'; status: string; not?: boolean }
@@ -50,6 +54,7 @@ function parseClause(rule: unknown): Clause | null {
     const target = varOf(left);
     if (target === 'candidate') return { kind: 'candidate' };
     if (target === 'unit.listener') return { kind: 'listener' };
+    if (target === 'unit.speechLevel') return { kind: 'speechRule' };
     if (target === 'term.hasTarget') return { kind: 'hasTarget' };
     const output = target?.match(/^outputs\.([^.]+)\.(.+)$/);
     return output ? { kind: 'field', nodeId: output[1]!, field: output[2]!, op: 'filled', value: '' } : null;
@@ -68,6 +73,8 @@ function parseClause(rule: unknown): Clause | null {
     return visits && typeof right === 'number' ? { kind: 'visits', nodeId: visits[1]!, limit: right } : null;
   }
   if (!COMPARE.has(name)) return null;
+  const chosen = target.match(/^outputs\.([^.]+)\.value$/);
+  if (name === '==' && chosen && varOf(right) === 'unit.speechLevel') return { kind: 'speechMatch', nodeId: chosen[1]! };
   if (name === '==' && target === 'unit.statusId' && typeof right === 'string') return { kind: 'status', statusId: right };
   if (name === '==' && target === 'unit.kind' && typeof right === 'string') return { kind: 'lineKind', value: right };
   if (name === '==' && target === 'error.kind' && typeof right === 'string') return { kind: 'error', errorKind: right as ItemErrorKind };
@@ -116,6 +123,10 @@ function baseRule(clause: Clause): unknown {
     }
     case 'listener':
       return { '!!': [{ var: 'unit.listener' }] };
+    case 'speechRule':
+      return { '!!': [{ var: 'unit.speechLevel' }] };
+    case 'speechMatch':
+      return { '==': [{ var: `outputs.${clause.nodeId}.value` }, { var: 'unit.speechLevel' }] };
     case 'candidate':
       return { '!!': [{ var: 'candidate' }] };
     case 'termStatus':

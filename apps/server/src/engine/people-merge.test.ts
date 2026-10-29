@@ -39,7 +39,7 @@ describe('인물·관계 추출 template, end to end', () => {
     // What is stored when each request (the scenes and the merge) is made.
     const stored: { nova: number; relationships: number; speechRules: number }[] = [];
     const port: ModelPort = {
-      judge: async () => {
+      ask: async () => {
         throw new Error('unused');
       },
       generate: async (_route, request) => {
@@ -120,7 +120,7 @@ describe('인물·관계 추출 template, end to end', () => {
 
     const seen: { system: string; prompt: string }[] = [];
     const port: ModelPort = {
-      judge: async () => {
+      ask: async () => {
         throw new Error('unused');
       },
       generate: async (_route, request) => {

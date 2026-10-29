@@ -6,10 +6,10 @@ import { Link } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Play, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { Inspector, InspectorHeader, InspectorList, TagListEditor, DirtyBar, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Inline, Input, ListRow, Text, Textarea, Section, Field, Box } from '@loca/ui';
+import { Inspector, InspectorHeader, InspectorList, TagListEditor, DirtyBar, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Inline, Input, ListRow, Text, Textarea, Section, Field, Box, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Switch } from '@loca/ui';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { confirmLabel, SourceBadge, StateCell, type ItemTag } from '@/components/knowledge/table';
-import { isSettled, TAG_SCOPES, type KnowledgeOrigin, type KnowledgeStatus, type StatusBy } from '@tw/shared';
+import { isSettled, TAG_SCOPES, TERM_SCOPE_IDS, TERM_SCOPES, type KnowledgeOrigin, type KnowledgeStatus, type StatusBy, type TermScope } from '@tw/shared';
 import { client, unwrap } from '@/lib/api';
 import { changedFields, useFormFrom } from '@/lib/use-form-from';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
@@ -26,13 +26,18 @@ export interface Term {
   evidence?: string[];
   lines: number | null;
   examples: string[];
+  scope: TermScope;
+  matchCase: boolean;
+  duplicateTarget?: boolean;
   tags?: ItemTag[];
 }
 /** `?term=new` opens the pane for a term that does not exist yet. */
 export const NEW_TERM = 'new';
 
-/** The three editable fields of a term, shared by the new-term and edit panes. */
-function TermFields({ form, onChange }: { form: { source: string; target: string; note: string }; onChange: (form: { source: string; target: string; note: string }) => void }) {
+type TermForm = { source: string; target: string; note: string; scope: TermScope; matchCase: boolean };
+
+/** The editable fields of a term, shared by the new-term and edit panes. */
+function TermFields({ form, onChange }: { form: TermForm; onChange: (form: TermForm) => void }) {
   return (
     <Box spaceY="normal">
       <Field label="원문" action={form.source ? <CopyButton value={form.source} label="원문 복사" /> : undefined}>
@@ -44,12 +49,27 @@ function TermFields({ form, onChange }: { form: { source: string; target: string
       <Field label="메모">
         <Textarea rows={4} value={form.note} placeholder="선택" onChange={(event) => onChange({ ...form, note: event.target.value })} />
       </Field>
+      <Field label="적용 범위" description="버튼 이름처럼 UI에만 쓰는 말은 'UI 줄만'으로 두면 대사 속 같은 낱말에는 걸리지 않습니다.">
+        <Select value={form.scope} onValueChange={(scope) => onChange({ ...form, scope: scope as TermScope })}>
+          <Box asChild width="full"><SelectTrigger aria-label="적용 범위"><SelectValue /></SelectTrigger></Box>
+          <SelectContent>
+            {TERM_SCOPE_IDS.map((id) => <SelectItem key={id} value={id}>{TERM_SCOPES[id]}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </Field>
+      <Field orientation="horizontal">
+        <Switch id="term-match-case" checked={form.matchCase} onCheckedChange={(matchCase) => onChange({ ...form, matchCase })} />
+        <Field.Content>
+          <Field.Label htmlFor="term-match-case">대소문자 일치</Field.Label>
+          <Field.Description>원문과 대소문자가 같을 때만 용어로 봅니다(Help는 걸리고 help는 안 걸림).</Field.Description>
+        </Field.Content>
+      </Field>
     </Box>
   );
 }
 
 export function NewTermPane({ projectId, onClose, onCreated }: { projectId: string; onClose: () => void; onCreated: (id: string) => void }) {
-  const [form, setForm] = useState({ source: '', target: '', note: '' });
+  const [form, setForm] = useState<TermForm>({ source: '', target: '', note: '', scope: 'all', matchCase: false });
   const create = useMutation({
     mutationFn: () => unwrap(client.projects[':projectId'].terms.$post({ param: { projectId }, json: form })),
     onSuccess: (created) => {
@@ -70,12 +90,12 @@ export function NewTermPane({ projectId, onClose, onCreated }: { projectId: stri
   );
 }
 
-const TERM_FIELD_LABEL = { source: '원문', target: '번역', note: '메모' };
+const TERM_FIELD_LABEL = { source: '원문', target: '번역', note: '메모', scope: '적용 범위', matchCase: '대소문자 일치' };
 
 export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { projectId: string; term: Term; onClose: () => void; onDecide: (accept: boolean) => void; deciding: boolean }) {
   // Fields the person has not edited follow the saved term (a change from chat or a workflow shows);
   // the unsaved edit is kept per term, so moving to another term and back (or Back) keeps it.
-  const saved = { source: term.source, target: term.target, note: term.note };
+  const saved: TermForm = { source: term.source, target: term.target, note: term.note, scope: term.scope, matchCase: term.matchCase };
   const { draft: form, setDraft: setForm, dirty, conflicts, keepMine, takeSaved } = useFormFrom(saved, `term.${projectId}.${term.id}`);
   const candidate = !isSettled(term);
   const save = useMutation({

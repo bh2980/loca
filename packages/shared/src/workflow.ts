@@ -4,6 +4,7 @@ import { APPLY_TARGETS, FUNCTIONS, TAG_ACTIONS, type TagLinesParams, functionPor
 import { stronglyConnectedComponents } from 'graphology-components';
 import { choiceKey, draftModelChoiceSchema, EMPTY_MODEL_CHOICE, modelChoiceSchema, type ModelChoice } from './model-choice.ts';
 import { KNOWLEDGE_STATUSES } from './knowledge.ts';
+import { CONNECTION_KIND_INFO, type ConnectionKind } from './connections.ts';
 
 /**
  * What an AI node pulls into its prompt. Every field maps to stored project data.
@@ -65,6 +66,18 @@ export const AI_OUTPUTS = {
   json: { label: 'JSON', description: '직접 정한 필드를 채웁니다. 대사마다 또는 묶음 전체에 하나.' },
 } as const;
 export type AiOutput = keyof typeof AI_OUTPUTS;
+
+/**
+ * Why a judgment connection (one that answers typed questions instead of writing, such as System
+ * One) cannot fill this node's output, or null when it can: 판정 and 선택 per line, and JSON per line
+ * whose fields are all true/false.
+ */
+export function judgmentProblem(config: { output: AiOutput; scope: 'line' | 'batch'; fields: { type: string }[] }): string | null {
+  if (config.output === 'text') return '판정 연결은 문장을 쓰지 못합니다. 출력을 판정·선택·JSON(참/거짓 필드)으로 바꾸거나 글을 쓰는 모델을 고르세요.';
+  if (config.scope === 'batch') return "판정 연결은 대사마다만 답합니다('묶음 전체'는 안 됨).";
+  if (config.output === 'json' && config.fields.some((field) => field.type !== 'boolean')) return '판정 연결은 JSON의 참/거짓(boolean) 필드만 채웁니다.';
+  return null;
+}
 export const AI_OUTPUT_IDS = Object.keys(AI_OUTPUTS) as AiOutput[];
 
 /** `line`: one answer per line. `batch`: one answer per request (lists that belong to no single line). Only `json` can be `batch`. */
@@ -75,7 +88,7 @@ export type AiScope = keyof typeof AI_SCOPES;
  * Where a `choice` node's options come from: typed by hand, or a project list read when the run
  * sends the request (cast names plus group/public/self, line tag names, status names).
  */
-export const CHOICE_SOURCES = { custom: '직접 입력', characters: '인물', lineTags: '태그', statuses: '상태' } as const;
+export const CHOICE_SOURCES = { custom: '직접 입력', characters: '인물', lineTags: '태그', statuses: '상태', speechLevels: '말투 등급' } as const;
 export type ChoiceSource = keyof typeof CHOICE_SOURCES;
 export const choiceConfigSchema = z.object({
   source: z.enum(Object.keys(CHOICE_SOURCES) as [ChoiceSource, ...ChoiceSource[]]).default('custom'),
@@ -188,7 +201,7 @@ export const INPUT_TYPES = {
     /** AI context settings that only lines have. */
     contextFields: ['precedingLines', 'precedingTranslations', 'previousScenes', 'speech', 'pairs', 'pairMinTurns'],
     /** Condition rows that only lines have (the core: node result, visits, failure, translation). */
-    conditionRows: ['status', 'lineKind', 'tag', 'mark', 'listener'],
+    conditionRows: ['status', 'lineKind', 'tag', 'mark', 'listener', 'speechRule', 'speechMatch'],
   },
   terms: {
     label: '용어',
@@ -526,7 +539,16 @@ export interface ConditionData {
   candidate: string | null;
   issues: string[];
   /** marks: the line's automatic marks right now (lineMarksOf in marks.ts; diverged is only known to the list filter). Line workflows. */
-  unit?: { kind: string; speaker: string | null; listener: string | null; statusId: string; tagIds: string[]; marks: string[] };
+  unit?: {
+    kind: string;
+    speaker: string | null;
+    listener: string | null;
+    statusId: string;
+    tagIds: string[];
+    marks: string[];
+    /** The speech level (SPEECH_LEVEL_LABELS, e.g. 해요체) of the confirmed rule for this line's speaker → listener; null without one. An AI choice from 말투 등급 compares with it. */
+    speechLevel: string | null;
+  };
   /** The term (runs on terms): its status, who decided it, whether it has a Korean form, lines it appears in, marks (termMarksOf), tags. */
   term?: { status: string; statusBy: string; hasTarget: boolean; lines: number | null; marks: string[]; tagIds: string[] };
   /** The last failure that sent the line out through an "error" exit (null once a node handles it). */
@@ -654,6 +676,13 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
       if (!(inputType.batchModes as readonly string[]).includes(node.config.batch.mode)) error(`${inputType.label} 입력에서는 묶음을 ${inputType.batchModes.map((mode) => BATCH_MODE_LABELS[mode]).join('·')}(으)로 정합니다.`, { nodeId: node.id });
       if (!model.connectionId || !model.model) error('AI 연결과 모델을 고르세요.', { nodeId: node.id });
       else if (!refs.connections.has(model.connectionId)) error('고른 AI 연결이 삭제되었습니다. 다시 고르세요.', { nodeId: node.id });
+      else {
+        // A connection that only judges answers some outputs; the rest need a model that writes.
+        const kind = (refs.connections instanceof Map ? refs.connections.get(model.connectionId) : undefined) as ConnectionKind | undefined;
+        const info = kind ? CONNECTION_KIND_INFO[kind] : undefined;
+        const problem = info && !(info.capabilities as readonly string[]).includes('generate') ? judgmentProblem(node.config) : null;
+        if (problem) error(problem, { nodeId: node.id });
+      }
       if (node.config.output === 'json' && !node.config.fields.length) error('JSON 출력에는 필드가 하나 이상 필요합니다.', { nodeId: node.id });
       if (node.config.output === 'json' && node.config.fields.some((field) => field.type === 'list' && !field.fields?.length)) error('목록 필드에는 항목 필드가 하나 이상 필요합니다.', { nodeId: node.id });
       if (node.config.output === 'choice' && node.config.choice.source === 'custom' && !node.config.choice.values.length) error('선택지를 하나 이상 적으세요.', { nodeId: node.id });

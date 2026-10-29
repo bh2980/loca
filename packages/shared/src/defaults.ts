@@ -173,6 +173,37 @@ const formatCheckNode = (row: number, column = 0): WorkflowNode => ({
 /** Writes the translation into the line (a person's saved translation is kept). */
 const writeTranslation = (id: string, row: number, column = 0, label = '번역 저장') => ({ ...applyNode(id, 'saveCandidate', row, { map: { text: 'text' } }, column), label });
 
+/** 말투 판정 and the two conditions after it: unsure → AI 검수; no rule or the rule's level → AI 검수; else 말투 tag → AI 수정. */
+const speechNodes = (ids: TemplateIds): WorkflowNode[] => [
+  aiNode('speech', 'speechLevel', ids.model, 5),
+  ...resendNodes('speech', 5),
+  {
+    id: 'speech-sure',
+    type: 'condition',
+    position: at(6, 0),
+    label: '판정 확신 0.7 이상?',
+    config: { expression: { '>=': [{ var: 'outputs.speech.confidence' }, 0.7] }, description: '말투 판정의 확신도가 0.7 이상이면 규칙과 견주고, 아니면 AI 검수에 맡깁니다.' },
+  },
+  {
+    id: 'speech-ok',
+    type: 'condition',
+    position: at(6, 1),
+    label: '말투가 규칙대로?',
+    config: { expression: { or: [{ '!': [{ '!!': [{ var: 'unit.speechLevel' }] }] }, { '==': [{ var: 'outputs.speech.value' }, { var: 'unit.speechLevel' }] }] }, description: '이 대사의 화자 → 청자 말투 규칙이 없거나, 판정한 말투가 규칙과 같으면 통과합니다.' },
+  },
+  tagNode('tag-speech', '말투 태그 붙이기', 'add', { kinds: ['speech'] }, 6, 2),
+];
+const speechEdges = [
+  edge('speech', 'out', 'speech-sure'),
+  edge('speech-sure', 'true', 'speech-ok'),
+  edge('speech-sure', 'false', 'review'),
+  edge('speech-ok', 'true', 'review'),
+  edge('speech-ok', 'false', 'tag-speech'),
+  edge('tag-speech', 'out', 'retry'),
+  // A judgment that keeps failing is not a reason to stop: AI 검수 still reads the line.
+  ...resendEdges('speech', 'review'),
+];
+
 /**
  * 번역: a larger flow with a review loop: untranslated → AI 번역 → 번역 저장 → 형식 검사 → AI 검수 →
  * 완료로 → AI 용어 추출 → 용어 저장;
@@ -192,6 +223,15 @@ const writeTranslation = (id: string, row: number, column = 0, label = '번역 �
  * right of those; the revise loop has its own column further right.
  */
 export function translationTemplate(ids: TemplateIds): WorkflowDefinition {
+  return reviewLoop(ids, false);
+}
+
+/**
+ * The 번역 flow, with or without 말투 판정 between 형식 검사 and AI 검수. 번역 goes without it (one more call
+ * per batch for every translation); 검수 has it, so a judging connection can check speech levels of lines
+ * that are already translated.
+ */
+function reviewLoop(ids: TemplateIds, judgeSpeech: boolean): WorkflowDefinition {
   const failed = (aiId: string, row: number, column: number, label = '검토 필요로') => statusNode(`${aiId}-failed`, label, ids.needsReview ?? '', row, column);
   return {
     settings: { ...SETTINGS },
@@ -204,36 +244,40 @@ export function translationTemplate(ids: TemplateIds): WorkflowDefinition {
       formatCheckNode(3),
       tagNode('untag-format', '형식 태그 떼기', 'remove', { from: 'kind' }, 4),
       tagNode('tag-format', '형식 태그 붙이기', 'add', { from: 'kind' }, 4, 1),
-      aiNode('review', 'review', ids.model, 5),
-      ...resendNodes('review', 5),
-      failed('review', 5, 3),
-      tagNode('untag-review', '문제 태그 모두 떼기', 'remove', { all: true }, 6),
-      tagNode('tag-review', '검수 지적 태그 붙이기', 'add', { from: 'categories' }, 6, 1),
-      statusNode('confirm', '완료로', ids.confirmed ?? '', 7),
+      // 말투 판정: which speech level the translation uses, compared with the line's rule. A judging
+      // connection (System One) answers this quickly; an unsure answer leaves it to AI 검수.
+      ...(judgeSpeech ? speechNodes(ids) : []),
+      aiNode('review', 'review', ids.model, 7),
+      ...resendNodes('review', 7),
+      failed('review', 7, 3),
+      tagNode('untag-review', '문제 태그 모두 떼기', 'remove', { all: true }, 8),
+      tagNode('tag-review', '검수 지적 태그 붙이기', 'add', { from: 'categories' }, 8, 1),
+      statusNode('confirm', '완료로', ids.confirmed ?? '', 9),
       // The revise loop, in its own column.
       {
         id: 'retry',
         type: 'condition',
-        position: at(6, 3),
+        position: at(8, 3),
         label: 'AI 수정 3회 미만?',
-        config: { expression: { '<': [{ var: 'visits.revise' }, 3] }, description: "'AI 수정'을 3회 미만 지났으면 다시 수정합니다. 형식 검사와 AI 검수 어느 쪽 실패든 한 번으로 셉니다." },
+        config: { expression: { '<': [{ var: 'visits.revise' }, 3] }, description: "'AI 수정'을 3회 미만 지났으면 다시 수정합니다. 형식 검사, 말투 판정, AI 검수 어느 쪽 실패든 한 번으로 셉니다." },
       },
-      statusNode('escalate', '검토 필요로', ids.needsReview ?? '', 6, 4),
-      aiNode('revise', 'revise', ids.model, 7, 3, 'AI 수정'),
-      ...resendNodes('revise', 7, 4),
-      failed('revise', 7, 6),
-      writeTranslation('save-revision', 8, 3, '수정 번역 저장'),
-      aiNode('terms', 'terms', ids.model, 8),
-      ...resendNodes('terms', 8),
-      failTag('terms', ids, 8, 4),
-      saveList('save-terms', 'saveTerms', 'terms', 'terms', 9),
+      statusNode('escalate', '검토 필요로', ids.needsReview ?? '', 8, 4),
+      aiNode('revise', 'revise', ids.model, 9, 3, 'AI 수정'),
+      ...resendNodes('revise', 9, 4),
+      failed('revise', 9, 6),
+      writeTranslation('save-revision', 10, 3, '수정 번역 저장'),
+      aiNode('terms', 'terms', ids.model, 10),
+      ...resendNodes('terms', 10),
+      failTag('terms', ids, 10, 4),
+      saveList('save-terms', 'saveTerms', 'terms', 'terms', 11),
     ],
     edges: [
       ...chain('entry', 'translate', 'save', 'check'),
       edge('check', 'pass', 'untag-format'),
-      edge('untag-format', 'out', 'review'),
+      edge('untag-format', 'out', judgeSpeech ? 'speech' : 'review'),
       edge('check', 'fail', 'tag-format'),
       edge('tag-format', 'out', 'retry'),
+      ...(judgeSpeech ? speechEdges : []),
       edge('review', 'pass', 'untag-review'),
       edge('untag-review', 'out', 'confirm'),
       ...chain('confirm', 'terms', 'save-terms'),
@@ -248,6 +292,20 @@ export function translationTemplate(ids: TemplateIds): WorkflowDefinition {
       ...resendEdges('revise', 'revise-failed'),
       ...resendEdges('terms', 'terms-failed'),
     ],
+  };
+}
+
+/**
+ * 검수: the 번역 flow without its translation step and with 말투 판정, for lines that already have one (run
+ * it with a status scope such as 번역됨): 형식 검사 → 말투 판정 → AI 검수, and the same revise loop and 검토 필요 end.
+ */
+export function reviewTemplate(ids: TemplateIds): WorkflowDefinition {
+  const translation = reviewLoop(ids, true);
+  const dropped = new Set(['translate', 'translate-resend', 'translate-wait', 'translate-failed', 'save']);
+  return {
+    ...translation,
+    nodes: translation.nodes.filter((node) => !dropped.has(node.id)),
+    edges: [edge('entry', 'out', 'check'), ...translation.edges.filter((item) => !dropped.has(item.source) && !dropped.has(item.target) && item.source !== 'entry')],
   };
 }
 
@@ -404,6 +462,7 @@ export const WORKFLOW_TEMPLATES: { key: string; name: string; description: strin
     input: 'lines',
     build: translationTemplate,
   },
+  { key: 'review', name: '검수', description: '번역이 있는 대사를 형식·말투·AI 검수로 다시 보고, 못 넘으면 고치거나 검토 필요로 보냅니다. 상태(예: 번역됨)로 골라 돌립니다.', input: 'lines', build: reviewTemplate },
   { key: 'listener', name: '청자 추정', description: '대사마다 누구에게 하는 말인지 적습니다.', input: 'lines', build: listenerTemplate },
   { key: 'people', name: '인물·관계 추출', description: '인물, 관계, 말투 규칙을 자료에 넣습니다.', input: 'lines', build: peopleRelationsTemplate },
   { key: 'events', name: '사건 추출', description: '사건과 관련 인물을 자료에 넣습니다.', input: 'lines', build: eventExtractionTemplate },
@@ -412,9 +471,9 @@ export const WORKFLOW_TEMPLATES: { key: string; name: string; description: strin
 ];
 
 /**
- * The workflows every project starts with (new and imported projects): the first four templates. A
+ * The workflows every project starts with (new and imported projects): the first five templates. A
  * workflow a person deletes stays deleted; only projects that never had them get them.
  */
 export function defaultWorkflows(ids: TemplateIds): { name: string; description: string; definition: WorkflowDefinition }[] {
-  return WORKFLOW_TEMPLATES.slice(0, 4).map(({ name, description, build }) => ({ name, description, definition: build(ids) }));
+  return WORKFLOW_TEMPLATES.slice(0, 5).map(({ name, description, build }) => ({ name, description, definition: build(ids) }));
 }

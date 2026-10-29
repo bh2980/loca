@@ -70,7 +70,7 @@ function setup({ termsBatch = 8, callError }: { termsBatch?: number; callError?:
 function model(terms: (size: number, n: number) => Error | null = () => null) {
   const termRequests: number[] = [];
   const port: ModelPort = {
-    judge: async () => {
+    ask: async () => {
       throw new Error('unused');
     },
     generate: async (_route, request) => {

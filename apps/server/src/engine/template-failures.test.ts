@@ -14,7 +14,7 @@ import { createRun } from './run-create.ts';
 const alwaysTimesOut = () => {
   const calls: string[] = [];
   const port: ModelPort = {
-    judge: async () => {
+    ask: async () => {
       throw new Error('unused');
     },
     generate: async (_route, request) => {

@@ -167,6 +167,21 @@ export const AI_PROMPTS = {
       'List concrete problems in issues (in the target language); empty when passed. ' +
       'Name the kind of each problem: speech (speech level, honorifics, form of address), term (a glossary term or name rendered differently), meaning (mistranslation, omission, addition), style (unnatural or awkward Korean), format (placeholders, tags, line breaks) or other.',
   },
+  speechLevel: {
+    label: '말투 판정',
+    description: '번역문이 어떤 말투(높임법 등급)로 쓰였는지 고르고 확신도를 냅니다. 조건 노드가 이 답을 대사의 말투 규칙과 견줍니다. 판정 연결(System One 등)로도 돌릴 수 있습니다.',
+    output: 'choice',
+    scope: 'line',
+    include: { candidate: true },
+    fields: [],
+    choice: { source: 'speechLevels', values: [], allowNone: true },
+    // Not the speech rules: the answer is compared with them afterwards, so it must not be led by them.
+    context: { glossary: false, speech: false, documents: false, characters: false, relationships: false, cast: false, pairs: false, precedingLines: 0, previousScenes: 0 },
+    instructions:
+      'Which Korean speech level does the translation ("candidate") of each line use toward the person it addresses? ' +
+      'Judge from the endings of the sentences the speaker says to that person, not from quoted words, names or a single exclamation. ' +
+      'Pick none when the translation has no sentence ending to judge (a name, a sound, a single word). Give a confidence from 0 to 1.',
+  },
   refine: {
     label: 'AI 다듬기',
     description: '번역문을 의미·규칙·표현 순서로 필요한 곳만 고치고, 고친 이유를 남깁니다.',
@@ -198,9 +213,10 @@ export const AI_PROMPTS = {
     // The translation as it stands, and what the check or review found ("previous").
     include: { candidate: true },
     fields: [],
-    input: { previous: true, fields: ['issues', 'categories', 'kind'] },
+    input: { previous: true, fields: ['issues', 'categories', 'kind', 'value'] },
     instructions:
       'Each line has a translation to fix ("candidate") and what the format check or the review found wrong with it ("previous": "issues" are the problems, "categories" or "kind" their types). ' +
+      'When "previous" has a "value" instead, it is the speech level a judgment found the translation uses, and it differs from the speech rule the line gives: change the speech level and form of address to the rule\'s, nothing else. ' +
       'Fix only what those findings point out; keep the meaning, word choice, speech level and everything else as it is. ' +
       'Keep every placeholder ({name}, %s), rich-text tag and line break of the source exactly. ' +
       'Return the whole corrected translation of the line. If the findings do not apply to the candidate, return it unchanged.',

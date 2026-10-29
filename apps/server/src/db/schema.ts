@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { customType, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 import type { AppDefaults } from '@tw/shared';
-import { AGE_BANDS, CHARACTER_ROLES, GENDERS, KNOWLEDGE_TAG_KINDS, TAG_ROLES, type TagRole, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, EVENT_LINK_KINDS, GRAPH_ORIGINS, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, PERMISSION_MODES, type CharacterStyle, type EditorAi, type ExclusionRules, type ModelLimits, LINE_TRANSLATE, type AutoMark, type MarkColors, type ContextItem, type FormatRules, type ItemErrorKind, type NodeType, type RelationshipChange, type WorkflowDefinition, workflowDefinitionSchema, WORKFLOW_SUBJECT_IDS, type WorkflowSubject } from '@tw/shared';
+import { AGE_BANDS, CHARACTER_ROLES, GENDERS, KNOWLEDGE_TAG_KINDS, TAG_ROLES, type TagRole, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, EVENT_LINK_KINDS, GRAPH_ORIGINS, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, PERMISSION_MODES, type CharacterStyle, type EditorAi, type ExclusionRules, type ModelLimits, LINE_TRANSLATE, type AutoMark, type MarkColors, type ContextItem, type FormatRules, type ItemErrorKind, type NodeType, type RelationshipChange, type WorkflowDefinition, workflowDefinitionSchema, WORKFLOW_SUBJECT_IDS, type WorkflowSubject, TERM_SCOPE_IDS, type TermScope } from '@tw/shared';
 import type { Usage } from '@tw/ai';
 
 const id = () => text('id').primaryKey().$defaultFn(() => crypto.randomUUID());
@@ -365,6 +365,10 @@ export const terms = sqliteTable(
     runId: text('run_id'),
     /** Who put it in its current status (see knowledge()). */
     statusBy: text('status_by', { enum: STATUS_BY }).notNull().default('human'),
+    /** Which lines it applies to (TERM_SCOPES): all, UI lines only, or dialogue and documents. */
+    scope: text('scope', { enum: TERM_SCOPE_IDS as [TermScope, ...TermScope[]] }).notNull().default('all'),
+    /** Matched in its exact case only ("Help" the button, not "help" the verb). */
+    matchCase: integer('match_case', { mode: 'boolean' }).notNull().default(false),
     updatedAt: updatedAt(),
   },
   // One term per source, whatever its case.
@@ -518,6 +522,14 @@ export interface RunScope {
   statusIds?: string[];
   /** A run of a terms workflow: these terms (instead of the entry node's term statuses and marks). */
   termIds?: string[];
+  /** Lines said by any of these speakers (as stored: names and aliases already expanded). */
+  speakers?: string[];
+  /** Lines said to any of these listeners (known listeners only, as the line list shows them; '-' = #청자 미상). */
+  listeners?: string[];
+  /** Line kinds (dialogue, ui, …). */
+  kinds?: string[];
+  /** Text in the source. */
+  q?: string;
 }
 /** The connection + model a call goes to, frozen with the connection's details. */
 export interface RouteSnapshot {
@@ -610,6 +622,8 @@ export interface ItemData {
   };
   /** The last failure that sent the line out through an "error" exit; cleared when a node handles it (ConditionData.error). */
   error?: { kind: ItemErrorKind; message: string; nodeId: string };
+  /** The last failure the line went out an "error" exit with, kept after a node handles it: the run's summary says why a line ended where it did. */
+  lastError?: { kind: ItemErrorKind; message: string; nodeId: string };
 }
 
 export const runItems = sqliteTable(

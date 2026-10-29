@@ -31,7 +31,7 @@ describe('the default 번역 workflow tags through its 태그 붙이기 nodes', 
     let reviews = 0;
     const duringSecondReview: string[][] = [];
     const port: ModelPort = {
-      judge: async () => {
+      ask: async () => {
         throw new Error('unused');
       },
       generate: async (_route, request) => {

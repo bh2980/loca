@@ -67,7 +67,7 @@ function setup(lines: number, batch: Partial<BatchConfig>, { resend, wait, retry
 function model(fail: (n: number, lines: string[]) => Error | null) {
   const requests: { lines: string[]; model: string }[] = [];
   const port: ModelPort = {
-    judge: async () => {
+    ask: async () => {
       throw new Error('unused');
     },
     generate: async (route, request) => {

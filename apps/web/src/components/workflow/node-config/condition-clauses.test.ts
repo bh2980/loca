@@ -57,3 +57,12 @@ describe('condition rows', () => {
     expect(parseCondition({ if: [true, 1, 2] })).toBeNull();
   });
 });
+
+describe('speech rule rows', () => {
+  it('reads and writes "the choice is the line\'s speech rule" and "has a rule"', () => {
+    const condition: Condition = { join: 'or', clauses: [{ kind: 'speechRule', not: true }, { kind: 'speechMatch', nodeId: 'speech' }] };
+    const expression = conditionExpression(condition);
+    expect(expression).toEqual({ or: [{ '!': [{ '!!': [{ var: 'unit.speechLevel' }] }] }, { '==': [{ var: 'outputs.speech.value' }, { var: 'unit.speechLevel' }] }] });
+    expect(parseCondition(expression)).toEqual(condition);
+  });
+});

@@ -1,12 +1,12 @@
 import { and, asc, eq, inArray, like, ne, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { aiStatus, matchesMarks, termMarksOf, TERM_MARK_IDS, type AutoMark } from '@tw/shared';
+import { aiStatus, matchesMarks, termMarksOf, TERM_MARK_IDS, withDuplicateTargets, type AutoMark } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { fillTermUsage } from './term-usage.ts';
 import { annotateKnowledge, knowledgeFilterInput, matchesStatus, type KnowledgeFilter } from './knowledge-list.ts';
-import { byPerson } from './status-by.ts';
+import { bySaver, PERSON, type Saver } from './status-by.ts';
 import { discoverTerms } from './term-discovery.ts';
 
 type Tx = Pick<Db, 'select' | 'insert' | 'update' | 'delete'>;
@@ -20,15 +20,18 @@ export interface TermSave {
   target?: string;
   note?: string;
   status?: 'candidate' | 'confirmed' | 'rejected';
+  scope?: 'all' | 'ui' | 'dialogue';
+  matchCase?: boolean;
 }
 
 /**
- * A person's term (the glossary page, a pane, the chat): created, or with `id` changed. One source
+ * A term saved by a person (the glossary page, a pane) or an agent's accepted change (`saver`): created, or with `id` changed. One source
  * is one term whatever its case; a term already there is refused. A rejected term (hidden, kept so
  * it is not proposed again) does not block: it is revived by a create and dropped by a rename onto it.
  * A new source is counted again (fillTermUsage).
  */
-export function saveTerm(tx: Tx, projectId: string, term: TermSave, options: { id?: string; by: 'person' }) {
+export function saveTerm(tx: Tx, projectId: string, term: TermSave, options: { id?: string; saver?: Saver }) {
+  const saver = options.saver ?? PERSON;
   const source = term.source?.trim();
   const mine = options.id ? tx.select().from(s.terms).where(and(eq(s.terms.id, options.id), eq(s.terms.projectId, projectId))).get() : undefined;
   if (options.id && !mine) return { ok: false as const, reason: 'missing' as const, error: '용어를 찾을 수 없습니다.' };
@@ -38,14 +41,15 @@ export function saveTerm(tx: Tx, projectId: string, term: TermSave, options: { i
   if (!mine) {
     // Revive a rejected term of the same source instead of adding a second.
     if (same) {
-      const row = tx.update(s.terms).set({ ...values, status: term.status ?? 'confirmed', lines: null, origin: 'human', statusBy: 'human', runId: null }).where(eq(s.terms.id, same.id)).returning().get();
+      const row = tx.update(s.terms).set({ ...values, status: term.status ?? 'confirmed', lines: null, origin: saver.origin, statusBy: saver.statusBy, runId: null }).where(eq(s.terms.id, same.id)).returning().get();
       return { ok: true as const, row };
     }
-    return { ok: true as const, row: tx.insert(s.terms).values({ ...values, source: source ?? '', projectId }).returning().get() };
+    return { ok: true as const, row: tx.insert(s.terms).values({ ...values, source: source ?? '', projectId, origin: saver.origin, statusBy: saver.statusBy }).returning().get() };
   }
   if (same && same.id !== mine.id) tx.delete(s.terms).where(eq(s.terms.id, same.id)).run();
-  const changesSource = source !== undefined && source !== mine.source;
-  const row = tx.update(s.terms).set({ ...values, ...(changesSource && { lines: null }), ...byPerson(tx, s.terms, projectId, mine.id, values) }).where(eq(s.terms.id, mine.id)).returning().get();
+  // A new source, scope or case rule matches other lines: counted again.
+  const changesSource = (source !== undefined && source !== mine.source) || (term.scope !== undefined && term.scope !== mine.scope) || (term.matchCase !== undefined && term.matchCase !== mine.matchCase);
+  const row = tx.update(s.terms).set({ ...values, ...(changesSource && { lines: null }), ...bySaver(tx, s.terms, projectId, mine.id, values, saver) }).where(eq(s.terms.id, mine.id)).returning().get();
   return { ok: true as const, row };
 }
 
@@ -164,7 +168,9 @@ export function listTerms(db: Db, projectId: string, input: KnowledgeFilter & { 
   fillTermUsage(db, projectId);
   const where = and(eq(s.terms.projectId, projectId), ne(s.terms.status, 'rejected'), input.q ? or(like(s.terms.source, `%${input.q}%`), like(s.terms.target, `%${input.q}%`)) : undefined);
   const rows = db.select().from(s.terms).where(where).orderBy(asc(s.terms.source)).all();
-  const matched = annotateKnowledge(db, projectId, 'terms', rows, { tags: input.tags })
+  // Duplicates are read across the whole glossary, not just the rows the search found.
+  const duplicate = new Set(withDuplicateTargets(db.select().from(s.terms).where(eq(s.terms.projectId, projectId)).all()).filter((term) => term.duplicateTarget).map((term) => term.id));
+  const matched = annotateKnowledge(db, projectId, 'terms', rows.map((row) => ({ ...row, duplicateTarget: duplicate.has(row.id) })), { tags: input.tags })
     .map(({ marks: _marks, ...row }) => ({ ...row, marks: termMarksOf(row) }))
     .filter((row) => matchesMarks(row.marks, input.marks) && matchesStatus(row, input));
   const offset = input.offset ?? 0;

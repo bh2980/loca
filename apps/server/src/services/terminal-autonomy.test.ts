@@ -62,7 +62,7 @@ describe('the terminal working on its own', () => {
     const { db, projectId, choice } = setup();
     const { runId } = translateRun(db, projectId, choice);
     const port: ModelPort = {
-      judge: async () => {
+      ask: async () => {
         throw new Error('unused');
       },
       generate: async (_route, request) => {

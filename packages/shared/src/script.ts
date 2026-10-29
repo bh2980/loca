@@ -67,5 +67,5 @@ export const batchChangeSchema = z.object({
 });
 export type BatchChange = z.infer<typeof batchChangeSchema>;
 
-export const CHECK_KINDS = { terms: '용어집 위반', consistency: '번역 불일치', format: '형식 오류', length: '길이 초과', speech: '말투 규칙과 다른 어미(추정)' } as const;
+export const CHECK_KINDS = { terms: '용어집 위반', consistency: '번역 불일치', format: '형식 오류', length: '길이 초과' } as const;
 export type CheckKind = keyof typeof CHECK_KINDS;

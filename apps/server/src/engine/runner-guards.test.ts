@@ -66,7 +66,7 @@ function model(fail: (call: number) => Error | null = () => null): ModelPort & {
   return {
     firsts,
     calls,
-    judge: async () => {
+    ask: async () => {
       throw new Error('unused');
     },
     generate: async (_route, request) => {
@@ -248,7 +248,7 @@ describe('incomplete answers', () => {
     const runId = start();
     let call = 0;
     const fake: ModelPort = {
-      judge: async () => {
+      ask: async () => {
         throw new Error('unused');
       },
       generate: async (_route, request) => {
@@ -273,7 +273,7 @@ describe('incomplete answers', () => {
     const { db, start } = setup(1, () => 8);
     const runId = start();
     const fake: ModelPort = {
-      judge: async () => {
+      ask: async () => {
         throw new Error('unused');
       },
       generate: async (_route, request) => {
@@ -299,7 +299,7 @@ describe('incomplete answers', () => {
     const { db, start } = setup(1, () => 8, { resend: false });
     const runId = start();
     const fake: ModelPort = {
-      judge: async () => {
+      ask: async () => {
         throw new Error('unused');
       },
       generate: async (_route, request) => {
@@ -362,7 +362,7 @@ describe('slots per node', () => {
     const peak = new Map<string, number>();
     const order: string[] = [];
     const port: ModelPort = {
-      judge: async () => {
+      ask: async () => {
         throw new Error('unused');
       },
       generate: async (route, request) => {
@@ -388,7 +388,7 @@ describe('slots per node', () => {
     const seen: Record<string, number>[] = [];
     let runner: Runner;
     const port: ModelPort = {
-      judge: async () => {
+      ask: async () => {
         throw new Error('unused');
       },
       generate: async (_route, request) => {
@@ -415,7 +415,7 @@ describe('slots per node', () => {
     const now = { T: 0, R: 0 };
     const peak = { T: 0, R: 0 };
     const port: ModelPort = {
-      judge: async () => {
+      ask: async () => {
         throw new Error('unused');
       },
       generate: async (_route, request) => {

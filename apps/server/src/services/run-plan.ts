@@ -7,6 +7,7 @@ import * as s from '../db/schema.ts';
 import { tagIdsOf } from './knowledge-list.ts';
 import { preflight } from './preflight.ts';
 import { findTerm } from './term-usage.ts';
+import { lookups } from './script-query.ts';
 
 export interface PlanInput {
   /** Workflow id or name. */
@@ -23,6 +24,14 @@ export interface PlanInput {
   terms?: string[];
   /** Statuses the items must be in (none = any): a lines workflow's status names or ids, a terms workflow's 후보 / 확정 / 버림 (or candidate / confirmed / rejected). */
   statuses?: string[];
+  /** Speakers by name, alias or speaker key (a whole word of a name finds it, like `loca lines --speaker`). */
+  speakers?: string[];
+  /** Listeners by name, alias or special listener; '-' = lines whose listener is not known. */
+  listeners?: string[];
+  /** Line kinds: dialogue, ui, … */
+  kinds?: string[];
+  /** Text in the source. */
+  q?: string;
   /** Models for this run instead of the nodes' own (see runModelInput). */
   models?: RunModelInput;
 }
@@ -89,13 +98,21 @@ export function resolveRunScope(db: Db, projectId: string, input: Omit<PlanInput
     unknown.push(...found.filter((entry) => !entry.row).map((entry) => `용어 ${entry.term}`));
     scope.termIds = [...new Set(found.flatMap((entry) => (entry.row ? [entry.row.id] : [])))];
   }
+  // People by every spelling they go by, as the line list finds them.
+  if (input.speakers?.length || input.listeners?.length) {
+    const { namesOf } = lookups(db, projectId);
+    if (input.speakers?.length) scope.speakers = [...new Set(input.speakers.flatMap(namesOf))];
+    if (input.listeners?.length) scope.listeners = [...new Set(input.listeners.flatMap((name) => (name === '-' ? ['-'] : namesOf(name))))];
+  }
+  if (input.kinds?.length) scope.kinds = input.kinds;
+  if (input.q?.trim()) scope.q = input.q.trim();
   return { scope, unknown };
 }
 
 /** Why a scope does not fit the workflow's input (line conditions for a terms workflow, terms for a lines workflow), or null. */
 export function scopeMismatch(input: WorkflowSubject, scope: s.RunScope): string | null {
-  const lineScope = Boolean(scope.groupIds?.length || scope.unitIds?.length);
-  if (input === 'terms' && lineScope) return '용어 입력 워크플로에는 대사 범위(묶음·대사 키)를 쓸 수 없습니다. 용어·상태·표시·태그로 범위를 정하세요.';
+  const lineScope = Boolean(scope.groupIds?.length || scope.unitIds?.length || scope.speakers?.length || scope.listeners?.length || scope.kinds?.length || scope.q);
+  if (input === 'terms' && lineScope) return '용어 입력 워크플로에는 대사 범위(묶음·대사 키·화자·청자·종류·글자)를 쓸 수 없습니다. 용어·상태·표시·태그로 범위를 정하세요.';
   if (input === 'lines' && scope.termIds?.length) return '대사 입력 워크플로에는 용어를 고를 수 없습니다.';
   const foreign = (scope.marks ?? []).filter((mark) => !marksOn(input).includes(mark));
   if (foreign.length) return `${input === 'terms' ? '용어' : '대사'}에 없는 표시입니다: ${foreign.map((mark) => AUTO_MARKS[mark].name).join(', ')}`;

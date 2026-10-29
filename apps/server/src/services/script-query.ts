@@ -1,15 +1,16 @@
 import { and, asc, count, desc, eq, gte, inArray, like, or, sql, type SQL } from 'drizzle-orm';
-import { checkFormat, exclusionRulesSchema, lineExclusion, lineMarksOf, mentions, runNodeName, type BatchChange, type CheckKind, type LineFilter, type LineMark } from '@tw/shared';
+import { checkFormat, exclusionRulesSchema, lineExclusion, lineMarksOf, mentions, runNodeName, type BatchChange, type CheckKind, type LineFilter, type LineMark, withSourceEdges } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import { inChunks, inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { attachUnitTags, scopeRefusal } from './tag-scope.ts';
 import { saveLine } from './line-save.ts';
+import { PERSON, type Saver } from './status-by.ts';
 import { refusesListener, setHumanListener } from './listeners.ts';
 import { hiddenMarkConditions, knownListenerSql, markConditions, translatableSql } from './line-marks.ts';
 import { lineTextFilter } from './line-text.ts';
-import { describeRule, knowledgeOf, knownListener, speechMismatch, speechRuleIndex } from './speech.ts';
+import { describeRule, knowledgeOf, knownListener, speechRuleIndex } from './speech.ts';
 import { precedingLines } from './context.ts';
 import { viewUnitIds } from './view-flow.ts';
 
@@ -38,7 +39,7 @@ export interface LineRow {
   marks: LineMark[];
 }
 
-function lookups(db: Db, projectId: string) {
+export function lookups(db: Db, projectId: string) {
   const characters = db.select().from(s.characters).where(eq(s.characters.projectId, projectId)).all();
   const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).orderBy(asc(s.statuses.sort)).all();
   const tags = db.select().from(s.tags).where(eq(s.tags.projectId, projectId)).all();
@@ -250,26 +251,17 @@ export async function checkScript(db: Db, projectId: string, kind: CheckKind, fi
   const found: unknown[] = [];
   const matcher = kind === 'terms' ? knowledgeOf(db, projectId).glossary().matcher : null;
   const rules = kind === 'format' ? db.select({ rules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, projectId)).get()?.rules : undefined;
-  const index = kind === 'speech' ? speechRuleIndex(db, projectId) : null;
   const ratio = options.ratio ?? 1.5;
   for await (const lines of lineSteps(db, projectId, translated)) {
     if (matcher)
       for (const line of lines)
-        for (const term of matcher.find(line.source))
+        for (const term of matcher.find(line.source, line.kind))
           if (!line.translation!.toLowerCase().includes(term.target.toLowerCase())) found.push({ key: line.key, group: line.group.title, source: line.source, translation: line.translation, term: term.source, expected: term.target });
     if (kind === 'format')
       for (const line of lines) {
         const issues = checkFormat(line.source, line.translation!, { placeholders: true, tags: true, newlines: true, emptyText: true }, rules);
         if (issues.length) found.push({ key: line.key, group: line.group.title, source: line.source, translation: line.translation, issues: issues.map((issue) => issue.message) });
       }
-    if (index) {
-      const resolved = index.resolve(lines.map((line) => ({ key: line.key, speaker: line.speaker, listener: line.listener, listenerOrigin: 'human' as const, listenerConfidence: null })));
-      for (const line of lines) {
-        const rule = resolved.get(line.key);
-        const issue = rule ? speechMismatch(rule.rule, line.translation) : null;
-        if (issue) found.push({ key: line.key, group: line.group.title, speaker: line.speaker, listener: rule!.listener, rule: describeRule(rule!.rule), source: line.source, translation: line.translation, issue });
-      }
-    }
     if (kind === 'length')
       for (const line of lines)
         if (line.translation!.length > line.source.length * ratio)
@@ -357,7 +349,7 @@ export function exportLines(db: Db, projectId: string, filter: LineFilter, optio
   const preceding = options.before > 0 ? precedingLines(db, projectId, lines.map((line) => line.id), options.before) : null;
   return lines.map((line) => {
     const before = preceding?.get(line.id);
-    const used = (terms?.matcher.find(line.source) ?? []).map((term) => ({ source: term.source, target: term.target, note: term.note }));
+    const used = (terms?.matcher.find(line.source, line.kind) ?? []).map((term) => ({ source: term.source, target: term.target, note: term.note }));
     const rule = rules.get(line.key);
     return {
       key: line.key,
@@ -395,6 +387,8 @@ export function normalizeBatch(db: Db, projectId: string, batch: BatchChange, op
     if (!unit) return [change];
     const next = { ...change };
     if (options.fillRev && next.rev === undefined) next.rev = unit.updatedAt.getTime();
+    // Compared as saveLine will store it: the source's leading and trailing whitespace.
+    if (next.translation !== undefined) next.translation = withSourceEdges(unit.source, next.translation);
     if (next.translation !== undefined && next.translation === (unit.translation ?? '')) delete next.translation;
     if (next.status && statusId(next.status) === unit.statusId) delete next.status;
     if (next.listener !== undefined && next.listener === unit.listener) delete next.listener;
@@ -442,8 +436,8 @@ export function validateBatch(db: Db, projectId: string, batch: BatchChange): Ba
       report.changes++;
       if (change.translation !== undefined) {
         const issues = [
-          ...checkFormat(unit.source, change.translation, { placeholders: true, tags: true, newlines: true, emptyText: true }, rules).map((issue) => issue.message),
-          ...matcher.find(unit.source).filter((term) => !change.translation!.toLowerCase().includes(term.target.toLowerCase())).map((term) => `용어 "${term.source}" → "${term.target}"가 번역에 없습니다.`),
+          ...checkFormat(unit.source, withSourceEdges(unit.source, change.translation), { placeholders: true, tags: true, newlines: true, emptyText: true }, rules).map((issue) => issue.message),
+          ...matcher.find(unit.source, unit.kind).filter((term) => !change.translation!.toLowerCase().includes(term.target.toLowerCase())).map((term) => `용어 "${term.source}" → "${term.target}"가 번역에 없습니다.`),
         ];
         if (issues.length) report.warnings.push({ key: change.key, issues });
       }
@@ -457,7 +451,7 @@ export function validateBatch(db: Db, projectId: string, batch: BatchChange): Ba
  * Apply an accepted batch in one transaction. Revs are checked again here: a line changed between
  * proposing and accepting is skipped and reported, never overwritten.
  */
-export function applyBatch(db: Db, projectId: string, batch: BatchChange) {
+export function applyBatch(db: Db, projectId: string, batch: BatchChange, saver: Saver = PERSON) {
   const { statusId, tagId } = lookups(db, projectId);
   const applied: string[] = [];
   const skipped: { key: string; reason: string }[] = [];
@@ -478,8 +472,8 @@ export function applyBatch(db: Db, projectId: string, batch: BatchChange) {
         skipped.push({ key: change.key, reason: '나레이션에는 청자가 없음' });
         continue;
       }
-      // Applied from the CLI or an accepted proposal: a person decided this translation or status (and the listener).
-      saveLine(tx, unit, { text: change.translation, statusId: change.status ? statusId(change.status)! : undefined, origin: batch.origin, model: batch.model ?? null, note: change.note });
+      // Who decided it: a person who accepted the proposal, or AI when the terminal's mode applied it.
+      saveLine(tx, unit, { text: change.translation, statusId: change.status ? statusId(change.status)! : undefined, origin: batch.origin, model: batch.model ?? null, note: change.note, statusBy: saver.statusBy });
       if (change.listener !== undefined) setHumanListener(tx, [unit.id], change.listener);
       if (change.translate !== undefined) tx.update(s.units).set({ translate: change.translate }).where(eq(s.units.id, unit.id)).run();
       // Checked in validateBatch; a tag whose place changed since is skipped here, never put where it doesn't belong.

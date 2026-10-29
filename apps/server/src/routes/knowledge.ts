@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, asc, eq, inArray, ne, or } from 'drizzle-orm';
 import { z } from 'zod';
-import { EVENT_LINK_KINDS, KNOWLEDGE_TAG_KINDS, modelChoiceSchema, patchOf } from '@tw/shared';
+import { EVENT_LINK_KINDS, KNOWLEDGE_TAG_KINDS, modelChoiceSchema, patchOf, withDuplicateTargets } from '@tw/shared';
 import { badRequest, found, notFound, validate, type Env } from '../context.ts';
 import { eachChunk, inChunks } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
@@ -30,7 +30,7 @@ export const knowledgeRoutes = new Hono<Env>()
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId')!;
     fillTermUsage(db, projectId);
-    return c.json(withTags(db, 'terms', db.select().from(s.terms).where(visible(s.terms, projectId)).orderBy(asc(s.terms.source)).all()));
+    return c.json(withTags(db, 'terms', withDuplicateTargets(db.select().from(s.terms).where(visible(s.terms, projectId)).orderBy(asc(s.terms.source)).all())));
   })
   .post('/terms/discover', (c) => {
     const { db } = c.var.deps;
@@ -48,14 +48,14 @@ export const knowledgeRoutes = new Hono<Env>()
   })
   .post('/terms', validate('json', termInput), (c) => {
     const projectId = c.req.param('projectId')!;
-    const saved = c.var.deps.db.transaction((tx) => saveTerm(tx, projectId, c.req.valid('json'), { by: 'person' }));
+    const saved = c.var.deps.db.transaction((tx) => saveTerm(tx, projectId, c.req.valid('json'), {}));
     if (!saved.ok) badRequest(saved.error);
     events.changed(projectId, 'terms');
     return c.json(saved.row, 201);
   })
   .patch('/terms/:id', validate('json', patchOf(termInput)), (c) => {
     const projectId = c.req.param('projectId')!;
-    const saved = c.var.deps.db.transaction((tx) => saveTerm(tx, projectId, c.req.valid('json'), { id: c.req.param('id'), by: 'person' }));
+    const saved = c.var.deps.db.transaction((tx) => saveTerm(tx, projectId, c.req.valid('json'), { id: c.req.param('id') }));
     if (!saved.ok) {
       if (saved.reason === 'missing') notFound('용어');
       badRequest(saved.error);

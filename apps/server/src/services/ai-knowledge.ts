@@ -1,5 +1,5 @@
 import { and, eq, inArray, ne } from 'drizzle-orm';
-import { AGE_BANDS, aiStatus, CHARACTER_ROLES, DOCUMENT_KINDS, GENDERS, isSpecialListener, SPEECH_LEVELS, TERM_KIND_LABELS, TERM_KINDS, NOT_A_PERSON_NOTE, UNRESOLVED_RELATIONSHIP_KIND } from '@tw/shared';
+import { AGE_BANDS, aiStatus, CHARACTER_ROLES, DOCUMENT_KINDS, GENDERS, isSpecialListener, LISTENER_MIN_CONFIDENCE, SPEECH_LEVELS, TERM_KIND_LABELS, TERM_KINDS, NOT_A_PERSON_NOTE, UNRESOLVED_RELATIONSHIP_KIND } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { markForReview } from './knowledge-tags.ts';
@@ -470,20 +470,24 @@ export function aiSaveDocument(tx: Tx, write: AiWrite, item: AiDocumentItem): 'a
 export interface LineListenerItem { key: string; listener: string | null; confidence?: number }
 /**
  * An AI's listener for named lines (origin ai, with its confidence). Only lines said to someone take
- * one, and a listener a person set or the import brought stays. Returns what was set and what was left, with why.
+ * one, and a listener a person set or the import brought stays. Returns what was set and what was left, with why,
+ * and which set lines are below the confidence the app trusts (they still read as 청자 미상).
  */
 export function aiSetLineListeners(tx: Tx, projectId: string, items: LineListenerItem[]) {
   const rules = tx.select({ rules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, projectId)).get()?.rules;
   const set: string[] = [];
   const skipped: { key: string; reason: string }[] = [];
+  const unsure: string[] = [];
   for (const item of items) {
     const unit = tx.select({ id: s.units.id, kind: s.units.kind, speaker: s.units.speaker, source: s.units.source, listener: s.units.listener, listenerOrigin: s.units.listenerOrigin }).from(s.units).where(and(eq(s.units.projectId, projectId), eq(s.units.key, item.key))).get();
     if (!unit) skipped.push({ key: item.key, reason: '없는 대사 키' });
     else if (unit.listenerOrigin === 'human') skipped.push({ key: item.key, reason: '사람이 정한 청자가 있습니다.' });
     else if (unit.listenerOrigin === 'import' && unit.listener) skipped.push({ key: item.key, reason: '가져온 청자가 있습니다.' });
-    else if (setAiListener(tx, unit, cleanListener(item.listener), clampConfidence(item.confidence), rules)) set.push(item.key);
-    else skipped.push({ key: item.key, reason: '청자가 필요 없는 줄입니다(지문·서식만 있는 줄).' });
+    else if (setAiListener(tx, unit, cleanListener(item.listener), clampConfidence(item.confidence), rules)) {
+      set.push(item.key);
+      if (item.listener && clampConfidence(item.confidence) < LISTENER_MIN_CONFIDENCE) unsure.push(item.key);
+    } else skipped.push({ key: item.key, reason: '청자가 필요 없는 줄입니다(지문·서식만 있는 줄).' });
   }
-  return { set: set.length, skipped };
+  return { set: set.length, skipped, unsure };
 }
 
