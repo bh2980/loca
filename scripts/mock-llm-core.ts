@@ -192,7 +192,11 @@ const fillObject = (def: JsonDef, ctx: { ids: string[]; speakers: string[]; sour
 /** Lines mentioning "orders" never pass review, so they end up waiting for a person. */
 const stubborn = (source: string) => /orders/i.test(source);
 
-function structured(kind: Exclude<MockKind, 'test' | 'complete' | 'regex'>, rows: Row[], schema: unknown): { body: unknown; entries?: { key: string; textKey?: string } } {
+/** The glossary forms of the terms a line's source mentions, as a model that follows the request's glossary writes them in. */
+const termForms = (source: string, glossary: { source: string; target: string }[]) =>
+  glossary.filter((term) => term.target && source.toLowerCase().includes(term.source.toLowerCase())).map((term) => ` ${term.target}`).join('');
+
+function structured(kind: Exclude<MockKind, 'test' | 'complete' | 'regex'>, rows: Row[], schema: unknown, glossary: { source: string; target: string }[] = []): { body: unknown; entries?: { key: string; textKey?: string } } {
   const properties = (schema as JsonDef | undefined)?.properties ?? {};
   switch (kind) {
     // The editor's 다듬기: a "[KO] " draft is marked checked (one reasoned change); anything else has nothing to fix.
@@ -203,7 +207,7 @@ function structured(kind: Exclude<MockKind, 'test' | 'complete' | 'regex'>, rows
       };
     case 'text':
     case 'revise':
-      return { body: { results: rows.map((row) => ({ id: row.id, text: kind === 'revise' ? `[KO✓] ${row.source}` : `[KO] ${row.source}` })) }, entries: { key: 'results', textKey: 'text' } };
+      return { body: { results: rows.map((row) => ({ id: row.id, text: `${kind === 'revise' ? '[KO✓]' : '[KO]'} ${row.source}${termForms(row.source, glossary)}` })) }, entries: { key: 'results', textKey: 'text' } };
     case 'verdict':
       return {
         body: {
@@ -291,6 +295,7 @@ export function respond(request: MockRequest, options: MockOptions, rand: () => 
     return { kind, lines: 1, status: 200, finishReason: 'stop', content: text, usage: usageFor(promptChars, text.length, options), delayMs, faults };
   }
   let rows: Row[] = [];
+  let glossary: { source: string; target: string }[] = [];
   let lines = 0;
   let body: unknown;
   if (kind === 'regex') {
@@ -307,11 +312,12 @@ export function respond(request: MockRequest, options: MockOptions, rand: () => 
     // The server groups a batch's lines by scene; a whole-script request is the script as text.
     if (script) rows = scriptRows(request.user);
     else {
-      const input = JSON.parse(request.user) as { lines?: Row[]; scenes?: { lines: Row[] }[] };
+      const input = JSON.parse(request.user) as { lines?: Row[]; scenes?: { lines: Row[] }[]; glossary?: { source: string; target: string }[] };
       rows = input.scenes ? input.scenes.flatMap((scene) => scene.lines) : (input.lines ?? []);
+      glossary = input.glossary ?? [];
     }
     lines = rows.length;
-    const result = structured(kind, rows, request.schema);
+    const result = structured(kind, rows, request.schema, glossary);
     body = result.body;
     const list = result.entries && ((body as Record<string, Record<string, unknown>[]>)[result.entries.key] as Record<string, unknown>[]);
     if (list) {
