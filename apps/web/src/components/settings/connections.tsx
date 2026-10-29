@@ -1,3 +1,5 @@
+import { useFormFrom, changedFields } from '@/lib/use-form-from';
+import { ChangedElsewhere } from '@/components/changed-elsewhere';
 import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -279,14 +281,10 @@ function ConnectionPane({ target, connection, onClose }: { target: SettingsTarge
     executable: connection.executable ?? '',
     headerTemplate: connection.headerTemplate ?? '',
   };
-  const form = useForm<z.input<typeof editSchema>, unknown, z.output<typeof editSchema>>({
-    resolver: zodResolver(editSchema),
-    values: saved,
-    resetOptions: { keepDirtyValues: true },
-  });
-  const dirtyFields: Record<string, unknown> = form.formState.dirtyFields;
-  const onlyDirty = <T extends object>(json: T) => Object.fromEntries(Object.entries(json).filter(([key]) => dirtyFields[key])) as T;
-  const errors = form.formState.errors;
+  const edit = useFormFrom(saved, `connection.${connection.id}`);
+  const dirtyFields = changedFields(edit.draft, saved);
+  const [errors, setErrors] = useState<Record<string, { message: string }>>({});
+  const onlyDirty = <T extends object>(json: T) => changedFields(json, saved as T);
   const need: Capability[] = info.capabilities.includes('judge') ? ['judge'] : ['generate'];
 
   const save = useMutation({
@@ -303,7 +301,6 @@ function ConnectionPane({ target, connection, onClose }: { target: SettingsTarge
         ),
       ),
     onSuccess: () => {
-      form.reset(form.getValues(), { keepDirtyValues: false });
       toast.success('저장했습니다.');
     },
     onError: (error) => toast.error(errorMessage(error)),
@@ -347,7 +344,16 @@ function ConnectionPane({ target, connection, onClose }: { target: SettingsTarge
   // A new API key is part of the draft: saved with the rest by 저장, not by a button of its own.
   const dirtyCount = Object.keys(dirtyFields).length + (apiKey.trim() ? 1 : 0);
   const saveAll = () => {
-    if (Object.keys(dirtyFields).length) void form.handleSubmit((values) => save.mutate(values))();
+    if (edit.conflicts.length) return;
+    if (Object.keys(dirtyFields).length) {
+      const parsed = editSchema.safeParse(edit.draft);
+      if (!parsed.success) {
+        setErrors(Object.fromEntries(parsed.error.issues.map((issue) => [String(issue.path[0]), { message: issue.message }])));
+        return;
+      }
+      setErrors({});
+      save.mutate(parsed.data);
+    }
     if (apiKey.trim()) saveKey.mutate();
   };
 
@@ -361,26 +367,27 @@ function ConnectionPane({ target, connection, onClose }: { target: SettingsTarge
       header={<InspectorHeader kind={isTool ? '도구' : 'AI 연결'} name={connection.name} status={info.label} onClose={onClose} />}
       footer={
         dirtyCount > 0 ? (
-          // reset() applies the form's resetOptions too: without keepDirtyValues false the edited fields would stay.
-          <DirtyBar dirtyCount={dirtyCount} onRevert={() => { form.reset(saved, { keepDirtyValues: false }); setApiKey(''); }} onSave={saveAll} saving={save.isPending || saveKey.isPending} />
+          <DirtyBar dirtyCount={dirtyCount} onRevert={() => { edit.reset(); setErrors({}); setApiKey(''); }} onSave={saveAll} saving={save.isPending || saveKey.isPending} />
         ) : (
           <Button disabled>저장</Button>
         )
       }
     >
+      {connection.keyCopyPending && <Section><Text tone="warning">키 복사가 끝나지 않아 사용할 수 없습니다. 기본값을 다시 가져오거나 API 키를 저장하세요.</Text></Section>}
+      {edit.conflicts.length > 0 && <Section><ChangedElsewhere fields={edit.conflicts.map((field) => ({ name: '이름', baseUrl: '주소', executable: '실행 파일', headerTemplate: '헤더' } as Record<string, string>)[field] ?? field)} onTakeSaved={edit.takeSaved} onKeepMine={edit.keepMine} /></Section>}
       <Section title="설정">
         <Box spaceY="normal">
           {info.transport === 'cli' && <Text as="p" variant="caption" tone="muted">로그인은 이 컴퓨터에 하나라, 여기서 로그인·로그아웃하면 같은 CLI를 쓰는 모든 프로젝트에 적용됩니다.</Text>}
           <Field label="이름" error={errors.name?.message}>
-            <Input {...form.register('name')} aria-invalid={!!errors.name} />
+            <Input value={edit.draft.name} onChange={(e) => edit.setDraft({ ...edit.draft, name: e.target.value })} aria-invalid={!!errors.name} />
           </Field>
           {isHttp && (
             <Field label="주소" error={errors.baseUrl?.message}>
-              <Input {...form.register('baseUrl')} aria-invalid={!!errors.baseUrl} />
+              <Input value={edit.draft.baseUrl ?? ''} onChange={(e) => edit.setDraft({ ...edit.draft, baseUrl: e.target.value })} aria-invalid={!!errors.baseUrl} />
             </Field>
           )}
           {info.transport === 'cli' && (
-            <Controller control={form.control} name="executable" render={({ field }) => <ExecutableField target={target} kind={connection.kind} value={field.value ?? ''} onChange={field.onChange} />} />
+            <ExecutableField target={target} kind={connection.kind} value={edit.draft.executable} onChange={(executable) => edit.setDraft({ ...edit.draft, executable })} />
           )}
           {isHttp && (
             <Field

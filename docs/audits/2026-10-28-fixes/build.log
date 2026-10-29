@@ -1,0 +1,119 @@
+
+> translation-workbench@ build /Users/bh2980/Desktop/translation_workbench
+> pnpm --filter @tw/web build
+
+
+> @tw/web@ build /Users/bh2980/Desktop/translation_workbench/apps/web
+> tsc -p tsconfig.json && vite build
+
+vite v8.3.4 building client environment for production...
+transforming...
+✓ 3074 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                                                 5.55 kB │ gzip:   1.80 kB
+dist/assets/GeistMono-latin-ext-Bwz-egvJ.woff2                 14.69 kB
+dist/assets/GeistMono-latin-XN7g48iV.woff2                     23.12 kB
+dist/assets/WantedSansVariable-eIorJFXx.woff2               1,289.29 kB
+dist/assets/src-sXhexEAb.css                                    0.12 kB │ gzip:   0.09 kB
+dist/assets/style-DLioOiRN.css                                 15.41 kB │ gzip:   2.56 kB
+dist/assets/index-DZcnmS71.css                                136.47 kB │ gzip:  21.69 kB
+dist/assets/root-DLTE-HSj.js                                    0.03 kB │ gzip:   0.05 kB
+dist/assets/page-DdgARdHz.js                                    0.22 kB │ gzip:   0.18 kB
+dist/assets/useParams-C-p9nFsZ.js                               0.25 kB │ gzip:   0.19 kB
+dist/assets/copy-BnoEFUzp.js                                    0.26 kB │ gzip:   0.22 kB
+dist/assets/p._projectId.ai.usage-DabYm8-T.js                   0.28 kB │ gzip:   0.22 kB
+dist/assets/workflow-CFpM58cm.js                                0.29 kB │ gzip:   0.22 kB
+dist/assets/pencil-c6BDgx2C.js                                  0.30 kB │ gzip:   0.24 kB
+dist/assets/inbox-1S_MLhbo.js                                   0.31 kB │ gzip:   0.24 kB
+dist/assets/datetime-2nGXzB-A.js                                0.31 kB │ gzip:   0.19 kB
+dist/assets/p._projectId.keys-CcWYu9-s.js                       0.31 kB │ gzip:   0.24 kB
+dist/assets/list-tree-BczpPeE7.js                               0.32 kB │ gzip:   0.21 kB
+dist/assets/status-Bj51DmZn.js                                  0.33 kB │ gzip:   0.25 kB
+dist/assets/settings.defaults.editor-Bb1acLi-.js                0.34 kB │ gzip:   0.26 kB
+dist/assets/settings.defaults.chat-p4I7HEiW.js                  0.35 kB │ gzip:   0.26 kB
+dist/assets/git-fork-Ch2UmTwU.js                                0.35 kB │ gzip:   0.25 kB
+dist/assets/ai-button-DATVSaea.js                               0.36 kB │ gzip:   0.27 kB
+dist/assets/trash-BT7WfddT.js                                   0.37 kB │ gzip:   0.24 kB
+dist/assets/useNavigate-BBm5N6nD.js                             0.38 kB │ gzip:   0.27 kB
+dist/assets/workflow-edits-BDUo9ME-.js                          0.39 kB │ gzip:   0.35 kB
+dist/assets/agent-BMISwPuj.js                                   0.40 kB │ gzip:   0.30 kB
+dist/assets/file-text-BRjDo17Y.js                               0.41 kB │ gzip:   0.27 kB
+dist/assets/scan-search-DbL4wycR.js                             0.41 kB │ gzip:   0.27 kB
+dist/assets/p._projectId.settings.chat-B9zUgAY1.js              0.42 kB │ gzip:   0.29 kB
+dist/assets/create-tag-u88XVmAV.js                              0.42 kB │ gzip:   0.36 kB
+dist/assets/settings.defaults.connections-TarIxBnl.js           0.46 kB │ gzip:   0.37 kB
+dist/assets/labels-Ac3HmkG5.js                                  0.47 kB │ gzip:   0.31 kB
+dist/assets/p._projectId.settings.connections-CJtSg0jv.js       0.48 kB │ gzip:   0.38 kB
+dist/assets/view-context-ieDNmrvg.js                            0.58 kB │ gzip:   0.38 kB
+dist/assets/copy-button-BhdBslfF.js                             0.58 kB │ gzip:   0.40 kB
+dist/assets/useMatch-D0N91xtb.js                                0.58 kB │ gzip:   0.37 kB
+dist/assets/p._projectId-DaORpARO.js                            0.65 kB │ gzip:   0.43 kB
+dist/assets/changed-elsewhere-BwBbLW0s.js                       0.66 kB │ gzip:   0.48 kB
+dist/assets/delete-button-BDxfiXy2.js                           0.69 kB │ gzip:   0.40 kB
+dist/assets/run-summary-BeBsQv3K.js                             0.69 kB │ gzip:   0.52 kB
+dist/assets/drafts-CvtOdaEn.js                                  0.74 kB │ gzip:   0.42 kB
+dist/assets/swatches-C0aLFZ_Q.js                                0.80 kB │ gzip:   0.49 kB
+dist/assets/chat-dock-C5Oy2hNI.js                               0.82 kB │ gzip:   0.43 kB
+dist/assets/sun-SAXZE9B7.js                                     0.93 kB │ gzip:   0.47 kB
+dist/assets/settings.appearance-BpInjydZ.js                     0.96 kB │ gzip:   0.60 kB
+dist/assets/theme-HwWZZjfj.js                                   0.96 kB │ gzip:   0.48 kB
+dist/assets/graph-shortcuts-BJK1VF5U.js                         1.13 kB │ gzip:   0.60 kB
+dist/assets/ai-confirm-Xwt9xeAQ.js                              1.17 kB │ gzip:   0.74 kB
+dist/assets/optimistic-D6EoMaBB.js                              1.18 kB │ gzip:   0.53 kB
+dist/assets/ai-regex-input-DtqBJfTI.js                          1.19 kB │ gzip:   0.77 kB
+dist/assets/settings-CaLJdAs2.js                                1.29 kB │ gzip:   0.69 kB
+dist/assets/person-colors-C0HgNHqN.js                           1.48 kB │ gzip:   0.82 kB
+dist/assets/use-form-from-Cjmc7YsP.js                           1.52 kB │ gzip:   0.76 kB
+dist/assets/permission-mode-BaA7ccsO.js                         1.53 kB │ gzip:   0.75 kB
+dist/assets/target-settings-B8FqDzM4.js                         1.59 kB │ gzip:   0.80 kB
+dist/assets/use-progress-Duk3jLdw.js                            1.61 kB │ gzip:   0.95 kB
+dist/assets/useQueries-BtocYwxh.js                              3.46 kB │ gzip:   1.48 kB
+dist/assets/header-filter-D2_uyJBr.js                           3.63 kB │ gzip:   1.51 kB
+dist/assets/settings.defaults.workflows-CSq_e81B.js             4.36 kB │ gzip:   2.07 kB
+dist/assets/request-preview-6NE0_xM-.js                         4.99 kB │ gzip:   2.05 kB
+dist/assets/tag-pane-DjLS0Y4q.js                                5.01 kB │ gzip:   2.06 kB
+dist/assets/routes-CJg374gO.js                                  5.08 kB │ gzip:   2.35 kB
+dist/assets/agent-tab-DJGFJVUi.js                               5.18 kB │ gzip:   2.23 kB
+dist/assets/preload-helper-CvS9REHI.js                          5.30 kB │ gzip:   2.08 kB
+dist/assets/model-picker-BJ64UkA1.js                            5.41 kB │ gzip:   2.30 kB
+dist/assets/table-DYciO9Mj.js                                   5.44 kB │ gzip:   2.21 kB
+dist/assets/api-DuVsEo-H.js                                     5.67 kB │ gzip:   2.53 kB
+dist/assets/useMutation-BYqUS41M.js                             5.72 kB │ gzip:   1.83 kB
+dist/assets/settings.defaults.statuses-ComqEymW.js              5.99 kB │ gzip:   2.53 kB
+dist/assets/term-pane-szIIY32H.js                               6.00 kB │ gzip:   2.55 kB
+dist/assets/p._projectId.workflows.index-DzkKZG3U.js            6.67 kB │ gzip:   2.33 kB
+dist/assets/fold-C-BoeuPI.js                                    6.82 kB │ gzip:   2.94 kB
+dist/assets/p._projectId.runs.index-CEVRlLtz.js                 7.35 kB │ gzip:   2.88 kB
+dist/assets/editor-ai-CGOpJSr6.js                               8.82 kB │ gzip:   3.02 kB
+dist/assets/p._projectId.settings.project-D27C9P-4.js           9.08 kB │ gzip:   3.22 kB
+dist/assets/jsx-runtime-C29kUG2a.js                             9.29 kB │ gzip:   3.56 kB
+dist/assets/p._projectId.glossary-CYjX1vbn.js                   9.74 kB │ gzip:   4.02 kB
+dist/assets/flow-graph-qywJqAUS.js                             10.48 kB │ gzip:   4.69 kB
+dist/assets/link-DRmYd02G.js                                   11.11 kB │ gzip:   4.91 kB
+dist/assets/p._projectId.settings.statuses-Dqk1zliE.js         11.61 kB │ gzip:   4.16 kB
+dist/assets/p._projectId.settings.editor-H1xOUGbL.js           12.03 kB │ gzip:   4.16 kB
+dist/assets/p._projectId.index-BxISgN3n.js                     12.60 kB │ gzip:   4.39 kB
+dist/assets/p._projectId.script-D1RaM4wS.js                    15.45 kB │ gzip:   5.64 kB
+dist/assets/run-dialog-MYGpwWdH.js                             19.79 kB │ gzip:   6.93 kB
+dist/assets/p._projectId.runs._runId-CE3l4z-E.js               27.68 kB │ gzip:   9.89 kB
+dist/assets/line-detail-CtYq54w4.js                            28.91 kB │ gzip:   9.13 kB
+dist/assets/queries-D8l54XDA.js                                31.97 kB │ gzip:   9.52 kB
+dist/assets/src-9vGHfA1y.js                                    46.91 kB │ gzip:  15.83 kB
+dist/assets/connections-PYLg2GZI.js                            54.05 kB │ gzip:  18.93 kB
+dist/assets/p._projectId.knowledge-KQNrT2Mh.js                 68.02 kB │ gzip:  22.73 kB
+dist/assets/p._projectId.workflows._workflowId-CS07UE_N.js     92.84 kB │ gzip:  28.59 kB
+dist/assets/p._projectId.graph-DvElwRhK.js                    105.24 kB │ gzip:  33.50 kB
+dist/assets/esm-Dkb5ajnp.js                                   132.17 kB │ gzip:  42.51 kB
+dist/assets/p._projectId-Bdh95hii.js                          165.15 kB │ gzip:  48.48 kB
+dist/assets/index-CeQzg5WI.js                                 316.08 kB │ gzip: 100.90 kB
+dist/assets/line-row-Cd39_uHK.js                              349.92 kB │ gzip: 113.95 kB
+dist/assets/src-CyzPZdu0.js                                 1,016.66 kB │ gzip: 298.01 kB
+dist/assets/elk.bundled-Ch3KUn1q.js                         1,430.97 kB │ gzip: 442.15 kB
+
+[plugin builtin:vite-reporter]
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 1.91s

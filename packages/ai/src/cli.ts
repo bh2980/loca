@@ -240,10 +240,10 @@ export function readCliOutput<T>(kind: CliKind, stdout: string, schema: z.ZodTyp
   return { object: parsed.data, usage };
 }
 
-export async function cliGenerate<T>(route: ResolvedRoute, request: GenerateRequest<T>): Promise<GenerateResult<T>> {
+export async function cliGenerate<T>(route: ResolvedRoute, request: GenerateRequest<T>, tempRoot = tmpdir()): Promise<GenerateResult<T>> {
   const kind = route.kind as CliKind;
   const schema = z.toJSONSchema(request.schema, { target: 'draft-7' });
-  const dir = await mkdtemp(path.join(tmpdir(), 'tw-call-'));
+  const dir = await mkdtemp(path.join(tempRoot, 'tw-call-'));
   const files: Files = { dir, schema: path.join(dir, 'schema.json'), prompt: path.join(dir, 'prompt.txt'), result: path.join(dir, 'result.json'), instructions: path.join(dir, 'instructions.md') };
   const instructions = `${PREAMBLE}\n\n${request.system}`;
   // Codex reads the instructions from their own file; the others get them ahead of the task.

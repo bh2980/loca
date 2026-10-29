@@ -23,7 +23,7 @@ describe('Events coalescing', () => {
     vi.advanceTimersByTime(300);
     expect(got).toHaveLength(1);
     expect(got[0]!.projectId).toBe('p1');
-    expect([...got[0]!.topics].sort()).toEqual(['calls', 'chat', 'graph', 'runs', 'statuses', 'units', 'workflows']);
+    expect([...got[0]!.topics].sort()).toEqual(['calls', 'chat', 'graph', 'runs', 'statuses', 'terms', 'units', 'workflows']);
   });
 
   it('keeps projects separate', () => {
@@ -64,9 +64,9 @@ describe('Events coalescing', () => {
 describe('implied topics', () => {
   it('refreshes queries that read beyond their own topic', () => {
     // A speech rule or character change reaches the line hints (units), their counts and workflow checks.
-    expect([...withImplied(['knowledge'])].sort()).toEqual(['knowledge', 'statuses', 'units', 'workflows']);
+    expect([...withImplied(['knowledge'])].sort()).toEqual(['knowledge', 'statuses', 'terms', 'units', 'workflows']);
     // The reading route reads source connections (graph) and line text/counts (units).
-    expect([...withImplied(['graph'])].sort()).toEqual(['graph', 'statuses', 'units', 'workflows']);
+    expect([...withImplied(['graph'])].sort()).toEqual(['graph', 'statuses', 'terms', 'units', 'workflows']);
     expect([...withImplied(['chat'])]).toEqual(['chat']);
   });
 });

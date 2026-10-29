@@ -12,7 +12,7 @@ export const q = {
     queryOptions({
       queryKey: ['units', 'detect-format-rules', projectId],
       queryFn: () =>
-        unwrap((client.projects[':projectId'] as any)['detect-format-rules'].$get({ param: { projectId } })) as Promise<{
+        unwrap(client.projects[':projectId']['detect-format-rules'].$get({ param: { projectId } })) as Promise<{
           presets: DetectedFormatPreset[];
           customCandidates: DetectedCustomFormatRule[];
           recommendedPresets: FormatPreset[];

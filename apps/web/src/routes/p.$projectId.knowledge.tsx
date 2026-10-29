@@ -1,3 +1,4 @@
+import { createAndAttachTag } from '@/lib/create-tag';
 import { useEffect, useMemo, useState, useRef } from 'react';
 import { useRelationshipGraphActions } from '@/components/knowledge/graph-actions';
 import { AiConfirmNote } from '@/components/settings/ai-confirm';
@@ -5,7 +6,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import { ArrowLeftRight, GanttChart, Network, Plus, Table2, Users } from 'lucide-react';
 import { toast } from 'sonner';
-import { CHARACTER_ROLE_LABELS, OTHERS_LISTENER, PALETTE, parseMarks, type AutoMark, styleNames, isSettled, aiDecided, KNOWLEDGE_SOURCES, listenerLabel, REVIEW_TAG, SPEECH_LEVEL_LABELS, type KnowledgeSource, type TagScope, personLabel } from '@tw/shared';
+import { CHARACTER_ROLE_LABELS, OTHERS_LISTENER, parseMarks, type AutoMark, styleNames, isSettled, aiDecided, KNOWLEDGE_SOURCES, listenerLabel, REVIEW_TAG, SPEECH_LEVEL_LABELS, type KnowledgeSource, type TagScope, personLabel } from '@tw/shared';
 import {
   EmptyState,
   TagMenu,
@@ -388,13 +389,7 @@ function Knowledge() {
         onToggle={(tagId, add) => tag.mutate({ items: pickedRows(), tagId, add })}
         onCreate={async (name) => {
           try {
-            const color = (PALETTE[knowledgeTags.length % PALETTE.length] as any).light ?? PALETTE[knowledgeTags.length % PALETTE.length].hex;
-            const res = await unwrap(api.tags.$post({
-              param: { projectId },
-              json: { name, color, scope: [tabScope] },
-            }));
-            await tag.mutateAsync({ items: pickedRows(), tagId: res.id, add: true });
-            queryClient.invalidateQueries({ queryKey: ['statuses', projectId] });
+            await createAndAttachTag(projectId, name, knowledgeTags.length, [tabScope], (tagId) => tag.mutateAsync({ items: pickedRows(), tagId: tagId, add: true }));
             toast.success(`'${name}' 태그를 만들고 고른 항목에 붙였습니다.`);
           } catch (err: unknown) {
             toast.error(err instanceof Error ? err.message : '태그를 만들지 못했습니다.');

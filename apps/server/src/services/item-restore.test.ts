@@ -44,3 +44,27 @@ describe('graph deletes that ⌘Z puts back', () => {
     expect(sources()).toEqual(['Captain Pell', 'Mira', 'Pell']);
   });
 });
+
+it('restores tags (including notes) on deleted people, cascaded relationships, and deleted tags on lines', () => {
+  const db = openDatabase(':memory:');
+  try {
+    const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'u', group: 'g', source: 'Hi' }] }));
+    const [a, b] = db.insert(s.characters).values([{ projectId, name: 'A' }, { projectId, name: 'B' }]).returning().all();
+    const relation = db.insert(s.relationships).values({ projectId, fromId: a.id, toId: b.id, kind: 'friend' }).returning().get();
+    const tag = db.insert(s.tags).values({ projectId, name: 'Keep', color: '#123456' }).returning().get();
+    const links = [{ kind: 'characters' as const, itemId: a.id, tagId: tag.id, note: 'reason' }, { kind: 'relationships' as const, itemId: relation.id, tagId: tag.id, note: null }];
+    db.insert(s.knowledgeTags).values(links).run();
+    const deleted = deleteItemsKept(db, projectId, [{ kind: 'characters', ids: [a.id] }]);
+    expect(db.select().from(s.knowledgeTags).all()).toEqual([]);
+    expect(restoreItems(db, projectId, deleted.token)).toBe(true);
+    expect(db.select().from(s.knowledgeTags).all()).toEqual(links);
+    const unitId = db.select().from(s.units).get()!.id;
+    db.insert(s.unitTags).values({ unitId, tagId: tag.id }).run();
+    const removed = deleteItemsKept(db, projectId, [{ kind: 'tags', ids: [tag.id] }]);
+    expect(db.select().from(s.knowledgeTags).all()).toEqual([]);
+    expect(db.select().from(s.unitTags).all()).toEqual([]);
+    expect(restoreItems(db, projectId, removed.token)).toBe(true);
+    expect(db.select().from(s.knowledgeTags).all()).toEqual(links);
+    expect(db.select().from(s.unitTags).all()).toEqual([{ unitId, tagId: tag.id }]);
+  } finally { db.$client.close(); }
+});

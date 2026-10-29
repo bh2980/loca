@@ -1,9 +1,10 @@
+import { createAndAttachTag } from '@/lib/create-tag';
 /** One row of the line list, with the hints and links that open under the picked line. */
 import { useMemo, useState, type ComponentProps, type ReactNode, type RefObject } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, CircleAlert, Ellipsis, PanelRight } from 'lucide-react';
 import { toast } from 'sonner';
-import { AUTO_MARKS, compileFormatRules, isUnknownListener, lineExclusion, listenerLabel, needsListener, PALETTE, SPECIAL_LISTENERS, TAG_SCOPES, type FormatRules, type LineMark, type ListenerOrigin, mentions, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
+import { AUTO_MARKS, compileFormatRules, isUnknownListener, lineExclusion, listenerLabel, needsListener, SPECIAL_LISTENERS, TAG_SCOPES, type FormatRules, type LineMark, type ListenerOrigin, mentions, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
 import { MarkChip } from '@/components/status';
 import { TranslationEditor } from '@/components/translation-editor';
 import { LineSourceText, MarkedSourceText, TokenText } from '@/components/editor/source-text';
@@ -273,12 +274,7 @@ export function LineRow({
 
   const handleCreateTag = async (name: string) => {
     try {
-      const color = (PALETTE[tags.length % PALETTE.length] as any).light ?? PALETTE[tags.length % PALETTE.length].hex;
-      const res = await unwrap(client.projects[':projectId'].tags.$post({
-        param: { projectId },
-        json: { name, color, scope: [...TAG_SCOPES] },
-      }));
-      await patch.mutateAsync({ tagIds: [...line.tagIds, res.id] });
+      await createAndAttachTag(projectId, name, tags.length, [...TAG_SCOPES], (tagId) => patch.mutateAsync({ tagIds: [...line.tagIds, tagId] }));
       toast.success(`'${name}' 태그를 만들고 줄에 붙였습니다.`);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : '태그를 만들지 못했습니다.');

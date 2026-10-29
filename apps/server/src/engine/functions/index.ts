@@ -4,6 +4,7 @@ import { get } from 'es-toolkit/compat';
 import { checkFormat, formatCheckParams, FUNCTIONS, httpParams, KNOWLEDGE_STATUSES, type KnowledgeStatus, scriptParams, setStatusParams, type FunctionName, type JsonField, filtersByStatus } from '@tw/shared';
 import type { Db } from '../../db/index.ts';
 import * as s from '../../db/schema.ts';
+import { connectionKey } from '../../services/app-defaults.ts';
 import type { SecretStore } from '../../services/secrets.ts';
 import { setKnowledgeTag } from '../../services/knowledge-tags.ts';
 import { attachUnitTags } from '../../services/tag-scope.ts';
@@ -152,7 +153,7 @@ export async function callHttp(params: z.infer<typeof httpParams>, view: unknown
     const headers: Record<string, string> = { Accept: 'application/json' };
     const connection = params.connectionId ? db.select().from(s.connections).where(eq(s.connections.id, params.connectionId)).get() : undefined;
     if (params.connectionId && !connection) throw new Error('고른 API 키를 찾을 수 없습니다.');
-    const key = connection ? secrets.get(connection.id) : undefined;
+    const key = connection ? connectionKey(db, secrets, connection.id) : undefined;
     if (connection && key && connection.headerTemplate) {
       const [name, ...rest] = connection.headerTemplate.split(':');
       headers[name.trim()] = rest.join(':').trim().replace('{key}', key);

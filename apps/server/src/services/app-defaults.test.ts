@@ -164,3 +164,54 @@ describe('splitting the connections of data from before', () => {
     expect(connectionsOf(db, projectId)).toHaveLength(1);
   });
 });
+
+describe('credential copies', () => {
+  it.each([true, false])('replaces or clears a previous target key on pull and push (source key: %s)', (hasKey) => {
+    const { db, secrets, home } = setup();
+    const { projectId } = importProject(db, file(), undefined, secrets);
+    const [copy] = connectionsOf(db, projectId);
+    if (!hasKey) secrets.delete(home.id);
+    db.update(s.connections).set({ baseUrl: 'https://new.invalid/v1' }).where(eq(s.connections.id, home.id)).run();
+    pullDefaults(db, projectId, ['connections'], secrets);
+    expect(secrets.get(copy.id)).toBe(hasKey ? 'sk-home' : null);
+    expect(connectionsOf(db, projectId)[0].baseUrl).toBe('https://new.invalid/v1');
+    secrets.set(home.id, 'old-home-key');
+    pushDefaults(db, projectId, ['connections'], [], secrets);
+    expect(secrets.get(home.id)).toBe(hasKey ? 'sk-home' : null);
+    db.$client.close();
+  });
+
+  it('keeps a failed copy pending and refuses the old key until the keyring recovers', async () => {
+    const { connectionRoute } = await import('./routes.ts');
+    const { db, secrets, home } = setup();
+    const { projectId } = importProject(db, file(), undefined, secrets);
+    const [copy] = connectionsOf(db, projectId);
+    secrets.delete(home.id);
+    db.update(s.connections).set({ baseUrl: 'https://new.invalid/v1' }).where(eq(s.connections.id, home.id)).run();
+    const broken = { ...secrets, delete: () => { throw new Error('keyring locked'); } };
+    expect(() => pullDefaults(db, projectId, ['connections'], broken)).toThrow('keyring locked');
+    expect(db.select().from(s.connectionKeyCopies).all()).toEqual([{ sourceId: home.id, targetId: copy.id }]);
+    expect(() => connectionRoute(db, copy.id, broken)).toThrow('keyring locked');
+    expect(connectionRoute(db, copy.id, secrets)).toMatchObject({ baseUrl: 'https://new.invalid/v1', apiKey: undefined });
+    expect(db.select().from(s.connectionKeyCopies).all()).toEqual([]);
+    db.$client.close();
+  });
+
+  it('retries a partially failed migration without duplicating connections or marking it done early', () => {
+    const { db, secrets } = setup();
+    const first = importProject(db, file('A')).projectId;
+    const second = importProject(db, file('B')).projectId;
+    // Clear seed copies to model a database from before project-owned connections.
+    db.delete(s.connections).where(eq(s.connections.projectId, first)).run();
+    db.delete(s.connections).where(eq(s.connections.projectId, second)).run();
+    let calls = 0;
+    expect(() => splitConnections(db, { ...secrets, set: (id, key) => { if (++calls === 2) throw new Error('keyring locked'); secrets.set(id, key); } })).toThrow('keyring locked');
+    const ids = [...connectionsOf(db, first), ...connectionsOf(db, second)].map((row) => row.id);
+    expect(db.select().from(s.appSettings).get()?.done ?? []).not.toContain('connections-per-project');
+    expect(splitConnections(db, secrets)).toBe(2);
+    expect([...connectionsOf(db, first), ...connectionsOf(db, second)].map((row) => row.id)).toEqual(ids);
+    expect(ids.map((id) => secrets.get(id))).toEqual(['sk-home', 'sk-home']);
+    expect(splitConnections(db, secrets)).toBe(0);
+    db.$client.close();
+  });
+});

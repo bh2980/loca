@@ -1,3 +1,5 @@
+import * as ai from '@tw/ai';
+import { deleteChat } from './chat-delete.ts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { importFileSchema } from '@tw/shared';
@@ -167,4 +169,19 @@ describe('CLI chat over ACP', () => {
     await vi.waitFor(async () => expect(await agentWith('grok', undefined, first.id)).toBeNull());
     expect(await agentWith('grok', undefined, second.id)).not.toBeNull();
   });
+});
+
+it('revokes the chat MCP bearer token when deleting its conversation', async () => {
+  setAgentStarter(inProcessStarter({ FAKE_ACP_CHAT_TOOLS: '[]' }));
+  const host = vi.spyOn(ai, 'hostTools');
+  const { db, chat } = setup();
+  try {
+    await (await respond(db, chat, 'Hello')).text();
+    const hosted = await host.mock.results.at(-1)!.value;
+    const headers = Object.fromEntries(hosted.server.headers.map((header: { name: string; value: string }) => [header.name, header.value]));
+    expect((await fetch(hosted.server.url, { headers })).status).not.toBe(401);
+    await deleteChat(db, chat.id);
+    expect((await fetch(hosted.server.url, { headers })).status).toBe(401);
+    expect(db.select().from(s.chatSessions).all()).toEqual([]);
+  } finally { host.mockRestore(); db.$client.close(); }
 });

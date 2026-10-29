@@ -1,0 +1,2 @@
+{"case":"stale_view_layout","actualViewNodes":1,"storedLayoutNodes":2,"storedLabel":"before","status":"ready"}
+{"case":"rollback_erases_other_success","data":{"rows":[{"id":"a","translation":"old-a"},{"id":"b","translation":"old-b"}]}}

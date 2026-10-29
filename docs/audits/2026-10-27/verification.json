@@ -1,0 +1,63 @@
+{
+  "date": "2026-10-27",
+  "commit": "256068448747660e9150a94fd9fa5de3bce8250e",
+  "trackedFiles": 1054,
+  "dataDir": "/tmp/tw-refactor-audit-20261027",
+  "apiPort": 4517,
+  "webPort": 4518,
+  "mockPort": 4598,
+  "mockProfile": "cli-like,faulty",
+  "sample": {
+    "units": 9040,
+    "graphNodes": 9073,
+    "graphEdges": 10400,
+    "groups": 357,
+    "characters": 20,
+    "documents": 3,
+    "terms": 200
+  },
+  "test": {
+    "filesPassed": 160,
+    "filesFailed": 1,
+    "testsPassed": 1092,
+    "testsFailed": 1,
+    "focusedCliTestsPassed": 38
+  },
+  "checks": {
+    "typecheck": "pass",
+    "build": "pass",
+    "ui-rules": "pass",
+    "budget": "pass"
+  },
+  "budget": {
+    "scenarios": 7,
+    "unfinishedRuns": 0,
+    "translateFaultyFailedAttempts": 29,
+    "translateFaultyFailedLines": 0,
+    "peopleFailedLines": 1
+  },
+  "browser": {
+    "scriptFilterSelectionDraftBack": "pass",
+    "nativeForward": "pass",
+    "translationConflictAfterSSE": "fail: silently overwrote other saved text",
+    "connectionDraftBack": "fail: name draft lost",
+    "termLockReload": "fail: returns to unlocked menu",
+    "chatProposalAccept": "pass: 200 to 202 terms, persisted after reload",
+    "savedViewBackForward": "pass: scene to saved view and back",
+    "canvasCssPixels": {
+      "width": 1091,
+      "height": 1242
+    },
+    "exportUnits": 9040,
+    "run": {
+      "id": "4d0bc6d4-20ca-4713-9afc-5db919b008bf",
+      "status": "completed",
+      "total": 40,
+      "failedAttempts": 1,
+      "steps": 4,
+      "retryCause": "HTTP 429"
+    }
+  },
+  "completedDate": "2026-10-28",
+  "reproductionArtifactsExecuted": "all 3 scripts exited 0 from docs/audits path"
+}

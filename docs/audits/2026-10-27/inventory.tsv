@@ -1,0 +1,1055 @@
+path	kind	lines	bytes	sha256_12	inspection
+.claude/launch.json	configuration-or-doc	39	927	6381543a947f	structural-scan
+.gitignore	configuration-or-doc	16	201	c186edc9157b	structural-scan
+AGENTS.md	configuration-or-doc	13	3967	b06a3dcd312c	structural-scan
+README.md	configuration-or-doc	126	7227	dd7b01138860	structural-scan
+apps/cli/bin/loca.mjs	implementation	9	504	5a94b485b788	structural-scan
+apps/cli/package.json	configuration-or-doc	19	410	f2f0e5a5a3ad	structural-scan
+apps/cli/src/main.ts	implementation	1086	77026	c37bfa60ed20	structural + targeted-source-review
+apps/cli/src/skills.test.ts	test	67	3235	2e9b94044e1c	structural-scan + suite-executed
+apps/cli/tsconfig.json	configuration-or-doc	1	62	a2c9d111afbf	structural-scan
+apps/server/dev.mjs	implementation	16	701	2e1458e57859	structural-scan
+apps/server/drizzle.config.ts	implementation	7	152	85fca21c85f5	structural-scan
+apps/server/drizzle/0000_init.sql	migration	271	9641	cd6f0bd62cd2	structural-scan
+apps/server/drizzle/0001_search.sql	migration	15	1161	e4045569be0e	structural-scan
+apps/server/drizzle/0002_node_types.sql	migration	2	134	ee1eb3d6d53f	structural-scan
+apps/server/drizzle/0003_generic_nodes.sql	migration	3	208	c7c1d3c5b511	structural-scan
+apps/server/drizzle/0004_format_rules.sql	migration	1	120	c144fdff7751	structural-scan
+apps/server/drizzle/0005_status_on_enter.sql	migration	1	55	f096c7b8c356	structural-scan
+apps/server/drizzle/0006_drop_status_trigger.sql	migration	1	58	61dbead5752d	structural-scan
+apps/server/drizzle/0007_review_statuses.sql	migration	1	70	e751d147cfb9	structural-scan
+apps/server/drizzle/0008_group_section.sql	migration	1	40	52e0f930efd8	structural-scan
+apps/server/drizzle/0009_proposals.sql	migration	15	489	f9538567c9b8	structural-scan
+apps/server/drizzle/0010_agent_settings.sql	migration	2	159	7bc0d4dc1386	structural-scan
+apps/server/drizzle/0011_graph_flow.sql	migration	1	72	ccf2e7d372eb	structural-scan
+apps/server/drizzle/0012_run_step_context.sql	migration	1	43	a1444b94cbd8	structural-scan
+apps/server/drizzle/0013_knowledge_drafts.sql	migration	69	3327	21a084dc6b4b	structural-scan
+apps/server/drizzle/0014_knowledge_reviewed.sql	migration	5	461	68c7ec04dc49	structural-scan
+apps/server/drizzle/0015_term_trust.sql	migration	19	1127	8b1a97bf8f13	structural-scan
+apps/server/drizzle/0016_http_url_in_node.sql	migration	10	767	60e7c0412f4c	structural-scan
+apps/server/drizzle/0017_chat_agent_session.sql	migration	1	53	4ab8d78bbbeb	structural-scan
+apps/server/drizzle/0018_run_guards_and_usage.sql	migration	5	331	c8a3ff1b2894	structural-scan
+apps/server/drizzle/0019_run_step_rounds.sql	migration	2	141	ea45b58170f0	structural-scan
+apps/server/drizzle/0020_unit_seq.sql	migration	9	585	bf221eca1f7d	structural-scan
+apps/server/drizzle/0021_run_item_plan.sql	migration	1	43	b2d33ac0c22b	structural-scan
+apps/server/drizzle/0022_connection_concurrency.sql	migration	1	71	300b1ffa24ff	structural-scan
+apps/server/drizzle/0023_speech_rule_review.sql	migration	1	45	cd8ba2df0d9a	structural-scan
+apps/server/drizzle/0024_analysis_parts.sql	migration	1	45	c5c20e1834d9	structural-scan
+apps/server/drizzle/0025_term_occurrences.sql	migration	2	127	17c60b1a2af5	structural-scan
+apps/server/drizzle/0026_step_profile.sql	migration	1	46	dc957701065c	structural-scan
+apps/server/drizzle/0027_proposal_report.sql	migration	1	42	8add834667f3	structural-scan
+apps/server/drizzle/0028_section_layouts.sql	migration	17	821	bb4706eda2b0	structural-scan
+apps/server/drizzle/0029_graph_views.sql	migration	8	271	e0627ef08ecf	structural-scan
+apps/server/drizzle/0030_drop_graph_flow.sql	migration	1	48	5959d98b6aee	structural-scan
+apps/server/drizzle/0031_ai_calls.sql	migration	21	621	bb5f0dca7548	structural-scan
+apps/server/drizzle/0032_term_jobs.sql	migration	15	481	92c13e904860	structural-scan
+apps/server/drizzle/0033_call_request_analysis_input.sql	migration	2	112	4ca79684fdcd	structural-scan
+apps/server/drizzle/0034_term_job.sql	migration	1	38	676be347f4b8	structural-scan
+apps/server/drizzle/0035_model_choice.sql	migration	124	9357	1ca12ee400a2	structural-scan
+apps/server/drizzle/0036_drop_profiles.sql	migration	8	541	65317b5a568f	structural-scan
+apps/server/drizzle/0037_status_by.sql	migration	20	2063	c3288fca2ba1	structural-scan
+apps/server/drizzle/0038_drop_reviewed.sql	migration	6	414	451512a65f0a	structural-scan
+apps/server/drizzle/0039_scene_listener.sql	migration	5	408	b7535dd1c890	structural-scan
+apps/server/drizzle/0040_issue_tags.sql	migration	1	35	9e7ae557650e	structural-scan
+apps/server/drizzle/0041_unit_note.sql	migration	1	56	0f68810ca2c1	structural-scan
+apps/server/drizzle/0042_editor_ai.sql	migration	1	66	2a3b93b3bcee	structural-scan
+apps/server/drizzle/0043_knowledge_tags.sql	migration	26	2203	fd61bc2ff731	structural-scan
+apps/server/drizzle/0044_character_style.sql	migration	1	64	6c1bdc71fedf	structural-scan
+apps/server/drizzle/0045_ai_call_output.sql	migration	1	43	6a1163e6411c	structural-scan
+apps/server/drizzle/0046_mark_colors.sql	migration	1	68	baf2418c3308	structural-scan
+apps/server/drizzle/0047_tag_scope.sql	migration	1	85	6d8103bb3ce5	structural-scan
+apps/server/drizzle/0048_terms_unique_source.sql	migration	8	658	d394973a1eb1	structural-scan
+apps/server/drizzle/0049_character_gender_age.sql	migration	2	167	119bd994ba76	structural-scan
+apps/server/drizzle/0050_route_picks.sql	migration	1	68	642764e046dc	structural-scan
+apps/server/drizzle/0051_join_checks.sql	migration	1	68	4768ed7cfe4d	structural-scan
+apps/server/drizzle/0052_route_state.sql	migration	1	90	ad6f5aa1c0de	structural-scan
+apps/server/drizzle/0053_rename_draft_status.sql	migration	2	203	a6bafed19c78	structural-scan
+apps/server/drizzle/0054_proposal_reported_at.sql	migration	3	248	f0582fcb7ff8	structural-scan
+apps/server/drizzle/0055_permission_modes.sql	migration	5	374	d5b5b00d5455	structural-scan
+apps/server/drizzle/0056_run_continuations.sql	migration	1	66	f5906fd00985	structural-scan
+apps/server/drizzle/0057_steers_reject_reason.sql	migration	2	143	53be67f5bebb	structural-scan
+apps/server/drizzle/0058_proposal_model.sql	migration	1	41	b1880a1719a9	structural-scan
+apps/server/drizzle/0059_character_role.sql	migration	1	68	b08b61cf83ef	structural-scan
+apps/server/drizzle/0060_proposal_undo.sql	migration	2	113	dd1f76282101	structural-scan
+apps/server/drizzle/0061_graph_layout_directions.sql	migration	19	820	1a43254c75a2	structural-scan
+apps/server/drizzle/0062_proposal_runs.sql	migration	2	170	9681ad8a7281	structural-scan
+apps/server/drizzle/0063_graph_views_origin.sql	migration	20	1139	f7917c0b3fdc	structural-scan
+apps/server/drizzle/0064_whole_script_runs.sql	migration	8	544	95ffbcd6c1e1	structural-scan
+apps/server/drizzle/0065_status_human_only_tag_sort.sql	migration	3	296	f54a489790c8	structural-scan
+apps/server/drizzle/0066_line_exclusion.sql	migration	2	138	fd04632f32ae	structural-scan
+apps/server/drizzle/0067_output_tokens_model_default.sql	migration	24	1301	3f2785f513be	structural-scan
+apps/server/drizzle/0068_model_limits.sql	migration	1	72	8e83d4de7d7a	structural-scan
+apps/server/drizzle/0069_connection_tokens.sql	migration	3	259	125c3baedb22	structural-scan
+apps/server/drizzle/0070_drop_output_cap.sql	migration	1	58	61e0e93970fe	structural-scan
+apps/server/drizzle/0071_remove_pi.sql	migration	4	208	18d067994782	structural-scan
+apps/server/drizzle/0072_chat_compaction.sql	migration	1	50	bb24b91c92f8	structural-scan
+apps/server/drizzle/0073_drop_connection_timeout.sql	migration	1	56	c7477b6f98ec	structural-scan
+apps/server/drizzle/0074_editor_ai_buttons.sql	migration	12	1061	ea6169efb04e	structural-scan
+apps/server/drizzle/0075_run_subjects.sql	migration	27	1569	284bce8a8c34	structural-scan
+apps/server/drizzle/0076_term_translate_workflow.sql	migration	4	421	0f476452d77a	structural-scan
+apps/server/drizzle/0077_connection_drop_concurrency.sql	migration	1	52	579ddaaa0ea8	structural-scan
+apps/server/drizzle/0078_editor_ai_shared_model.sql	migration	8	965	a581fa267bcf	structural-scan
+apps/server/drizzle/0079_ai_input_previous.sql	migration	14	938	7b68ac124008	structural-scan
+apps/server/drizzle/0080_ai_auto_confirm.sql	migration	1	75	c3b06faf0ca9	structural-scan
+apps/server/drizzle/0081_drop_ai_confirm.sql	migration	1	48	2205966ad5df	structural-scan
+apps/server/drizzle/0082_drop_run_proposals.sql	migration	29	1406	3de1e9eb2a61	structural-scan
+apps/server/drizzle/0083_drop_scene_listener_origin.sql	migration	2	218	9d6dee5fe620	structural-scan
+apps/server/drizzle/0084_event_links.sql	migration	14	625	9ce8f4ef3abb	structural-scan
+apps/server/drizzle/0085_character_color.sql	migration	1	62	4306db3cbaba	structural-scan
+apps/server/drizzle/0086_graph_origin.sql	migration	4	428	dc6b67fed631	structural-scan
+apps/server/drizzle/0087_output_tokens_api_only.sql	migration	2	187	a74b6723eb01	structural-scan
+apps/server/drizzle/0088_step_error_kind.sql	migration	2	151	b4b6a37e3670	structural-scan
+apps/server/drizzle/0089_connection_auth_method.sql	migration	1	49	11b9d915b606	structural-scan
+apps/server/drizzle/0090_drop_connection_auth_method.sql	migration	1	52	26e6f34e01ae	structural-scan
+apps/server/drizzle/0091_connections_only_reach.sql	migration	4	291	f2017ba98efc	structural-scan
+apps/server/drizzle/0092_retry_visible.sql	migration	8	585	770c7427eade	structural-scan
+apps/server/drizzle/0093_app_settings.sql	migration	8	302	518bcd6493d9	structural-scan
+apps/server/drizzle/meta/0000_snapshot.json	generated	1917	48168	6222b9a057d1	structural-scan
+apps/server/drizzle/meta/0001_snapshot.json	generated	1917	48168	04e8556ef27d	structural-scan
+apps/server/drizzle/meta/0002_snapshot.json	generated	1932	48554	b9dab2e15c51	structural-scan
+apps/server/drizzle/meta/0003_snapshot.json	generated	1954	49138	0868a05494b1	structural-scan
+apps/server/drizzle/meta/0004_snapshot.json	generated	1962	49416	d92e8c966fb2	structural-scan
+apps/server/drizzle/meta/0005_snapshot.json	generated	1969	49621	a6455704c085	structural-scan
+apps/server/drizzle/meta/0006_snapshot.json	generated	1962	49416	e7cb3f0b9a97	structural-scan
+apps/server/drizzle/meta/0007_snapshot.json	generated	1970	49629	606af3399608	structural-scan
+apps/server/drizzle/meta/0008_snapshot.json	generated	1977	49808	993fa5564ae3	structural-scan
+apps/server/drizzle/meta/0009_snapshot.json	generated	2081	52425	8740931ad81a	structural-scan
+apps/server/drizzle/meta/0010_snapshot.json	generated	2096	52845	84c837b06152	structural-scan
+apps/server/drizzle/meta/0011_snapshot.json	generated	2104	53063	634c5f15c2a9	structural-scan
+apps/server/drizzle/meta/0012_snapshot.json	generated	2111	53242	08cc9ed04a52	structural-scan
+apps/server/drizzle/meta/0013_snapshot.json	generated	2613	66163	c7be05058266	structural-scan
+apps/server/drizzle/meta/0014_snapshot.json	generated	2653	67218	c89b1403fc81	structural-scan
+apps/server/drizzle/meta/0015_snapshot.json	generated	2669	67637	d44e12a25c9a	structural-scan
+apps/server/drizzle/meta/0016_snapshot.json	generated	2669	67637	e235a1e94fd5	structural-scan
+apps/server/drizzle/meta/0017_snapshot.json	generated	2676	67828	ab03d119432b	structural-scan
+apps/server/drizzle/meta/0018_snapshot.json	generated	2711	68769	f1058568186e	structural-scan
+apps/server/drizzle/meta/0019_snapshot.json	generated	2726	69166	6df4b92147b3	structural-scan
+apps/server/drizzle/meta/0020_snapshot.json	generated	2742	69536	993c53802c6a	structural-scan
+apps/server/drizzle/meta/0021_snapshot.json	generated	2749	69712	96a0e77ced5a	structural-scan
+apps/server/drizzle/meta/0022_snapshot.json	generated	2757	69925	f65263c91b4f	structural-scan
+apps/server/drizzle/meta/0023_snapshot.json	generated	2764	70102	57492d3a5e10	structural-scan
+apps/server/drizzle/meta/0024_snapshot.json	generated	2771	70277	2d110eeb5daf	structural-scan
+apps/server/drizzle/meta/0025_snapshot.json	generated	2786	70664	666bac24c8c6	structural-scan
+apps/server/drizzle/meta/0026_snapshot.json	generated	2793	70849	78ac173f6326	structural-scan
+apps/server/drizzle/meta/0027_snapshot.json	generated	2800	71026	a1e76e9b21ea	structural-scan
+apps/server/drizzle/meta/0028_snapshot.json	generated	2809	71270	3c98eacb2551	structural-scan
+apps/server/drizzle/meta/0029_snapshot.json	generated	2868	72771	12af94c47c98	structural-scan
+apps/server/drizzle/meta/0030_snapshot.json	generated	2860	72553	d663eee965fa	structural-scan
+apps/server/drizzle/meta/0031_snapshot.json	generated	3006	76328	a5ee02ac32ce	structural-scan
+apps/server/drizzle/meta/0032_snapshot.json	generated	3110	78944	30e33dc4c24f	structural-scan
+apps/server/drizzle/meta/0033_snapshot.json	generated	3124	79298	6ebda020b374	structural-scan
+apps/server/drizzle/meta/0034_snapshot.json	generated	3131	79475	f5214a920dd6	structural-scan
+apps/server/drizzle/meta/0035_snapshot.json	generated	3254	82748	f6a5706238ac	structural-scan
+apps/server/drizzle/meta/0036_snapshot.json	generated	3087	78362	b90ada36aec9	structural-scan
+apps/server/drizzle/meta/0037_snapshot.json	generated	3166	80479	dd90bbece248	structural-scan
+apps/server/drizzle/meta/0038_snapshot.json	generated	3118	79213	969b769ea9c3	structural-scan
+apps/server/drizzle/meta/0040_snapshot.json	generated	3125	79386	794345d1195f	structural-scan
+apps/server/drizzle/meta/0041_snapshot.json	generated	3133	79585	10ebe0c6089b	structural-scan
+apps/server/drizzle/meta/0042_snapshot.json	generated	3141	79796	018bae447e21	structural-scan
+apps/server/drizzle/meta/0043_snapshot.json	generated	3203	81318	d9999d1371cc	structural-scan
+apps/server/drizzle/meta/0044_snapshot.json	generated	3211	81521	32873ce33fa9	structural-scan
+apps/server/drizzle/meta/0045_snapshot.json	generated	3218	81702	42914b13f491	structural-scan
+apps/server/drizzle/meta/0046_snapshot.json	generated	3226	81917	ff0a7430fa32	structural-scan
+apps/server/drizzle/meta/0047_snapshot.json	generated	3234	82153	9ba15f95f7cf	structural-scan
+apps/server/drizzle/meta/0048_snapshot.json	generated	3251	82497	a000cd641fd6	structural-scan
+apps/server/drizzle/meta/0049_snapshot.json	generated	3267	82921	1bdd4d74212a	structural-scan
+apps/server/drizzle/meta/0050_snapshot.json	generated	3275	83136	034012d3bebb	structural-scan
+apps/server/drizzle/meta/0051_snapshot.json	generated	3283	83351	84047668e0ba	structural-scan
+apps/server/drizzle/meta/0052_snapshot.json	generated	3291	83592	862b73dce5aa	structural-scan
+apps/server/drizzle/meta/0053_snapshot.json	generated	3291	83592	dc90a34c59d2	structural-scan
+apps/server/drizzle/meta/0054_snapshot.json	generated	3298	83782	7b1f76bfc68a	structural-scan
+apps/server/drizzle/meta/0055_snapshot.json	generated	3320	84368	7c6fe5a93c9d	structural-scan
+apps/server/drizzle/meta/0056_snapshot.json	generated	3328	84587	796daeaea09e	structural-scan
+apps/server/drizzle/meta/0057_snapshot.json	generated	3343	84985	38a9fbaaafec	structural-scan
+apps/server/drizzle/meta/0058_snapshot.json	generated	3350	85160	7ad9323cfa29	structural-scan
+apps/server/drizzle/meta/0059_snapshot.json	generated	3358	85366	a532223a19d5	structural-scan
+apps/server/drizzle/meta/0060_snapshot.json	generated	3372	85725	1aab5d586c34	structural-scan
+apps/server/drizzle/meta/0061_snapshot.json	generated	3381	85988	6b19217e8fc8	structural-scan
+apps/server/drizzle/meta/0062_snapshot.json	generated	3408	86693	0183f7cae140	structural-scan
+apps/server/drizzle/meta/0063_snapshot.json	generated	3438	87493	e8f2a6fc558e	structural-scan
+apps/server/drizzle/meta/0064_snapshot.json	generated	3256	82854	29ce1883693d	structural-scan
+apps/server/drizzle/meta/0065_snapshot.json	generated	3256	82838	a386a3a64e1c	structural-scan
+apps/server/drizzle/meta/0066_snapshot.json	generated	3271	83244	95f672f4495d	structural-scan
+apps/server/drizzle/meta/0067_snapshot.json	generated	3270	83217	689a1a670e67	structural-scan
+apps/server/drizzle/meta/0068_snapshot.json	generated	3278	83434	fe8ff9a85e41	structural-scan
+apps/server/drizzle/meta/0069_snapshot.json	generated	3292	83820	2060430c7e87	structural-scan
+apps/server/drizzle/meta/0070_snapshot.json	generated	3285	83618	dae09b22eb71	structural-scan
+apps/server/drizzle/meta/0071_snapshot.json	generated	3278	83439	ad467c38883d	structural-scan
+apps/server/drizzle/meta/0072_snapshot.json	generated	3285	83624	7228820588c2	structural-scan
+apps/server/drizzle/meta/0073_snapshot.json	generated	3277	83401	ea9050f1d92f	structural-scan
+apps/server/drizzle/meta/0074_snapshot.json	generated	3277	83401	9a6bb8fb4001	structural-scan
+apps/server/drizzle/meta/0075_snapshot.json	generated	3272	83277	3ba197210794	structural-scan
+apps/server/drizzle/meta/0076_snapshot.json	generated	3154	80303	83e789af8f52	structural-scan
+apps/server/drizzle/meta/0077_snapshot.json	generated	3146	80090	63982a8dcf3b	structural-scan
+apps/server/drizzle/meta/0078_snapshot.json	generated	3146	80090	ca8b039f5e67	structural-scan
+apps/server/drizzle/meta/0079_snapshot.json	generated	3146	80090	807a435bca6c	structural-scan
+apps/server/drizzle/meta/0080_snapshot.json	generated	3154	80314	5602a5ee2923	structural-scan
+apps/server/drizzle/meta/0081_snapshot.json	generated	3146	80101	380e2ada701b	structural-scan
+apps/server/drizzle/meta/0082_snapshot.json	generated	3119	79395	9dcee31e2586	structural-scan
+apps/server/drizzle/meta/0083_snapshot.json	generated	3119	79395	6a3e284e79e0	structural-scan
+apps/server/drizzle/meta/0084_snapshot.json	generated	3228	82223	5c1bf2bdeefe	structural-scan
+apps/server/drizzle/meta/0085_snapshot.json	generated	3236	82424	8f6ccbfc948d	structural-scan
+apps/server/drizzle/meta/0086_snapshot.json	generated	3252	82842	0d930b557bfe	structural-scan
+apps/server/drizzle/meta/0087_snapshot.json	generated	3252	82842	ee8a18107560	structural-scan
+apps/server/drizzle/meta/0088_snapshot.json	generated	3259	83027	de02d9ee3d62	structural-scan
+apps/server/drizzle/meta/0089_snapshot.json	generated	3266	83214	710007f8bb17	structural-scan
+apps/server/drizzle/meta/0090_snapshot.json	generated	3259	83027	46e8a5bd962e	structural-scan
+apps/server/drizzle/meta/0091_snapshot.json	generated	3231	82257	b55c6a3b4c9c	structural-scan
+apps/server/drizzle/meta/0092_snapshot.json	generated	3223	82049	02dd1f557f8b	structural-scan
+apps/server/drizzle/meta/0093_snapshot.json	generated	3285	83639	1949bfc8adbb	structural-scan
+apps/server/drizzle/meta/_journal.json	generated	664	13607	ee81671e4471	structural-scan
+apps/server/package.json	configuration-or-doc	39	969	cc91e7768d14	structural-scan
+apps/server/src/app.ts	implementation	77	3581	46a8314757a9	structural + targeted-source-review
+apps/server/src/architecture.test.ts	test	90	3329	1bd8c8090047	structural-scan + suite-executed
+apps/server/src/config.ts	implementation	11	381	b2824e67285a	structural-scan
+apps/server/src/context.ts	implementation	31	1227	98659d851f80	structural + targeted-source-review
+apps/server/src/db/chunk.test.ts	test	21	846	c9b7d49b44d9	structural-scan + suite-executed
+apps/server/src/db/chunk.ts	implementation	31	1456	7bd115e27723	structural-scan
+apps/server/src/db/graph-layout-direction-migration.test.ts	test	41	2734	1a7d5aba929f	structural-scan + suite-executed
+apps/server/src/db/index.ts	implementation	84	5205	76964bfe8f26	structural-scan
+apps/server/src/db/migration-backup.test.ts	test	66	2887	d70722bdf992	structural-scan + suite-executed
+apps/server/src/db/migrations.test.ts	test	19	1105	e36bbed24f51	structural-scan + suite-executed
+apps/server/src/db/model-choice-migration.test.ts	test	80	6027	6ce187c230e4	structural-scan + suite-executed
+apps/server/src/db/schema.ts	implementation	753	38092	8a9602f22eac	structural + targeted-source-review
+apps/server/src/db/status-by-migration.test.ts	test	80	4783	a74af357a98b	structural-scan + suite-executed
+apps/server/src/engine/ai-output.test.ts	test	135	10551	8797652da479	structural-scan + suite-executed
+apps/server/src/engine/ai-output.ts	implementation	147	9540	efc5c56fbec4	structural-scan
+apps/server/src/engine/apply-candidate.ts	implementation	36	2309	24ac6b248d9a	structural-scan
+apps/server/src/engine/batches.test.ts	test	98	5754	0eb060d05d6b	structural-scan + suite-executed
+apps/server/src/engine/batches.ts	implementation	193	9204	cae1a8642dc7	structural-scan
+apps/server/src/engine/call-runner.test.ts	test	197	13563	d978b1941a3f	structural-scan + suite-executed
+apps/server/src/engine/expand-calls.ts	implementation	15	1075	4e224cac5551	structural-scan
+apps/server/src/engine/format-sentences.ts	implementation	20	1744	c5169b33888b	structural-scan
+apps/server/src/engine/functions/apply.test.ts	test	261	19082	00b6cd905094	structural-scan + suite-executed
+apps/server/src/engine/functions/apply.ts	implementation	296	18398	3bc0fd36e118	structural-scan
+apps/server/src/engine/functions/index.ts	implementation	204	12553	181d73c75147	structural-scan
+apps/server/src/engine/functions/sandbox.ts	implementation	46	2187	6573a9b7d7f2	structural + targeted-source-review
+apps/server/src/engine/functions/types.ts	implementation	37	1517	0004297bffdf	structural-scan
+apps/server/src/engine/gather.test.ts	test	131	8629	c84618f430f2	structural-scan + suite-executed
+apps/server/src/engine/issue-tags-flow.test.ts	test	61	4273	b85ec84905a9	structural-scan + suite-executed
+apps/server/src/engine/mock-llm.test.ts	test	202	12098	40bca8d1f31b	structural-scan + suite-executed
+apps/server/src/engine/model-port.ts	implementation	6	125	63901b217957	structural-scan
+apps/server/src/engine/people-merge.test.ts	test	156	15793	f294e012d2bd	structural-scan + suite-executed
+apps/server/src/engine/prompts.test.ts	test	120	6933	fc0a14c0273d	structural-scan + suite-executed
+apps/server/src/engine/prompts.ts	implementation	240	15300	c67cff57adeb	structural-scan
+apps/server/src/engine/retry-visible.test.ts	test	323	19718	0af146788a2e	structural-scan + suite-executed
+apps/server/src/engine/run-continue.test.ts	test	88	5584	136b304cc660	structural-scan + suite-executed
+apps/server/src/engine/run-create.ts	implementation	220	13263	a1ff4a8641ef	structural-scan
+apps/server/src/engine/run-scope.test.ts	test	89	6436	a07af94ff8e5	structural-scan + suite-executed
+apps/server/src/engine/runner-cutoff.test.ts	test	240	15235	6a30a9f624e3	structural-scan + suite-executed
+apps/server/src/engine/runner-guards.test.ts	test	488	27340	7349af14d25e	structural-scan + suite-executed
+apps/server/src/engine/runner.test.ts	test	484	26958	ba7a787fdbc3	structural-scan + suite-executed
+apps/server/src/engine/runner.ts	implementation	1019	59962	6eca06453f35	structural + targeted-source-review
+apps/server/src/engine/script-data.test.ts	test	20	904	d0e813ebbd8e	structural-scan + suite-executed
+apps/server/src/engine/subjects.ts	implementation	122	6867	20e2602745d2	structural-scan
+apps/server/src/engine/template-failures.test.ts	test	80	4919	82fe55704241	structural-scan + suite-executed
+apps/server/src/engine/term-subject.test.ts	test	159	10711	46a6f0c8ad04	structural-scan + suite-executed
+apps/server/src/engine/test-workflows.ts	implementation	20	1379	6cb7e0ab3cd8	structural-scan
+apps/server/src/engine/translation-flow.test.ts	test	95	6224	db1d2dca6e41	structural-scan + suite-executed
+apps/server/src/engine/whole-script.test.ts	test	169	9879	2a5002303e71	structural-scan + suite-executed
+apps/server/src/engine/whole-script.ts	implementation	33	2059	8b0c29101d3d	structural-scan
+apps/server/src/events.test.ts	test	129	5194	f8ffb18a42e3	structural-scan + suite-executed
+apps/server/src/events.ts	implementation	160	6423	dd8206c868d4	structural + targeted-source-review
+apps/server/src/http-errors.ts	implementation	12	534	f15d91095633	structural-scan
+apps/server/src/main.ts	implementation	90	4951	d6631201146a	structural + targeted-source-review
+apps/server/src/routes/ai-settings.ts	implementation	184	10665	ae36c717cc08	structural-scan
+apps/server/src/routes/analysis-continue.test.ts	test	78	4066	b5d0b26a0f25	structural-scan + suite-executed
+apps/server/src/routes/app-settings.ts	implementation	26	1722	545e364b36a2	structural-scan
+apps/server/src/routes/blank-final.test.ts	test	106	5170	32128b4a365e	structural-scan + suite-executed
+apps/server/src/routes/chat-prompts.test.ts	test	80	4588	6ee83fe001e5	structural-scan + suite-executed
+apps/server/src/routes/chat.ts	implementation	291	16495	dbbb897d31ac	structural + targeted-source-review
+apps/server/src/routes/connection-login.test.ts	test	62	3011	2e527ee46344	structural-scan + suite-executed
+apps/server/src/routes/generate-regex.test.ts	test	81	4476	0504d6250019	structural-scan + suite-executed
+apps/server/src/routes/graph-direction.test.ts	test	37	2375	804949ac2791	structural-scan + suite-executed
+apps/server/src/routes/graph-node-scope.test.ts	test	61	2404	b7c9d64307d2	structural-scan + suite-executed
+apps/server/src/routes/knowledge.ts	implementation	273	17138	643ad88605b8	structural + targeted-source-review
+apps/server/src/routes/listeners.test.ts	test	42	2139	37945971e582	structural-scan + suite-executed
+apps/server/src/routes/main-route.test.ts	test	326	21298	e2492adb38e4	structural-scan + suite-executed
+apps/server/src/routes/model-seeding.test.ts	test	63	3910	f96593287edf	structural-scan + suite-executed
+apps/server/src/routes/projects.ts	implementation	216	12410	b4764ddd42bc	structural + targeted-source-review
+apps/server/src/routes/proposals.test.ts	test	30	2446	06068b4044ef	structural-scan + suite-executed
+apps/server/src/routes/proposals.ts	implementation	71	4437	6cdf14cd11c0	structural-scan
+apps/server/src/routes/reading-route.test.ts	test	355	18798	0bae291ea66a	structural-scan + suite-executed
+apps/server/src/routes/role-tags.test.ts	test	79	5543	1997c54de837	structural-scan + suite-executed
+apps/server/src/routes/same-source.test.ts	test	47	2743	93fb5b8652d3	structural-scan + suite-executed
+apps/server/src/routes/script.ts	implementation	106	7779	e081e3dbda3f	structural-scan
+apps/server/src/routes/source-editing.test.ts	test	49	3708	e9aa2933ac12	structural-scan + suite-executed
+apps/server/src/routes/source.ts	implementation	808	58249	9f3145ee7c09	structural + targeted-source-review
+apps/server/src/routes/status-by.test.ts	test	76	4970	fa890e636fed	structural-scan + suite-executed
+apps/server/src/routes/unit-detail.test.ts	test	49	1944	730f007d8341	structural-scan + suite-executed
+apps/server/src/routes/workflow-calls.test.ts	test	37	2799	8a3132857f8f	structural-scan + suite-executed
+apps/server/src/routes/workflow-create.test.ts	test	49	3799	3c9a488afffd	structural-scan + suite-executed
+apps/server/src/routes/workflows.ts	implementation	487	32386	00c6934d6591	structural + targeted-source-review
+apps/server/src/routes/write-paths.test.ts	test	247	14912	4e4fc9891822	structural-scan + suite-executed
+apps/server/src/schemas/knowledge.ts	implementation	28	2389	137fc84a6441	structural-scan
+apps/server/src/schemas/projects.ts	implementation	20	997	508760b32f65	structural-scan
+apps/server/src/services/agent-catalog.ts	implementation	44	1607	5854c491cfd6	structural + targeted-source-review
+apps/server/src/services/agent-permission-check.ts	implementation	23	1562	9273cff2aecf	structural + targeted-source-review
+apps/server/src/services/agent-permissions.integration.test.ts	test	234	15352	d367f15bc2aa	structural-scan + suite-executed
+apps/server/src/services/agent-permissions.test.ts	test	42	2974	7b74ea39178f	structural-scan + suite-executed
+apps/server/src/services/agent-save-tools.test.ts	test	73	5224	10371d1ede7c	structural-scan + suite-executed
+apps/server/src/services/agent-tools.ts	implementation	972	88993	9f70f76a4e71	structural-scan
+apps/server/src/services/ai-calls.test.ts	test	66	4236	252feeaa0d6b	structural-scan + suite-executed
+apps/server/src/services/ai-calls.ts	implementation	86	4890	9c18eb8d471c	structural-scan
+apps/server/src/services/ai-knowledge.test.ts	test	354	28407	49259a5ac373	structural-scan + suite-executed
+apps/server/src/services/ai-knowledge.ts	implementation	489	32541	6757a741dbe3	structural + targeted-source-review
+apps/server/src/services/analysis.test.ts	test	31	1329	f3d0fd8a95e2	structural-scan + suite-executed
+apps/server/src/services/app-defaults.test.ts	test	166	11825	6d2d33cee88e	structural-scan + suite-executed
+apps/server/src/services/app-defaults.ts	implementation	318	17750	17f78666cf13	structural + targeted-source-review
+apps/server/src/services/attach-search.test.ts	test	185	12654	91f46e806a9a	structural-scan + suite-executed
+apps/server/src/services/attach-search.ts	implementation	212	13779	3397a30918f8	structural-scan
+apps/server/src/services/budgets.test.ts	test	88	6222	df667e30b877	structural-scan + suite-executed
+apps/server/src/services/budgets.ts	implementation	47	3147	ee97e212c484	structural-scan
+apps/server/src/services/bulk-tools.test.ts	test	78	5432	acac1467822c	structural-scan + suite-executed
+apps/server/src/services/candidates.test.ts	test	64	3526	7f5a85601a0b	structural-scan + suite-executed
+apps/server/src/services/candidates.ts	implementation	37	1586	2b82de071bf2	structural-scan
+apps/server/src/services/chains.test.ts	test	22	1359	fd29feec0b3d	structural-scan + suite-executed
+apps/server/src/services/chains.ts	implementation	57	2879	62b5fa00bb5d	structural-scan
+apps/server/src/services/change-gate.test.ts	test	107	7704	4f5ed1340b67	structural-scan + suite-executed
+apps/server/src/services/change-gate.ts	implementation	108	7550	3fcd8588c84e	structural + targeted-source-review
+apps/server/src/services/characters.test.ts	test	67	4376	4122d51207d2	structural-scan + suite-executed
+apps/server/src/services/characters.ts	implementation	32	1922	90d5fe9568ab	structural-scan
+apps/server/src/services/chat-compaction.test.ts	test	70	4276	5bc13d02c018	structural-scan + suite-executed
+apps/server/src/services/chat-compaction.ts	implementation	113	6825	6c873d204b6b	structural-scan
+apps/server/src/services/chat-context.test.ts	test	42	2714	d5f50895d655	structural-scan + suite-executed
+apps/server/src/services/chat-context.ts	implementation	177	8757	45978d559dd6	structural-scan
+apps/server/src/services/chat-images.ts	implementation	35	1830	25785ddd1674	structural-scan
+apps/server/src/services/chat-interject.ts	implementation	78	4380	103c9bde7d66	structural-scan
+apps/server/src/services/chat-run-cards.test.ts	test	126	9717	490121c0b214	structural-scan + suite-executed
+apps/server/src/services/chat-run-cards.ts	implementation	93	5385	be6d4035d084	structural-scan
+apps/server/src/services/chat-run-scope.test.ts	test	83	5943	0e208f7f6c29	structural-scan + suite-executed
+apps/server/src/services/chat-run-scope.ts	implementation	52	3267	0f4fec3b58ea	structural-scan
+apps/server/src/services/chat-run.ts	implementation	203	12736	226990a04a18	structural-scan
+apps/server/src/services/chat-steer.test.ts	test	59	3886	4be5bbf083af	structural-scan + suite-executed
+apps/server/src/services/chat-stream.test.ts	test	43	2544	c56a9b509b8b	structural-scan + suite-executed
+apps/server/src/services/chat-stream.ts	implementation	77	4269	d395f00c57c8	structural-scan
+apps/server/src/services/chat-turns.test.ts	test	32	1300	057a282253d3	structural-scan + suite-executed
+apps/server/src/services/chat-turns.ts	implementation	148	5764	0030f08e2d89	structural + targeted-source-review
+apps/server/src/services/chat-usage.test.ts	test	66	4133	f644aa7ddbb5	structural-scan + suite-executed
+apps/server/src/services/chat-usage.ts	implementation	36	1984	3aa5793a5f72	structural-scan
+apps/server/src/services/choice-options.test.ts	test	37	1803	6de4341a4b9a	structural-scan + suite-executed
+apps/server/src/services/choice-options.ts	implementation	26	1456	851fcf69cb42	structural-scan
+apps/server/src/services/choices.ts	implementation	43	1831	47e694755f24	structural-scan
+apps/server/src/services/cli-chat.test.ts	test	170	9229	649b95f731d7	structural-scan + suite-executed
+apps/server/src/services/cli-chat.ts	implementation	229	11897	f81e0e0deaa9	structural + targeted-source-review
+apps/server/src/services/cli-parity.test.ts	test	165	9762	8229b24cb4bd	structural-scan + suite-executed
+apps/server/src/services/connection-split.ts	implementation	44	2832	4335952614a4	structural + targeted-source-review
+apps/server/src/services/context-preview.ts	implementation	64	4417	825a401c72d9	structural-scan
+apps/server/src/services/context.test.ts	test	311	21462	4f0db419199e	structural-scan + suite-executed
+apps/server/src/services/context.ts	implementation	531	31806	482e961ffce1	structural-scan
+apps/server/src/services/editor-assist.test.ts	test	82	5338	70025bb3066c	structural-scan + suite-executed
+apps/server/src/services/editor-assist.ts	implementation	65	5068	641c98dd7907	structural-scan
+apps/server/src/services/editor-complete.test.ts	test	14	907	a2fa83c21c94	structural-scan + suite-executed
+apps/server/src/services/editor-complete.ts	implementation	108	6701	4bf6f86c147b	structural-scan
+apps/server/src/services/event-links.test.ts	test	45	2663	1dd92b17c9e4	structural-scan + suite-executed
+apps/server/src/services/event-routes.test.ts	test	39	2460	cfe0d0777744	structural-scan + suite-executed
+apps/server/src/services/event-routes.ts	implementation	179	12278	d095dbd8b9c9	structural-scan
+apps/server/src/services/exclusion.test.ts	test	92	5907	a792dabb52c9	structural-scan + suite-executed
+apps/server/src/services/graph-edit.test.ts	test	160	8307	7972cdf1ea6e	structural-scan + suite-executed
+apps/server/src/services/graph-edit.ts	implementation	405	26466	07b1b7ceda1d	structural-scan
+apps/server/src/services/graph-order.test.ts	test	86	3311	24cd16007f70	structural-scan + suite-executed
+apps/server/src/services/graph-order.ts	implementation	233	9613	b45863985aef	structural-scan
+apps/server/src/services/graph-views.test.ts	test	58	3935	641271883607	structural-scan + suite-executed
+apps/server/src/services/graph-views.ts	implementation	194	10718	de179ef73533	structural + targeted-source-review
+apps/server/src/services/harness-reference.test.ts	test	22	1321	a147702e0ed4	structural-scan + suite-executed
+apps/server/src/services/importer.test.ts	test	76	4956	24a7cbf49090	structural-scan + suite-executed
+apps/server/src/services/importer.ts	implementation	198	9734	02229a2186bb	structural-scan
+apps/server/src/services/issue-tags.test.ts	test	46	2330	804df90a1e35	structural-scan + suite-executed
+apps/server/src/services/issue-tags.ts	implementation	31	1704	9bf0840fcc83	structural-scan
+apps/server/src/services/item-delete.ts	implementation	129	8081	d1c9d9ecd49c	structural + targeted-source-review
+apps/server/src/services/item-restore.test.ts	test	46	3193	9cfb67d7e875	structural-scan + suite-executed
+apps/server/src/services/knowledge-cache.test.ts	test	160	9639	316f11bac7aa	structural-scan + suite-executed
+apps/server/src/services/knowledge-list.ts	implementation	40	3210	ae9046b6ec1e	structural + targeted-source-review
+apps/server/src/services/knowledge-save.ts	implementation	86	5130	b79c74f79418	structural + targeted-source-review
+apps/server/src/services/knowledge-tags.ts	implementation	63	3960	5ef4702d081a	structural + targeted-source-review
+apps/server/src/services/layout-types.ts	implementation	15	951	389e2e2499ed	structural-scan
+apps/server/src/services/layout-worker.ts	implementation	305	17442	b83546f45d0d	structural-scan
+apps/server/src/services/layout.test.ts	test	71	3374	a522145e1ec5	structural-scan + suite-executed
+apps/server/src/services/layout.ts	implementation	363	20560	2eccaf70d905	structural + targeted-source-review
+apps/server/src/services/line-marks.test.ts	test	54	3903	49b6711d3694	structural-scan + suite-executed
+apps/server/src/services/line-marks.ts	implementation	56	3647	304984db2304	structural-scan
+apps/server/src/services/line-matches.test.ts	test	48	2271	808d82603e4e	structural-scan + suite-executed
+apps/server/src/services/line-matches.ts	implementation	118	5632	a81795d9b2ca	structural-scan
+apps/server/src/services/line-revision.test.ts	test	66	3299	0ffee7a128fb	structural-scan + suite-executed
+apps/server/src/services/line-save.ts	implementation	129	6990	c1aa48caa35e	structural + targeted-source-review
+apps/server/src/services/line-text.ts	implementation	21	936	9a34c64d8a3a	structural-scan
+apps/server/src/services/listeners.ts	implementation	44	2582	59f3ac56a11e	structural-scan
+apps/server/src/services/next-route.test.ts	test	198	9210	3bdc9b016bc4	structural-scan + suite-executed
+apps/server/src/services/next-route.ts	implementation	292	13869	2288ea78d19e	structural-scan
+apps/server/src/services/preflight.test.ts	test	155	11037	8e99624437f5	structural-scan + suite-executed
+apps/server/src/services/preflight.ts	implementation	478	30748	4eb302efa8d5	structural-scan
+apps/server/src/services/project-mutations.test.ts	test	80	5246	c41466f1471e	structural-scan + suite-executed
+apps/server/src/services/project-refs.ts	implementation	31	2070	5f71a4a3ee7a	structural-scan
+apps/server/src/services/project-settings.ts	implementation	34	1990	16ab1f10b547	structural + targeted-source-review
+apps/server/src/services/project-slice.ts	implementation	23	1334	9090219d681c	structural + targeted-source-review
+apps/server/src/services/project-taxonomy.ts	implementation	103	7012	0d0893a3d064	structural-scan
+apps/server/src/services/proposal-check.test.ts	test	69	4326	018c9762ebf0	structural-scan + suite-executed
+apps/server/src/services/proposal-check.ts	implementation	145	10482	6610c6dd07f9	structural-scan
+apps/server/src/services/proposal-undo-safety.test.ts	test	124	7881	eebe1f717fba	structural-scan + suite-executed
+apps/server/src/services/proposal-undo.test.ts	test	137	8551	86f4d3ddc960	structural-scan + suite-executed
+apps/server/src/services/proposal-undo.ts	implementation	501	25664	474adbe85389	structural-scan
+apps/server/src/services/proposals.test.ts	test	88	5916	cfc746de70e7	structural-scan + suite-executed
+apps/server/src/services/proposals.ts	implementation	199	11755	978b4b774729	structural + targeted-source-review
+apps/server/src/services/reading-route-query.ts	implementation	2	159	572f33a4a35d	structural-scan
+apps/server/src/services/reading-route-tool.test.ts	test	153	8453	f02478604d86	structural-scan + suite-executed
+apps/server/src/services/reading-route-tool.ts	implementation	151	7206	e83ebcb978f3	structural-scan
+apps/server/src/services/reading-route.test.ts	test	130	7779	1031b9341b5d	structural-scan + suite-executed
+apps/server/src/services/reading-route.ts	implementation	656	23135	88c5f91f32b5	structural-scan
+apps/server/src/services/regex-assist.ts	implementation	49	3770	886904f11059	structural-scan
+apps/server/src/services/request-preview.ts	implementation	67	4272	986e79ff83db	structural-scan
+apps/server/src/services/route-coverage.test.ts	test	126	7984	4652057463a8	structural-scan + suite-executed
+apps/server/src/services/route-coverage.ts	implementation	101	4508	8688d1ce6e81	structural-scan
+apps/server/src/services/route-slice.test.ts	test	440	25633	524e147021e7	structural-scan + suite-executed
+apps/server/src/services/route-slice.ts	implementation	437	23202	d195b2ffd2c1	structural-scan
+apps/server/src/services/routes.test.ts	test	26	1651	d3ca6443ef80	structural-scan + suite-executed
+apps/server/src/services/routes.ts	implementation	81	4073	effcccb24e83	structural-scan
+apps/server/src/services/run-continue.ts	implementation	53	3363	0d27fa194a07	structural-scan
+apps/server/src/services/run-models.test.ts	test	62	4542	2f111d1a264e	structural-scan + suite-executed
+apps/server/src/services/run-plan.ts	implementation	143	9499	a37b257c2c1e	structural-scan
+apps/server/src/services/saved-prompts.ts	implementation	22	1330	d3fead298509	structural-scan
+apps/server/src/services/scene-graph.test.ts	test	103	5151	f258cf8525c2	structural-scan + suite-executed
+apps/server/src/services/scene-graph.ts	implementation	214	9322	7df8ec543060	structural-scan
+apps/server/src/services/script-query.test.ts	test	133	7412	b751b5ed49ba	structural-scan + suite-executed
+apps/server/src/services/script-query.ts	implementation	491	32036	c967db136422	structural + targeted-source-review
+apps/server/src/services/script-text.ts	implementation	72	3746	732d5e292ee6	structural-scan
+apps/server/src/services/seam-check.test.ts	test	87	5318	efc3b3df4118	structural-scan + suite-executed
+apps/server/src/services/seam-check.ts	implementation	135	6887	62288fbeae12	structural-scan
+apps/server/src/services/secrets.ts	implementation	28	900	a8a8161f851d	structural + targeted-source-review
+apps/server/src/services/section-graph.test.ts	test	36	1845	b4394c9ee7b6	structural-scan + suite-executed
+apps/server/src/services/section-graph.ts	implementation	90	4211	aef75cf7d248	structural-scan
+apps/server/src/services/source-mutations.test.ts	test	97	6902	edd6a26d9878	structural-scan + suite-executed
+apps/server/src/services/source-mutations.ts	implementation	197	12068	16df3e8175e4	structural + targeted-source-review
+apps/server/src/services/speech-mismatch.test.ts	test	29	1740	5ce2859a50fa	structural-scan + suite-executed
+apps/server/src/services/speech.ts	implementation	303	18892	ae8fbffe0fb8	structural-scan
+apps/server/src/services/start-run.ts	implementation	39	2480	b7d4e5c179d4	structural-scan
+apps/server/src/services/status-by.ts	implementation	35	2096	bc8d2fe19134	structural-scan
+apps/server/src/services/tag-overview.ts	implementation	43	2605	5e10a04d7630	structural-scan
+apps/server/src/services/tag-scope.ts	implementation	85	5614	e245b07f7cdf	structural-scan
+apps/server/src/services/term-discovery.test.ts	test	95	4645	0766a14c090c	structural-scan + suite-executed
+apps/server/src/services/term-discovery.ts	implementation	363	15998	bd61b95842e7	structural-scan
+apps/server/src/services/term-usage.ts	implementation	59	3329	238d572a15fd	structural + targeted-source-review
+apps/server/src/services/terms.test.ts	test	103	5777	1d85b8fe8f58	structural-scan + suite-executed
+apps/server/src/services/terms.ts	implementation	176	10179	59851fcb08fe	structural-scan
+apps/server/src/services/tool-output.test.ts	test	27	1453	472a0c9c4cc2	structural-scan + suite-executed
+apps/server/src/services/tool-output.ts	implementation	60	2915	bdfc1a891d1f	structural-scan
+apps/server/src/services/unit-seq.test.ts	test	98	5704	d708e39cc290	structural-scan + suite-executed
+apps/server/src/services/view-edges.test.ts	test	22	1144	b657f9821631	structural-scan + suite-executed
+apps/server/src/services/web.ts	implementation	76	4817	c56391db85b2	structural + targeted-source-review
+apps/server/src/services/whole-script-limits.ts	implementation	7	365	122f4c7ccbe6	structural-scan
+apps/server/src/services/workflow-issues.ts	implementation	37	2480	907e226a7929	structural-scan
+apps/server/src/services/workflow-mutations.ts	implementation	51	3270	bd9adb2d27d3	structural + targeted-source-review
+apps/server/tsconfig.json	configuration-or-doc	1	83	7bbf358fd36d	structural-scan
+apps/web/components.json	configuration-or-doc	9	375	9858f8a79294	structural-scan
+apps/web/index.html	configuration-or-doc	42	2755	bd678b7c4bb6	structural-scan
+apps/web/package.json	configuration-or-doc	65	1886	827650543704	structural + targeted-source-review
+apps/web/src/components/ai-button.tsx	implementation	18	888	51d18215d772	structural-scan
+apps/web/src/components/ai-context.tsx	implementation	80	4617	d859ddf23004	structural-scan
+apps/web/src/components/ai-regex-input.tsx	implementation	55	2266	5aab3522b920	structural-scan
+apps/web/src/components/app-sidebar.tsx	implementation	106	7626	dde56016aab9	structural-scan
+apps/web/src/components/changed-elsewhere.tsx	implementation	27	1064	6766d2a14a50	structural-scan
+apps/web/src/components/chat/attach-chip.tsx	implementation	25	1050	6c00b818e08d	structural-scan
+apps/web/src/components/chat/change-preview.tsx	implementation	233	15417	00df00d70860	structural-scan
+apps/web/src/components/chat/chat-panel.tsx	implementation	900	48499	3e9c3097a771	structural-scan
+apps/web/src/components/chat/context-meter.tsx	implementation	31	1240	40c62fd6fb39	structural-scan
+apps/web/src/components/chat/conversation-menu.tsx	implementation	170	8064	02637d774ac6	structural-scan
+apps/web/src/components/chat/permission-mode.tsx	implementation	28	1367	b920f39917ed	structural-scan
+apps/web/src/components/chat/proposal-card.tsx	implementation	139	8069	0759a6dcf6e9	structural-scan
+apps/web/src/components/chat/proposal-list.tsx	implementation	115	6854	145e5f7efa2b	structural-scan
+apps/web/src/components/chat/run-card.tsx	implementation	110	5784	65e08ca80014	structural-scan
+apps/web/src/components/chat/tool-part.tsx	implementation	212	11876	44cf9e8f69f5	structural-scan
+apps/web/src/components/chat/use-composer-menu.ts	implementation	217	11778	9becaf588a9c	structural-scan
+apps/web/src/components/command-search.tsx	implementation	216	10337	0cf7d4b51a1f	structural-scan
+apps/web/src/components/copy-button.tsx	implementation	27	923	4c47f8c67df6	structural-scan
+apps/web/src/components/editor/source-text.tsx	implementation	185	8341	1828d9bc364d	structural-scan
+apps/web/src/components/editor/term-pick.tsx	implementation	78	3893	cf6473c6ccc2	structural-scan
+apps/web/src/components/editor/translation-input.tsx	implementation	527	25910	c85eb959f3cf	structural-scan
+apps/web/src/components/exclusion-rules.tsx	implementation	105	6554	379ba61228b3	structural-scan
+apps/web/src/components/format-rules.tsx	implementation	226	11085	4aa8f7e473b5	structural-scan
+apps/web/src/components/getting-started.tsx	implementation	189	7547	1fab5648da57	structural-scan
+apps/web/src/components/glossary/term-pane.tsx	implementation	196	10091	d019e52f9757	structural + targeted-source-review
+apps/web/src/components/graph/canvas-colors.ts	implementation	14	1238	17839c75a759	structural-scan
+apps/web/src/components/graph/canvas-text-wrap.test.ts	test	25	1049	c0bb693a1c31	structural-scan + suite-executed
+apps/web/src/components/graph/canvas-text-wrap.ts	implementation	58	1860	424bd80a8400	structural-scan
+apps/web/src/components/graph/edit-panes.tsx	implementation	101	4773	1c4edc876532	structural-scan
+apps/web/src/components/graph/endpoint-picker.tsx	implementation	247	14002	b33b5fe9dac9	structural-scan
+apps/web/src/components/graph/graph-canvas.tsx	implementation	1159	57296	20d978406b7f	structural-scan
+apps/web/src/components/graph/graph-edits.ts	implementation	117	6503	ad9562832177	structural-scan
+apps/web/src/components/graph/line-card.tsx	implementation	168	7546	ff25f7d22b65	structural-scan
+apps/web/src/components/graph/node-detail.tsx	implementation	211	10050	4171a75dbf64	structural-scan
+apps/web/src/components/graph/path-graph.tsx	implementation	569	30606	a8e36c344fd1	structural-scan
+apps/web/src/components/graph/path-mode.tsx	implementation	173	7463	6bc9692d742f	structural-scan
+apps/web/src/components/graph/path-pane.tsx	implementation	96	4619	f8a1c9d8f3a2	structural-scan
+apps/web/src/components/graph/path-window.test.ts	test	213	14197	a6f6ef8a79b0	structural-scan + suite-executed
+apps/web/src/components/graph/path-window.ts	implementation	432	19261	060a429944cb	structural-scan
+apps/web/src/components/graph/reading-route-graph.tsx	implementation	139	6199	bfbaf8656055	structural-scan
+apps/web/src/components/graph/reading-stage-layout.test.ts	test	17	1050	025c8dcc2473	structural-scan + suite-executed
+apps/web/src/components/graph/reading-stage-layout.ts	implementation	13	860	325fa0477787	structural-scan
+apps/web/src/components/graph/remaining-branches.tsx	implementation	69	2947	ec3db949a735	structural-scan
+apps/web/src/components/graph/route-list-model.test.ts	test	77	4705	c61b0ffef45b	structural-scan + suite-executed
+apps/web/src/components/graph/route-list-model.ts	implementation	101	5048	d2fa5344ac4c	structural-scan
+apps/web/src/components/graph/route-list.tsx	implementation	439	22826	3a1ee0141b5a	structural-scan
+apps/web/src/components/graph/seam-check-pane.tsx	implementation	91	4911	33db5b484fc5	structural-scan
+apps/web/src/components/graph/shapes.ts	implementation	96	3814	c24ddbadf81d	structural-scan
+apps/web/src/components/graph/type-legend.tsx	implementation	90	3668	48baf73aaf88	structural-scan
+apps/web/src/components/graph/view-inspector.tsx	implementation	208	9891	d84171ae59f3	structural-scan
+apps/web/src/components/header-filter.tsx	implementation	201	9217	735fdc2d1e55	structural-scan
+apps/web/src/components/import-project.tsx	implementation	122	5652	f96394eab64f	structural-scan
+apps/web/src/components/job-progress.tsx	implementation	22	1261	50f7da37dc1f	structural-scan
+apps/web/src/components/knowledge/add-pair-popover.tsx	implementation	143	6863	2464a62b4ca3	structural-scan
+apps/web/src/components/knowledge/editor.tsx	implementation	315	15121	c5bb927d0192	structural-scan
+apps/web/src/components/knowledge/event-actions.ts	implementation	100	4894	34327eb826cd	structural-scan
+apps/web/src/components/knowledge/event-flow-layout.ts	implementation	33	1989	3c55834b7d0a	structural-scan
+apps/web/src/components/knowledge/event-flow.test.ts	test	27	943	7ee62693709a	structural-scan + suite-executed
+apps/web/src/components/knowledge/event-flow.tsx	implementation	448	24361	d805404dd665	structural-scan
+apps/web/src/components/knowledge/evidence.tsx	implementation	193	8616	0950da30eb43	structural-scan
+apps/web/src/components/knowledge/graph-actions.ts	implementation	105	5189	ce0dee974771	structural-scan
+apps/web/src/components/knowledge/graph-history.ts	implementation	71	2609	4669a7ccfb1c	structural-scan
+apps/web/src/components/knowledge/line-detail.tsx	implementation	45	2267	916e05cf4bdf	structural-scan
+apps/web/src/components/knowledge/pairs.tsx	implementation	311	17159	0df05f6f3073	structural-scan
+apps/web/src/components/knowledge/table.tsx	implementation	359	18598	73a9fd85e2fd	structural-scan
+apps/web/src/components/line-detail.tsx	implementation	441	25368	26c33a149da2	structural-scan
+apps/web/src/components/model-picker.tsx	implementation	235	11366	bfe9a2cdc53f	structural-scan
+apps/web/src/components/page.tsx	implementation	17	463	ae224ba578d2	structural-scan
+apps/web/src/components/relationship-graph.tsx	implementation	520	26966	2f230f7063c2	structural-scan
+apps/web/src/components/script/group-list.tsx	implementation	236	12531	9c78d3de8e92	structural-scan
+apps/web/src/components/script/line-bulk.tsx	implementation	222	11968	31dff8c9d3b0	structural-scan
+apps/web/src/components/script/line-filters.test.ts	test	19	1170	14fa0fb46c3b	structural-scan + suite-executed
+apps/web/src/components/script/line-filters.tsx	implementation	269	17129	9502bf80a5c2	structural-scan
+apps/web/src/components/script/line-list.tsx	implementation	349	18458	1c58bc41c39b	structural-scan
+apps/web/src/components/script/line-menu.tsx	implementation	129	6936	a4b75be8d89e	structural-scan
+apps/web/src/components/script/line-note.tsx	implementation	65	2472	3f8b0b1ff4d6	structural-scan
+apps/web/src/components/script/line-row.tsx	implementation	453	21286	ba54875b0573	structural-scan
+apps/web/src/components/script/listener-picker.tsx	implementation	108	4978	add803d88a6c	structural-scan
+apps/web/src/components/script/scene-selection.test.ts	test	12	571	73395e662ba8	structural-scan + suite-executed
+apps/web/src/components/script/scene-selection.ts	implementation	8	502	1e37625cd58a	structural-scan
+apps/web/src/components/script/source-editor.tsx	implementation	182	14511	0c933718c2f1	structural-scan
+apps/web/src/components/script/speaker-card.tsx	implementation	79	3631	bbdc6c0179d2	structural-scan
+apps/web/src/components/settings/agent-tab.tsx	implementation	82	4321	fcf3171e08f6	structural-scan
+apps/web/src/components/settings/ai-confirm.tsx	implementation	43	1975	f53a5656ef03	structural-scan
+apps/web/src/components/settings/connections.tsx	implementation	477	21240	c1724c75a632	structural + targeted-source-review
+apps/web/src/components/settings/delete-button.tsx	implementation	26	1172	9c6654a7c3e6	structural-scan
+apps/web/src/components/settings/editor-ai.tsx	implementation	218	14751	feba9c02d6e8	structural-scan
+apps/web/src/components/settings/executable-field.tsx	implementation	54	2458	1bc1b5f9f4a4	structural-scan
+apps/web/src/components/settings/home-defaults.tsx	implementation	160	8954	bc970093c7f3	structural-scan
+apps/web/src/components/settings/key-pane.tsx	implementation	90	4526	63b3532a6b94	structural-scan
+apps/web/src/components/settings/mark-pane.tsx	implementation	44	1875	d4b16b60e934	structural-scan
+apps/web/src/components/settings/saved-prompts.tsx	implementation	68	4454	257b2faf4b5f	structural-scan
+apps/web/src/components/settings/status-pane.tsx	implementation	70	3938	bb74d9b6e548	structural-scan
+apps/web/src/components/settings/status-types.ts	implementation	31	1273	d2d805ad0d3f	structural-scan
+apps/web/src/components/settings/swatches.tsx	implementation	44	1827	2f5e5a2d16ba	structural-scan
+apps/web/src/components/settings/tag-pane.tsx	implementation	78	5211	30bcc8371f20	structural-scan
+apps/web/src/components/shortcut-help.tsx	implementation	108	3942	8f0dea751018	structural-scan
+apps/web/src/components/status.tsx	implementation	15	841	e54402c53253	structural-scan
+apps/web/src/components/translation-editor.tsx	implementation	495	27319	a0511d7dfd29	structural + targeted-source-review
+apps/web/src/components/workflow/auto-layout.test.ts	test	182	11368	cbca73ff3373	structural-scan + suite-executed
+apps/web/src/components/workflow/auto-layout.ts	implementation	91	4471	0077d2c4bd8e	structural-scan
+apps/web/src/components/workflow/batch-list.tsx	implementation	48	2314	24a785ab8881	structural-scan
+apps/web/src/components/workflow/continue-run.tsx	implementation	86	4440	f90617bbcd13	structural-scan
+apps/web/src/components/workflow/flow-graph.ts	implementation	114	7140	93ef84d5f7de	structural-scan
+apps/web/src/components/workflow/fold.test.ts	test	204	14746	7308b6e322c0	structural-scan + suite-executed
+apps/web/src/components/workflow/fold.ts	implementation	309	18107	bb6f0a6f5ccc	structural-scan
+apps/web/src/components/workflow/node-config/ai.tsx	implementation	255	16402	b8ac977a7cdf	structural-scan
+apps/web/src/components/workflow/node-config/call.tsx	implementation	33	2065	8ed229da3a2e	structural-scan
+apps/web/src/components/workflow/node-config/condition-clauses.test.ts	test	59	3304	351ad3f881da	structural-scan + suite-executed
+apps/web/src/components/workflow/node-config/condition-clauses.ts	implementation	140	7183	3c1abf612500	structural-scan
+apps/web/src/components/workflow/node-config/condition.tsx	implementation	229	15640	93a882c15bc3	structural-scan
+apps/web/src/components/workflow/node-config/function.tsx	implementation	607	34148	3fbb09a3f8cd	structural-scan
+apps/web/src/components/workflow/node-config/gather.tsx	implementation	31	1933	e6b111b92e78	structural-scan
+apps/web/src/components/workflow/node-config/index.tsx	implementation	153	9592	99e72883ccda	structural-scan
+apps/web/src/components/workflow/node-config/json-fields-editor.tsx	implementation	223	12185	1f02744e0f0e	structural-scan
+apps/web/src/components/workflow/node-config/request-preview.tsx	implementation	138	8142	3436859236b7	structural-scan
+apps/web/src/components/workflow/node-config/retry.tsx	implementation	42	4184	e9198afebef4	structural-scan
+apps/web/src/components/workflow/node-config/shared.tsx	implementation	98	5445	9f8b458b8112	structural-scan
+apps/web/src/components/workflow/node-view.tsx	implementation	117	5215	2a430e54613c	structural-scan
+apps/web/src/components/workflow/raise-caps.tsx	implementation	37	2092	5f907d352356	structural-scan
+apps/web/src/components/workflow/run-calls.test.ts	test	91	5226	9f319617327e	structural-scan + suite-executed
+apps/web/src/components/workflow/run-calls.ts	implementation	96	5736	454f9f0dff98	structural-scan
+apps/web/src/components/workflow/run-dialog.tsx	implementation	616	34245	1dce38c934fe	structural-scan
+apps/web/src/components/workflow/run-estimate.tsx	implementation	100	5093	c67e18449220	structural-scan
+apps/web/src/components/workflow/run-graph.tsx	implementation	183	11157	18437801a888	structural-scan
+apps/web/src/components/workflow/use-fold-state.ts	implementation	13	688	7a529d4a66bd	structural-scan
+apps/web/src/components/workflow/workflow-edge.test.ts	test	12	632	5c4145c051c3	structural-scan + suite-executed
+apps/web/src/components/workflow/workflow-edge.tsx	implementation	49	2648	3b5bbdb3a336	structural-scan
+apps/web/src/components/workflow/workflow-settings.tsx	implementation	22	1662	127f54fe020a	structural-scan
+apps/web/src/hooks/use-size.ts	implementation	17	697	657d7e0ec4f5	structural-scan
+apps/web/src/index.css	implementation	124	4969	dcdbad3054eb	structural-scan
+apps/web/src/lib/agent.test.ts	test	13	535	6af3fde821c7	structural-scan + suite-executed
+apps/web/src/lib/agent.ts	implementation	39	1138	dba35677ac35	structural-scan
+apps/web/src/lib/api.ts	implementation	83	3539	ae2c1cc13a6e	structural + targeted-source-review
+apps/web/src/lib/chat-dock.ts	implementation	76	2601	1438beb73356	structural-scan
+apps/web/src/lib/chat-image-file.test.ts	test	10	480	33c6d7013672	structural-scan + suite-executed
+apps/web/src/lib/chat-image-file.ts	implementation	61	2946	dcf043394a80	structural-scan
+apps/web/src/lib/chat-input-history.test.ts	test	44	2454	790bcec89632	structural-scan + suite-executed
+apps/web/src/lib/chat-input-history.ts	implementation	41	2128	1024ce66f71f	structural-scan
+apps/web/src/lib/chat-links.ts	implementation	47	2067	54cb181c3657	structural-scan
+apps/web/src/lib/chat-queue.ts	implementation	10	470	ffef8b650de9	structural + targeted-source-review
+apps/web/src/lib/chat-run-api.ts	implementation	9	676	7e787f254310	structural-scan
+apps/web/src/lib/chat-run.test.ts	test	70	4975	0808832f148d	structural-scan + suite-executed
+apps/web/src/lib/chat-run.ts	implementation	46	2267	dfcd8c43b23b	structural-scan
+apps/web/src/lib/chat-store.ts	implementation	55	3008	d50bf0081cee	structural + targeted-source-review
+apps/web/src/lib/chat-triggers.test.ts	test	127	8335	fa06b8b11af6	structural-scan + suite-executed
+apps/web/src/lib/chat-triggers.ts	implementation	121	6412	bf177a2818c3	structural-scan
+apps/web/src/lib/chat-unread.ts	implementation	39	1300	a9bd7c63ba94	structural-scan
+apps/web/src/lib/datetime.ts	implementation	11	655	063d2d696d21	structural-scan
+apps/web/src/lib/diff.test.ts	test	17	748	7ac55f412a6b	structural-scan + suite-executed
+apps/web/src/lib/diff.ts	implementation	33	1582	3650c5440c58	structural-scan
+apps/web/src/lib/drafts.ts	implementation	53	1823	bfd8e069dcef	structural + targeted-source-review
+apps/web/src/lib/form-values.test.ts	test	13	520	fbbc533a3f50	structural-scan + suite-executed
+apps/web/src/lib/form-values.ts	implementation	16	927	bf0bf425a721	structural-scan
+apps/web/src/lib/graph-shortcuts.ts	implementation	63	3044	1cb156338560	structural-scan
+apps/web/src/lib/job-notices.ts	implementation	33	1698	f43b23d9eed6	structural-scan
+apps/web/src/lib/keys.ts	implementation	12	1027	40e9d0c201e1	structural-scan
+apps/web/src/lib/labels.ts	implementation	9	920	17f6882c45c6	structural-scan
+apps/web/src/lib/line-context.ts	implementation	88	4709	429d0cb59b96	structural-scan
+apps/web/src/lib/line-filter-state.ts	implementation	25	1318	fa8ea9f24139	structural-scan
+apps/web/src/lib/line-save.ts	implementation	33	1590	7b39cc0599ec	structural + targeted-source-review
+apps/web/src/lib/list-value.ts	implementation	3	303	8127b306710a	structural-scan
+apps/web/src/lib/live.ts	implementation	95	4266	15b5adc58e88	structural + targeted-source-review
+apps/web/src/lib/nav.ts	implementation	66	3581	ba0da970e48a	structural + targeted-source-review
+apps/web/src/lib/optimistic.ts	implementation	44	2996	d8ed4d786781	structural + targeted-source-review
+apps/web/src/lib/person-colors.tsx	implementation	34	1512	4f5e4e82adf4	structural-scan
+apps/web/src/lib/queries.ts	implementation	196	17165	64b38ba2e04c	structural-scan
+apps/web/src/lib/relation-label.test.ts	test	14	705	1bcb3be1de41	structural-scan + suite-executed
+apps/web/src/lib/relation-label.ts	implementation	5	686	c9bbd0f03cf2	structural-scan
+apps/web/src/lib/retry-info.test.ts	test	25	1531	28db681b5d5c	structural-scan + suite-executed
+apps/web/src/lib/retry-info.ts	implementation	35	2255	6ef42d3dc1d9	structural-scan
+apps/web/src/lib/run-limits.test.ts	test	20	1231	9e374b982776	structural-scan + suite-executed
+apps/web/src/lib/run-limits.ts	implementation	24	1268	13704a8f0204	structural-scan
+apps/web/src/lib/run-scope.test.ts	test	11	513	3905c901e09e	structural-scan + suite-executed
+apps/web/src/lib/run-scope.ts	implementation	11	659	0113843d6ac1	structural-scan
+apps/web/src/lib/run-summary.ts	implementation	16	1253	a6610045a2ea	structural-scan
+apps/web/src/lib/same-source.ts	implementation	35	2187	bc0d30cc31be	structural-scan
+apps/web/src/lib/settings-target.ts	implementation	38	2785	6bf737f72b81	structural-scan
+apps/web/src/lib/split-text.test.ts	test	26	1519	7e33675d2fa6	structural-scan + suite-executed
+apps/web/src/lib/split-text.ts	implementation	31	1781	de11b5c87271	structural-scan
+apps/web/src/lib/tag-placement.test.ts	test	27	1772	601b198b8081	structural-scan + suite-executed
+apps/web/src/lib/tag-placement.ts	implementation	79	4547	b037e053e105	structural-scan
+apps/web/src/lib/target-settings.ts	implementation	73	3658	ee4f1374964e	structural-scan
+apps/web/src/lib/theme.ts	implementation	68	2165	030b0b00d2c0	structural-scan
+apps/web/src/lib/tokens.test.ts	test	24	1207	f9377c610a57	structural-scan + suite-executed
+apps/web/src/lib/tokens.ts	implementation	88	4326	d5fcad51521a	structural-scan
+apps/web/src/lib/use-form-from.test.ts	test	38	1969	4e8de0a26bb7	structural-scan + suite-executed
+apps/web/src/lib/use-form-from.ts	implementation	98	5283	69991b55daae	structural + targeted-source-review
+apps/web/src/lib/use-picked.ts	implementation	71	2254	b7a5a09c5152	structural-scan
+apps/web/src/lib/use-progress.ts	implementation	19	1226	1d77096bb0b2	structural-scan
+apps/web/src/lib/utils.ts	implementation	6	169	9304a861c867	structural-scan
+apps/web/src/lib/view-context.ts	implementation	65	1949	48bca16ed4d5	structural-scan
+apps/web/src/lib/workflow-draft.test.ts	test	54	2490	a8d1eb823e0b	structural-scan + suite-executed
+apps/web/src/lib/workflow-draft.ts	implementation	31	1748	c693af2e2a52	structural + targeted-source-review
+apps/web/src/lib/workflow-edits.ts	implementation	28	986	03b31989310c	structural-scan
+apps/web/src/main.tsx	implementation	59	2195	7d6a2afd2b62	structural-scan
+apps/web/src/routeTree.gen.ts	generated	613	24731	7dd05ce67493	structural-scan
+apps/web/src/routes/__root.tsx	implementation	12	358	52b8a8b038a6	structural-scan
+apps/web/src/routes/index.tsx	implementation	58	2171	5b3fd9d57d3a	structural-scan
+apps/web/src/routes/p.$projectId.ai.usage.tsx	implementation	8	300	9e9538211bae	structural-scan
+apps/web/src/routes/p.$projectId.glossary.tsx	implementation	351	20655	1d61435b5848	structural + targeted-source-review
+apps/web/src/routes/p.$projectId.graph.tsx	implementation	1428	77649	cb81b0dc4b23	structural-scan
+apps/web/src/routes/p.$projectId.index.tsx	implementation	249	12230	dc8e48b3bb1f	structural-scan
+apps/web/src/routes/p.$projectId.keys.tsx	implementation	12	505	536cd2720f46	structural-scan
+apps/web/src/routes/p.$projectId.knowledge.tsx	implementation	679	37979	0c5ac867c369	structural-scan
+apps/web/src/routes/p.$projectId.runs.$runId.tsx	implementation	430	25562	904cf351458d	structural-scan
+apps/web/src/routes/p.$projectId.runs.index.tsx	implementation	281	12073	4fc7e4aeff69	structural-scan
+apps/web/src/routes/p.$projectId.script.tsx	implementation	328	19988	6dc929da26f6	structural-scan
+apps/web/src/routes/p.$projectId.settings.chat.tsx	implementation	20	549	107d91519fe1	structural-scan
+apps/web/src/routes/p.$projectId.settings.connections.tsx	implementation	24	980	a4f80c76a864	structural-scan
+apps/web/src/routes/p.$projectId.settings.editor.tsx	implementation	58	2443	08e554ca7707	structural-scan
+apps/web/src/routes/p.$projectId.settings.project.tsx	implementation	137	6337	05be0ad857a6	structural-scan
+apps/web/src/routes/p.$projectId.settings.statuses.tsx	implementation	402	20934	42d3715b350a	structural-scan
+apps/web/src/routes/p.$projectId.tsx	implementation	325	16774	7eaf691ca76b	structural-scan
+apps/web/src/routes/p.$projectId.workflows.$workflowId.tsx	implementation	1074	60485	914daad4c7c2	structural-scan
+apps/web/src/routes/p.$projectId.workflows.index.tsx	implementation	239	10585	a7f9ad5c240f	structural-scan
+apps/web/src/routes/settings.appearance.tsx	implementation	33	1410	7cc61df2198d	structural-scan
+apps/web/src/routes/settings.defaults.chat.tsx	implementation	16	491	c822330648ef	structural-scan
+apps/web/src/routes/settings.defaults.connections.tsx	implementation	23	932	fbf1c84e9f3b	structural-scan
+apps/web/src/routes/settings.defaults.editor.tsx	implementation	16	504	11a73cc6855d	structural-scan
+apps/web/src/routes/settings.defaults.statuses.tsx	implementation	200	11028	a16398947f79	structural-scan
+apps/web/src/routes/settings.defaults.workflows.tsx	implementation	137	7288	5abd62b56d47	structural-scan
+apps/web/src/routes/settings.index.tsx	implementation	7	230	7d391d8fefa7	structural-scan
+apps/web/src/routes/settings.tsx	implementation	47	1912	ff38a8d4a9e9	structural-scan
+apps/web/tsconfig.json	configuration-or-doc	11	276	ae68cf280024	structural-scan
+apps/web/vite.config.ts	implementation	52	2348	5a3992ccda0d	structural-scan
+docs/AUDIT-2026-10.md	configuration-or-doc	501	48258	fd299878bdab	structural-scan
+docs/CHAT-INPUT-DESIGN.md	configuration-or-doc	166	11759	83fb38d076dc	structural-scan
+docs/DESIGN-APP-SETTINGS-2026-10-27.md	configuration-or-doc	169	16579	aefc0d6b9453	structural-scan
+docs/DESIGN-INPUT-TYPES-2026-10-20.md	configuration-or-doc	52	5955	0643183c7cae	structural-scan
+docs/DESIGN-SUBJECTS-GATHER-2026-10-20.md	configuration-or-doc	161	13037	42ab40a1bf5a	structural-scan
+docs/DESIGN-SYSTEM.md	configuration-or-doc	221	26032	af50f4d6c1ed	structural-scan
+docs/EVENTS-20.md	configuration-or-doc	34	3219	e8c6e3fe9724	structural-scan
+docs/IMPROVEMENT-PLAN-2026-10-19.md	configuration-or-doc	737	82032	f3319f3bf9fc	structural + targeted-source-review
+docs/PLAN-30.md	configuration-or-doc	56	4154	1ace1b4fbe07	structural-scan
+docs/REFACTOR-49.md	configuration-or-doc	105	9805	885980c3c9ef	structural-scan
+docs/UI-AUDIT-48.md	configuration-or-doc	122	8615	da9c82000a96	structural-scan
+docs/WINDOWS-VALIDATION.md	configuration-or-doc	133	13474	007b60e8ff00	structural-scan
+docs/redesign/COMPONENTS.md	configuration-or-doc	38	6386	6c23a54ca0a8	structural-scan
+docs/redesign/IMPLEMENTATION.md	configuration-or-doc	204	32602	9393d6c33f30	structural-scan
+docs/redesign/PROPOSAL.md	configuration-or-doc	505	64164	3112a9e58309	structural-scan
+docs/redesign/REASSESSMENT-2026-10-18.md	configuration-or-doc	193	23284	37bfc3e164e6	structural-scan
+docs/redesign/USABILITY-AUDIT-2026-10-18.md	configuration-or-doc	420	62163	6746a5c3374a	structural-scan
+docs/redesign/VISUAL.md	configuration-or-doc	178	19222	d602842bfcc0	structural-scan
+docs/redesign/mockups/a-slate-editor.png	asset	0	178114	369585c87eff	binary-inventory
+docs/redesign/mockups/a-slate-workflow.png	asset	0	143919	b96931ee185d	binary-inventory
+docs/redesign/mockups/b-manuscript-editor.png	asset	0	181477	222a79b4a893	binary-inventory
+docs/redesign/mockups/b-manuscript-workflow.png	asset	0	133249	bcd1151d8989	binary-inventory
+docs/redesign/mockups/c-night-editor.png	asset	0	171017	3a06c24e3e44	binary-inventory
+docs/redesign/mockups/c-night-workflow.png	asset	0	147502	782983e962de	binary-inventory
+docs/redesign/mockups/conn-selected.png	asset	0	71012	fa47711b13a8	binary-inventory
+docs/redesign/mockups/conn.png	asset	0	32951	4af6517017b7	binary-inventory
+docs/redesign/mockups/docs.png	asset	0	43973	accbd456dee6	binary-inventory
+docs/redesign/mockups/runs.png	asset	0	32173	b6588036e9a5	binary-inventory
+docs/redesign/mockups/script-selected.png	asset	0	89134	468291b5be78	binary-inventory
+docs/redesign/mockups/settings.png	asset	0	75470	cd10b4a19900	binary-inventory
+docs/redesign/mockups/statuses.png	asset	0	95308	6621b9fa6d47	binary-inventory
+docs/redesign/mockups/usage.png	asset	0	84179	24a2a1ece405	binary-inventory
+docs/validation/unified-line-tags-editor.jpg	configuration-or-doc	0	59531	0172a879aaf3	binary-inventory
+docs/validation/unified-line-tags.jpg	configuration-or-doc	0	44261	7c80bf34c18e	binary-inventory
+docs/validation/windows-dev-graph.jpg	configuration-or-doc	0	49785	e5d342474501	binary-inventory
+docs/validation/windows-mock-run.jpg	configuration-or-doc	0	55980	65a465ece5f2	binary-inventory
+docs/validation/windows-pnpm-dev.jpg	configuration-or-doc	0	75358	0ebba0f15cb2	binary-inventory
+docs/validation/windows-production.jpg	configuration-or-doc	0	40289	6a3f885848c7	binary-inventory
+package.json	configuration-or-doc	35	1154	c6980f1a3492	structural-scan
+packages/ai/package.json	configuration-or-doc	30	770	d8e719ebeecb	structural-scan
+packages/ai/src/acp.test.ts	test	306	15489	1086918c112e	structural-scan + suite-executed
+packages/ai/src/acp.ts	implementation	591	33049	93e20dc50755	structural-scan
+packages/ai/src/cli-fake.test.ts	test	183	9121	113dd9100c36	structural + targeted-source-review + suite-executed
+packages/ai/src/cli.test.ts	test	142	9240	afb552233752	structural-scan + suite-executed
+packages/ai/src/cli.ts	implementation	441	25358	920eef53e833	structural + targeted-source-review
+packages/ai/src/errors.test.ts	test	19	1155	f0ed6d7256d7	structural-scan + suite-executed
+packages/ai/src/errors.ts	implementation	105	6643	909849c79cca	structural-scan
+packages/ai/src/fake-acp-starter.ts	implementation	15	907	06b11f5c8333	structural-scan
+packages/ai/src/fake-acp.ts	implementation	129	7577	1ef04ad901b0	structural-scan
+packages/ai/src/index.ts	implementation	122	6925	33eb5ab0579f	structural-scan
+packages/ai/src/mcp-host.ts	implementation	87	3844	edbb6958e176	structural + targeted-source-review
+packages/ai/src/openai.ts	implementation	122	6247	957712fc081d	structural + targeted-source-review
+packages/ai/src/spawn.test.ts	test	146	8525	b3ebbf86c1fd	structural-scan + suite-executed
+packages/ai/src/spawn.ts	implementation	173	8961	952f056e5018	structural-scan
+packages/ai/src/systemone.ts	implementation	71	3400	02fa910ad1b9	structural-scan
+packages/ai/src/types.ts	implementation	154	6303	75a3e3d6ed35	structural-scan
+packages/ai/src/usage.test.ts	test	65	3681	1d95187e5aa2	structural-scan + suite-executed
+packages/ai/tsconfig.json	configuration-or-doc	1	62	a2c9d111afbf	structural-scan
+packages/shared/package.json	configuration-or-doc	14	361	3dc35a6d550c	structural-scan
+packages/shared/src/agent-permissions.ts	implementation	110	10080	84e6b58be744	structural-scan
+packages/shared/src/agent.ts	implementation	171	10316	0eaf2616d3d2	structural-scan
+packages/shared/src/app-defaults.ts	implementation	147	7528	b40f8496115d	structural-scan
+packages/shared/src/attach.test.ts	test	38	2478	4c658b0d1615	structural-scan + suite-executed
+packages/shared/src/attach.ts	implementation	78	4207	820005707d6c	structural-scan
+packages/shared/src/budgets.ts	implementation	119	6543	732470f39f5b	structural-scan
+packages/shared/src/chat-images.test.ts	test	48	2820	92b47e6e1a61	structural-scan + suite-executed
+packages/shared/src/chat-images.ts	implementation	67	3769	5464c352afcb	structural-scan
+packages/shared/src/chat-run.ts	implementation	56	2874	4d708210c343	structural-scan
+packages/shared/src/connections.ts	implementation	83	4347	8ec232270376	structural-scan
+packages/shared/src/context.ts	implementation	49	3554	8bb1b7eaff2a	structural-scan
+packages/shared/src/defaults.ts	implementation	420	24242	4f6477b94c8c	structural-scan
+packages/shared/src/editor-ai.ts	implementation	72	3947	1ae74f21672a	structural-scan
+packages/shared/src/exclusion.ts	implementation	104	5349	e83a6ed5df98	structural-scan
+packages/shared/src/format-check.ts	implementation	391	18635	08f4c420d307	structural-scan
+packages/shared/src/free-model.test.ts	test	12	557	ae0f3d50693e	structural-scan + suite-executed
+packages/shared/src/functions.ts	implementation	447	23296	7e17569f0f02	structural-scan
+packages/shared/src/graph-contract.test.ts	test	37	2248	1664ff558721	structural-scan + suite-executed
+packages/shared/src/graph-contract.ts	implementation	87	4327	2a4e983833d8	structural + targeted-source-review
+packages/shared/src/import-format.ts	implementation	285	12538	b00824ca1576	structural + targeted-source-review
+packages/shared/src/index.ts	implementation	29	918	9e36b8346351	structural-scan
+packages/shared/src/issues.ts	implementation	63	3763	a887b9a26b62	structural-scan
+packages/shared/src/knowledge.ts	implementation	238	15850	b3932b42cac6	structural-scan
+packages/shared/src/labels.ts	implementation	11	505	507f4ab87ddc	structural-scan
+packages/shared/src/marks.ts	implementation	123	8602	433c02388461	structural-scan
+packages/shared/src/model-choice.ts	implementation	22	1257	1f4204c71d34	structural-scan
+packages/shared/src/presets.ts	implementation	397	37499	7a887216046c	structural-scan
+packages/shared/src/reading-route.ts	implementation	61	1992	3b02f32fa482	structural-scan
+packages/shared/src/script.ts	implementation	69	3796	c7a571f5a8cc	structural-scan
+packages/shared/src/shared.test.ts	test	711	53436	4be5d303ff66	structural-scan + suite-executed
+packages/shared/src/source-mutations.ts	implementation	21	988	7e04876b17fd	structural-scan
+packages/shared/src/talking-pairs.test.ts	test	46	2600	e8b9a9bc6874	structural-scan + suite-executed
+packages/shared/src/talking-pairs.ts	implementation	64	3322	6c7d3901f7ed	structural-scan
+packages/shared/src/term-matcher.test.ts	test	36	1985	8337bacc28a9	structural-scan + suite-executed
+packages/shared/src/workflow-calls.test.ts	test	185	13666	c4a579ff8877	structural-scan + suite-executed
+packages/shared/src/workflow-calls.ts	implementation	130	7959	f2c43a444e7f	structural-scan
+packages/shared/src/workflow.ts	implementation	886	53392	1fc38ce62428	structural-scan
+packages/shared/tsconfig.json	configuration-or-doc	1	62	a2c9d111afbf	structural-scan
+packages/ui/.storybook/main.ts	implementation	13	561	e32424666fde	structural-scan
+packages/ui/.storybook/preview.tsx	implementation	26	905	12ebe7c487e9	structural-scan
+packages/ui/.storybook/storybook.css	implementation	76	2456	5953a6a7b27e	structural-scan
+packages/ui/README.md	configuration-or-doc	91	8087	25de5238a107	structural + targeted-source-review
+packages/ui/package.json	configuration-or-doc	72	2300	a6e2a4e1ebca	structural-scan
+packages/ui/src/controls/alert-dialog.stories.tsx	storybook	24	1692	03f57958a34f	structural-scan
+packages/ui/src/controls/alert-dialog.tsx	implementation	154	4003	958636765303	structural-scan
+packages/ui/src/controls/button.stories.tsx	storybook	82	2842	c08b82d04608	structural-scan
+packages/ui/src/controls/button.tsx	implementation	83	4735	eba6d25373d7	structural-scan
+packages/ui/src/controls/checkbox.stories.tsx	storybook	45	1716	0f4398886059	structural-scan
+packages/ui/src/controls/checkbox.tsx	implementation	32	1359	57a34e82049d	structural-scan
+packages/ui/src/controls/collapsible.stories.tsx	storybook	22	1194	0d19d6ccb3c8	structural-scan
+packages/ui/src/controls/collapsible.tsx	implementation	21	983	3af5fc48401d	structural-scan
+packages/ui/src/controls/combobox.stories.tsx	storybook	31	1916	f77bd5a1375f	structural-scan
+packages/ui/src/controls/combobox.tsx	implementation	61	3415	1bfa71653884	structural-scan
+packages/ui/src/controls/command.stories.tsx	storybook	54	1957	a9b31361e805	structural-scan
+packages/ui/src/controls/command.tsx	implementation	192	5234	5a43e3c96d62	structural-scan
+packages/ui/src/controls/context-menu.stories.tsx	storybook	37	1518	9a769f18d8d2	structural-scan
+packages/ui/src/controls/context-menu.tsx	implementation	154	3839	ff28b68ea2dd	structural-scan
+packages/ui/src/controls/control-id.tsx	implementation	9	511	5f35138d8c17	structural-scan
+packages/ui/src/controls/dialog.stories.tsx	storybook	42	2143	fe680a1adcd9	structural-scan
+packages/ui/src/controls/dialog.tsx	implementation	149	4382	ad1740c4af8b	structural-scan
+packages/ui/src/controls/dropdown-menu.stories.tsx	storybook	108	4327	be888f296ef3	structural-scan
+packages/ui/src/controls/dropdown-menu.tsx	implementation	293	9335	16cd4ceba17d	structural-scan
+packages/ui/src/controls/hover-card.stories.tsx	storybook	26	1048	909dd4a8cd8a	structural-scan
+packages/ui/src/controls/hover-card.tsx	implementation	41	1507	2ae58aab4d8c	structural-scan
+packages/ui/src/controls/input-group.stories.tsx	storybook	72	2257	b66636918ad2	structural-scan
+packages/ui/src/controls/input-group.tsx	implementation	121	3627	60db193d98e0	structural-scan
+packages/ui/src/controls/input.stories.tsx	storybook	57	2324	509d59f0bff5	structural-scan
+packages/ui/src/controls/input.tsx	implementation	116	4533	dd32010f003d	structural-scan
+packages/ui/src/controls/kbd.stories.tsx	storybook	12	695	451d8f0e5d67	structural-scan
+packages/ui/src/controls/kbd.tsx	implementation	27	678	641d45609cfb	structural-scan
+packages/ui/src/controls/label.stories.tsx	storybook	13	961	655b1bd349b0	structural-scan
+packages/ui/src/controls/label.tsx	implementation	21	610	5402ec5c83cb	structural-scan
+packages/ui/src/controls/popover.stories.tsx	storybook	66	2575	c9fd5513f212	structural-scan
+packages/ui/src/controls/popover.tsx	implementation	91	2566	a41436485177	structural-scan
+packages/ui/src/controls/radio-group.stories.tsx	storybook	21	1278	9f9c221fb0e0	structural-scan
+packages/ui/src/controls/radio-group.tsx	implementation	44	1302	ad9f82df8c62	structural-scan
+packages/ui/src/controls/resizable.stories.tsx	storybook	46	1749	f697bef03c00	structural-scan
+packages/ui/src/controls/resizable.tsx	implementation	50	1852	30ef6e080fd4	structural-scan
+packages/ui/src/controls/scroll-area.stories.tsx	storybook	18	1437	9ffbe4a0c7fb	structural-scan
+packages/ui/src/controls/scroll-area.tsx	implementation	58	1850	9f0b2cf0f271	structural-scan
+packages/ui/src/controls/search-field.stories.tsx	storybook	50	1746	59060398f205	structural-scan
+packages/ui/src/controls/search-field.tsx	implementation	109	3697	58f91a8785bc	structural-scan
+packages/ui/src/controls/segmented-control.stories.tsx	storybook	24	1556	6fb0dbe0bd0b	structural-scan
+packages/ui/src/controls/segmented-control.tsx	implementation	49	1928	c63b7b83cf38	structural-scan
+packages/ui/src/controls/select.stories.tsx	storybook	110	3059	7d40d95b34c5	structural-scan
+packages/ui/src/controls/select.tsx	implementation	216	7295	2a6959fb99dd	structural-scan
+packages/ui/src/controls/separator.stories.tsx	storybook	11	731	2a0babe7cb8a	structural-scan
+packages/ui/src/controls/separator.tsx	implementation	26	616	9c7c07b60bf1	structural-scan
+packages/ui/src/controls/sheet.stories.tsx	storybook	21	1164	c217f42145c5	structural-scan
+packages/ui/src/controls/sheet.tsx	implementation	140	4179	7499dbf8bbb2	structural-scan
+packages/ui/src/controls/sonner.stories.tsx	storybook	34	1532	9f2cf448a19b	structural-scan
+packages/ui/src/controls/sonner.tsx	implementation	36	1005	31ea9d0c34be	structural-scan
+packages/ui/src/controls/spinner.stories.tsx	storybook	12	728	58a3b6f8e9f9	structural-scan
+packages/ui/src/controls/spinner.tsx	implementation	23	660	b0c2f6dd5601	structural-scan
+packages/ui/src/controls/surface.ts	implementation	19	1077	0255173e9b4d	structural-scan
+packages/ui/src/controls/switch.stories.tsx	storybook	39	1336	5cc2bdb2bb1d	structural-scan
+packages/ui/src/controls/switch.tsx	implementation	42	1931	97e918aa8882	structural-scan
+packages/ui/src/controls/tabs.stories.tsx	storybook	24	1232	e354117e0b17	structural-scan
+packages/ui/src/controls/tabs.tsx	implementation	97	4065	5be13cfb2f09	structural-scan
+packages/ui/src/controls/tag-input.stories.tsx	storybook	30	1408	932011efd179	structural-scan
+packages/ui/src/controls/tag-input.tsx	implementation	81	3595	2a142f425aaf	structural-scan
+packages/ui/src/controls/text-link.stories.tsx	storybook	21	1628	473ec8b188fd	structural-scan
+packages/ui/src/controls/text-link.tsx	implementation	35	1562	f89a5377030b	structural-scan
+packages/ui/src/controls/textarea.stories.tsx	storybook	32	1425	1e908e412c2b	structural-scan
+packages/ui/src/controls/textarea.tsx	implementation	43	1228	da9f7c1265c8	structural-scan
+packages/ui/src/controls/toggle-group.stories.tsx	storybook	38	1786	582c041f9d23	structural-scan
+packages/ui/src/controls/toggle-group.tsx	implementation	82	2288	a0ea581c334e	structural-scan
+packages/ui/src/controls/toggle.stories.tsx	storybook	33	1263	adff9283f2b7	structural-scan
+packages/ui/src/controls/toggle.tsx	implementation	44	1507	9c9faebf60e0	structural-scan
+packages/ui/src/controls/tooltip.stories.tsx	storybook	45	1746	2f23103f7c8e	structural-scan
+packages/ui/src/controls/tooltip.tsx	implementation	72	2294	b07d7e2aa39d	structural-scan
+packages/ui/src/domains/app/app-import.tsx	implementation	36	1398	012685aaf052	structural-scan
+packages/ui/src/domains/app/app-project-home.tsx	implementation	27	1328	1e60ed631045	structural-scan
+packages/ui/src/domains/app/app-project-list.tsx	implementation	84	3876	de2c84c7f324	structural-scan
+packages/ui/src/domains/app/app-shell.tsx	implementation	12	791	3e125f11923d	structural-scan
+packages/ui/src/domains/app/app-shortcuts.tsx	implementation	6	267	f72171589ace	structural-scan
+packages/ui/src/domains/app/app-status-bar.tsx	implementation	14	667	d37c2b307a29	structural-scan
+packages/ui/src/domains/app/app.stories.tsx	storybook	133	5545	021e5bdf32eb	structural-scan
+packages/ui/src/domains/app/rules-preset.stories.tsx	storybook	81	4498	2bdfbd6ff8b8	structural-scan
+packages/ui/src/domains/app/rules-preset.tsx	implementation	27	1108	b09085be9cb4	structural-scan
+packages/ui/src/domains/app/save-status-line.tsx	implementation	17	1078	6318394d8b82	structural-scan
+packages/ui/src/domains/app/settings-settings.stories.tsx	storybook	63	2381	3c0618d3e6c5	structural-scan
+packages/ui/src/domains/app/shell.stories.tsx	storybook	46	2229	992ce9bc2503	structural-scan
+packages/ui/src/domains/app/sidebar.stories.tsx	storybook	59	2673	ae4bd4c8b047	structural-scan
+packages/ui/src/domains/app/sidebar.tsx	implementation	563	18953	2bad99af8b01	structural-scan
+packages/ui/src/domains/chat/attachment-chip.tsx	implementation	40	1369	a808fad720cb	structural-scan
+packages/ui/src/domains/chat/composer.stories.tsx	storybook	189	9504	0ab46238ba54	structural-scan
+packages/ui/src/domains/chat/composer.tsx	implementation	98	4343	9505904ff16c	structural-scan
+packages/ui/src/domains/chat/context-meter.tsx	implementation	17	901	760758e58fbd	structural-scan
+packages/ui/src/domains/chat/conversation-menu.tsx	implementation	13	456	b4e8649f993c	structural-scan
+packages/ui/src/domains/chat/message.stories.tsx	storybook	90	4329	33a6cda8d06c	structural-scan
+packages/ui/src/domains/chat/message.tsx	implementation	56	2763	ee117fe5bb0c	structural-scan
+packages/ui/src/domains/chat/select.tsx	implementation	45	1954	ee4735c4bfcc	structural-scan
+packages/ui/src/domains/chat/tool-card.stories.tsx	storybook	184	8649	8d4331e5ba64	structural-scan
+packages/ui/src/domains/chat/tool-card.tsx	implementation	83	4315	9c73f9d63a36	structural-scan
+packages/ui/src/domains/graph/canvas-direction-control.tsx	implementation	29	1301	299a2c55e4d5	structural-scan
+packages/ui/src/domains/graph/canvas-surface.tsx	implementation	63	3372	70da18ec3c0d	structural-scan
+packages/ui/src/domains/graph/canvas-toolbar.tsx	implementation	77	4896	2ba3747624ab	structural-scan
+packages/ui/src/domains/graph/canvas.stories.tsx	storybook	95	4257	104ac9b5d659	structural-scan
+packages/ui/src/domains/graph/floating-card.tsx	implementation	7	492	069af9e30047	structural-scan
+packages/ui/src/domains/graph/flow-handle.tsx	implementation	29	1669	65e457760576	structural-scan
+packages/ui/src/domains/graph/flow-pane.tsx	implementation	39	1882	c2cfc2bd6289	structural-scan
+packages/ui/src/domains/graph/fold-chip.tsx	implementation	44	2037	d3d0504ecf52	structural-scan
+packages/ui/src/domains/graph/fork-menu.tsx	implementation	15	936	bd7187cac890	structural-scan
+packages/ui/src/domains/graph/graph-parts.stories.tsx	storybook	134	7094	f18845308cab	structural-scan
+packages/ui/src/domains/graph/node-card.stories.tsx	storybook	148	8279	a82764b79d41	structural-scan
+packages/ui/src/domains/graph/node-card.tsx	implementation	214	12480	fa4e0decf4ce	structural-scan
+packages/ui/src/domains/graph/node-library.tsx	implementation	48	2791	9d807d89aaf0	structural-scan
+packages/ui/src/domains/graph/path-chips.tsx	implementation	32	1563	6735705b589b	structural-scan
+packages/ui/src/domains/graph/path-node.tsx	implementation	43	2121	d8fafb52b73a	structural-scan
+packages/ui/src/domains/graph/relationship-node.tsx	implementation	28	1348	7ed6dba681ae	structural-scan
+packages/ui/src/domains/graph/selection-toolbox.tsx	implementation	25	1170	443289ebafe8	structural-scan
+packages/ui/src/domains/knowledge/event-card.tsx	implementation	23	988	b2c9c178eea4	structural-scan
+packages/ui/src/domains/knowledge/knowledge-parts.stories.tsx	storybook	45	2232	63e8a80cfb0d	structural-scan
+packages/ui/src/domains/script/candidate-card.tsx	implementation	18	763	6bac05729ec2	structural-scan
+packages/ui/src/domains/script/detail-parts.stories.tsx	storybook	22	798	d457fbf5a0ac	structural-scan
+packages/ui/src/domains/script/detail-parts.tsx	implementation	14	497	cbef74018916	structural-scan
+packages/ui/src/domains/script/editor-action.tsx	implementation	9	645	fbdadac37e96	structural-scan
+packages/ui/src/domains/script/editor-diff.tsx	implementation	25	1522	26b434c0219f	structural-scan
+packages/ui/src/domains/script/editor-input-box.tsx	implementation	15	651	9c33829366fe	structural-scan
+packages/ui/src/domains/script/editor-misc.tsx	implementation	13	675	ba1bf4789094	structural-scan
+packages/ui/src/domains/script/editor-parts.stories.tsx	storybook	106	4920	71db34a73324	structural-scan
+packages/ui/src/domains/script/editor-suggestions.tsx	implementation	36	1981	dd9b5fb51bdd	structural-scan
+packages/ui/src/domains/script/editor-tokens.tsx	implementation	55	2997	8a0af74f0e9d	structural-scan
+packages/ui/src/domains/script/editor-toolbar.tsx	implementation	22	1102	1a505b580557	structural-scan
+packages/ui/src/domains/script/editor.css	implementation	8	148	63fac74f431a	structural-scan
+packages/ui/src/domains/script/graph-endpoint-bar.tsx	implementation	66	3047	cdb04655c0f6	structural-scan
+packages/ui/src/domains/script/graph-script-split.tsx	implementation	35	1383	e59a411b6f66	structural-scan
+packages/ui/src/domains/script/layout.stories.tsx	storybook	60	2902	4f999966bd0f	structural-scan
+packages/ui/src/domains/script/line-rows.stories.tsx	storybook	142	7698	9672064e7c42	structural-scan
+packages/ui/src/domains/script/scene-section-header.tsx	implementation	13	905	37b5883f7a4a	structural-scan
+packages/ui/src/domains/script/script-controls.tsx	implementation	16	871	e4e095c25260	structural-scan
+packages/ui/src/domains/script/script-layout.tsx	implementation	24	1476	4e2fc14ac112	structural-scan
+packages/ui/src/domains/script/script-line-parts.tsx	implementation	65	3220	55a666d3046f	structural-scan
+packages/ui/src/domains/script/script-parts.stories.tsx	storybook	40	1744	69d06aec9570	structural-scan
+packages/ui/src/domains/script/script-reading-row.tsx	implementation	39	1684	bbe2b43b0fb9	structural-scan
+packages/ui/src/domains/script/speaker-identity.tsx	implementation	21	1064	0928625c853b	structural-scan
+packages/ui/src/domains/script/translation-column-header.tsx	implementation	23	806	1f2e7863f01f	structural-scan
+packages/ui/src/domains/script/translation-row.tsx	implementation	49	2530	d5bc8a641ac6	structural-scan
+packages/ui/src/domains/workflow/edge-label.stories.tsx	storybook	12	734	f29e83943255	structural-scan
+packages/ui/src/domains/workflow/edge-label.tsx	implementation	14	967	175e935ce332	structural-scan
+packages/ui/src/domains/workflow/node-config-parts.stories.tsx	storybook	107	4238	ae520117491c	structural-scan
+packages/ui/src/domains/workflow/node-config-parts.tsx	implementation	73	3863	73c426f8620c	structural-scan
+packages/ui/src/domains/workflow/run-dialog-parts.stories.tsx	storybook	60	2382	26d13acf771b	structural-scan
+packages/ui/src/domains/workflow/run-dialog-parts.tsx	implementation	15	912	b065fec1735d	structural-scan
+packages/ui/src/domains/workflow/run-status-badge.stories.tsx	storybook	18	713	a6bc5fc83cd4	structural-scan
+packages/ui/src/domains/workflow/run-status-badge.tsx	implementation	41	1118	8fbadc630860	structural-scan
+packages/ui/src/fonts/GeistMono-latin-ext.woff2	asset	0	14696	1a189eb997c3	binary-inventory
+packages/ui/src/fonts/GeistMono-latin.woff2	asset	0	23128	684ad5b531f8	binary-inventory
+packages/ui/src/fonts/OFL-GeistMono.txt	configuration-or-doc	93	4498	cc815ed4fc04	structural-scan
+packages/ui/src/fonts/OFL-WantedSans.txt	configuration-or-doc	93	4394	db345ad0216d	structural-scan
+packages/ui/src/fonts/WantedSansVariable.woff2	asset	0	1289292	4259e7e9a172	binary-inventory
+packages/ui/src/fonts/fonts.css	implementation	26	1423	a2431e50e623	structural-scan
+packages/ui/src/index.ts	implementation	156	5890	04dde2f87f80	structural-scan
+packages/ui/src/lib/toolbar-roving.test.ts	test	29	1093	3b46e7d0fe20	structural-scan + suite-executed
+packages/ui/src/lib/toolbar-roving.ts	implementation	23	857	cf1aee152d81	structural-scan
+packages/ui/src/lib/use-mobile.ts	implementation	19	565	ad0936f84f1d	structural-scan
+packages/ui/src/lib/use-panel-width.ts	implementation	21	1073	f93146159dc0	structural + targeted-source-review
+packages/ui/src/lib/use-toolbar-roving.ts	implementation	50	2007	9696283b07e6	structural-scan
+packages/ui/src/lib/utils.ts	implementation	12	694	70822c560700	structural-scan
+packages/ui/src/patterns/action-bar.stories.tsx	storybook	63	2571	587d427f185f	structural-scan
+packages/ui/src/patterns/action-bar.tsx	implementation	164	6261	e5812786a850	structural-scan
+packages/ui/src/patterns/card.stories.tsx	storybook	45	1730	95e0e519a47c	structural-scan
+packages/ui/src/patterns/card.tsx	implementation	50	1304	d7391092b50f	structural-scan
+packages/ui/src/patterns/chip.stories.tsx	storybook	117	4385	eb52b974bf40	structural-scan
+packages/ui/src/patterns/chip.tsx	implementation	97	5462	77c499049b57	structural-scan
+packages/ui/src/patterns/column-menu.stories.tsx	storybook	30	1387	3286483b8964	structural-scan
+packages/ui/src/patterns/column-menu.tsx	implementation	149	4074	51767b808629	structural-scan
+packages/ui/src/patterns/count.stories.tsx	storybook	32	941	e5130f8a4c49	structural-scan
+packages/ui/src/patterns/count.tsx	implementation	18	921	c3a37d020f9e	structural-scan
+packages/ui/src/patterns/data-table.stories.tsx	storybook	135	6345	3ede7599006d	structural-scan
+packages/ui/src/patterns/data-table.tsx	implementation	650	25104	8b9bdbcd4cc0	structural + targeted-source-review
+packages/ui/src/patterns/disclosure.stories.tsx	storybook	23	1071	6ac4a699f7f3	structural-scan
+packages/ui/src/patterns/disclosure.tsx	implementation	19	1123	0d620a181c01	structural-scan
+packages/ui/src/patterns/empty-state.stories.tsx	storybook	70	3309	643220098e42	structural-scan
+packages/ui/src/patterns/empty-state.tsx	implementation	89	4459	b4e27b0926aa	structural-scan
+packages/ui/src/patterns/field.stories.tsx	storybook	134	5337	5d56799a38fe	structural-scan
+packages/ui/src/patterns/field.tsx	implementation	192	7732	90f16ff9d4dd	structural-scan
+packages/ui/src/patterns/filter-parts.stories.tsx	storybook	59	2300	f1814c3a53cf	structural-scan
+packages/ui/src/patterns/filter-parts.tsx	implementation	23	1210	107e3f1c592d	structural-scan
+packages/ui/src/patterns/inspector-dirty-bar.tsx	implementation	20	700	0aaa274f2c2b	structural-scan
+packages/ui/src/patterns/inspector-header.tsx	implementation	39	1351	da1e5691892d	structural-scan
+packages/ui/src/patterns/inspector-rows.tsx	implementation	61	3520	e7de1982df2c	structural-scan
+packages/ui/src/patterns/inspector-tabs.tsx	implementation	20	890	40acd603f535	structural-scan
+packages/ui/src/patterns/inspector.stories.tsx	storybook	159	8077	ca8a508cc7d9	structural-scan
+packages/ui/src/patterns/inspector.tsx	implementation	58	2097	fe1caf7bb127	structural-scan
+packages/ui/src/patterns/key-value.stories.tsx	storybook	66	2454	95e6ac113d77	structural-scan
+packages/ui/src/patterns/key-value.tsx	implementation	43	2085	a62740dc6b5c	structural-scan
+packages/ui/src/patterns/list-row.stories.tsx	storybook	111	5190	8af76ec5d2cd	structural-scan
+packages/ui/src/patterns/list-row.tsx	implementation	104	5066	b0e322e4c66b	structural-scan
+packages/ui/src/patterns/markdown.stories.tsx	storybook	43	1758	b47db6ffa8d7	structural-scan
+packages/ui/src/patterns/markdown.tsx	implementation	33	1412	c21ceb6c2813	structural-scan
+packages/ui/src/patterns/menu-label.stories.tsx	storybook	25	1101	5fad8cdd1ee7	structural-scan
+packages/ui/src/patterns/menu-label.tsx	implementation	16	760	aab7acc5ae49	structural-scan
+packages/ui/src/patterns/meter.stories.tsx	storybook	52	2220	d6a44ac2504d	structural-scan
+packages/ui/src/patterns/meter.tsx	implementation	43	1487	7a311d72ecb7	structural-scan
+packages/ui/src/patterns/notice.stories.tsx	storybook	66	3400	7414770db935	structural-scan
+packages/ui/src/patterns/notice.tsx	implementation	97	4875	2a5fa854d73d	structural-scan
+packages/ui/src/patterns/page-body.tsx	implementation	24	960	eddb683916c1	structural-scan
+packages/ui/src/patterns/page-header.tsx	implementation	15	856	a2f46c7abf8e	structural-scan
+packages/ui/src/patterns/page.stories.tsx	storybook	94	4094	4df7444cc854	structural-scan
+packages/ui/src/patterns/page.tsx	implementation	104	3386	168f00122143	structural-scan
+packages/ui/src/patterns/palette.ts	implementation	20	777	2fba0ebd017b	structural-scan
+packages/ui/src/patterns/pane-header.stories.tsx	storybook	47	1577	5870ea933327	structural-scan
+packages/ui/src/patterns/pane-header.tsx	implementation	57	1454	baa5dfef438f	structural-scan
+packages/ui/src/patterns/permission-matrix.stories.tsx	storybook	40	1828	d59ec90899f1	structural-scan
+packages/ui/src/patterns/permission-matrix.tsx	implementation	66	2557	611a6a267bde	structural-scan
+packages/ui/src/patterns/progress.stories.tsx	storybook	51	1910	d7f2f0f28285	structural-scan
+packages/ui/src/patterns/progress.tsx	implementation	51	2094	6651f650e456	structural-scan
+packages/ui/src/patterns/prose.css	implementation	28	1370	35b1d47fb49a	structural-scan
+packages/ui/src/patterns/right-dock.stories.tsx	storybook	85	3972	f4a1a94cbf2d	structural-scan
+packages/ui/src/patterns/right-dock.tsx	implementation	131	7227	c1a6f23d36ff	structural + targeted-source-review
+packages/ui/src/patterns/section.stories.tsx	storybook	90	3995	ff90c8e1c9b4	structural-scan
+packages/ui/src/patterns/section.tsx	implementation	160	7103	507f7fc757db	structural-scan
+packages/ui/src/patterns/selection-bar.stories.tsx	storybook	47	1732	d872d639b394	structural-scan
+packages/ui/src/patterns/selection-bar.tsx	implementation	56	2082	d903af0dc202	structural-scan
+packages/ui/src/patterns/skeleton.stories.tsx	storybook	33	1157	c19c8f2aa767	structural-scan
+packages/ui/src/patterns/skeleton.tsx	implementation	31	1120	14e223921288	structural-scan
+packages/ui/src/patterns/split-pane.stories.tsx	storybook	45	2079	6dbdc703f602	structural-scan
+packages/ui/src/patterns/split-pane.tsx	implementation	79	2683	bc1c02b6209b	structural-scan
+packages/ui/src/patterns/status.stories.tsx	storybook	66	2663	102a0a1f329c	structural-scan
+packages/ui/src/patterns/status.tsx	implementation	98	3499	1ca3fc72fc3f	structural-scan
+packages/ui/src/patterns/swatch.stories.tsx	storybook	46	1670	ad08bb01ee72	structural-scan
+packages/ui/src/patterns/swatch.tsx	implementation	39	2018	de3a84ccf194	structural-scan
+packages/ui/src/patterns/tag-menu.stories.tsx	storybook	87	3885	54a84c789dcd	structural-scan
+packages/ui/src/patterns/tag-menu.tsx	implementation	199	6623	0bb3ae98d936	structural-scan
+packages/ui/src/patterns/toolbar.stories.tsx	storybook	68	2973	b0f607fc9293	structural-scan
+packages/ui/src/patterns/toolbar.tsx	implementation	91	2946	b0983ab5dcfd	structural-scan
+packages/ui/src/patterns/view-switch.stories.tsx	storybook	38	1386	e79a51796dc6	structural-scan
+packages/ui/src/patterns/view-switch.tsx	implementation	6	525	6b332b00aaac	structural-scan
+packages/ui/src/primitives/box.stories.tsx	storybook	74	2820	aa6b0d7de654	structural-scan
+packages/ui/src/primitives/box.tsx	implementation	24	1229	6586aaa0ee0e	structural-scan
+packages/ui/src/primitives/grid.stories.tsx	storybook	29	1418	a0e27e5816fc	structural-scan
+packages/ui/src/primitives/grid.tsx	implementation	29	1699	72ffa9ca04cb	structural-scan
+packages/ui/src/primitives/icon.stories.tsx	storybook	49	1673	cb9cd97a3091	structural-scan
+packages/ui/src/primitives/icon.tsx	implementation	21	1349	62141fdabbd3	structural-scan
+packages/ui/src/primitives/list-item.stories.tsx	storybook	62	2695	e9fac0a18c85	structural-scan
+packages/ui/src/primitives/list-item.tsx	implementation	31	1690	ccf7b99bc405	structural-scan
+packages/ui/src/primitives/overlay.stories.tsx	storybook	42	1876	6787ef5b1dce	structural-scan
+packages/ui/src/primitives/overlay.tsx	implementation	22	1027	aec5adc222f4	structural-scan
+packages/ui/src/primitives/stack.stories.tsx	storybook	49	1945	279bc94c172c	structural-scan
+packages/ui/src/primitives/stack.tsx	implementation	44	2226	5dc689bef82c	structural-scan
+packages/ui/src/primitives/style.ts	implementation	360	12927	bc6d1280b094	structural-scan
+packages/ui/src/primitives/tags.ts	implementation	6	362	1a32685413a6	structural-scan
+packages/ui/src/primitives/text.stories.tsx	storybook	89	3268	6774634f9ba1	structural-scan
+packages/ui/src/primitives/text.tsx	implementation	43	2194	596c0860281e	structural-scan
+packages/ui/src/tokens/foundations.stories.tsx	storybook	115	5170	ace0c5df1bf2	structural-scan
+packages/ui/src/tokens/palette.css	implementation	125	4787	f9c310555fff	structural-scan
+packages/ui/src/tokens/system.css	implementation	98	3027	c9b5e6cf41e3	structural-scan
+packages/ui/src/tokens/theme.css	implementation	257	13435	59c2ead2e55d	structural-scan
+packages/ui/tsconfig.json	configuration-or-doc	13	253	571e55c96bef	structural-scan
+pnpm-lock.yaml	generated	9426	346751	31ee2c3fb482	structural-scan
+pnpm-workspace.yaml	configuration-or-doc	13	393	c2b1debde48f	structural-scan
+samples/relay-station.json	configuration-or-doc	435	7893	32907df2e485	structural-scan
+samples/showcase.loca.json	configuration-or-doc	12779	250508	933e2446d655	structural-scan
+scripts/budget-baseline.json	configuration-or-doc	188	4815	811e8e8e0972	structural-scan
+scripts/budget-compare.test.ts	test	28	1692	20e938cb66d9	structural-scan + suite-executed
+scripts/budget-compare.ts	implementation	42	2469	cee483ed8ee7	structural-scan
+scripts/budget.ts	implementation	285	15960	e34d78fd86dc	structural-scan
+scripts/fake-cli/agy	configuration-or-doc	3	134	988525b40917	structural-scan
+scripts/fake-cli/claude	configuration-or-doc	3	132	0b5a57388d9e	structural-scan
+scripts/fake-cli/codex	configuration-or-doc	3	130	9fb08e42526e	structural-scan
+scripts/fake-cli/fake-cli.mjs	implementation	261	13600	7c2a007bcf43	structural-scan
+scripts/fake-cli/grok	configuration-or-doc	3	128	07418d93e677	structural-scan
+scripts/fake-cli/opencode	configuration-or-doc	3	136	7960f1b3dfdf	structural-scan
+scripts/make-samples.ts	implementation	207	10727	41966276b35b	structural-scan
+scripts/mock-llm-chat.test.ts	test	35	1532	61fc99d3a702	structural-scan + suite-executed
+scripts/mock-llm-chat.ts	implementation	16	1034	7a6cb341e4b7	structural-scan
+scripts/mock-llm-core.ts	implementation	351	18375	44e3a87b5090	structural-scan
+scripts/mock-llm.ts	implementation	192	13709	085b41bb4d3d	structural-scan
+scripts/realistic-sample.ts	implementation	236	14506	cf0790587104	structural-scan
+scripts/seed-samples.ts	implementation	30	1187	f9f197b3d14f	structural-scan
+scripts/showcase-sample.ts	implementation	1262	68514	bfddaffa6a7f	structural-scan
+scripts/ui-rules.ts	implementation	135	8709	7672fdce0198	structural-scan
+scripts/ui-tiers.ts	implementation	127	7566	13c0c119ff92	structural-scan
+skills/README.md	configuration-or-doc	51	5684	85230bed5c89	structural-scan
+skills/loca-glossary/SKILL.md	configuration-or-doc	39	3521	62301feddb19	structural-scan
+skills/loca-import-format/SKILL.md	configuration-or-doc	111	10907	e67d4d23d80c	structural-scan
+skills/loca-knowledge/SKILL.md	configuration-or-doc	74	8277	f18bfb748c8d	structural-scan
+skills/loca-project/SKILL.md	configuration-or-doc	98	10992	b73ca919f3d5	structural-scan
+skills/loca-review/SKILL.md	configuration-or-doc	36	2757	1fb56c9cc4f5	structural-scan
+skills/loca-translate/SKILL.md	configuration-or-doc	47	3998	f0b000a09dee	structural-scan
+skills/loca-workflows/SKILL.md	configuration-or-doc	91	25227	80390c025ae6	structural-scan
+start.ps1	configuration-or-doc	7	197	f5464f839d09	structural-scan
+tsconfig.base.json	configuration-or-doc	17	404	73c5a8a61eb0	structural-scan
+vitest.config.ts	implementation	10	461	d577d5a22a90	structural-scan

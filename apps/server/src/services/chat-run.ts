@@ -15,7 +15,7 @@ import { imageDecision } from '@tw/shared';
 import { incomingImageProblem, withoutImages } from './chat-images.ts';
 import { agentCatalog, jsonSchemaOf } from './agent-catalog.ts';
 import { hasInterjections, takeInterjections, writeInterjections, type Interjection } from './chat-interject.ts';
-import { afterTurn, startTurn, turnEnded, turnStartedAt, type ChatTurn } from './chat-turns.ts';
+import { deletingChats, afterTurn, startTurn, turnEnded, turnStartedAt, type ChatTurn } from './chat-turns.ts';
 import { chatStream, errorText } from './chat-stream.ts';
 import { cliChatResponse } from './cli-chat.ts';
 import { hasUnreportedDecisions, openProposals, takeDecisions } from './proposals.ts';
@@ -41,6 +41,9 @@ export async function runChatTurn(deps: Pick<Deps, 'db' | 'secrets'>, given: typ
   if (turnStartedAt(session.id) !== null && (await turnEnded(session.id, PREVIOUS_TURN_WAIT_MS))) {
     session = db.select().from(s.chatSessions).where(eq(s.chatSessions.id, session.id)).get() ?? session;
   }
+  const current = db.select().from(s.chatSessions).where(eq(s.chatSessions.id, session.id)).get();
+  if (!current || deletingChats.has(session.id)) throw new Error('삭제되었거나 삭제 중인 대화입니다.');
+  session = current;
   if (!session.connectionId || !session.model) throw new Error('입력창 아래에서 채팅할 AI 연결과 모델을 고르세요.');
   const imageProblem = incomingImageProblem(request.incoming);
   if (imageProblem) throw new Error(imageProblem);
@@ -83,6 +86,7 @@ export async function runChatTurn(deps: Pick<Deps, 'db' | 'secrets'>, given: typ
  */
 export function continueAfterDecisions(deps: Pick<Deps, 'db' | 'secrets'>, sessionId: string) {
   const { db } = deps;
+  if (deletingChats.has(sessionId)) return;
   if (openProposals(db, sessionId) || !hasUnreportedDecisions(db, sessionId)) return;
   if (turnStartedAt(sessionId) !== null) {
     afterTurn(sessionId, () => continueAfterDecisions(deps, sessionId));

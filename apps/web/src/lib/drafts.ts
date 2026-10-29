@@ -30,7 +30,7 @@ const write = (key: string, value: string | null) => {
  * The third item clears the draft. After a save, pass what was sent: the draft is cleared only if it
  * is still that text, so edits typed while the save was on its way are kept. Says whether it cleared.
  */
-export function useDraft(key: string, saved: string): [string, (value: string) => void, (sent?: string) => boolean] {
+export function useDraft(key: string, saved: string): [string, (value: string) => void, (sent?: string) => boolean, string | null] {
   const subscribe = useCallback(
     (listener: () => void) => {
       const set = listeners.get(key) ?? new Set();
@@ -42,12 +42,22 @@ export function useDraft(key: string, saved: string): [string, (value: string) =
     },
     [key],
   );
-  const draft = useSyncExternalStore(subscribe, () => read(key));
-  const setDraft = useCallback((value: string) => write(key, value), [key]);
+  const snapshot = useSyncExternalStore(subscribe, () => JSON.stringify([read(key), read(`${key}:base`)]));
+  const [draft, base] = JSON.parse(snapshot) as [string | null, string | null];
+  const setDraft = useCallback((value: string) => {
+    if (read(key) === null) write(`${key}:base`, saved);
+    write(key, value);
+  }, [key, saved]);
   const clear = useCallback((sent?: string) => {
-    if (sent !== undefined && read(key) !== sent) return false;
+    if (sent !== undefined && read(key) !== sent) {
+      // A successful save becomes the base of typing that continued during the request.
+      write(`${key}:base`, sent);
+      listeners.get(key)?.forEach((listener) => listener());
+      return false;
+    }
+    write(`${key}:base`, null);
     write(key, null);
     return true;
   }, [key]);
-  return [draft ?? saved, setDraft, clear];
+  return [draft ?? saved, setDraft, clear, draft === null ? saved : base];
 }

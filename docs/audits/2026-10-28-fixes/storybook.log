@@ -1,0 +1,1031 @@
+
+> translation-workbench@ build-storybook /Users/bh2980/Desktop/translation_workbench
+> pnpm --filter @loca/ui build-storybook
+
+
+> @loca/ui@0.1.0 build-storybook /Users/bh2980/Desktop/translation_workbench/packages/ui
+> storybook build -o storybook-static
+
+
+┌  Building storybook v10.6.1
+│
+◇  Cleaning outputDir: storybook-static
+│
+◇  Loading presets
+│
+◇  Building manager..
+│
+●  Building open services..
+│
+●  Building preview..
+│  Vite vite v8.3.4 building client environment for production...
+transforming...
+✓ 2681 modules transformed.
+rendering chunks...
+computing gzip size...
+│  Vite storybook-static/assets/GeistMono-latin-ext-Bwz-egvJ.woff2
+│  14.69 kB
+│  storybook-static/iframe.html
+│  19.20 kB │ gzip:   5.37 kB
+│  storybook-static/assets/GeistMono-latin-XN7g48iV.woff2
+│  23.12 kB
+│  storybook-static/assets/WantedSansVariable-eIorJFXx.woff2
+│  1,289.29 kB
+│  storybook-static/assets/line-rows-sXhexEAb.css
+│  0.12 kB │ gzip:   0.09 kB
+│  storybook-static/assets/iframe-B167IAjB.css
+│  132.96 kB │ gzip:  21.21 kB
+│  storybook-static/assets/iframe-DV1nJiih.js
+│  0.04 kB │ gzip:   0.06 kB
+│  storybook-static/assets/control-id-CyoltREH.js
+│  0.23 kB │ gzip:   0.19 kB
+│  storybook-static/assets/dist-4aUkNRr3.js
+│  0.24 kB │ gzip:   0.21 kB
+│  storybook-static/assets/minus-B7Es2ve5.js
+│  0.25 kB │ gzip:   0.21 kB
+│  storybook-static/assets/check-DpJ45oeN.js
+│  0.25 kB │ gzip:   0.22 kB
+│  storybook-static/assets/chevron-down-CVKSF8a8.js
+│  0.26 kB │ gzip:   0.22 kB
+│  storybook-static/assets/chevron-right-DW8C6Bm_.js
+│  0.26 kB │ gzip:   0.22 kB
+│  storybook-static/assets/circle-B4OdJDuY.js
+│  0.26 kB │ gzip:   0.22 kB
+│  storybook-static/assets/surface-D6qChnSD.js
+│  0.27 kB │ gzip:   0.21 kB
+│  storybook-static/assets/plus-Cq0x_97s.js
+│  0.28 kB │ gzip:   0.23 kB
+│  storybook-static/assets/x-vbvcQ-is.js
+│  0.28 kB │ gzip:   0.23 kB
+│  storybook-static/assets/arrow-right-C-vKt7yn.js
+│  0.30 kB │ gzip:   0.24 kB
+│  storybook-static/assets/loader-circle-D7eQNjNr.js
+│  0.30 kB │ gzip:   0.25 kB
+│  storybook-static/assets/chevrons-up-down-VRaTsJVn.js
+│  0.30 kB │ gzip:   0.24 kB
+│  storybook-static/assets/search-CKFSNgEc.js
+│  0.30 kB │ gzip:   0.25 kB
+│  storybook-static/assets/user-DCdE9Hs8.js
+│  0.33 kB │ gzip:   0.27 kB
+│  storybook-static/assets/info-BFYdR19n.js
+│  0.33 kB │ gzip:   0.26 kB
+│  storybook-static/assets/circle-check-B3s7XYBa.js
+│  0.34 kB │ gzip:   0.27 kB
+│  storybook-static/assets/copy-COddKbv2.js
+│  0.37 kB │ gzip:   0.29 kB
+│  storybook-static/assets/dist-CfvlULUn.js
+│  0.38 kB │ gzip:   0.28 kB
+│  storybook-static/assets/ellipsis-Cdsr3Dz2.js
+│  0.38 kB │ gzip:   0.26 kB
+│  storybook-static/assets/palette-BxT8ivyI.js
+│  0.40 kB │ gzip:   0.28 kB
+│  storybook-static/assets/circle-alert-DMb6P0Or.js
+│  0.41 kB │ gzip:   0.28 kB
+│  storybook-static/assets/pencil-DDZwlbZv.js
+│  0.41 kB │ gzip:   0.31 kB
+│  storybook-static/assets/dist-rtlXC4hx.js
+│  0.42 kB │ gzip:   0.31 kB
+│  storybook-static/assets/inbox-wRBSKuJ1.js
+│  0.42 kB │ gzip:   0.31 kB
+│  storybook-static/assets/triangle-alert-BExNZtag.js
+│  0.42 kB │ gzip:   0.31 kB
+│  storybook-static/assets/languages-B0CxGy32.js
+│  0.45 kB │ gzip:   0.30 kB
+│  storybook-static/assets/bot-9cZGiHU8.js
+│  0.46 kB │ gzip:   0.31 kB
+│  storybook-static/assets/trash-D6vjuPLw.js
+│  0.48 kB │ gzip:   0.31 kB
+│  storybook-static/assets/grip-vertical-hwOOhK0E.js
+│  0.50 kB │ gzip:   0.28 kB
+│  storybook-static/assets/network-CMiaWF4C.js
+│  0.51 kB │ gzip:   0.32 kB
+│  storybook-static/assets/skeleton-cclj5-zK.js
+│  0.54 kB │ gzip:   0.39 kB
+│  storybook-static/assets/eye-off-DpWOneBb.js
+│  0.56 kB │ gzip:   0.36 kB
+│  storybook-static/assets/use-panel-width-QYOFNcmt.js
+│  0.61 kB │ gzip:   0.40 kB
+│  storybook-static/assets/sparkles-DNqDgLcZ.js
+│  0.64 kB │ gzip:   0.38 kB
+│  storybook-static/assets/wand-sparkles-Dw5BbC-v.js
+│  0.66 kB │ gzip:   0.39 kB
+│  storybook-static/assets/menu-label-B2mEHnzC.js
+│  0.79 kB │ gzip:   0.48 kB
+│  storybook-static/assets/dist-BfLgcwD2.js
+│  0.81 kB │ gzip:   0.53 kB
+│  storybook-static/assets/spinner.stories-Dj_8PJo4.js
+│  0.82 kB │ gzip:   0.46 kB
+│  storybook-static/assets/menu-label.stories-DIjesl3c.js
+│  0.88 kB │ gzip:   0.53 kB
+│  storybook-static/assets/skeleton.stories-BpFCwUgu.js
+│  0.90 kB │ gzip:   0.49 kB
+│  storybook-static/assets/spinner-2KNVYZmg.js
+│  0.90 kB │ gzip:   0.53 kB
+│  storybook-static/assets/count.stories-DQ2X2tH6.js
+│  0.91 kB │ gzip:   0.43 kB
+│  storybook-static/assets/view-switch-C_2VCASO.js
+│  0.91 kB │ gzip:   0.47 kB
+│  storybook-static/assets/column-menu.stories-D4aD7-A9.js
+│  0.97 kB │ gzip:   0.63 kB
+│  storybook-static/assets/label.stories-CdKXJohT.js
+│  1.02 kB │ gzip:   0.59 kB
+│  storybook-static/assets/sheet.stories-CNKtGFV2.js
+│  1.04 kB │ gzip:   0.61 kB
+│  storybook-static/assets/label-DM97_rMM.js
+│  1.06 kB │ gzip:   0.63 kB
+│  storybook-static/assets/collapsible.stories-D195aukl.js
+│  1.14 kB │ gzip:   0.66 kB
+│  storybook-static/assets/tabs.stories-C_abQ7np.js
+│  1.16 kB │ gzip:   0.58 kB
+│  storybook-static/assets/count-BjflffBv.js
+│  1.17 kB │ gzip:   0.65 kB
+│  storybook-static/assets/use-toolbar-roving--kceuIWI.js
+│  1.19 kB │ gzip:   0.70 kB
+│  storybook-static/assets/dist-CoukNb5O.js
+│  1.19 kB │ gzip:   0.64 kB
+│  storybook-static/assets/rolldown-runtime-DkW27tQK.js
+│  1.19 kB │ gzip:   0.67 kB
+│  storybook-static/assets/grid.stories-B7AOEhEG.js
+│  1.25 kB │ gzip:   0.72 kB
+│  storybook-static/assets/swatch.stories-Cb5S8Ct7.js
+│  1.26 kB │ gzip:   0.66 kB
+│  storybook-static/assets/context-menu.stories-DKeJ0ryG.js
+│  1.27 kB │ gzip:   0.64 kB
+│  storybook-static/assets/card-Tz-uR1Xm.js
+│  1.32 kB │ gzip:   0.56 kB
+│  storybook-static/assets/icon-CKj1Cnvc.js
+│  1.32 kB │ gzip:   0.71 kB
+│  storybook-static/assets/switch.stories-Dc6oLQxF.js
+│  1.32 kB │ gzip:   0.68 kB
+│  storybook-static/assets/selection-bar.stories-ChTH265d.js
+│  1.35 kB │ gzip:   0.63 kB
+│  storybook-static/assets/detail-parts.stories-Cg836AX0.js
+│  1.36 kB │ gzip:   0.81 kB
+│  storybook-static/assets/toggle.stories-XTQH0_ES.js
+│  1.38 kB │ gzip:   0.69 kB
+│  storybook-static/assets/textarea.stories-cD9VlyV4.js
+│  1.39 kB │ gzip:   0.81 kB
+│  storybook-static/assets/textarea-nG96tgfR.js
+│  1.40 kB │ gzip:   0.76 kB
+│  storybook-static/assets/scroll-area.stories-BMFYABDu.js
+│  1.40 kB │ gzip:   0.70 kB
+│  storybook-static/assets/view-switch.stories-DOTO2t4d.js
+│  1.44 kB │ gzip:   0.72 kB
+│  storybook-static/assets/icon.stories-BWMvoSsO.js
+│  1.46 kB │ gzip:   0.65 kB
+│  storybook-static/assets/kbd.stories-CpWj1jqI.js
+│  1.47 kB │ gzip:   0.71 kB
+│  storybook-static/assets/pane-header.stories-B6DZU6Jj.js
+│  1.48 kB │ gzip:   0.86 kB
+│  storybook-static/assets/markdown.stories-BziPfXyc.js
+│  1.49 kB │ gzip:   0.98 kB
+│  storybook-static/assets/resizable.stories-DWj_8uKl.js
+│  1.52 kB │ gzip:   0.59 kB
+│  storybook-static/assets/edge-label.stories-DOCXAMcz.js
+│  1.54 kB │ gzip:   0.82 kB
+│  storybook-static/assets/search-field.stories-DBHX2eYk.js
+│  1.55 kB │ gzip:   0.83 kB
+│  storybook-static/assets/tooltip.stories-B7Rr-9cX.js
+│  1.56 kB │ gzip:   0.79 kB
+│  storybook-static/assets/run-status-badge.stories-DXaaTemk.js
+│  1.58 kB │ gzip:   0.89 kB
+│  storybook-static/assets/card.stories-Bzs-2Tqg.js
+│  1.60 kB │ gzip:   0.80 kB
+│  storybook-static/assets/meter-CSdFEtqx.js
+│  1.63 kB │ gzip:   0.88 kB
+│  storybook-static/assets/preload-helper-s6jzklqy.js
+│  1.64 kB │ gzip:   0.87 kB
+│  storybook-static/assets/toggle-group.stories-BgIb7Npy.js
+│  1.64 kB │ gzip:   0.62 kB
+│  storybook-static/assets/text-link.stories-5ZEsuEt-.js
+│  1.65 kB │ gzip:   0.80 kB
+│  storybook-static/assets/pane-header-CzKKab-f.js
+│  1.66 kB │ gzip:   0.73 kB
+│  storybook-static/assets/script-parts.stories-B59MtF4K.js
+│  1.72 kB │ gzip:   0.94 kB
+│  storybook-static/assets/progress.stories-D7WNSdq_.js
+│  1.75 kB │ gzip:   0.74 kB
+│  storybook-static/assets/stack.stories-Dj2zyiKj.js
+│  1.76 kB │ gzip:   0.83 kB
+│  storybook-static/assets/checkbox.stories-Cn4JMJFB.js
+│  1.77 kB │ gzip:   0.82 kB
+│  storybook-static/assets/command.stories-BsXt6hac.js
+│  1.77 kB │ gzip:   0.91 kB
+│  storybook-static/assets/meter.stories-7kvLJCvK.js
+│  1.77 kB │ gzip:   0.77 kB
+│  storybook-static/assets/segmented-control.stories-4tpIKZbZ.js
+│  1.78 kB │ gzip:   0.90 kB
+│  storybook-static/assets/dialog.stories-CSUehQXT.js
+│  1.81 kB │ gzip:   0.92 kB
+│  storybook-static/assets/split-pane.stories-CBfOhnll.js
+│  1.83 kB │ gzip:   0.93 kB
+│  storybook-static/assets/dist-CK9E9WJB.js
+│  1.89 kB │ gzip:   0.84 kB
+│  storybook-static/assets/input-group.stories-BPnvQa5J.js
+│  1.89 kB │ gzip:   0.86 kB
+│  storybook-static/assets/attachment-chip-Dc-xM7Ds.js
+│  1.89 kB │ gzip:   0.80 kB
+│  storybook-static/assets/toggle-DHQwW0y6.js
+│  1.91 kB │ gzip:   1.02 kB
+│  storybook-static/assets/text-link-CV30RO9Z.js
+│  1.95 kB │ gzip:   0.89 kB
+│  storybook-static/assets/selection-bar-DKuO7R1N.js
+│  1.96 kB │ gzip:   0.95 kB
+│  storybook-static/assets/separator.stories-Bz6pKvLt.js
+│  1.98 kB │ gzip:   0.98 kB
+│  storybook-static/assets/input.stories-BCjTpd5L.js
+│  2.03 kB │ gzip:   1.02 kB
+│  storybook-static/assets/status.stories-C_p3XOZi.js
+│  2.06 kB │ gzip:   0.85 kB
+│  storybook-static/assets/popover.stories-D-W2DnlG.js
+│  2.11 kB │ gzip:   0.88 kB
+│  storybook-static/assets/swatch-BAdkAKA8.js
+│  2.19 kB │ gzip:   0.98 kB
+│  storybook-static/assets/context-menu-raG91DBj.js
+│  2.21 kB │ gzip:   1.00 kB
+│  storybook-static/assets/disclosure.stories-CFlPJAAK.js
+│  2.21 kB │ gzip:   1.24 kB
+│  storybook-static/assets/list-row-DVznigSn.js
+│  2.30 kB │ gzip:   1.11 kB
+│  storybook-static/assets/box.stories-BOX32vMS.js
+│  2.36 kB │ gzip:   0.91 kB
+│  storybook-static/assets/grid-BJz5ge0r.js
+│  2.36 kB │ gzip:   0.86 kB
+│  storybook-static/assets/button.stories-D9AS39S4.js
+│  2.47 kB │ gzip:   1.11 kB
+│  storybook-static/assets/split-pane-DvXSuIR4.js
+│  2.47 kB │ gzip:   1.10 kB
+│  storybook-static/assets/segmented-control-CQoUuDN_.js
+│  2.49 kB │ gzip:   1.12 kB
+│  storybook-static/assets/box-8db0E82q.js
+│  2.52 kB │ gzip:   0.98 kB
+│  storybook-static/assets/select.stories-CzHK1u9W.js
+│  2.53 kB │ gzip:   0.85 kB
+│  storybook-static/assets/text.stories-CwQhJUD_.js
+│  2.88 kB │ gzip:   1.23 kB
+│  storybook-static/assets/dropdown-menu.stories-CKuLdWC3.js
+│  2.94 kB │ gzip:   1.28 kB
+│  storybook-static/assets/right-dock.stories-MdegZusV.js
+│  2.97 kB │ gzip:   1.27 kB
+│  storybook-static/assets/empty-state.stories-CoPUhqKw.js
+│  3.01 kB │ gzip:   1.39 kB
+│  storybook-static/assets/stack-CMJ_14rb.js
+│  3.02 kB │ gzip:   1.09 kB
+│  storybook-static/assets/empty-state-CeJCKfed.js
+│  3.08 kB │ gzip:   1.21 kB
+│  storybook-static/assets/notice.stories-eT0On6ma.js
+│  3.09 kB │ gzip:   1.37 kB
+│  storybook-static/assets/collapsible-DQPHuvGL.js
+│  3.16 kB │ gzip:   1.46 kB
+│  storybook-static/assets/input-group-A2vTINdD.js
+│  3.24 kB │ gzip:   1.22 kB
+│  storybook-static/assets/list-item.stories-CasVygik.js
+│  3.26 kB │ gzip:   1.27 kB
+│  storybook-static/assets/run-dialog-parts.stories-BbR-zWe5.js
+│  3.34 kB │ gzip:   1.42 kB
+│  storybook-static/assets/search-field-DRuPwnAt.js
+│  3.34 kB │ gzip:   1.55 kB
+│  storybook-static/assets/filter-parts.stories-CagKzQTg.js
+│  3.38 kB │ gzip:   1.54 kB
+│  storybook-static/assets/knowledge-parts.stories-CWb7155N.js
+│  3.54 kB │ gzip:   1.59 kB
+│  storybook-static/assets/foundations.stories-0G9BBKuS.js
+│  3.59 kB │ gzip:   1.42 kB
+│  storybook-static/assets/sheet-D-0gcltX.js
+│  3.61 kB │ gzip:   1.19 kB
+│  storybook-static/assets/section.stories-Bt2CVmXP.js
+│  3.64 kB │ gzip:   1.47 kB
+│  storybook-static/assets/permission-matrix.stories-CZXcpHoT.js
+│  3.68 kB │ gzip:   1.53 kB
+│  storybook-static/assets/status-BM0EpA0W.js
+│  3.69 kB │ gzip:   1.54 kB
+│  storybook-static/assets/dialog-CprVnDC4.js
+│  3.86 kB │ gzip:   1.40 kB
+│  storybook-static/assets/settings-settings.stories-DcCjg3U3.js
+│  3.88 kB │ gzip:   1.66 kB
+│  storybook-static/assets/react-dom-BXgx-GBU.js
+│  3.89 kB │ gzip:   1.41 kB
+│  storybook-static/assets/chip.stories-xAQtOkHK.js
+│  3.90 kB │ gzip:   1.35 kB
+│  storybook-static/assets/inspector-header-DAl_YbSE.js
+│  3.91 kB │ gzip:   1.47 kB
+│  storybook-static/assets/tag-input.stories-BzzVNrc1.js
+│  4.11 kB │ gzip:   2.01 kB
+│  storybook-static/assets/shell.stories-EDQKijaA.js
+│  4.13 kB │ gzip:   1.88 kB
+│  storybook-static/assets/text-Cr33EK6b.js
+│  4.15 kB │ gzip:   1.36 kB
+│  storybook-static/assets/progress-zY6EdkKF.js
+│  4.16 kB │ gzip:   1.85 kB
+│  storybook-static/assets/input-CEg3POTQ.js
+│  4.17 kB │ gzip:   1.81 kB
+│  storybook-static/assets/toggle-group-CsENUwv2.js
+│  4.30 kB │ gzip:   1.73 kB
+│  storybook-static/assets/button-BIlrYrtH.js
+│  4.37 kB │ gzip:   1.78 kB
+│  storybook-static/assets/key-value.stories-8mLc8wea.js
+│  4.43 kB │ gzip:   1.83 kB
+│  storybook-static/assets/dist-CMQtUk2R.js
+│  4.53 kB │ gzip:   1.99 kB
+│  storybook-static/assets/canvas.stories-JRkAgXUf.js
+│  4.55 kB │ gzip:   2.10 kB
+│  storybook-static/assets/field.stories-DvjCFblL.js
+│  4.60 kB │ gzip:   1.82 kB
+│  storybook-static/assets/notice-CKthZg90.js
+│  4.66 kB │ gzip:   1.73 kB
+│  storybook-static/assets/dist-6KUdWcCp.js
+│  4.73 kB │ gzip:   2.09 kB
+│  storybook-static/assets/combobox.stories-BtzlH8yJ.js
+│  5.04 kB │ gzip:   2.23 kB
+│  storybook-static/assets/field-CFC1h55m.js
+│  5.10 kB │ gzip:   2.16 kB
+│  storybook-static/assets/list-row.stories-Ckb2ghAC.js
+│  5.21 kB │ gzip:   1.59 kB
+│  storybook-static/assets/toolbar.stories-VQ_pbXLK.js
+│  5.25 kB │ gzip:   2.16 kB
+│  storybook-static/assets/checkbox-Cb2ytuWM.js
+│  5.28 kB │ gzip:   2.24 kB
+│  storybook-static/assets/rules-preset.stories-BDMctHDO.js
+│  5.36 kB │ gzip:   2.09 kB
+│  storybook-static/assets/script-line-parts-Dy0lub6P.js
+│  5.36 kB │ gzip:   2.02 kB
+│  storybook-static/assets/switch-BbR_ZnZ5.js
+│  5.45 kB │ gzip:   2.22 kB
+│  storybook-static/assets/action-bar.stories-VTaD7Wpg.js
+│  5.47 kB │ gzip:   2.34 kB
+│  storybook-static/assets/section-BnjUVDl6.js
+│  5.53 kB │ gzip:   2.10 kB
+│  storybook-static/assets/chip-DOueXFk-.js
+│  5.64 kB │ gzip:   2.10 kB
+│  storybook-static/assets/dist-DMadiM_g.js
+│  5.70 kB │ gzip:   2.16 kB
+│  storybook-static/assets/alert-dialog.stories-PtrSmnga.js
+│  6.36 kB │ gzip:   2.20 kB
+│  storybook-static/assets/tabs-BZGewa55.js
+│  6.43 kB │ gzip:   2.32 kB
+│  storybook-static/assets/hover-card.stories-CxrIBcwC.js
+│  6.86 kB │ gzip:   2.71 kB
+│  storybook-static/assets/right-dock-De2UNiu4.js
+│  6.97 kB │ gzip:   2.45 kB
+│  storybook-static/assets/dist-C9V_e796.js
+│  7.28 kB │ gzip:   2.67 kB
+│  storybook-static/assets/message.stories-DLEnBkLZ.js
+│  7.82 kB │ gzip:   3.03 kB
+│  storybook-static/assets/react-Q1GcV6wX.js
+│  7.87 kB │ gzip:   3.01 kB
+│  storybook-static/assets/radio-group.stories-lHiPNCe9.js
+│  7.90 kB │ gzip:   3.26 kB
+│  storybook-static/assets/overlay.stories-BSuJ_cqk.js
+│  8.11 kB │ gzip:   1.81 kB
+│  storybook-static/assets/popover-D4JeQmzM.js
+│  8.14 kB │ gzip:   3.01 kB
+│  storybook-static/assets/node-config-parts.stories-CUtUwllP.js
+│  8.35 kB │ gzip:   3.08 kB
+│  storybook-static/assets/page.stories-vor6cNTo.js
+│  8.62 kB │ gzip:   3.00 kB
+│  storybook-static/assets/tag-menu.stories-hZoSUWZ3.js
+│  8.82 kB │ gzip:   3.05 kB
+│  storybook-static/assets/layout.stories-DE5u7h4J.js
+│  9.21 kB │ gzip:   3.38 kB
+│  storybook-static/assets/style-CN97KNFf.js
+│  11.14 kB │ gzip:   4.24 kB
+│  storybook-static/assets/canvas-toolbar-CG6EFCBW.js
+│  12.32 kB │ gzip:   3.78 kB
+│  storybook-static/assets/node-card.stories-CkE8O1Rm.js
+│  12.67 kB │ gzip:   4.53 kB
+│  storybook-static/assets/app.stories-B7gGsC45.js
+│  12.93 kB │ gzip:   4.26 kB
+│  storybook-static/assets/inspector.stories-B1TfwT46.js
+│  13.76 kB │ gzip:   4.39 kB
+│  storybook-static/assets/node-card-CMUlZ70L.js
+│  13.90 kB │ gzip:   4.53 kB
+│  storybook-static/assets/tool-card.stories-C31oU_6r.js
+│  13.97 kB │ gzip:   4.81 kB
+│  storybook-static/assets/es2015-yzZA5uyf.js
+│  14.52 kB │ gzip:   5.58 kB
+│  storybook-static/assets/editor-parts.stories-BCp-gPPk.js
+│  14.57 kB │ gzip:   4.71 kB
+│  storybook-static/assets/scroll-area-5uabKnwK.js
+│  15.00 kB │ gzip:   4.77 kB
+│  storybook-static/assets/line-rows.stories-DzKUhr_P.js
+│  15.38 kB │ gzip:   4.48 kB
+│  storybook-static/assets/graph-parts.stories-C6XKTdnW.js
+│  15.73 kB │ gzip:   5.47 kB
+│  storybook-static/assets/command-BKSK8e3_.js
+│  16.04 kB │ gzip:   5.78 kB
+│  storybook-static/assets/composer.stories-DvUT60L3.js
+│  17.27 kB │ gzip:   6.03 kB
+│  storybook-static/assets/sidebar.stories-Dm4cbCFX.js
+│  17.30 kB │ gzip:   5.31 kB
+│  storybook-static/assets/select-CmRZAtMb.js
+│  26.44 kB │ gzip:   8.85 kB
+│  storybook-static/assets/dropdown-menu-1wTNMaBz.js
+│  26.63 kB │ gzip:   7.46 kB
+│  storybook-static/vite-inject-mocker-entry.js
+│  27.81 kB │ gzip:   9.67 kB
+│  storybook-static/assets/sonner.stories-Bb9qfeud.js
+│  36.07 kB │ gzip:  10.49 kB
+│  storybook-static/assets/resizable-Da4zItY8.js
+│  44.62 kB │ gzip:  14.58 kB
+│  storybook-static/assets/column-menu-DDNTR8S0.js
+│  48.31 kB │ gzip:  16.29 kB
+│  storybook-static/assets/data-table.stories-QSKrJZkj.js
+│  89.41 kB │ gzip:  26.01 kB
+│  storybook-static/assets/markdown-QMv7aAXy.js
+│  162.99 kB │ gzip:  48.98 kB
+│  storybook-static/assets/react-18-DKMMeTUc.js
+│  207.54 kB │ gzip:  65.13 kB
+│  storybook-static/assets/src-D8Ta4U5z.js
+│  238.13 kB │ gzip:  65.66 kB
+│  storybook-static/assets/iframe-CD1Mgnyh.js
+│  1,221.40 kB │ gzip: 351.16 kB
+
+│
+▲  Vite [MODULE_LEVEL_DIRECTIVE] The semantics of the module level
+│  directive "use client" in
+│  "../../node_modules/.pnpm/sonner@2.0.8_@types+react@19.3.0_react-dom@19.3.0_react@19.3.0__react@19.3.0/node_modules/sonner/dist/index.mjs"
+│  may not be preserved when bundling.
+│  ╭─[
+│  ../../node_modules/.pnpm/sonner@2.0.8_@types+react@19.3.0_react-dom@19.3.0_react@19.3.0__react@19.3.0/node_modules/sonner/dist/index.mjs:1:1
+│  ]
+│  │
+│  1 │ 'use client';
+│  │ ──────┬──────
+│  │       ╰──────── module level directive may not be preserved
+│  │
+│  │ Help: For more information, see https://rolldown.rs/in-depth/d...
+│  ───╯
+
+│
+▲  Vite [plugin builtin:vite-reporter]
+│  (!) Some chunks are larger than 500 kB after minification. Consider:
+│  - Using dynamic import() to code-split the application
+│  - Use build.rolldownOptions.output.codeSplitting to improve chunking:
+│  https://rolldown.rs/reference/OutputOptions.codeSplitting
+│  - Adjust chunk size limit for this warning via
+│  build.chunkSizeWarningLimit.
+│
+▲  Vite [MODULE_LEVEL_DIRECTIVE] The semantics of the module level
+│  directive "use client" in
+│  "../../node_modules/.pnpm/@radix-ui+react-separator@1.1.16_@types+react-dom@19.3.0_@types+react@19.3.0__@types+re_3362b368140d816e1acd323eb561483d/node_modules/@radix-ui/react-separator/dist/index.mjs"
+│  may not be preserved when bundling.
+│  ╭─[
+│  ../../node_modules/.pnpm/@radix-ui+react-separator@1.1.16_@types+react-dom@19.3.0_@types+react@19.3.0__@types+re_3362b368140d816e1acd323eb561483d/node_modules/@radix-ui/react-separator/dist/index.mjs:1:1
+│  ]
+│  │
+│  1 │ "use client";
+│  │ ──────┬──────
+│  │       ╰──────── module level directive may not be preserved
+│  │
+│  │ Help: For more information, see https://rolldown.rs/in-depth/d...
+│  ───╯
+
+│
+▲  Vite [MODULE_LEVEL_DIRECTIVE] The semantics of the module level
+│  directive "use client" in
+│  "../../node_modules/.pnpm/@radix-ui+react-hover-card@1.1.24_@types+react-dom@19.3.0_@types+react@19.3.0__@types+r_a089ed8d94b171605f91bb35f83dbe8d/node_modules/@radix-ui/react-hover-card/dist/index.mjs"
+│  may not be preserved when bundling.
+│  ╭─[
+│  ../../node_modules/.pnpm/@radix-ui+react-hover-card@1.1.24_@types+react-dom@19.3.0_@types+react@19.3.0__@types+r_a089ed8d94b171605f91bb35f83dbe8d/node_modules/@radix-ui/react-hover-card/dist/index.mjs:1:1
+│  ]
+│  │
+│  1 │ "use client";
+│  │ ──────┬──────
+│  │       ╰──────── module level directive may not be preserved
+│  │
+│  │ Help: For more information, see https://rolldown.rs/in-depth/d...
+│  ───╯
+
+│
+▲  Vite [MODULE_LEVEL_DIRECTIVE] The semantics of the module level
+│  directive "use client" in
+│  "../../node_modules/.pnpm/@radix-ui+react-label@2.1.16_@types+react-dom@19.3.0_@types+react@19.3.0__@types+react@_a0d6e2f71ba73dadad94263bc45ff639/node_modules/@radix-ui/react-label/dist/index.mjs"
+│  may not be preserved when bundling.
+│  ╭─[
+│  ../../node_modules/.pnpm/@radix-ui+react-label@2.1.16_@types+react-dom@19.3.0_@types+react@19.3.0__@types+react@_a0d6e2f71ba73dadad94263bc45ff639/node_modules/@radix-ui/react-label/dist/index.mjs:1:1
+│  ]
+│  │
+│  1 │ "use client";
+│  │ ──────┬──────
+│  │       ╰──────── module level directive may not be preserved
+│  │
+│  │ Help: For more information, see https://rolldown.rs/in-depth/d...
+│  ───╯
+
+│
+▲  Vite [MODULE_LEVEL_DIRECTIVE] The semantics of the module level
+│  directive "use client" in
+│  "../../node_modules/.pnpm/@radix-ui+react-dropdown-menu@2.1.25_@types+react-dom@19.3.0_@types+react@19.3.0__@type_629a5a4a562bce11ef9cf18d771c29ae/node_modules/@radix-ui/react-dropdown-menu/dist/index.mjs"
+│  may not be preserved when bundling.
+│  ╭─[
+│  ../../node_modules/.pnpm/@radix-ui+react-dropdown-menu@2.1.25_@types+react-dom@19.3.0_@types+react@19.3.0__@type_629a5a4a562bce11ef9cf18d771c29ae/node_modules/@radix-ui/react-dropdown-menu/dist/index.mjs:1:1
+│  ]
+│  │
+│  1 │ "use client";
+│  │ ──────┬──────
+│  │       ╰──────── module level directive may not be preserved
+│  │
+│  │ Help: For more information, see https://rolldown.rs/in-depth/d...
+│  ───╯
+
+│
+▲  Vite [MODULE_LEVEL_DIRECTIVE] The semantics of the module level
+│  directive "use client" in
+│  "../../node_modules/.pnpm/@radix-ui+react-popover@1.2.0_@types+react-dom@19.3.0_@types+react@19.3.0__@types+react_a8ff70808089aae633d13b9a606299ae/node_modules/@radix-ui/react-popover/dist/index.mjs"
+│  may not be preserved when bundling.
+│  ╭─[
+│  ../../node_modules/.pnpm/@radix-ui+react-popover@1.2.0_@types+react-dom@19.3.0_@types+react@19.3.0__@types+react_a8ff70808089aae633d13b9a606299ae/node_modules/@radix-ui/react-popover/dist/index.mjs:1:1
+│  ]
+│  │
+│  1 │ "use client";
+│  │ ──────┬──────
+│  │       ╰──────── module level directive may not be preserved
+│  │
+│  │ Help: For more information, see https://rolldown.rs/in-depth/d...
+│  ───╯
+
+│
+▲  Vite [MODULE_LEVEL_DIRECTIVE] The semantics of the module level
+│  directive "use client" in
+│  "../../node_modules/.pnpm/cmdk@1.1.1_@types+react-dom@19.3.0_@types+react@19.3.0__@types+react@19.3.0_react-dom@19.3.0_react@19.3.0__react@19.3.0/node_modules/cmdk/dist/index.mjs"
+│  may not be preserved when bundling.
+│  - module level directive may not be preserved in
+│  ../../node_modules/.pnpm/cmdk@1.1.1_@types+react-dom@19.3.0_@types+react@19.3.0__@types+react@19.3.0_react-dom@19.3.0_react@19.3.0__react@19.3.0/node_modules/cmdk/dist/index.mjs
+│  at 0..13
+│  │
+│  │ Help: For more information, see https://rolldown.rs/in-depth/di...
+
+│
+▲  Vite [MODULE_LEVEL_DIRECTIVE] The semantics of the module level
+│  directive "use client" in
+│  "../../node_modules/.pnpm/@radix-ui+react-switch@1.3.8_@types+react-dom@19.3.0_@types+react@19.3.0__@types+react@_9e907e973c095d314448b5bf7a7b557b/node_modules/@radix-ui/react-switch/dist/index.mjs"
+│  may not be preserved when bundling.
+│  ╭─[
+│  ../../node_modules/.pnpm/@radix-ui+react-switch@1.3.8_@types+react-dom@19.3.0_@types+react@19.3.0__@types+react@_9e907e973c095d314448b5bf7a7b557b/node_modules/@radix-ui/react-switch/dist/index.mjs:1:1
+│  ]
+│  │
+│  1 │ "use client";
+│  │ ──────┬──────
+│  │       ╰──────── module level directive may not be preserved
+│  │
+│  │ Help: For more information, see https://rolldown.rs/in-depth/d...
+│  ───╯
+
+│
+▲  Vite [MODULE_LEVEL_DIRECTIVE] The semantics of the module level
+│  directive "use client" in
+│  "../../node_modules/.pnpm/@radix-ui+react-dialog@1.2.0_@types+react-dom@19.3.0_@types+react@19.3.0__@types+react@_c1edb718822a6de77ff35d62c5110ee0/node_modules/@radix-ui/react-dialog/dist/index.mjs"
+│  may not be preserved when bundling.
+│  ╭─[
+│  ../../node_modules/.pnpm/@radix-ui+react-dialog@1.2.0_@types+react-dom@19.3.0_@types+react@19.3.0__@types+react@_c1edb718822a6de77ff35d62c5110ee0/node_modules/@radix-ui/react-dialog/dist/index.mjs:1:1
+│  ]
+│  │
+│  1 │ "use client";
+│  │ ──────┬──────
+│  │       ╰──────── module level directive may not be preserved
+│  │
+│  │ Help: For more information, see https://rolldown.rs/in-depth/d...
+│  ───╯
+
+│
+▲  Vite [MODULE_LEVEL_DIRECTIVE] The semantics of the module level
+│  directive "use client" in
+│  "../../node_modules/.pnpm/@radix-ui+react-radio-group@1.4.8_@types+react-dom@19.3.0_@types+react@19.3.0__@types+r_348ffb426946b68081d9d648af06eca5/node_modules/@radix-ui/react-radio-group/dist/index.mjs"
+│  may not be preserved when bundling.
+│  ╭─[
+│  ../../node_modules/.pnpm/@radix-ui+react-radio-group@1.4.8_@types+react-dom@19.3.0_@types+react@19.3.0__@types+r_348ffb426946b68081d9d648af06eca5/node_modules/@radix-ui/react-radio-group/dist/index.mjs:1:1
+│  ]
+│  │
+│  1 │ "use client";
+│  │ ──────┬──────
+│  │       ╰──────── module level directive may not be preserved
+│  │
+│  │ Help: For more information, see https://rolldown.rs/in-depth/d...
+│  ───╯
+
+│
+▲  Vite [MODULE_LEVEL_DIRECTIVE] The semantics of the module level
+│  directive "use client" in
+│  "../../node_modules/.pnpm/@radix-ui+react-select@2.3.8_@types+react-dom@19.3.0_@types+react@19.3.0__@types+react@_34ec1de1099e5f0bf822b110d5b01f4b/node_modules/@radix-ui/react-select/dist/index.mjs"
+│  may not be preserved when bundling.
+│  ╭─[
+│  ../../node_modules/.pnpm/@radix-ui+react-select@2.3.8_@types+react-dom@19.3.0_@types+react@19.3.0__@types+react@_34ec1de1099e5f0bf822b110d5b01f4b/node_modules/@radix-ui/react-select/dist/index.mjs:1:1
+│  ]
+│  │
+│  1 │ "use client";
+│  │ ──────┬──────
+│  │       ╰──────── module level directive may not be preserved
+│  │
+│  │ Help: For more information, see https://rolldown.rs/in-depth/d...
+│  ───╯
+
+│
+▲  Vite [MODULE_LEVEL_DIRECTIVE] The semantics of the module level
+│  directive "use client" in
+│  "../../node_modules/.pnpm/@radix-ui+react-scroll-area@1.3.0_@types+react-dom@19.3.0_@types+react@19.3.0__@types+r_ffeab342eb1a774f65b935ed6b4c4f54/node_modules/@radix-ui/react-scroll-area/dist/index.mjs"
+│  may not be preserved when bundling.
+│  ╭─[
+│  ../../node_modules/.pnpm/@radix-ui+react-scroll-area@1.3.0_@types+react-dom@19.3.0_@types+react@19.3.0__@types+r_ffeab342eb1a774f65b935ed6b4c4f54/node_modules/@radix-ui/react-scroll-area/dist/index.mjs:1:1
+│  ]
+│  │
+│  1 │ "use client";
+│  │ ──────┬──────
+│  │       ╰──────── module level directive may not be preserved
+│  │
+│  │ Help: For more information, see https://rolldown.rs/in-depth/d...
+│  ───╯
+
+│
+▲  Vite [MODULE_LEVEL_DIRECTIVE] The semantics of the module level
+│  directive "use client" in
+│  "../../node_modules/.pnpm/lucide-react@1.53.0_@types+react@19.3.0_react@19.3.0/node_modules/lucide-react/dist/esm/context.mjs"
+│  may not be preserved when bundling.
+│  ╭─[
+│  ../../node_modules/.pnpm/lucide-react@1.53.0_@types+react@19.3.0_react@19.3.0/node_modules/lucide-react/dist/esm/context.mjs:2:1
+│  ]
+│  │
+│  2 │ "use client";
+│  │ ──────┬──────
+│  │       ╰──────── module level directive may not be preserved
+│  │
+│  │ Help: For more information, see https://rolldown.rs/in-depth/d...
+│  ───╯
+
+│
+▲  Vite [MODULE_LEVEL_DIRECTIVE] The semantics of the module level
+│  directive "use client" in
+│  "../../node_modules/.pnpm/@radix-ui+react-alert-dialog@1.1.24_@types+react-dom@19.3.0_@types+react@19.3.0__@types_385e64d53e5a1e103e54811f100b6423/node_modules/@radix-ui/react-alert-dialog/dist/index.mjs"
+│  may not be preserved when bundling.
+│  ╭─[
+│  ../../node_modules/.pnpm/@radix-ui+react-alert-dialog@1.1.24_@types+react-dom@19.3.0_@types+react@19.3.0__@types_385e64d53e5a1e103e54811f100b6423/node_modules/@radix-ui/react-alert-dialog/dist/index.mjs:1:1
+│  ]
+│  │
+│  1 │ "use client";
+│  │ ──────┬──────
+│  │       ╰──────── module level directive may not be preserved
+│  │
+│  │ Help: For more information, see https://rolldown.rs/in-depth/d...
+│  ───╯
+
+│
+▲  Vite [MODULE_LEVEL_DIRECTIVE] The semantics of the module level
+│  directive "use client" in
+│  "../../node_modules/.pnpm/@radix-ui+react-toggle@1.1.19_@types+react-dom@19.3.0_@types+react@19.3.0__@types+react_0e10ed90ffe63a2b19e6a500bc5f84b8/node_modules/@radix-ui/react-toggle/dist/index.mjs"
+│  may not be preserved when bundling.
+│  ╭─[
+│  ../../node_modules/.pnpm/@radix-ui+react-toggle@1.1.19_@types+react-dom@19.3.0_@types+react@19.3.0__@types+react_0e10ed90ffe63a2b19e6a500bc5f84b8/node_modules/@radix-ui/react-toggle/dist/index.mjs:1:1
+│  ]
+│  │
+│  1 │ "use client";
+│  │ ──────┬──────
+│  │       ╰──────── module level directive may not be preserved
+│  │
+│  │ Help: For more information, see https://rolldown.rs/in-depth/d...
+│  ───╯
+
+│
+▲  Vite [MODULE_LEVEL_DIRECTIVE] The semantics of the module level
+│  directive "use client" in
+│  "../../node_modules/.pnpm/react-resizable-panels@4.14.3_react-dom@19.3.0_react@19.3.0__react@19.3.0/node_modules/react-resizable-panels/dist/react-resizable-panels.js"
+│  may not be preserved when bundling.
+│  ╭─[
+│  ../../node_modules/.pnpm/react-resizable-panels@4.14.3_react-dom@19.3.0_react@19.3.0__react@19.3.0/node_modules/react-resizable-panels/dist/react-resizable-panels.js:1:1
+│  ]
+│  │
+│  1 │ "use client";
+│  │ ──────┬──────
+│  │       ╰──────── module level directive may not be preserved
+│  │
+│  │ Help: For more information, see https://rolldown.rs/in-depth/d...
+│  ───╯
+
+│
+▲  Vite [MODULE_LEVEL_DIRECTIVE] The semantics of the module level
+│  directive "use client" in
+│  "../../node_modules/.pnpm/lucide-react@1.53.0_@types+react@19.3.0_react@19.3.0/node_modules/lucide-react/dist/esm/Icon.mjs"
+│  may not be preserved when bundling.
+│  ╭─[
+│  ../../node_modules/.pnpm/lucide-react@1.53.0_@types+react@19.3.0_react@19.3.0/node_modules/lucide-react/dist/esm/Icon.mjs:2:1
+│  ]
+│  │
+│  2 │ "use client";
+│  │ ──────┬──────
+│  │       ╰──────── module level directive may not be preserved
+│  │
+│  │ Help: For more information, see https://rolldown.rs/in-depth/d...
+│  ───╯
+
+│
+▲  Vite [MODULE_LEVEL_DIRECTIVE] The semantics of the module level
+│  directive "use client" in
+│  "../../node_modules/.pnpm/@radix-ui+react-checkbox@1.3.12_@types+react-dom@19.3.0_@types+react@19.3.0__@types+rea_8e7decfe55428655a0dd8868fe7c2c70/node_modules/@radix-ui/react-checkbox/dist/index.mjs"
+│  may not be preserved when bundling.
+│  ╭─[
+│  ../../node_modules/.pnpm/@radix-ui+react-checkbox@1.3.12_@types+react-dom@19.3.0_@types+react@19.3.0__@types+rea_8e7decfe55428655a0dd8868fe7c2c70/node_modules/@radix-ui/react-checkbox/dist/index.mjs:1:1
+│  ]
+│  │
+│  1 │ "use client";
+│  │ ──────┬──────
+│  │       ╰──────── module level directive may not be preserved
+│  │
+│  │ Help: For more information, see https://rolldown.rs/in-depth/d...
+│  ───╯
+
+│
+▲  Vite [MODULE_LEVEL_DIRECTIVE] The semantics of the module level
+│  directive "use client" in
+│  "../../node_modules/.pnpm/@radix-ui+react-progress@1.1.17_@types+react-dom@19.3.0_@types+react@19.3.0__@types+rea_8b02c81ec43be9627385838e23c60397/node_modules/@radix-ui/react-progress/dist/index.mjs"
+│  may not be preserved when bundling.
+│  ╭─[
+│  ../../node_modules/.pnpm/@radix-ui+react-progress@1.1.17_@types+react-dom@19.3.0_@types+react@19.3.0__@types+rea_8b02c81ec43be9627385838e23c60397/node_modules/@radix-ui/react-progress/dist/index.mjs:1:1
+│  ]
+│  │
+│  1 │ "use client";
+│  │ ──────┬──────
+│  │       ╰──────── module level directive may not be preserved
+│  │
+│  │ Help: For more information, see https://rolldown.rs/in-depth/d...
+│  ───╯
+
+│
+▲  Vite [MODULE_LEVEL_DIRECTIVE] The semantics of the module level
+│  directive "use client" in
+│  "../../node_modules/.pnpm/@radix-ui+react-toggle-group@1.1.20_@types+react-dom@19.3.0_@types+react@19.3.0__@types_dbeb376c39e78fc6887447e621861c44/node_modules/@radix-ui/react-toggle-group/dist/index.mjs"
+│  may not be preserved when bundling.
+│  ╭─[
+│  ../../node_modules/.pnpm/@radix-ui+react-toggle-group@1.1.20_@types+react-dom@19.3.0_@types+react@19.3.0__@types_dbeb376c39e78fc6887447e621861c44/node_modules/@radix-ui/react-toggle-group/dist/index.mjs:1:1
+│  ]
+│  │
+│  1 │ "use client";
+│  │ ──────┬──────
+│  │       ╰──────── module level directive may not be preserved
+│  │
+│  │ Help: For more information, see https://rolldown.rs/in-depth/d...
+│  ───╯
+
+│
+▲  Vite [MODULE_LEVEL_DIRECTIVE] The semantics of the module level
+│  directive "use client" in
+│  "../../node_modules/.pnpm/@radix-ui+react-tabs@1.1.22_@types+react-dom@19.3.0_@types+react@19.3.0__@types+react@1_450c284a3bb475239d2613877ab2e8e7/node_modules/@radix-ui/react-tabs/dist/index.mjs"
+│  may not be preserved when bundling.
+│  ╭─[
+│  ../../node_modules/.pnpm/@radix-ui+react-tabs@1.1.22_@types+react-dom@19.3.0_@types+react@19.3.0__@types+react@1_450c284a3bb475239d2613877ab2e8e7/node_modules/@radix-ui/react-tabs/dist/index.mjs:1:1
+│  ]
+│  │
+│  1 │ "use client";
+│  │ ──────┬──────
+│  │       ╰──────── module level directive may not be preserved
+│  │
+│  │ Help: For more information, see https://rolldown.rs/in-depth/d...
+│  ───╯
+
+│
+▲  Vite [MODULE_LEVEL_DIRECTIVE] The semantics of the module level
+│  directive "use client" in
+│  "../../node_modules/.pnpm/@radix-ui+react-tooltip@1.3.0_@types+react-dom@19.3.0_@types+react@19.3.0__@types+react_6549bd62ea6eb106a6aeca49ee3b8cb9/node_modules/@radix-ui/react-tooltip/dist/index.mjs"
+│  may not be preserved when bundling.
+│  ╭─[
+│  ../../node_modules/.pnpm/@radix-ui+react-tooltip@1.3.0_@types+react-dom@19.3.0_@types+react@19.3.0__@types+react_6549bd62ea6eb106a6aeca49ee3b8cb9/node_modules/@radix-ui/react-tooltip/dist/index.mjs:1:1
+│  ]
+│  │
+│  1 │ "use client";
+│  │ ──────┬──────
+│  │       ╰──────── module level directive may not be preserved
+│  │
+│  │ Help: For more information, see https://rolldown.rs/in-depth/d...
+│  ───╯
+
+│
+▲  Vite [MODULE_LEVEL_DIRECTIVE] The semantics of the module level
+│  directive "use client" in
+│  "../../node_modules/.pnpm/@radix-ui+react-primitive@2.1.11_@types+react-dom@19.3.0_@types+react@19.3.0__@types+re_2d61650df3f0a7a7bdba633a6dcc8d9a/node_modules/@radix-ui/react-primitive/dist/index.mjs"
+│  may not be preserved when bundling.
+│  ╭─[
+│  ../../node_modules/.pnpm/@radix-ui+react-primitive@2.1.11_@types+react-dom@19.3.0_@types+react@19.3.0__@types+re_2d61650df3f0a7a7bdba633a6dcc8d9a/node_modules/@radix-ui/react-primitive/dist/index.mjs:1:1
+│  ]
+│  │
+│  1 │ "use client";
+│  │ ──────┬──────
+│  │       ╰──────── module level directive may not be preserved
+│  │
+│  │ Help: For more information, see https://rolldown.rs/in-depth/d...
+│  ───╯
+
+│
+▲  Vite [MODULE_LEVEL_DIRECTIVE] The semantics of the module level
+│  directive "use client" in
+│  "../../node_modules/.pnpm/@radix-ui+react-presence@1.1.11_@types+react-dom@19.3.0_@types+react@19.3.0__@types+rea_fea964e47d1f796c036ae060b7c5470f/node_modules/@radix-ui/react-presence/dist/index.mjs"
+│  may not be preserved when bundling.
+│  ╭─[
+│  ../../node_modules/.pnpm/@radix-ui+react-presence@1.1.11_@types+react-dom@19.3.0_@types+react@19.3.0__@types+rea_fea964e47d1f796c036ae060b7c5470f/node_modules/@radix-ui/react-presence/dist/index.mjs:1:1
+│  ]
+│  │
+│  1 │ "use client";
+│  │ ──────┬──────
+│  │       ╰──────── module level directive may not be preserved
+│  │
+│  │ Help: For more information, see https://rolldown.rs/in-depth/d...
+│  ───╯
+
+│
+▲  Vite [MODULE_LEVEL_DIRECTIVE] The semantics of the module level
+│  directive "use client" in
+│  "../../node_modules/.pnpm/@radix-ui+react-portal@1.1.18_@types+react-dom@19.3.0_@types+react@19.3.0__@types+react_8071c404ead3ecd57efdf7c5517d13a4/node_modules/@radix-ui/react-portal/dist/index.mjs"
+│  may not be preserved when bundling.
+│  ╭─[
+│  ../../node_modules/.pnpm/@radix-ui+react-portal@1.1.18_@types+react-dom@19.3.0_@types+react@19.3.0__@types+react_8071c404ead3ecd57efdf7c5517d13a4/node_modules/@radix-ui/react-portal/dist/index.mjs:1:1
+│  ]
+│  │
+│  1 │ "use client";
+│  │ ──────┬──────
+│  │       ╰──────── module level directive may not be preserved
+│  │
+│  │ Help: For more information, see https://rolldown.rs/in-depth/d...
+│  ───╯
+
+│
+▲  Vite [MODULE_LEVEL_DIRECTIVE] The semantics of the module level
+│  directive "use client" in
+│  "../../node_modules/.pnpm/@radix-ui+react-direction@1.1.5_@types+react@19.3.0_react@19.3.0/node_modules/@radix-ui/react-direction/dist/index.mjs"
+│  may not be preserved when bundling.
+│  ╭─[
+│  ../../node_modules/.pnpm/@radix-ui+react-direction@1.1.5_@types+react@19.3.0_react@19.3.0/node_modules/@radix-ui/react-direction/dist/index.mjs:1:1
+│  ]
+│  │
+│  1 │ "use client";
+│  │ ──────┬──────
+│  │       ╰──────── module level directive may not be preserved
+│  │
+│  │ Help: For more information, see https://rolldown.rs/in-depth/d...
+│  ───╯
+
+│
+▲  Vite [MODULE_LEVEL_DIRECTIVE] The semantics of the module level
+│  directive "use client" in
+│  "../../node_modules/.pnpm/@radix-ui+react-collapsible@1.1.21_@types+react-dom@19.3.0_@types+react@19.3.0__@types+_08f57846484fd2301092c4aac1e1f11f/node_modules/@radix-ui/react-collapsible/dist/index.mjs"
+│  may not be preserved when bundling.
+│  ╭─[
+│  ../../node_modules/.pnpm/@radix-ui+react-collapsible@1.1.21_@types+react-dom@19.3.0_@types+react@19.3.0__@types+_08f57846484fd2301092c4aac1e1f11f/node_modules/@radix-ui/react-collapsible/dist/index.mjs:1:1
+│  ]
+│  │
+│  1 │ "use client";
+│  │ ──────┬──────
+│  │       ╰──────── module level directive may not be preserved
+│  │
+│  │ Help: For more information, see https://rolldown.rs/in-depth/d...
+│  ───╯
+
+│
+▲  Vite [MODULE_LEVEL_DIRECTIVE] The semantics of the module level
+│  directive "use client" in
+│  "../../node_modules/.pnpm/@radix-ui+react-focus-scope@1.2.0_@types+react-dom@19.3.0_@types+react@19.3.0__@types+r_17bb03d71df6075c07bd134f364dcf6d/node_modules/@radix-ui/react-focus-scope/dist/index.mjs"
+│  may not be preserved when bundling.
+│  ╭─[
+│  ../../node_modules/.pnpm/@radix-ui+react-focus-scope@1.2.0_@types+react-dom@19.3.0_@types+react@19.3.0__@types+r_17bb03d71df6075c07bd134f364dcf6d/node_modules/@radix-ui/react-focus-scope/dist/index.mjs:1:1
+│  ]
+│  │
+│  1 │ "use client";
+│  │ ──────┬──────
+│  │       ╰──────── module level directive may not be preserved
+│  │
+│  │ Help: For more information, see https://rolldown.rs/in-depth/d...
+│  ───╯
+
+│
+▲  Vite [MODULE_LEVEL_DIRECTIVE] The semantics of the module level
+│  directive "use client" in
+│  "../../node_modules/.pnpm/@radix-ui+react-visually-hidden@1.2.12_@types+react-dom@19.3.0_@types+react@19.3.0__@ty_ad57af71b4efe6276d0723047030f1e5/node_modules/@radix-ui/react-visually-hidden/dist/index.mjs"
+│  may not be preserved when bundling.
+│  ╭─[
+│  ../../node_modules/.pnpm/@radix-ui+react-visually-hidden@1.2.12_@types+react-dom@19.3.0_@types+react@19.3.0__@ty_ad57af71b4efe6276d0723047030f1e5/node_modules/@radix-ui/react-visually-hidden/dist/index.mjs:1:1
+│  ]
+│  │
+│  1 │ "use client";
+│  │ ──────┬──────
+│  │       ╰──────── module level directive may not be preserved
+│  │
+│  │ Help: For more information, see https://rolldown.rs/in-depth/d...
+│  ───╯
+
+│
+▲  Vite [MODULE_LEVEL_DIRECTIVE] The semantics of the module level
+│  directive "use client" in
+│  "../../node_modules/.pnpm/@radix-ui+react-focus-guards@1.1.6_@types+react@19.3.0_react@19.3.0/node_modules/@radix-ui/react-focus-guards/dist/index.mjs"
+│  may not be preserved when bundling.
+│  ╭─[
+│  ../../node_modules/.pnpm/@radix-ui+react-focus-guards@1.1.6_@types+react@19.3.0_react@19.3.0/node_modules/@radix-ui/react-focus-guards/dist/index.mjs:1:1
+│  ]
+│  │
+│  1 │ "use client";
+│  │ ──────┬──────
+│  │       ╰──────── module level directive may not be preserved
+│  │
+│  │ Help: For more information, see https://rolldown.rs/in-depth/d...
+│  ───╯
+
+│
+▲  Vite [MODULE_LEVEL_DIRECTIVE] The semantics of the module level
+│  directive "use client" in
+│  "../../node_modules/.pnpm/@radix-ui+react-collection@1.1.16_@types+react-dom@19.3.0_@types+react@19.3.0__@types+r_b1d6247ab86485bab1740806d97e8d38/node_modules/@radix-ui/react-collection/dist/index.mjs"
+│  may not be preserved when bundling.
+│  ╭─[
+│  ../../node_modules/.pnpm/@radix-ui+react-collection@1.1.16_@types+react-dom@19.3.0_@types+react@19.3.0__@types+r_b1d6247ab86485bab1740806d97e8d38/node_modules/@radix-ui/react-collection/dist/index.mjs:1:1
+│  ]
+│  │
+│  1 │ "use client";
+│  │ ──────┬──────
+│  │       ╰──────── module level directive may not be preserved
+│  │
+│  │ Help: For more information, see https://rolldown.rs/in-depth/d...
+│  ───╯
+
+│
+▲  Vite [MODULE_LEVEL_DIRECTIVE] The semantics of the module level
+│  directive "use client" in
+│  "../../node_modules/.pnpm/@radix-ui+react-dismissable-layer@1.1.20_@types+react-dom@19.3.0_@types+react@19.3.0__@_4e89f70e986c5a91a92277a59b4de3bd/node_modules/@radix-ui/react-dismissable-layer/dist/index.mjs"
+│  may not be preserved when bundling.
+│  ╭─[
+│  ../../node_modules/.pnpm/@radix-ui+react-dismissable-layer@1.1.20_@types+react-dom@19.3.0_@types+react@19.3.0__@_4e89f70e986c5a91a92277a59b4de3bd/node_modules/@radix-ui/react-dismissable-layer/dist/index.mjs:1:1
+│  ]
+│  │
+│  1 │ "use client";
+│  │ ──────┬──────
+│  │       ╰──────── module level directive may not be preserved
+│  │
+│  │ Help: For more information, see https://rolldown.rs/in-depth/d...
+│  ───╯
+
+│
+▲  Vite [MODULE_LEVEL_DIRECTIVE] The semantics of the module level
+│  directive "use client" in
+│  "../../node_modules/.pnpm/@radix-ui+react-roving-focus@1.1.20_@types+react-dom@19.3.0_@types+react@19.3.0__@types_4a1e3c631f31675fbe9dd912b1e92891/node_modules/@radix-ui/react-roving-focus/dist/index.mjs"
+│  may not be preserved when bundling.
+│  ╭─[
+│  ../../node_modules/.pnpm/@radix-ui+react-roving-focus@1.1.20_@types+react-dom@19.3.0_@types+react@19.3.0__@types_4a1e3c631f31675fbe9dd912b1e92891/node_modules/@radix-ui/react-roving-focus/dist/index.mjs:1:1
+│  ]
+│  │
+│  1 │ "use client";
+│  │ ──────┬──────
+│  │       ╰──────── module level directive may not be preserved
+│  │
+│  │ Help: For more information, see https://rolldown.rs/in-depth/d...
+│  ───╯
+
+│
+▲  Vite [MODULE_LEVEL_DIRECTIVE] The semantics of the module level
+│  directive "use client" in
+│  "../../node_modules/.pnpm/@radix-ui+react-popper@1.3.8_@types+react-dom@19.3.0_@types+react@19.3.0__@types+react@_04b331dcddb9198baac431c3d7633ae9/node_modules/@radix-ui/react-popper/dist/index.mjs"
+│  may not be preserved when bundling.
+│  ╭─[
+│  ../../node_modules/.pnpm/@radix-ui+react-popper@1.3.8_@types+react-dom@19.3.0_@types+react@19.3.0__@types+react@_04b331dcddb9198baac431c3d7633ae9/node_modules/@radix-ui/react-popper/dist/index.mjs:1:1
+│  ]
+│  │
+│  1 │ "use client";
+│  │ ──────┬──────
+│  │       ╰──────── module level directive may not be preserved
+│  │
+│  │ Help: For more information, see https://rolldown.rs/in-depth/d...
+│  ───╯
+
+│
+▲  Vite [MODULE_LEVEL_DIRECTIVE] The semantics of the module level
+│  directive "use client" in
+│  "../../node_modules/.pnpm/@radix-ui+react-menu@2.1.25_@types+react-dom@19.3.0_@types+react@19.3.0__@types+react@1_3ae13a8b8abaffcff00d77dee41e2df0/node_modules/@radix-ui/react-menu/dist/index.mjs"
+│  may not be preserved when bundling.
+│  ╭─[
+│  ../../node_modules/.pnpm/@radix-ui+react-menu@2.1.25_@types+react-dom@19.3.0_@types+react@19.3.0__@types+react@1_3ae13a8b8abaffcff00d77dee41e2df0/node_modules/@radix-ui/react-menu/dist/index.mjs:1:1
+│  ]
+│  │
+│  1 │ "use client";
+│  │ ──────┬──────
+│  │       ╰──────── module level directive may not be preserved
+│  │
+│  │ Help: For more information, see https://rolldown.rs/in-depth/d...
+│  ───╯
+
+│
+▲  Vite [MODULE_LEVEL_DIRECTIVE] The semantics of the module level
+│  directive "use client" in
+│  "../../node_modules/.pnpm/@radix-ui+react-arrow@1.1.16_@types+react-dom@19.3.0_@types+react@19.3.0__@types+react@_4a0993c6ef5dd80ee5acd0b48f332cb5/node_modules/@radix-ui/react-arrow/dist/index.mjs"
+│  may not be preserved when bundling.
+│  ╭─[
+│  ../../node_modules/.pnpm/@radix-ui+react-arrow@1.1.16_@types+react-dom@19.3.0_@types+react@19.3.0__@types+react@_4a0993c6ef5dd80ee5acd0b48f332cb5/node_modules/@radix-ui/react-arrow/dist/index.mjs:1:1
+│  ]
+│  │
+│  1 │ "use client";
+│  │ ──────┬──────
+│  │       ╰──────── module level directive may not be preserved
+│  │
+│  │ Help: For more information, see https://rolldown.rs/in-depth/d...
+│  ───╯
+
+│  Vite ✓ built in 4.11s
+│
+●  Storybook collects completely anonymous usage telemetry. We use it to
+│  shape Storybook's roadmap and prioritize features. You can learn more,
+│  including how to opt out, at https://storybook.js.org/telemetry
+│
+◇  Output directory:
+│  /Users/bh2980/Desktop/translation_workbench/packages/ui/storybook-static
+│
+└  Storybook build completed successfully

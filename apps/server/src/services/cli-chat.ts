@@ -45,7 +45,15 @@ interface LiveTurn {
 const live = new Map<string, LiveTurn>();
 
 /** Each chat's MCP server, for this server run (its token lives in the CLI's session; a reopened session gets the current one). */
-const servers = new Map<string, Promise<ai.HostedServer>>();
+const servers = new Map<string, ReturnType<typeof ai.hostTools>>();
+
+export async function disposeChatServer(sessionId: string) {
+  const pending = servers.get(sessionId);
+  servers.delete(sessionId);
+  const hosted = await pending?.catch(() => undefined);
+  hosted?.dispose();
+  live.delete(sessionId);
+}
 
 function chatServer(db: Db, chat: { id: string; projectId: string }): Promise<ai.HostedServer> {
   let server = servers.get(chat.id);
@@ -55,11 +63,10 @@ function chatServer(db: Db, chat: { id: string; projectId: string }): Promise<ai
         const turn = live.get(chat.id);
         const tools = turn ? [...turn.tools.values()] : agentCatalog(db, chat.projectId);
         return tools.map((tool) => ({ name: tool.name, description: tool.changes ? `${tool.description}\n(변경: 이 대화의 제안으로 올라감)` : tool.description, inputSchema: jsonSchemaOf(tool.schema), run: (input) => runTool(db, chat, tool.name, input) }));
-      })
-      .then((hosted) => hosted.server);
+      });
     servers.set(chat.id, server);
   }
-  return server;
+  return server.then((hosted) => hosted.server);
 }
 
 async function runTool(db: Db, chat: { id: string; projectId: string }, name: string, input: Record<string, unknown>) {
@@ -154,6 +161,10 @@ export async function cliChatResponse(input: {
           sessionId = created.sessionId;
           if (created.inMessage) lead = input.system;
         }
+      }
+      if (input.turn.signal.aborted) {
+        await ai.closeSession(sessionId);
+        input.turn.signal.throwIfAborted();
       }
       await agent.use(sessionId, route.model, route.effort);
       // The CLI's session is told what it missed (another model answered in between); a new one gets the record.

@@ -1,3 +1,4 @@
+import { deleteChat } from '../services/chat-delete.ts';
 import { Hono } from 'hono';
 import { UI_MESSAGE_STREAM_HEADERS, type UIMessage } from 'ai';
 import { and, desc, eq, sql } from 'drizzle-orm';
@@ -253,10 +254,8 @@ export const chatRoutes = new Hono<Env>()
     events.changed(row.projectId, 'chat');
     return c.json({ ok: true });
   })
-  .delete('/chat/:sessionId', (c) => {
-    const { db } = c.var.deps;
-    const row = db.delete(s.chatSessions).where(eq(s.chatSessions.id, c.req.param('sessionId'))).returning().get();
-    if (row) events.changed(row.projectId, 'chat');
+  .delete('/chat/:sessionId', async (c) => {
+    await deleteChat(c.var.deps.db, c.req.param('sessionId'));
     return c.json({ ok: true });
   })
   // The server owns the conversation record (#46): the browser sends the new message only (an

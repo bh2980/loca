@@ -1,9 +1,10 @@
+import { createAndAttachTag } from '@/lib/create-tag';
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { ChevronDown, ChevronUp, PanelRightOpen, StickyNote, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { PALETTE, TAG_SCOPES } from '@tw/shared';
+import { TAG_SCOPES } from '@tw/shared';
 import { LineHints } from '@/components/script/line-row';
 import { TranslationEditor } from '@/components/translation-editor';
 import { LineSourceText } from '@/components/editor/source-text';
@@ -67,12 +68,7 @@ export function LineCard({ projectId, unitId, choice, position, onStep, onClose 
   const handleCreateTag = async (name: string) => {
     if (!line) return;
     try {
-      const color = (PALETTE[tags.length % PALETTE.length] as any).light ?? PALETTE[tags.length % PALETTE.length].hex;
-      const res = await unwrap(client.projects[':projectId'].tags.$post({
-        param: { projectId },
-        json: { name, color, scope: [...TAG_SCOPES] },
-      }));
-      await patch.mutateAsync({ tagIds: [...line.tagIds, res.id] });
+      await createAndAttachTag(projectId, name, tags.length, [...TAG_SCOPES], (tagId) => patch.mutateAsync({ tagIds: [...line.tagIds, tagId] }));
       toast.success(`'${name}' 태그를 만들고 줄에 붙였습니다.`);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : '태그를 만들지 못했습니다.');

@@ -266,17 +266,6 @@ function Glossary() {
                     {isMulti ? `${targetCount}개 확정` : '확정'}
                   </ContextMenuItem>
                 )}
-                {hasTarget && (
-                  <ContextMenuItem
-                    onClick={() => {
-                      const nextLocked = !(row as any).locked;
-                      (row as any).locked = nextLocked;
-                      toast.success(isMulti ? `${targetCount}개 번역을 ${nextLocked ? '고정' : '고정 해제'}했습니다.` : `번역을 ${nextLocked ? '고정' : '고정 해제'}했습니다.`);
-                    }}
-                  >
-                    {isMulti ? `${targetCount}개 번역 고정` : ((row as any).locked ? '번역 고정 해제' : '번역 고정')}
-                  </ContextMenuItem>
-                )}
                 <ContextMenuItem onClick={() => { void navigator.clipboard.writeText(row.source); toast.success('원문을 복사했습니다.'); }}>
                   원문 복사
                 </ContextMenuItem>
