@@ -6,14 +6,14 @@ import { expect, it } from 'vitest';
 import { AGENT_TOOLS } from '@tw/shared';
 import { program } from './main.ts';
 
-const skillsDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../skills');
+const skillsDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../.claude/skills');
 const markdown = (dir: string): string[] =>
   readdirSync(dir).flatMap((name) => {
     const full = path.join(dir, name);
     return statSync(full).isDirectory() ? markdown(full) : name.endsWith('.md') ? [full] : [];
   });
 
-/** Every `loca …` written in code (backticks or fenced blocks) in skills/: what an agent will type. */
+/** Every `loca …` written in code (backticks or fenced blocks) in .claude/skills/: what an agent will type. */
 function invocations() {
   const found: { file: string; text: string }[] = [];
   for (const file of markdown(skillsDir)) {
