@@ -602,6 +602,8 @@ export interface ItemData {
   /** The line's current candidate in this run (set by AI, HTTP, script or a person). */
   candidateId?: string;
   candidateText?: string;
+  /** The working text the latest new candidate replaced (none before the first): what a revision was given. */
+  textBefore?: string;
   /** Problems found by the most recent failing verdict or check; cleared by a new candidate. */
   issues?: string[];
   /** What the run did without changing the line (kept out of issues, which feed the revise prompt). */
