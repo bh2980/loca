@@ -386,6 +386,7 @@ export class Runner {
     if (outcome.candidate === undefined && typeof returned === 'string' && returned !== item.data.candidateText) outcome = { ...outcome, candidate: returned };
     if (outcome.candidate !== undefined) {
       // The run's working text only; the line itself changes in an apply node ("번역 저장").
+      data.textBefore = item.data.candidateText;
       data.candidateText = outcome.candidate;
       data.issues = []; // a new text answers the previous issues
     }

@@ -104,3 +104,49 @@ describe('the default 번역 workflow, end to end with a fake model', () => {
     expect(result.unit.translation).toBe('안녕\r\n여러분');
   });
 });
+
+describe('the default 검수 workflow, end to end with a fake model', () => {
+  it('judges the speech level only of lines with a speaker → listener rule', async () => {
+    const db = openDatabase(':memory:');
+    const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1' }).returning().get();
+    const { projectId } = importProject(
+      db,
+      importFileSchema.parse({
+        format: 'loca/v1',
+        project: { name: 'Test' },
+        groups: [{ key: 'g1', title: 'Scene' }],
+        units: [
+          { key: 'ruled', group: 'g1', speaker: 'Ann', listener: 'Bob', source: 'Hi, Bob.' },
+          { key: 'menu', group: 'g1', kind: 'ui', source: 'Start' },
+        ],
+      }),
+      { connectionId: connection.id, model: 'm' },
+    );
+    db.update(s.units).set({ translation: '안녕, 밥.' }).where(eq(s.units.key, 'ruled')).run();
+    db.update(s.units).set({ translation: '시작' }).where(eq(s.units.key, 'menu')).run();
+    db.insert(s.speechRules).values({ projectId, fromName: 'Ann', toName: 'Bob', level: 'hae', status: 'confirmed' }).run();
+    const judged: string[] = [];
+    const port: ModelPort = {
+      ask: async () => {
+        throw new Error('unused');
+      },
+      generate: async (_route, request) => {
+        const lines = promptEntries<Entry>(request.prompt);
+        if (request.system.includes('Which Korean speech level')) {
+          judged.push(...lines.map((line) => line.source));
+          return { object: { results: lines.map((line) => ({ id: line.id, value: '해체(반말)', confidence: 0.9 })) }, usage: {} } as never;
+        }
+        if (request.system.includes('Review each')) return { object: { results: lines.map((line) => ({ id: line.id, passed: true, issues: [], categories: [] })) }, usage: {} } as never;
+        return { object: { terms: [] }, usage: {} } as never;
+      },
+    };
+    const workflow = db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).all().find((row) => row.name === '검수')!;
+    const { runId } = createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: {} });
+    await new Runner(db, memoryStore(), port).drain();
+    expect(judged).toEqual(['Hi, Bob.']);
+    const paths = new Map(db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all().map((item) => [db.select().from(s.units).where(eq(s.units.id, item.subjectId)).get()!.key, item.data.path.map((step) => `${step.nodeId}:${step.port}`)]));
+    expect(paths.get('ruled')).toEqual(expect.arrayContaining(['has-rule:true', 'speech-sure:true', 'speech-ok:true', 'review:pass']));
+    expect(paths.get('menu')).toEqual(expect.arrayContaining(['has-rule:false', 'review:pass']));
+    expect(paths.get('menu')!.some((step) => step.startsWith('speech'))).toBe(false);
+  });
+});

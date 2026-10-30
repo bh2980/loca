@@ -222,8 +222,10 @@ function runLine(fn: 'saveCandidate' | 'setListener', context: Context, item: It
   if (fn === 'saveCandidate') {
     // The model's text with the source's edges and line breaks: a lost trailing newline or \r is not a format error.
     const text = withSourceWhitespace(unit.source, item.text as string);
-    // The translation the line has before this save (the AI node's text is already the item's working text): a revision that changed nothing.
-    const unchanged = unit.translation != null && withSourceWhitespace(unit.source, unit.translation) === text;
+    // The text the AI node was given (the item's working text before its answer, else the line's translation): a revision that changed nothing.
+    // Not the stored translation: on a line a person translated, the run's text is a candidate the line never took.
+    const before = input.item.data.textBefore ?? unit.translation;
+    const unchanged = before != null && withSourceWhitespace(unit.source, before) === text;
     const candidateId = addCandidate(tx, { unitId: unit.id, text, origin: 'ai', runId: input.runId, nodeId: base.nodeId });
     if (!runRow) return { port: 'out', candidate: text, output: { applied: false, candidateId, unchanged } };
     const { applied } = applyRunCandidate(tx, runRow, unit.id, candidateId, text);

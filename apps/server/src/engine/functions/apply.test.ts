@@ -38,10 +38,10 @@ function setup() {
 type Ctx = ReturnType<typeof setup>;
 
 /** Runs an apply function on a line as the runner would: inside a transaction, with the source node's output in the item. */
-function apply(ctx: Ctx, fn: ApplyFunctionName, params: Record<string, unknown>, output: Record<string, unknown> | undefined, key = 'a1') {
+function apply(ctx: Ctx, fn: ApplyFunctionName, params: Record<string, unknown>, output: Record<string, unknown> | undefined, key = 'a1', extra: Partial<typeof s.runItems.$inferSelect.data> = {}) {
   const unit = ctx.db.select().from(s.units).where(eq(s.units.key, key)).get()!;
   const item = ctx.db.select().from(s.runItems).where(eq(s.runItems.subjectId, unit.id)).get()!;
-  const data = { ...item.data, path: [{ nodeId: 'entry', port: 'out', at: 0 }, { nodeId: 'ai', port: 'out', at: 0 }], outputs: output ? { ai: output } : ({} as Record<string, Record<string, unknown>>) };
+  const data = { ...item.data, ...extra, path: [{ nodeId: 'entry', port: 'out', at: 0 }, { nodeId: 'ai', port: 'out', at: 0 }], outputs: output ? { ai: output } : ({} as Record<string, Record<string, unknown>>) };
   // The runner hands a function the previous step's result (here the AI node's) as `previous`.
   const input: FunctionInput = { subject: 'lines', unit, item: { ...item, nodeId: 'apply', data }, tagIds: [], projectId: ctx.projectId, runId: ctx.runId, previous: output };
   return ctx.db.transaction((tx) => applyFunctions[fn](tx, params, input));
@@ -158,6 +158,21 @@ describe('apply nodes', () => {
     expect(owned.issues).toEqual([HUMAN_OWNED_NOTE]);
     expect(ctx.db.select().from(s.units).where(eq(s.units.key, 'a2')).get()?.translation).toBe('사람이 씀');
     expect(ctx.db.select().from(s.candidates).all()).toHaveLength(2);
+  });
+
+  it('says a revision changed nothing by the text the AI node was given, not by a person\'s translation it never replaced', () => {
+    const ctx = setup();
+    const params = { map: { text: 'text' } };
+    ctx.db.update(s.runs).set({ scope: { statusIds: [ctx.db.select().from(s.statuses).get()!.id] } }).run();
+    const save = (text: string, textBefore?: string) => {
+      ctx.db.update(s.units).set({ translation: '사람이 씀', statusBy: 'human' }).where(eq(s.units.key, 'a2')).run();
+      return apply(ctx, 'saveCandidate', params, { text }, 'a2', textBefore === undefined ? {} : { textBefore }).output;
+    };
+    // The run's text was an AI candidate the line never took; the revision went back to the person's text: a change.
+    expect(save('사람이 씀', 'AI 후보')).toMatchObject({ unchanged: false });
+    expect(save('AI 후보', 'AI 후보')).toMatchObject({ unchanged: true, applied: false });
+    // Without an earlier working text, the line's translation is what the AI node read.
+    expect(save('사람이 씀')).toMatchObject({ unchanged: true });
   });
 
   it('sets a listener as an AI guess, never over a person\'s, and records nothing for unknown', () => {

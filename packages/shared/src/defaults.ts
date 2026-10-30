@@ -181,8 +181,18 @@ const formatCheckNode = (row: number, column = 0): WorkflowNode => ({
 /** Writes the translation into the line (a person's saved translation is kept). */
 const writeTranslation = (id: string, row: number, column = 0, label = '번역 저장') => ({ ...applyNode(id, 'saveCandidate', row, { map: { text: 'text' } }, column), label });
 
-/** 말투 판정 and the two conditions after it: unsure → AI 검수; no rule or the rule's level → AI 검수; else 말투 tag → AI 수정. */
+/**
+ * 말투 판정 and its conditions: a line with no speaker → listener rule skips it (nothing to compare with);
+ * unsure → AI 검수; the rule's level → AI 검수; else 말투 tag → AI 수정.
+ */
 const speechNodes = (ids: TemplateIds): WorkflowNode[] => [
+  {
+    id: 'has-rule',
+    type: 'condition',
+    position: at(4.875, 0),
+    label: '말투 규칙이 있나?',
+    config: { expression: { '!!': [{ var: 'unit.speechLevel' }] }, description: '이 대사의 화자 → 청자 말투 규칙이 있으면 말투를 판정하고, 없으면 견줄 것이 없으니 AI 검수로 바로 갑니다.' },
+  },
   aiNode('speech', 'speechLevel', ids.model, 5),
   ...resendNodes('speech', 5),
   {
@@ -197,11 +207,13 @@ const speechNodes = (ids: TemplateIds): WorkflowNode[] => [
     type: 'condition',
     position: at(6, 1),
     label: '말투가 규칙대로?',
-    config: { expression: { or: [{ '!': [{ '!!': [{ var: 'unit.speechLevel' }] }] }, { '==': [{ var: 'outputs.speech.value' }, { var: 'unit.speechLevel' }] }] }, description: '이 대사의 화자 → 청자 말투 규칙이 없거나, 판정한 말투가 규칙과 같으면 통과합니다.' },
+    config: { expression: { '==': [{ var: 'outputs.speech.value' }, { var: 'unit.speechLevel' }] }, description: '판정한 말투가 이 대사의 화자 → 청자 말투 규칙과 같으면 통과합니다.' },
   },
   tagNode('tag-speech', '말투 태그 붙이기', 'add', { kinds: ['speech'] }, 6, 2),
 ];
 const speechEdges = [
+  edge('has-rule', 'true', 'speech'),
+  edge('has-rule', 'false', 'review'),
   edge('speech', 'out', 'speech-sure'),
   edge('speech-sure', 'true', 'speech-ok'),
   edge('speech-sure', 'false', 'review'),
@@ -298,7 +310,7 @@ function reviewLoop(ids: TemplateIds, judgeSpeech: boolean): WorkflowDefinition 
       edge('check', 'pass', 'untag-format'),
       edge('untag-format', 'out', 'glossary'),
       edge('glossary', 'pass', 'untag-term'),
-      edge('untag-term', 'out', judgeSpeech ? 'speech' : 'review'),
+      edge('untag-term', 'out', judgeSpeech ? 'has-rule' : 'review'),
       edge('glossary', 'fail', 'tag-term'),
       edge('tag-term', 'out', 'retry'),
       edge('check', 'fail', 'tag-format'),

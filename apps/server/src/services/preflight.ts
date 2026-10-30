@@ -131,7 +131,7 @@ export async function preflight(db: Db, requested: Pick<typeof s.workflows.$infe
       concurrency: node.config.concurrency,
       connection: connection ? { id: connection.id, name: connection.name, kind: connection.kind, cli: CONNECTION_KIND_INFO[connection.kind].transport === 'cli' } : null,
       full: requests.length,
-      requests: { min: all ? requests.length : 0, expected: all ? requests.length : historyRate === null ? null : Math.round(historyRate * units.length), max },
+      requests: { min: all ? requests.length : 0, expected: all ? requests.length : fromHistory(historyRate, units.length, max), max },
       everyLine: all,
       promptTokens: samplePrompt(db, projectId, node, { source: project.sourceLanguage, target: project.targetLanguage }, requests),
       overheadTokens: connection ? overheadOf(db, connection.id) : null,
@@ -251,7 +251,7 @@ async function termPreflight(db: Db, workflow: { id: string | null; projectId: s
         concurrency: node.config.concurrency,
         connection: connection ? { id: connection.id, name: connection.name, kind: connection.kind, cli: CONNECTION_KIND_INFO[connection.kind].transport === 'cli' } : null,
         full: requests.length,
-        requests: { min: all ? requests.length : 0, expected: all ? requests.length : historyRate === null ? null : Math.round(historyRate * rows.length), max: requests.length * (all ? 1 : definition.settings.maxVisitsPerNode) },
+        requests: { min: all ? requests.length : 0, expected: all ? requests.length : fromHistory(historyRate, rows.length, requests.length * definition.settings.maxVisitsPerNode), max: requests.length * (all ? 1 : definition.settings.maxVisitsPerNode) },
         everyLine: all,
         promptTokens: prompt ? estimateTokens(Object.values(buildPrompt(node, languages, prompt.context, prompt.lines)).join('\n\n')) : 0,
         overheadTokens: connection ? overheadOf(db, connection.id) : null,
@@ -398,6 +398,12 @@ function linesThrough(definition: WorkflowDefinition) {
   }
   return seen;
 }
+
+/**
+ * Expected requests from the history's requests per line. That rate comes from runs packed differently
+ * (small runs make one request per line or two), so it is never more than this run can make.
+ */
+const fromHistory = (rate: number | null, lines: number, max: number) => (rate === null ? null : Math.min(max, Math.round(rate * lines)));
 
 /** Requests per line this node took in this workflow's recent runs, or null when it never ran. */
 function rateFromHistory(db: Db, workflowId: string, nodeId: string): number | null {
