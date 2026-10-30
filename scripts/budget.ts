@@ -5,7 +5,8 @@
  *   pnpm budget --only translate-cli   one scenario (--json for machine output)
  *   pnpm budget --update               rewrite the baseline from this run
  *   pnpm budget --size 3000            smaller project (the baseline is only compared at its own size)
- * Time is not simulated: no sleeps, no real backoff. Cost is read from `run_steps` / `run_items` after the run.
+ * Time is virtual: no sleeps, no real backoff, and a run gives the same result on any machine. Cost is read
+ * from `run_steps` / `run_items` after the run.
  */
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
@@ -37,9 +38,8 @@ interface Scenario {
 }
 const SCENARIOS: Scenario[] = [
   { name: 'translate-cli', workflow: '번역', profiles: ['cli-like'] },
-  // ~6% of calls fail here, and which ones depends on timing (batches gather on the clock), so three
-  // failures in a row — the default pause guard — came up in about 1 run in 4 and made its cost
-  // incomparable. This scenario measures what faults cost in a finished run; the guard has its own tests.
+  // ~6% of calls fail here, so three failures in a row — the default pause guard — can come up and
+  // would end the run early. This scenario measures what faults cost in a finished run; the guard has its own tests.
   { name: 'translate-faulty', workflow: '번역', profiles: ['cli-like', 'faulty'], settings: { maxConsecutiveFailures: 10 } },
   { name: 'listener-cli', workflow: '청자 추정', profiles: ['cli-like'] },
   { name: 'terms-cli', workflow: '용어 추출', profiles: ['cli-like'] },
@@ -122,10 +122,13 @@ async function runScenario(scenario: Scenario, size: number): Promise<Metrics> {
 
   const started = performance.now();
   // A 재요청 node's wait (rate limits, dropped connections) is skipped, not slept: the clock jumps to when the first waiting line is due.
+  // The clock moves only then: on real time, how long the machine took decided which short batches had
+  // waited GATHER_MS, so the requests (and the faults each drew) differed run to run.
   const runner = new Runner(db, memoryStore(), mockPort(options));
   const RealDate = Date;
+  const start = RealDate.now();
   let skipped = 0;
-  const now = () => RealDate.now() + skipped;
+  const now = () => start + skipped;
   // `new Date()` and `Date.now()` both follow the skipped time, as the runner reads the clock both ways.
   globalThis.Date = class extends RealDate {
     constructor(...args: [] | [number | string | Date]) {
