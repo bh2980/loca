@@ -62,7 +62,6 @@ pnpm loca projects
 pnpm loca lines --speaker "Alice" --all
 pnpm loca lines --speaker "Alice" --listener "Bob"   # Alice가 Bob에게 한 말 (--listener - 는 청자 미상)
 pnpm loca check terms
-pnpm loca check speech               # 화자→청자 말투 규칙과 어미가 다른 번역 (추정)
 pnpm loca context tower.1                # AI 노드가 이 대사에 보낼 문맥 (모델 호출 없음)
 pnpm loca terms --unreviewed             # 용어집: 나온 줄·표시(#)·태그. usage <용어>는 쓰인 대사
 pnpm loca knowledge speech-rules --unreviewed   # 작품 자료(documents|characters|relationships|events|speech-rules)

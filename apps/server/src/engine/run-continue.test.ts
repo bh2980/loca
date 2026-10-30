@@ -32,7 +32,7 @@ function setup() {
 
 /** Calls to model "bad" fail for good; any other model translates and passes. */
 const port: ModelPort = {
-  judge: async () => {
+  ask: async () => {
     throw new Error('unused');
   },
   generate: async (route, request) => {

@@ -45,6 +45,7 @@ export const AUTO_MARKS = {
   noEvidence: { name: '근거 부재', on: ['people', 'documents', 'events'], color: '#c46016', description: '근거 대사가 없음' },
   emptyTarget: { name: '번역 누락', on: ['terms'], color: '#d24c49', description: '한국어 번역어가 비어 있음' },
   unused: { name: '대본 미등장', on: ['terms'], color: '#79818c', description: '원문이나 화자에 나오는 대사가 없음' },
+  duplicateTarget: { name: '번역어 중복', on: ['terms'], color: '#c46016', description: '원문이 다른 용어와 번역어가 같음 (막지는 않음: 같은 말로 옮기는 게 맞을 수도 있음)' },
 } as const satisfies Record<string, { name: string; on: readonly TagScope[]; color: string; description: string }>;
 export type AutoMark = keyof typeof AUTO_MARKS;
 export const AUTO_MARK_IDS = Object.keys(AUTO_MARKS) as AutoMark[];
@@ -111,9 +112,38 @@ export function knowledgeMarksOf(item: { status: KnowledgeStatus; statusBy: Stat
   return [aiDecided(item) && 'ai', item.evidence !== undefined && item.evidence.length === 0 && 'noEvidence'].filter((mark): mark is AutoMark => Boolean(mark));
 }
 
-/** The marks a glossary term carries. */
-export function termMarksOf(term: { status: KnowledgeStatus; statusBy: StatusBy; target: string; lines: number | null }): AutoMark[] {
-  return [aiDecided(term) && 'ai', !term.target.trim() && 'emptyTarget', term.lines === 0 && 'unused'].filter((mark): mark is AutoMark => Boolean(mark));
+/** The marks a glossary term carries. `duplicateTarget` comes from the whole glossary (withDuplicateTargets). */
+export function termMarksOf(term: { status: KnowledgeStatus; statusBy: StatusBy; target: string; lines: number | null; duplicateTarget?: boolean }): AutoMark[] {
+  return [aiDecided(term) && 'ai', !term.target.trim() && 'emptyTarget', term.lines === 0 && 'unused', term.duplicateTarget && 'duplicateTarget'].filter((mark): mark is AutoMark => Boolean(mark));
+}
+
+/**
+ * A term's Korean forms after `next` becomes the main one (`target`, the one used): the former main
+ * goes to the front of the candidates, and `next` leaves them. Like a line's candidates, nothing is lost.
+ */
+export function withMainTarget(term: { target: string; targetCandidates: readonly string[] }, next: string): { target: string; targetCandidates: string[] } {
+  const target = next.trim();
+  const former = term.target.trim();
+  return { target, targetCandidates: [...new Set([...(former && former !== target ? [former] : []), ...term.targetCandidates])].filter((form) => form && form !== target) };
+}
+
+/** A term's candidates with `form` offered (an AI's form while the main one stays): unchanged when it is the main one or already there. */
+export function withTargetCandidate(term: { target: string; targetCandidates: readonly string[] }, form: string): string[] {
+  const offered = form.trim();
+  if (!offered || offered === term.target.trim() || term.targetCandidates.includes(offered)) return [...term.targetCandidates];
+  return [offered, ...term.targetCandidates];
+}
+
+/**
+ * The terms with `duplicateTarget`: another term of a different source (case aside) that is not
+ * rejected has the same Korean form (Ava and Joy both 조이). Only a mark: two sources may rightly
+ * share a translation, and a project that confirms AI terms right away chose that.
+ */
+export function withDuplicateTargets<T extends { source: string; target: string; status: KnowledgeStatus }>(terms: T[]): (T & { duplicateTarget: boolean })[] {
+  const key = (text: string) => text.trim().toLowerCase();
+  const sources = new Map<string, Set<string>>();
+  for (const term of terms) if (term.status !== 'rejected' && key(term.target)) sources.set(key(term.target), (sources.get(key(term.target)) ?? new Set()).add(key(term.source)));
+  return terms.map((term) => ({ ...term, duplicateTarget: term.status !== 'rejected' && (sources.get(key(term.target))?.size ?? 0) > 1 }));
 }
 
 /** The `marks` URL param: a list of mark ids (also accepts one id or a comma list), unknown ids dropped. */

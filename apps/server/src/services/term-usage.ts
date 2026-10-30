@@ -1,5 +1,5 @@
 import { and, asc, eq, isNull, ne } from 'drizzle-orm';
-import { termMatcher } from '@tw/shared';
+import { glossaryMatcher, type TermScope } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 
@@ -16,17 +16,17 @@ const EXAMPLES = 5;
  */
 export function fillTermUsage(db: Db, projectId: string) {
   const pending = db
-    .select({ id: s.terms.id, source: s.terms.source })
+    .select({ id: s.terms.id, source: s.terms.source, scope: s.terms.scope, matchCase: s.terms.matchCase })
     .from(s.terms)
     .where(and(eq(s.terms.projectId, projectId), isNull(s.terms.lines), ne(s.terms.status, 'rejected')))
     .all()
     .filter((term) => term.source.trim());
   if (!pending.length) return;
-  const matcher = termMatcher(pending, (term) => term.source);
+  const matcher = glossaryMatcher(pending);
   const usage = new Map(pending.map((term) => [term.id, { lines: 0, examples: [] as string[] }]));
-  for (const unit of db.select({ key: s.units.key, source: s.units.source, speaker: s.units.speaker }).from(s.units).where(eq(s.units.projectId, projectId)).orderBy(s.units.seq).all()) {
+  for (const unit of db.select({ key: s.units.key, kind: s.units.kind, source: s.units.source, speaker: s.units.speaker }).from(s.units).where(eq(s.units.projectId, projectId)).orderBy(s.units.seq).all()) {
     // A term mentioned in both the source and the speaker still counts this line once.
-    const mentioned = new Set([...matcher.find(unit.source), ...matcher.find(unit.speaker ?? '')]);
+    const mentioned = new Set([...matcher.find(unit.source, unit.kind), ...matcher.find(unit.speaker ?? '', unit.kind)]);
     for (const term of mentioned) {
       const entry = usage.get(term.id)!;
       entry.lines++;
@@ -46,14 +46,14 @@ export function findTerm(db: Db, projectId: string, idOrSource: string) {
 }
 
 /** Every line whose source or speaker mentions the term, in script order: what to re-run after changing it. The same matcher as fillTermUsage (so the list matches 나온 줄 in any script); the glossary pane, `loca terms usage` and the chat share this. */
-export function termUsage(db: Db, projectId: string, term: { source: string }) {
-  const matcher = termMatcher([term], (item) => item.source);
+export function termUsage(db: Db, projectId: string, term: { source: string; scope?: TermScope | null; matchCase?: boolean | null }) {
+  const matcher = glossaryMatcher([term]);
   return db
-    .select({ id: s.units.id, key: s.units.key, groupId: s.units.groupId, groupTitle: s.groups.title, speaker: s.units.speaker, source: s.units.source, translation: s.units.translation })
+    .select({ id: s.units.id, key: s.units.key, kind: s.units.kind, groupId: s.units.groupId, groupTitle: s.groups.title, speaker: s.units.speaker, source: s.units.source, translation: s.units.translation })
     .from(s.units)
     .innerJoin(s.groups, eq(s.groups.id, s.units.groupId))
     .where(eq(s.units.projectId, projectId))
     .orderBy(asc(s.units.seq))
     .all()
-    .filter((row) => matcher.has(row.source) || matcher.has(row.speaker ?? ''));
+    .filter((row) => matcher.has(row.source, row.kind) || matcher.has(row.speaker ?? '', row.kind));
 }

@@ -6,9 +6,10 @@ import { applyIssueTags } from './issue-tags.ts';
 import { addCandidate } from './candidates.ts';
 import { assertProjectRefs } from './project-refs.ts';
 import { badRequest } from '../http-errors.ts';
+import { withSourceEdges } from '@tw/shared';
 
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
-type Unit = Pick<typeof s.units.$inferSelect, 'id' | 'projectId' | 'translation' | 'statusId'>;
+type Unit = Pick<typeof s.units.$inferSelect, 'id' | 'projectId' | 'source' | 'translation' | 'statusId'>;
 
 /**
  * The one way a person's (or an accepted proposal's) change reaches a line's text and status.
@@ -33,6 +34,8 @@ export interface LineSave {
    */
   base?: string | null;
   origin?: 'human' | 'ai' | 'import';
+  /** Who decided the text or status: a person (default), or AI for a change the terminal's permission mode applied. */
+  statusBy?: 'human' | 'ai';
   model?: string | null;
   note?: string;
 }
@@ -55,12 +58,15 @@ export function saveLine(tx: Tx, unit: Unit, save: LineSave): Partial<typeof s.u
     text = candidate.text;
     candidateId = candidate.id;
   }
+  // The source's leading and trailing whitespace, whatever the editor, an import or a candidate brought.
+  if (text !== undefined) text = withSourceEdges(unit.source, text);
   const targetStatusId = save.statusId ?? unit.statusId;
   const targetStatus = tx.select({ kind: s.statuses.kind }).from(s.statuses).where(and(eq(s.statuses.id, targetStatusId), eq(s.statuses.projectId, unit.projectId))).get();
   if (targetStatus?.kind === 'final' && (text ?? current).trim() === '') badRequest('완료 상태에는 번역이 있어야 합니다.');
   const patch: Partial<typeof s.units.$inferInsert> = {};
   if (text !== undefined) {
-    if (save.base !== undefined && (save.base ?? '') !== current && text !== current) throw new LineConflict();
+    // Bodies: the editor shows the text without its edges, which the save puts back.
+    if (save.base !== undefined && (save.base ?? '').trim() !== current.trim() && text !== current) throw new LineConflict();
     if (text !== current || candidateId) {
       // The same text twice (a double click, a resent save) is one candidate, not two.
       candidateId ??= addCandidate(tx, { unitId: unit.id, text, origin: save.origin ?? 'human', model: save.model ?? null, note: save.note, reuseSame: true });
@@ -76,7 +82,7 @@ export function saveLine(tx: Tx, unit: Unit, save: LineSave): Partial<typeof s.u
   }
   // The problem-type tags described the old text.
   if (textChanged) applyIssueTags(tx, unit.projectId, unit.id, { clear: 'all' });
-  if (patch.statusId || textChanged || save.checked) Object.assign(patch, { statusBy: 'human', statusRunId: null });
+  if (patch.statusId || textChanged || save.checked) Object.assign(patch, { statusBy: save.statusBy ?? 'human', statusRunId: null });
   if (Object.keys(patch).length) tx.update(s.units).set(patch).where(eq(s.units.id, unit.id)).run();
   return patch;
 }

@@ -66,7 +66,7 @@ function model(fail: (call: number) => Error | null = () => null): ModelPort & {
   return {
     firsts,
     calls,
-    judge: async () => {
+    ask: async () => {
       throw new Error('unused');
     },
     generate: async (_route, request) => {
@@ -87,9 +87,11 @@ const runOf = (db: ReturnType<typeof setup>['db'], runId: string) => db.select()
 describe('runner at scale', () => {
   it('finishes a run over more lines than SQLite binds in one statement', async () => {
     const { db, workflow } = setup(34, () => 1_000);
-    // Large batches keep the test fast; the point is exceeding SQLite's bind limit, not wall time.
-    // Windows can take over a minute for the 34,000 lines; assert every item finishes below.
-    const definition = { ...workflow.definition, nodes: workflow.definition.nodes.map((node) => (node.type === 'ai' ? { ...node, config: { ...node.config, batch: { mode: 'count' as const, size: 200, maxTokens: 6_000 } } } : node)) };
+    // The point is exceeding SQLite's bind limit, not wall time: large batches, and translate → save
+    // only (each node a line passes is a step per line; the review loop would make it minutes on Windows).
+    const keep = new Set(['entry', 'translate', 'save']);
+    const nodes = workflow.definition.nodes.filter((node) => keep.has(node.id)).map((node) => (node.type === 'ai' ? { ...node, config: { ...node.config, batch: { mode: 'count' as const, size: 200, maxTokens: 6_000 } } } : node));
+    const definition = { ...workflow.definition, nodes, edges: workflow.definition.edges.filter((edge) => keep.has(edge.source) && keep.has(edge.target)) };
     db.update(s.workflows).set({ definition }).where(eq(s.workflows.id, workflow.id)).run();
     const runId = createRun(db, { projectId: workflow.projectId, workflow: { ...workflow, definition }, models: snapshotWorkflowModels(db, definition), scope: {} }).runId;
     const runner = new Runner(db, memoryStore(), model());
@@ -248,7 +250,7 @@ describe('incomplete answers', () => {
     const runId = start();
     let call = 0;
     const fake: ModelPort = {
-      judge: async () => {
+      ask: async () => {
         throw new Error('unused');
       },
       generate: async (_route, request) => {
@@ -273,7 +275,7 @@ describe('incomplete answers', () => {
     const { db, start } = setup(1, () => 8);
     const runId = start();
     const fake: ModelPort = {
-      judge: async () => {
+      ask: async () => {
         throw new Error('unused');
       },
       generate: async (_route, request) => {
@@ -299,7 +301,7 @@ describe('incomplete answers', () => {
     const { db, start } = setup(1, () => 8, { resend: false });
     const runId = start();
     const fake: ModelPort = {
-      judge: async () => {
+      ask: async () => {
         throw new Error('unused');
       },
       generate: async (_route, request) => {
@@ -362,7 +364,7 @@ describe('slots per node', () => {
     const peak = new Map<string, number>();
     const order: string[] = [];
     const port: ModelPort = {
-      judge: async () => {
+      ask: async () => {
         throw new Error('unused');
       },
       generate: async (route, request) => {
@@ -382,13 +384,13 @@ describe('slots per node', () => {
   }
 
   it('reports the requests a node has in flight while they run', async () => {
-    const { workflow, db, start } = setup(40, () => 20);
+    const { workflow, db, start } = setup(12, () => 20);
     setConcurrency(workflow, 3);
     const runId = start();
     const seen: Record<string, number>[] = [];
     let runner: Runner;
     const port: ModelPort = {
-      judge: async () => {
+      ask: async () => {
         throw new Error('unused');
       },
       generate: async (_route, request) => {
@@ -407,7 +409,7 @@ describe('slots per node', () => {
   });
 
   it('a node sends up to its 동시 처리 수 at once, in every run on its own', async () => {
-    const { workflow, db, start } = setup(40, () => 20);
+    const { workflow, db, start } = setup(12, () => 20);
     // Translate takes 2 at once, review keeps the default 1; two runs of it go side by side.
     setConcurrency(workflow, 2, (instructions) => !instructions.includes('Review each'));
     start();
@@ -415,7 +417,7 @@ describe('slots per node', () => {
     const now = { T: 0, R: 0 };
     const peak = { T: 0, R: 0 };
     const port: ModelPort = {
-      judge: async () => {
+      ask: async () => {
         throw new Error('unused');
       },
       generate: async (_route, request) => {

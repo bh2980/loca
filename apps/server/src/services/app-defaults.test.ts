@@ -25,11 +25,11 @@ const connectionsOf = (db: ReturnType<typeof setup>['db'], projectId: string) =>
 const statusNames = (db: ReturnType<typeof setup>['db'], projectId: string) => db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).all().sort((a, b) => a.sort - b.sort).map((row) => row.name);
 
 describe('a new project starts from the 홈 설정', () => {
-  it('without home changes: the statuses, tag and four workflows a project has always started with', () => {
+  it('without home changes: the statuses, tag and five workflows a project starts with', () => {
     const { db } = setup();
     const { projectId } = importProject(db, file());
     expect(statusNames(db, projectId)).toEqual(DEFAULT_STATUSES.map((status) => status.name));
-    expect(db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).all().map((row) => row.name)).toEqual(['번역', '청자 추정', '인물·관계 추출', '사건 추출']);
+    expect(db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).all().map((row) => row.name)).toEqual(['번역', '검수', '청자 추정', '인물·관계 추출', '사건 추출']);
     const units = db.select({ key: s.units.key, status: s.statuses.name }).from(s.units).innerJoin(s.statuses, eq(s.statuses.id, s.units.statusId)).all();
     expect(Object.fromEntries(units.map((unit) => [unit.key, unit.status]))).toEqual({ a: '번역됨', b: '미번역' });
   });

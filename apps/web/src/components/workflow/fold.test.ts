@@ -21,7 +21,7 @@ describe('computeFolds on the 번역 template', () => {
   const folds = computeFolds(template);
   it('folds each AI node\'s 재요청 branch, the 3-times condition\'s dead end and the tag nodes on lines', () => {
     expect(ids(folds)).toEqual([
-      'pass:tag-format', 'pass:tag-review', 'pass:untag-format', 'pass:untag-review',
+      'pass:tag-format', 'pass:tag-review', 'pass:tag-term', 'pass:untag-format', 'pass:untag-review', 'pass:untag-term',
       'retry:false',
       'review:error', 'revise:error', 'terms:error', 'translate:error',
     ].sort());
@@ -32,10 +32,10 @@ describe('computeFolds on the 번역 template', () => {
     // The second 재요청's own 오류 exit is not a fold of its own: it is inside its owner's.
     expect(folds.some((fold) => fold.owner.endsWith('-resend') || fold.owner.endsWith('-wait'))).toBe(false);
   });
-  it('hides 17 side nodes and keeps the main path', () => {
+  it('hides 19 side nodes and keeps the main path', () => {
     const hidden = new Set(folds.flatMap((fold) => fold.nodeIds));
-    expect(hidden.size).toBe(17);
-    for (const id of ['translate', 'save', 'check', 'review', 'confirm', 'terms', 'save-terms', 'retry', 'revise', 'save-revision']) expect(hidden.has(id)).toBe(false);
+    expect(hidden.size).toBe(19);
+    for (const id of ['translate', 'save', 'check', 'glossary', 'review', 'confirm', 'terms', 'save-terms', 'retry', 'revise', 'save-revision']) expect(hidden.has(id)).toBe(false);
   });
   it('draws a tag node as one line from its source to its target, keeping the id of the line into it', () => {
     const fold = find(folds, 'pass:tag-format')!;

@@ -1,5 +1,5 @@
 import { and, count, eq } from 'drizzle-orm';
-import { AUTO_MARK_IDS, AUTO_MARKS, type AutoMark, knowledgeMarksOf, LINE_MARK_IDS, markColor, TAG_SCOPE_LABELS, termMarksOf } from '@tw/shared';
+import { AUTO_MARK_IDS, AUTO_MARKS, type AutoMark, knowledgeMarksOf, LINE_MARK_IDS, markColor, TAG_SCOPE_LABELS, termMarksOf, withDuplicateTargets } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { markConditions } from './line-marks.ts';
@@ -13,7 +13,7 @@ function itemMarkCounts(db: Db, projectId: string) {
   const visible = (table: typeof s.documents | typeof s.characters | typeof s.relationships | typeof s.storyEvents | typeof s.speechRules) => db.select().from(table).where(eq(table.projectId, projectId)).all().filter((row) => row.status !== 'rejected');
   for (const table of [s.documents, s.characters, s.relationships, s.storyEvents, s.speechRules] as const) for (const row of visible(table)) add(knowledgeMarksOf(row));
   fillTermUsage(db, projectId);
-  for (const term of db.select().from(s.terms).where(eq(s.terms.projectId, projectId)).all().filter((row) => row.status !== 'rejected')) add(termMarksOf(term));
+  for (const term of withDuplicateTargets(db.select().from(s.terms).where(eq(s.terms.projectId, projectId)).all()).filter((row) => row.status !== 'rejected')) add(termMarksOf(term));
   return counts;
 }
 

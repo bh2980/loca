@@ -46,9 +46,8 @@ loca call save_relationship @"$W/rel.json"       # {"from":"Alice","to":"Bob","k
 `level`: `hasoseo`(하소서체) `hasipsio`(하십시오체) `hao`(하오체) `hage`(하게체) `haera`(해라체) `haeyo`(해요체) `hae`(해체·반말) `other`.
 ```
 loca call save_speech_rule @"$W/rule.json"       # {"fromName":"Alice","toName":"Bob","level":"haeyo","address":"밥 씨","note":"직장 선배","startKey":null}
-loca check speech --speaker Alice --listener Bob # 규칙과 번역 어미가 다른 곳 (어미로 추정)
 ```
-규칙을 고친 뒤 기존 번역을 맞추려면, 그 쌍의 대사를 번역 워크플로(기본 "번역")로 다시 돌리도록 제안합니다. 프로젝트의 워크플로는 `loca workflows list`로 확인하고, 필요하면 `loca-workflows`로 만듭니다.
+규칙을 고친 뒤 기존 번역을 맞추려면, 그 쌍의 대사를 번역 워크플로(기본 "번역")로 다시 돌리도록 제안합니다(`loca runs start <워크플로> -s Alice --listener Bob`). 말투가 규칙과 맞는지는 워크플로의 말투 판정(AI 선택 노드 + 조건 노드)이 봅니다. 어미 정규식 점검은 없습니다. 프로젝트의 워크플로는 `loca workflows list`로 확인하고, 필요하면 `loca-workflows`로 만듭니다.
 
 ## 대사의 청자
 청자는 말투를 정하는 열쇠입니다. 화자가 있는 대사 중 청자를 모르는 줄에 #청자 미상(`unknownListener`)이 붙습니다(화자 없는 지문·서식만 있는 줄은 빠짐).

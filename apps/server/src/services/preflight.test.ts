@@ -17,7 +17,7 @@ import { memoryStore } from './secrets.ts';
 function model(): ModelPort {
   const failed = new Set<string>();
   return {
-    judge: async () => {
+    ask: async () => {
       throw new Error('unused');
     },
     generate: async (_route, request) => {

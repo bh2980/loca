@@ -10,6 +10,10 @@ export const runScopeSchema = z.object({
   marks: z.array(z.enum(AUTO_MARK_IDS as [AutoMark, ...AutoMark[]])).optional(),
   statusIds: z.array(z.string()).optional(),
   termIds: z.array(z.string()).optional(),
+  speakers: z.array(z.string()).optional(),
+  listeners: z.array(z.string()).optional(),
+  kinds: z.array(z.string()).optional(),
+  q: z.string().optional(),
 });
 
 /** The part of a preflight the run card shows (and starts with): kept on the card, so the card says what it said when it was made. */

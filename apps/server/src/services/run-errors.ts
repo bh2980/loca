@@ -25,6 +25,7 @@ export function runErrors(db: Db, run: Run): RunError[] {
       path: sql<string>`json_extract(${s.runItems.data}, '$.path')`,
       last: sql<string | null>`json_extract(${s.runItems.data}, '$.retry.last')`,
       error: sql<string | null>`json_extract(${s.runItems.data}, '$.error')`,
+      lastError: sql<string | null>`json_extract(${s.runItems.data}, '$.lastError')`,
     })
     .from(s.runItems)
     .leftJoin(s.units, eq(s.units.id, s.runItems.subjectId))
@@ -38,7 +39,8 @@ export function runErrors(db: Db, run: Run): RunError[] {
     const path = JSON.parse(row.path ?? '[]') as { nodeId: string; port: string }[];
     const attempt = path.findLast((visit) => callsOut(byId.get(visit.nodeId)));
     if (row.state !== 'failed' && attempt?.port !== 'error') continue;
-    const why = (JSON.parse(row.error ?? row.last ?? 'null') as { kind?: string; message?: string; nodeId?: string } | null) ?? {};
+    // The error itself while the line carries it; once a node took it, the one it last went out with.
+    const why = (JSON.parse(row.error ?? row.lastError ?? row.last ?? 'null') as { kind?: string; message?: string; nodeId?: string } | null) ?? {};
     // A failed line failed where its error says (a check can fail after an AI step went well).
     const nodeId = (row.state === 'failed' ? why.nodeId : undefined) ?? attempt?.nodeId ?? path.at(-1)?.nodeId ?? '';
     const node = byId.get(nodeId);

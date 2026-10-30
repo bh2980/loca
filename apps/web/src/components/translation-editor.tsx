@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, Check, CircleAlert, Languages, MoreHorizontal, Save, Sparkles, Undo2, WandSparkles } from 'lucide-react';
 import { toast } from 'sonner';
-import { checkFormat, listenerLabel, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatIssue, type FormatRules } from '@tw/shared';
+import { checkFormat, listenerLabel, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatIssue, type FormatRules, withSourceEdges } from '@tw/shared';
 import { TokenChip, TokenText } from '@/components/editor/source-text';
 import { focusEndOfLine, insertUnitIntoLine, proposeInLine, replaceLineText, TranslationInput } from '@/components/editor/translation-input';
 import { Chip, Box, Button, Icon, Inline, Text, AiMark, EditorAction, EditorChangedWord, EditorDiffWord, EditorDraftNote, EditorPreviousDiff, EditorSuggestionList, EditorSuggestionRow, DropdownMenu, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuContent, Disclosure } from '@loca/ui';
@@ -51,7 +51,7 @@ export function TranslationEditor({
   marks,
 }: {
   projectId: string;
-  unit: { id: string; source: string; translation: string | null; statusId: string; statusBy?: 'ai' | 'human'; candidates?: { id: string; text: string }[] };
+  unit: { id: string; source: string; kind?: string; translation: string | null; statusId: string; statusBy?: 'ai' | 'human'; candidates?: { id: string; text: string }[] };
   statuses: Status[];
   onDone?: (moved: boolean) => void;
   onEscape?: () => void;
@@ -60,14 +60,16 @@ export function TranslationEditor({
   /** List rows supply their single shared tag row directly below the input. */
   marks?: ReactNode;
 }) {
-  const [draft, setDraft, clearDraft, base] = useDraft(`line:${unit.id}`, unit.translation ?? '');
-  const dirty = draft !== (unit.translation ?? '');
+  // The body only: the source's leading and trailing whitespace goes around it when it is saved.
+  const saved = (unit.translation ?? '').trim();
+  const [draft, setDraft, clearDraft, base] = useDraft(`line:${unit.id}`, saved);
+  const dirty = draft !== saved;
   const next = nextStatus(statuses, unit.statusId);
-  const line = useLineContext(projectId, unit.source);
+  const line = useLineContext(projectId, unit.source, unit.kind);
   // The line's candidates: list rows do not carry them, the line's detail does (shared with the suggestions).
   const detail = useQuery(q.unit(unit.id));
   const candidates = unit.candidates ?? detail.data?.candidates ?? [];
-  const suggestions = useSuggestions(unit.id, [unit.translation ?? '', draft]);
+  const suggestions = useSuggestions(unit.id, [saved, draft]);
   // The AI continuation: asked once when the line opens empty, or with ⌥/.
   const project = useQuery(q.project(projectId));
   const editorAi = project.data?.editorAi;
@@ -153,7 +155,7 @@ export function TranslationEditor({
       toast.error('번역을 입력한 뒤 확정하세요.');
       return;
     }
-    if (dirty && base !== (unit.translation ?? '')) {
+    if (dirty && base !== saved) {
       toast.error('다른 곳에서 바뀐 번역을 확인하고 어느 내용을 유지할지 선택하세요.');
       return;
     }
@@ -194,7 +196,7 @@ export function TranslationEditor({
 
   return (
     <Box spaceY="condensed" onClick={(event) => event.stopPropagation()}>
-      {dirty && base !== (unit.translation ?? '') && <ChangedElsewhere fields={['번역']} onTakeSaved={() => clearDraft()} onKeepMine={() => { clearDraft(); setDraft(draft); }} />}
+      {dirty && base !== saved && <ChangedElsewhere fields={['번역']} onTakeSaved={() => clearDraft()} onKeepMine={() => { clearDraft(); setDraft(draft); }} />}
       <TranslationInput
         unitId={unit.id}
         value={draft}
@@ -460,7 +462,7 @@ function DraftChecks({ unitId, source, draft, units, terms, tags, rules, targetL
   const speechOff = !!speech && speech.level !== 'other' && !!guessed && guessed !== speech.level;
   const missing = units.filter((unit) => tags.placed.includes(unit.number) || tags.left.includes(unit.number));
   // Missing tokens are shown as chips; the tag/placeholder sentence is only needed when nothing is missing (an extra or broken token).
-  const issues = checkFormat(source, draft, editorChecks(targetLanguage), rules).filter((issue) => issue.code !== 'empty' && !(missing.length && (issue.code === 'tag' || issue.code === 'placeholder')));
+  const issues = checkFormat(source, withSourceEdges(source, draft), editorChecks(targetLanguage), rules).filter((issue) => issue.code !== 'empty' && !(missing.length && (issue.code === 'tag' || issue.code === 'placeholder')));
   if (!missing.length && !issues.length && !unusedTerms.length && !speechOff)
     return null;
   return (

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AGE_BANDS, CHARACTER_ROLES, characterStyleSchema, DOCUMENT_KINDS, GENDERS, KNOWLEDGE_STATUSES, relationshipChangeSchema, SPEECH_LEVELS } from '@tw/shared';
+import { AGE_BANDS, CHARACTER_ROLES, characterStyleSchema, DOCUMENT_KINDS, GENDERS, KNOWLEDGE_STATUSES, relationshipChangeSchema, SPEECH_LEVELS, TERM_SCOPE_IDS, type TermScope } from '@tw/shared';
 
 // Request bodies for knowledge items, shared by the routes and the agent tools (services must not import routes).
 export const termInput = z.object({
@@ -8,6 +8,10 @@ export const termInput = z.object({
   note: z.string().default(''),
   /** candidate = proposed (not used as context yet), confirmed = used by AI nodes, rejected = not a term (not proposed again). */
   status: z.enum(['candidate', 'confirmed', 'rejected']).default('confirmed'),
+  /** Which lines it applies to: all, ui (UI lines only) or dialogue (dialogue and documents). */
+  scope: z.enum(TERM_SCOPE_IDS as [TermScope, ...TermScope[]]).default('all'),
+  /** Match only in this exact case. */
+  matchCase: z.boolean().default(false),
 });
 /** Editing a draft keeps it a candidate; confirming is a separate, explicit step. */
 const status = z.enum(KNOWLEDGE_STATUSES).default('confirmed');

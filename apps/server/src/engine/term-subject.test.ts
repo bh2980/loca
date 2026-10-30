@@ -104,7 +104,7 @@ describe('a workflow whose input is terms', () => {
     expect(db.select().from(s.runs).where(eq(s.runs.id, runId)).get()!.subject).toBe('terms');
     const seen: { system: string; prompt: string }[] = [];
     const port: ModelPort = {
-      judge: async () => {
+      ask: async () => {
         throw new Error('unused');
       },
       generate: async (_route, request) => {
@@ -134,7 +134,7 @@ describe('a workflow whose input is terms', () => {
     const workflow = db.insert(s.workflows).values({ projectId, name: '용어 번역', definition }).returning().get();
     createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, definition), scope: { statusIds: ['candidate'], marks: ['emptyTarget'] } as never });
     const port: ModelPort = {
-      judge: async () => {
+      ask: async () => {
         throw new Error('unused');
       },
       generate: async (_route, request) => ({ object: { results: (promptEntries(request.prompt) as { id: string }[]).map((item) => ({ id: item.id, target: '바른 게이트', note: '' })) }, usage: {} }) as never,

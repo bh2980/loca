@@ -42,7 +42,8 @@ function apply(ctx: Ctx, fn: ApplyFunctionName, params: Record<string, unknown>,
   const unit = ctx.db.select().from(s.units).where(eq(s.units.key, key)).get()!;
   const item = ctx.db.select().from(s.runItems).where(eq(s.runItems.subjectId, unit.id)).get()!;
   const data = { ...item.data, path: [{ nodeId: 'entry', port: 'out', at: 0 }, { nodeId: 'ai', port: 'out', at: 0 }], outputs: output ? { ai: output } : ({} as Record<string, Record<string, unknown>>) };
-  const input: FunctionInput = { subject: 'lines', unit, item: { ...item, nodeId: 'apply', data }, tagIds: [], projectId: ctx.projectId, runId: ctx.runId };
+  // The runner hands a function the previous step's result (here the AI node's) as `previous`.
+  const input: FunctionInput = { subject: 'lines', unit, item: { ...item, nodeId: 'apply', data }, tagIds: [], projectId: ctx.projectId, runId: ctx.runId, previous: output };
   return ctx.db.transaction((tx) => applyFunctions[fn](tx, params, input));
 }
 

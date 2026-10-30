@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { compileFormatRules, termMatcher } from '@tw/shared';
+import { compileFormatRules, glossaryMatcher } from '@tw/shared';
 import { q } from '@/lib/queries';
 import { numberTokens, tokenUnits, type TokenKind } from '@/lib/tokens';
 
@@ -46,7 +46,8 @@ const wordPattern = (name: string) => new RegExp(`(?<![\\p{L}\\p{N}])${escape(na
  * What the editor knows about a line's source: its format tokens (in order) and the confirmed
  * terms it mentions, plus the source cut into parts for display. One pattern matches any token.
  */
-export function useLineContext(projectId: string, source: string) {
+/** `kind`: the line's kind, so a term limited to UI lines (or to the rest) is only found where it applies. */
+export function useLineContext(projectId: string, source: string, kind?: string | null) {
   const project = useQuery(q.project(projectId));
   const terms = useQuery(q.terms(projectId));
 
@@ -55,16 +56,16 @@ export function useLineContext(projectId: string, source: string) {
       (terms.data ?? [])
         .filter((term) => term.status === 'confirmed' && term.target)
         .sort((a, b) => b.source.length - a.source.length)
-        .map((term) => ({ source: term.source, target: term.target })),
+        .map((term) => ({ source: term.source, target: term.target, scope: term.scope, matchCase: term.matchCase })),
     [terms.data],
   );
-  const matcher = useMemo(() => termMatcher(confirmedTerms, (term) => term.source), [confirmedTerms]);
+  const matcher = useMemo(() => glossaryMatcher(confirmedTerms), [confirmedTerms]);
   const tokenPattern = useMemo(() => tokenPatternOf(project.data?.formatRules ?? undefined), [project.data?.formatRules]);
 
   return useMemo(() => {
     const units = tokenUnits(source, tokenPattern);
     const plain = withoutTokens(source, tokenPattern);
-    const used = matcher.find(plain);
+    const used = matcher.find(plain, kind);
 
     // Cut the source into plain text, tokens and term mentions (tokens win over terms).
     const marks: { start: number; end: number; part: SourcePart }[] = [];
@@ -84,5 +85,5 @@ export function useLineContext(projectId: string, source: string) {
     }
     if (at < source.length) cut.push({ text: source.slice(at) });
     return { tokenPattern, units, terms: used, parts: cut, formatRules: project.data?.formatRules };
-  }, [tokenPattern, matcher, source, project.data?.formatRules]);
+  }, [tokenPattern, matcher, source, kind, project.data?.formatRules]);
 }

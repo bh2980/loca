@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { Db } from '../db/index.ts';
 import { agentTools } from './agent-tools.ts';
+import type { Saver } from './status-by.ts';
 
 /**
  * The chat agent's tools in a framework-neutral form, so CLI chats and the loca CLI get exactly
@@ -23,7 +24,7 @@ interface SdkTool {
   execute?: (input: never, options: never) => unknown;
 }
 
-export function agentCatalog(db: Db, projectId: string, author?: { model: string | null }, options?: { unrestricted?: boolean }): CatalogTool[] {
+export function agentCatalog(db: Db, projectId: string, author?: { model: string | null; saver?: Saver }, options?: { unrestricted?: boolean }): CatalogTool[] {
   const tools = agentTools(db, projectId, author, options) as unknown as Record<string, SdkTool>;
   return Object.entries(tools).flatMap(([name, tool]) => {
     const execute = tool.execute;

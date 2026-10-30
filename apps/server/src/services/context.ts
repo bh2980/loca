@@ -258,7 +258,7 @@ interface Candidate {
 export function buildContext(
   db: Db,
   projectId: string,
-  batch: { id: string; key: string; groupId: string; sort: number; speaker: string | null; source: string }[],
+  batch: { id: string; key: string; groupId: string; sort: number; speaker: string | null; source: string; kind?: string }[],
   stored: Partial<ContextConfig>,
   parts?: string,
   /** The lines a run read, for a request that reads earlier results (a merge): its 대화 쌍 are counted over these instead of the batch. */
@@ -275,7 +275,9 @@ export function buildContext(
   const candidates: Record<ContextItemKind, Candidate[]> = { term: [], speech: [], cast: [], pair: [], preceding: [], character: [], relationship: [], scene: [], previousScene: [], document: [] };
 
   if (config.glossary) {
-    const used = knowledge.terms().matcher.find(text).map(({ source, target, note }) => ({ source, target, note }));
+    // Each line's terms by its kind (a UI-only term is not given for dialogue); a text from parts has no kind.
+    const { matcher } = knowledge.terms();
+    const used = [...new Set(parts !== undefined || !batch.length ? matcher.find(text) : batch.flatMap((unit) => matcher.find(`${unit.speaker ?? ''}\n${unit.source}`, unit.kind)))].map(({ source, target, note }) => ({ source, target, note }));
     const reason = '원문에 나오는 확정 용어';
     for (const term of used) candidates.term.push({ item: { kind: 'term', label: `${term.source} → ${term.target}`, reason }, payload: term, keep: () => result.terms.push(term) });
   }
@@ -355,9 +357,15 @@ export function buildContext(
       const listener = knownListener(line);
       if (!listener) continue;
       const found = rules.get(line.key);
-      const entry = { listener: told(line, listener), ...(found && { rule: describeRule(found.rule), ...(found.rule.note && { note: found.rule.note }), ...(found.byOrder && { byOrder: true as const }) }) };
+      // Thinking aloud with no rule of the speaker's own for it: a monologue, not how they talk to others.
+      const monologue = listener === 'self' && !found;
+      const entry = {
+        listener: told(line, listener),
+        ...(found && { rule: describeRule(found.rule), ...(found.rule.note && { note: found.rule.note }), ...(found.byOrder && { byOrder: true as const }) }),
+        ...(monologue && { note: 'Thinking aloud: a monologue register (plain endings such as ~군, ~네, ~지, ~나), not the speech level the speaker uses with others.' }),
+      };
       candidates.speech.push({
-        item: { kind: 'speech', label: `${line.key}: ${line.speaker ?? '?'} → ${listenerLabel(listener)}${found ? ` · ${describeRule(found.rule)}` : ''}`, reason: found ? `확정 말투 규칙${found.routeDependent ? ' (구간 시작을 거쳤는지가 루트에 따라 달라 대본 순서 기준)' : found.byOrder ? ' (그래프 밖이라 구간은 대본 순서 기준)' : ''}` : '청자만 (이 쌍의 확정 규칙 없음)' },
+        item: { kind: 'speech', label: `${line.key}: ${line.speaker ?? '?'} → ${listenerLabel(listener)}${found ? ` · ${describeRule(found.rule)}` : ''}`, reason: found ? `확정 말투 규칙${found.routeDependent ? ' (구간 시작을 거쳤는지가 루트에 따라 달라 대본 순서 기준)' : found.byOrder ? ' (그래프 밖이라 구간은 대본 순서 기준)' : ''}` : monologue ? '혼잣말 (독백체 안내, 화자 → self 규칙이 있으면 그것)' : '청자만 (이 쌍의 확정 규칙 없음)' },
         payload: entry,
         keep: () => (result.speech[line.id] = entry),
       });

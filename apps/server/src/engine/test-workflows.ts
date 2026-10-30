@@ -13,8 +13,13 @@ export function translateOnlyWorkflow(db: Db, projectId: string) {
   return { ...row, definition: { ...definition, nodes: definition.nodes.filter((node) => keep.has(node.id)), edges: definition.edges.filter((edge) => keep.has(edge.source) && keep.has(edge.target)) } };
 }
 
-const TERMS_NODES = new Set(['terms', 'terms-resend', 'terms-wait', 'terms-failed', 'save-terms']);
-/** The 번역 workflow without its closing 용어 추출 branch: tests that count the translate/review calls of a line. */
-export function withoutTerms<T extends { nodes: { id: string }[]; edges: { source: string; target: string }[] }>(definition: T): T {
-  return { ...definition, nodes: definition.nodes.filter((node) => !TERMS_NODES.has(node.id)), edges: definition.edges.filter((edge) => !TERMS_NODES.has(edge.source) && !TERMS_NODES.has(edge.target)) };
+const DROPPED = new Set(['terms', 'terms-resend', 'terms-wait', 'terms-failed', 'save-terms', 'speech', 'speech-resend', 'speech-wait', 'speech-sure', 'speech-ok', 'tag-speech']);
+/**
+ * The 번역 workflow without its closing 용어 추출 branch and its 말투 판정 (형식 검사 goes straight to AI
+ * 검수): tests that count the translate/review calls of a line.
+ */
+export function withoutTerms<T extends { nodes: { id: string }[]; edges: { id?: string; source: string; sourceHandle?: string; target: string }[] }>(definition: T): T {
+  const edges = definition.edges.filter((edge) => !DROPPED.has(edge.source) && !DROPPED.has(edge.target));
+  const judged = definition.nodes.some((node) => node.id === 'speech');
+  return { ...definition, nodes: definition.nodes.filter((node) => !DROPPED.has(node.id)), edges: judged ? [...edges, { id: 'untag-format-out-review', source: 'untag-format', sourceHandle: 'out', target: 'review' } as T['edges'][number]] : edges };
 }

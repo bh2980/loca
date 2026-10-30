@@ -57,8 +57,8 @@ export const savedWorkflowSchema = z.object({
 export type SavedWorkflow = z.infer<typeof savedWorkflowSchema>;
 
 const TEMPLATE_KEYS = WORKFLOW_TEMPLATES.map((template) => template.key) as [string, ...string[]];
-/** The templates a project has started with since 3.2: the first four. */
-export const DEFAULT_TEMPLATE_KEYS = WORKFLOW_TEMPLATES.slice(0, 4).map((template) => template.key);
+/** The templates a project starts with: the first five (번역, 검수, 청자 추정, 인물·관계 추출, 사건 추출). */
+export const DEFAULT_TEMPLATE_KEYS = WORKFLOW_TEMPLATES.slice(0, 5).map((template) => template.key);
 
 export const DEFAULT_TEMPLATE_STATUSES: TemplateStatus[] = DEFAULT_STATUSES.map(({ key, name, color, kind, inReview }) => ({ id: key, name, color, kind, inReview }));
 

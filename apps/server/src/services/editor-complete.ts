@@ -1,6 +1,6 @@
 import { and, desc, eq, gte, lt, sql } from 'drizzle-orm';
 import * as ai from '@tw/ai';
-import { compileFormatRules, editorAiSchema, mentions, SPEECH_LEVEL_LABELS, listenerLabel } from '@tw/shared';
+import { compileFormatRules, editorAiSchema, glossaryMatcher, SPEECH_LEVEL_LABELS, listenerLabel } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { logged } from './ai-calls.ts';
@@ -62,12 +62,11 @@ export async function completeLine(db: Db, secrets: SecretStore, unitId: string,
   const compiled = compileFormatRules(project.formatRules ?? undefined);
   const tokens = [compiled.placeholder, compiled.tag].flatMap((pattern) => (pattern ? (unit.source.match(pattern) ?? []) : []));
   const plain = [compiled.placeholder, compiled.tag].reduce((text, pattern) => (pattern ? text.replace(pattern, ' ') : text), unit.source);
-  const terms = db
-    .select({ source: s.terms.source, target: s.terms.target })
-    .from(s.terms)
-    .where(and(eq(s.terms.projectId, unit.projectId), eq(s.terms.status, 'confirmed')))
-    .all()
-    .filter((term) => settings.glossary && term.target && mentions(plain, term.source));
+  const terms = settings.glossary
+    ? glossaryMatcher(db.select({ source: s.terms.source, target: s.terms.target, scope: s.terms.scope, matchCase: s.terms.matchCase }).from(s.terms).where(and(eq(s.terms.projectId, unit.projectId), eq(s.terms.status, 'confirmed'))).all().filter((term) => term.target))
+        .find(plain, unit.kind)
+        .map(({ source, target }) => ({ source, target }))
+    : [];
 
   const who = [unit.speaker ?? '(narration)', settings.speech && unit.listener && `→ ${listenerLabel(unit.listener)}`, rule && `(speech level: ${SPEECH_LEVEL_LABELS[rule.rule.level]}${rule.rule.address ? `, addresses them as "${rule.rule.address}"` : ''})`].filter(Boolean).join(' ');
   const prompt = [

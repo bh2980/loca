@@ -12,7 +12,7 @@ describe('default workflows of a new project', () => {
     const { projectId } = importProject(db, file);
     const names = db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).all().map((workflow) => workflow.name);
     expect(names).not.toContain('자료 갱신');
-    expect(names).toEqual(['번역', '청자 추정', '인물·관계 추출', '사건 추출']);
+    expect(names).toEqual(['번역', '검수', '청자 추정', '인물·관계 추출', '사건 추출']);
     // 번역 sends lines it could not get past review to 검토 필요, a status listed in the review inbox.
     const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).all().map((status) => [status.name, status.inReview]);
     expect(statuses).toEqual([['미번역', false], ['번역됨', false], ['검토 필요', true], ['완료', false]]);

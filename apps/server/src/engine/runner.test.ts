@@ -50,7 +50,7 @@ const flow = (nodes: Record<string, object>, edges: string[]) =>
   });
 const save = (db: ReturnType<typeof setup>['db'], projectId: string, definition: ReturnType<typeof flow>, name = 'test') => db.insert(s.workflows).values({ projectId, name, definition }).returning().get();
 const start = (db: ReturnType<typeof setup>['db'], projectId: string, workflow: ReturnType<typeof save>, scope = {}) => createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope });
-const noModel: ModelPort = { judge: async () => { throw new Error('unused'); }, generate: async () => { throw new Error('unused'); } };
+const noModel: ModelPort = { ask: async () => { throw new Error('unused'); }, generate: async () => { throw new Error('unused'); } };
 
 /** Lines 1–3 fail review until revised three times. */
 function fakeModel(): ModelPort & { calls: string[] } {
@@ -58,7 +58,7 @@ function fakeModel(): ModelPort & { calls: string[] } {
   const revisions = new Map<string, number>();
   return {
     calls,
-    judge: async () => {
+    ask: async () => {
       throw new Error('unused');
     },
     generate: async (_route, request) => {
@@ -154,7 +154,7 @@ describe('workflow runner', () => {
   it('marks the batch failed with the model error when no route works', async () => {
     const { db, projectId, choice, needsReview, confirmed } = setup(2);
     const runner = new Runner(db, memoryStore(), {
-      judge: async () => {
+      ask: async () => {
         throw new Error('unused');
       },
       generate: async () => {
@@ -184,7 +184,7 @@ describe('choice output', () => {
     const workflow = save(db, projectId, definition);
     const seen: { system: string; prompt: string; schema: unknown }[] = [];
     const runner = new Runner(db, memoryStore(), {
-      judge: async () => {
+      ask: async () => {
         throw new Error('unused');
       },
       generate: async (_route, request) => {
@@ -215,7 +215,7 @@ describe('json output', () => {
     const workflow = save(db, projectId, definition);
     let calls = 0;
     const runner = new Runner(db, memoryStore(), {
-      judge: async () => {
+      ask: async () => {
         throw new Error('unused');
       },
       generate: async (_route, request) => {
@@ -254,7 +254,7 @@ describe('json output', () => {
     const workflow = save(db, projectId, definition);
     const seen: { system: string }[] = [];
     const runner = new Runner(db, memoryStore(), {
-      judge: async () => {
+      ask: async () => {
         throw new Error('unused');
       },
       generate: (async (_route: unknown, request: { system: string }) => {
@@ -437,7 +437,7 @@ describe('an AI node reading the previous step’s result', () => {
     );
     const seen: { system: string; prompt: string }[] = [];
     const runner = new Runner(db, memoryStore(), {
-      judge: async () => {
+      ask: async () => {
         throw new Error('unused');
       },
       generate: async (_route, request) => {
@@ -466,7 +466,7 @@ describe('an AI node reading the previous step’s result', () => {
     expect(validateWorkflow(definition, { statusIds: new Set(), connections: new Set([choice.connectionId]) } as never).filter((issue) => issue.level === 'error')).toEqual([]);
     const seen: { system: string; prompt: string }[] = [];
     const runner = new Runner(db, memoryStore(), {
-      judge: async () => {
+      ask: async () => {
         throw new Error('unused');
       },
       generate: async (_route, request) => {

@@ -60,7 +60,7 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
   formatCheck(tx, raw, input) {
     const params = formatCheckParams.parse(raw);
     const text = candidateOf(input);
-    const rules = tx.select({ formatRules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, input.projectId)).get()?.formatRules;
+    const rules = knowledgeOf(tx as unknown as Db, input.projectId).settings()?.formatRules;
     const issues = text === null ? [NEEDS_CANDIDATE] : checkFormat(sourceOf(input), text, params, rules).map((issue) => issue.message);
     return { port: issues.length ? 'fail' : 'pass', issues, output: { text, passed: !issues.length, issues, kind: 'format' } };
   },
@@ -70,7 +70,7 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     if (text === null) return { port: 'fail', issues: [NEEDS_CANDIDATE], output: { text, passed: false, issues: [NEEDS_CANDIDATE], kind: 'term' } };
     const issues = knowledgeOf(tx as unknown as Db, input.projectId)
       .glossary()
-      .matcher.find(sourceOf(input))
+      .matcher.find(sourceOf(input), input.subject === 'lines' ? input.unit.kind : undefined)
       .filter((term) => !text.toLowerCase().includes(term.target.toLowerCase()))
       .map((term) => `용어 "${term.source}"은(는) "${term.target}"(으)로 옮겨야 합니다.`);
     return { port: issues.length ? 'fail' : 'pass', issues, output: { text, passed: !issues.length, issues, kind: 'term' } };
@@ -87,7 +87,7 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
     // saved while the run was on it keeps its status here. A run on lines named regardless of status
     // (말투만 고치기, '상태 무시') is asked to rewrite them, so its status change goes through.
     const current = tx.select({ translation: s.units.translation, statusBy: s.units.statusBy }).from(s.units).where(eq(s.units.id, unit.id)).get();
-    const run = tx.select({ definition: s.runs.definition, scope: s.runs.scope }).from(s.runs).where(eq(s.runs.id, input.runId)).get();
+    const run = tx.select({ scope: s.runs.scope }).from(s.runs).where(eq(s.runs.id, input.runId)).get();
     const humanOwns = personOwns(current, input.item.data.candidateText, !run || filtersByStatus(run.scope));
     const patch: Partial<typeof s.units.$inferInsert> = {};
     const issues: string[] = [];

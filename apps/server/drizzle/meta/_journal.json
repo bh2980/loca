@@ -673,6 +673,20 @@
       "when": 1793140327080,
       "tag": "0095_connection_key_copies",
       "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "6",
+      "when": 1793302609993,
+      "tag": "0096_term_scope",
+      "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "6",
+      "when": 1793309439121,
+      "tag": "0097_term_target_candidates",
+      "breakpoints": true
     }
   ]
 }

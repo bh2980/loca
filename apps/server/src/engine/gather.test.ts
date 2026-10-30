@@ -50,7 +50,7 @@ describe('모으기', () => {
     const { runId } = createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, definition), scope: {} });
     const seen: { system: string; prompt: string }[] = [];
     const port: ModelPort = {
-      judge: async () => {
+      ask: async () => {
         throw new Error('unused');
       },
       generate: async (_route, request) => {
@@ -101,7 +101,7 @@ describe('모으기', () => {
     createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, definition), scope: {} });
     let requests = 0;
     const port: ModelPort = {
-      judge: async () => {
+      ask: async () => {
         throw new Error('unused');
       },
       generate: async (_route, request) => {

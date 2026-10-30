@@ -29,13 +29,21 @@ const PNPM_SHIM = `@SETLOCAL
 `;
 
 describe('starting a CLI', () => {
-  it('resolves a POSIX executable from PATH', () => {
+  it('resolves a POSIX executable from PATH, in PATH order', () => {
+    const exists = (file: string) => file === '/opt/tw/bin/opencode' || file === '/home/me/bin/opencode';
+    expect(cliSpawn('opencode', ['run'], 'linux', { PATH: '/usr/local/bin:/opt/tw/bin:/home/me/bin' }, { exists })).toEqual({ file: '/opt/tw/bin/opencode', args: ['run'] });
+  });
+
+  // The executable bit and POSIX paths of a real file: only a POSIX machine has them.
+  it.skipIf(process.platform === 'win32')('takes a real file on PATH only when it is executable', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'tw-cli-'));
     const file = path.join(dir, 'opencode');
     writeFileSync(file, '#!/bin/sh\nexit 0\n');
     chmodSync(file, 0o755);
     try {
       expect(cliSpawn('opencode', ['run'], 'linux', { PATH: dir })).toEqual({ file, args: ['run'] });
+      chmodSync(file, 0o644);
+      expect(cliSpawn('opencode', ['run'], 'linux', { PATH: dir })).toEqual({ file: 'opencode', args: ['run'] });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

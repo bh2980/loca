@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { editorAiSchema, editorNodeConfig } from './editor-ai.ts';
 import { chatTitle } from './agent.ts';
-import { checkFormat, compileFormatRules, matchTokens } from './format-check.ts';
+import { checkFormat, compileFormatRules, matchTokens, withSourceEdges, glossaryMatcher } from './format-check.ts';
 import { importFileSchema, importWarnings, summarizeImport } from './import-format.ts';
 import { politenessOf, speechLevelOf, styleInstruction, styleNames } from './knowledge.ts';
+import { termMarksOf, withDuplicateTargets } from './marks.ts';
 import { ANALYSIS_WORKFLOW, analysisTemplate, defaultWorkflows, eventExtractionTemplate, listenerTemplate, peopleRelationsTemplate, termExtractionTemplate, translationTemplate, WORKFLOW_TEMPLATES } from './defaults.ts';
 import { APPLY_TARGETS } from './functions.ts';
 import { AI_PRESETS, AI_PROMPTS, presetConfig } from './presets.ts';
@@ -51,12 +52,12 @@ describe('인물·관계 추출 template and the talking pairs', () => {
 
 describe('workflow validation', () => {
   it('every registry template validates without issues when all ids are given', () => {
-    expect(WORKFLOW_TEMPLATES.map((template) => template.key)).toEqual(['translation', 'listener', 'people', 'events', 'terms', 'termTranslate']);
+    expect(WORKFLOW_TEMPLATES.map((template) => template.key)).toEqual(['translation', 'review', 'listener', 'people', 'events', 'terms', 'termTranslate']);
     for (const template of WORKFLOW_TEMPLATES) {
       const definition = workflowDefinitionSchema.parse(template.build({ ...ids, aiFailedTag: 't0' }));
       expect(validateWorkflow(definition, refs), template.key).toEqual([]);
     }
-    expect(defaultWorkflows(ids).map((row) => row.name)).toEqual(['번역', '청자 추정', '인물·관계 추출', '사건 추출']);
+    expect(defaultWorkflows(ids).map((row) => row.name)).toEqual(['번역', '검수', '청자 추정', '인물·관계 추출', '사건 추출']);
   });
 
   it('accepts the default template', () => {
@@ -303,7 +304,7 @@ describe('templates', () => {
       expect(errors(definition)).toEqual([]);
       for (const node of definition.nodes) if (node.type === 'function' && node.config.fn in APPLY_TARGETS) expect(applyIssues(definition, node.id, node.config.fn as keyof typeof APPLY_TARGETS, node.config.params as never)).toEqual([]);
     }
-    expect(WORKFLOW_TEMPLATES.map((template) => template.name)).toEqual(['번역', '청자 추정', '인물·관계 추출', '사건 추출', '용어 추출', '용어 번역']);
+    expect(WORKFLOW_TEMPLATES.map((template) => template.name)).toEqual(['번역', '검수', '청자 추정', '인물·관계 추출', '사건 추출', '용어 추출', '용어 번역']);
   });
 
   it('maps every field an analysis list produces that its save node accepts', () => {
@@ -548,8 +549,10 @@ describe('재요청 node', () => {
         const marker = definition.edges.filter((edge) => edge.source === wait.id && edge.sourceHandle === 'error').map((edge) => definition.nodes.find((candidate) => candidate.id === edge.target)!);
         if (name.endsWith('termTranslate')) { expect(marker, 'terms cannot take the line tag').toEqual([]); continue; }
         if (node.id === 'merge') { expect(marker, 'after the 모으기 no line stands for the failure').toEqual([]); continue; }
+        // 말투 판정 that keeps failing hands the line on to AI 검수, which still reads it.
+        if (node.id === 'speech') { expect(marker.map((target) => target.id), 'a failed 말투 판정 goes on to AI 검수').toEqual(['review']); continue; }
         expect(marker, `${name}/${node.id} 재요청 오류 → marker`).toHaveLength(1);
-        const isTranslation = (name === 'translation' || name === 'default 번역') && statusMarkers.has(node.id);
+        const isTranslation = (name === 'translation' || name === 'default 번역' || name === 'review' || name === 'default 검수') && statusMarkers.has(node.id);
         if (isTranslation) expect(marker[0]).toMatchObject({ label: '검토 필요로', config: { fn: 'setStatus', params: { statusId: 's2' } } });
         else expect(marker[0]).toMatchObject({ label: 'AI 실패 태그', config: { fn: 'tagLines', params: { action: 'add', tagIds: ['t0'] } } });
       }
@@ -707,5 +710,41 @@ describe('AI node input', () => {
       edges: [['entry', 'out', 'who'], ['who', 'out', 'sure'], ['sure', 'true', 'save'], ['save', 'out', 'tr'], ['tr', 'error', 'again'], ['again', 'true', 'tr']].map(([source, sourceHandle, target], i) => ({ id: String(i), source, sourceHandle, target })),
     });
     expect(previousSteps(definition, 'tr').map((node) => node.id)).toEqual(['who']);
+  });
+});
+
+describe('withSourceEdges', () => {
+  it("puts the source's leading and trailing whitespace around the text's body", () => {
+    expect(withSourceEdges('Yes!\n', '네!')).toBe('네!\n');
+    expect(withSourceEdges('  Hi\n\n', '\n안녕 ')).toBe('  안녕\n\n');
+    expect(withSourceEdges('Go', '가\n')).toBe('가');
+    expect(checkFormat('Yes!\n', withSourceEdges('Yes!\n', '네!'), { placeholders: true, tags: true, newlines: true, emptyText: true })).toEqual([]);
+  });
+
+  it('leaves an empty translation empty and a whitespace-only source alone', () => {
+    expect(withSourceEdges('Yes!\n', '  ')).toBe('');
+    expect(withSourceEdges(' ', 'x ')).toBe('x ');
+  });
+});
+
+describe('withDuplicateTargets', () => {
+  it('marks terms of different sources that share a Korean form, and nothing else', () => {
+    const term = (source: string, target: string, status: 'confirmed' | 'rejected' = 'confirmed') => ({ source, target, status, statusBy: 'ai' as const, lines: 1 });
+    const marked = withDuplicateTargets([term('Ava', '조이'), term('Joy', '조이'), term('joy', '조이'), term('Mei', '메이'), term('Old', '메이', 'rejected'), term('Blank', '')]);
+    expect(marked.map((row) => row.duplicateTarget)).toEqual([true, true, true, false, false, false]);
+    expect(termMarksOf(marked[0])).toContain('duplicateTarget');
+  });
+});
+
+describe('glossaryMatcher', () => {
+  it('keeps a UI-only term out of dialogue and a case-matched term off other cases', () => {
+    const help = { source: 'Help', target: '도움말', scope: 'ui' as const, matchCase: true };
+    const joy = { source: 'Joy', target: '조이', scope: 'all' as const, matchCase: false };
+    const matcher = glossaryMatcher([help, joy]);
+    expect(matcher.find('Help', 'ui')).toEqual([help]);
+    expect(matcher.find('Maybe you could help me', 'dialogue')).toEqual([]);
+    expect(matcher.find('Help me, joy!', 'dialogue')).toEqual([joy]);
+    expect(matcher.find('help', 'ui')).toEqual([]);
+    expect(matcher.find('Help')).toEqual([help]);
   });
 });

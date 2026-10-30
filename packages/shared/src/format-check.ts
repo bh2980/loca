@@ -128,6 +128,18 @@ export function hasText(text: string, rules: FormatRules = DEFAULT_FORMAT_RULES)
   return /[\p{L}\p{N}]/u.test(rest);
 }
 
+/**
+ * A translation's leading and trailing whitespace (spaces, newlines) is the source's, never the
+ * translator's or a model's: the body is the text without its edges, and the source's edges go
+ * around it. Every writer of a line's translation stores this, and the editor shows only the body.
+ * An empty body stays empty (no translation), and a source that is all whitespace leaves the text as is.
+ */
+export function withSourceEdges(source: string, text: string): string {
+  const body = text.trim();
+  if (!body || !source.trim()) return body ? text : '';
+  return `${source.match(/^\s*/u)![0]}${body}${source.match(/\s*$/u)![0]}`;
+}
+
 /** Tokens in `a` that `b` lacks, as a multiset difference. */
 function missing(a: string[], b: string[]) {
   const rest = [...b];
@@ -298,6 +310,35 @@ export function termMatcher<T>(items: readonly T[], namesOf: (item: T) => string
       const lower = lowered(text);
       return entries.some((entry) => hit(text, lower, entry));
     },
+  };
+}
+
+/** Where a glossary term applies: every line, UI lines only (a button's "Help"), or the rest (dialogue, documents). */
+export const TERM_SCOPES = { all: '모든 줄', ui: 'UI 줄만', dialogue: '대사·문서만' } as const;
+export type TermScope = keyof typeof TERM_SCOPES;
+export const TERM_SCOPE_IDS = Object.keys(TERM_SCOPES) as TermScope[];
+
+/** Whether a term applies to a line of this kind; without a kind (a text alone) every term does. */
+export const termApplies = (term: { scope?: TermScope | null }, kind?: string | null) =>
+  !term.scope || term.scope === 'all' || !kind || (term.scope === 'ui' ? kind === 'ui' : kind !== 'ui');
+
+/**
+ * The glossary's matcher: `termMatcher` on the source (whole word, any case), narrowed by each
+ * term's scope (the line's kind) and, for a term with `matchCase`, by its exact case. Usage counts,
+ * the glossary check, import warnings and the terms an AI node is given all match this way.
+ */
+export function glossaryMatcher<T extends { source: string; scope?: TermScope | null; matchCase?: boolean | null }>(terms: readonly T[]) {
+  const words = termMatcher(terms, (term) => term.source);
+  const cased = new Map<T, RegExp>();
+  const exact = (term: T, text: string) => {
+    if (!term.matchCase) return true;
+    let re = cased.get(term);
+    if (!re) cased.set(term, (re = new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(term.source.trim())}(?![\\p{L}\\p{N}])`, 'u')));
+    return re.test(text);
+  };
+  return {
+    find: (text: string, kind?: string | null) => words.find(text).filter((term) => termApplies(term, kind) && exact(term, text)),
+    has: (text: string, kind?: string | null) => words.find(text).some((term) => termApplies(term, kind) && exact(term, text)),
   };
 }
 

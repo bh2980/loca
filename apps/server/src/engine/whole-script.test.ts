@@ -51,7 +51,7 @@ const answer = { people: [{ name: 'Alice', evidence: ['L1', 'L3', 'L99'] }, { na
 
 type Request = Parameters<ModelPort['generate']>[1];
 const port = (reply: (request: Request) => unknown): ModelPort => ({
-  judge: async () => {
+  ask: async () => {
     throw new Error('unused');
   },
   generate: async (_route, request) => ({ object: reply(request), usage: { inputTokens: 10, outputTokens: 5 } }) as never,

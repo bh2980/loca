@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { termMatcher } from '@tw/shared';
+import { glossaryMatcher, type TermScope } from '@tw/shared';
 import { EditorSourceParagraph, EditorTermMark, EditorTokenChip, EditorTokenText, EditorTokenTip, Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
 import { q } from '@/lib/queries';
 import { splitTokens, useLineContext, type SourcePart } from '@/lib/line-context';
@@ -110,8 +110,8 @@ export function TokenText({ text, source, pattern, look }: { text: string; sourc
   );
 }
 
-type ConfirmedTerm = { source: string; target: string };
-const matchers = new WeakMap<object, ReturnType<typeof termMatcher<ConfirmedTerm>>>();
+type ConfirmedTerm = { source: string; target: string; scope?: TermScope; matchCase?: boolean };
+const matchers = new WeakMap<object, ReturnType<typeof glossaryMatcher<ConfirmedTerm>>>();
 const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 /** Whole word, any case, also next to Hangul or punctuation (the rule of `mentions` and the picked line's underlines). */
 const wordPattern = (name: string) => new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(name)}(?![\\p{L}\\p{N}])`, 'giu');
@@ -125,9 +125,9 @@ function useConfirmedTermMatcher(projectId: string) {
     if (!matcher) {
       const confirmed = terms
         .filter((term) => term.status === 'confirmed' && term.target)
-        .map((term) => ({ source: term.source, target: term.target }))
+        .map((term) => ({ source: term.source, target: term.target, scope: term.scope, matchCase: term.matchCase }))
         .sort((a, b) => b.source.length - a.source.length);
-      matcher = termMatcher(confirmed, (term) => term.source);
+      matcher = glossaryMatcher(confirmed);
       matchers.set(terms, matcher);
     }
     return matcher;
