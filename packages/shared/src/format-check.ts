@@ -132,29 +132,33 @@ export function hasText(text: string, rules: FormatRules = DEFAULT_FORMAT_RULES)
  * A translation's leading and trailing whitespace (spaces, newlines) is the source's, never the
  * translator's or a model's: the body is the text without its edges, and the source's edges go
  * around it. The body's line breaks are the source's kind too (models and editors write \n where a
- * source has \r\n, or escape them as &#13;). Every writer of a line's translation stores this, and the
- * editor shows only the body.
+ * source has \r\n). Whitespace a model escaped (&#13; &#9; &nbsp;) is whitespace again. Every writer of
+ * a line's translation stores this, and the editor shows only the body.
  * An empty body stays empty (no translation), and a source that is all whitespace leaves the text as is.
  */
 export function withSourceWhitespace(source: string, text: string): string {
-  const body = withoutEscapedBreaks(source, text).trim();
+  const body = withoutEscapedWhitespace(source, text).trim();
   if (!body || !source.trim()) return body ? text : '';
   return `${source.match(/^\s*/u)![0]}${withSourceBreaks(source.trim(), body)}${source.match(/\s*$/u)![0]}`;
 }
 
 const LINE_BREAK = /\r\n|\r|\n/gu;
-const ESCAPED_CR = /&#(?:13|x0*d);/iu;
-const ESCAPED_LF = /&#(?:10|x0*a);/iu;
+const CHARACTER_REFERENCE = /&(?:#(\d+)|#x([0-9a-f]+)|(nbsp|Tab|NewLine|ensp|emsp|thinsp));/giu;
+const NAMED_WHITESPACE: Record<string, string> = { nbsp: ' ', tab: '\t', newline: '\n', ensp: ' ', emsp: ' ', thinsp: ' ' };
 
 /**
- * A line break written as a character reference (&#13; &#10;) that the source does not have is one a
- * model escaped: it becomes the break it stands for (one right before a real break is dropped).
+ * Whitespace written as a character reference (&#13; &#x9; &nbsp;) that the source does not have is
+ * whitespace a model escaped: it becomes the character it stands for. A carriage return right before
+ * a real line break is dropped (the break is there already).
  */
-function withoutEscapedBreaks(source: string, text: string): string {
-  let out = text;
-  if (!ESCAPED_CR.test(source)) out = out.replace(new RegExp(`(?:${ESCAPED_CR.source})(?=\\r?\\n)`, 'giu'), '').replace(new RegExp(ESCAPED_CR.source, 'giu'), '\r');
-  if (!ESCAPED_LF.test(source)) out = out.replace(new RegExp(ESCAPED_LF.source, 'giu'), '\n');
-  return out;
+function withoutEscapedWhitespace(source: string, text: string): string {
+  const kept = new Set(Array.from(source.matchAll(CHARACTER_REFERENCE), (match) => match[0].toLowerCase()));
+  return text.replace(CHARACTER_REFERENCE, (reference, decimal: string | undefined, hex: string | undefined, name: string | undefined, offset: number) => {
+    const code = decimal ? Number(decimal) : hex ? parseInt(hex, 16) : undefined;
+    const char = code !== undefined ? (code <= 0x10ffff ? String.fromCodePoint(code) : '') : NAMED_WHITESPACE[name!.toLowerCase()]!;
+    if (!/^\s$/u.test(char) || kept.has(reference.toLowerCase())) return reference;
+    return char === '\r' && /^\r?\n/u.test(text.slice(offset + reference.length)) ? '' : char;
+  });
 }
 
 /**
