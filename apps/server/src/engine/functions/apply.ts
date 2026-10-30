@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { get } from 'es-toolkit/compat';
-import { AGE_BANDS, APPLY_FUNCTION_NAMES, APPLY_TARGETS, applyParams, DOCUMENT_KINDS, ISSUE_KIND_IDS, ISSUE_KINDS, issueKindOf, tagLinesParams, tagScope, type IssueKind, aiStatus, TERM_KIND_LABELS, TERM_KINDS, UNKNOWN_LISTENER, withMainTarget, withSourceEdges, withTargetCandidate, type ApplyField, type ApplyFunctionName, type ApplyParams } from '@tw/shared';
+import { AGE_BANDS, APPLY_FUNCTION_NAMES, APPLY_TARGETS, applyParams, DOCUMENT_KINDS, ISSUE_KIND_IDS, ISSUE_KINDS, issueKindOf, tagLinesParams, tagScope, type IssueKind, aiStatus, TERM_KIND_LABELS, TERM_KINDS, UNKNOWN_LISTENER, withMainTarget, withSourceWhitespace, withTargetCandidate, type ApplyField, type ApplyFunctionName, type ApplyParams } from '@tw/shared';
 import type { Db } from '../../db/index.ts';
 import * as s from '../../db/schema.ts';
 import type { Topic } from '../../events.ts';
@@ -220,12 +220,14 @@ function runLine(fn: 'saveCandidate' | 'setListener', context: Context, item: It
   const { tx, input, run: runRow } = context;
   const unit = lineOf(input);
   if (fn === 'saveCandidate') {
-    // The model's text without its edges, with the source's: a lost trailing newline is not a format error.
-    const text = withSourceEdges(unit.source, item.text as string);
+    // The model's text with the source's edges and line breaks: a lost trailing newline or \r is not a format error.
+    const text = withSourceWhitespace(unit.source, item.text as string);
+    // The translation the line has before this save (the AI node's text is already the item's working text): a revision that changed nothing.
+    const unchanged = unit.translation != null && withSourceWhitespace(unit.source, unit.translation) === text;
     const candidateId = addCandidate(tx, { unitId: unit.id, text, origin: 'ai', runId: input.runId, nodeId: base.nodeId });
-    if (!runRow) return { port: 'out', candidate: text, output: { applied: false, candidateId } };
+    if (!runRow) return { port: 'out', candidate: text, output: { applied: false, candidateId, unchanged } };
     const { applied } = applyRunCandidate(tx, runRow, unit.id, candidateId, text);
-    return { port: 'out', candidate: text, output: { applied, candidateId }, ...(!applied ? { issues: [HUMAN_OWNED_NOTE] } : {}) };
+    return { port: 'out', candidate: text, output: { applied, candidateId, unchanged }, ...(!applied ? { issues: [HUMAN_OWNED_NOTE] } : {}) };
   }
   // setListener: "unknown" (or nothing) is the AI saying it cannot tell: the line stays 청자 미상.
   const listener = typeof item.listener === 'string' ? item.listener.trim() : '';

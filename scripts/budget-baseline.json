@@ -6,50 +6,50 @@
       "status": "completed",
       "notice": null,
       "unfinishedLines": 0,
-      "calls": 237,
+      "calls": 186,
       "failedCalls": 0,
       "callsByNode": {
         "AI 번역": 60,
-        "AI 검수": 91,
-        "AI 수정": 31,
+        "AI 검수": 60,
+        "AI 수정": 11,
         "AI 용어 추출": 55
       },
-      "callsPer100Lines": 2.65,
-      "linesPerCallMean": 152.52,
+      "callsPer100Lines": 2.08,
+      "linesPerCallMean": 144.26,
       "smallCallShare": 0,
-      "inputTokens": 7243396,
-      "inputPerLine": 809.9,
-      "cachedInputTokens": 2370000,
-      "fixedOverheadShare": 0.654,
-      "outputTokens": 563392,
+      "inputTokens": 5221774,
+      "inputPerLine": 583.8,
+      "cachedInputTokens": 1860000,
+      "fixedOverheadShare": 0.712,
+      "outputTokens": 358748,
       "failedLines": 0,
       "failedLineShare": 0,
-      "wallSeconds": 52.6
+      "wallSeconds": 24.9
     },
     "translate-faulty": {
       "linesInScope": 8944,
       "status": "completed",
       "notice": null,
       "unfinishedLines": 0,
-      "calls": 490,
-      "failedCalls": 29,
+      "calls": 288,
+      "failedCalls": 13,
       "callsByNode": {
         "AI 번역": 76,
-        "AI 검수": 233,
-        "AI 용어 추출": 94,
-        "AI 수정": 87
+        "AI 검수": 94,
+        "AI 용어 추출": 82,
+        "AI 수정": 36
       },
-      "callsPer100Lines": 5.48,
-      "linesPerCallMean": 80.23,
-      "smallCallShare": 0.167,
-      "inputTokens": 12917138,
-      "inputPerLine": 1444.2,
-      "cachedInputTokens": 4750000,
-      "fixedOverheadShare": 0.759,
-      "outputTokens": 565198,
+      "callsPer100Lines": 3.22,
+      "linesPerCallMean": 102.3,
+      "smallCallShare": 0.073,
+      "inputTokens": 7543717,
+      "inputPerLine": 843.4,
+      "cachedInputTokens": 2820000,
+      "fixedOverheadShare": 0.764,
+      "outputTokens": 367692,
       "failedLines": 0,
       "failedLineShare": 0,
-      "wallSeconds": 63.2
+      "wallSeconds": 32.9
     },
     "listener-cli": {
       "linesInScope": 8944,
@@ -71,7 +71,7 @@
       "outputTokens": 110487,
       "failedLines": 0,
       "failedLineShare": 0,
-      "wallSeconds": 8.5
+      "wallSeconds": 6.5
     },
     "terms-cli": {
       "linesInScope": 8944,
@@ -93,7 +93,7 @@
       "outputTokens": 3420,
       "failedLines": 0,
       "failedLineShare": 0,
-      "wallSeconds": 6.6
+      "wallSeconds": 4.2
     },
     "knowledge-cli": {
       "linesInScope": 9040,
@@ -137,7 +137,7 @@
       "outputTokens": 640,
       "failedLines": 0,
       "failedLineShare": 0,
-      "wallSeconds": 25.6
+      "wallSeconds": 7.7
     },
     "people-cli": {
       "linesInScope": 8944,
@@ -160,7 +160,7 @@
       "outputTokens": 65788,
       "failedLines": 1,
       "failedLineShare": 0.0001,
-      "wallSeconds": 7
+      "wallSeconds": 6.4
     },
     "events-cli": {
       "linesInScope": 8944,
@@ -182,7 +182,7 @@
       "outputTokens": 4233,
       "failedLines": 0,
       "failedLineShare": 0,
-      "wallSeconds": 6.6
+      "wallSeconds": 4.1
     }
   }
 }

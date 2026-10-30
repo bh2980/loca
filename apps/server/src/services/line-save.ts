@@ -6,7 +6,7 @@ import { applyIssueTags } from './issue-tags.ts';
 import { addCandidate } from './candidates.ts';
 import { assertProjectRefs } from './project-refs.ts';
 import { badRequest } from '../http-errors.ts';
-import { withSourceEdges } from '@tw/shared';
+import { withSourceWhitespace } from '@tw/shared';
 
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 type Unit = Pick<typeof s.units.$inferSelect, 'id' | 'projectId' | 'source' | 'translation' | 'statusId'>;
@@ -59,7 +59,7 @@ export function saveLine(tx: Tx, unit: Unit, save: LineSave): Partial<typeof s.u
     candidateId = candidate.id;
   }
   // The source's leading and trailing whitespace, whatever the editor, an import or a candidate brought.
-  if (text !== undefined) text = withSourceEdges(unit.source, text);
+  if (text !== undefined) text = withSourceWhitespace(unit.source, text);
   const targetStatusId = save.statusId ?? unit.statusId;
   const targetStatus = tx.select({ kind: s.statuses.kind }).from(s.statuses).where(and(eq(s.statuses.id, targetStatusId), eq(s.statuses.projectId, unit.projectId))).get();
   if (targetStatus?.kind === 'final' && (text ?? current).trim() === '') badRequest('완료 상태에는 번역이 있어야 합니다.');

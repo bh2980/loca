@@ -38,3 +38,23 @@ describe('a term\'s Korean forms', () => {
     expect([term().target, term().targetCandidates]).toEqual(['이어하기', ['계속하기', '재개']]);
   });
 });
+
+describe('the scope an AI gives a term', () => {
+  it('lands on a new term and replaces only the default "all lines" of a term no person decided', () => {
+    const { db, projectId, term } = setup();
+    upsertAiTerm(db, projectId, { source: 'Continue', target: '계속', scope: 'ui' }, { autoConfirm: true });
+    expect(term().scope).toBe('ui');
+
+    db.update(s.terms).set({ scope: 'all' }).run();
+    upsertAiTerm(db, projectId, { source: 'Continue', scope: 'ui' }, { autoConfirm: true });
+    expect(term().scope).toBe('ui');
+
+    db.update(s.terms).set({ scope: 'dialogue' }).run();
+    upsertAiTerm(db, projectId, { source: 'Continue', scope: 'ui' }, { autoConfirm: true });
+    expect(term().scope).toBe('dialogue');
+
+    saveTerm(db, projectId, { scope: 'all' }, { id: term().id });
+    upsertAiTerm(db, projectId, { source: 'Continue', scope: 'ui' }, { autoConfirm: true });
+    expect(term().scope).toBe('all');
+  });
+});

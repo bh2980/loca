@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { editorAiSchema, editorNodeConfig } from './editor-ai.ts';
 import { chatTitle } from './agent.ts';
-import { checkFormat, compileFormatRules, matchTokens, withSourceEdges, glossaryMatcher } from './format-check.ts';
+import { checkFormat, compileFormatRules, matchTokens, withSourceWhitespace, glossaryMatcher } from './format-check.ts';
 import { importFileSchema, importWarnings, summarizeImport } from './import-format.ts';
 import { politenessOf, speechLevelOf, styleInstruction, styleNames } from './knowledge.ts';
 import { termMarksOf, withDuplicateTargets } from './marks.ts';
@@ -584,8 +584,8 @@ describe('재요청 node', () => {
     }
     expect(place('revise-resend').y).toBe(place('revise').y);
     expect(place('revise-failed').y).toBe(place('revise').y);
-    // Edges go down or sideways, except the loops: 재요청 → its AI node, 수정 번역 저장 → 형식 검사.
-    const loops = new Set(['translate-resend-retry-translate', 'review-resend-retry-review', 'revise-resend-retry-revise', 'terms-resend-retry-terms', 'translate-wait-retry-translate', 'review-wait-retry-review', 'revise-wait-retry-revise', 'terms-wait-retry-terms', 'save-revision-out-check']);
+    // Edges go down or sideways, except the loops: 재요청 → its AI node, 수정으로 바뀌었나? → 형식 검사 or 검토 필요로.
+    const loops = new Set(['translate-resend-retry-translate', 'review-resend-retry-review', 'revise-resend-retry-revise', 'terms-resend-retry-terms', 'translate-wait-retry-translate', 'review-wait-retry-review', 'revise-wait-retry-revise', 'terms-wait-retry-terms', 'revised-true-check', 'revised-false-unrevised']);
     for (const edge of definition.edges) if (!loops.has(edge.id)) expect(place(edge.target).y, edge.id).toBeGreaterThanOrEqual(place(edge.source).y);
   });
 });
@@ -713,17 +713,27 @@ describe('AI node input', () => {
   });
 });
 
-describe('withSourceEdges', () => {
+describe('withSourceWhitespace', () => {
   it("puts the source's leading and trailing whitespace around the text's body", () => {
-    expect(withSourceEdges('Yes!\n', '네!')).toBe('네!\n');
-    expect(withSourceEdges('  Hi\n\n', '\n안녕 ')).toBe('  안녕\n\n');
-    expect(withSourceEdges('Go', '가\n')).toBe('가');
-    expect(checkFormat('Yes!\n', withSourceEdges('Yes!\n', '네!'), { placeholders: true, tags: true, newlines: true, emptyText: true })).toEqual([]);
+    expect(withSourceWhitespace('Yes!\n', '네!')).toBe('네!\n');
+    expect(withSourceWhitespace('  Hi\n\n', '\n안녕 ')).toBe('  안녕\n\n');
+    expect(withSourceWhitespace('Go', '가\n')).toBe('가');
+    expect(checkFormat('Yes!\n', withSourceWhitespace('Yes!\n', '네!'), { placeholders: true, tags: true, newlines: true, emptyText: true })).toEqual([]);
+  });
+
+  it("writes the body's line breaks as the source's", () => {
+    // As many breaks: one for one, so a source mixing \r\n and \n keeps its mix.
+    expect(withSourceWhitespace('Hi.\r\n\r\nBye.\n', '안녕.\n\n잘 가.')).toBe('안녕.\r\n\r\n잘 가.\n');
+    expect(withSourceWhitespace('A\r\n\nB', '가\n\n나')).toBe('가\r\n\n나');
+    // A different count: the source's one kind, or left alone when the source mixes kinds.
+    expect(withSourceWhitespace('A\r\nB\r\nC', '가\n나')).toBe('가\r\n나');
+    expect(withSourceWhitespace('A\r\nB\nC', '가\n나')).toBe('가\n나');
+    expect(withSourceWhitespace('A B', '가\n나')).toBe('가\n나');
   });
 
   it('leaves an empty translation empty and a whitespace-only source alone', () => {
-    expect(withSourceEdges('Yes!\n', '  ')).toBe('');
-    expect(withSourceEdges(' ', 'x ')).toBe('x ');
+    expect(withSourceWhitespace('Yes!\n', '  ')).toBe('');
+    expect(withSourceWhitespace(' ', 'x ')).toBe('x ');
   });
 });
 

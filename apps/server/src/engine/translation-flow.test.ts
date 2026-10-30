@@ -86,12 +86,21 @@ describe('the default 번역 workflow, end to end with a fake model', () => {
   });
 
   it('a 형식 검사 that keeps failing also ends in 검토 필요 after 3 revisions, not as a failed line', async () => {
-    const result = await run({ source: 'Hi\nthere', translate: () => '안녕', revise: () => '안녕하세요' });
+    const result = await run({ source: 'Hi\nthere', translate: () => '안녕', revise: (_line, n) => `안녕하세요${n}` });
     expect(result.status).toBe('검토 필요');
     expect(result.calls).toMatchObject({ translate: 1, review: 0, revise: 3, terms: 0 });
     expect(result.items.map((item) => item.state)).toEqual(['done']);
     expect(result.revisePrompts[0]).toMatchObject({ candidate: '안녕', previous: { kind: 'format' } });
-    expect(result.revisePrompts[2]).toMatchObject({ candidate: '안녕하세요' });
+    expect(result.revisePrompts[2]).toMatchObject({ candidate: '안녕하세요2' });
     expect(result.revisePrompts[0]!.previous!.issues!.length).toBeGreaterThan(0);
+  });
+
+  it('a revision that leaves the translation as it was (line breaks aside) ends in 검토 필요 at once', async () => {
+    const result = await run({ source: 'Hi\r\nthere', translate: () => '안녕\r\n여러분', passes: () => false, revise: () => '안녕\n여러분' });
+    expect(result.status).toBe('검토 필요');
+    expect(result.calls).toMatchObject({ translate: 1, review: 1, revise: 1, terms: 0 });
+    expect(result.items[0]!.data.path.map((step) => step.nodeId).slice(-2)).toEqual(['revised', 'unrevised']);
+    // The model's \n is stored as the source's \r\n.
+    expect(result.unit.translation).toBe('안녕\r\n여러분');
   });
 });

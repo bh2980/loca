@@ -1,5 +1,5 @@
 import { and, asc, count, desc, eq, gte, inArray, like, or, sql, type SQL } from 'drizzle-orm';
-import { checkFormat, exclusionRulesSchema, lineExclusion, lineMarksOf, mentions, runNodeName, type BatchChange, type CheckKind, type LineFilter, type LineMark, withSourceEdges } from '@tw/shared';
+import { checkFormat, exclusionRulesSchema, lineExclusion, lineMarksOf, mentions, runNodeName, type BatchChange, type CheckKind, type LineFilter, type LineMark, withSourceWhitespace } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import { inChunks, inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
@@ -388,7 +388,7 @@ export function normalizeBatch(db: Db, projectId: string, batch: BatchChange, op
     const next = { ...change };
     if (options.fillRev && next.rev === undefined) next.rev = unit.updatedAt.getTime();
     // Compared as saveLine will store it: the source's leading and trailing whitespace.
-    if (next.translation !== undefined) next.translation = withSourceEdges(unit.source, next.translation);
+    if (next.translation !== undefined) next.translation = withSourceWhitespace(unit.source, next.translation);
     if (next.translation !== undefined && next.translation === (unit.translation ?? '')) delete next.translation;
     if (next.status && statusId(next.status) === unit.statusId) delete next.status;
     if (next.listener !== undefined && next.listener === unit.listener) delete next.listener;
@@ -436,7 +436,7 @@ export function validateBatch(db: Db, projectId: string, batch: BatchChange): Ba
       report.changes++;
       if (change.translation !== undefined) {
         const issues = [
-          ...checkFormat(unit.source, withSourceEdges(unit.source, change.translation), { placeholders: true, tags: true, newlines: true, emptyText: true }, rules).map((issue) => issue.message),
+          ...checkFormat(unit.source, withSourceWhitespace(unit.source, change.translation), { placeholders: true, tags: true, newlines: true, emptyText: true }, rules).map((issue) => issue.message),
           ...matcher.find(unit.source, unit.kind).filter((term) => !change.translation!.toLowerCase().includes(term.target.toLowerCase())).map((term) => `용어 "${term.source}" → "${term.target}"가 번역에 없습니다.`),
         ];
         if (issues.length) report.warnings.push({ key: change.key, issues });
