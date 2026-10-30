@@ -105,7 +105,9 @@ export function aiSaveTerms(tx: Tx, write: AiWrite, items: AiTermItem[]) {
     if (!item.source?.trim()) continue;
     const kind = TERM_KINDS.includes(item.kind as (typeof TERM_KINDS)[number]) ? TERM_KIND_LABELS[item.kind as (typeof TERM_KINDS)[number]] : '';
     const note = [kind, item.meaning?.trim(), item.note?.trim()].filter(Boolean).join(' · ');
-    const result = upsertAiTerm(tx, write.projectId, { source: item.source, target: item.target, note, examples: (item.evidence ?? []).slice(0, 3) }, { autoConfirm: write.autoConfirm, runId: write.runId });
+    // A UI word (a button or window name) holds on UI lines only: "Help" is 도움말 there, not in "help me".
+    const scope = item.kind === 'ui' ? ('ui' as const) : undefined;
+    const result = upsertAiTerm(tx, write.projectId, { source: item.source, target: item.target, note, examples: (item.evidence ?? []).slice(0, 3), scope }, { autoConfirm: write.autoConfirm, runId: write.runId });
     counts[result]++;
   }
   return counts;

@@ -220,7 +220,8 @@ const speechEdges = [
  * it covers (the format check 형식, the review every 문제 유형);
  * a failing line is revised by AI 수정 (it reads the translation and what a check or the review found; each
  * revision is written as the translation again and checked again) while AI 수정 has run fewer than 3
- * times, then is set to "검토 필요", a status shown in the review inbox. People take it from there; the
+ * times, then is set to "검토 필요", a status shown in the review inbox. A revision that leaves the
+ * translation as it was goes to "검토 필요" at once: checking it again would find the same thing. People take it from there; the
  * run itself ends. Translations are written, not proposed, because a translation flow proposing every
  * line would leave nothing to review.
  * Every AI node fails the same way: error → a 재요청 node (sent again in half-size requests, at most
@@ -278,6 +279,15 @@ function reviewLoop(ids: TemplateIds, judgeSpeech: boolean): WorkflowDefinition 
       ...resendNodes('revise', 9, 4),
       failed('revise', 9, 6),
       writeTranslation('save-revision', 10, 3, '수정 번역 저장'),
+      {
+        id: 'revised',
+        type: 'condition',
+        position: at(11, 3),
+        label: '수정으로 바뀌었나?',
+        config: { expression: { '!': [{ var: 'outputs.save-revision.unchanged' }] }, description: "'AI 수정'이 번역을 그대로 두었으면(공백·줄바꿈만 다르면) 다시 검사해도 같은 지적이 나오니 검토 필요로 보냅니다." },
+      },
+      // Its own end, so each condition's dead end folds into a chip of its own.
+      statusNode('unrevised', '검토 필요로', ids.needsReview ?? '', 11, 4),
       aiNode('terms', 'terms', ids.model, 10),
       ...resendNodes('terms', 10),
       failTag('terms', ids, 10, 4),
@@ -302,7 +312,9 @@ function reviewLoop(ids: TemplateIds, judgeSpeech: boolean): WorkflowDefinition 
       edge('retry', 'true', 'revise'),
       edge('retry', 'false', 'escalate'),
       edge('revise', 'out', 'save-revision'),
-      edge('save-revision', 'out', 'check'),
+      edge('save-revision', 'out', 'revised'),
+      edge('revised', 'true', 'check'),
+      edge('revised', 'false', 'unrevised'),
       ...resendEdges('translate', 'translate-failed'),
       ...resendEdges('review', 'review-failed'),
       ...resendEdges('revise', 'revise-failed'),

@@ -131,13 +131,30 @@ export function hasText(text: string, rules: FormatRules = DEFAULT_FORMAT_RULES)
 /**
  * A translation's leading and trailing whitespace (spaces, newlines) is the source's, never the
  * translator's or a model's: the body is the text without its edges, and the source's edges go
- * around it. Every writer of a line's translation stores this, and the editor shows only the body.
+ * around it. The body's line breaks are the source's kind too (models and editors write \n where a
+ * source has \r\n). Every writer of a line's translation stores this, and the editor shows only the body.
  * An empty body stays empty (no translation), and a source that is all whitespace leaves the text as is.
  */
-export function withSourceEdges(source: string, text: string): string {
+export function withSourceWhitespace(source: string, text: string): string {
   const body = text.trim();
   if (!body || !source.trim()) return body ? text : '';
-  return `${source.match(/^\s*/u)![0]}${body}${source.match(/\s*$/u)![0]}`;
+  return `${source.match(/^\s*/u)![0]}${withSourceBreaks(source.trim(), body)}${source.match(/\s*$/u)![0]}`;
+}
+
+const LINE_BREAK = /\r\n|\r|\n/gu;
+
+/**
+ * The body's line breaks as the source body's: one for one when there are as many, else the
+ * source's kind when it uses only one. A source mixing kinds, with a different count, leaves them.
+ */
+function withSourceBreaks(source: string, body: string): string {
+  const breaks = source.match(LINE_BREAK) ?? [];
+  if (!breaks.length) return body;
+  if ((body.match(LINE_BREAK) ?? []).length === breaks.length) {
+    let index = 0;
+    return body.replace(LINE_BREAK, () => breaks[index++]!);
+  }
+  return new Set(breaks).size === 1 ? body.replace(LINE_BREAK, breaks[0]!) : body;
 }
 
 /** Tokens in `a` that `b` lacks, as a multiset difference. */

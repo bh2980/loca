@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray, like, ne, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { aiStatus, matchesMarks, termMarksOf, TERM_MARK_IDS, withDuplicateTargets, withMainTarget, withTargetCandidate, type AutoMark } from '@tw/shared';
+import { aiStatus, matchesMarks, termMarksOf, TERM_MARK_IDS, withDuplicateTargets, withMainTarget, withTargetCandidate, type AutoMark, type TermScope } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
@@ -60,12 +60,13 @@ export function saveTerm(tx: Tx, projectId: string, term: TermSave, options: { i
  * its note and examples (only empty ones are filled), and a rejected one stays as the person left it.
  * A Korean form other than its main one becomes the main one when AI results are confirmed right away
  * and no person chose the current one (the former main stays a candidate); otherwise it is kept as a
- * candidate. A new term lands as AI › 사용 방식 says (without a Korean form: a candidate).
+ * candidate. A new term lands as AI › 사용 방식 says (without a Korean form: a candidate). A scope the
+ * AI gives (a UI word: UI lines only) replaces only the default, all lines, of a term no person decided.
  */
 export function upsertAiTerm(
   tx: Tx,
   projectId: string,
-  term: { source: string; target?: string; note?: string; examples?: string[] },
+  term: { source: string; target?: string; note?: string; examples?: string[]; scope?: TermScope },
   options: { autoConfirm: boolean; runId?: string },
 ): 'added' | 'filled' | 'unchanged' {
   const source = term.source.trim();
@@ -84,12 +85,13 @@ export function upsertAiTerm(
       ...(offered.length !== known.targetCandidates.length && { targetCandidates: offered }),
       ...(!known.note.trim() && note && { note }),
       ...(!known.examples.length && examples.length && { examples }),
+      ...(term.scope && term.scope !== known.scope && known.scope === 'all' && known.statusBy !== 'human' && { scope: term.scope }),
     };
     if (!Object.keys(fill).length) return 'unchanged';
     tx.update(s.terms).set(fill).where(eq(s.terms.id, known.id)).run();
     return 'filled';
   }
-  tx.insert(s.terms).values({ projectId, source, target, note, examples, status: target ? aiStatus(options.autoConfirm) : 'candidate', statusBy: 'ai', origin: 'ai', runId: options.runId ?? null }).run();
+  tx.insert(s.terms).values({ projectId, source, target, note, examples, ...(term.scope && { scope: term.scope }), status: target ? aiStatus(options.autoConfirm) : 'candidate', statusBy: 'ai', origin: 'ai', runId: options.runId ?? null }).run();
   return 'added';
 }
 

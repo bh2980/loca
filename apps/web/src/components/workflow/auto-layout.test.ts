@@ -127,13 +127,13 @@ function expectLabelsStayClear(result: WorkflowDefinition, direction: 'vertical'
 }
 
 describe('workflow auto layout direction on the relay retry pipeline', () => {
-  it.each(['vertical', 'horizontal'] as const)('keeps all 31 nodes readable and routes their declared ports in %s mode', async (direction) => {
+  it.each(['vertical', 'horizontal'] as const)('keeps all 33 nodes readable and routes their declared ports in %s mode', async (direction) => {
     const result = await autoLayout(definition, sizesFor(direction), direction);
 
     expect(result.direction).toBe(direction);
     // The review-loop fixture: two chained 재요청 nodes and a failure marker (검토 필요로 / AI 실패 태그) behind each of its four AI nodes, and the 태그 붙이기·떼기 node on each exit of the checks (형식 검사, 용어 검사).
-    expect(result.nodes).toHaveLength(31);
-    expect(result.edges).toHaveLength(41);
+    expect(result.nodes).toHaveLength(33);
+    expect(result.edges).toHaveLength(43);
     expectNoNodeOverlap(result, direction);
     expectForwardSpacing(result, direction);
     expectEdgesUseTheirDeclaredPorts(result, direction);
@@ -143,8 +143,8 @@ describe('workflow auto layout direction on the relay retry pipeline', () => {
 
   it.each(['vertical', 'horizontal'] as const)('routes the retry feedback around unrelated node interiors in %s mode', async (direction) => {
     const result = await autoLayout(definition, sizesFor(direction), direction);
-    const feedback = result.edges.find((edge) => edge.id === 'save-revision-out-check')!;
-    expect(feedback.source).toBe('save-revision');
+    const feedback = result.edges.find((edge) => edge.id === 'revised-true-check')!;
+    expect(feedback.source).toBe('revised');
     expect(feedback.target).toBe('check');
     expect(feedback.layout!.points.length).toBeGreaterThanOrEqual(2);
     expectRoutesAvoidUnrelatedNodes({ ...result, edges: [feedback] }, direction);

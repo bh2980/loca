@@ -30,6 +30,7 @@ describe('the default 번역 workflow tags through its 태그 붙이기 nodes', 
 
     let reviews = 0;
     const duringSecondReview: string[][] = [];
+    const duringRevision: string[][] = [];
     const port: ModelPort = {
       ask: async () => {
         throw new Error('unused');
@@ -42,7 +43,10 @@ describe('the default 번역 workflow tags through its 태그 붙이기 nodes', 
           // u1 fails its first review (speech and term); everything else passes.
           return { object: { results: lines.map((line) => ({ id: line.id, passed: !(reviews === 1 && line.source === 'Line 1'), issues: reviews === 1 && line.source === 'Line 1' ? ['말투'] : [], categories: reviews === 1 && line.source === 'Line 1' ? ['speech', 'term'] : [] })) }, usage: {} } as never;
         }
-        // The revision comes back as the same text, so the line is not rewritten and its tags are the review's to take off.
+        if (request.system.includes('Fix only what')) {
+          duringRevision.push(issueTagsOf(db, 'u1'));
+          return { object: { results: lines.map((line) => ({ id: line.id, text: `수정 ${line.source}` })) }, usage: {} } as never;
+        }
         return { object: { results: lines.map((line) => ({ id: line.id, text: `번역 ${line.source}` })) }, usage: {} } as never;
       },
     };
@@ -51,9 +55,10 @@ describe('the default 번역 workflow tags through its 태그 붙이기 nodes', 
     createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: {} });
     await new Runner(db, memoryStore(), port).drain();
 
-    // At the second review the failed line carries 말투 from the review; 용어 came off when 용어 검사 (code, before
-    // the review) found the glossary kept, as 형식 검사 does with 형식. The other line has none.
-    expect(duringSecondReview).toEqual([['말투'], []]);
+    // AI 수정 sees the failed line with the review's kinds; the revised text clears them, so the second review
+    // starts clean on both lines.
+    expect(duringRevision).toEqual([['말투', '용어']]);
+    expect(duringSecondReview).toEqual([[], []]);
     // The kinds came into the project when they were first put on, and a pass took them off again.
     expect(db.select().from(s.tags).all().map((tag) => tag.role).sort()).toEqual(['aiFailed', 'speech', 'term']);
     expect(issueTagsOf(db, 'u1')).toEqual([]);
