@@ -738,6 +738,17 @@ describe('withSourceWhitespace', () => {
     expect(withSourceWhitespace('Use &#13; here', '&#13;를 써요')).toBe('&#13;를 써요');
   });
 
+  it('turns any whitespace a model escaped back into it, and leaves other references alone', () => {
+    expect(withSourceWhitespace('Name:\tValue', '이름:&#9;값')).toBe('이름:\t값');
+    expect(withSourceWhitespace('Name:\tValue', '이름:&Tab;값')).toBe('이름:\t값');
+    expect(withSourceWhitespace('10 km', '10&nbsp;km')).toBe('10 km');
+    expect(withSourceWhitespace('A B', 'A&#x3000;B')).toBe('A　B');
+    // Escaped at an edge: the source's edges win.
+    expect(withSourceWhitespace('\tHi', '&#9;안녕&#32;')).toBe('\t안녕');
+    expect(withSourceWhitespace('Tom & Jerry', 'Tom &amp; Jerry &#65;')).toBe('Tom &amp; Jerry &#65;');
+    expect(withSourceWhitespace('Write &nbsp; for a space', '공백은 &nbsp;로 써요')).toBe('공백은 &nbsp;로 써요');
+  });
+
   it('leaves an empty translation empty and a whitespace-only source alone', () => {
     expect(withSourceWhitespace('Yes!\n', '  ')).toBe('');
     expect(withSourceWhitespace(' ', 'x ')).toBe('x ');
