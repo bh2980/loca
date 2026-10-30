@@ -6,7 +6,7 @@ import { CONNECTION_KIND_INFO, judgmentProblem, SPEECH_LEVEL_LABELS, estimateTok
 type GatherNode = Extract<WorkflowNode, { type: 'gather' }>;
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
-import { speechRuleIndex } from '../services/speech.ts';
+import { knowledgeOf, speechRuleIndex } from '../services/speech.ts';
 import * as s from '../db/schema.ts';
 import type { ItemData, ItemState } from '../db/schema.ts';
 import { events, type Topic } from '../events.ts';
@@ -41,8 +41,15 @@ type Waiting = { id: string; unitId: string; nodeId: string; groupId: string; se
 const FUNCTION_TOPICS: Record<string, Topic[]> = { ...APPLY_TOPICS, setStatus: ['terms'] };
 /** A partial batch waits this long for more lines from upstream before it is sent anyway. */
 const GATHER_MS = 5_000;
-/** Lines passed through instant nodes per tick; the rest wait for the next tick, so a tick never blocks for long. */
-const SETTLE_PER_TICK = 2_000;
+/**
+ * Instant nodes run on the server's one thread (SQLite is synchronous), so a run's tick passes lines
+ * through them in transactions of SETTLE_CHUNK and stops after SETTLE_BUDGET_MS; the next tick follows
+ * as soon as waiting requests and events are served. A 9,000-line run otherwise held the server up to a second.
+ */
+const SETTLE_CHUNK = 100;
+const SETTLE_BUDGET_MS = 25;
+/** The pause before that next tick: a request takes several event-loop turns, and back-to-back ticks would hold up each of them. */
+const SETTLE_GAP_MS = 10;
 /**
  * Failures that will not go away by trying the next batch: the run pauses at the first one. A rate
  * limit is not among them: it leaves through the node's "error" exit like any failure (a 재요청 node
@@ -204,6 +211,8 @@ export function continueRun(db: Db, runId: string, next: RunContinue, caps?: Run
 export class Runner {
   private timer?: NodeJS.Timeout;
   private ticking = false;
+  /** A tick stopped at SETTLE_BUDGET_MS with instant work left; the next one is already queued. */
+  private followUp?: NodeJS.Timeout;
   private inflight = new Map<string, Set<Promise<void>>>();
   private aborts = new Map<string, AbortController>();
   /** Runs with nothing to do until lines held by a 재요청 node's wait are due: when, and the timer that ticks then. No polling meanwhile. */
@@ -227,6 +236,8 @@ export class Runner {
 
   async stop() {
     clearInterval(this.timer);
+    this.timer = undefined;
+    clearTimeout(this.followUp);
     woken.off('wake', this.onWake);
     for (const runId of [...this.sleeping.keys()]) this.wake(runId);
     for (const controller of this.aborts.values()) controller.abort();
@@ -552,21 +563,25 @@ export class Runner {
   private advance(run: Run): boolean {
     const slowIds = run.definition.nodes.filter(isAsync).map((node) => node.id);
     const gathers = run.definition.nodes.filter((node): node is GatherNode => node.type === 'gather');
-    // Instant nodes settle first, possibly several hops, before slow work is handed out; a bounded
-    // number per tick so a 50,000-line run never holds the event loop. Items at a gather wait for it.
+    // Instant nodes settle first, possibly several hops, before slow work is handed out; for at most
+    // SETTLE_BUDGET_MS per tick, so a large run never holds the event loop. Items at a gather wait for it.
     let changed = false;
-    let settled = 0;
     const touched = new Set<Topic>();
-    while (settled < SETTLE_PER_TICK) {
-      const instant = this.queuedInstant(run, [...slowIds, ...gathers.map((node) => node.id)], SETTLE_PER_TICK - settled);
+    const started = performance.now();
+    for (;;) {
+      const instant = this.queuedInstant(run, [...slowIds, ...gathers.map((node) => node.id)], SETTLE_CHUNK);
       if (!instant.length) break;
-      for (const topic of this.settle(run, instant)) touched.add(topic);
-      settled += instant.length;
+      for (const topic of this.settle(run, instant, started + SETTLE_BUDGET_MS)) touched.add(topic);
       changed = true;
-    }
-    if (settled >= SETTLE_PER_TICK) {
-      this.notify(run.id, ...touched);
-      return true;
+      if (performance.now() - started >= SETTLE_BUDGET_MS) {
+        this.notify(run.id, ...touched);
+        // The server serves what waited, then this run goes on (not at the next interval: that would slow it).
+        if (this.timer && !this.followUp) this.followUp = setTimeout(() => {
+          this.followUp = undefined;
+          void this.tick();
+        }, SETTLE_GAP_MS);
+        return true;
+      }
     }
     // A gather whose upstream is done closes now; its one item moves on with the next tick's instant pass.
     if (gathers.length && this.closeGathers(run, gathers)) {
@@ -686,8 +701,8 @@ export class Runner {
     return true;
   }
 
-  /** Runs instant nodes for `items`; returns the extra topics their functions wrote to. */
-  private settle(run: Run, items: Item[]): Set<Topic> {
+  /** Runs instant nodes for `items` until `deadline` (the rest stay queued for the next tick); returns the extra topics their functions wrote to. */
+  private settle(run: Run, items: Item[], deadline: number): Set<Topic> {
     const topics = new Set<Topic>();
     for (const item of items) {
       const node = this.node(run, item.nodeId);
@@ -704,6 +719,7 @@ export class Runner {
             continue;
           }
           this.runInstant(tx, run, node, item, termInput(run, item, term, tagsOf(term.id)));
+          if (performance.now() >= deadline) return;
         }
         return;
       }
@@ -717,6 +733,7 @@ export class Runner {
           continue;
         }
         this.runInstant(tx, run, node, item, { subject: 'lines', unit, item, tagIds: (tagRows.get(unit.id) ?? []).map((row) => row.tagId), projectId: run.projectId, runId: run.id });
+        if (performance.now() >= deadline) return;
       }
     });
     return topics;
@@ -735,7 +752,7 @@ export class Runner {
         else {
           const unit = input.unit;
           const finalStatus = tx.select({ kind: s.statuses.kind }).from(s.statuses).where(eq(s.statuses.id, unit.statusId)).get()?.kind === 'final';
-          const rules = tx.select({ rules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, run.projectId)).get()?.rules;
+          const rules = knowledgeOf(tx as unknown as Db, run.projectId).settings()?.formatRules;
           const marks = lineMarksOf(unit, finalStatus, rules);
           // Only a condition that reads the line's speech rule pays for resolving it.
           const rule = JSON.stringify(node.config.expression ?? null).includes('unit.speechLevel') ? speechRuleIndex(tx as unknown as Db, run.projectId).resolve([unit]).get(unit.key)?.rule : undefined;
@@ -768,6 +785,9 @@ export class Runner {
         if (!functionTakes(node.config.fn, run.subject)) return this.route(tx, run, item, 'error', unsupported(run.definition, node, run.subject), 'unsupported');
         const fn = syncFunctions[node.config.fn as FunctionName];
         if (!fn) return this.route(tx, run, item, 'error', `알 수 없는 함수입니다: ${node.config.fn}`);
+        // Like an async function's input: the result of the step before it on the item's way here.
+        const previousStep = previousStepId(run.definition, item.data.path);
+        if (previousStep) input = { ...input, previous: item.data.outputs?.[previousStep] as Record<string, unknown> | undefined };
         try {
           return this.record(tx, run, item, fn(tx, node.config.params, input));
         } catch (error) {

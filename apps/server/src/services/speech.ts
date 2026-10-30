@@ -29,7 +29,7 @@ export function knownListener(line: Pick<LineLike, 'listener' | 'listenerOrigin'
 // Rolled-back transactions never un-bump a version (it lives in JS), and tables written inside a
 // still-open transaction are not cached until a call outside any transaction has purged them.
 
-const TRACKED = ['characters', 'relationships', 'documents', 'terms', 'speech_rules', 'story_events'] as const;
+const TRACKED = ['characters', 'relationships', 'documents', 'terms', 'speech_rules', 'story_events', 'tags', 'projects'] as const;
 type Tracked = (typeof TRACKED)[number] | 'order';
 
 interface Tracker {
@@ -141,6 +141,11 @@ export function knowledgeOf(db: Db, projectId: string) {
         db.select({ kind: s.documents.kind, title: s.documents.title, body: s.documents.body }).from(s.documents).where(and(eq(s.documents.projectId, projectId), eq(s.documents.alwaysInclude, true), eq(s.documents.status, 'confirmed'))).all(),
       ),
     relationships: () => cachedKnowledge(db, projectId, 'confirmedRelationships', ['relationships'], () => confirmed(db.select().from(s.relationships).where(eq(s.relationships.projectId, projectId)).all())),
+    /** Every tag of the project (workflow nodes read them per line). */
+    tags: () => cachedKnowledge(db, projectId, 'tags', ['tags'], () => db.select({ id: s.tags.id, name: s.tags.name, role: s.tags.role, scope: s.tags.scope }).from(s.tags).where(eq(s.tags.projectId, projectId)).all()),
+    /** The project settings workflow nodes read per line. */
+    settings: () =>
+      cachedKnowledge(db, projectId, 'settings', ['projects'], () => db.select({ formatRules: s.projects.formatRules, aiAutoConfirm: s.projects.aiAutoConfirm }).from(s.projects).where(eq(s.projects.id, projectId)).get()),
   };
 }
 

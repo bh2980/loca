@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { get } from 'es-toolkit/compat';
-import { AGE_BANDS, APPLY_FUNCTION_NAMES, APPLY_TARGETS, applyParams, DOCUMENT_KINDS, ISSUE_KIND_IDS, ISSUE_KINDS, issueKindOf, previousStepId, tagLinesParams, tagScope, type IssueKind, aiStatus, TERM_KIND_LABELS, TERM_KINDS, UNKNOWN_LISTENER, withMainTarget, withSourceEdges, withTargetCandidate, type ApplyField, type ApplyFunctionName, type ApplyParams } from '@tw/shared';
+import { AGE_BANDS, APPLY_FUNCTION_NAMES, APPLY_TARGETS, applyParams, DOCUMENT_KINDS, ISSUE_KIND_IDS, ISSUE_KINDS, issueKindOf, tagLinesParams, tagScope, type IssueKind, aiStatus, TERM_KIND_LABELS, TERM_KINDS, UNKNOWN_LISTENER, withMainTarget, withSourceEdges, withTargetCandidate, type ApplyField, type ApplyFunctionName, type ApplyParams } from '@tw/shared';
 import type { Db } from '../../db/index.ts';
 import * as s from '../../db/schema.ts';
 import type { Topic } from '../../events.ts';
@@ -10,6 +10,7 @@ import { aiAutoConfirmOf } from '../../services/status-by.ts';
 import { setKnowledgeTag } from '../../services/knowledge-tags.ts';
 import { applyIssueTags } from '../../services/issue-tags.ts';
 import { attachUnitTags } from '../../services/tag-scope.ts';
+import { knowledgeOf } from '../../services/speech.ts';
 import { applyRunCandidate, HUMAN_OWNED_NOTE } from '../apply-candidate.ts';
 import { lineOf, type FunctionInput, type FunctionResult } from './types.ts';
 
@@ -102,7 +103,7 @@ interface Context {
   tx: Tx;
   input: FunctionInput;
   params: ApplyParams;
-  run: typeof s.runs.$inferSelect | undefined;
+  run: Pick<typeof s.runs.$inferSelect, 'id' | 'projectId' | 'scope'> | undefined;
   write: AiWrite;
   /** The previous step's result the items were read from. */
   output: Item;
@@ -188,10 +189,8 @@ function run(fn: ApplyFunctionName, tx: Tx, raw: unknown, input: FunctionInput):
   const target = APPLY_TARGETS[fn];
   const missing = (target.fields as readonly ApplyField[]).filter((field) => field.required && !params.map[field.name]);
   if (missing.length || (target.shape === 'list' && !params.list)) throw new Error(`'${target.label}' 노드의 필드 연결이 비어 있습니다.`);
-  const run = tx.select().from(s.runs).where(eq(s.runs.id, input.runId)).get();
   // The result of the step before this node on the item's way here (the AI or script node it is drawn after).
-  const from = run && previousStepId(run.definition, input.item.data.path);
-  const output = from ? input.item.data.outputs?.[from] : undefined;
+  const output = input.previous;
   if (!output) return { port: 'out', output: { applied: false, reason: '앞 단계의 결과가 이 대사에 없습니다.' } };
   // A batch's answer rides on its first line; the others have nothing to apply (H7).
   if (target.shape !== 'line' && (output as { batchLeader?: boolean }).batchLeader === false) return { port: 'out', output: { batchSkipped: true } };
@@ -203,7 +202,7 @@ function run(fn: ApplyFunctionName, tx: Tx, raw: unknown, input: FunctionInput):
     tx,
     input,
     params,
-    run,
+    run: tx.select({ id: s.runs.id, projectId: s.runs.projectId, scope: s.runs.scope }).from(s.runs).where(eq(s.runs.id, input.runId)).get(),
     write: { projectId: input.projectId, runId: input.runId, autoConfirm: aiAutoConfirmOf(tx as unknown as Db, input.projectId) },
     output,
   };
@@ -250,14 +249,12 @@ function runTags(tx: Tx, raw: unknown, input: FunctionInput): FunctionResult {
   const fixed = params.tagIds.length > 0 || params.kinds.length > 0 || params.allKinds;
   const names: string[] = [];
   if (params.map.tag) {
-    const run = tx.select({ definition: s.runs.definition }).from(s.runs).where(eq(s.runs.id, input.runId)).get();
-    const from = run && previousStepId(run.definition, input.item.data.path);
-    const output = from ? input.item.data.outputs?.[from] : undefined;
+    const output = input.previous;
     if (!output && !fixed) return { port: 'out', output: { tagged: false, reason: '앞 단계의 결과가 이 항목에 없습니다.' } };
     if (output) names.push(...(coerce({ name: 'tag', label: '', type: 'strings' }, get(output, params.map.tag)) as string[]));
   } else if (!fixed) throw new Error(`'태그 붙이기' 노드에 ${add ? '붙일' : '뗄'} 태그가 없습니다.`);
 
-  const tags = tx.select({ id: s.tags.id, name: s.tags.name, role: s.tags.role, scope: s.tags.scope }).from(s.tags).where(eq(s.tags.projectId, input.projectId)).all().filter((tag) => tagScope(tag).includes(scope));
+  const tags = knowledgeOf(tx as unknown as Db, input.projectId).tags().filter((tag) => tagScope(tag).includes(scope));
   const kinds = new Set<IssueKind>(input.subject === 'lines' ? [...params.kinds, ...(params.allKinds ? ISSUE_KIND_IDS : [])] : []);
   const tagIds = new Set(params.tagIds.filter((id) => tags.some((tag) => tag.id === id)));
   const unmatched: string[] = [];

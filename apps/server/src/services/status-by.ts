@@ -3,6 +3,7 @@ import type { KnowledgeTagKind } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { clearReview } from './knowledge-tags.ts';
+import { knowledgeOf } from './speech.ts';
 
 /** Knowledge tables and the glossary: rows a person or AI confirms. */
 export type DecidedTable = typeof s.documents | typeof s.characters | typeof s.relationships | typeof s.storyEvents | typeof s.speechRules | typeof s.terms;
@@ -46,5 +47,4 @@ export function bySaver(db: Pick<Db, 'select' | 'insert' | 'delete'>, table: Dec
 export const byPerson = (db: Pick<Db, 'select' | 'insert' | 'delete'>, table: DecidedTable, projectId: string, id: string, body: Record<string, unknown>) => bySaver(db, table, projectId, id, body, PERSON);
 
 /** The project's AI 문맥 switch (설정 › 프로젝트): whether AI results that are knowledge or terms are confirmed right away. Read when they are saved. */
-export const aiAutoConfirmOf = (db: Db, projectId: string): boolean =>
-  db.select({ on: s.projects.aiAutoConfirm }).from(s.projects).where(eq(s.projects.id, projectId)).get()?.on ?? true;
+export const aiAutoConfirmOf = (db: Db, projectId: string): boolean => knowledgeOf(db, projectId).settings()?.aiAutoConfirm ?? true;

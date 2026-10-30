@@ -17,7 +17,7 @@ type Run = typeof s.runs.$inferSelect;
  * that line keeps its text and only gains the candidate. A changed translation clears the
  * problem-type tags that described the old text (the one implicit tag rule; every other tag change is a 태그 붙이기 node).
  */
-export function applyRunCandidate(tx: Tx, run: Run, unitId: string, candidateId: string, text: string): { applied: boolean } {
+export function applyRunCandidate(tx: Tx, run: Pick<Run, 'id' | 'projectId' | 'scope'>, unitId: string, candidateId: string, text: string): { applied: boolean } {
   const current = tx.select({ translation: s.units.translation, statusBy: s.units.statusBy }).from(s.units).where(eq(s.units.id, unitId)).get();
   if (personOwns(current, text, filtersByStatus(run.scope))) return { applied: false };
   const changed = current?.translation !== text;

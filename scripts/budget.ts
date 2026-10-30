@@ -74,8 +74,8 @@ export interface Metrics {
 function mockPort(options: MockOptions): ModelPort {
   const rand = makeRand(options.seed);
   return {
-    judge: async () => {
-      throw new Error('the budget harness has no judge model');
+    ask: async () => {
+      throw new Error('the budget harness has no judgment model');
     },
     generate: (async (_route: unknown, request: ai.GenerateRequest<unknown>) => {
       const out = respond({ system: request.system, user: request.prompt, schema: z.toJSONSchema(request.schema as z.ZodType) }, options, rand);
