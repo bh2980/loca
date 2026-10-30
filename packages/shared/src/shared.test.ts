@@ -731,6 +731,13 @@ describe('withSourceWhitespace', () => {
     expect(withSourceWhitespace('A B', '가\n나')).toBe('가\n나');
   });
 
+  it('turns line breaks a model escaped (&#13; &#10;) back into breaks, unless the source has them', () => {
+    expect(withSourceWhitespace('Hi?\r\nGo.\n', '안녕?&#13;\r\n가.')).toBe('안녕?\r\n가.\n');
+    expect(withSourceWhitespace('Hi?\r\nGo.', '안녕?&#13;&#10;가.')).toBe('안녕?\r\n가.');
+    expect(withSourceWhitespace('Hi?\r\nGo.', '안녕?&#x0D;\n가.')).toBe('안녕?\r\n가.');
+    expect(withSourceWhitespace('Use &#13; here', '&#13;를 써요')).toBe('&#13;를 써요');
+  });
+
   it('leaves an empty translation empty and a whitespace-only source alone', () => {
     expect(withSourceWhitespace('Yes!\n', '  ')).toBe('');
     expect(withSourceWhitespace(' ', 'x ')).toBe('x ');
