@@ -1,5 +1,5 @@
 import { and, asc, count, eq, inArray, ne, sql } from 'drizzle-orm';
-import { tagScope, TAG_SCOPE_LABELS, type TagScope } from '@tw/shared';
+import { normalizeTagScopes, TAG_SCOPE_LABELS, type TagScope } from '@tw/shared';
 import { badRequest } from '../http-errors.ts';
 import { eachChunk } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
@@ -8,14 +8,14 @@ import * as s from '../db/schema.ts';
 /** Ids among `tagIds` that cannot be put on `scope` (a tag that does not exist counts as out of scope). */
 export function outOfScopeTags(db: Pick<Db, 'select'>, projectId: string, tagIds: string[], scope: TagScope) {
   if (!tagIds.length) return [];
-  const rows = db.select({ id: s.tags.id, name: s.tags.name, role: s.tags.role, scope: s.tags.scope }).from(s.tags).where(and(eq(s.tags.projectId, projectId), inArray(s.tags.id, tagIds))).all();
-  return rows.filter((tag) => !tagScope(tag).includes(scope));
+  const rows = db.select({ id: s.tags.id, name: s.tags.name, scope: s.tags.scope }).from(s.tags).where(and(eq(s.tags.projectId, projectId), inArray(s.tags.id, tagIds))).all();
+  return rows.filter((tag) => !normalizeTagScopes(tag.scope).includes(scope));
 }
 
 /** The refusal text for tags put where they don't belong, or null when all fit. */
 export function scopeRefusal(db: Pick<Db, 'select'>, projectId: string, tagIds: string[], scope: TagScope) {
   const bad = outOfScopeTags(db, projectId, tagIds, scope);
-  return bad.length ? `${bad.map((tag) => `‘${tag.name}’`).join(', ')} 태그는 ${TAG_SCOPE_LABELS[scope]}에 붙일 수 없습니다(붙는 곳: ${tagScope(bad[0]!).map((place) => TAG_SCOPE_LABELS[place]).join(' · ')}).` : null;
+  return bad.length ? `${bad.map((tag) => `‘${tag.name}’`).join(', ')} 태그는 ${TAG_SCOPE_LABELS[scope]}에 붙일 수 없습니다(붙는 곳: ${normalizeTagScopes(bad[0]!.scope).map((place) => TAG_SCOPE_LABELS[place]).join(' · ')}).` : null;
 }
 
 /** How many items carry the tag in `scope`: lines, glossary terms, or the other knowledge kinds. */
@@ -45,9 +45,9 @@ export function attachUnitTags(
   let add = [...new Set(change.add)];
   const skipped: { id: string; name: string }[] = [];
   if (add.length) {
-    const tags = new Map(tx.select({ id: s.tags.id, name: s.tags.name, role: s.tags.role, scope: s.tags.scope }).from(s.tags).where(and(eq(s.tags.projectId, projectId), inArray(s.tags.id, add))).all().map((tag) => [tag.id, tag]));
+    const tags = new Map(tx.select({ id: s.tags.id, name: s.tags.name, scope: s.tags.scope }).from(s.tags).where(and(eq(s.tags.projectId, projectId), inArray(s.tags.id, add))).all().map((tag) => [tag.id, tag]));
     const unknown = add.filter((id) => !tags.has(id));
-    const misplaced = [...tags.values()].filter((tag) => !tagScope(tag).includes('lines'));
+    const misplaced = [...tags.values()].filter((tag) => !normalizeTagScopes(tag.scope).includes('lines'));
     if (options.onMisplaced === 'refuse') {
       if (unknown.length) badRequest('이 프로젝트에 없는 태그입니다.');
       if (misplaced.length) badRequest(scopeRefusal(tx, projectId, add, 'lines')!);
@@ -64,15 +64,14 @@ export function attachUnitTags(
   return { skipped };
 }
 
-/** The project's tags with where each can be put (scope) and how many lines and knowledge items carry it. role is set on the app's own tags. */
+/** The project's tags with where each can be put (scope) and how many lines and knowledge items carry it. */
 export function projectTags(db: Pick<Db, 'select'>, projectId: string) {
   return db
     .select({
       id: s.tags.id,
       name: s.tags.name,
       color: s.tags.color,
-      /** The app's tags: a problem type (lines) or 'review' (확인 권장, knowledge only). */
-      role: s.tags.role,
+      description: s.tags.description,
       scope: s.tags.scope,
       units: sql<number>`(select count(*) from unit_tags ut where ut.tag_id = "tags"."id")`,
       items: sql<number>`(select count(*) from knowledge_tags kt where kt.tag_id = "tags"."id")`,
@@ -81,5 +80,5 @@ export function projectTags(db: Pick<Db, 'select'>, projectId: string) {
     .where(eq(s.tags.projectId, projectId))
     .orderBy(asc(s.tags.sort), asc(s.tags.name))
     .all()
-    .map((tag) => ({ ...tag, scope: tagScope(tag) }));
+    .map((tag) => ({ ...tag, scope: normalizeTagScopes(tag.scope) }));
 }

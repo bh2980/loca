@@ -74,7 +74,7 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
         {decide.isPending && <Spinner size="xs" />}
       </ToolCardHeader>
       <Box paddingX="normal" paddingY="condensed" variant="body">
-        <ChangePreview name={proposal.tool} input={proposal.input} pending={proposal.status === 'pending'} />
+        <ChangePreview name={proposal.tool} input={proposal.input} pending={proposal.status === 'pending'} details={proposal.details} />
         {proposal.report && <ProposalReport report={proposal.report} />}
         {proposal.status === 'pending' && proposal.review && <Text as="p" marginTop="condensed" border="top" paddingTop="condensed" tone="muted">자동 검토가 넘김: {proposal.review}</Text>}
       </Box>

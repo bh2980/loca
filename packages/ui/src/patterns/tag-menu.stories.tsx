@@ -11,11 +11,10 @@ const meta = { title: "Patterns/TagMenu" } satisfies Meta
 export default meta
 type Story = StoryObj<typeof meta>
 
-const TAGS: { id: string; name: string; color: string; role?: string }[] = [
+const TAGS: { id: string; name: string; color: string }[] = [
   { id: "roof", name: "옥상", color: PALETTE[7].hex },
   { id: "flash", name: "회상", color: PALETTE[9].hex },
   { id: "joke", name: "농담", color: PALETTE[3].hex },
-  { id: "auto", name: "자동", color: PALETTE[0].hex, role: "system" },
 ]
 
 function useTagState(initial: Record<string, TagState>) {

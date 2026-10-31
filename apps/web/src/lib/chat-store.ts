@@ -18,7 +18,8 @@ export interface ChatView {
 /** Every topic: an approved chat tool can write almost anywhere (statuses, runs, graph views…), so a finished turn refetches them all rather than keep a list in step with the tools. */
 const CHAT_TOPICS = ['projects', 'units', 'graph', 'statuses', 'terms', 'knowledge', 'workflows', 'runs', 'chat', 'proposals', 'calls'];
 
-const chats = new Map<string, { chat: Chat<UIMessage>; view: { current: ChatView | null } }>();
+/** A session's chat, and what the next message says is on screen (read when it is sent; set with setView). */
+const chats = new Map<string, { chat: Chat<UIMessage>; setView: (view: ChatView | null) => void }>();
 
 export function chatFor(sessionId: string, saved: UIMessage[]) {
   const existing = chats.get(sessionId);
@@ -41,7 +42,7 @@ export function chatFor(sessionId: string, saved: UIMessage[]) {
     }),
     sendAutomaticallyWhen: (options) => lastAssistantMessageIsCompleteWithApprovalResponses(options) || lastAssistantMessageIsCompleteWithToolCalls(options),
   });
-  const entry = { chat, view };
+  const entry = { chat, setView: (next: ChatView | null) => void (view.current = next) };
   chats.set(sessionId, entry);
   return entry;
 }

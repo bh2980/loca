@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { badRequest, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { decideProposal, listedProposal, undoProposals } from '../services/proposals.ts';
+import { proposalDetails } from '../services/proposal-details.ts';
 import { continueAfterDecisions } from '../services/chat-run.ts';
 
 /** Changes proposed by CLI chats and the loca CLI, decided in the chat panel. */
@@ -28,7 +29,8 @@ export const proposalRoutes = new Hono<Env>()
       );
       const rows = db.select().from(s.proposals).where(where).orderBy(desc(s.proposals.createdAt)).limit(limit).offset(offset).all();
       c.header('x-total-count', String(db.select({ count: count() }).from(s.proposals).where(where).get()!.count));
-      return c.json(rows.map((row) => listedProposal(row)));
+      // `details`: what the card says it changes, with names and the old values (see proposal-details.ts).
+      return c.json(rows.map((row) => ({ ...listedProposal(row), details: proposalDetails(db, row) })));
     },
   )
   // Many at once (a run can file hundreds): decided one after the other, oldest first (characters before the

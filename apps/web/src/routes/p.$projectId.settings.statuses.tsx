@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { MarkPane } from '@/components/settings/mark-pane';
 import { StatusPane } from '@/components/settings/status-pane';
 import { TagPane } from '@/components/settings/tag-pane';
 import { scopeLabel, type StatusForm, type StatusRowData, type TagForm, type TagRowData } from '@/components/settings/status-types';
@@ -7,10 +6,11 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { AUTO_MARK_IDS, AUTO_MARKS, markColor, normalizeTagScopes, REVIEW_TAG, TAG_SCOPE_LABELS, TAG_SCOPES, type AutoMark, type MarkColors } from '@tw/shared';
+import { AUTO_MARK_IDS, AUTO_MARKS, markColor, markName, normalizeTagScopes, type MarkStyles, TAG_SCOPE_LABELS, TAG_SCOPES, type AutoMark } from '@tw/shared';
 import { Box, EmptyState, Text, type ColumnDef, AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Button, Select, SelectContent, SelectItem, SelectValue, StatusIcon, TagChip, ContextMenuItem, ContextMenuSeparator, SelectTrigger, Section, PageBody, SplitPane, DataTable, Inline } from '@loca/ui';
 import { Page } from '@/components/page';
 import { MarkChip } from '@/components/status';
+import { MarkPane } from '@/components/settings/mark-pane';
 import { client, unwrap } from '@/lib/api';
 import { STATUS_KIND } from '@/lib/labels';
 import { q } from '@/lib/queries';
@@ -37,8 +37,6 @@ function StatusSettings() {
   const data = useQuery(q.statuses(projectId));
   const statuses = data.data ? (data.data.statuses as StatusRowData[]) : undefined;
   const tags = data.data ? (data.data.tags as TagRowData[]) : undefined;
-  const project = useQuery(q.project(projectId));
-  const markColors = (project.data?.markColors ?? {}) as MarkColors;
   const [removing, setRemoving] = useState<StatusRowData[] | null>(null);
   const statusPicks = usePicked(`statuses.${projectId}`);
   const tagPicks = usePicked(`tags.${projectId}`);
@@ -48,13 +46,14 @@ function StatusSettings() {
   const open = (next: StatusSearch) => void navigate({ search: { ...next, on: search.on }, replace: true });
   const close = () => open({});
   const selectedStatus = search.status && search.status !== 'new' ? statuses?.find((status) => status.id === search.status) : undefined;
-  const selectedMark = search.mark;
   const selectedTag = search.tag && search.tag !== 'new' ? tags?.find((tag) => tag.id === search.tag) : undefined;
+  const selectedMark = search.mark;
+  const project = useQuery(q.project(projectId));
+  const markStyles = ((project.data as { markStyles?: MarkStyles } | undefined)?.markStyles ?? {}) as MarkStyles;
 
   useReportView('statuses', [
     selectedStatus && { kind: '상태', id: selectedStatus.id, label: selectedStatus.name },
     selectedTag && { kind: '태그', id: selectedTag.id, label: selectedTag.name },
-    selectedMark && { kind: '자동 표시', id: selectedMark, label: AUTO_MARKS[selectedMark].name },
   ]);
   const fail = (error: Error) => toast.error(error.message);
   const queryClient = useQueryClient();
@@ -104,27 +103,24 @@ function StatusSettings() {
     },
     onError: fail,
   });
+  // An automatic tag's name and colour for this project; what equals the app's default is not stored.
+  const saveMarkStyle = useMutation({
+    mutationFn: (variables: { mark: AutoMark; name: string; color: string }) => {
+      const info = AUTO_MARKS[variables.mark];
+      const own = { ...(variables.name !== info.name && { name: variables.name }), ...(variables.color !== info.color && { color: variables.color }) };
+      const next: MarkStyles = { ...markStyles };
+      if (Object.keys(own).length) next[variables.mark] = own;
+      else delete next[variables.mark];
+      return unwrap(client.projects[':projectId'].$patch({ param: { projectId }, json: { markStyles: next } }));
+    },
+    onSuccess: () => toast.success('저장했습니다.'),
+    onError: fail,
+  });
   const updateTag = useMutation({
     mutationFn: (variables: { id: string; json: Partial<TagForm> }) =>
       unwrap(client.projects[':projectId'].tags[':id'].$patch({ param: { projectId, id: variables.id }, json: variables.json })),
     onSuccess: () => toast.success('저장했습니다.'),
     onError: fail,
-  });
-  const saveMarkColor = useMutation({
-    mutationFn: (variables: { mark: AutoMark; color: string }) => {
-      // A color equal to the default is not stored, so a later default change still reaches the project.
-      const next: MarkColors = { ...markColors, [variables.mark]: variables.color };
-      if (variables.color === AUTO_MARKS[variables.mark].color) delete next[variables.mark];
-      return unwrap(client.projects[':projectId'].$patch({ param: { projectId }, json: { markColors: next } }));
-    },
-    onMutate: async (variables) => ({
-      undo: await optimistic(queryClient, [{ key: q.project(projectId).queryKey, update: (data: { markColors?: MarkColors }) => ({ ...data, markColors: { ...data.markColors, [variables.mark]: variables.color } }) }]),
-    }),
-    onSuccess: () => toast.success('저장했습니다.'),
-    onError: (error, _variables, context) => {
-      context?.undo();
-      fail(error);
-    },
   });
   const removeTags = useMutation({
     mutationFn: (ids: string[]) => unwrap(client.projects[':projectId'].tags.delete.$post({ param: { projectId }, json: { ids } })),
@@ -173,17 +169,12 @@ function StatusSettings() {
     { id: 'review', header: '검토함', meta: { width: 120 }, cell: ({ row }) => (row.original.inReview ? '표시' : <Text tone="muted">–</Text>) },
     { id: 'units', header: '대사 수', meta: { width: 96, align: 'end' }, cell: ({ row }) => row.original.units.toLocaleString() },
   ];
-  // One table: the built-in tags first (marks the app reads off, then tags the app puts on), then the person's own.
-  type AnyTag = { id: string; mark?: AutoMark; tag?: TagRowData };
-  const placesOf = (row: AnyTag) => normalizeTagScopes(row.mark ? AUTO_MARKS[row.mark].on : row.tag!.scope);
-  const allTags: AnyTag[] | undefined = tags && [
-    ...AUTO_MARK_IDS.map((mark) => ({ id: `mark:${mark}`, mark })),
-    ...tags.filter((tag) => tag.role).map((tag) => ({ id: tag.id, tag })),
-    ...tags.filter((tag) => !tag.role).map((tag) => ({ id: tag.id, tag })),
-  ];
+  // The project's tags, all of them a person's to change. The automatic tags (#AI 제안 대기…) have their own section below.
+  type AnyTag = { id: string; tag: TagRowData };
+  const placesOf = (row: AnyTag) => normalizeTagScopes(row.tag.scope);
+  const allTags: AnyTag[] | undefined = tags?.map((tag) => ({ id: tag.id, tag }));
   const shownTags = allTags && search.on ? allTags.filter((row) => placesOf(row).includes(search.on!)) : allTags;
-  const ownTag = (row: AnyTag) => Boolean(row.tag && !row.tag.role);
-  const pickedTagIds = (shownTags ?? []).filter((row) => ownTag(row) && tagPicks.picked.has(row.id)).map((row) => row.id);
+  const pickedTagIds = (shownTags ?? []).filter((row) => tagPicks.picked.has(row.id)).map((row) => row.id);
   const pickedStatuses = (statuses ?? []).filter((status) => statusPicks.picked.has(status.id));
   const tagColumns: ColumnDef<AnyTag, unknown>[] = [
     {
@@ -191,10 +182,7 @@ function StatusSettings() {
       header: '이름',
       meta: { width: 220, hideable: false },
       cell: ({ row }) => (
-        <Inline as="span" inline gap="condensed">
-          {row.original.mark ? <MarkChip mark={row.original.mark} projectId={projectId} /> : <TagChip tag={row.original.tag!} />}
-          {(row.original.mark || row.original.tag?.role) && <Text variant="caption" tone="muted">기본</Text>}
-        </Inline>
+        <TagChip tag={row.original.tag} />
       ),
     },
     {
@@ -208,27 +196,28 @@ function StatusSettings() {
         />
       ),
       meta: { width: 140, label: '붙는 곳', tone: 'muted' },
-      cell: ({ row }) => scopeLabel(row.original.mark ? AUTO_MARKS[row.original.mark].on : row.original.tag!.scope),
+      cell: ({ row }) => scopeLabel(row.original.tag.scope),
     },
     {
       id: 'description',
-      header: '뜻',
+      header: '설명',
       meta: { tone: 'muted' },
-      cell: ({ row }) =>
-        row.original.mark
-          ? AUTO_MARKS[row.original.mark].description
-          : row.original.tag?.role === REVIEW_TAG.role
-            ? '분석이 확인이 필요하다고 본 자료. 사람이 정하거나 고치면 떨어짐'
-            : row.original.tag?.role
-              ? '워크플로가 붙이는 문제 유형. 번역을 고치면 떨어짐'
-              : '',
+      cell: ({ row }) => row.original.tag.description ?? '',
     },
-    { id: 'units', header: '붙은 수', meta: { width: 88, align: 'end' }, cell: ({ row }) => (row.original.tag ? (row.original.tag.units + (row.original.tag.items ?? 0)).toLocaleString() : <Text tone="muted">–</Text>) },
+    { id: 'units', header: '붙은 수', meta: { width: 88, align: 'end' }, cell: ({ row }) => (row.original.tag.units + (row.original.tag.items ?? 0)).toLocaleString() },
   ];
+
+  // The automatic tags: what the app reads off a line, a term or an item. Shown to be understood, not changed.
+  const autoColumns: ColumnDef<{ id: AutoMark }, unknown>[] = [
+    { id: 'name', header: '이름', meta: { width: 220 }, cell: ({ row }) => <MarkChip mark={row.original.id} /> },
+    { id: 'on', header: '붙는 곳', meta: { width: 140, tone: 'muted' }, cell: ({ row }) => scopeLabel(AUTO_MARKS[row.original.id].on) },
+    { id: 'description', header: '설명', meta: { tone: 'muted' }, cell: ({ row }) => AUTO_MARKS[row.original.id].description },
+  ];
+  const autoRows = (search.on ? AUTO_MARK_IDS.filter((id) => normalizeTagScopes(AUTO_MARKS[id].on).includes(search.on!)) : AUTO_MARK_IDS).map((id) => ({ id }));
 
   const pane =
     selectedMark ? (
-      <MarkPane key={selectedMark} mark={selectedMark} color={markColor(selectedMark, markColors)} pending={saveMarkColor.isPending} onClose={close} onSave={(color) => saveMarkColor.mutate({ mark: selectedMark, color })} />
+      <MarkPane key={selectedMark} mark={selectedMark} style={{ name: markName(selectedMark, markStyles), color: markColor(selectedMark, markStyles) }} pending={saveMarkStyle.isPending} onClose={close} onSave={(style) => saveMarkStyle.mutate({ mark: selectedMark, ...style })} />
     ) : search.status === 'new' ? (
       <StatusPane key="new" pending={create.isPending} onClose={close} onSave={(form) => create.mutate(form)} />
     ) : selectedStatus ? (
@@ -247,7 +236,7 @@ function StatusSettings() {
     ) : search.tag === 'new' ? (
       <TagPane key="new" pending={createTag.isPending} onClose={close} onSave={(form) => createTag.mutate(form)} />
     ) : selectedTag ? (
-      <TagPane key={selectedTag.id} tag={selectedTag} pending={updateTag.isPending} onClose={close} onSave={(_form, changed) => updateTag.mutate({ id: selectedTag.id, json: selectedTag.role ? { color: changed.color } : changed })} onDelete={() => removeTags.mutate([selectedTag.id])} />
+      <TagPane key={selectedTag.id} tag={selectedTag} pending={updateTag.isPending} onClose={close} onSave={(_form, changed) => updateTag.mutate({ id: selectedTag.id, json: changed })} onDelete={() => removeTags.mutate([selectedTag.id])} />
     ) : null;
 
   return (
@@ -313,6 +302,7 @@ function StatusSettings() {
 
             <Section variant="page"
               title="태그"
+              description="모두 보통 태그입니다. 검사·검수 워크플로는 태그 붙이기 노드에서 고른 태그를 붙이고 떼며, 번역을 고쳐도 저절로 떨어지지 않습니다."
               actions={
                 <>
                   {shownTags && <Text variant="caption" tone="muted" tabular>{shownTags.length}개</Text>}
@@ -326,40 +316,38 @@ function StatusSettings() {
                   columns={tagColumns}
                   rows={shownTags}
                   rowId={(row) => row.id}
-                  selected={search.mark ? `mark:${search.mark}` : search.tag}
+                  selected={search.tag}
                   empty={<EmptyState noun="태그" filtered={Boolean(search.on)} />}
-                  onRowClick={(row) => open(row.mark ? { mark: row.mark } : { tag: row.id })}
+                  onRowClick={(row) => open({ tag: row.id })}
                   picked={tagPicks.picked}
                   onPick={tagPicks.pick}
-                  canPick={ownTag}
                   bulk={
                     <Button variant="outline" tone="danger" disabled={!pickedTagIds.length || removeTags.isPending} onClick={() => removeTags.mutate(pickedTagIds)}>
                       <Trash2 /> 삭제
                     </Button>
                   }
-                  // Only the person's own tags move, and only in the whole list (a filtered list would hide where they land).
-                  onReorder={search.on ? undefined : (ids) => reorderTags.mutate(ids.filter((id) => tags?.some((tag) => tag.id === id && !tag.role)))}
-                  reorderable={ownTag}
-                  rowLabel={(row) => row.tag?.name ?? AUTO_MARKS[row.mark!].name}
+                  // Only in the whole list (a filtered list would hide where they land).
+                  onReorder={search.on ? undefined : (ids) => reorderTags.mutate(ids)}
+                  rowLabel={(row) => row.tag.name}
                   rowContextMenu={(row) => (
                     <>
-                      <ContextMenuItem onClick={() => open(row.mark ? { mark: row.mark } : { tag: row.id })}>
-                        {row.mark ? '색상 편집' : '태그 편집'}
+                      <ContextMenuItem onClick={() => open({ tag: row.id })}>태그 편집</ContextMenuItem>
+                      <ContextMenuSeparator />
+                      <ContextMenuItem
+                        variant="destructive"
+                        onClick={() => removeTags.mutate(tagPicks.picked.has(row.id) && pickedTagIds.length > 1 ? pickedTagIds : [row.tag.id])}
+                      >
+                        삭제
                       </ContextMenuItem>
-                      {row.tag && !row.tag.role && (
-                        <>
-                          <ContextMenuSeparator />
-                          <ContextMenuItem
-                            variant="destructive"
-                            onClick={() => removeTags.mutate(tagPicks.picked.has(row.id) && pickedTagIds.length > 1 ? pickedTagIds : [row.tag!.id])}
-                          >
-                            삭제
-                          </ContextMenuItem>
-                        </>
-                      )}
                     </>
                   )}
                 />
+              </Box>
+            </Section>
+
+            <Section variant="page" title="자동 태그" actions={<Text variant="caption" tone="muted" tabular>{autoRows.length}개</Text>} description="앱이 상태를 보고 스스로 붙였다 떼는 태그입니다. 필터와 조건에서 고를 수 있고, 붙이거나 뗄 수는 없습니다.">
+              <Box overflow="hidden" radius="md" border="all" borderColor="default" background="surface">
+                <DataTable compact id="auto-tags" columns={autoColumns} rows={autoRows} rowId={(row) => row.id} selected={search.mark} onRowClick={(row) => open({ mark: row.id })} rowContextMenu={(row) => <ContextMenuItem onClick={() => open({ mark: row.id })}>태그 편집</ContextMenuItem>} />
               </Box>
             </Section>
           </Box>

@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Play, Plus, Trash2 } from 'lucide-react';
-import { APPLY_FUNCTION_NAMES, APPLY_TARGETS, ISSUE_KIND_IDS, ISSUE_KINDS, issueKindOf, TAG_ACTIONS, tagLinesParams, fieldsFromSample, httpParams, nodeOutputFields, applyIssues, DEFAULT_PARTICLE_PATTERN, formatPatternError, FUNCTIONS, functionTakes, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, JSON_FIELD_TYPE_LABELS, nodeName, PALETTE_FUNCTION_NAMES, previousSteps, type ApplyField, type ApplyFunctionName, type ApplyParams, type IssueKind, type TagAction, type TagLinesParams, type CustomFormatRule, type JsonFieldType, type WorkflowDefinition, type FunctionName, type JsonField, type WorkflowNode } from '@tw/shared';
+import { APPLY_FUNCTION_NAMES, APPLY_TARGETS, ISSUE_KIND_IDS, ISSUE_KIND_LABELS, TAG_ACTIONS, tagLinesParams, fieldsFromSample, httpParams, nodeOutputFields, applyIssues, DEFAULT_PARTICLE_PATTERN, formatPatternError, FUNCTIONS, functionTakes, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, JSON_FIELD_TYPE_LABELS, nodeName, PALETTE_FUNCTION_NAMES, previousSteps, type ApplyField, type ApplyFunctionName, type ApplyParams, type TagAction, type TagLinesParams, type CustomFormatRule, type JsonFieldType, type WorkflowDefinition, type FunctionName, type JsonField, type WorkflowNode } from '@tw/shared';
 import { Box, Button, Inline, Input, NumberInput, InspectorActionRow, InspectorList, InspectorResult, InspectorToggle, Select, SelectContent, SelectField, SelectItem, SelectTrigger, SelectValue, Stack, Textarea, StatusIcon, TagToggle, Text, ListItem, Field } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
 import { AiConfirmNote } from '@/components/settings/ai-confirm';
@@ -233,31 +233,33 @@ function SetStatusConfig({ params, refs, set, setMany }: { params: Record<string
 
 
 /**
- * 태그 붙이기 / 떼기: what to do, which tags (picked here and/or named by a field of the previous step's
- * result), and for 떼기 every 문제 유형. Checks and reviews only judge; this node is where tags change.
+ * 태그 붙이기 / 떼기: what to do, which tags (picked here and/or read from a field of the previous step's result), and for
+ * a field which tag each of its values stands for (a review's category speech → #말투 어긋남; a value not listed goes on as
+ * the tag of that name). Checks and reviews only judge; this node is where tags change.
  */
 function TagLinesConfig({ node, params, refs, setMany }: { node: FunctionNode; params: TagLinesParams; refs: NodeRefs; setMany: (patch: Record<string, unknown>) => void }) {
   const add = params.action === 'add';
-  const terms = refsInput(refs) === 'terms';
   const definition = { nodes: refs.nodes, edges: refs.edges ?? [] } as unknown as WorkflowDefinition;
   const steps = previousSteps(definition, node.id).filter((step) => step.type !== 'gather');
   // Fields that can hold tag names: texts and lists of texts.
   const fields = [...new Map(steps.flatMap((step) => nodeOutputFields(step) ?? []).filter((field) => field.type === 'string' || field.type === 'strings').map((field) => [field.name, field])).values()];
   const from = params.map.tag;
-  const own = refs.tags.filter((tag) => !issueKindOf(tag.name));
-  const toggle = (key: 'tagIds' | 'kinds', id: string) => {
-    const list = params[key] as string[];
-    setMany({ [key]: list.includes(id) ? list.filter((item) => item !== id) : [...list, id] });
-  };
+  const toggle = (id: string) => setMany({ tagIds: params.tagIds.includes(id) ? params.tagIds.filter((item) => item !== id) : [...params.tagIds, id] });
   const chip = (on: boolean, label: string, color: string, onClick: () => void) => (
     <TagToggle key={label} tag={{ name: label, color }} sign={on ? (add ? '+' : '−') : undefined} faint={!on} struck={on && !add} aria-pressed={on} onClick={onClick} />
   );
   const issues = applyIssues(definition, node.id, 'tagLines', params);
+  const connect = (kind: string, tagId: string) => {
+    const next = { ...params.categoryTags };
+    if (tagId === 'none') delete next[kind];
+    else next[kind] = tagId;
+    setMany({ categoryTags: next });
+  };
 
   return (
     <>
       <Field label="동작">
-        <SelectField value={params.action} onValueChange={(action) => setMany({ action, ...(action === 'add' && { allKinds: false }) })}>
+        <SelectField value={params.action} onValueChange={(action) => setMany({ action })}>
           {(Object.keys(TAG_ACTIONS) as TagAction[]).map((action) => (
             <SelectItem key={action} value={action}>
               {TAG_ACTIONS[action]}
@@ -268,17 +270,14 @@ function TagLinesConfig({ node, params, refs, setMany }: { node: FunctionNode; p
 
       <Field label="고른 태그" description={`누르면 ${add ? '붙일' : '뗄'} 태그에 넣고, 한 번 더 누르면 뺍니다.`}>
         <Stack direction="row" wrap gap="tight">
-          {!terms &&
-            ISSUE_KIND_IDS.map((kind: IssueKind) => chip(params.kinds.includes(kind) || (!add && params.allKinds), ISSUE_KINDS[kind].name, ISSUE_KINDS[kind].color, () => !params.allKinds && toggle('kinds', kind)))}
-          {own.map((tag) => chip(params.tagIds.includes(tag.id), tag.name, tag.color, () => toggle('tagIds', tag.id)))}
+          {refs.tags.map((tag) => chip(params.tagIds.includes(tag.id), tag.name, tag.color, () => toggle(tag.id)))}
         </Stack>
-        {!terms && !add && <ToggleRow label="모든 문제 유형" help="검사·검수가 남긴 문제 유형 태그를 모두 뗍니다. 사람이 만든 태그는 그대로 둡니다." checked={params.allKinds} onChange={(allKinds) => setMany({ allKinds, ...(allKinds && { kinds: [] }) })} />}
       </Field>
 
       <Field
         label="앞 단계 결과의 종류"
-        description={steps.length ? '고르면 그 필드의 값이 태그 이름입니다. 문제 유형은 이름이나 영문 id(speech)로 씁니다.' : undefined}
-        help="AI 검수의 categories, 검사의 kind처럼 앞 단계가 알려준 문제 유형으로 태그를 정합니다. 고른 태그와 함께 쓸 수 있습니다."
+        description={steps.length ? '고르면 그 필드의 값마다 아래에서 이은 태그를, 잇지 않은 값은 같은 이름의 태그를 씁니다.' : undefined}
+        help="AI 검수의 categories처럼 앞 단계가 알려준 종류로 태그를 정합니다. 고른 태그와 함께 쓸 수 있습니다."
       >
         {steps.length ? (
           <>
@@ -297,6 +296,23 @@ function TagLinesConfig({ node, params, refs, setMany }: { node: FunctionNode; p
           <Text as="p" variant="caption" tone="muted">앞 단계에 결과를 내는 노드(AI·검사·스크립트)가 없습니다.</Text>
         )}
       </Field>
+
+      {from && (
+        <Field label="종류 → 태그" description="AI 검수와 검사가 내는 종류마다 붙이거나 뗄 태그를 고릅니다.">
+          <Stack gap="tight">
+            {ISSUE_KIND_IDS.map((kind) => (
+              <Inline key={kind} gap="condensed">
+                <Text minWidth={0} grow variant="body">{ISSUE_KIND_LABELS[kind]} <Text tone="subtle" mono variant="caption">{kind}</Text></Text>
+                <SelectField value={params.categoryTags[kind] ?? 'none'} ariaLabel={`${ISSUE_KIND_LABELS[kind]}의 태그`} onValueChange={(next) => connect(kind, next)}>
+                  <SelectItem value="none">같은 이름의 태그</SelectItem>
+                  {params.categoryTags[kind] && !refs.tags.some((tag) => tag.id === params.categoryTags[kind]) && <SelectItem value={params.categoryTags[kind]!}>(지워진 태그)</SelectItem>}
+                  {refs.tags.map((tag) => <SelectItem key={tag.id} value={tag.id}>#{tag.name}</SelectItem>)}
+                </SelectField>
+              </Inline>
+            ))}
+          </Stack>
+        </Field>
+      )}
 
       {issues.map((message) => (
         <InspectorResult key={message} tone="info">

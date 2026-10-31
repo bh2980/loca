@@ -201,7 +201,7 @@ export const INPUT_TYPES = {
     /** AI context settings that only lines have. */
     contextFields: ['precedingLines', 'precedingTranslations', 'previousScenes', 'speech', 'pairs', 'pairMinTurns'],
     /** Condition rows that only lines have (the core: node result, visits, failure, translation). */
-    conditionRows: ['status', 'lineKind', 'tag', 'mark', 'listener', 'speechRule', 'speechMatch'],
+    conditionRows: ['status', 'final', 'decidedBy', 'lineKind', 'tag', 'mark', 'listener', 'listenerUnknown', 'noted', 'speechRule', 'speechMatch'],
   },
   terms: {
     label: '용어',
@@ -543,7 +543,15 @@ export interface ConditionData {
     kind: string;
     speaker: string | null;
     listener: string | null;
+    /** Said to someone whose listener is unknown or an unsure AI guess (the line filter's 청자 모름). */
+    listenerUnknown: boolean;
     statusId: string;
+    /** The status is a final one (상태 종류 최종). */
+    final: boolean;
+    /** Who set the status: 'ai' (✦) or 'human'. */
+    statusBy: string;
+    /** The line has a memo. */
+    noted: boolean;
     tagIds: string[];
     marks: string[];
     /** The speech level (SPEECH_LEVEL_LABELS, e.g. 해요체) of the confirmed rule for this line's speaker → listener; null without one. An AI choice from 말투 등급 compares with it. */
@@ -814,8 +822,7 @@ export function applyIssues(definition: Pick<WorkflowDefinition, 'nodes' | 'edge
   if (fn === 'tagLines') {
     const tags = params as TagLinesParams;
     const named = Boolean(tags.map.tag);
-    if (!named && !tags.tagIds.length && !tags.kinds.length && !tags.allKinds) return [`${tags.action === 'remove' ? '뗄' : '붙일'} 태그를 고르거나, 태그 이름이 든 앞 단계 결과 필드를 고르세요.`];
-    if (tags.allKinds && tags.action === 'add') return ['모든 문제 유형은 떼기에서만 고를 수 있습니다.'];
+    if (!named && !tags.tagIds.length) return [`${tags.action === 'remove' ? '뗄' : '붙일'} 태그를 고르거나, 태그 이름이 든 앞 단계 결과 필드를 고르세요.`];
     return named && (!steps.length || steps.some((step) => step.type === 'gather')) ? ['앞 단계에 결과를 내는 노드가 없습니다. 태그 이름을 읽을 노드 뒤에 이으세요.'] : [];
   }
   if (!steps.length || steps.some((step) => step.type === 'gather')) return ['앞 단계에 결과를 내는 AI·스크립트 노드가 없습니다. 반영할 결과를 내는 노드 뒤에 이으세요.'];
@@ -845,8 +852,8 @@ export function readinessUses(definition: WorkflowDefinition) {
   };
 }
 
-/** Whether a run picks its lines by status (the run dialog's status filter): such a run never overwrites a translation a person saved (#51). */
-export const filtersByStatus = (scope: { statusIds?: string[] }) => Boolean(scope.statusIds?.length);
+/** Whether a run picks its lines by status (the run dialog's status filter, 최종 아님 included): such a run never overwrites a translation a person saved (#51). */
+export const filtersByStatus = (scope: { statusIds?: string[]; unfinished?: boolean }) => Boolean(scope.statusIds?.length || scope.unfinished !== undefined);
 
 /**
  * Keeps the entry node and its connections to the root work node(s) in sync:

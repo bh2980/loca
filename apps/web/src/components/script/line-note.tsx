@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Box, Input, ScriptNoteCard, ScriptNoteMark } from '@loca/ui';
+import { Box, Button, Inline, Input, ScriptNoteCard, ScriptNoteMark } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
 
@@ -21,7 +21,8 @@ function useSaveNote(unitId: string) {
 /**
  * A person's note on the picked line: a doubt, or a question for the developer ("who is 'she'
  * here?"). It shows under the editor while there is one; the note button on the speaker line
- * starts one. Enter saves, Esc leaves it as it was, an empty note is removed.
+ * starts one. Enter saves, Esc leaves it as it was, an empty note is removed; the card's corner button and 삭제 while
+ * editing remove it too.
  */
 export function LineNote({ unitId, note, editing, onEditing }: { unitId: string; note: string; editing: boolean; onEditing: (editing: boolean) => void }) {
   const [text, setText] = useState(note);
@@ -29,32 +30,40 @@ export function LineNote({ unitId, note, editing, onEditing }: { unitId: string;
   if (!editing && !note) return null;
   if (!editing)
     return (
-      <ScriptNoteCard note={note} onClick={() => (setText(note), onEditing(true))} />
+      <ScriptNoteCard note={note} onClick={() => (setText(note), onEditing(true))} onDelete={() => save.mutate('')} />
     );
   const finish = (value: string | null) => {
     if (value !== null && value.trim() !== note) save.mutate(value);
     onEditing(false);
   };
   return (
-    <Box asChild marginTop="condensed"><Input
-      autoFocus
-      aria-label="메모"
-      placeholder="메모 · Enter 저장"
-      value={text}
-      onClick={(event) => event.stopPropagation()}
-      onChange={(event) => setText(event.target.value)}
-      onBlur={() => finish(text)}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter') {
-          event.preventDefault();
-          finish(text);
-        } else if (event.key === 'Escape') {
-          event.preventDefault();
-          event.stopPropagation();
-          finish(null);
-        }
-      }}
-    /></Box>
+    <Inline gap="tight" marginTop="condensed">
+      <Input
+        autoFocus
+        aria-label="메모"
+        placeholder="메모 · Enter 저장"
+        value={text}
+        onClick={(event) => event.stopPropagation()}
+        onChange={(event) => setText(event.target.value)}
+        onBlur={() => finish(text)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            finish(text);
+          } else if (event.key === 'Escape') {
+            event.preventDefault();
+            event.stopPropagation();
+            finish(null);
+          }
+        }}
+      />
+      {/* Pressed without leaving the box first, or the blur would save the text before it is removed. */}
+      {note && (
+        <Button variant="ghost" tone="danger" shrink={false} onMouseDown={(event) => event.preventDefault()} onClick={() => (save.mutate(''), onEditing(false))}>
+          삭제
+        </Button>
+      )}
+    </Inline>
   );
 }
 

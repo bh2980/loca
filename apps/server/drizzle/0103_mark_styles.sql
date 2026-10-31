@@ -1,0 +1,1 @@
+ALTER TABLE `projects` ADD `mark_styles` text DEFAULT '{}' NOT NULL;

@@ -27,11 +27,11 @@ describe('run scope by marks', () => {
     db.insert(s.unitTags).values([{ unitId: noted.id, tagId: tag.id }, { unitId: plain.id, tagId: tag.id }]).run();
 
     const pick = (scope: s.RunScope) => selectRunUnits(db, projectId, { ...scope }).sort();
-    expect(pick({ marks: ['noted'] })).toEqual([noted.id, notedByAi.id].sort());
-    // Marks are ANDed with each other.
-    expect(pick({ marks: ['noted', 'ai'] })).toEqual([notedByAi.id]);
-    // A tag narrows a mark (tags themselves are "any of"); a tag alone ignores marks.
-    expect(pick({ marks: ['noted'], tagIds: [tag.id] })).toEqual([noted.id]);
+    expect(pick({ noted: true })).toEqual([noted.id, notedByAi.id].sort());
+    // The row facts are ANDed with each other.
+    expect(pick({ noted: true, decidedBy: 'ai' })).toEqual([notedByAi.id]);
+    // A tag narrows them (tags themselves are "any of"); a tag alone ignores them.
+    expect(pick({ noted: true, tagIds: [tag.id] })).toEqual([noted.id]);
     expect(pick({ tagIds: [tag.id] })).toEqual([noted.id, plain.id].sort());
     // No marks: the scope is unchanged (every line for translation; 번역 제외 lines never run).
     expect(pick({ marks: [] })).toEqual(translatable(db, projectId).sort());

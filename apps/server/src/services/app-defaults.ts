@@ -1,9 +1,8 @@
-import { and, asc, eq, isNull, sql } from 'drizzle-orm';
+import { asc, eq, isNull, sql } from 'drizzle-orm';
 import {
   agentSettingsSchema,
   appDefaultsSchema,
   editorAiSchema,
-  ISSUE_KINDS,
   remapIds,
   templateStatusIds,
   WORKFLOW_TEMPLATES,
@@ -18,6 +17,7 @@ import {
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
+import { issueTagIds, seedIssueTags } from './issue-tags.ts';
 import type { SecretStore } from './secrets.ts';
 
 /**
@@ -122,16 +122,15 @@ function connectionMap(tx: Pick<Db, 'select'>, from: string | null, to: string |
 }
 
 const projectStatuses = (tx: Pick<Db, 'select'>, projectId: string) => tx.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).orderBy(asc(s.statuses.sort)).all();
-/** The person's own tags (the app's tags, with a role, are every project's anyway). */
-const projectTags = (tx: Pick<Db, 'select'>, projectId: string) => tx.select().from(s.tags).where(and(eq(s.tags.projectId, projectId), isNull(s.tags.role))).orderBy(asc(s.tags.sort)).all();
-const aiFailedTag = (tx: Pick<Db, 'select'>, projectId: string) => tx.select({ id: s.tags.id }).from(s.tags).where(and(eq(s.tags.projectId, projectId), eq(s.tags.role, 'aiFailed'))).get()?.id;
+/** The project's tags but 확인 권장 (the one tag the app keeps, every project's anyway). */
+const projectTags = (tx: Pick<Db, 'select'>, projectId: string) => tx.select().from(s.tags).where(eq(s.tags.projectId, projectId)).orderBy(asc(s.tags.sort)).all();
 
 /** A home workflow (a template or a saved one) made for this project: its statuses, tags and connections found by name. */
 function homeWorkflows(tx: Tx, projectId: string, defaults: AppDefaults, model: DraftModelChoice): { name: string; description: string; definition: WorkflowDefinition }[] {
   const statuses = projectStatuses(tx, projectId);
   const templates = defaults.workflows.templates.flatMap((key) => {
     const template = WORKFLOW_TEMPLATES.find((entry) => entry.key === key);
-    return template ? [{ name: template.name, description: template.description, definition: workflowDefinitionSchema.parse(template.build({ model, ...templateStatusIds(statuses), aiFailedTag: aiFailedTag(tx, projectId) })) }] : [];
+    return template ? [{ name: template.name, description: template.description, definition: workflowDefinitionSchema.parse(template.build({ model, ...templateStatusIds(statuses), issueTags: issueTagIds(tx, projectId) })) }] : [];
   });
   const tags = new Map(tx.select({ id: s.tags.id, name: s.tags.name }).from(s.tags).where(eq(s.tags.projectId, projectId)).all().map((tag) => [tag.name, tag.id]));
   const connections = new Map(connectionsOf(tx, projectId).map((row) => [row.name, row.id]));
@@ -162,7 +161,7 @@ function insertStatuses(tx: Tx, projectId: string, defaults: AppDefaults, only?:
 function insertTags(tx: Tx, projectId: string, defaults: AppDefaults, only?: Set<string>) {
   const from = (tx.select({ max: sql<number>`coalesce(max(${s.tags.sort}), -1)` }).from(s.tags).where(eq(s.tags.projectId, projectId)).get()?.max ?? -1) + 1;
   const rows = defaults.tags.filter((tag) => !only || only.has(tag.name));
-  rows.forEach((tag, index) => tx.insert(s.tags).values({ projectId, name: tag.name, color: tag.color, scope: tag.scope, sort: from + index }).run());
+  rows.forEach((tag, index) => tx.insert(s.tags).values({ projectId, name: tag.name, color: tag.color, description: tag.description, scope: tag.scope, sort: from + index }).run());
   return rows.length;
 }
 
@@ -179,8 +178,9 @@ export function seedProject(tx: Tx, projectId: string, model: DraftModelChoice =
     .where(eq(s.projects.id, projectId))
     .run();
   insertStatuses(tx, projectId, defaults);
-  tx.insert(s.tags).values({ projectId, name: ISSUE_KINDS.aiFailed.name, color: ISSUE_KINDS.aiFailed.color, role: 'aiFailed' }).run();
   insertTags(tx, projectId, defaults);
+  // What checks and reviews find gets ordinary tags (a home default of the same name stands in for one).
+  seedIssueTags(tx, projectId);
   for (const workflow of homeWorkflows(tx, projectId, defaults, model)) tx.insert(s.workflows).values({ projectId, ...workflow }).run();
   return { keys };
 }
@@ -318,7 +318,7 @@ export function pushDefaults(db: Db, projectId: string, sections: AppDefaultSect
       report.statuses = `${patch.statuses.length}개`;
     }
     if (want.has('tags')) {
-      patch.tags = projectTags(tx, projectId).map(({ id, name, color, scope }) => ({ id, name, color, scope }));
+      patch.tags = projectTags(tx, projectId).map(({ id, name, color, description, scope }) => ({ id, name, color, description, scope }));
       report.tags = `${patch.tags.length}개`;
     }
     if (want.has('workflows') && workflowIds.length) {

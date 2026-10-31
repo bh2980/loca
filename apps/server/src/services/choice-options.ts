@@ -1,5 +1,5 @@
 import { asc, eq } from 'drizzle-orm';
-import { SPECIAL_LISTENERS, SPEECH_LEVEL_LABELS, tagScope, type ChoiceConfig } from '@tw/shared';
+import { normalizeTagScopes, SPECIAL_LISTENERS, SPEECH_LEVEL_LABELS, type ChoiceConfig } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { knowledgeOf } from './speech.ts';
@@ -17,7 +17,7 @@ export function resolveChoiceOptions(db: Db, projectId: string, choice: Pick<Cho
       case 'characters':
         return [...knowledgeOf(db, projectId).characters().rows.map((character) => character.name), ...Object.keys(SPECIAL_LISTENERS)];
       case 'lineTags':
-        return db.select({ name: s.tags.name, role: s.tags.role, scope: s.tags.scope }).from(s.tags).where(eq(s.tags.projectId, projectId)).all().filter((tag) => tagScope(tag).includes('lines')).map((tag) => tag.name);
+        return db.select({ name: s.tags.name, scope: s.tags.scope }).from(s.tags).where(eq(s.tags.projectId, projectId)).all().filter((tag) => normalizeTagScopes(tag.scope).includes('lines')).map((tag) => tag.name);
       case 'statuses':
         return db.select({ name: s.statuses.name }).from(s.statuses).where(eq(s.statuses.projectId, projectId)).orderBy(asc(s.statuses.sort)).all().map((status) => status.name);
       case 'speechLevels':

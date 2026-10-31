@@ -57,13 +57,6 @@ export function narrowAtTrigger(value: string, trigger: AtTrigger, caret: number
   return replaceAtTrigger(value, trigger, caret, `@${kind ? `${kind} ` : ''}${term}`);
 }
 
-/** Puts an @ at the caret (after a space when it would sit inside a word): the paperclip opens the same picker as typing it. */
-export function insertAt(value: string, caret: number): { value: string; caret: number } {
-  const needsSpace = caret > 0 && !/\s/.test(value[caret - 1]);
-  const text = `${needsSpace ? ' ' : ''}@`;
-  return { value: value.slice(0, caret) + text + value.slice(caret), caret: caret + text.length };
-}
-
 /**
  * The first `{대상}` in a saved prompt becomes an `@` with the caret after it, so the picker opens at that
  * spot; null when there is none. `start` is where the @ sits.

@@ -14,7 +14,6 @@ import { PersonName } from '@/lib/person-colors';
 const OMITTED_SHOWN = 40;
 
 /** The chat input text for asking the AI for a short view of what is on screen. */
-export const briefViewPrompt = (where: string) => `그래프 ${where}에서 필요한 노드만 남긴 간략 보기를 만들어줘. 남길 기준: `;
 /** The chat input text for making a view again from its old request. */
 export const remakeViewPrompt = (label: string, request: string | null) => `보기 "${label}"를 다시 만들어줘.${request ? `\n이전 요청: ${request}` : ''}\n고칠 점: `;
 
@@ -41,6 +40,42 @@ export function useViewActions(projectId: string) {
     onError: (error) => toast.error(error instanceof Error ? error.message : '보기를 지우지 못했습니다.'),
   });
   return { create, change, remove };
+}
+
+/** Asks before a stored view is deleted (from the view list or from its pane); only the view goes, never the graph or the lines. */
+export function DeleteViewDialog({ projectId, view, onClose, onDeleted }: { projectId: string; view: { id: string; label: string } | null; onClose: () => void; onDeleted: (id: string) => void }) {
+  const actions = useViewActions(projectId);
+  // The label stays while the dialog fades out after the view is gone.
+  const [shown, setShown] = useState(view);
+  useEffect(() => {
+    if (view) setShown(view);
+  }, [view]);
+  return (
+    <AlertDialog open={view !== null} onOpenChange={(open) => !open && onClose()}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>보기 "{shown?.label}"를 지울까요?</AlertDialogTitle>
+          <AlertDialogDescription>보기만 지워집니다. 원본 그래프와 대사는 그대로입니다.</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>취소</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={() =>
+              view &&
+              actions.remove.mutate(view.id, {
+                onSuccess: () => {
+                  toast.success('보기를 지웠습니다.');
+                  onDeleted(view.id);
+                },
+              })
+            }
+          >
+            삭제
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
 }
 
 /** The name field: saved on Enter or blur, dropped on Esc. */
@@ -118,29 +153,7 @@ export function ViewInspector({ projectId, viewId, shownNodes, derivedEdges, onC
           />
         </Section>
       )}
-      <AlertDialog open={confirming} onOpenChange={setConfirming}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>보기 "{data.label}"를 지울까요?</AlertDialogTitle>
-            <AlertDialogDescription>보기만 지워집니다. 원본 그래프와 대사는 그대로입니다.</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>취소</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() =>
-                actions.remove.mutate(data.id, {
-                  onSuccess: () => {
-                    toast.success('보기를 지웠습니다.');
-                    onDeleted();
-                  },
-                })
-              }
-            >
-              삭제
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <DeleteViewDialog projectId={projectId} view={confirming ? { id: data.id, label: data.label } : null} onClose={() => setConfirming(false)} onDeleted={onDeleted} />
     </Inspector>
   );
 }

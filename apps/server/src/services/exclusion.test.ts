@@ -5,7 +5,7 @@ import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { excludedInScope, selectRunUnits } from '../engine/run-create.ts';
 import { importProject } from './importer.ts';
-import { excludedSql, markConditions } from './line-marks.ts';
+import { excludedSql, lineFactConditions } from './line-marks.ts';
 import { findLines } from './script-query.ts';
 
 describe('번역 제외 rules', () => {
@@ -59,32 +59,34 @@ describe('번역 제외 in the project', () => {
     expect(excluded()).toEqual(['a', 'b', 'd']);
   });
 
-  it('keeps excluded lines out of the remaining lines, runs and exports, and shows the mark', () => {
+  it('keeps excluded lines out of 최종 아님, runs and exports, and says so on the row', () => {
     const { db, projectId, keyOf } = setup();
-    const remaining = db.select({ key: s.units.key }).from(s.units).where(and(eq(s.units.projectId, projectId), ...markConditions(projectId, ['remaining']))).all().map((row) => row.key).sort();
+    const remaining = db.select({ key: s.units.key }).from(s.units).where(and(eq(s.units.projectId, projectId), ...lineFactConditions(projectId, { unfinished: true }))).all().map((row) => row.key).sort();
     expect(remaining).toEqual(['a', 'd']);
     const definition = workflowDefinitionSchema.parse({ nodes: [{ id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: {} }, { id: 'end', type: 'end', position: { x: 0, y: 0 } }], edges: [{ id: '1', source: 'entry', sourceHandle: 'out', target: 'end' }] });
     expect(selectRunUnits(db, projectId, {}).map((id) => keyOf.get(id)).sort()).toEqual(['a', 'd']);
     expect(excludedInScope(db, projectId, {})).toBe(2);
     expect(findLines(db, projectId, { translated: false, offset: 0, limit: 50 }).rows.map((row) => row.key)).toEqual(['a', 'd']);
     const all = findLines(db, projectId, { offset: 0, limit: 50 }).rows;
-    expect(all.find((row) => row.key === 'b')?.marks).toContain('excluded');
-    expect(all.find((row) => row.key === 'b')?.marks).not.toContain('remaining');
+    expect(all.find((row) => row.key === 'b')?.excluded).toBe(true);
+    expect(all.find((row) => row.key === 'a')?.excluded).toBe(false);
+    expect(findLines(db, projectId, { unfinished: true, offset: 0, limit: 50 }).rows.map((row) => row.key)).toEqual(['a', 'd']);
+    expect(findLines(db, projectId, { excluded: 'only', offset: 0, limit: 50 }).rows.map((row) => row.key).sort()).toEqual(['b', 'c']);
   });
 });
 
 describe('숨기기 filters', () => {
-  it('leave out lines by mark, tag, status or speaker, any one of each', () => {
+  it('leave out lines by 번역 제외, memo, tag, status or speaker, any one of each', () => {
     const db = openDatabase(':memory:');
     const { projectId } = importProject(db, importFileSchema.parse({
       format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g', title: 'G' }],
       units: [{ key: 'a', group: 'g', speaker: 'A', source: 'Hello' }, { key: 'b', group: 'g', speaker: 'B', source: 'Bye' }, { key: 'c', group: 'g', source: '{0}' }],
     }));
     const keys = (filter: Record<string, unknown>) => findLines(db, projectId, { offset: 0, limit: 50, ...filter }).rows.map((row) => row.key);
-    expect(keys({ hideMarks: ['excluded'] })).toEqual(['a', 'b']);
+    expect(keys({ excluded: 'hide' })).toEqual(['a', 'b']);
     expect(keys({ hideSpeakers: ['A'] })).toEqual(['b', 'c']);
     db.update(s.units).set({ note: 'x' }).where(eq(s.units.key, 'b')).run();
-    expect(keys({ hideMarks: ['excluded', 'noted'] })).toEqual(['a']);
+    expect(keys({ excluded: 'hide', noted: false })).toEqual(['a']);
     const final = db.select().from(s.statuses).where(and(eq(s.statuses.projectId, projectId), eq(s.statuses.kind, 'final'))).get()!;
     db.update(s.units).set({ statusId: final.id, translation: '안녕' }).where(eq(s.units.key, 'a')).run();
     expect(keys({ hideStatuses: [final.name] })).toEqual(['b', 'c']);

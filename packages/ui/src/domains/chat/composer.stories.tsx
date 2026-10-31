@@ -8,7 +8,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuSeparator, DropdownMenuT
 import { AttachmentChip } from "./attachment-chip"
 import { ComposerInput, ComposerMenu, type ComposerGroup } from "./composer"
 import { ContextMeterView } from "./context-meter"
-import { ConversationRowAction } from "./conversation-menu"
+import { MenuRowAction, MenuRowMeta } from "./conversation-menu"
 import { ModeSelect } from "./select"
 import { ListRow } from "../../patterns/list-row"
 import { MenuLabel } from "../../patterns/menu-label"
@@ -139,6 +139,21 @@ function CompactSelectDemo() {
   )
 }
 
+/** A count at the end of a menu row gives its place to the row's delete button on hover or focus: the button takes no room of its own. */
+export const RowCountThenAction: Story = {
+  render: () => (
+    <DropdownMenu open>
+      <DropdownMenuTrigger asChild><Button variant="outline">보기</Button></DropdownMenuTrigger>
+      <DropdownMenuContent align="start" width="menu-lg">
+        <ListRow as="menuitem">
+          <Text minWidth={0} grow truncate>본편 00 · Hills · Jamy</Text>
+          <MenuRowMeta action={<MenuRowAction danger aria-label="삭제"><Trash2 /></MenuRowAction>}>2개</MenuRowMeta>
+        </ListRow>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  ),
+}
+
 /** The conversation list: the current one, a row with its hover actions, a search hit. */
 export const ConversationList: Story = {
   render: () => (
@@ -152,8 +167,8 @@ export const ConversationList: Story = {
         <ListRow as="menuitem" selected>
           <Text minWidth={0} grow truncate>1장 말투 정리</Text>
           <Text shrink={false} variant="caption" tone="muted" tabular>12건 · 48k</Text>
-          <ConversationRowAction aria-label="이름 바꾸기"><Pencil /></ConversationRowAction>
-          <ConversationRowAction danger aria-label="삭제"><Trash2 /></ConversationRowAction>
+          <MenuRowAction aria-label="이름 바꾸기"><Pencil /></MenuRowAction>
+          <MenuRowAction danger aria-label="삭제"><Trash2 /></MenuRowAction>
         </ListRow>
         <ListRow as="menuitem"><Text minWidth={0} grow truncate>용어집 정리</Text></ListRow>
         <ListRow as="menuitem" stacked>

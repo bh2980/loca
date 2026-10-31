@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { Command, Option } from 'commander';
 import { hc } from 'hono/client';
 import type { AppType } from '@tw/server/app';
-import { acceptedLabel, AUTO_MARKS, CHECK_KINDS, EXCLUSION_REASON_LABELS, CONTEXT_ITEM_KINDS, importFileJsonSchema, importFileSchema, importWarnings, KNOWLEDGE_MARK_IDS, KNOWLEDGE_STATUS_LABELS, LINE_MARK_IDS, lineChangeSchema, summarizeImport, retryConfigSchema, retrySummary, TERM_MARK_IDS, type AutoMark, type KnowledgeStatus, type LineFilterInput, type LineMark, personLabel } from '@tw/shared';
+import { acceptedLabel, AUTO_MARKS, CHECK_KINDS, EXCLUSION_REASON_LABELS, CONTEXT_ITEM_KINDS, importFileJsonSchema, importFileSchema, importWarnings, KNOWLEDGE_MARK_IDS, KNOWLEDGE_STATUS_LABELS, LINE_MARK_IDS, lineChangeSchema, summarizeImport, retryConfigSchema, retrySummary, TERM_MARK_IDS, termScopeLabel, type AutoMark, type KnowledgeStatus, type LineFilterInput, type LineMark, personLabel, DECIDED_BY, type DecidedBy, EXCLUDED_FILTERS, type ExcludedFilter } from '@tw/shared';
 
 /**
  * loca — the workbench from a terminal, for people and for agents with a shell (codex, claude…).
@@ -289,6 +289,12 @@ interface FilterOptions {
   status?: string[];
   tag?: string[];
   mark?: LineMark[];
+  unfinished?: boolean;
+  finished?: boolean;
+  by?: DecidedBy;
+  noted?: boolean;
+  withoutNote?: boolean;
+  excluded?: ExcludedFilter;
   hideSpeaker?: string[];
   hideStatus?: string[];
   hideTag?: string[];
@@ -305,7 +311,7 @@ function withFilters(command: Command) {
   return command
     .option('-q, --q <글자>', '원문·번역·화자·키에 들어 있는 글자 (%·_·\\도 그 글자 그대로)')
     .option('-s, --speaker <names...>', '이 인물이 하는 대사 (이름·별칭·화자 키)')
-    .option('-l, --listener <names...>', '이 인물에게 하는 대사 (청자). "-"는 청자 미상(= --mark unknownListener)')
+    .option('-l, --listener <names...>', '이 인물에게 하는 대사 (청자). "-"는 청자 모름(청자를 모르거나 AI 추정이 불확실한 대사)')
     .option('-m, --mentions <names...>', '이 인물을 언급하는 대사 ({ALIAS} 포함)')
     .option('-g, --group <groups...>', '장면·묶음')
     .option('--section <sections...>', '구역(장·출처)')
@@ -313,11 +319,17 @@ function withFilters(command: Command) {
     .addOption(new Option('--group-kind <종류>', '묶음 종류').choices(['scene', 'document', 'ui']))
     .option('--status <statuses...>', '상태 이름')
     .option('--tag <tags...>', '태그 이름 (모두 붙은 대사)')
-    .addOption(new Option('--mark <marks...>', '자동 표시(앱의 #태그)가 모두 붙은 대사. 앱 목록의 필터와 같은 규칙').choices(LINE_MARK_IDS))
+    .addOption(new Option('--mark <marks...>', '자동 태그가 모두 붙은 대사. 앱 목록의 필터와 같은 규칙').choices(LINE_MARK_IDS))
+    .option('--unfinished', '상태가 최종이 아닌 대사 (남은 일. 번역 제외 대사는 빠짐)')
+    .option('--finished', '상태가 최종인 대사')
+    .addOption(new Option('--by <누구>', '정한 쪽: ai = AI가 정하고 사람이 아직 안 봄(✦), human = 사람이 정함').choices(DECIDED_BY))
+    .option('--noted', '메모가 있는 대사')
+    .option('--without-note', '메모가 없는 대사')
+    .addOption(new Option('--excluded <방식>', '번역 제외 대사: hide = 뺌, only = 그것만 (없으면 함께)').choices(EXCLUDED_FILTERS))
     .option('--hide-speaker <names...>', '숨기기: 이 인물이 하는 대사는 뺌')
     .option('--hide-status <statuses...>', '숨기기: 이 상태의 대사는 뺌')
     .option('--hide-tag <tags...>', '숨기기: 이 태그 중 하나라도 붙은 대사는 뺌')
-    .addOption(new Option('--hide-mark <marks...>', '숨기기: 이 자동 표시 중 하나라도 붙은 대사는 뺌 (예: excluded = #번역 제외)').choices(LINE_MARK_IDS))
+    .addOption(new Option('--hide-mark <marks...>', '숨기기: 이 자동 태그 중 하나라도 붙은 대사는 뺌').choices(LINE_MARK_IDS))
     .option('--translated', '번역이 있는 대사만')
     .option('--untranslated', '번역이 없는 대사만')
     .option('--key <keys...>', '대사 키')
@@ -339,6 +351,10 @@ function filterFrom(options: FilterOptions): LineFilterInput {
     statuses: options.status,
     tags: options.tag,
     marks: options.mark,
+    unfinished: options.unfinished ? true : options.finished ? false : undefined,
+    decidedBy: options.by,
+    noted: options.noted ? true : options.withoutNote ? false : undefined,
+    excluded: options.excluded,
     hideSpeakers: options.hideSpeaker,
     hideStatuses: options.hideStatus,
     hideTags: options.hideTag,
@@ -399,7 +415,7 @@ withFilters(program.command('lines').description('대사 찾기. 필터를 조�
     if (!options.all) moreHint(total, rows.length, filter.offset ?? 0);
     if (options.jsonl) return printJsonl(rows);
     if (globals().json) return printList(total, rows);
-    for (const row of rows) console.log(`${row.key}  [${row.status}] ${row.speaker ?? '—'}${row.listener ? ` → ${row.listener}` : ''}: ${short(row.source)}${row.translation ? `\n    → ${short(row.translation)}` : ''}${row.marks.length || row.tags.length ? `\n    ${withMarks('', row.marks, row.tags)}` : ''}`);
+    for (const row of rows) console.log(`${row.key}  [${row.status}${row.statusBy === 'ai' ? ' ✦' : ''}${row.excluded ? ' · 번역 제외' : ''}] ${row.speaker ?? '—'}${row.listener ? ` → ${row.listener}` : ''}: ${short(row.source)}${row.translation ? `\n    → ${short(row.translation)}` : ''}${row.marks.length || row.tags.length ? `\n    ${withMarks('', row.marks, row.tags)}` : ''}`);
   });
 
 const speakers = program
@@ -657,19 +673,22 @@ const terms = program
   .description('용어집 목록: 원문, 번역어, 상태, 나온 줄(대본에서 쓰이는 대사 수), 표시(#), 태그. 앱 용어집 화면의 필터와 같은 규칙')
   .option('-q, --q <글자>', '원문·번역어에 들어 있는 글자')
   .addOption(new Option('--status <status...>', '상태 (앱의 상태 열). 둘을 함께 주면 둘 중 하나').choices(STATUS_CHOICES))
-  .addOption(new Option('--mark <marks...>', '자동 표시. 여러 개면 모두 붙은 것').choices(TERM_MARK_IDS))
+  .addOption(new Option('--mark <marks...>', '자동 태그. 여러 개면 모두 붙은 것').choices(TERM_MARK_IDS))
+  .addOption(new Option('--by <누구>', '정한 쪽: ai = AI가 정하고 사람이 아직 안 봄(✦), human = 사람이 정함').choices(DECIDED_BY))
+  .option('--empty-target', '번역어가 비어 있는 용어')
+  .option('--has-target', '번역어가 있는 용어')
   .option('--unreviewed', '사람이 아직 정하지 않은 용어 (상태가 후보이거나 AI가 정한 것)')
   .option('--tag <tags...>', '태그 이름 (모두 붙은 용어)')
   .option('--limit <n>', '최대 몇 개까지')
   .option('--jsonl', '한 줄에 하나씩 JSON으로 출력')
-  .action(async (options: { q?: string; status?: string[]; mark?: string[]; unreviewed?: boolean; tag?: string[]; limit?: string; jsonl?: boolean }) => {
-    type Term = { id: string; source: string; target: string; targetCandidates?: string[]; scope?: string; matchCase?: boolean; note: string; status: KnowledgeStatus; statusBy: string; lines: number | null; examples: string[]; marks: string[]; tags: string[] };
+  .action(async (options: { q?: string; status?: string[]; mark?: string[]; by?: DecidedBy; emptyTarget?: boolean; hasTarget?: boolean; unreviewed?: boolean; tag?: string[]; limit?: string; jsonl?: boolean }) => {
+    type Term = { id: string; source: string; target: string; targetCandidates?: string[]; scope?: string[]; matchCase?: boolean; note: string; status: KnowledgeStatus; statusBy: string; lines: number | null; examples: string[]; marks: string[]; tags: string[] };
     const wanted = options.limit ? Number(options.limit) : Infinity;
     const rows: Term[] = [];
     let total = 0;
     // A page the tool had to cut still arrives; continue from what came.
     while (rows.length < wanted) {
-      const page = await readTool<{ total: number; terms: Term[] }>('list_terms', { q: options.q, status: statusIds(options.status), marks: options.mark, unreviewed: options.unreviewed || undefined, tags: options.tag, offset: rows.length, limit: Math.min(100, wanted - rows.length) });
+      const page = await readTool<{ total: number; terms: Term[] }>('list_terms', { q: options.q, status: statusIds(options.status), marks: options.mark, decidedBy: options.by, emptyTarget: options.emptyTarget ? true : options.hasTarget ? false : undefined, unreviewed: options.unreviewed || undefined, tags: options.tag, offset: rows.length, limit: Math.min(100, wanted - rows.length) });
       total = page.total;
       rows.push(...page.terms);
       if (!page.terms.length || rows.length >= total) break;
@@ -678,7 +697,7 @@ const terms = program
     if (options.jsonl) return printJsonl(rows);
     if (globals().json) return printList(total, rows);
     for (const term of rows)
-      console.log(`${String(term.lines ?? '?').padStart(5)}줄  ${term.source} → ${term.target || '(번역어 없음)'}${term.targetCandidates?.length ? ` (다른 번역어: ${term.targetCandidates.join(', ')})` : ''}${term.scope ? ` · ${term.scope === 'ui' ? 'UI 줄만' : '대사·문서만'}` : ''}${term.matchCase ? ' · 대소문자 일치' : ''}  [${KNOWLEDGE_STATUS_LABELS[term.status]}]  ${withMarks('', term.marks, term.tags)}  (${term.id})${term.note ? `\n         ${short(term.note, 100)}` : ''}`);
+      console.log(`${String(term.lines ?? '?').padStart(5)}줄  ${term.source} → ${term.target || '(번역어 없음)'}${term.targetCandidates?.length ? ` (다른 번역어: ${term.targetCandidates.join(', ')})` : ''}${term.scope ? ` · ${termScopeLabel(term.scope)}만` : ''}${term.matchCase ? ' · 대소문자 일치' : ''}  [${KNOWLEDGE_STATUS_LABELS[term.status]}${term.statusBy === 'ai' && term.status === 'confirmed' ? ' ✦' : ''}]  ${withMarks('', term.marks, term.tags)}  (${term.id})${term.note ? `\n         ${short(term.note, 100)}` : ''}`);
   });
 
 terms
@@ -712,17 +731,18 @@ program
   .command('knowledge <종류>')
   .description(`작품 자료 목록: ${Object.entries(KNOWLEDGE_KINDS).map(([kind, info]) => `${kind}(${info.label})`).join(', ')}. 상태, 표시(#), 태그 포함. 앱 작품 자료 화면의 필터와 같은 규칙`)
   .addOption(new Option('--status <status...>', '상태 (앱의 상태 열). 둘을 함께 주면 둘 중 하나').choices(STATUS_CHOICES))
-  .addOption(new Option('--mark <marks...>', '자동 표시. 여러 개면 모두 붙은 것').choices(KNOWLEDGE_MARK_IDS))
+  .addOption(new Option('--mark <marks...>', '자동 태그. 여러 개면 모두 붙은 것').choices(KNOWLEDGE_MARK_IDS))
+  .addOption(new Option('--by <누구>', '정한 쪽: ai = AI가 정하고 사람이 아직 안 봄(✦), human = 사람이 정함').choices(DECIDED_BY))
   .option('--unreviewed', '사람이 아직 정하지 않은 항목 (상태가 후보이거나 AI가 정한 것)')
   .option('--tag <tags...>', '태그 이름 (모두 붙은 항목)')
   .option('--jsonl', '한 줄에 하나씩 JSON으로 출력')
-  .action(async (kind: string, options: { status?: string[]; mark?: string[]; unreviewed?: boolean; tag?: string[]; jsonl?: boolean }) => {
+  .action(async (kind: string, options: { status?: string[]; mark?: string[]; by?: DecidedBy; unreviewed?: boolean; tag?: string[]; jsonl?: boolean }) => {
     if (!(kind in KNOWLEDGE_KINDS)) throw new CliError(`종류는 ${Object.keys(KNOWLEDGE_KINDS).join(', ')} 중 하나입니다.`);
     const info = KNOWLEDGE_KINDS[kind as keyof typeof KNOWLEDGE_KINDS];
-    const result = await readTool<Record<string, any>>(info.tool, { status: statusIds(options.status), marks: options.mark, unreviewed: options.unreviewed || undefined, tags: options.tag });
+    const result = await readTool<Record<string, any>>(info.tool, { status: statusIds(options.status), marks: options.mark, decidedBy: options.by, unreviewed: options.unreviewed || undefined, tags: options.tag });
     const rows: Record<string, any>[] = info.pick ? result[info.pick] : Array.isArray(result) ? result : (result.items ?? []);
     log(`${info.label} ${rows.length.toLocaleString()}개`);
-    warnTruncated(result, '--status, --mark, --unreviewed, --tag로 좁히세요.');
+    warnTruncated(result, '--status, --by, --mark, --unreviewed, --tag로 좁히세요.');
     if (options.jsonl) return printJsonl(rows);
     if (globals().json) return printList(rows.length, rows);
     const name = (row: Record<string, any>): string =>
@@ -738,14 +758,14 @@ const tagsCommand = program
   .command('tags')
   .description('프로젝트 태그와 기본 표시(#)의 붙는 곳(대사·자료·용어집), 종류, 색, 쓰인 대사·항목 수. 태그는 붙는 곳에만 붙일 수 있고 다른 곳은 거절됩니다')
   .action(async () => {
-    type Entry = { name: string; color: string; places: string[]; builtin: boolean; lines: number; items: number; id: string; role?: string | null; description?: string };
+    type Entry = { name: string; color: string; places: string[]; lines: number; items: number; id: string; description?: string };
     const data = await readTool<{ tags: Entry[]; marks: Entry[] }>('list_tags');
     if (globals().json) return print(data);
-    const row = (entry: Entry, kind: string) => console.log(`  #${entry.name}  ·  붙는 곳 ${entry.places.join('·')}  ·  ${kind}  ·  ${entry.color}  ·  대사 ${entry.lines} · 자료 ${entry.items}${entry.description ? `  ·  ${entry.description}` : ''}`);
+    const row = (entry: Entry) => console.log(`  #${entry.name}  ·  붙는 곳 ${entry.places.join('·')}  ·  ${entry.color}  ·  대사 ${entry.lines} · 자료 ${entry.items}${entry.description ? `  ·  ${entry.description}` : ''}`);
     console.log('태그');
-    for (const tag of data.tags) row(tag, tag.builtin ? '기본' : '내 태그');
-    console.log('\n자동 표시 (앱이 대본에서 읽는 사실. 붙이는 게 아니라 조건으로 필터·실행 범위에 씁니다)');
-    for (const mark of data.marks) row({ ...mark, name: mark.name }, '자동');
+    for (const tag of data.tags) row(tag);
+    console.log('\n자동 태그 (앱이 상태를 보고 스스로 붙였다 떼는 태그. 붙이거나 뗄 수 없고 필터·조건·실행 범위에서 고릅니다)');
+    for (const mark of data.marks) row(mark);
   });
 
 tagsCommand
@@ -1045,10 +1065,14 @@ runs
   .option('--view <보기>', '대사 그래프의 저장된 보기(이름·id) 안의 대사만')
   .option('--section <sections...>', '구역(장·출처)의 장면·묶음만')
   .option('-s, --speaker <names...>', '이 화자의 대사만 (이름·별칭·화자 키)')
-  .option('--listener <names...>', '이 청자에게 하는 대사만 (- = 청자 미상)')
+  .option('--listener <names...>', '이 청자에게 하는 대사만 (- = 청자 모름)')
+  .option('--unfinished', '상태가 최종이 아닌 대사만')
+  .option('--noted', '메모가 있는 대사만')
+  .addOption(new Option('--by <누구>', '정한 쪽: ai = AI가 정하고 사람이 아직 안 봄(✦), human = 사람이 정함').choices(DECIDED_BY))
+  .option('--empty-target', '용어 입력 워크플로만: 번역어가 비어 있는 용어만')
   .option('--kind <kinds...>', '대사 종류만 (dialogue, ui …)')
   .option('-q, --q <글자>', '원문에 이 글자가 있는 대사만')
-  .action(async (workflow: string, options: { group?: string[]; key?: string[]; mark?: string[]; tag?: string[]; term?: string[]; status?: string[]; model?: string[]; view?: string; section?: string[]; speaker?: string[]; listener?: string[]; kind?: string[]; q?: string }) => {
+  .action(async (workflow: string, options: { group?: string[]; key?: string[]; mark?: string[]; tag?: string[]; term?: string[]; status?: string[]; model?: string[]; view?: string; section?: string[]; speaker?: string[]; listener?: string[]; kind?: string[]; q?: string; unfinished?: boolean; noted?: boolean; by?: DecidedBy; emptyTarget?: boolean }) => {
     const groups = await sectionGroups(options.section, options.group);
     const keys = options.view ? (await viewLines(options.view)).map((row) => row.key).filter((key) => !options.key || options.key.includes(key)) : options.key;
     if (keys && !keys.length) throw new CliError('고른 대사가 보기에 없습니다.');
@@ -1063,7 +1087,7 @@ runs
       pace: { seconds: number | null; costUsd: number | null; subscription: boolean };
       load: { runs: number; max: number; added: number };
       readiness: { dialogueLines: number; unknownListenerLines: number; candidateRules: Names; candidateTerms: Names; pairsWithoutRule: { count: number; examples: string[] } };
-    }>('plan_run', { workflow, groups, keys, tags: options.tag, marks: options.mark, terms: options.term, statuses: options.status, speakers: options.speaker, listeners: options.listener, kinds: options.kind, q: options.q, models: runModels(options.model) });
+    }>('plan_run', { workflow, groups, keys, tags: options.tag, marks: options.mark, terms: options.term, statuses: options.status, speakers: options.speaker, listeners: options.listener, kinds: options.kind, q: options.q, unfinished: options.unfinished || undefined, noted: options.noted || undefined, decidedBy: options.by, emptyTarget: options.emptyTarget || undefined, models: runModels(options.model) });
     if (globals().json) return print(data);
     const range = (value: { min: number; expected: number | null; max: number }) => (value.expected !== null ? `약 ${value.expected.toLocaleString()} (${value.min.toLocaleString()}~${value.max.toLocaleString()})` : `${value.min.toLocaleString()}~${value.max.toLocaleString()}`);
     console.log(`${data.workflow.name} 실행 미리보기`);
@@ -1077,7 +1101,7 @@ runs
     if (terms) return console.log('\n용어 입력 워크플로는 청자·말투 규칙 준비 상태를 보지 않습니다. 시작 전 loca terms로 대상 용어를 확인하세요.');
     const ready = data.readiness;
     console.log('\n준비 상태');
-    console.log(`  청자 미상 대사 ${ready.unknownListenerLines.toLocaleString()} / 청자가 필요한 대사 ${ready.dialogueLines.toLocaleString()}${ready.unknownListenerLines ? '   → loca lines --mark unknownListener' : ''}`);
+    console.log(`  청자 모름 대사 ${ready.unknownListenerLines.toLocaleString()} / 청자가 필요한 대사 ${ready.dialogueLines.toLocaleString()}${ready.unknownListenerLines ? '   → loca lines --mark unknownListener' : ''}`);
     const list = (entry: Names) => `${entry.names.slice(0, 8).join(', ')}${entry.count > Math.min(8, entry.names.length) ? ` 외 ${entry.count - Math.min(8, entry.names.length)}개` : ''}`;
     console.log(`  후보 말투 규칙 ${ready.candidateRules.count}개${ready.candidateRules.count ? `: ${list(ready.candidateRules)}   → loca knowledge speech-rules --status 후보` : ''}`);
     console.log(`  후보 용어 ${ready.candidateTerms.count}개${ready.candidateTerms.count ? `: ${list(ready.candidateTerms)}   → loca terms --status 후보` : ''}`);
@@ -1097,13 +1121,17 @@ runs
   .option('--view <보기>', '대사 그래프의 저장된 보기(이름·id) 안의 대사만')
   .option('--section <sections...>', '구역(장·출처)의 장면·묶음만')
   .option('-s, --speaker <names...>', 'plan과 같은 화자 조건')
-  .option('--listener <names...>', 'plan과 같은 청자 조건 (- = 청자 미상)')
+  .option('--listener <names...>', 'plan과 같은 청자 조건 (- = 청자 모름)')
+  .option('--unfinished', 'plan과 같은 최종 아님 조건')
+  .option('--noted', 'plan과 같은 메모 조건')
+  .addOption(new Option('--by <누구>', '정한 쪽: ai = AI가 정하고 사람이 아직 안 봄(✦), human = 사람이 정함').choices(DECIDED_BY))
+  .option('--empty-target', 'plan과 같은 번역어 비어 있음 조건')
   .option('--kind <kinds...>', 'plan과 같은 대사 종류 조건')
   .option('-q, --q <글자>', 'plan과 같은 원문 글자 조건')
   .option('--rerun-errors <실행id>', '그 실행에서 실패했거나 오류 출구로 빠진 대사·용어만 (다른 범위 조건과 함께 쓰면 모두 만족)')
   .option('--wait', '(제안이면 결정을 기다린 뒤) 실행이 끝날 때까지 기다리고 요약. 깨끗하게 끝나지 않으면 종료 코드 1')
   .option('--timeout <분>', '--wait을 이만큼만')
-  .action(async (ref: string, options: { group?: string[]; key?: string[]; mark?: string[]; tag?: string[]; term?: string[]; status?: string[]; model?: string[]; view?: string; section?: string[]; speaker?: string[]; listener?: string[]; kind?: string[]; q?: string; rerunErrors?: string; wait?: boolean; timeout?: string }) => {
+  .action(async (ref: string, options: { group?: string[]; key?: string[]; mark?: string[]; tag?: string[]; term?: string[]; status?: string[]; model?: string[]; view?: string; section?: string[]; speaker?: string[]; listener?: string[]; kind?: string[]; q?: string; unfinished?: boolean; noted?: boolean; by?: DecidedBy; emptyTarget?: boolean; rerunErrors?: string; wait?: boolean; timeout?: string }) => {
     const workflow = await resolveWorkflow(ref);
     const groupIds = options.section?.length ? await sectionGroups(options.section, options.group) : (await resolveGroups(options.group))?.map((group) => group.id);
     let unitIds: string[] | undefined;
@@ -1129,7 +1157,7 @@ runs
     const tagIds = options.tag?.length
       ? (await readTool<{ tags: { id: string; name: string }[] }>('list_tags')).tags.filter((tag) => options.tag!.includes(tag.name)).map((tag) => tag.id)
       : undefined;
-    const outcome = await proposeTool('start_run', { workflowId: workflow.id, groupIds, unitIds, tagIds, marks: options.mark, termIds, statuses: options.status, speakers: options.speaker, listeners: options.listener, kinds: options.kind, q: options.q, models: runModels(options.model) });
+    const outcome = await proposeTool('start_run', { workflowId: workflow.id, groupIds, unitIds, tagIds, marks: options.mark, termIds, statuses: options.status, speakers: options.speaker, listeners: options.listener, kinds: options.kind, q: options.q, unfinished: options.unfinished || undefined, noted: options.noted || undefined, decidedBy: options.by, emptyTarget: options.emptyTarget || undefined, models: runModels(options.model) });
     await followRun(outcome, options, '실행 시작');
   });
 
@@ -1148,14 +1176,6 @@ graph
   .description('두 대사 사이의 선을 지우는 제안 올리기')
   .action(async (from: string, to: string) => {
     printOutcome(await proposeTool('link_lines', { from, to, action: 'unlink' }), '선 지우기');
-  });
-
-graph
-  .command('link-scenes <from장면> <to장면>')
-  .description('장면 A의 마지막 대사 → 장면 B의 첫 대사로 선을 잇는 제안 올리기 (장면은 키·id·제목). --unlink이면 두 장면을 바로 잇는 선을 지웁니다')
-  .option('--unlink', '잇지 않고 끊기')
-  .action(async (from: string, to: string, options: { unlink?: boolean }) => {
-    printOutcome(await proposeTool('link_scenes', { pairs: [{ from, to }], action: options.unlink ? 'unlink' : 'link' }), '장면 잇기');
   });
 
 graph

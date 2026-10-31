@@ -8,6 +8,7 @@ import { snapshotWorkflowModels } from '../services/routes.ts';
 import { memoryStore } from '../services/secrets.ts';
 import { Runner, type ModelPort } from './runner.ts';
 import { createRun } from './run-create.ts';
+import { issueTagIds } from '../services/issue-tags.ts';
 
 const person = (name: string, extra: Record<string, unknown> = {}) => ({ name, aliases: [], newFacts: [], newSpeech: [], player: false, gender: 'unknown', ageBand: 'unknown', role: 'unknown', evidence: [], ...extra });
 
@@ -25,11 +26,10 @@ describe('인물·관계 추출 template, end to end', () => {
       { projectId, name: 'KAI', profile: '옛 AI 프로필', origin: 'ai', statusBy: 'ai' },
     ]).run();
     db.insert(s.speechRules).values({ projectId, fromName: 'MIRA', toName: 'group', level: 'haeyo', startKey: null, origin: 'human', statusBy: 'human', status: 'confirmed' }).run();
-    const aiFailed = db.select().from(s.tags).where(eq(s.tags.role, 'aiFailed')).get()!;
-    const template = peopleRelationsTemplate({ model: choice, aiFailedTag: aiFailed.id });
+    const template = peopleRelationsTemplate({ model: choice, issueTags: issueTagIds(db, projectId) });
     // One request per scene (two lines each).
     const definition = workflowDefinitionSchema.parse({ ...template, nodes: template.nodes.map((node) => (node.id === 'people' && node.type === 'ai' ? { ...node, config: { ...node.config, batch: { mode: 'count', size: 2 } } } : node)) });
-    const refs = { statusIds: new Set<string>(), tagIds: new Set([aiFailed.id]), connections: new Set([choice.connectionId]) } as never;
+    const refs = { statusIds: new Set<string>(), tagIds: new Set(Object.values(issueTagIds(db, projectId))), connections: new Set([choice.connectionId]) } as never;
     expect(validateWorkflow(definition, refs).filter((issue) => issue.level === 'error')).toEqual([]);
     const workflow = db.insert(s.workflows).values({ projectId, name: '인물·관계 추출', definition }).returning().get();
     const { runId } = createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, definition), scope: {} });
@@ -109,8 +109,7 @@ describe('인물·관계 추출 template, end to end', () => {
     const units = groups.flatMap((group) => ['KAI', 'MIRA'].map((speaker, n) => ({ key: `${group.key}-${n}`, group: group.key, speaker, source: `${speaker} says ${group.key}` })));
     const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Pairs' }, groups, units }), choice);
     db.insert(s.characters).values([{ projectId, name: 'MIRA', status: 'confirmed' }, { projectId, name: 'KAI', status: 'confirmed' }]).run();
-    const aiFailed = db.select().from(s.tags).where(eq(s.tags.role, 'aiFailed')).get()!;
-    const template = peopleRelationsTemplate({ model: choice, aiFailedTag: aiFailed.id });
+    const template = peopleRelationsTemplate({ model: choice, issueTags: issueTagIds(db, projectId) });
     const definition = workflowDefinitionSchema.parse({
       ...template,
       nodes: template.nodes.map((node) => (node.id === 'people' && node.type === 'ai' ? { ...node, config: { ...node.config, batch: { mode: 'count', size: 2 }, context: { ...node.config.context, pairMinTurns: 1 } } } : node)),
@@ -147,9 +146,7 @@ describe('인물·관계 추출 template, end to end', () => {
     const rows = db.select().from(s.relationships).where(eq(s.relationships.projectId, projectId)).all();
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ kind: UNRESOLVED_RELATIONSHIP_KIND, description: '대사에 근거 없음', status: 'candidate', statusBy: 'ai', origin: 'ai' });
-    const marks = db.select().from(s.knowledgeTags).where(eq(s.knowledgeTags.itemId, rows[0]!.id)).all();
-    expect(marks).toHaveLength(1);
-    expect(marks[0]!.note).toContain('대사에 근거 없음');
+    expect(rows[0]!.reviewNote).toContain('대사에 근거 없음');
     const saved = db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all().flatMap((item) => (item.data.outputs?.['save-relationships'] ? [item.data.outputs['save-relationships'] as Record<string, unknown>] : []));
     expect(saved[0]).toMatchObject({ applied: true, unresolvedPairs: { added: 1, kept: 0, notPerson: 1, dropped: 1 }, droppedPairs: ['MIRA ↔ Door: 대사에 근거 없음'] });
   });

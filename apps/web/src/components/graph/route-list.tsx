@@ -91,7 +91,6 @@ function RouteLineRow({ projectId, row, selected, status, statusList, rules, tag
   );
 
   const attachedTags = row.tagIds ? tags.filter((tag) => row.tagIds.includes(tag.id)) : [];
-  const orderedTags = [...attachedTags.filter((tag) => tag.role), ...attachedTags.filter((tag) => !tag.role)];
 
   const handleToggleTag = (tagId: string, add: boolean) => {
     const nextTagIds = add ? [...row.tagIds, tagId] : row.tagIds.filter((id) => id !== tagId);
@@ -110,7 +109,7 @@ function RouteLineRow({ projectId, row, selected, status, statusList, rules, tag
   const marks = (
     <Inline wrap gap="tight" marginTop="tight" role="group" aria-label="이 줄의 태그" onClick={(event) => event.stopPropagation()}>
       <TagListEditor
-        tags={orderedTags}
+        tags={attachedTags}
         allTags={tags}
         onToggle={handleToggleTag}
         onCreate={handleCreateTag}
@@ -119,9 +118,9 @@ function RouteLineRow({ projectId, row, selected, status, statusList, rules, tag
     </Inline>
   );
 
-  const tagRow = orderedTags.length > 0 ? (
+  const tagRow = attachedTags.length > 0 ? (
     <Stack direction="row" wrap gap="tight" marginTop="tight" role="group" aria-label="이 줄의 태그">
-      {orderedTags.map((tag) => (
+      {attachedTags.map((tag) => (
         <TagChip key={tag.id} tag={tag} />
       ))}
     </Stack>

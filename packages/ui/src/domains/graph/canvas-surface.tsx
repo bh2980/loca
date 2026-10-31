@@ -24,18 +24,19 @@ export function CanvasSurface({ grow = true, fill, ...props }: Omit<ComponentPro
 export function CanvasOverlay({ tools, details }: { tools: ReactNode; details?: ReactNode }) {
   return (
     <div className="pointer-events-none absolute inset-x-3 top-3 z-30 flex flex-col items-start gap-2">
-      <div className="flex w-fit max-w-full min-w-0 flex-wrap items-start gap-2 pointer-events-auto">{tools}</div>
-      {details && <div className="flex max-w-full flex-col items-start gap-2 pointer-events-auto">{details}</div>}
+      {/* Only the controls take the pointer: the empty room between and beside them (a wrapped row) lets clicks through to the canvas. */}
+      <div className="pointer-events-none flex w-fit max-w-full min-w-0 flex-wrap items-start gap-2 [&>*]:pointer-events-auto">{tools}</div>
+      {details && <div className="pointer-events-none flex max-w-full flex-col items-start gap-2 [&>*]:pointer-events-auto">{details}</div>}
     </div>
   )
 }
 
 /**
  * A slot over a canvas that starts at its top-left corner, invisible; the screen measures its content, then places it with a
- * transform and shows it (a selection toolbar, a context anchor).
+ * transform and shows it (a selection toolbar, a context anchor). `raised` puts it over the canvas's own overlays (the card being worked in).
  */
-export function CanvasFloat(props: Omit<BoxProps, "className">) {
-  return <Box className="absolute top-0 left-0 z-20 opacity-0" {...props} />
+export function CanvasFloat({ raised, ...props }: Omit<BoxProps, "className"> & { raised?: boolean }) {
+  return <Box className={raised ? "absolute top-0 left-0 z-40 opacity-0" : "absolute top-0 left-0 z-20 opacity-0"} {...props} />
 }
 
 /** The list of nodes found by the canvas's search box, dropping down under it. */

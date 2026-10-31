@@ -1,5 +1,5 @@
 /** Bulk actions on the picked lines: the picks, their mutations, and the head row that offers them. */
-import { useMemo, useRef, useState, type ComponentProps } from 'react';
+import { useMemo, useState, type ComponentProps } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check } from 'lucide-react';
 import { toast } from 'sonner';
@@ -13,26 +13,21 @@ import { usePicked } from '@/lib/use-picked';
 /** Lines picked by their checkboxes, and the bulk changes the head row makes to them (each shown at once, undone if the server refuses). */
 type SelectionRow = { id: string; tagIds: string[]; statusBy: string };
 
-export function useLineBulk({ projectId, pickKey, rows, selectionRows, tagName, marks }: { projectId: string; /** Names the list the picks belong to (scene or review box). */ pickKey: string; rows: SelectionRow[] | undefined; /** Metadata for every line in the current unpaged filter, so selections beyond the visible page keep correct bulk state. */ selectionRows?: SelectionRow[]; tagName: (tagId: string) => string | undefined; marks: readonly string[] | undefined }) {
+export function useLineBulk({ projectId, pickKey, rows, selectionRows, tagName, aiOnly }: { projectId: string; /** Names the list the picks belong to (scene or review box). */ pickKey: string; rows: SelectionRow[] | undefined; /** Metadata for every line in the current unpaged filter, so selections beyond the visible page keep correct bulk state. */ selectionRows?: SelectionRow[]; tagName: (tagId: string) => string | undefined; /** The list shows only lines the AI decided (정한 쪽 AI): 확인함 empties it. */ aiOnly: boolean }) {
   const { picked, pick, clear: stopPicking } = usePicked(`script.${projectId}.${pickKey}`);
-  const knownTags = useRef(new Map<string, string[]>());
-  const knownStatusBy = useRef(new Map<string, string>());
-  useMemo(() => {
-    if (selectionRows) {
-      for (const row of selectionRows) {
-        knownTags.current.set(row.id, row.tagIds);
-        knownStatusBy.current.set(row.id, row.statusBy);
-      }
+  // Tags and who decided each line, from every list it has been in: picks can outlive the page they were made on.
+  const [known, setKnown] = useState<{ from: unknown[]; tags: Map<string, string[]>; statusBy: Map<string, string> }>(() => ({ from: [], tags: new Map(), statusBy: new Map() }));
+  if (known.from[0] !== rows || known.from[1] !== selectionRows) {
+    const tags = new Map(known.tags);
+    const statusBy = new Map(known.statusBy);
+    for (const row of [...(selectionRows ?? []), ...(rows ?? [])]) {
+      tags.set(row.id, row.tagIds);
+      statusBy.set(row.id, row.statusBy);
     }
-    if (rows) {
-      for (const row of rows) {
-        knownTags.current.set(row.id, row.tagIds);
-        knownStatusBy.current.set(row.id, row.statusBy);
-      }
-    }
-  }, [rows, selectionRows]);
+    setKnown({ from: [rows, selectionRows], tags, statusBy });
+  }
   const tagState = (tagId: string): 'all' | 'some' | 'none' => {
-    const flags = [...picked].map((id) => knownTags.current.get(id)?.includes(tagId) ?? false);
+    const flags = [...picked].map((id) => known.tags.get(id)?.includes(tagId) ?? false);
     return flags.every(Boolean) ? 'all' : flags.some(Boolean) ? 'some' : 'none';
   };
   const queryClient = useQueryClient();
@@ -59,10 +54,10 @@ export function useLineBulk({ projectId, pickKey, rows, selectionRows, tagName, 
     onError: undoOnError,
     onSuccess: (_data, unitIds) => {
       toast.success(`${unitIds.length}개 대사를 확인했습니다.`);
-      if (marks?.includes('ai')) stopPicking();
+      if (aiOnly) stopPicking();
     },
   });
-  const pickedByAi = useMemo(() => [...picked].filter((id) => knownStatusBy.current.get(id) === 'ai'), [picked]);
+  const pickedByAi = [...picked].filter((id) => known.statusBy.get(id) === 'ai');
   const setTag = useMutation({
     mutationFn: ({ tagId, add }: { tagId: string; add: boolean }) =>
       unwrap(client.projects[':projectId'].units.$patch({ param: { projectId }, json: add ? { unitIds: [...picked], addTagIds: [tagId] } : { unitIds: [...picked], removeTagIds: [tagId] } })),

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ATTACH_KINDS } from '@tw/shared';
-import { allCommands, filterCommands, findAtTrigger, findSlashTrigger, insertAt, narrowAtTrigger, openNextTarget, parseAtQuery, removeAtTrigger, replaceAtTrigger } from './chat-triggers';
+import { allCommands, filterCommands, findAtTrigger, findSlashTrigger, narrowAtTrigger, openNextTarget, parseAtQuery, removeAtTrigger, replaceAtTrigger } from './chat-triggers';
 
 describe('@ trigger', () => {
   it('opens at the start of the box and after whitespace, with the query so far', () => {
@@ -32,12 +32,6 @@ describe('@ trigger', () => {
   it('removes the @query it replaced, without leaving a double space', () => {
     expect(removeAtTrigger('이 @미라 를', { start: 2, query: '미라' }, 5)).toEqual({ value: '이 를', caret: 2 });
     expect(removeAtTrigger('@a', { start: 0, query: 'a' }, 2)).toEqual({ value: '', caret: 0 });
-  });
-  it('the paperclip inserts an @ that opens the picker, after a space when inside a word', () => {
-    expect(insertAt('', 0)).toEqual({ value: '@', caret: 1 });
-    expect(insertAt('abc', 3)).toEqual({ value: 'abc @', caret: 5 });
-    expect(insertAt('abc ', 4)).toEqual({ value: 'abc @', caret: 5 });
-    expect(findAtTrigger(insertAt('abc', 3).value, 5)).not.toBeNull();
   });
 });
 

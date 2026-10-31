@@ -5,10 +5,11 @@ import { and, asc, count, desc, eq, gt, inArray, like, lt, ne, notInArray, notLi
 import { z } from 'zod';
 import { createGroupSchema, updateGroupSchema, createUnitSchema, updateUnitSchema, isSpecialListener, LINE_TRANSLATE, type NodeType } from '@tw/shared';
 import { createGroup, updateGroup, deleteGroup, createUnit, updateUnit, deleteUnits } from '../services/source-mutations.ts';
-import { deleteNodes, duplicateNodes, edgeDetail, insertLineAfter, linkInOrder, linkNodes, linkScenes, nodeByKey, undoGraphEdit, unlinkEdges, unlinkScenes } from '../services/graph-edit.ts';
+import { deleteNodes, duplicateNodes, edgeDetail, insertLineAfter, linkInOrder, linkNodes, nodeByKey, undoGraphEdit, unlinkEdges } from '../services/graph-edit.ts';
 import { attachUnitTags } from '../services/tag-scope.ts';
 import { assertProjectRefs } from '../services/project-refs.ts';
 import { LineConflict, saveLine, saveSameText, saveStatuses } from '../services/line-save.ts';
+import { declineSuggestion } from '../services/candidates.ts';
 import { refusesListener, setHumanListener } from '../services/listeners.ts';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
@@ -25,8 +26,8 @@ import { routeCoverage, throughPicks } from '../services/route-coverage.ts';
 import { seamDetail, seamLines, seamNodes, seamStates } from '../services/seam-check.ts';
 import { lineMatches } from '../services/line-matches.ts';
 import { lineTextFilter } from '../services/line-text.ts';
-import { lineMarksSchema } from '@tw/shared';
-import { excludedSql, hiddenMarkConditions, knownListenerSql, markConditions, sameSource, translatableSql } from '../services/line-marks.ts';
+import { DECIDED_BY, EXCLUDED_FILTERS, lineMarksSchema } from '@tw/shared';
+import { excludedSql, hiddenMarkConditions, knownListenerSql, lineFactConditions, markConditions, sameSource, translatableSql, unknownListenerSql } from '../services/line-marks.ts';
 import { CompleteRefused, completeLine } from '../services/editor-complete.ts';
 import { assistLine } from '../services/editor-assist.ts';
 import { describeRule, knownListener as knownListenerOf, speechRuleIndex } from '../services/speech.ts';
@@ -50,8 +51,16 @@ const listQuery = z.object({
   hideSpeakers: NAMES,
   hideTagIds: z.string().optional(),
   hideMarks: z.string().optional().transform((value) => value?.split(',').filter(Boolean)).pipe(lineMarksSchema.optional()),
-  /** A character name (a known listener). */
+  /** A character name (a known listener), or "-" for 청자 모름. */
   listener: z.string().optional(),
+  /** 최종 아님 (1) or 최종 (0). */
+  unfinished: z.enum(['1', '0']).optional(),
+  /** 정한 쪽: ai (✦) or human. */
+  decidedBy: z.enum(DECIDED_BY).optional(),
+  /** 메모 있음 (1) or 없음 (0). */
+  noted: z.enum(['1', '0']).optional(),
+  /** 번역 제외: hide or only them; absent = with the rest. */
+  excluded: z.enum(EXCLUDED_FILTERS).optional(),
   /** Only lines whose status is shown in the review inbox. */
   review: z.enum(['1']).optional(),
   /** Automatic marks, comma-separated: lines carrying every one of them (line-marks.ts). */
@@ -76,7 +85,8 @@ function unitConditions(projectId: string, query: Omit<z.infer<typeof listQuery>
   if (ids(query.hideStatusIds).length) conditions.push(notInArray(s.units.statusId, ids(query.hideStatusIds)));
   if (query.hideSpeakers?.length) conditions.push(sql`coalesce(${s.units.speaker}, '') not in (select value from json_each(${JSON.stringify(query.hideSpeakers)}))`);
   for (const tagId of ids(query.hideTagIds)) conditions.push(sql`${s.units.id} not in (select unit_id from ${s.unitTags} where tag_id = ${tagId})`);
-  if (query.listener) conditions.push(and(eq(s.units.listener, query.listener), knownListenerSql)!);
+  if (query.listener) conditions.push(query.listener === '-' ? unknownListenerSql(projectId) : and(eq(s.units.listener, query.listener), knownListenerSql)!);
+  conditions.push(...lineFactConditions(projectId, { unfinished: query.unfinished && query.unfinished === '1', decidedBy: query.decidedBy, noted: query.noted && query.noted === '1', excluded: query.excluded }));
   if (query.review) conditions.push(sql`${s.units.statusId} in (select id from ${s.statuses} where ${s.statuses.projectId} = ${projectId} and ${s.statuses.inReview} = 1)`);
   conditions.push(...markConditions(projectId, query.marks), ...hiddenMarkConditions(projectId, query.hideMarks));
   return and(...conditions)!;
@@ -128,10 +138,10 @@ const unitColumns = {
 };
 
 
-/** The list's rows with their scene, candidate origin, tags and latest run note; script order, optionally one page. */
+/** The list's rows with their scene, candidate origin, whether an AI 제안 waits, tags and latest run note; script order, optionally one page. */
 function unitRows(db: Db, where: SQL, page?: { limit: number; offset: number }) {
   const query = db
-    .select({ ...unitColumns, groupTitle: s.groups.title, groupKind: s.groups.kind, origin: s.candidates.origin, model: s.candidates.model })
+    .select({ ...unitColumns, groupTitle: s.groups.title, groupKind: s.groups.kind, origin: s.candidates.origin, model: s.candidates.model, suggested: sql`exists (select 1 from ${s.candidates} c where c.unit_id = ${s.units.id} and c.state = 'pending')`.mapWith(Boolean) })
     .from(s.units)
     .innerJoin(s.groups, eq(s.groups.id, s.units.groupId))
     .leftJoin(s.candidates, eq(s.candidates.id, s.units.candidateId))
@@ -173,6 +183,15 @@ function graphSections(db: Db, projectId: string, direction: LayoutDirection) {
   return sections;
 }
 
+/**
+ * The nodes a stored layout draws: its own, and those shown through its blocks (a straight run) and edges (a choice); null for the
+ * whole graph (every node). Portals are stand-ins, not nodes.
+ */
+function layoutNodeIds(raw: string, section: string): string[] | null {
+  const parsed = section && raw !== 'null' ? (JSON.parse(raw) as s.LayoutData) : null;
+  return parsed ? [...parsed.nodes.map((node) => node.id).filter((id) => !id.startsWith('portal:')), ...(parsed.chains ?? []).flatMap((chain) => chain.nodeIds), ...parsed.edges.flatMap((edge) => (edge.via ? [edge.via] : []))] : null;
+}
+
 export const sourceRoutes = new Hono<Env>()
   .post('/projects/:projectId/groups', validate('json', createGroupSchema), (c) => c.json(createGroup(c.var.deps.db, c.req.param('projectId'), c.req.valid('json')), 201))
   .patch('/projects/:projectId/groups/:groupId', validate('json', updateGroupSchema), (c) => c.json(updateGroup(c.var.deps.db, c.req.param('projectId'), c.req.param('groupId'), c.req.valid('json'))))
@@ -194,7 +213,7 @@ export const sourceRoutes = new Hono<Env>()
     const unknownCount = db
       .select({ count: count() })
       .from(s.units)
-      .where(and(eq(s.units.projectId, projectId), ...markConditions(projectId, ['unknownListener'])))
+      .where(and(eq(s.units.projectId, projectId), unknownListenerSql(projectId)))
       .get()!.count;
     return c.json({ listeners, unknownCount });
   })
@@ -217,12 +236,12 @@ export const sourceRoutes = new Hono<Env>()
     const excluded = new Map(
       db.select({ groupId: s.units.groupId, count: count() }).from(s.units).where(and(eq(s.units.projectId, projectId), excludedSql(projectId))).groupBy(s.units.groupId).all().map((row) => [row.groupId, row.count]),
     );
-    // Lines whose listener is still unknown (the #청자 미상 mark): where speech rules cannot apply yet.
+    // Lines whose listener is still unknown (청자 모름): where speech rules cannot apply yet.
     const unknown = new Map(
       db
         .select({ groupId: s.units.groupId, count: count() })
         .from(s.units)
-        .where(and(eq(s.units.projectId, projectId), ...markConditions(projectId, ['unknownListener'])))
+        .where(and(eq(s.units.projectId, projectId), unknownListenerSql(projectId)))
         .groupBy(s.units.groupId)
         .all()
         .map((row) => [row.groupId, row.count]),
@@ -443,6 +462,14 @@ export const sourceRoutes = new Hono<Env>()
     const saved = db.select({ translation: s.units.translation, statusId: s.units.statusId, candidateId: s.units.candidateId }).from(s.units).where(eq(s.units.id, unitId)).get()!;
     return c.json({ ok: true, ...saved });
   })
+  /** 거절: a person turns down a waiting AI 제안; it stays in the line's history. Taking one is a save with its candidateId. */
+  .post('/units/:unitId/candidates/:candidateId/decline', (c) => {
+    const { db } = c.var.deps;
+    const unit = found(db.select({ id: s.units.id, projectId: s.units.projectId }).from(s.units).where(eq(s.units.id, c.req.param('unitId'))).get(), '대사');
+    if (!declineSuggestion(db, unit.id, c.req.param('candidateId'))) return c.json({ error: '기다리는 AI 제안이 아닙니다.' }, 409);
+    events.changed(unit.projectId, 'units');
+    return c.json({ ok: true });
+  })
   .patch('/units/:unitId', validate('json', unitPatch), (c) => {
     const { db } = c.var.deps;
     const unitId = c.req.param('unitId');
@@ -620,6 +647,21 @@ export const sourceRoutes = new Hono<Env>()
     return c.json({ ok: true });
   })
   /** The dialogue graph's sections alone: the graph page needs them before it knows which layout to load. */
+  // The translation of each node's first line, apart from the graph itself: it changes with every save, the layout does not.
+  // (The web keys it under 'units', so a translation change refreshes it and the layout is not fetched again.)
+  .get('/projects/:projectId/graph/translations', validate('query', z.object({ section: z.string().optional(), direction: z.enum(['vertical', 'horizontal']).default('vertical') })), (c) => {
+    const { db } = c.var.deps;
+    const projectId = c.req.param('projectId');
+    const { section = '', direction } = c.req.valid('query');
+    const raw = db.select({ data: sql<string | null>`${s.graphLayouts.data}` }).from(s.graphLayouts).where(and(eq(s.graphLayouts.projectId, projectId), eq(s.graphLayouts.scope, 'dialogue'), eq(s.graphLayouts.section, section), eq(s.graphLayouts.direction, direction))).get()?.data ?? 'null';
+    const only = layoutNodeIds(raw, section);
+    const rows = db
+      .select({ id: s.graphNodes.id, translation: sql<string | null>`(select nullif(substr(trim(u.translation), 1, 120), '') from units u where u.id = json_extract("graph_nodes"."unit_ids", '$[0]'))` })
+      .from(s.graphNodes)
+      .where(and(eq(s.graphNodes.projectId, projectId), only ? inList(s.graphNodes.id, only) : undefined))
+      .all();
+    return c.json(Object.fromEntries(rows.flatMap((row) => (row.translation ? [[row.id, row.translation] as const] : []))));
+  })
   .get('/projects/:projectId/graph/sections', validate('query', z.object({ direction: z.enum(['vertical', 'horizontal']).default('vertical') })), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
@@ -669,9 +711,7 @@ export const sourceRoutes = new Hono<Env>()
     // 50k-node layout (15 MB) held the server for a quarter of a second. A section's layout is
     // small, so its node ids are read from it to send only that section's nodes.
     const raw = db.select({ data: sql<string | null>`${s.graphLayouts.data}` }).from(s.graphLayouts).where(where).get()?.data ?? 'null';
-    // Nodes folded into a straight run or into an edge (a choice) are not layout nodes but are shown through them: send them too.
-    const parsed = section && raw !== 'null' ? (JSON.parse(raw) as s.LayoutData) : null;
-    const only = parsed ? [...parsed.nodes.map((node) => node.id).filter((id) => !id.startsWith('portal:')), ...(parsed.chains ?? []).flatMap((chain) => chain.nodeIds), ...parsed.edges.flatMap((edge) => (edge.via ? [edge.via] : []))] : null;
+    const only = layoutNodeIds(raw, section);
     // One preview line per node keeps the payload small; details load on selection.
     const nodes = db
       .select({
@@ -704,11 +744,6 @@ export const sourceRoutes = new Hono<Env>()
   )
   .get('/projects/:projectId/graph/edges/:edgeId', (c) => c.json(edgeDetail(c.var.deps.db, c.req.param('projectId'), c.req.param('edgeId'))))
   .post('/projects/:projectId/graph/edges/delete', validate('json', z.object({ ids: z.array(z.string().min(1)).min(1) })), (c) => c.json(unlinkEdges(c.var.deps.db, c.req.param('projectId'), c.req.valid('json').ids)))
-  // Scene connections are dialogue-graph lines (A's last line → B's first line), so these edit that graph.
-  .post('/projects/:projectId/graph/scene-links', validate('json', z.object({ fromGroupId: z.string().min(1), toGroupId: z.string().min(1) })), (c) =>
-    c.json(linkScenes(c.var.deps.db, c.req.param('projectId'), { ...c.req.valid('json'), origin: 'human' })),
-  )
-  .post('/projects/:projectId/graph/scene-links/delete', validate('json', z.object({ fromGroupId: z.string().min(1), toGroupId: z.string().min(1) })), (c) => c.json(unlinkScenes(c.var.deps.db, c.req.param('projectId'), c.req.valid('json'))))
   .post('/projects/:projectId/graph/link-in-order', validate('json', z.object({ groupIds: z.array(z.string().min(1)).max(5000).optional(), nodeIds: z.array(z.string().min(1)).max(20000).optional() }).refine((v) => v.groupIds?.length || v.nodeIds?.length, '장면이나 노드를 하나 이상 고르세요.')), (c) =>
     c.json(linkInOrder(c.var.deps.db, c.req.param('projectId'), { ...c.req.valid('json'), origin: 'human' })),
   )

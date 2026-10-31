@@ -95,7 +95,8 @@ function AppStatusSettings() {
   ];
   const tagColumns: ColumnDef<TemplateTag, unknown>[] = [
     { id: 'name', header: '이름', meta: { width: 220, hideable: false }, cell: ({ row }) => <TagChip tag={row.original} /> },
-    { id: 'on', header: '붙는 곳', meta: { tone: 'muted' }, cell: ({ row }) => scopeLabel(row.original.scope) },
+    { id: 'on', header: '붙는 곳', meta: { width: 160, tone: 'muted' }, cell: ({ row }) => scopeLabel(row.original.scope) },
+    { id: 'description', header: '설명', meta: { tone: 'muted' }, cell: ({ row }) => row.original.description },
   ];
 
   const pane =

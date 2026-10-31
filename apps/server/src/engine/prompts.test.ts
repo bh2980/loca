@@ -118,3 +118,13 @@ describe('buildPrompt system message', () => {
     expect(without.system).not.toContain('talkingPairs');
   });
 });
+
+describe('a line in the prompt', () => {
+  it('is its body: the edges are the source\'s and go back on when the answer is saved', () => {
+    const edged: PromptLine[] = [{ id: '1', unitId: 'u1', groupId: 'g1', key: 'k1', kind: 'ui', speaker: null, source: 'GRAPHICS\n', candidate: '그래픽\n' }];
+    const { prompt } = buildPrompt(node({ output: 'text', include: { candidate: true } }), languages, context, edged);
+    expect(prompt).toContain('"source":"GRAPHICS"');
+    expect(prompt).not.toContain('GRAPHICS\\n');
+    expect(prompt).toContain('"candidate":"그래픽"');
+  });
+});

@@ -4,7 +4,7 @@ import { importFileSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from './importer.ts';
-import { deleteNodes, duplicateNodes, insertLineAfter, linkInOrder, linkNodes, linkScenes, sceneByRef, undoGraphEdit, unlinkEdges, unlinkScenes } from './graph-edit.ts';
+import { deleteNodes, duplicateNodes, insertLineAfter, linkInOrder, linkNodes, sceneByRef, undoGraphEdit, unlinkEdges } from './graph-edit.ts';
 
 function setup() {
   const db = openDatabase(':memory:');
@@ -87,7 +87,7 @@ describe('editing the dialogue graph', () => {
 });
 
 
-describe('connecting scenes and linking in script order', () => {
+describe('linking in script order', () => {
   function scenes() {
     const db = openDatabase(':memory:');
     const { projectId } = importProject(
@@ -109,32 +109,6 @@ describe('connecting scenes and linking in script order', () => {
     };
     return { db, projectId, id, ways };
   }
-
-  it('links the last line of one scene to the first of the next, once, and undo takes it away', () => {
-    const { db, projectId, id, ways } = scenes();
-    const first = linkScenes(db, projectId, { fromGroupId: id('A'), toGroupId: id('B'), origin: 'human' });
-    expect(first.created).toBe(true);
-    expect(ways()).toEqual(['a3>b1']);
-    expect(linkScenes(db, projectId, { fromGroupId: id('A'), toGroupId: id('B'), origin: 'human' }).created).toBe(false);
-    expect(ways()).toEqual(['a3>b1']);
-    expect(() => linkScenes(db, projectId, { fromGroupId: id('A'), toGroupId: id('A'), origin: 'human' })).toThrow();
-    expect(undoGraphEdit(db, projectId, first.token)).toBe(true);
-    expect(ways()).toEqual([]);
-  });
-
-  it('unlinks only direct lines and explains when the link runs through other nodes', () => {
-    const { db, projectId, id, ways } = scenes();
-    linkScenes(db, projectId, { fromGroupId: id('A'), toGroupId: id('B'), origin: 'human' });
-    const removed = unlinkScenes(db, projectId, { fromGroupId: id('A'), toGroupId: id('B') });
-    expect(removed.deleted).toBe(1);
-    expect(ways()).toEqual([]);
-    expect(undoGraphEdit(db, projectId, removed.token!)).toBe(true);
-    expect(ways()).toEqual(['a3>b1']);
-    const none = unlinkScenes(db, projectId, { fromGroupId: id('B'), toGroupId: id('A') });
-    expect(none.deleted).toBe(0);
-    expect(none.message).toContain('대사 그래프');
-    expect(ways()).toEqual(['a3>b1']);
-  });
 
   it('links nodes in script order but never changes a node that already has a way in or out', () => {
     const { db, projectId, id, ways } = scenes();

@@ -12,6 +12,7 @@ import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { sourceRoutes } from '../routes/source.ts';
 import { importProject } from './importer.ts';
+import { registerMigrationFunctions } from '../db/index.ts';
 import { findLines } from './script-query.ts';
 
 const drizzleDir = path.resolve(import.meta.dirname, '../../drizzle');
@@ -73,6 +74,7 @@ describe('unit seq', () => {
     writeFileSync(journalPath, JSON.stringify({ ...journal, entries: journal.entries.filter((entry) => entry.idx < cut) }));
 
     const sqlite = new Database(':memory:');
+    registerMigrationFunctions(sqlite);
     sqlite.pragma('foreign_keys = ON');
     const db = drizzle(sqlite);
     migrate(db, { migrationsFolder: previous });

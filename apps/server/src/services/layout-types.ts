@@ -3,8 +3,12 @@ export type LayoutDirection = 'vertical' | 'horizontal';
 
 export interface LayoutJob {
   direction?: LayoutDirection;
-  /** `group`: the node's scene, for dialogue layouts (straight runs are folded within one scene). */
-  nodes: { id: string; width: number; height: number; group?: string | null; keep?: boolean }[];
+  /**
+   * `group`: the node's scene, for dialogue layouts (straight runs are folded within one scene).
+   * `rank`: the node's place in the script (script-rank.ts); ELK walks nodes in this order, so it
+   * is where a loop is entered.
+   */
+  nodes: { id: string; width: number; height: number; group?: string | null; keep?: boolean; rank?: number }[];
   /** `label`: what the edge says (a choice's text); `via`: the choice node folded into it. */
   edges: { id: string; from: string; to: string; label?: string; via?: string }[];
   /**

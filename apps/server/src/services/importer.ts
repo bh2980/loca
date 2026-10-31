@@ -1,4 +1,4 @@
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { detectFormatRules, templateStatusIds, type DraftModelChoice, type ImportFile } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import { copyKeys, seedProject, type KeyCopy } from './app-defaults.ts';
@@ -111,7 +111,7 @@ export function importProject(db: Db, file: ImportFile, model: DraftModelChoice 
     // Tags from the game data: one project tag per distinct name.
     const tagNames = [...new Set(file.units.flatMap((unit) => unit.tags))];
     if (tagNames.length) {
-      const ownTag = (name: string) => tx.select({ id: s.tags.id }).from(s.tags).where(and(eq(s.tags.projectId, projectId), eq(s.tags.name, name), isNull(s.tags.role))).get()?.id;
+      const ownTag = (name: string) => tx.select({ id: s.tags.id }).from(s.tags).where(and(eq(s.tags.projectId, projectId), eq(s.tags.name, name))).get()?.id;
       const tagIds = new Map(tagNames.map((name, index) => [name, ownTag(name) ?? tx.insert(s.tags).values({ projectId, name, color: TAG_COLORS[index % TAG_COLORS.length] }).returning({ id: s.tags.id }).get().id]));
       const unitsOf = new Map<string, string[]>();
       for (const unit of file.units) for (const name of unit.tags) unitsOf.set(name, [...(unitsOf.get(name) ?? []), unitIds.get(unit.key)!]);

@@ -213,7 +213,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
 function Table<T>({
   id,
   columns,
-  rows,
+  rows: givenRows,
   rowId,
   loading,
   empty,
@@ -232,6 +232,21 @@ function Table<T>({
   canPick,
 }: DataTableProps<T>) {
   const revealDock = useRevealDock()
+  // The order a drop asked for, kept until new rows arrive: the saved order reaches the rows a moment
+  // after the drop, and without this the row is drawn back in its old place for that moment.
+  // Pages may rebuild their row array on every render, so "new rows" means a different order of ids.
+  const [dropped, setDropped] = useState<{ before: string; order: string[] } | null>(null)
+  const rows = useMemo(() => {
+    if (!givenRows || !dropped || givenRows.map(rowId).join("\n") !== dropped.before) return givenRows
+    const at = new Map(dropped.order.map((key, index) => [key, index]))
+    return [...givenRows].sort((a, b) => (at.get(rowId(a)) ?? Infinity) - (at.get(rowId(b)) ?? Infinity))
+  }, [givenRows, dropped, rowId])
+  // Only a bridge: if the save failed the rows come back in their old order, and that order wins.
+  useEffect(() => {
+    if (!dropped) return
+    const timer = setTimeout(() => setDropped(null), 1500)
+    return () => clearTimeout(timer)
+  }, [dropped])
   const [sizing, setSizing] = useState<ColumnSizingState>(() => loadWidths(id))
   const [saved, setSaved] = useState<SavedColumns>(() => loadColumns(id))
   const defaultOrder = columns.map((column, index) => column.id ?? `col-${index}`)
@@ -249,8 +264,7 @@ function Table<T>({
         .filter((hidden) => !unhideable.has(hidden))
         .map((hidden) => [hidden, false])
     )
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [saved.hidden, defaultKey])
+  }, [saved.hidden, columns])
 
   const table = useReactTable({
     data: rows ?? [],
@@ -327,7 +341,8 @@ function Table<T>({
 
   const resetWidth = (columnId: string) =>
     table.setColumnSizing((previous) => {
-      const { [columnId]: _dropped, ...rest } = previous
+      const rest = { ...previous }
+      delete rest[columnId]
       return rest
     })
 
@@ -396,7 +411,9 @@ function Table<T>({
     if (!over || active.id === over.id || !onReorder) return
     const target = rows?.find((row) => rowId(row) === over.id)
     if (target && reorderable && !reorderable(target)) return
-    onReorder(arrayMove(ids, ids.indexOf(String(active.id)), ids.indexOf(String(over.id))))
+    const order = arrayMove(ids, ids.indexOf(String(active.id)), ids.indexOf(String(over.id)))
+    if (givenRows) setDropped({ before: givenRows.map(rowId).join("\n"), order })
+    onReorder(order)
   }
 
   const renderRow = (row: Row<T>) => {

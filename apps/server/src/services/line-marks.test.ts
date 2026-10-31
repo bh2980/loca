@@ -4,7 +4,8 @@ import { DEFAULT_FORMAT_RULES, importFileSchema, isUnknownListener, matchesMarks
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from './importer.ts';
-import { markConditions } from './line-marks.ts';
+import { markConditions, unknownListenerSql } from './line-marks.ts';
+import { addCandidate, declineSuggestion } from './candidates.ts';
 
 describe('unknown listener', () => {
   it('is decided the same way in SQL and in shared code, nulls included', () => {
@@ -24,7 +25,7 @@ describe('unknown listener', () => {
     // The project's format rules (설정 › 서식) decide what is only tokens: with no presets, '<b></b>' is text.
     for (const rules of [DEFAULT_FORMAT_RULES, { presets: [], custom: [] }] satisfies FormatRules[]) {
       db.update(s.projects).set({ formatRules: rules }).where(eq(s.projects.id, projectId)).run();
-      const bySql = new Set(db.select({ key: s.units.key }).from(s.units).where(and(eq(s.units.projectId, projectId), ...markConditions(projectId, ['unknownListener']))).all().map((row) => row.key));
+      const bySql = new Set(db.select({ key: s.units.key }).from(s.units).where(and(eq(s.units.projectId, projectId), unknownListenerSql(projectId))).all().map((row) => row.key));
       const byCode = new Set(cases.flatMap((item, index) => (isUnknownListener({ ...item, listenerOrigin: item.origin, listenerConfidence: item.confidence }, rules) ? [`u${index}`] : [])));
       expect(bySql).toEqual(byCode);
       expect(byCode.size).toBeGreaterThan(0);
@@ -46,9 +47,24 @@ describe('unknown listener', () => {
 
 describe('mark filters', () => {
   it('need every picked mark', () => {
-    expect(matchesMarks(['ai', 'emptyTarget'], ['ai', 'emptyTarget'])).toBe(true);
-    expect(matchesMarks(['ai'], ['ai', 'emptyTarget'])).toBe(false);
-    expect(matchesMarks(['remaining'], ['remaining', 'noted'])).toBe(false);
+    expect(matchesMarks(['unused', 'duplicateTarget'], ['unused', 'duplicateTarget'])).toBe(true);
+    expect(matchesMarks(['unused'], ['unused', 'duplicateTarget'])).toBe(false);
+    expect(matchesMarks(['review'], ['review', 'noEvidence'])).toBe(false);
     expect(matchesMarks([], undefined)).toBe(true);
+  });
+});
+
+describe('AI 제안 대기', () => {
+  it('marks the lines with a waiting suggestion, and only while it waits', () => {
+    const db = openDatabase(':memory:');
+    const file = importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', source: 'A' }, { key: 'b', group: 'g', source: 'B' }] });
+    const { projectId } = importProject(db, file, null as never);
+    const unit = (key: string) => db.select().from(s.units).where(and(eq(s.units.projectId, projectId), eq(s.units.key, key))).get()!;
+    const marked = () => db.select({ key: s.units.key }).from(s.units).where(and(eq(s.units.projectId, projectId), ...markConditions(projectId, ['aiSuggestion']))).all().map((row) => row.key);
+    const suggestion = addCandidate(db, { unitId: unit('a').id, text: '제안', origin: 'ai', state: 'pending' });
+    addCandidate(db, { unitId: unit('b').id, text: '지난 번역', origin: 'ai' });
+    expect(marked()).toEqual(['a']);
+    declineSuggestion(db, unit('a').id, suggestion);
+    expect(marked()).toEqual([]);
   });
 });

@@ -4,7 +4,7 @@ import { useMemo, useState, type ComponentProps, type ReactNode, type RefObject 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, CircleAlert, Ellipsis, PanelRight } from 'lucide-react';
 import { toast } from 'sonner';
-import { AUTO_MARKS, compileFormatRules, isUnknownListener, lineExclusion, listenerLabel, needsListener, SPECIAL_LISTENERS, TAG_SCOPES, type FormatRules, type LineMark, type ListenerOrigin, glossaryMatcher, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
+import { AUTO_MARKS, markName, compileFormatRules, isUnknownListener, lineExclusion, listenerLabel, needsListener, SPECIAL_LISTENERS, TAG_SCOPES, type FormatRules, type LineMark, type ListenerOrigin, glossaryMatcher, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
 import { MarkChip } from '@/components/status';
 import { TranslationEditor } from '@/components/translation-editor';
 import { LineSourceText, MarkedSourceText, TokenText } from '@/components/editor/source-text';
@@ -48,7 +48,7 @@ import {
   DropdownMenuContent,
 } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
-import { q } from '@/lib/queries';
+import { q, useMarkStyles } from '@/lib/queries';
 import { SOURCE_GROUP_LABEL, SOURCE_UNIT_LABEL } from '@/lib/labels';
 import { SpeakerCard } from '@/components/script/speaker-card';
 import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
@@ -158,7 +158,8 @@ export function LineHints({ projectId, line, part }: { projectId: string; line: 
         <Box spaceY="hair" paddingTop={items.some(Boolean) ? 'condensed' : undefined}>
           {rule}
           {about.map((item) => (
-            <Text as="p" variant="caption" tone="muted" lines={1} key={item.key} title={item.text}>
+            // Written out in full: how the speaker talks is what the translator needs, not a teaser for a tooltip.
+            <Text as="p" variant="caption" tone="muted" breakWords key={item.key}>
               {item.label} · {item.text}
             </Text>
           ))}
@@ -202,7 +203,7 @@ export function LineRow({
   onEscape,
   onDone,
   onFilterTag,
-  onFilterMark,
+  onFilterMark, onFilterAi,
 }: {
   projectId: string;
   line: Line;
@@ -238,19 +239,20 @@ export function LineRow({
   onDone: (advanced: boolean) => void;
   onFilterTag: (tagId: string) => void;
   onFilterMark: (mark: LineMark) => void;
+  /** The ✦: lines whose status the AI set (정한 쪽 AI). */
+  onFilterAi: () => void;
 }) {
   const project = useQuery(q.project(projectId)).data;
+  const markStyles = useMarkStyles(projectId);
   const rules = project?.formatRules ?? undefined;
-  // 번역 제외: hidden from the list by default (the 숨기기 filter); shown on request, it carries its mark.
+  // 번역 제외: hidden from the list by default; shown on request, its status cell says so.
   const excluded = lineExclusion(line, rules, project?.exclusionRules, project?.sourceLanguage) !== null;
   // Narration and lines of format tokens only are said to nobody: no listener slot, unless a person or the import gave one.
   const said = needsListener(line, rules) || (Boolean(line.listener) && (line.listenerOrigin === 'human' || line.listenerOrigin === 'import'));
   const who = listenerText(line, rules);
-  const marks: LineMark[] = [];
-  if (excluded) marks.push('excluded');
-  if (line.note.trim()) marks.push('noted');
+  // What the row shows elsewhere (its status, ✦, listener, memo) is not repeated as a chip.
+  const marks: LineMark[] = line.suggested ? ['aiSuggestion'] : [];
   const attachedTags = tags.filter((tag) => line.tagIds.includes(tag.id));
-  const orderedTags = [...attachedTags.filter((tag) => tag.role), ...attachedTags.filter((tag) => !tag.role)];
 
   const queryClient = useQueryClient();
   const patch = useMutation({
@@ -281,14 +283,14 @@ export function LineRow({
     }
   };
 
-  const tagRow = marks.length || orderedTags.length ? (
+  const tagRow = marks.length || attachedTags.length ? (
     <Stack direction="row" wrap gap="tight" marginTop="tight" role="group" aria-label="이 줄의 태그" onClick={(event) => event.stopPropagation()}>
       {marks.map((mark) => (
-        <Chip as="button" variant="bare" key={mark} title={`#${AUTO_MARKS[mark].name} 줄만 보기`} onClick={() => onFilterMark(mark)}>
-          <MarkChip mark={mark} projectId={projectId} />
+        <Chip as="button" variant="bare" key={mark} title={`#${markName(mark, markStyles)} 줄만 보기`} onClick={() => onFilterMark(mark)}>
+          <MarkChip mark={mark} />
         </Chip>
       ))}
-      {orderedTags.map((tag) => (
+      {attachedTags.map((tag) => (
         <Chip as="button" variant="bare" key={tag.id} title={`#${tag.name} 줄만 보기`} onClick={() => onFilterTag(tag.id)}>
           <TagChip tag={tag} />
         </Chip>
@@ -326,10 +328,11 @@ export function LineRow({
     <Inline as="span" gap="tight" minWidth={0} variant="caption" tone="muted">
       <StatusIcon status={status} />
       <Text truncate>{status?.name}</Text>
+      {excluded && <Text truncate>· 번역 제외</Text>}
     </Inline>
   );
   const aiMeta = line.statusBy === 'ai' ? (
-    <Chip as="button" variant="bare" title={`#${AUTO_MARKS.ai.name} 줄만 보기`} onClick={(event) => (event.stopPropagation(), onFilterMark('ai'))}>
+    <Chip as="button" variant="bare" title="AI가 정한 줄만 보기" onClick={(event) => (event.stopPropagation(), onFilterAi())}>
       <AiMark by="ai" />
     </Chip>
   ) : null;

@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
-import { importFileSchema, REVIEW_TAG } from '@tw/shared';
+import { importFileSchema } from '@tw/shared';
 import type { Env } from '../context.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -10,12 +10,12 @@ import { knowledgeRoutes } from './knowledge.ts';
 import { projectRoutes } from './projects.ts';
 import { sourceRoutes } from './source.ts';
 
-describe('app tags and automatic mark colors', () => {
-  it('a tag with a role keeps its name and cannot be deleted; its color can change', async () => {
+describe('tags and automatic tags', () => {
+  it('every tag is a person\'s to rename, recolour and delete; an automatic tag\'s name and colour are a project setting', async () => {
     const db = openDatabase(':memory:');
     const file = importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'u', group: 'g', source: 'Line' }] });
     const { projectId } = importProject(db, file, null as never);
-    const tag = db.insert(s.tags).values({ projectId, name: REVIEW_TAG.name, color: REVIEW_TAG.color, role: REVIEW_TAG.role }).returning().get();
+    const tag = db.select().from(s.tags).where(eq(s.tags.name, 'AI 실패')).get()!;
     const app = new Hono<Env>()
       .use(async (c, next) => {
         c.set('deps', { db } as never);
@@ -24,14 +24,18 @@ describe('app tags and automatic mark colors', () => {
       .route('/projects', projectRoutes);
     const send = (method: string, url: string, body?: unknown) => app.request(url, { method, headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
 
-    expect((await send('POST', `/projects/${projectId}/tags/delete`, { ids: [tag.id] })).status).toBe(400);
-    expect((await send('PATCH', `/projects/${projectId}/tags/${tag.id}`, { name: '다른 이름' })).status).toBe(400);
-    expect((await send('PATCH', `/projects/${projectId}/tags/${tag.id}`, { color: '#22c55e' })).status).toBe(200);
-    expect(db.select().from(s.tags).where(eq(s.tags.id, tag.id)).get()).toMatchObject({ name: REVIEW_TAG.name, color: '#22c55e' });
+    expect((await send('PATCH', `/projects/${projectId}/tags/${tag.id}`, { name: '모델 실패', color: '#22c55e' })).status).toBe(200);
+    expect(db.select().from(s.tags).where(eq(s.tags.id, tag.id)).get()).toMatchObject({ name: '모델 실패', color: '#22c55e' });
+    expect((await send('POST', `/projects/${projectId}/tags/delete`, { ids: [tag.id] })).status).toBe(200);
+    expect(db.select().from(s.tags).where(eq(s.tags.id, tag.id)).get()).toBeUndefined();
 
-    expect((await send('PATCH', `/projects/${projectId}`, { markColors: { unknownListener: '#22c55e' } })).status).toBe(200);
-    const project = (await (await send('GET', `/projects/${projectId}`)).json()) as { markColors: Record<string, string> };
-    expect(project.markColors).toEqual({ unknownListener: '#22c55e' });
+    // An automatic tag's own name and colour are a project setting; a bad colour is refused.
+    expect((await send('PATCH', `/projects/${projectId}`, { markStyles: { review: { name: '봐 주세요', color: '#22c55e' } } })).status).toBe(200);
+    const project = (await (await send('GET', `/projects/${projectId}`)).json()) as { markStyles: Record<string, unknown> };
+    expect(project.markStyles).toEqual({ review: { name: '봐 주세요', color: '#22c55e' } });
+    expect((await send('PATCH', `/projects/${projectId}`, { markStyles: { review: { color: 'red' } } })).status).toBe(400);
+    // What a row already shows is a filter, not an automatic tag.
+    expect((await send('PATCH', `/projects/${projectId}`, { markStyles: { remaining: { name: '미완료' } } })).status).toBe(400);
   });
 });
 
@@ -70,10 +74,11 @@ describe('tag scope (붙는 곳)', () => {
     expect((await send('PATCH', `/units/${unit.id}`, { tagIds: [glossaryOnly.id] })).status).toBe(400);
     expect(db.select().from(s.unitTags).all().map((row) => row.tagId)).toEqual([created.id]);
 
-    // The app's tags have a fixed place.
-    const review = db.insert(s.tags).values({ projectId, name: REVIEW_TAG.name, color: REVIEW_TAG.color, role: REVIEW_TAG.role }).returning().get();
-    expect((await send('PATCH', `/projects/${projectId}/tags/${review.id}`, { scope: ['lines'] })).status).toBe(400);
-    const listed = (await (await send('GET', `/projects/${projectId}/statuses`)).json()) as { tags: { id: string; scope: string[] }[] };
-    expect(listed.tags.find((tag) => tag.id === review.id)?.scope).toEqual(['people', 'documents', 'events']);
+    // 확인 권장 is read off the item: the analysis's note puts it on, a person's 확인함 takes it off.
+    const person = db.insert(s.characters).values({ projectId, name: 'Ann', status: 'candidate', statusBy: 'ai', reviewNote: '사람이 아닐 수 있음' }).returning().get();
+    const listMarks = async () => ((await (await send('GET', `/projects/${projectId}/characters`)).json()) as { characters: { id: string; reviewNote: string }[] }).characters.find((row) => row.id === person.id);
+    expect(await listMarks()).toMatchObject({ reviewNote: '사람이 아닐 수 있음' });
+    expect((await send('POST', `/projects/${projectId}/drafts`, { kind: 'characters', ids: [person.id], action: 'confirm' })).status).toBe(200);
+    expect(db.select().from(s.characters).where(eq(s.characters.id, person.id)).get()).toMatchObject({ reviewNote: '', status: 'confirmed' });
   });
 });

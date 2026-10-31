@@ -5,7 +5,7 @@ import { ChevronRight, Plus } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { InferRequestType } from 'hono/client';
 import { toast } from 'sonner';
-import { type AutoMark, isSpecialListener, knowledgeMarksOf, listenerLabel, matchesMarks, OTHERS_LISTENER, SPEECH_LEVEL_LABELS } from '@tw/shared';
+import { type AutoMark, isSpecialListener, knowledgeMarksOf, listenerLabel, markName, matchesMarks, OTHERS_LISTENER, SPEECH_LEVEL_LABELS, decidedBy, type DecidedBy } from '@tw/shared';
 import { EmptyState, DataTable, type ColumnDef, Inspector, InspectorHeader, InspectorList, InspectorResult, TagListEditor, Chip, Box, Button, Icon, Inline, ListRow, Text, Section, Field } from '@loca/ui';
 import { DraftEditor } from '@/components/knowledge/editor';
 import { StretchPicker } from '@/components/knowledge/evidence';
@@ -13,7 +13,8 @@ import { candidateRow, fail, isHidden, matches, metaColumns, SourceBadge, type D
 import { splitList } from '@/lib/list-value';
 import { personStyle } from '@/lib/person-colors';
 import { client, unwrap } from '@/lib/api';
-import { q, tagsIn, useReviewTagId } from '@/lib/queries';
+import { q, tagsIn, useMarkStyles } from '@/lib/queries';
+import { MarkChip } from '@/components/status';
 
 /**
  * One speaker → listener direction: the relationship (a fact of the story) and the speech rules
@@ -67,24 +68,20 @@ export const pairSummary = (pair: Pair): Draft => {
     origin: rows.some((row) => row.origin === 'ai') ? 'ai' : 'human',
     statusBy: rows.some((row) => row.statusBy === 'ai') ? 'ai' : 'human',
     evidence: [],
-    // Every tag of its items once; reasons of the same tag joined (확인 권장 on two stretches).
+    // Every tag of its items once; the items' 확인 권장 reasons joined (two stretches may both have one).
+    reviewNote: rows.flatMap((row) => (row.reviewNote ? [row.reviewNote] : [])).join('\n'),
     tags: [...Map.groupBy(rows.flatMap((row) => row.tags ?? []), (tag) => tag.id).entries()].map(([id, list]) => ({ id, note: list.flatMap((tag) => (tag.note ? [tag.note] : [])).join('\n') || null })),
   };
 };
 /** The marks any item of a pair carries: what its row shows and the marks filter reads. */
 export const pairMarks = (pair: Pair): AutoMark[] => [...new Set([pair.relationship, ...pair.rules].flatMap((row) => (row ? knowledgeMarksOf(row) : [])))];
 /** Pairs matching the filters: by source and tags through any one item, by marks through the pair's marks. */
-export const pairMatches = (pair: Pair, source: SourceFilter, marks?: readonly AutoMark[], tags?: string[], status?: StatusFilter, hidden: { hideMarks?: readonly AutoMark[]; hideTags?: readonly string[] } = {}) =>
-  (!status || pairSummary(pair).status === status) && matchesMarks(pairMarks(pair), marks) && [pair.relationship, ...pair.rules].some((row) => row && matches(row, source, undefined, tags)) && !isHidden(pairMarks(pair), pairTagIds(pair), hidden);
+export const pairMatches = (pair: Pair, source: SourceFilter, marks?: readonly AutoMark[], tags?: string[], status?: StatusFilter, hidden: { hideMarks?: readonly AutoMark[]; hideTags?: readonly string[] } = {}, by?: DecidedBy) =>
+  (!status || pairSummary(pair).status === status) && (!by || [pair.relationship, ...pair.rules].some((row) => row && decidedBy(row, by))) && matchesMarks(pairMarks(pair), marks) && [pair.relationship, ...pair.rules].some((row) => row && matches(row, source, undefined, tags)) && !isHidden(pairMarks(pair), pairTagIds(pair), hidden);
 const pairTagIds = (pair: Pair) => [pair.relationship, ...pair.rules].flatMap((row) => (row?.tags ?? []).map((tag) => tag.id));
 export const pairItems = (pair: Pair) => [...(pair.relationship ? [{ kind: 'relationships' as const, row: pair.relationship }] : []), ...pair.rules.map((row) => ({ kind: 'speechRules' as const, row }))];
-/** Why the app marked an item for a look (its tag's note), or null. */
-const reviewOf = (row: Draft, reviewTag?: string) => row.tags?.find((tag) => tag.id === reviewTag)?.note ?? null;
-const ReviewBadge = ({ reasons }: { reasons: string }) => (
-  <Chip variant="outline" tone="warning" title={reasons}>
-    확인 권장
-  </Chip>
-);
+/** Why the analysis marked an item for a look (확인 권장), or null. */
+const reviewOf = (row: Draft) => row.reviewNote || null;
 const levelsText = (rules: SpeechRuleRow[]) => rules.map((rule) => SPEECH_LEVEL_LABELS[rule.level]).join(' → ');
 
 /** The speaker → listener pairs as a table; 출처 filters through its header, 후보 and AI가 정함 through the 태그 column. */
@@ -118,7 +115,7 @@ export function PairTable({ pairs, loading, selected, picked, onPick, onOpen, bu
       picked={picked}
       onPick={onPick}
       bulk={bulk}
-      empty={<EmptyState noun="관계나 말투 규칙이 있는 쌍" filtered={Boolean(filters.source || filters.status || filters.marks?.length || filters.tags?.length)} />}
+      empty={<EmptyState noun="관계나 말투 규칙이 있는 쌍" filtered={Boolean(filters.source || filters.status || filters.decidedBy || filters.marks?.length || filters.tags?.length)} />}
     />
   );
 }
@@ -143,7 +140,7 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
   onClose: () => void;
   onDecide: (kind: 'relationships' | 'speechRules', ids: string[], action: 'confirm' | 'discard') => void;
 }) {
-  const reviewTag = useReviewTagId(projectId);
+  const markStyles = useMarkStyles(projectId);
   const [openRule, setOpenRule] = useState<string | undefined>(pair.rules.length === 1 ? pair.rules[0].id : undefined);
   const [picking, setPicking] = useState(false);
   const starts = useQuery(q.linesByKeys(projectId, pair.rules.flatMap((rule) => (rule.startKey ? [rule.startKey] : []))));
@@ -231,7 +228,7 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
         <InspectorList>
           {rules.map((rule) => {
             const open = openRule === rule.id;
-            const review = reviewOf(rule, reviewTag);
+            const review = reviewOf(rule);
             return (
               <ListRow key={rule.id}>
                 <Button variant="ghost" size="row" aria-expanded={open} onClick={() => setOpenRule(open ? undefined : rule.id)}>
@@ -241,7 +238,11 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
                     <Inline as="span" gap="condensed">
                       <Text weight="medium">{SPEECH_LEVEL_LABELS[rule.level]}</Text>
                       {rule.address ? <Text tone="muted" truncate>호칭 {splitList(rule.address).map((form) => `“${form}”`).join(' · ')}</Text> : null}
-                      {review && <ReviewBadge reasons={review} />}
+                      {review && (
+                        <span title={review}>
+                          <MarkChip mark="review" projectId={projectId} />
+                        </span>
+                      )}
                     </Inline>
                   </Text>
                   {rule.status === 'candidate' && <Chip variant="outline">후보</Chip>}
@@ -249,7 +250,7 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
                 </Button>
                 {open && (
                   <Box spaceY="normal" paddingTop="condensed" paddingBottom="condensed" paddingLeft="spacious">
-                    {review && <InspectorResult tone="info">확인 권장: {review}</InspectorResult>}
+                    {review && <InspectorResult tone="info">{markName('review', markStyles)}: {review}</InspectorResult>}
                     <DraftEditor embedded projectId={projectId} kind="speechRules" spec={ruleSpec} row={rule} characters={characters} onDecide={(action) => onDecide('speechRules', [rule.id], action)} />
                   </Box>
                 )}

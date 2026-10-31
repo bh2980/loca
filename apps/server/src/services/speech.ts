@@ -142,7 +142,7 @@ export function knowledgeOf(db: Db, projectId: string) {
       ),
     relationships: () => cachedKnowledge(db, projectId, 'confirmedRelationships', ['relationships'], () => confirmed(db.select().from(s.relationships).where(eq(s.relationships.projectId, projectId)).all())),
     /** Every tag of the project (workflow nodes read them per line). */
-    tags: () => cachedKnowledge(db, projectId, 'tags', ['tags'], () => db.select({ id: s.tags.id, name: s.tags.name, role: s.tags.role, scope: s.tags.scope }).from(s.tags).where(eq(s.tags.projectId, projectId)).all()),
+    tags: () => cachedKnowledge(db, projectId, 'tags', ['tags'], () => db.select({ id: s.tags.id, name: s.tags.name, scope: s.tags.scope }).from(s.tags).where(eq(s.tags.projectId, projectId)).all()),
     /** The project settings workflow nodes read per line. */
     settings: () =>
       cachedKnowledge(db, projectId, 'settings', ['projects'], () => db.select({ formatRules: s.projects.formatRules, aiAutoConfirm: s.projects.aiAutoConfirm }).from(s.projects).where(eq(s.projects.id, projectId)).get()),

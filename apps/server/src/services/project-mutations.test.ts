@@ -58,7 +58,8 @@ describe('shared project mutations', () => {
     const [x, y] = ['X', 'Y'].map((name) => createTag(db, projectId, { name }));
     orderTags(db, projectId, [y!.id, x!.id]);
     const z = createTag(db, projectId, { name: 'A' });
-    const own = projectTags(db, projectId).filter((tag) => !tag.role).map((tag) => tag.id);
+    const made = new Set([x!.id, y!.id, z.id]);
+    const own = projectTags(db, projectId).filter((tag) => made.has(tag.id)).map((tag) => tag.id);
     expect(own).toEqual([y!.id, x!.id, z.id]);
   });
 

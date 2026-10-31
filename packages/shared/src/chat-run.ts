@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { chatChipSchema } from './attach.ts';
-import { AUTO_MARK_IDS, type AutoMark } from './marks.ts';
+import { AUTO_MARK_IDS, lineFactsShape, type AutoMark } from './marks.ts';
 
 /** A run's scope as the run dialog and the chat's run card send it. */
 export const runScopeSchema = z.object({
@@ -8,6 +8,10 @@ export const runScopeSchema = z.object({
   unitIds: z.array(z.string()).optional(),
   tagIds: z.array(z.string()).optional(),
   marks: z.array(z.enum(AUTO_MARK_IDS as [AutoMark, ...AutoMark[]])).optional(),
+  /** Lines: not final / with a memo; lines and terms: who decided it (the list filters). */
+  ...lineFactsShape,
+  /** Terms: whether the Korean form is empty. */
+  emptyTarget: z.boolean().optional(),
   statusIds: z.array(z.string()).optional(),
   termIds: z.array(z.string()).optional(),
   speakers: z.array(z.string()).optional(),

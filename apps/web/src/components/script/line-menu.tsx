@@ -51,7 +51,7 @@ export function LineMenuItems({ projectId, line, onEdit, editLabel = '번역 편
   const statuses = useQuery(q.statuses(projectId));
   const project = useQuery(q.project(projectId)).data;
   const statusList = statuses.data?.statuses ?? [];
-  const tags = (statuses.data?.tags ?? []).filter((tag) => !tag.role && (!tag.scope || tag.scope.includes('lines')));
+  const tags = (statuses.data?.tags ?? []).filter((tag) => !tag.scope || tag.scope.includes('lines'));
   const excluded = lineExclusion(line, project?.formatRules ?? undefined, project?.exclusionRules, project?.sourceLanguage) !== null;
   const saveLine = useSaveLine();
   const patch = useMutation({

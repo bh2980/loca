@@ -13,13 +13,14 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "../controls/dropdown-menu"
+import { cn } from "../lib/utils"
 import { chipStyle } from "./palette"
 import { TagChip, type StatusLike } from "./status"
 
 export type TagState = "all" | "some" | "none"
 
 export interface TagMenuProps {
-  tags: (StatusLike & { role?: string | null })[]
+  tags: StatusLike[]
   state: (tagId: string) => TagState
   onToggle: (tagId: string, add: boolean) => void
   heading: string
@@ -136,8 +137,8 @@ export function TagSubMenu({ tags, state, onToggle, heading, onCreate, label = "
 }
 
 export interface TagListEditorProps {
-  tags: (StatusLike & { role?: string | null })[]
-  allTags: (StatusLike & { role?: string | null })[]
+  tags: StatusLike[]
+  allTags: StatusLike[]
   onToggle: (tagId: string, add: boolean) => void
   onCreate?: (name: string) => Promise<void> | void
   heading?: string
@@ -155,18 +156,17 @@ export function TagListEditor({
   readOnly,
 }: TagListEditorProps) {
   const attachedIds = new Set(tags.map((t) => t.id))
-  const assignableTags = allTags.filter((t) => !t.role)
 
   return (
     <div className="flex flex-wrap items-center gap-1" onClick={(e) => e.stopPropagation()}>
       {tags.map((tag) => (
         <span
           key={tag.id}
-          className="inline-flex items-center gap-1 rounded-sm px-1 py-0.5 text-xs font-medium whitespace-nowrap"
+          className={cn("inline-flex items-center gap-0.5 rounded-sm py-0.5 text-xs font-medium whitespace-nowrap", !readOnly ? "pl-1.5 pr-0.5" : "px-1")}
           style={chipStyle(tag.color)}
         >
           #{tag.name}
-          {!readOnly && !tag.role && (
+          {!readOnly && (
             <Button
               type="button"
               variant="ghost"
@@ -185,7 +185,7 @@ export function TagListEditor({
       ))}
       {!readOnly && (
         <TagMenu
-          tags={assignableTags}
+          tags={allTags}
           state={(tagId) => (attachedIds.has(tagId) ? "all" : "none")}
           onToggle={onToggle}
           heading={heading}

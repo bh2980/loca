@@ -6,13 +6,22 @@ import { Link, useNavigate } from '@tanstack/react-router';
 import { ChevronRight, Play } from 'lucide-react';
 import { Box, Heading, Icon, Inline, ReadinessDot, ScopeRow, SearchField, Button, Checkbox, Label, RadioGroup, RadioGroupItem, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Skeleton, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue, Spinner, StatusIcon, SectionHeading, Text, Bleed, KeyValue, KeyValueRow } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
-import { INPUT_TYPES, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, TERM_MARK_IDS, WORKFLOW_SUBJECT_IDS, LINE_MARK_IDS, type AutoMark, type LineMark } from '@tw/shared';
+import { INPUT_TYPES, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, TERM_MARK_IDS, WORKFLOW_SUBJECT_IDS, LINE_MARK_IDS, type AutoMark, type LineMark, AUTO_MARK_IDS } from '@tw/shared';
 import { MarkChip } from '@/components/status';
 import type { ModelValue } from '@/components/model-picker';
 import { Pace, RunCaps, RunModels } from './run-estimate';
 import { startLimits, type CapEdits } from '@/lib/run-limits';
 import { tagsIn, q } from '@/lib/queries';
 import { SCRIPT_VIEW } from '@/lib/labels';
+
+/** Run-scope filters on what a row shows (the list pages' 최종 아님, 정한 쪽, 메모, 번역 비어 있음), beside statuses. */
+const RUN_FACTS = {
+  unfinished: { label: '최종 아님', on: 'lines' },
+  ai: { label: 'AI가 정함 (✦)', on: 'both' },
+  noted: { label: '메모 있음', on: 'lines' },
+  emptyTarget: { label: '번역 비어 있음', on: 'terms' },
+} as const;
+type RunFact = keyof typeof RUN_FACTS;
 
 type GroupKind = 'scene' | 'ui' | 'document';
 const KIND_ORDER: GroupKind[] = ['scene', 'ui', 'document'];
@@ -66,6 +75,8 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   const [pickedTags, setPickedTags] = useState<Set<string>>(new Set());
   const [pickedMarks, setPickedMarks] = useState<Set<string>>(new Set());
   const [pickedStatuses, setPickedStatuses] = useState<Set<string>>(new Set());
+  // What a row shows, as filters: 최종 아님, 정한 쪽 AI, 메모 있음 (lines), 번역 비어 있음 (terms).
+  const [pickedFacts, setPickedFacts] = useState<Set<string>>(new Set());
 
   const statuses = useQuery({ ...q.statuses(projectId), enabled: open });
   // This run's models by AI node, where the person picked another than the node's own (the workflow is not changed).
@@ -112,19 +123,20 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   const filtersKey = workflowId && `run-filters:${projectId}:${workflowId}`;
   useEffect(() => {
     if (!open) return;
-    let saved: { statuses?: string[]; marks?: string[]; tags?: string[] } = {};
+    let saved: { statuses?: string[]; marks?: string[]; tags?: string[]; facts?: RunFact[] } = {};
     try {
       saved = filtersKey && !defaultIgnoreStatus ? JSON.parse(localStorage.getItem(filtersKey) ?? '{}') : {};
     } catch {
       // A blocked or broken storage starts with no filters.
     }
     setPickedStatuses(new Set(saved.statuses ?? []));
-    setPickedMarks(new Set(saved.marks ?? []));
+    setPickedMarks(new Set((saved.marks ?? []).filter((mark) => (AUTO_MARK_IDS as readonly string[]).includes(mark))));
     setPickedTags(new Set(saved.tags ?? []));
+    setPickedFacts(new Set((saved.facts ?? []).filter((fact) => fact in RUN_FACTS)));
   }, [open, filtersKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const rememberFilters = () => {
     try {
-      if (filtersKey) localStorage.setItem(filtersKey, JSON.stringify({ statuses: [...pickedStatuses], marks: [...pickedMarks], tags: [...pickedTags] }));
+      if (filtersKey) localStorage.setItem(filtersKey, JSON.stringify({ statuses: [...pickedStatuses], marks: [...pickedMarks], tags: [...pickedTags], facts: [...pickedFacts] }));
     } catch {
       // Not remembered: the next run starts without filters.
     }
@@ -169,6 +181,10 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
     ...(pickedStatuses.size ? { statusIds: [...pickedStatuses] } : {}),
     ...(pickedMarks.size ? { marks: [...pickedMarks] as LineMark[] } : {}),
     ...(pickedTags.size ? { tagIds: [...pickedTags] } : {}),
+    ...(pickedFacts.has('unfinished') && !terms ? { unfinished: true } : {}),
+    ...(pickedFacts.has('noted') && !terms ? { noted: true } : {}),
+    ...(pickedFacts.has('ai') ? { decidedBy: 'ai' as const } : {}),
+    ...(pickedFacts.has('emptyTarget') && terms ? { emptyTarget: true } : {}),
   };
   const pickedTermIds = scopeTarget === 'units' ? termIds : allTerms ? undefined : [...pickedTerms];
   const scope = terms
@@ -233,6 +249,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
       setSceneFilter('');
       setPickedTags(new Set());
       setPickedMarks(new Set());
+      setPickedFacts(new Set());
       setRunModels({});
       setCapEdits({});
     }
@@ -345,6 +362,12 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
                           {status.name}
                         </Label></Box>
                       ))}
+                    {(Object.keys(RUN_FACTS) as RunFact[]).filter((fact) => RUN_FACTS[fact].on === 'both' || RUN_FACTS[fact].on === (terms ? 'terms' : 'lines')).map((fact) => (
+                      <Box asChild key={fact} variant="body" weight="normal"><Label>
+                        <Checkbox checked={pickedFacts.has(fact)} onCheckedChange={(checked) => toggled(setPickedFacts, fact, checked === true)} />
+                        {RUN_FACTS[fact].label}
+                      </Label></Box>
+                    ))}
                   </Inline>
                 </KeyValueRow>
                 <KeyValueRow label="태그">
@@ -552,9 +575,9 @@ function Readiness({ projectId, readiness, oneScene, onLeave }: { projectId: str
     {
       uses: 'speech',
       ok: readiness.unknownListenerLines === 0,
-      text: readiness.unknownListenerLines ? `청자 미상 ${readiness.unknownListenerLines.toLocaleString()}줄` : '청자 모두 정해짐',
+      text: readiness.unknownListenerLines ? `청자 모름 ${readiness.unknownListenerLines.toLocaleString()}줄` : '청자 모두 정해짐',
       link: readiness.unknownListenerLines > 0 && (
-        <Link to="/p/$projectId/script" params={{ projectId }} search={{ marks: ['unknownListener'], ...(oneScene && { group: oneScene }) }} onClick={onLeave}>
+        <Link to="/p/$projectId/script" params={{ projectId }} search={{ listener: '-', ...(oneScene && { group: oneScene }) }} onClick={onLeave}>
           청자 정하기
         </Link>
       ),

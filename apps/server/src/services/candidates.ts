@@ -15,6 +15,8 @@ export interface NewCandidate {
   nodeId?: string;
   /** Pick an existing candidate of the line with exactly this text instead of adding one (a person's save: a double click is one candidate, not two). */
   reuseSame?: boolean;
+  /** 'pending': an AI's translation waiting for a person to 적용 or 거절 it (the default is history). */
+  state?: s.CandidateState;
 }
 
 /**
@@ -28,10 +30,18 @@ export function addCandidate(db: Db | Tx, candidate: NewCandidate): string {
     const same = db.select({ id: s.candidates.id }).from(s.candidates).where(and(eq(s.candidates.unitId, candidate.unitId), eq(s.candidates.text, candidate.text))).get();
     if (same) return same.id;
   }
-  const { unitId, text, origin, model, note, runId, nodeId } = candidate;
+  const { unitId, text, origin, model, note, runId, nodeId, state } = candidate;
   return db
     .insert(s.candidates)
-    .values({ unitId, text, origin, model: model ?? null, runId, nodeId, ...(note != null && { note }) })
+    .values({ unitId, text, origin, model: model ?? null, runId, nodeId, ...(note != null && { note }), ...(state && { state }) })
     .returning({ id: s.candidates.id })
     .get().id;
+}
+
+/** A waiting suggestion turned down by a person: it stays in the line's history as declined. False when it is not one of the line's waiting suggestions. */
+export function declineSuggestion(db: Db | Tx, unitId: string, candidateId: string): boolean {
+  const row = db.select({ state: s.candidates.state }).from(s.candidates).where(and(eq(s.candidates.id, candidateId), eq(s.candidates.unitId, unitId))).get();
+  if (row?.state !== 'pending') return false;
+  db.update(s.candidates).set({ state: 'declined' }).where(eq(s.candidates.id, candidateId)).run();
+  return true;
 }

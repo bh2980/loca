@@ -198,7 +198,10 @@ export function buildPrompt(
     .filter(Boolean)
     .join('\n\n');
 
-  const show = (list: LineContext[]) => list.map(({ speaker, source, translation }) => ({ speaker: speaker ?? undefined, source, translation: translation ?? undefined }));
+  // Bodies only: a line's leading and trailing whitespace is the source's, put back when an answer is saved, and a model
+  // shown "GRAPHICS\n" copies the escape into what it writes (a term that matches nothing).
+  const body = (text: string | null | undefined) => (text == null ? undefined : text.trim());
+  const show = (list: LineContext[]) => list.map(({ speaker, source, translation }) => ({ speaker: speaker ?? undefined, source: body(source), translation: body(translation) }));
   const promptLine = (line: PromptLine) => {
     // Context only lists lines outside the batch, each once (the batch itself is visible in order).
     const before = context.preceding[line.unitId];
@@ -211,9 +214,9 @@ export function buildPrompt(
       speaker: line.speaker ?? undefined,
       listener: context.speech[line.unitId]?.listener,
       speechRule: context.speech[line.unitId]?.rule,
-      source: line.source,
+      source: body(line.source),
       // A verdict is about the current translation, so a reviewing node always sees it.
-      candidate: node.config.include.candidate || node.config.output === 'verdict' ? line.candidate : undefined,
+      candidate: node.config.include.candidate || node.config.output === 'verdict' ? body(line.candidate) : undefined,
       previous: line.previous,
       ...(line.term && { target: line.term.target, note: line.term.note, uses: line.term.uses, examples: line.term.examples.length ? line.term.examples : undefined }),
       precedingLines: before?.lines.length ? show(before.lines) : undefined,

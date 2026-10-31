@@ -4,7 +4,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Copy, Play, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { WORKFLOW_TEMPLATES } from '@tw/shared';
-import { AiButton } from '@/components/ai-button';
 import { EmptyState, DataTable, type ColumnDef, RunStatusBadge, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Chip, Box, Button, Inline, Skeleton, Stack, Text, ContextMenuItem, ContextMenuSeparator, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@loca/ui';
 import { HeaderActions, Page } from '@/components/page';
 import { RunDialog } from '@/components/workflow/run-dialog';
@@ -172,9 +171,6 @@ function Workflows() {
     <Page title="워크플로" flush>
       <Stack height="full" minHeight={0}>
         <HeaderActions>
-          <AiButton send={false} prompt="이런 워크플로를 만들어줘: ">
-            AI로 만들기
-          </AiButton>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button disabled={create.isPending}>

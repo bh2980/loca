@@ -42,19 +42,19 @@ describe('a term\'s Korean forms', () => {
 describe('the scope an AI gives a term', () => {
   it('lands on a new term and replaces only the default "all lines" of a term no person decided', () => {
     const { db, projectId, term } = setup();
-    upsertAiTerm(db, projectId, { source: 'Continue', target: '계속', scope: 'ui' }, { autoConfirm: true });
-    expect(term().scope).toBe('ui');
+    upsertAiTerm(db, projectId, { source: 'Continue', target: '계속', scope: ['ui'] }, { autoConfirm: true });
+    expect(term().scope).toEqual(['ui']);
 
-    db.update(s.terms).set({ scope: 'all' }).run();
-    upsertAiTerm(db, projectId, { source: 'Continue', scope: 'ui' }, { autoConfirm: true });
-    expect(term().scope).toBe('ui');
+    db.update(s.terms).set({ scope: ['ui', 'dialogue', 'document'] }).run();
+    upsertAiTerm(db, projectId, { source: 'Continue', scope: ['ui'] }, { autoConfirm: true });
+    expect(term().scope).toEqual(['ui']);
 
-    db.update(s.terms).set({ scope: 'dialogue' }).run();
-    upsertAiTerm(db, projectId, { source: 'Continue', scope: 'ui' }, { autoConfirm: true });
-    expect(term().scope).toBe('dialogue');
+    db.update(s.terms).set({ scope: ['dialogue', 'document'] }).run();
+    upsertAiTerm(db, projectId, { source: 'Continue', scope: ['ui'] }, { autoConfirm: true });
+    expect(term().scope).toEqual(['dialogue', 'document']);
 
-    saveTerm(db, projectId, { scope: 'all' }, { id: term().id });
-    upsertAiTerm(db, projectId, { source: 'Continue', scope: 'ui' }, { autoConfirm: true });
-    expect(term().scope).toBe('all');
+    saveTerm(db, projectId, { scope: ['ui', 'dialogue', 'document'] }, { id: term().id });
+    upsertAiTerm(db, projectId, { source: 'Continue', scope: ['ui'] }, { autoConfirm: true });
+    expect(term().scope).toEqual(['ui', 'dialogue', 'document']);
   });
 });

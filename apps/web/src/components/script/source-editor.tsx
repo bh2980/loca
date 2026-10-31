@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Trash2 } from 'lucide-react';
@@ -19,13 +19,15 @@ const KEY_HINT = '비우면 자동 생성 · 바꾸면 참조가 끊길 수 있�
 const sourceKind = (kind: UnitRecord['kind']): SourceGroupKind => kind === 'dialogue' ? 'scene' : kind;
 
 /** Create or edit one imported-source group or source line. These edits never create a graph edge. */
-export function SourceEditor({ projectId, kind, groupId, unitId, mode, onClose, onSaved, onDeleted, onCreateGroup }: {
+export function SourceEditor({ projectId, kind, groupId, unitId, mode, onClose, onBack, onSaved, onDeleted, onCreateGroup }: {
   projectId: string;
   kind: SourceGroupKind;
   groupId?: string;
   unitId?: string;
   mode: SourceEditorMode;
   onClose?: () => void;
+  /** Opened from another view (a line's detail): ‹ in the header and Esc go back to it; what was typed stays a draft. */
+  onBack?: () => void;
   onSaved?: (result: SourceSaved) => void;
   onDeleted?: () => void;
   onCreateGroup?: () => void;
@@ -47,6 +49,16 @@ export function SourceEditor({ projectId, kind, groupId, unitId, mode, onClose, 
   const form = JSON.parse(draft) as Form;
   const dirty = draft !== saved;
   const update = (name: keyof Form, value: string) => setDraft(JSON.stringify({ ...form, [name]: value }));
+  useEffect(() => {
+    if (!onBack) return;
+    // Esc goes back unless an open menu, select or dialog takes it first.
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented || document.querySelector('[role="dialog"][data-state="open"], [role="alertdialog"], [role="listbox"], [role="menu"]')) return;
+      onBack();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onBack]);
 
   const save = useMutation<SourceSaved, Error, string>({
     mutationFn: async (sent: string) => {
@@ -113,7 +125,7 @@ export function SourceEditor({ projectId, kind, groupId, unitId, mode, onClose, 
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog></>) : undefined}
-      header={<InspectorHeader kind={isGroup ? SOURCE_GROUP_LABEL[form.kind] : SOURCE_UNIT_LABEL[form.kind]} name={heading} onClose={onClose} />}
+      header={<InspectorHeader kind={isGroup ? SOURCE_GROUP_LABEL[form.kind] : SOURCE_UNIT_LABEL[form.kind]} name={heading} onClose={onClose} onBack={onBack} />}
       loading={loading}
       footer={creating
         ? <>{!canSave && !save.isPending && <Text marginRight="auto" variant="caption" tone="muted">{whyDisabled}</Text>}<Button disabled={!canSave} onClick={() => save.mutate(draft)} aria-busy={save.isPending}>{save.isPending ? '추가 중' : '추가'}</Button></>

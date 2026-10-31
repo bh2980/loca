@@ -129,29 +129,26 @@ export interface MarkGroup {
 
 /**
  * The option groups of every mark-and-tag filter (knowledge tables, glossary, script lines):
- * the automatic marks, then the tags, as chips. With `issueHeading`, tags that have a role
- * (problem types) get a group of their own and `tagHeading` keeps the rest.
+ * the automatic marks, then the tags, as chips.
  */
-export function markTagGroups({ marks, picked, hidden, onMark, tags, pickedTags, hiddenTags, onTag, projectId, tagHeading = '태그', issueHeading }: {
+export function markTagGroups({ marks, picked, hidden, onMark, tags, pickedTags, hiddenTags, onTag, projectId, tagHeading = '태그' }: {
   marks: readonly AutoMark[];
   picked: readonly AutoMark[] | undefined;
   hidden?: readonly AutoMark[] | undefined;
   /** A mark picked in a mode (togglePick decides what that does). */
   onMark: (mark: AutoMark, mode: FilterPick) => void;
-  tags: { id: string; name: string; color: string; role?: string | null }[];
+  tags: { id: string; name: string; color: string }[];
   pickedTags: readonly string[] | undefined;
   hiddenTags?: readonly string[] | undefined;
   onTag: (tagId: string, mode: FilterPick) => void;
   projectId?: string;
   tagHeading?: string;
-  issueHeading?: string;
 }): MarkGroup[] {
   const tagOptions = (list: typeof tags): MarkOption[] => list.map((tag) => ({ key: tag.id, label: <TagChip tag={tag} />, state: pickOf(pickedTags, hiddenTags, tag.id), onPick: (mode) => onTag(tag.id, mode) }));
-  // Groups with nothing to pick are left out (a project without problem-type tags shows no such heading).
+  // Groups with nothing to pick are left out.
   const groups: MarkGroup[] = [
-    { heading: "자동 태그", options: marks.map((mark) => ({ key: mark, label: <MarkChip mark={mark} projectId={projectId} />, state: pickOf(picked, hidden, mark), onPick: (mode) => onMark(mark, mode) })) },
-    ...(issueHeading ? [{ heading: issueHeading, options: tagOptions(tags.filter((tag) => tag.role)) }] : []),
-    { heading: tagHeading, options: tagOptions(issueHeading ? tags.filter((tag) => !tag.role) : tags) },
+    { heading: "자동 태그", options: marks.map((mark) => ({ key: mark, label: <MarkChip mark={mark} />, state: pickOf(picked, hidden, mark), onPick: (mode) => onMark(mark, mode) })) },
+    { heading: tagHeading, options: tagOptions(tags) },
   ];
   return groups.filter((group) => group.options.length > 0);
 }

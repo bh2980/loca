@@ -4,7 +4,7 @@ import { Stack } from "../../primitives/stack"
 import { Chip } from "../../patterns/chip"
 import { Inline } from "../../primitives/stack"
 import { Text } from "../../primitives/text"
-import { EditorChangedWord, EditorDiffWord, EditorPreviousDiff } from "./editor-diff"
+import { EditorAiSuggestion, EditorChangedWord, EditorDiffWord, EditorPreviousDiff } from "./editor-diff"
 import { Check, Sparkles } from "lucide-react"
 import { Button } from "../../controls/button"
 import { Popover, PopoverTrigger } from "../../controls/popover"
@@ -43,6 +43,9 @@ export const Suggestions: Story = {
 export const DiffAndNotes: Story = {
   render: () => (
     <Stack gap="condensed">
+      <EditorAiSuggestion meta="번역 실행 · gpt-test" actions={<><Button variant="outline">적용</Button><Button variant="ghost">거절</Button></>}>
+        <EditorDiffWord change="removed">찾았잖아</EditorDiffWord> <EditorDiffWord change="added">찾았다고</EditorDiffWord> 한참
+      </EditorAiSuggestion>
       <EditorPreviousDiff title="바뀐 곳">
         <EditorDiffWord change="removed">찾았잖아</EditorDiffWord> <EditorDiffWord change="added">찾았다고</EditorDiffWord> <EditorDiffWord>한참</EditorDiffWord>
       </EditorPreviousDiff>

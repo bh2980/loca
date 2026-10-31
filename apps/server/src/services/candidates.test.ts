@@ -4,7 +4,7 @@ import { importFileSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { personOwns } from '../engine/apply-candidate.ts';
-import { addCandidate } from './candidates.ts';
+import { addCandidate, declineSuggestion } from './candidates.ts';
 import { importProject } from './importer.ts';
 import { saveLine } from './line-save.ts';
 
@@ -48,6 +48,52 @@ describe('addCandidate (the one candidate writer, #49)', () => {
     const again = db.select().from(s.units).where(eq(s.units.id, unit.id)).get()!;
     db.transaction((tx) => saveLine(tx, { ...again, translation: '다른 글' }, { text: '안녕' }));
     expect(list().filter((row) => row.text === '안녕')).toHaveLength(1);
+  });
+});
+
+describe('AI 제안 (candidate state)', () => {
+  const stateOf = (db: ReturnType<typeof setup>['db'], id: string) => db.select({ state: s.candidates.state }).from(s.candidates).where(eq(s.candidates.id, id)).get()?.state;
+
+  it('a candidate is history unless it is added as a waiting suggestion', () => {
+    const { db, unit } = setup();
+    expect(stateOf(db, addCandidate(db, { unitId: unit.id, text: 'A', origin: 'ai' }))).toBe('history');
+    expect(stateOf(db, addCandidate(db, { unitId: unit.id, text: 'B', origin: 'ai', state: 'pending' }))).toBe('pending');
+  });
+
+  it('적용 makes it the line’s text and settles it; the line’s old text stays history', () => {
+    const { db, unit } = setup();
+    db.transaction((tx) => saveLine(tx, unit, { text: '사람' }));
+    const before = db.select().from(s.units).where(eq(s.units.id, unit.id)).get()!;
+    const suggestion = addCandidate(db, { unitId: unit.id, text: '제안', origin: 'ai', state: 'pending' });
+    db.transaction((tx) => saveLine(tx, before, { candidateId: suggestion }));
+    expect(db.select({ translation: s.units.translation }).from(s.units).where(eq(s.units.id, unit.id)).get()?.translation).toBe('제안');
+    expect(stateOf(db, suggestion)).toBe('history');
+    expect(stateOf(db, before.candidateId!)).toBe('history');
+  });
+
+  it('거절 keeps it as declined and leaves the line alone; only a waiting one can be declined', () => {
+    const { db, unit } = setup();
+    const suggestion = addCandidate(db, { unitId: unit.id, text: '제안', origin: 'ai', state: 'pending' });
+    expect(declineSuggestion(db, unit.id, suggestion)).toBe(true);
+    expect(stateOf(db, suggestion)).toBe('declined');
+    expect(declineSuggestion(db, unit.id, suggestion)).toBe(false);
+    expect(declineSuggestion(db, unit.id, addCandidate(db, { unitId: unit.id, text: 'old', origin: 'human' }))).toBe(false);
+    expect(db.select({ translation: s.units.translation }).from(s.units).where(eq(s.units.id, unit.id)).get()?.translation ?? null).toBeNull();
+  });
+
+  it('a person’s save of the same text settles it, whatever kind of line break either has', () => {
+    const { db, unit } = setup();
+    const suggestion = addCandidate(db, { unitId: unit.id, text: '첫 줄\r\n둘째 줄', origin: 'ai', state: 'pending' });
+    db.transaction((tx) => saveLine(tx, unit, { text: '첫 줄\n둘째 줄 ' }));
+    expect(stateOf(db, suggestion)).toBe('history');
+  });
+
+  it('taking a declined one back (되돌리기) makes it history again', () => {
+    const { db, unit } = setup();
+    const suggestion = addCandidate(db, { unitId: unit.id, text: '제안', origin: 'ai', state: 'pending' });
+    declineSuggestion(db, unit.id, suggestion);
+    db.transaction((tx) => saveLine(tx, unit, { candidateId: suggestion }));
+    expect(stateOf(db, suggestion)).toBe('history');
   });
 });
 

@@ -1,5 +1,5 @@
 import { and, eq, inArray, ne, or } from 'drizzle-orm';
-import { KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, AUTO_MARKS, marksOn, nodeName, withRunModels, workflowInput, type AutoMark, type RunModels, type WorkflowDefinition, type WorkflowSubject } from '@tw/shared';
+import { KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, AUTO_MARKS, marksOn, nodeName, withRunModels, workflowInput, type AutoMark, type RunModels, type WorkflowDefinition, type WorkflowSubject , type DecidedBy } from '@tw/shared';
 import { z } from 'zod';
 import { inChunks, inList } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
@@ -32,6 +32,13 @@ export interface PlanInput {
   kinds?: string[];
   /** Text in the source. */
   q?: string;
+  /** Lines: 최종 아님 (true) / 최종 (false); with (true) or without (false) a memo. */
+  unfinished?: boolean;
+  noted?: boolean;
+  /** Who decided it (정한 쪽): a line's status, or a term's decision. */
+  decidedBy?: DecidedBy;
+  /** Terms: with no Korean form (true) or with one (false). */
+  emptyTarget?: boolean;
   /** Models for this run instead of the nodes' own (see runModelInput). */
   models?: RunModelInput;
 }
@@ -84,6 +91,7 @@ export function resolveRunScope(db: Db, projectId: string, input: Omit<PlanInput
     scope.tagIds = ids.filter((id) => known.has(id));
   }
   if (input.marks?.length) scope.marks = input.marks as AutoMark[];
+  for (const key of ['unfinished', 'noted', 'decidedBy', 'emptyTarget'] as const) if (input[key] !== undefined) Object.assign(scope, { [key]: input[key] });
   if (input.statuses?.length) {
     // Terms: their three statuses by label or id; lines: the project's statuses by name or id.
     const known = kind === 'terms'
@@ -111,9 +119,9 @@ export function resolveRunScope(db: Db, projectId: string, input: Omit<PlanInput
 
 /** Why a scope does not fit the workflow's input (line conditions for a terms workflow, terms for a lines workflow), or null. */
 export function scopeMismatch(input: WorkflowSubject, scope: s.RunScope): string | null {
-  const lineScope = Boolean(scope.groupIds?.length || scope.unitIds?.length || scope.speakers?.length || scope.listeners?.length || scope.kinds?.length || scope.q);
-  if (input === 'terms' && lineScope) return '용어 입력 워크플로에는 대사 범위(묶음·대사 키·화자·청자·종류·글자)를 쓸 수 없습니다. 용어·상태·표시·태그로 범위를 정하세요.';
-  if (input === 'lines' && scope.termIds?.length) return '대사 입력 워크플로에는 용어를 고를 수 없습니다.';
+  const lineScope = Boolean(scope.groupIds?.length || scope.unitIds?.length || scope.speakers?.length || scope.listeners?.length || scope.kinds?.length || scope.q || scope.unfinished !== undefined || scope.noted !== undefined);
+  if (input === 'terms' && lineScope) return '용어 입력 워크플로에는 대사 범위(묶음·대사 키·화자·청자·종류·글자·최종 아님·메모)를 쓸 수 없습니다. 용어·상태·정한 쪽·번역 비어 있음·표시·태그로 범위를 정하세요.';
+  if (input === 'lines' && (scope.termIds?.length || scope.emptyTarget !== undefined)) return '대사 입력 워크플로에는 용어나 번역 비어 있음을 고를 수 없습니다.';
   const foreign = (scope.marks ?? []).filter((mark) => !marksOn(input).includes(mark));
   if (foreign.length) return `${input === 'terms' ? '용어' : '대사'}에 없는 표시입니다: ${foreign.map((mark) => AUTO_MARKS[mark].name).join(', ')}`;
   return null;

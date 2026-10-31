@@ -13,6 +13,9 @@ type Entry = { id: string; depth: number };
 interface DockContextValue {
   target: HTMLDivElement | null;
   setTarget: (target: HTMLDivElement | null) => void;
+  /** The room in the dock's top row (beside the tabs) that the agent tab fills with its own controls. */
+  headerTarget: HTMLDivElement | null;
+  setHeaderTarget: (target: HTMLDivElement | null) => void;
   register: (entry: Entry) => () => void;
   active?: string;
   hasContent: boolean;
@@ -25,6 +28,7 @@ const DockDepth = createContext(0);
 /** Portals keep each inspector in its route's React context, but share one physical dock. */
 export function DockProvider({ children, onActivate, onContentChange }: { children: ReactNode; onActivate?: () => void; onContentChange?: (present: boolean) => void }) {
   const [target, setTarget] = useState<HTMLDivElement | null>(null);
+  const [headerTarget, setHeaderTarget] = useState<HTMLDivElement | null>(null);
   const [entries, setEntries] = useState<Entry[]>([]);
   const register = useCallback((entry: Entry) => {
     setEntries((previous) => [...previous.filter((item) => item.id !== entry.id), entry]);
@@ -36,7 +40,7 @@ export function DockProvider({ children, onActivate, onContentChange }: { childr
   const revealDock = useCallback(() => {
     if (hasContent) onActivate?.();
   }, [hasContent, onActivate]);
-  const context = useMemo(() => ({ target, setTarget, register, active, hasContent, activate: onActivate, revealDock }), [target, register, active, hasContent, onActivate, revealDock]);
+  const context = useMemo(() => ({ target, setTarget, headerTarget, setHeaderTarget, register, active, hasContent, activate: onActivate, revealDock }), [target, headerTarget, register, active, hasContent, onActivate, revealDock]);
   return <DockContext.Provider value={context}>{children}</DockContext.Provider>;
 }
 
@@ -56,6 +60,15 @@ export function DockContent({ children, selectionKey, autoActivate = true }: { c
   return dock?.target && present ? createPortal(
     <div className={cn('h-full min-h-0', dock.active !== id && 'hidden')} aria-hidden={dock.active !== id || undefined}>{children}</div>, dock.target,
   ) : null;
+}
+
+/**
+ * Controls of the agent tab that sit in the dock's top row, beside the tabs, so it needs no row of its own
+ * (the chat body gets the height). Shown only while the agent tab is the open one.
+ */
+export function DockHeaderSlot({ children }: { children: ReactNode }) {
+  const target = useContext(DockContext)?.headerTarget;
+  return target ? createPortal(children, target) : null;
 }
 
 export function DockLevel({ children }: { children: ReactNode }) {
@@ -80,6 +93,15 @@ export function DockHeader({ mode, onMode, unread, tools, onToggle, open = true,
   unread?: boolean; tools?: ReactNode; onToggle: () => void; open?: boolean;
   hasProperties?: boolean;
 }) {
+  const dock = useContext(DockContext);
+  // Register after commit, and only from the open header (the closed one sits in the page's header).
+  const slot = useRef<HTMLDivElement>(null);
+  const setHeaderTarget = dock?.setHeaderTarget;
+  useEffect(() => {
+    if (!open) return;
+    setHeaderTarget?.(slot.current);
+    return () => setHeaderTarget?.(null);
+  }, [open, setHeaderTarget]);
   if (!open) {
     return <div className="flex items-center gap-1">{tools}
       <Tooltip><TooltipTrigger asChild><Button size="icon-sm" variant="ghost" aria-label="오른쪽 패널 열기" onClick={onToggle}><PanelRight /></Button></TooltipTrigger><TooltipContent>오른쪽 패널 열기</TooltipContent></Tooltip>
@@ -110,7 +132,8 @@ export function DockHeader({ mode, onMode, unread, tools, onToggle, open = true,
         {unread && <span className="size-1.5 rounded-full bg-accent" aria-label="새 소식" />}
       </span>
     )}
-    <div className="ml-auto flex items-center gap-1">{tools}
+    <div ref={slot} className={cn('flex min-w-0 flex-1 items-center gap-1', mode !== 'agent' && 'hidden')} />
+    <div className="ml-auto flex shrink-0 items-center gap-1">{tools}
       <Tooltip><TooltipTrigger asChild><Button size="icon-sm" variant="ghost" aria-label="오른쪽 패널 접기" onClick={onToggle}><PanelRight /></Button></TooltipTrigger><TooltipContent>오른쪽 패널 접기</TooltipContent></Tooltip>
     </div>
   </div>;

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode, useEffectEvent, memo, useLayoutEffect, type ComponentProps } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Play } from 'lucide-react';
 import { LineDetail } from '@/components/line-detail';
@@ -6,8 +6,8 @@ import { useRevealDock, EditorToolbar, FilterChips, Pager, FilterBar, ActionBar,
 import { HeaderActions } from '@/components/page';
 import { tokenPatternOf } from '@/lib/line-context';
 import { RunDialog } from '@/components/workflow/run-dialog';
-import { lineTags, q, useMarkColors } from '@/lib/queries';
-import { markColor } from '@tw/shared';
+import { lineTags, q, useMarkStyles } from '@/lib/queries';
+import { markColor, type LineMark } from '@tw/shared';
 import { hasLineFilter, LineFilters, filterChips, lineQueryParams, type LinesSearch } from '@/components/script/line-filters';
 import { LineHeadRow, useLineBulk } from '@/components/script/line-bulk';
 import { LineRow } from '@/components/script/line-row';
@@ -25,6 +25,63 @@ const typing = (target: EventTarget | null) => target instanceof HTMLElement && 
  * what the last run flagged). Tags stay below the translation in both modes. Other details (listener, candidates, AI context, history)
  * lives in the details pane, opened on demand. Keyboard: ↑↓ moves, ↵ edits, ⌘↵ confirms and goes on.
  */
+const NO_ROWS: never[] = [];
+
+type RowLine = ComponentProps<typeof LineRow>['line'];
+/** What a row can ask of its list; one object for every row, made once. */
+interface RowActions {
+  pick: (ids: string[], on: boolean) => void;
+  select: (id: string) => void;
+  openDetail: (id: string) => void;
+  openScene: (groupId: string, lineId: string) => void;
+  editSource: (line: RowLine) => void;
+  addLine: (line: RowLine) => void;
+  showInGraph: (line: RowLine) => void;
+  arrivedEnd: () => void;
+  noting: (noting: boolean) => void;
+  escape: () => void;
+  done: (id: string, advanced: boolean) => void;
+  filterTag: (tagId: string) => void;
+  filterMark: (mark: LineMark) => void;
+  filterAi: () => void;
+}
+
+/**
+ * One line of the list. Memoized: when the URL or the selection changes, only the rows whose own
+ * props changed (the line itself, the picked one, the one left) render again.
+ */
+const LineItem = memo(function LineItem({ actions, line, sceneLines, sceneChecked, matchesReady, withSceneLink, withLineActions, ...row }: Omit<ComponentProps<typeof LineRow>, `on${string}` | 'sceneSelection'> & {
+  actions: RowActions;
+  /** The first row of a scene in a list of many: the scene's matching lines (its checkbox picks them all). */
+  sceneLines: readonly { id: string }[] | undefined;
+  sceneChecked: boolean | 'indeterminate';
+  matchesReady: boolean;
+  withSceneLink: boolean;
+  withLineActions: boolean;
+}) {
+  return (
+    <LineRow
+      {...row}
+      line={line}
+      sceneSelection={sceneLines ? { checked: sceneChecked, disabled: !matchesReady || !sceneLines.length, count: matchesReady ? `${sceneLines.length.toLocaleString()}줄` : undefined, onChange: (on) => actions.pick(sceneLines.map((item) => item.id), on) } : undefined}
+      onPick={(on) => actions.pick([line.id], on)}
+      onSelect={() => actions.select(line.id)}
+      onOpenDetail={() => actions.openDetail(line.id)}
+      onOpenScene={withSceneLink ? actions.openScene : undefined}
+      onEditSource={withLineActions ? () => actions.editSource(line) : undefined}
+      onAddLine={withLineActions ? () => actions.addLine(line) : undefined}
+      onShowInGraph={withLineActions && line.kind === 'dialogue' ? () => actions.showInGraph(line) : undefined}
+      onArrivedEnd={actions.arrivedEnd}
+      onNoting={actions.noting}
+      onEscape={actions.escape}
+      onDone={(advanced) => actions.done(line.id, advanced)}
+      onFilterTag={actions.filterTag}
+      onFilterMark={actions.filterMark}
+      onFilterAi={actions.filterAi}
+    />
+  );
+});
+
 export function LineList({
   projectId,
   groupId,
@@ -73,7 +130,7 @@ export function LineList({
   withSpeakers?: boolean;
 }) {
   const statuses = useQuery(q.statuses(projectId));
-  const markColors = useMarkColors(projectId);
+  const markStyles = useMarkStyles(projectId);
   // Format tokens read as numbered chips (#1) in every row; the full token is on hover.
   const projectInfo = useQuery(q.project(projectId));
   const tokenPattern = useMemo(() => tokenPatternOf(projectInfo.data?.formatRules ?? undefined), [projectInfo.data?.formatRules]);
@@ -120,7 +177,8 @@ export function LineList({
   const rows = lines.data?.rows;
   const total = lines.data?.total ?? 0;
   const matchesReady = !lines.isPlaceholderData && !matches.isPending && !matches.isError && matches.data !== undefined;
-  const matchRows = matchesReady ? matches.data.rows : [];
+  // One empty list while matches load, not a new one each render (the bulk picks compare it).
+  const matchRows = matchesReady ? matches.data.rows : NO_ROWS;
   const matchingByScene = useMemo(() => {
     const grouped = new Map<string, typeof matchRows>();
     for (const row of matchRows) {
@@ -139,7 +197,7 @@ export function LineList({
   const setEditing = (edit: boolean) => setFocusTick((tick) => (edit ? tick + 1 : 0));
 
   // Lines picked by their checkboxes; the head row above the lines acts on them.
-  const bulk = useLineBulk({ projectId, pickKey: review ? 'review' : (groupId ?? (kind ? `all.${kind}` : 'all')), rows, selectionRows: matchRows, tagName: (tagId) => tagById.get(tagId)?.name, marks: search.marks });
+  const bulk = useLineBulk({ projectId, pickKey: review ? 'review' : (groupId ?? (kind ? `all.${kind}` : 'all')), rows, selectionRows: matchRows, tagName: (tagId) => tagById.get(tagId)?.name, aiOnly: search.decidedBy === 'ai' });
   const { picked, pick } = bulk;
   // Moving past the end of a page opens the next page and lands on its first (or last) line.
   const landing = useRef<'first' | 'last' | null>(null);
@@ -173,37 +231,32 @@ export function LineList({
       onSearch({ page: page - 1 || undefined, line: undefined });
     }
   };
-  // After ⌘↵ the line may leave the list (검토함, #남은 줄); the next line is the one after it as it was.
+  // After ⌘↵ the line may leave the list (검토함, 최종 아님, 정한 쪽 AI); the next line is the one after it as it was.
   const advanceFrom = (id: string) => {
     if (!rows) return;
     const index = rows.findIndex((row) => row.id === id);
-    const shrinking = review || search.marks?.some((mark) => mark === 'remaining' || mark === 'ai');
+    const shrinking = review || search.unfinished === true || search.decidedBy === 'ai';
     if (index >= 0 && index + 1 < rows.length) select(rows[index + 1].id, true);
     else if (shrinking && index > 0 && page + 1 >= Math.ceil(total / PAGE_SIZE)) select(rows[index - 1].id, true);
     else move(1, true);
   };
 
-  const moveRef = useRef(move);
-  moveRef.current = move;
-  const selectedRef = useRef(search.line);
-  selectedRef.current = search.line;
-  // While a filter is walked, ⌥↑↓ go to the previous/next match (the script page handles them).
-  const findingRef = useRef(Boolean(find));
-  findingRef.current = Boolean(find);
+  // Reads the latest list and selection when a key comes (an effect event, so the listener is added once).
+  const onKey = useEffectEvent((event: KeyboardEvent) => {
+    if (event.defaultPrevented || event.metaKey || event.ctrlKey) return;
+    const inField = typing(event.target);
+    // While a filter is walked, ⌥↑↓ go to the previous/next match (the script page handles them).
+    if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && event.altKey && find) return;
+    if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && (event.altKey || !inField)) {
+      if (!inField && document.querySelector('[role="dialog"], [role="menu"], [role="listbox"]')) return;
+      event.preventDefault();
+      move(event.key === 'ArrowDown' ? 1 : -1, inField);
+    } else if (event.key === 'Enter' && !inField && search.line && !document.querySelector('[role="dialog"]')) {
+      event.preventDefault();
+      setEditing(true);
+    }
+  });
   useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.metaKey || event.ctrlKey) return;
-      const inField = typing(event.target);
-      if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && event.altKey && findingRef.current) return;
-      if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && (event.altKey || !inField)) {
-        if (!inField && document.querySelector('[role="dialog"], [role="menu"], [role="listbox"]')) return;
-        event.preventDefault();
-        moveRef.current(event.key === 'ArrowDown' ? 1 : -1, inField);
-      } else if (event.key === 'Enter' && !inField && selectedRef.current && !document.querySelector('[role="dialog"]')) {
-        event.preventDefault();
-        setEditing(true);
-      }
-    };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
@@ -211,6 +264,32 @@ export function LineList({
   // A line opened from a link (glossary example, search, evidence) is brought to the middle and
   // flashes once, so it is found at a glance; lines moved to here only scroll as far as needed.
   const [arrived, setArrived] = useState<string>();
+  // The rows' handlers never change (so a row whose line did not change skips rendering); each calls this
+  // list's latest logic, kept after every render.
+  const latest = useRef({ select, advanceFrom, pick, onSearch, revealDock, onOpenScene, lineActions, setEditing });
+  useLayoutEffect(() => {
+    latest.current = { select, advanceFrom, pick, onSearch, revealDock, onOpenScene, lineActions, setEditing };
+  });
+  const rowActions = useMemo<RowActions>(() => ({
+    pick: (ids, on) => latest.current.pick(ids, on),
+    select: (id) => latest.current.select(id, true),
+    openDetail: (id) => {
+      latest.current.revealDock?.();
+      latest.current.onSearch({ line: id, detail: true }, { replace: true });
+    },
+    openScene: (groupId, lineId) => latest.current.onOpenScene?.(groupId, lineId),
+    editSource: (line) => latest.current.lineActions?.editSource(line),
+    addLine: (line) => latest.current.lineActions?.addLine(line),
+    showInGraph: (line) => latest.current.lineActions?.showInGraph(line),
+    arrivedEnd: () => setArrived(undefined),
+    noting: setNoting,
+    escape: () => latest.current.setEditing(false),
+    done: (id, advanced) => (advanced ? latest.current.advanceFrom(id) : latest.current.select(undefined, false)),
+    filterTag: (tagId) => latest.current.onSearch({ tags: [tagId], page: undefined }),
+    filterMark: (mark) => latest.current.onSearch({ marks: [mark], page: undefined }),
+    filterAi: () => latest.current.onSearch({ decidedBy: 'ai', page: undefined }),
+  }), []);
+  const rowTags = lineTags(statuses.data?.tags);
   useEffect(() => {
     const row = selectedRow.current;
     if (!row) return;
@@ -223,7 +302,7 @@ export function LineList({
   }, [search.line, rows]);
 
   // Set filters show as removable chips; while finding, the find bar shows them instead.
-  const chips = find ? [] : filterChips(search, statusList, statuses.data?.tags ?? []);
+  const chips = find ? [] : filterChips(search, statusList, statuses.data?.tags ?? [], markStyles);
 
   // The details pane opens only on request (the 상세 button, the row's menu): picking or moving between
   // lines never reveals it, and closing it keeps the picked line.
@@ -272,7 +351,7 @@ export function LineList({
           chips={chips.map((chip) => ({
             key: chip.key,
             label: chip.label,
-            color: chip.mark ? markColor(chip.mark, markColors) : chip.tag?.color,
+            color: chip.mark ? markColor(chip.mark, markStyles) : chip.tag?.color,
             hidden: chip.hidden,
             clear: () => onSearch({ ...chip.clear, page: undefined }),
           }))}
@@ -299,44 +378,33 @@ export function LineList({
           <ul>
             {rows.map((line, index) => {
               const selected = line.id === search.line;
+              const sceneLines = showScene && rows[index - 1]?.groupId !== line.groupId ? (matchingByScene.get(line.groupId) ?? NO_ROWS) : undefined;
               return (
-                <LineRow
+                <LineItem
                   key={line.id}
+                  actions={rowActions}
                   projectId={projectId}
                   line={line}
-                  newScene={showScene && rows[index - 1]?.groupId !== line.groupId}
-                  sceneSelection={showScene && rows[index - 1]?.groupId !== line.groupId ? {
-                    checked: sceneSelectionState(picked, (matchingByScene.get(line.groupId) ?? []).map((row) => row.id)),
-                    disabled: !matchesReady || !(matchingByScene.get(line.groupId)?.length),
-                    count: matchesReady ? `${(matchingByScene.get(line.groupId) ?? []).length.toLocaleString()}줄` : undefined,
-                    onChange: (selected) => pick((matchingByScene.get(line.groupId) ?? []).map((row) => row.id), selected),
-                  } : undefined}
+                  newScene={sceneLines !== undefined}
+                  sceneLines={sceneLines}
+                  sceneChecked={sceneLines ? sceneSelectionState(picked, sceneLines.map((row) => row.id)) : false}
+                  matchesReady={matchesReady}
                   selected={selected}
                   marked={find?.ids.has(line.id)}
                   findLabel={find?.label}
                   status={statusById.get(line.statusId)}
                   statusList={statusList}
-                  tags={lineTags(statuses.data?.tags)}
+                  tags={rowTags}
                   tokenPattern={tokenPattern}
                   review={review}
                   isPicked={picked.has(line.id)}
                   arrived={line.id === arrived}
                   rowRef={selected ? selectedRow : undefined}
-                  noting={noting}
-                  focusTick={focusTick}
-                  onPick={(on) => pick([line.id], on)}
-                  onSelect={() => select(line.id, true)}
-                  onOpenDetail={() => { revealDock?.(); onSearch({ line: line.id, detail: true }, { replace: true }); }}
-                  onOpenScene={onOpenScene}
-                  onEditSource={lineActions && (() => lineActions.editSource(line))}
-                  onAddLine={lineActions && (() => lineActions.addLine(line))}
-                  onShowInGraph={lineActions && line.kind === 'dialogue' ? () => lineActions.showInGraph(line) : undefined}
-                  onArrivedEnd={() => setArrived(undefined)}
-                  onNoting={setNoting}
-                  onEscape={() => setEditing(false)}
-                  onDone={(advanced) => (advanced ? advanceFrom(line.id) : select(undefined, false))}
-                  onFilterTag={(tagId) => onSearch({ tags: [tagId], page: undefined })}
-                  onFilterMark={(mark) => onSearch({ marks: [mark], page: undefined })}
+                  // Only the picked line edits and takes notes: the other rows keep their props (and skip rendering).
+                  noting={selected && noting}
+                  focusTick={selected ? focusTick : 0}
+                  withSceneLink={Boolean(onOpenScene)}
+                  withLineActions={Boolean(lineActions)}
                 />
               );
             })}

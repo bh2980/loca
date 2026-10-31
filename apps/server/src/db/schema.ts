@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { customType, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 import type { AppDefaults } from '@tw/shared';
-import { AGE_BANDS, CHARACTER_ROLES, GENDERS, KNOWLEDGE_TAG_KINDS, TAG_ROLES, type TagRole, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, EVENT_LINK_KINDS, GRAPH_ORIGINS, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, PERMISSION_MODES, type CharacterStyle, type EditorAi, type ExclusionRules, type ModelLimits, LINE_TRANSLATE, type AutoMark, type MarkColors, type ContextItem, type FormatRules, type ItemErrorKind, type NodeType, type RelationshipChange, type WorkflowDefinition, workflowDefinitionSchema, WORKFLOW_SUBJECT_IDS, type WorkflowSubject, TERM_SCOPE_IDS, type TermScope } from '@tw/shared';
+import { type DecidedBy, AGE_BANDS, CHARACTER_ROLES, GENDERS, KNOWLEDGE_TAG_KINDS, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, EVENT_LINK_KINDS, GRAPH_ORIGINS, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, type MarkStyles, PERMISSION_MODES, type CharacterStyle, type EditorAi, type ExclusionRules, type ModelLimits, LINE_TRANSLATE, type AutoMark, type ContextItem, type FormatRules, type ItemErrorKind, type NodeType, type RelationshipChange, type WorkflowDefinition, workflowDefinitionSchema, WORKFLOW_SUBJECT_IDS, type WorkflowSubject, ALL_TERM_KINDS, type TermScope } from '@tw/shared';
 import type { Usage } from '@tw/ai';
 
 const id = () => text('id').primaryKey().$defaultFn(() => crypto.randomUUID());
@@ -34,6 +34,8 @@ const knowledge = () => ({
   evidence: json<string[]>('evidence').notNull().default(sql`'[]'`),
   /** Who put it in its current status. An AI item a person never touched stays "ai"; a new analysis may replace it. */
   statusBy: text('status_by', { enum: STATUS_BY }).notNull().default('human'),
+  /** Why the analysis wants a person to look at it (the automatic tag 확인 권장); a person deciding it clears it. */
+  reviewNote: text('review_note').notNull().default(''),
 });
 
 export const projects = sqliteTable('projects', {
@@ -54,8 +56,9 @@ export const projects = sqliteTable('projects', {
   exclusionRules: json<Partial<ExclusionRules>>('exclusion_rules').notNull().default(sql`'{}'`),
   /** The editor's AI continuation (off by default; see editorAiSchema). */
   editorAi: json<Partial<EditorAi>>('editor_ai').notNull().default(sql`'{}'`),
+  /** The project's own name and colour for automatic tags (markStylesSchema). */
+  markStyles: json<MarkStyles>('mark_styles').notNull().default(sql`'{}'`),
   /** Colors the project picked for automatic marks (AUTO_MARKS); others keep their default. */
-  markColors: json<MarkColors>('mark_colors').notNull().default(sql`'{}'`),
   /** The arms a person picked for the main route (본 줄기): graph node id of a fork → the node it goes on to. */
   routePicks: json<Record<string, string>>('route_picks').notNull().default(sql`'{}'`),
   /** 합류 점검: join block id of the route slice → when a person checked it and the signature of the lines they read (services/join-check.ts). */
@@ -82,12 +85,12 @@ export const tags = sqliteTable('tags', {
   projectId: projectId(),
   name: text('name').notNull(),
   color: text('color').notNull(),
-  /** A tag the app keeps: a problem type on lines (ISSUE_KINDS) or 확인 권장 on knowledge (REVIEW_TAG); null for a person's own tag. */
-  role: text('role', { enum: TAG_ROLES as unknown as [TagRole, ...TagRole[]] }),
-  /** Where a person's own tag can be put (the app's tags derive theirs from the role: tagScope). */
+  /** Where the tag can be put. */
   scope: json<TagScope[]>('scope').notNull().default(sql`'["lines","terms","people","documents","events"]'`),
   /** Order among the person's own tags (the app's tags list first, by name). */
   sort: integer('sort').notNull().default(0),
+  /** What the tag is for (설명). */
+  description: text('description').notNull().default(''),
 });
 
 export const groups = sqliteTable(
@@ -175,6 +178,8 @@ export const knowledgeTags = sqliteTable(
   (t) => [primaryKey({ columns: [t.kind, t.itemId, t.tagId] }), index('knowledge_tags_tag').on(t.tagId)],
 );
 
+export const CANDIDATE_STATES = ['pending', 'history', 'declined'] as const;
+export type CandidateState = (typeof CANDIDATE_STATES)[number];
 export const candidates = sqliteTable(
   'candidates',
   {
@@ -186,6 +191,13 @@ export const candidates = sqliteTable(
     runId: text('run_id'),
     nodeId: text('node_id'),
     note: text('note').notNull().default(''),
+    /**
+     * pending: an AI's translation no person has decided on yet (a run on a line a person translated, the chat's
+     * propose_translation, the editor's AI 번역·다듬기 not saved): the line shows it as 'AI 제안' with 적용·거절.
+     * history: a text the line had or has (the current one is units.candidate_id), or one that never needed a decision.
+     * declined: a suggestion a person turned down; kept in the line's history.
+     */
+    state: text('state', { enum: CANDIDATE_STATES }).notNull().default('history'),
     createdAt: createdAt(),
   },
   (t) => [index('candidates_unit').on(t.unitId, t.createdAt)],
@@ -365,8 +377,8 @@ export const terms = sqliteTable(
     runId: text('run_id'),
     /** Who put it in its current status (see knowledge()). */
     statusBy: text('status_by', { enum: STATUS_BY }).notNull().default('human'),
-    /** Which lines it applies to (TERM_SCOPES): all, UI lines only, or dialogue and documents. */
-    scope: text('scope', { enum: TERM_SCOPE_IDS as [TermScope, ...TermScope[]] }).notNull().default('all'),
+    /** The kinds of line it applies to (TERM_LINE_KINDS: ui, dialogue, document); all of them is every line. */
+    scope: text('scope', { mode: 'json' }).$type<TermScope>().notNull().default(ALL_TERM_KINDS),
     /** Matched in its exact case only ("Help" the button, not "help" the verb). */
     matchCase: integer('match_case', { mode: 'boolean' }).notNull().default(false),
     /** Other Korean forms it has had or been offered (a former main, an AI's form), newest first; `target` is the one used. */
@@ -522,11 +534,18 @@ export interface RunScope {
   marks?: AutoMark[];
   /** Statuses the items must be in: a lines workflow's status ids, a terms workflow's candidate / confirmed / rejected. None = any. */
   statusIds?: string[];
+  /** Lines: 최종 아님 (true) / 최종 (false); with or without a memo (the line list's filters). */
+  unfinished?: boolean;
+  noted?: boolean;
+  /** Who decided it (정한 쪽): a line's status maker, or a term's decision (shared decidedBy). */
+  decidedBy?: DecidedBy;
+  /** Terms: whether the Korean form is empty. */
+  emptyTarget?: boolean;
   /** A run of a terms workflow: these terms (instead of the entry node's term statuses and marks). */
   termIds?: string[];
   /** Lines said by any of these speakers (as stored: names and aliases already expanded). */
   speakers?: string[];
-  /** Lines said to any of these listeners (known listeners only, as the line list shows them; '-' = #청자 미상). */
+  /** Lines said to any of these listeners (known listeners only, as the line list shows them; '-' = 청자 모름). */
   listeners?: string[];
   /** Line kinds (dialogue, ui, …). */
   kinds?: string[];

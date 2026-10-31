@@ -10,7 +10,7 @@
  * open (the editor and the run graph keep that in sessionStorage, per workflow / run).
  */
 import { retryLiveText } from '../../lib/retry-info';
-import { ISSUE_KINDS, ITEM_ERROR_KINDS, TAG_ACTIONS, nodeName, retryScaleText, retryWaitText, nodePorts, tagLinesParams, type RetryConfig, type WorkflowDefinition, type WorkflowEdge, type WorkflowNode } from '@tw/shared';
+import { ITEM_ERROR_KINDS, TAG_ACTIONS, nodeName, retryScaleText, retryWaitText, nodePorts, tagLinesParams, type RetryConfig, type WorkflowDefinition, type WorkflowEdge, type WorkflowNode } from '@tw/shared';
 
 /** A branch of more nodes than this is not a side detail any more. */
 export const MAX_FOLDED_NODES = 4;
@@ -152,13 +152,13 @@ export function retryChipText(config: RetryConfig) {
   return [`${named} 시`, config.wait > 0 ? `${retryWaitText(config.wait)} 뒤` : '', config.model?.model ? `${config.model.model}로` : '', size, `${config.maxTimes}번`].filter(Boolean).join(' ');
 }
 
-/** "태그 붙이기 · 검수 지적", "태그 떼기 · 모든 문제 유형": what a tag node does, in the chip's few words. */
+/** "태그 붙이기 · 검수 지적", "태그 떼기 · 고른 태그 7개": what a tag node does, in the chip's few words. */
 export function tagChipText(node: WorkflowNode): string {
   if (node.type !== 'function' || node.config.fn !== 'tagLines') return nodeName(node);
   const tags = tagLinesParams.parse(node.config.params);
-  const picked = [...tags.kinds.map((kind) => ISSUE_KINDS[kind].name), ...(tags.tagIds.length ? [`고른 태그 ${tags.tagIds.length}개`] : [])];
+  const picked = tags.tagIds.length ? [`고른 태그 ${tags.tagIds.length}개`] : [];
   const from = tags.map.tag && (tags.map.tag === 'categories' ? '검수 지적' : tags.map.tag === 'kind' ? '검사 종류' : `결과의 ${tags.map.tag}`);
-  return [`태그 ${TAG_ACTIONS[tags.action]}`, ...(tags.allKinds ? ['모든 문제 유형'] : picked.length ? [picked.join('·')] : []), from].filter(Boolean).join(' · ');
+  return [`태그 ${TAG_ACTIONS[tags.action]}`, ...picked, from].filter(Boolean).join(' · ');
 }
 
 /** The chip's text: 재요청 first ("출력 잘림 시 절반으로 2번 → 사용량 한도 시 60초 뒤 그대로 3번 → 검토 필요"), a lone tag node by what it does, else the names joined. */

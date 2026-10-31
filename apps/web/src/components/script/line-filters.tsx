@@ -2,9 +2,9 @@
 import { Fragment, useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { ChevronDown } from 'lucide-react';
-import { AUTO_MARKS, type AutoMark, LINE_MARK_IDS, type LineMark, parseMarks } from '@tw/shared';
+import { DECIDED_BY, DECIDED_BY_LABELS, type DecidedBy, markName, type AutoMark, type MarkStyles, LINE_MARK_IDS, type LineMark, parseMarks } from '@tw/shared';
 import { FilterModeSwitch, markTagGroups, pickOf, PickIcon, togglePick, type FilterPick } from '@/components/header-filter';
-import { knownListenerFilter, toggleLineMarkFilter, unknownListenerFilter } from '@/lib/line-filter-state';
+
 import { Box, Button, DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuTrigger, Inline, Input, StatusIcon, Text, DropdownMenuContent, DropdownMenuSubContent, MenuLabel } from '@loca/ui';
 import { q } from '@/lib/queries';
 import { PersonName } from '@/lib/person-colors';
@@ -21,10 +21,18 @@ export interface LinesSearch {
   hideStatuses?: string[];
   hideSpeakers?: string[];
   hideTags?: string[];
-  /** Hidden marks; absent = the default (#번역 제외 hidden), an empty list = nothing hidden. */
+  /** Hidden marks: lines carrying any of them are left out. */
   hideMarks?: LineMark[];
-  /** A character name (a known listener); unknown listeners are the unknownListener mark. */
+  /** A character name (a known listener), or "-" for 청자 모름 (said to someone whose listener is unknown or an unsure guess). */
   listener?: string;
+  /** 최종 아님 (true: the work left) or 최종 (false). */
+  unfinished?: boolean;
+  /** 정한 쪽: who set the status (AI ✦ or a person). */
+  decidedBy?: DecidedBy;
+  /** 메모 있음 (true) or 없음 (false). */
+  noted?: boolean;
+  /** 번역 제외 lines: absent = hidden (the default), show = with the rest, only = only them. */
+  excluded?: 'show' | 'only';
   /** Automatic marks (LINE_MARK_IDS): lines carrying every one of them. */
   marks?: LineMark[];
   /**
@@ -42,9 +50,9 @@ export interface LinesSearch {
 
 const strings = (value: unknown) => (Array.isArray(value) && value.length && value.every((item) => typeof item === 'string') ? (value as string[]) : undefined);
 
-/** The marks hidden when the URL says nothing: lines not for translation. */
-export const DEFAULT_HIDDEN_MARKS: LineMark[] = ['excluded'];
-export const hiddenMarksOf = (search: LinesSearch) => search.hideMarks ?? DEFAULT_HIDDEN_MARKS;
+const bool = (value: unknown) => (value === true || value === 'true' ? true : value === false || value === 'false' ? false : undefined);
+/** 청자 모름 in the listener filter. */
+export const UNKNOWN_LISTENER = '-';
 
 export const linesSearchSchema = (raw: Record<string, unknown>): LinesSearch => ({
   q: typeof raw.q === 'string' && raw.q ? raw.q : undefined,
@@ -54,9 +62,12 @@ export const linesSearchSchema = (raw: Record<string, unknown>): LinesSearch => 
   hideStatuses: strings(raw.hideStatuses),
   hideSpeakers: strings(raw.hideSpeakers),
   hideTags: strings(raw.hideTags),
-  // An empty list is kept: it says "hide nothing" over the default.
-  hideMarks: Array.isArray(raw.hideMarks) ? (parseMarks(raw.hideMarks, LINE_MARK_IDS) ?? []) : undefined,
+  hideMarks: parseMarks(raw.hideMarks, LINE_MARK_IDS),
   listener: typeof raw.listener === 'string' && raw.listener ? raw.listener : undefined,
+  unfinished: bool(raw.unfinished),
+  decidedBy: DECIDED_BY.find((by) => by === raw.decidedBy),
+  noted: bool(raw.noted),
+  excluded: raw.excluded === 'show' || raw.excluded === 'only' ? raw.excluded : undefined,
   marks: parseMarks(raw.marks, LINE_MARK_IDS),
   mode: raw.mode === 'find' ? 'find' : undefined,
   page: typeof raw.page === 'number' && raw.page > 0 ? raw.page : undefined,
@@ -71,7 +82,7 @@ export function lineQueryParams(search: LinesSearch) {
   return {
     q: search.q,
     marks: search.marks?.join(','),
-    hideMarks: hiddenMarksOf(search).join(',') || undefined,
+    hideMarks: search.hideMarks?.join(','),
     statusIds: search.statuses?.join(','),
     hideStatusIds: search.hideStatuses?.join(','),
     tagIds: search.tags?.join(','),
@@ -79,11 +90,17 @@ export function lineQueryParams(search: LinesSearch) {
     speakers: names(search.speakers),
     hideSpeakers: names(search.hideSpeakers),
     listener: search.listener,
+    unfinished: search.unfinished === undefined ? undefined : search.unfinished ? ('1' as const) : ('0' as const),
+    decidedBy: search.decidedBy,
+    noted: search.noted === undefined ? undefined : search.noted ? ('1' as const) : ('0' as const),
+    // 번역 제외 lines are hidden unless the URL asks for them.
+    excluded: search.excluded === 'show' ? undefined : search.excluded === 'only' ? ('only' as const) : ('hide' as const),
   };
 }
 
-/** Whether any line filter is set (search, status, tag, speaker, listener, automatic marks). */
-export const hasLineFilter = (search: LinesSearch) => Boolean(search.q || search.statuses?.length || search.tags?.length || search.speakers?.length || search.listener || search.marks?.length || search.hideStatuses?.length || search.hideSpeakers?.length || search.hideTags?.length);
+/** Whether any line filter is set (search, status, tag, speaker, listener, automatic marks, the row facts). */
+export const hasLineFilter = (search: LinesSearch) =>
+  Boolean(search.q || search.statuses?.length || search.tags?.length || search.speakers?.length || search.listener || search.marks?.length || search.hideStatuses?.length || search.hideSpeakers?.length || search.hideTags?.length || search.unfinished !== undefined || search.decidedBy || search.noted !== undefined || search.excluded === 'only');
 /** Whether the filter is walked inside the scenes rather than listed apart. */
 export const isFinding = (search: LinesSearch) => hasLineFilter(search) && search.mode === 'find';
 
@@ -99,15 +116,14 @@ export interface LineFilterChip {
   clear: Partial<LinesSearch>;
 }
 
-/** The set filters as removable chips (also the find bar's label). Removing a hidden mark keeps the list explicit, so the default does not come back. */
-export function filterChips(search: LinesSearch, statuses: { id: string; name: string }[], tags: { id: string; name: string; color: string }[]): LineFilterChip[] {
+/** The set filters as removable chips (also the find bar's label). 번역 제외 is hidden by default; its chip shows them. */
+export function filterChips(search: LinesSearch, statuses: { id: string; name: string }[], tags: { id: string; name: string; color: string }[], styles?: MarkStyles): LineFilterChip[] {
   const without = <T,>(list: readonly T[] | undefined, value: T) => {
     const rest = (list ?? []).filter((item) => item !== value);
     return rest.length ? rest : undefined;
   };
   const statusName = (id: string) => statuses.find((status) => status.id === id)?.name ?? '?';
   const tagOf = (id: string) => tags.find((tag) => tag.id === id);
-  const hiddenMarks = hiddenMarksOf(search);
   return [
     ...(search.statuses ?? []).map((id) => ({ key: `status-${id}`, label: `상태: ${statusName(id)}`, clear: { statuses: without(search.statuses, id) } })),
     ...(search.hideStatuses ?? []).map((id) => ({ key: `hide-status-${id}`, label: `상태: ${statusName(id)}`, hidden: true, clear: { hideStatuses: without(search.hideStatuses, id) } })),
@@ -115,9 +131,13 @@ export function filterChips(search: LinesSearch, statuses: { id: string; name: s
     ...(search.hideTags ?? []).map((id) => ({ key: `hide-tag-${id}`, label: `#${tagOf(id)?.name ?? '?'}`, tag: tagOf(id), hidden: true, clear: { hideTags: without(search.hideTags, id) } })),
     ...(search.speakers ?? []).map((name) => ({ key: `speaker-${name}`, label: `화자: ${name}`, clear: { speakers: without(search.speakers, name) } })),
     ...(search.hideSpeakers ?? []).map((name) => ({ key: `hide-speaker-${name}`, label: `화자: ${name}`, hidden: true, clear: { hideSpeakers: without(search.hideSpeakers, name) } })),
-    ...(search.listener ? [{ key: 'listener', label: `청자: ${search.listener}`, clear: { listener: undefined } }] : []),
-    ...(search.marks ?? []).map((mark) => ({ key: `mark-${mark}`, label: `#${AUTO_MARKS[mark].name}`, mark, clear: { marks: without(search.marks, mark) } })),
-    ...hiddenMarks.map((mark) => ({ key: `hide-mark-${mark}`, label: `#${AUTO_MARKS[mark].name}`, mark, hidden: true, clear: { hideMarks: hiddenMarks.filter((other) => other !== mark) } })),
+    ...(search.listener ? [{ key: 'listener', label: `청자: ${search.listener === UNKNOWN_LISTENER ? '모름' : search.listener}`, clear: { listener: undefined } }] : []),
+    ...(search.unfinished !== undefined ? [{ key: 'unfinished', label: search.unfinished ? '상태: 최종 아님' : '상태: 최종', clear: { unfinished: undefined } }] : []),
+    ...(search.decidedBy ? [{ key: 'decidedBy', label: `정한 쪽: ${DECIDED_BY_LABELS[search.decidedBy]}`, clear: { decidedBy: undefined } }] : []),
+    ...(search.noted !== undefined ? [{ key: 'noted', label: search.noted ? '메모 있음' : '메모 없음', clear: { noted: undefined } }] : []),
+    ...(search.excluded === 'only' ? [{ key: 'excluded', label: '번역 제외만', clear: { excluded: undefined } }] : search.excluded === 'show' ? [] : [{ key: 'excluded', label: '번역 제외', hidden: true, clear: { excluded: 'show' as const } }]),
+    ...(search.marks ?? []).map((mark) => ({ key: `mark-${mark}`, label: `#${markName(mark, styles)}`, mark, clear: { marks: without(search.marks, mark) } })),
+    ...(search.hideMarks ?? []).map((mark) => ({ key: `hide-mark-${mark}`, label: `#${markName(mark, styles)}`, mark, hidden: true, clear: { hideMarks: without(search.hideMarks, mark) } })),
   ];
 }
 
@@ -153,14 +173,12 @@ export function LineFilters({ projectId, statuses, tags, speakers, listeners, un
     onSearch({ tags: next.show, hideTags: next.hide });
   };
   const pickMark = (mark: LineMark, mode: FilterPick) => {
-    const hidden = hiddenMarksOf(search);
-    if (mode === 'show' && !search.marks?.includes(mark)) return onSearch({ ...toggleLineMarkFilter(search, mark, true), hideMarks: hidden.filter((other) => other !== mark) });
-    if (mode === 'show') return onSearch(toggleLineMarkFilter(search, mark, false));
-    // Hidden: out of the shown marks; the list stays explicit (an empty one hides nothing).
-    const next = togglePick(search.marks, hidden, mark, 'hide');
-    onSearch({ marks: next.show, hideMarks: next.hide ?? [] });
+    const next = togglePick(search.marks, search.hideMarks, mark, mode);
+    onSearch({ marks: next.show, hideMarks: next.hide });
   };
-  const groups = markTagGroups({ marks: LINE_MARK_IDS, picked: search.marks, hidden: hiddenMarksOf(search), onMark: (mark, mode) => pickMark(mark as LineMark, mode), tags, pickedTags: search.tags, hiddenTags: search.hideTags, onTag: pickTag, projectId, tagHeading: '내 태그', issueHeading: '문제 유형' });
+  // 최종 아님 in the menu's mode: shown = the work left, hidden = only final lines.
+  const unfinishedState: FilterPick | undefined = search.unfinished === true ? 'show' : search.unfinished === false ? 'hide' : undefined;
+  const groups = markTagGroups({ marks: LINE_MARK_IDS, picked: search.marks, hidden: search.hideMarks, onMark: (mark, mode) => pickMark(mark as LineMark, mode), tags, pickedTags: search.tags, hiddenTags: search.hideTags, onTag: pickTag, projectId });
   return (
     <Inline minWidth={0} gap="hair">
       <DropdownMenu onOpenChange={(open) => open && setStatusMode('show')}>
@@ -183,7 +201,30 @@ export function LineFilters({ projectId, statuses, tags, speakers, listeners, un
                 <StatusIcon status={status} /> {status.name}
               </DropdownMenuItem>
             ))}
+            <DropdownMenuItem onSelect={(event) => { event.preventDefault(); onSearch({ unfinished: unfinishedState === statusMode ? undefined : statusMode === 'show' }); }}>
+              <PickIcon state={unfinishedState} />
+              최종 아님
+            </DropdownMenuItem>
           </DropdownMenuGroup>
+          <DropdownMenuSeparator />
+          <MenuLabel tone="quiet">정한 쪽</MenuLabel>
+          {DECIDED_BY.map((by) => (
+            <DropdownMenuCheckboxItem key={by} checked={search.decidedBy === by} onSelect={(event) => event.preventDefault()} onCheckedChange={(on) => onSearch({ decidedBy: on ? by : undefined })}>
+              {by === 'ai' ? 'AI (✦, 확인 전)' : '사람'}
+            </DropdownMenuCheckboxItem>
+          ))}
+          <DropdownMenuSeparator />
+          <MenuLabel tone="quiet">메모</MenuLabel>
+          <DropdownMenuCheckboxItem checked={search.noted === true} onSelect={(event) => event.preventDefault()} onCheckedChange={(on) => onSearch({ noted: on ? true : undefined })}>
+            메모 있음
+          </DropdownMenuCheckboxItem>
+          <DropdownMenuSeparator />
+          <MenuLabel tone="quiet">번역 제외</MenuLabel>
+          {([[undefined, '숨기기'], ['show', '함께 보기'], ['only', '이것만 보기']] as const).map(([value, label]) => (
+            <DropdownMenuCheckboxItem key={label} checked={search.excluded === value} onSelect={(event) => event.preventDefault()} onCheckedChange={() => onSearch({ excluded: value })}>
+              {label}
+            </DropdownMenuCheckboxItem>
+          ))}
         </DropdownMenuContent>
       </DropdownMenu>
       {withSpeakers && <DropdownMenu onOpenChange={(open) => (open ? setSpeakerMode('show') : (setSpeakerNeedle(''), setListenerNeedle('')))}>
@@ -213,8 +254,8 @@ export function LineFilters({ projectId, statuses, tags, speakers, listeners, un
             <DropdownMenuSubTrigger inset>청자</DropdownMenuSubTrigger>
             <DropdownMenuSubContent width="menu" maxHeight="dialog">
               <Box asChild marginBottom="tight"><Input value={listenerNeedle} onChange={(event) => setListenerNeedle(event.target.value)} onKeyDown={(event) => event.stopPropagation()} placeholder="이름 찾기" aria-label="청자 찾기" /></Box>
-              <DropdownMenuCheckboxItem checked={Boolean(search.marks?.includes('unknownListener'))} onSelect={(event) => event.preventDefault()} onCheckedChange={(on) => onSearch(unknownListenerFilter(search, on))}>
-                <Text minWidth={0} grow truncate>청자 미상</Text>
+              <DropdownMenuCheckboxItem checked={search.listener === UNKNOWN_LISTENER} onSelect={(event) => event.preventDefault()} onCheckedChange={(on) => onSearch({ listener: on ? UNKNOWN_LISTENER : undefined })}>
+                <Text minWidth={0} grow truncate>모름</Text>
                 {!listenersPending && !listenersError && <Text variant="caption" tone="muted" tabular>{unknownListenerCount.toLocaleString()}</Text>}
               </DropdownMenuCheckboxItem>
               <DropdownMenuSeparator />
@@ -226,7 +267,7 @@ export function LineFilters({ projectId, statuses, tags, speakers, listeners, un
                 </>
               )}
               {!listenersPending && !listenersError && shownListeners.map((listener) => (
-                <DropdownMenuCheckboxItem key={listener.name} checked={search.listener === listener.name} onSelect={(event) => event.preventDefault()} onCheckedChange={(on) => onSearch(knownListenerFilter(search, listener.name, on))}>
+                <DropdownMenuCheckboxItem key={listener.name} checked={search.listener === listener.name} onSelect={(event) => event.preventDefault()} onCheckedChange={(on) => onSearch({ listener: on ? listener.name : undefined })}>
                   <Text minWidth={0} grow truncate>{listener.name}</Text>
                   <Text variant="caption" tone="muted" tabular>{listener.lines.toLocaleString()}</Text>
                 </DropdownMenuCheckboxItem>
@@ -254,9 +295,9 @@ export function LineFilters({ projectId, statuses, tags, speakers, listeners, un
               ))}
             </Fragment>
           ))}
-          {!tags.some((tag) => !tag.role) && (
+          {!tags.length && (
             <>
-              <MenuLabel tone="quiet">내 태그</MenuLabel>
+              <MenuLabel tone="quiet">태그</MenuLabel>
               <DropdownMenuItem asChild inset>
                 <Link to="/p/$projectId/settings/statuses" params={{ projectId }}>태그 만들기</Link>
               </DropdownMenuItem>

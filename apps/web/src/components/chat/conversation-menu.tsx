@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, History, Pencil, Plus, Trash2, X } from 'lucide-react';
-import { Button, ListRow, ConversationRowAction, DropdownMenu, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, Inline, Icon, Input, Text, MenuSearchField, DropdownMenuContent, MenuLabel } from '@loca/ui';
+import { Button, ListRow, MenuRowAction, DropdownMenu, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, Inline, Icon, Input, Text, MenuSearchField, DropdownMenuContent, MenuLabel } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 
@@ -132,17 +132,16 @@ export function ConversationMenu({ projectId, sessions, sessionId, currentTitle,
                       {session.calls}건 · {compactTokens(session.tokens)}
                     </Text>
                   )}
-                  <ConversationRowAction
+                  <MenuRowAction
                     aria-label={`${session.title} 이름 바꾸기`}
                     onClick={(event) => {
                       event.stopPropagation();
                       setRenaming({ id: session.id, title: session.title });
                     }}
-                    onPointerDown={(event) => event.stopPropagation()}
                   >
                     <Pencil />
-                  </ConversationRowAction>
-                  <ConversationRowAction
+                  </MenuRowAction>
+                  <MenuRowAction
                     danger
                     aria-label={`${session.title} 삭제`}
                     onClick={(event) => {
@@ -150,10 +149,9 @@ export function ConversationMenu({ projectId, sessions, sessionId, currentTitle,
                       setOpen(false);
                       onDelete({ id: session.id, title: session.title });
                     }}
-                    onPointerDown={(event) => event.stopPropagation()}
                   >
                     <Trash2 />
-                  </ConversationRowAction>
+                  </MenuRowAction>
                 </ListRow>
               ),
             )}

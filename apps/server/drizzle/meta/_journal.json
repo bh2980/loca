@@ -687,6 +687,62 @@
       "when": 1793309439121,
       "tag": "0097_term_target_candidates",
       "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "6",
+      "when": 1793382116516,
+      "tag": "0098_candidate_state",
+      "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "6",
+      "when": 1793387106369,
+      "tag": "0099_term_scope_kinds",
+      "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "6",
+      "when": 1793389491645,
+      "tag": "0100_drop_mark_colors",
+      "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "6",
+      "when": 1793391955954,
+      "tag": "0101_tag_description",
+      "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "6",
+      "when": 1793393500431,
+      "tag": "0102_issue_tags_ordinary",
+      "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "6",
+      "when": 1793395665171,
+      "tag": "0103_mark_styles",
+      "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "6",
+      "when": 1793396321297,
+      "tag": "0104_review_note",
+      "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "6",
+      "when": 1793398792922,
+      "tag": "0105_drop_row_fact_marks",
+      "breakpoints": true
     }
   ]
 }

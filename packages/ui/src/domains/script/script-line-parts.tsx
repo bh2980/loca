@@ -1,5 +1,5 @@
 import { Slot } from "@radix-ui/react-slot"
-import { CircleAlert, StickyNote } from "lucide-react"
+import { CircleAlert, StickyNote, X } from "lucide-react"
 import type { ComponentProps, ReactNode } from "react"
 import { cn } from "../../lib/utils"
 import { Button } from "../../controls/button"
@@ -43,12 +43,19 @@ export function ScriptSourceStyle({ open, tone, children }: { open: boolean; ton
 }
 
 /** A person's note on a line, shown as a button that opens it for editing. */
-export function ScriptNoteCard({ note, onClick }: { note: string; onClick: () => void }) {
+export function ScriptNoteCard({ note, onClick, onDelete }: { note: string; onClick: () => void; /** Given, a delete button shows at the card's corner on hover or focus. */ onDelete?: () => void }) {
   return (
-    <Button variant="ghost" size="row" className="mt-2 h-auto items-start gap-1 rounded-md border border-warning/30 bg-warning/5 py-2 text-left text-sm font-normal whitespace-pre-wrap" onClick={onClick}>
-      <Icon icon={StickyNote} size="sm" marginTop="hair" shrink={false} tone="warning" />
-      <span className="min-w-0 break-words">{note}</span>
-    </Button>
+    <div className="group/note relative mt-2">
+      <Button variant="ghost" size="row" className={cn("h-auto items-start gap-1 rounded-md border border-warning/30 bg-warning/5 py-2 text-left text-sm font-normal whitespace-pre-wrap", onDelete && "pr-9")} onClick={onClick}>
+        <Icon icon={StickyNote} size="sm" marginTop="hair" shrink={false} tone="warning" />
+        <span className="min-w-0 break-words">{note}</span>
+      </Button>
+      {onDelete && (
+        <Button variant="ghost" size="icon-xs" aria-label="메모 삭제" title="메모 삭제" className="absolute top-1.5 right-1.5 text-muted opacity-0 hover:text-danger group-hover/note:opacity-100 focus-visible:opacity-100" onClick={onDelete}>
+          <X />
+        </Button>
+      )}
+    </div>
   )
 }
 

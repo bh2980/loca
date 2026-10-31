@@ -1,5 +1,5 @@
 import { infiniteQueryOptions, keepPreviousData, queryOptions, useQuery } from '@tanstack/react-query';
-import { ATTACH_PAGE, REVIEW_TAG, normalizeTagScopes, type AttachKind, type DetectedCustomFormatRule, type DetectedFormatPreset, type FormatPreset, type MarkColors, type TagScope } from '@tw/shared';
+import { ATTACH_PAGE, normalizeTagScopes, type AttachKind, type DetectedCustomFormatRule, type DetectedFormatPreset, type FormatPreset, type MarkStyles, type TagScope } from '@tw/shared';
 import { client, unwrap } from './api';
 import { connectionsApi, targetScope, type SettingsTarget } from './settings-target';
 
@@ -37,7 +37,7 @@ export const q = {
   /** Every line a filter matches (id and scene, script order), for walking them inside their scenes. */
   unitMatches: (projectId: string, query: { groupId?: string; kind?: 'scene' | 'document' | 'ui'; section?: string; statusId?: string; tagIds?: string; q?: string; speaker?: string; listener?: string; review?: '1'; marks?: string }) =>
     queryOptions({ queryKey: ['units', 'matches', projectId, query], queryFn: () => unwrap(client.projects[':projectId'].units.matches.$get({ param: { projectId }, query })) }),
-  units: (projectId: string, query: { groupId?: string; section?: string; kind?: 'scene' | 'document' | 'ui'; statusId?: string; tagIds?: string; q?: string; speaker?: string; listener?: string; review?: '1'; marks?: string; focus?: string; offset?: number; limit?: number }) =>
+  units: (projectId: string, query: { groupId?: string; section?: string; kind?: 'scene' | 'document' | 'ui'; statusId?: string; tagIds?: string; q?: string; speaker?: string; listener?: string; review?: '1'; marks?: string; decidedBy?: 'ai' | 'human'; excluded?: 'hide' | 'only'; focus?: string; offset?: number; limit?: number }) =>
     queryOptions({
       queryKey: ['units', 'list', projectId, query],
       queryFn: () =>
@@ -68,6 +68,12 @@ export const q = {
       queryKey: ['graph', projectId, scope, direction, section ?? ''],
       queryFn: () => unwrap(client.projects[':projectId'].graph[':scope{dialogue|scene}'].$get({ param: { projectId, scope }, query: { ...(section && { section }), direction } })),
       staleTime: Infinity,
+    }),
+  /** Each node's first line's translation, apart from the graph: keyed under 'units', so a saved translation refreshes it and the layout is not fetched again. */
+  graphTranslations: (projectId: string, section?: string, direction: 'vertical' | 'horizontal' = 'vertical') =>
+    queryOptions({
+      queryKey: ['units', 'graph-translations', projectId, direction, section ?? ''],
+      queryFn: () => unwrap(client.projects[':projectId'].graph.translations.$get({ param: { projectId }, query: { ...(section && { section }), direction } })),
     }),
   /** The slice of the dialogue graph for the stored choices (길 따라 보기): blocks, edges, forks, stubs, seams, the picks and the translation counts (units topic: translations decide them). */
   route: (projectId: string) => queryOptions({ queryKey: ['units', projectId, 'route'], queryFn: () => unwrap(client.projects[':projectId'].route.$get({ param: { projectId } })) }),
@@ -177,16 +183,10 @@ export const q = {
     }),
 };
 
-/** The id of the project's 확인 권장 tag (knowledge items an app check marked for a look), once it exists. */
-export function useReviewTagId(projectId: string) {
-  const statuses = useQuery(q.statuses(projectId));
-  return statuses.data?.tags.find((tag) => tag.role === REVIEW_TAG.role)?.id;
-}
-
-/** The project's own colors for automatic marks (defaults fill the rest, see markColor). */
-export function useMarkColors(projectId: string | undefined): MarkColors | undefined {
+/** The project's own names and colours for automatic tags (markName / markColor fall back to the defaults). */
+export function useMarkStyles(projectId: string | undefined): MarkStyles | undefined {
   const project = useQuery({ ...q.project(projectId ?? ''), enabled: !!projectId });
-  return project.data?.markColors as MarkColors | undefined;
+  return (project.data as { markStyles?: MarkStyles } | undefined)?.markStyles;
 }
 
 /** The tags that can be put in a place (the server sends each tag's effective scope). */

@@ -1,7 +1,6 @@
 import { eq } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { applyIssueTags } from '../services/issue-tags.ts';
 import { filtersByStatus } from '@tw/shared';
 
 /** A person's saved translation a status-filtered run does not replace (#51); the same text the runner notes. */
@@ -14,15 +13,13 @@ type Run = typeof s.runs.$inferSelect;
  * Writes a candidate a workflow produced straight into the line (#42): the
  * translation column is the produced text the moment it is made, set by AI. A run that picks lines
  * by status does not overwrite a translation a person saved after the run started (the #51 rule);
- * that line keeps its text and only gains the candidate. A changed translation clears the
- * problem-type tags that described the old text (the one implicit tag rule; every other tag change is a 태그 붙이기 node).
+ * that line keeps its text and only gains the candidate. Tags are not touched: putting them on and taking them off is the
+ * workflow's (태그 붙이기 nodes), as the default workflows do after AI 수정.
  */
 export function applyRunCandidate(tx: Tx, run: Pick<Run, 'id' | 'projectId' | 'scope'>, unitId: string, candidateId: string, text: string): { applied: boolean } {
   const current = tx.select({ translation: s.units.translation, statusBy: s.units.statusBy }).from(s.units).where(eq(s.units.id, unitId)).get();
   if (personOwns(current, text, filtersByStatus(run.scope))) return { applied: false };
-  const changed = current?.translation !== text;
   tx.update(s.units).set({ translation: text, candidateId, statusBy: 'ai', statusRunId: run.id }).where(eq(s.units.id, unitId)).run();
-  if (changed) applyIssueTags(tx, run.projectId, unitId, { clear: 'all' });
   return { applied: true };
 }
 

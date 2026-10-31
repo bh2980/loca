@@ -5,6 +5,7 @@ import type { LayoutDirection, LayoutJob } from './layout-types.ts';
 import { deriveSceneGraph, depthBlocks, reduceSceneEdges } from './scene-graph.ts';
 import { foldChains } from './chains.ts';
 import { sectionJobs, type SectionNode } from './section-graph.ts';
+import { byRank } from './script-rank.ts';
 
 export type { LayoutDirection, LayoutJob } from './layout-types.ts';
 
@@ -201,7 +202,8 @@ async function layout(job: LayoutJob): Promise<LayoutData> {
   const horizontal = job.direction === 'horizontal';
   const linked = new Set(job.edges.flatMap((edge) => [edge.from, edge.to]));
   const inOrder = new Set(job.ordered?.blocks.flatMap((block) => [...(block.heads ?? []), ...block.rows.flat()]).filter((id) => !linked.has(id)));
-  const connected = job.nodes.filter((node) => linked.has(node.id));
+  // In script order: ELK enters a loop at the first node it is given.
+  const connected = byRank(job.nodes.filter((node) => linked.has(node.id)));
   const isolated = job.nodes.filter((node) => !linked.has(node.id) && !inOrder.has(node.id));
 
   const main: ElkNode = connected.length

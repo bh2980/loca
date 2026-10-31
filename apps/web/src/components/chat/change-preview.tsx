@@ -4,15 +4,55 @@ import { Box, Markdown, Grid, Inline, Text, SectionHeading } from '@loca/ui';
 
 export const LABEL: Record<string, string> = Object.fromEntries(Object.entries(AGENT_TOOLS).map(([name, info]) => [name, info.label]));
 
+/** What the server knows about a proposal beyond its input (names for ids, old values): see services/proposal-details.ts. */
+export interface ProposalDetails {
+  items: { kind: string; action: '수정' | '추가'; label: string; changes: { field: string; before?: string; after: string }[] }[];
+  refs: Record<string, string>;
+}
+const KIND_NAME: Record<string, string> = { characters: '인물', relationships: '관계', speechRules: '말투 규칙', events: '사건', documents: '노트' };
+
+/** Each saved item as who it is, then field by field what it was and what it becomes. */
+function KnowledgeChanges({ items }: { items: ProposalDetails['items'] }) {
+  return (
+    <Box as="ul" maxHeight="scroll" spaceY="condensed" overflow="auto">
+      {items.map((item, index) => (
+        <li key={index}>
+          <Text as="p" weight="medium">
+            {item.action} · {KIND_NAME[item.kind] ?? item.kind} · {item.label || '(이름 없음)'}
+          </Text>
+          {item.changes.length ? (
+            <Box as="dl" spaceY="tight">
+              {item.changes.map((change) => (
+                <Grid key={change.field} columns="field" gap="condensed">
+                  <Text as="dt" variant="caption" tone="muted">{change.field}</Text>
+                  <Box as="dd" minWidth={0}>
+                    {change.before !== undefined && <Text as="p" tone="muted" breakWords preserveLines>{change.before}</Text>}
+                    <Text as="p" breakWords preserveLines>{change.before !== undefined ? '→ ' : ''}{change.after}</Text>
+                  </Box>
+                </Grid>
+              ))}
+            </Box>
+          ) : (
+            <Text as="p" variant="caption" tone="muted">바뀌는 내용이 없습니다.</Text>
+          )}
+        </li>
+      ))}
+    </Box>
+  );
+}
+
 /** A readable preview of what an approval-gated tool would change. */
-export function ChangePreview({ name, input, pending = true }: { name: string; input: Record<string, unknown>; /** Still waiting for a decision: only then does it say what accepting will do. */ pending?: boolean }) {
+export function ChangePreview({ name, input, pending = true, details }: { name: string; input: Record<string, unknown>; /** Still waiting for a decision: only then does it say what accepting will do. */ pending?: boolean; details?: ProposalDetails | null }) {
+  // An id the project can name is shown as its name.
+  const named = (value: unknown) => (typeof value === 'string' ? (details?.refs[value] ?? value) : value);
   const field = (label: string, value: unknown) =>
     value === undefined || value === '' ? null : (
       <Grid columns="field" gap="condensed">
         <Text as="dt" variant="caption" tone="muted">{label}</Text>
-        <Text as="dd" minWidth={0} breakWords>{Array.isArray(value) ? value.join(', ') : String(value)}</Text>
+        <Text as="dd" minWidth={0} breakWords>{Array.isArray(value) ? value.map(named).join(', ') : String(named(value))}</Text>
       </Grid>
     );
+  if (details?.items.length && ['save_knowledge', 'save_character', 'save_relationship', 'save_speech_rule', 'save_event', 'save_document'].includes(name)) return <KnowledgeChanges items={details.items} />;
   const markdown = (value: unknown) =>
     typeof value === 'string' && value ? (
       <Markdown framed>{value}</Markdown>
@@ -92,7 +132,7 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
       return <Text as="p">홈 기본값에서 가져옴: {sections.map((section) => APP_DEFAULT_SECTION_LABELS[section] ?? section).join(', ')}. 상태·태그·저장한 지시는 없는 이름만 더하고, 워크플로는 새로 더합니다.</Text>;
     }
     case 'update_project_settings': {
-      const labels: Record<string, string> = { name: '이름', description: '설명', formatRules: '서식 규칙', aiAutoConfirm: 'AI 문맥', editorAi: '편집기 AI', markColors: '표시 색' };
+      const labels: Record<string, string> = { name: '이름', description: '설명', formatRules: '서식 규칙', aiAutoConfirm: 'AI 문맥', editorAi: '편집기 AI' };
       return (
         <Box as="dl" spaceY="tight">
           {Object.entries(input).map(([key, value]) => (
@@ -110,6 +150,7 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
         <Box as="dl" spaceY="tight">
           {field('만들기', input.type === 'tag' ? `태그 #${String(input.name)}` : `상태 ${String(input.name)}`)}
           {input.type === 'tag' && field('붙는 곳', ((input.scope as string[] | undefined) ?? ['lines', 'knowledge', 'terms']).map((place) => places[place] ?? place))}
+          {input.type === 'tag' && field('설명', input.description)}
         </Box>
       );
     }
@@ -118,7 +159,7 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
     case 'delete_status':
       return <Box as="dl" spaceY="tight">{field('삭제할 상태', input.ids)}{field('대사를 옮길 상태', input.moveTo)}{pending && <Text as="p" tone="danger">대사의 상태가 바뀌고 상태를 삭제합니다.</Text>}</Box>;
     case 'update_tag':
-      return <Box as="dl" spaceY="tight">{field('태그', input.id)}{field('이름', input.name)}{field('색', input.color)}{field('붙는 곳', input.scope)}</Box>;
+      return <Box as="dl" spaceY="tight">{field('태그', input.id)}{field('이름', input.name)}{field('설명', input.description)}{field('색', input.color)}{field('붙는 곳', input.scope)}</Box>;
     case 'delete_tag':
       return <Box as="dl" spaceY="tight">{field('삭제할 태그', input.ids)}{pending && <Text as="p" tone="danger">항목에 붙은 태그도 함께 제거됩니다.</Text>}</Box>;
     case 'delete_workflow':
@@ -193,7 +234,15 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
     }
     case 'start_run': {
       const count = (key: string) => ((input[key] as unknown[] | undefined) ?? []).length;
-      const scope = [count('groupIds') && `장면·묶음 ${count('groupIds')}개`, count('unitIds') && `대사 ${count('unitIds')}개`, count('tagIds') && `태그 ${count('tagIds')}개`].filter(Boolean).join(', ');
+      const scope = [
+        count('groupIds') && `장면·묶음 ${count('groupIds')}개`,
+        count('unitIds') && `대사 ${count('unitIds')}개`,
+        count('tagIds') && `태그 ${count('tagIds')}개`,
+        input.unfinished === true ? '최종 아님' : input.unfinished === false && '최종',
+        input.decidedBy && `정한 쪽 ${input.decidedBy === 'ai' ? 'AI' : '사람'}`,
+        input.noted === true ? '메모 있음' : input.noted === false && '메모 없음',
+        input.emptyTarget === true ? '번역 비어 있음' : input.emptyTarget === false && '번역 있음',
+      ].filter(Boolean).join(', ');
       const marks = (input.marks as AutoMark[] | undefined) ?? [];
       return (
         <Box as="dl" spaceY="tight">
@@ -225,6 +274,8 @@ export function ChangePreview({ name, input, pending = true }: { name: string; i
     }
     case 'propose_translation':
       return <Box as="dl" spaceY="tight">{field('번역', input.text)}{field('메모', input.note)}</Box>;
+    case 'decide_suggestion':
+      return <Box as="dl" spaceY="tight">{field('대사', input.unitId)}{field('결정', input.decision === 'apply' ? '적용 (현재 번역으로)' : '거절 (이력에만 남김)')}</Box>;
     case 'save_group_summary':
       return <Box as="dl" spaceY="tight">{field('요약', input.description)}</Box>;
     case 'edit_workflow_node': {

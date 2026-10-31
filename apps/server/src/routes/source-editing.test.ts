@@ -29,7 +29,7 @@ it('supports source document CRUD from an empty kind and applies chapter scope t
   expect(scoped.rows[0].source).toBe('Two');
   const focused = await responseJson<UnitListResponse>(await app.request(`${base}/units?section=Chapter%202&focus=${scoped.rows[0].id}&limit=1`));
   expect(focused.offset).toBe(0);
-  db.insert(s.tags).values({ id: 'filter-tag', projectId, name: 'Review', color: 'slate', role: null }).run();
+  db.insert(s.tags).values({ id: 'filter-tag', projectId, name: 'Review', color: 'slate' }).run();
   db.insert(s.unitTags).values({ unitId: scoped.rows[0].id, tagId: 'filter-tag' }).run();
   const matches = await responseJson<UnitMatchesResponse>(await app.request(`${base}/units/matches?section=Chapter%202`));
   expect(matches.rows.map((row) => row.id)).toEqual([scoped.rows[0].id]);

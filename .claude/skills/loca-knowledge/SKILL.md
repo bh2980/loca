@@ -5,7 +5,7 @@ description: Read and maintain a loca project's knowledge that AI translation us
 
 # loca 작품 자료 다루기
 
-공통 규칙(연결, 제안, 권한, 표시, 터미널 권한 모드)은 `loca` 스킬을 따릅니다. 자료는 번역 문맥으로 쓰입니다: **확정(confirmed)** 된 자료만 AI 노드에 들어가고, 후보는 들어가지 않습니다. AI가 확정한 자료(#AI 초안)도 이미 쓰이고 있으니, 틀린 것을 보면 고쳐서 제안합니다(사람이 수락하면 정한 쪽이 사람이 됩니다).
+공통 규칙(연결, 제안, 권한, 표시, 터미널 권한 모드)은 `loca` 스킬을 따릅니다. 자료는 번역 문맥으로 쓰입니다: **확정(confirmed)** 된 자료만 AI 노드에 들어가고, 후보는 들어가지 않습니다. AI가 확정한 자료(✦, `--by ai`)도 이미 쓰이고 있으니, 틀린 것을 보면 고쳐서 제안합니다(사람이 수락하면 정한 쪽이 사람이 됩니다).
 
 ## 읽기
 파일은 작업 폴더에 받습니다: `W=$(loca workspace new knowledge)`
@@ -50,12 +50,12 @@ loca call save_speech_rule @"$W/rule.json"       # {"fromName":"Alice","toName":
 규칙을 고친 뒤 기존 번역을 맞추려면, 그 쌍의 대사를 번역 워크플로(기본 "번역")로 다시 돌리도록 제안합니다(`loca runs start <워크플로> -s Alice --listener Bob`). 말투가 규칙과 맞는지는 워크플로의 말투 판정(AI 선택 노드 + 조건 노드)이 봅니다. 어미 정규식 점검은 없습니다. 프로젝트의 워크플로는 `loca workflows list`로 확인하고, 필요하면 `loca-workflows`로 만듭니다.
 
 ## 대사의 청자
-청자는 말투를 정하는 열쇠입니다. 화자가 있는 대사 중 청자를 모르는 줄에 #청자 미상(`unknownListener`)이 붙습니다(화자 없는 지문·서식만 있는 줄은 빠짐).
+청자는 말투를 정하는 열쇠입니다. 화자가 있는 대사 중 청자를 모르거나 AI 추정이 불확실한 줄이 청자 모름입니다(`--listener -`, 화자 없는 지문·서식만 있는 줄은 빠짐).
 ```
-loca lines --mark unknownListener -g "<장면>"
+loca lines --listener - -g "<장면>"
 ```
 - 사람이 확정한 청자: import 파일 줄에 `{"key":"<키>","rev":<rev>,"listener":"Bob"}`(모르면 `null`).
-- 근거로 추정한 AI의 추측: `loca call set_listeners`로 확신도(0–1)와 함께 제안합니다. 줄마다(`lines`) 주고, 사람이 정했거나 가져오기로 들어온 청자는 바꾸지 않습니다. 이런 줄은 #AI 초안으로 남아 사람이 확인합니다. 형식은 `loca tools set_listeners`.
+- 근거로 추정한 AI의 추측: `loca call set_listeners`로 확신도(0–1)와 함께 제안합니다. 줄마다(`lines`) 주고, 사람이 정했거나 가져오기로 들어온 청자는 바꾸지 않습니다. 이런 줄은 AI가 정한 것(✦)으로 남아 사람이 확인합니다. 형식은 `loca tools set_listeners`.
 - 특별한 청자: 여럿(`group`) · 불특정 다수(`public`) · 혼잣말(`self`) · 그 밖의 인물(`others`).
 
 ## 사건·노트·장면 설명

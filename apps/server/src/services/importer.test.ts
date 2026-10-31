@@ -16,7 +16,7 @@ describe('default workflows of a new project', () => {
     // 번역 sends lines it could not get past review to 검토 필요, a status listed in the review inbox.
     const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).all().map((status) => [status.name, status.inReview]);
     expect(statuses).toEqual([['미번역', false], ['번역됨', false], ['검토 필요', true], ['완료', false]]);
-    expect(db.select().from(s.tags).where(eq(s.tags.projectId, projectId)).all().map((tag) => [tag.name, tag.role])).toEqual([['AI 실패', 'aiFailed']]);
+    expect(db.select().from(s.tags).where(eq(s.tags.projectId, projectId)).all().map((tag) => tag.name).sort()).toEqual(['AI 실패', '기타 지적', '말투 어긋남', '문체 어색', '용어 위반', '의미 오류', '형식 오류']);
   });
 
   it('puts imported lines that already have a translation in 번역됨', () => {

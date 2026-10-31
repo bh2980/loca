@@ -16,6 +16,7 @@ import { choiceLabel } from '../services/routes.ts';
 import { previewRequest } from '../services/request-preview.ts';
 import { continuePreflight, switchedRun } from '../services/run-continue.ts';
 import { deleteWorkflow, saveWorkflow, workflowCallers, WorkflowMutationError } from '../services/workflow-mutations.ts';
+import { issueTagIds } from '../services/issue-tags.ts';
 
 const scopeSchema = runScopeSchema;
 /** A run's scope and, optionally, the models it uses instead of its nodes' own (by AI node id). */
@@ -98,7 +99,6 @@ function templateDefinition(db: Db, projectId: string, key: string): { name: str
   const template = WORKFLOW_TEMPLATES.find((entry) => entry.key === key) ?? badRequest('알 수 없는 템플릿입니다.');
   const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).orderBy(asc(s.statuses.sort)).all();
   const normal = statuses.filter((status) => status.kind === 'normal');
-  const aiFailedTag = db.select({ id: s.tags.id }).from(s.tags).where(and(eq(s.tags.projectId, projectId), eq(s.tags.name, 'AI 실패'))).get();
   const definition = workflowDefinitionSchema.parse(
     template.build({
       model: EMPTY_MODEL_CHOICE,
@@ -106,7 +106,7 @@ function templateDefinition(db: Db, projectId: string, key: string): { name: str
       confirmed: statuses.find((status) => status.kind === 'final')?.id,
       needsReview: normal.find((status) => status.inReview)?.id,
       translated: normal.find((status) => !status.inReview)?.id,
-      aiFailedTag: aiFailedTag?.id,
+      issueTags: issueTagIds(db, projectId),
     }),
   );
   return { name: template.name, definition };

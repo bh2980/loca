@@ -8,7 +8,7 @@ import { attachUnitTags, scopeRefusal } from './tag-scope.ts';
 import { saveLine } from './line-save.ts';
 import { PERSON, type Saver } from './status-by.ts';
 import { refusesListener, setHumanListener } from './listeners.ts';
-import { hiddenMarkConditions, knownListenerSql, markConditions, translatableSql } from './line-marks.ts';
+import { hiddenMarkConditions, knownListenerSql, lineFactConditions, markConditions, translatableSql, unknownListenerSql } from './line-marks.ts';
 import { lineTextFilter } from './line-text.ts';
 import { describeRule, knowledgeOf, knownListener, speechRuleIndex } from './speech.ts';
 import { precedingLines } from './context.ts';
@@ -35,6 +35,12 @@ export interface LineRow {
   translation: string | null;
   status: string;
   tags: string[];
+  /** Who set the status: 'ai' (✦, no person has checked it) or 'human'. */
+  statusBy: string;
+  /** The line's memo ('' when none). */
+  note: string;
+  /** 번역 제외: not for translation (no text, a rule, or a person's call). */
+  excluded: boolean;
   /** The automatic marks the line carries (lineMarksOf); 같은 원문 다른 번역 only when the query was asked for it (`diverged`). */
   marks: LineMark[];
 }
@@ -68,9 +74,9 @@ export function findLines(db: Db, projectId: string, filter: LineFilter, options
   if (filter.q) where.push(lineTextFilter(filter.q));
   if (filter.speakers?.length) where.push(inList(s.units.speaker, filter.speakers.flatMap(namesOf)));
   if (filter.listeners?.length) {
-    // The app's rules (services/line-marks.ts): '-' is the #청자 미상 mark (dialogue only), a name must be a known listener.
+    // The app's rules (services/line-marks.ts): '-' is 청자 모름 (dialogue only), a name must be a known listener.
     const names = filter.listeners.filter((name) => name !== '-').flatMap(namesOf);
-    where.push(or(...(names.length ? [and(inArray(s.units.listener, names), knownListenerSql)!] : []), ...(filter.listeners.includes('-') ? markConditions(projectId, ['unknownListener']) : []))!);
+    where.push(or(...(names.length ? [and(inArray(s.units.listener, names), knownListenerSql)!] : []), ...(filter.listeners.includes('-') ? [unknownListenerSql(projectId)] : []))!);
   }
   if (filter.groups?.length) where.push(or(inList(s.groups.key, filter.groups), inList(s.groups.id, filter.groups), inList(s.groups.title, filter.groups))!);
   if (filter.sections?.length) where.push(inList(s.groups.section, filter.sections));
@@ -79,7 +85,7 @@ export function findLines(db: Db, projectId: string, filter: LineFilter, options
   if (filter.statuses?.length) where.push(inList(s.units.statusId, filter.statuses.map((value) => statusId(value) ?? value)));
   // Several tags: lines carrying every one of them, as in the app's list.
   for (const tag of filter.tags ?? []) where.push(sql`${s.units.id} in (select unit_id from ${s.unitTags} where tag_id = ${tagId(tag) ?? tag})`);
-  where.push(...markConditions(projectId, filter.marks));
+  where.push(...markConditions(projectId, filter.marks), ...lineFactConditions(projectId, filter));
   // 숨기기: any one of these leaves a line out.
   if (filter.hideSpeakers?.length) where.push(sql`coalesce(${s.units.speaker}, '') not in (select value from json_each(${JSON.stringify(filter.hideSpeakers.flatMap(namesOf))}))`);
   if (filter.hideStatuses?.length) where.push(sql`${s.units.statusId} not in (select value from json_each(${JSON.stringify(filter.hideStatuses.map((value) => statusId(value) ?? value))}))`);
@@ -128,6 +134,8 @@ export function findLines(db: Db, projectId: string, filter: LineFilter, options
   const project = db.select({ rules: s.projects.formatRules, exclusion: s.projects.exclusionRules, language: s.projects.sourceLanguage }).from(s.projects).where(eq(s.projects.id, projectId)).get();
   const rules = project?.rules;
   const exclusion = exclusionRulesSchema.parse(project?.exclusion ?? {});
+  // Lines with an AI 제안 waiting (one query for the page).
+  const suggested = new Set(inChunks(ids, (slice) => db.select({ unitId: s.candidates.unitId }).from(s.candidates).where(and(inArray(s.candidates.unitId, slice), eq(s.candidates.state, 'pending'))).all()).map((row) => row.unitId));
   // Same source, different translation compares across the project: one extra query, only when asked.
   const diverged = options.diverged && page.length ? new Set(db.select({ id: s.units.id }).from(s.units).where(and(eq(s.units.projectId, projectId), ...markConditions(projectId, ['diverged']))).all().map((row) => row.id)) : null;
   return {
@@ -144,7 +152,10 @@ export function findLines(db: Db, projectId: string, filter: LineFilter, options
       translation: unit.translation,
       status: statusName.get(unit.statusId) ?? unit.statusId,
       tags: tagsByUnit.get(unit.id) ?? [],
-      marks: [...lineMarksOf(unit, finalStatus.has(unit.statusId), rules, lineExclusion(unit, rules, exclusion, project?.language) !== null), ...(diverged?.has(unit.id) ? (['diverged'] as const) : [])],
+      statusBy: unit.statusBy,
+      note: unit.note,
+      excluded: lineExclusion(unit, rules, exclusion, project?.language) !== null,
+      marks: [...lineMarksOf({ suggested: suggested.has(unit.id) }), ...(diverged?.has(unit.id) ? (['diverged'] as const) : [])],
     })),
   };
 }

@@ -10,12 +10,15 @@ import { promptEntries } from './prompts.ts';
 import { Runner, type ModelPort } from './runner.ts';
 import { withoutTerms } from './test-workflows.ts';
 import { createRun } from './run-create.ts';
+import { issueTagIds } from '../services/issue-tags.ts';
 
-/** The tags of a line that are problem types, by name. */
+/** The tags every project starts with for findings. */
+const STARTERS = ['AI 실패', '기타 지적', '말투 어긋남', '문체 어색', '용어 위반', '의미 오류', '형식 오류'];
+/** The tags of a line that record findings, by name. */
 const issueTagsOf = (db: ReturnType<typeof openDatabase>, key: string) => {
   const unit = db.select().from(s.units).where(eq(s.units.key, key)).get()!;
   const tags = db.select().from(s.tags).all();
-  return db.select().from(s.unitTags).where(eq(s.unitTags.unitId, unit.id)).all().flatMap((row) => tags.filter((tag) => tag.id === row.tagId && tag.role).map((tag) => tag.name)).sort();
+  return db.select().from(s.unitTags).where(eq(s.unitTags.unitId, unit.id)).all().flatMap((row) => tags.filter((tag) => tag.id === row.tagId && STARTERS.includes(tag.name)).map((tag) => tag.name)).sort();
 };
 
 describe('the default 번역 workflow tags through its 태그 붙이기 nodes', () => {
@@ -26,7 +29,7 @@ describe('the default 번역 workflow tags through its 태그 붙이기 nodes', 
     const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Test' }, groups: [{ key: 'g1', title: 'Scene' }], units: [{ key: 'u0', group: 'g1', source: 'Line 0' }, { key: 'u1', group: 'g1', source: 'Line 1' }] }), model);
     const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).all();
     const status = (kind: string) => statuses.find((item) => item.kind === kind)!.id;
-    expect(db.select().from(s.tags).all().map((tag) => tag.role)).toEqual(['aiFailed']);
+    expect(db.select().from(s.tags).all().map((tag) => tag.name).sort()).toEqual(STARTERS);
 
     let reviews = 0;
     const duringSecondReview: string[][] = [];
@@ -50,17 +53,17 @@ describe('the default 번역 workflow tags through its 태그 붙이기 nodes', 
         return { object: { results: lines.map((line) => ({ id: line.id, text: `번역 ${line.source}` })) }, usage: {} } as never;
       },
     };
-    const definition = workflowDefinitionSchema.parse(withoutTerms(translationTemplate({ model, untranslated: status('initial'), translated: status('normal'), needsReview: status('normal'), confirmed: status('final') })));
+    const definition = workflowDefinitionSchema.parse(withoutTerms(translationTemplate({ model, issueTags: issueTagIds(db, projectId), untranslated: status('initial'), translated: status('normal'), needsReview: status('normal'), confirmed: status('final') })));
     const workflow = db.insert(s.workflows).values({ projectId, name: '번역', definition }).returning().get();
     createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: {} });
     await new Runner(db, memoryStore(), port).drain();
 
     // AI 수정 sees the failed line with the review's kinds; the revised text clears them, so the second review
     // starts clean on both lines.
-    expect(duringRevision).toEqual([['말투', '용어']]);
+    expect(duringRevision).toEqual([['말투 어긋남', '용어 위반']]);
     expect(duringSecondReview).toEqual([[], []]);
-    // The kinds came into the project when they were first put on, and a pass took them off again.
-    expect(db.select().from(s.tags).all().map((tag) => tag.role).sort()).toEqual(['aiFailed', 'speech', 'term']);
+    // The run used the project's tags (it makes none), and a pass took them off again.
+    expect(db.select().from(s.tags).all().map((tag) => tag.name).sort()).toEqual(STARTERS);
     expect(issueTagsOf(db, 'u1')).toEqual([]);
     expect(db.select().from(s.units).where(eq(s.units.key, 'u1')).get()!.statusId).toBe(status('final'));
   });

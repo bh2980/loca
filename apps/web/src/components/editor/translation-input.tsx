@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import { Annotation, Compartment, EditorState, Prec, RangeSetBuilder, StateEffect, StateField } from '@codemirror/state';
 import { Decoration, EditorView, hoverTooltip, keymap, MatchDecorator, placeholder as placeholderText, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from '@codemirror/view';
 import { history, historyKeymap, standardKeymap } from '@codemirror/commands';
@@ -388,9 +388,11 @@ export function TranslationInput(props: TranslationInputProps) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView>(null);
   const contextSlot = useRef(new Compartment());
-  // Handlers change every render; the editor reads the latest through this ref.
+  // Handlers change every render; the editor reads the latest through this ref (updated after each render).
   const latest = useRef(props);
-  latest.current = props;
+  useLayoutEffect(() => {
+    latest.current = props;
+  });
 
   useEffect(() => {
     const run = (action: () => void) => () => (action(), true);

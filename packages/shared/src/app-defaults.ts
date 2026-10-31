@@ -26,6 +26,7 @@ export const templateTagSchema = z.object({
   id: z.string().min(1),
   name: z.string().trim().min(1).max(40),
   color: z.string().regex(HEX_COLOR).default(DEFAULT_TAG_COLOR),
+  description: z.string().trim().max(300).default(''),
   scope: z
     .array(z.enum(TAG_SCOPES))
     .min(1)

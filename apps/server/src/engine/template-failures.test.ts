@@ -9,6 +9,7 @@ import { snapshotWorkflowModels } from '../services/routes.ts';
 import { memoryStore } from '../services/secrets.ts';
 import { Runner, type ModelPort } from './runner.ts';
 import { createRun } from './run-create.ts';
+import { issueTagIds } from '../services/issue-tags.ts';
 
 /** Every request times out. */
 const alwaysTimesOut = () => {
@@ -34,7 +35,8 @@ function setup(templateKey: string) {
   const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Test' }, groups, units }), choice);
   const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).all();
   const review = db.insert(s.statuses).values({ projectId, name: '사람 확인 필요', color: '#b26f00', kind: 'normal', inReview: true, sort: 10 }).returning().get();
-  const aiFailed = db.select().from(s.tags).where(eq(s.tags.role, 'aiFailed')).get()!;
+  const issueTags = issueTagIds(db, projectId);
+  const aiFailed = db.select().from(s.tags).where(eq(s.tags.id, issueTags.aiFailed!)).get()!;
   const template = WORKFLOW_TEMPLATES.find((candidate) => candidate.key === templateKey)!;
   const built = template.build({
     model: choice,
@@ -42,7 +44,7 @@ function setup(templateKey: string) {
     translated: statuses.find((status) => status.kind === 'normal')!.id,
     needsReview: review.id,
     confirmed: statuses.find((status) => status.kind === 'final')!.id,
-    aiFailedTag: aiFailed.id,
+    issueTags,
   });
   const definition = workflowDefinitionSchema.parse({ ...built, settings: { ...built.settings, maxConsecutiveFailures: 50 } });
   const workflow = db.insert(s.workflows).values({ projectId, name: template.name, description: '', definition }).returning().get();

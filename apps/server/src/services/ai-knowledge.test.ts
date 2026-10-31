@@ -5,11 +5,11 @@ import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { aiSaveCharacters, aiSaveDocument, aiSaveEvents, aiSaveRelationships, relationshipRows, aiSaveSpeechRules, aiSaveTerms, aiSaveUnresolvedPairs, aiSetLineListeners, canonicalNames, mergeFoundPeople } from './ai-knowledge.ts';
 import { importProject } from './importer.ts';
-import { tagsOf } from './knowledge-tags.ts';
 
-/** Why a rule is marked 확인 권장 (its tag's note), or undefined. */
-const characterReview = (db: Parameters<typeof tagsOf>[0], id: string) => tagsOf(db, 'characters', [id]).get(id)?.find((tag) => tag.note)?.note ?? undefined;
-const reviewOf = (db: Parameters<typeof tagsOf>[0], id: string) => tagsOf(db, 'speechRules', [id]).get(id)?.find((tag) => tag.note)?.note ?? undefined;
+type TestDb = ReturnType<typeof openDatabase>;
+/** Why an item is marked 확인 권장 (its review note), or undefined. */
+const characterReview = (db: TestDb, id: string) => db.select().from(s.characters).where(eq(s.characters.id, id)).get()?.reviewNote || undefined;
+const reviewOf = (db: TestDb, id: string) => db.select().from(s.speechRules).where(eq(s.speechRules.id, id)).get()?.reviewNote || undefined;
 
 function setup() {
   const db = openDatabase(':memory:');
@@ -267,7 +267,7 @@ describe('AI knowledge writes', () => {
     expect(result).toEqual({ added: 1, kept: 2, dropped: ['Alice ↔ Door: 사람이 아님', 'Alice: 한 명뿐'] });
     const row = all().find((rel) => rel.kind === UNRESOLVED_RELATIONSHIP_KIND)!;
     expect(row).toMatchObject({ description: '대사에 근거 없음', status: 'candidate', statusBy: 'ai', origin: 'ai' });
-    expect(tagsOf(db, 'relationships', [row.id]).get(row.id)?.[0]?.note).toContain('대사에 근거 없음');
+    expect(row.reviewNote).toContain('대사에 근거 없음');
     // Saving the same pair again adds nothing, even after a person rejected the candidate.
     db.update(s.relationships).set({ status: 'rejected', statusBy: 'human' }).where(eq(s.relationships.id, row.id)).run();
     expect(aiSaveUnresolvedPairs(db as never, write, [{ between: ['Alice', 'Bob'], reason: 'again' }])).toMatchObject({ added: 0, kept: 1 });
@@ -282,7 +282,7 @@ describe('AI knowledge writes', () => {
     const placeholder = all()[0]!;
     expect(aiSaveRelationships(db as never, write, [{ from: 'Bob', to: 'Alice', kind: '부하' }])).toMatchObject({ added: 1 });
     expect(all().map((rel) => rel.kind)).toEqual(['부하']);
-    expect(tagsOf(db, 'relationships', [placeholder.id]).get(placeholder.id) ?? []).toEqual([]);
+    expect(all().find((rel) => rel.id === placeholder.id)?.reviewNote ?? '').toBe('');
     // A candidate a person already decided on is not a placeholder any more: it stays, and still blocks nothing.
     aiSaveCharacters(db as never, write, [{ name: 'Cleo' }]);
     aiSaveUnresolvedPairs(db as never, write, [{ between: ['Alice', 'Cleo'], reason: '근거 없음' }]);
@@ -316,7 +316,9 @@ describe('AI knowledge writes', () => {
     const names = db.select().from(s.characters).where(eq(s.characters.projectId, projectId)).all().map((person) => person.name).sort();
     expect(names).toEqual(['Alice', 'Bob', 'Telephone']);
     const phone = db.select().from(s.characters).where(eq(s.characters.name, 'Telephone')).get()!;
-    expect(phone).toEqual(before.find((person) => person.name === 'Telephone')!);
+    // Only the 확인 권장 note is new: the content stays as the person left it.
+    const content = ({ reviewNote: _note, updatedAt: _at, ...rest }: typeof phone) => rest;
+    expect(content(phone)).toEqual(content(before.find((person) => person.name === 'Telephone')!));
     expect(characterReview(db, phone.id)).toBe(`${NOT_A_PERSON_NOTE}장치`);
     expect(characterReview(db, before.find((person) => person.name === 'Alice')!.id)).toBeUndefined();
   });

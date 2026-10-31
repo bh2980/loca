@@ -59,8 +59,6 @@ describe('bulk and project tools (#45)', () => {
     expect(await prepareProposal(db, projectId, 'delete_items', { kind: 'characters', ids: ['gone'] })).toMatchObject({ ok: false });
     expect(await run('delete_items', { kind: 'characters', ids: [a.id] })).toMatchObject({ ok: true, deleted: 1 });
     expect(db.select().from(s.characters).where(eq(s.characters.id, a.id)).get()).toBeUndefined();
-    const roleTag = db.select().from(s.tags).all().find((tag) => tag.role);
-    if (roleTag) expect(await prepareProposal(db, projectId, 'delete_items', { kind: 'tags', ids: [roleTag.id] })).toMatchObject({ ok: false });
   });
 
   it('save_knowledge refuses an item whose id does not exist', async () => {

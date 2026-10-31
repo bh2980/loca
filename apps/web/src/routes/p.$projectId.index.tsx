@@ -6,8 +6,8 @@ import { GettingStarted } from '@/components/getting-started';
 import { RunStatusBadge, Box, Button, Heading, Icon, Inline, ListRow, Stack, StatusChipLink, StatusIcon, Meter, Text, TodoIcon, Skeleton } from '@loca/ui';
 import { Elapsed, JobProgress } from '@/components/job-progress';
 import { Page } from '@/components/page';
-import { AUTO_MARKS } from '@tw/shared';
-import { q, useReviewTagId } from '@/lib/queries';
+import { AUTO_MARKS, markName } from '@tw/shared';
+import { q, useMarkStyles } from '@/lib/queries';
 import { dateTime } from '@/lib/datetime';
 import { useProgress } from '@/lib/use-progress';
 import { SCRIPT_VIEW } from '@/lib/labels';
@@ -37,11 +37,12 @@ interface Todo {
 function Home() {
   const { projectId } = Route.useParams();
   const project = useQuery(q.project(projectId));
+  const markStyles = useMarkStyles(projectId);
   const progress = useProgress(projectId);
   const groups = useQuery(q.groups(projectId));
-  const aiLineCounts = useQueries({ queries: SCRIPT_KINDS.map((kind) => q.units(projectId, { kind, marks: 'ai', limit: 1 })) });
+  // Counted as the linked list shows them: status set by AI, 번역 제외 hidden.
+  const aiLineCounts = useQueries({ queries: SCRIPT_KINDS.map((kind) => q.units(projectId, { kind, decidedBy: 'ai', excluded: 'hide', limit: 1 })) });
   const rules = useQuery(q.speechRules(projectId));
-  const reviewTag = useReviewTagId(projectId);
   const terms = useQuery(q.terms(projectId));
   const runs = useQuery(q.runs(projectId));
 
@@ -82,24 +83,24 @@ function Home() {
     {
       key: 'listener',
       icon: <UserRoundSearch />,
-      title: '청자 미상',
+      title: '청자 모름',
       count: groups.data?.reduce((sum, group) => sum + group.unknownListeners, 0) ?? 0,
-      link: <Link to="/p/$projectId/script" params={{ projectId }} search={{ marks: ['unknownListener'] }} />,
+      link: <Link to="/p/$projectId/script" params={{ projectId }} search={{ listener: '-' }} />,
     },
     {
       key: 'rules',
       icon: <MessageSquareQuote />,
       title: '확인 권장 말투 규칙',
-      count: rules.data?.filter((rule) => rule.tags.some((tag) => tag.id === reviewTag)).length ?? 0,
-      link: <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', ...(reviewTag && { tags: [reviewTag] }) }} />,
+      count: rules.data?.filter((rule) => rule.reviewNote).length ?? 0,
+      link: <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', marks: ['review'] }} />,
     },
     // The script opens one kind at a time, so these marks use the same per-kind rows as status progress.
     ...aiLinesByKind.map(({ kind, count }) => ({
       key: `ai-lines-${kind}`,
       icon: <Sparkles />,
-      title: `${AUTO_MARKS.ai.name} ${LINE_KIND_LABEL[kind]} 확인 전`,
+      title: `AI가 정한 ${LINE_KIND_LABEL[kind]} 확인 전`,
       count,
-      link: <Link to="/p/$projectId/script" params={{ projectId }} search={{ kind, marks: ['ai'] }} />,
+      link: <Link to="/p/$projectId/script" params={{ projectId }} search={{ kind, decidedBy: 'ai' }} />,
     })),
     ...(
       [
@@ -111,16 +112,16 @@ function Home() {
     ).map(([key, name, where]) => ({
       key: `ai-${key}`,
       icon: <Sparkles />,
-      title: `${AUTO_MARKS.ai.name} ${name} 확인 전`,
+      title: `AI가 정한 ${name} 확인 전`,
       count: aiDecided?.knowledge[key] ?? 0,
-      link: <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ display: 'table', ...where, marks: ['ai'] }} />,
+      link: <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ display: 'table', ...where, decidedBy: 'ai' }} />,
     })),
     {
       key: 'ai-terms',
       icon: <Sparkles />,
-      title: `${AUTO_MARKS.ai.name} 용어 확인 전`,
+      title: 'AI가 정한 용어 확인 전',
       count: aiDecided?.terms ?? 0,
-      link: <Link to="/p/$projectId/glossary" params={{ projectId }} search={{ marks: ['ai'] }} />,
+      link: <Link to="/p/$projectId/glossary" params={{ projectId }} search={{ decidedBy: 'ai' }} />,
     },
     {
       key: 'terms',

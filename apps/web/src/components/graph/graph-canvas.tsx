@@ -97,7 +97,22 @@ export interface NodeInfo {
   /** The color a person gave the speaker in `title` (a palette hex): the title is drawn in it. */
   titleColor?: string;
   body?: string | null;
+  /** `body` is drawn in the text color (the translation, when it is what is shown alone). */
+  bodyStrong?: boolean;
+  /** A second line under `body` (one line each): the translation when both are shown. */
+  second?: string | null;
+  /** What is drawn as a hint, not as text: the translation a line does not have yet. */
+  missing?: 'body' | 'second';
+  /** A folded run this card opens (on the run's block) or folds again (on its first line): the run's id. A small button on the card. */
+  fold?: string;
 }
+
+/** A card's fold button: a small outline button like the app's others (chevron and label), at the card's top right. */
+const FOLD_BUTTON = { height: 24, margin: 8, unfoldWidth: 76, foldWidth: 60 };
+const foldBadge = (node: LayoutNode, folded: boolean) => {
+  const width = folded ? FOLD_BUTTON.unfoldWidth : FOLD_BUTTON.foldWidth;
+  return { x: node.x + node.width - width - FOLD_BUTTON.margin, y: node.y + FOLD_BUTTON.margin, width, height: FOLD_BUTTON.height };
+};
 export interface Viewport {
   x: number;
   y: number;
@@ -152,8 +167,6 @@ interface Props {
    */
   editable?: boolean;
   onConnect?: (fromId: string, toId: string) => void;
-  /** The scene graph: scene nodes (not hubs) can be connected too. */
-  connectScenes?: boolean;
   selectedEdgeId?: string;
   onSelectEdge?: (edgeId: string) => void;
   onEdgeContextMenu?: (edgeId: string, event: { clientX: number; clientY: number }) => void;
@@ -175,6 +188,8 @@ interface Props {
   onSelectMany?: (ids: string[], additive: boolean) => void;
   /** Nodes to emphasise (e.g. the scene being inspected); others are dimmed when non-empty. */
   highlight?: Set<string>;
+  /** The fold button of a card (`NodeInfo.fold`) was pressed. */
+  onToggleFold?: (runId: string) => void;
   /** Path endpoints to mark on this graph; folded nodes should be keyed by their visible chain id. */
   endpointMarkers?: Map<string, Array<'start' | 'end'>>;
   /** Edges to emphasise on top of `highlight` (`${from}|${to}` of the edges in `edges`); the other edges stay dimmed. */
@@ -198,7 +213,7 @@ interface Props {
  * Draws a precomputed ELK layout. d3-zoom owns pan/zoom, Flatbush owns spatial queries,
  * so each frame only touches what is on screen. One <canvas>, no per-node DOM.
  */
-export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, direction = 'vertical', onDirectionChange, editable, onConnect, connectScenes, selectedEdgeId, onSelectEdge, onEdgeContextMenu, toolbar, hubs, info, width, height, selectedId, selectedIds, onSelectMany, highlight, endpointMarkers, highlightEdges, initialViewport, initialFocus, initialFocusAlign = 'center', onViewportChange, onSelect, onContextMenu, onOpen, anchor, handle }: Props) {
+export function GraphCanvas({ onToggleFold, nodes, regions = [], edges: laidOut, looseEdges, direction = 'vertical', onDirectionChange, editable, onConnect, selectedEdgeId, onSelectEdge, onEdgeContextMenu, toolbar, hubs, info, width, height, selectedId, selectedIds, onSelectMany, highlight, endpointMarkers, highlightEdges, initialViewport, initialFocus, initialFocusAlign = 'center', onViewportChange, onSelect, onContextMenu, onOpen, anchor, handle }: Props) {
   const theme = useTheme();
   const canvas = useRef<HTMLCanvasElement>(null);
   const minimap = useRef<HTMLCanvasElement>(null);
@@ -233,8 +248,9 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
   const edges = laidOut;
   // Which of the drawn edges are emphasised, by position.
   const emphasised = useMemo(() => new Set(highlightEdges?.size ? edges.flatMap((edge, i) => (highlightEdges.has(`${edge.from}|${edge.to}`) ? [i] : [])) : []), [edges, highlightEdges]);
-  const props = useRef({ selectedId, selectedIds, onSelectMany, highlight, endpointMarkers, emphasised, onViewportChange, onSelect, onOpen, hubs, anchorId: anchor?.id, toolbarId: toolbar?.id, onContextMenu, editable, onConnect, connectScenes, selectedEdgeId, onSelectEdge, onEdgeContextMenu });
-  props.current = { selectedId, selectedIds, onSelectMany, highlight, endpointMarkers, emphasised, onViewportChange, onSelect, onOpen, hubs, anchorId: anchor?.id, toolbarId: toolbar?.id, onContextMenu, editable, onConnect, connectScenes, selectedEdgeId, onSelectEdge, onEdgeContextMenu };
+  const hoveredFold = useRef<string>(undefined);
+  const props = useRef({ onToggleFold, selectedId, selectedIds, onSelectMany, highlight, endpointMarkers, emphasised, onViewportChange, onSelect, onOpen, hubs, anchorId: anchor?.id, toolbarId: toolbar?.id, onContextMenu, editable, onConnect, selectedEdgeId, onSelectEdge, onEdgeContextMenu });
+  props.current = { onToggleFold, selectedId, selectedIds, onSelectMany, highlight, endpointMarkers, emphasised, onViewportChange, onSelect, onOpen, hubs, anchorId: anchor?.id, toolbarId: toolbar?.id, onContextMenu, editable, onConnect, selectedEdgeId, onSelectEdge, onEdgeContextMenu };
   /** A line being drawn from a node's dot: where it starts and where the pointer is (graph coordinates). */
   const connecting = useRef<{ from: string; out: boolean; px: number; py: number; x: number; y: number } | null>(null);
   const boxSelect = Boolean(onSelectMany);
@@ -541,7 +557,10 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
         continue;
       }
       drawShape(context, meta?.kind ?? 'unknown', node, { selected: isSelected, selectColor, detailed, k: t.k, colors });
-      if (detailed && meta) drawLabel(context, meta, node, colors);
+      if (detailed && meta) {
+        drawLabel(context, meta, node, colors);
+        if (meta.fold) drawFoldBadge(context, node, meta.kind === 'chain', hoveredFold.current === meta.fold, colors);
+      }
       const markers = props.current.endpointMarkers?.get(node.id);
       if (markers?.length) {
         const label = markers.map((marker) => marker === 'start' ? '시작' : '끝').join('·');
@@ -565,7 +584,7 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
       context.lineWidth = Math.max(1.5, 1.5 / t.k);
       for (const i of visible) {
         const node = nodes[i];
-        if (!portable(info.get(node.id)?.kind, node.id, props.current.hubs, props.current.connectScenes)) continue;
+        if (!portable(info.get(node.id)?.kind, node.id, props.current.hubs)) continue;
         for (const [px, py] of Object.values(portsOf(node, direction))) {
           context.beginPath();
           context.arc(px, py, r, 0, Math.PI * 2);
@@ -821,6 +840,16 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
     return { x: (clientX - rect.left - t.x) / t.k, y: (clientY - rect.top - t.y) / t.k, k: t.k };
   };
   /** The topmost node at a point in graph coordinates. */
+  /** The card whose fold button is under the pointer. */
+  const foldAt = (clientX: number, clientY: number) => {
+    if (transform.current.k < DETAIL_K) return undefined;
+    const { x, y } = toGraph(clientX, clientY);
+    const node = nodeAt(x, y);
+    const run = node && info.get(node.id)?.fold;
+    if (!node || !run) return undefined;
+    const badge = foldBadge(node, info.get(node.id)?.kind === 'chain');
+    return x >= badge.x && x <= badge.x + badge.width && y >= badge.y && y <= badge.y + badge.height ? run : undefined;
+  };
   const nodeAt = (x: number, y: number) => {
     const found = index.nodeIndex?.search(x, y, x, y) ?? [];
     return found.length ? nodes[found[found.length - 1]] : undefined;
@@ -843,7 +872,7 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
     const reach = Math.max(8, 7 / k);
     for (const i of index.nodeIndex?.search(x - reach, y - reach, x + reach, y + reach) ?? []) {
       const node = nodes[i];
-      if (!portable(info.get(node.id)?.kind, node.id, props.current.hubs, props.current.connectScenes)) continue;
+      if (!portable(info.get(node.id)?.kind, node.id, props.current.hubs)) continue;
       const ports = portsOf(node, direction);
       for (const out of [true, false]) {
         const [px, py] = out ? ports.out : ports.in;
@@ -904,6 +933,14 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
           }
           // A dot is grabbed, not panned: say so with the cursor.
           if (props.current.editable) event.currentTarget.style.cursor = portAt(event.clientX, event.clientY) ? 'crosshair' : '';
+          if (!drag.current && !connecting.current) {
+            const run = foldAt(event.clientX, event.clientY);
+            event.currentTarget.style.cursor = run ? 'pointer' : props.current.editable && portAt(event.clientX, event.clientY) ? 'crosshair' : '';
+            if (hoveredFold.current !== run) {
+              hoveredFold.current = run;
+              schedule();
+            }
+          }
           const d = drag.current;
           if (!d) return;
           const rect = event.currentTarget.getBoundingClientRect();
@@ -923,7 +960,7 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
           const at = toGraph(event.clientX, event.clientY);
           const target = nodeAt(at.x, at.y);
           // From the way-out dot the line goes to the node it is dropped on; from the way-in dot it comes from it.
-          if (target && target.id !== line.from && portable(info.get(target.id)?.kind, target.id, props.current.hubs, props.current.connectScenes)) props.current.onConnect?.(line.out ? line.from : target.id, line.out ? target.id : line.from);
+          if (target && target.id !== line.from && portable(info.get(target.id)?.kind, target.id, props.current.hubs)) props.current.onConnect?.(line.out ? line.from : target.id, line.out ? target.id : line.from);
           schedule();
         }}
         onPointerCancel={() => {
@@ -939,6 +976,8 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
             suppressClick.current = false;
             return;
           }
+          const run = foldAt(event.clientX, event.clientY);
+          if (run && props.current.onToggleFold) return props.current.onToggleFold(run);
           if (boxSelect && (event.shiftKey || event.metaKey || event.ctrlKey)) {
             const id = hit(event.clientX, event.clientY);
             if (id) props.current.onSelectMany?.([id], true);
@@ -981,7 +1020,7 @@ export function GraphCanvas({ nodes, regions = [], edges: laidOut, looseEdges, d
         </CanvasFloat>
       )}
       {anchor && (
-        <CanvasFloat ref={anchorBox}>
+        <CanvasFloat ref={anchorBox} raised>
           {anchor.content}
         </CanvasFloat>
       )}
@@ -1070,6 +1109,38 @@ function arrowHead(context: CanvasRenderingContext2D, points: number[], size: nu
   context.restore();
 }
 
+/** The button that unfolds a run (on its block) or folds it again (on its first line): an outline button, chevron then label. */
+function drawFoldBadge(context: CanvasRenderingContext2D, node: LayoutNode, folded: boolean, hovered: boolean, colors: ReturnType<typeof getCanvasColors>) {
+  const badge = foldBadge(node, folded);
+  context.save();
+  context.beginPath();
+  context.roundRect(badge.x, badge.y, badge.width, badge.height, 6);
+  context.fillStyle = hovered ? colors.sunken : colors.surface;
+  context.fill();
+  context.lineWidth = 1;
+  context.strokeStyle = colors.line;
+  context.stroke();
+  // The chevron is drawn, not typed: a text glyph sits at a different height in every font.
+  const cx = badge.x + 14;
+  const cy = badge.y + badge.height / 2;
+  const lift = folded ? -2 : 2;
+  context.beginPath();
+  context.moveTo(cx - 4, cy + lift);
+  context.lineTo(cx, cy - lift);
+  context.lineTo(cx + 4, cy + lift);
+  context.lineWidth = 1.5;
+  context.lineCap = 'round';
+  context.lineJoin = 'round';
+  context.strokeStyle = colors.textMuted;
+  context.stroke();
+  context.font = '500 12px Pretendard, system-ui, sans-serif';
+  context.textAlign = 'left';
+  context.textBaseline = 'middle';
+  context.fillStyle = colors.text;
+  context.fillText(folded ? '펼치기' : '접기', badge.x + 26, cy + 0.5);
+  context.restore();
+}
+
 function drawLabel(context: CanvasRenderingContext2D, meta: NodeInfo, node: LayoutNode, colors: ReturnType<typeof getCanvasColors>) {
   context.save();
   context.fillStyle = colors.text;
@@ -1094,9 +1165,18 @@ function drawLabel(context: CanvasRenderingContext2D, meta: NodeInfo, node: Layo
       context.fillStyle = index >= 0 ? colors.hues[index]! : meta.titleColor;
     }
     context.fillText(meta.title ?? (meta.kind === 'scene' || meta.kind === 'chain' ? (meta.label ?? meta.key) : meta.key), node.x + 12, node.y + 23);
-    context.font = '14px Pretendard, system-ui, sans-serif';
-    context.fillStyle = colors.textMuted;
-    wrapText(context, meta.body ?? meta.preview ?? meta.label ?? '', node.x + 12, node.y + 44, node.width - 24, 18, 2);
+    const plain = '14px Pretendard, system-ui, sans-serif';
+    const hint = 'italic 14px Pretendard, system-ui, sans-serif';
+    context.font = meta.missing === 'body' ? hint : plain;
+    context.fillStyle = meta.bodyStrong && meta.missing !== 'body' ? colors.text : colors.textMuted;
+    const body = meta.body ?? meta.preview ?? meta.label ?? '';
+    if (meta.second !== undefined && meta.second !== null) {
+      // Both: the source on one line, the translation on the next.
+      wrapText(context, body, node.x + 12, node.y + 44, node.width - 24, 18, 1);
+      context.font = meta.missing === 'second' ? hint : plain;
+      context.fillStyle = meta.missing === 'second' ? colors.textMuted : colors.text;
+      wrapText(context, meta.second, node.x + 12, node.y + 62, node.width - 24, 18, 1);
+    } else wrapText(context, body, node.x + 12, node.y + 44, node.width - 24, 18, 2);
   } else if (meta.kind === 'portal') {
     // Section stand-in: the name sits inside the box.
     context.font = '11px Pretendard, system-ui, sans-serif';
@@ -1118,9 +1198,9 @@ function wrapText(context: CanvasRenderingContext2D, text: string, x: number, y:
   lines.forEach((line, index) => context.fillText(line, x, y + index * lineHeight));
 }
 
-/** Nodes a line can be drawn to or from: lines, choices, conditions and other nodes of the graph (scenes only in the scene graph), not portals, hubs or folded labels. */
-function portable(kind: string | undefined, id: string, hubs?: Map<string, unknown>, scenes?: boolean) {
-  return Boolean(kind) && kind !== 'portal' && (scenes || kind !== 'scene') && !id.startsWith('portal:') && !id.startsWith('hub:') && !hubs?.has(id);
+/** Nodes a line can be drawn to or from: lines, choices, conditions and other nodes of the dialogue graph, not scenes (their links come from it), portals, hubs or folded labels. */
+function portable(kind: string | undefined, id: string, hubs?: Map<string, unknown>) {
+  return Boolean(kind) && kind !== 'portal' && kind !== 'scene' && !id.startsWith('portal:') && !id.startsWith('hub:') && !hubs?.has(id);
 }
 
 /** A node's two dots: the way in (top, or left when horizontal) and the way out (bottom / right). */

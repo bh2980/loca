@@ -38,6 +38,49 @@ export function backupBeforeMigration(sqlite: Database.Database, file: string, f
   return target;
 }
 
+/** The JS functions migrations call (a bare database migrated in a test needs them too). */
+export function registerMigrationFunctions(sqlite: Database.Database) {
+  // issue_tag_nodes(definition json, role → tag id json): a workflow's 태그 붙이기 nodes once tags have no roles (0102):
+  // the problem types it named (kinds, every kind) become those tags' ids, and a node reading a result field gets the
+  // kind → tag map it used to find by role. Any other node is left as it is.
+  sqlite.function('issue_tag_nodes', { deterministic: true }, (definition: unknown, roles: unknown) => {
+    if (typeof definition !== 'string') return definition;
+    const byRole = JSON.parse(typeof roles === 'string' && roles ? roles : '{}') as Record<string, string>;
+    const parsed = JSON.parse(definition) as { nodes?: { config?: { fn?: string; params?: Record<string, unknown> } }[] };
+    for (const node of parsed.nodes ?? []) {
+      const params = node.config?.fn === 'tagLines' ? node.config.params : undefined;
+      if (!params) continue;
+      const kinds = params.allKinds ? Object.keys(byRole) : Array.isArray(params.kinds) ? (params.kinds as string[]) : [];
+      const tagIds = [...new Set([...(Array.isArray(params.tagIds) ? (params.tagIds as string[]) : []), ...kinds.flatMap((kind) => (byRole[kind] ? [byRole[kind]] : []))])];
+      const reads = (params.map as Record<string, string> | undefined)?.tag;
+      node.config!.params = { ...Object.fromEntries(Object.entries(params).filter(([key]) => key !== 'kinds' && key !== 'allKinds')), tagIds, categoryTags: reads ? { ...byRole, ...((params.categoryTags as Record<string, string>) ?? {}) } : ((params.categoryTags as Record<string, string>) ?? {}) };
+    }
+    return JSON.stringify(parsed);
+  });
+  // fact_conditions(definition json): a condition that asked for one of the automatic tags that became row facts (0105)
+  // asks for that fact instead: {"in": ["remaining", {"var": "unit.marks"}]} → {"!": [{"!!": [{"var": "unit.final"}]}]}, and so on.
+  const FACT_RULES: Record<string, unknown> = {
+    remaining: { '!': [{ '!!': [{ var: 'unit.final' }] }] },
+    ai: { '==': [{ var: 'unit.statusBy' }, 'ai'] },
+    unknownListener: { '!!': [{ var: 'unit.listenerUnknown' }] },
+    noted: { '!!': [{ var: 'unit.noted' }] },
+  };
+  const rewrite = (rule: unknown): unknown => {
+    if (Array.isArray(rule)) return rule.map(rewrite);
+    if (!rule || typeof rule !== 'object') return rule;
+    const entries = Object.entries(rule as Record<string, unknown>);
+    const [name, args] = entries[0] ?? [];
+    if (entries.length === 1 && name === 'in' && Array.isArray(args) && typeof args[0] === 'string' && FACT_RULES[args[0]] && (args[1] as { var?: unknown } | undefined)?.var === 'unit.marks') return FACT_RULES[args[0]];
+    return Object.fromEntries(entries.map(([key, value]) => [key, rewrite(value)]));
+  };
+  sqlite.function('fact_conditions', { deterministic: true }, (definition: unknown) => {
+    if (typeof definition !== 'string') return definition;
+    const parsed = JSON.parse(definition) as { nodes?: { type?: string; config?: { expression?: unknown } }[] };
+    for (const node of parsed.nodes ?? []) if (node.type === 'condition' && node.config && 'expression' in node.config) node.config.expression = rewrite(node.config.expression);
+    return JSON.stringify(parsed);
+  });
+}
+
 export function openDatabase(file: string, folder = migrationsFolder) {
   const existed = file !== ':memory:' && existsSync(file);
   if (file !== ':memory:') mkdirSync(path.dirname(file), { recursive: true });
@@ -64,6 +107,7 @@ export function openDatabase(file: string, folder = migrationsFolder) {
       if (!exclusionsOf.has(rulesKey)) exclusionsOf.set(rulesKey, exclusionRulesSchema.parse(rulesKey ? JSON.parse(rulesKey) : {}));
       return lineExclusion({ source: String(source ?? ''), translate: (translate as LineTranslate | null) ?? null }, rulesOf.get(formatKey), exclusionsOf.get(rulesKey), typeof language === 'string' ? language : null);
     });
+    registerMigrationFunctions(sqlite);
     const backup = existed ? backupBeforeMigration(sqlite, file, folder) : null;
     const db = drizzle(sqlite, { schema });
     migrate(db, { migrationsFolder: folder });

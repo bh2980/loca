@@ -186,17 +186,17 @@
 | `Swatch` · `SwatchPicker` | `color` | SwatchButton, SwatchDot, PickerSwatch, PickerSwatchInput |
 | `DataTable` | `compact` `rowState` 열 `tone` `variant` `weight` `tabular` `mono` `dense` | CompactDataTable, TablePanel, CellInline, 열의 className |
 | `StatusIcon` · `TagChip` · `AiMark` | `small` | SmallStatusIcon |
-| 그 밖 | `Toolbar`류 `FilterBar` `Pager` `FilterChips` · `ActionBar` · `SelectionBar` (`grow`) · `Inspector` `InspectorHeader` `InspectorTabs` `InspectorList` `InspectorResult` `InspectorActionRow` `InspectorToggle` `DirtyBar` · `Disclosure` · `PaneHeader` · `Page` `PageBody` `PageHeader` `HeaderActions` `HeaderViews` `PageHeading` · `RightDock` 부품(`DockProvider` `DockInspector` `DockHeader` `WorkspaceShell`) · `Card` · `Markdown` · `TagMenu` `TagListEditor` · `PermissionMatrix` · `ViewSwitch` · `FilterHeaderButton` `FilterCheck` | |
+| 그 밖 | `Toolbar`류 `FilterBar` `Pager` `FilterChips` · `ActionBar` · `SelectionBar` (`grow`) · `Inspector` `InspectorHeader` `InspectorTabs` `InspectorList` `InspectorResult` `InspectorActionRow` `InspectorToggle` `DirtyBar` · `Disclosure` · `PaneHeader` · `Page` `PageBody` `PageHeader` `HeaderActions` `HeaderViews` `PageHeading` · `RightDock` 부품(`DockProvider` `DockInspector` `DockHeader` `DockHeaderSlot` `WorkspaceShell`) · `Card` · `Markdown` · `TagMenu` `TagListEditor` · `HistoryList` `HistoryItem`(접힌 이력 한 줄, 열면 전문·바뀐 곳, 되돌리기는 hover·열림 때 날짜 자리에) · `FilePickButton`(파일 선택 창을 여는 버튼) · `PermissionMatrix` · `ViewSwitch` · `FilterHeaderButton` `FilterCheck` | |
 
 **⑤ 업무 `domains/` (55 파일)** 업무 뜻이 있거나 클래스를 ②로 말할 수 없는 부품만 남는다. 모두 ②~④로 짜고 `className`을 받지 않는다.
 
 | 업무 | 남은 부품 (화면 수) |
 |---|---|
 | `app` | 셸 `Sidebar*` · `DockPane` · `StatusBarButton` · `AppStatusBar` · `StatusBarItem` · `ShortcutSection` · 프로젝트 `ProjectListFrame` `ProjectCard` `ProjectCardLink` `BrandMark` `FileDropZone` `StatusChipLink` `TodoIcon` `StepMarker` · 규칙 `RulesPresetCard` `RulesPresetExample` · `SaveStatusLine` |
-| `chat` | `UserMessage` `AssistantMessage` `SteerBubble` `SentImage` `ImageChip` `AttachmentChip` `MessageActionBar` · `ToolCard` `ToolCardHeader` `ToolCallRow` `SourceExcerpt` `ToolErrorCard` `CompactionNotice` · `ComposerInput` `ComposerMenu` `ComposerRow` `ComposerGroup` `ModeSelect` `ContextMeterView` `ConversationRowAction` |
+| `chat` | `UserMessage` `AssistantMessage` `SteerBubble` `SentImage` `ImageChip` `AttachmentChip` `MessageActionBar` · `ToolCard` `ToolCardHeader` `ToolCallRow` `SourceExcerpt` `ToolErrorCard` `CompactionNotice` · `ComposerInput` `ComposerMenu` `ComposerRow` `ComposerGroup` `ModeSelect` `ContextMeterView` `MenuRowAction` `MenuRowMeta` |
 | `graph` | 캔버스 `CanvasSurface`(`grow` `fill`) `CanvasOverlay` `CanvasFloat` `CanvasToolbar` `CanvasDirectionControl` `FloatingZoomBar` `GraphMinimap` `SelectionToolbox` `SelectionRect` `GraphCanvasElement` `FoundNodeList` · 노드 `NodeCard` `NodeKindIcon` `NodeLibrary` `FoldChip` `FlowHandle` `FlowRow` `ColumnResizeHandle` `FloatingCard` · 경로 `PathNodeCard` `PathNodeButton` `ForkNodeFrame` `ForkOptionItem` `PathEdgeLabel` `SeamStateChip` `ArmChip` · 관계 `PersonNodeFrame` `RelationLabelFrame` |
 | `knowledge` | `EventFlowCard` |
-| `script` | `ScriptTranslationRow` `ScriptReadingRow` `SceneSectionHeader` `TranslationColumnHeader` `SpeakerIdentity` `CandidateCard` `ScriptWorkspace` `GraphScriptSplit` `GraphEndpointBar` · 편집기 `Editor*`(입력 상자, 토큰·용어 표시, 비교 낱말, 제안 목록, 도구 줄) · `Script*`(장면 줄, 검토 이슈, 메모, 원문 모양) · `DetailIssue` |
+| `script` | `ScriptTranslationRow` `ScriptReadingRow` `SceneSectionHeader` `TranslationColumnHeader` `SpeakerIdentity` `CandidateCard` `ScriptWorkspace` `GraphScriptSplit` `GraphEndpointBar` · 편집기 `Editor*`(입력 상자, 토큰·용어 표시, 비교 낱말, 제안 목록, 도구 줄, `EditorAiSuggestion` AI 제안 적용·거절) · `Script*`(장면 줄, 검토 이슈, 메모, 원문 모양) · `DetailIssue` |
 | `workflow` | `SelectField` `FieldReadRow` `FieldChildren` `TagToggle` `RequestDetails` `RequestPart` · `ScopeRow` `ReadinessDot` `RunStatusBadge` · `EdgeLabelRow` `EdgeLabelPill` |
 
 ### 속성 이름 규칙

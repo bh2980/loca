@@ -4,6 +4,7 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
+import { registerMigrationFunctions } from './index.ts';
 import { afterEach, describe, expect, it } from 'vitest';
 
 const drizzleDir = path.resolve(import.meta.dirname, '../../drizzle');
@@ -22,6 +23,7 @@ describe('graph layout direction migration', () => {
     writeFileSync(journalPath, JSON.stringify({ ...journal, entries: journal.entries.filter((entry) => entry.idx < 61) }));
 
     const sqlite = new Database(':memory:');
+    registerMigrationFunctions(sqlite);
     sqlite.pragma('foreign_keys = ON');
     const db = drizzle(sqlite);
     const now = Date.now();

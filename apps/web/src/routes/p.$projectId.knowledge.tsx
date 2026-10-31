@@ -6,7 +6,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import { ArrowLeftRight, GanttChart, Network, Plus, Table2, Users } from 'lucide-react';
 import { toast } from 'sonner';
-import { CHARACTER_ROLE_LABELS, OTHERS_LISTENER, parseMarks, type AutoMark, styleNames, isSettled, aiDecided, KNOWLEDGE_SOURCES, listenerLabel, REVIEW_TAG, SPEECH_LEVEL_LABELS, type KnowledgeSource, type TagScope, personLabel } from '@tw/shared';
+import { CHARACTER_ROLE_LABELS, OTHERS_LISTENER, parseMarks, type AutoMark, styleNames, isSettled, aiDecided, KNOWLEDGE_SOURCES, listenerLabel, SPEECH_LEVEL_LABELS, type KnowledgeSource, type TagScope, personLabel, type DecidedBy } from '@tw/shared';
 import {
   EmptyState,
   TagMenu,
@@ -42,7 +42,7 @@ import { RunDialog } from '@/components/workflow/run-dialog';
 import { Play } from 'lucide-react';
 import { DraftEditor } from '@/components/knowledge/editor';
 import { RelationshipChanges, RuleLines } from '@/components/knowledge/evidence';
-import { BulkDecide, fail, parseStatusFilter, type StatusFilter, KINDS, KnowledgeFilters, knowledgeFilterChips, KNOWLEDGE_MARK_IDS, matches, rowHidden, type KnowledgeFilterState, SourceBadge, type Kind, type KindSpec, type Row, type SourceFilter, defineKind, metaColumns, candidateRow } from '@/components/knowledge/table';
+import { BulkDecide, fail, parseStatusFilter, parseDecidedBy, type StatusFilter, KINDS, KnowledgeFilters, knowledgeFilterChips, KNOWLEDGE_MARK_IDS, matches, rowHidden, type KnowledgeFilterState, SourceBadge, type Kind, type KindSpec, type Row, type SourceFilter, defineKind, metaColumns, candidateRow } from '@/components/knowledge/table';
 import { pairKey, buildPairs, PairDetail, pairItems, pairMatches, pairSummary, PairTable, type Pair, type SpeechRuleCreate } from '@/components/knowledge/pairs';
 import { AddPairPopover } from '@/components/knowledge/add-pair-popover';
 import { EventFlow } from '@/components/knowledge/event-flow';
@@ -52,7 +52,7 @@ import { personStyle, usePersonColors } from '@/lib/person-colors';
 import { splitList } from '@/lib/list-value';
 import { client, unwrap } from '@/lib/api';
 import { DOCUMENT_KIND } from '@/lib/labels';
-import { q, tagsIn, useMarkColors, useReviewTagId } from '@/lib/queries';
+import { q, tagsIn, useMarkStyles } from '@/lib/queries';
 import { usePicked } from '@/lib/use-picked';
 import { cn } from '@/lib/utils';
 import { useReportView } from '@/lib/view-context';
@@ -66,9 +66,11 @@ interface KnowledgeSearch {
   source?: KnowledgeSource;
   /** 상태 filter: 후보 or 확정. */
   status?: StatusFilter;
-  /** Automatic marks (#AI 초안, #근거 없음): items carrying all of them. */
+  /** 정한 쪽: confirmed by AI (✦) or by a person. */
+  decidedBy?: DecidedBy;
+  /** Automatic marks (#확인 권장, #근거 부재): items carrying all of them. */
   marks?: AutoMark[];
-  /** 태그 filter: project tag ids (확인 권장, a person's own); items carrying all of them. */
+  /** 태그 filter: project tag ids; items carrying all of them. */
   tags?: string[];
   /** 숨기기: items carrying any of these marks or tags are left out. */
   hideMarks?: AutoMark[];
@@ -87,6 +89,7 @@ export const Route = createFileRoute('/p/$projectId/knowledge')({
     tab: typeof raw.tab === 'string' && raw.tab in TABS ? (raw.tab as Tab) : undefined,
     source: typeof raw.source === 'string' && (KNOWLEDGE_SOURCES as readonly string[]).includes(raw.source) ? (raw.source as KnowledgeSource) : undefined,
     status: parseStatusFilter(raw.status),
+    decidedBy: parseDecidedBy(raw.decidedBy),
     marks: parseMarks(raw.marks, KNOWLEDGE_MARK_IDS),
     tags: Array.isArray(raw.tags) && raw.tags.length && raw.tags.every((id) => typeof id === 'string') ? (raw.tags as string[]) : undefined,
     hideMarks: parseMarks(raw.hideMarks, KNOWLEDGE_MARK_IDS),
@@ -119,7 +122,6 @@ function Knowledge() {
   const set = (next: Partial<KnowledgeSearch>, replace = true) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace });
 
   const statuses = useQuery(q.statuses(projectId));
-  const reviewTag = useReviewTagId(projectId);
   const documents = useQuery(q.documents(projectId));
   const people = useQuery(q.characters(projectId));
   const storyEvents = useQuery(q.storyEvents(projectId));
@@ -263,10 +265,10 @@ function Knowledge() {
   const lineEnds = line && storyEvents.data ? { from: storyEvents.data.find((event) => event.id === line.fromId), to: storyEvents.data.find((event) => event.id === line.toId) } : null;
   const graphActions = useRelationshipGraphActions({ projectId, characters, relationships: people.data?.relationships ?? [], pairs: pairsForGraph, open: (item) => set({ item }) });
   const inScope = (id: string) => !search.ids || search.ids.includes(id);
-  const shown = (row: Row) => inScope(row.id) && matches(row, search.source, search.marks, search.tags, search.status) && !rowHidden(row, search);
+  const shown = (row: Row) => inScope(row.id) && matches(row, search.source, search.marks, search.tags, search.status, search.decidedBy) && !rowHidden(row, search);
   const pairs = useMemo(() => buildPairs(characters, specs.relationships.rows, specs.speechRules.rows), [characters, specs.relationships.rows, specs.speechRules.rows]);
   pairsForGraph.current = pairs;
-  const visiblePairs = pairs.filter((pair) => pairMatches(pair, search.source, search.marks, search.tags, search.status, search) && (!search.ids || pairItems(pair).some((item) => inScope(item.row.id))));
+  const visiblePairs = pairs.filter((pair) => pairMatches(pair, search.source, search.marks, search.tags, search.status, search, search.decidedBy) && (!search.ids || pairItems(pair).some((item) => inScope(item.row.id))));
   // A link may name a relationship or rule id; it opens the pair holding it.
   const pair = pairsView || graph ? pairs.find((candidate) => candidate.key === search.item || pairItems(candidate).some((item) => item.row.id === search.item)) : undefined;
 
@@ -300,7 +302,7 @@ function Knowledge() {
         queryClient.setQueryData(key, (old: unknown) => (old === undefined ? old : update(old)));
       };
       const decided = (ids: Set<string>) => (rows: { id: string }[]) =>
-        action === 'discard' ? rows.filter((row) => !ids.has(row.id)) : rows.map((row) => (ids.has(row.id) ? { ...row, status: 'confirmed', statusBy: 'human', tags: (row as Row).tags?.filter((item) => item.id !== reviewTag) } : row));
+        action === 'discard' ? rows.filter((row) => !ids.has(row.id)) : rows.map((row) => (ids.has(row.id) ? { ...row, status: 'confirmed', statusBy: 'human', reviewNote: '' } : row));
       for (const { kind, ids } of items) {
         if (!ids.length) continue;
         const apply = decided(new Set(ids));
@@ -362,25 +364,25 @@ function Knowledge() {
   const pending = tab === 'documents' ? documents.isPending : tab === 'events' ? storyEvents.isPending : people.isPending || rules.isPending;
   const tabScope: TagScope = tab === 'documents' ? 'documents' : tab === 'events' ? 'events' : 'people';
   const knowledgeTags = tagsIn(statuses.data?.tags, tabScope);
-  const markColors = useMarkColors(projectId);
+  const markStyles = useMarkStyles(projectId);
   const filters: KnowledgeFilterState = {
     source: search.source,
     status: search.status,
+    decidedBy: search.decidedBy,
     marks: search.marks,
     tags: search.tags,
     hideMarks: search.hideMarks,
     hideTags: search.hideTags,
     known: knowledgeTags,
-    onChange: (next) => set({ ...('source' in next && { source: next.source }), ...('status' in next && { status: next.status }), ...('marks' in next && { marks: next.marks }), ...('tags' in next && { tags: next.tags }), ...('hideMarks' in next && { hideMarks: next.hideMarks }), ...('hideTags' in next && { hideTags: next.hideTags }), item: undefined }),
+    onChange: (next) => set({ ...('source' in next && { source: next.source }), ...('status' in next && { status: next.status }), ...('decidedBy' in next && { decidedBy: next.decidedBy }), ...('marks' in next && { marks: next.marks }), ...('tags' in next && { tags: next.tags }), ...('hideMarks' in next && { hideMarks: next.hideMarks }), ...('hideTags' in next && { hideTags: next.hideTags }), item: undefined }),
   };
-  const filtered = Boolean(search.source || search.status || search.marks?.length || search.tags?.length || search.ids);
-  const chips = [...knowledgeFilterChips(filters, markColors), ...(search.ids ? [{ key: 'ids', label: `실행 범위 ${search.ids.length}`, clear: () => set({ ids: undefined, item: undefined }) }] : [])];
+  const filtered = Boolean(search.source || search.status || search.decidedBy || search.marks?.length || search.tags?.length || search.ids);
+  const chips = [...knowledgeFilterChips(filters, markStyles), ...(search.ids ? [{ key: 'ids', label: `실행 범위 ${search.ids.length}`, clear: () => set({ ids: undefined, item: undefined }) }] : [])];
   const bulk = (
     <>
       <BulkDecide picked={checked.size} actionable={checkedRows} pending={decide.isPending} onConfirm={() => decide.mutate({ items: checkedItems(), action: 'confirm' })} onDiscard={() => decide.mutate({ items: checkedItems(), action: 'discard' })} />
-      {/* A person's tags only: the app's own (확인 권장) come off when a person decides. */}
       <TagMenu
-        tags={knowledgeTags.filter((item) => !item.role)}
+        tags={knowledgeTags}
         heading="태그"
         state={(tagId) => {
           const on = pickedRows().filter(({ row }) => row.tags?.some((item) => item.id === tagId)).length;
