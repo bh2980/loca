@@ -15,6 +15,7 @@ import { tagsIn, q } from '@/lib/queries';
 import { SCRIPT_VIEW } from '@/lib/labels';
 import { useTerms } from '@/lib/terms';
 import { useTaxonomy } from '@/lib/knowledge';
+import { useGroups } from '@/lib/groups';
 
 /** Run-scope filters on what a row shows (the list pages' 최종 아님, 정한 쪽, 메모, 번역 비어 있음), beside statuses. */
 const RUN_FACTS = {
@@ -115,7 +116,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   const terms = subject === 'terms';
   const tags = tagsIn(taxonomy.tags, terms ? 'terms' : 'lines');
   const unit = terms ? '개' : '줄';
-  const groups = useQuery({ ...q.groups(projectId), enabled: open });
+  const groups = useGroups(projectId, { enabled: open });
   const here = groupIds?.length ? groups.data?.filter((group) => groupIds.includes(group.id)) : undefined;
 
   const termList = useTerms(projectId, { enabled: open && terms });

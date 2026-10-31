@@ -12,10 +12,11 @@ import { KIND_LABEL } from './shapes';
 import { TokenText } from '@/components/editor/source-text';
 import { tokenPatternOf } from '@/lib/line-context';
 import { personStyle, usePersonColors } from '@/lib/person-colors';
+import { useGroup } from '@/lib/groups';
 
 /** Scene-graph node. Scene links are derived from the dialogue graph, which the panel says plainly. */
 export function SceneNodeDetail({ projectId, groupId, onClose }: { projectId: string; groupId: string; onClose: () => void }) {
-  const group = useQuery(q.group(groupId));
+  const group = useGroup(projectId, groupId);
   useReportView('graph-node', [group.data && { kind: '장면', id: group.data.id, label: group.data.title }]);
   if (!group.data) return <Skeleton marginTop="comfortable" marginBottom="comfortable" marginLeft="comfortable" marginRight="comfortable" height="placeholder-sm" />;
   return (

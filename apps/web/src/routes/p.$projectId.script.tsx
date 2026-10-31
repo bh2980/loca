@@ -13,6 +13,7 @@ import { q, useMarkStyles } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { keyLabel } from '@/lib/keys';
 import { useTaxonomy } from '@/lib/knowledge';
+import { useGroups } from '@/lib/groups';
 
 type Kind = GroupRow['kind'];
 const VIEW_ORDER: Kind[] = ['scene', 'ui', 'document'];
@@ -75,8 +76,8 @@ function Script() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const project = useQuery(q.project(projectId));
-  const allGroups = useQuery(q.groups(projectId));
-  const searched = useQuery({ ...q.groups(projectId, { q: search.gq }), enabled: Boolean(search.gq) });
+  const allGroups = useGroups(projectId);
+  const searched = useGroups(projectId, { q: search.gq, enabled: Boolean(search.gq) });
   const taxonomy = useTaxonomy(projectId);
   const markStyles = useMarkStyles(projectId);
   // Keep all source kinds available, including empty ones, so standard-format documents are discoverable.

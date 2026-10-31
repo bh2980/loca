@@ -18,8 +18,13 @@ export interface FeedCollectionOptions<T extends Row> {
  * A collection of one project's rows that the server's row feed keeps current: the snapshot first,
  * then each change event's rows for it. Events that arrive while the snapshot loads wait and are
  * applied after it; one older than the snapshot is dropped (its rows are already in it). A reconnect
- * loads the snapshot again (feed.resync).
+ * loads the snapshot again (feed.resync). A snapshot that cannot be loaded (the server is not up or is
+ * restarting) is tried again, waiting longer each time up to RETRY_MAX_MS: a collection does not fail
+ * for good, so screens show it loading rather than an error with a retry button.
  */
+const RETRY_MIN_MS = 1_000;
+const RETRY_MAX_MS = 30_000;
+
 export function feedCollection<T extends Row>({ projectId, name, load, handlers }: FeedCollectionOptions<T>): Collection<T, string> {
   return createCollection<T, string>({
     id: `${name}:${projectId}`,
@@ -27,10 +32,12 @@ export function feedCollection<T extends Row>({ projectId, name, load, handlers 
     ...handlers,
     sync: {
       rowUpdateMode: 'full',
-      sync: ({ begin, write, commit, markReady, fail }) => {
+      sync: ({ begin, write, commit, markReady }) => {
         let seen = -1;
         let waiting: [FeedChanges | undefined, number][] | null = [];
-        let first = true;
+        let ready = false;
+        let retry: ReturnType<typeof setTimeout> | undefined;
+        let delay = RETRY_MIN_MS;
         const synced = new Set<string>();
         const apply = (changes: FeedChanges | undefined, seq: number) => {
           if (seq <= seen) return;
@@ -52,8 +59,7 @@ export function feedCollection<T extends Row>({ projectId, name, load, handlers 
           else apply(rows[name], seq);
         });
         const loadSnapshot = async () => {
-          const again = !first;
-          first = false;
+          clearTimeout(retry);
           waiting ??= [];
           try {
             const snapshot = await load();
@@ -65,19 +71,23 @@ export function feedCollection<T extends Row>({ projectId, name, load, handlers 
             }
             commit();
             seen = snapshot.seq;
-            feed.markSeen(projectId, snapshot.seq, again);
-            if (!again) markReady();
+            feed.markSeen(projectId, snapshot.seq, ready);
+            if (!ready) markReady();
+            ready = true;
+            delay = RETRY_MIN_MS;
             const queued = waiting;
             waiting = null;
             for (const [changes, seq] of queued) apply(changes, seq);
-          } catch (error) {
-            waiting = null;
-            if (!again) fail(error);
+          } catch {
+            // Events keep waiting for the snapshot that will hold them.
+            retry = setTimeout(() => void loadSnapshot(), delay);
+            delay = Math.min(delay * 2, RETRY_MAX_MS);
           }
         };
         void loadSnapshot();
         const stopResync = feed.onResync(() => void loadSnapshot());
         return () => {
+          clearTimeout(retry);
           unsubscribe();
           stopResync();
         };

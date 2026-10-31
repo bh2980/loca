@@ -29,6 +29,7 @@ import { editorChecks, tokenPatternOf } from '@/lib/line-context';
 import { dateTime } from '@/lib/datetime';
 import { usePersonColors } from '@/lib/person-colors';
 import { useCharacters, useTaxonomy } from '@/lib/knowledge';
+import { useGroup } from '@/lib/groups';
 
 const ORIGIN = { ai: 'AI', human: '사람', import: '가져옴', tool: '도구' } as const;
 /** How many entries of 비슷한 번역 and 이력 show before 더 보기. */
@@ -66,7 +67,7 @@ export function LineDetail({
   const project = useQuery(q.project(projectId));
   const people = useCharacters(projectId);
   const colorOf = usePersonColors(projectId);
-  const group = useQuery({ ...q.group(unit.data?.group.id ?? ''), enabled: Boolean(unit.data?.group.id) });
+  const group = useGroup(projectId, unit.data?.group.id);
   const [draft, setDraft, , base] = useDraft(`line:${unitId}`, unit.data?.translation ?? '');
   const [noting, setNoting] = useState(false);
   const [editingSource, setEditingSource] = useState(false);

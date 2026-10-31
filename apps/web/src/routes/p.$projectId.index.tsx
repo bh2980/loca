@@ -13,6 +13,7 @@ import { useProgress } from '@/lib/use-progress';
 import { SCRIPT_VIEW } from '@/lib/labels';
 import { useTerms } from '@/lib/terms';
 import { useSpeechRules } from '@/lib/knowledge';
+import { useGroups } from '@/lib/groups';
 
 export const Route = createFileRoute('/p/$projectId/')({ component: Home });
 
@@ -41,7 +42,7 @@ function Home() {
   const project = useQuery(q.project(projectId));
   const markStyles = useMarkStyles(projectId);
   const progress = useProgress(projectId);
-  const groups = useQuery(q.groups(projectId));
+  const groups = useGroups(projectId);
   // Counted as the linked list shows them: status set by AI, 번역 제외 hidden.
   const aiLineCounts = useQueries({ queries: SCRIPT_KINDS.map((kind) => q.units(projectId, { kind, decidedBy: 'ai', excluded: 'hide', limit: 1 })) });
   const rules = useSpeechRules(projectId);

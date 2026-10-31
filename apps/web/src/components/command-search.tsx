@@ -9,6 +9,7 @@ import { chatDock } from '@/lib/chat-dock';
 import { PersonName } from '@/lib/person-colors';
 import { useCharacters, useDocuments } from '@/lib/knowledge';
 import { useTerms } from '@/lib/terms';
+import { useGroups } from '@/lib/groups';
 
 export type SearchScope = 'all' | 'lines' | 'scenes' | 'terms' | 'people' | 'docs' | 'chat';
 
@@ -43,10 +44,7 @@ export function CommandSearch({ projectId, compact = false }: { projectId: strin
     ...q.units(projectId, { q: query, limit: scope === 'lines' ? 50 : 30 }),
     enabled: open && query.length > 0 && (scope === 'all' || scope === 'lines'),
   });
-  const scenes = useQuery({
-    ...q.groups(projectId, { q: query }),
-    enabled: open && query.length > 0 && (scope === 'all' || scope === 'scenes'),
-  });
+  const scenes = useGroups(projectId, { q: query, enabled: open && query.length > 0 && (scope === 'all' || scope === 'scenes') });
   // The glossary and the knowledge lists are the browser's collections; matched here.
   const termList = useTerms(projectId, { enabled: open && (scope === 'all' || scope === 'terms') });
   const characterList = useCharacters(projectId, { enabled: open && (scope === 'all' || scope === 'people') });

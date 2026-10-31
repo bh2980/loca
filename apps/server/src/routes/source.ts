@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { readingRouteQuery } from '../services/reading-route-query.ts';
 import { projectReadingRoute } from '../services/reading-route.ts';
-import { and, asc, count, desc, eq, gt, inArray, like, lt, ne, notInArray, notLike, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, inArray, lt, ne, notInArray, notLike, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { createGroupSchema, updateGroupSchema, createUnitSchema, updateUnitSchema, isSpecialListener, LINE_TRANSLATE, type NodeType } from '@tw/shared';
 import { createGroup, updateGroup, deleteGroup, createUnit, updateUnit, deleteUnits } from '../services/source-mutations.ts';
@@ -27,11 +27,12 @@ import { seamDetail, seamLines, seamNodes, seamStates } from '../services/seam-c
 import { lineMatches } from '../services/line-matches.ts';
 import { lineTextFilter } from '../services/line-text.ts';
 import { DECIDED_BY, EXCLUDED_FILTERS, lineMarksSchema } from '@tw/shared';
-import { excludedSql, hiddenMarkConditions, knownListenerSql, lineFactConditions, markConditions, sameSource, translatableSql, unknownListenerSql } from '../services/line-marks.ts';
+import { hiddenMarkConditions, knownListenerSql, lineFactConditions, markConditions, sameSource, unknownListenerSql } from '../services/line-marks.ts';
 import { CompleteRefused, completeLine } from '../services/editor-complete.ts';
 import { assistLine } from '../services/editor-assist.ts';
 import { describeRule, knownListener as knownListenerOf, speechRuleIndex } from '../services/speech.ts';
 import { unitColumns, unitRows, unitRowsByIds } from '../services/unit-rows.ts';
+import { groupRows } from '../services/group-rows.ts';
 import { rowChangesOf } from '../db/row-changes.ts';
 
 const NAMES = z.string().optional().transform((value, context) => { if (!value) return undefined; try { const list = JSON.parse(value) as unknown; if (Array.isArray(list) && list.every((item) => typeof item === 'string')) return list as string[]; } catch { /* reported below */ } context.addIssue({ code: 'custom', message: '이름 목록은 JSON 배열입니다.' }); return z.NEVER; });
@@ -172,40 +173,9 @@ export const sourceRoutes = new Hono<Env>()
     return c.json({ listeners, unknownCount });
   })
   .get('/projects/:projectId/groups', validate('query', z.object({ kind: z.enum(['scene', 'document', 'ui']).optional(), q: z.string().trim().optional() })), (c) => {
-    const { db } = c.var.deps;
-    const projectId = c.req.param('projectId');
     const { kind, q } = c.req.valid('query');
-    const conditions = [eq(s.groups.projectId, projectId)];
-    if (kind) conditions.push(eq(s.groups.kind, kind));
-    if (q) conditions.push(or(like(s.groups.title, `%${q}%`), like(s.groups.key, `%${q}%`))!);
-    const rows = db.select({ id: s.groups.id, key: s.groups.key, kind: s.groups.kind, title: s.groups.title, description: s.groups.description, section: s.groups.section, sort: s.groups.sort }).from(s.groups).where(and(...conditions)).orderBy(asc(s.groups.sort)).all();
-    // Progress counts lines for translation; 번역 제외 lines are counted apart.
-    const counts = db
-      .select({ groupId: s.units.groupId, statusId: s.units.statusId, count: count() })
-      .from(s.units)
-      .where(and(eq(s.units.projectId, projectId), translatableSql(projectId)))
-      .groupBy(s.units.groupId, s.units.statusId)
-      .all();
-    const byGroup = Map.groupBy(counts, (row) => row.groupId);
-    const excluded = new Map(
-      db.select({ groupId: s.units.groupId, count: count() }).from(s.units).where(and(eq(s.units.projectId, projectId), excludedSql(projectId))).groupBy(s.units.groupId).all().map((row) => [row.groupId, row.count]),
-    );
-    // Lines whose listener is still unknown (청자 모름): where speech rules cannot apply yet.
-    const unknown = new Map(
-      db
-        .select({ groupId: s.units.groupId, count: count() })
-        .from(s.units)
-        .where(and(eq(s.units.projectId, projectId), unknownListenerSql(projectId)))
-        .groupBy(s.units.groupId)
-        .all()
-        .map((row) => [row.groupId, row.count]),
-    );
-    return c.json(
-      rows.map((group) => {
-        const statuses = Object.fromEntries((byGroup.get(group.id) ?? []).map((row) => [row.statusId, row.count]));
-        return { ...group, total: Object.values(statuses).reduce((sum, value) => sum + value, 0), statuses, excluded: excluded.get(group.id) ?? 0, unknownListeners: unknown.get(group.id) ?? 0 };
-      }),
-    );
+    const needle = q?.toLowerCase();
+    return c.json(groupRows(c.var.deps.db, c.req.param('projectId')).filter((group) => (!kind || group.kind === kind) && (!needle || group.title.toLowerCase().includes(needle) || group.key.toLowerCase().includes(needle))));
   })
   .get('/groups/:groupId', (c) => {
     const { db } = c.var.deps;

@@ -8,6 +8,7 @@ import { useDraft } from '@/lib/drafts';
 import { q } from '@/lib/queries';
 import { useLineDetail } from '@/lib/units';
 import { SOURCE_GROUP_LABEL, SOURCE_UNIT_LABEL } from '@/lib/labels';
+import { useGroup, useGroups } from '@/lib/groups';
 
 export type SourceGroupKind = 'scene' | 'document' | 'ui';
 export type SourceEditorMode = 'create-group' | 'edit-group' | 'create-unit' | 'edit-unit';
@@ -35,10 +36,10 @@ export function SourceEditor({ projectId, kind, groupId, unitId, mode, onClose, 
 }) {
   const editingGroup = mode === 'edit-group';
   const editingUnit = mode === 'edit-unit';
-  const group = useQuery({ ...q.group(groupId ?? ''), enabled: editingGroup && Boolean(groupId) });
+  const group = useGroup(projectId, editingGroup ? groupId : undefined);
   const unit = useLineDetail(projectId, unitId ?? '', { enabled: editingUnit });
   const formKind = editingGroup ? (group.data?.kind ?? kind) : editingUnit ? (unit.data ? sourceKind(unit.data.kind) : kind) : kind;
-  const groups = useQuery(q.groups(projectId, { kind: formKind }));
+  const groups = useGroups(projectId, { kind: formKind });
   const groupUnits = useQuery({ ...q.units(projectId, { groupId: groupId ?? '', limit: 1 }), enabled: editingGroup && Boolean(groupId) });
   const saved = useMemo(() => JSON.stringify(
     editingGroup && group.data ? { ...EMPTY_FORM(group.data.kind), key: group.data.key, title: group.data.title, description: group.data.description ?? '', section: group.data.section ?? '' }
@@ -99,7 +100,8 @@ export function SourceEditor({ projectId, kind, groupId, unitId, mode, onClose, 
 
   const loading = (editingGroup && group.isPending) || (editingUnit && unit.isPending);
   const invalidTarget = (editingGroup && !groupId) || (editingUnit && !unitId);
-  const loadError = invalidTarget || (editingGroup && group.isError) || (editingUnit && unit.isError);
+  // A group comes from the groups collection, which keeps trying until it loads; only a line's detail can fail.
+  const loadError = invalidTarget || (editingUnit && unit.isError);
   const heading = editingGroup || mode === 'create-group'
     ? `${SOURCE_GROUP_LABEL[form.kind]} ${editingGroup ? '편집' : '추가'}`
     : `${SOURCE_UNIT_LABEL[form.kind]} ${editingUnit ? '편집' : '추가'}`;
@@ -135,7 +137,7 @@ export function SourceEditor({ projectId, kind, groupId, unitId, mode, onClose, 
       {loadError && (
         <Section title="불러오기 실패">
           <InspectorResult tone="error">{invalidTarget ? '편집할 원문 ID가 없습니다.' : '원문 정보를 불러오지 못했습니다.'}</InspectorResult>
-          {!invalidTarget && <Button variant="outline" onClick={() => { void (editingGroup ? group.refetch() : unit.refetch()); }}>다시 시도</Button>}
+          {!invalidTarget && editingUnit && <Button variant="outline" onClick={() => void unit.refetch()}>다시 시도</Button>}
         </Section>
       )}
       {isGroup ? (
@@ -164,9 +166,6 @@ export function SourceEditor({ projectId, kind, groupId, unitId, mode, onClose, 
         </>
       ) : (
         <Section title="원문">
-          {groups.isError ? (
-            <Box spaceY="condensed"><InspectorResult tone="error">묶음 목록을 불러오지 못했습니다.</InspectorResult><Button variant="outline" onClick={() => void groups.refetch()}>다시 시도</Button></Box>
-          ) : (
             <Box spaceY="normal">
               <Field label={SOURCE_GROUP_LABEL[form.kind]}>
                 {groups.isPending ? <Text variant="caption" tone="muted">불러오는 중…</Text> : groups.data?.length ? (
@@ -184,7 +183,6 @@ export function SourceEditor({ projectId, kind, groupId, unitId, mode, onClose, 
               </>}
               <Field label="키" description={KEY_HINT}><Input value={form.key} onChange={(event) => update('key', event.target.value)} placeholder="비우면 자동 생성" /></Field>
             </Box>
-          )}
         </Section>
       )}
       {editingGroup && groupUnits.isError && (

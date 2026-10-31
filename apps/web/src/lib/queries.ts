@@ -34,9 +34,6 @@ export const q = {
       queryFn: () => unwrap(client.projects[':projectId'].statuses.$get({ param: { projectId } })),
       select: (data) => ({ statuses: new Map(data.statuses.map((status) => [status.id, status.units])), tags: new Map(data.tags.map((tag) => [tag.id, { units: tag.units, items: tag.items }])) }),
     }),
-  groups: (projectId: string, query: { kind?: 'scene' | 'document' | 'ui'; q?: string } = {}) =>
-    queryOptions({ queryKey: ['units', 'groups', projectId, query], queryFn: () => unwrap(client.projects[':projectId'].groups.$get({ param: { projectId }, query })) }),
-  group: (groupId: string) => queryOptions({ queryKey: ['units', 'group', groupId], queryFn: () => unwrap(client.groups[':groupId'].$get({ param: { groupId } })) }),
   speakers: (projectId: string) => queryOptions({ queryKey: ['units', 'speakers', projectId], queryFn: () => unwrap(client.projects[':projectId'].speakers.$get({ param: { projectId } })) }),
   listeners: (projectId: string) => queryOptions({ queryKey: ['units', 'listeners', projectId], queryFn: () => unwrap(client.projects[':projectId'].listeners.$get({ param: { projectId } })) }),
   /** Every line a filter matches (id and scene, script order), for walking them inside their scenes. */

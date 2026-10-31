@@ -145,6 +145,26 @@ describe('lines in the row feed', () => {
   });
 });
 
+describe('scenes in the row feed', () => {
+  it('sends a scene with its progress when its lines or the project rules they count by change', () => {
+    const { db, projectId } = setup();
+    const group = db.select().from(s.groups).where(eq(s.groups.projectId, projectId)).get()!;
+    const unit = db.select().from(s.units).where(eq(s.units.projectId, projectId)).get()!;
+    const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).all();
+    db.update(s.units).set({ statusId: statuses[1]!.id }).where(eq(s.units.id, unit.id)).run();
+    expect(feedRows(db, projectId)!.rows.groups?.upsert).toEqual([expect.objectContaining({ id: group.id, total: 1, statuses: { [statuses[1]!.id]: 1 }, excluded: 0 })]);
+    // A translation alone does not move the counts.
+    db.update(s.units).set({ translation: '관문이 열린다' }).where(eq(s.units.id, unit.id)).run();
+    expect(feedRows(db, projectId)!.rows.groups).toBeUndefined();
+    // 번역 제외 by hand, then the project's rules: the counts are read again.
+    db.update(s.units).set({ translate: 'exclude' }).where(eq(s.units.id, unit.id)).run();
+    expect(feedRows(db, projectId)!.rows.groups?.upsert).toEqual([expect.objectContaining({ id: group.id, total: 0, excluded: 1 })]);
+    db.update(s.projects).set({ exclusionRules: {} }).where(eq(s.projects.id, projectId)).run();
+    expect(feedRows(db, projectId)!.rows.groups?.upsert).toEqual([expect.objectContaining({ id: group.id })]);
+    expect(feedSnapshot(db, projectId, 'groups').rows).toEqual([expect.objectContaining({ id: group.id, title: 'G' })]);
+  });
+});
+
 describe('change events with rows', () => {
   it('carry the rows and the count, and a request knows its last change (x-seq)', async () => {
     const { db, projectId, term } = setup();
