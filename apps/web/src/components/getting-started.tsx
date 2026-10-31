@@ -7,6 +7,7 @@ import { Box, Button, Icon, Inline, SectionHeading, Stack, StepMarker, Text } fr
 import { HeaderActions } from '@/components/page';
 import { q } from '@/lib/queries';
 import { useTerms } from '@/lib/terms';
+import { useCharacters, useSpeechRules } from '@/lib/knowledge';
 
 interface Step {
   key: string;
@@ -28,8 +29,8 @@ interface Step {
  */
 export function GettingStarted({ projectId }: { projectId: string }) {
   const connections = useQuery(q.connections({ kind: 'project', projectId }));
-  const characters = useQuery(q.characters(projectId));
-  const rules = useQuery(q.speechRules(projectId));
+  const characters = useCharacters(projectId);
+  const rules = useSpeechRules(projectId);
   const terms = useTerms(projectId);
   const runs = useQuery(q.runs(projectId));
   const project = useQuery(q.project(projectId));
@@ -42,7 +43,7 @@ export function GettingStarted({ projectId }: { projectId: string }) {
 
   const aiConnections = connections.data.filter((connection) => connection.kind !== 'http');
   // Story knowledge exists (whichever workflow, chat or person made it): AI nodes have context to read.
-  const known = characters.data.characters.length > 0 || rules.data.length > 0;
+  const known = characters.data.length > 0 || rules.data.length > 0;
   const ran = runs.data.length > 0;
   if (known && ran) return null;
   if (hidden)

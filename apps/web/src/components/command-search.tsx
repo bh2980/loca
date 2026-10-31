@@ -7,6 +7,7 @@ import { q } from '@/lib/queries';
 import { keyLabel } from '@/lib/keys';
 import { chatDock } from '@/lib/chat-dock';
 import { PersonName } from '@/lib/person-colors';
+import { useCharacters, useDocuments } from '@/lib/knowledge';
 import { useTerms } from '@/lib/terms';
 
 export type SearchScope = 'all' | 'lines' | 'scenes' | 'terms' | 'people' | 'docs' | 'chat';
@@ -46,16 +47,10 @@ export function CommandSearch({ projectId, compact = false }: { projectId: strin
     ...q.groups(projectId, { q: query }),
     enabled: open && query.length > 0 && (scope === 'all' || scope === 'scenes'),
   });
-  // The glossary and the knowledge lists are small and already cached by their pages; matched here.
+  // The glossary and the knowledge lists are the browser's collections; matched here.
   const termList = useTerms(projectId, { enabled: open && (scope === 'all' || scope === 'terms') });
-  const characterList = useQuery({
-    ...q.characters(projectId),
-    enabled: open && (scope === 'all' || scope === 'people'),
-  });
-  const documentList = useQuery({
-    ...q.documents(projectId),
-    enabled: open && (scope === 'all' || scope === 'docs'),
-  });
+  const characterList = useCharacters(projectId, { enabled: open && (scope === 'all' || scope === 'people') });
+  const documentList = useDocuments(projectId, { enabled: open && (scope === 'all' || scope === 'docs') });
   const chatSearch = useQuery({
     ...q.chatSearch(projectId, query),
     enabled: open && query.length > 0 && (scope === 'all' || scope === 'chat'),
@@ -67,7 +62,7 @@ export function CommandSearch({ projectId, compact = false }: { projectId: strin
     ? (termList.data ?? []).filter((term) => has(needle, term.source, term.target)).slice(0, cap('terms', FEW))
     : [];
   const people = needle && (scope === 'all' || scope === 'people')
-    ? (characterList.data?.characters ?? []).filter((person) => has(needle, person.name, ...person.aliases)).slice(0, cap('people', FEW))
+    ? (characterList.data ?? []).filter((person) => has(needle, person.name, ...person.aliases)).slice(0, cap('people', FEW))
     : [];
   const documents = needle && (scope === 'all' || scope === 'docs')
     ? (documentList.data ?? []).filter((doc) => has(needle, doc.title, doc.body)).slice(0, cap('docs', FEW))

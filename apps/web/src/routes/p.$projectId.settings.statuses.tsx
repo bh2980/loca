@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { StatusPane } from '@/components/settings/status-pane';
 import { TagPane } from '@/components/settings/tag-pane';
 import { scopeLabel, type StatusForm, type StatusRowData, type TagForm, type TagRowData } from '@/components/settings/status-types';
 import { createFileRoute } from '@tanstack/react-router';
-import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AUTO_MARK_IDS, AUTO_MARKS, markColor, markName, normalizeTagScopes, type MarkStyles, TAG_SCOPE_LABELS, TAG_SCOPES, type AutoMark } from '@tw/shared';
@@ -12,12 +12,13 @@ import { Page } from '@/components/page';
 import { MarkChip } from '@/components/status';
 import { MarkPane } from '@/components/settings/mark-pane';
 import { client, unwrap } from '@/lib/api';
+import { sent } from '@/lib/collections';
+import { reorderTaxonomy, useTaxonomy } from '@/lib/knowledge';
 import { STATUS_KIND } from '@/lib/labels';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { usePicked } from '@/lib/use-picked';
 import { HeaderFilter } from '@/components/header-filter';
-import { optimistic } from '@/lib/optimistic';
 
 type StatusSearch = { status?: string; tag?: string; mark?: AutoMark; on?: TagFilterPlace };
 /** 붙는 곳 filter of the tag table ('knowledge' is not a place of its own). */
@@ -34,9 +35,11 @@ function StatusSettings() {
   const { projectId } = Route.useParams();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
-  const data = useQuery(q.statuses(projectId));
-  const statuses = data.data ? (data.data.statuses as StatusRowData[]) : undefined;
-  const tags = data.data ? (data.data.tags as TagRowData[]) : undefined;
+  // The rows are the browser's collections; how many lines and items carry each is a query of its own.
+  const taxonomy = useTaxonomy(projectId);
+  const counts = useQuery(q.statusCounts(projectId));
+  const statuses = useMemo<StatusRowData[] | undefined>(() => taxonomy.statuses?.map((status) => ({ ...status, units: counts.data?.statuses.get(status.id) ?? 0 })), [taxonomy.statuses, counts.data]);
+  const tags = useMemo<TagRowData[] | undefined>(() => taxonomy.tags?.map((tag) => ({ ...tag, units: 0, items: 0, ...counts.data?.tags.get(tag.id) })), [taxonomy.tags, counts.data]);
   const [removing, setRemoving] = useState<StatusRowData[] | null>(null);
   const statusPicks = usePicked(`statuses.${projectId}`);
   const tagPicks = usePicked(`tags.${projectId}`);
@@ -56,22 +59,13 @@ function StatusSettings() {
     selectedTag && { kind: '태그', id: selectedTag.id, label: selectedTag.name },
   ]);
   const fail = (error: Error) => toast.error(error.message);
-  const queryClient = useQueryClient();
+  // The row moves at once; a failure moves it back (reorderTaxonomy).
   const reorder = useMutation({
-    mutationFn: (ids: string[]) => unwrap(client.projects[':projectId'].statuses.order.$put({ param: { projectId }, json: { ids } })),
-    // The row moves at once; a failure moves it back.
-    onMutate: async (ids) => ({
-      undo: await optimistic(queryClient, [
-        { key: q.statuses(projectId).queryKey, update: (data: { statuses: { id: string }[] }) => ({ ...data, statuses: [...data.statuses].sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id)) }) },
-      ]),
-    }),
-    onError: (error, _ids, context) => {
-      context?.undo();
-      fail(error);
-    },
+    mutationFn: (ids: string[]) => reorderTaxonomy(projectId, 'statuses', ids),
+    onError: fail,
   });
   const create = useMutation({
-    mutationFn: (json: StatusForm) => unwrap(client.projects[':projectId'].statuses.$post({ param: { projectId }, json })),
+    mutationFn: (json: StatusForm) => sent(projectId, client.projects[':projectId'].statuses.$post({ param: { projectId }, json })),
     onSuccess: () => {
       close();
       toast.success('상태를 추가했습니다.');
@@ -80,13 +74,13 @@ function StatusSettings() {
   });
   const update = useMutation({
     mutationFn: (variables: { id: string; json: Partial<StatusForm> }) =>
-      unwrap(client.projects[':projectId'].statuses[':id'].$patch({ param: { projectId, id: variables.id }, json: variables.json })),
+      sent(projectId, client.projects[':projectId'].statuses[':id'].$patch({ param: { projectId, id: variables.id }, json: variables.json })),
     onSuccess: () => toast.success('저장했습니다.'),
     onError: fail,
   });
   const remove = useMutation({
     mutationFn: (variables: { ids: string[]; moveTo: string }) =>
-      unwrap(client.projects[':projectId'].statuses.delete.$post({ param: { projectId }, json: variables })),
+      sent(projectId, client.projects[':projectId'].statuses.delete.$post({ param: { projectId }, json: variables })),
     onSuccess: (_result, variables) => {
       setRemoving(null);
       statusPicks.clear();
@@ -96,7 +90,7 @@ function StatusSettings() {
     onError: fail,
   });
   const createTag = useMutation({
-    mutationFn: (json: TagForm) => unwrap(client.projects[':projectId'].tags.$post({ param: { projectId }, json })),
+    mutationFn: (json: TagForm) => sent(projectId, client.projects[':projectId'].tags.$post({ param: { projectId }, json })),
     onSuccess: () => {
       close();
       toast.success('태그를 추가했습니다.');
@@ -118,12 +112,12 @@ function StatusSettings() {
   });
   const updateTag = useMutation({
     mutationFn: (variables: { id: string; json: Partial<TagForm> }) =>
-      unwrap(client.projects[':projectId'].tags[':id'].$patch({ param: { projectId, id: variables.id }, json: variables.json })),
+      sent(projectId, client.projects[':projectId'].tags[':id'].$patch({ param: { projectId, id: variables.id }, json: variables.json })),
     onSuccess: () => toast.success('저장했습니다.'),
     onError: fail,
   });
   const removeTags = useMutation({
-    mutationFn: (ids: string[]) => unwrap(client.projects[':projectId'].tags.delete.$post({ param: { projectId }, json: { ids } })),
+    mutationFn: (ids: string[]) => sent(projectId, client.projects[':projectId'].tags.delete.$post({ param: { projectId }, json: { ids } })),
     onSuccess: (_result, ids) => {
       tagPicks.clear();
       if (search.tag && ids.includes(search.tag)) close();
@@ -132,16 +126,8 @@ function StatusSettings() {
     onError: fail,
   });
   const reorderTags = useMutation({
-    mutationFn: (ids: string[]) => unwrap(client.projects[':projectId'].tags.order.$put({ param: { projectId }, json: { ids } })),
-    onMutate: async (ids) => ({
-      undo: await optimistic(queryClient, [
-        { key: q.statuses(projectId).queryKey, update: (data: { tags: { id: string }[] }) => ({ ...data, tags: [...data.tags].sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id)) }) },
-      ]),
-    }),
-    onError: (error, _ids, context) => {
-      context?.undo();
-      fail(error);
-    },
+    mutationFn: (ids: string[]) => reorderTaxonomy(projectId, 'tags', ids),
+    onError: fail,
   });
 
   const move = (status: StatusRowData, delta: number) => {

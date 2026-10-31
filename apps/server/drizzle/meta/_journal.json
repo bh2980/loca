@@ -750,6 +750,13 @@
       "when": 1793415118492,
       "tag": "0106_row_feed",
       "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "6",
+      "when": 1793417890609,
+      "tag": "0107_row_feed_knowledge",
+      "breakpoints": true
     }
   ]
 }

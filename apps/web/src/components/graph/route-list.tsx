@@ -16,6 +16,7 @@ import { keyLabel } from '@/lib/keys';
 import { lineTags, q } from '@/lib/queries';
 import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
 import type { InferResponseType } from '@/lib/api';
+import { useTaxonomy } from '@/lib/knowledge';
 
 type Row = InferResponseType<(typeof client.projects)[':projectId']['units']['by-ids']['$post']>['rows'][number];
 type Status = Parameters<typeof TranslationEditor>[0]['statuses'][number];
@@ -72,7 +73,6 @@ function RouteLineRow({ projectId, row, selected, status, statusList, rules, tag
       toast.error(error.message);
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['statuses', projectId] });
       queryClient.invalidateQueries({ queryKey: ['units', projectId] });
       if (row) queryClient.invalidateQueries({ queryKey: ['unit', row.id] });
     },
@@ -171,10 +171,10 @@ export function RouteList({ projectId, sequence, stages, routeKey, untranslatedI
   forks?: ReadingRouteFork[];
   onPickFork?: (nodeId: string, targetId: string) => void;
 }) {
-  const statuses = useQuery(q.statuses(projectId));
-  const statusList = useMemo(() => statuses.data?.statuses ?? [], [statuses.data]);
+  const taxonomy = useTaxonomy(projectId);
+  const statusList = useMemo(() => taxonomy.statuses ?? [], [taxonomy.statuses]);
   const statusById = useMemo(() => new Map(statusList.map((status) => [status.id, status])), [statusList]);
-  const tags = useMemo(() => lineTags(statuses.data?.tags), [statuses.data?.tags]);
+  const tags = useMemo(() => lineTags(taxonomy.tags), [taxonomy.tags]);
   const project = useQuery(q.project(projectId));
   const rules = project.data?.formatRules ?? undefined;
   const tokenPattern = useMemo(() => tokenPatternOf(rules), [rules]);

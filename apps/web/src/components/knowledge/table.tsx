@@ -3,7 +3,7 @@ import { type ReactNode } from 'react';
 import { Check, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { InferResponseType } from 'hono/client';
-import { AUTO_MARKS, markColor, markName, type MarkStyles, type AgeBand, type CharacterRole, type CharacterStyle, type Gender, type DOCUMENT_KINDS, type SpeechLevel, type AutoMark, KNOWLEDGE_MARK_IDS, knowledgeMarksOf, matchesMarks, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, sourceOf, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type StatusBy, DECIDED_BY, DECIDED_BY_LABELS, decidedBy, type DecidedBy } from '@tw/shared';
+import { AUTO_MARKS, markColor, markName, type MarkStyles, type AgeBand, type CharacterRole, type CharacterStyle, type Gender, type DOCUMENT_KINDS, type SpeechLevel, type AutoMark, KNOWLEDGE_MARK_IDS, knowledgeMarksOf, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, sourceOf, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type StatusBy, DECIDED_BY, DECIDED_BY_LABELS, type DecidedBy } from '@tw/shared';
 import { DataTable, type ColumnDef, type FilterChip, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, AiMark, Inline, Stack, StatusIcon, TagChip, Text } from '@loca/ui';
 import { MarkChip } from '@/components/status';
 import { HeaderFilter, MarkFilter, markTagGroups, togglePick, type FilterOption, type FilterPick } from '@/components/header-filter';
@@ -151,13 +151,6 @@ export function StateFilter({ status, decidedBy: by, onChange }: { status?: Stat
   return <HeaderFilter label="상태" value={by ?? status} options={stateOptions} onChange={(value) => onChange(statePatch(value))} />;
 }
 /** `marks` is the page's marks param (every picked mark must hold, see matchesMarks); `status` the 상태 param, `by` 정한 쪽. */
-export const matches = (row: Draft, source: SourceFilter, marks?: readonly AutoMark[], tags?: string[], status?: StatusFilter, by?: DecidedBy) =>
-  (!source || sourceOf(row) === source) && (!status || row.status === status) && (!by || decidedBy(row, by)) && matchesMarks(knowledgeMarksOf(row), marks) && (tags ?? []).every((tag) => row.tags?.some((item) => item.id === tag));
-/** 숨기기: an item carrying any hidden mark or tag is left out. */
-export const isHidden = (marks: readonly AutoMark[], tagIds: readonly string[], hidden: { hideMarks?: readonly AutoMark[]; hideTags?: readonly string[] }) =>
-  marks.some((mark) => hidden.hideMarks?.includes(mark)) || tagIds.some((id) => hidden.hideTags?.includes(id));
-export const rowHidden = (row: Draft, hidden: { hideMarks?: readonly AutoMark[]; hideTags?: readonly string[] }) => isHidden(knowledgeMarksOf(row), (row.tags ?? []).map((tag) => tag.id), hidden);
-
 /** The marks a knowledge item can be filtered by. */
 export { KNOWLEDGE_MARK_IDS };
 

@@ -27,8 +27,13 @@ export const q = {
   projects: () => queryOptions({ queryKey: ['projects'], queryFn: () => unwrap(client.projects.$get()) }),
   project: (projectId: string) =>
     queryOptions({ queryKey: ['units', 'project', projectId], queryFn: () => unwrap(client.projects[':projectId'].$get({ param: { projectId } })) }),
-  statuses: (projectId: string) =>
-    queryOptions({ queryKey: ['statuses', projectId], queryFn: () => unwrap(client.projects[':projectId'].statuses.$get({ param: { projectId } })) }),
+  /** How many lines each status has, and how many lines and items carry each tag (the rows themselves: useTaxonomy). */
+  statusCounts: (projectId: string) =>
+    queryOptions({
+      queryKey: ['statuses', 'counts', projectId],
+      queryFn: () => unwrap(client.projects[':projectId'].statuses.$get({ param: { projectId } })),
+      select: (data) => ({ statuses: new Map(data.statuses.map((status) => [status.id, status.units])), tags: new Map(data.tags.map((tag) => [tag.id, { units: tag.units, items: tag.items }])) }),
+    }),
   groups: (projectId: string, query: { kind?: 'scene' | 'document' | 'ui'; q?: string } = {}) =>
     queryOptions({ queryKey: ['units', 'groups', projectId, query], queryFn: () => unwrap(client.projects[':projectId'].groups.$get({ param: { projectId }, query })) }),
   group: (groupId: string) => queryOptions({ queryKey: ['units', 'group', groupId], queryFn: () => unwrap(client.groups[':groupId'].$get({ param: { groupId } })) }),
@@ -103,12 +108,7 @@ export const q = {
   }),
   termUsage: (projectId: string, id: string) =>
     queryOptions({ queryKey: ['terms', 'usage', id], queryFn: () => unwrap(client.projects[':projectId'].terms[':id'].usage.$get({ param: { projectId, id } })) }),
-  documents: (projectId: string) => queryOptions({ queryKey: ['knowledge', 'documents', projectId], queryFn: () => unwrap(client.projects[':projectId'].documents.$get({ param: { projectId } })) }),
-  characters: (projectId: string) =>
-    queryOptions({ queryKey: ['knowledge', 'characters', projectId], queryFn: () => unwrap(client.projects[':projectId'].characters.$get({ param: { projectId } })) }),
   storyEvents: (projectId: string) => queryOptions({ queryKey: ['knowledge', 'events', projectId], queryFn: () => unwrap(client.projects[':projectId'].events.$get({ param: { projectId } })) }),
-  speechRules: (projectId: string) =>
-    queryOptions({ queryKey: ['knowledge', 'speech-rules', projectId], queryFn: () => unwrap(client.projects[':projectId']['speech-rules'].$get({ param: { projectId } })) }),
   ruleLines: (projectId: string, id: string) =>
     queryOptions({ queryKey: ['units', 'rule-lines', id], queryFn: () => unwrap(client.projects[':projectId']['speech-rules'][':id'].lines.$get({ param: { projectId, id } })) }),
   /** Lines cited as evidence, by key. */

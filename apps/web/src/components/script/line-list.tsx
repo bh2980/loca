@@ -12,6 +12,7 @@ import { hasLineFilter, LineFilters, filterChips, lineQueryParams, type LinesSea
 import { LineHeadRow, useLineBulk } from '@/components/script/line-bulk';
 import { LineRow } from '@/components/script/line-row';
 import { sceneSelectionState } from '@/components/script/scene-selection';
+import { useTaxonomy } from '@/lib/knowledge';
 
 export { filterChips, isFinding, linesSearchSchema, type LinesSearch } from '@/components/script/line-filters';
 
@@ -129,7 +130,7 @@ export function LineList({
   emptyAction?: ReactNode;
   withSpeakers?: boolean;
 }) {
-  const statuses = useQuery(q.statuses(projectId));
+  const taxonomy = useTaxonomy(projectId);
   const markStyles = useMarkStyles(projectId);
   // Format tokens read as numbered chips (#1) in every row; the full token is on hover.
   const projectInfo = useQuery(q.project(projectId));
@@ -171,9 +172,9 @@ export function LineList({
     setFocusing(undefined);
     if (held !== page) onSearch({ page: held || undefined }, { replace: true });
   }, [focusing, lines.data, lines.isPlaceholderData]); // eslint-disable-line react-hooks/exhaustive-deps
-  const statusList = useMemo(() => statuses.data?.statuses ?? [], [statuses.data]);
+  const statusList = useMemo(() => taxonomy.statuses ?? [], [taxonomy.statuses]);
   const statusById = new Map(statusList.map((status) => [status.id, status]));
-  const tagById = new Map(statuses.data?.tags.map((tag) => [tag.id, tag]));
+  const tagById = new Map(taxonomy.tags?.map((tag) => [tag.id, tag]));
   const rows = lines.data?.rows;
   const total = lines.data?.total ?? 0;
   const matchesReady = !lines.isPlaceholderData && !matches.isPending && !matches.isError && matches.data !== undefined;
@@ -289,7 +290,7 @@ export function LineList({
     filterMark: (mark) => latest.current.onSearch({ marks: [mark], page: undefined }),
     filterAi: () => latest.current.onSearch({ decidedBy: 'ai', page: undefined }),
   }), []);
-  const rowTags = lineTags(statuses.data?.tags);
+  const rowTags = lineTags(taxonomy.tags);
   useEffect(() => {
     const row = selectedRow.current;
     if (!row) return;
@@ -302,7 +303,7 @@ export function LineList({
   }, [search.line, rows]);
 
   // Set filters show as removable chips; while finding, the find bar shows them instead.
-  const chips = find ? [] : filterChips(search, statusList, statuses.data?.tags ?? [], markStyles);
+  const chips = find ? [] : filterChips(search, statusList, taxonomy.tags ?? [], markStyles);
 
   // The details pane opens only on request (the 상세 button, the row's menu): picking or moving between
   // lines never reveals it, and closing it keeps the picked line.
@@ -336,7 +337,7 @@ export function LineList({
           <LineFilters
           projectId={projectId}
           statuses={statusList}
-          tags={lineTags(statuses.data?.tags)}
+          tags={lineTags(taxonomy.tags)}
           speakers={(speakers.data ?? []).flatMap((row) => (row.speaker ? [{ name: row.speaker, lines: row.lines }] : []))}
           listeners={listeners.data?.listeners ?? []}
           unknownListenerCount={listeners.data?.unknownCount ?? 0}
@@ -366,7 +367,7 @@ export function LineList({
           <Button variant="outline" onClick={() => void matches.refetch()}>다시 시도</Button>
         </Inline>
       )}
-      {!!rows?.length && <LineHeadRow projectId={projectId} rows={rows} bulk={bulk} statusList={statusList} tags={lineTags(statuses.data?.tags)} />}
+      {!!rows?.length && <LineHeadRow projectId={projectId} rows={rows} bulk={bulk} statusList={statusList} tags={lineTags(taxonomy.tags)} />}
       <Box minHeight={0} grow overflow="y">
         {!rows ? (
           <Box spaceY="comfortable" padding="comfortable">

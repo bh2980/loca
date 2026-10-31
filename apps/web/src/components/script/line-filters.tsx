@@ -6,7 +6,6 @@ import { DECIDED_BY, DECIDED_BY_LABELS, type DecidedBy, markName, type AutoMark,
 import { FilterModeSwitch, markTagGroups, pickOf, PickIcon, togglePick, type FilterPick } from '@/components/header-filter';
 
 import { Box, Button, DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuTrigger, Inline, Input, StatusIcon, Text, DropdownMenuContent, DropdownMenuSubContent, MenuLabel } from '@loca/ui';
-import { q } from '@/lib/queries';
 import { PersonName } from '@/lib/person-colors';
 
 export interface LinesSearch {

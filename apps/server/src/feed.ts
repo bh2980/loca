@@ -1,5 +1,5 @@
 import { and, asc, eq, ne } from 'drizzle-orm';
-import type { FeedCollection, FeedRows, FeedSnapshot } from '@tw/shared';
+import { normalizeTagScopes, type FeedCollection, type FeedRows, type FeedSnapshot } from '@tw/shared';
 import type { Db } from './db/index.ts';
 import { inList } from './db/chunk.ts';
 import { rowChangesOf } from './db/row-changes.ts';
@@ -19,8 +19,37 @@ export function termRows(db: Db, projectId: string, ids?: readonly string[]) {
   return withTags(db, 'terms', db.select().from(s.terms).where(where).orderBy(asc(s.terms.source)).all());
 }
 
+type Listed = typeof s.characters | typeof s.relationships | typeof s.speechRules | typeof s.documents;
+/** A project's knowledge as its lists show it (not rejected), with tags; only `ids` when given. */
+const listed = <T extends Listed>(table: T, projectId: string, ids?: readonly string[]) => and(eq(table.projectId, projectId), ne(table.status, 'rejected'), ids ? inList(table.id, ids) : undefined);
+
+export const characterRows = (db: Db, projectId: string, ids?: readonly string[]) => withTags(db, 'characters', db.select().from(s.characters).where(listed(s.characters, projectId, ids)).orderBy(asc(s.characters.name)).all());
+export const relationshipRows = (db: Db, projectId: string, ids?: readonly string[]) => withTags(db, 'relationships', db.select().from(s.relationships).where(listed(s.relationships, projectId, ids)).all());
+export const speechRuleRows = (db: Db, projectId: string, ids?: readonly string[]) => withTags(db, 'speechRules', db.select().from(s.speechRules).where(listed(s.speechRules, projectId, ids)).all());
+export const documentRows = (db: Db, projectId: string, ids?: readonly string[]) => withTags(db, 'documents', db.select().from(s.documents).where(listed(s.documents, projectId, ids)).orderBy(asc(s.documents.kind), asc(s.documents.title)).all());
+
+/** The project's statuses in order. How many lines each has is its own query (it changes with every line). */
+export const statusRows = (db: Db, projectId: string, ids?: readonly string[]) =>
+  db.select({ id: s.statuses.id, name: s.statuses.name, color: s.statuses.color, kind: s.statuses.kind, sort: s.statuses.sort, inReview: s.statuses.inReview }).from(s.statuses).where(and(eq(s.statuses.projectId, projectId), ids ? inList(s.statuses.id, ids) : undefined)).orderBy(asc(s.statuses.sort)).all();
+
+/** The project's tags in order; their counts are a query of their own, as for statuses. */
+export const tagRows = (db: Db, projectId: string, ids?: readonly string[]) =>
+  db
+    .select({ id: s.tags.id, name: s.tags.name, color: s.tags.color, description: s.tags.description, scope: s.tags.scope, sort: s.tags.sort })
+    .from(s.tags)
+    .where(and(eq(s.tags.projectId, projectId), ids ? inList(s.tags.id, ids) : undefined))
+    .orderBy(asc(s.tags.sort), asc(s.tags.name))
+    .all()
+    .map((tag) => ({ ...tag, scope: normalizeTagScopes(tag.scope) }));
+
 const READERS: Record<FeedCollection, (db: Db, projectId: string, ids?: readonly string[]) => { id: string }[]> = {
   terms: termRows,
+  characters: characterRows,
+  relationships: relationshipRows,
+  speechRules: speechRuleRows,
+  documents: documentRows,
+  statuses: statusRows,
+  tags: tagRows,
 };
 
 /** A collection's rows now and the feed's count, for the browser's first load. */

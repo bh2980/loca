@@ -1,9 +1,8 @@
 import type { ReactNode } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { listenerLabel, personLabel, SPEECH_LEVEL_LABELS, SPECIAL_LISTENERS, styleNames } from '@tw/shared';
 import { Box, HoverCard, HoverCardContent, HoverCardTrigger, Inline, Stack, Text } from '@loca/ui';
-import { q } from '@/lib/queries';
+import { useCharacters, useSpeechRules } from '@/lib/knowledge';
 
 /**
  * Who is speaking, on hover over a speaker's name: the character's profile and how they talk,
@@ -25,10 +24,10 @@ export function SpeakerCard({ projectId, name, children }: { projectId: string; 
 }
 
 function SpeakerInfo({ projectId, name }: { projectId: string; name: string }) {
-  const characters = useQuery(q.characters(projectId));
-  const rules = useQuery(q.speechRules(projectId));
+  const characters = useCharacters(projectId);
+  const rules = useSpeechRules(projectId);
   const lower = name.toLowerCase();
-  const character = characters.data?.characters.find((item) => item.name.toLowerCase() === lower || item.aliases.some((alias) => alias.toLowerCase() === lower));
+  const character = characters.data?.find((item) => item.name.toLowerCase() === lower || item.aliases.some((alias) => alias.toLowerCase() === lower));
   const own = (rules.data ?? []).filter((rule) => rule.fromName.toLowerCase() === (character?.name ?? name).toLowerCase());
   const pending = (status: string) => status !== 'confirmed' && <Text variant="caption" tone="muted"> · 확인 전</Text>;
   return (

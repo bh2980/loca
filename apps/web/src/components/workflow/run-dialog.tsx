@@ -14,6 +14,7 @@ import { startLimits, type CapEdits } from '@/lib/run-limits';
 import { tagsIn, q } from '@/lib/queries';
 import { SCRIPT_VIEW } from '@/lib/labels';
 import { useTerms } from '@/lib/terms';
+import { useTaxonomy } from '@/lib/knowledge';
 
 /** Run-scope filters on what a row shows (the list pages' 최종 아님, 정한 쪽, 메모, 번역 비어 있음), beside statuses. */
 const RUN_FACTS = {
@@ -79,7 +80,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   // What a row shows, as filters: 최종 아님, 정한 쪽 AI, 메모 있음 (lines), 번역 비어 있음 (terms).
   const [pickedFacts, setPickedFacts] = useState<Set<string>>(new Set());
 
-  const statuses = useQuery({ ...q.statuses(projectId), enabled: open });
+  const taxonomy = useTaxonomy(projectId, { enabled: open });
   // This run's models by AI node, where the person picked another than the node's own (the workflow is not changed).
   const [runModels, setRunModels] = useState<Record<string, ModelValue>>({});
   const [capEdits, setCapEdits] = useState<CapEdits>({});
@@ -112,7 +113,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   // What the run takes is the workflow's input (its entry node); the scope fields below follow it.
   const subject = workflow?.input ?? givenSubject;
   const terms = subject === 'terms';
-  const tags = tagsIn(statuses.data?.tags, terms ? 'terms' : 'lines');
+  const tags = tagsIn(taxonomy.tags, terms ? 'terms' : 'lines');
   const unit = terms ? '개' : '줄';
   const groups = useQuery({ ...q.groups(projectId), enabled: open });
   const here = groupIds?.length ? groups.data?.filter((group) => groupIds.includes(group.id)) : undefined;
@@ -356,7 +357,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
                             {KNOWLEDGE_STATUS_LABELS[status]}
                           </Label></Box>
                         ))
-                      : (statuses.data?.statuses ?? []).map((status) => (
+                      : (taxonomy.statuses ?? []).map((status) => (
                         <Box asChild key={status.id} variant="body" weight="normal"><Label>
                           <Checkbox checked={pickedStatuses.has(status.id)} onCheckedChange={(checked) => toggled(setPickedStatuses, status.id, checked === true)} />
                           <StatusIcon status={status} />

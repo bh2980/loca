@@ -14,7 +14,8 @@ import { client } from '@/lib/api';
 import { changedFields, useFormFrom } from '@/lib/use-form-from';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
 import { q, tagsIn } from '@/lib/queries';
-import { sent } from '@/lib/terms';
+import { sent } from '@/lib/collections';
+import { useTaxonomy } from '@/lib/knowledge';
 
 export interface Term {
   id: string;
@@ -133,10 +134,10 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
   const [allUses, setAllUses] = useState(false);
   const uses = usage.data?.rows ?? [];
   const shownUses = allUses ? uses : uses.slice(0, USES_SHOWN);
-  const statuses = useQuery(q.statuses(projectId));
-  const termTags = tagsIn(statuses.data?.tags, 'terms');
+  const taxonomy = useTaxonomy(projectId);
+  const termTags = tagsIn(taxonomy.tags, 'terms');
   const attachedTags = (term.tags ?? [])
-    .map((item) => statuses.data?.tags?.find((t) => t.id === item.id))
+    .map((item) => taxonomy.tags?.find((t) => t.id === item.id))
     .filter(Boolean) as (Parameters<typeof TagListEditor>[0]['tags'][number])[];
 
   const tagMutation = useMutation({

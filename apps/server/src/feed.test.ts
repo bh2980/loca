@@ -78,6 +78,35 @@ describe('the row feed', () => {
     expect(((await res.json()) as FeedSnapshot).rows).toHaveLength(1);
     expect((await app.request(`/projects/${projectId}/sync/nope`)).status).toBe(400);
   });
+
+  it('sends knowledge, statuses and tags as their lists show them, and a deleted tag as the items it was on', () => {
+    const { db, projectId } = setup();
+    const mira = db.insert(s.characters).values({ projectId, name: 'Mira' }).returning().get();
+    const jonas = db.insert(s.characters).values({ projectId, name: 'Jonas' }).returning().get();
+    const rel = db.insert(s.relationships).values({ projectId, fromId: mira.id, toId: jonas.id, kind: '동료' }).returning().get();
+    const rule = db.insert(s.speechRules).values({ projectId, fromName: 'Mira', toName: 'Jonas', level: 'haeyo' }).returning().get();
+    const doc = db.insert(s.documents).values({ projectId, title: '세계관', kind: 'world', body: '' }).returning().get();
+    const tag = db.insert(s.tags).values({ projectId, name: '확인', color: '#888888', scope: ['people'] }).returning().get();
+    db.transaction((tx) => setKnowledgeTag(tx, projectId, 'characters', [mira.id], tag.id, true));
+    const status = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).all()[0]!;
+    db.update(s.statuses).set({ name: '처음' }).where(eq(s.statuses.id, status.id)).run();
+    const sent = feedRows(db, projectId)!.rows;
+    expect(sent.characters?.upsert).toEqual([expect.objectContaining({ id: jonas.id, tags: [] }), expect.objectContaining({ id: mira.id, tags: [{ id: tag.id, note: null }] })]);
+    expect(sent.relationships?.upsert).toEqual([expect.objectContaining({ id: rel.id, kind: '동료' })]);
+    expect(sent.speechRules?.upsert).toEqual([expect.objectContaining({ id: rule.id, level: 'haeyo' })]);
+    expect(sent.documents?.upsert).toEqual([expect.objectContaining({ id: doc.id, title: '세계관' })]);
+    expect(sent.tags?.upsert).toEqual([{ id: tag.id, name: '확인', color: '#888888', description: '', scope: ['people'], sort: 0 }]);
+    expect(sent.statuses?.upsert).toEqual([expect.objectContaining({ id: status.id, name: '처음' })]);
+    expect(sent.statuses?.upsert[0]).not.toHaveProperty('units');
+    // The tag's rows on items go with it, and the items it was on come again without it.
+    db.delete(s.tags).where(eq(s.tags.id, tag.id)).run();
+    const after = feedRows(db, projectId)!.rows;
+    expect(after.tags).toEqual({ upsert: [], delete: [tag.id] });
+    expect(after.characters?.upsert).toEqual([expect.objectContaining({ id: mira.id, tags: [] })]);
+    db.update(s.characters).set({ status: 'rejected' }).where(eq(s.characters.id, jonas.id)).run();
+    expect(feedRows(db, projectId)!.rows.characters).toEqual({ upsert: [], delete: [jonas.id] });
+    expect(feedSnapshot(db, projectId, 'characters').rows).toEqual([expect.objectContaining({ id: mira.id })]);
+  });
 });
 
 describe('change events with rows', () => {

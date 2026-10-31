@@ -45,6 +45,7 @@ import { sameWorkflowDraft, reconcileSavedDraft, normalizeWorkflowDraft } from '
 import { dateTime } from '@/lib/datetime';
 import { useIsDark } from '@/lib/theme';
 import { useGraphShortcuts, type GraphShortcuts } from '@/lib/graph-shortcuts';
+import { useTaxonomy } from '@/lib/knowledge';
 
 /** When the workflow was last saved: 10. 13. 오전 06:16. Runs keep their own copy of what they ran. */
 const savedAt = (at: string) => dateTime(at);
@@ -144,7 +145,7 @@ function WorkflowEditor() {
   const { zoom } = useViewport();
   const [minimap, setMinimap] = useState(false);
   const workflow = useQuery(q.workflow(workflowId));
-  const statuses = useQuery(q.statuses(projectId));
+  const taxonomy = useTaxonomy(projectId);
   const connections = useQuery(q.connections({ kind: 'project', projectId }));
   const runs = useQuery(q.runs(projectId));
   const workflows = useQuery(q.workflows(projectId));
@@ -238,7 +239,7 @@ function WorkflowEditor() {
     const used = current?.definition.nodes.find((node) => node.type === 'ai' && node.config.model.model);
     return used?.type === 'ai' ? used.config.model : { connectionId: '', model: '' };
   };
-  const summaryNames = { status: new Map(statuses.data?.statuses.map((status) => [status.id, status.name])), connection: new Map(connections.data?.map((connection) => [connection.id, connection.name])), connectionsLoaded: Boolean(connections.data), workflows: workflows.data };
+  const summaryNames = { status: new Map(taxonomy.statuses?.map((status) => [status.id, status.name])), connection: new Map(connections.data?.map((connection) => [connection.id, connection.name])), connectionsLoaded: Boolean(connections.data), workflows: workflows.data };
   const summary = (node: WorkflowNode) => (current ? nodeSummary(node, current.definition, summaryNames) : '');
 
   // React Flow measures each node and reports it as a 'dimensions' change; nodes rebuilt without
@@ -275,7 +276,7 @@ function WorkflowEditor() {
       definition: { ...value.definition, nodes: value.definition.nodes.map((node) => (placed.has(node.id) ? { ...node, position: placed.get(node.id)! } : node)) },
     }));
   }, [openFolds, folds]); // eslint-disable-line react-hooks/exhaustive-deps
-  const foldNames = useMemo(() => ({ status: summaryNames.status }), [statuses.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  const foldNames = useMemo(() => ({ status: summaryNames.status }), [taxonomy.statuses]); // eslint-disable-line react-hooks/exhaustive-deps
   const foldChip = (fold: Fold) => current && {
     text: foldText(current.definition, fold, foldNames),
     open: isFoldOpen(foldState, fold.id),
@@ -311,13 +312,13 @@ function WorkflowEditor() {
           warnings: issues.filter((issue) => issue.nodeId === node.id && issue.level === 'warning').map((issue) => issue.message),
           start: starts.has(node.id) && entry ? { label: startLabel, onOpen: () => select(entry.id) } : undefined,
           open: openPorts(node, current.definition),
-          status: targetStatus(node, statuses.data?.statuses),
+          status: targetStatus(node, taxonomy.statuses),
           folds: Object.fromEntries(folds.filter((fold) => fold.kind === 'branch' && fold.owner === node.id).flatMap((fold) => [[fold.port, foldChip(fold)!]])),
           foldClose: (() => { const fold = folds.find((item) => item.kind === 'edge' && item.nodeIds[0] === node.id && isFoldOpen(foldState, item.id)); return fold && (() => toggleFoldOf(fold)); })(),
         },
       }));
     },
-    [shown, folds, foldState, current?.definition, search.node, multi, direction, issues, statuses.data, connections.data, measured], // eslint-disable-line react-hooks/exhaustive-deps
+    [shown, folds, foldState, current?.definition, search.node, multi, direction, issues, taxonomy.statuses, connections.data, measured], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const edges: FlowEdge[] = useMemo(
     () => {
@@ -329,7 +330,7 @@ function WorkflowEditor() {
         return fold ? { ...edge, data: { ...edge.data, fold: foldChip(fold) } } : edge;
       });
     },
-    [view, edgeId, hoveredEdgeId, foldState, issues, statuses.data], // eslint-disable-line react-hooks/exhaustive-deps
+    [view, edgeId, hoveredEdgeId, foldState, issues, taxonomy.statuses], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const select = (id: string | undefined) => void navigate({ search: (previous) => ({ ...previous, node: id }) });
@@ -782,9 +783,9 @@ function WorkflowEditor() {
                 onTab={(nodeTab) => void navigate({ search: (previous) => ({ ...previous, nodeTab: nodeTab === 'settings' ? undefined : nodeTab }) })}
                 issues={issues.filter((issue) => issue.nodeId === selected.id)}
                 refs={{
-                  statuses: statuses.data?.statuses ?? [],
+                  statuses: taxonomy.statuses ?? [],
                   // The tags of the workflow's input: line tags, or term tags.
-                  tags: tagsIn(statuses.data?.tags, input),
+                  tags: tagsIn(taxonomy.tags, input),
                   projectId,
                   workflowId,
                   connections: connections.data ?? [],

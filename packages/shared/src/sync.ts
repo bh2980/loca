@@ -1,9 +1,9 @@
 /**
  * The browser's collections (TanStack DB) and the server's row feed that keeps them current: the
- * database reports every changed row (triggers, apps/server/drizzle/0106_row_feed.sql), and each change
+ * database reports every changed row (triggers, apps/server/drizzle/0106_row_feed.sql and 0107), and each change
  * event carries those rows as the snapshot has them, so the browser patches rows instead of refetching.
  */
-export const FEED_COLLECTIONS = ['terms'] as const;
+export const FEED_COLLECTIONS = ['terms', 'characters', 'relationships', 'speechRules', 'documents', 'statuses', 'tags'] as const;
 export type FeedCollection = (typeof FEED_COLLECTIONS)[number];
 
 /** One collection's part of a change event: rows to put, read again when the event was sent, and ids no longer listed. */

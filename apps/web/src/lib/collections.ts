@@ -1,5 +1,6 @@
 import { createCollection, type Collection } from '@tanstack/react-db';
 import type { FeedChanges, FeedCollection, FeedSnapshot } from '@tw/shared';
+import { client, unwrap, unwrapSeq } from './api';
 import { feed } from './feed';
 
 type Row = { id: string };
@@ -83,4 +84,35 @@ export function feedCollection<T extends Row>({ projectId, name, load, handlers 
       },
     },
   });
+}
+
+const opened = new Map<string, Collection<Row, string>>();
+
+/** A project's collection of `name` (one per project, shared by every screen), loaded from its snapshot route. */
+export function projectCollection<T extends Row>(name: FeedCollection, projectId: string): Collection<T, string> {
+  const id = `${name}:${projectId}`;
+  let collection = opened.get(id);
+  if (!collection) {
+    collection = feedCollection<Row>({
+      projectId,
+      name,
+      load: () => unwrap(client.projects[':projectId'].sync[':collection'].$get({ param: { projectId, collection: name } })) as Promise<FeedSnapshot>,
+    });
+    opened.set(id, collection);
+  }
+  return collection as unknown as Collection<T, string>;
+}
+
+/** A live query's rows as the old queries gave them: `data` undefined until loaded (and while not `enabled`). */
+export function loaded<T>(query: { isReady: boolean; data: unknown }, enabled = true) {
+  const data = enabled && query.isReady ? (query.data as T[]) : undefined;
+  const loading = enabled && !query.isReady;
+  return { data, isPending: loading, isLoading: loading, isFetching: loading, isSuccess: Boolean(data) };
+}
+
+/** Waits for the row feed to bring a write's rows back (its x-seq), so the screen shows the saved row. */
+export async function sent<T extends Response & { json(): Promise<unknown> }>(projectId: string, request: Promise<T>): Promise<Awaited<ReturnType<T['json']>>> {
+  const { body, seq } = await unwrapSeq(request);
+  await feed.wait(projectId, seq);
+  return body;
 }

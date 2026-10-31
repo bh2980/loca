@@ -9,6 +9,7 @@ import { client, unwrap } from '@/lib/api';
 import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
 import { lineTags, q } from '@/lib/queries';
 import { usePicked } from '@/lib/use-picked';
+import { useCharacters } from '@/lib/knowledge';
 
 /** Lines picked by their checkboxes, and the bulk changes the head row makes to them (each shown at once, undone if the server refuses). */
 type SelectionRow = { id: string; tagIds: string[]; statusBy: string };
@@ -80,7 +81,7 @@ export type LineBulk = ReturnType<typeof useLineBulk>;
 /** The head row above the lines: column labels, or the picked lines' actions. */
 export function LineHeadRow({ projectId, rows, bulk, statusList, tags }: { projectId: string; rows: { id: string; speaker: string | null }[]; bulk: LineBulk; statusList: { id: string; name: string; color: string }[]; tags: ComponentProps<typeof TagMenu>['tags'] }) {
   const { picked, pick, stopPicking, check, pickedByAi, setStatus, setListener, tagState, setTag, setTranslate } = bulk;
-  const people = useQuery(q.characters(projectId));
+  const people = useCharacters(projectId);
   const project = useQuery(q.project(projectId));
   const sourceLanguage = project.data?.sourceLanguage?.split('-')[0]?.toLocaleUpperCase();
   const targetLanguage = project.data?.targetLanguage?.split('-')[0]?.toLocaleUpperCase();
@@ -122,7 +123,7 @@ export function LineHeadRow({ projectId, rows, bulk, statusList, tags }: { proje
                   ))}
                 </SelectContent>
               </Select>
-              <BulkListener speakers={[...new Set(rows.flatMap((row) => (row.speaker ? [row.speaker] : [])))]} cast={(people.data?.characters ?? []).filter((person) => person.status === 'confirmed').map((person) => person.name)} onPick={(listener) => setListener.mutate(listener)} />
+              <BulkListener speakers={[...new Set(rows.flatMap((row) => (row.speaker ? [row.speaker] : [])))]} cast={(people.data ?? []).filter((person) => person.status === 'confirmed').map((person) => person.name)} onPick={(listener) => setListener.mutate(listener)} />
               <TagMenu
                 tags={tags}
                 heading="태그"

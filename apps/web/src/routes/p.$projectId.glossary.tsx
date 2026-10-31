@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { AiConfirmNote } from '@/components/settings/ai-confirm';
 import { createFileRoute } from '@tanstack/react-router';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { Plus, Play, ScanSearch } from 'lucide-react';
 import { toast } from 'sonner';
 import { DataTable, type ColumnDef, EmptyState, TagMenu, FilterChips, SearchField, FilterBar, ActionBar, type FilterChip, Button, Text, useRevealDock, ContextMenuItem, ContextMenuSeparator, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Spinner, SplitPane } from '@loca/ui';
@@ -12,10 +12,12 @@ import { HeaderActions, Page } from '@/components/page';
 import { BulkDecide, parseStatusFilter, parseDecidedBy, StateFilter, SourceBadge, StateCell, statusOptions, type StatusFilter, TagCell } from '@/components/knowledge/table';
 import { AUTO_MARKS, markColor, markName, type AutoMark, isSettled, parseMarks, TERM_MARK_IDS, termMarksOf, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, type KnowledgeSource, aiDecided, DECIDED_BY_LABELS, type DecidedBy, termMatches, type TermFilter } from '@tw/shared';
 import { client, unwrap } from '@/lib/api';
-import { q, tagsIn, useMarkStyles } from '@/lib/queries';
+import { tagsIn, useMarkStyles } from '@/lib/queries';
 import { usePicked } from '@/lib/use-picked';
 import { useReportView } from '@/lib/view-context';
-import { decideTerms, sent, useTerms, withDuplicate } from '@/lib/terms';
+import { sent } from '@/lib/collections';
+import { useTerms, withDuplicate } from '@/lib/terms';
+import { decideItems, useTaxonomy } from '@/lib/knowledge';
 
 export const Route = createFileRoute('/p/$projectId/glossary')({
   validateSearch: (raw: Record<string, unknown>): GlossarySearch => ({
@@ -76,9 +78,9 @@ function Glossary() {
   // The glossary's filters, the same ones loca terms and the chat's list_terms use (termMatches).
   const filter: TermFilter = { source: search.source, status: search.status && [search.status], decidedBy: search.decidedBy, emptyTarget: search.emptyTarget, marks: search.marks, hideMarks: search.hideMarks, tags: search.tags, hideTags: search.hideTags };
   const all = (terms.data ?? []).filter((term) => termMatches(term, filter, terms.duplicates.has(term)));
-  // The table changes at once (decideTerms); the feed brings the saved rows, and a failure puts them back.
+  // The table changes at once (decideItems); the feed brings the saved rows, and a failure puts them back.
   const decide = useMutation({
-    mutationFn: ({ ids, accept }: { ids: string[]; accept: boolean }) => decideTerms(projectId, ids, accept),
+    mutationFn: ({ ids, accept }: { ids: string[]; accept: boolean }) => decideItems(projectId, [{ kind: 'terms', ids }], accept ? 'confirm' : 'discard'),
     onSuccess: (changed, { accept }) => toast.success(accept ? `${changed}개를 정식 용어로 올렸습니다.` : `${changed}개 후보를 버렸습니다.`),
     onError: (error) => toast.error(error.message),
   });
@@ -106,9 +108,9 @@ function Glossary() {
 
   const select = (id?: string) => void navigate({ search: (previous) => ({ ...previous, term: id }), replace: true });
   const setFilter = (next: Partial<GlossarySearch>) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace: true });
-  const statuses = useQuery(q.statuses(projectId));
+  const taxonomy = useTaxonomy(projectId);
   const markStyles = useMarkStyles(projectId);
-  const knownTags = tagsIn(statuses.data?.tags, 'terms');
+  const knownTags = tagsIn(taxonomy.tags, 'terms');
   const pickedTags = search.tags ?? [];
   const pickMark = (mark: AutoMark, mode: FilterPick) => {
     const next = togglePick(search.marks, search.hideMarks, mark, mode);
@@ -242,7 +244,7 @@ function Glossary() {
           rows={terms.data && rows}
           rowId={(term) => term.id}
           // The cells read their term, the project's tags and the term's #번역어 중복: a row is drawn again only when one of these changed.
-          rowDeps={[statuses.data?.tags]}
+          rowDeps={[taxonomy.tags]}
           rowKey={(term) => terms.duplicates.has(term)}
           loading={terms.isLoading}
           empty={<EmptyState noun="용어" filtered={Boolean(needle || search.ids || search.source || search.status || search.marks?.length || search.tags?.length)} />}

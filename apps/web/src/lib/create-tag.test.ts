@@ -2,7 +2,8 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import { PALETTE } from '@tw/shared';
 import { createAndAttachTag } from './create-tag';
 const post = vi.hoisted(() => vi.fn());
-vi.mock('./api', () => ({ client: { projects: { ':projectId': { tags: { $post: post } } } }, unwrap: (value: unknown) => value }));
+vi.mock('./api', () => ({ client: { projects: { ':projectId': { tags: { $post: post } } } } }));
+vi.mock('./collections', () => ({ sent: (_projectId: string, value: unknown) => value }));
 beforeEach(() => { post.mockReset().mockResolvedValue({ id: 'tag' }); });
 it('creates a scoped tag with the shared colour, then attaches the returned id', async () => {
   const attach = vi.fn().mockResolvedValue({});

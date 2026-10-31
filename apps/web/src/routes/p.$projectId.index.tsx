@@ -12,6 +12,7 @@ import { dateTime } from '@/lib/datetime';
 import { useProgress } from '@/lib/use-progress';
 import { SCRIPT_VIEW } from '@/lib/labels';
 import { useTerms } from '@/lib/terms';
+import { useSpeechRules } from '@/lib/knowledge';
 
 export const Route = createFileRoute('/p/$projectId/')({ component: Home });
 
@@ -43,7 +44,7 @@ function Home() {
   const groups = useQuery(q.groups(projectId));
   // Counted as the linked list shows them: status set by AI, 번역 제외 hidden.
   const aiLineCounts = useQueries({ queries: SCRIPT_KINDS.map((kind) => q.units(projectId, { kind, decidedBy: 'ai', excluded: 'hide', limit: 1 })) });
-  const rules = useQuery(q.speechRules(projectId));
+  const rules = useSpeechRules(projectId);
   const terms = useTerms(projectId);
   const runs = useQuery(q.runs(projectId));
 

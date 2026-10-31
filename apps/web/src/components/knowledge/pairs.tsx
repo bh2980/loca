@@ -1,84 +1,49 @@
 import { createAndAttachTag } from '@/lib/create-tag';
-import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMemo, useRef, useState } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { ChevronRight, Plus } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { InferRequestType } from 'hono/client';
 import { toast } from 'sonner';
-import { type AutoMark, isSpecialListener, knowledgeMarksOf, listenerLabel, markName, matchesMarks, OTHERS_LISTENER, SPEECH_LEVEL_LABELS, decidedBy, type DecidedBy } from '@tw/shared';
+import { isSpecialListener, listenerLabel, markName, OTHERS_LISTENER, pairKey, pairMarks, pairSummary, SPEECH_LEVEL_LABELS, type Pair as PairOf } from '@tw/shared';
 import { EmptyState, DataTable, type ColumnDef, Inspector, InspectorHeader, InspectorList, InspectorResult, TagListEditor, Chip, Box, Button, Icon, Inline, ListRow, Text, Section, Field } from '@loca/ui';
 import { DraftEditor } from '@/components/knowledge/editor';
 import { StretchPicker } from '@/components/knowledge/evidence';
-import { candidateRow, fail, isHidden, matches, metaColumns, SourceBadge, type Draft, type KnowledgeFilterState, type KindSpec, type RelationshipRow, type SourceFilter, type StatusFilter, type SpeechRuleRow } from '@/components/knowledge/table';
+import { candidateRow, fail, metaColumns, SourceBadge, type Draft, type KnowledgeFilterState, type KindSpec, type RelationshipRow, type SpeechRuleRow } from '@/components/knowledge/table';
 import { splitList } from '@/lib/list-value';
 import { personStyle } from '@/lib/person-colors';
-import { client, unwrap } from '@/lib/api';
+import { client } from '@/lib/api';
 import { q, tagsIn, useMarkStyles } from '@/lib/queries';
 import { MarkChip } from '@/components/status';
+import { useTaxonomy } from '@/lib/knowledge';
+import { sent } from '@/lib/collections';
+
+/** One speaker → listener direction (buildPairs, @tw/shared) with the rows these screens read. */
+export type Pair = PairOf<RelationshipRow, SpeechRuleRow>;
 
 /**
- * One speaker → listener direction: the relationship (a fact of the story) and the speech rules
- * (the Korean translation decision, in stretches). Stored apart, shown together.
+ * The pairs, keeping last time's object for a pair whose people, relationship and rules are the same
+ * rows: the table draws again only the pairs whose rows changed.
  */
-export interface Pair {
-  key: string;
-  from: string;
-  to: string;
-  fromId?: string;
-  toId?: string;
-  relationship?: RelationshipRow;
-  rules: SpeechRuleRow[];
+export function useStablePairs(pairs: Pair[]) {
+  const previous = useRef(new Map<string, Pair>());
+  return useMemo(() => {
+    const next = new Map<string, Pair>();
+    const kept = pairs.map((pair) => {
+      const old = previous.current.get(pair.key);
+      const same = old && old.fromId === pair.fromId && old.toId === pair.toId && old.relationship === pair.relationship && old.rules.length === pair.rules.length && old.rules.every((rule, index) => rule === pair.rules[index]);
+      const row = same ? old : pair;
+      next.set(pair.key, row);
+      return row;
+    });
+    previous.current = next;
+    return kept;
+  }, [pairs]);
 }
 
 /** What creating a speech rule takes. */
 export type SpeechRuleCreate = InferRequestType<(typeof client.projects)[':projectId']['speech-rules']['$post']>['json'];
 
-export const pairKey = (from: string, to: string) => `${from}→${to}`;
-
-/** Every direction that has a relationship or a speech rule. Rule names resolve through aliases. */
-export function buildPairs(characters: { id: string; name: string; aliases: string[] }[], relationships: RelationshipRow[], rules: SpeechRuleRow[]): Pair[] {
-  const byName = new Map(characters.flatMap((c) => [c.name, ...c.aliases].map((name) => [name.toLowerCase(), c] as const)));
-  const byId = new Map(characters.map((c) => [c.id, c]));
-  const pairs = new Map<string, Pair>();
-  const pair = (from: string, to: string, fromId?: string, toId?: string) => {
-    const key = pairKey(from, to);
-    const existing = pairs.get(key) ?? { key, from, to, fromId, toId, rules: [] };
-    pairs.set(key, existing);
-    return existing;
-  };
-  for (const rel of relationships) {
-    const from = byId.get(rel.fromId);
-    const to = byId.get(rel.toId);
-    if (from && to) pair(from.name, to.name, from.id, to.id).relationship ??= rel;
-  }
-  for (const rule of rules) {
-    const from = byName.get(rule.fromName.toLowerCase());
-    const to = byName.get(rule.toName.toLowerCase());
-    pair(from?.name ?? rule.fromName, to?.name ?? rule.toName, from?.id, to?.id).rules.push(rule);
-  }
-  return [...pairs.values()].sort((a, b) => a.from.localeCompare(b.from) || a.to.localeCompare(b.to));
-}
-
-/** A pair is AI's if any of its items is, a candidate if any item is; what the table and graph show for it. */
-export const pairSummary = (pair: Pair): Draft => {
-  const rows: Draft[] = [...(pair.relationship ? [pair.relationship] : []), ...pair.rules];
-  return {
-    id: pair.key,
-    status: rows.some((row) => row.status === 'candidate') ? 'candidate' : 'confirmed',
-    origin: rows.some((row) => row.origin === 'ai') ? 'ai' : 'human',
-    statusBy: rows.some((row) => row.statusBy === 'ai') ? 'ai' : 'human',
-    evidence: [],
-    // Every tag of its items once; the items' 확인 권장 reasons joined (two stretches may both have one).
-    reviewNote: rows.flatMap((row) => (row.reviewNote ? [row.reviewNote] : [])).join('\n'),
-    tags: [...Map.groupBy(rows.flatMap((row) => row.tags ?? []), (tag) => tag.id).entries()].map(([id, list]) => ({ id, note: list.flatMap((tag) => (tag.note ? [tag.note] : [])).join('\n') || null })),
-  };
-};
-/** The marks any item of a pair carries: what its row shows and the marks filter reads. */
-export const pairMarks = (pair: Pair): AutoMark[] => [...new Set([pair.relationship, ...pair.rules].flatMap((row) => (row ? knowledgeMarksOf(row) : [])))];
-/** Pairs matching the filters: by source and tags through any one item, by marks through the pair's marks. */
-export const pairMatches = (pair: Pair, source: SourceFilter, marks?: readonly AutoMark[], tags?: string[], status?: StatusFilter, hidden: { hideMarks?: readonly AutoMark[]; hideTags?: readonly string[] } = {}, by?: DecidedBy) =>
-  (!status || pairSummary(pair).status === status) && (!by || [pair.relationship, ...pair.rules].some((row) => row && decidedBy(row, by))) && matchesMarks(pairMarks(pair), marks) && [pair.relationship, ...pair.rules].some((row) => row && matches(row, source, undefined, tags)) && !isHidden(pairMarks(pair), pairTagIds(pair), hidden);
-const pairTagIds = (pair: Pair) => [pair.relationship, ...pair.rules].flatMap((row) => (row?.tags ?? []).map((tag) => tag.id));
 export const pairItems = (pair: Pair) => [...(pair.relationship ? [{ kind: 'relationships' as const, row: pair.relationship }] : []), ...pair.rules.map((row) => ({ kind: 'speechRules' as const, row }))];
 /** Why the analysis marked an item for a look (확인 권장), or null. */
 const reviewOf = (row: Draft) => row.reviewNote || null;
@@ -115,6 +80,7 @@ export function PairTable({ pairs, loading, selected, picked, onPick, onOpen, bu
       picked={picked}
       onPick={onPick}
       bulk={bulk}
+      rowDeps={[filters.known, colorOf]}
       empty={<EmptyState noun="관계나 말투 규칙이 있는 쌍" filtered={Boolean(filters.source || filters.status || filters.decidedBy || filters.marks?.length || filters.tags?.length)} />}
     />
   );
@@ -166,26 +132,22 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
     return line ? `“${line.source.length > 28 ? `${line.source.slice(0, 27)}…` : line.source}”부터` : `${rule.startKey}부터`;
   };
 
-  const queryClient = useQueryClient();
-  const statuses = useQuery(q.statuses(projectId));
-  const knowledgeTags = tagsIn(statuses.data?.tags, 'people');
+  const taxonomy = useTaxonomy(projectId);
+  const knowledgeTags = tagsIn(taxonomy.tags, 'people');
   const summaryTags = pairSummary(pair).tags ?? [];
   const attachedPairTags = summaryTags
-    .map((item) => statuses.data?.tags?.find((t) => t.id === item.id))
+    .map((item) => taxonomy.tags?.find((t) => t.id === item.id))
     .filter(Boolean) as (Parameters<typeof TagListEditor>[0]['tags'][number])[];
 
   const pairItemsList = pairItems(pair);
   const pairTagMutation = useMutation({
     mutationFn: async ({ tagId, add }: { tagId: string; add: boolean }) => {
       for (const [kind, list] of Map.groupBy(pairItemsList, (item) => item.kind)) {
-        await unwrap(client.projects[':projectId']['knowledge-tags'].$post({
+        await sent(projectId, client.projects[':projectId']['knowledge-tags'].$post({
           param: { projectId },
           json: { kind, ids: list.map((item) => item.row.id), tagId, add },
         }));
       }
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['knowledge'] });
     },
     onError: fail,
   });

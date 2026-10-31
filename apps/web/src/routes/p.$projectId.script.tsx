@@ -12,6 +12,7 @@ import { GROUP_KIND, SCRIPT_VIEW, SOURCE_GROUP_LABEL, SOURCE_UNIT_LABEL } from '
 import { q, useMarkStyles } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { keyLabel } from '@/lib/keys';
+import { useTaxonomy } from '@/lib/knowledge';
 
 type Kind = GroupRow['kind'];
 const VIEW_ORDER: Kind[] = ['scene', 'ui', 'document'];
@@ -76,7 +77,7 @@ function Script() {
   const project = useQuery(q.project(projectId));
   const allGroups = useQuery(q.groups(projectId));
   const searched = useQuery({ ...q.groups(projectId, { q: search.gq }), enabled: Boolean(search.gq) });
-  const statuses = useQuery(q.statuses(projectId));
+  const taxonomy = useTaxonomy(projectId);
   const markStyles = useMarkStyles(projectId);
   // Keep all source kinds available, including empty ones, so standard-format documents are discoverable.
   const views = VIEW_ORDER.map((kind) => ({
@@ -91,8 +92,8 @@ function Script() {
   const index = ordered.findIndex((item) => item.id === search.group);
   const group = index >= 0 ? ordered[index] : undefined;
   const sectionGroupIds = search.section ? (allGroups.data ?? []).filter((item) => item.kind === view && item.section === search.section).map((item) => item.id) : undefined;
-  const finalIds = new Set(statuses.data?.statuses.filter((status) => status.kind === 'final').map((status) => status.id));
-  const initialIds = new Set(statuses.data?.statuses.filter((status) => status.kind === 'initial').map((status) => status.id));
+  const finalIds = new Set(taxonomy.statuses?.filter((status) => status.kind === 'final').map((status) => status.id));
+  const initialIds = new Set(taxonomy.statuses?.filter((status) => status.kind === 'initial').map((status) => status.id));
   const [listOpen, setListOpen] = useState(() => readListOpen());
   // The list's width is dragged by its edge and remembered, like every right-hand pane.
   const showGroups = listOpen;
@@ -156,7 +157,7 @@ function Script() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   });
-  const findLabel = filterChips(search, statuses.data?.statuses ?? [], statuses.data?.tags ?? [], markStyles).map((chip) => chip.label).concat(search.q ? [`“${search.q}”`] : []).join(' · ');
+  const findLabel = filterChips(search, taxonomy.statuses ?? [], taxonomy.tags ?? [], markStyles).map((chip) => chip.label).concat(search.q ? [`“${search.q}”`] : []).join(' · ');
   const clearFilters = { q: undefined, status: undefined, tags: undefined, speaker: undefined, listener: undefined, marks: undefined, hideMarks: undefined, unfinished: undefined, decidedBy: undefined, noted: undefined, excluded: undefined, mode: undefined, page: undefined };
 
   const onSearch = useCallback((next: Partial<ScriptSearch>, options?: { replace?: boolean }) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace: options?.replace }), [navigate]);
@@ -230,7 +231,7 @@ function Script() {
       <PageHeading>{heading}</PageHeading>
       <ScriptWorkspace open={showGroups} navigation={
             <GroupList
-              statuses={statuses.data?.statuses}
+              statuses={taxonomy.statuses}
               projectId={projectId}
               groups={groups.data && ordered}
               finalIds={finalIds}

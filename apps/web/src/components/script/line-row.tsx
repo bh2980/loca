@@ -58,6 +58,7 @@ import type { InferResponseType } from '@/lib/api';
 import { usePersonColors } from '@/lib/person-colors';
 import { LineMenuItems } from '@/components/script/line-menu';
 import { useTerms } from '@/lib/terms';
+import { useCharacters, useRelationships } from '@/lib/knowledge';
 
 /** Who the line is addressed to. Unsure AI guesses count as unknown. */
 function listenerText(line: { kind: string; speaker: string | null; source: string; listener: string | null; listenerOrigin: ListenerOrigin | null; listenerConfidence: number | null }, rules: FormatRules | undefined) {
@@ -77,7 +78,8 @@ function listenerText(line: { kind: string; speaker: string | null; source: stri
  */
 export function LineHints({ projectId, line, part }: { projectId: string; line: { id: string; source: string; kind?: string; translation: string | null; speaker?: string | null; listener?: string | null; lastRun: { issues: string[] } | null }; part?: 'context' | 'result' }) {
   const unit = useQuery(q.unit(line.id));
-  const people = useQuery(q.characters(projectId));
+  const people = useCharacters(projectId);
+  const relationships = useRelationships(projectId);
   const terms = useTerms(projectId);
   const project = useQuery(q.project(projectId));
   const [draft] = useDraft(`line:${line.id}`, line.translation ?? '');
@@ -140,11 +142,11 @@ export function LineHints({ projectId, line, part }: { projectId: string; line: 
   // Who is talking, in a line each: the speaker's habit and how they stand with the listener (the card has the rest).
   const named = (name: string | null | undefined) => {
     const lower = name?.toLowerCase();
-    return lower ? people.data?.characters.find((person) => person.name.toLowerCase() === lower || person.aliases.some((alias) => alias.toLowerCase() === lower)) : undefined;
+    return lower ? people.data?.find((person) => person.name.toLowerCase() === lower || person.aliases.some((alias) => alias.toLowerCase() === lower)) : undefined;
   };
   const speaker = part !== 'result' ? named(line.speaker) : undefined;
   const listener = speaker ? named(line.listener) : undefined;
-  const relation = listener && people.data?.relationships.find((item) => (item.fromId === speaker!.id && item.toId === listener.id) || (item.mutual && item.fromId === listener.id && item.toId === speaker!.id));
+  const relation = listener && relationships.data?.find((item) => (item.fromId === speaker!.id && item.toId === listener.id) || (item.mutual && item.fromId === listener.id && item.toId === speaker!.id));
   const about = [
     speaker?.speech && { key: 'habit', label: `${speaker.name} 말버릇`, text: speaker.speech },
     relation && { key: 'relation', label: `관계 ${speaker!.name} → ${listener!.name}`, text: [relation.kind, relation.description].filter(Boolean).join(' — ') },
@@ -264,7 +266,6 @@ export function LineRow({
       toast.error(error.message);
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['statuses', projectId] });
       queryClient.invalidateQueries({ queryKey: ['units', projectId] });
       queryClient.invalidateQueries({ queryKey: ['unit', line.id] });
     },

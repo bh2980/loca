@@ -1,7 +1,6 @@
 import { useMemo } from 'react';
 import { glossaryMatcher, type TermScope } from '@tw/shared';
 import { EditorSourceParagraph, EditorTermMark, EditorTokenChip, EditorTokenText, EditorTokenTip, Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
-import { q } from '@/lib/queries';
 import { splitTokens, useLineContext, type SourcePart } from '@/lib/line-context';
 import { chipHue, chipLabel, type TokenUnit } from '@/lib/tokens';
 import { useDraft } from '@/lib/drafts';

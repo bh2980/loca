@@ -10,6 +10,7 @@ import { keyLabel } from '@/lib/keys';
 import { SpeakerCard } from '@/components/script/speaker-card';
 import { LineNote } from '@/components/script/line-note';
 import { PersonName } from '@/lib/person-colors';
+import { useTaxonomy } from '@/lib/knowledge';
 
 /** The card's width; the graph keeps this much room beside the node when it opens. */
 export const LINE_CARD_WIDTH = 384;
@@ -37,7 +38,7 @@ export function LineCard({ projectId, unitId, choice, position, maxHeight, onSte
   onClose: () => void;
 }) {
   const unit = useQuery(q.unit(unitId));
-  const statuses = useQuery(q.statuses(projectId));
+  const taxonomy = useTaxonomy(projectId);
   const line = unit.data;
   const [noting, setNoting] = useState(false);
   useEffect(() => setNoting(false), [unitId]);
@@ -101,7 +102,7 @@ export function LineCard({ projectId, unitId, choice, position, maxHeight, onSte
             projectId={projectId}
             key={`editor-${line.id}`}
             unit={line}
-            statuses={statuses.data?.statuses ?? []}
+            statuses={taxonomy.statuses ?? []}
             focusKey={1}
             compact
             onEscape={onClose}

@@ -5,7 +5,7 @@ import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { fillTermUsage } from './term-usage.ts';
-import { knowledgeFilterInput, tagIdsOf, type KnowledgeFilter } from './knowledge-list.ts';
+import { knowledgeFilterInput, tagIdsOf, type KnowledgeFilterInput } from './knowledge-list.ts';
 import { withTags } from './knowledge-tags.ts';
 import { bySaver, PERSON, type Saver } from './status-by.ts';
 import { discoverTerms } from './term-discovery.ts';
@@ -181,7 +181,7 @@ export const termFilterInput = {
  * The glossary as the glossary page lists it (not rejected terms, source order) with what the page
  * shows: lines (나온 줄, counted first), examples, marks and tag names. `total` counts every match.
  */
-export function listTerms(db: Db, projectId: string, input: KnowledgeFilter & { q?: string; emptyTarget?: boolean; offset?: number; limit?: number }) {
+export function listTerms(db: Db, projectId: string, input: KnowledgeFilterInput & { q?: string; emptyTarget?: boolean; offset?: number; limit?: number }) {
   fillTermUsage(db, projectId);
   const rows = withTags(db, 'terms', db.select().from(s.terms).where(and(eq(s.terms.projectId, projectId), ne(s.terms.status, 'rejected'))).orderBy(asc(s.terms.source)).all());
   // Duplicates are read across the whole glossary, not just the rows the filter keeps.

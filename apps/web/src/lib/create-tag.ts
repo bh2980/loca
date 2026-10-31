@@ -1,9 +1,10 @@
 import { PALETTE, type TagScope } from '@tw/shared';
-import { client, unwrap } from './api';
+import { client } from './api';
+import { sent } from './collections';
 
 /** Creation and attachment share one policy; attachment errors must not claim creation failed. */
 export async function createAndAttachTag(projectId: string, name: string, count: number, scope: TagScope[], attach: (id: string) => Promise<unknown>) {
-  const tag = await unwrap(client.projects[':projectId'].tags.$post({
+  const tag = await sent(projectId, client.projects[':projectId'].tags.$post({
     param: { projectId }, json: { name, color: PALETTE[count % PALETTE.length].hex, scope },
   }));
   try {

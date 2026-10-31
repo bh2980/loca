@@ -19,6 +19,8 @@ import { q } from '@/lib/queries';
 import { SOURCE_GROUP_LABEL, SOURCE_UNIT_LABEL } from '@/lib/labels';
 import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
 import { useSaveLine } from '@/lib/line-save';
+import { useTaxonomy } from '@/lib/knowledge';
+import { sent } from '@/lib/collections';
 
 /** What the line menu needs of a line. */
 export interface MenuLine {
@@ -48,10 +50,10 @@ export function LineMenuItems({ projectId, line, onEdit, editLabel = '번역 편
   onAddLine?: () => void;
 }) {
   const queryClient = useQueryClient();
-  const statuses = useQuery(q.statuses(projectId));
+  const taxonomy = useTaxonomy(projectId);
   const project = useQuery(q.project(projectId)).data;
-  const statusList = statuses.data?.statuses ?? [];
-  const tags = (statuses.data?.tags ?? []).filter((tag) => !tag.scope || tag.scope.includes('lines'));
+  const statusList = taxonomy.statuses ?? [];
+  const tags = (taxonomy.tags ?? []).filter((tag) => !tag.scope || tag.scope.includes('lines'));
   const excluded = lineExclusion(line, project?.formatRules ?? undefined, project?.exclusionRules, project?.sourceLanguage) !== null;
   const saveLine = useSaveLine();
   const patch = useMutation({
@@ -62,7 +64,6 @@ export function LineMenuItems({ projectId, line, onEdit, editLabel = '번역 편
       toast.error(error.message);
     },
     onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ['statuses', projectId] });
       void queryClient.invalidateQueries({ queryKey: ['units', projectId] });
       void queryClient.invalidateQueries({ queryKey: ['units', 'detail', line.id] });
     },
@@ -71,7 +72,7 @@ export function LineMenuItems({ projectId, line, onEdit, editLabel = '번역 편
   const createTag = async (name: string) => {
     try {
       const color = PALETTE[tags.length % PALETTE.length].hex;
-      const created = await unwrap(client.projects[':projectId'].tags.$post({ param: { projectId }, json: { name, color, scope: [...TAG_SCOPES] } }));
+      const created = await sent(projectId, client.projects[':projectId'].tags.$post({ param: { projectId }, json: { name, color, scope: [...TAG_SCOPES] } }));
       await patch.mutateAsync({ tagIds: [...line.tagIds, created.id] });
       toast.success(`'${name}' 태그를 만들고 줄에 붙였습니다.`);
     } catch (error) {

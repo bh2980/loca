@@ -28,6 +28,7 @@ import { useReportView } from '@/lib/view-context';
 import { editorChecks, tokenPatternOf } from '@/lib/line-context';
 import { dateTime } from '@/lib/datetime';
 import { usePersonColors } from '@/lib/person-colors';
+import { useCharacters, useTaxonomy } from '@/lib/knowledge';
 
 const ORIGIN = { ai: 'AI', human: '사람', import: '가져옴', tool: '도구' } as const;
 /** How many entries of 비슷한 번역 and 이력 show before 더 보기. */
@@ -61,9 +62,9 @@ export function LineDetail({
   onAiNode: (value: string) => void;
 }) {
   const unit = useQuery(q.unit(unitId));
-  const statuses = useQuery(q.statuses(projectId));
+  const taxonomy = useTaxonomy(projectId);
   const project = useQuery(q.project(projectId));
-  const people = useQuery(q.characters(projectId));
+  const people = useCharacters(projectId);
   const colorOf = usePersonColors(projectId);
   const group = useQuery({ ...q.group(unit.data?.group.id ?? ''), enabled: Boolean(unit.data?.group.id) });
   const [draft, setDraft, , base] = useDraft(`line:${unitId}`, unit.data?.translation ?? '');
@@ -98,17 +99,17 @@ export function LineDetail({
 
   const line = unit.data;
   const statusId = line ? line.statusId : undefined;
-  const status = statuses.data?.statuses.find((item) => item.id === statusId);
-  const tags = lineTags(statuses.data?.tags);
+  const status = taxonomy.statuses?.find((item) => item.id === statusId);
+  const tags = lineTags(taxonomy.tags);
   const lastRun = line?.history[0];
   const unknown = line ? isUnknownListener(line, project.data?.formatRules ?? undefined) : true;
-  const cast = (people.data?.characters ?? []).filter((person) => person.status === 'confirmed').map((person) => ({ name: person.name, player: person.player }));
+  const cast = (people.data ?? []).filter((person) => person.status === 'confirmed').map((person) => ({ name: person.name, player: person.player }));
   const hasDialogueContext = line?.kind === 'dialogue' && Boolean(line.speaker?.trim());
   // 번역 제외: what the project's rules say about this source, and what a person's choice does.
   const ruleReason = line ? exclusionReason(line.source, project.data?.formatRules ?? undefined, project.data?.exclusionRules, project.data?.sourceLanguage) : null;
   const kindLabel = line?.kind === 'ui' ? 'UI 문자열' : line?.kind === 'document' ? '문서' : hasDialogueContext ? '대사' : '서술';
   const speakerTitle = line?.speaker || '화자 없음';
-  const speakerPerson = line?.speaker ? people.data?.characters.find((person) => person.name.toLowerCase() === line.speaker!.toLowerCase() || person.aliases.some((alias) => alias.toLowerCase() === line.speaker!.toLowerCase())) : undefined;
+  const speakerPerson = line?.speaker ? people.data?.find((person) => person.name.toLowerCase() === line.speaker!.toLowerCase() || person.aliases.some((alias) => alias.toLowerCase() === line.speaker!.toLowerCase())) : undefined;
   const listening = line ? needsListener(line, project.data?.formatRules ?? undefined) : false;
 
   // The listener is picked on the title itself.
@@ -236,7 +237,7 @@ export function LineDetail({
           {memo}
         </Box>
       )}
-      {line && editor && <Section><TranslationEditor projectId={projectId} unit={{ id: line.id, source: line.source, translation: line.translation, statusId: line.statusId, statusBy: line.statusBy }} statuses={statuses.data?.statuses ?? []} /></Section>}
+      {line && editor && <Section><TranslationEditor projectId={projectId} unit={{ id: line.id, source: line.source, translation: line.translation, statusId: line.statusId, statusBy: line.statusBy }} statuses={taxonomy.statuses ?? []} /></Section>}
       {line && (
         <>
           {/* The editor in this pane shows the AI 제안 and TM itself. */}

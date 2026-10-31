@@ -3,10 +3,9 @@ import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Box, Button, EditorTermPopover, Input, Popover, PopoverAnchor, Stack, Text, SectionHeading } from '@loca/ui';
 import { client } from '@/lib/api';
-import { q } from '@/lib/queries';
 import { selectionInLine } from './translation-input';
 import { useTerms } from '@/lib/terms';
-import { sent } from '@/lib/terms';
+import { sent } from '@/lib/collections';
 
 /**
  * Selecting words in a line's source offers to add them to the glossary on the spot: the source

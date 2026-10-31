@@ -1,8 +1,7 @@
-import { useQueryClient } from '@tanstack/react-query';
-import { unwrap } from '@/lib/api';
-import { q } from '@/lib/queries';
 import { freeName, useGraphHistory, type DeleteItem } from './graph-history';
-import { pairKey, type Pair } from './pairs';
+import { pairKey } from '@tw/shared';
+import type { Pair } from './pairs';
+import { sent } from '@/lib/collections';
 
 interface Character {
   id: string;
@@ -32,11 +31,8 @@ interface Relationship {
  * people with the relationships among them. Every one is a step ⌘/Ctrl+Z and ⌘/Ctrl+Shift+Z replay.
  */
 export function useRelationshipGraphActions({ projectId, characters, relationships, pairs, open }: { projectId: string; characters: Character[]; relationships: Relationship[]; pairs: { current: Pair[] }; open: (item: string) => void }) {
-  const queryClient = useQueryClient();
-  const { api, param, remove, restore, run, record, created, undo, redo } = useGraphHistory(projectId, () => {
-    void queryClient.invalidateQueries({ queryKey: q.characters(projectId).queryKey });
-    void queryClient.invalidateQueries({ queryKey: q.speechRules(projectId).queryKey });
-  });
+  // People, relationships and rules are collections the row feed keeps current: nothing to refetch.
+  const { api, param, remove, restore, run, record, created, undo, redo } = useGraphHistory(projectId);
 
   return {
     /** Deletes people and lines (pair keys) at once. */
@@ -60,7 +56,7 @@ export function useRelationshipGraphActions({ projectId, characters, relationshi
         if (!from || !to || fromId === toId) return;
         const key = pairKey(from.name, to.name);
         if (pairs.current.find((pair) => pair.key === key)?.relationship) return open(key);
-        const row = await unwrap(api.relationships.$post({ param, json: { fromId, toId, kind: '관계' } }));
+        const row = await sent(projectId, api.relationships.$post({ param, json: { fromId, toId, kind: '관계' } }));
         record(created([{ kind: 'relationships', ids: [row.id] }]));
         open(key);
       }),
@@ -68,7 +64,7 @@ export function useRelationshipGraphActions({ projectId, characters, relationshi
     addPerson: async () => {
       let id: string | undefined;
       await run(async () => {
-        const row = await unwrap(api.characters.$post({ param, json: { name: freeName('새 인물', new Set(characters.map((character) => character.name.toLowerCase()))) } }));
+        const row = await sent(projectId, api.characters.$post({ param, json: { name: freeName('새 인물', new Set(characters.map((character) => character.name.toLowerCase()))) } }));
         id = row.id;
         record(created([{ kind: 'characters', ids: [row.id] }]));
         open(row.id);
@@ -84,12 +80,12 @@ export function useRelationshipGraphActions({ projectId, characters, relationshi
           const name = freeName(`${original.name} (복사)`, taken);
           taken.add(name.toLowerCase());
           const { id: _id, name: _name, ...rest } = original;
-          const row = await unwrap(api.characters.$post({ param, json: { ...rest, name, aliases: [] } as never }));
+          const row = await sent(projectId, api.characters.$post({ param, json: { ...rest, name, aliases: [] } as never }));
           made.set(original.id, row.id);
         }
         const lines: string[] = [];
         for (const relationship of relationships.filter((candidate) => made.has(candidate.fromId) && made.has(candidate.toId))) {
-          const row = await unwrap(api.relationships.$post({ param, json: { fromId: made.get(relationship.fromId)!, toId: made.get(relationship.toId)!, kind: relationship.kind, description: relationship.description, mutual: relationship.mutual, changes: relationship.changes as never } }));
+          const row = await sent(projectId, api.relationships.$post({ param, json: { fromId: made.get(relationship.fromId)!, toId: made.get(relationship.toId)!, kind: relationship.kind, description: relationship.description, mutual: relationship.mutual, changes: relationship.changes as never } }));
           lines.push(row.id);
         }
         // Deleting the copied people takes their relationships with them (and brings them back).

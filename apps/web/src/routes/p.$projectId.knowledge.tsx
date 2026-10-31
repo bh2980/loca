@@ -3,10 +3,10 @@ import { useEffect, useMemo, useState, useRef } from 'react';
 import { useRelationshipGraphActions } from '@/components/knowledge/graph-actions';
 import { AiConfirmNote } from '@/components/settings/ai-confirm';
 import { createFileRoute } from '@tanstack/react-router';
-import { useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { ArrowLeftRight, GanttChart, Network, Plus, Table2, Users } from 'lucide-react';
 import { toast } from 'sonner';
-import { CHARACTER_ROLE_LABELS, OTHERS_LISTENER, parseMarks, type AutoMark, styleNames, isSettled, aiDecided, KNOWLEDGE_SOURCES, listenerLabel, SPEECH_LEVEL_LABELS, type KnowledgeSource, type TagScope, personLabel, type DecidedBy } from '@tw/shared';
+import { CHARACTER_ROLE_LABELS, OTHERS_LISTENER, parseMarks, type AutoMark, styleNames, isSettled, aiDecided, KNOWLEDGE_SOURCES, listenerLabel, SPEECH_LEVEL_LABELS, type KnowledgeSource, type TagScope, personLabel, type DecidedBy, buildPairs, knowledgeMatches, pairKey, pairMatches, pairSummary, type KnowledgeFilter } from '@tw/shared';
 import {
   EmptyState,
   TagMenu,
@@ -42,15 +42,17 @@ import { RunDialog } from '@/components/workflow/run-dialog';
 import { Play } from 'lucide-react';
 import { DraftEditor } from '@/components/knowledge/editor';
 import { RelationshipChanges, RuleLines } from '@/components/knowledge/evidence';
-import { BulkDecide, fail, parseStatusFilter, parseDecidedBy, type StatusFilter, KINDS, KnowledgeFilters, knowledgeFilterChips, KNOWLEDGE_MARK_IDS, matches, rowHidden, type KnowledgeFilterState, SourceBadge, type Kind, type KindSpec, type Row, type SourceFilter, defineKind, metaColumns, candidateRow } from '@/components/knowledge/table';
-import { pairKey, buildPairs, PairDetail, pairItems, pairMatches, pairSummary, PairTable, type Pair, type SpeechRuleCreate } from '@/components/knowledge/pairs';
+import { BulkDecide, fail, parseStatusFilter, parseDecidedBy, type StatusFilter, KINDS, KnowledgeFilters, knowledgeFilterChips, KNOWLEDGE_MARK_IDS, type KnowledgeFilterState, SourceBadge, type Kind, type KindSpec, type Row, type SourceFilter, defineKind, metaColumns, candidateRow } from '@/components/knowledge/table';
+import { PairDetail, pairItems, PairTable, useStablePairs, type Pair, type SpeechRuleCreate } from '@/components/knowledge/pairs';
 import { AddPairPopover } from '@/components/knowledge/add-pair-popover';
 import { EventFlow } from '@/components/knowledge/event-flow';
 import { lineKey, parseLineKey, useEventFlowActions } from '@/components/knowledge/event-actions';
 import { LineDetail } from '@/components/knowledge/line-detail';
 import { personStyle, usePersonColors } from '@/lib/person-colors';
 import { splitList } from '@/lib/list-value';
-import { client, unwrap } from '@/lib/api';
+import { client } from '@/lib/api';
+import { sent } from '@/lib/collections';
+import { decideItems, useCharacters, useDocuments, useRelationships, useSpeechRules, useTaxonomy } from '@/lib/knowledge';
 import { DOCUMENT_KIND } from '@/lib/labels';
 import { q, tagsIn, useMarkStyles } from '@/lib/queries';
 import { usePicked } from '@/lib/use-picked';
@@ -121,22 +123,26 @@ function Knowledge() {
   const direction = search.direction ?? 'vertical';
   const set = (next: Partial<KnowledgeSearch>, replace = true) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace });
 
-  const statuses = useQuery(q.statuses(projectId));
-  const documents = useQuery(q.documents(projectId));
-  const people = useQuery(q.characters(projectId));
+  const taxonomy = useTaxonomy(projectId);
+  const documents = useDocuments(projectId);
+  const people = useCharacters(projectId);
+  const relationships = useRelationships(projectId);
   const storyEvents = useQuery(q.storyEvents(projectId));
-  const rules = useQuery(q.speechRules(projectId));
-  const nameOf = useMemo(() => new Map((people.data?.characters ?? []).map((c) => [c.id, c.name])), [people.data]);
+  const rules = useSpeechRules(projectId);
+  // Names by id, the same Map until a name changes (relationship rows read it).
+  const names = (people.data ?? []).map((c) => `${c.id}\t${c.name}`).join('\n');
+  const nameOf = useMemo(() => new Map(names ? names.split('\n').map((line) => line.split('\t') as [string, string]) : []), [names]);
+  const sortedRules = useMemo(() => [...(rules.data ?? [])].sort((a, b) => a.fromName.localeCompare(b.fromName) || a.toName.localeCompare(b.toName)), [rules.data]);
   const api = client.projects[':projectId'];
   // The graph's actions read the pairs (built further down) when they run.
   const pairsForGraph = useRef<Pair[]>([]);
   const param = (id: string) => ({ param: { projectId, id } });
-  // Saves a kind's form through its PATCH endpoint. A form key the endpoint does not take fails to
+  // Saves a kind's form through its PATCH endpoint (resolving when the feed has brought the saved row). A form key the endpoint does not take fails to
   // compile here: the server's schema would drop it and the edit would vanish without an error.
   const patchTo =
     <P, T extends Response & { json(): Promise<unknown> }>(patch: (args: { param: { projectId: string; id: string }; json: P }) => Promise<T>) =>
     <J extends P>(id: string, json: J & Record<Exclude<keyof J, keyof P>, never>) =>
-      unwrap(patch({ ...param(id), json }));
+      sent(projectId, patch({ ...param(id), json }));
 
   // Each kind typed by its rows: a field must name a key of the row with a matching type, and
   // the form it saves must be what the endpoint accepts (no casts; see defineKind).
@@ -155,13 +161,13 @@ function Knowledge() {
         { name: 'alwaysInclude', label: '문맥에 넣기', help: '켜면 노트 문맥을 켠 AI 노드에 이 노트의 전문이 들어갑니다.', type: 'bool' },
         { name: 'body', label: '본문', type: 'long' },
       ],
-      create: () => unwrap(api.documents.$post({ param: { projectId }, json: { title: '새 노트', kind: 'note', body: '', alwaysInclude: false } })),
+      create: () => sent(projectId, api.documents.$post({ param: { projectId }, json: { title: '새 노트', kind: 'note', body: '', alwaysInclude: false } })),
       label: (row) => row.title,
       save: patchTo(api.documents[':id'].$patch),
-      remove: (id) => unwrap(api.documents[':id'].$delete(param(id))),
+      remove: (id) => sent(projectId, api.documents[':id'].$delete(param(id))),
     }),
     characters: defineKind({
-      rows: people.data?.characters ?? [],
+      rows: people.data ?? [],
       columns: [
         { head: '이름', cell: (row) => <Text weight="medium"><span style={personStyle(row.color)}>{row.name}</span>{row.player ? <Box asChild marginLeft="condensed"><Chip variant="outline">플레이어</Chip></Box> : null}</Text>, width: 220 },
         { head: '별칭', cell: (row) => row.aliases.join(', '), width: 180 },
@@ -184,11 +190,11 @@ function Knowledge() {
       ],
       label: (row) => row.name,
       save: patchTo(api.characters[':id'].$patch),
-      create: () => unwrap(api.characters.$post({ param: { projectId }, json: { name: '새 인물' } })),
-      remove: (id) => unwrap(api.characters[':id'].$delete(param(id))),
+      create: () => sent(projectId, api.characters.$post({ param: { projectId }, json: { name: '새 인물' } })),
+      remove: (id) => sent(projectId, api.characters[':id'].$delete(param(id))),
     }),
     relationships: defineKind({
-      rows: people.data?.relationships ?? [],
+      rows: relationships.data ?? [],
       columns: [
         { head: '인물', cell: (row) => `${nameOf.get(row.fromId) ?? '?'} → ${nameOf.get(row.toId) ?? '?'}`, weight: 'medium', width: 240 },
         { head: '관계', cell: (row) => row.kind, width: 160 },
@@ -205,10 +211,10 @@ function Knowledge() {
       label: (row) => `${nameOf.get(row.fromId) ?? '?'} → ${nameOf.get(row.toId) ?? '?'}`,
       save: patchTo(api.relationships[':id'].$patch),
       create:
-        (people.data?.characters.length ?? 0) >= 2
-          ? () => unwrap(api.relationships.$post({ param: { projectId }, json: { fromId: people.data!.characters[0].id, toId: people.data!.characters[1].id, kind: '관계' } }))
+        (people.data?.length ?? 0) >= 2
+          ? () => sent(projectId, api.relationships.$post({ param: { projectId }, json: { fromId: people.data![0].id, toId: people.data![1].id, kind: '관계' } }))
           : undefined,
-      remove: (id) => unwrap(api.relationships[':id'].$delete(param(id))),
+      remove: (id) => sent(projectId, api.relationships[':id'].$delete(param(id))),
       extra: (row) => <RelationshipChanges projectId={projectId} changes={row.changes} />,
     }),
     events: defineKind({
@@ -223,15 +229,15 @@ function Knowledge() {
         { name: 'summary', label: '요약', type: 'long' },
         { name: 'cause', label: '원인', type: 'long' },
         { name: 'outcome', label: '결과', type: 'long' },
-        { name: 'participants', label: '관련 인물', type: 'list', suggestions: (people.data?.characters ?? []).map((c) => c.name) },
+        { name: 'participants', label: '관련 인물', type: 'list', suggestions: (people.data ?? []).map((c) => c.name) },
       ],
       label: (row) => row.title,
       save: patchTo(api.events[':id'].$patch),
-      create: () => unwrap(api.events.$post({ param: { projectId }, json: { title: '새 사건' } })),
-      remove: (id) => unwrap(api.events[':id'].$delete(param(id))),
+      create: () => sent(projectId, api.events.$post({ param: { projectId }, json: { title: '새 사건' } })),
+      remove: (id) => sent(projectId, api.events[':id'].$delete(param(id))),
     }),
     speechRules: defineKind({
-      rows: [...(rules.data ?? [])].sort((a, b) => a.fromName.localeCompare(b.fromName) || a.toName.localeCompare(b.toName)),
+      rows: sortedRules,
       columns: [
         { head: '화자 → 청자', cell: (row) => `${row.fromName} → ${listenerLabel(row.toName)}`, weight: 'medium', width: 240 },
         { head: '말투', cell: (row) => SPEECH_LEVEL_LABELS[row.level], width: 96 },
@@ -250,25 +256,27 @@ function Knowledge() {
       label: (row) => `${row.fromName} → ${listenerLabel(row.toName)}`,
       save: patchTo(api['speech-rules'][':id'].$patch),
       extra: (row) => <RuleLines projectId={projectId} ruleId={row.id} candidate={row.status === 'candidate'} />,
-      create: () => unwrap(api['speech-rules'].$post({ param: { projectId }, json: { fromName: '화자', toName: '청자', level: 'haeyo' } })),
-      remove: (id) => unwrap(api['speech-rules'][':id'].$delete(param(id))),
+      create: () => sent(projectId, api['speech-rules'].$post({ param: { projectId }, json: { fromName: '화자', toName: '청자', level: 'haeyo' } })),
+      remove: (id) => sent(projectId, api['speech-rules'][':id'].$delete(param(id))),
     }),
   } satisfies Record<Kind, KindSpec>;
   /** A new speech stretch from a picked line (the pair pane). */
-  const addRule = (json: SpeechRuleCreate) => unwrap(api['speech-rules'].$post({ param: { projectId }, json }));
+  const addRule = (json: SpeechRuleCreate) => sent(projectId, api['speech-rules'].$post({ param: { projectId }, json }));
 
-  const characters = people.data?.characters ?? [];
+  const characters = people.data ?? [];
   const colorOf = usePersonColors(projectId);
   const eventActions = useEventFlowActions({ projectId, events: storyEvents.data ?? [], open: (item) => set({ item }) });
   // A line of the 사건 흐름 opens in the pane by its key (event-actions: lineKey).
   const line = timeline ? parseLineKey(search.item) : null;
   const lineEnds = line && storyEvents.data ? { from: storyEvents.data.find((event) => event.id === line.fromId), to: storyEvents.data.find((event) => event.id === line.toId) } : null;
-  const graphActions = useRelationshipGraphActions({ projectId, characters, relationships: people.data?.relationships ?? [], pairs: pairsForGraph, open: (item) => set({ item }) });
+  const graphActions = useRelationshipGraphActions({ projectId, characters, relationships: relationships.data ?? [], pairs: pairsForGraph, open: (item) => set({ item }) });
   const inScope = (id: string) => !search.ids || search.ids.includes(id);
-  const shown = (row: Row) => inScope(row.id) && matches(row, search.source, search.marks, search.tags, search.status, search.decidedBy) && !rowHidden(row, search);
-  const pairs = useMemo(() => buildPairs(characters, specs.relationships.rows, specs.speechRules.rows), [characters, specs.relationships.rows, specs.speechRules.rows]);
+  // The page's filters, the same ones the list tools and loca knowledge use (knowledgeMatches).
+  const filter: KnowledgeFilter = { source: search.source, status: search.status && [search.status], decidedBy: search.decidedBy, marks: search.marks, hideMarks: search.hideMarks, tags: search.tags, hideTags: search.hideTags };
+  const shown = (row: Row) => inScope(row.id) && knowledgeMatches(row, filter);
+  const pairs = useStablePairs(useMemo(() => buildPairs(characters, specs.relationships.rows, specs.speechRules.rows), [characters, specs.relationships.rows, specs.speechRules.rows]));
   pairsForGraph.current = pairs;
-  const visiblePairs = pairs.filter((pair) => pairMatches(pair, search.source, search.marks, search.tags, search.status, search, search.decidedBy) && (!search.ids || pairItems(pair).some((item) => inScope(item.row.id))));
+  const visiblePairs = pairs.filter((pair) => pairMatches(pair, filter) && (!search.ids || pairItems(pair).some((item) => inScope(item.row.id))));
   // A link may name a relationship or rule id; it opens the pair holding it.
   const pair = pairsView || graph ? pairs.find((candidate) => candidate.key === search.item || pairItems(candidate).some((item) => item.row.id === search.item)) : undefined;
 
@@ -285,44 +293,14 @@ function Knowledge() {
 
   // Picks belong to one list (tab + presentation): each keeps its own, and Back brings them back.
   const { picked: checked, pick, clear: clearChecked } = usePicked(`knowledge.${projectId}.${tab}.${search.display ?? 'picture'}`);
-  const queryClient = useQueryClient();
+  // The rows change at once (decideItems); the feed brings the saved ones, and a failure puts them back.
   const decide = useMutation({
-    mutationFn: async ({ items, action }: { items: { kind: Kind; ids: string[] }[]; action: 'confirm' | 'discard' }) => {
-      let changed = 0;
-      for (const { kind, ids } of items) if (ids.length) changed += (await unwrap(api.drafts.$post({ param: { projectId }, json: { kind, ids, action } }))).changed;
-      return changed;
-    },
-    // Shown at once: the rows turn confirmed (or go) in the cached lists before the server answers;
-    // the refetch that the change sets off (knowledge, then lines and counts) only catches up.
-    onMutate: async ({ items, action }) => {
-      const touched: { key: QueryKey; before: unknown }[] = [];
-      const edit = async (key: QueryKey, update: (old: unknown) => unknown) => {
-        await queryClient.cancelQueries({ queryKey: key });
-        touched.push({ key, before: queryClient.getQueryData(key) });
-        queryClient.setQueryData(key, (old: unknown) => (old === undefined ? old : update(old)));
-      };
-      const decided = (ids: Set<string>) => (rows: { id: string }[]) =>
-        action === 'discard' ? rows.filter((row) => !ids.has(row.id)) : rows.map((row) => (ids.has(row.id) ? { ...row, status: 'confirmed', statusBy: 'human', reviewNote: '' } : row));
-      for (const { kind, ids } of items) {
-        if (!ids.length) continue;
-        const apply = decided(new Set(ids));
-        if (kind === 'characters' || kind === 'relationships')
-          await edit(q.characters(projectId).queryKey, (old) => {
-            const data = old as { characters: { id: string }[]; relationships: { id: string; fromId: string; toId: string }[] };
-            return kind === 'characters' ? { ...data, characters: apply(data.characters) } : { ...data, relationships: apply(data.relationships) };
-          });
-        else await edit((kind === 'documents' ? q.documents(projectId) : kind === 'events' ? q.storyEvents(projectId) : q.speechRules(projectId)).queryKey, (old) => apply(old as { id: string }[]));
-      }
-      return { touched };
-    },
+    mutationFn: ({ items, action }: { items: { kind: Kind; ids: string[] }[]; action: 'confirm' | 'discard' }) => decideItems(projectId, items, action),
     onSuccess: (changed, { action }) => {
       clearChecked();
       toast.success(action === 'confirm' ? `${changed}개를 확정·확인했습니다.` : `${changed}개를 버렸습니다.`);
     },
-    onError: (error, _vars, context) => {
-      for (const { key, before } of context?.touched ?? []) queryClient.setQueryData(key, before);
-      fail(error);
-    },
+    onError: fail,
   });
   // Bulk actions over the checked rows (pairs expand to their relationship and rules).
   const checkedItems = (): { kind: Kind; ids: string[] }[] => {
@@ -335,7 +313,7 @@ function Knowledge() {
     pairsView ? visiblePairs.filter((candidate) => checked.has(candidate.key)).flatMap(pairItems) : rows.filter((row) => checked.has(row.id)).map((row) => ({ kind: tableKind, row }));
   const tag = useMutation({
     mutationFn: async ({ items, tagId, add }: { items: { kind: Kind; row: Row }[]; tagId: string; add: boolean }) => {
-      for (const [kind, list] of Map.groupBy(items, (item) => item.kind)) await unwrap(api['knowledge-tags'].$post({ param: { projectId }, json: { kind, ids: list.map((item) => item.row.id), tagId, add } }));
+      for (const [kind, list] of Map.groupBy(items, (item) => item.kind)) await sent(projectId, api['knowledge-tags'].$post({ param: { projectId }, json: { kind, ids: list.map((item) => item.row.id), tagId, add } }));
     },
     onError: fail,
   });
@@ -349,7 +327,7 @@ function Knowledge() {
   });
   // Pair-specific creation: a relationship between the pair's people, a speech rule for its names.
   const pairSpecs = (pair: Pair) => ({
-    relationships: { ...specs.relationships, create: pair.fromId && pair.toId ? () => unwrap(api.relationships.$post({ param: { projectId }, json: { fromId: pair.fromId!, toId: pair.toId!, kind: '관계' } })) : undefined },
+    relationships: { ...specs.relationships, create: pair.fromId && pair.toId ? () => sent(projectId, api.relationships.$post({ param: { projectId }, json: { fromId: pair.fromId!, toId: pair.toId!, kind: '관계' } })) : undefined },
     speechRules: specs.speechRules,
     addRule,
   });
@@ -361,9 +339,9 @@ function Knowledge() {
     [visiblePairs],
   );
 
-  const pending = tab === 'documents' ? documents.isPending : tab === 'events' ? storyEvents.isPending : people.isPending || rules.isPending;
+  const pending = tab === 'documents' ? documents.isPending : tab === 'events' ? storyEvents.isPending : people.isPending || relationships.isPending || rules.isPending;
   const tabScope: TagScope = tab === 'documents' ? 'documents' : tab === 'events' ? 'events' : 'people';
-  const knowledgeTags = tagsIn(statuses.data?.tags, tabScope);
+  const knowledgeTags = useMemo(() => tagsIn(taxonomy.tags, tabScope), [taxonomy.tags, tabScope]);
   const markStyles = useMarkStyles(projectId);
   const filters: KnowledgeFilterState = {
     source: search.source,
@@ -417,14 +395,6 @@ function Knowledge() {
         set({ item: undefined });
       }
       clearChecked();
-      queryClient.invalidateQueries({ queryKey: [tableKind, projectId] });
-      if (tableKind === 'characters') {
-        queryClient.invalidateQueries({ queryKey: q.characters(projectId).queryKey });
-      } else if (tableKind === 'documents') {
-        queryClient.invalidateQueries({ queryKey: q.documents(projectId).queryKey });
-      } else if (tableKind === 'events') {
-        queryClient.invalidateQueries({ queryKey: q.storyEvents(projectId).queryKey });
-      }
       toast.success(ids.length > 1 ? `${ids.length}개 항목을 삭제했습니다.` : '항목을 삭제했습니다.');
       setDeletingIds(null);
     },
@@ -475,8 +445,7 @@ function Knowledge() {
             onClick={async () => {
               const doc = row as typeof specs.documents.rows[number];
               try {
-                await unwrap(api.documents[':id'].$patch({ param: { projectId, id: row.id }, json: { alwaysInclude: !doc.alwaysInclude } }));
-                queryClient.invalidateQueries({ queryKey: q.documents(projectId).queryKey });
+                await sent(projectId, api.documents[':id'].$patch({ param: { projectId, id: row.id }, json: { alwaysInclude: !doc.alwaysInclude } }));
                 toast.success(!doc.alwaysInclude ? '번역 문맥에 항상 포함하도록 변경했습니다.' : '관련될 때만 포함하도록 변경했습니다.');
               } catch (err) {
                 toast.error(err instanceof Error ? err.message : '문맥 설정을 변경하지 못했습니다.');
@@ -579,7 +548,7 @@ function Knowledge() {
         {graph ? (
           <Box minHeight={0} grow>
             {/* Pairs come from speech rules too: laying out before they arrive would lay out twice. */}
-            {people.isPending || rules.isPending ? (
+            {people.isPending || relationships.isPending || rules.isPending ? (
               <Skeleton shape="page" marginTop="comfortable" marginBottom="comfortable" marginLeft="comfortable" marginRight="comfortable" />
             ) : (
               <RelationshipGraph
@@ -641,6 +610,7 @@ function Knowledge() {
             bulk={bulk}
             empty={empty}
             rowContextMenu={renderRowContextMenu}
+            rowDeps={[knowledgeTags, nameOf, colorOf]}
           />
         )}
       </SplitPane>
