@@ -26,13 +26,6 @@ export const q = {
   /** The home's defaults a new project is made from (app topic). */
   appDefaults: () => queryOptions({ queryKey: ['app', 'defaults'], queryFn: () => unwrap(client.app.defaults.$get()) }),
   projects: () => queryOptions({ queryKey: ['projects'], queryFn: () => unwrap(client.projects.$get()) }),
-  /** How many lines each status has, and how many lines and items carry each tag (the rows themselves: useTaxonomy). Keyed under units: the counts change with every line. */
-  statusCounts: (projectId: string) =>
-    queryOptions({
-      queryKey: ['units', 'status-counts', projectId],
-      queryFn: () => unwrap(client.projects[':projectId'].statuses.$get({ param: { projectId } })),
-      select: (data) => ({ statuses: new Map(data.statuses.map((status) => [status.id, status.units])), tags: new Map(data.tags.map((tag) => [tag.id, { units: tag.units, items: tag.items }])) }),
-    }),
   /** Every line a filter matches (id and scene, script order), for walking them inside their scenes. */
   unitMatches: (projectId: string, query: { groupId?: string; kind?: 'scene' | 'document' | 'ui'; section?: string; statusId?: string; tagIds?: string; q?: string; speaker?: string; listener?: string; review?: '1'; marks?: string }) =>
     queryOptions({ queryKey: ['units', 'matches', projectId, query], queryFn: () => unwrap(client.projects[':projectId'].units.matches.$get({ param: { projectId }, query })) }),

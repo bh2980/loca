@@ -3,7 +3,7 @@ import { StatusPane } from '@/components/settings/status-pane';
 import { TagPane } from '@/components/settings/tag-pane';
 import { scopeLabel, type StatusForm, type StatusRowData, type TagForm, type TagRowData } from '@/components/settings/status-types';
 import { createFileRoute } from '@tanstack/react-router';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AUTO_MARK_IDS, AUTO_MARKS, markColor, markName, normalizeTagScopes, type MarkStyles, TAG_SCOPE_LABELS, TAG_SCOPES, type AutoMark } from '@tw/shared';
@@ -13,9 +13,8 @@ import { MarkChip } from '@/components/status';
 import { MarkPane } from '@/components/settings/mark-pane';
 import { client } from '@/lib/api';
 import { sent } from '@/lib/collections';
-import { reorderTaxonomy, useTaxonomy } from '@/lib/knowledge';
+import { reorderTaxonomy, useTaxonomy, useTaxonomyCounts } from '@/lib/knowledge';
 import { STATUS_KIND } from '@/lib/labels';
-import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { usePicked } from '@/lib/use-picked';
 import { HeaderFilter } from '@/components/header-filter';
@@ -36,11 +35,11 @@ function StatusSettings() {
   const { projectId } = Route.useParams();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
-  // The rows are the browser's collections; how many lines and items carry each is a query of its own.
+  // The rows and their counts are the browser's collections (the counts kept apart: they change with every line).
   const taxonomy = useTaxonomy(projectId);
-  const counts = useQuery(q.statusCounts(projectId));
-  const statuses = useMemo<StatusRowData[] | undefined>(() => taxonomy.statuses?.map((status) => ({ ...status, units: counts.data?.statuses.get(status.id) ?? 0 })), [taxonomy.statuses, counts.data]);
-  const tags = useMemo<TagRowData[] | undefined>(() => taxonomy.tags?.map((tag) => ({ ...tag, units: 0, items: 0, ...counts.data?.tags.get(tag.id) })), [taxonomy.tags, counts.data]);
+  const counts = useTaxonomyCounts(projectId);
+  const statuses = useMemo<StatusRowData[] | undefined>(() => taxonomy.statuses?.map((status) => ({ ...status, units: counts.statuses.get(status.id) ?? 0 })), [taxonomy.statuses, counts]);
+  const tags = useMemo<TagRowData[] | undefined>(() => taxonomy.tags?.map((tag) => ({ ...tag, units: 0, items: 0, ...counts.tags.get(tag.id) })), [taxonomy.tags, counts]);
   const [removing, setRemoving] = useState<StatusRowData[] | null>(null);
   const statusPicks = usePicked(`statuses.${projectId}`);
   const tagPicks = usePicked(`tags.${projectId}`);

@@ -11,6 +11,7 @@ import { runRows } from './services/run-rows.ts';
 import { listenerRows, projectRows, speakerRows } from './services/project-rows.ts';
 import { projectEventFlow } from './services/event-routes.ts';
 import { workflowRows } from './services/workflow-rows.ts';
+import { statusCountRows, tagCountRows } from './services/count-rows.ts';
 import { unitRowsByIds } from './services/unit-rows.ts';
 
 /**
@@ -63,6 +64,8 @@ const READERS: Record<FeedCollection, (db: Db, projectId: string, ids?: readonly
   listeners: listenerRows,
   events: (db, projectId) => projectEventFlow(db, projectId),
   workflows: (db, projectId) => workflowRows(db, projectId),
+  statusCounts: statusCountRows,
+  tagCounts: tagCountRows,
   // Lines are sent as ids (feedRows); the browser reads the ones it holds by id.
   units: (db, projectId, ids) => (ids ? unitRowsByIds(db, projectId, ids) : []),
   // Named by id; the browser reads the items it shows (POST run-items).

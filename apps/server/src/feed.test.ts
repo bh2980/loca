@@ -241,6 +241,25 @@ describe("a run's items and progress in the row feed", () => {
   });
 });
 
+describe('status and tag counts in the row feed', () => {
+  it('sends the counts of the statuses a line left and joined, and of a tag put on a line', () => {
+    const { db, projectId } = setup();
+    const unit = db.select().from(s.units).where(eq(s.units.projectId, projectId)).get()!;
+    const [from, to] = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).all().filter((status) => status.id === unit.statusId || status.id !== unit.statusId).sort((a) => (a.id === unit.statusId ? -1 : 1));
+    db.update(s.units).set({ statusId: to!.id }).where(eq(s.units.id, unit.id)).run();
+    expect(feedRows(db, projectId)!.rows.statusCounts?.upsert).toEqual(expect.arrayContaining([{ id: from!.id, units: 0 }, { id: to!.id, units: 1 }]));
+    const tag = db.insert(s.tags).values({ projectId, name: '확인', color: '#888888', scope: ['lines'] }).returning().get();
+    feedRows(db, projectId);
+    db.insert(s.unitTags).values({ unitId: unit.id, tagId: tag.id }).run();
+    expect(feedRows(db, projectId)!.rows.tagCounts).toEqual({ upsert: [{ id: tag.id, units: 1, items: 0 }], delete: [] });
+    // A translation alone moves no count.
+    db.update(s.units).set({ translation: '관문' }).where(eq(s.units.id, unit.id)).run();
+    const after = feedRows(db, projectId)!.rows;
+    expect(after.statusCounts).toBeUndefined();
+    expect(after.tagCounts).toBeUndefined();
+  });
+});
+
 describe('change events with rows', () => {
   it('carry the rows and the count, and a request knows its last change (x-seq)', async () => {
     const { db, projectId, term } = setup();

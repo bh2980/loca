@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { createOptimisticAction, useLiveQuery, type Collection } from '@tanstack/react-db';
 import type { InferRequestType, InferResponseType } from 'hono/client';
 import { client } from './api';
@@ -17,9 +18,9 @@ export type Character = People['characters'][number];
 export type Relationship = People['relationships'][number];
 export type SpeechRule = InferResponseType<Api['speech-rules']['$get']>[number];
 export type KnowledgeDocument = InferResponseType<Api['documents']['$get']>[number];
-/** A status; how many lines it has is q.statusCounts. */
+/** A status; how many lines it has is useTaxonomyCounts. */
 export type Status = Omit<Taxonomy['statuses'][number], 'units'>;
-/** A tag; how many lines and items carry it is q.statusCounts. */
+/** A tag; how many lines and items carry it is useTaxonomyCounts. */
 export type Tag = Omit<Taxonomy['tags'][number], 'units' | 'items'> & { sort: number };
 
 type Options = { enabled?: boolean };
@@ -114,4 +115,17 @@ export const storyEventsCollection = (projectId: string) => projectCollection<St
 
 export function useStoryEvents(projectId: string, { enabled = true }: Options = {}) {
   return loaded<StoryEvent>(useLiveQuery((q) => (enabled ? q.from({ row: storyEventsCollection(projectId) }) : undefined)), enabled);
+}
+
+type StatusCount = { id: string; units: number };
+type TagCount = { id: string; units: number; items: number };
+
+/**
+ * How many lines each status has and how many lines and items each tag is on: two collections the
+ * feed keeps current count by count (a line that changes status sends the two statuses it left and joined).
+ */
+export function useTaxonomyCounts(projectId: string) {
+  const statuses = loaded<StatusCount>(useLiveQuery((q) => q.from({ row: projectCollection<StatusCount>('statusCounts', projectId) })));
+  const tags = loaded<TagCount>(useLiveQuery((q) => q.from({ row: projectCollection<TagCount>('tagCounts', projectId) })));
+  return useMemo(() => ({ statuses: new Map((statuses.data ?? []).map((row) => [row.id, row.units])), tags: new Map((tags.data ?? []).map((row) => [row.id, { units: row.units, items: row.items }])) }), [statuses.data, tags.data]);
 }
