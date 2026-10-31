@@ -179,6 +179,18 @@ describe('runs in the row feed', () => {
     db.delete(s.runs).where(eq(s.runs.id, run.id)).run();
     expect(feedRows(db, projectId)!.rows.runs).toEqual({ upsert: [], delete: [run.id] });
   });
+
+  it('sends a run again when a model call for it is logged or finishes, with its calls and tokens', () => {
+    const { db, projectId } = setup();
+    const run = db.insert(s.runs).values({ projectId, workflowName: '번역', workflowVersion: 1, definition: { nodes: [], edges: [] } as never, scope: {} as never, status: 'running', total: 1 }).returning().get();
+    expect(feedRows(db, projectId)!.rows.runs?.upsert).toEqual([expect.objectContaining({ id: run.id, calls: null })]);
+    const call = db.insert(s.aiCalls).values({ projectId, kind: 'run', refId: run.id, label: '번역', startedAt: new Date() }).returning().get();
+    expect(feedRows(db, projectId)!.rows.runs?.upsert).toEqual([expect.objectContaining({ id: run.id, calls: { calls: 1, inputTokens: 0, outputTokens: 0 } })]);
+    db.update(s.aiCalls).set({ status: 'ok', inputTokens: 120, outputTokens: 30 }).where(eq(s.aiCalls.id, call.id)).run();
+    expect(feedRows(db, projectId)!.rows.runs?.upsert).toEqual([expect.objectContaining({ id: run.id, calls: { calls: 1, inputTokens: 120, outputTokens: 30 } })]);
+    db.insert(s.aiCalls).values({ projectId, kind: 'chat', refId: 'chat-1', label: '채팅', startedAt: new Date() }).run();
+    expect(feedRows(db, projectId)?.rows.runs).toBeUndefined();
+  });
 });
 
 describe('the project, speakers and listeners in the row feed', () => {

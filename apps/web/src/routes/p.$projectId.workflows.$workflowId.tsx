@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import {
   addEdge,
   Background,
@@ -47,7 +47,8 @@ import { useIsDark } from '@/lib/theme';
 import { useGraphShortcuts, type GraphShortcuts } from '@/lib/graph-shortcuts';
 import { useTaxonomy } from '@/lib/knowledge';
 import { useRuns } from '@/lib/runs';
-import { useWorkflows } from '@/lib/workflows';
+import { useWorkflow, useWorkflows } from '@/lib/workflows';
+import { sent as sentToFeed } from '@/lib/collections';
 
 /** When the workflow was last saved: 10. 13. 오전 06:16. Runs keep their own copy of what they ran. */
 const savedAt = (at: string) => dateTime(at);
@@ -143,10 +144,9 @@ function WorkflowEditor() {
   const navigate = Route.useNavigate();
   const flow = useReactFlow();
   const canvasRef = useRef<HTMLDivElement>(null);
-  const cache = useQueryClient();
   const { zoom } = useViewport();
   const [minimap, setMinimap] = useState(false);
-  const workflow = useQuery(q.workflow(workflowId));
+  const workflow = useWorkflow(projectId, workflowId);
   const taxonomy = useTaxonomy(projectId);
   const connections = useQuery(q.connections({ kind: 'project', projectId }));
   const runs = useRuns(projectId);
@@ -216,11 +216,11 @@ function WorkflowEditor() {
   const save = useMutation({
     mutationFn: (sent: Draft) => {
       inFlight.current = sent;
-      return unwrap(client.workflows[':id'].$put({ param: { id: workflowId }, json: { name: sent.name, description: workflow.data!.description, definition: sent.definition, version: sent.baseVersion } }));
+      // Done once the feed has brought the saved row, so its version is the one the draft now builds on.
+      return sentToFeed(projectId, client.workflows[':id'].$put({ param: { id: workflowId }, json: { name: sent.name, description: workflow.data!.description, definition: sent.definition, version: sent.baseVersion } }));
     },
     onSettled: () => { inFlight.current = null; },
     onSuccess: (row, sent) => {
-      cache.setQueryData(q.workflow(workflowId).queryKey, (old) => old && old.version > row.version ? old : row);
       setDraftState((latest) => {
         const next = reconcileSavedDraft(latest, sent, row.version);
         if (next) sessionStorage.setItem(draftKey(workflowId), JSON.stringify(next));
@@ -230,11 +230,13 @@ function WorkflowEditor() {
       setIssues(row.issues);
     },
   });
+  // While a run uses this workflow the server refuses changes: the draft waits here and saves once it ends.
+  const running = Boolean(activeRun);
   useEffect(() => {
-    if (!draft || stale || save.isPending || save.isError) return;
+    if (!draft || stale || running || save.isPending || save.isError) return;
     const timer = setTimeout(() => save.mutate(draft), 800);
     return () => clearTimeout(timer);
-  }, [draft, stale, save.isPending, save.isError, save.mutate]);
+  }, [draft, stale, running, save.isPending, save.isError, save.mutate]);
 
   // A new AI node starts with the model the workflow already uses, else none: validation asks for one.
   const newNodeModel = () => {

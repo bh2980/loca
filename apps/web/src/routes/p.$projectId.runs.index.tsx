@@ -110,11 +110,10 @@ function Runs() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const runs = useRuns(projectId);
-  const jobs = useQuery(q.jobs(projectId));
   const select = (id?: string) => void navigate({ search: { job: id }, replace: true });
 
   const rows: Row[] | undefined =
-    runs.data && jobs.data
+    runs.data
       ? [
           ...runs.data.map((run) => ({
             id: run.id,
@@ -124,7 +123,7 @@ function Runs() {
             status: run.status,
             error: run.status === 'paused' ? run.notice : null,
             progress: { done: (run.states.done ?? 0) + (run.states.failed ?? 0) + (run.states.cancelled ?? 0), total: run.total, unit: run.subject === 'terms' ? '개' : '줄' },
-            stats: jobs.data.runCalls[run.id] ?? null,
+            stats: run.calls,
             at: new Date(run.createdAt),
             workflowId: run.workflowId,
           })),

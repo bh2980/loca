@@ -38,7 +38,6 @@ function Workflows() {
   });
   const duplicate = useMutation({
     mutationFn: async (workflow: Workflow) => {
-      const detail = await unwrap(client.workflows[':id'].$get({ param: { id: workflow.id } }));
       const created = await unwrap(
         client.projects[':projectId'].workflows.$post({
           param: { projectId },
@@ -51,8 +50,8 @@ function Workflows() {
           param: { id: created.id },
           json: {
             name: created.name,
-            description: detail.description,
-            definition: detail.definition,
+            description: workflow.description,
+            definition: workflow.definition,
             version: created.version,
           },
         })

@@ -7,7 +7,8 @@ import * as s from '../db/schema.ts';
 export const RUNS_LISTED = 200;
 
 /**
- * Workflow runs, newest first, with how many of their lines are in each state. Per line, not per
+ * Workflow runs, newest first, with how many of their lines are in each state and their model calls
+ * and tokens from the AI log (`calls`, null for runs logged before it). Per line, not per
  * item: a line sent down several branches has an item in each, and is done only when every branch is
  * (running > queued > failed > cancelled > done). Only `ids` when given, else the latest RUNS_LISTED.
  */
@@ -32,7 +33,16 @@ export function runRows(db: Db, projectId: string, ids?: readonly string[]) {
       group by i.run_id, i.subject_id
     ) group by run_id, state`);
   const byRun = Map.groupBy(counts, (row) => row.runId);
-  return runs.map((run) => ({ ...run, states: Object.fromEntries((byRun.get(run.id) ?? []).map((row) => [row.state, row.count])) }));
+  const calls = new Map(
+    db
+      .select({ refId: s.aiCalls.refId, calls: sql<number>`count(*)`, inputTokens: sql<number>`coalesce(sum(${s.aiCalls.inputTokens}), 0)`, outputTokens: sql<number>`coalesce(sum(${s.aiCalls.outputTokens}), 0)` })
+      .from(s.aiCalls)
+      .where(and(eq(s.aiCalls.projectId, projectId), inList(s.aiCalls.refId, runs.map((run) => run.id))))
+      .groupBy(s.aiCalls.refId)
+      .all()
+      .map(({ refId, ...stats }) => [refId!, stats]),
+  );
+  return runs.map((run) => ({ ...run, states: Object.fromEntries((byRun.get(run.id) ?? []).map((row) => [row.state, row.count])), calls: calls.get(run.id) ?? null }));
 }
 
 export type RunRow = ReturnType<typeof runRows>[number];

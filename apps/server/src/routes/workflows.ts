@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { fitScope, startWorkflowRun } from '../services/start-run.ts';
-import { and, asc, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, getTableColumns, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { AI_OUTPUT_IDS, type AiOutput, choiceKey, httpParams, FUNCTIONS, type FunctionName, isWholeScriptWorkflow, workflowInput, scriptParams, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels, WORKFLOW_TEMPLATES, EMPTY_MODEL_CHOICE, runScopeSchema } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
@@ -252,22 +252,6 @@ export const workflowRoutes = new Hono<Env>()
       .all();
     const rates = rows.map((row) => (row.finished!.getTime() - row.started.getTime()) / 1000 / (row.input! / 1000)).sort((a, b) => a - b);
     return c.json({ samples: rates.length, secondsPer1k: rates.length ? rates[Math.floor(rates.length / 2)] : null });
-  })
-  /** Each run's model requests and tokens from the AI log, for 실행 기록. */
-  .get('/projects/:projectId/jobs', (c) => {
-    const { db } = c.var.deps;
-    const projectId = c.req.param('projectId');
-    const runIds = db.select({ id: s.runs.id }).from(s.runs).where(eq(s.runs.projectId, projectId)).orderBy(desc(s.runs.createdAt)).limit(200).all().map((run) => run.id);
-    const stats = runIds.length
-      ? db
-          .select({ refId: s.aiCalls.refId, calls: sql<number>`count(*)`, inputTokens: sql<number>`coalesce(sum(${s.aiCalls.inputTokens}), 0)`, outputTokens: sql<number>`coalesce(sum(${s.aiCalls.outputTokens}), 0)` })
-          .from(s.aiCalls)
-          .where(and(eq(s.aiCalls.projectId, projectId), inArray(s.aiCalls.refId, runIds)))
-          .groupBy(s.aiCalls.refId)
-          .all()
-      : [];
-    /** Model requests per workflow run, from the AI log (runs started before it have none). */
-    return c.json({ runCalls: Object.fromEntries(stats.map((row) => [row.refId!, row])) });
   })
   .get('/projects/:projectId/runs', (c) => c.json(runRows(c.var.deps.db, c.req.param('projectId'))))
   /** The batches this run was planned in (stored per line when it started), as the run dialog lists them. */

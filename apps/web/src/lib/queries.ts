@@ -100,7 +100,6 @@ export const q = {
     queryOptions({ queryKey: ['connections', targetScope(target)], queryFn: () => unwrap(connectionsApi(target).list()) }),
   /** Recent model tests of one connection (AI log rows outside any project). */
   connectionTests: (connectionId: string) => queryOptions({ queryKey: ['calls', 'tests', connectionId], queryFn: () => unwrap(client.connections[':id'].tests.$get({ param: { id: connectionId } })) }),
-  workflow: (id: string) => queryOptions({ queryKey: ['workflows', 'detail', id], queryFn: () => unwrap(client.workflows[':id'].$get({ param: { id } })) }),
   /** The project's AI log (every model request); `kind` narrows it to one source. */
   aiCalls: (projectId: string, kind?: 'run' | 'whole' | 'terms' | 'test' | 'chat', ref?: string) =>
     queryOptions({ queryKey: ['calls', projectId, kind ?? '', ref ?? ''], queryFn: () => unwrap(client.projects[':projectId']['ai-calls'].$get({ param: { projectId }, query: { ...(kind && { kind }), ...(ref && { ref }) } })) }),
@@ -110,8 +109,6 @@ export const q = {
   /** How fast this model has answered this kind of request before (seconds per 1,000 input tokens). */
   aiPace: (model: string, kind: 'whole' | 'terms' | 'run' | 'chat' | 'test') =>
     queryOptions({ queryKey: ['calls', 'pace', model, kind], queryFn: () => unwrap(client['ai-calls'].pace.$get({ query: { model, kind } })) }),
-  /** Work analyses and glossary fills, for 실행 기록 beside the runs. */
-  jobs: (projectId: string) => queryOptions({ queryKey: ['runs', projectId, 'jobs'], queryFn: () => unwrap(client.projects[':projectId'].jobs.$get({ param: { projectId } })) }),
   /** The batches a run was planned in. */
   runPlan: (id: string) => queryOptions({ queryKey: ['runs', 'plan', id], queryFn: () => unwrap(client.runs[':id'].plan.$get({ param: { id } })), staleTime: Infinity }),
   runSteps: (id: string) => queryOptions({ queryKey: ['runs', 'steps', id], queryFn: () => unwrap(client.runs[':id'].steps.$get({ param: { id } })) }),
