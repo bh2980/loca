@@ -39,7 +39,9 @@ const IMPLIES: Partial<Record<Topic, Topic[]>> = {
   terms: ['units'],
   workflows: ['units'],
   projects: ['units'],
-  units: ['statuses', 'terms'],
+  // Term usage counts read lines. Status and tag counts are keyed under units themselves (q.statusCounts), so a
+  // line change no longer reaches 'statuses' and, through it, the workflow checks that read status definitions.
+  units: ['terms'],
   statuses: ['workflows'],
   connections: ['workflows'],
   calls: ['runs'],

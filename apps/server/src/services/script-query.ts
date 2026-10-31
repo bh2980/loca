@@ -492,6 +492,6 @@ export function applyBatch(db: Db, projectId: string, batch: BatchChange, saver:
       applied.push(change.key);
     }
   });
-  events.changed(projectId, 'units', 'statuses');
+  events.changed(projectId, 'units');
   return { ok: true, applied: applied.length, skipped };
 }

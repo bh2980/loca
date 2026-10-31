@@ -649,7 +649,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         if (suggestion?.state !== 'pending') return { ok: false, error: '기다리는 AI 제안이 아닙니다.' };
         if (decision === 'decline') declineSuggestion(db, unitId, candidateId);
         else db.transaction((tx) => saveLine(tx, unit, { candidateId, statusBy: saver.statusBy }));
-        changed('units', 'statuses');
+        changed('units');
         return { ok: true, decision };
       },
     }),

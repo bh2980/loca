@@ -27,10 +27,10 @@ export const q = {
   projects: () => queryOptions({ queryKey: ['projects'], queryFn: () => unwrap(client.projects.$get()) }),
   project: (projectId: string) =>
     queryOptions({ queryKey: ['units', 'project', projectId], queryFn: () => unwrap(client.projects[':projectId'].$get({ param: { projectId } })) }),
-  /** How many lines each status has, and how many lines and items carry each tag (the rows themselves: useTaxonomy). */
+  /** How many lines each status has, and how many lines and items carry each tag (the rows themselves: useTaxonomy). Keyed under units: the counts change with every line. */
   statusCounts: (projectId: string) =>
     queryOptions({
-      queryKey: ['statuses', 'counts', projectId],
+      queryKey: ['units', 'status-counts', projectId],
       queryFn: () => unwrap(client.projects[':projectId'].statuses.$get({ param: { projectId } })),
       select: (data) => ({ statuses: new Map(data.statuses.map((status) => [status.id, status.units])), tags: new Map(data.tags.map((tag) => [tag.id, { units: tag.units, items: tag.items }])) }),
     }),

@@ -333,7 +333,7 @@ export const sourceRoutes = new Hono<Env>()
       if (body.listener !== undefined) setHumanListener(tx, body.unitIds, body.listener);
       if (body.translate !== undefined) eachChunk(body.unitIds, (ids) => tx.update(s.units).set({ translate: body.translate }).where(and(eq(s.units.projectId, projectId), inArray(s.units.id, ids))).run());
     });
-    events.changed(projectId, 'units', 'statuses');
+    events.changed(projectId, 'units');
     return c.json({ ok: true });
     },
   )
@@ -425,7 +425,7 @@ export const sourceRoutes = new Hono<Env>()
       .where(and(eq(s.units.projectId, unit.projectId), ne(s.units.id, unit.id), inArray(s.units.id, [...bases.keys()]), sql`${sameSource(sql`${s.units.source}`)} = ${sameSource(sql`${unit.source}`)}`))
       .all();
     const result = db.transaction((tx) => saveSameText(tx, rows.map((row) => ({ unit: row, base: bases.get(row.id) ?? null })), text));
-    events.changed(unit.projectId, 'units', 'statuses');
+    events.changed(unit.projectId, 'units');
     return c.json({ ok: true, ...result, skipped: result.skipped + (lines.length - rows.length) });
   })
   /** Already translated lines of the project with the same or a similar source (the editor's suggestions). */
@@ -448,7 +448,7 @@ export const sourceRoutes = new Hono<Env>()
       if (error instanceof LineConflict) return c.json({ error: error.message }, 409);
       throw error;
     }
-    events.changed(unit.projectId, 'units', 'statuses');
+    events.changed(unit.projectId, 'units');
     const saved = db.select({ translation: s.units.translation, statusId: s.units.statusId, candidateId: s.units.candidateId }).from(s.units).where(eq(s.units.id, unitId)).get()!;
     return c.json({ ok: true, ...saved });
   })
@@ -476,7 +476,7 @@ export const sourceRoutes = new Hono<Env>()
         attachUnitTags(tx, unit.projectId, [unitId], { add: body.tagIds, remove: current.filter((id) => !body.tagIds!.includes(id)) }, { onMisplaced: 'refuse' });
       }
     });
-    events.changed(unit.projectId, 'units', 'statuses');
+    events.changed(unit.projectId, 'units');
     return c.json({ ok: true });
   })
 
