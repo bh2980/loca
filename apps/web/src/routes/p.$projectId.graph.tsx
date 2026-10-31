@@ -20,7 +20,7 @@ import { keyLabel } from '@/lib/keys';
 import { SearchField, SegmentedControl, SplitPane, PaneHeader, Button, CanvasOverlay, CanvasSurface, EmptyDescription, EmptyHeader, EmptyTitle, ScrollArea, Input, Popover, PopoverContent, PopoverTrigger, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, Spinner, Switch, ViewSwitch, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuShortcut, SelectionToolbox, useRevealDock, GraphEndpointBar, Box, Stack, Text, Icon, Inline, Chip, Notice, FloatingZoomBar, FoundNodeList, Overlay, EmptyState } from '@loca/ui';
 import { useSize } from '@/hooks/use-size';
 import { q } from '@/lib/queries';
-import { useLineDetail } from '@/lib/units';
+import { lineContext, useLineDetail } from '@/lib/units';
 import { useReportView } from '@/lib/view-context';
 import { DeleteViewDialog, OmittedPane, ViewInspector, ViewReason, useViewActions } from '@/components/graph/view-inspector';
 import { ViewMenu } from '@/components/graph/view-menu';
@@ -539,7 +539,7 @@ function GraphPage() {
   // The lines either side are loaded ahead, so stepping shows them at once.
   const queryClient = useQueryClient();
   useEffect(() => {
-    for (const line of [flowLines[editAt - 1], flowLines[editAt + 1]]) if (line && editAt >= 0) void queryClient.prefetchQuery(q.unit(line.unitId));
+    for (const line of [flowLines[editAt - 1], flowLines[editAt + 1]]) if (line && editAt >= 0) void queryClient.prefetchQuery(lineContext(line.unitId));
   }, [search.edit, flowReady]); // eslint-disable-line react-hooks/exhaustive-deps
   // The card opens beside its node with room for itself; the graph pans only when it has to.
   useEffect(() => {

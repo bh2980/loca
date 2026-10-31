@@ -3,19 +3,20 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Trash2 } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Box, Button, DirtyBar, Inspector, InspectorHeader, InspectorResult, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Text, Textarea, Section, Field, KeyValue, KeyValueRow } from '@loca/ui';
-import { client, unwrap, type InferResponseType } from '@/lib/api';
+import { client, unwrap } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
 import { q } from '@/lib/queries';
 import { useLineDetail } from '@/lib/units';
 import { SOURCE_GROUP_LABEL, SOURCE_UNIT_LABEL } from '@/lib/labels';
 import { useGroup, useGroups } from '@/lib/groups';
+import type { LineDetail } from '@/lib/units';
 
 export type SourceGroupKind = 'scene' | 'document' | 'ui';
 export type SourceEditorMode = 'create-group' | 'edit-group' | 'create-unit' | 'edit-unit';
 export interface SourceSaved { entity: 'group' | 'unit'; id: string; groupId: string; kind: SourceGroupKind }
 
 type Form = { kind: SourceGroupKind; groupId: string; key: string; title: string; description: string; section: string; source: string; speaker: string; listener: string };
-type UnitRecord = InferResponseType<(typeof client.units)[':unitId']['$get']>;
+type UnitRecord = LineDetail;
 const EMPTY_FORM = (kind: SourceGroupKind, groupId = ''): Form => ({ kind, groupId, key: '', title: '', description: '', section: '', source: '', speaker: '', listener: '' });
 const KEY_HINT = '비우면 자동 생성 · 바꾸면 참조가 끊길 수 있음';
 const sourceKind = (kind: UnitRecord['kind']): SourceGroupKind => kind === 'dialogue' ? 'scene' : kind;

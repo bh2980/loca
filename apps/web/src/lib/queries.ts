@@ -48,7 +48,6 @@ export const q = {
         ),
       placeholderData: keepPreviousData,
     }),
-  unit: (unitId: string) => queryOptions({ queryKey: ['units', 'detail', unitId], queryFn: () => unwrap(client.units[':unitId'].$get({ param: { unitId } })) }),
   /** Other lines with the same source, translated or not (a confirmed translation may be applied to them). */
   sameSource: (unitId: string) => queryOptions({ queryKey: ['units', 'same-source', unitId], queryFn: () => unwrap(client.units[':unitId'].same.$get({ param: { unitId } })) }),
   /** Translated lines with the same or a similar source (the editor's suggestions). */

@@ -4,39 +4,45 @@ import { createCollection, createOptimisticAction, useLiveQuery, type Collection
 import type { InferResponseType } from 'hono/client';
 import { client, unwrap } from './api';
 import { sent } from './collections';
-import { q } from './queries';
 import { feed } from './feed';
+import { queryClient } from './query-client';
 
 /**
  * The lines the screens show, one collection per project: unlike the other collections it holds only
  * the lines asked for (POST units/by-ids), not all of them, and the row feed keeps those current. A
  * list asks the server for its page as ids (GET units/ids) and reads the rows from here, so a changed
- * line comes as its own row and only that line is drawn again.
+ * line comes as its own row and only that line is drawn again. The open lines' candidates and run
+ * history (POST units/extras) are held the same way, beside them.
  */
 type Api = (typeof client.projects)[':projectId'];
 export type Line = InferResponseType<Api['units']['by-ids']['$post']>['rows'][number];
-type Write = { begin: () => void; write: (change: { type: 'insert' | 'update'; value: Line } | { type: 'delete'; key: string }) => void; commit: () => void; truncate: () => void };
+export type LineExtras = InferResponseType<Api['units']['extras']['$post']>['rows'][number];
+type Row = { id: string };
+type Write<T> = { begin: () => void; write: (change: { type: 'insert' | 'update'; value: T } | { type: 'delete'; key: string }) => void; commit: () => void; truncate: () => void };
 
-interface Units {
-  collection: Collection<Line, string>;
-  /** Loads the lines not held yet (the others are kept current by the feed). */
+interface Held<T extends Row> {
+  collection: Collection<T, string>;
+  /** Loads the rows not held yet (the others are kept current by the feed). */
   ensure: (ids: readonly string[]) => Promise<void>;
-  /** Resolves once the lines the feed named so far are read again (a write waits for it, so its row is there when its own change goes). */
+  /** Resolves once the rows the feed named so far are read again (a write waits for it, so its row is there when its own change goes). */
   idle: () => Promise<void>;
 }
 
-const opened = new Map<string, Units>();
 const CHUNK = 200;
 
-export function unitsOf(projectId: string): Units {
-  const known = opened.get(projectId);
-  if (known) return known;
-  let sink: Write | null = null;
-  // The feed count each held line was read at: a read only replaces a line with a newer one.
+/**
+ * A collection of a project's rows by line id that holds only the ones asked for: they are read by id
+ * (`read`, with the feed's count when read) and read again whenever the feed names their line (the
+ * units part of a change event); a read only replaces a row with a newer one. A bulk change (reload) or
+ * a reconnect drops them all, and the screens ask again for what they show. `named` hears the lines
+ * each event names.
+ */
+function heldCollection<T extends Row>(id: string, projectId: string, read: (ids: string[]) => Promise<{ rows: T[]; seq: number }>, named?: (ids: readonly string[]) => void): Held<T> {
+  let sink: Write<T> | null = null;
   const readAt = new Map<string, number>();
   const loading = new Set<string>();
   const reading = new Set<Promise<void>>();
-  const put = (rows: readonly Line[], seq: number) => {
+  const put = (rows: readonly T[], seq: number) => {
     const fresh = rows.filter((row) => seq >= (readAt.get(row.id) ?? -1));
     if (!sink || !fresh.length) return;
     sink.begin();
@@ -46,9 +52,9 @@ export function unitsOf(projectId: string): Units {
     }
     sink.commit();
   };
-  const read = async (ids: readonly string[]) => {
+  const readAll = async (ids: readonly string[]) => {
     for (let index = 0; index < ids.length; index += CHUNK) {
-      const { rows, seq } = await unwrap(client.projects[':projectId'].units['by-ids'].$post({ param: { projectId }, json: { ids: ids.slice(index, index + CHUNK) } }));
+      const { rows, seq } = await read(ids.slice(index, index + CHUNK));
       put(rows, seq);
     }
   };
@@ -57,7 +63,6 @@ export function unitsOf(projectId: string): Units {
     reading.add(done);
     return work;
   };
-  // Read again everything shown: the lists ask for their lines again once they are gone.
   const drop = () => {
     if (!sink) return;
     sink.begin();
@@ -65,8 +70,8 @@ export function unitsOf(projectId: string): Units {
     sink.commit();
     readAt.clear();
   };
-  const collection = createCollection<Line, string>({
-    id: `units:${projectId}`,
+  const collection = createCollection<T, string>({
+    id,
     getKey: (row) => row.id,
     sync: {
       rowUpdateMode: 'full',
@@ -77,7 +82,7 @@ export function unitsOf(projectId: string): Units {
           const changes = rows.units;
           if (!changes || !sink) return;
           if (changes.reload) return drop();
-          const gone = changes.delete.filter((id) => readAt.has(id));
+          const gone = changes.delete.filter((key) => readAt.has(key));
           if (gone.length) {
             begin();
             for (const key of gone) {
@@ -87,8 +92,9 @@ export function unitsOf(projectId: string): Units {
             commit();
           }
           // The feed names changed lines; the ones held (or being loaded, from before the change) are read again.
-          const stale = (changes.changed ?? []).filter((id) => readAt.has(id) || loading.has(id));
-          if (stale.length) void track(read(stale));
+          const stale = (changes.changed ?? []).filter((key) => readAt.has(key) || loading.has(key));
+          if (stale.length) void track(readAll(stale));
+          named?.([...(changes.changed ?? []), ...changes.delete]);
         });
         // A reconnect may have missed events (and a restarted server counts again from 0).
         const stopResync = feed.onResync(drop);
@@ -102,60 +108,106 @@ export function unitsOf(projectId: string): Units {
     },
   });
   const ensure = async (ids: readonly string[]) => {
-    const missing = [...new Set(ids)].filter((id) => !readAt.has(id) && !loading.has(id));
+    const missing = [...new Set(ids)].filter((key) => !readAt.has(key) && !loading.has(key));
     if (!missing.length) return;
-    for (const id of missing) loading.add(id);
+    for (const key of missing) loading.add(key);
     try {
       await collection.preload();
-      await track(read(missing));
+      await track(readAll(missing));
     } finally {
-      for (const id of missing) loading.delete(id);
+      for (const key of missing) loading.delete(key);
     }
   };
   const idle = async () => {
     while (reading.size) await Promise.all([...reading]);
   };
-  const units = { collection, ensure, idle };
-  opened.set(projectId, units);
-  return units;
+  return { collection, ensure, idle };
+}
+
+/** A line's context (GET units/:id): read again when the feed names the line or a neighbour; knowledge and graph changes reach it through live.ts. */
+export const lineContext = (unitId: string) => queryOptions({ queryKey: ['line-context', unitId], queryFn: () => unwrap(client.units[':unitId'].$get({ param: { unitId } })) });
+type Context = InferResponseType<(typeof client.units)[':unitId']['$get']>;
+
+/** The open lines whose context reads one of these lines (itself or a neighbour) are read again. */
+function refreshContexts(ids: readonly string[]) {
+  if (!ids.length) return;
+  const named = new Set(ids);
+  for (const [key, data] of queryClient.getQueriesData<Context>({ queryKey: ['line-context'] })) {
+    const unitId = key[1] as string;
+    if (named.has(unitId) || (data && (named.has(data.neighbors.previous?.id ?? '') || named.has(data.neighbors.next?.id ?? '')))) void queryClient.invalidateQueries({ queryKey: key, exact: true });
+  }
+}
+
+const units = new Map<string, Held<Line>>();
+const extras = new Map<string, Held<LineExtras>>();
+
+export function unitsOf(projectId: string): Held<Line> {
+  let held = units.get(projectId);
+  if (!held) {
+    held = heldCollection<Line>(`units:${projectId}`, projectId, (ids) => unwrap(client.projects[':projectId'].units['by-ids'].$post({ param: { projectId }, json: { ids } })), refreshContexts);
+    units.set(projectId, held);
+  }
+  return held;
+}
+
+/** The open lines' candidates and run history. */
+export function extrasOf(projectId: string): Held<LineExtras> {
+  let held = extras.get(projectId);
+  if (!held) {
+    held = heldCollection<LineExtras>(`line-extras:${projectId}`, projectId, (ids) => unwrap(client.projects[':projectId'].units.extras.$post({ param: { projectId }, json: { ids } })));
+    extras.set(projectId, held);
+  }
+  return held;
 }
 
 /**
- * These lines from the collection, in this order, loading the ones not held. `rows` stays the last
+ * These rows from a held collection, in this order, loading the ones not held. `rows` stays the last
  * complete list while new ones load (a page change), and is undefined only before the first; `byId`
- * has every line held so far (a long list drawing what it has).
+ * has every row held so far (a long list drawing what it has).
  */
-export function useLines(projectId: string, ids: readonly string[] | undefined) {
-  const units = unitsOf(projectId);
-  const query = useLiveQuery(() => units.collection);
-  const held = query.data;
-  const byId = useMemo(() => new Map((held ?? []).map((row) => [row.id, row] as const)), [held]);
-  const missing = (ids ?? []).filter((id) => !byId.has(id));
+function useHeld<T extends Row>(held: Held<T>, ids: readonly string[] | undefined) {
+  const query = useLiveQuery(() => held.collection);
+  const rows = query.data;
+  const byId = useMemo(() => new Map((rows ?? []).map((row) => [row.id, row] as const)), [rows]);
+  const missing = (ids ?? []).filter((key) => !byId.has(key));
   const missingKey = missing.join(',');
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
-    if (missing.length) units.ensure(missing).then(() => setFailed(false), () => setFailed(true));
+    if (missing.length) held.ensure(missing).then(() => setFailed(false), () => setFailed(true));
   }, [missingKey, attempt]); // eslint-disable-line react-hooks/exhaustive-deps
-  const complete = useMemo(() => (ids && !missing.length ? ids.map((id) => byId.get(id)!) : undefined), [ids, byId, missingKey]); // eslint-disable-line react-hooks/exhaustive-deps
-  const last = useRef<Line[] | undefined>(undefined);
+  const complete = useMemo(() => (ids && !missing.length ? ids.map((key) => byId.get(key)!) : undefined), [ids, byId, missingKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const last = useRef<T[] | undefined>(undefined);
   if (complete) last.current = complete;
   return { rows: complete ?? last.current, byId, loading: !complete, failed, retry: () => setAttempt((count) => count + 1) };
 }
 
-/** The fields a line's detail (GET units/:id) shares with its row: read from the row, so one change shows in the list and the pane together. */
+/** These lines from the units collection, in this order (useHeld). */
+export function useLines(projectId: string, ids: readonly string[] | undefined) {
+  return useHeld(unitsOf(projectId), ids);
+}
+
+/** The fields a line's context (GET units/:id) shares with its row: read from the row, so one change shows in the list and the pane together. */
 const SHARED = ['source', 'speaker', 'translation', 'statusId', 'statusBy', 'statusRunId', 'listener', 'listenerOrigin', 'listenerConfidence', 'note', 'translate', 'tagIds', 'updatedAt'] as const;
 
+export type LineDetail = Context & Pick<LineExtras, 'candidates' | 'history'>;
+
 /**
- * A line's detail (its neighbours, candidates, run history, speech rule…) with what it shares with
- * the line's row taken from the units collection; the detail itself is fetched for the open line only.
+ * A line's detail: its context (neighbours, speech rule, graph nodes, the scene's names), fetched for
+ * the open line only; what it shares with the line's row, from the units collection; and its
+ * candidates and run history, from the line extras collection. Undefined until all three are there.
  */
 export function useLineDetail(projectId: string, unitId: string, options: { enabled?: boolean } = {}) {
   const enabled = (options.enabled ?? true) && Boolean(unitId);
-  const detail = useQuery({ ...q.unit(unitId), enabled });
-  const row = useLineRow(projectId, enabled ? unitId : undefined);
-  const data = useMemo(() => (detail.data && row ? { ...detail.data, ...Object.fromEntries(SHARED.map((field) => [field, row[field]])) } as typeof detail.data : detail.data), [detail.data, row]);
-  return { ...detail, data };
+  const context = useQuery({ ...lineContext(unitId), enabled });
+  const ids = useMemo(() => (enabled ? [unitId] : []), [enabled, unitId]);
+  const row = useLines(projectId, ids).rows?.[0];
+  const more = useHeld(extrasOf(projectId), ids).rows?.[0];
+  const data = useMemo<LineDetail | undefined>(
+    () => (context.data && row && more ? { ...context.data, ...(Object.fromEntries(SHARED.map((field) => [field, row[field]])) as Partial<Context>), candidates: more.candidates, history: more.history } : undefined),
+    [context.data, row, more],
+  );
+  return { ...context, data, isPending: enabled && !data };
 }
 
 /** One line from the collection (undefined until held). */

@@ -21,7 +21,7 @@ import { replaceLineText } from '@/components/editor/translation-input';
 import { ListenerPicker } from '@/components/script/listener-picker';
 import { SpeakerCard } from '@/components/script/speaker-card';
 import { SourceEditor } from '@/components/script/source-editor';
-import { client, type InferResponseType } from '@/lib/api';
+import { client } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
 import { lineTags, q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
@@ -31,12 +31,13 @@ import { usePersonColors } from '@/lib/person-colors';
 import { useCharacters, useTaxonomy } from '@/lib/knowledge';
 import { useGroup } from '@/lib/groups';
 import { useProject } from '@/lib/project';
+import type { LineDetail as LineDetailData } from '@/lib/units';
 
 const ORIGIN = { ai: 'AI', human: '사람', import: '가져옴', tool: '도구' } as const;
 /** How many entries of 비슷한 번역 and 이력 show before 더 보기. */
 const FIRST_FEW = 3;
 const STATE = { queued: '대기', running: '실행 중', done: '완료', failed: '실패', cancelled: '취소됨' } as const;
-type LineRecord = InferResponseType<(typeof client.units)[':unitId']['$get']>;
+type LineRecord = LineDetailData;
 
 /**
  * The selected line, deep, one scrolling pane: an AI 제안 waiting on it, translations of similar lines (TM), who speaks how,

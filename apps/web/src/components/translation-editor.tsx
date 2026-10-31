@@ -17,7 +17,7 @@ import type { TokenUnit } from '@/lib/tokens';
 import { useSaveLine } from '@/lib/line-save';
 import { offerSameSource } from '@/lib/same-source';
 import { q } from '@/lib/queries';
-import { useLineDetail } from '@/lib/units';
+import { lineContext, useLineDetail } from '@/lib/units';
 import { keyLabel } from '@/lib/keys';
 import { useProject } from '@/lib/project';
 
@@ -414,7 +414,7 @@ function DraftChecks({ unitId, source, draft, units, terms, tags, rules, targetL
   targetLanguage?: string;
   onPlace: () => void;
 }) {
-  const unit = useQuery(q.unit(unitId));
+  const unit = useQuery(lineContext(unitId));
   if (!draft.trim()) return null;
   // Terms and speech are shown by their rule under the source too; here they count toward the one verdict.
   const lower = draft.toLowerCase();
