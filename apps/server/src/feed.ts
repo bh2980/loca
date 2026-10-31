@@ -87,6 +87,8 @@ const READERS: Record<FeedCollection, (db: Db, projectId: string, ids: readonly 
   chatSessions: (db, projectId, ids) => chatSessionRows(db, projectId, ids),
   // Named by id; the browser reads the calls a list shows (POST ai-calls/by-ids), a project's or (APP_FEED) the model tests.
   aiCalls: () => [],
+  // Named by id (run items moving through a run, 0120); the browser reads the open line's (POST units/extras).
+  lineExtras: () => [],
   projects: (db, _scope, ids) => projectListRows(db, ids),
   appDefaults: (db) => [{ id: 'defaults', ...readAppDefaults(db) }],
   // The home's connections under APP_FEED, a project's under it.

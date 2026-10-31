@@ -29,7 +29,7 @@ import { GRAPH_SHOW_ITEMS, useGraphPaneView, useGraphShow, type GraphShow } from
 import { AUTO_OPEN_NODES, nodeAfterToggle, pickedAfterToggle, unfoldChains } from '@/components/graph/unfold-chains';
 import { cn } from '@/lib/utils';
 import { useGraphViews } from '@/lib/logs';
-import { useLineTranslations } from '@/lib/units';
+import { useLines } from '@/lib/units';
 /** Dialogue-graph nodes copied with ⌘/Ctrl+C or 복사, pasted as copies. */
 /** Copied nodes, shared by every graph page of this tab (read and set through these, not reassigned in a component). */
 let nodeClipboard: string[] = [];
@@ -241,18 +241,18 @@ function GraphPage() {
   const [show, setShow] = useGraphShow();
   const graph = { data: graphData, isPending: graphQuery.isPending };
   // The cards' translations come apart from the layout (it does not change when a line is saved).
-  // Each card's line is in the layout; its translation comes from a collection the feed keeps current line by line.
+  // Each card's line is in the layout; its translation is the line's, from the units collection (the feed keeps it current).
   const shownLines = useMemo(() => (dialogue && show !== 'source' ? graphQuery.data?.nodes?.flatMap((node) => (node.unitId ? [node.unitId] : [])) : undefined), [dialogue, show, graphQuery.data]);
-  const lineTranslations = useLineTranslations(projectId, shownLines);
+  const cardLines = useLines(projectId, shownLines).byId;
   const translations = useMemo(() => {
     if (!shownLines) return undefined;
     const byNode: Record<string, string> = {};
     for (const node of graphQuery.data?.nodes ?? []) {
-      const text = node.unitId ? lineTranslations.get(node.unitId)?.translation : null;
+      const text = node.unitId ? cardLines.get(node.unitId)?.translation?.trim().slice(0, 120) : null;
       if (text) byNode[node.id] = text;
     }
     return byNode;
-  }, [shownLines, graphQuery.data, lineTranslations]);
+  }, [shownLines, graphQuery.data, cardLines]);
   /** The open run each of its lines belongs to (to fold it again from any of them). */
   const openedFrom = useMemo(() => new Map((foldedRuns ?? []).filter((run) => openRuns.has(run.id)).flatMap((run) => run.nodeIds.map((id) => [id, run.id] as const))), [foldedRuns, openRuns]);
   const toggleFold = (runId: string) => {

@@ -3,14 +3,14 @@
  * database reports every changed row (triggers, apps/server/drizzle/0106_row_feed.sql and the row_feed migrations after it), and each change
  * event carries those rows as the snapshot has them, so the browser patches rows instead of refetching.
  */
-export const FEED_COLLECTIONS = ['terms', 'characters', 'relationships', 'speechRules', 'documents', 'statuses', 'tags', 'groups', 'runs', 'project', 'speakers', 'listeners', 'events', 'workflows', 'statusCounts', 'tagCounts', 'units', 'runItems', 'proposals', 'projects', 'appDefaults', 'connections', 'graphViews', 'chatSessions', 'aiCalls'] as const;
+export const FEED_COLLECTIONS = ['terms', 'characters', 'relationships', 'speechRules', 'documents', 'statuses', 'tags', 'groups', 'runs', 'project', 'speakers', 'listeners', 'events', 'workflows', 'statusCounts', 'tagCounts', 'units', 'runItems', 'proposals', 'projects', 'appDefaults', 'connections', 'graphViews', 'chatSessions', 'aiCalls', 'lineExtras'] as const;
 export type FeedCollection = (typeof FEED_COLLECTIONS)[number];
 /**
  * The collections the browser loads whole. Lines are too many: it holds the ones it shows (POST
  * units/by-ids), and the feed says which lines changed (`changed`) so it reads again only those it holds.
  */
-/** Collections the browser holds only part of (the rows it shows), named in events by id: lines, run items, proposals and the AI log. */
-export const HELD_COLLECTIONS = ['units', 'runItems', 'proposals', 'aiCalls'] as const satisfies readonly FeedCollection[];
+/** Collections the browser holds only part of (the rows it shows), named in events by id: lines, a line's run history and AI 제안 (line extras), run items, proposals and the AI log. */
+export const HELD_COLLECTIONS = ['units', 'lineExtras', 'runItems', 'proposals', 'aiCalls'] as const satisfies readonly FeedCollection[];
 export type HeldCollection = (typeof HELD_COLLECTIONS)[number];
 /**
  * The app's own rows, noted under the scope APP_FEED instead of a project: the projects list, the home's

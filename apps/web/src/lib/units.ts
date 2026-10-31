@@ -159,7 +159,6 @@ function refreshContexts(ids: readonly string[]) {
 
 const units = new Map<string, Held<Line>>();
 const extras = new Map<string, Held<LineExtras>>();
-const translations = new Map<string, Held<{ id: string; translation: string | null }>>();
 
 export function unitsOf(projectId: string): Held<Line> {
   let held = units.get(projectId);
@@ -174,7 +173,17 @@ export function unitsOf(projectId: string): Held<Line> {
 export function extrasOf(projectId: string): Held<LineExtras> {
   let held = extras.get(projectId);
   if (!held) {
-    held = heldCollection<LineExtras>({ id: `line-extras:${projectId}`, projectId, read: (ids) => unwrap(client.projects[':projectId'].units.extras.$post({ param: { projectId }, json: { ids } })) });
+    // Read again when the line is named (its AI 제안) or its run history is (a run item moving, 0120).
+    held = heldCollection<LineExtras>({
+      id: `line-extras:${projectId}`,
+      projectId,
+      read: (ids) => unwrap(client.projects[':projectId'].units.extras.$post({ param: { projectId }, json: { ids } })),
+      signal: (rows) => {
+        if (!rows.units && !rows.lineExtras) return undefined;
+        const parts = [rows.units, rows.lineExtras].filter((part) => part !== undefined);
+        return { upsert: [], delete: parts.flatMap((part) => part.delete), changed: parts.flatMap((part) => part.changed ?? []), ...(parts.some((part) => part.reload) && { reload: true as const }) };
+      },
+    });
     extras.set(projectId, held);
   }
   return held;
@@ -252,19 +261,6 @@ export function useLinePage(projectId: string, query: LineQuery, { enabled = tru
   const lines = useLines(projectId, enabled ? page.data?.ids : undefined);
   const data = useMemo(() => (page.data && lines.rows ? { total: page.data.total, offset: page.data.offset, scenes: page.data.scenes, rows: lines.rows } : undefined), [page.data, lines.rows]);
   return { data, isPlaceholderData: page.isPlaceholderData || lines.loading, isError: page.isError };
-}
-
-/**
- * The start of each line's translation, for the graph's cards: a section can show a thousand nodes, so
- * only this is held (not whole lines), read again when the feed names the line.
- */
-export function useLineTranslations(projectId: string, ids: readonly string[] | undefined) {
-  let held = translations.get(projectId);
-  if (!held) {
-    held = heldCollection({ id: `line-translations:${projectId}`, projectId, read: (wanted) => unwrap(client.projects[':projectId'].units.translations.$post({ param: { projectId }, json: { ids: wanted } })) });
-    translations.set(projectId, held);
-  }
-  return useHeld(held, ids).byId;
 }
 
 /** Lines by key in script order (evidence, where a speech rule starts): the keys' ids are a question, the lines come from the collection. */

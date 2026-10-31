@@ -303,6 +303,22 @@ describe("a run's items and progress in the row feed", () => {
     expect(feedRows(db, NO_KEYS, projectId)!.rows.runs?.upsert).toEqual([expect.objectContaining({ id: run.id })]);
   });
 
+  it("names a line's run history when its item moves, and the line itself only when the run's notes on it change", () => {
+    const { db, projectId } = setup();
+    const unit = db.select().from(s.units).where(eq(s.units.projectId, projectId)).get()!;
+    const run = db.insert(s.runs).values({ projectId, workflowName: '번역', workflowVersion: 1, definition: { nodes: [], edges: [] } as never, scope: {} as never, status: 'running', total: 1 }).returning().get();
+    const item = db.insert(s.runItems).values({ runId: run.id, subjectId: unit.id, nodeId: 'n', state: 'queued', visits: {}, data: { path: [] } as never }).returning().get();
+    const added = feedRows(db, NO_KEYS, projectId)!.rows;
+    expect(added.units?.changed).toEqual([unit.id]);
+    expect(added.lineExtras?.changed).toEqual([unit.id]);
+    db.update(s.runItems).set({ state: 'running', nodeId: 'm', data: { path: [{ nodeId: 'n' }] } as never }).where(eq(s.runItems.id, item.id)).run();
+    const moved = feedRows(db, NO_KEYS, projectId)!.rows;
+    expect(moved.units).toBeUndefined();
+    expect(moved.lineExtras?.changed).toEqual([unit.id]);
+    db.update(s.runItems).set({ data: { path: [{ nodeId: 'n' }], issues: ['용어 불일치'] } as never }).where(eq(s.runItems.id, item.id)).run();
+    expect(feedRows(db, NO_KEYS, projectId)!.rows.units?.changed).toEqual([unit.id]);
+  });
+
   it('names a proposal by id when it is filed, decided or removed', () => {
     const { db, projectId } = setup();
     const proposal = db.insert(s.proposals).values({ projectId, source: 'cli', tool: 'save_document', input: { title: '세계관', kind: 'world', body: '' } }).returning().get();
