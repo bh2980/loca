@@ -32,6 +32,8 @@ import { imageFilesOf, prepareImage, type PendingImage } from '@/lib/chat-image-
 import { ContextMeter, type ChatUsage } from './context-meter';
 import { ToolPart } from './tool-part';
 import { useProposals } from '@/lib/proposals';
+import { changeChatSession, useChatSessions } from '@/lib/logs';
+import { sent } from '@/lib/collections';
 
 const SESSION_KEY = (projectId: string) => `tw.chat.session.${projectId}`;
 const readSession = (projectId: string) => {
@@ -45,7 +47,7 @@ const readSession = (projectId: string) => {
 /** Global agent panel. Lives beside every page; switching pages or sessions never touches page history. */
 export function ChatPanel({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient();
-  const sessions = useQuery(q.chatSessions(projectId));
+  const sessions = useChatSessions(projectId);
   const [sessionId, setSessionId] = useState<string | null>(() => readSession(projectId));
 
   // Fetch the conversation as soon as its id is known (from storage), not only after the
@@ -59,7 +61,6 @@ export function ChatPanel({ projectId }: { projectId: string }) {
       if (targetProjectId === projectId) {
         setSessionId(targetSessionId);
         void queryClient.prefetchQuery(q.chatSession(targetSessionId));
-        void queryClient.invalidateQueries({ queryKey: q.chatSessions(projectId).queryKey });
       }
     });
   }, [projectId, queryClient]);
@@ -81,18 +82,15 @@ export function ChatPanel({ projectId }: { projectId: string }) {
 
   const create = useMutation({
     // The server starts it with the AI the latest conversation picked.
-    mutationFn: () => unwrap(client.projects[':projectId'].chat.$post({ param: { projectId }, json: {} })),
-    onSuccess: (session) => {
-      // The new conversation joins the list before it is picked: otherwise the stale list would
-      // unpick it, and a waiting AI-button request would start yet another one, again and again.
-      queryClient.setQueryData(q.chatSessions(projectId).queryKey, (list) => (list ? [{ id: session.id, title: session.title, connectionId: session.connectionId, model: session.model, effort: session.effort, permissionMode: session.permissionMode, updatedAt: session.updatedAt, calls: 0, tokens: 0 }, ...list.filter((item) => item.id !== session.id)] : list));
-      setSessionId(session.id);
-    },
+    // Done once the feed has brought the new conversation: picked before it is listed, the list would
+    // unpick it, and a waiting AI-button request would start yet another one, again and again.
+    mutationFn: () => sent(projectId, client.projects[':projectId'].chat.$post({ param: { projectId }, json: {} })),
+    onSuccess: (session) => setSessionId(session.id),
   });
 
   const [deleting, setDeleting] = useState<{ id: string; title: string } | null>(null);
   const remove = useMutation({
-    mutationFn: (id: string) => unwrap(client.chat[':sessionId'].$delete({ param: { sessionId: id } })),
+    mutationFn: (id: string) => sent(projectId, client.chat[':sessionId'].$delete({ param: { sessionId: id } })),
     onSuccess: (_data, id) => {
       dropChat(id);
       if (id === sessionId) setSessionId(null);
@@ -159,8 +157,9 @@ export function ChatPanel({ projectId }: { projectId: string }) {
 }
 
 function Conversation({ projectId, sessionId, model, mode }: { projectId: string; sessionId: string; model: ModelValue | null; mode: PermissionMode }) {
-  const queryClient = useQueryClient();
   const saved = useQuery(q.chatSession(sessionId));
+  // A connection picked without a model yet: the picker shows it and asks for the model.
+  const [picked, setPicked] = useState<ModelValue | null>(null);
   if (saved.isPending) return <Inline grow justify="center"><Spinner /></Inline>;
   return (
     <ChatBody
@@ -171,17 +170,14 @@ function Conversation({ projectId, sessionId, model, mode }: { projectId: string
       usage={saved.data?.usage ?? null}
       compaction={saved.data?.compaction ?? null}
       pending={saved.data?.pendingSteers ?? []}
-      model={model}
+      model={picked ?? model}
       mode={mode}
-      onMode={(next) => {
-        queryClient.setQueryData(q.chatSessions(projectId).queryKey, (list) => list?.map((item) => (item.id === sessionId ? { ...item, permissionMode: next } : item)));
-        void unwrap(client.chat[':sessionId'].$patch({ param: { sessionId }, json: { permissionMode: next } }));
-      }}
+      onMode={(next) => void changeChatSession(projectId, sessionId, { permissionMode: next }, () => client.chat[':sessionId'].$patch({ param: { sessionId }, json: { permissionMode: next } })).catch(() => undefined)}
       onModel={async (next) => {
-        // Shown at once; a connection chosen without a model yet waits for one.
-        queryClient.setQueryData(q.chatSessions(projectId).queryKey, (list) => list?.map((item) => (item.id === sessionId ? { ...item, connectionId: next.connectionId, model: next.model || null, effort: next.effort ?? null } : item)));
-        if (!next.model) return;
-        await unwrap(client.chat[':sessionId'].$patch({ param: { sessionId }, json: { model: next } }));
+        // A connection chosen without a model yet waits here for one; a whole choice is saved (shown at once).
+        if (!next.model) return setPicked(next);
+        setPicked(null);
+        await changeChatSession(projectId, sessionId, { connectionId: next.connectionId, model: next.model, effort: next.effort ?? null }, () => client.chat[':sessionId'].$patch({ param: { sessionId }, json: { model: next } }));
       }}
     />
   );

@@ -21,6 +21,7 @@ import { issueTagIds } from '../services/issue-tags.ts';
 import { runRows } from '../services/run-rows.ts';
 import { workflowRows } from '../services/workflow-rows.ts';
 import { connectionName, connectionNames, runItemIds, runItemRows, runProgress } from '../services/run-detail.ts';
+import { aiCallRows } from '../services/log-rows.ts';
 import { rowChangesOf } from '../db/row-changes.ts';
 
 const scopeSchema = runScopeSchema;
@@ -235,6 +236,18 @@ export const workflowRoutes = new Hono<Env>()
       .groupBy(s.aiCalls.kind)
       .all();
     return c.json({ calls: calls.map((call) => ({ ...call, hasRequest: Boolean(call.hasRequest), hasResponse: Boolean(call.hasResponse), connectionName: connectionName(names, call.connectionId, call.connectionKind) })), totals });
+  })
+  /** Which of the project's model requests a list shows, newest first, as ids (calls topic: one is logged or finishes). */
+  .get('/projects/:projectId/ai-calls/ids', validate('query', z.object({ kind: z.enum(s.AI_CALL_KINDS).optional(), ref: z.string().optional(), limit: z.coerce.number().int().min(1).max(500).default(200) })), (c) => {
+    const { db } = c.var.deps;
+    const { kind, ref, limit } = c.req.valid('query');
+    const where = and(eq(s.aiCalls.projectId, c.req.param('projectId')), kind ? eq(s.aiCalls.kind, kind) : undefined, ref ? eq(s.aiCalls.refId, ref) : undefined);
+    return c.json({ ids: db.select({ id: s.aiCalls.id }).from(s.aiCalls).where(where).orderBy(desc(s.aiCalls.startedAt)).limit(limit).all().map((row) => row.id) });
+  })
+  /** The project's model requests by id, with the feed's count when read (the browser's AI log collection). */
+  .post('/projects/:projectId/ai-calls/by-ids', validate('json', z.object({ ids: z.array(z.string()).max(500) })), (c) => {
+    const seq = rowChangesOf(c.var.deps.db.$client).seq;
+    return c.json({ rows: aiCallRows(c.var.deps.db, c.req.param('projectId'), c.req.valid('json').ids), seq });
   })
   /** What one model request sent (system prompt, then the prompt) and, for a failed one, what it printed before failing; each when kept. */
   .get('/projects/:projectId/ai-calls/:id/request', (c) => {

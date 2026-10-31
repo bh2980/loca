@@ -11,6 +11,8 @@ import { runRows } from './services/run-rows.ts';
 import { listenerRows, projectListRows, projectRows, speakerRows } from './services/project-rows.ts';
 import { readAppDefaults } from './services/app-defaults.ts';
 import { connectionRows } from './services/connection-rows.ts';
+import { listViews } from './services/graph-views.ts';
+import { chatSessionRows } from './services/log-rows.ts';
 import type { SecretStore } from './services/secrets.ts';
 import { projectEventFlow } from './services/event-routes.ts';
 import { workflowRows } from './services/workflow-rows.ts';
@@ -81,6 +83,10 @@ const READERS: Record<FeedCollection, (db: Db, projectId: string, ids: readonly 
   // Named by id; the browser reads the ones its panels show (POST proposals/by-ids).
   proposals: () => [],
   // The app's scope (APP_FEED): the projects list and the home's defaults.
+  graphViews: (db, projectId, ids) => listViews(db, projectId, ids),
+  chatSessions: (db, projectId, ids) => chatSessionRows(db, projectId, ids),
+  // Named by id; the browser reads the calls a list shows (POST ai-calls/by-ids), a project's or (APP_FEED) the model tests.
+  aiCalls: () => [],
   projects: (db, _scope, ids) => projectListRows(db, ids),
   appDefaults: (db) => [{ id: 'defaults', ...readAppDefaults(db) }],
   // The home's connections under APP_FEED, a project's under it.

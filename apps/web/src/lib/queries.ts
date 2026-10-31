@@ -43,9 +43,6 @@ export const q = {
   lineMatches: (unitId: string) => queryOptions({ queryKey: ['units', 'line-matches', unitId], queryFn: () => unwrap(client.units[':unitId'].matches.$get({ param: { unitId } })) }),
   graphSections: (projectId: string, direction: 'vertical' | 'horizontal' = 'vertical') =>
     queryOptions({ queryKey: ['graph', projectId, 'sections', direction], queryFn: () => unwrap(client.projects[':projectId'].graph.sections.$get({ param: { projectId }, query: { direction } })), staleTime: Infinity }),
-  /** The project's stored views of the dialogue graph (graph topic: the SSE refreshes it). */
-  graphViews: (projectId: string) =>
-    queryOptions({ queryKey: ['graph', projectId, 'views'], queryFn: () => unwrap(client.projects[':projectId'].graph.views.$get({ param: { projectId } })) }),
   /** A view of graph nodes made in the chat (show_graph). */
   graphView: (projectId: string, id: string) =>
     queryOptions({ queryKey: ['graph', projectId, 'views', id], queryFn: () => unwrap(client.projects[':projectId'].graph.views[':id'].$get({ param: { projectId, id } })), staleTime: Infinity }),
@@ -91,11 +88,6 @@ export const q = {
       queryFn: () => unwrap(client.projects[':projectId'].units['by-keys'].$post({ param: { projectId }, json: { keys } })),
       enabled: keys.length > 0,
     }),
-  /** Recent model tests of one connection (AI log rows outside any project). */
-  connectionTests: (connectionId: string) => queryOptions({ queryKey: ['calls', 'tests', connectionId], queryFn: () => unwrap(client.connections[':id'].tests.$get({ param: { id: connectionId } })) }),
-  /** The project's AI log (every model request); `kind` narrows it to one source. */
-  aiCalls: (projectId: string, kind?: 'run' | 'whole' | 'terms' | 'test' | 'chat', ref?: string) =>
-    queryOptions({ queryKey: ['calls', projectId, kind ?? '', ref ?? ''], queryFn: () => unwrap(client.projects[':projectId']['ai-calls'].$get({ param: { projectId }, query: { ...(kind && { kind }), ...(ref && { ref }) } })) }),
   /** What one model request sent (kept for whole-script reads and glossary fills). */
   aiCallRequest: (projectId: string, id: string) =>
     queryOptions({ queryKey: ['calls', 'request', id], queryFn: () => unwrap(client.projects[':projectId']['ai-calls'][':id'].request.$get({ param: { projectId, id } })), staleTime: Infinity }),
@@ -104,7 +96,6 @@ export const q = {
     queryOptions({ queryKey: ['calls', 'pace', model, kind], queryFn: () => unwrap(client['ai-calls'].pace.$get({ query: { model, kind } })) }),
   /** The batches a run was planned in. */
   runPlan: (id: string) => queryOptions({ queryKey: ['runs', 'plan', id], queryFn: () => unwrap(client.runs[':id'].plan.$get({ param: { id } })), staleTime: Infinity }),
-  chatSessions: (projectId: string) => queryOptions({ queryKey: ['chat', projectId], queryFn: () => unwrap(client.projects[':projectId'].chat.$get({ param: { projectId } })) }),
   chatSession: (sessionId: string) =>
     queryOptions({ queryKey: ['chat', 'session', sessionId], queryFn: () => unwrap(client.chat[':sessionId'].$get({ param: { sessionId } })), staleTime: Infinity }),
   /** @-attach, every kind: the top matches of each, grouped. Keyed under units (projects, terms, knowledge, workflows and statuses imply it), so a change refetches; runs are read when the list opens. */

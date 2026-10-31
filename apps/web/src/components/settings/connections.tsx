@@ -1,7 +1,7 @@
 import { useFormFrom, changedFields } from '@/lib/use-form-from';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
 import { useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import { Plus } from 'lucide-react';
@@ -49,10 +49,10 @@ import { ExecutableField } from '@/components/settings/executable-field';
 import { unwrap } from '@/lib/api';
 import { client } from '@/lib/api';
 import { connectionsApi, type ConnectionRow, type SettingsTarget } from '@/lib/settings-target';
-import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { dateTime } from '@/lib/datetime';
 import { changeConnection, useConnections } from '@/lib/app-data';
+import { useConnectionTests } from '@/lib/logs';
 
 const CAPABILITY_LABEL: Record<Capability, string> = { generate: '생성', judge: '판정', chat: '채팅', tool: '도구' };
 const LOGIN_LABEL: Record<string, string> = {
@@ -446,7 +446,7 @@ function ModelTest({ target, connectionId, need }: { target: SettingsTarget; con
     mutationFn: () => unwrap(client.connections[':id'].test.$post({ param: { id: connectionId }, json: { model: choice.model, effort: choice.effort, source, targetLanguage: 'ko' } })),
     onError: (error) => toast.error(errorMessage(error)),
   });
-  const tests = useQuery(q.connectionTests(connectionId));
+  const tests = useConnectionTests(connectionId);
   const result = test.data;
   return (
     <InspectorActionRow

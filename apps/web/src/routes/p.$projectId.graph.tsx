@@ -28,6 +28,7 @@ import { PathMode } from '@/components/graph/path-mode';
 import { GRAPH_SHOW_ITEMS, useGraphPaneView, useGraphShow, type GraphShow } from '@/lib/graph-show';
 import { AUTO_OPEN_NODES, nodeAfterToggle, pickedAfterToggle, unfoldChains } from '@/components/graph/unfold-chains';
 import { cn } from '@/lib/utils';
+import { useGraphViews } from '@/lib/logs';
 /** Dialogue-graph nodes copied with ⌘/Ctrl+C or 복사, pasted as copies. */
 /** Copied nodes, shared by every graph page of this tab (read and set through these, not reassigned in a component). */
 let nodeClipboard: string[] = [];
@@ -268,7 +269,7 @@ function GraphPage() {
   const edits = useDialogueGraphEdits(projectId, drawn);
   const viewDetail = useQuery({ ...q.graphView(projectId, viewId ?? ''), enabled: !!viewId });
   const view = viewId && graph.data?.layout?.view ? { ...graph.data.layout.view, label: viewDetail.data?.label ?? graph.data.layout.view.label } : undefined;
-  const savedViews = useQuery({ ...q.graphViews(projectId), enabled: dialogue }).data ?? [];
+  const savedViews = useGraphViews(projectId, { enabled: dialogue }).data ?? [];
   const viewActions = useViewActions(projectId);
   const [deletingView, setDeletingView] = useState<{ id: string; label: string } | null>(null);
   /** Naming a view made from the picked nodes: the small popover stands where the menu was. */

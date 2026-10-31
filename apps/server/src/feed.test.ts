@@ -57,6 +57,25 @@ describe("the app's own rows in the row feed", () => {
   });
 });
 
+describe('views, conversations and the AI log in the row feed', () => {
+  it('sends a saved view and a conversation with its model use, and names a logged call by id (a model test under the app)', () => {
+    const { db, projectId } = setup();
+    const view = db.insert(s.graphViews).values({ id: 'view-1', projectId, label: '미라', nodeIds: ['a', 'b'] }).returning().get();
+    expect(feedRows(db, NO_KEYS, projectId)!.rows.graphViews?.upsert).toEqual([expect.objectContaining({ id: view.id, label: '미라', nodes: 2 })]);
+    const chat = db.insert(s.chatSessions).values({ projectId, title: '대화' }).returning().get();
+    feedRows(db, NO_KEYS, projectId);
+    const call = db.insert(s.aiCalls).values({ projectId, kind: 'chat', refId: chat.id, label: '채팅', startedAt: new Date() }).returning().get();
+    db.update(s.aiCalls).set({ status: 'ok', inputTokens: 100, outputTokens: 20 }).where(eq(s.aiCalls.id, call.id)).run();
+    const sent = feedRows(db, NO_KEYS, projectId)!.rows;
+    expect(sent.chatSessions?.upsert).toEqual([expect.objectContaining({ id: chat.id, calls: 1, tokens: 120 })]);
+    expect(sent.aiCalls).toEqual({ upsert: [], delete: [], changed: [call.id] });
+    const test = db.insert(s.aiCalls).values({ kind: 'test', refId: 'connection', label: '시험', startedAt: new Date() }).returning().get();
+    expect(feedRows(db, NO_KEYS, APP_FEED)!.rows.aiCalls).toEqual({ upsert: [], delete: [], changed: [test.id] });
+    db.delete(s.graphViews).where(eq(s.graphViews.id, view.id)).run();
+    expect(feedRows(db, NO_KEYS, projectId)!.rows.graphViews).toEqual({ upsert: [], delete: [view.id] });
+  });
+});
+
 describe('the row feed', () => {
   it('sends a changed term once, as it is when sent, with its tags', () => {
     const { db, projectId, term } = setup();

@@ -3,12 +3,13 @@ import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/rea
 import { toast } from 'sonner';
 import { Sparkles, Trash2 } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Box, Button, Inspector, InspectorActionRow, InspectorHeader, InspectorList, Input, Skeleton, Text, ListItem, Section, Field, KeyValue, KeyValueRow } from '@loca/ui';
-import { client, unwrap } from '@/lib/api';
+import { client } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { chatDock } from '@/lib/chat-dock';
 import { dateTime } from '@/lib/datetime';
 import type { LayoutEdge } from './graph-canvas';
 import { PersonName } from '@/lib/person-colors';
+import { sent } from '@/lib/collections';
 
 /** How many omitted nodes the pane reads lines for; the rest are counted. */
 const OMITTED_SHOWN = 40;
@@ -20,22 +21,23 @@ export const remakeViewPrompt = (label: string, request: string | null) => `보�
 /** Stored-view changes made from the graph; each refreshes through the graph SSE topic. */
 export function useViewActions(projectId: string) {
   const queryClient = useQueryClient();
+  // The list is a collection (done once the feed brings the row); what a view holds is asked again.
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ['graph', projectId, 'views'] });
   const create = useMutation({
-    mutationFn: (input: { label: string; nodeIds: string[] }) => unwrap(client.projects[':projectId'].graph.views.$post({ param: { projectId }, json: input })),
+    mutationFn: (input: { label: string; nodeIds: string[] }) => sent(projectId, client.projects[':projectId'].graph.views.$post({ param: { projectId }, json: input })),
     onSuccess: refresh,
     onError: (error) => toast.error(error instanceof Error ? error.message : '보기를 만들지 못했습니다.'),
   });
   const change = useMutation({
     mutationFn: (input: { id: string; label?: string; add?: string[]; remove?: string[] }) => {
       const { id, ...json } = input;
-      return unwrap(client.projects[':projectId'].graph.views[':id'].$patch({ param: { projectId, id }, json: { add: [], remove: [], ...json } }));
+      return sent(projectId, client.projects[':projectId'].graph.views[':id'].$patch({ param: { projectId, id }, json: { add: [], remove: [], ...json } }));
     },
     onSuccess: refresh,
     onError: (error) => toast.error(error instanceof Error ? error.message : '보기를 바꾸지 못했습니다.'),
   });
   const remove = useMutation({
-    mutationFn: (id: string) => unwrap(client.projects[':projectId'].graph.views[':id'].$delete({ param: { projectId, id } })),
+    mutationFn: (id: string) => sent(projectId, client.projects[':projectId'].graph.views[':id'].$delete({ param: { projectId, id } })),
     onSuccess: refresh,
     onError: (error) => toast.error(error instanceof Error ? error.message : '보기를 지우지 못했습니다.'),
   });

@@ -9,6 +9,8 @@ import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { logged } from '../services/ai-calls.ts';
 import { connectionRows } from '../services/connection-rows.ts';
+import { aiCallRows } from '../services/log-rows.ts';
+import { rowChangesOf } from '../db/row-changes.ts';
 import type { Db } from '../db/index.ts';
 import { choiceLabel, connectionRoute, liveChoice } from '../services/routes.ts';
 
@@ -155,9 +157,15 @@ export const connectionRoutes = new Hono<Env>()
 /** Model tests: a one-off translation through a connection, written to no project. */
 export const modelTestRoutes = new Hono<Env>()
   /** Recent tests of one connection, from the AI log (they belong to no project, so 실행 기록 does not list them). */
-  .get('/connections/:id/tests', (c) =>
-    c.json(c.var.deps.db.select().from(s.aiCalls).where(and(eq(s.aiCalls.kind, 'test'), eq(s.aiCalls.refId, c.req.param('id')))).orderBy(desc(s.aiCalls.startedAt)).limit(5).all()),
+  /** A connection's latest model tests as ids (they are in the AI log outside any project). */
+  .get('/connections/:id/tests/ids', (c) =>
+    c.json({ ids: c.var.deps.db.select({ id: s.aiCalls.id }).from(s.aiCalls).where(and(eq(s.aiCalls.kind, 'test'), eq(s.aiCalls.refId, c.req.param('id')))).orderBy(desc(s.aiCalls.startedAt)).limit(5).all().map((row) => row.id) }),
   )
+  /** Model requests outside any project (model tests) by id, with the feed's count when read. */
+  .post('/app/ai-calls/by-ids', validate('json', z.object({ ids: z.array(z.string()).max(500) })), (c) => {
+    const seq = rowChangesOf(c.var.deps.db.$client).seq;
+    return c.json({ rows: aiCallRows(c.var.deps.db, null, c.req.valid('json').ids), seq });
+  })
   .post('/connections/:id/test', validate('json', z.object({ model: z.string().trim().min(1), effort: z.string().optional(), source: z.string().min(1), targetLanguage: z.string().default('ko') })), async (c) => {
     const { db, secrets } = c.var.deps;
     const { model, effort, source, targetLanguage } = c.req.valid('json');

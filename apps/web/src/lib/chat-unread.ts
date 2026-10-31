@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { q } from '@/lib/queries';
+import { useChatSessions } from './logs';
 
 const key = (projectId: string) => `tw.chat.seen.${projectId}`;
 const readSeen = (projectId: string) => {
@@ -24,7 +23,7 @@ const writeSeen = (projectId: string, at: number) => {
  * first visit counts as seen, so old conversations never show as new.
  */
 export function useChatUnread(projectId: string, open: boolean) {
-  const sessions = useQuery(q.chatSessions(projectId));
+  const sessions = useChatSessions(projectId);
   const [seen, setSeen] = useState(() => readSeen(projectId) ?? Date.now());
   const latest = Math.max(0, ...(sessions.data ?? []).map((session) => new Date(session.updatedAt).getTime()));
 

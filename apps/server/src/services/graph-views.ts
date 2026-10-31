@@ -3,6 +3,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { lineFilterSchema, nodesBetween } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
+import { inList } from '../db/chunk.ts';
 import { nodeSetLayout, cancelViewLayouts } from './layout.ts';
 import type { LayoutDirection } from './layout-types.ts';
 import { events } from '../events.ts';
@@ -177,11 +178,11 @@ export function deleteView(db: Db, projectId: string, id: string) {
 }
 
 /** The project's views, newest change first. */
-export function listViews(db: Db, projectId: string) {
+export function listViews(db: Db, projectId: string, ids?: readonly string[]) {
   return db
     .select({ id: s.graphViews.id, label: s.graphViews.label, origin: s.graphViews.origin, request: s.graphViews.request, nodeIds: s.graphViews.nodeIds, updatedAt: s.graphViews.updatedAt })
     .from(s.graphViews)
-    .where(eq(s.graphViews.projectId, projectId))
+    .where(and(eq(s.graphViews.projectId, projectId), ids ? inList(s.graphViews.id, ids) : undefined))
     .all()
     .map(({ nodeIds, ...view }) => ({ ...view, nodes: nodeIds.length }))
     .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());

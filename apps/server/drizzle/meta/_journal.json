@@ -834,6 +834,13 @@
       "when": 1793462599637,
       "tag": "0118_row_feed_app",
       "breakpoints": true
+    },
+    {
+      "idx": 119,
+      "version": "6",
+      "when": 1793463631007,
+      "tag": "0119_row_feed_views_chat_log",
+      "breakpoints": true
     }
   ]
 }
