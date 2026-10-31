@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { queryOptions } from '@tanstack/react-query';
 import { createOptimisticAction, useLiveQuery } from '@tanstack/react-db';
 import type { InferRequestType, InferResponseType } from 'hono/client';
+import { agentSettingsSchema, type SavedPrompt } from '@tw/shared';
 import { ApiError, client, unwrap } from './api';
 import { loaded, projectCollection, sent } from './collections';
 import { useGroups } from './groups';
@@ -43,6 +44,26 @@ export function saveProject(projectId: string, patch: ProjectPatch) {
     },
     mutationFn: async () => {
       await sent(projectId, client.projects[':projectId'].$patch({ param: { projectId }, json: patch }));
+    },
+  });
+  return run().when('settled');
+}
+
+/** The project's saved instructions (the slash menu lists them). */
+export function useProjectPrompts(projectId: string): SavedPrompt[] {
+  const settings = useProject(projectId).data?.agentSettings;
+  return useMemo(() => agentSettingsSchema.parse(settings ?? {}).prompts, [settings]);
+}
+
+/** Replaces the project's saved instructions (they live in its agent settings): shown at once, put back on failure. */
+export function saveProjectPrompts(projectId: string, prompts: SavedPrompt[]) {
+  const rows = projectRow(projectId);
+  const run = createOptimisticAction<void>({
+    onMutate: () => {
+      if (rows.has(projectId)) rows.update(projectId, (draft) => void (draft.agentSettings = { ...(draft.agentSettings as object), prompts } as never));
+    },
+    mutationFn: async () => {
+      await sent(projectId, client.projects[':projectId'].prompts.$put({ param: { projectId }, json: { prompts } }));
     },
   });
   return run().when('settled');

@@ -31,6 +31,7 @@ import { CHAT_IMAGES_MAX, compactionMarker, imageDecision, IMAGE_UNSUPPORTED_NOT
 import { imageFilesOf, prepareImage, type PendingImage } from '@/lib/chat-image-file';
 import { ContextMeter, type ChatUsage } from './context-meter';
 import { ToolPart } from './tool-part';
+import { useProposals } from '@/lib/proposals';
 
 const SESSION_KEY = (projectId: string) => `tw.chat.session.${projectId}`;
 const readSession = (projectId: string) => {
@@ -355,7 +356,7 @@ function ChatBody({ projectId, sessionId, initial, turn, usage, compaction, pend
   const lastMessage = messages.findLast((message) => !runCardOf(message));
   const elsewhere = !busy && Boolean(turn?.startedAt) && lastMessage?.role === 'user';
   // CLI chats store change requests as proposals; their cards are decided through the API.
-  const proposals = useQuery(q.proposals(projectId, sessionId));
+  const proposals = useProposals(projectId, { session: sessionId });
   const proposalById = new Map(proposals.data?.map((proposal) => [proposal.id, proposal]));
   const [undoingReply, setUndoingReply] = useState(false);
   const [replyUndoIds, setReplyUndoIds] = useState<string[]>([]);
@@ -826,8 +827,7 @@ function DecisionNotice({ text }: { text: string }) {
 
 /** Changes sent from the CLI (by a person or an agent using it), waiting for a decision. */
 function ExternalProposals({ projectId }: { projectId: string }) {
-  const proposals = useQuery(q.proposals(projectId));
-  const pending = (proposals.data ?? []).filter((proposal) => proposal.status === 'pending');
+  const pending = useProposals(projectId, { status: 'pending' }).data ?? [];
   const [open, setOpen] = useState(true);
   if (!pending.length) return null;
   return (

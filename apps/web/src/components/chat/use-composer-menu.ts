@@ -10,6 +10,7 @@ import type { ViewItem } from '@/lib/view-context';
 import { useDebounced } from './conversation-menu';
 import type { ComposerGroup, ComposerRow } from '@loca/ui';
 import { useWorkflows } from '@/lib/workflows';
+import { useProjectPrompts } from '@/lib/project';
 
 /** A /workflow that is waiting for its target: what has been picked so far. */
 export interface RunMode {
@@ -57,8 +58,8 @@ export function useComposerMenu(args: {
   }, [triggerKey]);
 
   const workflows = useWorkflows(projectId);
-  const prompts = useQuery(q.prompts(projectId));
-  const commands = allCommands(workflows.data ?? [], prompts.data ?? []);
+  const prompts = useProjectPrompts(projectId);
+  const commands = allCommands(workflows.data ?? [], prompts);
   const shownCommands = slash ? filterCommands(commands, slash.query) : [];
   // A message that merely starts with a slash and has no command to match is a message, not a search.
   const commandMenu = slash !== null && (shownCommands.length > 0 || !/\s/.test(slash.query));

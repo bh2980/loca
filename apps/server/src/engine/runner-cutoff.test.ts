@@ -218,7 +218,10 @@ describe('lines being resent, as the run page reads them', () => {
 
     const detail = (await (await app.request(`/runs/${runId}`)).json()) as { retrying: Record<string, { count: number; kinds: Record<string, number> }> };
     expect(detail.retrying).toEqual({ 'translate-resend': { count: 8, kinds: { 'cut-off': 8 } } });
-    const steps = (await (await app.request(`/runs/${runId}/steps`)).json()) as { ok: boolean; errorKind: string | null; subjectIds: string[] }[];
+    // The run page lists its model calls by id and reads each one once.
+    const { ids } = (await (await app.request(`/runs/${runId}/steps/ids`)).json()) as { ids: string[] };
+    const read = await app.request(`/projects/${run.projectId}/run-steps`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ids }) });
+    const steps = ((await read.json()) as { rows: { ok: boolean; errorKind: string | null; subjectIds: string[] }[] }).rows;
     const cut = steps.find((step) => step.errorKind === 'cut-off');
     expect(cut).toMatchObject({ ok: false });
     expect(cut!.subjectIds).toHaveLength(8);

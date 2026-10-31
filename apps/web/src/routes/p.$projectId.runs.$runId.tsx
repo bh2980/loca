@@ -24,7 +24,7 @@ import { RunGraph } from '@/components/workflow/run-graph';
 import { topCallIds } from '@/components/workflow/run-calls';
 import { dateTime } from '@/lib/datetime';
 import { useTerms } from '@/lib/terms';
-import { useRunDetail, useRunItems } from '@/lib/run-detail';
+import { useRunDetail, useRunItems, useRunSteps } from '@/lib/run-detail';
 
 type State = keyof typeof ITEM_STATE | 'retrying';
 interface RunSearch {
@@ -67,7 +67,7 @@ function RunDetail() {
     mutationFn: (accept: boolean) => unwrap(client.projects[':projectId'].drafts.$post({ param: { projectId }, json: { kind: 'terms', ids: [search.line!], action: accept ? 'confirm' : 'discard' } })),
     onError: (error) => toast.error(error.message),
   });
-  const steps = useQuery({ ...q.runSteps(runId), enabled: search.tab === 'steps' });
+  const steps = useRunSteps(projectId, runId, search.tab === 'steps');
   const plan = useQuery({ ...q.runPlan(runId), enabled: search.tab === 'plan' });
   const control = useMutation({ mutationFn: (action: 'pause' | 'resume' | 'cancel') => unwrap(client.runs[':id'][':action{pause|resume|cancel}'].$post({ param: { id: runId, action } })) });
   const setSearch = (next: Partial<RunSearch>, replace = false) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace });

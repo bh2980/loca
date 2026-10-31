@@ -251,6 +251,16 @@ describe("a run's items and progress in the row feed", () => {
     db.insert(s.runSteps).values({ runId: run.id, nodeId: 'n', subjectIds: [unit.id], ok: true, startedAt: new Date(), finishedAt: new Date() } as never).run();
     expect(feedRows(db, projectId)!.rows.runs?.upsert).toEqual([expect.objectContaining({ id: run.id })]);
   });
+
+  it('names a proposal by id when it is filed, decided or removed', () => {
+    const { db, projectId } = setup();
+    const proposal = db.insert(s.proposals).values({ projectId, source: 'cli', tool: 'save_document', input: { title: '세계관', kind: 'world', body: '' } }).returning().get();
+    expect(feedRows(db, projectId)!.rows.proposals).toEqual({ upsert: [], delete: [], changed: [proposal.id] });
+    db.update(s.proposals).set({ status: 'rejected' }).where(eq(s.proposals.id, proposal.id)).run();
+    expect(feedRows(db, projectId)!.rows.proposals).toEqual({ upsert: [], delete: [], changed: [proposal.id] });
+    db.delete(s.proposals).where(eq(s.proposals.id, proposal.id)).run();
+    expect(feedRows(db, projectId)!.rows.proposals).toEqual({ upsert: [], delete: [proposal.id], changed: [] });
+  });
 });
 
 describe('status and tag counts in the row feed', () => {

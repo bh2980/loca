@@ -1,7 +1,6 @@
 import { DockProvider, DockInspector, DockHeader, WorkspaceShell, PageHeader, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle, Button, SidebarTrigger, AppStatusBar, STATUS_BAR_SLOT_ID, Popover, PopoverTrigger, StatusIcon, SidebarInset, SidebarProvider, Box, Count, DockPane, Icon, Inline, Notice, ListRow, Chip, Meter, Progress, Stack, StatusBarButton, Text, Spinner, TextLink, PopoverContent, SectionHeading, EmptyState } from '@loca/ui';
 import { useCallback, useEffect, useState } from 'react';
 import { createFileRoute, Link, Outlet } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
 import { Bell, CheckCircle2, Play, TriangleAlert } from 'lucide-react';
 import { ApiError } from '@/lib/api';
 import { AppSidebar } from '@/components/app-sidebar';
@@ -9,12 +8,12 @@ import { ChatPanel } from '@/components/chat/chat-panel';
 import { CommandSearch } from '@/components/command-search';
 import { chatDock, useChatDockOpen } from '@/lib/chat-dock';
 import { useChatUnread } from '@/lib/chat-unread';
-import { q } from '@/lib/queries';
 import { useJobNotices } from '@/lib/job-notices';
 import { useCurrentNav } from '@/lib/nav';
 import { useProgress } from '@/lib/use-progress';
 import { dateTime } from '@/lib/datetime';
 import { loadProject } from '@/lib/project';
+import { useProposals } from '@/lib/proposals';
 
 export const Route = createFileRoute('/p/$projectId')({
   // The project row, or the not-found page.
@@ -62,8 +61,7 @@ function ProjectLayout() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
-  const proposals = useQuery(q.proposals(projectId));
-  const waiting = (proposals.data ?? []).filter((proposal) => proposal.status === 'pending').length;
+  const waiting = useProposals(projectId, { status: 'pending' }).total ?? 0;
   const changeMode = (mode: 'properties' | 'agent') => {
     if (mode === 'properties' && !hasInspector) return;
     setLastMode(mode);

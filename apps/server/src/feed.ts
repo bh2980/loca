@@ -70,6 +70,8 @@ const READERS: Record<FeedCollection, (db: Db, projectId: string, ids?: readonly
   units: (db, projectId, ids) => (ids ? unitRowsByIds(db, projectId, ids) : []),
   // Named by id; the browser reads the items it shows (POST run-items).
   runItems: () => [],
+  // Named by id; the browser reads the ones its panels show (POST proposals/by-ids).
+  proposals: () => [],
 };
 
 /** A collection's rows now and the feed's count, for the browser's first load. */

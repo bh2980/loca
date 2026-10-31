@@ -14,9 +14,11 @@ import { heldCollection, useHeld, type Held } from './units';
 export type RunItem = InferResponseType<(typeof client.projects)[':projectId']['run-items']['$post']>['rows'][number];
 export type RunProgress = InferResponseType<(typeof client.projects)[':projectId']['run-progress']['$post']>['rows'][number];
 type RunDetail = InferResponseType<(typeof client.runs)[':id']['$get']>;
+export type RunStep = InferResponseType<(typeof client.projects)[':projectId']['run-steps']['$post']>['rows'][number];
 
 const items = new Map<string, Held<RunItem>>();
 const progress = new Map<string, Held<RunProgress>>();
+const steps = new Map<string, Held<RunStep>>();
 
 function itemsOf(projectId: string) {
   let held = items.get(projectId);
@@ -52,6 +54,21 @@ function progressOf(projectId: string) {
   return held;
 }
 
+function stepsOf(projectId: string) {
+  let held = steps.get(projectId);
+  if (!held) {
+    // A model call is written once and never changes: each is read the first time its run's page lists it.
+    held = heldCollection<RunStep>({
+      id: `run-steps:${projectId}`,
+      projectId,
+      read: (ids) => unwrap(client.projects[':projectId']['run-steps'].$post({ param: { projectId }, json: { ids } })),
+      signal: () => undefined,
+    });
+    steps.set(projectId, held);
+  }
+  return held;
+}
+
 export type RunItemQuery = { state?: string; nodeId?: string; offset?: number };
 
 /** A page of a run's items as ids (runs topic: an item may move in or out of a state or a node). */
@@ -68,6 +85,20 @@ export function useRunItems(projectId: string, runId: string, query: RunItemQuer
   const held = useHeld(itemsOf(projectId), page.data?.ids);
   const data = useMemo(() => (page.data && held.rows ? { total: page.data.total, subject: page.data.subject, rows: held.rows } : undefined), [page.data, held.rows]);
   return { data };
+}
+
+/** A run's latest model calls as ids (runs topic: a call is logged as the run goes). */
+const runStepIds = (runId: string) =>
+  queryOptions({
+    queryKey: ['runs', 'step-ids', runId],
+    queryFn: () => unwrap(client.runs[':id'].steps.ids.$get({ param: { id: runId } })),
+    placeholderData: keepPreviousData,
+  });
+
+/** A run's latest model calls, newest first, once they are held; only while `enabled` (its tab is open). */
+export function useRunSteps(projectId: string, runId: string, enabled: boolean) {
+  const page = useQuery({ ...runStepIds(runId), enabled });
+  return { data: useHeld(stepsOf(projectId), enabled ? page.data?.ids : undefined).rows };
 }
 
 /** What a run started with: not under a topic, read again when the run itself changes (useRunDetail). */

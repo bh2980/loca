@@ -111,13 +111,6 @@ export const q = {
     queryOptions({ queryKey: ['calls', 'pace', model, kind], queryFn: () => unwrap(client['ai-calls'].pace.$get({ query: { model, kind } })) }),
   /** The batches a run was planned in. */
   runPlan: (id: string) => queryOptions({ queryKey: ['runs', 'plan', id], queryFn: () => unwrap(client.runs[':id'].plan.$get({ param: { id } })), staleTime: Infinity }),
-  runSteps: (id: string) => queryOptions({ queryKey: ['runs', 'steps', id], queryFn: () => unwrap(client.runs[':id'].steps.$get({ param: { id } })) }),
-  /** Proposals of one CLI chat, or (no session) those sent from the loca CLI. */
-  proposals: (projectId: string, session?: string) =>
-    queryOptions({
-      queryKey: ['proposals', projectId, session ?? 'external'],
-      queryFn: () => unwrap(client.projects[':projectId'].proposals.$get({ param: { projectId }, query: session ? { session } : {} })),
-    }),
   chatSessions: (projectId: string) => queryOptions({ queryKey: ['chat', projectId], queryFn: () => unwrap(client.projects[':projectId'].chat.$get({ param: { projectId } })) }),
   chatSession: (sessionId: string) =>
     queryOptions({ queryKey: ['chat', 'session', sessionId], queryFn: () => unwrap(client.chat[':sessionId'].$get({ param: { sessionId } })), staleTime: Infinity }),
@@ -137,8 +130,6 @@ export const q = {
       getNextPageParam: (last, pages) => (last.groups[0]?.more ? pages.length * ATTACH_PAGE : undefined),
       placeholderData: keepPreviousData,
     }),
-  /** 저장한 지시, for the chat's / list and the settings page (projects imply units). */
-  prompts: (projectId: string) => queryOptions({ queryKey: ['units', 'prompts', projectId], queryFn: () => unwrap(client.projects[':projectId'].prompts.$get({ param: { projectId } })) }),
   chatSearch: (projectId: string, query: string) =>
     queryOptions({
       queryKey: ['chat', 'search', projectId, query],

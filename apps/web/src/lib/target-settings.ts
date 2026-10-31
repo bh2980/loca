@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { editorCalls, saveProject, useProject } from '@/lib/project';
+import { editorCalls, saveProject, saveProjectPrompts, useProject } from '@/lib/project';
 import { toast } from 'sonner';
 import { agentSettingsSchema, DEFAULT_EDITOR_AI, type AgentSettings, type EditorAi, type SavedPrompt } from '@tw/shared';
 import { client, unwrap } from '@/lib/api';
@@ -46,22 +46,16 @@ export function useTargetSettings(target: SettingsTarget) {
   };
 }
 
-/** The saved instructions of a target: a project keeps them behind their own endpoint, the home inside its chat settings. */
+/** The saved instructions of a target, inside its agent settings; a project saves them through their own endpoint (only the list changes). */
 export function useTargetPrompts(target: SettingsTarget) {
-  const queryClient = useQueryClient();
   const projectId = target.kind === 'project' ? target.projectId : undefined;
   const settings = useTargetSettings(target);
-  const projectPrompts = useQuery({ ...q.prompts(projectId ?? ''), enabled: !!projectId });
-  const list: SavedPrompt[] = projectId ? (projectPrompts.data ?? []) : settings.agentSettings.prompts;
+  const list: SavedPrompt[] = settings.agentSettings.prompts;
 
   const saveProject = useMutation({
-    mutationFn: (next: SavedPrompt[]) => unwrap(client.projects[':projectId'].prompts.$put({ param: { projectId: projectId! }, json: { prompts: next } })),
-    onMutate: (next) => {
-      queryClient.setQueryData(q.prompts(projectId!).queryKey, next);
-    },
+    mutationFn: (next: SavedPrompt[]) => saveProjectPrompts(projectId!, next),
     onSuccess: () => toast.success('저장한 지시를 저장했습니다.'),
     onError: (error) => toast.error(error.message),
-    onSettled: () => void queryClient.invalidateQueries({ queryKey: q.prompts(projectId!).queryKey }),
   });
   const saveApp = settings.save;
   return {

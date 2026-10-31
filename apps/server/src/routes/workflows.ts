@@ -1,10 +1,11 @@
 import { Hono } from 'hono';
 import { fitScope, startWorkflowRun } from '../services/start-run.ts';
-import { and, asc, desc, eq, getTableColumns, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { AI_OUTPUT_IDS, type AiOutput, choiceKey, httpParams, FUNCTIONS, type FunctionName, isWholeScriptWorkflow, workflowInput, scriptParams, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels, WORKFLOW_TEMPLATES, EMPTY_MODEL_CHOICE, runScopeSchema } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
+import { inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { workflowIssues } from '../services/workflow-issues.ts';
 import { events } from '../events.ts';
@@ -86,6 +87,9 @@ function templateDefinition(db: Db, projectId: string, key: string): { name: str
   );
   return { name: template.name, definition };
 }
+
+/** How many of a run's model calls its page lists: the latest ones. */
+const STEPS_LISTED = 200;
 
 export const workflowRoutes = new Hono<Env>()
   .get('/projects/:projectId/workflows', (c) => c.json(workflowRows(c.var.deps.db, c.req.param('projectId'))))
@@ -303,9 +307,17 @@ export const workflowRoutes = new Hono<Env>()
     const seq = rowChangesOf(c.var.deps.db.$client).seq;
     return c.json({ rows: runProgress(c.var.deps.db, c.var.deps.runner, c.req.param('projectId'), c.req.valid('json').ids), seq });
   })
-  .get('/runs/:id/steps', (c) => {
+  /** The run's latest model calls as ids, newest first (the run page's AI 호출 tab: the rows themselves never change). */
+  .get('/runs/:id/steps/ids', (c) => {
     const { db } = c.var.deps;
-    return c.json(db.select().from(s.runSteps).where(eq(s.runSteps.runId, c.req.param('id'))).orderBy(desc(s.runSteps.startedAt)).limit(200).all());
+    return c.json({ ids: db.select({ id: s.runSteps.id }).from(s.runSteps).where(eq(s.runSteps.runId, c.req.param('id'))).orderBy(desc(s.runSteps.startedAt)).limit(STEPS_LISTED).all().map((row) => row.id) });
+  })
+  /** Model calls of the project's runs by id, with the feed's count when read (the browser's run steps collection). */
+  .post('/projects/:projectId/run-steps', validate('json', z.object({ ids: z.array(z.string()).max(500) })), (c) => {
+    const { db } = c.var.deps;
+    const seq = rowChangesOf(db.$client).seq;
+    const runs = db.select({ id: s.runs.id }).from(s.runs).where(eq(s.runs.projectId, c.req.param('projectId')));
+    return c.json({ rows: db.select().from(s.runSteps).where(and(inList(s.runSteps.id, c.req.valid('json').ids), inArray(s.runSteps.runId, runs))).all(), seq });
   })
   /** The estimate for continuing a paused or finished run on other models (#41). */
   .post('/runs/:id/continue/preflight', validate('json', continueSchema), async (c) => {
