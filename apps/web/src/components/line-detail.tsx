@@ -64,7 +64,8 @@ export function LineDetail({
   aiNode?: string;
   onAiNode: (value: string) => void;
 }) {
-  const unit = useLineDetail(projectId, unitId);
+  // Drawn from the line's row at once; what only the server knows (rule, nodes, history) fills in after.
+  const unit = useLineDetail(projectId, unitId, { partial: true });
   const taxonomy = useTaxonomy(projectId);
   const project = useProject(projectId);
   const people = useCharacters(projectId);
@@ -131,9 +132,9 @@ export function LineDetail({
 
   const kind = line ? (
     hasDialogueContext ? (
-      <span>{kindLabel} · #{line.seq}</span>
+      <span>{kindLabel}{line.seq != null && ` · #${line.seq}`}</span>
     ) : (
-      <Text truncate title={line.source}>{kindLabel} · #{line.seq} · {line.source}</Text>
+      <Text truncate title={line.source}>{kindLabel}{line.seq != null && ` · #${line.seq}`} · {line.source}</Text>
     )
   ) : (
     '줄'
@@ -253,7 +254,7 @@ export function LineDetail({
             <LineChecks projectId={projectId} source={line.source} text={draft} rules={project.data?.formatRules} targetLanguage={project.data?.targetLanguage} speech={line.speech} lastRun={lastRun ? { runId: lastRun.runId, workflowName: lastRun.workflowName, issues: lastRun.data.issues ?? [] } : null} />
           </Section>
 
-          <HistorySection projectId={projectId} unit={line} tokenPattern={tokenPattern} />
+          <HistorySection projectId={projectId} unit={line} tokenPattern={tokenPattern} ready={unit.extrasReady} />
 
           <Section title="AI 프롬프트" defaultOpen={false}>
             <AiContextPanel projectId={projectId} unitKey={line.key} unitKind={line.kind} aiNode={aiNode} onAiNode={onAiNode} />
@@ -348,7 +349,7 @@ const time = (at: string | number | Date) => new Date(at).getTime();
  * 제안) sits at the entry's right end. The same text left again in a row is one entry (×n). Waiting suggestions are not
  * history (the AI 제안 above). The first few show, the rest one click away.
  */
-function HistorySection({ projectId, unit, tokenPattern }: { projectId: string; unit: LineRecord; tokenPattern: RegExp | null }) {
+function HistorySection({ projectId, unit, tokenPattern, ready }: { projectId: string; unit: LineRecord; tokenPattern: RegExp | null; /** The line's texts and runs have come (the pane draws before them). */ ready: boolean }) {
   const save = useSaveLine(projectId);
   const [all, setAll] = useState(false);
   const runs = new Map(unit.history.map((run) => [run.runId, run]));
@@ -379,7 +380,7 @@ function HistorySection({ projectId, unit, tokenPattern }: { projectId: string; 
     });
   const runLink = (runId: string, label: string) => <Text asChild underline="hover"><Link to="/p/$projectId/runs/$runId" params={{ projectId, runId }}>{label}</Link></Text>;
   return (
-    <Section title={`이력 ${entries.length}`} defaultOpen={false}>
+    <Section title={ready ? `이력 ${entries.length}` : '이력 …'} defaultOpen={false}>
       {entries.length ? (
         <HistoryList>
           {shown.map((entry) => {
