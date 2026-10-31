@@ -31,6 +31,8 @@ import { excludedSql, hiddenMarkConditions, knownListenerSql, lineFactConditions
 import { CompleteRefused, completeLine } from '../services/editor-complete.ts';
 import { assistLine } from '../services/editor-assist.ts';
 import { describeRule, knownListener as knownListenerOf, speechRuleIndex } from '../services/speech.ts';
+import { unitColumns, unitRows, unitRowsByIds } from '../services/unit-rows.ts';
+import { rowChangesOf } from '../db/row-changes.ts';
 
 const NAMES = z.string().optional().transform((value, context) => { if (!value) return undefined; try { const list = JSON.parse(value) as unknown; if (Array.isArray(list) && list.every((item) => typeof item === 'string')) return list as string[]; } catch { /* reported below */ } context.addIssue({ code: 'custom', message: '이름 목록은 JSON 배열입니다.' }); return z.NEVER; });
 
@@ -116,54 +118,6 @@ const unitPatch = z.object({
 })
   // A text or status sent here would be dropped silently; refusing it keeps the one save path.
   .strict();
-
-const unitColumns = {
-  id: s.units.id,
-  key: s.units.key,
-  groupId: s.units.groupId,
-  sort: s.units.sort,
-  kind: s.units.kind,
-  speaker: s.units.speaker,
-  listener: s.units.listener,
-  listenerOrigin: s.units.listenerOrigin,
-  listenerConfidence: s.units.listenerConfidence,
-  source: s.units.source,
-  translation: s.units.translation,
-  statusId: s.units.statusId,
-  statusBy: s.units.statusBy,
-  note: s.units.note,
-  translate: s.units.translate,
-  statusRunId: s.units.statusRunId,
-  updatedAt: s.units.updatedAt,
-};
-
-
-/** The list's rows with their scene, candidate origin, whether an AI 제안 waits, tags and latest run note; script order, optionally one page. */
-function unitRows(db: Db, where: SQL, page?: { limit: number; offset: number }) {
-  const query = db
-    .select({ ...unitColumns, groupTitle: s.groups.title, groupKind: s.groups.kind, origin: s.candidates.origin, model: s.candidates.model, suggested: sql`exists (select 1 from ${s.candidates} c where c.unit_id = ${s.units.id} and c.state = 'pending')`.mapWith(Boolean) })
-    .from(s.units)
-    .innerJoin(s.groups, eq(s.groups.id, s.units.groupId))
-    .leftJoin(s.candidates, eq(s.candidates.id, s.units.candidateId))
-    .where(where)
-    .orderBy(asc(s.units.seq));
-  const rows = (page ? query.limit(page.limit).offset(page.offset) : query).all();
-  const ids = rows.map((row) => row.id);
-  const tagRows = ids.length ? db.select().from(s.unitTags).where(inArray(s.unitTags.unitId, ids)).all() : [];
-  const tags = Map.groupBy(tagRows, (row) => row.unitId);
-  // What the latest run said about each line (a reviewer's reason to look), newest run first.
-  const lastRun = new Map<string, { runId: string; workflowName: string; issues: string[] }>();
-  if (ids.length)
-    for (const item of db
-      .select({ unitId: s.runItems.subjectId, runId: s.runs.id, workflowName: s.runs.workflowName, data: s.runItems.data })
-      .from(s.runItems)
-      .innerJoin(s.runs, eq(s.runs.id, s.runItems.runId))
-      .where(inArray(s.runItems.subjectId, ids))
-      .orderBy(desc(s.runs.createdAt))
-      .all())
-      if (!lastRun.has(item.unitId)) lastRun.set(item.unitId, { runId: item.runId, workflowName: item.workflowName, issues: item.data.issues ?? [] });
-  return rows.map((row) => ({ ...row, tagIds: (tags.get(row.id) ?? []).map((tag) => tag.tagId), lastRun: lastRun.get(row.id) ?? null }));
-}
 
 /** Sections laid out on their own (see layout.ts), in script order, with the scenes in each for jumping from the scene graph. */
 function graphSections(db: Db, projectId: string, direction: LayoutDirection) {
@@ -290,6 +244,37 @@ export const sourceRoutes = new Hono<Env>()
     }
     return c.json({ total, offset, rows: unitRows(db, where, { limit: query.limit, offset }) });
   })
+  /**
+   * One page of a filter as ids (script order) with the filter's total and, for the scenes on the
+   * page, how many of their lines the filter matches (their checkboxes): the script list's rows come
+   * from the browser's units collection (kept current by the row feed), so a change refetches only this.
+   */
+  .get('/projects/:projectId/units/ids', validate('query', listQuery), (c) => {
+    const { db } = c.var.deps;
+    const projectId = c.req.param('projectId');
+    const query = c.req.valid('query');
+    const where = unitConditions(projectId, query);
+    // The groups table is only needed for the kind and section filters.
+    const grouped = Boolean(query.kind || query.section);
+    const countFrom = db.select({ count: count() }).from(s.units);
+    const total = (grouped ? countFrom.innerJoin(s.groups, eq(s.groups.id, s.units.groupId)) : countFrom).where(where).get()!.count;
+    // Opened at a given line (a link from elsewhere): start at the page that holds it.
+    let offset = query.offset;
+    if (query.focus) {
+      const target = db.select({ seq: s.units.seq }).from(s.units).where(and(eq(s.units.id, query.focus), eq(s.units.projectId, projectId))).get();
+      if (target) {
+        const beforeFrom = db.select({ count: count() }).from(s.units);
+        const before = (grouped ? beforeFrom.innerJoin(s.groups, eq(s.groups.id, s.units.groupId)) : beforeFrom).where(and(where, lt(s.units.seq, target.seq))).get()!.count;
+        offset = Math.floor(before / query.limit) * query.limit;
+      }
+    }
+    const pageFrom = db.select({ id: s.units.id, groupId: s.units.groupId }).from(s.units);
+    const page = (grouped ? pageFrom.innerJoin(s.groups, eq(s.groups.id, s.units.groupId)) : pageFrom).where(where).orderBy(asc(s.units.seq)).limit(query.limit).offset(offset).all();
+    const shown = [...new Set(page.map((row) => row.groupId))];
+    const scenesFrom = db.select({ groupId: s.units.groupId, count: count() }).from(s.units);
+    const scenes = shown.length ? (grouped ? scenesFrom.innerJoin(s.groups, eq(s.groups.id, s.units.groupId)) : scenesFrom).where(and(where, inArray(s.units.groupId, shown))).groupBy(s.units.groupId).all() : [];
+    return c.json({ total, offset, ids: page.map((row) => row.id), scenes });
+  })
   /** Lines by key, in script order: evidence cited by knowledge drafts. */
   .post('/projects/:projectId/units/by-keys', validate('json', z.object({ keys: z.array(z.string()).max(500) })), (c) => {
     const keys = c.req.valid('json').keys;
@@ -304,15 +289,20 @@ export const sourceRoutes = new Hono<Env>()
         .all(),
     );
   })
-  /** Lines by id, in the order asked: the visible rows of the path view's translation list. */
-  .post('/projects/:projectId/units/by-ids', validate('json', z.object({ ids: z.array(z.string()).max(200) })), (c) => {
+  /** What the bulk bar shows of picked lines (their tags, who decided them), by id: picks outlive the page they were made on. */
+  .post('/projects/:projectId/units/meta', validate('json', z.object({ ids: z.array(z.string()).max(20_000) })), (c) => {
     const { db } = c.var.deps;
+    const projectId = c.req.param('projectId');
     const ids = c.req.valid('json').ids;
-    if (!ids.length) return c.json({ rows: [] });
-    const byId = new Map(db.select({ ...unitColumns, groupTitle: s.groups.title }).from(s.units).innerJoin(s.groups, eq(s.groups.id, s.units.groupId)).where(and(eq(s.units.projectId, c.req.param('projectId')), inArray(s.units.id, ids))).all().map((row) => [row.id, row] as const));
-    const tagRows = db.select().from(s.unitTags).where(inArray(s.unitTags.unitId, ids)).all();
-    const tags = Map.groupBy(tagRows, (row) => row.unitId);
-    return c.json({ rows: ids.flatMap((id) => (byId.has(id) ? [{ ...byId.get(id)!, tagIds: (tags.get(id) ?? []).map((tag) => tag.tagId), lastRun: null }] : [])) });
+    const rows = inChunks(ids, (slice) => db.select({ id: s.units.id, statusBy: s.units.statusBy }).from(s.units).where(and(eq(s.units.projectId, projectId), inArray(s.units.id, slice))).all());
+    const tags = Map.groupBy(inChunks(ids, (slice) => db.select().from(s.unitTags).where(inArray(s.unitTags.unitId, slice)).all()), (row) => row.unitId);
+    return c.json({ rows: rows.map((row) => ({ ...row, tagIds: (tags.get(row.id) ?? []).map((tag) => tag.tagId) })) });
+  })
+  /** Lines by id, in the order asked, as the line lists show them: the rows the browser's units collection holds. */
+  .post('/projects/:projectId/units/by-ids', validate('json', z.object({ ids: z.array(z.string()).max(200) })), (c) => {
+    // The feed's count when read: a change event at or below it is already in these rows.
+    const seq = rowChangesOf(c.var.deps.db.$client).seq;
+    return c.json({ rows: unitRowsByIds(c.var.deps.db, c.req.param('projectId'), c.req.valid('json').ids), seq });
   })
   .patch(
     '/projects/:projectId/units',

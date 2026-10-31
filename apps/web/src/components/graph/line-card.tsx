@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { ChevronDown, ChevronUp, PanelRightOpen, StickyNote, X } from 'lucide-react';
 import { LineHints } from '@/components/script/line-row';
 import { TranslationEditor } from '@/components/translation-editor';
 import { LineSourceText } from '@/components/editor/source-text';
 import { Box, Button, FloatingCard, Inline, Skeleton, Text } from '@loca/ui';
-import { q } from '@/lib/queries';
+import { useLineDetail } from '@/lib/units';
 import { keyLabel } from '@/lib/keys';
 import { SpeakerCard } from '@/components/script/speaker-card';
 import { LineNote } from '@/components/script/line-note';
@@ -37,7 +36,7 @@ export function LineCard({ projectId, unitId, choice, position, maxHeight, onSte
   onShowNode: () => void;
   onClose: () => void;
 }) {
-  const unit = useQuery(q.unit(unitId));
+  const unit = useLineDetail(projectId, unitId);
   const taxonomy = useTaxonomy(projectId);
   const line = unit.data;
   const [noting, setNoting] = useState(false);
@@ -108,7 +107,7 @@ export function LineCard({ projectId, unitId, choice, position, maxHeight, onSte
             onEscape={onClose}
             onDone={(moved) => moved && onStep(1)}
           />
-          <LineNote key={`note-${line.id}`} unitId={line.id} note={line.note} editing={noting} onEditing={setNoting} />
+          <LineNote key={`note-${line.id}`} projectId={projectId} unitId={line.id} note={line.note} editing={noting} onEditing={setNoting} />
           <LineHints projectId={projectId} line={{ ...line, lastRun: null }} />
         </Box>
       )}

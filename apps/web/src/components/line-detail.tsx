@@ -1,13 +1,13 @@
 import { createAndAttachTag } from '@/lib/create-tag';
 import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { CircleCheck, Network, Pencil } from 'lucide-react';
 import { CopyButton } from '@/components/copy-button';
 import { sameTranslation, checkFormat, exclusionReason, isUnknownListener, type LineTranslate, listenerLabel, needsListener, SPEECH_LEVEL_LABELS, speechLevelOf, TAG_SCOPES, type FormatRules, type SpeechLevel } from '@tw/shared';
 import { AiMark, Chip, Box, Button, CandidateCard, DetailIssue, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, EditorChangedWord, EditorDiffWord, Group, HistoryItem, HistoryList, Icon, Inline, InspectorHeader, Inspector, InspectorList, SpeakerIdentity, StatusIcon, Switch, TagListEditor, Text, ListItem, Section, KeyValue, KeyValueRow } from '@loca/ui';
-import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
+import { changeLines, patchedLine, useLineDetail } from '@/lib/units';
 import { AiButton } from '@/components/ai-button';
 import { AiContextPanel } from '@/components/ai-context';
 import { TranslationEditor } from '@/components/translation-editor';
@@ -21,7 +21,7 @@ import { replaceLineText } from '@/components/editor/translation-input';
 import { ListenerPicker } from '@/components/script/listener-picker';
 import { SpeakerCard } from '@/components/script/speaker-card';
 import { SourceEditor } from '@/components/script/source-editor';
-import { client, unwrap, type InferResponseType } from '@/lib/api';
+import { client, type InferResponseType } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
 import { lineTags, q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
@@ -61,7 +61,7 @@ export function LineDetail({
   aiNode?: string;
   onAiNode: (value: string) => void;
 }) {
-  const unit = useQuery(q.unit(unitId));
+  const unit = useLineDetail(projectId, unitId);
   const taxonomy = useTaxonomy(projectId);
   const project = useQuery(q.project(projectId));
   const people = useCharacters(projectId);
@@ -79,22 +79,13 @@ export function LineDetail({
     },
   ]);
 
-  const queryClient = useQueryClient();
   const patch = useMutation({
-    mutationFn: (json: { tagIds?: string[]; listener?: string | null; translate?: LineTranslate | null }) => unwrap(client.units[':unitId'].$patch({ param: { unitId }, json })),
-    onMutate: async (json) => ({ undo: await optimistic(queryClient, unitChanges([unitId], patchedLine(json))) }),
-    onError: (error, _json, context) => {
-      context?.undo();
-      toast.error(error.message);
-    },
+    mutationFn: (json: { tagIds?: string[]; listener?: string | null; translate?: LineTranslate | null }) => changeLines(projectId, [unitId], patchedLine(json), () => client.units[':unitId'].$patch({ param: { unitId }, json })),
+    onError: (error) => toast.error(error.message),
   });
   const check = useMutation({
-    mutationFn: () => unwrap(client.projects[':projectId'].units.$patch({ param: { projectId }, json: { unitIds: [unitId], checked: true } })),
-    onMutate: async () => ({ undo: await optimistic(queryClient, unitChanges([unitId], patchedLine({ checked: true }))) }),
-    onError: (error, _vars, context) => {
-      context?.undo();
-      toast.error(error.message);
-    },
+    mutationFn: () => changeLines(projectId, [unitId], patchedLine({ checked: true }), () => client.projects[':projectId'].units.$patch({ param: { projectId }, json: { unitIds: [unitId], checked: true } })),
+    onError: (error) => toast.error(error.message),
   });
 
   const line = unit.data;
@@ -204,7 +195,7 @@ export function LineDetail({
       {!line.note && !noting && <Button variant="ghost" size="inline" onClick={() => setNoting(true)}>＋ 메모</Button>}
     </Inline>
   );
-  const memo = line && (line.note || noting) ? <LineNote unitId={line.id} note={line.note} editing={noting} onEditing={setNoting} /> : null;
+  const memo = line && (line.note || noting) ? <LineNote projectId={projectId} unitId={line.id} note={line.note} editing={noting} onEditing={setNoting} /> : null;
 
   const tokenPattern = tokenPatternOf(project.data?.formatRules);
   // A taken text goes into the line's editor when it is open, else into the draft it will show.
@@ -241,7 +232,7 @@ export function LineDetail({
       {line && (
         <>
           {/* The editor in this pane shows the AI 제안 and TM itself. */}
-          {!editor && <AiSuggestion framed unit={line} draft={draft} dirty={!sameTranslation(draft, line.translation)} base={base} onDraft={useText} />}
+          {!editor && <AiSuggestion framed projectId={projectId} unit={line} draft={draft} dirty={!sameTranslation(draft, line.translation)} base={base} onDraft={useText} />}
           {!editor && <SimilarSection unit={line} draft={draft} onUse={useText} tokenPattern={tokenPattern} />}
 
           {(line.speaker || line.speech) && (
@@ -355,7 +346,7 @@ const time = (at: string | number | Date) => new Date(at).getTime();
  * history (the AI 제안 above). The first few show, the rest one click away.
  */
 function HistorySection({ projectId, unit, tokenPattern }: { projectId: string; unit: LineRecord; tokenPattern: RegExp | null }) {
-  const save = useSaveLine();
+  const save = useSaveLine(projectId);
   const [all, setAll] = useState(false);
   const runs = new Map(unit.history.map((run) => [run.runId, run]));
   const texts = unit.candidates.filter((candidate) => candidate.state !== 'pending');

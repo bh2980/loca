@@ -1,7 +1,7 @@
 import { createAndAttachTag } from '@/lib/create-tag';
 /** One row of the line list, with the hints and links that open under the picked line. */
 import { useMemo, useState, type ComponentProps, type ReactNode, type RefObject } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { Check, CircleAlert, Ellipsis, PanelRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { AUTO_MARKS, markName, compileFormatRules, isUnknownListener, lineExclusion, listenerLabel, needsListener, SPECIAL_LISTENERS, TAG_SCOPES, type FormatRules, type LineMark, type ListenerOrigin, glossaryMatcher, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
@@ -47,14 +47,13 @@ import {
   type StatusLike,
   DropdownMenuContent,
 } from '@loca/ui';
-import { client, unwrap } from '@/lib/api';
+import { client } from '@/lib/api';
 import { q, useMarkStyles } from '@/lib/queries';
 import { SOURCE_GROUP_LABEL, SOURCE_UNIT_LABEL } from '@/lib/labels';
 import { SpeakerCard } from '@/components/script/speaker-card';
-import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
+import { changeLines, patchedLine, type Line, useLineDetail } from '@/lib/units';
 import { useDraft } from '@/lib/drafts';
 import { useSaveLine } from '@/lib/line-save';
-import type { InferResponseType } from '@/lib/api';
 import { usePersonColors } from '@/lib/person-colors';
 import { LineMenuItems } from '@/components/script/line-menu';
 import { useTerms } from '@/lib/terms';
@@ -77,7 +76,7 @@ function listenerText(line: { kind: string; speaker: string | null; source: stri
  * Context and last-run guidance for the selected line's inspector.
  */
 export function LineHints({ projectId, line, part }: { projectId: string; line: { id: string; source: string; kind?: string; translation: string | null; speaker?: string | null; listener?: string | null; lastRun: { issues: string[] } | null }; part?: 'context' | 'result' }) {
-  const unit = useQuery(q.unit(line.id));
+  const unit = useLineDetail(projectId, line.id);
   const people = useCharacters(projectId);
   const relationships = useRelationships(projectId);
   const terms = useTerms(projectId);
@@ -173,7 +172,6 @@ export function LineHints({ projectId, line, part }: { projectId: string; line: 
 }
 
 type LineTag = StatusLike & { role?: string | null };
-type Line = InferResponseType<(typeof client.projects)[':projectId']['units']['$get']> extends { rows: (infer Row)[] } ? Row : never;
 
 /** One line of the list: a compact row, or the open editor when picked. */
 export function LineRow({
@@ -257,18 +255,9 @@ export function LineRow({
   const marks: LineMark[] = line.suggested ? ['aiSuggestion'] : [];
   const attachedTags = tags.filter((tag) => line.tagIds.includes(tag.id));
 
-  const queryClient = useQueryClient();
   const patch = useMutation({
-    mutationFn: (json: { tagIds?: string[]; translate?: 'include' | 'exclude' }) => unwrap(client.units[':unitId'].$patch({ param: { unitId: line.id }, json })),
-    onMutate: async (json) => ({ undo: await optimistic(queryClient, unitChanges([line.id], patchedLine(json))) }),
-    onError: (error, _json, context) => {
-      context?.undo();
-      toast.error(error.message);
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['units', projectId] });
-      queryClient.invalidateQueries({ queryKey: ['unit', line.id] });
-    },
+    mutationFn: (json: { tagIds?: string[]; translate?: 'include' | 'exclude' }) => changeLines(projectId, [line.id], patchedLine(json), () => client.units[':unitId'].$patch({ param: { unitId: line.id }, json })),
+    onError: (error) => toast.error(error.message),
   });
 
   const handleToggleTag = (tagId: string, add: boolean) => {
@@ -385,7 +374,7 @@ export function LineRow({
     <>
       <ScriptSourceStyle open tone={sourceTone}><LineSourceText projectId={projectId} unitId={line.id} source={line.source} translation={line.translation} /></ScriptSourceStyle>
       <LineHints projectId={projectId} line={{ id: line.id, source: line.source, translation: line.translation, speaker: line.speaker, listener: line.listener, lastRun: null }} part="context" />
-      <LineNote key={`note-${line.id}`} unitId={line.id} note={line.note} editing={noting} onEditing={onNoting} />
+      <LineNote key={`note-${line.id}`} projectId={projectId} unitId={line.id} note={line.note} editing={noting} onEditing={onNoting} />
     </>
   ) : <ScriptSourceStyle open={false} tone={sourceTone}><MarkedSourceText projectId={projectId} text={line.source} pattern={tokenPattern} /></ScriptSourceStyle>;
   const translation = selected ? (
@@ -415,7 +404,7 @@ export function LineRow({
       flagged={marked}
     />
   );
-  const saveLine = useSaveLine();
+  const saveLine = useSaveLine(projectId);
 
   return (
     <>

@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { lineExclusion, PALETTE, TAG_SCOPES, type LineTranslate } from '@tw/shared';
 import {
@@ -14,10 +14,10 @@ import {
   Text,
   DropdownMenuSubContent,
 } from '@loca/ui';
-import { client, unwrap } from '@/lib/api';
+import { client } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { SOURCE_GROUP_LABEL, SOURCE_UNIT_LABEL } from '@/lib/labels';
-import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
+import { changeLines, patchedLine, useLineDetail } from '@/lib/units';
 import { useSaveLine } from '@/lib/line-save';
 import { useTaxonomy } from '@/lib/knowledge';
 import { sent } from '@/lib/collections';
@@ -49,24 +49,15 @@ export function LineMenuItems({ projectId, line, onEdit, editLabel = '번역 편
   onEditSource?: () => void;
   onAddLine?: () => void;
 }) {
-  const queryClient = useQueryClient();
   const taxonomy = useTaxonomy(projectId);
   const project = useQuery(q.project(projectId)).data;
   const statusList = taxonomy.statuses ?? [];
   const tags = (taxonomy.tags ?? []).filter((tag) => !tag.scope || tag.scope.includes('lines'));
   const excluded = lineExclusion(line, project?.formatRules ?? undefined, project?.exclusionRules, project?.sourceLanguage) !== null;
-  const saveLine = useSaveLine();
+  const saveLine = useSaveLine(projectId);
   const patch = useMutation({
-    mutationFn: (json: { tagIds?: string[]; translate?: 'include' | 'exclude' }) => unwrap(client.units[':unitId'].$patch({ param: { unitId: line.id }, json })),
-    onMutate: async (json) => ({ undo: await optimistic(queryClient, unitChanges([line.id], patchedLine(json))) }),
-    onError: (error, _json, context) => {
-      context?.undo();
-      toast.error(error.message);
-    },
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ['units', projectId] });
-      void queryClient.invalidateQueries({ queryKey: ['units', 'detail', line.id] });
-    },
+    mutationFn: (json: { tagIds?: string[]; translate?: 'include' | 'exclude' }) => changeLines(projectId, [line.id], patchedLine(json), () => client.units[':unitId'].$patch({ param: { unitId: line.id }, json })),
+    onError: (error) => toast.error(error.message),
   });
   const toggleTag = (tagId: string, add: boolean) => patch.mutate({ tagIds: add ? [...line.tagIds, tagId] : line.tagIds.filter((id) => id !== tagId) });
   const createTag = async (name: string) => {
@@ -123,7 +114,7 @@ export function LineMenuItems({ projectId, line, onEdit, editLabel = '번역 편
 
 /** The line menu for a line known by id (a node of the dialogue graph): its items once the line is loaded. */
 export function LineMenuFor({ projectId, unitId, ...actions }: { projectId: string; unitId: string } & Omit<Parameters<typeof LineMenuItems>[0], 'projectId' | 'line'>) {
-  const unit = useQuery(q.unit(unitId));
+  const unit = useLineDetail(projectId, unitId);
   if (!unit.data) return <DropdownMenuItem disabled>불러오는 중…</DropdownMenuItem>;
   const data = unit.data;
   return <LineMenuItems projectId={projectId} line={{ id: data.id, key: data.key, source: data.source, translation: data.translation, statusId: data.statusId, tagIds: data.tagIds, translate: data.translate, groupKind: data.kind === 'dialogue' ? 'scene' : data.kind }} {...actions} />;

@@ -17,6 +17,7 @@ import type { TokenUnit } from '@/lib/tokens';
 import { useSaveLine } from '@/lib/line-save';
 import { offerSameSource } from '@/lib/same-source';
 import { q } from '@/lib/queries';
+import { useLineDetail } from '@/lib/units';
 import { keyLabel } from '@/lib/keys';
 
 interface Status {
@@ -71,7 +72,7 @@ export function TranslationEditor({
   const next = nextStatus(statuses, unit.statusId);
   const line = useLineContext(projectId, unit.source, unit.kind);
   // The line's detail carries its AI 제안 (list rows do not).
-  const detail = useQuery(q.unit(unit.id));
+  const detail = useLineDetail(projectId, unit.id);
   const suggestions = useSuggestions(unit.id, [saved, draft], !compact);
   // The AI continuation: asked once when the line opens empty, or with ⌥/.
   const project = useQuery(q.project(projectId));
@@ -149,7 +150,7 @@ export function TranslationEditor({
   const placeMissing = () => tags.inserts.length > 0 && proposeInLine(unit.id, tags.inserts);
 
   const queryClient = useQueryClient();
-  const save = useSaveLine();
+  const save = useSaveLine(projectId);
   // Everything sent is what was typed when saving began: typing goes on while it is on its way.
   const run = (advance: boolean) => {
     if (save.isPending) return;
@@ -288,7 +289,7 @@ export function TranslationEditor({
         {ai.loading && <Waiting label="자동완성 받는 중…" onCancel={() => (pending.current?.abort(), setAi({ dismissed: true }))} />}
         {ai.message && <span role="alert">{ai.message}</span>}
       </Inline>}
-      {detail.data && <AiSuggestion unit={detail.data} draft={draft} dirty={dirty} base={base} onDraft={setDraft} />}
+      {detail.data && <AiSuggestion projectId={projectId} unit={detail.data} draft={draft} dirty={dirty} base={base} onDraft={setDraft} />}
       {suggestions.length > 0 && (
         <SuggestionList
           suggestions={suggestions}

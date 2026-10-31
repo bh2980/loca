@@ -1,5 +1,5 @@
 import { createCollection, type Collection } from '@tanstack/react-db';
-import type { FeedChanges, FeedCollection, FeedSnapshot } from '@tw/shared';
+import type { FeedChanges, FeedCollection, FeedSnapshot, SnapshotCollection } from '@tw/shared';
 import { client, unwrap, unwrapSeq } from './api';
 import { feed } from './feed';
 
@@ -89,7 +89,7 @@ export function feedCollection<T extends Row>({ projectId, name, load, handlers 
 const opened = new Map<string, Collection<Row, string>>();
 
 /** A project's collection of `name` (one per project, shared by every screen), loaded from its snapshot route. */
-export function projectCollection<T extends Row>(name: FeedCollection, projectId: string): Collection<T, string> {
+export function projectCollection<T extends Row>(name: SnapshotCollection, projectId: string): Collection<T, string> {
   const id = `${name}:${projectId}`;
   let collection = opened.get(id);
   if (!collection) {

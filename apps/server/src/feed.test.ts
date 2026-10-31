@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
-import { importFileSchema, type FeedSnapshot } from '@tw/shared';
+import { FEED_UNITS_LIMIT, importFileSchema, type FeedSnapshot } from '@tw/shared';
 import type { Env } from './context.ts';
 import { openDatabase } from './db/index.ts';
 import { rowChangesOf } from './db/row-changes.ts';
@@ -13,6 +13,7 @@ import { deleteItems } from './services/item-delete.ts';
 import { setKnowledgeTag } from './services/knowledge-tags.ts';
 import { importProject } from './services/importer.ts';
 import { saveTerm } from './services/terms.ts';
+import { unitRowsByIds } from './services/unit-rows.ts';
 
 function setup() {
   const db = openDatabase(':memory:');
@@ -106,6 +107,41 @@ describe('the row feed', () => {
     db.update(s.characters).set({ status: 'rejected' }).where(eq(s.characters.id, jonas.id)).run();
     expect(feedRows(db, projectId)!.rows.characters).toEqual({ upsert: [], delete: [jonas.id] });
     expect(feedSnapshot(db, projectId, 'characters').rows).toEqual([expect.objectContaining({ id: mira.id })]);
+  });
+});
+
+describe('lines in the row feed', () => {
+  it('names a line when it, its tags or its AI 제안 change', () => {
+    const { db, projectId } = setup();
+    const unit = db.select().from(s.units).where(eq(s.units.projectId, projectId)).get()!;
+    db.update(s.units).set({ translation: '관문이 열린다' }).where(eq(s.units.id, unit.id)).run();
+    const tag = db.insert(s.tags).values({ projectId, name: '확인', color: '#888888', scope: ['lines'] }).returning().get();
+    db.insert(s.unitTags).values({ unitId: unit.id, tagId: tag.id }).run();
+    // Lines go out as ids; the browser reads the ones it holds (units/by-ids, unitRowsByIds).
+    expect(feedRows(db, projectId)!.rows.units).toEqual({ upsert: [], delete: [], changed: [unit.id] });
+    expect(unitRowsByIds(db, projectId, [unit.id, 'nope'])).toEqual([expect.objectContaining({ id: unit.id, translation: '관문이 열린다', tagIds: [tag.id], groupTitle: 'G', suggested: false, lastRun: null })]);
+    db.insert(s.candidates).values({ unitId: unit.id, text: '문이 열린다', origin: 'ai', state: 'pending' }).run();
+    expect(feedRows(db, projectId)!.rows.units?.changed).toEqual([unit.id]);
+    expect(unitRowsByIds(db, projectId, [unit.id])[0]?.suggested).toBe(true);
+    db.delete(s.unitTags).where(eq(s.unitTags.unitId, unit.id)).run();
+    expect(feedRows(db, projectId)!.rows.units?.changed).toEqual([unit.id]);
+    db.delete(s.units).where(eq(s.units.id, unit.id)).run();
+    expect(feedRows(db, projectId)!.rows.units).toEqual({ upsert: [], delete: [unit.id], changed: [] });
+  });
+
+  it('asks to read the held lines again instead of sending a bulk change', () => {
+    const units = Array.from({ length: FEED_UNITS_LIMIT + 1 }, (_, index) => ({ key: `u${index}`, group: 'g', source: `Line ${index}` }));
+    const db = openDatabase(':memory:');
+    const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Bulk' }, groups: [{ key: 'g', title: 'G' }], units }));
+    expect(feedRows(db, projectId)!.rows.units).toEqual({ upsert: [], delete: [], reload: true });
+    db.update(s.units).set({ note: '메모' }).where(eq(s.units.key, 'u1')).run();
+    expect(feedRows(db, projectId)!.rows.units?.changed).toHaveLength(1);
+  });
+
+  it('has no snapshot of lines: the browser holds the ones it shows', async () => {
+    const { db, projectId } = setup();
+    const app = new Hono<Env>().use(async (c, next) => (c.set('deps', { db } as never), next())).route('/projects/:projectId', knowledgeRoutes);
+    expect((await app.request(`/projects/${projectId}/sync/units`)).status).toBe(400);
   });
 });
 

@@ -6,6 +6,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { client, unwrap, type InferResponseType } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
 import { q } from '@/lib/queries';
+import { useLineDetail } from '@/lib/units';
 import { SOURCE_GROUP_LABEL, SOURCE_UNIT_LABEL } from '@/lib/labels';
 
 export type SourceGroupKind = 'scene' | 'document' | 'ui';
@@ -35,7 +36,7 @@ export function SourceEditor({ projectId, kind, groupId, unitId, mode, onClose, 
   const editingGroup = mode === 'edit-group';
   const editingUnit = mode === 'edit-unit';
   const group = useQuery({ ...q.group(groupId ?? ''), enabled: editingGroup && Boolean(groupId) });
-  const unit = useQuery({ ...q.unit(unitId ?? ''), enabled: editingUnit && Boolean(unitId) });
+  const unit = useLineDetail(projectId, unitId ?? '', { enabled: editingUnit });
   const formKind = editingGroup ? (group.data?.kind ?? kind) : editingUnit ? (unit.data ? sourceKind(unit.data.kind) : kind) : kind;
   const groups = useQuery(q.groups(projectId, { kind: formKind }));
   const groupUnits = useQuery({ ...q.units(projectId, { groupId: groupId ?? '', limit: 1 }), enabled: editingGroup && Boolean(groupId) });

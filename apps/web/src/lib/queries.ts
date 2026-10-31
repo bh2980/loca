@@ -82,14 +82,6 @@ export const q = {
     }),
   /** The slice of the dialogue graph for the stored choices (길 따라 보기): blocks, edges, forks, stubs, seams, the picks and the translation counts (units topic: translations decide them). */
   route: (projectId: string) => queryOptions({ queryKey: ['units', projectId, 'route'], queryFn: () => unwrap(client.projects[':projectId'].route.$get({ param: { projectId } })) }),
-  /** The visible rows of the path view's translation list: a chunk of the route's lines by id, in that order (units topic: a translation changes them). */
-  routeRows: (projectId: string, ids: string[]) =>
-    queryOptions({
-      queryKey: ['units', 'route-rows', projectId, ids],
-      queryFn: () => unwrap(client.projects[':projectId'].units['by-ids'].$post({ param: { projectId }, json: { ids } })),
-      enabled: ids.length > 0,
-      placeholderData: keepPreviousData,
-    }),
   /** 다음 길: the route through the most untranslated lines, what it adds and how many routes are left (units topic, like the counts it is made from). */
   routeNext: (projectId: string) => queryOptions({ queryKey: ['units', projectId, 'route-next'], queryFn: () => unwrap(client.projects[':projectId'].route.next.$get({ param: { projectId } })) }),
   /** 남은 갈래: untranslated lines the current route does not pass, by branch, and lines no route reaches (units topic). */

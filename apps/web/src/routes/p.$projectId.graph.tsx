@@ -20,6 +20,7 @@ import { keyLabel } from '@/lib/keys';
 import { SearchField, SegmentedControl, SplitPane, PaneHeader, Button, CanvasOverlay, CanvasSurface, EmptyDescription, EmptyHeader, EmptyTitle, ScrollArea, Input, Popover, PopoverContent, PopoverTrigger, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, Spinner, Switch, ViewSwitch, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuShortcut, SelectionToolbox, useRevealDock, GraphEndpointBar, Box, Stack, Text, Icon, Inline, Chip, Notice, FloatingZoomBar, FoundNodeList, Overlay, EmptyState } from '@loca/ui';
 import { useSize } from '@/hooks/use-size';
 import { q } from '@/lib/queries';
+import { useLineDetail } from '@/lib/units';
 import { useReportView } from '@/lib/view-context';
 import { DeleteViewDialog, OmittedPane, ViewInspector, ViewReason, useViewActions } from '@/components/graph/view-inspector';
 import { ViewMenu } from '@/components/graph/view-menu';
@@ -427,7 +428,7 @@ function GraphPage() {
   const anchorOf = (nodeId: string) => shown(layout?.edges.find((edge) => edge.via === nodeId)?.to ?? nodeId);
   const anchorId = editAt >= 0 ? anchorOf(flowLines[editAt].nodeId) : undefined;
   // The line open in the translation card (the selected node reports itself from its pane).
-  const editUnit = useQuery({ ...q.unit(search.edit ?? ''), enabled: !!search.edit });
+  const editUnit = useLineDetail(projectId, search.edit ?? '');
   useReportView('graph-line', [
     editUnit.data && {
       kind: '대사',

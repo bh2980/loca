@@ -1,11 +1,12 @@
 import { and, asc, eq, ne } from 'drizzle-orm';
-import { normalizeTagScopes, type FeedCollection, type FeedRows, type FeedSnapshot } from '@tw/shared';
+import { FEED_UNITS_LIMIT, normalizeTagScopes, type FeedCollection, type FeedRows, type FeedSnapshot, type SnapshotCollection } from '@tw/shared';
 import type { Db } from './db/index.ts';
 import { inList } from './db/chunk.ts';
 import { rowChangesOf } from './db/row-changes.ts';
 import * as s from './db/schema.ts';
 import { withTags } from './services/knowledge-tags.ts';
 import { fillTermUsage } from './services/term-usage.ts';
+import { unitRowsByIds } from './services/unit-rows.ts';
 
 /**
  * The row feed: what the browser's collections hold, read the same way for the first load (snapshot)
@@ -50,10 +51,12 @@ const READERS: Record<FeedCollection, (db: Db, projectId: string, ids?: readonly
   documents: documentRows,
   statuses: statusRows,
   tags: tagRows,
+  // Lines are sent as ids (feedRows); the browser reads the ones it holds by id.
+  units: (db, projectId, ids) => (ids ? unitRowsByIds(db, projectId, ids) : []),
 };
 
 /** A collection's rows now and the feed's count, for the browser's first load. */
-export function feedSnapshot(db: Db, projectId: string, collection: FeedCollection): FeedSnapshot {
+export function feedSnapshot(db: Db, projectId: string, collection: SnapshotCollection): FeedSnapshot {
   // Usage counts are filled when first read; the writes are noted like any other and come again as events.
   if (collection === 'terms') fillTermUsage(db, projectId);
   const rows = READERS[collection](db, projectId);
@@ -69,6 +72,11 @@ export function feedRows(db: Db, projectId: string): { rows: FeedRows; seq: numb
     const read = READERS[collection as FeedCollection];
     if (!read) continue;
     const ids = [...changed.keys()];
+    // Lines go out as ids: the browser holds a few of them and reads those again.
+    if (collection === 'units') {
+      rows.units = ids.length > FEED_UNITS_LIMIT ? { upsert: [], delete: [], reload: true } : { upsert: [], delete: ids.filter((id) => changed.get(id) === 'delete'), changed: ids.filter((id) => changed.get(id) !== 'delete') };
+      continue;
+    }
     const upsert = read(db, projectId, ids);
     const listed = new Set(upsert.map((row) => row.id));
     rows[collection as FeedCollection] = { upsert, delete: ids.filter((id) => !listed.has(id)) };

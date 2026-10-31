@@ -28,7 +28,8 @@ export const suggestionFrom = (candidate: Pick<Candidate, 'runId' | 'model' | 'n
  * text into the box instead (saving it then settles the suggestion). Nothing shows, its frame included, when no suggestion
  * waits or the box already holds its text (line breaks of another kind are the same text).
  */
-export function AiSuggestion({ unit, draft, dirty, base, onDraft, framed }: {
+export function AiSuggestion({ projectId, unit, draft, dirty, base, onDraft, framed }: {
+  projectId: string;
   unit: { id: string; source: string; translation: string | null; candidates: Candidate[] };
   draft: string;
   dirty: boolean;
@@ -38,7 +39,7 @@ export function AiSuggestion({ unit, draft, dirty, base, onDraft, framed }: {
   /** In a pane of sections: it is a section of its own. */
   framed?: boolean;
 }) {
-  const save = useSaveLine();
+  const save = useSaveLine(projectId);
   const decline = useMutation({
     mutationFn: (candidateId: string) => unwrap(client.units[':unitId'].candidates[':candidateId'].decline.$post({ param: { unitId: unit.id, candidateId } })),
     onError: (error) => toast.error(error.message),

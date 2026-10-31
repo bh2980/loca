@@ -1,6 +1,6 @@
 import { createAndAttachTag } from '@/lib/create-tag';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ChevronDown, ChevronUp, GitFork } from 'lucide-react';
 import { toast } from 'sonner';
@@ -10,15 +10,14 @@ import { LineSourceText, MarkedSourceText, TokenText } from '@/components/editor
 import { LineHints } from '@/components/script/line-row';
 import { usePersonColors } from '@/lib/person-colors';
 import { Box, Button, DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuTrigger, ForkOptionItem, Heading, Icon, Inline, ScriptReadingRow, Skeleton, Stack, TagChip, TagListEditor, Text, type StatusLike, VirtualItem } from '@loca/ui';
-import { client, unwrap } from '@/lib/api';
+import { client } from '@/lib/api';
 import { tokenPatternOf } from '@/lib/line-context';
 import { keyLabel } from '@/lib/keys';
 import { lineTags, q } from '@/lib/queries';
-import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
-import type { InferResponseType } from '@/lib/api';
+import { changeLines, patchedLine, useLines, type Line } from '@/lib/units';
 import { useTaxonomy } from '@/lib/knowledge';
 
-type Row = InferResponseType<(typeof client.projects)[':projectId']['units']['by-ids']['$post']>['rows'][number];
+type Row = Line;
 type Status = Parameters<typeof TranslationEditor>[0]['statuses'][number];
 
 /** Lines are loaded in bounded chunks around the virtualized reader viewport. */
@@ -64,18 +63,9 @@ function RouteLineRow({ projectId, row, selected, status, statusList, rules, tag
   onDone: (advanced: boolean) => void;
 }) {
   const colorOf = usePersonColors(projectId);
-  const queryClient = useQueryClient();
   const patch = useMutation({
-    mutationFn: (json: { tagIds?: string[] }) => unwrap(client.units[':unitId'].$patch({ param: { unitId: row!.id }, json })),
-    onMutate: async (json) => ({ undo: await optimistic(queryClient, unitChanges([row!.id], patchedLine(json))) }),
-    onError: (error, _json, context) => {
-      context?.undo();
-      toast.error(error.message);
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['units', projectId] });
-      if (row) queryClient.invalidateQueries({ queryKey: ['unit', row.id] });
-    },
+    mutationFn: (json: { tagIds?: string[] }) => changeLines(projectId, [row!.id], patchedLine(json), () => client.units[':unitId'].$patch({ param: { unitId: row!.id }, json })),
+    onError: (error) => toast.error(error.message),
   });
 
   if (!row) return (
@@ -196,13 +186,10 @@ export function RouteList({ projectId, sequence, stages, routeKey, untranslatedI
   if (editIndex !== undefined) chunks.add(Math.floor(editIndex / CHUNK));
   const chunkIndexes = [...chunks].filter((chunk) => chunk * CHUNK < sequence.length).sort((a, b) => a - b);
   const chunkIds = chunkIndexes.map((chunk) => sequence.slice(chunk * CHUNK, (chunk + 1) * CHUNK).map((line) => line.unitId));
-  const results = useQueries({ queries: chunkIds.map((ids) => q.routeRows(projectId, ids)) });
-  const rows = useMemo(() => {
-    const byId = new Map<string, Row>();
-    for (const result of results) for (const row of result.data?.rows ?? []) byId.set(row.id, row);
-    return byId;
-  }, [results]);
-  const resultByChunk = useMemo(() => new Map(chunkIndexes.map((chunk, index) => [chunk, results[index]] as const)), [chunkIndexes.join(','), results]);
+  // The visible chunks' lines from the units collection (the feed keeps them current); each is drawn once it is held.
+  const shownIds = useMemo(() => chunkIds.flat(), [chunkIds.map((ids) => ids[0]).join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
+  const lines = useLines(projectId, shownIds);
+  const rows = lines.byId;
 
   const currentScrollKey = scrollKey(projectId, routeKey);
   const scrollKeyRef = useRef(currentScrollKey);
@@ -284,8 +271,6 @@ export function RouteList({ projectId, sequence, stages, routeKey, untranslatedI
   const renderLine = (index: number) => {
     const entry = sequence[index]!;
     const row = rows.get(entry.unitId);
-    const chunk = Math.floor(index / CHUNK);
-    const result = resultByChunk.get(chunk);
     return (
       <RouteLineRow
         key={entry.unitId}
@@ -298,9 +283,9 @@ export function RouteList({ projectId, sequence, stages, routeKey, untranslatedI
         tags={tags}
         tokenPattern={tokenPattern}
         focusTick={focusTick}
-        loadError={Boolean(result?.isError && !row)}
+        loadError={lines.failed && !row}
         stageLabel={parallelStageStarts.get(entry.unitId)}
-        onRetry={() => { void result?.refetch(); }}
+        onRetry={lines.retry}
         onSelect={() => select(entry.unitId, true)}
         onEscape={() => setFocusTick(0)}
         onDone={(advanced) => (advanced ? moveLine(1, true) : select(undefined, false))}

@@ -1,12 +1,12 @@
 /** Bulk actions on the picked lines: the picks, their mutations, and the head row that offers them. */
-import { useMemo, useState, type ComponentProps } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useMemo, useRef, useState, type ComponentProps } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { listenerLabel, SPECIAL_LISTENERS } from '@tw/shared';
 import { TagMenu, Checkbox, EditorAction, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue, StatusIcon, Text, TranslationColumnHeader, Input, SelectionBar } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
-import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
+import { changeLines, patchedLine } from '@/lib/units';
 import { lineTags, q } from '@/lib/queries';
 import { usePicked } from '@/lib/use-picked';
 import { useCharacters } from '@/lib/knowledge';
@@ -14,66 +14,86 @@ import { useCharacters } from '@/lib/knowledge';
 /** Lines picked by their checkboxes, and the bulk changes the head row makes to them (each shown at once, undone if the server refuses). */
 type SelectionRow = { id: string; tagIds: string[]; statusBy: string };
 
-export function useLineBulk({ projectId, pickKey, rows, selectionRows, tagName, aiOnly }: { projectId: string; /** Names the list the picks belong to (scene or review box). */ pickKey: string; rows: SelectionRow[] | undefined; /** Metadata for every line in the current unpaged filter, so selections beyond the visible page keep correct bulk state. */ selectionRows?: SelectionRow[]; tagName: (tagId: string) => string | undefined; /** The list shows only lines the AI decided (정한 쪽 AI): 확인함 empties it. */ aiOnly: boolean }) {
-  const { picked, pick, clear: stopPicking } = usePicked(`script.${projectId}.${pickKey}`);
-  // Tags and who decided each line, from every list it has been in: picks can outlive the page they were made on.
-  const [known, setKnown] = useState<{ from: unknown[]; tags: Map<string, string[]>; statusBy: Map<string, string> }>(() => ({ from: [], tags: new Map(), statusBy: new Map() }));
-  if (known.from[0] !== rows || known.from[1] !== selectionRows) {
-    const tags = new Map(known.tags);
-    const statusBy = new Map(known.statusBy);
-    for (const row of [...(selectionRows ?? []), ...(rows ?? [])]) {
-      tags.set(row.id, row.tagIds);
-      statusBy.set(row.id, row.statusBy);
-    }
-    setKnown({ from: [rows, selectionRows], tags, statusBy });
+const learn = (known: { tags: Map<string, string[]>; statusBy: Map<string, string> }, rows: readonly SelectionRow[]) => {
+  const tags = new Map(known.tags);
+  const statusBy = new Map(known.statusBy);
+  for (const row of rows) {
+    tags.set(row.id, row.tagIds);
+    statusBy.set(row.id, row.statusBy);
   }
+  return { tags, statusBy };
+};
+
+export function useLineBulk({ projectId, pickKey, rows, tagName, aiOnly }: { projectId: string; /** Names the list the picks belong to (scene or review box). */ pickKey: string; rows: SelectionRow[] | undefined; tagName: (tagId: string) => string | undefined; /** The list shows only lines the AI decided (정한 쪽 AI): 확인함 empties it. */ aiOnly: boolean }) {
+  const { picked, pick, clear: stopPicking } = usePicked(`script.${projectId}.${pickKey}`);
+  // Tags and who decided each line, from every list it has been in and every scene picked whole (remember): picks can outlive the page they were made on.
+  const [known, setKnown] = useState<{ from: unknown; tags: Map<string, string[]>; statusBy: Map<string, string> }>(() => ({ from: undefined, tags: new Map(), statusBy: new Map() }));
+  if (known.from !== rows) setKnown({ from: rows, ...learn(known, rows ?? []) });
+  const remember = (more: readonly SelectionRow[]) => setKnown((now) => ({ ...now, ...learn(now, more) }));
+  // Picks kept from before (a reload, another page): what the bar needs of them is asked for once.
+  const asked = useRef(new Set<string>());
+  const unknown = useMemo(() => [...picked].filter((id) => !known.tags.has(id) && !asked.current.has(id)), [picked, known]);
+  useEffect(() => {
+    const ids = unknown.filter((id) => !asked.current.has(id));
+    if (!ids.length) return;
+    for (const id of ids) asked.current.add(id);
+    unwrap(client.projects[':projectId'].units.meta.$post({ param: { projectId }, json: { ids } })).then(({ rows: meta }) => remember(meta), () => undefined);
+  }, [unknown]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A bulk change the server took, on what is known of the picked lines (those past this page are not read again).
+  const changed = (ids: readonly string[], change: (row: Omit<SelectionRow, 'id'>) => Omit<SelectionRow, 'id'>) =>
+    setKnown((now) => ({ ...now, ...learn(now, ids.flatMap((id) => (now.tags.has(id) ? [{ id, ...change({ tagIds: now.tags.get(id)!, statusBy: now.statusBy.get(id)! }) }] : []))) }));
+  const byPerson = (row: Omit<SelectionRow, 'id'>) => ({ ...row, statusBy: 'human' });
   const tagState = (tagId: string): 'all' | 'some' | 'none' => {
     const flags = [...picked].map((id) => known.tags.get(id)?.includes(tagId) ?? false);
     return flags.every(Boolean) ? 'all' : flags.some(Boolean) ? 'some' : 'none';
   };
-  const queryClient = useQueryClient();
-  const undoOnError = (error: Error, _vars: unknown, context: { undo: () => void } | undefined) => {
-    context?.undo();
-    toast.error(error.message);
-  };
+  // Each change shows at once (changeLines) and is put back if the server refuses.
+  const fail = (error: Error) => toast.error(error.message);
   const setStatus = useMutation({
-    mutationFn: (statusId: string) => unwrap(client.projects[':projectId'].units.$patch({ param: { projectId }, json: { unitIds: [...picked], statusId } })),
-    onMutate: async (statusId) => ({ undo: await optimistic(queryClient, unitChanges(picked, patchedLine({ statusId }))) }),
-    onSuccess: () => toast.success(`${picked.size}개 대사의 상태를 바꿨습니다.`),
-    onError: undoOnError,
+    mutationFn: (statusId: string) => {
+      const unitIds = [...picked];
+      return changeLines(projectId, unitIds, patchedLine({ statusId }), () => client.projects[':projectId'].units.$patch({ param: { projectId }, json: { unitIds, statusId } })).then(() => unitIds);
+    },
+    onSuccess: (unitIds) => {
+      changed(unitIds, byPerson);
+      toast.success(`${unitIds.length}개 대사의 상태를 바꿨습니다.`);
+    },
+    onError: fail,
   });
   const setListener = useMutation({
-    mutationFn: (listener: string | null) => unwrap(client.projects[':projectId'].units.$patch({ param: { projectId }, json: { unitIds: [...picked], listener } })),
-    onMutate: async (listener) => ({ undo: await optimistic(queryClient, unitChanges(picked, patchedLine({ listener }))) }),
+    mutationFn: (listener: string | null) => changeLines(projectId, picked, patchedLine({ listener }), () => client.projects[':projectId'].units.$patch({ param: { projectId }, json: { unitIds: [...picked], listener } })),
     onSuccess: (_data, listener) => toast.success(`${picked.size}개 대사의 청자를 ${listener ? listenerLabel(listener) : '미상'}(으)로 바꿨습니다.`),
-    onError: undoOnError,
+    onError: fail,
   });
   // 확인함: the statuses stay; a person now holds them, so the ✦ goes.
   const check = useMutation({
-    mutationFn: (unitIds: string[]) => unwrap(client.projects[':projectId'].units.$patch({ param: { projectId }, json: { unitIds, checked: true } })),
-    onMutate: async (unitIds) => ({ undo: await optimistic(queryClient, unitChanges(new Set(unitIds), patchedLine({ checked: true }))) }),
-    onError: undoOnError,
+    mutationFn: (unitIds: string[]) => changeLines(projectId, unitIds, patchedLine({ checked: true }), () => client.projects[':projectId'].units.$patch({ param: { projectId }, json: { unitIds, checked: true } })),
+    onError: fail,
     onSuccess: (_data, unitIds) => {
+      changed(unitIds, byPerson);
       toast.success(`${unitIds.length}개 대사를 확인했습니다.`);
       if (aiOnly) stopPicking();
     },
   });
   const pickedByAi = [...picked].filter((id) => known.statusBy.get(id) === 'ai');
   const setTag = useMutation({
-    mutationFn: ({ tagId, add }: { tagId: string; add: boolean }) =>
-      unwrap(client.projects[':projectId'].units.$patch({ param: { projectId }, json: add ? { unitIds: [...picked], addTagIds: [tagId] } : { unitIds: [...picked], removeTagIds: [tagId] } })),
-    onMutate: async ({ tagId, add }) => ({ undo: await optimistic(queryClient, unitChanges(picked, patchedLine(add ? { addTagIds: [tagId] } : { removeTagIds: [tagId] }))) }),
-    onError: undoOnError,
-    onSuccess: (_data, { tagId, add }) => toast.success(`${picked.size}개 대사${add ? '에' : '에서'} #${tagName(tagId)} 태그를 ${add ? '붙였습니다' : '뗐습니다'}.`),
+    mutationFn: ({ tagId, add }: { tagId: string; add: boolean }) => {
+      const unitIds = [...picked];
+      return changeLines(projectId, unitIds, patchedLine(add ? { addTagIds: [tagId] } : { removeTagIds: [tagId] }), () => client.projects[':projectId'].units.$patch({ param: { projectId }, json: add ? { unitIds, addTagIds: [tagId] } : { unitIds, removeTagIds: [tagId] } })).then(() => unitIds);
+    },
+    onError: fail,
+    onSuccess: (unitIds, { tagId, add }) => {
+      changed(unitIds, (row) => ({ ...row, tagIds: add ? [...new Set([...row.tagIds, tagId])] : row.tagIds.filter((id) => id !== tagId) }));
+      toast.success(`${unitIds.length}개 대사${add ? '에' : '에서'} #${tagName(tagId)} 태그를 ${add ? '붙였습니다' : '뗐습니다'}.`);
+    },
   });
   // 번역 제외 by hand for the picked lines (null = the project's rules decide again).
   const setTranslate = useMutation({
-    mutationFn: (translate: 'include' | 'exclude') => unwrap(client.projects[':projectId'].units.$patch({ param: { projectId }, json: { unitIds: [...picked], translate } })),
-    onMutate: async (translate) => ({ undo: await optimistic(queryClient, unitChanges(picked, patchedLine({ translate }))) }),
-    onError: undoOnError,
+    mutationFn: (translate: 'include' | 'exclude') => changeLines(projectId, picked, patchedLine({ translate }), () => client.projects[':projectId'].units.$patch({ param: { projectId }, json: { unitIds: [...picked], translate } })),
+    onError: fail,
     onSuccess: (_data, translate) => toast.success(`${picked.size}개 대사를 ${translate === 'exclude' ? '번역에서 뺐습니다' : '번역 대상으로 정했습니다'}.`),
   });
-  return { picked, pick, stopPicking, pickedByAi, tagState, setStatus, setListener, check, setTag, setTranslate };
+  return { picked, pick, remember, stopPicking, pickedByAi, tagState, setStatus, setListener, check, setTag, setTranslate };
 }
 
 export type LineBulk = ReturnType<typeof useLineBulk>;

@@ -56,6 +56,8 @@ if (existsSync(config.webDist)) {
   const source = newestChange(path.join(config.webDist, '..', 'src'));
   if (source > built) console.warn(`웹 빌드(${config.webDist})가 소스보다 오래됐습니다. 이 주소의 화면은 예전 것입니다: pnpm build 를 다시 하거나 pnpm dev 의 주소를 쓰세요.`);
   const root = path.relative(process.cwd(), config.webDist);
+  // An API path no route has is a 404, not the app's page (a browser would keep that page as the API's answer).
+  app.all('/api/*', (c) => c.json({ error: '없는 API입니다.' }, 404));
   app.use('/*', serveStatic({ root }));
   app.get('*', serveStatic({ root, path: 'index.html' }));
 }

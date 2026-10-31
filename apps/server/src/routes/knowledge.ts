@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, asc, eq, inArray, ne, or } from 'drizzle-orm';
 import { z } from 'zod';
-import { EVENT_LINK_KINDS, FEED_COLLECTIONS, KNOWLEDGE_TAG_KINDS, modelChoiceSchema, patchOf, withDuplicateTargets } from '@tw/shared';
+import { EVENT_LINK_KINDS, SNAPSHOT_COLLECTIONS, KNOWLEDGE_TAG_KINDS, modelChoiceSchema, patchOf, withDuplicateTargets } from '@tw/shared';
 import { badRequest, found, notFound, validate, type Env } from '../context.ts';
 import { eachChunk, inChunks } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
@@ -28,7 +28,7 @@ const byProject = <T extends ProjectTable>(table: T, id: string, projectId: stri
 
 export const knowledgeRoutes = new Hono<Env>()
   /** A browser collection's rows and the feed's count: its first load, kept current by the change events' rows. */
-  .get('/sync/:collection', validate('param', z.object({ collection: z.enum(FEED_COLLECTIONS) })), (c) => c.json(feedSnapshot(c.var.deps.db, c.req.param('projectId')!, c.req.valid('param').collection)))
+  .get('/sync/:collection', validate('param', z.object({ collection: z.enum(SNAPSHOT_COLLECTIONS) })), (c) => c.json(feedSnapshot(c.var.deps.db, c.req.param('projectId')!, c.req.valid('param').collection)))
   .get('/terms', (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId')!;
