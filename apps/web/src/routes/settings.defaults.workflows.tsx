@@ -1,16 +1,14 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { WORKFLOW_TEMPLATES, type SavedWorkflow } from '@tw/shared';
 import { Box, Button, Checkbox, DataTable, EmptyState, Field, Input, Inspector, InspectorHeader, PageBody, Section, SplitPane, Stack, Text, Textarea, type ColumnDef } from '@loca/ui';
 import { Page } from '@/components/page';
 import { AiAutoConfirmSetting } from '@/components/settings/ai-confirm';
 import { DeleteButton } from '@/components/settings/delete-button';
-import { client, unwrap } from '@/lib/api';
-import { optimistic } from '@/lib/optimistic';
-import { q } from '@/lib/queries';
 import { changedFields, useFormFrom } from '@/lib/use-form-from';
 import { useReportView } from '@/lib/view-context';
+import { saveAppDefaults, useAppDefaults } from '@/lib/app-data';
 
 export const Route = createFileRoute('/settings/defaults/workflows')({
   validateSearch: (raw: Record<string, unknown>): { saved?: string } => ({ saved: typeof raw.saved === 'string' && raw.saved ? raw.saved : undefined }),
@@ -22,8 +20,7 @@ type Workflows = { templates: string[]; saved: SavedWorkflow[] };
 function AppWorkflowSettings() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
-  const queryClient = useQueryClient();
-  const defaults = useQuery(q.appDefaults());
+  const defaults = useAppDefaults();
   const workflows = defaults.data?.workflows as Workflows | undefined;
   const selected = search.saved ? workflows?.saved.find((item) => item.id === search.saved) : undefined;
   const close = () => void navigate({ search: {}, replace: true });
@@ -31,12 +28,9 @@ function AppWorkflowSettings() {
   useReportView('settings-default-workflows', [selected && { kind: '저장한 워크플로', id: selected.id, label: selected.name }]);
 
   const save = useMutation({
-    mutationFn: (next: Workflows) => unwrap(client.app.defaults.$patch({ json: { workflows: next } as never })),
-    onMutate: async (next) => ({ undo: await optimistic(queryClient, [{ key: q.appDefaults().queryKey, update: (old: object) => ({ ...old, workflows: next }) }]) }),
-    onError: (error, _next, context) => {
-      context?.undo();
-      toast.error(error.message);
-    },
+    // Shown at once, put back on failure.
+    mutationFn: (next: Workflows) => saveAppDefaults({ workflows: next } as never),
+    onError: (error) => toast.error(error.message),
   });
 
   const toggleTemplate = (key: string, on: boolean) => {

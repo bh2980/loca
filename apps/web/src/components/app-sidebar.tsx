@@ -1,12 +1,11 @@
 import { useEffect } from 'react';
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
 import { BookOpen, Check, ChevronsUpDown, Languages, Monitor, Moon, Plus, Settings2, Sun, Workflow } from 'lucide-react';
 import { Sidebar, SidebarBrand, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuBadge, SidebarMenuButton, SidebarMenuIcon, SidebarMenuItem, SidebarRail, DropdownMenu, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuRadioItem, Icon, SidebarGroup, SidebarGroupLabel, SidebarMenuLabel, Text, DropdownMenuContent, MenuLabel } from '@loca/ui';
 import { holds, NAV_GROUPS, useCurrentNav, type NavGroup, type NavItem } from '@/lib/nav';
-import { q } from '@/lib/queries';
 import { setTheme, useTheme, type ThemeChoice } from '@/lib/theme';
 import { useProjectProgress } from '@/lib/project';
+import { useProjects } from '@/lib/app-data';
 
 const lastKey = (projectId: string, itemId: string) => `tw.nav.${projectId}.${itemId}`;
 const readLast = (projectId: string, itemId: string): { pathname: string; search: Record<string, unknown> } | null => {
@@ -54,7 +53,7 @@ const GROUP_ICONS = { translate: Languages, knowledge: BookOpen, automation: Wor
 export function AppSidebar({ projectId }: { projectId: string }) {
   const navigate = useNavigate();
   const theme = useTheme();
-  const projects = useQuery(q.projects());
+  const projects = useProjects();
   const progress = useProjectProgress(projectId);
   const info = projects.data?.find((entry) => entry.id === projectId);
   const current = useCurrentNav(projectId);

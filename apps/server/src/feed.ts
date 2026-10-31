@@ -1,5 +1,5 @@
 import { and, asc, eq, ne } from 'drizzle-orm';
-import { FEED_UNITS_LIMIT, HELD_COLLECTIONS, normalizeTagScopes, type FeedCollection, type FeedRows, type FeedSnapshot, type SnapshotCollection } from '@tw/shared';
+import { APP_FEED, FEED_UNITS_LIMIT, HELD_COLLECTIONS, normalizeTagScopes, type AppCollection, type FeedCollection, type FeedRows, type FeedSnapshot, type SnapshotCollection } from '@tw/shared';
 import type { Db } from './db/index.ts';
 import { inList } from './db/chunk.ts';
 import { rowChangesOf } from './db/row-changes.ts';
@@ -8,7 +8,10 @@ import { withTags } from './services/knowledge-tags.ts';
 import { fillTermUsage } from './services/term-usage.ts';
 import { groupRows } from './services/group-rows.ts';
 import { runRows } from './services/run-rows.ts';
-import { listenerRows, projectRows, speakerRows } from './services/project-rows.ts';
+import { listenerRows, projectListRows, projectRows, speakerRows } from './services/project-rows.ts';
+import { readAppDefaults } from './services/app-defaults.ts';
+import { connectionRows } from './services/connection-rows.ts';
+import type { SecretStore } from './services/secrets.ts';
 import { projectEventFlow } from './services/event-routes.ts';
 import { workflowRows } from './services/workflow-rows.ts';
 import { statusCountRows, tagCountRows } from './services/count-rows.ts';
@@ -49,7 +52,12 @@ export const tagRows = (db: Db, projectId: string, ids?: readonly string[]) =>
     .all()
     .map((tag) => ({ ...tag, scope: normalizeTagScopes(tag.scope) }));
 
-const READERS: Record<FeedCollection, (db: Db, projectId: string, ids?: readonly string[]) => { id: string }[]> = {
+/** What a reader may need besides the database: the key store (whether a connection has a key). */
+export interface FeedDeps {
+  secrets: SecretStore;
+}
+
+const READERS: Record<FeedCollection, (db: Db, projectId: string, ids: readonly string[] | undefined, deps: FeedDeps) => { id: string }[]> = {
   terms: termRows,
   characters: characterRows,
   relationships: relationshipRows,
@@ -72,13 +80,18 @@ const READERS: Record<FeedCollection, (db: Db, projectId: string, ids?: readonly
   runItems: () => [],
   // Named by id; the browser reads the ones its panels show (POST proposals/by-ids).
   proposals: () => [],
+  // The app's scope (APP_FEED): the projects list and the home's defaults.
+  projects: (db, _scope, ids) => projectListRows(db, ids),
+  appDefaults: (db) => [{ id: 'defaults', ...readAppDefaults(db) }],
+  // The home's connections under APP_FEED, a project's under it.
+  connections: (db, scope, ids, deps) => connectionRows(db, deps.secrets, scope === APP_FEED ? null : scope, ids),
 };
 
 /** A collection's rows now and the feed's count, for the browser's first load. */
-export function feedSnapshot(db: Db, projectId: string, collection: SnapshotCollection): FeedSnapshot {
+export function feedSnapshot(db: Db, deps: FeedDeps, projectId: string, collection: SnapshotCollection | AppCollection): FeedSnapshot {
   // Usage counts are filled when first read; the writes are noted like any other and come again as events.
   if (collection === 'terms') fillTermUsage(db, projectId);
-  const rows = READERS[collection](db, projectId);
+  const rows = READERS[collection](db, projectId, undefined, deps);
   return { seq: rowChangesOf(db.$client).seq, rows };
 }
 
@@ -91,18 +104,18 @@ export function feedSnapshot(db: Db, projectId: string, collection: SnapshotColl
 const DERIVED = new Set<FeedCollection>(['events', 'workflows']);
 const sentRows = new WeakMap<Db['$client'], Map<string, Map<string, string>>>();
 
-function derivedChanges(db: Db, projectId: string, collection: FeedCollection) {
+function derivedChanges(db: Db, deps: FeedDeps, projectId: string, collection: FeedCollection) {
   const byProject = sentRows.get(db.$client) ?? new Map<string, Map<string, string>>();
   sentRows.set(db.$client, byProject);
   const key = `${projectId}:${collection}`;
   const before = byProject.get(key) ?? new Map<string, string>();
-  const now = new Map(READERS[collection](db, projectId).map((row) => [row.id, { row, json: JSON.stringify(row) }] as const));
+  const now = new Map(READERS[collection](db, projectId, undefined, deps).map((row) => [row.id, { row, json: JSON.stringify(row) }] as const));
   byProject.set(key, new Map([...now].map(([id, { json }]) => [id, json])));
   return { upsert: [...now.values()].filter(({ row, json }) => before.get(row.id) !== json).map(({ row }) => row), delete: [...before.keys()].filter((id) => !now.has(id)) };
 }
 
 /** The project's rows changed since the last event, read again now; null when none. */
-export function feedRows(db: Db, projectId: string): { rows: FeedRows; seq: number } | null {
+export function feedRows(db: Db, deps: FeedDeps, projectId: string): { rows: FeedRows; seq: number } | null {
   const changes = rowChangesOf(db.$client).take(projectId);
   if (!changes.size) return null;
   const rows: FeedRows = {};
@@ -110,7 +123,7 @@ export function feedRows(db: Db, projectId: string): { rows: FeedRows; seq: numb
     const read = READERS[collection as FeedCollection];
     if (!read) continue;
     if (DERIVED.has(collection as FeedCollection)) {
-      const diff = derivedChanges(db, projectId, collection as FeedCollection);
+      const diff = derivedChanges(db, deps, projectId, collection as FeedCollection);
       if (diff.upsert.length || diff.delete.length) rows[collection as FeedCollection] = diff;
       continue;
     }
@@ -120,7 +133,7 @@ export function feedRows(db: Db, projectId: string): { rows: FeedRows; seq: numb
       rows[collection as FeedCollection] = ids.length > FEED_UNITS_LIMIT ? { upsert: [], delete: [], reload: true } : { upsert: [], delete: ids.filter((id) => changed.get(id) === 'delete'), changed: ids.filter((id) => changed.get(id) !== 'delete') };
       continue;
     }
-    const upsert = read(db, projectId, ids);
+    const upsert = read(db, projectId, ids, deps);
     const listed = new Set(upsert.map((row) => row.id));
     rows[collection as FeedCollection] = { upsert, delete: ids.filter((id) => !listed.has(id)) };
   }

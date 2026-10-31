@@ -827,6 +827,13 @@
       "when": 1793460543186,
       "tag": "0117_row_feed_proposals",
       "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "6",
+      "when": 1793462599637,
+      "tag": "0118_row_feed_app",
+      "breakpoints": true
     }
   ]
 }

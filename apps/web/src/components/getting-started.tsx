@@ -1,15 +1,14 @@
 import { useState, type ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
 import { Check, Play, X } from 'lucide-react';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { Box, Button, Icon, Inline, SectionHeading, Stack, StepMarker, Text } from '@loca/ui';
 import { HeaderActions } from '@/components/page';
-import { q } from '@/lib/queries';
 import { useTerms } from '@/lib/terms';
 import { useCharacters, useSpeechRules } from '@/lib/knowledge';
 import { useRuns } from '@/lib/runs';
 import { useProject } from '@/lib/project';
+import { useConnections } from '@/lib/app-data';
 
 interface Step {
   key: string;
@@ -30,7 +29,7 @@ interface Step {
  * person closes it (kept per project in this browser; '시작하기' in the header brings it back).
  */
 export function GettingStarted({ projectId }: { projectId: string }) {
-  const connections = useQuery(q.connections({ kind: 'project', projectId }));
+  const connections = useConnections({ kind: 'project', projectId });
   const characters = useCharacters(projectId);
   const rules = useSpeechRules(projectId);
   const terms = useTerms(projectId);

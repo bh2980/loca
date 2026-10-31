@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, isNull, ne, or, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
 import { editorAiSchema, exclusionRulesSchema } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import { inList } from '../db/chunk.ts';
@@ -13,6 +13,24 @@ import { knownListenerSql } from './line-marks.ts';
 export function projectRows(db: Db, projectId: string) {
   const project = db.select().from(s.projects).where(eq(s.projects.id, projectId)).get();
   return project ? [{ ...project, exclusionRules: exclusionRulesSchema.parse(project.exclusionRules), editorAi: editorAiSchema.parse(project.editorAi) }] : [];
+}
+
+/** The projects list (home, sidebar): newest first, with how many lines each has. Only `ids` when given. */
+export function projectListRows(db: Db, ids?: readonly string[]) {
+  return db
+    .select({
+      id: s.projects.id,
+      name: s.projects.name,
+      description: s.projects.description,
+      sourceLanguage: s.projects.sourceLanguage,
+      targetLanguage: s.projects.targetLanguage,
+      updatedAt: s.projects.updatedAt,
+      units: sql<number>`(select count(*) from units u where u.project_id = "projects"."id")`,
+    })
+    .from(s.projects)
+    .where(ids ? inList(s.projects.id, ids) : undefined)
+    .orderBy(desc(s.projects.updatedAt))
+    .all();
 }
 
 /**

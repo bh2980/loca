@@ -1,14 +1,13 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
 import { FolderOpen } from 'lucide-react';
 import { Button, SectionHeading, EmptyContent, EmptyHeader, EmptyMedia, EmptyTitle, Box, Inline, Stack, BrandMark, Grid, ProjectCard, ProjectCardLink, ProjectListFrame, Skeleton, EmptyState } from '@loca/ui';
 import { ImportProjectDialog } from '@/components/import-project';
-import { q } from '@/lib/queries';
+import { useProjects } from '@/lib/app-data';
 
 export const Route = createFileRoute('/')({ component: Home });
 
 function Home() {
-  const projects = useQuery(q.projects());
+  const projects = useProjects();
   return (
     <ProjectListFrame>
       <Stack as="header" direction="row" align="end" justify="between" gap="comfortable" marginBottom="wide">

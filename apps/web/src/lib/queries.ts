@@ -1,7 +1,6 @@
 import { infiniteQueryOptions, keepPreviousData, queryOptions } from '@tanstack/react-query';
 import { ATTACH_PAGE, normalizeTagScopes, type AttachKind, type DetectedCustomFormatRule, type DetectedFormatPreset, type FormatPreset, type MarkStyles, type TagScope } from '@tw/shared';
 import { client, unwrap } from './api';
-import { connectionsApi, targetScope, type SettingsTarget } from './settings-target';
 import { useProject } from './project';
 
 /**
@@ -23,9 +22,6 @@ export const q = {
     queryKey: ['units', 'reading-route-between', projectId, query],
     queryFn: () => unwrap(client.projects[':projectId']['reading-route'].$get({ param: { projectId }, query })),
   }),
-  /** The home's defaults a new project is made from (app topic). */
-  appDefaults: () => queryOptions({ queryKey: ['app', 'defaults'], queryFn: () => unwrap(client.app.defaults.$get()) }),
-  projects: () => queryOptions({ queryKey: ['projects'], queryFn: () => unwrap(client.projects.$get()) }),
   /** Every line a filter matches (id and scene, script order), for walking them inside their scenes. */
   unitMatches: (projectId: string, query: { groupId?: string; kind?: 'scene' | 'document' | 'ui'; section?: string; statusId?: string; tagIds?: string; q?: string; speaker?: string; listener?: string; review?: '1'; marks?: string }) =>
     queryOptions({ queryKey: ['units', 'matches', projectId, query], queryFn: () => unwrap(client.projects[':projectId'].units.matches.$get({ param: { projectId }, query })) }),
@@ -95,9 +91,6 @@ export const q = {
       queryFn: () => unwrap(client.projects[':projectId'].units['by-keys'].$post({ param: { projectId }, json: { keys } })),
       enabled: keys.length > 0,
     }),
-  /** AI connections of a project, or the home's defaults (a new project copies them). */
-  connections: (target: SettingsTarget) =>
-    queryOptions({ queryKey: ['connections', targetScope(target)], queryFn: () => unwrap(connectionsApi(target).list()) }),
   /** Recent model tests of one connection (AI log rows outside any project). */
   connectionTests: (connectionId: string) => queryOptions({ queryKey: ['calls', 'tests', connectionId], queryFn: () => unwrap(client.connections[':id'].tests.$get({ param: { id: connectionId } })) }),
   /** The project's AI log (every model request); `kind` narrows it to one source. */

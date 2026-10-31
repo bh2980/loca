@@ -28,7 +28,7 @@ const byProject = <T extends ProjectTable>(table: T, id: string, projectId: stri
 
 export const knowledgeRoutes = new Hono<Env>()
   /** A browser collection's rows and the feed's count: its first load, kept current by the change events' rows. */
-  .get('/sync/:collection', validate('param', z.object({ collection: z.enum(SNAPSHOT_COLLECTIONS) })), (c) => c.json(feedSnapshot(c.var.deps.db, c.req.param('projectId')!, c.req.valid('param').collection)))
+  .get('/sync/:collection', validate('param', z.object({ collection: z.enum(SNAPSHOT_COLLECTIONS) })), (c) => c.json(feedSnapshot(c.var.deps.db, c.var.deps, c.req.param('projectId')!, c.req.valid('param').collection)))
   .get('/terms', (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId')!;

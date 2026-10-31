@@ -3,7 +3,7 @@
  * database reports every changed row (triggers, apps/server/drizzle/0106_row_feed.sql and the row_feed migrations after it), and each change
  * event carries those rows as the snapshot has them, so the browser patches rows instead of refetching.
  */
-export const FEED_COLLECTIONS = ['terms', 'characters', 'relationships', 'speechRules', 'documents', 'statuses', 'tags', 'groups', 'runs', 'project', 'speakers', 'listeners', 'events', 'workflows', 'statusCounts', 'tagCounts', 'units', 'runItems', 'proposals'] as const;
+export const FEED_COLLECTIONS = ['terms', 'characters', 'relationships', 'speechRules', 'documents', 'statuses', 'tags', 'groups', 'runs', 'project', 'speakers', 'listeners', 'events', 'workflows', 'statusCounts', 'tagCounts', 'units', 'runItems', 'proposals', 'projects', 'appDefaults', 'connections'] as const;
 export type FeedCollection = (typeof FEED_COLLECTIONS)[number];
 /**
  * The collections the browser loads whole. Lines are too many: it holds the ones it shows (POST
@@ -12,7 +12,17 @@ export type FeedCollection = (typeof FEED_COLLECTIONS)[number];
 /** Collections the browser holds only part of (the rows it shows), named in events by id: lines, run items and proposals. */
 export const HELD_COLLECTIONS = ['units', 'runItems', 'proposals'] as const satisfies readonly FeedCollection[];
 export type HeldCollection = (typeof HELD_COLLECTIONS)[number];
-export const SNAPSHOT_COLLECTIONS = FEED_COLLECTIONS.filter((name): name is Exclude<FeedCollection, HeldCollection> => !(HELD_COLLECTIONS as readonly string[]).includes(name));
+/**
+ * The app's own rows, noted under the scope APP_FEED instead of a project: the projects list, the home's
+ * defaults (one row, id 'defaults') and the home's connections. A project has connections of its own too,
+ * in its own scope.
+ */
+export const APP_FEED = 'app';
+export const APP_COLLECTIONS = ['projects', 'appDefaults', 'connections'] as const satisfies readonly FeedCollection[];
+export type AppCollection = (typeof APP_COLLECTIONS)[number];
+const APP_ONLY: readonly string[] = ['projects', 'appDefaults'];
+/** What a project's collections load whole (GET /projects/:id/sync/:collection). */
+export const SNAPSHOT_COLLECTIONS = FEED_COLLECTIONS.filter((name): name is Exclude<FeedCollection, HeldCollection | 'projects' | 'appDefaults'> => !(HELD_COLLECTIONS as readonly string[]).includes(name) && !APP_ONLY.includes(name));
 export type SnapshotCollection = (typeof SNAPSHOT_COLLECTIONS)[number];
 /** More changed rows of a held collection than this in one event go out as `reload` instead of ids (a bulk change, an import). */
 export const FEED_UNITS_LIMIT = 500;

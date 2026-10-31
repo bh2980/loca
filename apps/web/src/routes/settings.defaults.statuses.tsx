@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import type { AppDefaults, TemplateStatus, TemplateTag } from '@tw/shared';
@@ -9,11 +9,9 @@ import { Page } from '@/components/page';
 import { StatusPane } from '@/components/settings/status-pane';
 import { TagPane } from '@/components/settings/tag-pane';
 import { scopeLabel, type StatusForm, type TagForm } from '@/components/settings/status-types';
-import { client, unwrap } from '@/lib/api';
 import { STATUS_KIND } from '@/lib/labels';
-import { optimistic } from '@/lib/optimistic';
-import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
+import { saveAppDefaults, useAppDefaults } from '@/lib/app-data';
 
 type StatusSearch = { status?: string; tag?: string };
 const param = (value: unknown) => (typeof value === 'string' && value ? value : undefined);
@@ -29,8 +27,7 @@ type Patch = Partial<Pick<AppDefaults, 'statuses' | 'tags'>>;
 function AppStatusSettings() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
-  const queryClient = useQueryClient();
-  const defaults = useQuery(q.appDefaults());
+  const defaults = useAppDefaults();
   const statuses = defaults.data?.statuses as TemplateStatus[] | undefined;
   const tags = defaults.data?.tags as TemplateTag[] | undefined;
   const [removing, setRemoving] = useState<TemplateStatus | null>(null);
@@ -46,12 +43,9 @@ function AppStatusSettings() {
   ]);
 
   const save = useMutation({
-    mutationFn: (patch: Patch) => unwrap(client.app.defaults.$patch({ json: patch as never })),
-    onMutate: async (patch) => ({ undo: await optimistic(queryClient, [{ key: q.appDefaults().queryKey, update: (old: object) => ({ ...old, ...patch }) }]) }),
-    onError: (error, _patch, context) => {
-      context?.undo();
-      toast.error(error.message);
-    },
+    // Shown at once, put back on failure.
+    mutationFn: (patch: Patch) => saveAppDefaults(patch as never),
+    onError: (error) => toast.error(error.message),
   });
   const saved = (message: string, after?: () => void) => ({
     onSuccess: () => {

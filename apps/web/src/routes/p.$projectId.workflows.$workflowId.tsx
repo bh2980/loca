@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import {
   addEdge,
   Background,
@@ -38,7 +38,7 @@ import { useFoldState } from '@/components/workflow/use-fold-state';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { SplitPane, PageHeading, HeaderActions, NodeLibrary, CanvasToolbar, CanvasSurface, SelectionToolbox, type CanvasDirection, type NodeLibraryGroup, Box, Button, Icon, Inline, Stack, Text, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent, DropdownMenuLabel, Input, Skeleton, Popover, PopoverContent, PopoverTrigger } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
-import { tagsIn, q } from '@/lib/queries';
+import { tagsIn } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { workflowEdits } from '@/lib/workflow-edits';
 import { sameWorkflowDraft, reconcileSavedDraft, normalizeWorkflowDraft } from '@/lib/workflow-draft';
@@ -49,6 +49,7 @@ import { useTaxonomy } from '@/lib/knowledge';
 import { useRuns } from '@/lib/runs';
 import { useWorkflow, useWorkflows } from '@/lib/workflows';
 import { sent as sentToFeed } from '@/lib/collections';
+import { useConnections } from '@/lib/app-data';
 
 /** When the workflow was last saved: 10. 13. 오전 06:16. Runs keep their own copy of what they ran. */
 const savedAt = (at: string) => dateTime(at);
@@ -148,7 +149,7 @@ function WorkflowEditor() {
   const [minimap, setMinimap] = useState(false);
   const workflow = useWorkflow(projectId, workflowId);
   const taxonomy = useTaxonomy(projectId);
-  const connections = useQuery(q.connections({ kind: 'project', projectId }));
+  const connections = useConnections({ kind: 'project', projectId });
   const runs = useRuns(projectId);
   const workflows = useWorkflows(projectId);
   const activeRun = runs.data?.find((run) => run.workflowId === workflowId && (run.status === 'running' || run.status === 'paused'));

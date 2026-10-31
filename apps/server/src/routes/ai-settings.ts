@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { and, asc, desc, eq, isNull, type SQL } from 'drizzle-orm';
+import { and, desc, eq, isNull, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import * as ai from '@tw/ai';
 import { CALL_TIMEOUT_MS, CONNECTION_KIND_INFO, connectionInputSchema, patchOf } from '@tw/shared';
@@ -8,6 +8,7 @@ import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { logged } from '../services/ai-calls.ts';
+import { connectionRows } from '../services/connection-rows.ts';
 import type { Db } from '../db/index.ts';
 import { choiceLabel, connectionRoute, liveChoice } from '../services/routes.ts';
 
@@ -47,8 +48,7 @@ export const connectionRoutes = new Hono<Env>()
   })
   .get('/', (c) => {
     const { db, secrets } = c.var.deps;
-    const rows = db.select().from(s.connections).where(inScope(scopeOf(c))).orderBy(asc(s.connections.name)).all();
-    return c.json(rows.map((row) => ({ ...row, hasKey: secrets.get(row.id) !== null, keyCopyPending: !!db.select().from(s.connectionKeyCopies).where(eq(s.connectionKeyCopies.targetId, row.id)).get() })));
+    return c.json(connectionRows(db, secrets, scopeOf(c)));
   })
   .post('/', validate('json', connectionInputSchema.extend({ apiKey: z.string().optional() })), (c) => {
     const { db, secrets } = c.var.deps;
@@ -86,6 +86,8 @@ export const connectionRoutes = new Hono<Env>()
     scoped(c, c.req.param('id'));
     secrets.set(c.req.param('id'), c.req.valid('json').apiKey);
     db.delete(s.connectionKeyCopies).where(eq(s.connectionKeyCopies.targetId, c.req.param('id'))).run();
+    // The key is in the keyring, not the row: say when it changed, so the row feed sends the row again (0118).
+    db.update(s.connections).set({ keyUpdatedAt: new Date() }).where(eq(s.connections.id, c.req.param('id'))).run();
     events.changed(scopeOf(c) ?? undefined, 'connections');
     return c.json({ ok: true });
   })
@@ -93,6 +95,7 @@ export const connectionRoutes = new Hono<Env>()
     scoped(c, c.req.param('id'));
     c.var.deps.secrets.delete(c.req.param('id'));
     c.var.deps.db.delete(s.connectionKeyCopies).where(eq(s.connectionKeyCopies.targetId, c.req.param('id'))).run();
+    c.var.deps.db.update(s.connections).set({ keyUpdatedAt: new Date() }).where(eq(s.connections.id, c.req.param('id'))).run();
     events.changed(scopeOf(c) ?? undefined, 'connections');
     return c.json({ ok: true });
   })

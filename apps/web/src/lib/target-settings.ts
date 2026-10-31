@@ -1,38 +1,31 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { editorCalls, saveProject, saveProjectPrompts, useProject } from '@/lib/project';
 import { toast } from 'sonner';
 import { agentSettingsSchema, DEFAULT_EDITOR_AI, type AgentSettings, type EditorAi, type SavedPrompt } from '@tw/shared';
-import { client, unwrap } from '@/lib/api';
-import { optimistic } from '@/lib/optimistic';
-import { q } from '@/lib/queries';
 import type { SettingsTarget } from '@/lib/settings-target';
+import { saveAppDefaults, useAppDefaults } from '@/lib/app-data';
 
 export type SettingsPatch = { editorAi?: EditorAi; agentSettings?: AgentSettings; aiAutoConfirm?: boolean };
 
 /**
  * Reads and saves the settings a project and the home's defaults share (editorAi, agentSettings,
- * aiAutoConfirm). A project reads its row (useProject) and saves through saveProject; the home reads
- * `q.appDefaults` and patches `/app/defaults`. The change shows at once and is put back on failure.
+ * aiAutoConfirm). A project reads its row (useProject) and saves through saveProject; the home reads its
+ * defaults row (useAppDefaults) and saves through saveAppDefaults. The change shows at once and is put back on failure.
  */
 export function useTargetSettings(target: SettingsTarget) {
-  const queryClient = useQueryClient();
   const projectId = target.kind === 'project' ? target.projectId : undefined;
   const project = useProject(projectId);
-  const app = useQuery({ ...q.appDefaults(), enabled: !projectId });
+  const app = useAppDefaults({ enabled: !projectId });
   const calls = useQuery({ ...editorCalls(projectId ?? ''), enabled: !!projectId });
   const data = projectId ? project.data : app.data;
 
   const save = useMutation({
     mutationFn: async (patch: SettingsPatch) => {
       if (projectId) await saveProject(projectId, patch as never);
-      else await unwrap(client.app.defaults.$patch({ json: patch as never }));
+      else await saveAppDefaults(patch as never);
     },
-    // The home's defaults are a query: shown at once, put back on failure (a project's row does this itself).
-    onMutate: async (patch) => ({ undo: projectId ? undefined : await optimistic(queryClient, [{ key: q.appDefaults().queryKey, update: (old: object) => ({ ...old, ...patch }) }]) }),
-    onError: (error, _patch, context) => {
-      context?.undo?.();
-      toast.error(error.message);
-    },
+    // Both show the change at once and put it back on failure.
+    onError: (error) => toast.error(error.message),
   });
 
   return {

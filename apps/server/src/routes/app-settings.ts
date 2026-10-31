@@ -1,9 +1,10 @@
 import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { APP_DEFAULT_SECTIONS, appDefaultsPatchSchema } from '@tw/shared';
+import { APP_COLLECTIONS, APP_DEFAULT_SECTIONS, APP_FEED, appDefaultsPatchSchema } from '@tw/shared';
 import { found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
+import { feedSnapshot } from '../feed.ts';
 import { pullDefaults, pushDefaults, readAppDefaults, writeAppDefaults } from '../services/app-defaults.ts';
 
 const sections = z.array(z.enum(APP_DEFAULT_SECTIONS)).min(1);
@@ -11,6 +12,8 @@ const sections = z.array(z.enum(APP_DEFAULT_SECTIONS)).min(1);
 /** 홈 설정: the defaults a new project is made from, and a project's 가져오기 / 홈 기본값으로 저장. */
 export const appSettingsRoutes = new Hono<Env>()
   .get('/app/defaults', (c) => c.json(readAppDefaults(c.var.deps.db)))
+  /** The app's collections (the projects list, the home defaults, the home connections) as the browser loads them first. */
+  .get('/app/sync/:collection', validate('param', z.object({ collection: z.enum(APP_COLLECTIONS) })), (c) => c.json(feedSnapshot(c.var.deps.db, c.var.deps, APP_FEED, c.req.valid('param').collection)))
   // Each section sent replaces the stored one whole.
   .patch('/app/defaults', validate('json', appDefaultsPatchSchema), (c) => c.json(writeAppDefaults(c.var.deps.db, c.req.valid('json'))))
   .post('/projects/:projectId/defaults/pull', validate('json', z.object({ sections })), (c) => {

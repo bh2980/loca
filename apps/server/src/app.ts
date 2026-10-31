@@ -23,7 +23,7 @@ export function createApp(deps: Deps) {
   // The row feed: the database notes each changed row of the browser's collections, and the change
   // event that follows carries them (feed.ts).
   rowChangesOf(deps.db.$client).listener = (projectId, seq) => events.rowsChanged(projectId, seq);
-  events.rowSource = (projectId) => feedRows(deps.db, projectId);
+  events.rowSource = (projectId) => feedRows(deps.db, deps, projectId);
   const api = new Hono<Env>()
     .use(async (c, next) => {
       c.set('deps', deps);

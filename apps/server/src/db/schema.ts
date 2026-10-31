@@ -506,6 +506,8 @@ export const connections = sqliteTable('connections', {
   createdAt: createdAt(),
   /** Model id → its context window and output limit (from the model list, or a person's numbers); what "auto" budgets read. */
   modelLimits: json<Record<string, ModelLimits>>('model_limits').notNull().default(sql`'{}'`),
+  /** When its key was last set or removed (the key itself is in the OS keyring): a change the row feed can see. */
+  keyUpdatedAt: integer('key_updated_at', { mode: 'timestamp_ms' }),
 });
 
 /** A committed connection copy whose OS credential still needs applying; never contains secrets. */

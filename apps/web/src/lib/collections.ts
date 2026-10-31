@@ -1,5 +1,5 @@
 import { createCollection, type Collection } from '@tanstack/react-db';
-import type { FeedChanges, FeedCollection, FeedSnapshot, SnapshotCollection } from '@tw/shared';
+import { APP_FEED, type AppCollection, type FeedChanges, type FeedCollection, type FeedSnapshot, type SnapshotCollection } from '@tw/shared';
 import { client, unwrap, unwrapSeq } from './api';
 import { feed } from './feed';
 
@@ -100,13 +100,25 @@ const opened = new Map<string, Collection<Row, string>>();
 
 /** A project's collection of `name` (one per project, shared by every screen), loaded from its snapshot route. */
 export function projectCollection<T extends Row>(name: SnapshotCollection, projectId: string): Collection<T, string> {
-  const id = `${name}:${projectId}`;
+  return scopeCollection<T>(name, projectId);
+}
+
+/** The app's collection of `name` (the projects list, the home defaults, the home connections): the feed's scope APP_FEED. */
+export function appCollection<T extends Row>(name: AppCollection): Collection<T, string> {
+  return scopeCollection<T>(name, APP_FEED);
+}
+
+function scopeCollection<T extends Row>(name: SnapshotCollection | AppCollection, scope: string): Collection<T, string> {
+  const id = `${name}:${scope}`;
   let collection = opened.get(id);
   if (!collection) {
     collection = feedCollection<Row>({
-      projectId,
+      projectId: scope,
       name,
-      load: () => unwrap(client.projects[':projectId'].sync[':collection'].$get({ param: { projectId, collection: name } })) as Promise<FeedSnapshot>,
+      load: () =>
+        (scope === APP_FEED
+          ? unwrap(client.app.sync[':collection'].$get({ param: { collection: name as AppCollection } }))
+          : unwrap(client.projects[':projectId'].sync[':collection'].$get({ param: { projectId: scope, collection: name as SnapshotCollection } }))) as Promise<FeedSnapshot>,
     });
     opened.set(id, collection);
   }
