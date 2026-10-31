@@ -20,6 +20,8 @@ import { retryLiveText } from '@/lib/retry-info';
 import { useIsDark } from '@/lib/theme';
 import { useTaxonomy } from '@/lib/knowledge';
 import { useConnections } from '@/lib/app-data';
+import { autoLayout } from '@/components/workflow/auto-layout';
+import { toast } from 'sonner';
 
 const nodeTypes = { workflow: WorkflowNodeView };
 /** The whole graph, never larger than 100%. */
@@ -37,6 +39,28 @@ export interface RunGraphData {
 }
 
 const viewportKey = (runId: string) => `loca.run.viewport.${runId}`;
+/**
+ * Where this browser put a run's nodes: dragged or arranged here, for looking only. The run's definition (a copy of the
+ * workflow as it started) and the workflow itself keep theirs. `routes`: the arranged lines; null after a drag (straight lines).
+ */
+type RunLayout = { positions: Record<string, { x: number; y: number }>; routes: Record<string, unknown> | null };
+const layoutKey = (runId: string) => `loca.run.layout.${runId}`;
+function readLayout(runId: string): RunLayout | undefined {
+  try {
+    const raw = localStorage.getItem(layoutKey(runId));
+    return raw ? (JSON.parse(raw) as RunLayout) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+function writeLayout(runId: string, layout: RunLayout) {
+  try {
+    localStorage.setItem(layoutKey(runId), JSON.stringify(layout));
+  } catch {
+    // Not remembered: the next look shows the run's own placement.
+  }
+}
+
 function readViewport(runId: string): Viewport | undefined {
   try {
     const value = JSON.parse(sessionStorage.getItem(viewportKey(runId)) ?? 'null');
@@ -61,7 +85,20 @@ function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; ru
   const taxonomy = useTaxonomy(projectId);
   const connections = useConnections({ kind: 'project', projectId });
   // Each call is one card (its nodes are listed when it is opened); the run's own definition has them expanded.
-  const definition = useMemo(() => collapseCalls(run.definition), [run.definition]);
+  const [layout, setLayout] = useState<RunLayout | undefined>(() => readLayout(run.id));
+  const keepLayout = (next: RunLayout) => {
+    setLayout(next);
+    writeLayout(run.id, next);
+  };
+  const definition = useMemo(() => {
+    const base = collapseCalls(run.definition);
+    if (!layout) return base;
+    return {
+      ...base,
+      nodes: base.nodes.map((node) => (layout.positions[node.id] ? { ...node, position: layout.positions[node.id] } : node)),
+      edges: base.edges.map((edge) => ({ ...edge, layout: (layout.routes ? layout.routes[edge.id] : undefined) as typeof edge.layout })),
+    };
+  }, [run.definition, layout]);
   const [openCall, setOpenCall] = useState<string>();
   const direction: CanvasDirection = definition.direction ?? 'vertical';
   const saved = useMemo(() => readViewport(run.id), [run.id]);
@@ -71,9 +108,30 @@ function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; ru
   // Nodes are rebuilt on every refresh; the sizes React Flow measured go back on them (as in the editor),
   // or a rebuilt node is unmeasured again and the view cannot fit it.
   const [sizes, setSizes] = useState<Record<string, { width: number; height: number }>>({});
+  // While a node is dragged it follows the pointer here; where it is dropped is kept (and the lines go straight).
+  const [dragging, setDragging] = useState<Record<string, { x: number; y: number }>>({});
   const onNodesChange = (changes: NodeChange<FlowNode>[]) => {
     const sized = changes.flatMap((change) => (change.type === 'dimensions' && change.dimensions ? [[change.id, change.dimensions] as const] : []));
     if (sized.length) setSizes((previous) => ({ ...previous, ...Object.fromEntries(sized) }));
+    const moved = changes.flatMap((change) => (change.type === 'position' && change.position ? [change] : []));
+    if (!moved.length) return;
+    const dropped = moved.filter((change) => !change.dragging);
+    setDragging((previous) => {
+      const next = { ...previous };
+      for (const change of moved) if (change.dragging) next[change.id] = change.position!; else delete next[change.id];
+      return next;
+    });
+    if (dropped.length) keepLayout({ positions: { ...layout?.positions, ...Object.fromEntries(dropped.map((change) => [change.id, change.position!])) }, routes: null });
+  };
+  const arrange = async () => {
+    const measuredSizes = new Map(flow.getNodes().map((node) => [node.id, { width: node.measured?.width ?? 224, height: node.measured?.height ?? 66 }]));
+    try {
+      const next = await autoLayout(view.definition, measuredSizes, direction);
+      keepLayout({ positions: { ...layout?.positions, ...Object.fromEntries(next.nodes.map((node) => [node.id, node.position])) }, routes: Object.fromEntries(next.edges.map((edge) => [edge.id, edge.layout])) });
+      requestAnimationFrame(() => void flow.fitView({ ...FIT, duration: 300 }));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '자동 정렬하지 못했습니다.');
+    }
   };
   // 접기, as in the editor: side nodes are chips (with their lines' counts) until opened.
   const folds = useMemo(() => computeFolds(definition), [definition]);
@@ -92,10 +150,10 @@ function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; ru
       .map((node) => ({
         id: node.id,
         type: 'workflow',
-        position: placements.get(node.id) ?? node.position,
+        position: dragging[node.id] ?? placements.get(node.id) ?? node.position,
         measured: sizes[node.id],
         selected: node.id === selected || callOf(run.definition, selected ?? '') === node.id,
-        draggable: false,
+        draggable: true,
         connectable: false,
         deletable: false,
         data: {
@@ -112,7 +170,7 @@ function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; ru
           foldClose: (() => { const fold = folds.find((item) => item.kind === 'edge' && item.nodeIds[0] === node.id && isFoldOpen(foldState, item.id)); return fold && (() => setFoldState((state) => toggleFold(state, fold.id))); })(),
         },
       }));
-  }, [definition, view, folds, foldState, placements, run.definition, direction, live, selected, sizes, taxonomy.statuses, connections.data, setFoldState]);
+  }, [definition, view, folds, foldState, placements, run.definition, direction, live, selected, sizes, dragging, taxonomy.statuses, connections.data, setFoldState]);
   const edges = useMemo(() => {
     const chips = new Map(view.closed.filter((fold) => fold.kind === 'edge').map((fold) => [fold.edgeId, fold] as const));
     const foldNames = { status: new Map(taxonomy.statuses?.map((status) => [status.id, status.name])) };
@@ -139,7 +197,7 @@ function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; ru
       nodeTypes={nodeTypes}
       edgeTypes={edgeTypes}
       onNodesChange={onNodesChange}
-      nodesDraggable={false}
+      nodesDraggable
       nodesConnectable={false}
       edgesFocusable={false}
       minZoom={0.05}
@@ -176,7 +234,7 @@ function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; ru
         </Panel></Box>
       )}
       <Panel position="bottom-right">
-        <CanvasToolbar zoomPercent={zoom * 100} onZoomIn={() => void flow.zoomIn()} onZoomOut={() => void flow.zoomOut()} onFit={() => void flow.fitView({ ...FIT, duration: 200 })} onResetZoom={() => void flow.zoomTo(1, { duration: 180 })} foldsOpen={folds.length ? allFoldsOpen(folds, foldState) : undefined} onToggleFolds={() => setFoldState(setAllFolds(folds, !allFoldsOpen(folds, foldState)))} />
+        <CanvasToolbar zoomPercent={zoom * 100} onZoomIn={() => void flow.zoomIn()} onZoomOut={() => void flow.zoomOut()} onFit={() => void flow.fitView({ ...FIT, duration: 200 })} onResetZoom={() => void flow.zoomTo(1, { duration: 180 })} foldsOpen={folds.length ? allFoldsOpen(folds, foldState) : undefined} onToggleFolds={() => setFoldState(setAllFolds(folds, !allFoldsOpen(folds, foldState)))} onLayout={() => void arrange()} layoutLabel="자동 정렬" />
       </Panel>
     </ReactFlow>
   );
