@@ -1,6 +1,4 @@
-import { useQueryClient } from '@tanstack/react-query';
 import { unwrap } from '@/lib/api';
-import { q } from '@/lib/queries';
 import { freeName, useGraphHistory } from './graph-history';
 
 interface StoryEvent {
@@ -30,8 +28,7 @@ export const parseLineKey = (key: string | undefined): FlowLine | null => {
  * the other graphs.
  */
 export function useEventFlowActions({ projectId, events, open }: { projectId: string; events: StoryEvent[]; open: (item: string) => void }) {
-  const queryClient = useQueryClient();
-  const { api, param, remove, restore, run, record, created, undo, redo } = useGraphHistory(projectId, () => void queryClient.invalidateQueries({ queryKey: q.storyEvents(projectId).queryKey }));
+  const { api, param, remove, restore, run, record, created, undo, redo } = useGraphHistory(projectId);
   const link = (line: FlowLine, action: 'link' | 'unlink') => unwrap(api['event-links'].$post({ param, json: { ...line, action } }));
   const setLink = (line: FlowLine, kind: PairLink) => unwrap(api['event-links'].$put({ param, json: { ...line, kind } }));
   /** Takes the lines away, then the events (whose own lines go with them); returns how to put it all back. */

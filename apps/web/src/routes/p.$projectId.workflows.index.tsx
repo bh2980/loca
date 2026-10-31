@@ -1,6 +1,6 @@
 import { Fragment, useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { Copy, Play, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { WORKFLOW_TEMPLATES } from '@tw/shared';
@@ -8,22 +8,21 @@ import { EmptyState, DataTable, type ColumnDef, RunStatusBadge, AlertDialog, Ale
 import { HeaderActions, Page } from '@/components/page';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { client, unwrap } from '@/lib/api';
-import { q } from '@/lib/queries';
 import { dateTime } from '@/lib/datetime';
 import { useRuns } from '@/lib/runs';
+import { useWorkflows } from '@/lib/workflows';
+import { sent } from '@/lib/collections';
 
 export const Route = createFileRoute('/p/$projectId/workflows/')({ component: Workflows });
 
 function Workflows() {
   const { projectId } = Route.useParams();
   const navigate = Route.useNavigate();
-  const queryClient = useQueryClient();
-  const workflows = useQuery(q.workflows(projectId));
+  const workflows = useWorkflows(projectId);
   const runs = useRuns(projectId);
   const remove = useMutation({
-    mutationFn: (id: string) => unwrap(client.workflows[':id'].$delete({ param: { id } })),
+    mutationFn: (id: string) => sent(projectId, client.workflows[':id'].$delete({ param: { id } })),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: q.workflows(projectId).queryKey });
       toast.success('워크플로를 삭제했습니다.');
     },
     onError: (error) => toast.error(error.message),
@@ -31,9 +30,8 @@ function Workflows() {
   const [deleteTarget, setDeleteTarget] = useState<Workflow | null>(null);
   type Workflow = NonNullable<typeof workflows.data>[number];
   const create = useMutation({
-    mutationFn: (template?: string) => unwrap(client.projects[':projectId'].workflows.$post({ param: { projectId }, json: template ? { template } : {} })),
+    mutationFn: (template?: string) => sent(projectId, client.projects[':projectId'].workflows.$post({ param: { projectId }, json: template ? { template } : {} })),
     onSuccess: (workflow) => {
-      queryClient.invalidateQueries({ queryKey: q.workflows(projectId).queryKey });
       void navigate({ to: '/p/$projectId/workflows/$workflowId', params: { projectId, workflowId: workflow.id } });
     },
     onError: (error) => toast.error(error.message),
@@ -47,7 +45,8 @@ function Workflows() {
           json: { name: `${workflow.name} (복사본)` },
         })
       );
-      await unwrap(
+      await sent(
+        projectId,
         client.workflows[':id'].$put({
           param: { id: created.id },
           json: {
@@ -61,7 +60,6 @@ function Workflows() {
       return created;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: q.workflows(projectId).queryKey });
       toast.success('워크플로를 복제했습니다.');
     },
     onError: (error) => toast.error(error.message),

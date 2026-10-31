@@ -1,13 +1,12 @@
 import { cloneElement, type ReactElement, type ReactNode } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
 import { BookMarked, ChevronRight, CircleAlert, Inbox, MessageSquareQuote, Sparkles, UserRoundSearch, Workflow } from 'lucide-react';
 import { GettingStarted } from '@/components/getting-started';
 import { RunStatusBadge, Box, Button, Heading, Icon, Inline, ListRow, Stack, StatusChipLink, StatusIcon, Meter, Text, TodoIcon, Skeleton } from '@loca/ui';
 import { Elapsed, JobProgress } from '@/components/job-progress';
 import { Page } from '@/components/page';
 import { aiDecided, AUTO_MARKS, markName } from '@tw/shared';
-import { q, useMarkStyles } from '@/lib/queries';
+import { useMarkStyles } from '@/lib/queries';
 import { dateTime } from '@/lib/datetime';
 import { useProgress } from '@/lib/use-progress';
 import { SCRIPT_VIEW } from '@/lib/labels';
@@ -16,7 +15,7 @@ import { useSpeechRules } from '@/lib/knowledge';
 import { useGroups } from '@/lib/groups';
 import { useRuns } from '@/lib/runs';
 import { useProjectProgress } from '@/lib/project';
-import { useCharacters, useDocuments, useRelationships } from '@/lib/knowledge';
+import { useCharacters, useDocuments, useRelationships, useStoryEvents } from '@/lib/knowledge';
 
 export const Route = createFileRoute('/p/$projectId/')({ component: Home });
 
@@ -50,7 +49,7 @@ function Home() {
   const documents = useDocuments(projectId);
   const characters = useCharacters(projectId);
   const relationships = useRelationships(projectId);
-  const storyEvents = useQuery(q.storyEvents(projectId));
+  const storyEvents = useStoryEvents(projectId);
   const rules = useSpeechRules(projectId);
   const terms = useTerms(projectId);
   const runs = useRuns(projectId);

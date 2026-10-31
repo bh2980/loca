@@ -1,8 +1,7 @@
-import { useQuery } from '@tanstack/react-query';
 import { CONTEXT_ITEM_KINDS, CONTEXT_PRIORITY, type ContextItem } from '@tw/shared';
 import { Chip, Box, Group, Inline, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Skeleton, Text } from '@loca/ui';
 import { PromptView, useRequestPreview } from '@/components/workflow/node-config/request-preview';
-import { q } from '@/lib/queries';
+import { useWorkflows } from '@/lib/workflows';
 
 const tokens = (value: number) => `약 ${value.toLocaleString()}`;
 
@@ -56,7 +55,7 @@ export function ContextItemList({ items, budget }: { items: ContextItem[]; budge
  * workflow editor's).
  */
 export function AiContextPanel({ projectId, unitKey, aiNode, onAiNode }: { projectId: string; unitKey: string; unitKind?: 'dialogue' | 'document' | 'ui'; aiNode?: string; onAiNode: (value: string) => void }) {
-  const workflows = useQuery(q.workflows(projectId));
+  const workflows = useWorkflows(projectId);
   const choices = (workflows.data ?? []).filter((workflow) => workflow.input === 'lines').flatMap((workflow) => workflow.aiNodes.map((node) => ({ value: `${workflow.id}:${node.id}`, label: `${workflow.name} › ${node.name}` })));
   const picked = choices.find((choice) => choice.value === aiNode) ?? choices[0];
   const [workflowId, nodeId] = picked?.value.split(':') ?? [];

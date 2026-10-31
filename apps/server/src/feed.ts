@@ -9,6 +9,8 @@ import { fillTermUsage } from './services/term-usage.ts';
 import { groupRows } from './services/group-rows.ts';
 import { runRows } from './services/run-rows.ts';
 import { listenerRows, projectRows, speakerRows } from './services/project-rows.ts';
+import { projectEventFlow } from './services/event-routes.ts';
+import { workflowRows } from './services/workflow-rows.ts';
 import { unitRowsByIds } from './services/unit-rows.ts';
 
 /**
@@ -59,6 +61,8 @@ const READERS: Record<FeedCollection, (db: Db, projectId: string, ids?: readonly
   project: (db, projectId) => projectRows(db, projectId),
   speakers: speakerRows,
   listeners: listenerRows,
+  events: (db, projectId) => projectEventFlow(db, projectId),
+  workflows: (db, projectId) => workflowRows(db, projectId),
   // Lines are sent as ids (feedRows); the browser reads the ones it holds by id.
   units: (db, projectId, ids) => (ids ? unitRowsByIds(db, projectId, ids) : []),
 };
@@ -71,6 +75,25 @@ export function feedSnapshot(db: Db, projectId: string, collection: SnapshotColl
   return { seq: rowChangesOf(db.$client).seq, rows };
 }
 
+/**
+ * Collections computed over many tables: the event flow (one event's place can move what follows the
+ * others) and the workflows with their problems. Their triggers note the whole collection (0113); it is
+ * computed again and only the rows that differ from what the last event sent go out. The snapshot does
+ * not move that baseline: another tab may still be waiting for the rows of changes made before it.
+ */
+const DERIVED = new Set<FeedCollection>(['events', 'workflows']);
+const sentRows = new WeakMap<Db['$client'], Map<string, Map<string, string>>>();
+
+function derivedChanges(db: Db, projectId: string, collection: FeedCollection) {
+  const byProject = sentRows.get(db.$client) ?? new Map<string, Map<string, string>>();
+  sentRows.set(db.$client, byProject);
+  const key = `${projectId}:${collection}`;
+  const before = byProject.get(key) ?? new Map<string, string>();
+  const now = new Map(READERS[collection](db, projectId).map((row) => [row.id, { row, json: JSON.stringify(row) }] as const));
+  byProject.set(key, new Map([...now].map(([id, { json }]) => [id, json])));
+  return { upsert: [...now.values()].filter(({ row, json }) => before.get(row.id) !== json).map(({ row }) => row), delete: [...before.keys()].filter((id) => !now.has(id)) };
+}
+
 /** The project's rows changed since the last event, read again now; null when none. */
 export function feedRows(db: Db, projectId: string): { rows: FeedRows; seq: number } | null {
   const changes = rowChangesOf(db.$client).take(projectId);
@@ -79,6 +102,11 @@ export function feedRows(db: Db, projectId: string): { rows: FeedRows; seq: numb
   for (const [collection, changed] of changes) {
     const read = READERS[collection as FeedCollection];
     if (!read) continue;
+    if (DERIVED.has(collection as FeedCollection)) {
+      const diff = derivedChanges(db, projectId, collection as FeedCollection);
+      if (diff.upsert.length || diff.delete.length) rows[collection as FeedCollection] = diff;
+      continue;
+    }
     const ids = [...changed.keys()];
     // Lines go out as ids: the browser holds a few of them and reads those again.
     if (collection === 'units') {

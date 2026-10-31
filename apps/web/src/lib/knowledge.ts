@@ -103,3 +103,15 @@ export function reorderTaxonomy(projectId: string, kind: 'statuses' | 'tags', id
   });
   return run().when('settled');
 }
+
+/**
+ * The story events with where each happens and what follows it (the event flow): a collection the server
+ * computes again when an event, its links or tags, its evidence lines' place or the dialogue graph
+ * changes, sending only the events whose row differs.
+ */
+export type StoryEvent = InferResponseType<Api['events']['$get']>[number];
+export const storyEventsCollection = (projectId: string) => projectCollection<StoryEvent>('events', projectId);
+
+export function useStoryEvents(projectId: string, { enabled = true }: Options = {}) {
+  return loaded<StoryEvent>(useLiveQuery((q) => (enabled ? q.from({ row: storyEventsCollection(projectId) }) : undefined)), enabled);
+}

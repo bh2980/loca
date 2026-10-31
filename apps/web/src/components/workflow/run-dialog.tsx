@@ -11,11 +11,12 @@ import { MarkChip } from '@/components/status';
 import type { ModelValue } from '@/components/model-picker';
 import { Pace, RunCaps, RunModels } from './run-estimate';
 import { startLimits, type CapEdits } from '@/lib/run-limits';
-import { tagsIn, q } from '@/lib/queries';
+import { tagsIn } from '@/lib/queries';
 import { SCRIPT_VIEW } from '@/lib/labels';
 import { useTerms } from '@/lib/terms';
 import { useTaxonomy } from '@/lib/knowledge';
 import { useGroups } from '@/lib/groups';
+import { useWorkflows } from '@/lib/workflows';
 
 /** Run-scope filters on what a row shows (the list pages' 최종 아님, 정한 쪽, 메모, 번역 비어 있음), beside statuses. */
 const RUN_FACTS = {
@@ -85,7 +86,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   // This run's models by AI node, where the person picked another than the node's own (the workflow is not changed).
   const [runModels, setRunModels] = useState<Record<string, ModelValue>>({});
   const [capEdits, setCapEdits] = useState<CapEdits>({});
-  const workflows = useQuery({ ...q.workflows(projectId), enabled: open });
+  const workflows = useWorkflows(projectId, { enabled: open });
   const rememberKey = remember && `run-dialog:${projectId}:${remember}`;
   const [chosen, setChosen] = useState<string | undefined>(() => {
     if (!rememberKey) return undefined;

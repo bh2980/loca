@@ -93,7 +93,6 @@ export const q = {
   }),
   termUsage: (projectId: string, id: string) =>
     queryOptions({ queryKey: ['terms', 'usage', id], queryFn: () => unwrap(client.projects[':projectId'].terms[':id'].usage.$get({ param: { projectId, id } })) }),
-  storyEvents: (projectId: string) => queryOptions({ queryKey: ['knowledge', 'events', projectId], queryFn: () => unwrap(client.projects[':projectId'].events.$get({ param: { projectId } })) }),
   ruleLines: (projectId: string, id: string) =>
     queryOptions({ queryKey: ['units', 'rule-lines', id], queryFn: () => unwrap(client.projects[':projectId']['speech-rules'][':id'].lines.$get({ param: { projectId, id } })) }),
   /** Lines cited as evidence, by key. */
@@ -108,8 +107,6 @@ export const q = {
     queryOptions({ queryKey: ['connections', targetScope(target)], queryFn: () => unwrap(connectionsApi(target).list()) }),
   /** Recent model tests of one connection (AI log rows outside any project). */
   connectionTests: (connectionId: string) => queryOptions({ queryKey: ['calls', 'tests', connectionId], queryFn: () => unwrap(client.connections[':id'].tests.$get({ param: { id: connectionId } })) }),
-  workflows: (projectId: string) =>
-    queryOptions({ queryKey: ['workflows', projectId], queryFn: () => unwrap(client.projects[':projectId'].workflows.$get({ param: { projectId } })) }),
   workflow: (id: string) => queryOptions({ queryKey: ['workflows', 'detail', id], queryFn: () => unwrap(client.workflows[':id'].$get({ param: { id } })) }),
   /** The project's AI log (every model request); `kind` narrows it to one source. */
   aiCalls: (projectId: string, kind?: 'run' | 'whole' | 'terms' | 'test' | 'chat', ref?: string) =>

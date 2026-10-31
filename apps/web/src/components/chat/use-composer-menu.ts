@@ -9,6 +9,7 @@ import { q } from '@/lib/queries';
 import type { ViewItem } from '@/lib/view-context';
 import { useDebounced } from './conversation-menu';
 import type { ComposerGroup, ComposerRow } from '@loca/ui';
+import { useWorkflows } from '@/lib/workflows';
 
 /** A /workflow that is waiting for its target: what has been picked so far. */
 export interface RunMode {
@@ -55,7 +56,7 @@ export function useComposerMenu(args: {
     if (!triggerKey) setDismissed(null);
   }, [triggerKey]);
 
-  const workflows = useQuery(q.workflows(projectId));
+  const workflows = useWorkflows(projectId);
   const prompts = useQuery(q.prompts(projectId));
   const commands = allCommands(workflows.data ?? [], prompts.data ?? []);
   const shownCommands = slash ? filterCommands(commands, slash.query) : [];

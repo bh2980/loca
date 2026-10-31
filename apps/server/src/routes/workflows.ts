@@ -18,6 +18,7 @@ import { continuePreflight, switchedRun } from '../services/run-continue.ts';
 import { deleteWorkflow, saveWorkflow, workflowCallers, WorkflowMutationError } from '../services/workflow-mutations.ts';
 import { issueTagIds } from '../services/issue-tags.ts';
 import { runRows } from '../services/run-rows.ts';
+import { workflowRows } from '../services/workflow-rows.ts';
 
 const scopeSchema = runScopeSchema;
 /** A run's scope and, optionally, the models it uses instead of its nodes' own (by AI node id). */
@@ -114,22 +115,7 @@ function templateDefinition(db: Db, projectId: string, key: string): { name: str
 }
 
 export const workflowRoutes = new Hono<Env>()
-  .get('/projects/:projectId/workflows', (c) => {
-    const { db } = c.var.deps;
-    const projectId = c.req.param('projectId');
-    const rows = db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).orderBy(asc(s.workflows.name)).all();
-    return c.json(
-      rows.map(({ definition, ...row }) => ({
-        ...row,
-        // What it takes in (lines or terms): the run dialog's scope fields follow it.
-        input: workflowInput(definition),
-        nodeCount: definition.nodes.length,
-        // Its AI nodes, for pickers that show what one of them sends (대사 상세 › AI 프롬프트).
-        aiNodes: definition.nodes.filter((node) => node.type === 'ai').map((node) => ({ id: node.id, name: nodeName(node) })),
-        errorCount: workflowIssues(db, projectId, definition, row.id).filter((issue) => issue.level === 'error').length,
-      })),
-    );
-  })
+  .get('/projects/:projectId/workflows', (c) => c.json(workflowRows(c.var.deps.db, c.req.param('projectId'))))
   .post(
     '/projects/:projectId/workflows',
     validate('json', z.object({ name: z.string().trim().min(1).optional(), template: z.enum(TEMPLATE_KEYS).optional() })),

@@ -47,6 +47,7 @@ import { useIsDark } from '@/lib/theme';
 import { useGraphShortcuts, type GraphShortcuts } from '@/lib/graph-shortcuts';
 import { useTaxonomy } from '@/lib/knowledge';
 import { useRuns } from '@/lib/runs';
+import { useWorkflows } from '@/lib/workflows';
 
 /** When the workflow was last saved: 10. 13. 오전 06:16. Runs keep their own copy of what they ran. */
 const savedAt = (at: string) => dateTime(at);
@@ -149,7 +150,7 @@ function WorkflowEditor() {
   const taxonomy = useTaxonomy(projectId);
   const connections = useQuery(q.connections({ kind: 'project', projectId }));
   const runs = useRuns(projectId);
-  const workflows = useQuery(q.workflows(projectId));
+  const workflows = useWorkflows(projectId);
   const activeRun = runs.data?.find((run) => run.workflowId === workflowId && (run.status === 'running' || run.status === 'paused'));
 
   // The draft survives navigation and reloads; it is dropped only on save or explicit discard.

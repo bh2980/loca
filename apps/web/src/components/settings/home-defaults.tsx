@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { APP_DEFAULT_SECTION_LABELS, APP_DEFAULT_SECTIONS, type AppDefaultSection } from '@tw/shared';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Box, Button, Checkbox, Field, Inline, Section, Spinner, Stack, Text } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
-import { q } from '@/lib/queries';
+import { useWorkflows } from '@/lib/workflows';
 
 type Direction = 'pull' | 'push';
 
@@ -44,7 +44,7 @@ export function HomeDefaultsSection({ projectId }: { projectId: string }) {
   const [dialog, setDialog] = useState<{ open: boolean; direction: Direction }>({ open: false, direction: 'pull' });
   const confirming = dialog.direction;
   const [report, setReport] = useState<{ direction: Direction; lines: [AppDefaultSection, string][] } | null>(null);
-  const workflows = useQuery(q.workflows(projectId));
+  const workflows = useWorkflows(projectId);
 
   const checked = APP_DEFAULT_SECTIONS.filter((section) => sections.has(section));
   const pickedWorkflows = (workflows.data ?? []).filter((workflow) => workflowIds.has(workflow.id));

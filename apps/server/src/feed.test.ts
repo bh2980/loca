@@ -200,6 +200,29 @@ describe('the project, speakers and listeners in the row feed', () => {
   });
 });
 
+describe('computed collections in the row feed', () => {
+  it('sends the events and workflows whose computed rows differ from the last sent', () => {
+    const { db, projectId } = setup();
+    const first = db.insert(s.storyEvents).values({ projectId, title: '관문이 열린다' }).returning().get();
+    const second = db.insert(s.storyEvents).values({ projectId, title: '추격' }).returning().get();
+    expect(feedRows(db, projectId)!.rows.events?.upsert.map((row) => row.id).sort()).toEqual([first.id, second.id].sort());
+    db.update(s.storyEvents).set({ summary: '문이 열린다' }).where(eq(s.storyEvents.id, second.id)).run();
+    // One event changed: only its row goes out, the other is as it was sent.
+    expect(feedRows(db, projectId)!.rows.events).toEqual({ upsert: [expect.objectContaining({ id: second.id, summary: '문이 열린다' })], delete: [] });
+    // A change the flow does not read sends nothing for it.
+    db.insert(s.characters).values({ projectId, name: 'Mira' }).run();
+    expect(feedRows(db, projectId)!.rows.events).toBeUndefined();
+    db.delete(s.storyEvents).where(eq(s.storyEvents.id, first.id)).run();
+    expect(feedRows(db, projectId)!.rows.events).toEqual({ upsert: [], delete: [first.id] });
+    const workflow = db.insert(s.workflows).values({ projectId, name: '번역', definition: { nodes: [], edges: [] } as never }).returning().get();
+    // The first time the project's workflows go out whole (none was sent before); then only the one that changed.
+    expect(feedRows(db, projectId)!.rows.workflows?.upsert).toEqual(expect.arrayContaining([expect.objectContaining({ id: workflow.id, name: '번역', nodeCount: 0 })]));
+    db.update(s.workflows).set({ name: '번역 2' }).where(eq(s.workflows.id, workflow.id)).run();
+    expect(feedRows(db, projectId)!.rows.workflows).toEqual({ upsert: [expect.objectContaining({ id: workflow.id, name: '번역 2' })], delete: [] });
+    expect(feedSnapshot(db, projectId, 'workflows').rows).toEqual(expect.arrayContaining([expect.objectContaining({ id: workflow.id })]));
+  });
+});
+
 describe('change events with rows', () => {
   it('carry the rows and the count, and a request knows its last change (x-seq)', async () => {
     const { db, projectId, term } = setup();
