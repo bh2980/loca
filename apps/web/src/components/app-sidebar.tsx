@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { memo, useEffect } from 'react';
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router';
 import { BookOpen, Check, ChevronsUpDown, Languages, Monitor, Moon, Plus, Settings2, Sun, Workflow } from 'lucide-react';
 import { Sidebar, SidebarBrand, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuBadge, SidebarMenuButton, SidebarMenuIcon, SidebarMenuItem, SidebarRail, DropdownMenu, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuRadioItem, Icon, SidebarGroup, SidebarGroupLabel, SidebarMenuLabel, Text, DropdownMenuContent, MenuLabel } from '@loca/ui';
@@ -12,7 +12,25 @@ const readLast = (projectId: string, itemId: string): { pathname: string; search
   try { return JSON.parse(sessionStorage.getItem(lastKey(projectId, itemId)) ?? 'null'); } catch { return null; }
 };
 
-function ScreenItem({ navItem, projectId, active, badge }: { navItem: NavItem; projectId: string; active: boolean; badge?: number }) {
+/** 검토 대기 on 대사: its own reader of the project's counts, so a count that moves redraws only this number. */
+function ReviewBadge({ projectId }: { projectId: string }) {
+  const reviewCount = useProjectProgress(projectId)?.reviewCount;
+  return reviewCount ? <SidebarMenuBadge title="검토 대기">{reviewCount}</SidebarMenuBadge> : null;
+}
+
+/**
+ * Where each screen was left, remembered as the URL changes. It renders nothing: the URL changes with every selection, and only
+ * this listens to all of it (the sidebar itself redraws when the screen changes, not when a line is picked).
+ */
+function RememberScreen({ projectId, itemId }: { projectId: string; itemId: string }) {
+  const remembered = useRouterState({ select: (state) => JSON.stringify({ pathname: state.location.pathname, search: state.location.search }) });
+  useEffect(() => {
+    try { sessionStorage.setItem(lastKey(projectId, itemId), remembered); } catch { /* private mode */ }
+  }, [projectId, itemId, remembered]);
+  return null;
+}
+
+const ScreenItem = memo(function ScreenItem({ navItem, projectId, active }: { navItem: NavItem; projectId: string; active: boolean }) {
   const remembered = active ? null : readLast(projectId, navItem.id);
   const rest = remembered?.pathname.replace(`/p/${projectId}`, '').replace(/\/$/, '') ?? '';
   const last = remembered && holds(navItem, rest, remembered.search) ? remembered : null;
@@ -25,10 +43,10 @@ function ScreenItem({ navItem, projectId, active, badge }: { navItem: NavItem; p
           <SidebarMenuLabel placement={navItem.id !== 'home' ? 'indented' : 'plain'}>{navItem.label}</SidebarMenuLabel>
         </Link>
       </SidebarMenuButton>
-      {!!badge && <SidebarMenuBadge title="검토 대기">{badge}</SidebarMenuBadge>}
+      {navItem.id === 'script' && <ReviewBadge projectId={projectId} />}
     </SidebarMenuItem>
   );
-}
+});
 
 function SettingsItem({ navItem, projectId, active }: { navItem: NavItem; projectId: string; active: boolean }) {
   const remembered = active ? null : readLast(projectId, navItem.id);
@@ -50,21 +68,33 @@ const THEMES: { value: ThemeChoice; label: string; icon: typeof Sun }[] = [
 
 const GROUP_ICONS = { translate: Languages, knowledge: BookOpen, automation: Workflow };
 
-export function AppSidebar({ projectId }: { projectId: string }) {
+/**
+ * The project's name and the menu to change project. It reads the projects list itself: a project row changes whenever its
+ * lines are saved (its update time), and that redraws this header, not the whole sidebar.
+ */
+function ProjectSwitcher({ projectId }: { projectId: string }) {
   const navigate = useNavigate();
-  const theme = useTheme();
   const projects = useProjects();
-  const progress = useProjectProgress(projectId);
   const info = projects.data?.find((entry) => entry.id === projectId);
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild><SidebarBrand compactMark={info?.name?.trim().charAt(0) || 'P'} title={info?.name ?? '…'} detail={info ? `${info.sourceLanguage} → ${info.targetLanguage}` : undefined} end={<Icon icon={ChevronsUpDown} size="md" marginLeft="auto" />} /></DropdownMenuTrigger>
+      <DropdownMenuContent align="start" width="trigger">
+        <MenuLabel tone="strong">프로젝트</MenuLabel>
+        {projects.data?.map((entry) => <DropdownMenuItem key={entry.id} onSelect={() => void navigate({ to: '/p/$projectId', params: { projectId: entry.id } })}><Text truncate>{entry.name}</Text>{entry.id === projectId && <Icon icon={Check} marginLeft="auto" />}</DropdownMenuItem>)}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => void navigate({ to: '/' })}><Plus /> 프로젝트 가져오기</DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+export function AppSidebar({ projectId }: { projectId: string }) {
+  const theme = useTheme();
   const current = useCurrentNav(projectId);
-  const location = useRouterState({ select: (state) => state.location });
-  const remembered = JSON.stringify({ pathname: location.pathname, search: location.search });
-  useEffect(() => {
-    try { sessionStorage.setItem(lastKey(projectId, current.item.id), remembered); } catch { /* private mode */ }
-  }, [projectId, current.item.id, remembered]);
   const renderGroup = (group: NavGroup) => {
     const settings = group.id === 'settings';
-    const contents = <SidebarMenu>{group.items.map((navItem) => <ScreenItem key={navItem.id} navItem={navItem} projectId={projectId} active={current.item.id === navItem.id} badge={navItem.id === 'script' ? progress?.reviewCount : undefined} />)}</SidebarMenu>;
+    const contents = <SidebarMenu>{group.items.map((navItem) => <ScreenItem key={navItem.id} navItem={navItem} projectId={projectId} active={current.item.id === navItem.id} />)}</SidebarMenu>;
     if (!group.label) return <SidebarGroup key={group.id} inset="tight">{contents}</SidebarGroup>;
     if (settings) return <SidebarGroup key={group.id} inset="none"><SidebarMenu><SidebarMenuItem><DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -89,15 +119,8 @@ export function AppSidebar({ projectId }: { projectId: string }) {
 
   return (
     <Sidebar collapsible="icon">
-      <SidebarHeader><SidebarMenu><SidebarMenuItem><DropdownMenu>
-        <DropdownMenuTrigger asChild><SidebarBrand compactMark={info?.name?.trim().charAt(0) || 'P'} title={info?.name ?? '…'} detail={info ? `${info.sourceLanguage} → ${info.targetLanguage}` : undefined} end={<Icon icon={ChevronsUpDown} size="md" marginLeft="auto" />} /></DropdownMenuTrigger>
-        <DropdownMenuContent align="start" width="trigger">
-          <MenuLabel tone="strong">프로젝트</MenuLabel>
-          {projects.data?.map((entry) => <DropdownMenuItem key={entry.id} onSelect={() => void navigate({ to: '/p/$projectId', params: { projectId: entry.id } })}><Text truncate>{entry.name}</Text>{entry.id === projectId && <Icon icon={Check} marginLeft="auto" />}</DropdownMenuItem>)}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={() => void navigate({ to: '/' })}><Plus /> 프로젝트 가져오기</DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu></SidebarMenuItem></SidebarMenu></SidebarHeader>
+      <RememberScreen projectId={projectId} itemId={current.item.id} />
+      <SidebarHeader><SidebarMenu><SidebarMenuItem><ProjectSwitcher projectId={projectId} /></SidebarMenuItem></SidebarMenu></SidebarHeader>
       <SidebarContent>{NAV_GROUPS.filter((group) => group.id !== 'settings').map(renderGroup)}</SidebarContent>
       <SidebarFooter><SidebarGroup inset="none">{renderGroup(NAV_GROUPS.find((group) => group.id === 'settings')!)}</SidebarGroup></SidebarFooter>
       <SidebarRail />
