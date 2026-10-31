@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
 import { fitScope, startWorkflowRun } from '../services/start-run.ts';
-import { and, asc, count, desc, eq, getTableColumns, inArray, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { AI_OUTPUT_IDS, type AiOutput, choiceKey, nodeName, httpParams, FUNCTIONS, type FunctionName, isWholeScriptWorkflow, CONNECTION_KIND_INFO, workflowInput, scriptParams, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels, WORKFLOW_TEMPLATES, EMPTY_MODEL_CHOICE, runScopeSchema } from '@tw/shared';
+import { AI_OUTPUT_IDS, type AiOutput, choiceKey, httpParams, FUNCTIONS, type FunctionName, isWholeScriptWorkflow, workflowInput, scriptParams, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels, WORKFLOW_TEMPLATES, EMPTY_MODEL_CHOICE, runScopeSchema } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -10,7 +10,7 @@ import { workflowIssues } from '../services/workflow-issues.ts';
 import { events } from '../events.ts';
 import { callHttp, httpOutput, lineView, validateScriptData } from '../engine/functions/index.ts';
 import { runScript } from '../engine/functions/sandbox.ts';
-import { WHOLE_SCRIPT_BUSY, FILLING, refuseSecondWholeScript, selectRunTerms, selectRunUnits } from '../engine/run-create.ts';
+import { WHOLE_SCRIPT_BUSY, refuseSecondWholeScript, selectRunTerms, selectRunUnits } from '../engine/run-create.ts';
 import { listBatches, preflight } from '../services/preflight.ts';
 import { choiceLabel } from '../services/routes.ts';
 import { previewRequest } from '../services/request-preview.ts';
@@ -19,42 +19,15 @@ import { deleteWorkflow, saveWorkflow, workflowCallers, WorkflowMutationError } 
 import { issueTagIds } from '../services/issue-tags.ts';
 import { runRows } from '../services/run-rows.ts';
 import { workflowRows } from '../services/workflow-rows.ts';
+import { connectionName, connectionNames, runItemIds, runItemRows, runProgress } from '../services/run-detail.ts';
+import { rowChangesOf } from '../db/row-changes.ts';
 
 const scopeSchema = runScopeSchema;
 /** A run's scope and, optionally, the models it uses instead of its nodes' own (by AI node id). */
 const runSchema = scopeSchema.extend({ models: runModelsSchema.optional() });
 const runLimitsSchema = z.object({ maxCalls: z.number().int().min(1).optional(), maxInputTokens: z.number().int().min(1).optional() });
+const runItemQuery = z.object({ state: z.string().optional(), nodeId: z.string().optional(), offset: z.coerce.number().default(0), limit: z.coerce.number().max(500).default(100) });
 const continueSchema = z.object({ models: runModelsSchema.optional(), retryFailed: z.boolean().default(false) });
-
-/** Connection names now, for logs that keep only the id; a deleted connection reads as its kind. */
-/** A line waiting to go through an AI node again: it was last sent back by a 재요청 node (the AI node has not answered since). */
-const RETRYING = sql`(${s.runItems.state} in ('queued', 'running') and json_extract(${s.runItems.data}, '$.path[#-1].port') = 'retry' and json_extract(${s.runItems.data}, '$.retry.last.kind') is not null)`;
-
-/**
- * Why a line is being sent again: the resend count at the 재요청 node that sent it (of that node's limit), the failure that
- * sent it, how long it still waits (`waitsUntil`, ms) and the model it goes on when that node picked one.
- */
-function retryOf(item: { state: s.ItemState; data: s.ItemData; notBefore: Date | null }, run: { definition: WorkflowDefinition; models: Record<string, s.AiSnapshot> }) {
-  const last = item.data.retry?.last;
-  const path = item.data.path;
-  if (!last || (item.state !== 'queued' && item.state !== 'running') || path[path.length - 1]?.port !== 'retry') return null;
-  const node = run.definition.nodes.find((candidate) => candidate.id === last.nodeId);
-  const times = item.data.retry!.times[last.nodeId] ?? 0;
-  const model = item.data.retry!.model;
-  return {
-    times,
-    max: node?.type === 'retry' ? node.config.maxTimes : times,
-    kind: last.kind,
-    message: last.message,
-    nodeId: last.nodeId,
-    waitsUntil: item.state === 'queued' && item.notBefore && item.notBefore.getTime() > Date.now() ? item.notBefore.getTime() : null,
-    model: model ? (run.models[model.key]?.label ?? null) : null,
-  };
-}
-
-const connectionNames = (db: Db) => new Map(db.select({ id: s.connections.id, name: s.connections.name }).from(s.connections).all().map((row) => [row.id, row.name]));
-const connectionName = (names: Map<string, string>, id: string | null, kind: string | null) =>
-  (id && names.get(id)) ?? (kind ? (CONNECTION_KIND_INFO[kind as keyof typeof CONNECTION_KIND_INFO]?.label ?? kind) : null);
 
 /** A whole-script run continued or resumed while another one runs: refused like a second start. */
 /** What POST /runs/:id/resume may carry: new caps (null removes one). */
@@ -312,89 +285,39 @@ export const workflowRoutes = new Hono<Env>()
     const batches = [...Map.groupBy(lines, (line) => line.plan!).entries()].sort((x, y) => x[0] - y[0]).map(([, list]) => list);
     return c.json(listBatches(db, batches));
   })
+  /** A run as it started (definition, models, limits) and how it is doing now (runProgress). */
   .get('/runs/:id', (c) => {
     const { db, runner } = c.var.deps;
     const run = found(db.select().from(s.runs).where(eq(s.runs.id, c.req.param('id'))).get(), '실행');
-    const nodes = db
-      .select({ nodeId: s.runItems.nodeId, state: s.runItems.state, count: count() })
-      .from(s.runItems)
-      .where(eq(s.runItems.runId, run.id))
-      .groupBy(s.runItems.nodeId, s.runItems.state)
-      .all();
-    const usage = db
-      .select({ steps: count(), failed: sql<number>`sum(case when ${s.runSteps.ok} then 0 else 1 end)`, inputTokens: sql<number>`coalesce(sum(${s.runSteps.inputTokens}), 0)`, outputTokens: sql<number>`coalesce(sum(${s.runSteps.outputTokens}), 0)`, cachedInputTokens: sql<number>`coalesce(sum(${s.runSteps.cachedInputTokens}), 0)`, reasoningTokens: sql<number>`coalesce(sum(${s.runSteps.reasoningTokens}), 0)`, costUsd: sql<number | null>`sum(${s.runSteps.costUsd})` })
-      .from(s.runSteps)
-      .where(eq(s.runSteps.runId, run.id))
-      .get();
-    // Which connection and model did the calls (a switched or shared step, a 재요청 node's other model).
-    const names = connectionNames(db);
-    const byModel = db
-      .select({ connectionId: s.runSteps.connectionId, model: s.runSteps.model, steps: count(), failed: sql<number>`sum(case when ${s.runSteps.ok} then 0 else 1 end)`, inputTokens: sql<number>`coalesce(sum(${s.runSteps.inputTokens}), 0)`, outputTokens: sql<number>`coalesce(sum(${s.runSteps.outputTokens}), 0)`, costUsd: sql<number | null>`sum(${s.runSteps.costUsd})` })
-      .from(s.runSteps)
-      .where(eq(s.runSteps.runId, run.id))
-      .groupBy(s.runSteps.connectionId, s.runSteps.model)
-      .all()
-      .map((row) => ({ ...row, name: connectionName(names, row.connectionId, null) }));
     const { models, ...rest } = run;
-    // Requests a node has in flight now, and how many it can have at once: an AI node's 동시 처리 수,
-    // an HTTP or script node's own.
+    // Requests a node can have at once: an AI node's 동시 처리 수, an HTTP or script node's own.
     const callLimits = Object.fromEntries(
       run.definition.nodes.flatMap((node) => {
         if (node.type === 'ai') return [[node.id, node.config.concurrency]];
         return node.type === 'function' && FUNCTIONS[node.config.fn as FunctionName]?.async ? [[node.id, node.config.concurrency]] : [];
       }),
     );
-    // Items that went through each node (a line that visited a node twice counts once): the run graph's "지나감".
-    const passed = Object.fromEntries(
-      db
-        .all<{ nodeId: string; count: number }>(sql`select json_extract(step.value, '$.nodeId') as nodeId, count(distinct item.id) as count from ${s.runItems} item, json_each(item.data, '$.path') step where item.run_id = ${run.id} group by nodeId`)
-        .map((row) => [row.nodeId, row.count]),
-    );
-    // Lines waiting to go through an AI node again, by the 재요청 node that sent them back: how many, and the failure kinds that sent them back.
-    const retrying: Record<string, { count: number; kinds: Record<string, number> }> = {};
-    for (const row of db.all<{ nodeId: string; kind: string; count: number }>(sql`select json_extract(data, '$.retry.last.nodeId') as nodeId, json_extract(data, '$.retry.last.kind') as kind, count(*) as count from ${s.runItems} where run_id = ${run.id} and ${RETRYING} group by nodeId, kind`)) {
-      const entry = (retrying[row.nodeId] ??= { count: 0, kinds: {} });
-      entry.count += row.count;
-      entry.kinds[row.kind] = row.count;
-    }
+    const { id: _id, ...progress } = runProgress(db, runner, run.projectId, [run.id])[0]!;
     // What each model choice resolved to when the run started.
-    return c.json({ ...rest, passed, retrying, models: Object.values(models).map((model) => ({ label: model.label, connectionId: model.route.connectionId, name: model.route.name, model: model.route.model })), nodes, calls: runner.liveCalls(run.id), callLimits, usage, byModel, filling: run.notice === FILLING });
+    return c.json({ ...rest, ...progress, models: Object.values(models).map((model) => ({ label: model.label, connectionId: model.route.connectionId, name: model.route.name, model: model.route.model })), callLimits });
   })
-  .get('/runs/:id/items', validate('query', z.object({ state: z.string().optional(), nodeId: z.string().optional(), offset: z.coerce.number().default(0), limit: z.coerce.number().max(500).default(100) })), (c) => {
+  .get('/runs/:id/items', validate('query', runItemQuery), (c) => {
     const { db } = c.var.deps;
-    const { state, nodeId, offset, limit } = c.req.valid('query');
-    const conditions = [eq(s.runItems.runId, c.req.param('id'))];
-    if (state === 'retrying') conditions.push(RETRYING);
-    else if (state) conditions.push(eq(s.runItems.state, state as s.ItemState));
-    // A call's id also matches every node inside it (`call/inner`, nested `call/call2/inner`): the run graph's call card opens them all.
-    if (nodeId) conditions.push(or(eq(s.runItems.nodeId, nodeId), sql`substr(${s.runItems.nodeId}, 1, ${nodeId.length + 1}) = ${`${nodeId}/`}`)!);
-    const where = and(...conditions);
-    const total = db.select({ count: count() }).from(s.runItems).where(where).get()!.count;
-    const run = db.select({ subject: s.runs.subject, definition: s.runs.definition, models: s.runs.models }).from(s.runs).where(eq(s.runs.id, c.req.param('id'))).get();
-    // Term runs list the term (source, current form) where line runs list the line; most used first.
-    if (run?.subject === 'terms') {
-      const rows = db
-        .select({ id: s.runItems.id, unitId: s.runItems.subjectId, key: s.terms.source, speaker: sql<string | null>`null`, source: s.terms.source, target: s.terms.target, nodeId: s.runItems.nodeId, state: s.runItems.state, visits: s.runItems.visits, data: s.runItems.data, error: s.runItems.error, notBefore: s.runItems.notBefore, updatedAt: s.runItems.updatedAt, statusName: sql<string | null>`null`, statusColor: sql<string | null>`null` })
-        .from(s.runItems)
-        .innerJoin(s.terms, eq(s.terms.id, s.runItems.subjectId))
-        .where(where)
-        .orderBy(desc(sql`coalesce(${s.terms.lines}, 0)`), asc(s.terms.source))
-        .limit(limit)
-        .offset(offset)
-        .all();
-      return c.json({ total, subject: 'terms' as const, rows: rows.map((row) => ({ ...row, retry: retryOf(row, run) })) });
-    }
-    const rows = db
-      .select({ id: s.runItems.id, unitId: s.runItems.subjectId, key: s.units.key, speaker: s.units.speaker, source: s.units.source, nodeId: s.runItems.nodeId, state: s.runItems.state, visits: s.runItems.visits, data: s.runItems.data, error: s.runItems.error, notBefore: s.runItems.notBefore, updatedAt: s.runItems.updatedAt, statusName: s.statuses.name, statusColor: s.statuses.color })
-      .from(s.runItems)
-      .innerJoin(s.units, eq(s.units.id, s.runItems.subjectId))
-      .leftJoin(s.statuses, eq(s.statuses.id, s.units.statusId))
-      .where(where)
-      .orderBy(asc(s.units.seq))
-      .limit(limit)
-      .offset(offset)
-      .all();
-    return c.json({ total, subject: 'lines' as const, rows: rows.map((row) => ({ ...row, target: null as string | null, retry: run ? retryOf(row, run) : null })) });
+    const run = found(db.select({ projectId: s.runs.projectId }).from(s.runs).where(eq(s.runs.id, c.req.param('id'))).get(), '실행');
+    const { total, subject, ids } = runItemIds(db, c.req.param('id'), c.req.valid('query'));
+    return c.json({ total, subject, rows: runItemRows(db, run.projectId, ids) });
+  })
+  /** One page of a run's items as ids: the run page reads the items from the browser's run items collection. */
+  .get('/runs/:id/items/ids', validate('query', runItemQuery), (c) => c.json(runItemIds(c.var.deps.db, c.req.param('id'), c.req.valid('query'))))
+  /** Run items by id, with the feed's count when read (the browser's run items collection). */
+  .post('/projects/:projectId/run-items', validate('json', z.object({ ids: z.array(z.string()).max(500) })), (c) => {
+    const seq = rowChangesOf(c.var.deps.db.$client).seq;
+    return c.json({ rows: runItemRows(c.var.deps.db, c.req.param('projectId'), c.req.valid('json').ids), seq });
+  })
+  /** How runs are doing now, by id, with the feed's count when read (the browser's run progress collection). */
+  .post('/projects/:projectId/run-progress', validate('json', z.object({ ids: z.array(z.string()).max(50) })), (c) => {
+    const seq = rowChangesOf(c.var.deps.db.$client).seq;
+    return c.json({ rows: runProgress(c.var.deps.db, c.var.deps.runner, c.req.param('projectId'), c.req.valid('json').ids), seq });
   })
   .get('/runs/:id/steps', (c) => {
     const { db } = c.var.deps;

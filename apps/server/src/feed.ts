@@ -1,5 +1,5 @@
 import { and, asc, eq, ne } from 'drizzle-orm';
-import { FEED_UNITS_LIMIT, normalizeTagScopes, type FeedCollection, type FeedRows, type FeedSnapshot, type SnapshotCollection } from '@tw/shared';
+import { FEED_UNITS_LIMIT, HELD_COLLECTIONS, normalizeTagScopes, type FeedCollection, type FeedRows, type FeedSnapshot, type SnapshotCollection } from '@tw/shared';
 import type { Db } from './db/index.ts';
 import { inList } from './db/chunk.ts';
 import { rowChangesOf } from './db/row-changes.ts';
@@ -65,6 +65,8 @@ const READERS: Record<FeedCollection, (db: Db, projectId: string, ids?: readonly
   workflows: (db, projectId) => workflowRows(db, projectId),
   // Lines are sent as ids (feedRows); the browser reads the ones it holds by id.
   units: (db, projectId, ids) => (ids ? unitRowsByIds(db, projectId, ids) : []),
+  // Named by id; the browser reads the items it shows (POST run-items).
+  runItems: () => [],
 };
 
 /** A collection's rows now and the feed's count, for the browser's first load. */
@@ -108,9 +110,9 @@ export function feedRows(db: Db, projectId: string): { rows: FeedRows; seq: numb
       continue;
     }
     const ids = [...changed.keys()];
-    // Lines go out as ids: the browser holds a few of them and reads those again.
-    if (collection === 'units') {
-      rows.units = ids.length > FEED_UNITS_LIMIT ? { upsert: [], delete: [], reload: true } : { upsert: [], delete: ids.filter((id) => changed.get(id) === 'delete'), changed: ids.filter((id) => changed.get(id) !== 'delete') };
+    // Lines and run items go out as ids: the browser holds a few of them and reads those again.
+    if ((HELD_COLLECTIONS as readonly string[]).includes(collection)) {
+      rows[collection as FeedCollection] = ids.length > FEED_UNITS_LIMIT ? { upsert: [], delete: [], reload: true } : { upsert: [], delete: ids.filter((id) => changed.get(id) === 'delete'), changed: ids.filter((id) => changed.get(id) !== 'delete') };
       continue;
     }
     const upsert = read(db, projectId, ids);

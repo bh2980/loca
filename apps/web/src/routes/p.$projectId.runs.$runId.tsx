@@ -24,6 +24,7 @@ import { RunGraph } from '@/components/workflow/run-graph';
 import { topCallIds } from '@/components/workflow/run-calls';
 import { dateTime } from '@/lib/datetime';
 import { useTerms } from '@/lib/terms';
+import { useRunDetail, useRunItems } from '@/lib/run-detail';
 
 type State = keyof typeof ITEM_STATE | 'retrying';
 interface RunSearch {
@@ -57,8 +58,8 @@ function RunDetail() {
   const { projectId, runId } = Route.useParams();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
-  const run = useQuery(q.run(runId));
-  const items = useQuery(q.runItems(runId, { state: search.state, nodeId: search.node, offset: (search.page ?? 0) * PAGE }));
+  const run = useRunDetail(projectId, runId);
+  const items = useRunItems(projectId, runId, { state: search.state, nodeId: search.node, offset: (search.page ?? 0) * PAGE });
   const terms = items.data?.subject === 'terms';
   const termList = useTerms(projectId, { enabled: terms && Boolean(search.line) });
   const selectedTerm = terms ? termList.data?.find((term) => term.id === search.line) : undefined;

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { keepPreviousData, queryOptions, useQuery } from '@tanstack/react-query';
 import { createCollection, createOptimisticAction, useLiveQuery, type Collection } from '@tanstack/react-db';
 import type { InferResponseType } from 'hono/client';
+import type { FeedChanges, FeedRows } from '@tw/shared';
 import { client, unwrap } from './api';
 import { sent } from './collections';
 import { feed } from './feed';
@@ -20,7 +21,7 @@ export type LineExtras = InferResponseType<Api['units']['extras']['$post']>['row
 type Row = { id: string };
 type Write<T> = { begin: () => void; write: (change: { type: 'insert' | 'update'; value: T } | { type: 'delete'; key: string }) => void; commit: () => void; truncate: () => void };
 
-interface Held<T extends Row> {
+export interface Held<T extends Row> {
   collection: Collection<T, string>;
   /** Loads the rows not held yet (the others are kept current by the feed). */
   ensure: (ids: readonly string[]) => Promise<void>;
@@ -30,14 +31,26 @@ interface Held<T extends Row> {
 
 const CHUNK = 200;
 
+export interface HeldOptions<T extends Row> {
+  id: string;
+  projectId: string;
+  /** The rows by id, with the feed's count when read. */
+  read: (ids: string[]) => Promise<{ rows: T[]; seq: number }>;
+  /** The part of a change event that names these rows (default: the lines). */
+  signal?: (rows: FeedRows) => FeedChanges | undefined;
+  /** Held rows that also go stale through another part of the event (an item whose line changed). */
+  staleBy?: (rows: FeedRows) => ((row: T) => boolean) | undefined;
+  /** Hears the ids each event names. */
+  named?: (ids: readonly string[]) => void;
+}
+
 /**
- * A collection of a project's rows by line id that holds only the ones asked for: they are read by id
- * (`read`, with the feed's count when read) and read again whenever the feed names their line (the
- * units part of a change event); a read only replaces a row with a newer one. A bulk change (reload) or
- * a reconnect drops them all, and the screens ask again for what they show. `named` hears the lines
- * each event names.
+ * A collection of a project's rows that holds only the ones asked for: they are read by id (`read`,
+ * with the feed's count when read) and read again whenever the feed names them (`signal`, `staleBy`);
+ * a read only replaces a row with a newer one. A bulk change (reload) or a reconnect drops them all,
+ * and the screens ask again for what they show.
  */
-function heldCollection<T extends Row>(id: string, projectId: string, read: (ids: string[]) => Promise<{ rows: T[]; seq: number }>, named?: (ids: readonly string[]) => void): Held<T> {
+export function heldCollection<T extends Row>({ id, projectId, read, signal = (rows) => rows.units, staleBy, named }: HeldOptions<T>): Held<T> {
   let sink: Write<T> | null = null;
   const readAt = new Map<string, number>();
   const loading = new Set<string>();
@@ -79,8 +92,14 @@ function heldCollection<T extends Row>(id: string, projectId: string, read: (ids
         sink = { begin, write, commit, truncate };
         markReady();
         const unsubscribe = feed.subscribe(projectId, (rows) => {
-          const changes = rows.units;
-          if (!changes || !sink) return;
+          if (!sink) return;
+          const also = staleBy?.(rows);
+          const alsoStale = also ? [...readAt.keys()].filter((key) => { const row = collection.get(key); return row !== undefined && also(row); }) : [];
+          const changes = signal(rows);
+          if (!changes) {
+            if (alsoStale.length) void track(readAll(alsoStale));
+            return;
+          }
           if (changes.reload) return drop();
           const gone = changes.delete.filter((key) => readAt.has(key));
           if (gone.length) {
@@ -92,7 +111,7 @@ function heldCollection<T extends Row>(id: string, projectId: string, read: (ids
             commit();
           }
           // The feed names changed lines; the ones held (or being loaded, from before the change) are read again.
-          const stale = (changes.changed ?? []).filter((key) => readAt.has(key) || loading.has(key));
+          const stale = [...new Set([...(changes.changed ?? []).filter((key) => readAt.has(key) || loading.has(key)), ...alsoStale])];
           if (stale.length) void track(readAll(stale));
           named?.([...(changes.changed ?? []), ...changes.delete]);
         });
@@ -144,7 +163,7 @@ const extras = new Map<string, Held<LineExtras>>();
 export function unitsOf(projectId: string): Held<Line> {
   let held = units.get(projectId);
   if (!held) {
-    held = heldCollection<Line>(`units:${projectId}`, projectId, (ids) => unwrap(client.projects[':projectId'].units['by-ids'].$post({ param: { projectId }, json: { ids } })), refreshContexts);
+    held = heldCollection<Line>({ id: `units:${projectId}`, projectId, read: (ids) => unwrap(client.projects[':projectId'].units['by-ids'].$post({ param: { projectId }, json: { ids } })), named: refreshContexts });
     units.set(projectId, held);
   }
   return held;
@@ -154,7 +173,7 @@ export function unitsOf(projectId: string): Held<Line> {
 export function extrasOf(projectId: string): Held<LineExtras> {
   let held = extras.get(projectId);
   if (!held) {
-    held = heldCollection<LineExtras>(`line-extras:${projectId}`, projectId, (ids) => unwrap(client.projects[':projectId'].units.extras.$post({ param: { projectId }, json: { ids } })));
+    held = heldCollection<LineExtras>({ id: `line-extras:${projectId}`, projectId, read: (ids) => unwrap(client.projects[':projectId'].units.extras.$post({ param: { projectId }, json: { ids } })) });
     extras.set(projectId, held);
   }
   return held;
@@ -165,7 +184,7 @@ export function extrasOf(projectId: string): Held<LineExtras> {
  * complete list while new ones load (a page change), and is undefined only before the first; `byId`
  * has every row held so far (a long list drawing what it has).
  */
-function useHeld<T extends Row>(held: Held<T>, ids: readonly string[] | undefined) {
+export function useHeld<T extends Row>(held: Held<T>, ids: readonly string[] | undefined) {
   const query = useLiveQuery(() => held.collection);
   const rows = query.data;
   const byId = useMemo(() => new Map((rows ?? []).map((row) => [row.id, row] as const)), [rows]);

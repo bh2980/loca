@@ -3,24 +3,27 @@
  * database reports every changed row (triggers, apps/server/drizzle/0106_row_feed.sql and the row_feed migrations after it), and each change
  * event carries those rows as the snapshot has them, so the browser patches rows instead of refetching.
  */
-export const FEED_COLLECTIONS = ['terms', 'characters', 'relationships', 'speechRules', 'documents', 'statuses', 'tags', 'groups', 'runs', 'project', 'speakers', 'listeners', 'events', 'workflows', 'units'] as const;
+export const FEED_COLLECTIONS = ['terms', 'characters', 'relationships', 'speechRules', 'documents', 'statuses', 'tags', 'groups', 'runs', 'project', 'speakers', 'listeners', 'events', 'workflows', 'units', 'runItems'] as const;
 export type FeedCollection = (typeof FEED_COLLECTIONS)[number];
 /**
  * The collections the browser loads whole. Lines are too many: it holds the ones it shows (POST
  * units/by-ids), and the feed says which lines changed (`changed`) so it reads again only those it holds.
  */
-export const SNAPSHOT_COLLECTIONS = FEED_COLLECTIONS.filter((name): name is Exclude<FeedCollection, 'units'> => name !== 'units');
+/** Collections the browser holds only part of (the rows it shows), named in events by id: lines and run items. */
+export const HELD_COLLECTIONS = ['units', 'runItems'] as const satisfies readonly FeedCollection[];
+export type HeldCollection = (typeof HELD_COLLECTIONS)[number];
+export const SNAPSHOT_COLLECTIONS = FEED_COLLECTIONS.filter((name): name is Exclude<FeedCollection, HeldCollection> => !(HELD_COLLECTIONS as readonly string[]).includes(name));
 export type SnapshotCollection = (typeof SNAPSHOT_COLLECTIONS)[number];
-/** More changed lines than this in one event go out as `reload` instead of ids (a bulk change, an import). */
+/** More changed rows of a held collection than this in one event go out as `reload` instead of ids (a bulk change, an import). */
 export const FEED_UNITS_LIMIT = 500;
 
 /** One collection's part of a change event: rows to put, read again when the event was sent, and ids no longer listed. */
 export interface FeedChanges {
   upsert: Record<string, unknown>[];
   delete: string[];
-  /** Lines only: the lines whose rows changed (not their rows); the browser reads again the ones it holds. */
+  /** Held collections only (HELD_COLLECTIONS): the rows that changed, by id; the browser reads again the ones it holds. */
   changed?: string[];
-  /** Lines only: too many changed to name (FEED_UNITS_LIMIT): read again every line held. */
+  /** Held collections only: too many changed to name (FEED_UNITS_LIMIT): read again every row held. */
   reload?: true;
 }
 export type FeedRows = Partial<Record<FeedCollection, FeedChanges>>;

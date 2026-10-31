@@ -119,13 +119,6 @@ export const q = {
     queryOptions({ queryKey: ['calls', 'pace', model, kind], queryFn: () => unwrap(client['ai-calls'].pace.$get({ query: { model, kind } })) }),
   /** Work analyses and glossary fills, for 실행 기록 beside the runs. */
   jobs: (projectId: string) => queryOptions({ queryKey: ['runs', projectId, 'jobs'], queryFn: () => unwrap(client.projects[':projectId'].jobs.$get({ param: { projectId } })) }),
-  run: (id: string) => queryOptions({ queryKey: ['runs', 'detail', id], queryFn: () => unwrap(client.runs[':id'].$get({ param: { id } })) }),
-  runItems: (id: string, query: { state?: string; nodeId?: string; offset?: number }) =>
-    queryOptions({
-      queryKey: ['runs', 'items', id, query],
-      queryFn: () => unwrap(client.runs[':id'].items.$get({ param: { id }, query: { ...query, offset: query.offset?.toString() } as never })),
-      placeholderData: keepPreviousData,
-    }),
   /** The batches a run was planned in. */
   runPlan: (id: string) => queryOptions({ queryKey: ['runs', 'plan', id], queryFn: () => unwrap(client.runs[':id'].plan.$get({ param: { id } })), staleTime: Infinity }),
   runSteps: (id: string) => queryOptions({ queryKey: ['runs', 'steps', id], queryFn: () => unwrap(client.runs[':id'].steps.$get({ param: { id } })) }),

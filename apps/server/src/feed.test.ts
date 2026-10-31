@@ -14,6 +14,7 @@ import { setKnowledgeTag } from './services/knowledge-tags.ts';
 import { importProject } from './services/importer.ts';
 import { saveTerm } from './services/terms.ts';
 import { unitRowsByIds } from './services/unit-rows.ts';
+import { runItemRows } from './services/run-detail.ts';
 
 function setup() {
   const db = openDatabase(':memory:');
@@ -220,6 +221,23 @@ describe('computed collections in the row feed', () => {
     db.update(s.workflows).set({ name: '번역 2' }).where(eq(s.workflows.id, workflow.id)).run();
     expect(feedRows(db, projectId)!.rows.workflows).toEqual({ upsert: [expect.objectContaining({ id: workflow.id, name: '번역 2' })], delete: [] });
     expect(feedSnapshot(db, projectId, 'workflows').rows).toEqual(expect.arrayContaining([expect.objectContaining({ id: workflow.id })]));
+  });
+});
+
+describe("a run's items and progress in the row feed", () => {
+  it('names a changed item by id and notes its run when a step is logged', () => {
+    const { db, projectId } = setup();
+    const unit = db.select().from(s.units).where(eq(s.units.projectId, projectId)).get()!;
+    const run = db.insert(s.runs).values({ projectId, workflowName: '번역', workflowVersion: 1, definition: { nodes: [], edges: [] } as never, scope: {} as never, status: 'running', total: 1 }).returning().get();
+    const item = db.insert(s.runItems).values({ runId: run.id, subjectId: unit.id, nodeId: 'n', state: 'queued', visits: {}, data: { path: [] } as never }).returning().get();
+    feedRows(db, projectId);
+    db.update(s.runItems).set({ state: 'running' }).where(eq(s.runItems.id, item.id)).run();
+    const sent = feedRows(db, projectId)!.rows;
+    expect(sent.runItems).toEqual({ upsert: [], delete: [], changed: [item.id] });
+    expect(sent.runs?.upsert).toEqual([expect.objectContaining({ id: run.id, states: { running: 1 } })]);
+    expect(runItemRows(db, projectId, [item.id, 'nope'])).toEqual([expect.objectContaining({ id: item.id, runId: run.id, key: 'u', state: 'running', retry: null })]);
+    db.insert(s.runSteps).values({ runId: run.id, nodeId: 'n', subjectIds: [unit.id], ok: true, startedAt: new Date(), finishedAt: new Date() } as never).run();
+    expect(feedRows(db, projectId)!.rows.runs?.upsert).toEqual([expect.objectContaining({ id: run.id })]);
   });
 });
 
