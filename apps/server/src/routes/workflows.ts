@@ -17,6 +17,7 @@ import { previewRequest } from '../services/request-preview.ts';
 import { continuePreflight, switchedRun } from '../services/run-continue.ts';
 import { deleteWorkflow, saveWorkflow, workflowCallers, WorkflowMutationError } from '../services/workflow-mutations.ts';
 import { issueTagIds } from '../services/issue-tags.ts';
+import { runRows } from '../services/run-rows.ts';
 
 const scopeSchema = runScopeSchema;
 /** A run's scope and, optionally, the models it uses instead of its nodes' own (by AI node id). */
@@ -309,35 +310,7 @@ export const workflowRoutes = new Hono<Env>()
     /** Model requests per workflow run, from the AI log (runs started before it have none). */
     return c.json({ runCalls: Object.fromEntries(stats.map((row) => [row.refId!, row])) });
   })
-  .get('/projects/:projectId/runs', (c) => {
-    const { db } = c.var.deps;
-    const projectId = c.req.param('projectId');
-    const runs = db
-      .select({ id: s.runs.id, workflowId: s.runs.workflowId, workflowName: s.runs.workflowName, workflowVersion: s.runs.workflowVersion, subject: s.runs.subject, status: s.runs.status, notice: s.runs.notice, total: s.runs.total, createdAt: s.runs.createdAt, finishedAt: s.runs.finishedAt })
-      .from(s.runs)
-      .where(eq(s.runs.projectId, projectId))
-      .orderBy(desc(s.runs.createdAt))
-      .limit(200)
-      .all();
-    // Per line, not per item: a line sent down several branches has an item in each, and is done
-    // only when every branch is (running > queued > failed > cancelled > done).
-    const counts = runs.length
-      ? db.all<{ runId: string; state: s.ItemState; count: number }>(sql`
-          select run_id as runId, state, count(*) as count from (
-            select i.run_id, case
-              when sum(i.state = 'running') > 0 then 'running'
-              when sum(i.state = 'queued') > 0 then 'queued'
-              when sum(i.state = 'failed') > 0 then 'failed'
-              when sum(i.state = 'cancelled') > 0 then 'cancelled'
-              else 'done' end as state
-            from ${s.runItems} i join ${s.runs} r on r.id = i.run_id
-            where r.project_id = ${projectId}
-            group by i.run_id, i.subject_id
-          ) group by run_id, state`)
-      : [];
-    const byRun = Map.groupBy(counts, (row) => row.runId);
-    return c.json(runs.map((run) => ({ ...run, states: Object.fromEntries((byRun.get(run.id) ?? []).map((row) => [row.state, row.count])) })));
-  })
+  .get('/projects/:projectId/runs', (c) => c.json(runRows(c.var.deps.db, c.req.param('projectId'))))
   /** The batches this run was planned in (stored per line when it started), as the run dialog lists them. */
   .get('/runs/:id/plan', (c) => {
     const { db } = c.var.deps;

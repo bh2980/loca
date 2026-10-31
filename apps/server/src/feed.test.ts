@@ -165,6 +165,21 @@ describe('scenes in the row feed', () => {
   });
 });
 
+describe('runs in the row feed', () => {
+  it('sends a run with its line states when the run or one of its items changes', () => {
+    const { db, projectId } = setup();
+    const unit = db.select().from(s.units).where(eq(s.units.projectId, projectId)).get()!;
+    const run = db.insert(s.runs).values({ projectId, workflowName: '번역', workflowVersion: 1, definition: { nodes: [], edges: [] } as never, scope: {} as never, status: 'running', total: 1 }).returning().get();
+    const item = db.insert(s.runItems).values({ runId: run.id, subjectId: unit.id, nodeId: 'n', state: 'running', visits: {}, data: {} as never }).returning().get();
+    expect(feedRows(db, projectId)!.rows.runs?.upsert).toEqual([expect.objectContaining({ id: run.id, status: 'running', states: { running: 1 } })]);
+    db.update(s.runItems).set({ state: 'done' }).where(eq(s.runItems.id, item.id)).run();
+    db.update(s.runs).set({ status: 'completed' }).where(eq(s.runs.id, run.id)).run();
+    expect(feedRows(db, projectId)!.rows.runs?.upsert).toEqual([expect.objectContaining({ id: run.id, status: 'completed', states: { done: 1 } })]);
+    db.delete(s.runs).where(eq(s.runs.id, run.id)).run();
+    expect(feedRows(db, projectId)!.rows.runs).toEqual({ upsert: [], delete: [run.id] });
+  });
+});
+
 describe('change events with rows', () => {
   it('carry the rows and the count, and a request knows its last change (x-seq)', async () => {
     const { db, projectId, term } = setup();

@@ -14,6 +14,7 @@ import { SCRIPT_VIEW } from '@/lib/labels';
 import { useTerms } from '@/lib/terms';
 import { useSpeechRules } from '@/lib/knowledge';
 import { useGroups } from '@/lib/groups';
+import { useRuns } from '@/lib/runs';
 
 export const Route = createFileRoute('/p/$projectId/')({ component: Home });
 
@@ -47,7 +48,7 @@ function Home() {
   const aiLineCounts = useQueries({ queries: SCRIPT_KINDS.map((kind) => q.units(projectId, { kind, decidedBy: 'ai', excluded: 'hide', limit: 1 })) });
   const rules = useSpeechRules(projectId);
   const terms = useTerms(projectId);
-  const runs = useQuery(q.runs(projectId));
+  const runs = useRuns(projectId);
 
   const { counts, total, done, statuses: statusList } = progress;
   const initial = statusList.find((status) => status.kind === 'initial');

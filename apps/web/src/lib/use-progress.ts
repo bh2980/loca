@@ -1,12 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
 import { useTaxonomy } from './knowledge';
 import { q } from './queries';
+import { useRuns } from './runs';
 
 /** Shared project translation totals and currently running workflow runs. */
 export function useProgress(projectId: string) {
   const project = useQuery(q.project(projectId));
   const { statuses } = useTaxonomy(projectId);
-  const runs = useQuery(q.runs(projectId));
+  const runs = useRuns(projectId);
   const counts = Object.fromEntries(project.data?.byStatus.map((row) => [row.statusId, row.count]) ?? []);
   const total = Object.values(counts).reduce((sum, value) => sum + value, 0);
   const finalIds = new Set((statuses ?? []).filter((status) => status.kind === 'final').map((status) => status.id));

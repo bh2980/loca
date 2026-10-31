@@ -10,6 +10,7 @@ import { RunDialog } from '@/components/workflow/run-dialog';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { dateTime } from '@/lib/datetime';
+import { useRuns } from '@/lib/runs';
 
 export const Route = createFileRoute('/p/$projectId/workflows/')({ component: Workflows });
 
@@ -18,7 +19,7 @@ function Workflows() {
   const navigate = Route.useNavigate();
   const queryClient = useQueryClient();
   const workflows = useQuery(q.workflows(projectId));
-  const runs = useQuery(q.runs(projectId));
+  const runs = useRuns(projectId);
   const remove = useMutation({
     mutationFn: (id: string) => unwrap(client.workflows[':id'].$delete({ param: { id } })),
     onSuccess: () => {

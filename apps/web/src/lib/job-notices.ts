@@ -1,8 +1,7 @@
 import { useEffect, useRef } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { toast } from 'sonner';
-import { q } from '@/lib/queries';
+import { useRuns } from './runs';
 
 /**
  * Long work ends while the user is elsewhere: a workflow run
@@ -11,7 +10,7 @@ import { q } from '@/lib/queries';
  */
 export function useJobNotices(projectId: string) {
   const navigate = useNavigate();
-  const runs = useQuery(q.runs(projectId));
+  const runs = useRuns(projectId);
   const seen = useRef(new Map<string, string>());
 
   useEffect(() => {

@@ -8,6 +8,7 @@ import { InspectorHeader, Inspector, InspectorList, SplitPane, EmptyState, DataT
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { dateTime, clock } from '@/lib/datetime';
+import { useRuns } from '@/lib/runs';
 
 interface RunsSearch {
   /** The run or job whose AI requests the right-hand pane shows. */
@@ -108,7 +109,7 @@ function Runs() {
   const { projectId } = Route.useParams();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
-  const runs = useQuery(q.runs(projectId));
+  const runs = useRuns(projectId);
   const jobs = useQuery(q.jobs(projectId));
   const select = (id?: string) => void navigate({ search: { job: id }, replace: true });
 
