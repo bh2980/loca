@@ -41,12 +41,6 @@ export const q = {
       queryFn: () => unwrap(client.projects[':projectId'].graph[':scope{dialogue|scene}'].$get({ param: { projectId, scope }, query: { ...(section && { section }), direction } })),
       staleTime: Infinity,
     }),
-  /** Each node's first line's translation, apart from the graph: keyed under 'units', so a saved translation refreshes it and the layout is not fetched again. */
-  graphTranslations: (projectId: string, section?: string, direction: 'vertical' | 'horizontal' = 'vertical') =>
-    queryOptions({
-      queryKey: ['units', 'graph-translations', projectId, direction, section ?? ''],
-      queryFn: () => unwrap(client.projects[':projectId'].graph.translations.$get({ param: { projectId }, query: { ...(section && { section }), direction } })),
-    }),
   /** The slice of the dialogue graph for the stored choices (길 따라 보기): blocks, edges, forks, stubs, seams, the picks and the translation counts (units topic: translations decide them). */
   route: (projectId: string) => queryOptions({ queryKey: ['units', projectId, 'route'], queryFn: () => unwrap(client.projects[':projectId'].route.$get({ param: { projectId } })) }),
   /** 다음 길: the route through the most untranslated lines, what it adds and how many routes are left (units topic, like the counts it is made from). */

@@ -159,6 +159,7 @@ function refreshContexts(ids: readonly string[]) {
 
 const units = new Map<string, Held<Line>>();
 const extras = new Map<string, Held<LineExtras>>();
+const translations = new Map<string, Held<{ id: string; translation: string | null }>>();
 
 export function unitsOf(projectId: string): Held<Line> {
   let held = units.get(projectId);
@@ -251,6 +252,19 @@ export function useLinePage(projectId: string, query: LineQuery, { enabled = tru
   const lines = useLines(projectId, enabled ? page.data?.ids : undefined);
   const data = useMemo(() => (page.data && lines.rows ? { total: page.data.total, offset: page.data.offset, scenes: page.data.scenes, rows: lines.rows } : undefined), [page.data, lines.rows]);
   return { data, isPlaceholderData: page.isPlaceholderData || lines.loading, isError: page.isError };
+}
+
+/**
+ * The start of each line's translation, for the graph's cards: a section can show a thousand nodes, so
+ * only this is held (not whole lines), read again when the feed names the line.
+ */
+export function useLineTranslations(projectId: string, ids: readonly string[] | undefined) {
+  let held = translations.get(projectId);
+  if (!held) {
+    held = heldCollection({ id: `line-translations:${projectId}`, projectId, read: (wanted) => unwrap(client.projects[':projectId'].units.translations.$post({ param: { projectId }, json: { ids: wanted } })) });
+    translations.set(projectId, held);
+  }
+  return useHeld(held, ids).byId;
 }
 
 /** Lines by key in script order (evidence, where a speech rule starts): the keys' ids are a question, the lines come from the collection. */

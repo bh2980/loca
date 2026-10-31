@@ -575,18 +575,19 @@ export const sourceRoutes = new Hono<Env>()
   /** The dialogue graph's sections alone: the graph page needs them before it knows which layout to load. */
   // The translation of each node's first line, apart from the graph itself: it changes with every save, the layout does not.
   // (The web keys it under 'units', so a translation change refreshes it and the layout is not fetched again.)
-  .get('/projects/:projectId/graph/translations', validate('query', z.object({ section: z.string().optional(), direction: z.enum(['vertical', 'horizontal']).default('vertical') })), (c) => {
+  /**
+   * The start of each line's translation by id (what a graph card shows under its source), with the feed's
+   * count when read: the browser holds those of the nodes it shows and reads one again when the feed names its line.
+   */
+  .post('/projects/:projectId/units/translations', validate('json', z.object({ ids: z.array(z.string()).max(500) })), (c) => {
     const { db } = c.var.deps;
-    const projectId = c.req.param('projectId');
-    const { section = '', direction } = c.req.valid('query');
-    const raw = db.select({ data: sql<string | null>`${s.graphLayouts.data}` }).from(s.graphLayouts).where(and(eq(s.graphLayouts.projectId, projectId), eq(s.graphLayouts.scope, 'dialogue'), eq(s.graphLayouts.section, section), eq(s.graphLayouts.direction, direction))).get()?.data ?? 'null';
-    const only = layoutNodeIds(raw, section);
+    const seq = rowChangesOf(db.$client).seq;
     const rows = db
-      .select({ id: s.graphNodes.id, translation: sql<string | null>`(select nullif(substr(trim(u.translation), 1, 120), '') from units u where u.id = json_extract("graph_nodes"."unit_ids", '$[0]'))` })
-      .from(s.graphNodes)
-      .where(and(eq(s.graphNodes.projectId, projectId), only ? inList(s.graphNodes.id, only) : undefined))
+      .select({ id: s.units.id, translation: sql<string | null>`nullif(substr(trim(${s.units.translation}), 1, 120), '')` })
+      .from(s.units)
+      .where(and(eq(s.units.projectId, c.req.param('projectId')), inList(s.units.id, c.req.valid('json').ids)))
       .all();
-    return c.json(Object.fromEntries(rows.flatMap((row) => (row.translation ? [[row.id, row.translation] as const] : []))));
+    return c.json({ rows, seq });
   })
   .get('/projects/:projectId/graph/sections', validate('query', z.object({ direction: z.enum(['vertical', 'horizontal']).default('vertical') })), (c) => {
     const { db } = c.var.deps;
