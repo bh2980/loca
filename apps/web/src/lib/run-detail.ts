@@ -2,16 +2,19 @@ import { useEffect, useMemo } from 'react';
 import { keepPreviousData, queryOptions, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { InferResponseType } from 'hono/client';
 import { client, unwrap } from './api';
-import { heldCollection, useHeld, type Held } from './units';
+import { heldCollection, useHeld, useLines, type Held } from './units';
+import { useTaxonomy } from './knowledge';
 
 /**
  * A run's page: which of its items are on the page (a question: GET runs/:id/items/ids), the items
  * themselves from a collection that holds the ones shown and reads one again when the feed names it
- * (or the line or term it is for), how the run is doing (a progress row read again when the run's row
+ * (a line's item takes its line from the units collection, a term's carries the term), how the run is doing (a progress row read again when the run's row
  * changes), and what it started with (definition, models), fetched once and again only when the run
  * itself changes (continued, paused, finished).
  */
 export type RunItem = InferResponseType<(typeof client.projects)[':projectId']['run-items']['$post']>['rows'][number];
+/** A run item as the run page lists it: with its line's (or term's) words and the line's status. */
+export type RunItemRow = RunItem & { key: string; speaker: string | null; source: string; target: string | null; statusName: string | null; statusColor: string | null };
 export type RunProgress = InferResponseType<(typeof client.projects)[':projectId']['run-progress']['$post']>['rows'][number];
 type RunDetail = InferResponseType<(typeof client.runs)[':id']['$get']>;
 export type RunStep = InferResponseType<(typeof client.projects)[':projectId']['run-steps']['$post']>['rows'][number];
@@ -28,10 +31,10 @@ function itemsOf(projectId: string) {
       projectId,
       read: (ids) => unwrap(client.projects[':projectId']['run-items'].$post({ param: { projectId }, json: { ids } })),
       signal: (rows) => rows.runItems,
-      // An item shows its line (key, source, status) or its term (current form).
+      // A term's item carries the term's words (the glossary leaves out rejected terms); a line's reads its line from the units collection.
       staleBy: (rows) => {
-        const changed = new Set([...(rows.units?.changed ?? []), ...((rows.terms?.upsert ?? []) as { id: string }[]).map((term) => term.id)]);
-        return changed.size ? (item) => changed.has(item.unitId) : undefined;
+        const changed = new Set(((rows.terms?.upsert ?? []) as { id: string }[]).map((term) => term.id));
+        return changed.size ? (item) => item.term !== null && changed.has(item.unitId) : undefined;
       },
     });
     items.set(projectId, held);
@@ -79,11 +82,25 @@ const runItemIds = (runId: string, query: RunItemQuery) =>
     placeholderData: keepPreviousData,
   });
 
-/** One page of a run's items: { total, subject, rows } once the page's items are held. */
+/** One page of a run's items: { total, subject, rows } once the page's items and their lines are held; each row with its line's (or term's) words and status. */
 export function useRunItems(projectId: string, runId: string, query: RunItemQuery) {
   const page = useQuery(runItemIds(runId, query));
   const held = useHeld(itemsOf(projectId), page.data?.ids);
-  const data = useMemo(() => (page.data && held.rows ? { total: page.data.total, subject: page.data.subject, rows: held.rows } : undefined), [page.data, held.rows]);
+  const lineIds = useMemo(() => held.rows?.flatMap((item) => (item.term ? [] : [item.unitId])), [held.rows]);
+  const lines = useLines(projectId, lineIds);
+  const { statuses } = useTaxonomy(projectId);
+  const data = useMemo(() => {
+    if (!page.data || !held.rows || !lines.rows) return undefined;
+    const status = new Map((statuses ?? []).map((row) => [row.id, row]));
+    const rows = held.rows.flatMap((item): RunItemRow[] => {
+      if (item.term) return [{ ...item, key: item.term.source, speaker: null, source: item.term.source, target: item.term.target, statusName: null, statusColor: null }];
+      const line = lines.byId.get(item.unitId);
+      if (!line) return [];
+      const shown = status.get(line.statusId);
+      return [{ ...item, key: line.key, speaker: line.speaker, source: line.source, target: null, statusName: shown?.name ?? null, statusColor: shown?.color ?? null }];
+    });
+    return { total: page.data.total, subject: page.data.subject, rows };
+  }, [page.data, held.rows, lines.rows, lines.byId, statuses]);
   return { data };
 }
 

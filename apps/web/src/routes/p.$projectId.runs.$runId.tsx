@@ -16,7 +16,6 @@ import { ITEM_STATE } from '@/lib/labels';
 import { errorKindLabel, retryReason, retryState } from '@/lib/retry-info';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
-import type { InferResponseType } from 'hono/client';
 import { BatchList } from '@/components/workflow/batch-list';
 import { ContinueRun } from '@/components/workflow/continue-run';
 import { RaiseCaps } from '@/components/workflow/raise-caps';
@@ -24,7 +23,7 @@ import { RunGraph } from '@/components/workflow/run-graph';
 import { topCallIds } from '@/components/workflow/run-calls';
 import { dateTime } from '@/lib/datetime';
 import { useTerms } from '@/lib/terms';
-import { useRunDetail, useRunItems, useRunSteps } from '@/lib/run-detail';
+import { useRunDetail, useRunItems, useRunSteps, type RunItemRow } from '@/lib/run-detail';
 
 type State = keyof typeof ITEM_STATE | 'retrying';
 interface RunSearch {
@@ -50,7 +49,7 @@ export const Route = createFileRoute('/p/$projectId/runs/$runId')({
 
 const PAGE = 100;
 
-type Item = InferResponseType<(typeof client.runs)[':id']['items']['$get'], 200>['rows'][number];
+type Item = RunItemRow;
 
 function RunDetail() {
   const [continueOpen, setContinueOpen] = useState(false);

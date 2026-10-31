@@ -298,7 +298,7 @@ describe("a run's items and progress in the row feed", () => {
     const sent = feedRows(db, NO_KEYS, projectId)!.rows;
     expect(sent.runItems).toEqual({ upsert: [], delete: [], changed: [item.id] });
     expect(sent.runs?.upsert).toEqual([expect.objectContaining({ id: run.id, states: { running: 1 } })]);
-    expect(runItemRows(db, projectId, [item.id, 'nope'])).toEqual([expect.objectContaining({ id: item.id, runId: run.id, key: 'u', state: 'running', retry: null })]);
+    expect(runItemRows(db, projectId, [item.id, 'nope'])).toEqual([expect.objectContaining({ id: item.id, runId: run.id, unitId: unit.id, term: null, state: 'running', retry: null })]);
     db.insert(s.runSteps).values({ runId: run.id, nodeId: 'n', subjectIds: [unit.id], ok: true, startedAt: new Date(), finishedAt: new Date() } as never).run();
     expect(feedRows(db, NO_KEYS, projectId)!.rows.runs?.upsert).toEqual([expect.objectContaining({ id: run.id })]);
   });

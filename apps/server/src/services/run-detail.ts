@@ -68,7 +68,11 @@ export function runItemIds(db: Db, runId: string, query: RunItemQuery) {
   return { total, subject, ids: ids.map((row) => row.id) };
 }
 
-/** The project's run items by id, in the order asked: each with its line (or term), the line's status and why it is being sent again. */
+/**
+ * The project's run items by id, in the order asked, with why each is being sent again. A line's item names
+ * its line by id (the browser reads it from its units collection); a term's carries the term's words, since
+ * the browser's glossary leaves out the terms a run rejected. Items whose line or term is gone are left out.
+ */
 export function runItemRows(db: Db, projectId: string, ids: readonly string[]) {
   if (!ids.length) return [];
   const items = inChunks(ids, (slice) =>
@@ -79,11 +83,7 @@ export function runItemRows(db: Db, projectId: string, ids: readonly string[]) {
       .where(and(eq(s.runs.projectId, projectId), inArray(s.runItems.id, slice)))
       .all(),
   );
-  const units = new Map(
-    inChunks(items.filter((item) => item.subject !== 'terms').map((item) => item.unitId), (slice) =>
-      db.select({ id: s.units.id, key: s.units.key, speaker: s.units.speaker, source: s.units.source, statusName: s.statuses.name, statusColor: s.statuses.color }).from(s.units).leftJoin(s.statuses, eq(s.statuses.id, s.units.statusId)).where(inArray(s.units.id, slice)).all(),
-    ).map((unit) => [unit.id, unit]),
-  );
+  const lines = new Set(inChunks(items.filter((item) => item.subject !== 'terms').map((item) => item.unitId), (slice) => db.select({ id: s.units.id }).from(s.units).where(inArray(s.units.id, slice)).all()).map((unit) => unit.id));
   const terms = new Map(
     inChunks(items.filter((item) => item.subject === 'terms').map((item) => item.unitId), (slice) => db.select({ id: s.terms.id, source: s.terms.source, target: s.terms.target }).from(s.terms).where(inArray(s.terms.id, slice)).all()).map((term) => [term.id, term]),
   );
@@ -96,10 +96,9 @@ export function runItemRows(db: Db, projectId: string, ids: readonly string[]) {
       const retry = run ? retryOf(item, run) : null;
       if (subject === 'terms') {
         const term = terms.get(item.unitId);
-        return term ? [[item.id, { ...item, runId, key: term.source, speaker: null as string | null, source: term.source, target: term.target as string | null, statusName: null as string | null, statusColor: null as string | null, retry }] as const] : [];
+        return term ? [[item.id, { ...item, runId, term: { source: term.source, target: term.target as string | null } as { source: string; target: string | null } | null, retry }] as const] : [];
       }
-      const unit = units.get(item.unitId);
-      return unit ? [[item.id, { ...item, runId, key: unit.key, speaker: unit.speaker, source: unit.source, target: null as string | null, statusName: unit.statusName, statusColor: unit.statusColor, retry }] as const] : [];
+      return lines.has(item.unitId) ? [[item.id, { ...item, runId, term: null as { source: string; target: string | null } | null, retry }] as const] : [];
     }),
   );
   return ids.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : []));
