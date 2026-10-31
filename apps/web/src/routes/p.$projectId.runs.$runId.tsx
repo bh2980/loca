@@ -23,6 +23,7 @@ import { RaiseCaps } from '@/components/workflow/raise-caps';
 import { RunGraph } from '@/components/workflow/run-graph';
 import { topCallIds } from '@/components/workflow/run-calls';
 import { dateTime } from '@/lib/datetime';
+import { useTerms } from '@/lib/terms';
 
 type State = keyof typeof ITEM_STATE | 'retrying';
 interface RunSearch {
@@ -59,7 +60,7 @@ function RunDetail() {
   const run = useQuery(q.run(runId));
   const items = useQuery(q.runItems(runId, { state: search.state, nodeId: search.node, offset: (search.page ?? 0) * PAGE }));
   const terms = items.data?.subject === 'terms';
-  const termList = useQuery({ ...q.terms(projectId), enabled: terms && Boolean(search.line) });
+  const termList = useTerms(projectId, { enabled: terms && Boolean(search.line) });
   const selectedTerm = terms ? termList.data?.find((term) => term.id === search.line) : undefined;
   const decide = useMutation({
     mutationFn: (accept: boolean) => unwrap(client.projects[':projectId'].drafts.$post({ param: { projectId }, json: { kind: 'terms', ids: [search.line!], action: accept ? 'confirm' : 'discard' } })),

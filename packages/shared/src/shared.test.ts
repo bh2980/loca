@@ -2,6 +2,7 @@ import { sameTranslation, termText } from './format-check.ts';
 import { describe, expect, it } from 'vitest';
 import { editorAiSchema, editorNodeConfig } from './editor-ai.ts';
 import { chatTitle } from './agent.ts';
+import { termMatches } from './term-filter.ts';
 import { checkFormat, compileFormatRules, matchTokens, withSourceWhitespace, glossaryMatcher } from './format-check.ts';
 import { importFileSchema, importWarnings, summarizeImport } from './import-format.ts';
 import { politenessOf, speechLevelOf, styleInstruction, styleNames } from './knowledge.ts';
@@ -797,5 +798,25 @@ describe('termText', () => {
     expect(termText(' Go!\\r\\n ')).toBe('Go!');
     expect(termText('\tLANGUAGE\n')).toBe('LANGUAGE');
     expect(termText('Town Frame')).toBe('Town Frame');
+  });
+});
+
+describe('termMatches (the glossary page and list_terms)', () => {
+  const term = { id: 't1', source: 'Gate', target: '관문', note: '지명', status: 'candidate' as const, statusBy: 'ai' as const, origin: 'ai' as const, lines: 0, tags: [{ id: 'place' }] };
+  it('needs every given part', () => {
+    expect(termMatches(term, {})).toBe(true);
+    expect(termMatches(term, { text: 'gate' })).toBe(true);
+    expect(termMatches(term, { text: '지명' })).toBe(true);
+    expect(termMatches(term, { text: 'hesk' })).toBe(false);
+    expect(termMatches(term, { status: ['confirmed'] })).toBe(false);
+    expect(termMatches(term, { status: ['candidate', 'confirmed'], source: 'workflow', unreviewed: true })).toBe(true);
+    expect(termMatches(term, { emptyTarget: true })).toBe(false);
+    expect(termMatches(term, { marks: ['unused'], tags: ['place'] })).toBe(true);
+    expect(termMatches(term, { hideTags: ['place'] })).toBe(false);
+    expect(termMatches(term, { hideMarks: ['unused'] })).toBe(false);
+    expect(termMatches(term, { marks: ['duplicateTarget'] })).toBe(false);
+    expect(termMatches(term, { marks: ['duplicateTarget'] }, true)).toBe(true);
+    expect(termMatches({ ...term, status: 'rejected' }, {})).toBe(false);
+    expect(termMatches(term, { ids: ['other'] })).toBe(false);
   });
 });

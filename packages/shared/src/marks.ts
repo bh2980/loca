@@ -171,11 +171,17 @@ export function withTargetCandidate(term: { target: string; targetCandidates: re
  * rejected has the same Korean form (Ava and Joy both 조이). Only a mark: two sources may rightly
  * share a translation, and a project that confirms AI terms right away chose that.
  */
-export function withDuplicateTargets<T extends { source: string; target: string; status: KnowledgeStatus }>(terms: T[]): (T & { duplicateTarget: boolean })[] {
+export function withDuplicateTargets<T extends { id?: string; source: string; target: string; status: KnowledgeStatus }>(terms: T[]): (T & { duplicateTarget: boolean })[] {
+  const duplicate = duplicateTargets(terms);
+  return terms.map((term) => ({ ...term, duplicateTarget: duplicate.has(term) }));
+}
+
+/** The terms whose Korean form another source shares (the same rule as withDuplicateTargets), without copying them: the browser's collections keep their rows. */
+export function duplicateTargets<T extends { source: string; target: string; status: KnowledgeStatus }>(terms: readonly T[]): Set<T> {
   const key = (text: string) => text.trim().toLowerCase();
   const sources = new Map<string, Set<string>>();
   for (const term of terms) if (term.status !== 'rejected' && key(term.target)) sources.set(key(term.target), (sources.get(key(term.target)) ?? new Set()).add(key(term.source)));
-  return terms.map((term) => ({ ...term, duplicateTarget: term.status !== 'rejected' && (sources.get(key(term.target))?.size ?? 0) > 1 }));
+  return new Set(terms.filter((term) => term.status !== 'rejected' && (sources.get(key(term.target))?.size ?? 0) > 1));
 }
 
 /** The `marks` URL param: a list of mark ids (also accepts one id or a comma list), unknown ids dropped. */

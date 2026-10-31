@@ -1,5 +1,4 @@
 import { useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { glossaryMatcher, type TermScope } from '@tw/shared';
 import { EditorSourceParagraph, EditorTermMark, EditorTokenChip, EditorTokenText, EditorTokenTip, Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
 import { q } from '@/lib/queries';
@@ -10,6 +9,7 @@ import { placeTags } from '@/lib/tag-placement';
 import { insertIntoLine, insertUnitIntoLine } from './translation-input';
 import { TermPick } from './term-pick';
 import { keyLabel } from '@/lib/keys';
+import { useTerms } from '@/lib/terms';
 
 /**
  * A line's source as the translator reads it: format tokens as chips and confirmed glossary terms
@@ -122,7 +122,7 @@ const wordPattern = (name: string) => new RegExp(`(?<![\\p{L}\\p{N}])${escapeReg
 
 /** One glossary matcher for every row of a list: built once per loaded glossary, not once per row. */
 function useConfirmedTermMatcher(projectId: string) {
-  const terms = useQuery(q.terms(projectId)).data;
+  const terms = useTerms(projectId).data;
   return useMemo(() => {
     if (!terms) return null;
     let matcher = matchers.get(terms);

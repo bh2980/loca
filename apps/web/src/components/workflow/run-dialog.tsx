@@ -13,6 +13,7 @@ import { Pace, RunCaps, RunModels } from './run-estimate';
 import { startLimits, type CapEdits } from '@/lib/run-limits';
 import { tagsIn, q } from '@/lib/queries';
 import { SCRIPT_VIEW } from '@/lib/labels';
+import { useTerms } from '@/lib/terms';
 
 /** Run-scope filters on what a row shows (the list pages' 최종 아님, 정한 쪽, 메모, 번역 비어 있음), beside statuses. */
 const RUN_FACTS = {
@@ -116,7 +117,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   const groups = useQuery({ ...q.groups(projectId), enabled: open });
   const here = groupIds?.length ? groups.data?.filter((group) => groupIds.includes(group.id)) : undefined;
 
-  const termList = useQuery({ ...q.terms(projectId), enabled: open && terms });
+  const termList = useTerms(projectId, { enabled: open && terms });
   const [pickedTerms, setPickedTerms] = useState<Set<string>>(new Set());
 
   // The filters start as they were the last time this workflow ran from here (this browser only).

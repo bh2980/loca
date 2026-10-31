@@ -3,17 +3,18 @@ import { createAndAttachTag } from '@/lib/create-tag';
 import { CopyButton } from '@/components/copy-button';
 import { useState } from 'react';
 import { Link } from '@tanstack/react-router';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { Check, Play, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Inspector, InspectorHeader, InspectorList, TagListEditor, DirtyBar, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Inline, Input, ListRow, Text, Textarea, Section, Field, Box, Checkbox, Label, Stack, Switch } from '@loca/ui';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { confirmLabel, SourceBadge, StateCell, type ItemTag } from '@/components/knowledge/table';
 import { ALL_TERM_KINDS, isSettled, TAG_SCOPES, TERM_LINE_KIND_LABELS, TERM_LINE_KINDS, type KnowledgeOrigin, type KnowledgeStatus, type StatusBy, type TermScope } from '@tw/shared';
-import { client, unwrap } from '@/lib/api';
+import { client } from '@/lib/api';
 import { changedFields, useFormFrom } from '@/lib/use-form-from';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
 import { q, tagsIn } from '@/lib/queries';
+import { sent } from '@/lib/terms';
 
 export interface Term {
   id: string;
@@ -78,7 +79,7 @@ function TermFields({ form, onChange }: { form: TermForm; onChange: (form: TermF
 export function NewTermPane({ projectId, onClose, onCreated }: { projectId: string; onClose: () => void; onCreated: (id: string) => void }) {
   const [form, setForm] = useState<TermForm>({ source: '', target: '', note: '', scope: ALL_TERM_KINDS, matchCase: false });
   const create = useMutation({
-    mutationFn: () => unwrap(client.projects[':projectId'].terms.$post({ param: { projectId }, json: form })),
+    mutationFn: () => sent(projectId, client.projects[':projectId'].terms.$post({ param: { projectId }, json: form })),
     onSuccess: (created) => {
       toast.success('용어를 추가했습니다.');
       if (created && typeof created === 'object' && 'id' in created && typeof created.id === 'string') onCreated(created.id);
@@ -109,18 +110,18 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
   const { draft: form, setDraft: setForm, dirty, conflicts, keepMine, takeSaved } = useFormFrom(saved, `term.${projectId}.${term.id}`);
   const candidate = !isSettled(term);
   const save = useMutation({
-    mutationFn: () => unwrap(client.projects[':projectId'].terms[':id'].$patch({ param: { projectId, id: term.id }, json: changedFields(form, saved) })),
+    mutationFn: () => sent(projectId, client.projects[':projectId'].terms[':id'].$patch({ param: { projectId, id: term.id }, json: changedFields(form, saved) })),
     onSuccess: () => toast.success('저장했습니다.'),
     onError: (error) => toast.error(error.message),
   });
   // 메인으로: the candidate becomes the form used; the former main one stays a candidate (server side).
   const makeMain = useMutation({
-    mutationFn: (target: string) => unwrap(client.projects[':projectId'].terms[':id'].$patch({ param: { projectId, id: term.id }, json: { target } })),
+    mutationFn: (target: string) => sent(projectId, client.projects[':projectId'].terms[':id'].$patch({ param: { projectId, id: term.id }, json: { target } })),
     onSuccess: (_, target) => toast.success(`'${target}'을(를) 메인 번역어로 바꿨습니다.`),
     onError: (error) => toast.error(error.message),
   });
   const remove = useMutation({
-    mutationFn: () => unwrap(client.projects[':projectId'].terms[':id'].$delete({ param: { projectId, id: term.id } })),
+    mutationFn: () => sent(projectId, client.projects[':projectId'].terms[':id'].$delete({ param: { projectId, id: term.id } })),
     onSuccess: () => {
       toast.success('용어를 삭제했습니다.');
       onClose();
@@ -132,7 +133,6 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
   const [allUses, setAllUses] = useState(false);
   const uses = usage.data?.rows ?? [];
   const shownUses = allUses ? uses : uses.slice(0, USES_SHOWN);
-  const queryClient = useQueryClient();
   const statuses = useQuery(q.statuses(projectId));
   const termTags = tagsIn(statuses.data?.tags, 'terms');
   const attachedTags = (term.tags ?? [])
@@ -141,13 +141,10 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
 
   const tagMutation = useMutation({
     mutationFn: async ({ tagId, add }: { tagId: string; add: boolean }) => {
-      await unwrap(client.projects[':projectId']['knowledge-tags'].$post({
+      await sent(projectId, client.projects[':projectId']['knowledge-tags'].$post({
         param: { projectId },
         json: { kind: 'terms', ids: [term.id], tagId, add },
       }));
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: q.terms(projectId).queryKey });
     },
     onError: (error) => toast.error(error.message),
   });

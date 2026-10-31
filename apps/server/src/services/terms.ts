@@ -1,11 +1,12 @@
-import { and, asc, eq, inArray, like, ne, or, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, ne, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { aiStatus, appliesEverywhere, matchesMarks, termMarksOf, termText, TERM_MARK_IDS, withDuplicateTargets, withMainTarget, withTargetCandidate, type AutoMark, type TermScope } from '@tw/shared';
+import { aiStatus, appliesEverywhere, duplicateTargets, termMarksOf, termMatches, termText, TERM_MARK_IDS, withMainTarget, withTargetCandidate, type AutoMark, type TermScope } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { fillTermUsage } from './term-usage.ts';
-import { annotateKnowledge, knowledgeFilterInput, matchesStatus, type KnowledgeFilter } from './knowledge-list.ts';
+import { knowledgeFilterInput, tagIdsOf, type KnowledgeFilter } from './knowledge-list.ts';
+import { withTags } from './knowledge-tags.ts';
 import { bySaver, PERSON, type Saver } from './status-by.ts';
 import { discoverTerms } from './term-discovery.ts';
 
@@ -173,7 +174,7 @@ export const termFilterInput = {
   ...knowledgeFilterInput,
   marks: z.array(z.enum(TERM_MARK_IDS as [AutoMark, ...AutoMark[]])).optional().describe('Term marks: unused (not in the script), duplicateTarget (another source has the same Korean form); all given must hold.'),
   emptyTarget: z.boolean().optional().describe('true: terms with no Korean form yet (번역 비어 있음); false: terms that have one.'),
-  q: z.string().optional().describe('Text in the source or the translation.'),
+  q: z.string().optional().describe('Text in the source, the translation or the memo (case aside).'),
 };
 
 /**
@@ -182,13 +183,15 @@ export const termFilterInput = {
  */
 export function listTerms(db: Db, projectId: string, input: KnowledgeFilter & { q?: string; emptyTarget?: boolean; offset?: number; limit?: number }) {
   fillTermUsage(db, projectId);
-  const where = and(eq(s.terms.projectId, projectId), ne(s.terms.status, 'rejected'), input.q ? or(like(s.terms.source, `%${input.q}%`), like(s.terms.target, `%${input.q}%`)) : undefined);
-  const rows = db.select().from(s.terms).where(where).orderBy(asc(s.terms.source)).all();
-  // Duplicates are read across the whole glossary, not just the rows the search found.
-  const duplicate = new Set(withDuplicateTargets(db.select().from(s.terms).where(eq(s.terms.projectId, projectId)).all()).filter((term) => term.duplicateTarget).map((term) => term.id));
-  const matched = annotateKnowledge(db, projectId, 'terms', rows.map((row) => ({ ...row, duplicateTarget: duplicate.has(row.id) })), { tags: input.tags })
-    .map(({ marks: _marks, ...row }) => ({ ...row, marks: termMarksOf(row) }))
-    .filter((row) => matchesMarks(row.marks, input.marks) && matchesStatus(row, input) && (input.emptyTarget === undefined || !row.target.trim() === input.emptyTarget));
+  const rows = withTags(db, 'terms', db.select().from(s.terms).where(and(eq(s.terms.projectId, projectId), ne(s.terms.status, 'rejected'))).orderBy(asc(s.terms.source)).all());
+  // Duplicates are read across the whole glossary, not just the rows the filter keeps.
+  const duplicate = duplicateTargets(rows);
+  const names = new Map(db.select({ id: s.tags.id, name: s.tags.name }).from(s.tags).where(eq(s.tags.projectId, projectId)).all().map((tag) => [tag.id, tag.name]));
+  // The glossary page's filter (termMatches), with tags named as list_tags names them.
+  const filter = { text: input.q, status: input.status, decidedBy: input.decidedBy, emptyTarget: input.emptyTarget, marks: input.marks, unreviewed: input.unreviewed, tags: tagIdsOf(db, projectId, input.tags) };
+  const matched = rows
+    .filter((row) => termMatches(row, filter, duplicate.has(row)))
+    .map((row) => ({ ...row, marks: termMarksOf({ lines: row.lines, duplicateTarget: duplicate.has(row) }), tags: row.tags.map((tag) => names.get(tag.id) ?? tag.id) }));
   const offset = input.offset ?? 0;
   const page = input.limit === undefined ? matched.slice(offset) : matched.slice(offset, offset + input.limit);
   return {

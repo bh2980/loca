@@ -57,6 +57,7 @@ import { useSaveLine } from '@/lib/line-save';
 import type { InferResponseType } from '@/lib/api';
 import { usePersonColors } from '@/lib/person-colors';
 import { LineMenuItems } from '@/components/script/line-menu';
+import { useTerms } from '@/lib/terms';
 
 /** Who the line is addressed to. Unsure AI guesses count as unknown. */
 function listenerText(line: { kind: string; speaker: string | null; source: string; listener: string | null; listenerOrigin: ListenerOrigin | null; listenerConfidence: number | null }, rules: FormatRules | undefined) {
@@ -77,7 +78,7 @@ function listenerText(line: { kind: string; speaker: string | null; source: stri
 export function LineHints({ projectId, line, part }: { projectId: string; line: { id: string; source: string; kind?: string; translation: string | null; speaker?: string | null; listener?: string | null; lastRun: { issues: string[] } | null }; part?: 'context' | 'result' }) {
   const unit = useQuery(q.unit(line.id));
   const people = useQuery(q.characters(projectId));
-  const terms = useQuery(q.terms(projectId));
+  const terms = useTerms(projectId);
   const project = useQuery(q.project(projectId));
   const [draft] = useDraft(`line:${line.id}`, line.translation ?? '');
   const text = draft.trim();

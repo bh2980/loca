@@ -4,7 +4,9 @@ import { compress } from 'hono/compress';
 import { HTTPException } from 'hono/http-exception';
 import { streamSSE } from 'hono/streaming';
 import type { Deps, Env } from './context.ts';
+import { rowChangesOf } from './db/row-changes.ts';
 import { events, trackChanges, type ChangeEvent } from './events.ts';
+import { feedRows } from './feed.ts';
 import { connectionRoutes, modelTestRoutes } from './routes/ai-settings.ts';
 import { appSettingsRoutes } from './routes/app-settings.ts';
 import { chatRoutes } from './routes/chat.ts';
@@ -18,12 +20,18 @@ import { scriptRoutes } from './routes/script.ts';
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 
 export function createApp(deps: Deps) {
+  // The row feed: the database notes each changed row of the browser's collections, and the change
+  // event that follows carries them (feed.ts).
+  rowChangesOf(deps.db.$client).listener = (projectId, seq) => events.rowsChanged(projectId, seq);
+  events.rowSource = (projectId) => feedRows(deps.db, projectId);
   const api = new Hono<Env>()
     .use(async (c, next) => {
       c.set('deps', deps);
       // x-client: the browser tab's id, so the event for its own change can say it came from there (#20).
       const changed = await trackChanges(next, c.req.header('x-client')?.slice(0, 64));
-      if (changed.size) c.res.headers.set('x-changed', [...changed].join(','));
+      if (changed.topics.size) c.res.headers.set('x-changed', [...changed.topics].join(','));
+      // x-seq: the feed's count after this request's last row change; the browser's write waits for an event that far.
+      if (changed.seq !== undefined) c.res.headers.set('x-seq', String(changed.seq));
     })
     .get('/events', (c) =>
       streamSSE(c, async (stream) => {

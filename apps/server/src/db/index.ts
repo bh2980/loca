@@ -6,6 +6,7 @@ import { exclusionRulesSchema, formatRulesSchema, lineExclusion, needsListener, 
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import * as schema from './schema.ts';
+import { rowChangesOf } from './row-changes.ts';
 
 const migrationsFolder = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../drizzle');
 
@@ -40,6 +41,11 @@ export function backupBeforeMigration(sqlite: Database.Database, file: string, f
 
 /** The JS functions migrations call (a bare database migrated in a test needs them too). */
 export function registerMigrationFunctions(sqlite: Database.Database) {
+  // row_changed(collection, row id, op, project id): the row feed's triggers (0106) note a changed row (db/row-changes.ts).
+  sqlite.function('row_changed', (collection: unknown, rowId: unknown, op: unknown, projectId: unknown) => {
+    rowChangesOf(sqlite).note(String(collection), String(rowId), op === 'delete' ? 'delete' : 'upsert', typeof projectId === 'string' ? projectId : null);
+    return null;
+  });
   // issue_tag_nodes(definition json, role → tag id json): a workflow's 태그 붙이기 nodes once tags have no roles (0102):
   // the problem types it named (kinds, every kind) become those tags' ids, and a node reading a result field gets the
   // kind → tag map it used to find by role. Any other node is left as it is.

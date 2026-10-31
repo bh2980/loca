@@ -1,12 +1,13 @@
 import { Hono } from 'hono';
 import { and, asc, eq, inArray, ne, or } from 'drizzle-orm';
 import { z } from 'zod';
-import { EVENT_LINK_KINDS, KNOWLEDGE_TAG_KINDS, modelChoiceSchema, patchOf, withDuplicateTargets } from '@tw/shared';
+import { EVENT_LINK_KINDS, FEED_COLLECTIONS, KNOWLEDGE_TAG_KINDS, modelChoiceSchema, patchOf, withDuplicateTargets } from '@tw/shared';
 import { badRequest, found, notFound, validate, type Env } from '../context.ts';
 import { eachChunk, inChunks } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { deleteItems, deleteItemsKept, restoreItems } from '../services/item-delete.ts';
 import { events } from '../events.ts';
+import { feedSnapshot } from '../feed.ts';
 import { graphOrder, ruleLines } from '../services/speech.ts';
 import { linkEvents, projectEventFlow, setEventLink } from '../services/event-routes.ts';
 import { fillTermUsage, termUsage } from '../services/term-usage.ts';
@@ -26,6 +27,8 @@ const visible = <T extends ProjectTable>(table: T, projectId: string) => and(eq(
 const byProject = <T extends ProjectTable>(table: T, id: string, projectId: string) => and(eq(table.id, id), eq(table.projectId, projectId));
 
 export const knowledgeRoutes = new Hono<Env>()
+  /** A browser collection's rows and the feed's count: its first load, kept current by the change events' rows. */
+  .get('/sync/:collection', validate('param', z.object({ collection: z.enum(FEED_COLLECTIONS) })), (c) => c.json(feedSnapshot(c.var.deps.db, c.req.param('projectId')!, c.req.valid('param').collection)))
   .get('/terms', (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId')!;

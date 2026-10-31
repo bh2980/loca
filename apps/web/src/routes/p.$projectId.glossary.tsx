@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { AiConfirmNote } from '@/components/settings/ai-confirm';
 import { createFileRoute } from '@tanstack/react-router';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { Plus, Play, ScanSearch } from 'lucide-react';
 import { toast } from 'sonner';
 import { DataTable, type ColumnDef, EmptyState, TagMenu, FilterChips, SearchField, FilterBar, ActionBar, type FilterChip, Button, Text, useRevealDock, ContextMenuItem, ContextMenuSeparator, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Spinner, SplitPane } from '@loca/ui';
@@ -9,12 +9,13 @@ import { HeaderFilter, MarkFilter, markTagGroups, togglePick, type FilterPick } 
 import { NEW_TERM, NewTermPane, TermEditor, type Term } from '@/components/glossary/term-pane';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { HeaderActions, Page } from '@/components/page';
-import { BulkDecide, matches, parseStatusFilter, parseDecidedBy, StateFilter, SourceBadge, StateCell, statusOptions, type StatusFilter, TagCell } from '@/components/knowledge/table';
-import { AUTO_MARKS, markColor, markName, type AutoMark, isSettled, matchesMarks, parseMarks, TERM_MARK_IDS, termMarksOf, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, type KnowledgeSource, aiDecided, DECIDED_BY_LABELS, type DecidedBy } from '@tw/shared';
+import { BulkDecide, parseStatusFilter, parseDecidedBy, StateFilter, SourceBadge, StateCell, statusOptions, type StatusFilter, TagCell } from '@/components/knowledge/table';
+import { AUTO_MARKS, markColor, markName, type AutoMark, isSettled, parseMarks, TERM_MARK_IDS, termMarksOf, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, type KnowledgeSource, aiDecided, DECIDED_BY_LABELS, type DecidedBy, termMatches, type TermFilter } from '@tw/shared';
 import { client, unwrap } from '@/lib/api';
 import { q, tagsIn, useMarkStyles } from '@/lib/queries';
 import { usePicked } from '@/lib/use-picked';
 import { useReportView } from '@/lib/view-context';
+import { decideTerms, sent, useTerms, withDuplicate } from '@/lib/terms';
 
 export const Route = createFileRoute('/p/$projectId/glossary')({
   validateSearch: (raw: Record<string, unknown>): GlossarySearch => ({
@@ -58,43 +59,31 @@ function Glossary() {
   const { projectId } = Route.useParams();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
-  const terms = useQuery(q.terms(projectId));
+  const terms = useTerms(projectId);
   const { picked, pick, clear: clearPicked } = usePicked(`glossary.${projectId}`);
   const [runOpen, setRunOpen] = useState(false);
   const discover = useMutation({
     mutationFn: () => unwrap(client.projects[':projectId'].terms.discover.$post({ param: { projectId } })),
+    // The found terms come with the row feed.
     onSuccess: ({ found, added, updated }) => {
-      queryClient.invalidateQueries({ queryKey: q.terms(projectId).queryKey });
       toast.success(`대본에서 용어 후보 ${found.toLocaleString()}개를 찾았습니다 (추가 ${added}개, 갱신 ${updated}개).`);
     },
     onError: (error) => toast.error(error.message),
   });
   // Who wrote a term (출처) and who set its status (✦ when AI confirmed it and no person has looked yet).
   const asDraft = (term: Term) => ({ ...term, evidence: [] });
-  const hidden = (term: Term) => termMarksOf(term).some((mark) => search.hideMarks?.includes(mark)) || Boolean(term.tags?.some((tag) => search.hideTags?.includes(tag.id)));
-  const all = (terms.data ?? []).filter((term) => matches(asDraft(term), search.source, undefined, search.tags, search.status, search.decidedBy) && (search.emptyTarget === undefined || !term.target.trim() === search.emptyTarget) && matchesMarks(termMarksOf(term), search.marks) && !hidden(term));
-  const queryClient = useQueryClient();
+  const marksOf = (term: Term) => termMarksOf(withDuplicate(term, terms.duplicates));
+  // The glossary's filters, the same ones loca terms and the chat's list_terms use (termMatches).
+  const filter: TermFilter = { source: search.source, status: search.status && [search.status], decidedBy: search.decidedBy, emptyTarget: search.emptyTarget, marks: search.marks, hideMarks: search.hideMarks, tags: search.tags, hideTags: search.hideTags };
+  const all = (terms.data ?? []).filter((term) => termMatches(term, filter, terms.duplicates.has(term)));
+  // The table changes at once (decideTerms); the feed brings the saved rows, and a failure puts them back.
   const decide = useMutation({
-    mutationFn: ({ ids, accept }: { ids: string[]; accept: boolean }) => unwrap(client.projects[':projectId'].drafts.$post({ param: { projectId }, json: { kind: 'terms', ids, action: accept ? 'confirm' : 'discard' } })),
-    // The table changes at once; the server's terms event brings the saved rows, and a failure puts them back.
-    onMutate: async ({ ids, accept }) => {
-      const key = q.terms(projectId).queryKey;
-      await queryClient.cancelQueries({ queryKey: key });
-      const before = queryClient.getQueryData(key);
-      const picked = new Set(ids);
-      // Discarded terms leave the list (the server does not send rejected ones); confirmed ones become official.
-      queryClient.setQueryData(key, (list) => (accept ? list?.map((term) => (picked.has(term.id) ? { ...term, status: 'confirmed' as const, statusBy: 'human' as const } : term)) : list?.filter((term) => !picked.has(term.id))));
-      return { before };
-    },
-    onSuccess: ({ changed }, { accept }) => toast.success(accept ? `${changed}개를 정식 용어로 올렸습니다.` : `${changed}개 후보를 버렸습니다.`),
-    onError: (error, _vars, context) => {
-      if (context?.before) queryClient.setQueryData(q.terms(projectId).queryKey, context.before);
-      toast.error(error.message);
-    },
+    mutationFn: ({ ids, accept }: { ids: string[]; accept: boolean }) => decideTerms(projectId, ids, accept),
+    onSuccess: (changed, { accept }) => toast.success(accept ? `${changed}개를 정식 용어로 올렸습니다.` : `${changed}개 후보를 버렸습니다.`),
+    onError: (error) => toast.error(error.message),
   });
   const needle = search.q?.toLowerCase();
-  const scoped = search.ids ? all.filter((term) => search.ids!.includes(term.id)) : all;
-  const filtered = needle ? scoped.filter((term) => [term.source, term.target, term.note].some((text) => text.toLowerCase().includes(needle))) : scoped;
+  const filtered = needle || search.ids ? all.filter((term) => termMatches(term, { text: search.q, ids: search.ids })) : all;
   // Candidates first, the most frequent on top; settled terms follow by source.
   const rows = [...filtered].sort((a, b) => Number(isSettled(a)) - Number(isSettled(b)) || (!isSettled(a) ? (b.lines ?? -1) - (a.lines ?? -1) : 0));
   const creating = search.term === NEW_TERM;
@@ -104,11 +93,10 @@ function Glossary() {
   const remove = useMutation({
     mutationFn: async (ids: string[]) => {
       for (const id of ids) {
-        await unwrap(client.projects[':projectId'].terms[':id'].$delete({ param: { projectId, id } }));
+        await sent(projectId, client.projects[':projectId'].terms[':id'].$delete({ param: { projectId, id } }));
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: q.terms(projectId).queryKey });
       clearPicked();
       toast.success('용어를 삭제했습니다.');
     },
@@ -131,7 +119,7 @@ function Glossary() {
     setFilter({ tags: next.show, hideTags: next.hide });
   };
   const tag = useMutation({
-    mutationFn: ({ ids, tagId, add }: { ids: string[]; tagId: string; add: boolean }) => unwrap(client.projects[':projectId']['knowledge-tags'].$post({ param: { projectId }, json: { kind: 'terms', ids, tagId, add } })),
+    mutationFn: ({ ids, tagId, add }: { ids: string[]; tagId: string; add: boolean }) => sent(projectId, client.projects[':projectId']['knowledge-tags'].$post({ param: { projectId }, json: { kind: 'terms', ids, tagId, add } })),
     onError: (error) => toast.error(error.message),
   });
 
@@ -196,7 +184,7 @@ function Glossary() {
         />
       ),
       meta: { width: 150, label: '태그' },
-      cell: ({ row }) => <TagCell tags={row.original.tags} known={knownTags} marks={termMarksOf(row.original)} />,
+      cell: ({ row }) => <TagCell tags={row.original.tags} known={knownTags} marks={marksOf(row.original)} />,
     },
   ];
 
@@ -253,6 +241,9 @@ function Glossary() {
           columns={columns}
           rows={terms.data && rows}
           rowId={(term) => term.id}
+          // The cells read their term, the project's tags and the term's #번역어 중복: a row is drawn again only when one of these changed.
+          rowDeps={[statuses.data?.tags]}
+          rowKey={(term) => terms.duplicates.has(term)}
           loading={terms.isLoading}
           empty={<EmptyState noun="용어" filtered={Boolean(needle || search.ids || search.source || search.status || search.marks?.length || search.tags?.length)} />}
           selected={selected?.id}

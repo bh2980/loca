@@ -1,6 +1,6 @@
 import { useRevealDock } from "./right-dock"
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "../controls/context-menu"
-import { forwardRef, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode, type Ref } from "react"
+import { forwardRef, memo, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode, type Ref, type RefObject } from "react"
 import {
   DndContext,
   KeyboardSensor,
@@ -204,7 +204,138 @@ export interface DataTableProps<T> {
   reorderable?: (row: T) => boolean
   /** Names a row for its grip's label. */
   rowLabel?: (row: T) => string
+  /**
+   * What the cells read besides their row (tags, styles…): a row is drawn again only when its own row
+   * object, its selection or pick, the visible columns, or one of these changes. Without it every row is
+   * drawn again whenever `columns` changes (pages that build columns inline: every render).
+   */
+  rowDeps?: readonly unknown[]
+  /** A row's own value its cells read that is not on the row itself (e.g. a flag from the whole list). */
+  rowKey?: (row: T) => unknown
 }
+
+/** What a row asks of its table, read when it happens (the latest props), so a row that was not drawn again never acts on old ones. */
+interface RowActions<T> {
+  click?: (row: T) => void
+  pick?: (ids: string[], on: boolean) => void
+  menu?: (row: T) => ReactNode
+  setMenu: (menu: ReactNode) => void
+}
+
+interface BodyRowProps<T> {
+  row: Row<T>
+  original: T
+  isSelected: boolean
+  isPicked: boolean
+  /** The lead cell is there (a checkbox or a grip); `checkbox`: this row has a checkbox. */
+  lead: boolean
+  pickable: boolean
+  checkbox: boolean
+  clickable: boolean
+  hasMenu: boolean
+  tentative: boolean
+  sortable: boolean
+  locked: boolean
+  label: string
+  trailing: boolean
+  columnsKey: string
+  deps: readonly unknown[]
+  version: unknown
+  rowRef?: Ref<HTMLTableRowElement>
+  actions: RefObject<RowActions<T>>
+}
+
+const sameRow = <T,>(a: BodyRowProps<T>, b: BodyRowProps<T>) =>
+  a.original === b.original &&
+  a.isSelected === b.isSelected &&
+  a.isPicked === b.isPicked &&
+  a.lead === b.lead &&
+  a.pickable === b.pickable &&
+  a.checkbox === b.checkbox &&
+  a.clickable === b.clickable &&
+  a.hasMenu === b.hasMenu &&
+  a.tentative === b.tentative &&
+  a.sortable === b.sortable &&
+  a.locked === b.locked &&
+  a.label === b.label &&
+  a.trailing === b.trailing &&
+  a.columnsKey === b.columnsKey &&
+  Object.is(a.version, b.version) &&
+  a.rowRef === b.rowRef &&
+  a.deps.length === b.deps.length &&
+  a.deps.every((dep, index) => Object.is(dep, b.deps[index]))
+
+/** One body row, drawn again only when what it shows changed (sameRow). */
+const BodyRow = memo(function BodyRow<T>({ row, original, isSelected, isPicked, lead, pickable, checkbox, clickable, hasMenu, tentative, sortable, locked, label, trailing, rowRef, actions }: BodyRowProps<T>) {
+  const rowProps = {
+    "data-state": isSelected ? "selected" : undefined,
+    onContextMenu: hasMenu
+      ? () => {
+          const menu = actions.current.menu?.(original)
+          if (menu) actions.current.setMenu(menu)
+        }
+      : undefined,
+    onClick: clickable ? () => actions.current.click?.(original) : undefined,
+    className: cn(
+      "group/row transition-colors",
+      clickable && "cursor-pointer hover:bg-hover",
+      isSelected && "bg-selected hover:bg-selected",
+      tentative && "[&>td:first-child]:border-l-2 [&>td:first-child]:border-dashed [&>td:first-child]:border-l-warning"
+    ),
+  }
+  const cells = (grip?: ReactNode) => (
+    <>
+      {lead && (
+        <td
+          className={cn("relative align-middle py-2", pickable && "pl-3")}
+          onClick={(event) => event.stopPropagation()}
+        >
+          {grip && <span className="absolute inset-y-0 left-0 flex items-center">{grip}</span>}
+          {checkbox && (
+            <Checkbox
+              aria-label="선택"
+              checked={isPicked}
+              onCheckedChange={(checked) => actions.current.pick?.([row.id], Boolean(checked))}
+            />
+          )}
+        </td>
+      )}
+      {row.getVisibleCells().map((cell, index) => {
+        const meta = cell.column.columnDef.meta
+        return (
+          <td
+            key={cell.id}
+            className={cn(
+              "px-3 py-2 align-middle text-sm text-default",
+              index === 0 && !lead && "pl-4",
+              meta?.wrap ? "break-words whitespace-pre-wrap" : "truncate",
+              meta?.align === "end" && "text-right tabular-nums",
+              meta?.tone === "muted" && "text-muted",
+              meta?.variant === "caption" && "text-xs",
+              meta?.weight === "medium" && "font-medium",
+              meta?.tabular && "tabular-nums",
+              meta?.mono && "font-mono",
+              meta?.dense && "py-1"
+            )}
+          >
+            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+          </td>
+        )
+      })}
+      {trailing && <td />}
+    </>
+  )
+  const tr = sortable ? (
+    <SortableRow ref={rowRef} sortId={row.id} locked={locked} label={label} {...rowProps}>
+      {(grip) => cells(grip)}
+    </SortableRow>
+  ) : (
+    <tr ref={rowRef} {...rowProps}>
+      {cells()}
+    </tr>
+  )
+  return hasMenu ? <ContextMenuTrigger asChild>{tr}</ContextMenuTrigger> : tr
+}, sameRow) as <T>(props: BodyRowProps<T>) => ReactNode
 
 export function DataTable<T>(props: DataTableProps<T>) {
   return <Table key={props.id} {...props} />
@@ -230,6 +361,8 @@ function Table<T>({
   reorderable,
   rowLabel,
   canPick,
+  rowDeps,
+  rowKey,
 }: DataTableProps<T>) {
   const revealDock = useRevealDock()
   // The order a drop asked for, kept until new rows arrive: the saved order reaches the rows a moment
@@ -416,91 +549,47 @@ function Table<T>({
     onReorder(order)
   }
 
+  // Rows read the latest handlers when they are used (BodyRow); a row is drawn again only when what it shows changed.
+  const actions = useRef<RowActions<T>>({ setMenu: setRowMenu })
+  actions.current = {
+    click: onRowClick
+      ? (row) => {
+          revealDock?.()
+          onRowClick(row)
+        }
+      : undefined,
+    pick: onPick,
+    menu: rowContextMenu,
+    setMenu: setRowMenu,
+  }
+  const columnsKey = visibleColumns.map((column) => column.id).join("|")
+  const deps = rowDeps ?? [columns]
   const renderRow = (row: Row<T>) => {
     const isSelected = row.id === selected
-    const menu = rowContextMenu?.(row.original)
-    const rowProps = {
-      "data-state": isSelected ? "selected" : undefined,
-      onContextMenu: menu ? () => setRowMenu(menu) : undefined,
-      onClick: onRowClick
-        ? () => {
-            revealDock?.()
-            onRowClick(row.original)
-          }
-        : undefined,
-      className: cn(
-        "group/row transition-colors",
-        onRowClick && "cursor-pointer hover:bg-hover",
-        isSelected && "bg-selected hover:bg-selected",
-        rowState?.(row.original) === "tentative" && "[&>td:first-child]:border-l-2 [&>td:first-child]:border-dashed [&>td:first-child]:border-l-warning"
-      ),
-    }
-    const cells = (grip?: ReactNode) => (
-      <>
-        {lead && (
-          <td
-            className={cn("relative align-middle py-2", pickable && "pl-3")}
-            onClick={(event) => event.stopPropagation()}
-          >
-            {grip && <span className="absolute inset-y-0 left-0 flex items-center">{grip}</span>}
-            {pickable && (!canPick || canPick(row.original)) && (
-              <Checkbox
-                aria-label="선택"
-                checked={picked!.has(row.id)}
-                onCheckedChange={(checked) => onPick!([row.id], Boolean(checked))}
-              />
-            )}
-          </td>
-        )}
-        {row.getVisibleCells().map((cell, index) => {
-          const meta = cell.column.columnDef.meta
-          return (
-            <td
-              key={cell.id}
-              className={cn(
-                "px-3 py-2 align-middle text-sm text-default",
-                index === 0 && !lead && "pl-4",
-                meta?.wrap ? "break-words whitespace-pre-wrap" : "truncate",
-                meta?.align === "end" && "text-right tabular-nums",
-                meta?.tone === "muted" && "text-muted",
-                meta?.variant === "caption" && "text-xs",
-                meta?.weight === "medium" && "font-medium",
-                meta?.tabular && "tabular-nums",
-                meta?.mono && "font-mono",
-                meta?.dense && "py-1"
-              )}
-            >
-              {flexRender(cell.column.columnDef.cell, cell.getContext())}
-            </td>
-          )
-        })}
-        {id && <td />}
-      </>
-    )
-    const tr = sortable ? (
-      <SortableRow
+    return (
+      <BodyRow<T>
         key={row.id}
-        ref={isSelected ? selectedRow : undefined}
-        sortId={row.id}
+        row={row}
+        original={row.original}
+        isSelected={isSelected}
+        isPicked={Boolean(picked?.has(row.id))}
+        lead={lead}
+        pickable={pickable}
+        checkbox={pickable && (!canPick || canPick(row.original))}
+        clickable={Boolean(onRowClick)}
+        hasMenu={Boolean(rowContextMenu?.(row.original))}
+        tentative={rowState?.(row.original) === "tentative"}
+        sortable={sortable}
         locked={reorderable ? !reorderable(row.original) : false}
         label={rowLabel?.(row.original) ?? "행"}
-        {...rowProps}
-      >
-        {(grip) => cells(grip)}
-      </SortableRow>
-    ) : (
-      <tr key={row.id} ref={isSelected ? selectedRow : undefined} {...rowProps}>
-        {cells()}
-      </tr>
+        trailing={Boolean(id)}
+        columnsKey={columnsKey}
+        deps={deps}
+        version={rowKey?.(row.original)}
+        rowRef={isSelected ? selectedRow : undefined}
+        actions={actions}
+      />
     )
-    if (menu) {
-      return (
-        <ContextMenuTrigger key={row.id} asChild>
-          {tr}
-        </ContextMenuTrigger>
-      )
-    }
-    return tr
   }
 
   return (

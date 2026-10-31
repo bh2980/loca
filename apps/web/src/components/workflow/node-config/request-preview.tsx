@@ -5,6 +5,7 @@ import { AI_OUTPUTS, CONTEXT_ITEM_KINDS, CONTEXT_PRIORITY, INPUT_TYPES, JSON_FIE
 import { Box, Button, Dialog, DialogContent, DialogHeader, DialogTitle, Inline, RequestDetails, RequestPart as Part, Combobox, Skeleton, Text, Section } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
+import { useTerms } from '@/lib/terms';
 
 type Request = InferResponseType<(typeof client.workflows)[':id']['nodes'][':nodeId']['request']['$get'], 200>;
 
@@ -99,7 +100,7 @@ function SamplePicker({ projectId, subject, value, label, onPick }: { projectId:
     enabled: subject === 'lines',
     placeholderData: keepPreviousData,
   });
-  const terms = useQuery({ ...q.terms(projectId), enabled: subject === 'terms' });
+  const terms = useTerms(projectId, { enabled: subject === 'terms' });
   const options =
     subject === 'lines'
       ? (lines.data?.rows ?? []).map((row) => ({ value: row.key, label: `${row.key} · ${row.speaker ? `${row.speaker}: ` : ''}${row.translation || row.source}` }))

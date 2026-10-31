@@ -6,6 +6,7 @@ import { RunDialog } from '@/components/workflow/run-dialog';
 import { Box, Button, Icon, Inline, SectionHeading, Stack, StepMarker, Text } from '@loca/ui';
 import { HeaderActions } from '@/components/page';
 import { q } from '@/lib/queries';
+import { useTerms } from '@/lib/terms';
 
 interface Step {
   key: string;
@@ -29,7 +30,7 @@ export function GettingStarted({ projectId }: { projectId: string }) {
   const connections = useQuery(q.connections({ kind: 'project', projectId }));
   const characters = useQuery(q.characters(projectId));
   const rules = useQuery(q.speechRules(projectId));
-  const terms = useQuery(q.terms(projectId));
+  const terms = useTerms(projectId);
   const runs = useQuery(q.runs(projectId));
   const project = useQuery(q.project(projectId));
   const [hidden, setHidden] = useState(() => readHidden(projectId));

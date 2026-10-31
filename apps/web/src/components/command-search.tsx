@@ -7,6 +7,7 @@ import { q } from '@/lib/queries';
 import { keyLabel } from '@/lib/keys';
 import { chatDock } from '@/lib/chat-dock';
 import { PersonName } from '@/lib/person-colors';
+import { useTerms } from '@/lib/terms';
 
 export type SearchScope = 'all' | 'lines' | 'scenes' | 'terms' | 'people' | 'docs' | 'chat';
 
@@ -46,10 +47,7 @@ export function CommandSearch({ projectId, compact = false }: { projectId: strin
     enabled: open && query.length > 0 && (scope === 'all' || scope === 'scenes'),
   });
   // The glossary and the knowledge lists are small and already cached by their pages; matched here.
-  const termList = useQuery({
-    ...q.terms(projectId),
-    enabled: open && (scope === 'all' || scope === 'terms'),
-  });
+  const termList = useTerms(projectId, { enabled: open && (scope === 'all' || scope === 'terms') });
   const characterList = useQuery({
     ...q.characters(projectId),
     enabled: open && (scope === 'all' || scope === 'people'),

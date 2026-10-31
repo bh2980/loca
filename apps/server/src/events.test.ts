@@ -74,14 +74,14 @@ describe('implied topics', () => {
 describe('changes a request made', () => {
   it('are gathered with what they imply, so the response can name them', async () => {
     const own = new Events(0, 0);
-    const topics = await trackChanges(async () => {
+    const { topics } = await trackChanges(async () => {
       await Promise.resolve();
       events.changed('p', 'terms');
       own.changed('p', 'chat');
     });
     expect([...topics].sort()).toEqual(['chat', 'statuses', 'terms', 'units', 'workflows']);
     // Outside a request nothing is gathered.
-    expect(await trackChanges(async () => {})).toEqual(new Set());
+    expect(await trackChanges(async () => {})).toEqual({ topics: new Set(), seq: undefined });
   });
 });
 
@@ -118,7 +118,7 @@ describe('the tab whose own requests made a change (#20)', () => {
     // A timer started inside the request keeps its async context, as a run's progress does.
     let done: () => void = () => {};
     const finished = new Promise<void>((resolve) => (done = resolve));
-    const topics = await trackChanges(async () => {
+    const { topics } = await trackChanges(async () => {
       setTimeout(() => (bus.changed('p', 'runs'), done()), 5);
     }, 'tab-1');
     await finished;

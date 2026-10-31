@@ -671,7 +671,7 @@ const statusIds = (picked: string[] | undefined) => picked?.map((label) => (labe
 const terms = program
   .command('terms')
   .description('용어집 목록: 원문, 번역어, 상태, 나온 줄(대본에서 쓰이는 대사 수), 표시(#), 태그. 앱 용어집 화면의 필터와 같은 규칙')
-  .option('-q, --q <글자>', '원문·번역어에 들어 있는 글자')
+  .option('-q, --q <글자>', '원문·번역어·메모에 들어 있는 글자 (대소문자 무시)')
   .addOption(new Option('--status <status...>', '상태 (앱의 상태 열). 둘을 함께 주면 둘 중 하나').choices(STATUS_CHOICES))
   .addOption(new Option('--mark <marks...>', '자동 태그. 여러 개면 모두 붙은 것').choices(TERM_MARK_IDS))
   .addOption(new Option('--by <누구>', '정한 쪽: ai = AI가 정하고 사람이 아직 안 봄(✦), human = 사람이 정함').choices(DECIDED_BY))
