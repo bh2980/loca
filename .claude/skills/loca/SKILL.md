@@ -61,20 +61,32 @@ description: Common rules for working on a loca translation project from the ter
 
 이런 일이 필요하면 무엇을 왜 해야 하는지 사용자에게 말합니다.
 
-## 표시(#)와 상태
-읽기 명령은 앱 화면과 같은 규칙을 씁니다. 앱이 자동으로 붙이는 표시는 이렇습니다.
+## 자동 태그(#), 필터, 상태
+읽기 명령은 앱 화면과 같은 규칙을 씁니다. 앱이 스스로 붙이는 자동 태그는 줄이나 항목의 다른 칸에 보이지 않는 사실만입니다(`--mark`).
 
-| 어디 | 표시 |
+| 어디 | 자동 태그 |
 |---|---|
-| 대사 | `remaining` #남은 줄 · `ai` #AI 초안 · `unknownListener` #청자 미상 · `diverged` #번역 불일치 · `noted` #메모 · `excluded` #번역 제외 |
-| 자료 | `candidate` 후보 · `ai` #AI 초안 · `noEvidence` #근거 부재 |
-| 용어 | `candidate` 후보 · `ai` #AI 초안 · `emptyTarget` #번역 누락 · `unused` #대본 미등장 |
+| 대사 | `diverged` #번역 불일치 · `aiSuggestion` #AI 제안 대기 |
+| 자료 | `review` #확인 권장 · `noEvidence` #근거 부재 |
+| 용어 | `unused` #대본 미등장 · `duplicateTarget` #번역어 중복 |
 
-- **#번역 제외**는 번역 대상이 아닌 줄입니다: 빈 원문, 서식만 있는 줄, 글자 없는 줄, 프로젝트의 제외 규칙에 걸린 줄, 사람이 직접 뺀 줄. 진행률·#남은 줄·실행·`export --untranslated`/`--translated`·`check`에서 빠지고, 번역은 건드리지 않습니다.
-- 같은 조건을 걸 때는 `--mark`를 씁니다. 반대로 빼려면 `--hide-mark`·`--hide-tag`·`--hide-status`·`--hide-speaker`를 씁니다(하나라도 해당하면 뺌).
-- 앱의 대사 목록은 #번역 제외를 기본으로 숨깁니다(필터 바의 숨김 칩). CLI의 `lines`는 숨기지 않으니 필요하면 `--hide-mark excluded`를 붙입니다.
-- 표시를 여러 개 주면 모두 만족해야 합니다. 다만 `candidate`와 `ai`를 함께 주면 둘 중 하나입니다.
-- `--unreviewed`는 사람이 아직 안 본 것(후보 또는 AI 초안)입니다.
+줄이나 항목에 이미 보이는 사실은 그 칸의 필터로 겁니다.
+
+| 무엇 | 대사 (`lines`·`export`·`check`·`runs`) | 용어 (`terms`·`runs`) | 자료 (`knowledge`) |
+|---|---|---|---|
+| 상태가 최종 아님 (남은 일) / 최종 | `--unfinished` / `--finished` | | |
+| 정한 쪽: AI가 정하고 사람이 아직 안 봄(✦) / 사람 | `--by ai` / `--by human` | `--by ai` / `--by human` | `--by ai` / `--by human` |
+| 청자 모름 (청자를 모르거나 AI 추정이 불확실) | `--listener -` | | |
+| 메모 있음 / 없음 | `--noted` / `--without-note` | | |
+| 번역 제외 뺌 / 그것만 | `--excluded hide` / `--excluded only` | | |
+| 번역어 비어 있음 / 있음 | | `--empty-target` / `--has-target` | |
+
+- **번역 제외**는 번역 대상이 아닌 줄입니다: 빈 원문, 서식만 있는 줄, 글자 없는 줄, 프로젝트의 제외 규칙에 걸린 줄, 사람이 직접 뺀 줄. 진행률·최종 아님·실행·`export --untranslated`/`--translated`·`check`에서 빠지고, 번역은 건드리지 않습니다. `loca lines`는 상태 옆에 `· 번역 제외`, AI가 정한 상태에 `✦`를 붙여 보여 줍니다.
+- **#AI 제안 대기**는 AI가 낸 번역이 사람의 적용·거절을 기다리는 줄입니다: 사람이 번역한 줄에 실행이 낸 번역(그 줄의 번역은 바뀌지 않음), `propose_translation`으로 올린 제안. 사람이 줄 상세의 "AI 제안"에서 적용하거나 거절하고, 에이전트는 사용자가 시킬 때만 `loca call decide_suggestion`(`{unitId, candidateId, decision: apply|decline}`, 제안의 id는 `loca call read_line`의 `suggestions`)으로 정합니다. 줄이 전에 가졌던 번역은 `history`에 있습니다.
+- 자동 태그를 걸 때는 `--mark`를 씁니다. 반대로 빼려면 `--hide-mark`·`--hide-tag`·`--hide-status`·`--hide-speaker`를 씁니다(하나라도 해당하면 뺌).
+- 앱의 대사 목록은 번역 제외를 기본으로 숨깁니다(필터 바의 숨김 칩). CLI의 `lines`는 숨기지 않으니 필요하면 `--excluded hide`를 붙입니다.
+- 자동 태그를 여러 개 주면 모두 만족해야 합니다. 모든 필터는 함께 주면 모두 만족해야 합니다.
+- `--unreviewed`는 사람이 아직 안 본 것(후보 또는 AI가 정한 것)입니다.
 - 자료·용어의 상태:
   - `status`: confirmed(번역 문맥에 쓰임) · candidate(아직 안 쓰임)
   - `statusBy`: ai(AI가 정했고 사람이 안 봄) · human

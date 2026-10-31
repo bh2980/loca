@@ -54,12 +54,12 @@ describe('a new project starts from the 홈 설정', () => {
         { id: 'draft', name: '초벌', color: '#0486d3', kind: 'normal', inReview: false },
         { id: 'done', name: '끝', color: '#2a9754', kind: 'final', inReview: false },
       ],
-      tags: [{ id: 't', name: '보스', color: '#0091ad', scope: ['lines'] }],
+      tags: [{ id: 't', name: '보스', color: '#0091ad', description: '', scope: ['lines'] }],
       workflows: { templates: ['translation'], saved: [] },
     });
     const { projectId } = importProject(db, file());
     expect(statusNames(db, projectId)).toEqual(['새 줄', '초벌', '끝']);
-    expect(db.select().from(s.tags).where(eq(s.tags.projectId, projectId)).all().map((tag) => tag.name).sort()).toEqual(['AI 실패', '보스']);
+    expect(db.select().from(s.tags).where(eq(s.tags.projectId, projectId)).all().map((tag) => tag.name).sort()).toEqual([...['AI 실패', '기타 지적', '말투 어긋남', '문체 어색', '용어 위반', '의미 오류', '형식 오류'], '보스'].sort());
     const units = db.select({ key: s.units.key, status: s.statuses.name }).from(s.units).innerJoin(s.statuses, eq(s.statuses.id, s.units.statusId)).all();
     expect(Object.fromEntries(units.map((unit) => [unit.key, unit.status]))).toEqual({ a: '초벌', b: '새 줄' });
     expect(db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).all().map((row) => row.name)).toEqual(['번역']);

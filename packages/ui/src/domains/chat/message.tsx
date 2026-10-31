@@ -21,8 +21,8 @@ export function AssistantMessage({ children }: { children: React.ReactNode }) {
 }
 
 /** Copy / reuse buttons under a message; shown on hover or keyboard focus of the message. */
-export function MessageActionBar({ children }: { children: React.ReactNode }) {
-  return <div className="flex justify-end gap-0.5 opacity-0 transition-opacity group-hover/message:opacity-100 group-focus-within/message:opacity-100">{children}</div>
+export function MessageActionBar({ children, side = "end" }: { children: React.ReactNode; /** The side the message is on: the person's at the right, the agent's at the left. */ side?: "start" | "end" }) {
+  return <div className={cn("flex gap-0.5 opacity-0 transition-opacity group-hover/message:opacity-100 group-focus-within/message:opacity-100", side === "end" ? "justify-end" : "justify-start")}>{children}</div>
 }
 
 /** A message sent while a reply was running: where the reply took it, or (`waiting`) still waiting for its next step. `actions` sit beside the label. */

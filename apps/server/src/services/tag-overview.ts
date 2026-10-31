@@ -1,5 +1,5 @@
 import { and, count, eq } from 'drizzle-orm';
-import { AUTO_MARK_IDS, AUTO_MARKS, type AutoMark, knowledgeMarksOf, LINE_MARK_IDS, markColor, TAG_SCOPE_LABELS, termMarksOf, withDuplicateTargets } from '@tw/shared';
+import { AUTO_MARK_IDS, AUTO_MARKS, type AutoMark, knowledgeMarksOf, LINE_MARK_IDS, markColor, markName, TAG_SCOPE_LABELS, termMarksOf, withDuplicateTargets } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { markConditions } from './line-marks.ts';
@@ -22,17 +22,16 @@ function itemMarkCounts(db: Db, projectId: string) {
  * each with where it can be put (붙는 곳) and how many lines / items carry it.
  */
 export function tagOverview(db: Db, projectId: string) {
-  const colors = db.select({ markColors: s.projects.markColors }).from(s.projects).where(eq(s.projects.id, projectId)).get()?.markColors;
   const items = itemMarkCounts(db, projectId);
+  const styles = db.select({ markStyles: s.projects.markStyles }).from(s.projects).where(eq(s.projects.id, projectId)).get()?.markStyles;
   return {
-    tags: projectTags(db, projectId).map(({ units, ...tag }) => ({ ...tag, builtin: tag.role !== null, places: tag.scope.map((place) => TAG_SCOPE_LABELS[place]), lines: units })),
+    tags: projectTags(db, projectId).map(({ units, ...tag }) => ({ ...tag, places: tag.scope.map((place) => TAG_SCOPE_LABELS[place]), lines: units })),
     marks: AUTO_MARK_IDS.map((id) => ({
       id,
-      name: AUTO_MARKS[id].name,
-      builtin: true,
+      name: markName(id, styles),
       scope: [...AUTO_MARKS[id].on],
       places: AUTO_MARKS[id].on.map((place) => TAG_SCOPE_LABELS[place]),
-      color: markColor(id, colors),
+      color: markColor(id, styles),
       description: AUTO_MARKS[id].description,
       lines: (LINE_MARK_IDS as readonly string[]).includes(id)
         ? db.select({ n: count() }).from(s.units).where(and(eq(s.units.projectId, projectId), ...markConditions(projectId, [id as (typeof LINE_MARK_IDS)[number]]))).get()!.n

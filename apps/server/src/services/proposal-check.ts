@@ -59,6 +59,7 @@ for (const [tool, field, what, exists] of [
   ['start_run', 'workflowId', '워크플로', scoped(s.workflows)],
   ['continue_run', 'runId', '실행', scoped(s.runs)],
   ['propose_translation', 'unitId', '대사', scoped(s.units)],
+  ['decide_suggestion', 'unitId', '대사', scoped(s.units)],
   ['save_group_summary', 'groupId', '장면', scoped(s.groups)],
 ] as const)
   BY_ID[tool] = { field, what, exists };
@@ -89,8 +90,8 @@ export async function prepareProposal(db: Db, projectId: string, tool: string, i
   if (tool === 'delete_items') {
     const kind = input.kind as DeletableKind;
     if (!DELETABLE[kind]) return { ok: false, error: `지울 수 없는 종류입니다: ${String(input.kind)}` };
-    const { ids, missing, locked } = deletable(db, projectId, kind, (input.ids as string[] | undefined) ?? []);
-    const dropped = [...missing.map((key) => ({ key, reason: `없는 ${DELETABLE[kind].what}입니다.` })), ...locked.map((key) => ({ key, reason: '앱이 쓰는 태그라 지울 수 없습니다.' }))];
+    const { ids, missing } = deletable(db, projectId, kind, (input.ids as string[] | undefined) ?? []);
+    const dropped = missing.map((key) => ({ key, reason: `없는 ${DELETABLE[kind].what}입니다.` }));
     if (!ids.length) return { ok: false, error: `지울 수 있는 ${DELETABLE[kind].what}이(가) 없습니다.`, hint: dropped.length ? `예: ${dropped[0].key} ${dropped[0].reason} 목록 도구로 id를 확인하세요.` : undefined };
     return { ok: true, input: { ...input, ids }, report: dropped.length ? { dropped, warnings: [] } : null };
   }

@@ -1,42 +1,47 @@
-import { useMemo } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useEffect, useMemo } from 'react';
+import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Trash2 } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Box, Button, DirtyBar, Inspector, InspectorHeader, InspectorResult, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Text, Textarea, Section, Field, KeyValue, KeyValueRow } from '@loca/ui';
-import { client, unwrap, type InferResponseType } from '@/lib/api';
+import { client, unwrap } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
-import { q } from '@/lib/queries';
+import { useLineDetail } from '@/lib/units';
 import { SOURCE_GROUP_LABEL, SOURCE_UNIT_LABEL } from '@/lib/labels';
+import { useGroup, useGroups } from '@/lib/groups';
+import type { LineDetail } from '@/lib/units';
 
 export type SourceGroupKind = 'scene' | 'document' | 'ui';
 export type SourceEditorMode = 'create-group' | 'edit-group' | 'create-unit' | 'edit-unit';
 export interface SourceSaved { entity: 'group' | 'unit'; id: string; groupId: string; kind: SourceGroupKind }
 
 type Form = { kind: SourceGroupKind; groupId: string; key: string; title: string; description: string; section: string; source: string; speaker: string; listener: string };
-type UnitRecord = InferResponseType<(typeof client.units)[':unitId']['$get']>;
+type UnitRecord = LineDetail;
 const EMPTY_FORM = (kind: SourceGroupKind, groupId = ''): Form => ({ kind, groupId, key: '', title: '', description: '', section: '', source: '', speaker: '', listener: '' });
 const KEY_HINT = '비우면 자동 생성 · 바꾸면 참조가 끊길 수 있음';
 const sourceKind = (kind: UnitRecord['kind']): SourceGroupKind => kind === 'dialogue' ? 'scene' : kind;
 
 /** Create or edit one imported-source group or source line. These edits never create a graph edge. */
-export function SourceEditor({ projectId, kind, groupId, unitId, mode, onClose, onSaved, onDeleted, onCreateGroup }: {
+export function SourceEditor({ projectId, kind, groupId, unitId, mode, onClose, onBack, onSaved, onDeleted, onCreateGroup }: {
   projectId: string;
   kind: SourceGroupKind;
   groupId?: string;
   unitId?: string;
   mode: SourceEditorMode;
   onClose?: () => void;
+  /** Opened from another view (a line's detail): ‹ in the header and Esc go back to it; what was typed stays a draft. */
+  onBack?: () => void;
   onSaved?: (result: SourceSaved) => void;
   onDeleted?: () => void;
   onCreateGroup?: () => void;
 }) {
   const editingGroup = mode === 'edit-group';
   const editingUnit = mode === 'edit-unit';
-  const group = useQuery({ ...q.group(groupId ?? ''), enabled: editingGroup && Boolean(groupId) });
-  const unit = useQuery({ ...q.unit(unitId ?? ''), enabled: editingUnit && Boolean(unitId) });
+  const group = useGroup(projectId, editingGroup ? groupId : undefined);
+  const unit = useLineDetail(projectId, unitId ?? '', { enabled: editingUnit });
   const formKind = editingGroup ? (group.data?.kind ?? kind) : editingUnit ? (unit.data ? sourceKind(unit.data.kind) : kind) : kind;
-  const groups = useQuery(q.groups(projectId, { kind: formKind }));
-  const groupUnits = useQuery({ ...q.units(projectId, { groupId: groupId ?? '', limit: 1 }), enabled: editingGroup && Boolean(groupId) });
+  const groups = useGroups(projectId, { kind: formKind });
+  // How many lines the scene holds: its row in the groups collection (it loads, it does not fail).
+  const count = group.data?.total;
   const saved = useMemo(() => JSON.stringify(
     editingGroup && group.data ? { ...EMPTY_FORM(group.data.kind), key: group.data.key, title: group.data.title, description: group.data.description ?? '', section: group.data.section ?? '' }
       : editingUnit && unit.data ? { ...EMPTY_FORM(sourceKind(unit.data.kind), unit.data.group.id), key: unit.data.key, source: unit.data.source, speaker: unit.data.speaker ?? '', listener: unit.data.listener ?? '' }
@@ -47,6 +52,16 @@ export function SourceEditor({ projectId, kind, groupId, unitId, mode, onClose, 
   const form = JSON.parse(draft) as Form;
   const dirty = draft !== saved;
   const update = (name: keyof Form, value: string) => setDraft(JSON.stringify({ ...form, [name]: value }));
+  useEffect(() => {
+    if (!onBack) return;
+    // Esc goes back unless an open menu, select or dialog takes it first.
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented || document.querySelector('[role="dialog"][data-state="open"], [role="alertdialog"], [role="listbox"], [role="menu"]')) return;
+      onBack();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onBack]);
 
   const save = useMutation<SourceSaved, Error, string>({
     mutationFn: async (sent: string) => {
@@ -86,15 +101,15 @@ export function SourceEditor({ projectId, kind, groupId, unitId, mode, onClose, 
 
   const loading = (editingGroup && group.isPending) || (editingUnit && unit.isPending);
   const invalidTarget = (editingGroup && !groupId) || (editingUnit && !unitId);
-  const loadError = invalidTarget || (editingGroup && group.isError) || (editingUnit && unit.isError);
+  // A group comes from the groups collection, which keeps trying until it loads; only a line's detail can fail.
+  const loadError = invalidTarget || (editingUnit && unit.isError);
   const heading = editingGroup || mode === 'create-group'
     ? `${SOURCE_GROUP_LABEL[form.kind]} ${editingGroup ? '편집' : '추가'}`
     : `${SOURCE_UNIT_LABEL[form.kind]} ${editingUnit ? '편집' : '추가'}`;
   const isGroup = mode.endsWith('group');
   const canSave = !loading && !loadError && dirty && Boolean(form.title.trim() || !isGroup) && Boolean(form.source.trim() || isGroup) && (isGroup || Boolean(groups.data?.some((item) => item.id === form.groupId))) && !save.isPending;
   const groupTitle = groups.data?.find((item) => item.id === form.groupId)?.title;
-  const count = groupUnits.data?.total;
-  const groupDeleteCopy = groupUnits.isError ? '원문 수를 확인하지 못했습니다. 다시 불러온 뒤 삭제하세요.' : groupUnits.isPending ? '삭제할 원문 수를 확인하고 있습니다.' : count === 0 ? '비어 있는 묶음이 삭제됩니다.' : `이 묶음과 원문 ${count!.toLocaleString()}개, 번역·후보와 실행 기록의 해당 항목이 함께 삭제됩니다.`;
+  const groupDeleteCopy = count === undefined ? '삭제할 원문 수를 확인하고 있습니다.' : count === 0 ? '비어 있는 묶음이 삭제됩니다.' : `이 묶음과 원문 ${count!.toLocaleString()}개, 번역·후보와 실행 기록의 해당 항목이 함께 삭제됩니다.`;
 
   const creating = mode === 'create-group' || mode === 'create-unit';
   const whyDisabled = isGroup ? '이름을 입력하면 추가할 수 있습니다.' : !form.groupId ? `${SOURCE_GROUP_LABEL[form.kind]}을(를) 고르고 원문을 입력하면 추가할 수 있습니다.` : '원문을 입력하면 추가할 수 있습니다.';
@@ -109,11 +124,11 @@ export function SourceEditor({ projectId, kind, groupId, unitId, mode, onClose, 
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>취소</AlertDialogCancel>
-                <AlertDialogAction disabled={remove.isPending || (editingGroup && (groupUnits.isPending || groupUnits.isError))} onClick={() => remove.mutate()}>{remove.isPending ? '삭제 중…' : '삭제'}</AlertDialogAction>
+                <AlertDialogAction disabled={remove.isPending || (editingGroup && count === undefined)} onClick={() => remove.mutate()}>{remove.isPending ? '삭제 중…' : '삭제'}</AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog></>) : undefined}
-      header={<InspectorHeader kind={isGroup ? SOURCE_GROUP_LABEL[form.kind] : SOURCE_UNIT_LABEL[form.kind]} name={heading} onClose={onClose} />}
+      header={<InspectorHeader kind={isGroup ? SOURCE_GROUP_LABEL[form.kind] : SOURCE_UNIT_LABEL[form.kind]} name={heading} onClose={onClose} onBack={onBack} />}
       loading={loading}
       footer={creating
         ? <>{!canSave && !save.isPending && <Text marginRight="auto" variant="caption" tone="muted">{whyDisabled}</Text>}<Button disabled={!canSave} onClick={() => save.mutate(draft)} aria-busy={save.isPending}>{save.isPending ? '추가 중' : '추가'}</Button></>
@@ -122,7 +137,7 @@ export function SourceEditor({ projectId, kind, groupId, unitId, mode, onClose, 
       {loadError && (
         <Section title="불러오기 실패">
           <InspectorResult tone="error">{invalidTarget ? '편집할 원문 ID가 없습니다.' : '원문 정보를 불러오지 못했습니다.'}</InspectorResult>
-          {!invalidTarget && <Button variant="outline" onClick={() => { void (editingGroup ? group.refetch() : unit.refetch()); }}>다시 시도</Button>}
+          {!invalidTarget && editingUnit && <Button variant="outline" onClick={() => void unit.refetch()}>다시 시도</Button>}
         </Section>
       )}
       {isGroup ? (
@@ -131,7 +146,7 @@ export function SourceEditor({ projectId, kind, groupId, unitId, mode, onClose, 
             <Section title="정보">
               <KeyValue>
                 <KeyValueRow label="종류">{SOURCE_GROUP_LABEL[form.kind]}</KeyValueRow>
-                <KeyValueRow label="안에 든 원문">{groupUnits.isPending ? '개수 불러오는 중…' : `${(count ?? 0).toLocaleString()}개`}</KeyValueRow>
+                <KeyValueRow label="안에 든 원문">{count === undefined ? '개수 불러오는 중…' : `${count.toLocaleString()}개`}</KeyValueRow>
               </KeyValue>
             </Section>
           )}
@@ -151,9 +166,6 @@ export function SourceEditor({ projectId, kind, groupId, unitId, mode, onClose, 
         </>
       ) : (
         <Section title="원문">
-          {groups.isError ? (
-            <Box spaceY="condensed"><InspectorResult tone="error">묶음 목록을 불러오지 못했습니다.</InspectorResult><Button variant="outline" onClick={() => void groups.refetch()}>다시 시도</Button></Box>
-          ) : (
             <Box spaceY="normal">
               <Field label={SOURCE_GROUP_LABEL[form.kind]}>
                 {groups.isPending ? <Text variant="caption" tone="muted">불러오는 중…</Text> : groups.data?.length ? (
@@ -171,11 +183,7 @@ export function SourceEditor({ projectId, kind, groupId, unitId, mode, onClose, 
               </>}
               <Field label="키" description={KEY_HINT}><Input value={form.key} onChange={(event) => update('key', event.target.value)} placeholder="비우면 자동 생성" /></Field>
             </Box>
-          )}
         </Section>
-      )}
-      {editingGroup && groupUnits.isError && (
-        <Section><Box spaceY="condensed"><InspectorResult tone="error">원문 수를 확인하지 못해 삭제를 막았습니다.</InspectorResult><Button type="button" variant="outline" onClick={() => void groupUnits.refetch()}>다시 시도</Button></Box></Section>
       )}
     </Inspector>
   );

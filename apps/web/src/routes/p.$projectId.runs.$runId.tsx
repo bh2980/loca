@@ -9,20 +9,21 @@ import { ContextItemList } from '@/components/ai-context';
 import { LineDetail } from '@/components/line-detail';
 import { TermEditor } from '@/components/glossary/term-pane';
 import { HeaderActions, Page } from '@/components/page';
-import { EmptyState, SectionHeading, DataTable, type ColumnDef, Pager, FilterBar, ActionBar, Separator, SplitPane, RunStatusBadge, StatusBarItem, Notice, NoticeDescription, Chip, Box, Button, Icon, Inline, Text, Collapsible, CollapsibleContent, CollapsibleTrigger, Progress, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Tabs, TabsList, TabsTrigger, Skeleton } from '@loca/ui';
+import { Inspector, InspectorHeader, KeyValue, KeyValueRow, Section, EmptyState, SectionHeading, DataTable, type ColumnDef, Pager, FilterBar, ActionBar, Separator, SplitPane, RunStatusBadge, StatusBarItem, Notice, NoticeDescription, Chip, Box, Button, Icon, Inline, Text, Collapsible, CollapsibleContent, CollapsibleTrigger, Progress, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Tabs, TabsList, TabsTrigger, Skeleton } from '@loca/ui';
 import { HeaderFilter } from '@/components/header-filter';
 import { client, unwrap } from '@/lib/api';
 import { ITEM_STATE } from '@/lib/labels';
 import { errorKindLabel, retryReason, retryState } from '@/lib/retry-info';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
-import type { InferResponseType } from 'hono/client';
 import { BatchList } from '@/components/workflow/batch-list';
 import { ContinueRun } from '@/components/workflow/continue-run';
 import { RaiseCaps } from '@/components/workflow/raise-caps';
 import { RunGraph } from '@/components/workflow/run-graph';
 import { topCallIds } from '@/components/workflow/run-calls';
 import { dateTime } from '@/lib/datetime';
+import { useTerms } from '@/lib/terms';
+import { useRunDetail, useRunItems, useRunSteps, type RunItemRow } from '@/lib/run-detail';
 
 type State = keyof typeof ITEM_STATE | 'retrying';
 interface RunSearch {
@@ -48,7 +49,7 @@ export const Route = createFileRoute('/p/$projectId/runs/$runId')({
 
 const PAGE = 100;
 
-type Item = InferResponseType<(typeof client.runs)[':id']['items']['$get'], 200>['rows'][number];
+type Item = RunItemRow;
 
 function RunDetail() {
   const [continueOpen, setContinueOpen] = useState(false);
@@ -56,16 +57,16 @@ function RunDetail() {
   const { projectId, runId } = Route.useParams();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
-  const run = useQuery(q.run(runId));
-  const items = useQuery(q.runItems(runId, { state: search.state, nodeId: search.node, offset: (search.page ?? 0) * PAGE }));
+  const run = useRunDetail(projectId, runId);
+  const items = useRunItems(projectId, runId, { state: search.state, nodeId: search.node, offset: (search.page ?? 0) * PAGE });
   const terms = items.data?.subject === 'terms';
-  const termList = useQuery({ ...q.terms(projectId), enabled: terms && Boolean(search.line) });
+  const termList = useTerms(projectId, { enabled: terms && Boolean(search.line) });
   const selectedTerm = terms ? termList.data?.find((term) => term.id === search.line) : undefined;
   const decide = useMutation({
     mutationFn: (accept: boolean) => unwrap(client.projects[':projectId'].drafts.$post({ param: { projectId }, json: { kind: 'terms', ids: [search.line!], action: accept ? 'confirm' : 'discard' } })),
     onError: (error) => toast.error(error.message),
   });
-  const steps = useQuery({ ...q.runSteps(runId), enabled: search.tab === 'steps' });
+  const steps = useRunSteps(projectId, runId, search.tab === 'steps');
   const plan = useQuery({ ...q.runPlan(runId), enabled: search.tab === 'plan' });
   const control = useMutation({ mutationFn: (action: 'pause' | 'resume' | 'cancel') => unwrap(client.runs[':id'][':action{pause|resume|cancel}'].$post({ param: { id: runId, action } })) });
   const setSearch = (next: Partial<RunSearch>, replace = false) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace });
@@ -195,13 +196,64 @@ function RunDetail() {
     </AlertDialog>
   );
 
+  const percent = data.total ? Math.round((finished / data.total) * 100) : 0;
+  const runInfo = (
+    <Inspector header={<InspectorHeader kind="실행" name={data.workflowName} status={<RunStatusBadge status={data.status} />} />}>
+      <Section title="진행">
+        <Box spaceY="condensed">
+          <Text as="p" variant="body" tabular>
+            <Text as="b">{finished.toLocaleString()}</Text>
+            <Text tone="muted"> / {data.total.toLocaleString()} {terms ? '용어' : '대사'} 처리 · {percent}%</Text>
+          </Text>
+          <Progress value={percent} />
+        </Box>
+        {data.usage && (
+          <KeyValue>
+            <KeyValueRow label="AI 호출"><Text tabular>{data.usage.steps.toLocaleString()}회{data.usage.failed ? ` · 실패 ${data.usage.failed}` : ''}</Text></KeyValueRow>
+            <KeyValueRow label="입력 토큰"><Text tabular>{data.usage.inputTokens.toLocaleString()}{data.usage.cachedInputTokens > 0 && ` (캐시 ${data.usage.cachedInputTokens.toLocaleString()})`}</Text></KeyValueRow>
+            <KeyValueRow label="출력 토큰"><Text tabular>{data.usage.outputTokens.toLocaleString()}</Text></KeyValueRow>
+            {data.usage.costUsd != null && <KeyValueRow label="보고된 비용"><Text tabular>${data.usage.costUsd.toFixed(4)}</Text></KeyValueRow>}
+            {(data.limits?.maxCalls != null || data.limits?.maxInputTokens != null) && (
+              <KeyValueRow label="상한">
+                <Text tabular>{[data.limits?.maxCalls != null && `호출 ${data.limits.maxCalls.toLocaleString()}회`, data.limits?.maxInputTokens != null && `입력 ${data.limits.maxInputTokens.toLocaleString()}`].filter(Boolean).join(' · ')}</Text>
+              </KeyValueRow>
+            )}
+          </KeyValue>
+        )}
+      </Section>
+      <Section title="실행">
+        <KeyValue>
+          <KeyValueRow label="실행 ID">
+            <Inline as="span" align="start" gap="tight" minWidth={0}>
+              <Text as="code" minWidth={0} grow paddingTop="tight" mono variant="caption" breakWords="all" tone="muted">{runId}</Text>
+              <CopyButton value={runId} label="실행 ID 복사" tip={runId} />
+            </Inline>
+          </KeyValueRow>
+          <KeyValueRow label="시작">{dateTime(data.createdAt)}</KeyValueRow>
+          <KeyValueRow label="모델">{data.models.map((model) => model.label).join(', ') || '없음'}</KeyValueRow>
+          {data.byModel.length > 1 && (
+            <KeyValueRow label="연결별 호출">
+              {data.byModel.map((row) => `${[row.name, row.model].filter(Boolean).join(' · ') || '알 수 없음'} ${row.steps}회${row.failed ? `(실패 ${row.failed})` : ''}`).join(', ')}
+            </KeyValueRow>
+          )}
+        </KeyValue>
+        {data.continuations.map((entry, index) => (
+          <Text as="p" key={index} variant="caption" tone="muted">
+            {dateTime(entry.at)} 이어서 실행{entry.changes.length > 0 && ` · ${entry.changes.map((change) => `${nodeName(change.nodeId)}: ${change.from} → ${change.to}`).join(', ')}`}
+            {entry.retried > 0 && ` · 실패한 줄 ${entry.retried.toLocaleString()}개 다시`}
+          </Text>
+        ))}
+      </Section>
+    </Inspector>
+  );
+
   return (
     <Page title={data.workflowName} flush back={<Button variant="ghost" asChild><Link to="/p/$projectId/runs" params={{ projectId }}><ChevronLeft /> 실행 기록</Link></Button>}>
       <SplitPane fill="height"
         id="run-lines" selectionKey={search.line}
         defaultWidth="400px"
         pane={
-          search.line && (terms ? (
+          !search.line ? runInfo : (terms ? (
             selectedTerm ? (
               <TermEditor key={selectedTerm.id} projectId={projectId} term={selectedTerm} onClose={() => setSearch({ line: undefined }, true)} onDecide={(accept) => decide.mutate(accept)} deciding={decide.isPending} />
             ) : (
@@ -225,7 +277,7 @@ function RunDetail() {
           <Tabs value={view} onValueChange={(value) => setSearch({ tab: value === 'steps' || value === 'plan' || value === 'graph' ? value : undefined }, true)}>
             <Box asChild height="full" border="noBottom">
             <TabsList variant="line" aria-label="보기">
-              <TabsTrigger value="items">{terms ? '용어별' : '대사별'}</TabsTrigger>
+              <TabsTrigger value="items">{terms ? '용어별' : '대사별'} <Text tone="muted" tabular>{data.total.toLocaleString()}</Text></TabsTrigger>
               <TabsTrigger value="graph">그래프</TabsTrigger>
               <TabsTrigger value="steps">AI 호출</TabsTrigger>
               {/* Terms are not planned in scene batches: there is no plan to show. */}
@@ -246,7 +298,8 @@ function RunDetail() {
         {data.status === 'paused' && !data.filling && <ContinueRun runId={runId} failed={totals.failed ?? 0} paused hideTrigger open={continueOpen} onOpenChange={setContinueOpen} />}
         {active && stop}
         <StatusBarItem><RunStatusBadge status={data.status} /></StatusBarItem>
-        {view === 'items' && <FilterBar end={items.data ? <Text variant="micro" tabular>{total.toLocaleString()}{terms ? '개' : '줄'}</Text> : undefined}>
+        {/* Only a filter (a state or node picked elsewhere) earns a bar: it says how many it left and takes it off. The run's count is on the tab. */}
+        {view === 'items' && filtered && <FilterBar end={items.data ? <Text variant="micro" tabular>{total.toLocaleString()}{terms ? '개' : '줄'}</Text> : undefined}>
           {filtered && (
             <Button variant="ghost" onClick={() => setSearch({ state: undefined, node: undefined, page: undefined, line: undefined }, true)}>
               필터 지우기
@@ -254,51 +307,14 @@ function RunDetail() {
           )}
         </FilterBar>}
 
-        <Box shrink={false} spaceY="normal" border="bottom" paddingX="comfortable" paddingY="normal">
-          {data.status === 'paused' && data.notice && (
+        {data.status === 'paused' && data.notice && (
+          <Box shrink={false} border="bottom" paddingX="comfortable" paddingY="normal">
             <Notice tone="danger" icon={<OctagonAlert />} title="실행이 멈췄습니다">
               <NoticeDescription>{data.notice}</NoticeDescription>
               {data.limits?.hit && !data.filling && <RaiseCaps key={`${data.limits.maxCalls}-${data.limits.maxInputTokens}`} runId={runId} limits={data.limits} />}
             </Notice>
-          )}
-          <Inline as="p" gap="tight" variant="caption" tone="muted">
-            <Text shrink={false}>실행 ID</Text>
-            <Text as="code" truncate mono>{runId}</Text>
-            <CopyButton value={runId} label="실행 ID 복사" />
-          </Inline>
-          <Text as="p" truncate variant="caption" tone="muted">
-            {dateTime(data.createdAt)} 시작 · 모델 {data.models.map((model) => model.label).join(', ') || '없음'}
-          </Text>
-          {data.byModel.length > 1 && (
-            <Text as="p" variant="caption" tone="muted">
-              연결별 호출: {data.byModel.map((row) => `${[row.name, row.model].filter(Boolean).join(' · ') || '알 수 없음'} ${row.steps}회${row.failed ? `(실패 ${row.failed})` : ''}`).join(', ')}
-            </Text>
-          )}
-          {data.continuations.map((entry, index) => (
-            <Text as="p" key={index} variant="caption" tone="muted">
-              {dateTime(entry.at)} 이어서 실행{entry.changes.length > 0 && ` · ${entry.changes.map((change) => `${nodeName(change.nodeId)}: ${change.from} → ${change.to}`).join(', ')}`}
-              {entry.retried > 0 && ` · 실패한 줄 ${entry.retried.toLocaleString()}개 다시`}
-            </Text>
-          ))}
-          <Box spaceY="condensed">
-            <Inline wrap align="baseline" justify="between" gapX="comfortable" variant="body">
-              <span>
-                <Text as="b" tabular>{finished.toLocaleString()}</Text>
-                <Text tone="muted" tabular> / {data.total.toLocaleString()} {terms ? '용어' : '대사'} 처리 · {data.total ? Math.round((finished / data.total) * 100) : 0}%</Text>
-              </span>
-              {data.usage && (
-                <Text variant="caption" tone="muted" tabular>
-                  AI 호출 {data.usage.steps} · 실패 {data.usage.failed ?? 0} · 입력 {data.usage.inputTokens.toLocaleString()}
-                  {data.usage.cachedInputTokens > 0 && ` (캐시 ${data.usage.cachedInputTokens.toLocaleString()})`} · 출력 {data.usage.outputTokens.toLocaleString()}
-                  {data.usage.costUsd != null && ` · 보고된 비용 $${data.usage.costUsd.toFixed(4)}`}
-                  {data.limits?.maxCalls != null && ` · 호출 상한 ${data.limits.maxCalls.toLocaleString()}회`}
-                  {data.limits?.maxInputTokens != null && ` · 입력 상한 ${data.limits.maxInputTokens.toLocaleString()}`}
-                </Text>
-              )}
-            </Inline>
-            <Progress value={data.total ? (finished / data.total) * 100 : 0} />
           </Box>
-        </Box>
+        )}
 
         {view === 'items' ? (
           <DataTable id="run-items"

@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { Check, History, Pencil, Plus, Trash2, X } from 'lucide-react';
-import { Button, ListRow, ConversationRowAction, DropdownMenu, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, Inline, Icon, Input, Text, MenuSearchField, DropdownMenuContent, MenuLabel } from '@loca/ui';
-import { client, unwrap } from '@/lib/api';
+import { Button, ListRow, MenuRowAction, DropdownMenu, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, Inline, Icon, Input, Text, MenuSearchField, DropdownMenuContent, MenuLabel } from '@loca/ui';
+import { client } from '@/lib/api';
 import { q } from '@/lib/queries';
+import { changeChatSession } from '@/lib/logs';
 
 export type SessionRow = { id: string; title: string; calls: number; tokens: number };
 
@@ -30,7 +31,6 @@ export function ConversationMenu({ projectId, sessions, sessionId, currentTitle,
   onDelete: (session: { id: string; title: string }) => void;
   onCreate: () => void;
 }) {
-  const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const term = useDebounced(search.trim(), 250);
@@ -42,10 +42,8 @@ export function ConversationMenu({ projectId, sessions, sessionId, currentTitle,
 
   const [renaming, setRenaming] = useState<{ id: string; title: string } | null>(null);
   const rename = useMutation({
-    mutationFn: ({ id, title }: { id: string; title: string }) => unwrap(client.chat[':sessionId'].$patch({ param: { sessionId: id }, json: { title } })),
-    onMutate: ({ id, title }) => {
-      queryClient.setQueryData(q.chatSessions(projectId).queryKey, (list) => list?.map((item) => (item.id === id ? { ...item, title } : item)));
-    },
+    // Shown at once, put back on failure.
+    mutationFn: ({ id, title }: { id: string; title: string }) => changeChatSession(projectId, id, { title }, () => client.chat[':sessionId'].$patch({ param: { sessionId: id }, json: { title } })),
   });
   const commitRename = () => {
     if (!renaming) return;
@@ -132,17 +130,16 @@ export function ConversationMenu({ projectId, sessions, sessionId, currentTitle,
                       {session.calls}건 · {compactTokens(session.tokens)}
                     </Text>
                   )}
-                  <ConversationRowAction
+                  <MenuRowAction
                     aria-label={`${session.title} 이름 바꾸기`}
                     onClick={(event) => {
                       event.stopPropagation();
                       setRenaming({ id: session.id, title: session.title });
                     }}
-                    onPointerDown={(event) => event.stopPropagation()}
                   >
                     <Pencil />
-                  </ConversationRowAction>
-                  <ConversationRowAction
+                  </MenuRowAction>
+                  <MenuRowAction
                     danger
                     aria-label={`${session.title} 삭제`}
                     onClick={(event) => {
@@ -150,10 +147,9 @@ export function ConversationMenu({ projectId, sessions, sessionId, currentTitle,
                       setOpen(false);
                       onDelete({ id: session.id, title: session.title });
                     }}
-                    onPointerDown={(event) => event.stopPropagation()}
                   >
                     <Trash2 />
-                  </ConversationRowAction>
+                  </MenuRowAction>
                 </ListRow>
               ),
             )}

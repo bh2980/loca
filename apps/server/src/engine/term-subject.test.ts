@@ -63,9 +63,9 @@ function termWorkflow(choice: unknown) {
 }
 
 describe('a workflow whose input is terms', () => {
-  it('takes the terms its scope names (statuses, marks or ids), most used first', () => {
+  it('takes the terms its scope names (statuses, an empty Korean form or ids), most used first', () => {
     const { db, projectId, gate, hesk } = setup();
-    const candidatesWithoutForm = { statusIds: ['candidate'], marks: ['emptyTarget'] } as never;
+    const candidatesWithoutForm = { statusIds: ['candidate'], emptyTarget: true };
     expect(selectRunTerms(db, projectId, candidatesWithoutForm)).toEqual([gate.id, hesk.id]);
     expect(selectRunTerms(db, projectId, {})).toHaveLength(3);
     expect(selectRunTerms(db, projectId, { termIds: [hesk.id] })).toEqual([hesk.id]);
@@ -73,16 +73,18 @@ describe('a workflow whose input is terms', () => {
 
   it('filters terms like the glossary: status, the remaining marks, and term tags that must all be on', () => {
     const { db, projectId, gate, hesk } = setup();
-    expect(selectRunTerms(db, projectId, { statusIds: ['candidate'], marks: ['emptyTarget'] } as never)).toEqual([gate.id, hesk.id]);
+    expect(selectRunTerms(db, projectId, { statusIds: ['candidate'], emptyTarget: true })).toEqual([gate.id, hesk.id]);
     const kai = db.select().from(s.terms).where(eq(s.terms.source, 'Kai')).get()!;
     db.update(s.terms).set({ statusBy: 'ai' }).where(eq(s.terms.id, kai.id)).run();
-    expect(selectRunTerms(db, projectId, { marks: ['ai'] } as never)).toEqual([kai.id]);
+    expect(selectRunTerms(db, projectId, { decidedBy: 'ai' })).toEqual([kai.id]);
     const place = db.insert(s.tags).values({ projectId, name: '지명', color: '#000000', scope: ['terms'] }).returning().get();
     db.insert(s.knowledgeTags).values({ kind: 'terms', itemId: gate.id, tagId: place.id }).run();
     expect(selectRunTerms(db, projectId, { tagIds: [place.id] })).toEqual([gate.id]);
-    // Marks of the other input are refused before anything is counted or run.
-    expect(scopeMismatch('lines', { marks: ['emptyTarget'] })).toContain('번역 누락');
-    expect(scopeMismatch('terms', { marks: ['ai', 'emptyTarget'] })).toBeNull();
+    // Marks and filters of the other input are refused before anything is counted or run.
+    expect(scopeMismatch('lines', { marks: ['unused'] })).toContain('대본 미등장');
+    expect(scopeMismatch('lines', { emptyTarget: true })).toContain('번역 비어 있음');
+    expect(scopeMismatch('terms', { unfinished: true })).toContain('최종 아님');
+    expect(scopeMismatch('terms', { marks: ['unused'], decidedBy: 'ai', emptyTarget: true })).toBeNull();
   });
 
   it('sends the confirmed terms found in the term itself, even with no example lines, but not the term as its own context', () => {
@@ -100,7 +102,7 @@ describe('a workflow whose input is terms', () => {
     const definition = termWorkflow(choice);
     expect(validateWorkflow(definition, { statusIds: new Set(), connections: new Set([choice.connectionId]) } as never).filter((issue) => issue.level === 'error')).toEqual([]);
     const workflow = db.insert(s.workflows).values({ projectId, name: '용어 번역', definition }).returning().get();
-    const { runId } = createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, definition), scope: { statusIds: ['candidate'], marks: ['emptyTarget'] } as never });
+    const { runId } = createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, definition), scope: { statusIds: ['candidate'], emptyTarget: true } });
     expect(db.select().from(s.runs).where(eq(s.runs.id, runId)).get()!.subject).toBe('terms');
     const seen: { system: string; prompt: string }[] = [];
     const port: ModelPort = {
@@ -132,7 +134,7 @@ describe('a workflow whose input is terms', () => {
     db.update(s.projects).set({ aiAutoConfirm: false }).run();
     const definition = termWorkflow(choice);
     const workflow = db.insert(s.workflows).values({ projectId, name: '용어 번역', definition }).returning().get();
-    createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, definition), scope: { statusIds: ['candidate'], marks: ['emptyTarget'] } as never });
+    createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, definition), scope: { statusIds: ['candidate'], emptyTarget: true } });
     const port: ModelPort = {
       ask: async () => {
         throw new Error('unused');

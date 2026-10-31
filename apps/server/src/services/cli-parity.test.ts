@@ -41,8 +41,8 @@ describe('CLI parity with the app', () => {
       })
       .route('/', sourceRoutes);
     const appKeys = async (params: Record<string, string>) => {
-      const body = (await (await app.request(`/projects/${projectId}/units?${new URLSearchParams(params)}`)).json()) as { rows: { key: string }[] };
-      return body.rows.map((row) => row.key);
+      const body = (await (await app.request(`/projects/${projectId}/units/ids?${new URLSearchParams(params)}`)).json()) as { ids: string[] };
+      return body.ids.map((id) => db.select({ key: s.units.key }).from(s.units).where(eq(s.units.id, id)).get()!.key);
     };
     const cliKeys = (filter: object) => findLines(db, projectId, lineFilterSchema.parse(filter)).rows.map((row) => row.key);
     const cases: [string, string[]][] = [
@@ -73,7 +73,7 @@ describe('CLI parity with the app', () => {
     ]).run();
     const all = listTerms(db, projectId, {});
     const zed = all.terms.find((term) => term.source === 'Zed Unused')!;
-    expect(zed.marks).toEqual(['emptyTarget', 'unused']);
+    expect(zed.marks).toEqual(['unused']);
     expect(zed.lines).toBe(0);
     // unreviewed = status candidate or decided by AI; a human-confirmed term is neither.
     const unreviewed = listTerms(db, projectId, { unreviewed: true }).terms.map((term) => term.source);
@@ -87,10 +87,10 @@ describe('CLI parity with the app', () => {
     expect(confirmed).toEqual(expect.arrayContaining(['Plain', 'Quiet']));
     expect(confirmed).not.toContain('Zed Unused');
     expect(listTerms(db, projectId, { status: ['candidate', 'confirmed'] }).total).toBe(all.total);
-    // marks must all hold, and combine with status
-    expect(listTerms(db, projectId, { status: ['candidate'], marks: ['emptyTarget'] }).terms.map((term) => term.source)).toContain('Zed Unused');
-    expect(listTerms(db, projectId, { status: ['confirmed'], marks: ['emptyTarget'] }).total).toBe(0);
-    expect(listTerms(db, projectId, { marks: ['ai', 'emptyTarget'] }).terms.map((term) => term.source)).not.toContain('Quiet');
+    // filters must all hold, and combine with status
+    expect(listTerms(db, projectId, { status: ['candidate'], emptyTarget: true }).terms.map((term) => term.source)).toContain('Zed Unused');
+    expect(listTerms(db, projectId, { status: ['confirmed'], emptyTarget: true }).total).toBe(0);
+    expect(listTerms(db, projectId, { decidedBy: 'ai', emptyTarget: true }).terms.map((term) => term.source)).not.toContain('Quiet');
     expect(listTerms(db, projectId, { limit: 1 }).terms).toHaveLength(1);
   });
 
@@ -103,13 +103,14 @@ describe('CLI parity with the app', () => {
     expect(rows.every((row) => /\brelay\b/i.test(row.source))).toBe(true);
   });
 
-  it('puts marks on lines (non-diverged always, diverged when asked)', () => {
+  it('gives each line what its row shows (who set the status, memo, 번역 제외) and filters by it', () => {
     const { db, projectId } = setup();
     const row = findLines(db, projectId, lineFilterSchema.parse({ limit: 5 })).rows[0]!;
-    expect(row.marks).toContain('remaining');
-    const unit = db.select().from(s.units).where(eq(s.units.id, row.id)).get()!;
-    db.update(s.units).set({ note: 'check' }).where(eq(s.units.id, unit.id)).run();
-    expect(findLines(db, projectId, lineFilterSchema.parse({ keys: [row.key] })).rows[0]!.marks).toContain('noted');
+    expect(row).toMatchObject({ statusBy: 'human', note: '', excluded: false, marks: [] });
+    db.update(s.units).set({ note: 'check', statusBy: 'ai' }).where(eq(s.units.id, row.id)).run();
+    expect(findLines(db, projectId, lineFilterSchema.parse({ keys: [row.key] })).rows[0]).toMatchObject({ statusBy: 'ai', note: 'check' });
+    expect(findLines(db, projectId, lineFilterSchema.parse({ noted: true, decidedBy: 'ai' })).rows.map((line) => line.key)).toEqual([row.key]);
+    expect(findLines(db, projectId, lineFilterSchema.parse({ keys: [row.key], unfinished: false })).rows).toEqual([]);
   });
 
   it('marks lines that share a source but differ in translation', () => {
@@ -127,7 +128,8 @@ describe('CLI parity with the app', () => {
     const { tags, marks } = tagOverview(db, projectId);
     expect(tags.every((tag) => tag.places.length > 0)).toBe(true);
     expect(marks.find((mark) => mark.id === 'unused')?.scope).toEqual(['terms']);
-    expect(marks.find((mark) => mark.id === 'remaining')!.lines).toBeGreaterThan(0);
+    expect(marks.map((mark) => mark.id)).not.toContain('remaining');
+    expect(marks.find((mark) => mark.id === 'review')?.scope).toEqual(['people', 'documents', 'events']);
   });
 
   it('refuses a duplicate term when the proposal is made, and keeps the rest', async () => {
@@ -146,7 +148,8 @@ describe('CLI parity with the app', () => {
     const { db, projectId } = setup();
     const unit = db.select().from(s.units).where(eq(s.units.projectId, projectId)).get()!;
     const group = db.select().from(s.groups).where(eq(s.groups.id, unit.groupId)).get()!;
-    const { scope, unknown } = resolveRunScope(db, projectId, { groups: [group.title, 'nope'], keys: [unit.key], tags: ['no-tag'], marks: ['remaining'] });
+    const { scope, unknown } = resolveRunScope(db, projectId, { groups: [group.title, 'nope'], keys: [unit.key], tags: ['no-tag'], marks: ['aiSuggestion'], unfinished: true });
+    expect(scope).toMatchObject({ marks: ['aiSuggestion'], unfinished: true });
     expect(scope.groupIds).toEqual([group.id]);
     expect(scope.unitIds).toEqual([unit.id]);
     expect(unknown).toEqual(['묶음 nope', '태그 no-tag']);

@@ -29,7 +29,7 @@ description: Translate game script lines in a loca project from the terminal in 
    - `before`: 앞 대사. AI 노드처럼 대사 그래프를 거슬러 갑니다.
    - `beforeBranches`: 갈래가 합쳐지는 곳이면 `[{label: 선택지, lines}]`. 플레이어는 이 중 한 갈래를 거쳐 오니, 어느 갈래에서 와도 자연스럽게 번역합니다.
    - `terms`: 지켜야 할 용어
-   - #청자 미상(`unknownListener`) 줄은 말투를 모르는 줄이니 추측하지 말고 사용자에게 알립니다(고치는 법은 `loca-knowledge`).
+   - 청자 모름(`--listener -`) 줄은 말투를 모르는 줄이니 추측하지 말고 사용자에게 알립니다(고치는 법은 `loca-knowledge`).
    - #번역 불일치(`diverged`)는 같은 원문이 다르게 번역된 줄이니 맞춰 줍니다.
 3. 인물 말투가 더 필요하면 `loca call list_characters`, `loca knowledge speech-rules`로 읽습니다.
 4. 번역해서 **새 파일**(`$W/ch1.out.jsonl`)에 씁니다. 줄마다 `key`와 `rev`를 그대로 두고 `translation`만 채웁니다(다른 필드는 무시됨).
@@ -45,7 +45,7 @@ description: Translate game script lines in a loca project from the terminal in 
    경고(자리표시자, 용어)가 있으면 고쳐서 다시 `--dry-run`. 충돌은 그사이 사람이 고친 줄이라 건너뜁니다(덮어쓰지 않음).
 6. 반영됐는지 제안으로 기다리는지(터미널 권한 모드), 몇 줄인지 알립니다. 오류·충돌 줄이 있으면 `import`는 종료 코드 1입니다(나머지 줄은 들어감). 끝나면 `loca workspace clean ch1-translate`.
 
-import 파일의 줄에는 번역 말고도 `status`(상태 이름), `addTags`·`removeTags`(대사에 붙는 태그만), `listener`(사람이 확정한 청자), `translate`(`exclude` 번역에서 뺌 · `include` 번역함 · `null` 규칙대로)를 넣을 수 있습니다. #번역 제외 줄은 내보내기에 나오지 않으니 번역할 필요가 없습니다.
+import 파일의 줄에는 번역 말고도 `status`(상태 이름), `addTags`·`removeTags`(대사에 붙는 태그만), `listener`(사람이 확정한 청자), `translate`(`exclude` 번역에서 뺌 · `include` 번역함 · `null` 규칙대로)를 넣을 수 있습니다. 번역 제외 줄은 내보내기에 나오지 않으니 번역할 필요가 없습니다.
 
 ## 대사 그래프의 한 흐름 따라 번역하기
 사람이 앱에서 떼어 둔 보기(또는 `loca views create --between <시작키> <끝키>`로 만든 보기)를 범위로 씁니다.

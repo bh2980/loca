@@ -251,14 +251,6 @@ export function duplicateNodes(db: Db, projectId: string, ids: string[]) {
   });
 }
 
-const nothingChanged = (projectId: string) => keep({ projectId, at: Date.now(), put: { units: [], unitTags: [], nodes: [], edges: [] }, drop: { units: [], nodes: [], edges: [] } });
-
-const sceneOf = (db: Pick<Db, 'select'>, projectId: string, id: string) => {
-  const group = found(db.select().from(s.groups).where(and(eq(s.groups.projectId, projectId), eq(s.groups.id, id))).get(), '장면');
-  if (group.kind !== 'scene') badRequest(`장면이 아닙니다: ${group.title}`);
-  return group;
-};
-
 /** A scene by id, key or title (as show_graph names scenes); for the AI's tools. */
 export function sceneByRef(db: Db, projectId: string, ref: string) {
   const lower = ref.toLowerCase();
@@ -279,38 +271,6 @@ function sceneNodes(db: Pick<Db, 'select'>, projectId: string, groupId: string) 
     const seqs = node.unitIds.map((id) => seqOf.get(id)).filter((seq) => seq !== undefined);
     return seqs.length ? [{ node, first: Math.min(...seqs), last: Math.max(...seqs), head: seqOf.get(node.unitIds[0]!) ?? Math.min(...seqs) }] : [];
   });
-}
-
-/**
- * Connects scene A to scene B in the dialogue graph, which is where scene connections come from:
- * one line from the node holding A's last line to the node holding B's first line. Already there: nothing changes.
- */
-export function linkScenes(db: Db, projectId: string, input: { fromGroupId: string; toGroupId: string; origin: GraphOrigin }) {
-  if (input.fromGroupId === input.toGroupId) badRequest('같은 장면끼리는 이을 수 없습니다.');
-  const from = sceneOf(db, projectId, input.fromGroupId);
-  const to = sceneOf(db, projectId, input.toGroupId);
-  const last = sceneNodes(db, projectId, from.id).sort((a, b) => b.last - a.last)[0];
-  const first = sceneNodes(db, projectId, to.id).sort((a, b) => a.first - b.first)[0];
-  if (!last) badRequest(`'${from.title}'에는 대사 그래프 노드가 없습니다.`);
-  if (!first) badRequest(`'${to.title}'에는 대사 그래프 노드가 없습니다.`);
-  const existing = db.select().from(s.graphEdges).where(and(eq(s.graphEdges.fromId, last!.node.id), eq(s.graphEdges.toId, first!.node.id))).get();
-  if (existing) return { edge: existing, created: false, message: `'${from.title}'과 '${to.title}'은 이미 이어져 있습니다.`, token: nothingChanged(projectId) };
-  const result = linkNodes(db, projectId, { fromId: last!.node.id, toId: first!.node.id, origin: input.origin });
-  return { ...result, created: true, message: `'${from.title}'의 마지막 대사에서 '${to.title}'의 첫 대사로 이었습니다.` };
-}
-
-/**
- * Takes the connection from scene A to scene B away: the lines that go straight from a node of A to a node
- * of B. When the connection runs through nodes outside scenes (a choice, a condition) nothing is deleted.
- */
-export function unlinkScenes(db: Db, projectId: string, input: { fromGroupId: string; toGroupId: string }) {
-  const from = sceneOf(db, projectId, input.fromGroupId);
-  const to = sceneOf(db, projectId, input.toGroupId);
-  const ids = (groupId: string) => db.select({ id: s.graphNodes.id }).from(s.graphNodes).where(and(eq(s.graphNodes.projectId, projectId), eq(s.graphNodes.groupId, groupId))).all().map((row) => row.id);
-  const [fromIds, toIds] = [new Set(ids(from.id)), new Set(ids(to.id))];
-  const direct = db.select().from(s.graphEdges).where(eq(s.graphEdges.projectId, projectId)).all().filter((edge) => fromIds.has(edge.fromId) && toIds.has(edge.toId));
-  if (!direct.length) return { deleted: 0, message: `'${from.title}'에서 '${to.title}'로 바로 이어진 선이 없습니다. 선택지나 조건 같은 노드를 거쳐 이어진 연결이니, 대사 그래프에서 해당 선을 직접 지워 주세요.`, token: null };
-  return { ...unlinkEdges(db, projectId, direct.map((edge) => edge.id)), message: null };
 }
 
 /**

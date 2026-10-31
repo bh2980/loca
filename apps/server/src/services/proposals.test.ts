@@ -74,7 +74,7 @@ describe('deciding a proposal', () => {
     expect(takeDecisions(db, session.id)).toBeNull();
   });
 
-  it('reports accepted translations as candidates and other tools as applied', () => {
+  it('reports accepted translations as AI 제안 and other tools as applied', () => {
     const { db, proposal } = setup();
     const session = db.insert(s.chatSessions).values({ projectId: proposal.projectId, title: '대화' }).returning().get();
     const translation = propose(db, { projectId: proposal.projectId, sessionId: session.id, source: 'api', tool: 'propose_translation', input: { unitId: 'u', text: '안녕' } });
@@ -82,7 +82,7 @@ describe('deciding a proposal', () => {
     for (const row of [translation, other]) db.update(s.proposals).set({ status: 'accepted', decidedAt: new Date() }).where(eq(s.proposals.id, row.id)).run();
 
     const decisions = takeDecisions(db, session.id);
-    expect(decisions).toContain('수락되어 후보로 추가됨');
+    expect(decisions).toContain('수락되어 AI 제안으로 추가됨 (사람이 적용·거절)');
     expect(decisions).toContain('수락되어 반영됨');
   });
 });

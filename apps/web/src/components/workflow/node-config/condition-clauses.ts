@@ -11,7 +11,15 @@ export type Clause =
   | { kind: 'lineKind'; value: string; not?: boolean }
   | { kind: 'tag'; tagId: string; not?: boolean }
   | { kind: 'mark'; mark: string; not?: boolean }
+  /** The status is a final one (unit.final); not = 최종 아님. */
+  | { kind: 'final'; not?: boolean }
+  /** Who set the status (unit.statusBy, 정한 쪽). */
+  | { kind: 'decidedBy'; by: 'ai' | 'human'; not?: boolean }
   | { kind: 'listener'; not?: boolean }
+  /** Said to someone whose listener is unknown or an unsure guess (unit.listenerUnknown, 청자 모름). */
+  | { kind: 'listenerUnknown'; not?: boolean }
+  /** The line has a memo (unit.noted). */
+  | { kind: 'noted'; not?: boolean }
   /** Whether the line's speaker → listener pair has a confirmed speech rule (unit.speechLevel). */
   | { kind: 'speechRule'; not?: boolean }
   /** Whether an AI node's choice (말투 등급) is the rule's speech level. */
@@ -54,6 +62,9 @@ function parseClause(rule: unknown): Clause | null {
     const target = varOf(left);
     if (target === 'candidate') return { kind: 'candidate' };
     if (target === 'unit.listener') return { kind: 'listener' };
+    if (target === 'unit.final') return { kind: 'final' };
+    if (target === 'unit.listenerUnknown') return { kind: 'listenerUnknown' };
+    if (target === 'unit.noted') return { kind: 'noted' };
     if (target === 'unit.speechLevel') return { kind: 'speechRule' };
     if (target === 'term.hasTarget') return { kind: 'hasTarget' };
     const output = target?.match(/^outputs\.([^.]+)\.(.+)$/);
@@ -77,6 +88,7 @@ function parseClause(rule: unknown): Clause | null {
   if (name === '==' && chosen && varOf(right) === 'unit.speechLevel') return { kind: 'speechMatch', nodeId: chosen[1]! };
   if (name === '==' && target === 'unit.statusId' && typeof right === 'string') return { kind: 'status', statusId: right };
   if (name === '==' && target === 'unit.kind' && typeof right === 'string') return { kind: 'lineKind', value: right };
+  if (name === '==' && target === 'unit.statusBy' && (right === 'ai' || right === 'human')) return { kind: 'decidedBy', by: right };
   if (name === '==' && target === 'error.kind' && typeof right === 'string') return { kind: 'error', errorKind: right as ItemErrorKind };
   if (name === '==' && target === 'term.status' && typeof right === 'string') return { kind: 'termStatus', status: right };
   if ((name === '>=' || name === '<=') && target === 'term.lines' && typeof right === 'number') return { kind: 'uses', op: name, value: right };
@@ -123,6 +135,14 @@ function baseRule(clause: Clause): unknown {
     }
     case 'listener':
       return { '!!': [{ var: 'unit.listener' }] };
+    case 'final':
+      return { '!!': [{ var: 'unit.final' }] };
+    case 'decidedBy':
+      return { '==': [{ var: 'unit.statusBy' }, clause.by] };
+    case 'listenerUnknown':
+      return { '!!': [{ var: 'unit.listenerUnknown' }] };
+    case 'noted':
+      return { '!!': [{ var: 'unit.noted' }] };
     case 'speechRule':
       return { '!!': [{ var: 'unit.speechLevel' }] };
     case 'speechMatch':

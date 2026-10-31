@@ -1,13 +1,13 @@
 import { useEffect, useMemo } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import type { RunCard } from '@tw/shared';
 import { Box, Button, Inline, Progress, Spinner, Stack, Text } from '@loca/ui';
 import { cardSummary } from '@/lib/chat-run';
 import { answerRunCard } from '@/lib/chat-run-api';
 import { keyLabel } from '@/lib/keys';
-import { q } from '@/lib/queries';
 import { AttachChip } from './attach-chip';
+import { useRuns } from '@/lib/runs';
 
 const STATUS = { running: '진행 중', paused: '일시중지', cancelled: '취소됨', completed: '완료' } as const;
 
@@ -92,7 +92,7 @@ export function RunCardView({ projectId, sessionId, card, onChange, onAnswered, 
 
 /** A started run, live: the runs topic refreshes it as items finish. */
 function RunProgress({ projectId, runId }: { projectId: string; runId: string }) {
-  const runs = useQuery(q.runs(projectId));
+  const runs = useRuns(projectId);
   const run = runs.data?.find((item) => item.id === runId);
   const done = run ? (run.states.done ?? 0) + (run.states.failed ?? 0) + (run.states.cancelled ?? 0) : 0;
   const percent = run?.total ? Math.round((done / run.total) * 100) : 0;

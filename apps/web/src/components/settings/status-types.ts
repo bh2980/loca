@@ -18,13 +18,14 @@ export interface TagRowData {
   units: number;
   /** Knowledge items and terms carrying it. */
   items?: number;
-  role?: string | null;
-  /** Where the tag can be put (the app's tags: fixed by their role). */
+  /** Where the tag can be put. */
   scope: TagScope[];
+  /** 설명: what it is for. */
+  description?: string;
 }
 /** All three places read as 어디든. */
 export const scopeLabel = (scope: readonly TagScope[]) => (TAG_SCOPES.every((place) => scope.includes(place)) ? '어디든' : TAG_SCOPES.filter((place) => scope.includes(place)).map((place) => TAG_SCOPE_LABELS[place]).join(' · '));
-export type TagForm = { name: string; color: string; scope: TagScope[] };
+export type TagForm = { name: string; color: string; description: string; scope: TagScope[] };
 export type StatusForm = { name: string; color: string; kind: Kind; inReview: boolean };
 
 /** A status or tag as the home's defaults hold it: no lines carry it yet, so no count. */

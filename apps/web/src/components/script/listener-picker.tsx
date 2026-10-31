@@ -10,12 +10,14 @@ const TYPE_NAME = '__type';
  * included) and names typed there before, then a group / the public / themself, then the rest of
  * the cast; any other name can be typed. An unsure guess shows as 미상 with what was guessed.
  */
-export function ListenerPicker({ line, cast, onPick, inline = false }: {
+export function ListenerPicker({ line, cast, onPick, inline = false, arrow = true }: {
   line: { speaker: string | null; listener: string | null; listenerOrigin: ListenerOrigin | null; listenerConfidence: number | null; sceneNames?: string[] };
   cast: { name: string; player: boolean }[];
   onPick: (listener: string | null) => void;
   /** In a line's speaker row: the listener itself is the trigger, and the origin hint is its tooltip. */
   inline?: boolean;
+  /** Inline: the trigger writes "→" before the name. Off where the arrow stands outside the control. */
+  arrow?: boolean;
 }) {
   const [typing, setTyping] = useState<string | null>(null);
   const unsure = isUnsureListener(line);
@@ -59,6 +61,7 @@ export function ListenerPicker({ line, cast, onPick, inline = false }: {
             aria-label="청자 바꾸기"
             onClick={(event) => event.stopPropagation()}
             unknown={value === '-'}
+            arrow={arrow}
             label={value === '-' ? '청자 미상' : listenerLabel(value)}
           />
         ) : (

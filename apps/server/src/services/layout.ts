@@ -6,6 +6,7 @@ import { graphEdges, graphLayouts, graphNodes, groups, projects, units, type Lay
 import { contractEdges, isControlNode } from '@tw/shared';
 import { events } from '../events.ts';
 import { foldChoices } from './choices.ts';
+import { scriptRanks } from './script-rank.ts';
 import type { LayoutDirection, LayoutJob, SceneSource, SectionLayouts, WorkerJob } from './layout-worker.ts';
 
 const NODE_SIZE: Record<string, [number, number]> = {
@@ -62,8 +63,8 @@ function runWorker<T = LayoutData>(job: WorkerJob, onWorker: (worker: Worker) =>
   });
 }
 
-/** Bumped when layouts are made differently (8: direction variants and roomier ELK spacing); older cached layouts are recomputed at startup. */
-export const LAYOUT_VERSION = 8;
+/** Bumped when layouts are made differently (9: nodes in script order, so a loop is entered at its first line; 8: direction variants and roomier ELK spacing); older cached layouts are recomputed at startup. */
+export const LAYOUT_VERSION = 9;
 
 /** Stored direction variants with a stored layout made by an older LAYOUT_VERSION. */
 export function projectsWithOldLayouts(db: Db) {
@@ -82,16 +83,27 @@ function save(db: Db, projectId: string, scope: 'dialogue' | 'scene', given: Par
     .run();
 }
 
+/** Each node's place in the script (see script-rank.ts), from the position of its first line. */
+function projectRanks(db: Db, projectId: string, edges: { from: string; to: string }[]) {
+  const rows = db
+    .select({ id: graphNodes.id, seq: sql<number | null>`(select min(u.seq) from units u join json_each(${graphNodes.unitIds}) j on u.id = j.value)` })
+    .from(graphNodes)
+    .where(eq(graphNodes.projectId, projectId))
+    .all();
+  return scriptRanks(rows, edges);
+}
+
 /** The dialogue graph's nodes with their scene's section, in script order of sections. */
 export function sectionSource(db: Db, projectId: string, direction: LayoutDirection = 'vertical') {
   const groupRows = db.select({ id: groups.id, section: groups.section }).from(groups).where(eq(groups.projectId, projectId)).orderBy(asc(groups.sort), asc(groups.key)).all();
   const sectionOf = new Map(groupRows.map((group) => [group.id, group.section || null]));
   const { nodes, edges } = dialogueSource(db, projectId);
+  const rank = projectRanks(db, projectId, edges);
   return {
     direction,
     nodes: nodes.map((node) => {
       const [width, height] = NODE_SIZE[node.kind] ?? NODE_SIZE.unknown;
-      return { id: node.id, width, height, group: node.groupId, section: node.groupId ? (sectionOf.get(node.groupId) ?? null) : null, ...(node.kind === 'choice' && { keep: true }) };
+      return { id: node.id, width, height, group: node.groupId, section: node.groupId ? (sectionOf.get(node.groupId) ?? null) : null, ...(node.kind === 'choice' && { keep: true }), ...(rank.has(node.id) && { rank: rank.get(node.id) }) };
     }),
     edges,
     order: [...new Set(groupRows.flatMap((group) => (group.section ? [group.section] : [])))],
@@ -127,12 +139,13 @@ export function sceneSource(db: Db, projectId: string, direction: LayoutDirectio
 
 export function dialogueJob(db: Db, projectId: string, direction: LayoutDirection = 'vertical'): LayoutJob {
   const { nodes, edges } = dialogueSource(db, projectId);
+  const rank = projectRanks(db, projectId, edges);
   return {
     direction,
     nodes: nodes.map((node) => {
       const [width, height] = NODE_SIZE[node.kind] ?? NODE_SIZE.unknown;
       // A player's choice stays its own box, never folded into a run of lines.
-      return { id: node.id, width, height, group: node.groupId, ...(node.kind === 'choice' && { keep: true }) };
+      return { id: node.id, width, height, group: node.groupId, ...(node.kind === 'choice' && { keep: true }), ...(rank.has(node.id) && { rank: rank.get(node.id) }) };
     }),
     edges,
   };
@@ -180,6 +193,7 @@ async function computeNodeSetLayout(db: Db, projectId: string, key: string, node
   const titleOf = new Map(db.select({ id: groups.id, title: groups.title }).from(groups).where(eq(groups.projectId, projectId)).all().map((group) => [group.id, group.title]));
   const nodes = db.select({ id: graphNodes.id, kind: graphNodes.kind, groupId: graphNodes.groupId, unitIds: graphNodes.unitIds }).from(graphNodes).where(eq(graphNodes.projectId, projectId)).all();
   const { edges: viewed, via } = viewEdges(chosen, db.select({ id: graphEdges.id, from: graphEdges.fromId, to: graphEdges.toId }).from(graphEdges).where(eq(graphEdges.projectId, projectId)).all());
+  const rank = projectRanks(db, projectId, db.select({ from: graphEdges.fromId, to: graphEdges.toId }).from(graphEdges).where(eq(graphEdges.projectId, projectId)).all());
   const omitted = omittedFacts(db, nodes, via);
   // A derived edge says what it leaves out on its label, so the layout keeps room for it.
   const edges = viewed.map((edge) => (omitted.has(edge.id) ? { ...edge, label: omittedLabel(omitted.get(edge.id)!) } : edge));
@@ -193,7 +207,7 @@ async function computeNodeSetLayout(db: Db, projectId: string, key: string, node
         edges,
         nodes: nodes.map((node) => {
           const [width, height] = NODE_SIZE[node.kind] ?? NODE_SIZE.unknown;
-          return { id: node.id, width, height, group: node.groupId, section: chosen.has(node.id) ? VIEW : node.groupId ? `scene:${node.groupId}` : null };
+          return { id: node.id, width, height, group: node.groupId, section: chosen.has(node.id) ? VIEW : node.groupId ? `scene:${node.groupId}` : null, ...(rank.has(node.id) && { rank: rank.get(node.id) }) };
         }),
       },
       (worker) => { job.worker = worker; },

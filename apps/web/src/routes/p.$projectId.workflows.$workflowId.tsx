@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import {
   addEdge,
   Background,
@@ -38,13 +38,18 @@ import { useFoldState } from '@/components/workflow/use-fold-state';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { SplitPane, PageHeading, HeaderActions, NodeLibrary, CanvasToolbar, CanvasSurface, SelectionToolbox, type CanvasDirection, type NodeLibraryGroup, Box, Button, Icon, Inline, Stack, Text, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent, DropdownMenuLabel, Input, Skeleton, Popover, PopoverContent, PopoverTrigger } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
-import { tagsIn, q } from '@/lib/queries';
+import { tagsIn } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { workflowEdits } from '@/lib/workflow-edits';
 import { sameWorkflowDraft, reconcileSavedDraft, normalizeWorkflowDraft } from '@/lib/workflow-draft';
 import { dateTime } from '@/lib/datetime';
 import { useIsDark } from '@/lib/theme';
 import { useGraphShortcuts, type GraphShortcuts } from '@/lib/graph-shortcuts';
+import { useTaxonomy } from '@/lib/knowledge';
+import { useRuns } from '@/lib/runs';
+import { useWorkflow, useWorkflows } from '@/lib/workflows';
+import { sent as sentToFeed } from '@/lib/collections';
+import { useConnections } from '@/lib/app-data';
 
 /** When the workflow was last saved: 10. 13. 오전 06:16. Runs keep their own copy of what they ran. */
 const savedAt = (at: string) => dateTime(at);
@@ -140,14 +145,13 @@ function WorkflowEditor() {
   const navigate = Route.useNavigate();
   const flow = useReactFlow();
   const canvasRef = useRef<HTMLDivElement>(null);
-  const cache = useQueryClient();
   const { zoom } = useViewport();
   const [minimap, setMinimap] = useState(false);
-  const workflow = useQuery(q.workflow(workflowId));
-  const statuses = useQuery(q.statuses(projectId));
-  const connections = useQuery(q.connections({ kind: 'project', projectId }));
-  const runs = useQuery(q.runs(projectId));
-  const workflows = useQuery(q.workflows(projectId));
+  const workflow = useWorkflow(projectId, workflowId);
+  const taxonomy = useTaxonomy(projectId);
+  const connections = useConnections({ kind: 'project', projectId });
+  const runs = useRuns(projectId);
+  const workflows = useWorkflows(projectId);
   const activeRun = runs.data?.find((run) => run.workflowId === workflowId && (run.status === 'running' || run.status === 'paused'));
 
   // The draft survives navigation and reloads; it is dropped only on save or explicit discard.
@@ -213,11 +217,11 @@ function WorkflowEditor() {
   const save = useMutation({
     mutationFn: (sent: Draft) => {
       inFlight.current = sent;
-      return unwrap(client.workflows[':id'].$put({ param: { id: workflowId }, json: { name: sent.name, description: workflow.data!.description, definition: sent.definition, version: sent.baseVersion } }));
+      // Done once the feed has brought the saved row, so its version is the one the draft now builds on.
+      return sentToFeed(projectId, client.workflows[':id'].$put({ param: { id: workflowId }, json: { name: sent.name, description: workflow.data!.description, definition: sent.definition, version: sent.baseVersion } }));
     },
     onSettled: () => { inFlight.current = null; },
     onSuccess: (row, sent) => {
-      cache.setQueryData(q.workflow(workflowId).queryKey, (old) => old && old.version > row.version ? old : row);
       setDraftState((latest) => {
         const next = reconcileSavedDraft(latest, sent, row.version);
         if (next) sessionStorage.setItem(draftKey(workflowId), JSON.stringify(next));
@@ -227,18 +231,20 @@ function WorkflowEditor() {
       setIssues(row.issues);
     },
   });
+  // While a run uses this workflow the server refuses changes: the draft waits here and saves once it ends.
+  const running = Boolean(activeRun);
   useEffect(() => {
-    if (!draft || stale || save.isPending || save.isError) return;
+    if (!draft || stale || running || save.isPending || save.isError) return;
     const timer = setTimeout(() => save.mutate(draft), 800);
     return () => clearTimeout(timer);
-  }, [draft, stale, save.isPending, save.isError, save.mutate]);
+  }, [draft, stale, running, save.isPending, save.isError, save.mutate]);
 
   // A new AI node starts with the model the workflow already uses, else none: validation asks for one.
   const newNodeModel = () => {
     const used = current?.definition.nodes.find((node) => node.type === 'ai' && node.config.model.model);
     return used?.type === 'ai' ? used.config.model : { connectionId: '', model: '' };
   };
-  const summaryNames = { status: new Map(statuses.data?.statuses.map((status) => [status.id, status.name])), connection: new Map(connections.data?.map((connection) => [connection.id, connection.name])), connectionsLoaded: Boolean(connections.data), workflows: workflows.data };
+  const summaryNames = { status: new Map(taxonomy.statuses?.map((status) => [status.id, status.name])), connection: new Map(connections.data?.map((connection) => [connection.id, connection.name])), connectionsLoaded: Boolean(connections.data), workflows: workflows.data };
   const summary = (node: WorkflowNode) => (current ? nodeSummary(node, current.definition, summaryNames) : '');
 
   // React Flow measures each node and reports it as a 'dimensions' change; nodes rebuilt without
@@ -275,7 +281,7 @@ function WorkflowEditor() {
       definition: { ...value.definition, nodes: value.definition.nodes.map((node) => (placed.has(node.id) ? { ...node, position: placed.get(node.id)! } : node)) },
     }));
   }, [openFolds, folds]); // eslint-disable-line react-hooks/exhaustive-deps
-  const foldNames = useMemo(() => ({ status: summaryNames.status }), [statuses.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  const foldNames = useMemo(() => ({ status: summaryNames.status }), [taxonomy.statuses]); // eslint-disable-line react-hooks/exhaustive-deps
   const foldChip = (fold: Fold) => current && {
     text: foldText(current.definition, fold, foldNames),
     open: isFoldOpen(foldState, fold.id),
@@ -311,13 +317,13 @@ function WorkflowEditor() {
           warnings: issues.filter((issue) => issue.nodeId === node.id && issue.level === 'warning').map((issue) => issue.message),
           start: starts.has(node.id) && entry ? { label: startLabel, onOpen: () => select(entry.id) } : undefined,
           open: openPorts(node, current.definition),
-          status: targetStatus(node, statuses.data?.statuses),
+          status: targetStatus(node, taxonomy.statuses),
           folds: Object.fromEntries(folds.filter((fold) => fold.kind === 'branch' && fold.owner === node.id).flatMap((fold) => [[fold.port, foldChip(fold)!]])),
           foldClose: (() => { const fold = folds.find((item) => item.kind === 'edge' && item.nodeIds[0] === node.id && isFoldOpen(foldState, item.id)); return fold && (() => toggleFoldOf(fold)); })(),
         },
       }));
     },
-    [shown, folds, foldState, current?.definition, search.node, multi, direction, issues, statuses.data, connections.data, measured], // eslint-disable-line react-hooks/exhaustive-deps
+    [shown, folds, foldState, current?.definition, search.node, multi, direction, issues, taxonomy.statuses, connections.data, measured], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const edges: FlowEdge[] = useMemo(
     () => {
@@ -329,7 +335,7 @@ function WorkflowEditor() {
         return fold ? { ...edge, data: { ...edge.data, fold: foldChip(fold) } } : edge;
       });
     },
-    [view, edgeId, hoveredEdgeId, foldState, issues, statuses.data], // eslint-disable-line react-hooks/exhaustive-deps
+    [view, edgeId, hoveredEdgeId, foldState, issues, taxonomy.statuses], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const select = (id: string | undefined) => void navigate({ search: (previous) => ({ ...previous, node: id }) });
@@ -782,9 +788,9 @@ function WorkflowEditor() {
                 onTab={(nodeTab) => void navigate({ search: (previous) => ({ ...previous, nodeTab: nodeTab === 'settings' ? undefined : nodeTab }) })}
                 issues={issues.filter((issue) => issue.nodeId === selected.id)}
                 refs={{
-                  statuses: statuses.data?.statuses ?? [],
+                  statuses: taxonomy.statuses ?? [],
                   // The tags of the workflow's input: line tags, or term tags.
-                  tags: tagsIn(statuses.data?.tags, input),
+                  tags: tagsIn(taxonomy.tags, input),
                   projectId,
                   workflowId,
                   connections: connections.data ?? [],

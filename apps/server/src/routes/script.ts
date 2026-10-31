@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { and, count, desc, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { batchChangeSchema, lineFilterSchema } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
@@ -13,6 +13,7 @@ import { checkBatch, refusalText } from '../services/proposal-check.ts';
 import { fitResult } from '../services/tool-output.ts';
 import { viewFlow } from '../services/view-flow.ts';
 import { inChunks } from '../db/chunk.ts';
+import { speakerRows } from '../services/project-rows.ts';
 import { checkScript, exportLines, findLines, firstAppearance, lineContext, runStats, sceneStats, scenesWith } from '../services/script-query.ts';
 
 /**
@@ -23,11 +24,7 @@ export const scriptRoutes = new Hono<Env>()
   .get('/projects/:projectId/speakers', (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
-    const rows = db.select({ speaker: s.units.speaker, lines: count() }).from(s.units).where(eq(s.units.projectId, projectId)).groupBy(s.units.speaker).orderBy(desc(count())).all();
-    const characters = db.select().from(s.characters).where(eq(s.characters.projectId, projectId)).all();
-    return c.json(
-      rows.map((row) => ({ ...row, character: row.speaker ? (characters.find((character) => [character.name, ...character.aliases].includes(row.speaker!))?.name ?? null) : null })),
-    );
+    return c.json(speakerRows(db, projectId).map(({ id: _id, ...row }) => row));
   })
   .get('/projects/:projectId/speakers/:name/first', (c) => c.json(firstAppearance(c.var.deps.db, c.req.param('projectId'), c.req.param('name'))))
   .post('/projects/:projectId/lines/find', validate('json', lineFilterSchema), (c) => c.json(findLines(c.var.deps.db, c.req.param('projectId'), c.req.valid('json'), { diverged: true })))

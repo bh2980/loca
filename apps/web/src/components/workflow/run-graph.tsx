@@ -6,7 +6,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Background, Panel, ReactFlow, ReactFlowProvider, useNodesInitialized, useReactFlow, useViewport, type NodeChange, type Viewport } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { useQuery } from '@tanstack/react-query';
 import type { WorkflowDefinition } from '@tw/shared';
 import { Box, Button, CanvasToolbar, Inline, Text, type CanvasDirection } from '@loca/ui';
 import { X } from 'lucide-react';
@@ -17,9 +16,10 @@ import { useFoldState } from '@/components/workflow/use-fold-state';
 import { WorkflowNodeView, type FlowNode } from '@/components/workflow/node-view';
 import { WorkflowEdgeView } from '@/components/workflow/workflow-edge';
 import { entryStarts, flowEdges, nodeSummary, openPorts, targetStatus } from '@/components/workflow/flow-graph';
-import { q } from '@/lib/queries';
 import { retryLiveText } from '@/lib/retry-info';
 import { useIsDark } from '@/lib/theme';
+import { useTaxonomy } from '@/lib/knowledge';
+import { useConnections } from '@/lib/app-data';
 
 const nodeTypes = { workflow: WorkflowNodeView };
 /** The whole graph, never larger than 100%. */
@@ -58,8 +58,8 @@ function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; ru
   const dark = useIsDark();
   const flow = useReactFlow();
   const { zoom } = useViewport();
-  const statuses = useQuery(q.statuses(projectId));
-  const connections = useQuery(q.connections({ kind: 'project', projectId }));
+  const taxonomy = useTaxonomy(projectId);
+  const connections = useConnections({ kind: 'project', projectId });
   // Each call is one card (its nodes are listed when it is opened); the run's own definition has them expanded.
   const definition = useMemo(() => collapseCalls(run.definition), [run.definition]);
   const [openCall, setOpenCall] = useState<string>();
@@ -83,7 +83,7 @@ function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; ru
   const placements = useMemo(() => foldPlacements(definition, folds, openFolds, new Map(Object.entries(sizes)), direction), [definition, folds, openFolds, sizes, direction]);
   useEffect(() => setFoldState((state) => openFoldContaining(state, folds, selected)), [selected, folds, setFoldState]);
   const nodes: FlowNode[] = useMemo(() => {
-    const names = { status: new Map(statuses.data?.statuses.map((status) => [status.id, status.name])), connection: new Map(connections.data?.map((connection) => [connection.id, connection.name])), connectionsLoaded: Boolean(connections.data) };
+    const names = { status: new Map(taxonomy.statuses?.map((status) => [status.id, status.name])), connection: new Map(connections.data?.map((connection) => [connection.id, connection.name])), connectionsLoaded: Boolean(connections.data) };
     const { entry, starts, label } = entryStarts(definition, names);
     const foldNames = { status: names.status };
     const chip = (fold: Fold) => ({ text: foldText(definition, fold, foldNames), open: isFoldOpen(foldState, fold.id), live: foldLiveText(fold, live), onToggle: () => setFoldState((state) => toggleFold(state, fold.id)) });
@@ -107,20 +107,20 @@ function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; ru
           live: live.get(node.id) && { ...live.get(node.id)!, retry: retryLiveText(live.get(node.id)!.retrying) || undefined },
           start: starts.has(node.id) && entry ? { label } : undefined,
           open: openPorts(node, definition),
-          status: targetStatus(node, statuses.data?.statuses),
+          status: targetStatus(node, taxonomy.statuses),
           folds: Object.fromEntries(folds.filter((fold) => fold.kind === 'branch' && fold.owner === node.id).map((fold) => [fold.port, chip(fold)])),
           foldClose: (() => { const fold = folds.find((item) => item.kind === 'edge' && item.nodeIds[0] === node.id && isFoldOpen(foldState, item.id)); return fold && (() => setFoldState((state) => toggleFold(state, fold.id))); })(),
         },
       }));
-  }, [definition, view, folds, foldState, placements, run.definition, direction, live, selected, sizes, statuses.data, connections.data, setFoldState]);
+  }, [definition, view, folds, foldState, placements, run.definition, direction, live, selected, sizes, taxonomy.statuses, connections.data, setFoldState]);
   const edges = useMemo(() => {
     const chips = new Map(view.closed.filter((fold) => fold.kind === 'edge').map((fold) => [fold.edgeId, fold] as const));
-    const foldNames = { status: new Map(statuses.data?.statuses.map((status) => [status.id, status.name])) };
+    const foldNames = { status: new Map(taxonomy.statuses?.map((status) => [status.id, status.name])) };
     return flowEdges(view.definition).map((edge) => {
       const fold = chips.get(edge.id);
       return fold ? { ...edge, data: { ...edge.data, fold: { text: foldText(definition, fold, foldNames), live: foldLiveText(fold, live), onToggle: () => setFoldState((state) => toggleFold(state, fold.id)) } } } : edge;
     });
-  }, [view, definition, live, statuses.data, setFoldState]);
+  }, [view, definition, live, taxonomy.statuses, setFoldState]);
 
   // A remembered view comes back as it was; the first look fits the whole graph once every node is measured.
   const measured = useNodesInitialized();

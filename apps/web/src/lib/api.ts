@@ -80,4 +80,12 @@ export async function unwrap<T extends Response & { json(): Promise<unknown> }>(
   return (await response.json()) as Awaited<ReturnType<T['json']>>;
 }
 
+/** A write's JSON body and its x-seq: the feed's count after the write's last row change, for feed.wait. */
+export async function unwrapSeq<T extends Response & { json(): Promise<unknown> }>(request: Promise<T>): Promise<{ body: Awaited<ReturnType<T['json']>>; seq: number | undefined }> {
+  const response = await request;
+  const body = (await unwrap(Promise.resolve(response))) as Awaited<ReturnType<T['json']>>;
+  const seq = response.headers.get('x-seq');
+  return { body, seq: seq === null ? undefined : Number(seq) };
+}
+
 export type { InferResponseType };

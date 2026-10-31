@@ -5,9 +5,9 @@ import { Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { EXCLUSION_REASON_LABELS, exclusionReason, formatPatternError, type ExclusionRules, type FormatRules } from '@tw/shared';
 import { Box, Button, Field, Inline, Stack, Switch, Text, Input, TextLink, Section, SectionHeading } from '@loca/ui';
-import { client, unwrap } from '@/lib/api';
 import { useFormFrom } from '@/lib/use-form-from';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
+import { saveProject } from '@/lib/project';
 
 const SWITCHES: { key: 'empty' | 'formatOnly' | 'noLetters' | 'noSourceScript'; label: string; description: string }[] = [
   { key: 'empty', label: '빈 원문', description: '비었거나 공백·줄바꿈뿐인 원문' },
@@ -28,7 +28,7 @@ export function ExclusionRulesSection({ projectId, rules, formatRules, sourceLan
   const sampleReason = sample ? exclusionReason(sample, formatRules, usable, sourceLanguage) : null;
 
   const save = useMutation({
-    mutationFn: () => unwrap(client.projects[':projectId'].$patch({ param: { projectId }, json: { exclusionRules: draft } })),
+    mutationFn: () => saveProject(projectId, { exclusionRules: draft }),
     onSuccess: () => toast.success('번역 제외 규칙을 저장했습니다.'),
     onError: (error) => toast.error(error.message),
   });
@@ -41,7 +41,7 @@ export function ExclusionRulesSection({ projectId, rules, formatRules, sourceLan
       description="번역할 대상이 아닌 원문. 진행률·남은 줄·실행·내보내기·검사에서 빠지고, 번역은 건드리지 않습니다. 줄마다 상세에서 직접 정할 수도 있습니다."
       actions={
         <TextLink asChild variant="caption" tone="muted" underline="offset" quiet>
-          <Link to="/p/$projectId/script" params={{ projectId }} search={{ marks: ['excluded'] }}>
+          <Link to="/p/$projectId/script" params={{ projectId }} search={{ excluded: 'only' }}>
             지금 {excludedCount.toLocaleString()}줄 제외
           </Link>
         </TextLink>

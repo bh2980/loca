@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { LINE_TRANSLATE } from './exclusion.ts';
-import { lineMarksSchema } from './marks.ts';
+import { EXCLUDED_FILTERS, lineFactsShape, lineMarksSchema } from './marks.ts';
 
 /**
  * One filter for every way of reading the script: the CLI (loca lines / export / check), the
@@ -13,7 +13,7 @@ export const lineFilterSchema = z.object({
   q: z.string().trim().min(1).optional(),
   /** Lines spoken by any of these. */
   speakers: z.array(z.string().min(1)).optional(),
-  /** Lines addressed to any of these (name or alias); "-" = the #청자 미상 mark (dialogue whose listener is unknown). */
+  /** Lines addressed to any of these (name or alias); "-" = 청자 모름 (dialogue said to someone whose listener is unknown or an unsure AI guess). */
   listeners: z.array(z.string().min(1)).optional(),
   /** Lines whose source mentions any of these characters (by name, alias or {ALIAS} placeholder). */
   mentions: z.array(z.string().min(1)).optional(),
@@ -26,6 +26,9 @@ export const lineFilterSchema = z.object({
   tags: z.array(z.string().min(1)).optional(),
   /** Automatic marks (the app's built-in tags) the lines must all have; same rules as the script list. */
   marks: lineMarksSchema.optional(),
+  ...lineFactsShape,
+  /** 번역 제외 lines: left out (hide) or only them (only); absent = with the rest. */
+  excluded: z.enum(EXCLUDED_FILTERS).optional(),
   /** Hidden: lines spoken by any of these, in any of these statuses, carrying any of these tags or marks are left out (the app's 숨기기). */
   hideSpeakers: z.array(z.string().min(1)).optional(),
   hideStatuses: z.array(z.string().min(1)).optional(),

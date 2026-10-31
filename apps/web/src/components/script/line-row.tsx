@@ -1,10 +1,10 @@
 import { createAndAttachTag } from '@/lib/create-tag';
 /** One row of the line list, with the hints and links that open under the picked line. */
 import { useMemo, useState, type ComponentProps, type ReactNode, type RefObject } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { Check, CircleAlert, Ellipsis, PanelRight } from 'lucide-react';
 import { toast } from 'sonner';
-import { AUTO_MARKS, compileFormatRules, isUnknownListener, lineExclusion, listenerLabel, needsListener, SPECIAL_LISTENERS, TAG_SCOPES, type FormatRules, type LineMark, type ListenerOrigin, glossaryMatcher, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
+import { AUTO_MARKS, markName, compileFormatRules, isUnknownListener, lineExclusion, listenerLabel, needsListener, SPECIAL_LISTENERS, TAG_SCOPES, type FormatRules, type LineMark, type ListenerOrigin, glossaryMatcher, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
 import { MarkChip } from '@/components/status';
 import { TranslationEditor } from '@/components/translation-editor';
 import { LineSourceText, MarkedSourceText, TokenText } from '@/components/editor/source-text';
@@ -47,16 +47,18 @@ import {
   type StatusLike,
   DropdownMenuContent,
 } from '@loca/ui';
-import { client, unwrap } from '@/lib/api';
-import { q } from '@/lib/queries';
+import { client } from '@/lib/api';
+import { useMarkStyles } from '@/lib/queries';
 import { SOURCE_GROUP_LABEL, SOURCE_UNIT_LABEL } from '@/lib/labels';
 import { SpeakerCard } from '@/components/script/speaker-card';
-import { optimistic, patchedLine, unitChanges } from '@/lib/optimistic';
+import { changeLines, patchedLine, type Line, useLineDetail } from '@/lib/units';
 import { useDraft } from '@/lib/drafts';
 import { useSaveLine } from '@/lib/line-save';
-import type { InferResponseType } from '@/lib/api';
 import { usePersonColors } from '@/lib/person-colors';
 import { LineMenuItems } from '@/components/script/line-menu';
+import { useTerms } from '@/lib/terms';
+import { useCharacters, useRelationships } from '@/lib/knowledge';
+import { useProject } from '@/lib/project';
 
 /** Who the line is addressed to. Unsure AI guesses count as unknown. */
 function listenerText(line: { kind: string; speaker: string | null; source: string; listener: string | null; listenerOrigin: ListenerOrigin | null; listenerConfidence: number | null }, rules: FormatRules | undefined) {
@@ -75,10 +77,11 @@ function listenerText(line: { kind: string; speaker: string | null; source: stri
  * Context and last-run guidance for the selected line's inspector.
  */
 export function LineHints({ projectId, line, part }: { projectId: string; line: { id: string; source: string; kind?: string; translation: string | null; speaker?: string | null; listener?: string | null; lastRun: { issues: string[] } | null }; part?: 'context' | 'result' }) {
-  const unit = useQuery(q.unit(line.id));
-  const people = useQuery(q.characters(projectId));
-  const terms = useQuery(q.terms(projectId));
-  const project = useQuery(q.project(projectId));
+  const unit = useLineDetail(projectId, line.id);
+  const people = useCharacters(projectId);
+  const relationships = useRelationships(projectId);
+  const terms = useTerms(projectId);
+  const project = useProject(projectId);
   const [draft] = useDraft(`line:${line.id}`, line.translation ?? '');
   const text = draft.trim();
   const speech = unit.data?.speech;
@@ -139,11 +142,11 @@ export function LineHints({ projectId, line, part }: { projectId: string; line: 
   // Who is talking, in a line each: the speaker's habit and how they stand with the listener (the card has the rest).
   const named = (name: string | null | undefined) => {
     const lower = name?.toLowerCase();
-    return lower ? people.data?.characters.find((person) => person.name.toLowerCase() === lower || person.aliases.some((alias) => alias.toLowerCase() === lower)) : undefined;
+    return lower ? people.data?.find((person) => person.name.toLowerCase() === lower || person.aliases.some((alias) => alias.toLowerCase() === lower)) : undefined;
   };
   const speaker = part !== 'result' ? named(line.speaker) : undefined;
   const listener = speaker ? named(line.listener) : undefined;
-  const relation = listener && people.data?.relationships.find((item) => (item.fromId === speaker!.id && item.toId === listener.id) || (item.mutual && item.fromId === listener.id && item.toId === speaker!.id));
+  const relation = listener && relationships.data?.find((item) => (item.fromId === speaker!.id && item.toId === listener.id) || (item.mutual && item.fromId === listener.id && item.toId === speaker!.id));
   const about = [
     speaker?.speech && { key: 'habit', label: `${speaker.name} 말버릇`, text: speaker.speech },
     relation && { key: 'relation', label: `관계 ${speaker!.name} → ${listener!.name}`, text: [relation.kind, relation.description].filter(Boolean).join(' — ') },
@@ -158,7 +161,8 @@ export function LineHints({ projectId, line, part }: { projectId: string; line: 
         <Box spaceY="hair" paddingTop={items.some(Boolean) ? 'condensed' : undefined}>
           {rule}
           {about.map((item) => (
-            <Text as="p" variant="caption" tone="muted" lines={1} key={item.key} title={item.text}>
+            // Written out in full: how the speaker talks is what the translator needs, not a teaser for a tooltip.
+            <Text as="p" variant="caption" tone="muted" breakWords key={item.key}>
               {item.label} · {item.text}
             </Text>
           ))}
@@ -169,7 +173,6 @@ export function LineHints({ projectId, line, part }: { projectId: string; line: 
 }
 
 type LineTag = StatusLike & { role?: string | null };
-type Line = InferResponseType<(typeof client.projects)[':projectId']['units']['$get']> extends { rows: (infer Row)[] } ? Row : never;
 
 /** One line of the list: a compact row, or the open editor when picked. */
 export function LineRow({
@@ -202,7 +205,7 @@ export function LineRow({
   onEscape,
   onDone,
   onFilterTag,
-  onFilterMark,
+  onFilterMark, onFilterAi,
 }: {
   projectId: string;
   line: Line;
@@ -238,33 +241,24 @@ export function LineRow({
   onDone: (advanced: boolean) => void;
   onFilterTag: (tagId: string) => void;
   onFilterMark: (mark: LineMark) => void;
+  /** The ✦: lines whose status the AI set (정한 쪽 AI). */
+  onFilterAi: () => void;
 }) {
-  const project = useQuery(q.project(projectId)).data;
+  const project = useProject(projectId).data;
+  const markStyles = useMarkStyles(projectId);
   const rules = project?.formatRules ?? undefined;
-  // 번역 제외: hidden from the list by default (the 숨기기 filter); shown on request, it carries its mark.
+  // 번역 제외: hidden from the list by default; shown on request, its status cell says so.
   const excluded = lineExclusion(line, rules, project?.exclusionRules, project?.sourceLanguage) !== null;
   // Narration and lines of format tokens only are said to nobody: no listener slot, unless a person or the import gave one.
   const said = needsListener(line, rules) || (Boolean(line.listener) && (line.listenerOrigin === 'human' || line.listenerOrigin === 'import'));
   const who = listenerText(line, rules);
-  const marks: LineMark[] = [];
-  if (excluded) marks.push('excluded');
-  if (line.note.trim()) marks.push('noted');
+  // What the row shows elsewhere (its status, ✦, listener, memo) is not repeated as a chip.
+  const marks: LineMark[] = line.suggested ? ['aiSuggestion'] : [];
   const attachedTags = tags.filter((tag) => line.tagIds.includes(tag.id));
-  const orderedTags = [...attachedTags.filter((tag) => tag.role), ...attachedTags.filter((tag) => !tag.role)];
 
-  const queryClient = useQueryClient();
   const patch = useMutation({
-    mutationFn: (json: { tagIds?: string[]; translate?: 'include' | 'exclude' }) => unwrap(client.units[':unitId'].$patch({ param: { unitId: line.id }, json })),
-    onMutate: async (json) => ({ undo: await optimistic(queryClient, unitChanges([line.id], patchedLine(json))) }),
-    onError: (error, _json, context) => {
-      context?.undo();
-      toast.error(error.message);
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['statuses', projectId] });
-      queryClient.invalidateQueries({ queryKey: ['units', projectId] });
-      queryClient.invalidateQueries({ queryKey: ['unit', line.id] });
-    },
+    mutationFn: (json: { tagIds?: string[]; translate?: 'include' | 'exclude' }) => changeLines(projectId, [line.id], patchedLine(json), () => client.units[':unitId'].$patch({ param: { unitId: line.id }, json })),
+    onError: (error) => toast.error(error.message),
   });
 
   const handleToggleTag = (tagId: string, add: boolean) => {
@@ -281,14 +275,14 @@ export function LineRow({
     }
   };
 
-  const tagRow = marks.length || orderedTags.length ? (
+  const tagRow = marks.length || attachedTags.length ? (
     <Stack direction="row" wrap gap="tight" marginTop="tight" role="group" aria-label="이 줄의 태그" onClick={(event) => event.stopPropagation()}>
       {marks.map((mark) => (
-        <Chip as="button" variant="bare" key={mark} title={`#${AUTO_MARKS[mark].name} 줄만 보기`} onClick={() => onFilterMark(mark)}>
-          <MarkChip mark={mark} projectId={projectId} />
+        <Chip as="button" variant="bare" key={mark} title={`#${markName(mark, markStyles)} 줄만 보기`} onClick={() => onFilterMark(mark)}>
+          <MarkChip mark={mark} />
         </Chip>
       ))}
-      {orderedTags.map((tag) => (
+      {attachedTags.map((tag) => (
         <Chip as="button" variant="bare" key={tag.id} title={`#${tag.name} 줄만 보기`} onClick={() => onFilterTag(tag.id)}>
           <TagChip tag={tag} />
         </Chip>
@@ -326,10 +320,11 @@ export function LineRow({
     <Inline as="span" gap="tight" minWidth={0} variant="caption" tone="muted">
       <StatusIcon status={status} />
       <Text truncate>{status?.name}</Text>
+      {excluded && <Text truncate>· 번역 제외</Text>}
     </Inline>
   );
   const aiMeta = line.statusBy === 'ai' ? (
-    <Chip as="button" variant="bare" title={`#${AUTO_MARKS.ai.name} 줄만 보기`} onClick={(event) => (event.stopPropagation(), onFilterMark('ai'))}>
+    <Chip as="button" variant="bare" title="AI가 정한 줄만 보기" onClick={(event) => (event.stopPropagation(), onFilterAi())}>
       <AiMark by="ai" />
     </Chip>
   ) : null;
@@ -380,7 +375,7 @@ export function LineRow({
     <>
       <ScriptSourceStyle open tone={sourceTone}><LineSourceText projectId={projectId} unitId={line.id} source={line.source} translation={line.translation} /></ScriptSourceStyle>
       <LineHints projectId={projectId} line={{ id: line.id, source: line.source, translation: line.translation, speaker: line.speaker, listener: line.listener, lastRun: null }} part="context" />
-      <LineNote key={`note-${line.id}`} unitId={line.id} note={line.note} editing={noting} onEditing={onNoting} />
+      <LineNote key={`note-${line.id}`} projectId={projectId} unitId={line.id} note={line.note} editing={noting} onEditing={onNoting} />
     </>
   ) : <ScriptSourceStyle open={false} tone={sourceTone}><MarkedSourceText projectId={projectId} text={line.source} pattern={tokenPattern} /></ScriptSourceStyle>;
   const translation = selected ? (
@@ -410,7 +405,7 @@ export function LineRow({
       flagged={marked}
     />
   );
-  const saveLine = useSaveLine();
+  const saveLine = useSaveLine(projectId);
 
   return (
     <>

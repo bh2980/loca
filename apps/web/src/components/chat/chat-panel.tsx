@@ -1,11 +1,11 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState, useLayoutEffect } from 'react';
 import { useChat } from '@ai-sdk/react';
 import type { UIMessage } from 'ai';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useLocation } from '@tanstack/react-router';
-import { ArrowUp, Check, ChevronRight, ImageOff, Paperclip, Pencil, Plus, Square, X } from 'lucide-react';
+import { Link, useRouterState } from '@tanstack/react-router';
+import { ArrowUp, Check, ChevronRight, ImageOff, Pencil, Plus, Square, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AssistantMessage, Box, Button, Markdown, CompactionNotice as CompactionNoticeView, ComposerInput, ComposerMenu, Icon, Notice, ImageChip, Inline, MessageActionBar, SectionHeading, SentImage, Spinner, Stack, SteerBubble as SteerBubbleView, Text, Tooltip, TooltipContent, TooltipTrigger, UserMessage } from '@loca/ui';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AssistantMessage, Box, Button, FilePickButton, DockHeaderSlot, Markdown, CompactionNotice as CompactionNoticeView, ComposerInput, ComposerMenu, Icon, Notice, ImageChip, Inline, MessageActionBar, SectionHeading, SentImage, Spinner, Stack, SteerBubble as SteerBubbleView, Text, Tooltip, TooltipContent, TooltipTrigger, UserMessage } from '@loca/ui';
 import { CopyButton } from '@/components/copy-button';
 import { Elapsed } from '@/components/job-progress';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
@@ -14,7 +14,6 @@ import { agentRequests, usePendingAgentRequest } from '@/lib/agent';
 import { chatDock } from '@/lib/chat-dock';
 import { NO_HISTORY, sentTexts, stepHistory, type HistoryState } from '@/lib/chat-input-history';
 import { mergeIntoDraft, removeOnce } from '@/lib/chat-queue';
-import { insertAt } from '@/lib/chat-triggers';
 import { syncCards, withCard } from '@/lib/chat-run';
 import { makeRunCard } from '@/lib/chat-run-api';
 import { chatFor, dropChat } from '@/lib/chat-store';
@@ -32,6 +31,9 @@ import { CHAT_IMAGES_MAX, compactionMarker, imageDecision, IMAGE_UNSUPPORTED_NOT
 import { imageFilesOf, prepareImage, type PendingImage } from '@/lib/chat-image-file';
 import { ContextMeter, type ChatUsage } from './context-meter';
 import { ToolPart } from './tool-part';
+import { useProposals } from '@/lib/proposals';
+import { changeChatSession, useChatSessions } from '@/lib/logs';
+import { sent } from '@/lib/collections';
 
 const SESSION_KEY = (projectId: string) => `tw.chat.session.${projectId}`;
 const readSession = (projectId: string) => {
@@ -45,7 +47,7 @@ const readSession = (projectId: string) => {
 /** Global agent panel. Lives beside every page; switching pages or sessions never touches page history. */
 export function ChatPanel({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient();
-  const sessions = useQuery(q.chatSessions(projectId));
+  const sessions = useChatSessions(projectId);
   const [sessionId, setSessionId] = useState<string | null>(() => readSession(projectId));
 
   // Fetch the conversation as soon as its id is known (from storage), not only after the
@@ -59,15 +61,23 @@ export function ChatPanel({ projectId }: { projectId: string }) {
       if (targetProjectId === projectId) {
         setSessionId(targetSessionId);
         void queryClient.prefetchQuery(q.chatSession(targetSessionId));
-        void queryClient.invalidateQueries({ queryKey: q.chatSessions(projectId).queryKey });
       }
     });
   }, [projectId, queryClient]);
 
   useEffect(() => {
-    if (sessions.data && sessionId && !sessions.data.some((session) => session.id === sessionId)) setSessionId(null);
+    if (sessions.data && sessionId && !sessions.data.some((session) => session.id === sessionId)) {
+      // Deleted (here or elsewhere): forget it too, or every load asks for it again.
+      try {
+        sessionStorage.removeItem(SESSION_KEY(projectId));
+        localStorage.removeItem(SESSION_KEY(projectId));
+      } catch {
+        /* ignore */
+      }
+      setSessionId(null);
+    }
     if (sessions.data && !sessionId && sessions.data[0]) setSessionId(sessions.data[0].id);
-  }, [sessions.data, sessionId]);
+  }, [sessions.data, sessionId, projectId]);
   useEffect(() => {
     try {
       if (sessionId) {
@@ -81,18 +91,15 @@ export function ChatPanel({ projectId }: { projectId: string }) {
 
   const create = useMutation({
     // The server starts it with the AI the latest conversation picked.
-    mutationFn: () => unwrap(client.projects[':projectId'].chat.$post({ param: { projectId }, json: {} })),
-    onSuccess: (session) => {
-      // The new conversation joins the list before it is picked: otherwise the stale list would
-      // unpick it, and a waiting AI-button request would start yet another one, again and again.
-      queryClient.setQueryData(q.chatSessions(projectId).queryKey, (list) => (list ? [{ id: session.id, title: session.title, connectionId: session.connectionId, model: session.model, effort: session.effort, permissionMode: session.permissionMode, updatedAt: session.updatedAt, calls: 0, tokens: 0 }, ...list.filter((item) => item.id !== session.id)] : list));
-      setSessionId(session.id);
-    },
+    // Done once the feed has brought the new conversation: picked before it is listed, the list would
+    // unpick it, and a waiting AI-button request would start yet another one, again and again.
+    mutationFn: () => sent(projectId, client.projects[':projectId'].chat.$post({ param: { projectId }, json: {} })),
+    onSuccess: (session) => setSessionId(session.id),
   });
 
   const [deleting, setDeleting] = useState<{ id: string; title: string } | null>(null);
   const remove = useMutation({
-    mutationFn: (id: string) => unwrap(client.chat[':sessionId'].$delete({ param: { sessionId: id } })),
+    mutationFn: (id: string) => sent(projectId, client.chat[':sessionId'].$delete({ param: { sessionId: id } })),
     onSuccess: (_data, id) => {
       dropChat(id);
       if (id === sessionId) setSessionId(null);
@@ -122,15 +129,13 @@ export function ChatPanel({ projectId }: { projectId: string }) {
 
   return (
     <Stack as="aside" height="full" background="sidebar" aria-label="프로젝트 에이전트" data-own-keys>
-      <Inline height="bar" shrink={false} gap="tight" border="bottom" paddingX="condensed">
+      {/* In the dock's top row beside the tabs: the panel closes with the dock's own button. */}
+      <DockHeaderSlot>
         <ConversationMenu projectId={projectId} sessions={sessions.data} sessionId={sessionId} currentTitle={current?.title} onPick={setSessionId} onDelete={setDeleting} onCreate={() => create.mutate()} />
-        <Button variant="ghost" size="icon" aria-label="새 대화" onClick={() => create.mutate()}>
+        <Button variant="ghost" size="icon-sm" aria-label="새 대화" onClick={() => create.mutate()}>
           <Plus />
         </Button>
-        <Button variant="ghost" size="icon" aria-label="채팅 닫기" onClick={() => chatDock.set(false)}>
-          <X />
-        </Button>
-      </Inline>
+      </DockHeaderSlot>
       <AlertDialog open={Boolean(deleting)} onOpenChange={(open) => !open && setDeleting(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -161,8 +166,9 @@ export function ChatPanel({ projectId }: { projectId: string }) {
 }
 
 function Conversation({ projectId, sessionId, model, mode }: { projectId: string; sessionId: string; model: ModelValue | null; mode: PermissionMode }) {
-  const queryClient = useQueryClient();
   const saved = useQuery(q.chatSession(sessionId));
+  // A connection picked without a model yet: the picker shows it and asks for the model.
+  const [picked, setPicked] = useState<ModelValue | null>(null);
   if (saved.isPending) return <Inline grow justify="center"><Spinner /></Inline>;
   return (
     <ChatBody
@@ -173,17 +179,14 @@ function Conversation({ projectId, sessionId, model, mode }: { projectId: string
       usage={saved.data?.usage ?? null}
       compaction={saved.data?.compaction ?? null}
       pending={saved.data?.pendingSteers ?? []}
-      model={model}
+      model={picked ?? model}
       mode={mode}
-      onMode={(next) => {
-        queryClient.setQueryData(q.chatSessions(projectId).queryKey, (list) => list?.map((item) => (item.id === sessionId ? { ...item, permissionMode: next } : item)));
-        void unwrap(client.chat[':sessionId'].$patch({ param: { sessionId }, json: { permissionMode: next } }));
-      }}
+      onMode={(next) => void changeChatSession(projectId, sessionId, { permissionMode: next }, () => client.chat[':sessionId'].$patch({ param: { sessionId }, json: { permissionMode: next } })).catch(() => undefined)}
       onModel={async (next) => {
-        // Shown at once; a connection chosen without a model yet waits for one.
-        queryClient.setQueryData(q.chatSessions(projectId).queryKey, (list) => list?.map((item) => (item.id === sessionId ? { ...item, connectionId: next.connectionId, model: next.model || null, effort: next.effort ?? null } : item)));
-        if (!next.model) return;
-        await unwrap(client.chat[':sessionId'].$patch({ param: { sessionId }, json: { model: next } }));
+        // A connection chosen without a model yet waits here for one; a whole choice is saved (shown at once).
+        if (!next.model) return setPicked(next);
+        setPicked(null);
+        await changeChatSession(projectId, sessionId, { connectionId: next.connectionId, model: next.model, effort: next.effort ?? null }, () => client.chat[':sessionId'].$patch({ param: { sessionId }, json: { model: next } }));
       }}
     />
   );
@@ -208,7 +211,7 @@ function ChatBody({ projectId, sessionId, initial, turn, usage, compaction, pend
   const queryClient = useQueryClient();
   const ready = Boolean(model?.connectionId && model.model);
   const view = useViewState();
-  const location = useLocation();
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
   // Chips from the page (reported by useReportView) and ones the person picked with @ for the next message
   // (these stay on the message they were sent with).
@@ -216,14 +219,17 @@ function ChatBody({ projectId, sessionId, initial, turn, usage, compaction, pend
   const reported: ViewItem[] = Object.values(view.items).flat();
   const onPage: ViewItem[] = reported.filter((item) => !excluded.has(`${item.kind}:${item.id}`) && !picked.some((other) => other.kind === item.kind && other.id === item.id));
   const attached: ViewItem[] = [...onPage, ...picked.map((chip): ViewItem => ({ kind: chip.kind, id: chip.id, label: chip.label, ...(chip.detail && { detail: chip.detail }), attached: true }))];
-  const viewRef = useRef({ page: view.page, path: location.pathname, items: attached });
-  viewRef.current = { page: view.page, path: location.pathname, items: attached };
+  const viewRef = useRef({ page: view.page, path: pathname, items: attached });
   // What the message being sent carries: held for a moment after sending so the chips cleared by it still reach the request.
   const frozenView = useRef<typeof viewRef.current | null>(null);
 
   // The conversation outlives this panel: closing it mid-reply keeps the reply coming in.
   const stored = chatFor(sessionId, initial);
-  stored.view.current = frozenView.current ?? viewRef.current;
+  // What is on screen now, for the next message (kept after render: rendering itself changes nothing).
+  useLayoutEffect(() => {
+    viewRef.current = { page: view.page, path: pathname, items: attached };
+    stored.setView(frozenView.current ?? viewRef.current);
+  });
   const { messages, sendMessage, setMessages, regenerate, status, stop, error, addToolApprovalResponse, addToolOutput } = useChat({ chat: stored.chat });
   // The turn runs on the server, not in this request: stopping ends both.
   const halt = () => {
@@ -355,7 +361,7 @@ function ChatBody({ projectId, sessionId, initial, turn, usage, compaction, pend
   const lastMessage = messages.findLast((message) => !runCardOf(message));
   const elsewhere = !busy && Boolean(turn?.startedAt) && lastMessage?.role === 'user';
   // CLI chats store change requests as proposals; their cards are decided through the API.
-  const proposals = useQuery(q.proposals(projectId, sessionId));
+  const proposals = useProposals(projectId, { session: sessionId });
   const proposalById = new Map(proposals.data?.map((proposal) => [proposal.id, proposal]));
   const [undoingReply, setUndoingReply] = useState(false);
   const [replyUndoIds, setReplyUndoIds] = useState<string[]>([]);
@@ -366,6 +372,8 @@ function ChatBody({ projectId, sessionId, initial, turn, usage, compaction, pend
   const finishReason = (lastMessage?.metadata as { finishReason?: string } | undefined)?.finishReason;
   const stalled = !busy && !error && lastMessage?.role === 'assistant' && (finishReason === 'length' || Boolean(lastPart?.type.startsWith('tool-') && (lastPart as { state?: string }).state === 'output-available'));
 
+  const scroller = useRef<HTMLDivElement>(null);
+  const pinned = useRef(true);
   // Requests from AI buttons elsewhere in the app.
   const pendingRequest = usePendingAgentRequest();
   // Taken on the next tick, after the freshly mounted chat has settled (a send during its
@@ -382,8 +390,6 @@ function ChatBody({ projectId, sessionId, initial, turn, usage, compaction, pend
     }, 50);
     return () => clearTimeout(timer);
   }, [pendingRequest, busy, ready]); // eslint-disable-line react-hooks/exhaustive-deps
-  const scroller = useRef<HTMLDivElement>(null);
-  const pinned = useRef(true);
   useEffect(() => {
     const element = scroller.current;
     if (element && pinned.current) element.scrollTop = element.scrollHeight;
@@ -402,7 +408,7 @@ function ChatBody({ projectId, sessionId, initial, turn, usage, compaction, pend
     if (!busy && !elsewhere) {
       frozenView.current = viewRef.current;
       setTimeout(() => (frozenView.current = null), 2000);
-      stored.view.current = viewRef.current;
+      stored.setView(viewRef.current);
       // What the person pointed at with @ is kept on the message, to read (and open) later.
       void sendMessage({ text, ...(files.length && { files }), ...(picked.length && { metadata: { chips: picked } }) });
       setPicked([]);
@@ -572,8 +578,11 @@ function ChatBody({ projectId, sessionId, initial, turn, usage, compaction, pend
             </Button>
           </Inline>
         )}
-        {attached.length > 0 && (
-          <Stack direction="row" wrap marginBottom="condensed" gap="tight" aria-label="첨부된 화면 정보">
+        {/* What goes with the message, led by +: a picture from a file (as pasting or dropping one); lines and screens are @ in the box. */}
+        <Stack direction="row" wrap align="center" marginBottom="condensed" gap="tight" aria-label="첨부된 화면 정보">
+          <FilePickButton size="icon-xs" variant="outline" accept="image/*" multiple aria-label="이미지 첨부" title="이미지 첨부 (붙여넣기·끌어 놓기도 됩니다)" onFiles={(files) => void addImages(files)}>
+            <Plus />
+          </FilePickButton>
             {attached.map((item) => (
               <AttachChip
                 key={`${item.kind}:${item.id}`}
@@ -587,8 +596,7 @@ function ChatBody({ projectId, sessionId, initial, turn, usage, compaction, pend
                 }}
               />
             ))}
-          </Stack>
-        )}
+        </Stack>
         {images.length > 0 && (
           <Inline wrap marginBottom="condensed" gap="condensed" aria-label="붙인 이미지">
             {images.map((image) => (
@@ -708,25 +716,6 @@ function ChatBody({ projectId, sessionId, initial, turn, usage, compaction, pend
           <PermissionModePicker compact value={mode} onChange={onMode} />
           <Inline marginLeft="auto" gap="tight">
             <ContextMeter usage={usage} />
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  aria-label="첨부 (@)"
-                  onClick={() => {
-                    const target = box.current;
-                    const next = insertAt(input, target?.selectionStart ?? input.length);
-                    menu.reopen();
-                    putInput(next.value, next.caret);
-                  }}
-                >
-                  <Paperclip />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>첨부 (@)</TooltipContent>
-            </Tooltip>
             {(busy || elsewhere) && (
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -754,7 +743,7 @@ const messageText = (message: UIMessage) => message.parts.map((part) => (part.ty
 function MessageActions({ text, chips = [], onReuse }: { text: string; chips?: ChatChip[]; onReuse?: (text: string, chips: ChatChip[]) => void }) {
   if (!text.trim()) return null;
   return (
-    <MessageActionBar>
+    <MessageActionBar side={onReuse ? 'end' : 'start'}>
       <CopyButton value={text} label="메시지 복사" />
       {onReuse && (
         <Tooltip>
@@ -843,8 +832,7 @@ function DecisionNotice({ text }: { text: string }) {
 
 /** Changes sent from the CLI (by a person or an agent using it), waiting for a decision. */
 function ExternalProposals({ projectId }: { projectId: string }) {
-  const proposals = useQuery(q.proposals(projectId));
-  const pending = (proposals.data ?? []).filter((proposal) => proposal.status === 'pending');
+  const pending = useProposals(projectId, { status: 'pending' }).data ?? [];
   const [open, setOpen] = useState(true);
   if (!pending.length) return null;
   return (

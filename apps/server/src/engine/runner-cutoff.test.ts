@@ -14,6 +14,7 @@ import { createRun } from './run-create.ts';
 import { Hono } from 'hono';
 import type { Env } from '../context.ts';
 import { workflowRoutes } from '../routes/workflows.ts';
+import { issueTagIds } from '../services/issue-tags.ts';
 
 const CUT_OFF = () => new ai.ModelError('cli', 'Your previous response was cut off because it exceeded the output token limit', false);
 
@@ -31,6 +32,7 @@ function setup(lines: number, batch: Partial<BatchConfig>, { resend = true, fail
   const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).all();
   const template = withoutTerms(translationTemplate({
     model: choice,
+    issueTags: issueTagIds(db, projectId),
     untranslated: statuses.find((status) => status.kind === 'initial')!.id,
     translated: statuses.find((status) => status.kind === 'normal' && status.id !== review.id)!.id,
     needsReview: review.id,
@@ -216,7 +218,10 @@ describe('lines being resent, as the run page reads them', () => {
 
     const detail = (await (await app.request(`/runs/${runId}`)).json()) as { retrying: Record<string, { count: number; kinds: Record<string, number> }> };
     expect(detail.retrying).toEqual({ 'translate-resend': { count: 8, kinds: { 'cut-off': 8 } } });
-    const steps = (await (await app.request(`/runs/${runId}/steps`)).json()) as { ok: boolean; errorKind: string | null; subjectIds: string[] }[];
+    // The run page lists its model calls by id and reads each one once.
+    const { ids } = (await (await app.request(`/runs/${runId}/steps/ids`)).json()) as { ids: string[] };
+    const read = await app.request(`/projects/${run.projectId}/run-steps`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ids }) });
+    const steps = ((await read.json()) as { rows: { ok: boolean; errorKind: string | null; subjectIds: string[] }[] }).rows;
     const cut = steps.find((step) => step.errorKind === 'cut-off');
     expect(cut).toMatchObject({ ok: false });
     expect(cut!.subjectIds).toHaveLength(8);

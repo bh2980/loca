@@ -1,8 +1,6 @@
 import { useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { glossaryMatcher, type TermScope } from '@tw/shared';
 import { EditorSourceParagraph, EditorTermMark, EditorTokenChip, EditorTokenText, EditorTokenTip, Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
-import { q } from '@/lib/queries';
 import { splitTokens, useLineContext, type SourcePart } from '@/lib/line-context';
 import { chipHue, chipLabel, type TokenUnit } from '@/lib/tokens';
 import { useDraft } from '@/lib/drafts';
@@ -10,12 +8,17 @@ import { placeTags } from '@/lib/tag-placement';
 import { insertIntoLine, insertUnitIntoLine } from './translation-input';
 import { TermPick } from './term-pick';
 import { keyLabel } from '@/lib/keys';
+import { useTerms } from '@/lib/terms';
 
 /**
  * A line's source as the translator reads it: format tokens as chips and confirmed glossary terms
  * underlined (hover for the translation). With the line's editor open, clicking either puts it at
  * the cursor.
  */
+/** A chip's hint in the editor: missing from the translation, and its Alt+number shortcut. */
+const chipHint = (number: number | undefined, missing: readonly (number | undefined)[]) =>
+  [missing.includes(number) && '번역에 없음', number && number <= 9 && keyLabel(`Alt+${number}`)].filter(Boolean).join(' · ') || undefined;
+
 export function SourceText({ parts, units = [], unitId, missing = [] }: { parts: SourcePart[]; units?: TokenUnit[]; unitId?: string; missing?: number[] }) {
   const insert = (text: string) => unitId && insertIntoLine(unitId, text);
   return (
@@ -27,7 +30,7 @@ export function SourceText({ parts, units = [], unitId, missing = [] }: { parts:
               key={index}
               part={part}
               missing={!!part.token.number && missing.includes(part.token.number)}
-              hint={unitId ? [missing.includes(part.token.number) && '번역에 없음', part.token.number && part.token.number <= 9 && keyLabel(`Alt+${part.token.number}`)].filter(Boolean).join(' · ') || undefined : undefined}
+              hint={unitId ? chipHint(part.token.number, missing) : undefined}
               onPick={
                 unitId
                   ? () => {
@@ -118,7 +121,7 @@ const wordPattern = (name: string) => new RegExp(`(?<![\\p{L}\\p{N}])${escapeReg
 
 /** One glossary matcher for every row of a list: built once per loaded glossary, not once per row. */
 function useConfirmedTermMatcher(projectId: string) {
-  const terms = useQuery(q.terms(projectId)).data;
+  const terms = useTerms(projectId).data;
   return useMemo(() => {
     if (!terms) return null;
     let matcher = matchers.get(terms);

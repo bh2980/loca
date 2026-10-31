@@ -27,3 +27,6 @@ export * from './graph-contract.ts';
 export * from './workflow-calls.ts';
 export * from './talking-pairs.ts';
 export * from './app-defaults.ts';
+export * from './sync.ts';
+export * from './term-filter.ts';
+export * from './knowledge-filter.ts';

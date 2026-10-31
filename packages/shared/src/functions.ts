@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import { customFormatRuleSchema, formatPatternError } from './format-check.ts';
-import { ISSUE_KIND_IDS, type IssueKind } from './issues.ts';
 
 /**
  * Function nodes run one function from this registry. Each entry declares its parameters and exits;
@@ -314,18 +313,18 @@ export type ApplyParams = z.infer<typeof applyParams>;
 
 /**
  * 태그 붙이기 / 떼기: the one place a line (or term) gets or loses a tag in a workflow. The tags come
- * from the pane (`tagIds`: the project's tags, `kinds`: 문제 유형, created in the project the first time
- * one is put on), from the previous step's result (`map.tag`: a field holding tag names or problem-type
- * ids, e.g. a review's `categories` or a check's `kind`), or both. `allKinds` (떼기 only) is every
- * 문제 유형 tag. Checks and reviews only judge; they never tag.
+ * from the pane (`tagIds`: tags of the project, picked), from the previous step's result (`map.tag`: a
+ * field holding values such as a review's `categories` or a check's `kind`), or both. Each value is the
+ * tag `categoryTags` connects it to (speech → #말투 어긋남), else the tag of that name. All tags are the
+ * project's own: nothing is created here. Checks and reviews only judge; they never tag.
  */
 export const TAG_ACTIONS = { add: '붙이기', remove: '떼기' } as const;
 export type TagAction = keyof typeof TAG_ACTIONS;
 export const tagLinesParams = applyParams.extend({
   action: z.enum(['add', 'remove']).default('add'),
   tagIds: z.array(z.string()).default([]),
-  kinds: z.array(z.enum(ISSUE_KIND_IDS as [IssueKind, ...IssueKind[]])).default([]),
-  allKinds: z.boolean().default(false),
+  /** A value of the `map.tag` field (a review's category, a check's kind) → the tag (id) it stands for. */
+  categoryTags: z.record(z.string(), z.string()).default({}),
 });
 export type TagLinesParams = z.infer<typeof tagLinesParams>;
 

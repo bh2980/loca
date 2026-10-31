@@ -13,6 +13,8 @@ export interface SectionNode {
   group?: string | null;
   /** Never folded into a run (a player's choice). */
   keep?: boolean;
+  /** Place in the script, passed through to the layout job. */
+  rank?: number;
 }
 
 export interface SectionJob {
@@ -63,12 +65,13 @@ export function sectionJobs(nodes: SectionNode[], edges: LayoutJob['edges'], ord
   const section = assignSections(nodes, edges);
   const names = [...new Set([...order.filter((name) => [...section.values()].includes(name)), ...section.values()])];
   const jobs = new Map<string, SectionJob>(names.map((name) => [name, { name, job: { nodes: [], edges: [] }, portals: [] }]));
-  for (const node of nodes) jobs.get(section.get(node.id)!)!.job.nodes.push({ id: node.id, width: node.width, height: node.height, group: node.group ?? null, ...(node.keep && { keep: true }) });
+  for (const node of nodes) jobs.get(section.get(node.id)!)!.job.nodes.push({ id: node.id, width: node.width, height: node.height, group: node.group ?? null, ...(node.keep && { keep: true }), ...(node.rank !== undefined && { rank: node.rank }) });
   const portal = (owner: SectionJob, other: string, direction: 'in' | 'out') => {
     const id = `portal:${direction}:${other}`;
     if (!owner.portals.some((entry) => entry.id === id)) {
       owner.portals.push({ id, section: other, direction });
-      owner.job.nodes.push({ id, width: PORTAL_SIZE[0], height: PORTAL_SIZE[1] });
+      // Where lines come in sits before the section's lines, where they leave after.
+      owner.job.nodes.push({ id, width: PORTAL_SIZE[0], height: PORTAL_SIZE[1], rank: direction === 'in' ? -Infinity : Infinity });
     }
     return id;
   };

@@ -23,7 +23,7 @@ describe('Events coalescing', () => {
     vi.advanceTimersByTime(300);
     expect(got).toHaveLength(1);
     expect(got[0]!.projectId).toBe('p1');
-    expect([...got[0]!.topics].sort()).toEqual(['calls', 'chat', 'graph', 'runs', 'statuses', 'terms', 'units', 'workflows']);
+    expect([...got[0]!.topics].sort()).toEqual(['calls', 'chat', 'graph', 'runs', 'terms', 'units']);
   });
 
   it('keeps projects separate', () => {
@@ -35,7 +35,7 @@ describe('Events coalescing', () => {
     vi.advanceTimersByTime(300);
     expect(got).toHaveLength(3);
     expect(got.find((e) => e.projectId === 'a')!.topics).toEqual(['runs']);
-    expect(got.find((e) => e.projectId === 'b')!.topics).toEqual(['terms', 'units', 'statuses', 'workflows']);
+    expect(got.find((e) => e.projectId === 'b')!.topics).toEqual(['terms', 'units']);
   });
 
   it('emits at least every max wait under a steady stream', () => {
@@ -63,10 +63,13 @@ describe('Events coalescing', () => {
 
 describe('implied topics', () => {
   it('refreshes queries that read beyond their own topic', () => {
-    // A speech rule or character change reaches the line hints (units), their counts and workflow checks.
-    expect([...withImplied(['knowledge'])].sort()).toEqual(['knowledge', 'statuses', 'terms', 'units', 'workflows']);
+    // A speech rule or character change reaches the line hints and filters (units) and term usage.
+    expect([...withImplied(['knowledge'])].sort()).toEqual(['knowledge', 'terms', 'units']);
     // The reading route reads source connections (graph) and line text/counts (units).
-    expect([...withImplied(['graph'])].sort()).toEqual(['graph', 'statuses', 'terms', 'units', 'workflows']);
+    expect([...withImplied(['graph'])].sort()).toEqual(['graph', 'terms', 'units']);
+    // A line change does not reach the workflow checks: they read status definitions, not counts.
+    expect(withImplied(['units']).has('workflows')).toBe(false);
+    expect([...withImplied(['statuses'])].sort()).toEqual(['statuses', 'terms', 'units', 'workflows']);
     expect([...withImplied(['chat'])]).toEqual(['chat']);
   });
 });
@@ -74,14 +77,14 @@ describe('implied topics', () => {
 describe('changes a request made', () => {
   it('are gathered with what they imply, so the response can name them', async () => {
     const own = new Events(0, 0);
-    const topics = await trackChanges(async () => {
+    const { topics } = await trackChanges(async () => {
       await Promise.resolve();
       events.changed('p', 'terms');
       own.changed('p', 'chat');
     });
-    expect([...topics].sort()).toEqual(['chat', 'statuses', 'terms', 'units', 'workflows']);
+    expect([...topics].sort()).toEqual(['chat', 'terms', 'units']);
     // Outside a request nothing is gathered.
-    expect(await trackChanges(async () => {})).toEqual(new Set());
+    expect(await trackChanges(async () => {})).toEqual({ topics: new Set(), seq: undefined });
   });
 });
 
@@ -118,7 +121,7 @@ describe('the tab whose own requests made a change (#20)', () => {
     // A timer started inside the request keeps its async context, as a run's progress does.
     let done: () => void = () => {};
     const finished = new Promise<void>((resolve) => (done = resolve));
-    const topics = await trackChanges(async () => {
+    const { topics } = await trackChanges(async () => {
       setTimeout(() => (bus.changed('p', 'runs'), done()), 5);
     }, 'tab-1');
     await finished;

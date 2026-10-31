@@ -2,6 +2,7 @@ import { cpSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
+import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { Hono } from 'hono';
@@ -12,6 +13,7 @@ import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { sourceRoutes } from '../routes/source.ts';
 import { importProject } from './importer.ts';
+import { registerMigrationFunctions } from '../db/index.ts';
 import { findLines } from './script-query.ts';
 
 const drizzleDir = path.resolve(import.meta.dirname, '../../drizzle');
@@ -56,10 +58,12 @@ describe('unit seq', () => {
       c.set('deps', { db } as never);
       await next();
     }).route('/', sourceRoutes);
-    const page = async (offset: number) => ((await (await app.request(`/projects/${projectId}/units?limit=4&offset=${offset}`)).json()) as { total: number; rows: { key: string }[] });
+    // The list's page is ids (the browser reads the lines by id).
+    const keyOf = (id: string) => db.select({ key: s.units.key }).from(s.units).where(eq(s.units.id, id)).get()!.key;
+    const page = async (offset: number) => ((await (await app.request(`/projects/${projectId}/units/ids?limit=4&offset=${offset}`)).json()) as { total: number; ids: string[] });
     const first = await page(0);
     expect(first.total).toBe(6);
-    expect([...first.rows, ...(await page(4)).rows].map((row) => row.key)).toEqual(expected);
+    expect([...first.ids, ...(await page(4)).ids].map(keyOf)).toEqual(expected);
   });
 
   it('the migration backfills seq for existing rows', () => {
@@ -73,6 +77,7 @@ describe('unit seq', () => {
     writeFileSync(journalPath, JSON.stringify({ ...journal, entries: journal.entries.filter((entry) => entry.idx < cut) }));
 
     const sqlite = new Database(':memory:');
+    registerMigrationFunctions(sqlite);
     sqlite.pragma('foreign_keys = ON');
     const db = drizzle(sqlite);
     migrate(db, { migrationsFolder: previous });

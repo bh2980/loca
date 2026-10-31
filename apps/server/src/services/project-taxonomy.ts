@@ -87,10 +87,8 @@ export function createTag(db: Db, projectId: string, input: unknown) {
 
 export function updateTag(db: Db, projectId: string, id: string, input: unknown) {
   const patch = patchOf(tagInput).parse(input);
-  const tag = db.select({ role: s.tags.role }).from(s.tags).where(and(eq(s.tags.id, id), eq(s.tags.projectId, projectId))).get();
+  const tag = db.select({ id: s.tags.id }).from(s.tags).where(and(eq(s.tags.id, id), eq(s.tags.projectId, projectId))).get();
   if (!tag) throw new TaxonomyMutationError('태그를 찾을 수 없습니다.', 404);
-  if (tag.role && patch.name !== undefined) throw new TaxonomyMutationError('앱이 쓰는 태그는 이름을 바꿀 수 없습니다. 색만 바꿀 수 있습니다.');
-  if (tag.role && patch.scope !== undefined) throw new TaxonomyMutationError('앱이 쓰는 태그는 붙는 곳을 바꿀 수 없습니다.');
   for (const place of patch.scope ? TAG_SCOPES.filter((place) => !patch.scope!.includes(place)) : []) {
     const used = tagUseIn(db, id, place);
     if (used) throw new TaxonomyMutationError(`‘${TAG_SCOPE_LABELS[place]}’에서 빼려면 먼저 이 태그가 붙은 ${TAG_SCOPE_LABELS[place]} ${used.toLocaleString('ko-KR')}개에서 떼어 주세요.`);
@@ -100,11 +98,9 @@ export function updateTag(db: Db, projectId: string, id: string, input: unknown)
   return row!;
 }
 
-/** The person's own tags; the app's tags cannot be deleted. */
 export function deleteTags(db: Db, projectId: string, ids: string[]) {
-  const rows = db.select({ id: s.tags.id, role: s.tags.role }).from(s.tags).where(and(eq(s.tags.projectId, projectId), inArray(s.tags.id, ids))).all();
+  const rows = db.select({ id: s.tags.id }).from(s.tags).where(and(eq(s.tags.projectId, projectId), inArray(s.tags.id, ids))).all();
   if (rows.length !== new Set(ids).size) throw new TaxonomyMutationError('태그를 찾을 수 없습니다.', 404);
-  if (rows.some((tag) => tag.role)) throw new TaxonomyMutationError('앱이 쓰는 태그는 지울 수 없습니다.');
   const result = deleteItems(db, projectId, 'tags', ids);
   return { ok: true as const, deleted: result.deleted };
 }

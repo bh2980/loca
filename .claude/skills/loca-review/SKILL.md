@@ -25,6 +25,8 @@ loca check length --kind ui --ratio 1.5   # 원문보다 1.5배 넘게 긴 UI �
 2. `translation`을 고친 새 파일로 `loca import "$W/fix.out.jsonl" --dry-run` → `loca import "$W/fix.out.jsonl"`.
 3. 다시 볼 줄에 태그를 붙이려면 같은 줄에 `"addTags":["<대사 태그>"]`, 상태를 바꾸려면 `"status":"<상태 이름>"`. 이름은 `loca tags`, `loca statuses`에서 확인합니다.
 
+한 줄만 다르게 제안하고 사람이 고르게 하려면 import 대신 `loca call propose_translation`(`{unitId, text, note}`)으로 올립니다: 줄의 번역은 그대로이고 #AI 제안 대기로 남아 사람이 적용·거절합니다.
+
 같은 문제가 많으면 직접 고치기보다 검수·수정 노드가 있는 워크플로를 돌리는 편이 낫습니다(`loca-workflows`).
 
 ## 진행 상황

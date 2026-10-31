@@ -9,6 +9,8 @@ const scopeInput = z.enum([...TAG_SCOPES, 'knowledge'] as const);
 export const tagInput = z.object({
   name: z.string().trim().min(1).max(40),
   color: z.string().regex(HEX_COLOR).default(DEFAULT_TAG_COLOR),
+  /** What the tag is for, in a sentence (설명). */
+  description: z.string().trim().max(300).default(''),
   /** Where the tag can be put; at least one place. */
   scope: z
     .array(scopeInput)

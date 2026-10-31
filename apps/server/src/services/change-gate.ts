@@ -79,7 +79,7 @@ export async function proposeChange(db: Db, request: { projectId: string; sessio
     db.update(s.proposals).set({ reportedAt: new Date() }).where(eq(s.proposals.id, proposal.id)).run();
     events.changed(request.projectId, 'proposals');
     const how = PERMISSION_MODE_INFO[mode].label;
-    const done = CANDIDATE_ONLY_TOOLS.has(request.tool) ? '바로 후보에 추가했습니다(현재 번역은 그대로)' : '바로 반영했습니다';
+    const done = CANDIDATE_ONLY_TOOLS.has(request.tool) ? 'AI 제안으로 올렸습니다(현재 번역은 그대로, 사람이 적용·거절)' : '바로 반영했습니다';
     const text = row.status === 'accepted' ? `${how} 모드로 ${done} (proposal ${proposal.id}). 결과: ${fitText(row.result, 4_000)}` : `${how} 모드로 반영하려 했지만 실패했습니다 (proposal ${proposal.id}): ${fitText(row.result, 2_000)}`;
     return { ok: true, proposalId: proposal.id, applied: row.status === 'accepted', status: row.status, result: row.result, review: review?.reason, text: text + reportText(prepared.report), report: prepared.report };
   }

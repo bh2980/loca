@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import { and, asc, count, desc, eq, gt, gte, inArray, isNull, lte, ne, notInArray, or, sql } from 'drizzle-orm';
 import jsonLogic from 'json-logic-js';
 import * as ai from '@tw/ai';
-import { CONNECTION_KIND_INFO, judgmentProblem, SPEECH_LEVEL_LABELS, estimateTokens, batchConfigSchema, batchTokens, lineCostIn, FUNCTIONS, functionTakes, INPUT_TYPES, choiceKey, lineMarksOf, runNodeName, type AiNode, type ConditionData, type FunctionName, type ItemErrorKind, pickPaths, previousStepId, retryModel, type FunctionNode, type RetryNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+import { CONNECTION_KIND_INFO, judgmentProblem, SPEECH_LEVEL_LABELS, estimateTokens, batchConfigSchema, batchTokens, lineCostIn, FUNCTIONS, functionTakes, INPUT_TYPES, choiceKey, isUnknownListener, lineMarksOf, runNodeName, type AiNode, type ConditionData, type FunctionName, type ItemErrorKind, pickPaths, previousStepId, retryModel, type FunctionNode, type RetryNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
 type GatherNode = Extract<WorkflowNode, { type: 'gather' }>;
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
@@ -754,10 +754,11 @@ export class Runner {
           const unit = input.unit;
           const finalStatus = tx.select({ kind: s.statuses.kind }).from(s.statuses).where(eq(s.statuses.id, unit.statusId)).get()?.kind === 'final';
           const rules = knowledgeOf(tx as unknown as Db, run.projectId).settings()?.formatRules;
-          const marks = lineMarksOf(unit, finalStatus, rules);
+          const suggested = Boolean(tx.select({ id: s.candidates.id }).from(s.candidates).where(and(eq(s.candidates.unitId, unit.id), eq(s.candidates.state, 'pending'))).get());
+          const marks = lineMarksOf({ suggested });
           // Only a condition that reads the line's speech rule pays for resolving it.
           const rule = JSON.stringify(node.config.expression ?? null).includes('unit.speechLevel') ? speechRuleIndex(tx as unknown as Db, run.projectId).resolve([unit]).get(unit.key)?.rule : undefined;
-          data = { ...common, candidate: item.data.candidateText ?? unit.translation, unit: { kind: unit.kind, speaker: unit.speaker, listener: unit.listener, statusId: unit.statusId, tagIds: input.tagIds, marks, speechLevel: rule ? SPEECH_LEVEL_LABELS[rule.level] : null } };
+          data = { ...common, candidate: item.data.candidateText ?? unit.translation, unit: { kind: unit.kind, speaker: unit.speaker, listener: unit.listener, listenerUnknown: isUnknownListener(unit, rules), statusId: unit.statusId, final: finalStatus, statusBy: unit.statusBy, noted: unit.note.trim() !== '', tagIds: input.tagIds, marks, speechLevel: rule ? SPEECH_LEVEL_LABELS[rule.level] : null } };
         }
         try {
           return this.route(tx, run, item, jsonLogic.apply(node.config.expression as jsonLogic.RulesLogic, data) ? 'true' : 'false');

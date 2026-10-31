@@ -1,27 +1,25 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { Check, X } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { Box, Button, Inline, Input, Spinner, Stack, Text, ToolCard, ToolCardHeader } from '@loca/ui';
 import { acceptedLabel } from '@tw/shared';
-import { client, unwrap } from '@/lib/api';
-import { q } from '@/lib/queries';
+import { client } from '@/lib/api';
+import { changeProposals, decideProposal, type Proposal } from '@/lib/proposals';
 import { ChangePreview, LABEL } from './change-preview';
 
-export type Proposal = Awaited<ReturnType<NonNullable<ReturnType<typeof q.proposals>['queryFn']>>>[number];
+export type { Proposal };
 
 const STATUS = { running: '적용 중', rejected: '거절함', failed: '실패' } as const;
 const DECIDED_BY = { auto: '자동 검토로', bypass: '바로 반영 모드로' } as const;
 
 /** One undo request and its shared outcome message for cards and whole replies. */
 export function useUndo(projectId: string, sessionId: string) {
-  const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (ids: string[]) => unwrap(client.chat[':sessionId'].undo.$post({
+    mutationFn: (ids: string[]) => changeProposals(projectId, client.chat[':sessionId'].undo.$post({
       param: { sessionId }, json: { ids },
     })),
     onSuccess: (rows, ids) => {
-      void queryClient.invalidateQueries({ queryKey: ['proposals', projectId, sessionId] });
       const done = rows.filter((row) => row.ok).length;
       const failures = rows.filter((row) => !row.ok);
       const skipped = rows.reduce((sum, row) => sum + (row.skipped?.length ?? 0), 0);
@@ -37,25 +35,14 @@ export function useUndo(projectId: string, sessionId: string) {
 
 /** A change an agent proposed (a CLI chat or the loca CLI). Accepting runs it now; nothing changes before that. */
 export function ProposalCard({ proposal }: { proposal: Proposal }) {
-  const queryClient = useQueryClient();
   const undo = useUndo(proposal.projectId, proposal.sessionId ?? '');
-  // Shown decided at once: the card turns 적용됨/거절함 before the server answers (back to pending on
-  // failure), and takes the server's row (failed, skipped) as soon as it comes instead of waiting for the refetch.
-  const patch = (update: (row: Proposal) => Proposal) => queryClient.setQueriesData<Proposal[]>({ queryKey: ['proposals'] }, (list) => list?.map((row) => (row.id === proposal.id ? update(row) : row)));
   // Rejecting asks (optionally) why, so the agent can try differently instead of guessing.
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState('');
+  // Shown decided at once (적용됨/거절함), back to pending on failure; the server's row (failed, skipped) comes with the feed.
   const decide = useMutation({
-    mutationFn: (action: 'accept' | 'reject') => unwrap(client.proposals[':id'][':action{accept|reject}'].$post({ param: { id: proposal.id, action }, json: action === 'reject' && reason.trim() ? { reason: reason.trim() } : {} })),
-    onMutate: async (action) => {
-      await queryClient.cancelQueries({ queryKey: ['proposals'] });
-      patch((row) => ({ ...row, status: action === 'accept' ? 'accepted' : 'rejected', reason: action === 'reject' ? reason.trim() || null : row.reason }));
-    },
-    onSuccess: (row) => patch((old) => ({ ...old, status: row.status, result: row.result, reason: row.reason, decidedBy: row.decidedBy, undoneAt: row.undoneAt, undo: old.undo })),
-    onError: (error) => {
-      patch((row) => ({ ...row, status: 'pending' }));
-      toast.error(error.message);
-    },
+    mutationFn: (action: 'accept' | 'reject') => decideProposal(proposal.projectId, proposal.id, action, action === 'reject' ? reason.trim() || undefined : undefined),
+    onError: (error) => toast.error(error.message),
   });
   const failure = proposal.status === 'failed' ? String((proposal.result as { error?: string } | null)?.error ?? '') : '';
   const skipped = proposal.status === 'accepted' ? ((proposal.result as { skipped?: unknown[] } | null)?.skipped?.length ?? 0) : 0;
@@ -74,7 +61,7 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
         {decide.isPending && <Spinner size="xs" />}
       </ToolCardHeader>
       <Box paddingX="normal" paddingY="condensed" variant="body">
-        <ChangePreview name={proposal.tool} input={proposal.input} pending={proposal.status === 'pending'} />
+        <ChangePreview name={proposal.tool} input={proposal.input} pending={proposal.status === 'pending'} details={proposal.details} />
         {proposal.report && <ProposalReport report={proposal.report} />}
         {proposal.status === 'pending' && proposal.review && <Text as="p" marginTop="condensed" border="top" paddingTop="condensed" tone="muted">자동 검토가 넘김: {proposal.review}</Text>}
       </Box>

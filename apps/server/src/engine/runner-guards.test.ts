@@ -11,6 +11,7 @@ import { promptEntries } from './prompts.ts';
 import { errorKindOf, Runner, type ModelPort } from './runner.ts';
 import { createRun, createRunInSteps } from './run-create.ts';
 import { withoutTerms } from './test-workflows.ts';
+import { issueTagIds } from '../services/issue-tags.ts';
 
 /** The template without its 재요청 nodes (a failure that needs a smaller request then ends the line, and without their failure markers), unless `keep`. */
 function withoutResend(full: ReturnType<typeof translationTemplate>, keep: boolean) {
@@ -48,6 +49,7 @@ function setup(scenes: number, size: (scene: number) => number, { resend = true 
     description: '',
     definition: withoutResend(translationTemplate({
       model: choice,
+      issueTags: issueTagIds(db, projectId),
       untranslated: untranslated.id,
       translated: draft.id,
       needsReview: needsReview.id,

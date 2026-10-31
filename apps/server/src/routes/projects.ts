@@ -2,12 +2,12 @@ import { deleteChat } from '../services/chat-delete.ts';
 import { Hono } from 'hono';
 import { and, asc, count, desc, eq, notInArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { agentSettingsSchema, detectFormatRules, editorAiSchema, exclusionRulesSchema, formatRulesSchema, importFileSchema, importWarnings, markColorsSchema, patchOf, summarizeImport } from '@tw/shared';
+import { agentSettingsSchema, detectFormatRules, editorAiSchema, exclusionRulesSchema, formatRulesSchema, importFileSchema, importWarnings, patchOf, summarizeImport } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { forgetProjectContext } from '../services/context.ts';
-import { excludedSql, markConditions, translatableSql } from '../services/line-marks.ts';
+import { excludedSql, lineFactConditions, translatableSql } from '../services/line-marks.ts';
 import { createStatus, createTag, deleteStatuses, deleteTags, orderStatuses, orderTags, projectTags, TaxonomyMutationError, updateStatus, updateTag } from '../services/project-taxonomy.ts';
 import { projectSettingsInput, updateProjectSettings } from '../services/project-settings.ts';
 import { importProject } from '../services/importer.ts';
@@ -68,8 +68,8 @@ export const projectRoutes = new Hono<Env>()
       .where(and(eq(s.units.projectId, projectId), eq(s.statuses.inReview, true), translatableSql(projectId)))
       .get()!.count;
     const excludedCount = db.select({ count: count() }).from(s.units).where(and(eq(s.units.projectId, projectId), excludedSql(projectId))).get()!.count;
-    // What AI decided and no person has looked at (✦): the #AI가 정함 mark of lines, knowledge and terms (shared aiDecided / markConditions), so each count is what its link lists.
-    const aiLines = db.select({ count: count() }).from(s.units).where(and(eq(s.units.projectId, projectId), ...markConditions(projectId, ['ai']))).get()!.count;
+    // What AI decided and no person has looked at (✦): 정한 쪽 AI of lines, knowledge and terms (shared decidedBy / lineFactConditions), so each count is what its link lists.
+    const aiLines = db.select({ count: count() }).from(s.units).where(and(eq(s.units.projectId, projectId), ...lineFactConditions(projectId, { decidedBy: 'ai' }))).get()!.count;
     const aiConfirmed = (...tables: DecidedTable[]) =>
       tables.reduce((sum, table) => {
         const t = table as typeof s.terms;
@@ -83,6 +83,8 @@ export const projectRoutes = new Hono<Env>()
     };
     return c.json({ ...project, exclusionRules: exclusionRulesSchema.parse(project.exclusionRules), editorAi: editorAiSchema.parse(project.editorAi), editorCallsToday: editorCallsToday(db, projectId), byStatus, excludedCount, groupCount, reviewCount, aiDecided });
   })
+  /** How many 에디터 AI completions the project made today (its daily cap counts them; ai_calls, calls topic). */
+  .get('/:projectId/editor-calls', (c) => c.json({ today: editorCallsToday(c.var.deps.db, c.req.param('projectId')) }))
   .get('/:projectId/detect-format-rules', (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');

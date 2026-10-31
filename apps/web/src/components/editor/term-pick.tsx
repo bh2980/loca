@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Box, Button, EditorTermPopover, Input, Popover, PopoverAnchor, Stack, Text, SectionHeading } from '@loca/ui';
-import { client, unwrap } from '@/lib/api';
-import { q } from '@/lib/queries';
+import { client } from '@/lib/api';
 import { selectionInLine } from './translation-input';
+import { useTerms } from '@/lib/terms';
+import { sent } from '@/lib/collections';
 
 /**
  * Selecting words in a line's source offers to add them to the glossary on the spot: the source
@@ -14,7 +15,7 @@ import { selectionInLine } from './translation-input';
 export function TermPick({ projectId, unitId, children }: { projectId: string; unitId: string; children: ReactNode }) {
   const box = useRef<HTMLDivElement>(null);
   const [pick, setPick] = useState<{ rect: DOMRect; source: string; target: string }>();
-  const terms = useQuery(q.terms(projectId));
+  const terms = useTerms(projectId);
   const existing = pick && terms.data?.find((term) => term.source.toLowerCase() === pick.source.trim().toLowerCase());
 
   // A selection that ends inside the source (a word or a few, not a whole paragraph).
@@ -30,7 +31,7 @@ export function TermPick({ projectId, unitId, children }: { projectId: string; u
   }, [unitId]);
 
   const add = useMutation({
-    mutationFn: (term: { source: string; target: string }) => unwrap(client.projects[':projectId'].terms.$post({ param: { projectId }, json: { source: term.source.trim(), target: term.target.trim() } })),
+    mutationFn: (term: { source: string; target: string }) => sent(projectId, client.projects[':projectId'].terms.$post({ param: { projectId }, json: { source: term.source.trim(), target: term.target.trim() } })),
     onSuccess: (term) => {
       toast.success(`용어집에 추가했습니다: ${term.source}${term.target ? ` → ${term.target}` : ''}`);
       setPick(undefined);

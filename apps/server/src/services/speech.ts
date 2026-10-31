@@ -142,7 +142,7 @@ export function knowledgeOf(db: Db, projectId: string) {
       ),
     relationships: () => cachedKnowledge(db, projectId, 'confirmedRelationships', ['relationships'], () => confirmed(db.select().from(s.relationships).where(eq(s.relationships.projectId, projectId)).all())),
     /** Every tag of the project (workflow nodes read them per line). */
-    tags: () => cachedKnowledge(db, projectId, 'tags', ['tags'], () => db.select({ id: s.tags.id, name: s.tags.name, role: s.tags.role, scope: s.tags.scope }).from(s.tags).where(eq(s.tags.projectId, projectId)).all()),
+    tags: () => cachedKnowledge(db, projectId, 'tags', ['tags'], () => db.select({ id: s.tags.id, name: s.tags.name, scope: s.tags.scope }).from(s.tags).where(eq(s.tags.projectId, projectId)).all()),
     /** The project settings workflow nodes read per line. */
     settings: () =>
       cachedKnowledge(db, projectId, 'settings', ['projects'], () => db.select({ formatRules: s.projects.formatRules, aiAutoConfirm: s.projects.aiAutoConfirm }).from(s.projects).where(eq(s.projects.id, projectId)).get()),
@@ -284,5 +284,6 @@ export function ruleLines(db: Db, projectId: string, ruleId: string) {
   const routeDependent = rows.filter((line) => uncertain.has(line.key)).length;
   // Only translated lines have endings to fix; untranslated ones get the rule when they are translated.
   const translatedIds = rows.filter((line) => line.translation?.trim()).map((line) => line.id);
-  return { count: rows.length, routeDependent, unitIds: rows.map((line) => line.id), translatedIds, levels, rows: rows.slice(0, 100).map(({ listenerOrigin: _o, listenerConfidence: _c, ...line }) => line) };
+  // Ids only: the pane shows the first lines from the browser's units collection.
+  return { count: rows.length, routeDependent, unitIds: rows.map((line) => line.id), translatedIds, levels };
 }

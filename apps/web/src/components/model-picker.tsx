@@ -6,7 +6,7 @@ import { CONNECTION_KIND_INFO, isFreeModel, type Capability, type ConnectionKind
 import { Chip, Box, Button, Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, Field, Icon, Inline, Popover, PopoverContent, PopoverTrigger, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Stack, Text } from '@loca/ui';
 import { unwrap } from '@/lib/api';
 import { connectionsApi, targetScope, type SettingsTarget } from '@/lib/settings-target';
-import { q } from '@/lib/queries';
+import { useConnections } from '@/lib/app-data';
 
 /** Which AI a place of use calls. Empty strings: nothing picked yet. */
 export interface ModelValue {
@@ -30,7 +30,7 @@ function useModels(target: SettingsTarget, connectionId: string | undefined) {
 
 /** "connection · model · effort" for a value, or null when nothing (or a deleted connection) is picked. */
 function useModelLabel(target: SettingsTarget, value: ModelValue | null | undefined) {
-  const connections = useQuery(q.connections(target));
+  const connections = useConnections(target);
   const connection = value?.connectionId ? connections.data?.find((item) => item.id === value.connectionId) : undefined;
   if (!value?.connectionId || !value.model) return null;
   // Until the connections arrive the name is unknown, not deleted.
@@ -75,7 +75,7 @@ export function ModelPicker({
 }) {
   const params = useParams({ strict: false });
   const target: SettingsTarget = targetProp ?? { kind: 'project', projectId: params.projectId! };
-  const connections = useQuery(q.connections(target));
+  const connections = useConnections(target);
   const usable = (connections.data ?? []).filter((item) => (!kinds || kinds.includes(item.kind)) && CONNECTION_KIND_INFO[item.kind].capabilities.some((capability) => need.includes(capability)));
   const connection = usable.find((item) => item.id === value?.connectionId);
   const efforts = connection ? CONNECTION_KIND_INFO[connection.kind].efforts : [];

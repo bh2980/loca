@@ -5,7 +5,7 @@ import {
   openFoldContaining, setAllFolds, toggleFold, type Fold,
 } from './fold';
 
-const template = translationTemplate({ model: EMPTY_MODEL_CHOICE, untranslated: 'u', translated: 't', needsReview: 'needs-review', confirmed: 'c', aiFailedTag: 'ai-failed' });
+const template = translationTemplate({ model: EMPTY_MODEL_CHOICE, untranslated: 'u', translated: 't', needsReview: 'needs-review', confirmed: 'c', issueTags: { format: 'format-tag', term: 'term-tag', speech: 'speech-tag', meaning: 'meaning-tag', style: 'style-tag', other: 'other-tag', aiFailed: 'ai-failed' } });
 const statusNames = new Map([['needs-review', '검토 필요']]);
 
 const node = (id: string, type: string, config: unknown = {}, label?: string) => workflowNodeSchema.parse({ id, type, label, position: { x: 0, y: 0 }, config });
@@ -21,7 +21,7 @@ describe('computeFolds on the 번역 template', () => {
   const folds = computeFolds(template);
   it('folds each AI node\'s 재요청 branch, the 3-times condition\'s dead end and the tag nodes on lines', () => {
     expect(ids(folds)).toEqual([
-      'pass:tag-format', 'pass:tag-review', 'pass:tag-term', 'pass:untag-format', 'pass:untag-review', 'pass:untag-term',
+      'pass:tag-format', 'pass:tag-review', 'pass:tag-term', 'pass:untag-format', 'pass:untag-review', 'pass:untag-revised', 'pass:untag-term',
       'retry:false', 'revised:false',
       'review:error', 'revise:error', 'terms:error', 'translate:error',
     ].sort());
@@ -32,9 +32,9 @@ describe('computeFolds on the 번역 template', () => {
     // The second 재요청's own 오류 exit is not a fold of its own: it is inside its owner's.
     expect(folds.some((fold) => fold.owner.endsWith('-resend') || fold.owner.endsWith('-wait'))).toBe(false);
   });
-  it('hides 20 side nodes and keeps the main path', () => {
+  it('hides 21 side nodes and keeps the main path', () => {
     const hidden = new Set(folds.flatMap((fold) => fold.nodeIds));
-    expect(hidden.size).toBe(20);
+    expect(hidden.size).toBe(21);
     for (const id of ['translate', 'save', 'check', 'glossary', 'review', 'confirm', 'terms', 'save-terms', 'retry', 'revise', 'save-revision', 'revised']) expect(hidden.has(id)).toBe(false);
   });
   it('draws a tag node as one line from its source to its target, keeping the id of the line into it', () => {
@@ -134,13 +134,13 @@ describe('foldText', () => {
     expect(foldText(other, computeFolds(other)[0]!)).toBe('사용량 한도 시 1분 30초 뒤 gpt-x로 1번');
   });
   it('words tag nodes by what they do', () => {
-    expect(text('pass:untag-format')).toBe('태그 떼기 · 검사 종류');
+    expect(text('pass:untag-format')).toBe('태그 떼기 · 고른 태그 1개');
     expect(text('pass:tag-review')).toBe('태그 붙이기 · 검수 지적');
-    expect(text('pass:untag-review')).toBe('태그 떼기 · 모든 문제 유형');
+    expect(text('pass:untag-review')).toBe('태그 떼기 · 고른 태그 7개');
   });
   it('words a lone tag node on an exit by what it does, and anything else by names', () => {
-    const d = definition([fn('a', 'http'), tag('t', { action: 'remove', map: {}, kinds: ['format'] }), fn('x', 'script'), fn('y', 'script')], [edge('a', 'error', 't'), edge('a', 'out', 'x'), edge('x', 'error', 'y')]);
-    expect(foldText(d, find(computeFolds(d), 'a:error')!)).toBe('태그 떼기 · 형식');
+    const d = definition([fn('a', 'http'), tag('t', { action: 'remove', map: {}, tagIds: ['format-tag'] }), fn('x', 'script'), fn('y', 'script')], [edge('a', 'error', 't'), edge('a', 'out', 'x'), edge('x', 'error', 'y')]);
+    expect(foldText(d, find(computeFolds(d), 'a:error')!)).toBe('태그 떼기 · 고른 태그 1개');
     expect(foldText(d, find(computeFolds(d), 'x:error')!)).toBe('스크립트');
     expect(text('retry:false')).toBe('검토 필요');
   });

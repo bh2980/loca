@@ -1,5 +1,5 @@
 import { and, eq, inArray } from 'drizzle-orm';
-import { REVIEW_TAG, knowledgeKindScope, type KnowledgeTagKind } from '@tw/shared';
+import { knowledgeKindScope, type KnowledgeTagKind } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import { eachChunk } from '../db/chunk.ts';
 import { scopeRefusal } from './tag-scope.ts';
@@ -7,28 +7,23 @@ import * as s from '../db/schema.ts';
 
 type Tx = Pick<Db, 'select' | 'insert' | 'delete'>;
 
-/** The project's 확인 권장 tag, if something ever needed it. */
-const findReviewTagId = (tx: Pick<Db, 'select'>, projectId: string) => tx.select({ id: s.tags.id }).from(s.tags).where(and(eq(s.tags.projectId, projectId), eq(s.tags.role, REVIEW_TAG.role))).get()?.id;
+/** The knowledge tables 확인 권장 can be on (the automatic tag reads their `reviewNote`). */
+const REVIEWABLE = { characters: s.characters, relationships: s.relationships, speechRules: s.speechRules, events: s.storyEvents, documents: s.documents } as const;
+const reviewable = (kind: KnowledgeTagKind) => (kind in REVIEWABLE ? REVIEWABLE[kind as keyof typeof REVIEWABLE] : undefined);
 
-/** The project's 확인 권장 tag, made the first time something needs it. */
-function reviewTagId(tx: Tx, projectId: string) {
-  return findReviewTagId(tx, projectId) ?? tx.insert(s.tags).values({ projectId, name: REVIEW_TAG.name, color: REVIEW_TAG.color, role: REVIEW_TAG.role }).returning({ id: s.tags.id }).get().id;
-}
-
-/** Puts 확인 권장 on an item with why (shown on hover). */
-export function markForReview(tx: Tx, projectId: string, kind: KnowledgeTagKind, itemId: string, reasons: string[]) {
-  const tagId = reviewTagId(tx, projectId);
-  tx.insert(s.knowledgeTags).values({ kind, itemId, tagId, note: reasons.join(', ') }).onConflictDoUpdate({ target: [s.knowledgeTags.kind, s.knowledgeTags.itemId, s.knowledgeTags.tagId], set: { note: reasons.join(', ') } }).run();
+/** 확인 권장 on an item: why a person should look (shown on hover). */
+export function markForReview(tx: Pick<Db, 'update'>, projectId: string, kind: KnowledgeTagKind, itemId: string, reasons: string[]) {
+  const table = reviewable(kind);
+  if (table) tx.update(table).set({ reviewNote: reasons.join(', ') }).where(and(eq(table.projectId, projectId), eq(table.id, itemId))).run();
 }
 
 /** A person decided these items (확인함, 버리기, an edit): 확인 권장 comes off. */
-export function clearReview(tx: Tx, projectId: string, kind: KnowledgeTagKind, itemIds: string[]) {
-  if (!itemIds.length) return;
-  const tagId = findReviewTagId(tx, projectId);
-  if (tagId) tx.delete(s.knowledgeTags).where(and(eq(s.knowledgeTags.kind, kind), eq(s.knowledgeTags.tagId, tagId), inArray(s.knowledgeTags.itemId, itemIds))).run();
+export function clearReview(tx: Pick<Db, 'update'>, projectId: string, kind: KnowledgeTagKind, itemIds: string[]) {
+  const table = reviewable(kind);
+  if (table && itemIds.length) eachChunk(itemIds, (slice) => tx.update(table).set({ reviewNote: '' }).where(and(eq(table.projectId, projectId), inArray(table.id, slice))).run());
 }
 
-/** Each item's tags (id and the app's note), for the knowledge lists. */
+/** Each item's tags (id and note), for the knowledge lists. */
 export function tagsOf(db: Db, kind: KnowledgeTagKind, itemIds: string[]) {
   const map = new Map<string, { id: string; note: string | null }[]>();
   if (!itemIds.length) return map;
@@ -46,13 +41,11 @@ export function withTags<T extends { id: string }>(db: Db, kind: KnowledgeTagKin
 
 /**
  * A person's tag on several knowledge items (or terms), or off them: the knowledge lists and an
- * accepted chat proposal. The app's own tags are not put on by hand, and a tag goes only where its
- * scope allows. Returns the refusal, or null when done.
+ * accepted chat proposal. A tag goes only where its scope allows. Returns the refusal, or null when done.
  */
 export function setKnowledgeTag(tx: Pick<Db, 'select' | 'insert' | 'delete'>, projectId: string, kind: KnowledgeTagKind, ids: string[], tagId: string, add: boolean): string | null {
-  const tag = tx.select({ role: s.tags.role }).from(s.tags).where(and(eq(s.tags.id, tagId), eq(s.tags.projectId, projectId))).get();
+  const tag = tx.select({ id: s.tags.id }).from(s.tags).where(and(eq(s.tags.id, tagId), eq(s.tags.projectId, projectId))).get();
   if (!tag) return '태그를 찾을 수 없습니다.';
-  if (add && tag.role) return '앱이 붙이는 태그는 직접 붙일 수 없습니다.';
   const refusal = add ? scopeRefusal(tx, projectId, [tagId], knowledgeKindScope(kind)) : null;
   if (refusal) return refusal;
   eachChunk(ids, (slice) => {

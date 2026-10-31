@@ -2,11 +2,10 @@ import { and, asc, eq, inArray } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
 import { eachChunk, inChunks } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
-import { applyIssueTags } from './issue-tags.ts';
 import { addCandidate } from './candidates.ts';
 import { assertProjectRefs } from './project-refs.ts';
 import { badRequest } from '../http-errors.ts';
-import { withSourceWhitespace } from '@tw/shared';
+import { sameTranslation, withSourceWhitespace } from '@tw/shared';
 
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 type Unit = Pick<typeof s.units.$inferSelect, 'id' | 'projectId' | 'source' | 'translation' | 'statusId'>;
@@ -72,6 +71,10 @@ export function saveLine(tx: Tx, unit: Unit, save: LineSave): Partial<typeof s.u
       candidateId ??= addCandidate(tx, { unitId: unit.id, text, origin: save.origin ?? 'human', model: save.model ?? null, note: save.note, reuseSame: true });
       patch.translation = text;
       patch.candidateId = candidateId;
+      // Taken: a suggestion that becomes the line's text is decided (and a declined one taken back is history again), and so is
+      // one waiting with the same text (a person who put an AI 제안 into the box and saved it).
+      const settled = [candidateId, ...tx.select({ id: s.candidates.id, text: s.candidates.text }).from(s.candidates).where(and(eq(s.candidates.unitId, unit.id), eq(s.candidates.state, 'pending'))).all().filter((row) => sameTranslation(row.text, text)).map((row) => row.id)];
+      tx.update(s.candidates).set({ state: 'history' }).where(inArray(s.candidates.id, settled)).run();
     }
   }
   const textChanged = patch.translation !== undefined && patch.translation !== current;
@@ -80,8 +83,6 @@ export function saveLine(tx: Tx, unit: Unit, save: LineSave): Partial<typeof s.u
     const started = startedStatus(tx, unit.projectId, unit.statusId);
     if (started) patch.statusId = started;
   }
-  // The problem-type tags described the old text.
-  if (textChanged) applyIssueTags(tx, unit.projectId, unit.id, { clear: 'all' });
   if (patch.statusId || textChanged || save.checked) Object.assign(patch, { statusBy: save.statusBy ?? 'human', statusRunId: null });
   if (Object.keys(patch).length) tx.update(s.units).set(patch).where(eq(s.units.id, unit.id)).run();
   return patch;

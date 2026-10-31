@@ -23,13 +23,12 @@ export const DELETABLE = {
 export type DeletableKind = keyof typeof DELETABLE;
 export const DELETABLE_KINDS = Object.keys(DELETABLE) as [DeletableKind, ...DeletableKind[]];
 
-/** Which of the ids exist in the project (and may be deleted: the app's own tags may not). */
+/** Which of the ids exist in the project. */
 export function deletable(db: DeleteDb, projectId: string, kind: DeletableKind, ids: string[]) {
   const { table } = DELETABLE[kind];
   const rows = inChunks(ids, (slice) => db.select({ id: table.id }).from(table).where(and(eq(table.projectId, projectId), inArray(table.id, slice))).all());
   const found = new Set(rows.map((row) => row.id));
-  const locked = kind === 'tags' ? new Set(inChunks([...found], (slice) => db.select({ id: s.tags.id, role: s.tags.role }).from(s.tags).where(inArray(s.tags.id, slice)).all()).filter((tag) => tag.role).map((tag) => tag.id)) : new Set<string>();
-  return { ids: ids.filter((id) => found.has(id) && !locked.has(id)), missing: ids.filter((id) => !found.has(id)), locked: [...locked] };
+  return { ids: ids.filter((id) => found.has(id)), missing: ids.filter((id) => !found.has(id)) };
 }
 
 /** What a delete removed, kept for a while so ⌘/Ctrl+Z can put it back (this server process only). */
@@ -122,7 +121,7 @@ export function restoreItems(db: DeleteDb, projectId: string, token: string): bo
 
 export function deleteItems(db: DeleteDb, projectId: string, kind: DeletableKind, ids: string[]) {
   const { table, topic } = DELETABLE[kind];
-  const { ids: gone, missing, locked } = deletable(db, projectId, kind, ids);
+  const { ids: gone, missing } = deletable(db, projectId, kind, ids);
   // A deleted character's untouched name candidates go with it (untouchedNameTerms).
   const nameTerms = kind === 'characters' ? untouchedNameTerms(db, projectId, gone).map((term) => term.id) : [];
   if (nameTerms.length) deleteItems(db, projectId, 'terms', nameTerms);
@@ -136,5 +135,5 @@ export function deleteItems(db: DeleteDb, projectId: string, kind: DeletableKind
     });
     events.changed(projectId, topic, ...(kind === 'tags' ? (['units', 'workflows'] as const) : []));
   }
-  return { ok: true as const, deleted: gone.length, missing, locked };
+  return { ok: true as const, deleted: gone.length, missing };
 }

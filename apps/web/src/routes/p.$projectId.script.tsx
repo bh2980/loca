@@ -8,11 +8,13 @@ import { filterChips, isFinding, LineList, linesSearchSchema, type LinesSearch }
 import { lineQueryParams } from '@/components/script/line-filters';
 import { SourceEditor, type SourceEditorMode, type SourceSaved } from '@/components/script/source-editor';
 import { Button, ContextMenuItem, ContextMenuSeparator, EditorToolbarProvider, EditorToolbarSlot, Icon, Inline, PageHeading, ScriptWorkspace, Text, Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
-import { askAgent } from '@/lib/agent';
 import { GROUP_KIND, SCRIPT_VIEW, SOURCE_GROUP_LABEL, SOURCE_UNIT_LABEL } from '@/lib/labels';
-import { q } from '@/lib/queries';
+import { q, useMarkStyles } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { keyLabel } from '@/lib/keys';
+import { useTaxonomy } from '@/lib/knowledge';
+import { useGroups } from '@/lib/groups';
+import { useProject, useProjectProgress } from '@/lib/project';
 
 type Kind = GroupRow['kind'];
 const VIEW_ORDER: Kind[] = ['scene', 'ui', 'document'];
@@ -44,6 +46,13 @@ const readListOpen = () => {
     return true;
   }
 };
+const rememberListOpen = (open: boolean) => {
+  try {
+    sessionStorage.setItem(LIST_KEY, open ? '1' : '0');
+  } catch {
+    /* private mode */
+  }
+};
 
 export const Route = createFileRoute('/p/$projectId/script')({
   validateSearch: (raw: Record<string, unknown>): ScriptSearch => ({
@@ -67,10 +76,12 @@ function Script() {
   const { projectId } = Route.useParams();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
-  const project = useQuery(q.project(projectId));
-  const allGroups = useQuery(q.groups(projectId));
-  const searched = useQuery({ ...q.groups(projectId, { q: search.gq }), enabled: Boolean(search.gq) });
-  const statuses = useQuery(q.statuses(projectId));
+  const project = useProject(projectId);
+  const progress = useProjectProgress(projectId);
+  const allGroups = useGroups(projectId);
+  const searched = useGroups(projectId, { q: search.gq, enabled: Boolean(search.gq) });
+  const taxonomy = useTaxonomy(projectId);
+  const markStyles = useMarkStyles(projectId);
   // Keep all source kinds available, including empty ones, so standard-format documents are discoverable.
   const views = VIEW_ORDER.map((kind) => ({
     kind,
@@ -84,18 +95,14 @@ function Script() {
   const index = ordered.findIndex((item) => item.id === search.group);
   const group = index >= 0 ? ordered[index] : undefined;
   const sectionGroupIds = search.section ? (allGroups.data ?? []).filter((item) => item.kind === view && item.section === search.section).map((item) => item.id) : undefined;
-  const finalIds = new Set(statuses.data?.statuses.filter((status) => status.kind === 'final').map((status) => status.id));
-  const initialIds = new Set(statuses.data?.statuses.filter((status) => status.kind === 'initial').map((status) => status.id));
+  const finalIds = new Set(taxonomy.statuses?.filter((status) => status.kind === 'final').map((status) => status.id));
+  const initialIds = new Set(taxonomy.statuses?.filter((status) => status.kind === 'initial').map((status) => status.id));
   const [listOpen, setListOpen] = useState(() => readListOpen());
   // The list's width is dragged by its edge and remembered, like every right-hand pane.
   const showGroups = listOpen;
   const toggleList = () =>
     setListOpen((open) => {
-      try {
-        sessionStorage.setItem(LIST_KEY, open ? '0' : '1');
-      } catch {
-        /* private mode */
-      }
+      rememberListOpen(!open);
       return !open;
     });
   useReportView('script', [group && { kind: SOURCE_GROUP_LABEL[group.kind], id: group.id, label: group.title }]);
@@ -153,8 +160,8 @@ function Script() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   });
-  const findLabel = filterChips(search, statuses.data?.statuses ?? [], statuses.data?.tags ?? []).map((chip) => chip.label).concat(search.q ? [`“${search.q}”`] : []).join(' · ');
-  const clearFilters = { q: undefined, status: undefined, tags: undefined, speaker: undefined, listener: undefined, marks: undefined, mode: undefined, page: undefined };
+  const findLabel = filterChips(search, taxonomy.statuses ?? [], taxonomy.tags ?? [], markStyles).map((chip) => chip.label).concat(search.q ? [`“${search.q}”`] : []).join(' · ');
+  const clearFilters = { q: undefined, status: undefined, tags: undefined, speaker: undefined, listener: undefined, marks: undefined, hideMarks: undefined, unfinished: undefined, decidedBy: undefined, noted: undefined, excluded: undefined, mode: undefined, page: undefined };
 
   const onSearch = useCallback((next: Partial<ScriptSearch>, options?: { replace?: boolean }) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace: options?.replace }), [navigate]);
   // Scene navigation changes location, not the user's active filters.
@@ -174,7 +181,7 @@ function Script() {
       section: undefined,
       review: undefined,
       line: result.entity === 'unit' ? result.id : undefined,
-      q: undefined, status: undefined, tags: undefined, speaker: undefined, listener: undefined, marks: undefined, mode: undefined,
+      q: undefined, status: undefined, tags: undefined, speaker: undefined, listener: undefined, marks: undefined, hideMarks: undefined, unfinished: undefined, decidedBy: undefined, noted: undefined, excluded: undefined, mode: undefined,
       page: undefined, detail: undefined,
     }) });
   };
@@ -195,7 +202,6 @@ function Script() {
         <>
           <ContextMenuSeparator />
           <ContextMenuItem onClick={() => graphOf(item.id)}>그래프에서 보기</ContextMenuItem>
-          <ContextMenuItem onClick={() => askAgent(`"${item.title}" 장면을 끝까지 읽고 요약해줘.`, { send: true })}>AI로 장면 요약</ContextMenuItem>
         </>
       )}
     </>
@@ -228,14 +234,14 @@ function Script() {
       <PageHeading>{heading}</PageHeading>
       <ScriptWorkspace open={showGroups} navigation={
             <GroupList
-              statuses={statuses.data?.statuses}
+              statuses={taxonomy.statuses}
               projectId={projectId}
               groups={groups.data && ordered}
               finalIds={finalIds}
               initialIds={initialIds}
               scope={{ group: search.group, review: search.review, section: search.section, kind: view }}
               views={views}
-              reviewCount={project.data?.reviewCount ?? 0}
+              reviewCount={progress?.reviewCount ?? 0}
               gq={search.gq}
               onFilter={(gq) => onSearch({ gq }, { replace: true })}
               marks={finding ? perScene : undefined}

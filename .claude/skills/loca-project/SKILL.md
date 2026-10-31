@@ -28,10 +28,10 @@ loca call delete_status '{"ids":["…","…"],"moveTo":"<남길 상태 id>"}'   
 - 순서: `loca statuses order <앞에 둘 이름...>` (빠진 것은 지금 순서대로 뒤에. 되돌리기는 `loca proposals undo`).
 
 ## 태그
-태그는 붙는 곳(`scope`)에만 붙습니다: `lines` 대사 · `terms` 용어집 · `people` 인물·관계 · `events` 사건 · `documents` 노트 (`knowledge`는 people·documents·events 셋). 앱 기본 태그(문제 유형, 확인 권장)는 검사가 아니라 워크플로의 태그 붙이기 노드가 붙이고(처음 붙일 때 만들어짐), 번역문이 바뀌면 문제 유형은 떨어집니다. 이 태그는 이름·붙는 곳을 바꾸거나 지울 수 없고 색만 바꿀 수 있습니다.
+태그는 붙는 곳(`scope`)에만 붙습니다: `lines` 대사 · `terms` 용어집 · `people` 인물·관계 · `events` 사건 · `documents` 노트 (`knowledge`는 people·documents·events 셋). 검사·검수가 찾은 문제를 적는 태그(`형식 오류`·`말투 어긋남` 등, 새 프로젝트에 처음부터 있음)도 보통 태그입니다: 이름·색·설명·붙는 곳을 바꾸거나 지울 수 있고, 워크플로의 태그 붙이기 노드가 고른 태그를 붙이고 뗍니다(번역이 바뀌어도 저절로 떨어지지 않음). 앱이 관리하는 태그는 없습니다. 자료의 #확인 권장은 자동 태그로, 분석이 남긴 이유(`reviewNote`)가 있는 동안 붙고 사람이 확인함·버리기·고치기로 정하면 떨어집니다.
 ```
 loca tags                                        # 태그와 기본 표시의 붙는 곳, 색, 쓰인 수
-loca call save_status '{"type":"tag","name":"지명","scope":["terms"]}'
+loca call save_status '{"type":"tag","name":"지명","description":"땅·나라·건물 이름","scope":["terms"]}'
 loca call update_tag '{"id":"…","scope":["terms","documents"]}'   # 이미 붙은 곳은 떼기 전엔 뺄 수 없음
 loca call delete_tag '{"ids":["…"]}'               # 붙어 있던 곳에서도 함께 떨어짐
 ```
@@ -46,18 +46,18 @@ loca prompts                                     # 저장한 지시의 이름과
 - 사용자가 "저장한 지시"나 `/이름`을 말하면 이 목록에서 내용을 찾아 그 지시대로 합니다. 만들기·고치기는 앱 설정에서 사용자가 합니다.
 
 ## 번역 제외
-추출된 원문 중 번역 대상이 아닌 줄(빈 원문, 서식만, 숫자·기호뿐…)은 #번역 제외가 붙어 진행률·실행·내보내기·검사에서 빠집니다. 번역은 건드리지 않습니다.
+추출된 원문 중 번역 대상이 아닌 줄(빈 원문, 서식만, 숫자·기호뿐…)은 번역 제외가 되어 진행률·실행·내보내기·검사에서 빠집니다. 번역은 건드리지 않습니다.
 ```
-loca lines --mark excluded --limit 20               # 지금 빠진 줄
+loca lines --excluded only --limit 20               # 지금 빠진 줄
 loca call read_project_settings                     # exclusionRules: empty, formatOnly, noLetters, noSourceScript(기본 끔), patterns
 ```
 - 규칙은 `update_project_settings`의 `exclusionRules`로 바꿉니다(통째로). 예: 개발용 키를 빼려면 `patterns`에 `{"label":"키","pattern":"^[A-Z0-9_]+$"}`.
 - 한 줄씩은 import 파일 줄에 `"translate":"exclude"`(뺌) · `"include"`(규칙과 상관없이 번역) · `null`(규칙대로)을 넣습니다(`loca-translate`의 import).
-- 규칙을 바꾸기 전후로 `loca lines --mark excluded`를 비교해 번역해야 할 줄이 빠지지 않았는지 사용자에게 보여 줍니다.
+- 규칙을 바꾸기 전후로 `loca lines --excluded only`를 비교해 번역해야 할 줄이 빠지지 않았는지 사용자에게 보여 줍니다.
 
 ## 서식 규칙과 프로젝트 설정
 ```
-loca call read_project_settings                  # 이름, 설명, formatRules, aiAutoConfirm, editorAi, markColors
+loca call read_project_settings                  # 이름, 설명, formatRules, aiAutoConfirm, editorAi, markStyles(자동 태그의 이름·색)
 loca call update_project_settings @"$W/settings.json"
 ```
 - 정규식이 필요하면 `loca regex "<무엇을 찾을지>" --target token|check`로 만듭니다. 에디터 AI 모델을 한 번 부르고 저장하지 않으니, 결과를 규칙에 넣어 보냅니다.
@@ -94,12 +94,11 @@ loca call add_line_after '{"after":"<키>","source":"…","speaker":"Mira"}' # �
 loca call delete_lines '{"keys":["<키>"]}'                              # 지우면서 앞뒤를 이어 줌(bridge:false면 끊음)
 ```
 - `graph` 없이 가져온 파일(영화 대본 같은)은 장면의 대사마다 이어지지 않은 노드가 하나씩 생깁니다(문서·UI 묶음의 항목은 노드가 없음). 연결은 이렇게 만듭니다.
-- 장면 연결은 저장되지 않고 대사 그래프에서 계산됩니다. 장면 잇기 = A의 마지막 대사 노드 → B의 첫 대사 노드 간선 하나입니다(`link_scenes`). 선택지·조건을 거쳐 이어진 연결은 `link_scenes`의 `unlink`로 끊을 수 없고, `link_lines`로 해당 선을 지웁니다.
+- 장면 연결은 저장되지 않고 대사 그래프에서 계산됩니다. 장면끼리 잇거나 끊는 도구는 없습니다: 어느 대사에서 어느 대사로 이어지는지 확인해 `link_lines`로 그 대사들을 직접 잇거나 지웁니다(앱이 연결 지점을 추측해 선을 만들지 않음).
 - 대본 순서로 잇기(`link_in_order`)는 장면 안에서 노드를 대본 순서대로 잇되, 이미 나가는 길이나 들어오는 길이 있는 노드는 건드리지 않아 기존 갈래가 그대로 남습니다. 먼저 `loca scenes list`·`loca scenes show`로 장면을 확인합니다.
 ```
 loca graph link <from키> <to키> [--label 선택지]   # link_lines
 loca graph unlink <from키> <to키>
-loca graph link-scenes <from장면> <to장면> [--unlink]   # 장면 A의 마지막 대사 → B의 첫 대사
 loca graph order --scene <장면...> --line <키...>   # 대본 순서로 잇기(둘 중 하나 이상)
 ```
 - 파일에 없는 원문만 넣습니다. 흐름이 틀렸는지는 `loca call line_context`·`show_graph`로 먼저 확인합니다.

@@ -1,17 +1,16 @@
 import { Link } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Box, Checkbox, Text, TextLink, Field } from '@loca/ui';
-import { q } from '@/lib/queries';
 import type { SettingsTarget } from '@/lib/settings-target';
 import { useTargetSettings } from '@/lib/target-settings';
+import { useProject } from '@/lib/project';
 
 /**
  * Where AI results that are knowledge or terms are written or listed: how they land under the
  * project's one AI 문맥 switch (it is changed only in 설정 › 프로젝트), with a link there.
  */
 export function AiConfirmNote({ projectId }: { projectId: string }) {
-  const project = useQuery(q.project(projectId));
+  const project = useProject(projectId);
   if (!project.data) return null;
   return (
     <Text as="p" variant="caption" tone="muted">

@@ -20,7 +20,7 @@ export const freeName = (base: string, taken: Set<string>) => {
  * records a step, ⌘/Ctrl+Z and ⌘/Ctrl+Shift+Z replay it through the server. `refresh` runs after
  * every action, whether it worked or not.
  */
-export function useGraphHistory(projectId: string, refresh: () => void) {
+export function useGraphHistory(projectId: string, refresh?: () => void) {
   const api = client.projects[':projectId'];
   const param = { projectId };
   const history = useRef<{ past: Step[]; future: Step[] }>({ past: [], future: [] });
@@ -32,7 +32,7 @@ export function useGraphHistory(projectId: string, refresh: () => void) {
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error));
     } finally {
-      refresh();
+      refresh?.();
     }
   };
   const record = (step: Step) => {

@@ -3,7 +3,10 @@ import { and, count, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { badRequest, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
+import { inList } from '../db/chunk.ts';
+import { rowChangesOf } from '../db/row-changes.ts';
 import { decideProposal, listedProposal, undoProposals } from '../services/proposals.ts';
+import { proposalDetails } from '../services/proposal-details.ts';
 import { continueAfterDecisions } from '../services/chat-run.ts';
 
 /** Changes proposed by CLI chats and the loca CLI, decided in the chat panel. */
@@ -28,9 +31,29 @@ export const proposalRoutes = new Hono<Env>()
       );
       const rows = db.select().from(s.proposals).where(where).orderBy(desc(s.proposals.createdAt)).limit(limit).offset(offset).all();
       c.header('x-total-count', String(db.select({ count: count() }).from(s.proposals).where(where).get()!.count));
-      return c.json(rows.map((row) => listedProposal(row)));
+      // `details`: what the card says it changes, with names and the old values (see proposal-details.ts).
+      return c.json(rows.map((row) => ({ ...listedProposal(row), details: proposalDetails(db, row) })));
     },
   )
+  /** Which proposals a panel lists, newest first, as ids (one chat's, or those sent from the CLI; `status` narrows them). */
+  .get(
+    '/projects/:projectId/proposals/ids',
+    validate('query', z.object({ session: z.string().optional(), status: z.enum(['pending', 'running', 'accepted', 'rejected', 'failed']).optional(), limit: z.coerce.number().int().min(1).max(1000).default(200) })),
+    (c) => {
+      const { db } = c.var.deps;
+      const { session, status, limit } = c.req.valid('query');
+      const where = and(eq(s.proposals.projectId, c.req.param('projectId')), session ? eq(s.proposals.sessionId, session) : isNull(s.proposals.sessionId), status ? eq(s.proposals.status, status) : undefined);
+      const ids = db.select({ id: s.proposals.id }).from(s.proposals).where(where).orderBy(desc(s.proposals.createdAt)).limit(limit).all().map((row) => row.id);
+      return c.json({ ids, total: db.select({ count: count() }).from(s.proposals).where(where).get()!.count });
+    },
+  )
+  /** Proposals by id as the cards show them, with the feed's count when read (the browser's proposals collection). */
+  .post('/projects/:projectId/proposals/by-ids', validate('json', z.object({ ids: z.array(z.string()).max(500) })), (c) => {
+    const { db } = c.var.deps;
+    const seq = rowChangesOf(db.$client).seq;
+    const rows = db.select().from(s.proposals).where(and(eq(s.proposals.projectId, c.req.param('projectId')), inList(s.proposals.id, c.req.valid('json').ids))).all();
+    return c.json({ rows: rows.map((row) => ({ ...listedProposal(row), details: proposalDetails(db, row) })), seq });
+  })
   // Many at once (a run can file hundreds): decided one after the other, oldest first (characters before the
   // relationships that name them), each claimed like a single decision. One that fails does not stop the rest.
   .post(

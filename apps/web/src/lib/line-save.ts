@@ -1,6 +1,6 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { client, unwrap } from './api';
-import { optimistic, patchedLine, unitChanges } from './optimistic';
+import { useMutation } from '@tanstack/react-query';
+import { client } from './api';
+import { changeLines, patchedLine } from './units';
 
 /** One save of a line's text and/or status (server: POST /units/:unitId/save, services/line-save.ts). */
 export interface LineSaveInput {
@@ -19,15 +19,11 @@ export interface LineSaveInput {
  * (optimistic) and puts it back if the server refuses; the server writes text, candidate and
  * status together, so no screen keeps its own variant of this save.
  */
-export function useSaveLine() {
-  const queryClient = useQueryClient();
+export function useSaveLine(projectId: string) {
   return useMutation({
-    mutationFn: ({ unitId, candidateText: _shown, ...json }: LineSaveInput) => unwrap(client.units[':unitId'].save.$post({ param: { unitId }, json })),
-    onMutate: async ({ unitId, text, candidateText, statusId }) => {
-      const translation = text ?? candidateText;
-      const change = { ...(translation !== undefined && { translation }), ...(statusId && { statusId }) };
-      return { undo: Object.keys(change).length ? await optimistic(queryClient, unitChanges([unitId], patchedLine(change))) : undefined };
+    mutationFn: ({ unitId, candidateText, ...json }: LineSaveInput) => {
+      const translation = json.text ?? candidateText;
+      return changeLines(projectId, [unitId], patchedLine({ ...(translation !== undefined && { translation }), ...(json.statusId && { statusId: json.statusId }) }), () => client.units[':unitId'].save.$post({ param: { unitId }, json }));
     },
-    onError: (_error, _input, context) => context?.undo?.(),
   });
 }

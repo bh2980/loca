@@ -65,19 +65,6 @@ export function useDialogueGraphEdits(projectId: string, drawn: { current: Drawn
         if (line?.choice) await step(() => unwrap(graph.nodes.delete.$post({ param, json: { ids: [line.choice], bridge: false } })));
         if (nodeIds.length) await step(() => unwrap(graph.nodes.delete.$post({ param, json: { ids: nodeIds, bridge: true } })));
       }),
-    /** Scene A → scene B: a line from A's last line to B's first line in the dialogue graph (the scene graph is derived from it). */
-    linkScenes: (fromGroupId: string, toGroupId: string) =>
-      run(async () => {
-        if (fromGroupId === toGroupId) return;
-        const result = await step(() => unwrap(graph['scene-links'].$post({ param, json: { fromGroupId, toGroupId } })));
-        toast(result.message);
-      }),
-    /** Takes the connection between two scenes away; says why when nothing could be deleted. */
-    unlinkScenes: (fromGroupId: string, toGroupId: string) =>
-      run(async () => {
-        const result = await step(() => unwrap(graph['scene-links'].delete.$post({ param, json: { fromGroupId, toGroupId } })));
-        if (result.message) toast.info(result.message);
-      }),
     /** "대본 순서로 잇기" for scenes (ids) and/or dialogue nodes (drawn ids); says how many were linked. */
     linkInOrder: (target: { groupIds?: string[]; nodeIds?: string[] }) =>
       run(async () => {

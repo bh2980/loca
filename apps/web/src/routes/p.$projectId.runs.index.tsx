@@ -8,6 +8,8 @@ import { InspectorHeader, Inspector, InspectorList, SplitPane, EmptyState, DataT
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { dateTime, clock } from '@/lib/datetime';
+import { useRuns } from '@/lib/runs';
+import { useJobCalls } from '@/lib/logs';
 
 interface RunsSearch {
   /** The run or job whose AI requests the right-hand pane shows. */
@@ -108,12 +110,11 @@ function Runs() {
   const { projectId } = Route.useParams();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
-  const runs = useQuery(q.runs(projectId));
-  const jobs = useQuery(q.jobs(projectId));
+  const runs = useRuns(projectId);
   const select = (id?: string) => void navigate({ search: { job: id }, replace: true });
 
   const rows: Row[] | undefined =
-    runs.data && jobs.data
+    runs.data
       ? [
           ...runs.data.map((run) => ({
             id: run.id,
@@ -123,7 +124,7 @@ function Runs() {
             status: run.status,
             error: run.status === 'paused' ? run.notice : null,
             progress: { done: (run.states.done ?? 0) + (run.states.failed ?? 0) + (run.states.cancelled ?? 0), total: run.total, unit: run.subject === 'terms' ? '개' : '줄' },
-            stats: jobs.data.runCalls[run.id] ?? null,
+            stats: run.calls,
             at: new Date(run.createdAt),
             workflowId: run.workflowId,
           })),
@@ -188,7 +189,7 @@ function Runs() {
 
 /** The model requests of one job, newest first. */
 function JobCalls({ projectId, job, onClose }: { projectId: string; job: { id: string; kind: keyof typeof JOB_KIND; title: string; stats: Stats | null }; onClose: () => void }) {
-  const calls = useQuery(q.aiCalls(projectId, undefined, job.id));
+  const calls = useJobCalls(projectId, job.id);
   return (
     <Inspector header={<InspectorHeader kind={JOB_KIND[job.kind]} name={job.title} status={<Text tabular>AI 호출 · 입력/출력 {tokens(job.stats)}</Text>} actions={
         <>
@@ -201,12 +202,12 @@ function JobCalls({ projectId, job, onClose }: { projectId: string; job: { id: s
           )}
         </>
       } onClose={onClose} />} loading={!calls.data}>
-      <Section title={`AI 호출${calls.data ? ` ${calls.data.calls.length.toLocaleString()}` : ''}`}>
-      {calls.data?.calls.length === 0 ? (
+      <Section title={`AI 호출${calls.data ? ` ${calls.data.length.toLocaleString()}` : ''}`}>
+      {calls.data?.length === 0 ? (
         <Text as="p" variant="body" tone="muted">이 작업의 AI 호출 기록이 없습니다.</Text>
       ) : (
         <InspectorList>
-          {calls.data?.calls.map((call) => (
+          {calls.data?.map((call) => (
             <ListItem key={call.id} spaceY="hair" paddingY="condensed" variant="body">
               <Inline gap="condensed">
                 <Text minWidth={0} grow truncate>{call.label}</Text>
@@ -230,7 +231,7 @@ function JobCalls({ projectId, job, onClose }: { projectId: string; job: { id: s
           ))}
         </InspectorList>
       )}
-      {calls.data && calls.data.calls.length >= 200 && <Text as="p" variant="caption" tone="muted">최근 200건만 보여 줍니다.</Text>}
+      {calls.data && calls.data.length >= 200 && <Text as="p" variant="caption" tone="muted">최근 200건만 보여 줍니다.</Text>}
       </Section>
     </Inspector>
   );

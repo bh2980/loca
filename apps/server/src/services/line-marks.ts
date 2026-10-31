@@ -1,5 +1,5 @@
 import { and, eq, sql, type SQL } from 'drizzle-orm';
-import { LISTENER_MIN_CONFIDENCE, type LineMark } from '@tw/shared';
+import { LISTENER_MIN_CONFIDENCE, type ExcludedFilter, type LineFacts, type LineMark } from '@tw/shared';
 import * as s from '../db/schema.ts';
 
 /**
@@ -27,21 +27,31 @@ export const excludedSql = (projectId: string) =>
 /** Lines for translation: what progress, the remaining lines, the review inbox, runs, exports and checks count. */
 export const translatableSql = (projectId: string) => sql`not (${excludedSql(projectId)})`;
 
+/** 청자 모름 (needsListener / isUnknownListener in shared): dialogue said to someone, with a speaker and text besides the project's format tokens, whose listener is unknown or an unsure guess. */
+export const unknownListenerSql = (projectId: string) =>
+  and(eq(s.units.kind, 'dialogue'), sql`not ${knownListenerSql}`, sql`needs_listener(${s.units.kind}, ${s.units.speaker}, ${s.units.source}, (select ${s.projects.formatRules} from ${s.projects} where ${s.projects.id} = ${projectId}))`)!;
+
+/** 최종 아님: the line's status is not a final one, and it is for translation (the work left; 번역 제외 lines are not work). */
+export const unfinishedSql = (projectId: string) =>
+  sql`${s.units.statusId} in (select id from ${s.statuses} where ${s.statuses.projectId} = ${projectId} and ${s.statuses.kind} != 'final') and ${translatableSql(projectId)}`;
+const finalSql = (projectId: string) => sql`${s.units.statusId} in (select id from ${s.statuses} where ${s.statuses.projectId} = ${projectId} and ${s.statuses.kind} = 'final')`;
+
+/** The facts a line row shows, as filters (LineFacts in shared): 최종 아님, 정한 쪽, 메모, and 번역 제외. */
+export function lineFactConditions(projectId: string, facts: LineFacts & { excluded?: ExcludedFilter }): SQL[] {
+  return [
+    ...(facts.unfinished === undefined ? [] : [facts.unfinished ? unfinishedSql(projectId) : finalSql(projectId)]),
+    ...(facts.decidedBy ? [eq(s.units.statusBy, facts.decidedBy)] : []),
+    ...(facts.noted === undefined ? [] : [facts.noted ? sql`trim(${s.units.note}) != ''` : sql`trim(${s.units.note}) = ''`]),
+    ...(facts.excluded === 'hide' ? [translatableSql(projectId)] : facts.excluded === 'only' ? [excludedSql(projectId)] : []),
+  ];
+}
+
 function markCondition(projectId: string, mark: LineMark): SQL {
   switch (mark) {
-    case 'remaining':
-      return sql`${s.units.statusId} in (select id from ${s.statuses} where ${s.statuses.projectId} = ${projectId} and ${s.statuses.kind} != 'final') and ${translatableSql(projectId)}`;
-    case 'ai':
-      return eq(s.units.statusBy, 'ai');
-    // needsListener in shared: dialogue with a speaker and text besides the project's format tokens.
-    case 'unknownListener':
-      return and(eq(s.units.kind, 'dialogue'), sql`not ${knownListenerSql}`, sql`needs_listener(${s.units.kind}, ${s.units.speaker}, ${s.units.source}, (select ${s.projects.formatRules} from ${s.projects} where ${s.projects.id} = ${projectId}))`)!;
     case 'diverged':
       return sql`${s.units.translation} is not null and ${sameSource(sql`${s.units.source}`)} in (select ${sameSource(sql`u.source`)} from ${s.units} u where u.project_id = ${projectId} and u.translation is not null and u.translation != '' and ${sameSource(sql`u.source`)} != '' group by 1 having count(distinct trim(u.translation)) > 1)`;
-    case 'noted':
-      return sql`${s.units.note} != ''`;
-    case 'excluded':
-      return excludedSql(projectId);
+    case 'aiSuggestion':
+      return sql`exists (select 1 from ${s.candidates} c where c.unit_id = ${s.units.id} and c.state = 'pending')`;
   }
 }
 

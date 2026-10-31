@@ -1,29 +1,28 @@
 import { Fragment, useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { Copy, Play, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { WORKFLOW_TEMPLATES } from '@tw/shared';
-import { AiButton } from '@/components/ai-button';
 import { EmptyState, DataTable, type ColumnDef, RunStatusBadge, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Chip, Box, Button, Inline, Skeleton, Stack, Text, ContextMenuItem, ContextMenuSeparator, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@loca/ui';
 import { HeaderActions, Page } from '@/components/page';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { client, unwrap } from '@/lib/api';
-import { q } from '@/lib/queries';
 import { dateTime } from '@/lib/datetime';
+import { useRuns } from '@/lib/runs';
+import { useWorkflows } from '@/lib/workflows';
+import { sent } from '@/lib/collections';
 
 export const Route = createFileRoute('/p/$projectId/workflows/')({ component: Workflows });
 
 function Workflows() {
   const { projectId } = Route.useParams();
   const navigate = Route.useNavigate();
-  const queryClient = useQueryClient();
-  const workflows = useQuery(q.workflows(projectId));
-  const runs = useQuery(q.runs(projectId));
+  const workflows = useWorkflows(projectId);
+  const runs = useRuns(projectId);
   const remove = useMutation({
-    mutationFn: (id: string) => unwrap(client.workflows[':id'].$delete({ param: { id } })),
+    mutationFn: (id: string) => sent(projectId, client.workflows[':id'].$delete({ param: { id } })),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: q.workflows(projectId).queryKey });
       toast.success('워크플로를 삭제했습니다.');
     },
     onError: (error) => toast.error(error.message),
@@ -31,29 +30,28 @@ function Workflows() {
   const [deleteTarget, setDeleteTarget] = useState<Workflow | null>(null);
   type Workflow = NonNullable<typeof workflows.data>[number];
   const create = useMutation({
-    mutationFn: (template?: string) => unwrap(client.projects[':projectId'].workflows.$post({ param: { projectId }, json: template ? { template } : {} })),
+    mutationFn: (template?: string) => sent(projectId, client.projects[':projectId'].workflows.$post({ param: { projectId }, json: template ? { template } : {} })),
     onSuccess: (workflow) => {
-      queryClient.invalidateQueries({ queryKey: q.workflows(projectId).queryKey });
       void navigate({ to: '/p/$projectId/workflows/$workflowId', params: { projectId, workflowId: workflow.id } });
     },
     onError: (error) => toast.error(error.message),
   });
   const duplicate = useMutation({
     mutationFn: async (workflow: Workflow) => {
-      const detail = await unwrap(client.workflows[':id'].$get({ param: { id: workflow.id } }));
       const created = await unwrap(
         client.projects[':projectId'].workflows.$post({
           param: { projectId },
           json: { name: `${workflow.name} (복사본)` },
         })
       );
-      await unwrap(
+      await sent(
+        projectId,
         client.workflows[':id'].$put({
           param: { id: created.id },
           json: {
             name: created.name,
-            description: detail.description,
-            definition: detail.definition,
+            description: workflow.description,
+            definition: workflow.definition,
             version: created.version,
           },
         })
@@ -61,7 +59,6 @@ function Workflows() {
       return created;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: q.workflows(projectId).queryKey });
       toast.success('워크플로를 복제했습니다.');
     },
     onError: (error) => toast.error(error.message),
@@ -172,9 +169,6 @@ function Workflows() {
     <Page title="워크플로" flush>
       <Stack height="full" minHeight={0}>
         <HeaderActions>
-          <AiButton send={false} prompt="이런 워크플로를 만들어줘: ">
-            AI로 만들기
-          </AiButton>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button disabled={create.isPending}>

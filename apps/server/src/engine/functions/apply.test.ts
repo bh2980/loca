@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { importFileSchema, workflowDefinitionSchema, type ApplyFunctionName } from '@tw/shared';
+import { importFileSchema, ISSUE_KINDS, workflowDefinitionSchema, type ApplyFunctionName } from '@tw/shared';
 import { openDatabase } from '../../db/index.ts';
 import * as s from '../../db/schema.ts';
 import { importProject } from '../../services/importer.ts';
+import { issueTagIds } from '../../services/issue-tags.ts';
 import { snapshotWorkflowModels } from '../../services/routes.ts';
 import { createRun } from '../run-create.ts';
 import { APPLY_TOPICS, applyFunctions, applyItems } from './apply.ts';
@@ -47,8 +48,9 @@ function apply(ctx: Ctx, fn: ApplyFunctionName, params: Record<string, unknown>,
   return ctx.db.transaction((tx) => applyFunctions[fn](tx, params, input));
 }
 
-/** The project's tags besides the one every project starts with (AI 실패). */
-const tagsOfProject = (ctx: { db: { select: () => { from: (table: typeof s.tags) => { all: () => (typeof s.tags.$inferSelect)[] } } } }) => ctx.db.select().from(s.tags).all().filter((tag) => tag.role !== 'aiFailed');
+/** The project's tags besides the ones every project starts with (형식 오류 … AI 실패). */
+const STARTER_TAGS = new Set<string>(Object.values(ISSUE_KINDS).map((kind) => kind.name));
+const tagsOfProject = (ctx: { db: { select: () => { from: (table: typeof s.tags) => { all: () => (typeof s.tags.$inferSelect)[] } } } }) => ctx.db.select().from(s.tags).all().filter((tag) => !STARTER_TAGS.has(tag.name));
 
 describe('apply node mapping', () => {
   it('reads list items by the field map, drops items missing a required field and takes the first of a lines field', () => {
@@ -158,6 +160,15 @@ describe('apply nodes', () => {
     expect(owned.issues).toEqual([HUMAN_OWNED_NOTE]);
     expect(ctx.db.select().from(s.units).where(eq(s.units.key, 'a2')).get()?.translation).toBe('사람이 씀');
     expect(ctx.db.select().from(s.candidates).all()).toHaveLength(2);
+    // It waits for the person as an AI 제안; the one the line took is not waiting.
+    const stateOf = (text: string) => ctx.db.select({ state: s.candidates.state }).from(s.candidates).where(eq(s.candidates.text, text)).get()?.state;
+    expect([stateOf('늦었군.'), stateOf('죄송')]).toEqual(['history', 'pending']);
+    // A later step of the same run supersedes it; ending on the person's own text leaves nothing waiting.
+    apply(ctx, 'saveCandidate', params, { text: '죄송합니다' }, 'a2');
+    expect([stateOf('죄송'), stateOf('죄송합니다')]).toEqual(['history', 'pending']);
+    apply(ctx, 'saveCandidate', params, { text: '사람이 씀' }, 'a2');
+    expect(stateOf('죄송합니다')).toBe('history');
+    expect(ctx.db.select({ state: s.candidates.state }).from(s.candidates).where(eq(s.candidates.text, '사람이 씀')).all().map((row) => row.state)).toEqual(['history']);
   });
 
   it('says a revision changed nothing by the text the AI node was given, not by a person\'s translation it never replaced', () => {
@@ -210,46 +221,46 @@ describe('apply nodes', () => {
 describe('태그 붙이기 / 떼기', () => {
   const tagNamesOf = (ctx: Ctx, key: string) => {
     const unit = ctx.db.select().from(s.units).where(eq(s.units.key, key)).get()!;
-    const tags = tagsOfProject(ctx);
+    const tags = ctx.db.select().from(s.tags).all();
     return ctx.db.select().from(s.unitTags).where(eq(s.unitTags.unitId, unit.id)).all().map((row) => tags.find((tag) => tag.id === row.tagId)!.name).sort();
   };
 
-  it('adds and removes the tags picked in the pane', () => {
+  it('adds and removes the tags picked in the pane: a finding tag is picked like any other', () => {
     const ctx = setup();
     const urgent = ctx.db.insert(s.tags).values({ projectId: ctx.projectId, name: '긴급', color: 'x' }).returning().get();
-    expect(apply(ctx, 'tagLines', { action: 'add', tagIds: [urgent.id] }, undefined, 'a1').output).toMatchObject({ tagged: true, action: 'add', tags: ['긴급'] });
-    expect(tagNamesOf(ctx, 'a1')).toEqual(['긴급']);
+    const format = issueTagIds(ctx.db, ctx.projectId).format!;
+    const added = apply(ctx, 'tagLines', { action: 'add', tagIds: [urgent.id, format] }, undefined, 'a1').output as { tagged: boolean; action: string; tags: string[] };
+    expect({ ...added, tags: [...added.tags].sort() }).toEqual({ tagged: true, action: 'add', tags: ['긴급', '형식 오류'] });
+    expect(tagNamesOf(ctx, 'a1')).toEqual(['긴급', '형식 오류']);
     apply(ctx, 'tagLines', { action: 'remove', tagIds: [urgent.id] }, undefined, 'a1');
-    expect(tagNamesOf(ctx, 'a1')).toEqual([]);
-    // Picked 문제 유형 are created in the project the first time they are put on.
+    expect(tagNamesOf(ctx, 'a1')).toEqual(['형식 오류']);
     expect(tagsOfProject(ctx)).toHaveLength(1);
-    apply(ctx, 'tagLines', { action: 'add', kinds: ['format'] }, undefined, 'a1');
-    expect(tagsOfProject(ctx).map((tag) => tag.role)).toEqual([null, 'format']);
-    expect(tagNamesOf(ctx, 'a1')).toEqual(['형식']);
   });
 
-  it('names its tags by a field of the previous result: problem types are created on first use, other names only match', () => {
+  it('turns the values of a result field into tags: the tag its category is connected to, else the tag of that name; none is made', () => {
     const ctx = setup();
     ctx.db.insert(s.tags).values({ projectId: ctx.projectId, name: '긴급', color: 'x' }).run();
-    const params = { action: 'add', map: { tag: 'categories' } };
-    apply(ctx, 'tagLines', params, { categories: ['speech', '용어', '긴급', '없는 태그'] }, 'a1');
-    expect(tagNamesOf(ctx, 'a1')).toEqual(['긴급', '말투', '용어']);
-    expect(tagsOfProject(ctx).map((tag) => tag.name).sort()).toEqual(['긴급', '말투', '용어']);
+    const ids = issueTagIds(ctx.db, ctx.projectId);
+    const params = { action: 'add', map: { tag: 'categories' }, categoryTags: { speech: ids.speech!, term: ids.term! } };
+    apply(ctx, 'tagLines', params, { categories: ['speech', 'term', '긴급', '없는 태그'] }, 'a1');
+    expect(tagNamesOf(ctx, 'a1')).toEqual(['긴급', '말투 어긋남', '용어 위반']);
+    expect(tagsOfProject(ctx).map((tag) => tag.name)).toEqual(['긴급']);
     expect(apply(ctx, 'tagLines', params, { categories: ['없는 태그'] }, 'a2').output).toMatchObject({ tagged: false });
     expect(apply(ctx, 'tagLines', params, undefined, 'a2').output).toMatchObject({ tagged: false });
     // A single text field works too (a check's kind).
-    apply(ctx, 'tagLines', { action: 'remove', map: { tag: 'kind' } }, { kind: 'speech' }, 'a1');
-    expect(tagNamesOf(ctx, 'a1')).toEqual(['긴급', '용어']);
+    apply(ctx, 'tagLines', { action: 'remove', map: { tag: 'kind' }, categoryTags: { speech: ids.speech! } }, { kind: 'speech' }, 'a1');
+    expect(tagNamesOf(ctx, 'a1')).toEqual(['긴급', '용어 위반']);
   });
 
-  it('a pass-path 떼기 removes only its own kinds and leaves another check\'s tag; allKinds removes every problem type but not the person\'s tags', () => {
+  it('a pass-path 떼기 removes only the tags it names and leaves another check\'s and the person\'s', () => {
     const ctx = setup();
     const urgent = ctx.db.insert(s.tags).values({ projectId: ctx.projectId, name: '긴급', color: 'x' }).returning().get();
-    apply(ctx, 'tagLines', { action: 'add', tagIds: [urgent.id], kinds: ['format', 'term'] }, undefined, 'a1');
-    expect(tagNamesOf(ctx, 'a1')).toEqual(['긴급', '용어', '형식']);
-    apply(ctx, 'tagLines', { action: 'remove', map: { tag: 'kind' } }, { kind: 'format', passed: true }, 'a1');
-    expect(tagNamesOf(ctx, 'a1')).toEqual(['긴급', '용어']);
-    apply(ctx, 'tagLines', { action: 'remove', allKinds: true }, undefined, 'a1');
+    const ids = issueTagIds(ctx.db, ctx.projectId);
+    apply(ctx, 'tagLines', { action: 'add', tagIds: [urgent.id, ids.format!, ids.term!] }, undefined, 'a1');
+    expect(tagNamesOf(ctx, 'a1')).toEqual(['긴급', '용어 위반', '형식 오류']);
+    apply(ctx, 'tagLines', { action: 'remove', tagIds: [ids.format!] }, { kind: 'format', passed: true }, 'a1');
+    expect(tagNamesOf(ctx, 'a1')).toEqual(['긴급', '용어 위반']);
+    apply(ctx, 'tagLines', { action: 'remove', tagIds: Object.values(ids) }, undefined, 'a1');
     expect(tagNamesOf(ctx, 'a1')).toEqual(['긴급']);
   });
 

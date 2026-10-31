@@ -143,6 +143,23 @@ export function withSourceWhitespace(source: string, text: string): string {
 }
 
 const LINE_BREAK = /\r\n|\r|\n/gu;
+
+/**
+ * Two translations that read the same: the kind of line break (\r\n, \r, \n; the editor keeps \n) and the edges'
+ * whitespace aside. Whether an AI's text is anything new for a line.
+ */
+/**
+ * A term's source or target as stored: without the whitespace at its edges, real or written out as a model may copy it from
+ * an escaped prompt (GRAPHICS\n → GRAPHICS). A term is a word, never a line's edges.
+ */
+export function termText(text: string): string {
+  return text.replace(/^(?:\s|\\[nrt])+|(?:\s|\\[nrt])+$/gu, '');
+}
+
+export function sameTranslation(a: string | null | undefined, b: string | null | undefined): boolean {
+  const body = (text: string | null | undefined) => (text ?? '').replace(LINE_BREAK, '\n').trim();
+  return body(a) === body(b);
+}
 const CHARACTER_REFERENCE = /&(?:#(\d+)|#x([0-9a-f]+)|(nbsp|Tab|NewLine|ensp|emsp|thinsp));/giu;
 const NAMED_WHITESPACE: Record<string, string> = { nbsp: ' ', tab: '\t', newline: '\n', ensp: ' ', emsp: ' ', thinsp: ' ' };
 
@@ -348,21 +365,35 @@ export function termMatcher<T>(items: readonly T[], namesOf: (item: T) => string
   };
 }
 
-/** Where a glossary term applies: every line, UI lines only (a button's "Help"), or the rest (dialogue, documents). */
-export const TERM_SCOPES = { all: '모든 줄', ui: 'UI 줄만', dialogue: '대사·문서만' } as const;
-export type TermScope = keyof typeof TERM_SCOPES;
-export const TERM_SCOPE_IDS = Object.keys(TERM_SCOPES) as TermScope[];
+/** The kinds of line a glossary term can apply to (its 적용 범위), checked like a tag's places: a button's "Help" is UI only. */
+export const TERM_LINE_KINDS = ['ui', 'dialogue', 'document'] as const;
+export type TermLineKind = (typeof TERM_LINE_KINDS)[number];
+export const TERM_LINE_KIND_LABELS: Record<TermLineKind, string> = { ui: 'UI', dialogue: '대사', document: '문서' };
+/** The kinds a term applies to, in TERM_LINE_KINDS order; all of them is every line. */
+export type TermScope = TermLineKind[];
+export const ALL_TERM_KINDS: TermScope = [...TERM_LINE_KINDS];
+/** The words an agent or a model may still write for a scope: all, ui, or dialogue (dialogue and documents). */
+const TERM_SCOPE_WORDS: Record<string, TermScope> = { all: ALL_TERM_KINDS, ui: ['ui'], dialogue: ['dialogue', 'document'] };
+/** A term's scope from a list of kinds (or one of the words all / ui / dialogue): known kinds in order, at least one. */
+export const termScopeSchema = z.preprocess(
+  (value) => (typeof value === 'string' ? (TERM_SCOPE_WORDS[value] ?? [value]) : value),
+  z.array(z.enum(TERM_LINE_KINDS)).min(1, '적용 범위를 하나 이상 고르세요.').transform((kinds) => TERM_LINE_KINDS.filter((kind) => kinds.includes(kind))),
+);
+export const appliesEverywhere = (scope: readonly string[] | null | undefined) => !scope || TERM_LINE_KINDS.every((kind) => scope.includes(kind));
+/** '모든 줄', or the kinds by name ('UI', '대사 · 문서'). */
+export const termScopeLabel = (scope: readonly string[] | null | undefined) =>
+  appliesEverywhere(scope) ? '모든 줄' : TERM_LINE_KINDS.filter((kind) => scope!.includes(kind)).map((kind) => TERM_LINE_KIND_LABELS[kind]).join(' · ');
 
 /** Whether a term applies to a line of this kind; without a kind (a text alone) every term does. */
-export const termApplies = (term: { scope?: TermScope | null }, kind?: string | null) =>
-  !term.scope || term.scope === 'all' || !kind || (term.scope === 'ui' ? kind === 'ui' : kind !== 'ui');
+export const termApplies = (term: { scope?: readonly string[] | null }, kind?: string | null) =>
+  !kind || appliesEverywhere(term.scope) || !(TERM_LINE_KINDS as readonly string[]).includes(kind) || term.scope!.includes(kind);
 
 /**
  * The glossary's matcher: `termMatcher` on the source (whole word, any case), narrowed by each
  * term's scope (the line's kind) and, for a term with `matchCase`, by its exact case. Usage counts,
  * the glossary check, import warnings and the terms an AI node is given all match this way.
  */
-export function glossaryMatcher<T extends { source: string; scope?: TermScope | null; matchCase?: boolean | null }>(terms: readonly T[]) {
+export function glossaryMatcher<T extends { source: string; scope?: readonly string[] | null; matchCase?: boolean | null }>(terms: readonly T[]) {
   const words = termMatcher(terms, (term) => term.source);
   const cased = new Map<T, RegExp>();
   const exact = (term: T, text: string) => {

@@ -11,6 +11,7 @@ import { promptEntries } from './prompts.ts';
 import { Runner, type ModelPort } from './runner.ts';
 import { withoutTerms } from './test-workflows.ts';
 import { createRun } from './run-create.ts';
+import { issueTagIds } from '../services/issue-tags.ts';
 
 /**
  * What a failure does is visible in the workflow: the 재요청 nodes chained on the AI node's 오류 exit
@@ -42,6 +43,7 @@ function setup(lines: number, batch: Partial<BatchConfig>, { resend, wait, retry
   const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).all();
   const template = withoutTerms(translationTemplate({
     model: choice,
+    issueTags: issueTagIds(db, projectId),
     untranslated: statuses.find((status) => status.kind === 'initial')!.id,
     translated: statuses.find((status) => status.kind === 'normal' && status.id !== review.id)!.id,
     needsReview: review.id,

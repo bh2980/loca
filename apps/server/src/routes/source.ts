@@ -1,14 +1,15 @@
 import { Hono } from 'hono';
 import { readingRouteQuery } from '../services/reading-route-query.ts';
 import { projectReadingRoute } from '../services/reading-route.ts';
-import { and, asc, count, desc, eq, gt, inArray, like, lt, ne, notInArray, notLike, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, inArray, lt, ne, notInArray, notLike, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { createGroupSchema, updateGroupSchema, createUnitSchema, updateUnitSchema, isSpecialListener, LINE_TRANSLATE, type NodeType } from '@tw/shared';
 import { createGroup, updateGroup, deleteGroup, createUnit, updateUnit, deleteUnits } from '../services/source-mutations.ts';
-import { deleteNodes, duplicateNodes, edgeDetail, insertLineAfter, linkInOrder, linkNodes, linkScenes, nodeByKey, undoGraphEdit, unlinkEdges, unlinkScenes } from '../services/graph-edit.ts';
+import { deleteNodes, duplicateNodes, edgeDetail, insertLineAfter, linkInOrder, linkNodes, nodeByKey, undoGraphEdit, unlinkEdges } from '../services/graph-edit.ts';
 import { attachUnitTags } from '../services/tag-scope.ts';
 import { assertProjectRefs } from '../services/project-refs.ts';
 import { LineConflict, saveLine, saveSameText, saveStatuses } from '../services/line-save.ts';
+import { declineSuggestion } from '../services/candidates.ts';
 import { refusesListener, setHumanListener } from '../services/listeners.ts';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
@@ -25,11 +26,16 @@ import { routeCoverage, throughPicks } from '../services/route-coverage.ts';
 import { seamDetail, seamLines, seamNodes, seamStates } from '../services/seam-check.ts';
 import { lineMatches } from '../services/line-matches.ts';
 import { lineTextFilter } from '../services/line-text.ts';
-import { lineMarksSchema } from '@tw/shared';
-import { excludedSql, hiddenMarkConditions, knownListenerSql, markConditions, sameSource, translatableSql } from '../services/line-marks.ts';
+import { DECIDED_BY, EXCLUDED_FILTERS, lineMarksSchema } from '@tw/shared';
+import { hiddenMarkConditions, knownListenerSql, lineFactConditions, markConditions, sameSource, unknownListenerSql } from '../services/line-marks.ts';
 import { CompleteRefused, completeLine } from '../services/editor-complete.ts';
 import { assistLine } from '../services/editor-assist.ts';
 import { describeRule, knownListener as knownListenerOf, speechRuleIndex } from '../services/speech.ts';
+import { unitColumns, unitRowsByIds } from '../services/unit-rows.ts';
+import { groupRows } from '../services/group-rows.ts';
+import { lineExtras } from '../services/line-extras.ts';
+import { listenerRows } from '../services/project-rows.ts';
+import { rowChangesOf } from '../db/row-changes.ts';
 
 const NAMES = z.string().optional().transform((value, context) => { if (!value) return undefined; try { const list = JSON.parse(value) as unknown; if (Array.isArray(list) && list.every((item) => typeof item === 'string')) return list as string[]; } catch { /* reported below */ } context.addIssue({ code: 'custom', message: '이름 목록은 JSON 배열입니다.' }); return z.NEVER; });
 
@@ -50,8 +56,16 @@ const listQuery = z.object({
   hideSpeakers: NAMES,
   hideTagIds: z.string().optional(),
   hideMarks: z.string().optional().transform((value) => value?.split(',').filter(Boolean)).pipe(lineMarksSchema.optional()),
-  /** A character name (a known listener). */
+  /** A character name (a known listener), or "-" for 청자 모름. */
   listener: z.string().optional(),
+  /** 최종 아님 (1) or 최종 (0). */
+  unfinished: z.enum(['1', '0']).optional(),
+  /** 정한 쪽: ai (✦) or human. */
+  decidedBy: z.enum(DECIDED_BY).optional(),
+  /** 메모 있음 (1) or 없음 (0). */
+  noted: z.enum(['1', '0']).optional(),
+  /** 번역 제외: hide or only them; absent = with the rest. */
+  excluded: z.enum(EXCLUDED_FILTERS).optional(),
   /** Only lines whose status is shown in the review inbox. */
   review: z.enum(['1']).optional(),
   /** Automatic marks, comma-separated: lines carrying every one of them (line-marks.ts). */
@@ -76,7 +90,8 @@ function unitConditions(projectId: string, query: Omit<z.infer<typeof listQuery>
   if (ids(query.hideStatusIds).length) conditions.push(notInArray(s.units.statusId, ids(query.hideStatusIds)));
   if (query.hideSpeakers?.length) conditions.push(sql`coalesce(${s.units.speaker}, '') not in (select value from json_each(${JSON.stringify(query.hideSpeakers)}))`);
   for (const tagId of ids(query.hideTagIds)) conditions.push(sql`${s.units.id} not in (select unit_id from ${s.unitTags} where tag_id = ${tagId})`);
-  if (query.listener) conditions.push(and(eq(s.units.listener, query.listener), knownListenerSql)!);
+  if (query.listener) conditions.push(query.listener === '-' ? unknownListenerSql(projectId) : and(eq(s.units.listener, query.listener), knownListenerSql)!);
+  conditions.push(...lineFactConditions(projectId, { unfinished: query.unfinished && query.unfinished === '1', decidedBy: query.decidedBy, noted: query.noted && query.noted === '1', excluded: query.excluded }));
   if (query.review) conditions.push(sql`${s.units.statusId} in (select id from ${s.statuses} where ${s.statuses.projectId} = ${projectId} and ${s.statuses.inReview} = 1)`);
   conditions.push(...markConditions(projectId, query.marks), ...hiddenMarkConditions(projectId, query.hideMarks));
   return and(...conditions)!;
@@ -107,54 +122,6 @@ const unitPatch = z.object({
   // A text or status sent here would be dropped silently; refusing it keeps the one save path.
   .strict();
 
-const unitColumns = {
-  id: s.units.id,
-  key: s.units.key,
-  groupId: s.units.groupId,
-  sort: s.units.sort,
-  kind: s.units.kind,
-  speaker: s.units.speaker,
-  listener: s.units.listener,
-  listenerOrigin: s.units.listenerOrigin,
-  listenerConfidence: s.units.listenerConfidence,
-  source: s.units.source,
-  translation: s.units.translation,
-  statusId: s.units.statusId,
-  statusBy: s.units.statusBy,
-  note: s.units.note,
-  translate: s.units.translate,
-  statusRunId: s.units.statusRunId,
-  updatedAt: s.units.updatedAt,
-};
-
-
-/** The list's rows with their scene, candidate origin, tags and latest run note; script order, optionally one page. */
-function unitRows(db: Db, where: SQL, page?: { limit: number; offset: number }) {
-  const query = db
-    .select({ ...unitColumns, groupTitle: s.groups.title, groupKind: s.groups.kind, origin: s.candidates.origin, model: s.candidates.model })
-    .from(s.units)
-    .innerJoin(s.groups, eq(s.groups.id, s.units.groupId))
-    .leftJoin(s.candidates, eq(s.candidates.id, s.units.candidateId))
-    .where(where)
-    .orderBy(asc(s.units.seq));
-  const rows = (page ? query.limit(page.limit).offset(page.offset) : query).all();
-  const ids = rows.map((row) => row.id);
-  const tagRows = ids.length ? db.select().from(s.unitTags).where(inArray(s.unitTags.unitId, ids)).all() : [];
-  const tags = Map.groupBy(tagRows, (row) => row.unitId);
-  // What the latest run said about each line (a reviewer's reason to look), newest run first.
-  const lastRun = new Map<string, { runId: string; workflowName: string; issues: string[] }>();
-  if (ids.length)
-    for (const item of db
-      .select({ unitId: s.runItems.subjectId, runId: s.runs.id, workflowName: s.runs.workflowName, data: s.runItems.data })
-      .from(s.runItems)
-      .innerJoin(s.runs, eq(s.runs.id, s.runItems.runId))
-      .where(inArray(s.runItems.subjectId, ids))
-      .orderBy(desc(s.runs.createdAt))
-      .all())
-      if (!lastRun.has(item.unitId)) lastRun.set(item.unitId, { runId: item.runId, workflowName: item.workflowName, issues: item.data.issues ?? [] });
-  return rows.map((row) => ({ ...row, tagIds: (tags.get(row.id) ?? []).map((tag) => tag.tagId), lastRun: lastRun.get(row.id) ?? null }));
-}
-
 /** Sections laid out on their own (see layout.ts), in script order, with the scenes in each for jumping from the scene graph. */
 function graphSections(db: Db, projectId: string, direction: LayoutDirection) {
   const stored = db
@@ -173,6 +140,15 @@ function graphSections(db: Db, projectId: string, direction: LayoutDirection) {
   return sections;
 }
 
+/**
+ * The nodes a stored layout draws: its own, and those shown through its blocks (a straight run) and edges (a choice); null for the
+ * whole graph (every node). Portals are stand-ins, not nodes.
+ */
+function layoutNodeIds(raw: string, section: string): string[] | null {
+  const parsed = section && raw !== 'null' ? (JSON.parse(raw) as s.LayoutData) : null;
+  return parsed ? [...parsed.nodes.map((node) => node.id).filter((id) => !id.startsWith('portal:')), ...(parsed.chains ?? []).flatMap((chain) => chain.nodeIds), ...parsed.edges.flatMap((edge) => (edge.via ? [edge.via] : []))] : null;
+}
+
 export const sourceRoutes = new Hono<Env>()
   .post('/projects/:projectId/groups', validate('json', createGroupSchema), (c) => c.json(createGroup(c.var.deps.db, c.req.param('projectId'), c.req.valid('json')), 201))
   .patch('/projects/:projectId/groups/:groupId', validate('json', updateGroupSchema), (c) => c.json(updateGroup(c.var.deps.db, c.req.param('projectId'), c.req.param('groupId'), c.req.valid('json'))))
@@ -183,56 +159,18 @@ export const sourceRoutes = new Hono<Env>()
   .get('/projects/:projectId/listeners', (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
-    const listeners = db
-      .select({ listener: s.units.listener, lines: count() })
-      .from(s.units)
-      .where(and(eq(s.units.projectId, projectId), knownListenerSql, ne(s.units.listener, '')))
-      .groupBy(s.units.listener)
-      .orderBy(desc(count()), asc(s.units.listener))
-      .all()
-      .flatMap((row) => row.listener ? [{ name: row.listener, lines: row.lines }] : []);
+    const listeners = listenerRows(db, projectId).map(({ id: _id, ...row }) => row);
     const unknownCount = db
       .select({ count: count() })
       .from(s.units)
-      .where(and(eq(s.units.projectId, projectId), ...markConditions(projectId, ['unknownListener'])))
+      .where(and(eq(s.units.projectId, projectId), unknownListenerSql(projectId)))
       .get()!.count;
     return c.json({ listeners, unknownCount });
   })
   .get('/projects/:projectId/groups', validate('query', z.object({ kind: z.enum(['scene', 'document', 'ui']).optional(), q: z.string().trim().optional() })), (c) => {
-    const { db } = c.var.deps;
-    const projectId = c.req.param('projectId');
     const { kind, q } = c.req.valid('query');
-    const conditions = [eq(s.groups.projectId, projectId)];
-    if (kind) conditions.push(eq(s.groups.kind, kind));
-    if (q) conditions.push(or(like(s.groups.title, `%${q}%`), like(s.groups.key, `%${q}%`))!);
-    const rows = db.select({ id: s.groups.id, key: s.groups.key, kind: s.groups.kind, title: s.groups.title, description: s.groups.description, section: s.groups.section, sort: s.groups.sort }).from(s.groups).where(and(...conditions)).orderBy(asc(s.groups.sort)).all();
-    // Progress counts lines for translation; 번역 제외 lines are counted apart.
-    const counts = db
-      .select({ groupId: s.units.groupId, statusId: s.units.statusId, count: count() })
-      .from(s.units)
-      .where(and(eq(s.units.projectId, projectId), translatableSql(projectId)))
-      .groupBy(s.units.groupId, s.units.statusId)
-      .all();
-    const byGroup = Map.groupBy(counts, (row) => row.groupId);
-    const excluded = new Map(
-      db.select({ groupId: s.units.groupId, count: count() }).from(s.units).where(and(eq(s.units.projectId, projectId), excludedSql(projectId))).groupBy(s.units.groupId).all().map((row) => [row.groupId, row.count]),
-    );
-    // Lines whose listener is still unknown (the #청자 미상 mark): where speech rules cannot apply yet.
-    const unknown = new Map(
-      db
-        .select({ groupId: s.units.groupId, count: count() })
-        .from(s.units)
-        .where(and(eq(s.units.projectId, projectId), ...markConditions(projectId, ['unknownListener'])))
-        .groupBy(s.units.groupId)
-        .all()
-        .map((row) => [row.groupId, row.count]),
-    );
-    return c.json(
-      rows.map((group) => {
-        const statuses = Object.fromEntries((byGroup.get(group.id) ?? []).map((row) => [row.statusId, row.count]));
-        return { ...group, total: Object.values(statuses).reduce((sum, value) => sum + value, 0), statuses, excluded: excluded.get(group.id) ?? 0, unknownListeners: unknown.get(group.id) ?? 0 };
-      }),
-    );
+    const needle = q?.toLowerCase();
+    return c.json(groupRows(c.var.deps.db, c.req.param('projectId')).filter((group) => (!kind || group.kind === kind) && (!needle || group.title.toLowerCase().includes(needle) || group.key.toLowerCase().includes(needle))));
   })
   .get('/groups/:groupId', (c) => {
     const { db } = c.var.deps;
@@ -252,48 +190,63 @@ export const sourceRoutes = new Hono<Env>()
     for (const tag of tagRows) tagsByUnit.set(tag.unitId, [...(tagsByUnit.get(tag.unitId) ?? []), tag.tagId]);
     return c.json({ rows: rows.map((row) => ({ ...row, tagIds: tagsByUnit.get(row.id) ?? [] })) });
   })
-  .get('/projects/:projectId/units', validate('query', listQuery), (c) => {
+  /**
+   * One page of a filter as ids (script order) with the filter's total and, for the scenes on the
+   * page, how many of their lines the filter matches (their checkboxes): the script list's rows come
+   * from the browser's units collection (kept current by the row feed), so a change refetches only this.
+   */
+  .get('/projects/:projectId/units/ids', validate('query', listQuery), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     const query = c.req.valid('query');
     const where = unitConditions(projectId, query);
-    // The groups table is only needed for the kind filter; without it the count is one index range.
-    const counted = db.select({ count: count() }).from(s.units);
-    const total = ((query.kind || query.section) ? counted.innerJoin(s.groups, eq(s.groups.id, s.units.groupId)) : counted).where(where).get()!.count;
+    // The groups table is only needed for the kind and section filters.
+    const grouped = Boolean(query.kind || query.section);
+    const countFrom = db.select({ count: count() }).from(s.units);
+    const total = (grouped ? countFrom.innerJoin(s.groups, eq(s.groups.id, s.units.groupId)) : countFrom).where(where).get()!.count;
     // Opened at a given line (a link from elsewhere): start at the page that holds it.
     let offset = query.offset;
     if (query.focus) {
       const target = db.select({ seq: s.units.seq }).from(s.units).where(and(eq(s.units.id, query.focus), eq(s.units.projectId, projectId))).get();
       if (target) {
-        const before = ((query.kind || query.section) ? db.select({ count: count() }).from(s.units).innerJoin(s.groups, eq(s.groups.id, s.units.groupId)) : db.select({ count: count() }).from(s.units)).where(and(where, sql`${s.units.seq} < ${target.seq}`)).get()!.count;
+        const beforeFrom = db.select({ count: count() }).from(s.units);
+        const before = (grouped ? beforeFrom.innerJoin(s.groups, eq(s.groups.id, s.units.groupId)) : beforeFrom).where(and(where, lt(s.units.seq, target.seq))).get()!.count;
         offset = Math.floor(before / query.limit) * query.limit;
       }
     }
-    return c.json({ total, offset, rows: unitRows(db, where, { limit: query.limit, offset }) });
+    const pageFrom = db.select({ id: s.units.id, groupId: s.units.groupId }).from(s.units);
+    const page = (grouped ? pageFrom.innerJoin(s.groups, eq(s.groups.id, s.units.groupId)) : pageFrom).where(where).orderBy(asc(s.units.seq)).limit(query.limit).offset(offset).all();
+    const shown = [...new Set(page.map((row) => row.groupId))];
+    const scenesFrom = db.select({ groupId: s.units.groupId, count: count() }).from(s.units);
+    const scenes = shown.length ? (grouped ? scenesFrom.innerJoin(s.groups, eq(s.groups.id, s.units.groupId)) : scenesFrom).where(and(where, inArray(s.units.groupId, shown))).groupBy(s.units.groupId).all() : [];
+    return c.json({ total, offset, ids: page.map((row) => row.id), scenes });
   })
-  /** Lines by key, in script order: evidence cited by knowledge drafts. */
+  /** Lines by key, in script order, as ids: evidence cited by knowledge drafts, where a speech rule starts. */
   .post('/projects/:projectId/units/by-keys', validate('json', z.object({ keys: z.array(z.string()).max(500) })), (c) => {
     const keys = c.req.valid('json').keys;
-    if (!keys.length) return c.json([]);
-    return c.json(
-      c.var.deps.db
-        .select({ ...unitColumns, groupTitle: s.groups.title })
-        .from(s.units)
-        .innerJoin(s.groups, eq(s.groups.id, s.units.groupId))
-        .where(and(eq(s.units.projectId, c.req.param('projectId')), inArray(s.units.key, keys)))
-        .orderBy(asc(s.units.seq))
-        .all(),
-    );
+    // Ids in script order: the lines themselves come from the browser's units collection.
+    const ids = keys.length ? c.var.deps.db.select({ id: s.units.id }).from(s.units).where(and(eq(s.units.projectId, c.req.param('projectId')), inArray(s.units.key, keys))).orderBy(asc(s.units.seq)).all().map((row) => row.id) : [];
+    return c.json({ ids });
   })
-  /** Lines by id, in the order asked: the visible rows of the path view's translation list. */
-  .post('/projects/:projectId/units/by-ids', validate('json', z.object({ ids: z.array(z.string()).max(200) })), (c) => {
+  /** What the bulk bar shows of picked lines (their tags, who decided them), by id: picks outlive the page they were made on. */
+  .post('/projects/:projectId/units/meta', validate('json', z.object({ ids: z.array(z.string()).max(20_000) })), (c) => {
     const { db } = c.var.deps;
+    const projectId = c.req.param('projectId');
     const ids = c.req.valid('json').ids;
-    if (!ids.length) return c.json({ rows: [] });
-    const byId = new Map(db.select({ ...unitColumns, groupTitle: s.groups.title }).from(s.units).innerJoin(s.groups, eq(s.groups.id, s.units.groupId)).where(and(eq(s.units.projectId, c.req.param('projectId')), inArray(s.units.id, ids))).all().map((row) => [row.id, row] as const));
-    const tagRows = db.select().from(s.unitTags).where(inArray(s.unitTags.unitId, ids)).all();
-    const tags = Map.groupBy(tagRows, (row) => row.unitId);
-    return c.json({ rows: ids.flatMap((id) => (byId.has(id) ? [{ ...byId.get(id)!, tagIds: (tags.get(id) ?? []).map((tag) => tag.tagId), lastRun: null }] : [])) });
+    const rows = inChunks(ids, (slice) => db.select({ id: s.units.id, statusBy: s.units.statusBy }).from(s.units).where(and(eq(s.units.projectId, projectId), inArray(s.units.id, slice))).all());
+    const tags = Map.groupBy(inChunks(ids, (slice) => db.select().from(s.unitTags).where(inArray(s.unitTags.unitId, slice)).all()), (row) => row.unitId);
+    return c.json({ rows: rows.map((row) => ({ ...row, tagIds: (tags.get(row.id) ?? []).map((tag) => tag.tagId) })) });
+  })
+  /** The open lines' candidates and run history, by id, with the feed's count (the browser's line extras collection). */
+  .post('/projects/:projectId/units/extras', validate('json', z.object({ ids: z.array(z.string()).max(200) })), (c) => {
+    const seq = rowChangesOf(c.var.deps.db.$client).seq;
+    return c.json({ rows: lineExtras(c.var.deps.db, c.req.param('projectId'), c.req.valid('json').ids), seq });
+  })
+  /** Lines by id, in the order asked, as the line lists show them: the rows the browser's units collection holds. */
+  .post('/projects/:projectId/units/by-ids', validate('json', z.object({ ids: z.array(z.string()).max(200) })), (c) => {
+    // The feed's count when read: a change event at or below it is already in these rows.
+    const seq = rowChangesOf(c.var.deps.db.$client).seq;
+    return c.json({ rows: unitRowsByIds(c.var.deps.db, c.req.param('projectId'), c.req.valid('json').ids), seq });
   })
   .patch(
     '/projects/:projectId/units',
@@ -324,7 +277,7 @@ export const sourceRoutes = new Hono<Env>()
       if (body.listener !== undefined) setHumanListener(tx, body.unitIds, body.listener);
       if (body.translate !== undefined) eachChunk(body.unitIds, (ids) => tx.update(s.units).set({ translate: body.translate }).where(and(eq(s.units.projectId, projectId), inArray(s.units.id, ids))).run());
     });
-    events.changed(projectId, 'units', 'statuses');
+    events.changed(projectId, 'units');
     return c.json({ ok: true });
     },
   )
@@ -338,16 +291,7 @@ export const sourceRoutes = new Hono<Env>()
       previous: db.select(neighborFields).from(s.units).where(and(eq(s.units.groupId, unit.groupId), lt(s.units.seq, unit.seq))).orderBy(desc(s.units.seq)).limit(1).get(),
       next: db.select(neighborFields).from(s.units).where(and(eq(s.units.groupId, unit.groupId), gt(s.units.seq, unit.seq))).orderBy(asc(s.units.seq)).limit(1).get(),
     };
-    const candidates = db.select().from(s.candidates).where(eq(s.candidates.unitId, unitId)).orderBy(desc(s.candidates.createdAt)).all();
     const tagIds = db.select({ tagId: s.unitTags.tagId }).from(s.unitTags).where(eq(s.unitTags.unitId, unitId)).all().map((row) => row.tagId);
-    const history = db
-      .select({ id: s.runItems.id, runId: s.runs.id, workflowName: s.runs.workflowName, state: s.runItems.state, nodeId: s.runItems.nodeId, error: s.runItems.error, data: s.runItems.data, createdAt: s.runs.createdAt })
-      .from(s.runItems)
-      .innerJoin(s.runs, eq(s.runs.id, s.runItems.runId))
-      .where(eq(s.runItems.subjectId, unitId))
-      .orderBy(desc(s.runs.createdAt))
-      .limit(20)
-      .all();
     const nodes = db.select({ id: s.graphNodes.id, key: s.graphNodes.key }).from(s.graphNodes).where(sql`exists (select 1 from json_each(${s.graphNodes.unitIds}) where value = ${unitId})`).all();
     const resolved = speechRuleIndex(db, unit.projectId).resolve([unit]).get(unit.key);
     const speech = resolved ? { listener: resolved.listener, ruleId: resolved.rule.id, rule: describeRule(resolved.rule), level: resolved.rule.level, byOrder: resolved.byOrder, routeDependent: !!resolved.routeDependent, others: !!resolved.others } : null;
@@ -363,7 +307,8 @@ export const sourceRoutes = new Hono<Env>()
       }
     }
     const sceneNames = [...distance].sort((a, b) => a[1] - b[1]).map(([name]) => name);
-    return c.json({ ...unit, group, neighbors, candidates, tagIds, history, graphNodes: nodes, speech, sceneNames });
+    // Its candidates and run history are POST units/extras: the browser holds them apart and reads them again when the feed names the line.
+    return c.json({ ...unit, group, neighbors, tagIds, graphNodes: nodes, speech, sceneNames });
   })
   /** The editor's AI continuation of a line: the whole line, starting with `prefix`. Cancelled with the request. */
   .post('/units/:unitId/complete', validate('json', z.object({ prefix: z.string().max(4000).default('') })), async (c) => {
@@ -416,7 +361,7 @@ export const sourceRoutes = new Hono<Env>()
       .where(and(eq(s.units.projectId, unit.projectId), ne(s.units.id, unit.id), inArray(s.units.id, [...bases.keys()]), sql`${sameSource(sql`${s.units.source}`)} = ${sameSource(sql`${unit.source}`)}`))
       .all();
     const result = db.transaction((tx) => saveSameText(tx, rows.map((row) => ({ unit: row, base: bases.get(row.id) ?? null })), text));
-    events.changed(unit.projectId, 'units', 'statuses');
+    events.changed(unit.projectId, 'units');
     return c.json({ ok: true, ...result, skipped: result.skipped + (lines.length - rows.length) });
   })
   /** Already translated lines of the project with the same or a similar source (the editor's suggestions). */
@@ -439,9 +384,17 @@ export const sourceRoutes = new Hono<Env>()
       if (error instanceof LineConflict) return c.json({ error: error.message }, 409);
       throw error;
     }
-    events.changed(unit.projectId, 'units', 'statuses');
+    events.changed(unit.projectId, 'units');
     const saved = db.select({ translation: s.units.translation, statusId: s.units.statusId, candidateId: s.units.candidateId }).from(s.units).where(eq(s.units.id, unitId)).get()!;
     return c.json({ ok: true, ...saved });
+  })
+  /** 거절: a person turns down a waiting AI 제안; it stays in the line's history. Taking one is a save with its candidateId. */
+  .post('/units/:unitId/candidates/:candidateId/decline', (c) => {
+    const { db } = c.var.deps;
+    const unit = found(db.select({ id: s.units.id, projectId: s.units.projectId }).from(s.units).where(eq(s.units.id, c.req.param('unitId'))).get(), '대사');
+    if (!declineSuggestion(db, unit.id, c.req.param('candidateId'))) return c.json({ error: '기다리는 AI 제안이 아닙니다.' }, 409);
+    events.changed(unit.projectId, 'units');
+    return c.json({ ok: true });
   })
   .patch('/units/:unitId', validate('json', unitPatch), (c) => {
     const { db } = c.var.deps;
@@ -459,7 +412,7 @@ export const sourceRoutes = new Hono<Env>()
         attachUnitTags(tx, unit.projectId, [unitId], { add: body.tagIds, remove: current.filter((id) => !body.tagIds!.includes(id)) }, { onMisplaced: 'refuse' });
       }
     });
-    events.changed(unit.projectId, 'units', 'statuses');
+    events.changed(unit.projectId, 'units');
     return c.json({ ok: true });
   })
 
@@ -620,6 +573,8 @@ export const sourceRoutes = new Hono<Env>()
     return c.json({ ok: true });
   })
   /** The dialogue graph's sections alone: the graph page needs them before it knows which layout to load. */
+  // The translation of each node's first line, apart from the graph itself: it changes with every save, the layout does not.
+  // (The web keys it under 'units', so a translation change refreshes it and the layout is not fetched again.)
   .get('/projects/:projectId/graph/sections', validate('query', z.object({ direction: z.enum(['vertical', 'horizontal']).default('vertical') })), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
@@ -669,9 +624,7 @@ export const sourceRoutes = new Hono<Env>()
     // 50k-node layout (15 MB) held the server for a quarter of a second. A section's layout is
     // small, so its node ids are read from it to send only that section's nodes.
     const raw = db.select({ data: sql<string | null>`${s.graphLayouts.data}` }).from(s.graphLayouts).where(where).get()?.data ?? 'null';
-    // Nodes folded into a straight run or into an edge (a choice) are not layout nodes but are shown through them: send them too.
-    const parsed = section && raw !== 'null' ? (JSON.parse(raw) as s.LayoutData) : null;
-    const only = parsed ? [...parsed.nodes.map((node) => node.id).filter((id) => !id.startsWith('portal:')), ...(parsed.chains ?? []).flatMap((chain) => chain.nodeIds), ...parsed.edges.flatMap((edge) => (edge.via ? [edge.via] : []))] : null;
+    const only = layoutNodeIds(raw, section);
     // One preview line per node keeps the payload small; details load on selection.
     const nodes = db
       .select({
@@ -704,11 +657,6 @@ export const sourceRoutes = new Hono<Env>()
   )
   .get('/projects/:projectId/graph/edges/:edgeId', (c) => c.json(edgeDetail(c.var.deps.db, c.req.param('projectId'), c.req.param('edgeId'))))
   .post('/projects/:projectId/graph/edges/delete', validate('json', z.object({ ids: z.array(z.string().min(1)).min(1) })), (c) => c.json(unlinkEdges(c.var.deps.db, c.req.param('projectId'), c.req.valid('json').ids)))
-  // Scene connections are dialogue-graph lines (A's last line → B's first line), so these edit that graph.
-  .post('/projects/:projectId/graph/scene-links', validate('json', z.object({ fromGroupId: z.string().min(1), toGroupId: z.string().min(1) })), (c) =>
-    c.json(linkScenes(c.var.deps.db, c.req.param('projectId'), { ...c.req.valid('json'), origin: 'human' })),
-  )
-  .post('/projects/:projectId/graph/scene-links/delete', validate('json', z.object({ fromGroupId: z.string().min(1), toGroupId: z.string().min(1) })), (c) => c.json(unlinkScenes(c.var.deps.db, c.req.param('projectId'), c.req.valid('json'))))
   .post('/projects/:projectId/graph/link-in-order', validate('json', z.object({ groupIds: z.array(z.string().min(1)).max(5000).optional(), nodeIds: z.array(z.string().min(1)).max(20000).optional() }).refine((v) => v.groupIds?.length || v.nodeIds?.length, '장면이나 노드를 하나 이상 고르세요.')), (c) =>
     c.json(linkInOrder(c.var.deps.db, c.req.param('projectId'), { ...c.req.valid('json'), origin: 'human' })),
   )

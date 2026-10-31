@@ -1,5 +1,5 @@
 /** Read-only facts under a knowledge item: its evidence lines, a speech rule's lines, a relationship's changes; and the picker for a stretch's first line. */
-import { useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronRight, Play } from 'lucide-react';
@@ -8,6 +8,7 @@ import { RunDialog } from '@/components/workflow/run-dialog';
 import { Box, InspectorList, InspectorResult, Button, Collapsible, CollapsibleContent, CollapsibleTrigger, Icon, Inline, ListRow, Text, TextLink, Section, SectionHeading } from '@loca/ui';
 import { q } from '@/lib/queries';
 import { PersonName } from '@/lib/person-colors';
+import { useLinePage, useLines, useLinesByKeys } from '@/lib/units';
 
 /** A list that stays folded until asked for (a rule's lines, evidence inside a pair): the pane shows what to decide first. */
 function Fold({ label, children }: { label: ReactNode; children: ReactNode }) {
@@ -54,7 +55,8 @@ function Part({ title, actions, embedded, fold, children }: { title: string; act
 
 /** The lines a draft cites, opening in the script. Keys that are not lines were already dropped by the server. Omitted when there are none. */
 export function Evidence({ projectId, keys, embedded }: { projectId: string; keys: string[]; embedded?: boolean }) {
-  const lines = useQuery(q.linesByKeys(projectId, keys.slice(0, 50)));
+  const cited = useMemo(() => keys.slice(0, 50), [keys]);
+  const lines = useLinesByKeys(projectId, cited);
   if (!keys.length) return null;
   return (
     <Part title={`근거 대사 ${keys.length}`} embedded={embedded} fold>
@@ -77,7 +79,11 @@ export function Evidence({ projectId, keys, embedded }: { projectId: string; key
 
 /** Lines the rule governs and what their translations end in; after fixing the rule, re-run just these. */
 export function RuleLines({ projectId, ruleId, candidate, embedded }: { projectId: string; ruleId: string; candidate: boolean; embedded?: boolean }) {
-  const lines = useQuery(q.ruleLines(projectId, ruleId));
+  const rule = useQuery(q.ruleLines(projectId, ruleId));
+  // The rule's numbers are the question; its first lines come from the units collection.
+  const shownIds = useMemo(() => rule.data?.unitIds.slice(0, 100), [rule.data]);
+  const shown = useLines(projectId, shownIds).rows;
+  const lines = { data: rule.data && { ...rule.data, rows: shown ?? [] } };
   const levels = Object.entries(lines.data?.levels ?? {}).sort((a, b) => b[1] - a[1]);
   return (
     <Part
@@ -127,7 +133,8 @@ export function RuleLines({ projectId, ruleId, candidate, embedded }: { projectI
 }
 
 export function RelationshipChanges({ projectId, changes, embedded }: { projectId: string; changes: { at: string; kind: string; cause: string }[]; embedded?: boolean }) {
-  const lines = useQuery(q.linesByKeys(projectId, changes.map((change) => change.at)));
+  const atKeys = useMemo(() => changes.map((change) => change.at), [changes]);
+  const lines = useLinesByKeys(projectId, atKeys);
   if (!changes.length) return null;
   const byKey = new Map(lines.data?.map((line) => [line.key, line]));
   return (
@@ -161,7 +168,7 @@ export function RelationshipChanges({ projectId, changes, embedded }: { projectI
 
 /** This pair's lines (by listener), to pick the one where the speech changes or starts. */
 export function StretchPicker({ projectId, from, to, taken, onPick, onCancel }: { projectId: string; from: string; to: string; taken: Set<string>; onPick: (key: string) => void; onCancel: () => void }) {
-  const lines = useQuery(q.units(projectId, { speaker: from, listener: to, limit: 300 }));
+  const lines = useLinePage(projectId, { speaker: from, listener: to, limit: 300 });
   return (
     <Box spaceY="tight">
       <Inline gap="condensed" minHeight="control-sm">

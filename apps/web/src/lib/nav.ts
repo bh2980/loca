@@ -58,9 +58,14 @@ export function holds(item: NavItem, rest: string, search: Record<string, unknow
 }
 
 export function useCurrentNav(projectId: string): { group: NavGroup; item: NavItem } {
-  const { pathname, search } = useRouterState({ select: (s) => ({ pathname: s.location.pathname, search: s.location.search as Record<string, unknown> }) });
-  const rest = pathname.replace(`/p/${projectId}`, '').replace(/\/$/, '');
-  const selected = NAV_ITEMS.find((entry) => holds(entry, rest, search)) ?? NAV_ITEMS[0];
+  // Only the item's id is read from the router, so a search change that keeps the screen re-renders nothing here.
+  const id = useRouterState({
+    select: (s) => {
+      const rest = s.location.pathname.replace(`/p/${projectId}`, '').replace(/\/$/, '');
+      return (NAV_ITEMS.find((entry) => holds(entry, rest, s.location.search as Record<string, unknown>)) ?? NAV_ITEMS[0]).id;
+    },
+  });
+  const selected = NAV_ITEMS.find((entry) => entry.id === id) ?? NAV_ITEMS[0];
   const group = NAV_GROUPS.find((entry) => entry.id === selected.groupId)!;
   return { group, item: selected };
 }

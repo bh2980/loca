@@ -1,11 +1,14 @@
 import { useState, type ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
 import { Check, Play, X } from 'lucide-react';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { Box, Button, Icon, Inline, SectionHeading, Stack, StepMarker, Text } from '@loca/ui';
 import { HeaderActions } from '@/components/page';
-import { q, useReviewTagId } from '@/lib/queries';
+import { useTerms } from '@/lib/terms';
+import { useCharacters, useSpeechRules } from '@/lib/knowledge';
+import { useRuns } from '@/lib/runs';
+import { useProject } from '@/lib/project';
+import { useConnections } from '@/lib/app-data';
 
 interface Step {
   key: string;
@@ -26,13 +29,12 @@ interface Step {
  * person closes it (kept per project in this browser; '시작하기' in the header brings it back).
  */
 export function GettingStarted({ projectId }: { projectId: string }) {
-  const connections = useQuery(q.connections({ kind: 'project', projectId }));
-  const characters = useQuery(q.characters(projectId));
-  const rules = useQuery(q.speechRules(projectId));
-  const reviewTag = useReviewTagId(projectId);
-  const terms = useQuery(q.terms(projectId));
-  const runs = useQuery(q.runs(projectId));
-  const project = useQuery(q.project(projectId));
+  const connections = useConnections({ kind: 'project', projectId });
+  const characters = useCharacters(projectId);
+  const rules = useSpeechRules(projectId);
+  const terms = useTerms(projectId);
+  const runs = useRuns(projectId);
+  const project = useProject(projectId);
   const [hidden, setHidden] = useState(() => readHidden(projectId));
   const hide = (value: boolean) => {
     setHidden(value);
@@ -42,7 +44,7 @@ export function GettingStarted({ projectId }: { projectId: string }) {
 
   const aiConnections = connections.data.filter((connection) => connection.kind !== 'http');
   // Story knowledge exists (whichever workflow, chat or person made it): AI nodes have context to read.
-  const known = characters.data.characters.length > 0 || rules.data.length > 0;
+  const known = characters.data.length > 0 || rules.data.length > 0;
   const ran = runs.data.length > 0;
   if (known && ran) return null;
   if (hidden)
@@ -53,8 +55,8 @@ export function GettingStarted({ projectId }: { projectId: string }) {
         </Button>
       </HeaderActions>
     );
-  const toCheck = rules.data.filter((rule) => rule.tags.some((tag) => tag.id === reviewTag)).length;
-  // Counted by the glossary's own filters (상태 후보, #번역 누락 on any term), the same ones its links use.
+  const toCheck = rules.data.filter((rule) => rule.reviewNote).length;
+  // Counted by the glossary's own filters (상태 후보, 번역 비어 있음), the same ones its links use.
   const confirmedTerms = terms.data.filter((term) => term.status === 'confirmed').length;
   const candidates = terms.data.filter((term) => term.status === 'candidate').length;
   const emptyTerms = terms.data.filter((term) => !term.target.trim()).length;
@@ -86,7 +88,7 @@ export function GettingStarted({ projectId }: { projectId: string }) {
       optional: true,
       action: () => (
         <Button asChild variant="ghost">
-          <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', ...(reviewTag && { tags: [reviewTag] }) }}>
+          <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', marks: ['review'] }}>
             인물·관계 보기
           </Link>
         </Button>

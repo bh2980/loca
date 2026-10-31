@@ -1,7 +1,7 @@
 import { useFormFrom, changedFields } from '@/lib/use-form-from';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
 import { useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import { Plus } from 'lucide-react';
@@ -49,9 +49,10 @@ import { ExecutableField } from '@/components/settings/executable-field';
 import { unwrap } from '@/lib/api';
 import { client } from '@/lib/api';
 import { connectionsApi, type ConnectionRow, type SettingsTarget } from '@/lib/settings-target';
-import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { dateTime } from '@/lib/datetime';
+import { changeConnection, useConnections } from '@/lib/app-data';
+import { useConnectionTests } from '@/lib/logs';
 
 const CAPABILITY_LABEL: Record<Capability, string> = { generate: '생성', judge: '판정', chat: '채팅', tool: '도구' };
 const LOGIN_LABEL: Record<string, string> = {
@@ -67,7 +68,7 @@ export type ConnectionsSearch = { conn?: string; key?: string };
  * The selection lives in the route's URL: the route passes it in `search` and applies what `onSearch` asks for.
  */
 export function ConnectionsSettings({ target, search, onSearch, description }: { target: SettingsTarget; search: ConnectionsSearch; onSearch: (next: ConnectionsSearch) => void; description?: string }) {
-  const connections = useQuery(q.connections(target));
+  const connections = useConnections(target);
 
   const openConn = (conn?: string) => onSearch({ conn });
   const openKey = (key?: string) => onSearch({ key });
@@ -188,8 +189,10 @@ function NewConnection({ target, onClose, onCreated }: { target: SettingsTarget;
   const info = CONNECTION_KIND_INFO[kind];
 
   const create = useMutation({
+    // Done once the feed has brought the new row, so the list and the pane it opens have it.
     mutationFn: (values: ConnectionFormOutput) =>
-      unwrap(
+      changeConnection(
+        target,
         connectionsApi(target).create({
           kind: values.kind,
           name: values.name,
@@ -289,7 +292,8 @@ function ConnectionPane({ target, connection, onClose }: { target: SettingsTarge
 
   const save = useMutation({
     mutationFn: (values: z.output<typeof editSchema>) =>
-      unwrap(
+      changeConnection(
+        target,
         api.patch(
           connection.id,
           onlyDirty({
@@ -306,7 +310,7 @@ function ConnectionPane({ target, connection, onClose }: { target: SettingsTarge
     onError: (error) => toast.error(errorMessage(error)),
   });
   const saveKey = useMutation({
-    mutationFn: () => unwrap(api.putKey(connection.id, apiKey)),
+    mutationFn: () => changeConnection(target, api.putKey(connection.id, apiKey)),
     onSuccess: () => {
       setApiKey('');
       toast.success('키를 저장했습니다.');
@@ -314,14 +318,14 @@ function ConnectionPane({ target, connection, onClose }: { target: SettingsTarge
     onError: (error) => toast.error(errorMessage(error)),
   });
   const deleteKey = useMutation({
-    mutationFn: () => unwrap(api.deleteKey(connection.id)),
+    mutationFn: () => changeConnection(target, api.deleteKey(connection.id)),
     onSuccess: () => {
       toast.success('키를 삭제했습니다.');
     },
     onError: (error) => toast.error(errorMessage(error)),
   });
   const remove = useMutation({
-    mutationFn: () => unwrap(api.remove(connection.id)),
+    mutationFn: () => changeConnection(target, api.remove(connection.id)),
     onSuccess: onClose,
     onError: (error) => toast.error(errorMessage(error)),
   });
@@ -442,7 +446,7 @@ function ModelTest({ target, connectionId, need }: { target: SettingsTarget; con
     mutationFn: () => unwrap(client.connections[':id'].test.$post({ param: { id: connectionId }, json: { model: choice.model, effort: choice.effort, source, targetLanguage: 'ko' } })),
     onError: (error) => toast.error(errorMessage(error)),
   });
-  const tests = useQuery(q.connectionTests(connectionId));
+  const tests = useConnectionTests(connectionId);
   const result = test.data;
   return (
     <InspectorActionRow

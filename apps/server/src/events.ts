@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { EventEmitter } from 'node:events';
+import type { FeedRows } from '@tw/shared';
 
 /** Query families the web client caches. A change event tells it which ones to refetch. */
 export type Topic =
@@ -38,7 +39,9 @@ const IMPLIES: Partial<Record<Topic, Topic[]>> = {
   terms: ['units'],
   workflows: ['units'],
   projects: ['units'],
-  units: ['statuses', 'terms'],
+  // Term usage counts read lines. Status and tag counts are keyed under units themselves (q.statusCounts), so a
+  // line change no longer reaches 'statuses' and, through it, the workflow checks that read status definitions.
+  units: ['terms'],
   statuses: ['workflows'],
   connections: ['workflows'],
   calls: ['runs'],
@@ -66,6 +69,10 @@ export interface ChangeEvent {
    * change came from elsewhere: background work, another tab, or a request without an id.
    */
   origin?: string;
+  /** The row feed: rows of the browser's collections changed in this event, read again as it was sent (feed.ts). */
+  rows?: FeedRows;
+  /** The feed's change count when it was sent: the browser drops an event older than its snapshot, and a write waits for its own. */
+  seq?: number;
 }
 
 /** Topics for one project merge over this quiet window (trailing emit)... */
@@ -85,6 +92,8 @@ interface Pending {
 
 export class Events extends EventEmitter<{ change: [ChangeEvent]; shutdown: [] }> {
   private pending = new Map<string | undefined, Pending>();
+  /** The project's changed rows and the feed's count, taken when an event goes out (set by the app: feed.ts). */
+  rowSource?: (projectId: string) => { rows: FeedRows; seq: number } | null;
 
   constructor(
     private readonly quietMs = COALESCE_MS,
@@ -100,11 +109,23 @@ export class Events extends EventEmitter<{ change: [ChangeEvent]; shutdown: [] }
     const scope = requestScope.getStore();
     const reporting = scope?.open ? scope : undefined;
     if (reporting) for (const topic of withImplied(topics)) reporting.topics.add(topic);
+    this.schedule(projectId, withImplied(topics), reporting);
+  }
+
+  /** A row the feed keeps changed (db/row-changes.ts): an event goes out like for a topic, carrying the rows. */
+  rowsChanged(projectId: string, seq: number) {
+    const scope = requestScope.getStore();
+    const reporting = scope?.open ? scope : undefined;
+    if (reporting) reporting.seq = seq;
+    this.schedule(projectId, [], reporting);
+  }
+
+  private schedule(projectId: string | undefined, topics: Iterable<Topic>, reporting: RequestScope | undefined) {
     const now = Date.now();
     const entry = this.pending.get(projectId);
     if (entry) clearTimeout(entry.timer);
     const topicSet = entry?.topics ?? new Set<Topic>();
-    for (const topic of withImplied(topics)) topicSet.add(topic);
+    for (const topic of topics) topicSet.add(topic);
     const origins = entry?.origins ?? new Set<string>();
     let unreported = entry?.unreported ?? false;
     if (reporting?.client) origins.add(reporting.client);
@@ -127,13 +148,16 @@ export class Events extends EventEmitter<{ change: [ChangeEvent]; shutdown: [] }
     clearTimeout(entry.timer);
     this.pending.delete(projectId);
     const origin = !entry.unreported && entry.origins.size === 1 ? [...entry.origins][0] : undefined;
-    if (entry.topics.size) this.emit('change', { projectId, topics: [...entry.topics], ...(origin && { origin }) });
+    const feed = projectId ? (this.rowSource?.(projectId) ?? null) : null;
+    if (entry.topics.size || feed) this.emit('change', { projectId, topics: [...entry.topics], ...(origin && { origin }), ...(feed && { rows: feed.rows, seq: feed.seq }) });
   }
 }
 
 /** Topics a request changed, gathered while it runs, and the tab that sent it (x-client). */
 interface RequestScope {
   topics: Set<Topic>;
+  /** The feed's count after the last row this request changed (the answer's x-seq): a write waits for an event with it. */
+  seq?: number;
   client?: string;
   /** Until its answer is made: changes after that are not in its x-changed. */
   open: boolean;
@@ -144,7 +168,7 @@ const requestScope = new AsyncLocalStorage<RequestScope>();
  * Runs a request and returns the topics it changed, so its response can carry them (header
  * x-changed) and the client refetch at once, without waiting on the event stream, which can be
  * silently gone (a restarted server behind a proxy). Changes made later by work the request
- * started (a run) still go out as events.
+ * started (a run) still go out as events. `seq` is the feed's count after the last row it changed (x-seq).
  */
 export async function trackChanges(run: () => Promise<void>, client?: string) {
   const scope: RequestScope = { topics: new Set(), client: client || undefined, open: true };
@@ -153,7 +177,7 @@ export async function trackChanges(run: () => Promise<void>, client?: string) {
   } finally {
     scope.open = false;
   }
-  return scope.topics;
+  return { topics: scope.topics, seq: scope.seq };
 }
 
 export const events = new Events();

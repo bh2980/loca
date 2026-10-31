@@ -45,10 +45,15 @@ export function foldChains(job: LayoutJob, groupOf: (id: string) => string | nul
   }
   if (!chains.length) return { job, chains };
   const end = (id: string) => chainOf.get(id) ?? id;
+  const rankOf = new Map(job.nodes.map((node) => [node.id, node.rank]));
+  const chainRank = (nodeIds: string[]) => {
+    const ranks = nodeIds.map((id) => rankOf.get(id)).filter((rank): rank is number => rank !== undefined);
+    return ranks.length ? { rank: Math.min(...ranks) } : {};
+  };
   return {
     job: {
       ...job,
-      nodes: [...job.nodes.filter((node) => !chainOf.has(node.id)), ...chains.map((chain) => ({ id: chain.id, width: CHAIN_SIZE[0], height: CHAIN_SIZE[1] }))],
+      nodes: [...job.nodes.filter((node) => !chainOf.has(node.id)), ...chains.map((chain) => ({ id: chain.id, width: CHAIN_SIZE[0], height: CHAIN_SIZE[1], ...chainRank(chain.nodeIds) }))],
       // Edges inside a run disappear; the rest are re-ended at the blocks.
       edges: job.edges.filter((edge) => !(chainOf.has(edge.from) && chainOf.get(edge.from) === chainOf.get(edge.to))).map((edge) => ({ ...edge, from: end(edge.from), to: end(edge.to) })),
     },

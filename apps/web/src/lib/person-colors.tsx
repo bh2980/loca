@@ -1,7 +1,6 @@
 import { useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { paletteColor, Text, type TextProps } from '@loca/ui';
-import { q } from '@/lib/queries';
+import { useCharacters } from './knowledge';
 
 /**
  * The colors people gave characters (자료 › 인물 › 색), by name or alias (any case): a name with no
@@ -9,15 +8,14 @@ import { q } from '@/lib/queries';
  * the same everywhere.
  */
 export function usePersonColors(projectId: string) {
-  const people = useQuery(q.characters(projectId));
+  const people = useCharacters(projectId);
+  // Each colored name once: the lookup stays the same function until a color or a colored name changes,
+  // so what reads it (table rows, script lines) is not drawn again for an edit to someone's profile.
+  const colored = (people.data ?? []).flatMap((character) => (character.color ? [character.name, ...character.aliases].map((name) => `${name.trim().toLowerCase()}\t${character.color}`) : [])).join('\n');
   return useMemo(() => {
-    const byName = new Map<string, string>();
-    for (const character of people.data?.characters ?? []) {
-      if (!character.color) continue;
-      for (const name of [character.name, ...character.aliases]) byName.set(name.trim().toLowerCase(), character.color);
-    }
+    const byName = new Map(colored ? colored.split('\n').map((line) => line.split('\t') as [string, string]) : []);
     return (name: string | null | undefined) => (name?.trim() ? byName.get(name.trim().toLowerCase()) : undefined);
-  }, [people.data]);
+  }, [colored]);
 }
 
 /** A character's name in its color (as a CSS color: the palette's token for the theme). */

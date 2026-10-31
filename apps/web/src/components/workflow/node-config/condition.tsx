@@ -18,7 +18,7 @@ const KIND_LABELS: Record<string, string> = {
 
 const FIELD_OPERATORS: Record<FieldOperator, string> = { '>=': '≥', '<=': '≤', '==': '=', '!=': '≠', filled: '비어 있지 않음' };
 /** Rows a condition can add: the core ones and, from INPUT_TYPES, those of the workflow's input. */
-const ADDABLE = { status: '상태', lineKind: '종류', tag: '태그', mark: '자동 태그', listener: '청자', speechRule: '말투 규칙', speechMatch: '선택 = 말투 규칙', termStatus: '용어 상태', hasTarget: '표기', uses: '쓰인 대사 수', candidate: '번역문', field: '노드 결과', visits: '방문 횟수', error: '실패 종류' } as const;
+const ADDABLE = { status: '상태', final: '최종 상태', decidedBy: '정한 쪽', lineKind: '종류', tag: '태그', mark: '자동 태그', listener: '청자', listenerUnknown: '청자 모름', noted: '메모', speechRule: '말투 규칙', speechMatch: '선택 = 말투 규칙', termStatus: '용어 상태', hasTarget: '표기', uses: '쓰인 대사 수', candidate: '번역문', field: '노드 결과', visits: '방문 횟수', error: '실패 종류' } as const;
 type Addable = keyof typeof ADDABLE;
 const INPUT_ROWS = new Set<string>([...INPUT_TYPES.lines.conditionRows, ...INPUT_TYPES.terms.conditionRows]);
 
@@ -85,6 +85,10 @@ export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { nod
         return { kind, nodeId: first.node.id, field: field.name, op: field.type === 'boolean' ? '==' : field.type === 'number' ? '>=' : 'filled', value: field.type === 'boolean' ? true : field.type === 'number' ? 0.7 : '' };
       }
       case 'listener': return { kind };
+      case 'final': return { kind, not: true };
+      case 'decidedBy': return { kind, by: 'ai' };
+      case 'listenerUnknown': return { kind };
+      case 'noted': return { kind };
       case 'speechRule': return { kind };
       case 'speechMatch': return choosers[0] ? { kind, nodeId: choosers[0].id } : null;
       case 'candidate': return { kind };
@@ -145,6 +149,14 @@ export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { nod
         return <>쓰인 대사 <Pick label="비교" value={clause.op} onChange={(value) => set({ ...clause, op: value as '>=' | '<=' })} width="field-xs"><SelectItem value=">=">≥</SelectItem><SelectItem value="<=">≤</SelectItem></Pick> <Box asChild height="control" width="field-sm"><NumberInput min={0} aria-label="쓰인 대사 수" value={clause.value} onValueChange={(value) => value !== undefined && set({ ...clause, value })} /></Box> 줄</>;
       case 'listener':
         return <>청자 <Negate not={clause.not} words={['있음', '없음']} onChange={(not) => set({ ...clause, not })} /></>;
+      case 'final':
+        return <>상태가 <Negate not={clause.not} words={['최종', '최종 아님']} onChange={(not) => set({ ...clause, not })} /></>;
+      case 'decidedBy':
+        return <>상태를 정한 쪽 <Negate not={clause.not} words={['=', '≠']} onChange={(not) => set({ ...clause, not })} /> <Pick label="정한 쪽" value={clause.by} onChange={(by) => set({ ...clause, by: by as 'ai' | 'human' })} width="field-sm"><SelectItem value="ai">AI (✦)</SelectItem><SelectItem value="human">사람</SelectItem></Pick></>;
+      case 'listenerUnknown':
+        return <>청자 모름 <Negate not={clause.not} words={['맞음', '아님']} onChange={(not) => set({ ...clause, not })} /></>;
+      case 'noted':
+        return <>메모 <Negate not={clause.not} words={['있음', '없음']} onChange={(not) => set({ ...clause, not })} /></>;
       case 'speechRule':
         return <>화자 → 청자 말투 규칙 <Negate not={clause.not} words={['있음', '없음']} onChange={(not) => set({ ...clause, not })} /></>;
       case 'speechMatch':

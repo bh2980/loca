@@ -4,8 +4,10 @@ import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { SPECIAL_LISTENERS, SPEECH_LEVELS, SPEECH_LEVEL_LABELS, type SpeechLevel } from '@tw/shared';
 import { Button, Grid, Input, Popover, PopoverTrigger, Combobox, Select, SelectContent, SelectItem, SelectValue, type ComboboxOption, SelectTrigger, PopoverContent, Box, KeyValue, KeyValueRow } from '@loca/ui';
-import { client, unwrap } from '@/lib/api';
-import { pairKey, type Pair } from './pairs';
+import { client } from '@/lib/api';
+import { pairKey } from '@tw/shared';
+import type { Pair } from './pairs';
+import { sent } from '@/lib/collections';
 
 /** The picker value that means "a person who is not in the list yet": a name is typed instead. */
 const NEW = '\u0000new';
@@ -72,7 +74,7 @@ export function AddPairPopover({ projectId, characters, pairs, onCreated }: { pr
       const person = async (value: string, typed: string): Promise<Person> => {
         const existing = value === NEW ? characters.find((c) => c.name.toLowerCase() === typed.toLowerCase()) : characters.find((c) => c.id === value);
         if (existing) return existing;
-        const created = await unwrap(api.characters.$post({ param, json: { name: typed } }));
+        const created = await sent(projectId, api.characters.$post({ param, json: { name: typed } }));
         return { id: created.id, name: created.name };
       };
       const speaker = await person(from, fromTyped);
@@ -81,8 +83,8 @@ export function AddPairPopover({ projectId, characters, pairs, onCreated }: { pr
       const key = pairKey(speaker.name, toKey);
       const existing = pairs.find((pair) => pair.key === key);
       // A pair that already has a rule or relationship is opened rather than doubled.
-      if (!existing?.rules.length) await unwrap(api['speech-rules'].$post({ param, json: { fromName: speaker.name, toName: toKey, level } }));
-      if (listener && !existing?.relationship && (kind.trim() || !existing)) await unwrap(api.relationships.$post({ param, json: { fromId: speaker.id, toId: listener.id, kind: kind.trim() || DEFAULT_KIND } }));
+      if (!existing?.rules.length) await sent(projectId, api['speech-rules'].$post({ param, json: { fromName: speaker.name, toName: toKey, level } }));
+      if (listener && !existing?.relationship && (kind.trim() || !existing)) await sent(projectId, api.relationships.$post({ param, json: { fromId: speaker.id, toId: listener.id, kind: kind.trim() || DEFAULT_KIND } }));
       return { key, existed: Boolean(existing?.rules.length) };
     },
     onSuccess: ({ key, existed }) => {

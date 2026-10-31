@@ -4,11 +4,11 @@ import { Plus, Sparkles, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { compileFormatRules, FORMAT_PRESET_IDS, FORMAT_PRESETS, formatPatternError, matchTokens, type FormatRules } from '@tw/shared';
 import { Box, Button, Checkbox, Icon, Grid, Inline, Count, RulesPresetCard, RulesPresetExample, Select, SelectContent, SelectItem, SelectValue, Stack, Text, Input, SelectTrigger, Textarea, Section, SectionHeading } from '@loca/ui';
-import { client, unwrap } from '@/lib/api';
 import { q } from '@/lib/queries';
 import { useFormFrom } from '@/lib/use-form-from';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
 import { AiRegexInput } from '@/components/ai-regex-input';
+import { saveProject } from '@/lib/project';
 
 const KIND = { placeholder: '치환자', tag: '서식 태그' } as const;
 
@@ -27,7 +27,7 @@ export function FormatRulesSection({ projectId, rules }: { projectId: string; ru
   const detected = detectQuery.data;
 
   const save = useMutation({
-    mutationFn: () => unwrap(client.projects[':projectId'].$patch({ param: { projectId }, json: { formatRules: draft } })),
+    mutationFn: () => saveProject(projectId, { formatRules: draft }),
     onSuccess: () => toast.success('치환자·태그 문법을 저장했습니다.'),
     onError: (error) => toast.error(error.message),
   });

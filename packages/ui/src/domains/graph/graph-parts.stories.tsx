@@ -11,7 +11,7 @@ import { Notice } from "../../patterns/notice"
 import { FoundNodeList } from "./canvas-surface"
 import { FloatingZoomBar } from "./canvas-toolbar"
 import { FloatingCard } from "./floating-card"
-import { ColumnResizeHandle, FlowRow } from "./flow-pane"
+import { ColumnResizeHandle, FlowLine, FlowRow } from "./flow-pane"
 import { ForkOptionItem } from "./fork-menu"
 import { ArmChip, SeamStateChip } from "./path-chips"
 import { ForkNodeFrame, PathEdgeLabel, PathNodeButton, PathNodeCard } from "./path-node"
@@ -50,6 +50,25 @@ export const LineCard: Story = {
       <Text variant="body">…여기 있었구나.</Text>
     </FloatingCard>
   ),
+}
+
+/** One line in each of the three views of a pane: both (the translation is the main text), the source alone, the translation alone, and a line not translated yet. */
+export const FlowLines: Story = {
+  render: () => {
+    const style = { gridTemplateColumns: "72px minmax(0,1fr)" }
+    const source = "Oh hello, you must be the new Townframer. Great! My name is Tutorial Tomato."
+    const translation = "아, 안녕하세요! 당신이 새로운 타운프레이머군요. 잘됐네요! 제 이름은 튜토리얼 토마토예요."
+    return (
+      <Box border="all">
+        <ol>
+          <FlowRow who="토마토" what={<FlowLine show="both" source={source} translation={translation} />} style={style} />
+          <FlowRow who="토마토" what={<FlowLine show="source" source={source} translation={translation} />} style={style} />
+          <FlowRow who="토마토" what={<FlowLine show="translation" source={source} translation={translation} />} style={style} />
+          <FlowRow who="토마토" what={<FlowLine show="both" source={source} translation={null} />} style={style} />
+        </ol>
+      </Box>
+    )
+  },
 }
 
 export const FlowRows: Story = {

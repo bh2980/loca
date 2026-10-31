@@ -1,5 +1,5 @@
 import { APPLY_TARGETS, type ApplyFunctionName, type JsonField, type TagAction } from './functions.ts';
-import type { IssueKind } from './issues.ts';
+import { ISSUE_KIND_IDS, REVIEW_KIND_IDS, type IssueKind } from './issues.ts';
 import { AI_PROMPTS, presetConfig, type AiPromptId } from './presets.ts';
 import type { DraftModelChoice } from './model-choice.ts';
 import { entryConfigSchema, retryConfigSchema, type EntryConfig, type WorkflowDefinition, type WorkflowEdge, type WorkflowNode } from './workflow.ts';
@@ -105,16 +105,19 @@ const saveList = (id: string, fn: ApplyFunctionName, preset: AiPromptId, list: s
   applyNode(id, fn, row, { list, map: mapByName(fn, itemFields(preset, list)), params }, column);
 
 /**
- * A 태그 붙이기 / 떼기 node. `from` names the field of the previous step's result that holds the tags
- * (a review's `categories`, a check's `kind`); `all` is every 문제 유형 (떼기 only).
+ * A 태그 붙이기 / 떼기 node. `tagIds` are the project's tags it puts on or takes off; `from` names the field of the
+ * previous step's result whose values (a review's `categories`) become tags through `categories` (kind → tag id).
  */
-const tagNode = (id: string, label: string, action: TagAction, options: { from?: string; kinds?: IssueKind[]; all?: boolean; tagIds?: string[] }, row: number, column = 0): WorkflowNode => ({
+const tagNode = (id: string, label: string, action: TagAction, options: { from?: string; tagIds?: string[]; categories?: Record<string, string> }, row: number, column = 0): WorkflowNode => ({
   id,
   type: 'function',
   position: at(row, column),
   label,
-  config: { fn: 'tagLines', params: { list: '', map: options.from ? { tag: options.from } : {}, action, tagIds: options.tagIds ?? [], kinds: options.kinds ?? [], allKinds: options.all ?? false }, concurrency: 2 },
+  config: { fn: 'tagLines', params: { list: '', map: options.from ? { tag: options.from } : {}, action, tagIds: options.tagIds ?? [], categoryTags: options.categories ?? {} }, concurrency: 2 },
 });
+
+/** The project's tags for these kinds (the ones a new project gets for them), those it has. */
+const issueTagIds = (ids: TemplateIds, kinds: readonly IssueKind[]) => kinds.flatMap((kind) => (ids.issueTags?.[kind] ? [ids.issueTags[kind]!] : []));
 
 const edge = (source: string, sourceHandle: string, target: string): WorkflowEdge => ({ id: `${source}-${sourceHandle}-${target}`, source, sourceHandle, target });
 
@@ -154,7 +157,7 @@ const chain = (...ids: string[]) => ids.slice(1).map((id, index) => edge(ids[ind
 
 /** The failure marker of an extraction AI node's 재요청: puts the `AI 실패` tag on the line. */
 const failTag = (aiId: string, ids: TemplateIds, row: number, column = 3): WorkflowNode =>
-  tagNode(`${aiId}-failed`, 'AI 실패 태그', 'add', { tagIds: ids.aiFailedTag ? [ids.aiFailedTag] : [] }, row, column);
+  tagNode(`${aiId}-failed`, 'AI 실패 태그', 'add', { tagIds: issueTagIds(ids, ['aiFailed']) }, row, column);
 
 const statusNode = (id: string, label: string, statusId: string, row: number, column = 0): WorkflowNode => ({
   id,
@@ -209,7 +212,7 @@ const speechNodes = (ids: TemplateIds): WorkflowNode[] => [
     label: '말투가 규칙대로?',
     config: { expression: { '==': [{ var: 'outputs.speech.value' }, { var: 'unit.speechLevel' }] }, description: '판정한 말투가 이 대사의 화자 → 청자 말투 규칙과 같으면 통과합니다.' },
   },
-  tagNode('tag-speech', '말투 태그 붙이기', 'add', { kinds: ['speech'] }, 6, 2),
+  tagNode('tag-speech', '말투 태그 붙이기', 'add', { tagIds: issueTagIds(ids, ['speech']) }, 6, 2),
 ];
 const speechEdges = [
   edge('has-rule', 'true', 'speech'),
@@ -263,20 +266,20 @@ function reviewLoop(ids: TemplateIds, judgeSpeech: boolean): WorkflowDefinition 
       failed('translate', 1, 3),
       writeTranslation('save', 2),
       formatCheckNode(3),
-      tagNode('untag-format', '형식 태그 떼기', 'remove', { from: 'kind' }, 4),
-      tagNode('tag-format', '형식 태그 붙이기', 'add', { from: 'kind' }, 4, 1),
+      tagNode('untag-format', '형식 태그 떼기', 'remove', { tagIds: issueTagIds(ids, ['format']) }, 4),
+      tagNode('tag-format', '형식 태그 붙이기', 'add', { tagIds: issueTagIds(ids, ['format']) }, 4, 1),
       // Glossary use is checked by code, not left to AI 검수 alone.
       glossaryCheckNode(4.5),
-      tagNode('untag-term', '용어 태그 떼기', 'remove', { from: 'kind' }, 4.75),
-      tagNode('tag-term', '용어 태그 붙이기', 'add', { from: 'kind' }, 4.75, 1),
+      tagNode('untag-term', '용어 태그 떼기', 'remove', { tagIds: issueTagIds(ids, ['term']) }, 4.75),
+      tagNode('tag-term', '용어 태그 붙이기', 'add', { tagIds: issueTagIds(ids, ['term']) }, 4.75, 1),
       // 말투 판정: which speech level the translation uses, compared with the line's rule. A judging
       // connection (System One) answers this quickly; an unsure answer leaves it to AI 검수.
       ...(judgeSpeech ? speechNodes(ids) : []),
       aiNode('review', 'review', ids.model, 7),
       ...resendNodes('review', 7),
       failed('review', 7, 3),
-      tagNode('untag-review', '문제 태그 모두 떼기', 'remove', { all: true }, 8),
-      tagNode('tag-review', '검수 지적 태그 붙이기', 'add', { from: 'categories' }, 8, 1),
+      tagNode('untag-review', '문제 태그 모두 떼기', 'remove', { tagIds: issueTagIds(ids, ISSUE_KIND_IDS) }, 8),
+      tagNode('tag-review', '검수 지적 태그 붙이기', 'add', { from: 'categories', categories: Object.fromEntries(REVIEW_KIND_IDS.flatMap((kind) => (ids.issueTags?.[kind] ? [[kind, ids.issueTags[kind]!]] : []))) }, 8, 1),
       statusNode('confirm', '완료로', ids.confirmed ?? '', 9),
       // The revise loop, in its own column.
       {
@@ -300,6 +303,8 @@ function reviewLoop(ids: TemplateIds, judgeSpeech: boolean): WorkflowDefinition 
       },
       // Its own end, so each condition's dead end folds into a chip of its own.
       statusNode('unrevised', '검토 필요로', ids.needsReview ?? '', 11, 4),
+      // The findings were about the text AI 수정 replaced: off before the checks look at the new one.
+      tagNode('untag-revised', '지적 태그 모두 떼기', 'remove', { tagIds: issueTagIds(ids, ISSUE_KIND_IDS) }, 12, 3),
       aiNode('terms', 'terms', ids.model, 10),
       ...resendNodes('terms', 10),
       failTag('terms', ids, 10, 4),
@@ -325,7 +330,8 @@ function reviewLoop(ids: TemplateIds, judgeSpeech: boolean): WorkflowDefinition 
       edge('retry', 'false', 'escalate'),
       edge('revise', 'out', 'save-revision'),
       edge('save-revision', 'out', 'revised'),
-      edge('revised', 'true', 'check'),
+      edge('revised', 'true', 'untag-revised'),
+      edge('untag-revised', 'out', 'check'),
       edge('revised', 'false', 'unrevised'),
       ...resendEdges('translate', 'translate-failed'),
       ...resendEdges('review', 'review-failed'),
@@ -490,7 +496,8 @@ export interface TemplateIds {
   translated?: string;
   needsReview?: string;
   confirmed?: string;
-  aiFailedTag?: string;
+  /** The project's tag for each kind a check or review names (and AI 실패), found by the name a new project gives it. */
+  issueTags?: Partial<Record<IssueKind, string>>;
 }
 
 /** The templates a person can start a workflow from, in the order they are offered. */

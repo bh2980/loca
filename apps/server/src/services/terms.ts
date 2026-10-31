@@ -1,11 +1,12 @@
-import { and, asc, eq, inArray, like, ne, or, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, ne, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { aiStatus, matchesMarks, termMarksOf, TERM_MARK_IDS, withDuplicateTargets, withMainTarget, withTargetCandidate, type AutoMark, type TermScope } from '@tw/shared';
+import { aiStatus, appliesEverywhere, duplicateTargets, termMarksOf, termMatches, termText, TERM_MARK_IDS, withMainTarget, withTargetCandidate, type AutoMark, type TermScope } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { fillTermUsage } from './term-usage.ts';
-import { annotateKnowledge, knowledgeFilterInput, matchesStatus, type KnowledgeFilter } from './knowledge-list.ts';
+import { knowledgeFilterInput, tagIdsOf, type KnowledgeFilterInput } from './knowledge-list.ts';
+import { withTags } from './knowledge-tags.ts';
 import { bySaver, PERSON, type Saver } from './status-by.ts';
 import { discoverTerms } from './term-discovery.ts';
 
@@ -20,7 +21,7 @@ export interface TermSave {
   target?: string;
   note?: string;
   status?: 'candidate' | 'confirmed' | 'rejected';
-  scope?: 'all' | 'ui' | 'dialogue';
+  scope?: TermScope;
   matchCase?: boolean;
 }
 
@@ -32,12 +33,12 @@ export interface TermSave {
  */
 export function saveTerm(tx: Tx, projectId: string, term: TermSave, options: { id?: string; saver?: Saver }) {
   const saver = options.saver ?? PERSON;
-  const source = term.source?.trim();
+  const source = term.source === undefined ? undefined : termText(term.source);
   const mine = options.id ? tx.select().from(s.terms).where(and(eq(s.terms.id, options.id), eq(s.terms.projectId, projectId))).get() : undefined;
   if (options.id && !mine) return { ok: false as const, reason: 'missing' as const, error: '용어를 찾을 수 없습니다.' };
   const same = source ? termBySource(tx, projectId, source) : undefined;
   if (same && same.id !== mine?.id && same.status !== 'rejected') return { ok: false as const, reason: 'duplicate' as const, error: `이미 있는 용어입니다: ${same.source}${same.target ? ` → ${same.target}` : ''}` };
-  const values = { ...term, ...(source !== undefined && { source }) };
+  const values = { ...term, ...(source !== undefined && { source }), ...(term.target !== undefined && { target: termText(term.target) }) };
   if (!mine) {
     // Revive a rejected term of the same source instead of adding a second.
     if (same) {
@@ -48,7 +49,7 @@ export function saveTerm(tx: Tx, projectId: string, term: TermSave, options: { i
   }
   if (same && same.id !== mine.id) tx.delete(s.terms).where(eq(s.terms.id, same.id)).run();
   // A new source, scope or case rule matches other lines: counted again.
-  const changesSource = (source !== undefined && source !== mine.source) || (term.scope !== undefined && term.scope !== mine.scope) || (term.matchCase !== undefined && term.matchCase !== mine.matchCase);
+  const changesSource = (source !== undefined && source !== mine.source) || (term.scope !== undefined && JSON.stringify(term.scope) !== JSON.stringify(mine.scope)) || (term.matchCase !== undefined && term.matchCase !== mine.matchCase);
   // A new main form keeps the former one among the candidates (the pane's 메인으로 sends a candidate here).
   const forms = term.target !== undefined && term.target.trim() !== mine.target.trim() ? withMainTarget(mine, term.target) : {};
   const row = tx.update(s.terms).set({ ...values, ...forms, ...(changesSource && { lines: null }), ...bySaver(tx, s.terms, projectId, mine.id, values, saver) }).where(eq(s.terms.id, mine.id)).returning().get();
@@ -69,8 +70,8 @@ export function upsertAiTerm(
   term: { source: string; target?: string; note?: string; examples?: string[]; scope?: TermScope },
   options: { autoConfirm: boolean; runId?: string },
 ): 'added' | 'filled' | 'unchanged' {
-  const source = term.source.trim();
-  const target = term.target?.trim() ?? '';
+  const source = termText(term.source);
+  const target = termText(term.target ?? '');
   const note = term.note?.trim() ?? '';
   const examples = term.examples ?? [];
   const known = termBySource(tx, projectId, source);
@@ -85,7 +86,7 @@ export function upsertAiTerm(
       ...(offered.length !== known.targetCandidates.length && { targetCandidates: offered }),
       ...(!known.note.trim() && note && { note }),
       ...(!known.examples.length && examples.length && { examples }),
-      ...(term.scope && term.scope !== known.scope && known.scope === 'all' && known.statusBy !== 'human' && { scope: term.scope }),
+      ...(term.scope && appliesEverywhere(known.scope) && !appliesEverywhere(term.scope) && known.statusBy !== 'human' && { scope: term.scope }),
     };
     if (!Object.keys(fill).length) return 'unchanged';
     tx.update(s.terms).set(fill).where(eq(s.terms.id, known.id)).run();
@@ -168,30 +169,33 @@ export function discoverAndSave(db: Db, projectId: string) {
   return { found: found.length, added, updated };
 }
 
-/** Filter of the glossary list: the knowledge filter, with the term marks (ai, emptyTarget, unused). */
+/** Filter of the glossary list: the knowledge filter, with the term marks (unused, duplicateTarget) and an empty Korean form. */
 export const termFilterInput = {
   ...knowledgeFilterInput,
-  marks: z.array(z.enum(TERM_MARK_IDS as [AutoMark, ...AutoMark[]])).optional().describe('Term marks: ai, emptyTarget (no Korean form), unused (not in the script); all given must hold.'),
-  q: z.string().optional().describe('Text in the source or the translation.'),
+  marks: z.array(z.enum(TERM_MARK_IDS as [AutoMark, ...AutoMark[]])).optional().describe('Term marks: unused (not in the script), duplicateTarget (another source has the same Korean form); all given must hold.'),
+  emptyTarget: z.boolean().optional().describe('true: terms with no Korean form yet (번역 비어 있음); false: terms that have one.'),
+  q: z.string().optional().describe('Text in the source, the translation or the memo (case aside).'),
 };
 
 /**
  * The glossary as the glossary page lists it (not rejected terms, source order) with what the page
  * shows: lines (나온 줄, counted first), examples, marks and tag names. `total` counts every match.
  */
-export function listTerms(db: Db, projectId: string, input: KnowledgeFilter & { q?: string; offset?: number; limit?: number }) {
+export function listTerms(db: Db, projectId: string, input: KnowledgeFilterInput & { q?: string; emptyTarget?: boolean; offset?: number; limit?: number }) {
   fillTermUsage(db, projectId);
-  const where = and(eq(s.terms.projectId, projectId), ne(s.terms.status, 'rejected'), input.q ? or(like(s.terms.source, `%${input.q}%`), like(s.terms.target, `%${input.q}%`)) : undefined);
-  const rows = db.select().from(s.terms).where(where).orderBy(asc(s.terms.source)).all();
-  // Duplicates are read across the whole glossary, not just the rows the search found.
-  const duplicate = new Set(withDuplicateTargets(db.select().from(s.terms).where(eq(s.terms.projectId, projectId)).all()).filter((term) => term.duplicateTarget).map((term) => term.id));
-  const matched = annotateKnowledge(db, projectId, 'terms', rows.map((row) => ({ ...row, duplicateTarget: duplicate.has(row.id) })), { tags: input.tags })
-    .map(({ marks: _marks, ...row }) => ({ ...row, marks: termMarksOf(row) }))
-    .filter((row) => matchesMarks(row.marks, input.marks) && matchesStatus(row, input));
+  const rows = withTags(db, 'terms', db.select().from(s.terms).where(and(eq(s.terms.projectId, projectId), ne(s.terms.status, 'rejected'))).orderBy(asc(s.terms.source)).all());
+  // Duplicates are read across the whole glossary, not just the rows the filter keeps.
+  const duplicate = duplicateTargets(rows);
+  const names = new Map(db.select({ id: s.tags.id, name: s.tags.name }).from(s.tags).where(eq(s.tags.projectId, projectId)).all().map((tag) => [tag.id, tag.name]));
+  // The glossary page's filter (termMatches), with tags named as list_tags names them.
+  const filter = { text: input.q, status: input.status, decidedBy: input.decidedBy, emptyTarget: input.emptyTarget, marks: input.marks, unreviewed: input.unreviewed, tags: tagIdsOf(db, projectId, input.tags) };
+  const matched = rows
+    .filter((row) => termMatches(row, filter, duplicate.has(row)))
+    .map((row) => ({ ...row, marks: termMarksOf({ lines: row.lines, duplicateTarget: duplicate.has(row) }), tags: row.tags.map((tag) => names.get(tag.id) ?? tag.id) }));
   const offset = input.offset ?? 0;
   const page = input.limit === undefined ? matched.slice(offset) : matched.slice(offset, offset + input.limit);
   return {
     total: matched.length,
-    terms: page.map(({ id, source, target, targetCandidates, scope, matchCase, note, status, statusBy, lines, examples, marks, tags }) => ({ id, source, target, ...(targetCandidates.length && { targetCandidates }), ...(scope !== 'all' && { scope }), ...(matchCase && { matchCase }), note, status, statusBy, lines, examples, marks, tags })),
+    terms: page.map(({ id, source, target, targetCandidates, scope, matchCase, note, status, statusBy, lines, examples, marks, tags }) => ({ id, source, target, ...(targetCandidates.length && { targetCandidates }), ...(!appliesEverywhere(scope) && { scope }), ...(matchCase && { matchCase }), note, status, statusBy, lines, examples, marks, tags })),
   };
 }

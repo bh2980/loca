@@ -34,7 +34,7 @@ export const proposalSaver = (decidedBy: 'person' | 'auto' | 'bypass'): Saver =>
  * its content (not just its status) the content is the saver's too. A person has looked at it, so
  * 확인 권장 comes off (a write here, made before the caller's update).
  */
-export function bySaver(db: Pick<Db, 'select' | 'insert' | 'delete'>, table: DecidedTable, projectId: string, id: string, body: Record<string, unknown>, saver: Saver = PERSON) {
+export function bySaver(db: Pick<Db, 'select' | 'update'>, table: DecidedTable, projectId: string, id: string, body: Record<string, unknown>, saver: Saver = PERSON) {
   // One id column shape across these tables; the cast only picks it.
   const t = table as typeof s.terms;
   const row = db.select().from(t).where(and(eq(t.id, id), eq(t.projectId, projectId))).get() as Record<string, unknown> | undefined;
@@ -44,7 +44,7 @@ export function bySaver(db: Pick<Db, 'select' | 'insert' | 'delete'>, table: Dec
 }
 
 /** A person's save in the app. */
-export const byPerson = (db: Pick<Db, 'select' | 'insert' | 'delete'>, table: DecidedTable, projectId: string, id: string, body: Record<string, unknown>) => bySaver(db, table, projectId, id, body, PERSON);
+export const byPerson = (db: Pick<Db, 'select' | 'update'>, table: DecidedTable, projectId: string, id: string, body: Record<string, unknown>) => bySaver(db, table, projectId, id, body, PERSON);
 
 /** The project's AI 문맥 switch (설정 › 프로젝트): whether AI results that are knowledge or terms are confirmed right away. Read when they are saved. */
 export const aiAutoConfirmOf = (db: Db, projectId: string): boolean => knowledgeOf(db, projectId).settings()?.aiAutoConfirm ?? true;

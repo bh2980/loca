@@ -3,7 +3,7 @@ import { type ReactNode } from 'react';
 import { Check, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { InferResponseType } from 'hono/client';
-import { AUTO_MARKS, markColor, type MarkColors, type AgeBand, type CharacterRole, type CharacterStyle, type Gender, type DOCUMENT_KINDS, type SpeechLevel, type AutoMark, KNOWLEDGE_MARK_IDS, knowledgeMarksOf, matchesMarks, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, sourceOf, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type StatusBy } from '@tw/shared';
+import { AUTO_MARKS, markColor, markName, type MarkStyles, type AgeBand, type CharacterRole, type CharacterStyle, type Gender, type DOCUMENT_KINDS, type SpeechLevel, type AutoMark, KNOWLEDGE_MARK_IDS, knowledgeMarksOf, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, sourceOf, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type StatusBy, DECIDED_BY, DECIDED_BY_LABELS, type DecidedBy } from '@tw/shared';
 import { DataTable, type ColumnDef, type FilterChip, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, AiMark, Inline, Stack, StatusIcon, TagChip, Text } from '@loca/ui';
 import { MarkChip } from '@/components/status';
 import { HeaderFilter, MarkFilter, markTagGroups, togglePick, type FilterOption, type FilterPick } from '@/components/header-filter';
@@ -20,7 +20,9 @@ export interface Draft {
   /** Who set the status. */
   statusBy: StatusBy;
   evidence: string[];
-  /** Project tags on it; `note` says why the app put one there (확인 권장). */
+  /** Why the analysis wants a person to look (the automatic tag 확인 권장); empty when none. */
+  reviewNote?: string;
+  /** Project tags on it. */
   tags?: ItemTag[];
 }
 export interface ItemTag {
@@ -139,19 +141,21 @@ export type SourceFilter = KnowledgeSource | undefined;
 export type StatusFilter = 'candidate' | 'confirmed' | undefined;
 export const parseStatusFilter = (raw: unknown): StatusFilter => (raw === 'candidate' || raw === 'confirmed' ? raw : undefined);
 export const statusOptions: FilterOption[] = (['candidate', 'confirmed'] as const).map((value) => ({ value, label: KNOWLEDGE_STATUS_LABELS[value] }));
-/** `marks` is the page's marks param (every picked mark must hold, see matchesMarks); `status` the 상태 param. */
-export const matches = (row: Draft, source: SourceFilter, marks?: readonly AutoMark[], tags?: string[], status?: StatusFilter) =>
-  (!source || sourceOf(row) === source) && (!status || row.status === status) && matchesMarks(knowledgeMarksOf(row), marks) && (tags ?? []).every((tag) => row.tags?.some((item) => item.id === tag));
-/** 숨기기: an item carrying any hidden mark or tag is left out. */
-export const isHidden = (marks: readonly AutoMark[], tagIds: readonly string[], hidden: { hideMarks?: readonly AutoMark[]; hideTags?: readonly string[] }) =>
-  marks.some((mark) => hidden.hideMarks?.includes(mark)) || tagIds.some((id) => hidden.hideTags?.includes(id));
-export const rowHidden = (row: Draft, hidden: { hideMarks?: readonly AutoMark[]; hideTags?: readonly string[] }) => isHidden(knowledgeMarksOf(row), (row.tags ?? []).map((tag) => tag.id), hidden);
-
+/** The `decidedBy` URL param (정한 쪽). */
+export const parseDecidedBy = (raw: unknown): DecidedBy | undefined => DECIDED_BY.find((by) => by === raw);
+/** The 상태 header's choices: 후보, 확정, and a confirmed one by who decided it (the separate decidedBy param). */
+const stateOptions: FilterOption[] = [...statusOptions, { value: 'ai', label: '확정 · AI가 정함 (✦)' }, { value: 'human', label: '확정 · 사람이 정함' }];
+const statePatch = (value: string | undefined) => (value === 'ai' || value === 'human' ? { status: undefined, decidedBy: value as DecidedBy } : { status: value as StatusFilter, decidedBy: undefined });
+/** The 상태 header filter of knowledge and glossary tables: status and 정한 쪽 in one menu. */
+export function StateFilter({ status, decidedBy: by, onChange }: { status?: StatusFilter; decidedBy?: DecidedBy; onChange: (next: { status: StatusFilter; decidedBy: DecidedBy | undefined }) => void }) {
+  return <HeaderFilter label="상태" value={by ?? status} options={stateOptions} onChange={(value) => onChange(statePatch(value))} />;
+}
+/** `marks` is the page's marks param (every picked mark must hold, see matchesMarks); `status` the 상태 param, `by` 정한 쪽. */
 /** The marks a knowledge item can be filtered by. */
 export { KNOWLEDGE_MARK_IDS };
 
-/** An item's automatic marks then its tags, all as colored chips; the app's reason for a tag (확인 권장) shows on hover. */
-export function TagCell({ tags, known, marks }: { tags?: ItemTag[]; known: TagInfo[]; marks?: AutoMark[] }) {
+/** An item's automatic marks then its tags, all as colored chips; why 확인 권장 is on shows on hover. */
+export function TagCell({ tags, known, marks, reviewNote }: { tags?: ItemTag[]; known: TagInfo[]; marks?: AutoMark[]; reviewNote?: string }) {
   const shown = (tags ?? []).flatMap((item) => {
     const info = known.find((tag) => tag.id === item.id);
     return info ? [{ ...item, info }] : [];
@@ -159,9 +163,15 @@ export function TagCell({ tags, known, marks }: { tags?: ItemTag[]; known: TagIn
   if (!shown.length && !marks?.length) return null;
   return (
     <Stack as="span" direction="row" wrap gap="tight">
-      {marks?.map((mark) => (
-        <MarkChip key={mark} mark={mark} />
-      ))}
+      {marks?.map((mark) =>
+        mark === 'review' && reviewNote ? (
+          <span key={mark} title={reviewNote}>
+            <MarkChip mark={mark} />
+          </span>
+        ) : (
+          <MarkChip key={mark} mark={mark} />
+        ),
+      )}
       {shown.map((item) => (
         <span key={item.id} title={item.note ?? undefined}>
           <TagChip tag={item.info} />
@@ -197,6 +207,8 @@ export interface KnowledgeFilterState {
   source: SourceFilter;
   /** 상태 (the status param): 후보 or 확정. */
   status?: StatusFilter;
+  /** 정한 쪽 (the decidedBy param), chosen in the 상태 header. */
+  decidedBy?: DecidedBy;
   /** Picked automatic marks (the marks URL param). */
   marks?: AutoMark[];
   /** Picked tag ids: items carrying all of them. */
@@ -206,7 +218,7 @@ export interface KnowledgeFilterState {
   hideTags?: string[];
   /** The project's tags (lines' problem types left out): the 태그 column's chips and filter. */
   known: TagInfo[];
-  onChange: (next: { source?: SourceFilter; status?: StatusFilter; marks?: AutoMark[]; tags?: string[]; hideMarks?: AutoMark[]; hideTags?: string[] }) => void;
+  onChange: (next: { source?: SourceFilter; status?: StatusFilter; decidedBy?: DecidedBy; marks?: AutoMark[]; tags?: string[]; hideMarks?: AutoMark[]; hideTags?: string[] }) => void;
 }
 
 /** The 태그 filter: the app's marks, then the tags; every pick narrows the rows. */
@@ -227,14 +239,14 @@ export function metaColumns<T>(draftOf: (row: T) => Draft, filters: KnowledgeFil
     {
       id: 'state',
       meta: { width: 88, label: '상태' },
-      header: () => <HeaderFilter label="상태" value={filters.status} options={statusOptions} onChange={(value) => filters.onChange({ status: value as StatusFilter })} />,
+      header: () => <StateFilter status={filters.status} decidedBy={filters.decidedBy} onChange={filters.onChange} />,
       cell: ({ row }) => <StateCell row={draftOf(row.original)} />,
     },
     {
       id: 'tags',
       meta: { width: 150, label: '태그' },
       header: () => <TagFilter filters={filters} />,
-      cell: ({ row }) => <TagCell tags={draftOf(row.original).tags} known={filters.known} marks={marksOf(row.original)} />,
+      cell: ({ row }) => <TagCell tags={draftOf(row.original).tags} known={filters.known} marks={marksOf(row.original)} reviewNote={draftOf(row.original).reviewNote} />,
     },
     {
       id: 'source',
@@ -246,14 +258,15 @@ export function metaColumns<T>(draftOf: (row: T) => Draft, filters: KnowledgeFil
 }
 
 /** The knowledge filters that are set, as removable chips for the toolbar. */
-export function knowledgeFilterChips(filters: KnowledgeFilterState, markColors?: MarkColors): FilterChip[] {
+export function knowledgeFilterChips(filters: KnowledgeFilterState, styles?: MarkStyles): FilterChip[] {
   return [
     ...(filters.status ? [{ key: 'status', label: KNOWLEDGE_STATUS_LABELS[filters.status], clear: () => filters.onChange({ status: undefined }) }] : []),
+    ...(filters.decidedBy ? [{ key: 'decidedBy', label: `정한 쪽: ${DECIDED_BY_LABELS[filters.decidedBy]}`, clear: () => filters.onChange({ decidedBy: undefined }) }] : []),
     ...(filters.source ? [{ key: 'source', label: SOURCE_LABELS[filters.source], clear: () => filters.onChange({ source: undefined }) }] : []),
     ...(filters.marks ?? []).map((mark) => ({
       key: `mark:${mark}`,
-      label: `#${AUTO_MARKS[mark].name}`,
-      color: markColor(mark, markColors),
+      label: `#${markName(mark, styles)}`,
+      color: markColor(mark, styles),
       clear: () => {
         const next = (filters.marks ?? []).filter((other) => other !== mark);
         filters.onChange({ marks: next.length ? next : undefined });
@@ -270,8 +283,8 @@ export function knowledgeFilterChips(filters: KnowledgeFilterState, markColors?:
     })),
     ...(filters.hideMarks ?? []).map((mark) => ({
       key: `hide-mark:${mark}`,
-      label: `#${AUTO_MARKS[mark].name}`,
-      color: markColor(mark, markColors),
+      label: `#${markName(mark, styles)}`,
+      color: markColor(mark, styles),
       hidden: true,
       clear: () => filters.onChange({ hideMarks: togglePick(undefined, filters.hideMarks, mark, 'hide').hide }),
     })),
@@ -289,7 +302,7 @@ export function knowledgeFilterChips(filters: KnowledgeFilterState, markColors?:
 export function KnowledgeFilters(filters: KnowledgeFilterState) {
   return (
     <Inline gap="normal" variant="caption" tone="muted">
-      <HeaderFilter label="상태" value={filters.status} options={statusOptions} onChange={(value) => filters.onChange({ status: value as StatusFilter })} />
+      <StateFilter status={filters.status} decidedBy={filters.decidedBy} onChange={filters.onChange} />
       <TagFilter filters={filters} />
       <HeaderFilter label="출처" value={filters.source} options={sourceOptions} onChange={(value) => filters.onChange({ source: value as SourceFilter })} />
     </Inline>

@@ -45,7 +45,8 @@ export const AGENT_TOOLS: Record<string, { target: AgentToolTarget; action: Agen
   create_group: tool('scenes', 'change', '장면 추가'),
   update_group: tool('scenes', 'change', '장면 수정'),
   delete_group: tool('scenes', 'delete', '장면 삭제'),
-  propose_translation: tool('script', 'change', '번역 후보 추가'),
+  propose_translation: tool('script', 'change', '번역 제안 추가'),
+  decide_suggestion: tool('script', 'change', 'AI 제안 적용·거절'),
   propose_changes: tool('script', 'change', '대사 일괄 변경'),
   set_listeners: tool('script', 'change', '청자 저장'),
   save_group_summary: tool('scenes', 'change', '장면 요약 저장'),
@@ -59,7 +60,6 @@ export const AGENT_TOOLS: Record<string, { target: AgentToolTarget; action: Agen
   save_event: tool('knowledge', 'change', '사건 저장'),
   link_events: tool('knowledge', 'change', '사건 잇기'),
   link_lines: tool('script', 'change', '대사 그래프 잇기'),
-  link_scenes: tool('script', 'change', '장면 잇기'),
   link_in_order: tool('script', 'change', '대본 순서로 잇기'),
   add_line_after: tool('script', 'change', '대사 넣기'),
   delete_lines: tool('script', 'change', '대사 지우기'),
@@ -97,13 +97,13 @@ export const AGENT_TOOLS: Record<string, { target: AgentToolTarget; action: Agen
   read_web_page: tool('web', 'read', '웹 페이지 읽기'),
 };
 
-/** Tools that add candidates without changing the current translation. */
+/** Tools that add an AI 제안 without changing the current translation. */
 export const CANDIDATE_ONLY_TOOLS = new Set(['propose_translation']);
 
 /** How an accepted change reads: to the agent and the CLI (decided) and on cards (short). */
 export function acceptedLabel(toolName: string): { decided: string; short: string } {
   return CANDIDATE_ONLY_TOOLS.has(toolName)
-    ? { decided: '수락되어 후보로 추가됨', short: '후보로 추가됨' }
+    ? { decided: '수락되어 AI 제안으로 추가됨 (사람이 적용·거절)', short: '제안으로 추가됨' }
     : { decided: '수락되어 반영됨', short: '적용됨' };
 }
 

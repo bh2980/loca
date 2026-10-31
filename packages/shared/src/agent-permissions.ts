@@ -40,7 +40,7 @@ const fixed: Record<string, AgentPermission[]> = {
   plan_run: read('workflows', 'script', 'characters', 'speechRules', 'terms', 'tags', 'statuses'),
   create_unit: [p('script', 'create')], update_unit: [p('script', 'update')], delete_units: [p('script', 'delete')],
   create_group: [p('scenes', 'create')], update_group: [p('scenes', 'update')], delete_group: [p('scenes', 'delete')],
-  propose_translation: [p('script', 'update')], propose_changes: [p('script', 'update')], set_listeners: [p('script', 'update')], link_events: [p('events', 'update')], link_lines: [p('script', 'update')], link_scenes: [p('script', 'update')], link_in_order: [p('script', 'update')], add_line_after: [p('script', 'create')], delete_lines: [p('script', 'delete')], save_group_summary: [p('scenes', 'update')],
+  propose_translation: [p('script', 'update')], propose_changes: [p('script', 'update')], set_listeners: [p('script', 'update')], link_events: [p('events', 'update')], link_lines: [p('script', 'update')], link_in_order: [p('script', 'update')], add_line_after: [p('script', 'create')], delete_lines: [p('script', 'delete')], save_group_summary: [p('scenes', 'update')],
   update_status: [p('statuses', 'update')], delete_status: [p('statuses', 'delete')],
   update_tag: [p('tags', 'update')], delete_tag: [p('tags', 'delete')],
   delete_workflow: [p('workflows', 'delete')], edit_workflow_node: [p('workflows', 'update')], start_run: [p('workflows', 'run')], continue_run: [p('workflows', 'run')], discover_terms: [p('terms', 'create')],

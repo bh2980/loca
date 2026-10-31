@@ -6,7 +6,8 @@ import type { Env } from '../context.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
-import { applyIssueTags } from '../services/issue-tags.ts';
+import { issueTagIds } from '../services/issue-tags.ts';
+import { attachUnitTags } from '../services/tag-scope.ts';
 import { sourceRoutes } from './source.ts';
 
 function setup() {
@@ -30,7 +31,7 @@ function setup() {
   const units = db.select().from(s.units).where(eq(s.units.projectId, projectId)).orderBy(s.units.seq).all();
   const finalStatus = db.select().from(s.statuses).where(and(eq(s.statuses.projectId, projectId), eq(s.statuses.kind, 'final'))).get()!;
   const send = (method: string, url: string, body: unknown) => app.request(url, { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-  const issueTag = (unitId: string) => applyIssueTags(db, projectId, unitId, { add: ['format'] });
+  const issueTag = (unitId: string) => attachUnitTags(db, projectId, [unitId], { add: [issueTagIds(db, projectId).format!] }, { onMisplaced: 'refuse' });
   const tagsOf = (unitId: string) => db.select({ tagId: s.unitTags.tagId }).from(s.unitTags).where(eq(s.unitTags.unitId, unitId)).all().map(({ tagId }) => tagId);
   const line = (unitId: string) => db.select({ translation: s.units.translation, statusId: s.units.statusId, candidateId: s.units.candidateId }).from(s.units).where(eq(s.units.id, unitId)).get()!;
   const candidatesOf = (unitId: string) => db.select().from(s.candidates).where(eq(s.candidates.unitId, unitId)).all();

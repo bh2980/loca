@@ -1,12 +1,13 @@
 import { ChangedElsewhere } from './changed-elsewhere';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDown, Check, CircleAlert, Languages, MoreHorizontal, Save, Sparkles, Undo2, WandSparkles } from 'lucide-react';
+import { ArrowDown, Check, CircleAlert, ClipboardPaste, Languages, MoreHorizontal, Save, Sparkles, Undo2, WandSparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { checkFormat, listenerLabel, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatIssue, type FormatRules, withSourceWhitespace } from '@tw/shared';
 import { TokenChip, TokenText } from '@/components/editor/source-text';
+import { AiSuggestion } from '@/components/ai-suggestion';
 import { focusEndOfLine, insertUnitIntoLine, proposeInLine, replaceLineText, TranslationInput } from '@/components/editor/translation-input';
-import { Chip, Box, Button, Icon, Inline, Text, AiMark, EditorAction, EditorChangedWord, EditorDiffWord, EditorDraftNote, EditorPreviousDiff, EditorSuggestionList, EditorSuggestionRow, DropdownMenu, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuContent, Disclosure } from '@loca/ui';
+import { Chip, Box, Button, Icon, Inline, Text, AiMark, EditorAction, EditorChangedWord, EditorDraftNote, EditorSuggestionList, EditorSuggestionRow, DropdownMenu, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuContent } from '@loca/ui';
 import { apiFetch } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
 import { wordDiff } from '@/lib/diff';
@@ -16,7 +17,9 @@ import type { TokenUnit } from '@/lib/tokens';
 import { useSaveLine } from '@/lib/line-save';
 import { offerSameSource } from '@/lib/same-source';
 import { q } from '@/lib/queries';
+import { lineContext, useLineDetail } from '@/lib/units';
 import { keyLabel } from '@/lib/keys';
+import { useProject } from '@/lib/project';
 
 interface Status {
   id: string;
@@ -38,8 +41,8 @@ export function nextStatus(statuses: Status[], currentId: string) {
  * the list go to the next line; Esc leaves the editor (the draft stays). The text is a draft in
  * sessionStorage until saved, shared with the line pane's checks. Format tokens are chips (⌃⌥1…9
  * insert the source's), glossary translations are offered while typing, ⌘⇧S copies the source,
- * and suggestions (other candidates, the same or a similar source translated elsewhere) sit
- * under the box (the first three always shown), ⌥⇧1…⌥⇧3 to take one.
+ * an AI 제안 waiting on the line shows under it with 적용 · 거절, and translations of the same or a similar source
+ * elsewhere (TM) sit below (the first three always shown), ⌥⇧1…⌥⇧3 to take one into the box.
  */
 export function TranslationEditor({
   projectId,
@@ -49,9 +52,10 @@ export function TranslationEditor({
   onEscape,
   focusKey,
   marks,
+  compact,
 }: {
   projectId: string;
-  unit: { id: string; source: string; kind?: string; translation: string | null; statusId: string; statusBy?: 'ai' | 'human'; candidates?: { id: string; text: string }[] };
+  unit: { id: string; source: string; kind?: string; translation: string | null; statusId: string; statusBy?: 'ai' | 'human' };
   statuses: Status[];
   onDone?: (moved: boolean) => void;
   onEscape?: () => void;
@@ -59,6 +63,8 @@ export function TranslationEditor({
   focusKey?: number;
   /** List rows supply their single shared tag row directly below the input. */
   marks?: ReactNode;
+  /** A card with little room (the graph's): no TM under the box (the line's detail has it). An AI 제안 still shows. */
+  compact?: boolean;
 }) {
   // The body only: the source's leading and trailing whitespace goes around it when it is saved.
   const saved = (unit.translation ?? '').trim();
@@ -66,12 +72,11 @@ export function TranslationEditor({
   const dirty = draft !== saved;
   const next = nextStatus(statuses, unit.statusId);
   const line = useLineContext(projectId, unit.source, unit.kind);
-  // The line's candidates: list rows do not carry them, the line's detail does (shared with the suggestions).
-  const detail = useQuery(q.unit(unit.id));
-  const candidates = unit.candidates ?? detail.data?.candidates ?? [];
-  const suggestions = useSuggestions(unit.id, [saved, draft]);
+  // The line's detail carries its AI 제안 (list rows do not).
+  const detail = useLineDetail(projectId, unit.id);
+  const suggestions = useSuggestions(unit.id, [saved, draft], !compact);
   // The AI continuation: asked once when the line opens empty, or with ⌥/.
-  const project = useQuery(q.project(projectId));
+  const project = useProject(projectId);
   const editorAi = project.data?.editorAi;
   // Each button has its own model (설정 › 에디터); the continuation only when it is on with a model.
   // AI 번역 and 다듬기 share one model.
@@ -146,7 +151,7 @@ export function TranslationEditor({
   const placeMissing = () => tags.inserts.length > 0 && proposeInLine(unit.id, tags.inserts);
 
   const queryClient = useQueryClient();
-  const save = useSaveLine();
+  const save = useSaveLine(projectId);
   // Everything sent is what was typed when saving began: typing goes on while it is on its way.
   const run = (advance: boolean) => {
     if (save.isPending) return;
@@ -192,7 +197,9 @@ export function TranslationEditor({
     }
     runAssist(mode);
   };
-  const canShowOverflow = dirty;
+  /** Another line's translation is text to adapt: it goes into the box (⌘Z takes it back). */
+  const takeSuggestion = (suggestion: Suggestion) => replaceLineText(unit.id, suggestion.text) || setDraft(suggestion.text);
+  const putSource = () => replaceLineText(unit.id, unit.source) || setDraft(unit.source);
 
   return (
     <Box spaceY="condensed" onClick={(event) => event.stopPropagation()}>
@@ -208,7 +215,7 @@ export function TranslationEditor({
         onSave={() => run(false)}
         onAdvance={() => run(true)}
         onEscape={onEscape}
-        onPick={(index) => suggestions[index] && (replaceLineText(unit.id, suggestions[index].text) || setDraft(suggestions[index].text))}
+        onPick={compact ? undefined : (index) => suggestions[index] && takeSuggestion(suggestions[index])}
         onPlaceTags={placeMissing}
         continuation={continuation}
         onAssist={() => requestAssist(draft.trim() ? 'refine' : 'translate')}
@@ -262,17 +269,18 @@ export function TranslationEditor({
               다듬기
             </EditorAction>
           </>}
-          {canShowOverflow && <DropdownMenu>
+          <DropdownMenu>
             <DropdownMenuTrigger asChild><Button variant="ghost" size="icon-sm" aria-label="번역 동작 더보기"><MoreHorizontal /></Button></DropdownMenuTrigger>
             <DropdownMenuContent align="end" width="fit">
               {dirty && <>
                 <DropdownMenuItem disabled={save.isPending} onSelect={() => run(false)}><Save /> 저장만 <Text marginLeft="auto" variant="caption" tone="muted">{keyLabel('Mod+S')}</Text></DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => clearDraft()}><Undo2 /> 되돌리기</DropdownMenuItem>
               </>}
-              {dirty && completes && <DropdownMenuSeparator />}
+              {dirty && <DropdownMenuSeparator />}
+              <DropdownMenuItem onSelect={putSource}><ClipboardPaste /> 원문 넣기 <Text marginLeft="auto" variant="caption" tone="muted">{keyLabel('Mod+Shift+S')}</Text></DropdownMenuItem>
               {completes && <DropdownMenuItem disabled={!!ai.loading} onSelect={() => ask(draft)}><Sparkles /> AI 자동완성 <Text marginLeft="auto" variant="caption" tone="muted">{keyLabel('Alt+/')}</Text></DropdownMenuItem>}
             </DropdownMenuContent>
-          </DropdownMenu>}
+          </DropdownMenu>
         </Inline>
       </Inline>
       {(assist.loading || assist.done === 'unchanged' || assist.message || ai.loading || ai.message) && <Inline wrap gap="condensed" variant="caption" tone="muted" aria-live="polite">
@@ -282,13 +290,13 @@ export function TranslationEditor({
         {ai.loading && <Waiting label="자동완성 받는 중…" onCancel={() => (pending.current?.abort(), setAi({ dismissed: true }))} />}
         {ai.message && <span role="alert">{ai.message}</span>}
       </Inline>}
-      {!dirty && <PreviousDiff unitId={unit.id} openAtFirst={unit.statusBy === 'ai'} />}
+      {detail.data && <AiSuggestion projectId={projectId} unit={detail.data} draft={draft} dirty={dirty} base={base} onDraft={setDraft} />}
       {suggestions.length > 0 && (
         <SuggestionList
           suggestions={suggestions}
           source={unit.source}
           tokenPattern={line.tokenPattern}
-          onPick={(text) => replaceLineText(unit.id, text) || setDraft(text)}
+          onPick={takeSuggestion}
         />
       )}
     </Box>
@@ -298,24 +306,22 @@ export function TranslationEditor({
 const VISIBLE_SUGGESTIONS = 3;
 
 /**
- * Candidates and translations of the same or similar sources, always under the box: the first three
+ * Translations of the same or similar sources (TM), always under the box: the first three
  * with their ⌥⇧1…3 keys, the rest one click away. A similar source shows the words that differ.
  */
-function SuggestionList({ suggestions, source, tokenPattern, onPick }: { suggestions: Suggestion[]; source: string; tokenPattern: RegExp | null; onPick: (text: string) => void }) {
+function SuggestionList({ suggestions, source, tokenPattern, onPick }: { suggestions: Suggestion[]; source: string; tokenPattern: RegExp | null; onPick: (suggestion: Suggestion) => void }) {
   const [all, setAll] = useState(false);
   const shown = all ? suggestions : suggestions.slice(0, VISIBLE_SUGGESTIONS);
   const more = suggestions.length - VISIBLE_SUGGESTIONS;
   return (
-    <EditorSuggestionList label="번역 후보와 유사 번역" onMore={more > 0 ? () => setAll((open) => !open) : undefined} moreLabel={all ? '접기' : `+${more}개 더보기`}>
+    <EditorSuggestionList label="비슷한 번역" onMore={more > 0 ? () => setAll((open) => !open) : undefined} moreLabel={all ? '접기' : `+${more}개 더보기`}>
         {shown.map((suggestion, index) => (
           <li key={suggestion.key}>
-            <EditorSuggestionRow hint={keyLabel(`Alt+Shift+${index + 1}`)} hintHidden={index >= VISIBLE_SUGGESTIONS} onPick={() => onPick(suggestion.text)}>
+            <EditorSuggestionRow hint={keyLabel(`Alt+Shift+${index + 1}`)} hintHidden={index >= VISIBLE_SUGGESTIONS} onPick={() => onPick(suggestion)}>
               {/* The label stays on its own line: beside the text it would squeeze a narrow column down to a letter per line. */}
               <Box asChild maxWidth="full" truncate><Chip variant="outline">{suggestion.label}</Chip></Box>
               <TokenText text={suggestion.text} source={source} pattern={tokenPattern} look="suggestion" />
-              {(suggestion.detail || suggestion.reasons?.length) && (
-                <Text as="p" truncate variant="caption" tone="muted">{[suggestion.detail, ...(suggestion.reasons ?? [])].filter(Boolean).join(' · ')}</Text>
-              )}
+              {suggestion.detail && <Text as="p" truncate variant="caption" tone="muted">{suggestion.detail}</Text>}
               {suggestion.diff && (
                 <Text as="p" variant="caption" tone="muted">
                   <Text tone="subtle" marginRight="tight">원문 차이</Text>
@@ -340,29 +346,16 @@ interface Suggestion {
   label: string;
   detail?: string;
   diff?: { text: string; changed: boolean }[];
-  /** 다듬기: why it changed what it did. */
-  reasons?: string[];
 }
 
-/** A 다듬기 candidate's note: '다듬기 — <kind> · <why> — …'. */
-const refineReasons = (note: string) => (note.startsWith('다듬기') ? note.split(' — ').slice(1) : null);
-
 /**
- * What the translator might take instead of typing: the line's other candidates (AI, people,
- * imported), then translations of the same source elsewhere (who says it to whom, as the speech
- * level may differ), then similar sources with the words that differ marked. Texts already in
- * the box or saved are left out.
+ * What the translator might adapt instead of typing (TM): translations of the same source elsewhere (who says it to whom,
+ * as the speech level may differ), then similar sources with the words that differ marked. Texts already in the box or
+ * saved are left out. The line's own earlier texts are in its 이력, an AI's new one in its AI 제안.
  */
-function useSuggestions(unitId: string, shown: string[]): Suggestion[] {
-  const unit = useQuery(q.unit(unitId));
-  const matches = useQuery(q.lineMatches(unitId));
-  const origin = { ai: 'AI', human: '사람', import: '가져옴', tool: '채팅' } as const;
-  const all: Suggestion[] = [
-    ...(unit.data?.candidates ?? []).map((candidate) => {
-      const reasons = candidate.origin === 'ai' ? refineReasons(candidate.note) : null;
-      if (reasons) return { key: `c:${candidate.id}`, text: candidate.text, label: 'AI 다듬기', detail: candidate.model ?? undefined, reasons };
-      return { key: `c:${candidate.id}`, text: candidate.text, label: origin[candidate.origin], detail: [candidate.note, candidate.model].filter(Boolean).join(' · ') || undefined };
-    }),
+function useSuggestions(unitId: string, shown: string[], enabled = true): Suggestion[] {
+  const matches = useQuery({ ...q.lineMatches(unitId), enabled });
+  const all: Suggestion[] = !enabled ? [] : [
     ...(matches.data ?? []).map((match) => ({
       key: `m:${match.unitId}`,
       text: match.translation,
@@ -373,37 +366,6 @@ function useSuggestions(unitId: string, shown: string[]): Suggestion[] {
   ];
   const seen = new Set(shown.map((text) => text.trim()).filter(Boolean));
   return all.filter((suggestion) => !seen.has(suggestion.text.trim()) && (seen.add(suggestion.text.trim()), true)).slice(0, 9);
-}
-
-/**
- * What the current translation changed from the one before it (the previous candidate with other
- * text), word by word: removed words struck through, added ones marked. Open from the start when a
- * run set the line (to check what the AI changed); otherwise one click away.
- */
-function PreviousDiff({ unitId, openAtFirst }: { unitId: string; openAtFirst: boolean }) {
-  const unit = useQuery(q.unit(unitId));
-  const [open, setOpen] = useState(openAtFirst);
-  const candidates = unit.data?.candidates ?? []; // newest first
-  const at = candidates.findIndex((candidate) => candidate.id === unit.data?.candidateId);
-  const current = candidates[at];
-  const previous = at >= 0 ? candidates.slice(at + 1).find((candidate) => candidate.text.trim() !== current.text.trim()) : undefined;
-  if (!current || !previous) return null;
-  const diff = wordDiff(previous.text, current.text).map((part, index) => (
-    <EditorDiffWord key={index} change={part.change === 'removed' || part.change === 'added' ? part.change : undefined}>
-      {part.text}
-    </EditorDiffWord>
-  ));
-  if (!open)
-    return (
-      <Disclosure label="이전 번역">
-        <EditorPreviousDiff title="바뀐 곳">{diff}</EditorPreviousDiff>
-      </Disclosure>
-    );
-  return (
-    <EditorPreviousDiff title="바뀐 곳" actions={<Button variant="ghost" size="inline" onClick={() => setOpen(false)}>접기</Button>}>
-      {diff}
-    </EditorPreviousDiff>
-  );
 }
 
 /** The AI's line per line, kept while the page is open so going back to a line does not ask again. */
@@ -452,7 +414,7 @@ function DraftChecks({ unitId, source, draft, units, terms, tags, rules, targetL
   targetLanguage?: string;
   onPlace: () => void;
 }) {
-  const unit = useQuery(q.unit(unitId));
+  const unit = useQuery(lineContext(unitId));
   if (!draft.trim()) return null;
   // Terms and speech are shown by their rule under the source too; here they count toward the one verdict.
   const lower = draft.toLowerCase();

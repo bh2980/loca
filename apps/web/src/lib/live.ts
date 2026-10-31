@@ -1,7 +1,9 @@
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouterState } from '@tanstack/react-router';
+import type { FeedRows } from '@tw/shared';
 import { CLIENT_ID } from './api';
+import { feed } from './feed';
 
 const BATCH_MS = 250;
 /** No ping (sent every 20 s) for this long: the stream is dead. */
@@ -9,8 +11,12 @@ const SILENCE_MS = 45_000;
 /** Reconnect waits after a dropped stream: 1 s, doubling to 30 s, back to 1 s once it opens. */
 const RETRY_MIN_MS = 1_000;
 const RETRY_MAX_MS = 30_000;
-/** Queries that also follow another topic (none now; the server's IMPLIES covers cross-topic reads). */
-const ALSO: Record<string, string[]> = {};
+/**
+ * Queries that follow another topic. A line's context (lib/units.ts lineContext) is read again when the
+ * feed names its line or a neighbour, and when what it reads besides lines changes: speech rules and
+ * characters (knowledge) and the graph's nodes.
+ */
+const ALSO: Record<string, string[]> = { knowledge: ['line-context'], graph: ['line-context'] };
 
 /** The query keys to refetch for changed topics: the topics and the queries that follow them. Used for events and for a write's own x-changed. */
 export const refetchKeys = (topics: Iterable<string>) => new Set([...topics].flatMap((topic) => [topic, ...(ALSO[topic] ?? [])]));
@@ -61,13 +67,18 @@ export function useLiveInvalidation() {
       source.addEventListener('open', () => {
         alive();
         wait = RETRY_MIN_MS;
-        if (opened) void queryClient.invalidateQueries();
+        if (opened) {
+          void queryClient.invalidateQueries();
+          feed.resync();
+        }
         opened = true;
       });
     };
     const onChange = (event: Event) => {
       alive();
-      const data = JSON.parse((event as MessageEvent<string>).data) as { projectId?: string; topics: string[]; origin?: string };
+      const data = JSON.parse((event as MessageEvent<string>).data) as { projectId?: string; topics: string[]; origin?: string; rows?: FeedRows; seq?: number };
+      // The rows go to the collections whoever made the change: this tab's own write waits for them (feed.wait).
+      if (data.projectId && data.rows && data.seq !== undefined) feed.push(data.projectId, data.rows, data.seq);
       // Made only by this tab's own writes, whose answers (x-changed) already refetched it (#20).
       if (data.origin === CLIENT_ID) return;
       // Another project's events are ignored, except the project list, which every page shows.

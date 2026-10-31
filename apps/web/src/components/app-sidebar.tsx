@@ -1,11 +1,11 @@
 import { useEffect } from 'react';
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
 import { BookOpen, Check, ChevronsUpDown, Languages, Monitor, Moon, Plus, Settings2, Sun, Workflow } from 'lucide-react';
 import { Sidebar, SidebarBrand, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuBadge, SidebarMenuButton, SidebarMenuIcon, SidebarMenuItem, SidebarRail, DropdownMenu, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuRadioItem, Icon, SidebarGroup, SidebarGroupLabel, SidebarMenuLabel, Text, DropdownMenuContent, MenuLabel } from '@loca/ui';
 import { holds, NAV_GROUPS, useCurrentNav, type NavGroup, type NavItem } from '@/lib/nav';
-import { q } from '@/lib/queries';
 import { setTheme, useTheme, type ThemeChoice } from '@/lib/theme';
+import { useProjectProgress } from '@/lib/project';
+import { useProjects } from '@/lib/app-data';
 
 const lastKey = (projectId: string, itemId: string) => `tw.nav.${projectId}.${itemId}`;
 const readLast = (projectId: string, itemId: string): { pathname: string; search: Record<string, unknown> } | null => {
@@ -53,8 +53,8 @@ const GROUP_ICONS = { translate: Languages, knowledge: BookOpen, automation: Wor
 export function AppSidebar({ projectId }: { projectId: string }) {
   const navigate = useNavigate();
   const theme = useTheme();
-  const projects = useQuery(q.projects());
-  const project = useQuery(q.project(projectId));
+  const projects = useProjects();
+  const progress = useProjectProgress(projectId);
   const info = projects.data?.find((entry) => entry.id === projectId);
   const current = useCurrentNav(projectId);
   const location = useRouterState({ select: (state) => state.location });
@@ -64,7 +64,7 @@ export function AppSidebar({ projectId }: { projectId: string }) {
   }, [projectId, current.item.id, remembered]);
   const renderGroup = (group: NavGroup) => {
     const settings = group.id === 'settings';
-    const contents = <SidebarMenu>{group.items.map((navItem) => <ScreenItem key={navItem.id} navItem={navItem} projectId={projectId} active={current.item.id === navItem.id} badge={navItem.id === 'script' ? project.data?.reviewCount : undefined} />)}</SidebarMenu>;
+    const contents = <SidebarMenu>{group.items.map((navItem) => <ScreenItem key={navItem.id} navItem={navItem} projectId={projectId} active={current.item.id === navItem.id} badge={navItem.id === 'script' ? progress?.reviewCount : undefined} />)}</SidebarMenu>;
     if (!group.label) return <SidebarGroup key={group.id} inset="tight">{contents}</SidebarGroup>;
     if (settings) return <SidebarGroup key={group.id} inset="none"><SidebarMenu><SidebarMenuItem><DropdownMenu>
       <DropdownMenuTrigger asChild>

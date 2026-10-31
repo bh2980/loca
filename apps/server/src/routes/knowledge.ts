@@ -1,12 +1,13 @@
 import { Hono } from 'hono';
 import { and, asc, eq, inArray, ne, or } from 'drizzle-orm';
 import { z } from 'zod';
-import { EVENT_LINK_KINDS, KNOWLEDGE_TAG_KINDS, modelChoiceSchema, patchOf, withDuplicateTargets } from '@tw/shared';
+import { EVENT_LINK_KINDS, SNAPSHOT_COLLECTIONS, KNOWLEDGE_TAG_KINDS, modelChoiceSchema, patchOf, withDuplicateTargets } from '@tw/shared';
 import { badRequest, found, notFound, validate, type Env } from '../context.ts';
 import { eachChunk, inChunks } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { deleteItems, deleteItemsKept, restoreItems } from '../services/item-delete.ts';
 import { events } from '../events.ts';
+import { characterRows, documentRows, feedSnapshot, relationshipRows, speechRuleRows } from '../feed.ts';
 import { graphOrder, ruleLines } from '../services/speech.ts';
 import { linkEvents, projectEventFlow, setEventLink } from '../services/event-routes.ts';
 import { fillTermUsage, termUsage } from '../services/term-usage.ts';
@@ -26,6 +27,8 @@ const visible = <T extends ProjectTable>(table: T, projectId: string) => and(eq(
 const byProject = <T extends ProjectTable>(table: T, id: string, projectId: string) => and(eq(table.id, id), eq(table.projectId, projectId));
 
 export const knowledgeRoutes = new Hono<Env>()
+  /** A browser collection's rows and the feed's count: its first load, kept current by the change events' rows. */
+  .get('/sync/:collection', validate('param', z.object({ collection: z.enum(SNAPSHOT_COLLECTIONS) })), (c) => c.json(feedSnapshot(c.var.deps.db, c.var.deps, c.req.param('projectId')!, c.req.valid('param').collection)))
   .get('/terms', (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId')!;
@@ -44,7 +47,8 @@ export const knowledgeRoutes = new Hono<Env>()
     const projectId = c.req.param('projectId')!;
     const term = found(db.select().from(s.terms).where(byProject(s.terms, c.req.param('id'), projectId)).get(), '용어');
     const rows = termUsage(db, projectId, term);
-    return c.json({ count: rows.length, unitIds: rows.map((row) => row.id), rows: rows.slice(0, 100) });
+    // Ids only: the pane shows the first lines from the browser's units collection.
+    return c.json({ count: rows.length, unitIds: rows.map((row) => row.id) });
   })
   .post('/terms', validate('json', termInput), (c) => {
     const projectId = c.req.param('projectId')!;
@@ -68,7 +72,7 @@ export const knowledgeRoutes = new Hono<Env>()
     return c.json({ ok: true });
   })
 
-  .get('/documents', (c) => c.json(withTags(c.var.deps.db, 'documents', c.var.deps.db.select().from(s.documents).where(visible(s.documents, c.req.param('projectId')!)).orderBy(asc(s.documents.kind), asc(s.documents.title)).all())))
+  .get('/documents', (c) => c.json(documentRows(c.var.deps.db, c.req.param('projectId')!)))
   .get('/documents/:id', (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId')!;
@@ -95,10 +99,7 @@ export const knowledgeRoutes = new Hono<Env>()
   .get('/characters', (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId')!;
-    return c.json({
-      characters: withTags(db, 'characters', db.select().from(s.characters).where(visible(s.characters, projectId)).orderBy(asc(s.characters.name)).all()),
-      relationships: withTags(db, 'relationships', db.select().from(s.relationships).where(visible(s.relationships, projectId)).all()),
-    });
+    return c.json({ characters: characterRows(db, projectId), relationships: relationshipRows(db, projectId) });
   })
   .get('/characters/:id', (c) => {
     const { db } = c.var.deps;
@@ -189,7 +190,7 @@ export const knowledgeRoutes = new Hono<Env>()
     return c.json({ ok: true });
   })
 
-  .get('/speech-rules', (c) => c.json(withTags(c.var.deps.db, 'speechRules', c.var.deps.db.select().from(s.speechRules).where(visible(s.speechRules, c.req.param('projectId')!)).all())))
+  .get('/speech-rules', (c) => c.json(speechRuleRows(c.var.deps.db, c.req.param('projectId')!)))
   .get('/speech-rules/:id', (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId')!;

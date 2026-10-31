@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useLayoutEffect } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeftRight, ClipboardPaste, CopyPlus, ListOrdered, Trash2, FilePlus2, FolderPlus, MinusCircle, ArrowUpDown, Copy, ExternalLink, Flag, Focus, Network, Play, Route as RouteIcon, SlidersHorizontal, Sparkles } from 'lucide-react';
+import { ArrowLeftRight, ClipboardPaste, CopyPlus, ListOrdered, Trash2, FilePlus2, FolderPlus, MinusCircle, ArrowUpDown, Copy, ExternalLink, Flag, Focus, Network, Play, Route as RouteIcon, SlidersHorizontal } from 'lucide-react';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { GraphCanvas, type GraphCanvasHandle, type LayoutEdge, type NodeInfo, type Viewport } from '@/components/graph/graph-canvas';
 import { LINE_CARD_WIDTH, LineCard } from '@/components/graph/line-card';
@@ -17,16 +17,24 @@ import { LineMenuFor } from '@/components/script/line-menu';
 import { GRAPH_KEYS, useGraphShortcuts } from '@/lib/graph-shortcuts';
 import { keyLabel } from '@/lib/keys';
 
-import { SearchField, SplitPane, PaneHeader, Button, CanvasOverlay, CanvasSurface, EmptyDescription, EmptyHeader, EmptyTitle, ScrollArea, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue, Input, Popover, PopoverContent, PopoverTrigger, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, Spinner, Switch, ViewSwitch, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuShortcut, SelectionToolbox, useRevealDock, GraphEndpointBar, Box, Stack, Text, Icon, Inline, Chip, Notice, FloatingZoomBar, FoundNodeList, Overlay, EmptyState } from '@loca/ui';
+import { SearchField, SegmentedControl, SplitPane, PaneHeader, Button, CanvasOverlay, CanvasSurface, EmptyDescription, EmptyHeader, EmptyTitle, ScrollArea, Input, Popover, PopoverContent, PopoverTrigger, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, Spinner, Switch, ViewSwitch, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuShortcut, SelectionToolbox, useRevealDock, GraphEndpointBar, Box, Stack, Text, Icon, Inline, Chip, Notice, FloatingZoomBar, FoundNodeList, Overlay, EmptyState } from '@loca/ui';
 import { useSize } from '@/hooks/use-size';
 import { q } from '@/lib/queries';
+import { lineContext, useLineDetail } from '@/lib/units';
 import { useReportView } from '@/lib/view-context';
-import { chatDock } from '@/lib/chat-dock';
-import { OmittedPane, ViewInspector, ViewReason, briefViewPrompt, useViewActions } from '@/components/graph/view-inspector';
+import { DeleteViewDialog, OmittedPane, ViewInspector, ViewReason, useViewActions } from '@/components/graph/view-inspector';
+import { ViewMenu } from '@/components/graph/view-menu';
 import { PathMode } from '@/components/graph/path-mode';
+import { GRAPH_SHOW_ITEMS, useGraphPaneView, useGraphShow, type GraphShow } from '@/lib/graph-show';
+import { AUTO_OPEN_NODES, nodeAfterToggle, pickedAfterToggle, unfoldChains } from '@/components/graph/unfold-chains';
 import { cn } from '@/lib/utils';
+import { useGraphViews } from '@/lib/logs';
+import { useLines } from '@/lib/units';
 /** Dialogue-graph nodes copied with ⌘/Ctrl+C or 복사, pasted as copies. */
+/** Copied nodes, shared by every graph page of this tab (read and set through these, not reassigned in a component). */
 let nodeClipboard: string[] = [];
+const copyNodes = (ids: string[]) => void (nodeClipboard = ids);
+const copiedNodes = () => nodeClipboard;
 
 type Scope = 'scene' | 'dialogue';
 type GraphDirection = 'vertical' | 'horizontal';
@@ -70,11 +78,13 @@ interface GraphSearch {
   edge?: string;
   /** 이 대사 뒤에 대사 추가: the node a new line goes after (its pane is open). */
   addAfter?: string;
+  /** The folded runs drawn as their lines (their ids). Absent: a small graph opens them all, a big one none; `[]` is none. */
+  open?: string[];
 }
 
 export const Route = createFileRoute('/p/$projectId/graph')({
   validateSearch: (raw: Record<string, unknown>): GraphSearch => ({
-    scope: raw.scope === 'dialogue' || raw.view === 'path' ? 'dialogue' : 'scene',
+    scope: raw.scope === 'scene' && raw.view !== 'path' ? 'scene' : 'dialogue',
     direction: raw.direction === 'horizontal' ? 'horizontal' : raw.direction === 'vertical' ? 'vertical' : undefined,
     view: raw.view === 'path' ? 'path' : undefined,
     routeStart: typeof raw.routeStart === 'string' && raw.routeStart ? raw.routeStart : undefined,
@@ -99,6 +109,7 @@ export const Route = createFileRoute('/p/$projectId/graph')({
     q: typeof raw.q === 'string' && raw.q ? raw.q : undefined,
     edge: typeof raw.edge === 'string' && raw.edge ? raw.edge : undefined,
     addAfter: typeof raw.addAfter === 'string' && raw.addAfter ? raw.addAfter : undefined,
+    open: Array.isArray(raw.open) ? raw.open.filter((id): id is string => typeof id === 'string') : undefined,
   }),
   component: GraphRoute,
 });
@@ -113,11 +124,11 @@ const readViewport = (key: string): Viewport | undefined => {
   }
 };
 
-const GRAPH_MODES = ['scene', 'dialogue'] as const;
-/** The graph's modes in one sleek segment control: scene vs dialogue */
+const GRAPH_MODES = ['dialogue', 'scene'] as const;
+/** The graph's modes in one segment control: the dialogue graph (the default, where links are made) and the scene graph read off it. */
 function ModeToggle({ value, onChange }: { value: (typeof GRAPH_MODES)[number]; onChange: (value: (typeof GRAPH_MODES)[number]) => void }) {
   return <ViewSwitch label="그래프 보기" value={value} onChange={(next) => onChange(next as (typeof GRAPH_MODES)[number])} items={[
-    { value: 'scene', label: '장면' }, { value: 'dialogue', label: '대사' },
+    { value: 'dialogue', label: '대사' }, { value: 'scene', label: '장면' },
   ]} />;
 }
 
@@ -216,17 +227,63 @@ function GraphPage() {
   const sectionList = useQuery({ ...q.graphSections(projectId, direction), enabled: dialogue });
   const sections = dialogue ? (sectionList.data ?? []) : [];
   const chosen = !dialogue || search.section === 'all' ? undefined : search.section ?? (sections.length > 1 ? (sections.find((section) => section.groupIds.includes(search.scene ?? ''))?.name ?? sections[0].name) : undefined);
-  const graph = useQuery({ ...q.graph(projectId, search.scope, chosen, direction), enabled: !dialogue || !!search.section || sectionList.isSuccess });
+  const graphQuery = useQuery({ ...q.graph(projectId, search.scope, chosen, direction), enabled: !dialogue || !!search.section || sectionList.isSuccess });
+  // Folded runs are drawn as their lines when asked (`open`), or all of them in a graph small enough to read.
+  // Done here on the stored layout, not by the server: opening a run takes no layout calculation.
+  const foldedRuns = graphQuery.data?.layout?.chains;
+  const autoOpen = (graphQuery.data?.nodes.length ?? Infinity) <= AUTO_OPEN_NODES;
+  const openRuns = useMemo(() => new Set(search.open ?? (autoOpen ? (foldedRuns ?? []).map((run) => run.id) : [])), [search.open, autoOpen, foldedRuns]);
+  const graphData = useMemo(
+    () => (graphQuery.data?.layout ? { ...graphQuery.data, layout: unfoldChains(graphQuery.data.layout, openRuns, direction) } : graphQuery.data),
+    [graphQuery.data, openRuns, direction],
+  );
+  // What the cards show of each line (the side pane follows the same setting).
+  const [show, setShow] = useGraphShow();
+  const graph = { data: graphData, isPending: graphQuery.isPending };
+  // The cards' translations come apart from the layout (it does not change when a line is saved).
+  // Each card's line is in the layout; its translation is the line's, from the units collection (the feed keeps it current).
+  const shownLines = useMemo(() => (dialogue && show !== 'source' ? graphQuery.data?.nodes?.flatMap((node) => (node.unitId ? [node.unitId] : [])) : undefined), [dialogue, show, graphQuery.data]);
+  const cardLines = useLines(projectId, shownLines).byId;
+  const translations = useMemo(() => {
+    if (!shownLines) return undefined;
+    const byNode: Record<string, string> = {};
+    for (const node of graphQuery.data?.nodes ?? []) {
+      const text = node.unitId ? cardLines.get(node.unitId)?.translation?.trim().slice(0, 120) : null;
+      if (text) byNode[node.id] = text;
+    }
+    return byNode;
+  }, [shownLines, graphQuery.data, cardLines]);
+  /** The open run each of its lines belongs to (to fold it again from any of them). */
+  const openedFrom = useMemo(() => new Map((foldedRuns ?? []).filter((run) => openRuns.has(run.id)).flatMap((run) => run.nodeIds.map((id) => [id, run.id] as const))), [foldedRuns, openRuns]);
+  const toggleFold = (runId: string) => {
+    const run = foldedRuns?.find((item) => item.id === runId);
+    const opening = !openRuns.has(runId);
+    // The selection follows the run's new form: the block and its lines are different nodes on the canvas.
+    if (run) setPicked((current) => (current.size ? pickedAfterToggle(run, opening, current) : current));
+    void navigate({
+      search: (previous) => {
+        const next = new Set(openRuns);
+        if (!next.delete(runId)) next.add(runId);
+        const holder = flowLines.find((line) => line.unitId === previous.edit)?.nodeId;
+        return { ...previous, open: [...next], ...(run && previous.node && { node: nodeAfterToggle(run, opening, previous.node, holder) }) };
+      },
+      replace: true,
+    });
+  };
   // A view laid out on its own (the chat's show_graph, mode "only").
   const viewId = chosen?.startsWith('view:') ? chosen.slice('view:'.length) : undefined;
   // Editing reads what is drawn (folded runs) when it acts.
   const drawn = useRef<DrawnGraph | null>(null);
-  drawn.current = graph.data?.layout ?? null;
+  // The edits read the drawn layout when they run (kept after each render).
+  useLayoutEffect(() => {
+    drawn.current = graph.data?.layout ?? null;
+  });
   const edits = useDialogueGraphEdits(projectId, drawn);
   const viewDetail = useQuery({ ...q.graphView(projectId, viewId ?? ''), enabled: !!viewId });
   const view = viewId && graph.data?.layout?.view ? { ...graph.data.layout.view, label: viewDetail.data?.label ?? graph.data.layout.view.label } : undefined;
-  const savedViews = useQuery({ ...q.graphViews(projectId), enabled: dialogue }).data ?? [];
+  const savedViews = useGraphViews(projectId, { enabled: dialogue }).data ?? [];
   const viewActions = useViewActions(projectId);
+  const [deletingView, setDeletingView] = useState<{ id: string; label: string } | null>(null);
   /** Naming a view made from the picked nodes: the small popover stands where the menu was. */
   const [naming, setNaming] = useState<{ nodeIds: string[]; x: number; y: number } | null>(null);
   const [newName, setNewName] = useState('');
@@ -254,8 +311,11 @@ function GraphPage() {
     const types = graph.data?.nodeTypes ?? {};
     // Control nodes are labelled by what the game's node class means, not by its raw name.
     // A line card leads with who speaks and shows the line; the node key is in the side pane.
-    const lineCard = (node: { speaker?: string | null; text?: string | null; total?: number }) =>
-      node.text ? { title: `${node.speaker ?? '지문·화면 문구'}${(node.total ?? 0) > 1 ? ` · ${node.total}줄` : ''}`, titleColor: colorOf(node.speaker), body: node.text } : {};
+    const lineCard = (node: { id: string; speaker?: string | null; text?: string | null; total?: number }) =>
+      node.text ? { title: `${node.speaker ?? '지문·화면 문구'}${(node.total ?? 0) > 1 ? ` · ${node.total}줄` : ''}`, titleColor: colorOf(node.speaker), ...shownText(node.text, translations?.[node.id]) } : {};
+    // The first line's text by what is shown: the source, the translation alone, or the source over the translation.
+    const shownText = (text: string, translation?: string | null): Pick<NodeInfo, 'body' | 'bodyStrong' | 'second' | 'missing'> =>
+      show === 'source' ? { body: text } : show === 'translation' ? (translation ? { body: translation, bodyStrong: true } : { body: '번역 없음', missing: 'body' }) : { body: text, second: translation ?? '번역 없음', ...(!translation && { missing: 'second' as const }) };
     const map = new Map<string, NodeInfo>(
       (graph.data?.nodes ?? []).map((node) => [node.id, { ...node, label: node.label ?? (node.type ? (types[node.type]?.label ?? node.type) : null), ...(node.kind === 'script' && lineCard(node)), ...(node.kind === 'choice' && { title: `▶ ${node.text ?? ''} 고르면`, body: node.text }) }]),
     );
@@ -273,13 +333,22 @@ function GraphPage() {
         kind: 'chain',
         label: `이어진 대사 ${lines}줄`,
         title: lines ? `이어진 대사 ${lines}줄` : `이어진 노드 ${chain.nodeIds.length}개`,
-        body: spoken ? `${spoken.speaker ? `${spoken.speaker}: ` : ''}${spoken.text}` : (first?.label ?? null),
+        ...(spoken ? shownText(`${spoken.speaker ? `${spoken.speaker}: ` : ''}${spoken.text}`, translations?.[spoken.id] ? `${spoken.speaker ? `${spoken.speaker}: ` : ''}${translations[spoken.id]}` : null) : { body: first?.label ?? null }),
         preview: spoken?.preview ?? first?.preview ?? first?.label ?? null,
         key: `${first?.key ?? ''} 외 ${chain.nodeIds.length - 1}개`,
       });
     }
+    // The card that opens a run, and the first line of an open run that folds it again.
+    for (const run of foldedRuns ?? []) {
+      const card = map.get(run.id);
+      if (card) map.set(run.id, { ...card, fold: run.id });
+    }
+    for (const run of foldedRuns ?? []) {
+      const head = openRuns.has(run.id) ? map.get(run.nodeIds[0]) : undefined;
+      if (head) map.set(head.id, { ...head, fold: run.id });
+    }
     return map;
-  }, [graph.data, colorOf]);
+  }, [graph.data, colorOf, foldedRuns, openRuns, show, translations]);
   // Nodes inside a folded run are shown, selected and highlighted through their block.
   const chainOf = useMemo(() => new Map((graph.data?.layout?.chains ?? []).flatMap((chain) => chain.nodeIds.map((id) => [id, chain.id] as const))), [graph.data]);
   const shown = (id: string) => chainOf.get(id) ?? id;
@@ -300,8 +369,9 @@ function GraphPage() {
   const matches = useMemo(() => {
     const text = find.trim().toLowerCase();
     if (!text || !graph.data) return [];
-    return graph.data.nodes.filter((node) => [node.key, node.label, node.preview].some((value) => value?.toLowerCase().includes(text))).slice(0, 50);
-  }, [find, graph.data]);
+    // The translation is searched too once it is on the cards.
+    return graph.data.nodes.filter((node) => [node.key, node.label, node.preview, show === 'source' ? null : translations?.[node.id]].some((value) => value?.toLowerCase().includes(text))).slice(0, 50);
+  }, [find, graph.data, show, translations]);
 
   const key = viewportKey(projectId, search.scope, search.scene ?? (dialogue && search.mark ? `mark:${search.mark}` : undefined), dialogue ? (chosen ?? 'all') : undefined, direction);
   const select = (id: string | undefined) => {
@@ -371,7 +441,7 @@ function GraphPage() {
   const anchorOf = (nodeId: string) => shown(layout?.edges.find((edge) => edge.via === nodeId)?.to ?? nodeId);
   const anchorId = editAt >= 0 ? anchorOf(flowLines[editAt].nodeId) : undefined;
   // The line open in the translation card (the selected node reports itself from its pane).
-  const editUnit = useQuery({ ...q.unit(search.edit ?? ''), enabled: !!search.edit });
+  const editUnit = useLineDetail(projectId, search.edit ?? '');
   useReportView('graph-line', [
     editUnit.data && {
       kind: '대사',
@@ -407,6 +477,57 @@ function GraphPage() {
     if (into.length !== 1) return { stop: into.length ? `여러 길(${into.length}갈래)이 이리로 모입니다. 그래프에서 앞 노드를 고르세요.` : '이 흐름의 첫 대사입니다.' };
     return { target: into[0].from };
   };
+  // ── the side pane: the node, or the flow through it ──────────────
+  const [paneView, setPaneView] = useGraphPaneView();
+  const [span, setSpan] = useState({ before: 6, after: 6 });
+  useEffect(() => setSpan({ before: 6, after: 6 }), [search.node]);
+  const membersOf = (id: string) => layout?.chains?.find((chain) => chain.id === id)?.nodeIds ?? [id];
+  const ownNodes = dialogue && search.node ? flowOf(search.node) : [];
+  // The flow before and after the selection along the way: node by node until it forks, merges or ends (the rule ⌥↓ steps by).
+  const flowAround = (() => {
+    if (!dialogue || !search.node || !layout || paneView !== 'flow') return null;
+    const walk = (direction: 1 | -1, limit: number) => {
+      const ids: string[] = [];
+      const seen = new Set([search.node!]);
+      let at = search.node!;
+      let stop: string | undefined;
+      let more = false;
+      while (true) {
+        const step = neighbour(at, direction);
+        if ('stop' in step) {
+          stop = step.stop;
+          break;
+        }
+        if (seen.has(step.target)) {
+          stop = '흐름이 돌아옵니다.';
+          break;
+        }
+        if (ids.length >= limit) {
+          more = true;
+          break;
+        }
+        seen.add(step.target);
+        ids.push(step.target);
+        at = step.target;
+      }
+      return { ids, stop, more };
+    };
+    return { before: walk(-1, span.before), after: walk(1, span.after) };
+  })();
+  const paneNodeIds = flowAround ? [...[...flowAround.before.ids].reverse().flatMap(membersOf), ...ownNodes, ...flowAround.after.ids.flatMap(membersOf)] : ownNodes;
+  const textOf = (id: string) => {
+    const card = info.get(id);
+    return [card?.title, card?.body ?? card?.preview ?? card?.label].filter(Boolean).join(' · ') || id;
+  };
+  // What the selected node joins: the node on the other end of each way in and out, and the choice written on it.
+  const connections = (() => {
+    if (!dialogue || !search.node || !layout) return [];
+    const here = shown(search.node);
+    return layout.edges.flatMap((edge) => [
+      ...(edge.to === here && !edge.from.startsWith('portal:') ? [{ dir: 'in' as const, id: edge.from, choice: edge.label, text: textOf(edge.from) }] : []),
+      ...(edge.from === here && !edge.to.startsWith('portal:') ? [{ dir: 'out' as const, id: edge.to, choice: edge.label, text: textOf(edge.to) }] : []),
+    ]);
+  })();
   /**
    * ⌥↓/⌥↑ in the card: the next line of the selection, then on along the flow while it does not
    * fork. Nodes without lines (conditions) are passed through; where the way stops, the card stays.
@@ -431,7 +552,7 @@ function GraphPage() {
   // The lines either side are loaded ahead, so stepping shows them at once.
   const queryClient = useQueryClient();
   useEffect(() => {
-    for (const line of [flowLines[editAt - 1], flowLines[editAt + 1]]) if (line && editAt >= 0) void queryClient.prefetchQuery(q.unit(line.unitId));
+    for (const line of [flowLines[editAt - 1], flowLines[editAt + 1]]) if (line && editAt >= 0) void queryClient.prefetchQuery(lineContext(line.unitId));
   }, [search.edit, flowReady]); // eslint-disable-line react-hooks/exhaustive-deps
   // The card opens beside its node with room for itself; the graph pans only when it has to.
   useEffect(() => {
@@ -499,7 +620,6 @@ function GraphPage() {
   };
   /** The views a node set can be added to (the open one already holds its nodes). */
   const otherViews = savedViews.filter((saved) => saved.id !== viewId);
-  const where = view ? `보기 "${view.label}"` : chosen ? `구역 "${chosen}"` : '전체';
   const derivedEdges = edges.filter((edge) => edge.derived).length;
   const reasonOf = (nodeId: string) => {
     const reasons = viewDetail.data?.reasons;
@@ -541,7 +661,8 @@ function GraphPage() {
   // Editing the dialogue graph, with the keys every graph shares (lib/graph-shortcuts). A view's
   // lines are derived, so a view is read only.
   const editing = dialogue && !isPicking && !viewId;
-  // The scene graph connects scenes only (derived from the dialogue graph: A's last line → B's first line); undo is shared with the dialogue graph.
+  // The scene graph only shows how scenes connect: its links are read off the dialogue graph, where lines are linked. What it
+  // still does is link the nodes inside a scene in script order (대본 순서로 잇기); undo is shared with the dialogue graph.
   const sceneEditing = !dialogue;
   /** The picked scenes, or the one the menu is on; hubs are not scenes. */
   const scenesOf = (id: string) => (picked.has(id) ? [...picked] : [id]).filter((sceneId) => !hubs.has(sceneId));
@@ -566,13 +687,13 @@ function GraphPage() {
       redo: () => void edits.redo(),
       // Scenes are not copied or deleted from here: only the dialogue graph has those.
       ...(editing && {
-        copy: () => void (pickedNodes.length && (nodeClipboard = pickedNodes)),
+        copy: () => void (pickedNodes.length && copyNodes(pickedNodes)),
         cut: () => {
           if (!pickedNodes.length) return;
-          nodeClipboard = pickedNodes;
+          copyNodes(pickedNodes);
           removePicked();
         },
-        paste: () => void paste(nodeClipboard),
+        paste: () => void paste(copiedNodes()),
         remove: removePicked,
       }),
     },
@@ -640,48 +761,27 @@ function GraphPage() {
             {isPicking ? '취소' : '경로 따라 번역'}
           </Button>
         )}
-        {dialogue && (
-          <Button variant="outline" onClick={() => chatDock.prefill(projectId, briefViewPrompt(where))}>
-            <Sparkles /> AI 간략 보기
-          </Button>
-        )}
         {dialogue && (sections.length > 1 || savedViews.length > 0 || view) && (
-          <Select
-            value={chosen ?? 'all'}
+          <ViewMenu
+            sections={sections}
+            views={savedViews}
+            chosen={chosen}
+            openedLabel={view?.label}
             // Opening another view or section is navigation (a history entry); the pane's selection does not carry over.
-            onValueChange={(value) => void navigate({ search: (previous) => ({ ...previous, section: value, node: undefined, omitted: undefined, viewInfo: undefined }) })}
-          >
-            <Box asChild width="menu">
-            <SelectTrigger size="sm" aria-label="보기">
-              <Text tone="muted">보기</Text>
-              <SelectValue />
-            </SelectTrigger>
-            </Box>
-            <SelectContent>
-              <SelectItem value="all">전체</SelectItem>
-              {sections.map((section) => (
-                <SelectItem key={section.name} value={section.name}>
-                  {section.name} <Text tone="muted">· {section.nodes.toLocaleString()}</Text>
-                </SelectItem>
-              ))}
-              {(savedViews.length > 0 || view) && (
-                <>
-                  <SelectSeparator />
-                  <SelectGroup>
-                    <SelectLabel>저장된 보기</SelectLabel>
-                    {savedViews.map((saved) => (
-                      <SelectItem key={saved.id} value={`view:${saved.id}`}>
-                        {saved.origin === 'ai' && <Text tone="muted">✦ </Text>}
-                        {saved.label} <Text tone="muted">· {saved.nodes.toLocaleString()}개</Text>
-                      </SelectItem>
-                    ))}
-                    {view && chosen && !savedViews.some((saved) => `view:${saved.id}` === chosen) && <SelectItem value={chosen}>{view.label}</SelectItem>}
-                  </SelectGroup>
-                </>
-              )}
-            </SelectContent>
-          </Select>
+            onPick={(value) => void navigate({ search: (previous) => ({ ...previous, section: value, node: undefined, omitted: undefined, viewInfo: undefined }) })}
+            onDelete={setDeletingView}
+          />
         )}
+        <DeleteViewDialog
+          projectId={projectId}
+          view={deletingView}
+          onClose={() => setDeletingView(null)}
+          onDeleted={(id) => {
+            setDeletingView(null);
+            // The view that was open falls back to the whole graph.
+            if (viewId === id) void navigate({ search: (previous) => ({ ...previous, section: undefined, viewInfo: undefined, node: undefined, omitted: undefined }) });
+          }}
+        />
       </HeaderActions>
       <Stack height="full" minHeight={0} grow overflow="hidden">
         {isPicking && (
@@ -749,7 +849,7 @@ function GraphPage() {
                   key={search.addAfter}
                   // The line it goes after: a folded run's last one.
                   after={(() => {
-                    const last = graph.data?.nodes.find((node) => node.id === (drawn.current?.chains?.find((item) => item.id === search.addAfter)?.nodeIds.at(-1) ?? search.addAfter));
+                    const last = graph.data?.nodes.find((node) => node.id === (graph.data?.layout?.chains?.find((item) => item.id === search.addAfter)?.nodeIds.at(-1) ?? search.addAfter));
                     return { speaker: last?.speaker ?? null, text: last?.text ?? null };
                   })()}
                   onAdd={async (line) => {
@@ -792,9 +892,16 @@ function GraphPage() {
                     <FlowPane
                       key={search.node}
                       projectId={projectId}
-                      nodeIds={flowOf(search.node)}
+                      nodeIds={paneNodeIds}
+                      ownIds={ownNodes}
+                      view={paneView}
+                      onView={setPaneView}
+                      around={flowAround ? { before: { stop: flowAround.before.stop, more: flowAround.before.more }, after: { stop: flowAround.after.stop, more: flowAround.after.more } } : undefined}
+                      onMore={(side) => setSpan((current) => ({ ...current, [side]: current[side] + 10 }))}
+                      connections={connections}
+                      onSelectNode={select}
                       way={wayInto(search.node)}
-                      marked={chainOf.has(search.node) ? search.node : undefined}
+                      marked={flowAround && (flowAround.before.ids.length || flowAround.after.ids.length) ? ownNodes : chainOf.has(search.node) ? search.node : undefined}
                       editing={search.edit}
                       onEdit={edit}
                       title={info.get(chainOf.get(search.node) ?? search.node)?.title ?? info.get(chainOf.get(search.node) ?? search.node)?.label ?? ''}
@@ -905,18 +1012,18 @@ function GraphPage() {
                   { id: 'order', label: '대본 순서로 잇기', icon: <ListOrdered />, onSelect: () => orderScenes([search.node!]) },
                 ]} />,
               } : undefined}
-              editable={editing || sceneEditing}
-              connectScenes={sceneEditing}
-              onConnect={(fromId, toId) => void (sceneEditing ? edits.linkScenes(fromId, toId) : edits.connect(fromId, toId))}
+              editable={editing}
+              onConnect={(fromId, toId) => void edits.connect(fromId, toId)}
               selectedEdgeId={search.edge}
-              onSelectEdge={dialogue ? (edgeId) => (edgeId.startsWith('via:') ? select(edgeId.slice('via:'.length)) : openEdge(edgeId)) : undefined}
-              onEdgeContextMenu={editing || sceneEditing ? (edgeId, pos) => setContextMenu({ edgeId, x: pos.clientX, y: pos.clientY }) : undefined}
+              onToggleFold={toggleFold}
+              onSelectEdge={dialogue ? (edgeId) => (edgeId.startsWith('via:') ? select(edgeId.slice('via:'.length)) : edgeId.startsWith('link:') ? undefined : openEdge(edgeId)) : undefined}
+              onEdgeContextMenu={editing ? (edgeId, pos) => setContextMenu({ edgeId, x: pos.clientX, y: pos.clientY }) : undefined}
               onOpen={dialogue ? startLine : undefined}
               anchor={
                 anchorId && search.edit
                   ? {
                       id: anchorId,
-                      content: <LineCard projectId={projectId} unitId={search.edit} choice={flowLines[editAt].choice} position={`${editAt + 1} / ${flowLines.length}`} onStep={step} onClose={() => edit(undefined)} />,
+                      content: <LineCard projectId={projectId} unitId={search.edit} choice={flowLines[editAt].choice} position={`${editAt + 1} / ${flowLines.length}`} maxHeight={Math.max(240, size.height - 24)} onShowNode={() => { setPaneView('node'); revealDock?.(); }} onStep={step} onClose={() => edit(undefined)} />,
                     }
                   : undefined
               }
@@ -1087,6 +1194,11 @@ function GraphPage() {
                     <span>경로 끝으로</span>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
+                  {(info.get(contextMenu.nodeId!)?.kind === 'chain' || openedFrom.has(contextMenu.nodeId!)) && (
+                    <DropdownMenuItem onSelect={() => toggleFold(openedFrom.get(contextMenu.nodeId!) ?? contextMenu.nodeId!)}>
+                      <span>{openedFrom.has(contextMenu.nodeId!) ? '이어진 대사 접기' : '이어진 대사 펼치기'}</span>
+                    </DropdownMenuItem>
+                  )}
                   {!(graph.data?.nodes.find((item) => item.id === contextMenu.nodeId)?.total === 1 && !contextMenu.nodeId!.startsWith('chain:')) && <DropdownMenuItem
                     onSelect={() => {
                       const id = contextMenu.nodeId!;
@@ -1123,7 +1235,7 @@ function GraphPage() {
                       <DropdownMenuItem onSelect={() => void paste([contextMenu.nodeId!])}>
                         <span>복제</span>
                       </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => (nodeClipboard = [contextMenu.nodeId!])}>
+                      <DropdownMenuItem onSelect={() => copyNodes([contextMenu.nodeId!])}>
                         <span>복사</span>
                         <DropdownMenuShortcut>{keyLabel(GRAPH_KEYS.copy)}</DropdownMenuShortcut>
                       </DropdownMenuItem>
@@ -1187,21 +1299,7 @@ function GraphPage() {
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               )}
-              {contextMenu.edgeId && sceneEditing && (
-                <DropdownMenuContent width="menu" align="start" side="bottom" sideOffset={2}>
-                  {(() => {
-                    const line = edges.find((edge) => edge.id === contextMenu.edgeId);
-                    // A line to or from a connection point (hub) stands for dialogue-graph lines through nodes outside scenes.
-                    const direct = line && !hubs.has(line.from) && !hubs.has(line.to);
-                    return (
-                      <DropdownMenuItem disabled={!direct} onSelect={() => void edits.unlinkScenes(line!.from, line!.to)}>
-                        <span>연결 끊기</span>
-                      </DropdownMenuItem>
-                    );
-                  })()}
-                </DropdownMenuContent>
-              )}
-              {contextMenu.edgeId && !sceneEditing && (
+              {contextMenu.edgeId && (
                 <DropdownMenuContent width="menu" align="start" side="bottom" sideOffset={2}>
                   <DropdownMenuItem onSelect={() => openEdge(contextMenu.edgeId)}>
                     <span>상세 열기</span>
@@ -1219,9 +1317,9 @@ function GraphPage() {
               )}
               {!contextMenu.nodeId && !contextMenu.edgeId && (
                 <DropdownMenuContent width="menu" align="start" side="bottom" sideOffset={2}>
-                  {editing && nodeClipboard.length > 0 && (
+                  {editing && copiedNodes().length > 0 && (
                     <>
-                      <DropdownMenuItem onSelect={() => void paste(nodeClipboard)}>
+                      <DropdownMenuItem onSelect={() => void paste(copiedNodes())}>
                         <span>붙여넣기</span>
                         <DropdownMenuShortcut>{keyLabel(GRAPH_KEYS.paste)}</DropdownMenuShortcut>
                       </DropdownMenuItem>
@@ -1356,6 +1454,9 @@ function GraphPage() {
                         </FoundNodeList>
                       )}
                     </Box>
+                    {search.scope === 'dialogue' && (
+                      <SegmentedControl ariaLabel="카드에 보여 줄 것" value={show} onChange={(next) => setShow(next as GraphShow)} items={GRAPH_SHOW_ITEMS} />
+                    )}
                     {search.scope === 'dialogue' && (
                       <TypeLegend
                         nodes={graph.data!.nodes}

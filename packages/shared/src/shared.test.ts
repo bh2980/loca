@@ -1,6 +1,8 @@
+import { sameTranslation, termText } from './format-check.ts';
 import { describe, expect, it } from 'vitest';
 import { editorAiSchema, editorNodeConfig } from './editor-ai.ts';
 import { chatTitle } from './agent.ts';
+import { termMatches } from './term-filter.ts';
 import { checkFormat, compileFormatRules, matchTokens, withSourceWhitespace, glossaryMatcher } from './format-check.ts';
 import { importFileSchema, importWarnings, summarizeImport } from './import-format.ts';
 import { politenessOf, speechLevelOf, styleInstruction, styleNames } from './knowledge.ts';
@@ -13,8 +15,10 @@ import { APPLY_PALETTE_ORDER, fieldsFromSample, FUNCTION_NAMES, functionGroup } 
 import { applyIssues, contextConfigSchema, nodeOutputFields, nodePorts, pickPaths, previousStepId, previousSteps, readinessUses, retrySummary, retryModel, retryOrigins, retryScaleText, resendsOf, definitionModels, ITEM_ERROR_KINDS, validateWorkflow, workflowDefinitionSchema, workflowNodeSchema, type RetryNode, type WorkflowDefinition, type WorkflowNode } from './workflow.ts';
 
 const model = { connectionId: 'c', model: 'm' };
-const ids = { model, untranslated: 's0', translated: 's1', needsReview: 's2', confirmed: 's3', aiFailedTag: 't0' };
-const refs = { workflows: [], connections: new Map([['c', 'openai']]), statusIds: new Set(['s0', 's1', 's2', 's3']), tagIds: new Set(['t0']), toolConnectionIds: new Set<string>() };
+/** The project's tag for each kind checks and reviews name (a new project has one of each). */
+const issueTags = { format: 't-format', term: 't-term', speech: 't-speech', meaning: 't-meaning', style: 't-style', other: 't-other', aiFailed: 't0' };
+const ids = { model, untranslated: 's0', translated: 's1', needsReview: 's2', confirmed: 's3', issueTags };
+const refs = { workflows: [], connections: new Map([['c', 'openai']]), statusIds: new Set(['s0', 's1', 's2', 's3']), tagIds: new Set(Object.values(issueTags)), toolConnectionIds: new Set<string>() };
 
 describe('인물·관계 추출 template and the talking pairs', () => {
   it('turns 대화 쌍 on for the scene node and the merge node, and carries the pairs without a relationship through the gather to 관계 저장', () => {
@@ -54,7 +58,7 @@ describe('workflow validation', () => {
   it('every registry template validates without issues when all ids are given', () => {
     expect(WORKFLOW_TEMPLATES.map((template) => template.key)).toEqual(['translation', 'review', 'listener', 'people', 'events', 'terms', 'termTranslate']);
     for (const template of WORKFLOW_TEMPLATES) {
-      const definition = workflowDefinitionSchema.parse(template.build({ ...ids, aiFailedTag: 't0' }));
+      const definition = workflowDefinitionSchema.parse(template.build(ids));
       expect(validateWorkflow(definition, refs), template.key).toEqual([]);
     }
     expect(defaultWorkflows(ids).map((row) => row.name)).toEqual(['번역', '검수', '청자 추정', '인물·관계 추출', '사건 추출']);
@@ -65,13 +69,14 @@ describe('workflow validation', () => {
     expect(validateWorkflow(template, refs).filter((issue) => issue.level === 'error')).toEqual([]);
   });
 
-  it('wires the checks\' exits through 태그 붙이기 / 떼기 nodes: fail adds its kinds, pass removes only those', () => {
+  it('wires the checks\' exits through 태그 붙이기 / 떼기 nodes: fail adds its tag, pass removes only that one; the review maps its categories to tags', () => {
     const template = workflowDefinitionSchema.parse(translationTemplate(ids));
-    const tag = (id: string) => (template.nodes.find((node) => node.id === id) as unknown as { config: { fn: string; params: { action: string; map: Record<string, string>; allKinds: boolean } } }).config;
-    expect(tag('tag-format').params).toMatchObject({ action: 'add', map: { tag: 'kind' } });
-    expect(tag('untag-format').params).toMatchObject({ action: 'remove', map: { tag: 'kind' }, allKinds: false });
-    expect(tag('tag-review').params).toMatchObject({ action: 'add', map: { tag: 'categories' } });
-    expect(tag('untag-review').params).toMatchObject({ action: 'remove', allKinds: true });
+    const tag = (id: string) => (template.nodes.find((node) => node.id === id) as unknown as { config: { fn: string; params: { action: string; map: Record<string, string>; tagIds: string[]; categoryTags: Record<string, string> } } }).config;
+    expect(tag('tag-format').params).toMatchObject({ action: 'add', tagIds: ['t-format'] });
+    expect(tag('untag-format').params).toMatchObject({ action: 'remove', tagIds: ['t-format'] });
+    expect(tag('tag-review').params).toMatchObject({ action: 'add', map: { tag: 'categories' }, categoryTags: { format: 't-format', term: 't-term', speech: 't-speech', meaning: 't-meaning', style: 't-style', other: 't-other' } });
+    expect(tag('untag-review').params).toMatchObject({ action: 'remove' });
+    expect(new Set(tag('untag-review').params.tagIds)).toEqual(new Set(Object.values(issueTags)));
     const exit = (source: string, handle: string) => template.edges.find((edge) => edge.source === source && edge.sourceHandle === handle)?.target;
     expect([exit('check', 'fail'), exit('check', 'pass'), exit('review', 'fail'), exit('review', 'pass')]).toEqual(['tag-format', 'untag-format', 'tag-review', 'untag-review']);
     // A node that picks nothing to tag is told so.
@@ -584,8 +589,8 @@ describe('재요청 node', () => {
     }
     expect(place('revise-resend').y).toBe(place('revise').y);
     expect(place('revise-failed').y).toBe(place('revise').y);
-    // Edges go down or sideways, except the loops: 재요청 → its AI node, 수정으로 바뀌었나? → 형식 검사 or 검토 필요로.
-    const loops = new Set(['translate-resend-retry-translate', 'review-resend-retry-review', 'revise-resend-retry-revise', 'terms-resend-retry-terms', 'translate-wait-retry-translate', 'review-wait-retry-review', 'revise-wait-retry-revise', 'terms-wait-retry-terms', 'revised-true-check', 'revised-false-unrevised']);
+    // Edges go down or sideways, except the loops: 재요청 → its AI node, 수정으로 바뀌었나? → (지적 태그 떼기 →) 형식 검사 or 검토 필요로.
+    const loops = new Set(['translate-resend-retry-translate', 'review-resend-retry-review', 'revise-resend-retry-revise', 'terms-resend-retry-terms', 'translate-wait-retry-translate', 'review-wait-retry-review', 'revise-wait-retry-revise', 'terms-wait-retry-terms', 'untag-revised-out-check', 'revised-false-unrevised']);
     for (const edge of definition.edges) if (!loops.has(edge.id)) expect(place(edge.target).y, edge.id).toBeGreaterThanOrEqual(place(edge.source).y);
   });
 });
@@ -766,13 +771,52 @@ describe('withDuplicateTargets', () => {
 
 describe('glossaryMatcher', () => {
   it('keeps a UI-only term out of dialogue and a case-matched term off other cases', () => {
-    const help = { source: 'Help', target: '도움말', scope: 'ui' as const, matchCase: true };
-    const joy = { source: 'Joy', target: '조이', scope: 'all' as const, matchCase: false };
+    const help = { source: 'Help', target: '도움말', scope: ['ui'], matchCase: true };
+    const joy = { source: 'Joy', target: '조이', scope: ['ui', 'dialogue', 'document'], matchCase: false };
     const matcher = glossaryMatcher([help, joy]);
     expect(matcher.find('Help', 'ui')).toEqual([help]);
     expect(matcher.find('Maybe you could help me', 'dialogue')).toEqual([]);
     expect(matcher.find('Help me, joy!', 'dialogue')).toEqual([joy]);
     expect(matcher.find('help', 'ui')).toEqual([]);
     expect(matcher.find('Help')).toEqual([help]);
+  });
+});
+
+describe('sameTranslation', () => {
+  it('reads past the kind of line break and the edges, not past the words', () => {
+    expect(sameTranslation('하나\r\n둘\r\n', ' 하나\n둘')).toBe(true);
+    expect(sameTranslation('하나\r둘', '하나\n둘')).toBe(true);
+    expect(sameTranslation(null, '  ')).toBe(true);
+    expect(sameTranslation('하나 둘', '하나\n둘')).toBe(false);
+    expect(sameTranslation('아내랑', '아내와')).toBe(false);
+  });
+});
+
+describe('termText', () => {
+  it('drops whitespace at the edges, real or written out by a model, and keeps the inside', () => {
+    expect(termText('GRAPHICS\\n')).toBe('GRAPHICS');
+    expect(termText(' Go!\\r\\n ')).toBe('Go!');
+    expect(termText('\tLANGUAGE\n')).toBe('LANGUAGE');
+    expect(termText('Town Frame')).toBe('Town Frame');
+  });
+});
+
+describe('termMatches (the glossary page and list_terms)', () => {
+  const term = { id: 't1', source: 'Gate', target: '관문', note: '지명', status: 'candidate' as const, statusBy: 'ai' as const, origin: 'ai' as const, lines: 0, tags: [{ id: 'place' }] };
+  it('needs every given part', () => {
+    expect(termMatches(term, {})).toBe(true);
+    expect(termMatches(term, { text: 'gate' })).toBe(true);
+    expect(termMatches(term, { text: '지명' })).toBe(true);
+    expect(termMatches(term, { text: 'hesk' })).toBe(false);
+    expect(termMatches(term, { status: ['confirmed'] })).toBe(false);
+    expect(termMatches(term, { status: ['candidate', 'confirmed'], source: 'workflow', unreviewed: true })).toBe(true);
+    expect(termMatches(term, { emptyTarget: true })).toBe(false);
+    expect(termMatches(term, { marks: ['unused'], tags: ['place'] })).toBe(true);
+    expect(termMatches(term, { hideTags: ['place'] })).toBe(false);
+    expect(termMatches(term, { hideMarks: ['unused'] })).toBe(false);
+    expect(termMatches(term, { marks: ['duplicateTarget'] })).toBe(false);
+    expect(termMatches(term, { marks: ['duplicateTarget'] }, true)).toBe(true);
+    expect(termMatches({ ...term, status: 'rejected' }, {})).toBe(false);
+    expect(termMatches(term, { ids: ['other'] })).toBe(false);
   });
 });

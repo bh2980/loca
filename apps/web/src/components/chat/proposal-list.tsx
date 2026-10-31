@@ -1,13 +1,14 @@
 /** Proposals waiting for a decision, with bulk accept/reject. */
 import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { Check, ChevronRight, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Box, Button, Checkbox, Icon, Inline, Spinner, Text, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@loca/ui';
-import { client, unwrap } from '@/lib/api';
-import { q } from '@/lib/queries';
+import { client } from '@/lib/api';
 import { ProposalCard, type Proposal } from './proposal-card';
 import { LABEL } from './change-preview';
+import { useCharacters } from '@/lib/knowledge';
+import { changeProposals } from '@/lib/proposals';
 
 /** The proposal's review text names the person when the input itself carries only an id. */
 function reviewName(proposal: Proposal) {
@@ -23,9 +24,8 @@ function summary(proposal: Proposal, names: ReadonlyMap<string, string>) {
 }
 
 export function ProposalList({ projectId, title, proposals }: { projectId: string; title: string; proposals: Proposal[] }) {
-  const queryClient = useQueryClient();
-  const characters = useQuery(q.characters(projectId));
-  const names = new Map((characters.data?.characters ?? []).map((person) => [person.id, person.name] as const));
+  const characters = useCharacters(projectId);
+  const names = new Map((characters.data ?? []).map((person) => [person.id, person.name] as const));
   const [open, setOpen] = useState(proposals.length <= 5);
   const [kind, setKind] = useState('all');
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
@@ -42,7 +42,7 @@ export function ProposalList({ projectId, title, proposals }: { projectId: strin
   // One request for the lot: the server decides them oldest first (characters before the relationships that name them).
   const decide = useMutation({
     mutationFn: ({ ids, action }: { ids: string[]; action: 'accept' | 'reject' }) =>
-      unwrap(client.projects[':projectId'].proposals.decide.$post({ param: { projectId }, json: { ids, action } })).then(({ results }) => ({
+      changeProposals(projectId, client.projects[':projectId'].proposals.decide.$post({ param: { projectId }, json: { ids, action } })).then(({ results }) => ({
         ok: results.filter((result) => result.status === (action === 'accept' ? 'accepted' : 'rejected')).length,
         total: ids.length,
         action,
@@ -51,7 +51,6 @@ export function ProposalList({ projectId, title, proposals }: { projectId: strin
       setPicked(new Set());
       toast[ok === total ? 'success' : 'error'](`${total.toLocaleString()}개 중 ${ok.toLocaleString()}개를 ${action === 'accept' ? '수락' : '거절'}했습니다${ok < total ? ` · 실패 ${(total - ok).toLocaleString()}개` : ''}`);
     },
-    onSettled: () => void queryClient.invalidateQueries({ queryKey: ['proposals', projectId] }),
   });
   const run = (action: 'accept' | 'reject', ids: string[]) => decide.mutate({ ids, action });
 

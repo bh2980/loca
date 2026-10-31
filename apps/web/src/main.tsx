@@ -1,22 +1,15 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { createRouter, RouterProvider } from '@tanstack/react-router';
-import { toast } from 'sonner';
 import { Notice, Spinner, Toaster, TooltipProvider } from '@loca/ui';
-import { isServerDown, setChangeListener, useServerDown } from '@/lib/api';
+import { setChangeListener, useServerDown } from '@/lib/api';
+import { queryClient } from '@/lib/query-client';
 import { refetchKeys } from '@/lib/live';
 import { routeTree } from './routeTree.gen';
 import '@loca/ui/fonts.css';
 import './index.css';
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    // While the server is unreachable (starting, restarting) queries keep retrying with react-query's growing delay; a failure with the server up is retried once.
-    queries: { staleTime: 30_000, refetchOnWindowFocus: false, retry: (count) => count < (isServerDown() ? 8 : 1) },
-    mutations: { onError: (error) => toast.error(error.message) },
-  },
-});
 
 // A write's answer names the topics it changed: refetch those queries now. The event for the same
 // change names this tab as its origin and is skipped (lib/live.ts), so it is fetched once (#20).
