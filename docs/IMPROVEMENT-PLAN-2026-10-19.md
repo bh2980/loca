@@ -18,7 +18,7 @@
 2. **상태 관리 원칙**:
    - 페이지 상태(필터, 선택 항목, 탭, 단순화 토글 등)는 **URL Search Params**가 단일 진실 공급원(Source of Truth)입니다.
    - 뷰포트(Pan/Zoom 좌표), 미저장 초안(Draft), 임시 숨김 노드 집합(`hiddenIds`)은 `sessionStorage`에 보관하며, 패닝이나 폴링으로 브라우저 히스토리를 푸시하지 않습니다.
-   - 서버 변경 사항은 SSE 토픽(`apps/server/src/events.ts`)으로 전파되며, 폴링(polling)을 추가하지 않습니다.
+   - 서버 변경은 SSE 스트림 하나(`apps/server/src/events.ts`)로 오고, 폴링을 추가하지 않습니다. 화면은 행을 브라우저 컬렉션(TanStack DB, 종류·프로젝트마다 하나)에서 읽고 질의 캐시에 사본을 두지 않습니다. 컬렉션은 행 피드가 맞춥니다: SQLite 트리거가 바뀐 행을 적고(`row_changed`), 이벤트가 그 행을 싣습니다(대사는 id만). 화면에 보이는 표에는 쓰는 곳마다 신호를 덧붙이지 않고 마이그레이션으로 트리거를 둡니다. 쓰기는 서버 API(와 변경 관문)를 거쳐 컬렉션을 먼저 바꾸고, `x-seq`가 돌아오면 끝납니다(`changeLines`, `decideItems`). 화면과 CLI가 함께 쓰는 필터는 `@tw/shared`에 둡니다. 주제 질의와 `IMPLIES`는 옛 설계의 남은 부분이라 컬렉션으로 옮기고 새로 만들지 않습니다(과제 10).
 3. **CLI 연결을 부르는 방법** (연결은 프로젝트마다 따로지만 CLI 로그인은 컴퓨터에 하나, 쓰임에 따라 부르는 방법이 다름):
    - 프로젝트 채팅은 **ACP**(`packages/ai/src/acp.ts`): CLI마다 상주 프로세스 하나가 대화 세션을 이어 가고, 작업실 도구는 MCP 서버(`mcp-host.ts`)로 넘긴다. 변경 도구는 지금처럼 제안이 된다. Claude·Codex는 공식 어댑터, Grok `grok agent stdio`, OpenCode `opencode acp`, Antigravity는 Google ACP 서버의 래퍼(Zed로 이름을 대어 CLI와 같은 모델 목록)를 쓴다.
    - 워크플로·분석 요청은 **one-shot 실행**(`cli.ts`): 도구를 끄고 JSON 스키마로 한 번에 받는다. 2026-10-20 실측(2줄 번역 1회)에서 ACP는 Claude는 비슷, Grok은 입력 2배, Antigravity는 모델 호출 3번에 사용량 보고도 없어 대량 작업에 쓰지 않는다.
