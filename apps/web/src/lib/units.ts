@@ -157,6 +157,22 @@ function refreshContexts(ids: readonly string[]) {
   }
 }
 
+/**
+ * A list's page, ready before a line of it is picked: the contexts not cached yet in one request (POST units/contexts, put
+ * where each line's own query reads it) and the lines' candidates and runs in another. Picking a line then draws its whole
+ * detail at once; a context the feed names later is read again as usual.
+ */
+export function preloadLineDetails(projectId: string, ids: readonly string[]) {
+  const missing = ids.filter((id) => queryClient.getQueryData(lineContext(id).queryKey) === undefined);
+  for (let at = 0; at < missing.length; at += 200) {
+    void unwrap(client.projects[':projectId'].units.contexts.$post({ param: { projectId }, json: { ids: missing.slice(at, at + 200) } })).then(
+      ({ rows }) => { for (const row of rows) queryClient.setQueryData(lineContext(row.id).queryKey, row as Context); },
+      () => undefined, // A failed preload costs nothing: picking the line asks for it as before.
+    );
+  }
+  void extrasOf(projectId).ensure(ids).catch(() => undefined);
+}
+
 const units = new Map<string, Held<Line>>();
 const extras = new Map<string, Held<LineExtras>>();
 

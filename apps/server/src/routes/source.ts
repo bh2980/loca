@@ -31,6 +31,7 @@ import { hiddenMarkConditions, knownListenerSql, lineFactConditions, markConditi
 import { CompleteRefused, completeLine } from '../services/editor-complete.ts';
 import { assistLine } from '../services/editor-assist.ts';
 import { describeRule, knownListener as knownListenerOf, speechRuleIndex } from '../services/speech.ts';
+import { lineContexts } from '../services/line-context.ts';
 import { unitColumns, unitRowsByIds } from '../services/unit-rows.ts';
 import { groupRows } from '../services/group-rows.ts';
 import { lineExtras } from '../services/line-extras.ts';
@@ -281,35 +282,9 @@ export const sourceRoutes = new Hono<Env>()
     return c.json({ ok: true });
     },
   )
-  .get('/units/:unitId', (c) => {
-    const { db } = c.var.deps;
-    const unitId = c.req.param('unitId');
-    const unit = found(db.select().from(s.units).where(eq(s.units.id, unitId)).get(), '대사');
-    const group = db.select({ id: s.groups.id, title: s.groups.title, key: s.groups.key }).from(s.groups).where(eq(s.groups.id, unit.groupId)).get()!;
-    const neighborFields = { id: s.units.id, speaker: s.units.speaker, source: s.units.source, translation: s.units.translation };
-    const neighbors = {
-      previous: db.select(neighborFields).from(s.units).where(and(eq(s.units.groupId, unit.groupId), lt(s.units.seq, unit.seq))).orderBy(desc(s.units.seq)).limit(1).get(),
-      next: db.select(neighborFields).from(s.units).where(and(eq(s.units.groupId, unit.groupId), gt(s.units.seq, unit.seq))).orderBy(asc(s.units.seq)).limit(1).get(),
-    };
-    const tagIds = db.select({ tagId: s.unitTags.tagId }).from(s.unitTags).where(eq(s.unitTags.unitId, unitId)).all().map((row) => row.tagId);
-    const nodes = db.select({ id: s.graphNodes.id, key: s.graphNodes.key }).from(s.graphNodes).where(sql`exists (select 1 from json_each(${s.graphNodes.unitIds}) where value = ${unitId})`).all();
-    const resolved = speechRuleIndex(db, unit.projectId).resolve([unit]).get(unit.key);
-    const speech = resolved ? { listener: resolved.listener, ruleId: resolved.rule.id, rule: describeRule(resolved.rule), level: resolved.rule.level, byOrder: resolved.byOrder, routeDependent: !!resolved.routeDependent, others: !!resolved.others } : null;
-    // Who this line may address, nearest first: the scene's other speakers (extras included) and
-    // names people already typed as a listener there, for the listener picker.
-    const sceneLines = db.select({ seq: s.units.seq, speaker: s.units.speaker, listener: s.units.listener, origin: s.units.listenerOrigin }).from(s.units).where(eq(s.units.groupId, unit.groupId)).all();
-    const distance = new Map<string, number>();
-    for (const other of sceneLines) {
-      for (const name of [other.speaker, other.origin === 'human' ? other.listener : null]) {
-        if (!name || name === unit.speaker || isSpecialListener(name)) continue;
-        const far = Math.abs(other.seq - unit.seq);
-        if (far < (distance.get(name) ?? Infinity)) distance.set(name, far);
-      }
-    }
-    const sceneNames = [...distance].sort((a, b) => a[1] - b[1]).map(([name]) => name);
-    // Its candidates and run history are POST units/extras: the browser holds them apart and reads them again when the feed names the line.
-    return c.json({ ...unit, group, neighbors, tagIds, graphNodes: nodes, speech, sceneNames });
-  })
+  .get('/units/:unitId', (c) => c.json(found(lineContexts(c.var.deps.db, undefined, [c.req.param('unitId')])[0], '대사')))
+  /** The same for a page of lines: the list asks before a line is picked, so the detail draws whole at once. */
+  .post('/projects/:projectId/units/contexts', validate('json', z.object({ ids: z.array(z.string()).max(200) })), (c) => c.json({ rows: lineContexts(c.var.deps.db, c.req.param('projectId'), c.req.valid('json').ids) }))
   /** The editor's AI continuation of a line: the whole line, starting with `prefix`. Cancelled with the request. */
   .post('/units/:unitId/complete', validate('json', z.object({ prefix: z.string().max(4000).default('') })), async (c) => {
     const { db, secrets } = c.var.deps;

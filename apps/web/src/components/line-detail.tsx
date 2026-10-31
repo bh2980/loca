@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { toast } from 'sonner';
-import { CircleCheck, Network, Pencil } from 'lucide-react';
+import { CircleAlert, CircleCheck, Network, Pencil } from 'lucide-react';
 import { CopyButton } from '@/components/copy-button';
 import { sameTranslation, checkFormat, exclusionReason, isUnknownListener, type LineTranslate, listenerLabel, needsListener, SPEECH_LEVEL_LABELS, speechLevelOf, TAG_SCOPES, type FormatRules, type SpeechLevel } from '@tw/shared';
 import { AiMark, Chip, Box, Button, CandidateCard, DetailIssue, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, EditorChangedWord, EditorDiffWord, Group, HistoryItem, HistoryList, Icon, Inline, InspectorHeader, Inspector, InspectorList, SpeakerIdentity, StatusIcon, Switch, TagListEditor, Text, ListItem, Section, KeyValue, KeyValueRow } from '@loca/ui';
@@ -14,7 +14,7 @@ import { TranslationEditor } from '@/components/translation-editor';
 import { AiSuggestion, suggestionFrom } from '@/components/ai-suggestion';
 import { wordDiff } from '@/lib/diff';
 import { useSaveLine } from '@/lib/line-save';
-import { LineHints } from '@/components/script/line-row';
+import { LineHints, useUsedTerms } from '@/components/script/line-row';
 import { LineNote } from '@/components/script/line-note';
 import { TokenText } from '@/components/editor/source-text';
 import { replaceLineText } from '@/components/editor/translation-input';
@@ -246,12 +246,12 @@ export function LineDetail({
               {line.speech && <KeyValueRow label="말투 규칙"><Text asChild display="block" truncate underline="hover"><Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', item: line.speech.ruleId }} title={line.speech.rule}>{line.speech.rule}</Link></Text></KeyValueRow>}
               {line.speaker && <KeyValueRow label="인물"><Text asChild display="block" truncate underline="hover"><Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'characters', ...(speakerPerson && { item: speakerPerson.id }) }}>보기</Link></Text></KeyValueRow>}
               </KeyValue>
-            {line.speaker && <LineHints projectId={projectId} line={{ id: line.id, source: line.source, translation: line.translation, speaker: line.speaker, listener: line.listener, lastRun: lastRun ? { issues: lastRun.data.issues ?? [] } : null }} part="context" />}
+            {line.speaker && <LineHints projectId={projectId} line={{ id: line.id, source: line.source, translation: line.translation, speaker: line.speaker, listener: line.listener, lastRun: lastRun ? { issues: lastRun.data.issues ?? [] } : null }} part="people" />}
           </Section>
           )}
 
           <Section title="검증">
-            <LineChecks projectId={projectId} source={line.source} text={draft} rules={project.data?.formatRules} targetLanguage={project.data?.targetLanguage} speech={line.speech} lastRun={lastRun ? { runId: lastRun.runId, workflowName: lastRun.workflowName, issues: lastRun.data.issues ?? [] } : null} />
+            <LineChecks projectId={projectId} source={line.source} kind={line.kind} text={draft} rules={project.data?.formatRules} targetLanguage={project.data?.targetLanguage} speech={line.speech} lastRun={lastRun ? { runId: lastRun.runId, workflowName: lastRun.workflowName, issues: lastRun.data.issues ?? [] } : null} />
           </Section>
 
           <HistorySection projectId={projectId} unit={line} tokenPattern={tokenPattern} ready={unit.extrasReady} />
@@ -307,7 +307,7 @@ function SimilarSection({ unit, draft, onUse, tokenPattern }: { unit: LineRecord
   const shown = all ? rows : rows.slice(0, FIRST_FEW);
   const inEditor = (text: string) => draft !== (unit.translation ?? '') && text === draft;
   return (
-    <Section title={`비슷한 번역 ${rows.length}`} actions={<>
+    <Section title={matches.isPending ? '비슷한 번역 …' : `비슷한 번역 ${rows.length}`} actions={<>
       <AiButton variant="ghost" prompt={`${subject}의 번역을 제안해줘.`}>AI 제안 받기</AiButton>
       {unit.translation && <AiButton variant="ghost" send={false} prompt={`${subject}의 번역을 이렇게 다듬어줘: `}>다듬기</AiButton>}
     </>}>
@@ -442,8 +442,11 @@ function HistorySection({ projectId, unit, tokenPattern, ready }: { projectId: s
 }
 
 /** The last run's findings, the speech rule and the format checks of the line's current draft. */
-function LineChecks({ projectId, source, text, rules, targetLanguage, speech, lastRun }: { projectId: string; source: string; text: string; rules?: FormatRules; targetLanguage?: string; speech?: { listener: string; ruleId: string; rule: string; level: SpeechLevel; byOrder: boolean; routeDependent?: boolean; others?: boolean } | null; lastRun: { runId: string; workflowName: string; issues: string[] } | null }) {
+function LineChecks({ projectId, source, kind, text, rules, targetLanguage, speech, lastRun }: { kind?: string; projectId: string; source: string; text: string; rules?: FormatRules; targetLanguage?: string; speech?: { listener: string; ruleId: string; rule: string; level: SpeechLevel; byOrder: boolean; routeDependent?: boolean; others?: boolean } | null; lastRun: { runId: string; workflowName: string; issues: string[] } | null }) {
   const formatIssues = text.trim() ? checkFormat(source, text, editorChecks(targetLanguage, true), rules) : [];
+  // The confirmed terms the source uses, each with whether the translation has its Korean form.
+  const usedTerms = useUsedTerms(projectId, { source, kind });
+  const lower = text.toLowerCase();
   const guessed = text.trim() ? speechLevelOf(text) : null;
   return (
     <Box spaceY="comfortable">
@@ -466,6 +469,22 @@ function LineChecks({ projectId, source, text, rules, targetLanguage, speech, la
               {!guessed || speech.level === 'other' ? '' : guessed === speech.level ? '맞음 · 추정' : `번역은 ${SPEECH_LEVEL_LABELS[guessed]} · 추정`}
             </Text>
           </Inline>
+        </Group>
+      )}
+      {usedTerms.length > 0 && (
+        <Group title="용어">
+          <Box as="ul" spaceY="tight" variant="body">
+            {usedTerms.map((term) => {
+              const kept = Boolean(text.trim()) && lower.includes(term.target.toLowerCase());
+              return (
+                <Inline as="li" key={term.id} gap="tight" tone={kept ? undefined : 'warning'}>
+                  <Icon icon={kept ? CircleCheck : CircleAlert} size="sm" tone={kept ? 'success' : 'warning'} />
+                  <Text>{term.source} → {term.target}</Text>
+                  {!kept && <Text variant="caption" tone="warning">{text.trim() ? '번역에 없음' : '번역 없음'}</Text>}
+                </Inline>
+              );
+            })}
+          </Box>
         </Group>
       )}
       <Group title="형식">
