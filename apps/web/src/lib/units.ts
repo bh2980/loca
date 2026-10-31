@@ -157,6 +157,22 @@ function refreshContexts(ids: readonly string[]) {
   }
 }
 
+/**
+ * A list's page, ready before a line of it is picked: the contexts not cached yet in one request (POST units/contexts, put
+ * where each line's own query reads it) and the lines' candidates and runs in another. Picking a line then draws its whole
+ * detail at once; a context the feed names later is read again as usual.
+ */
+export function preloadLineDetails(projectId: string, ids: readonly string[]) {
+  const missing = ids.filter((id) => queryClient.getQueryData(lineContext(id).queryKey) === undefined);
+  for (let at = 0; at < missing.length; at += 200) {
+    void unwrap(client.projects[':projectId'].units.contexts.$post({ param: { projectId }, json: { ids: missing.slice(at, at + 200) } })).then(
+      ({ rows }) => { for (const row of rows) queryClient.setQueryData(lineContext(row.id).queryKey, row as Context); },
+      () => undefined, // A failed preload costs nothing: picking the line asks for it as before.
+    );
+  }
+  void extrasOf(projectId).ensure(ids).catch(() => undefined);
+}
+
 const units = new Map<string, Held<Line>>();
 const extras = new Map<string, Held<LineExtras>>();
 
@@ -224,19 +240,25 @@ export type LineDetail = Context & Pick<LineExtras, 'candidates' | 'history'>;
 /**
  * A line's detail: its context (neighbours, speech rule, graph nodes, the scene's names), fetched for
  * the open line only; what it shares with the line's row, from the units collection; and its
- * candidates and run history, from the line extras collection. Undefined until all three are there.
+ * candidates and run history, from the line extras collection. Undefined until all three are there,
+ * unless `partial`: then it is there as soon as the row is (a line picked in a list is held already),
+ * with the context's own fields empty until it comes (`contextReady`, `extrasReady` say which came),
+ * so a pane draws the line at once instead of a loading skeleton on every pick.
  */
-export function useLineDetail(projectId: string, unitId: string, options: { enabled?: boolean } = {}) {
+export function useLineDetail(projectId: string, unitId: string, options: { enabled?: boolean; partial?: boolean } = {}) {
   const enabled = (options.enabled ?? true) && Boolean(unitId);
   const context = useQuery({ ...lineContext(unitId), enabled });
   const ids = useMemo(() => (enabled ? [unitId] : []), [enabled, unitId]);
   const row = useLines(projectId, ids).rows?.[0];
   const more = useHeld(extrasOf(projectId), ids).rows?.[0];
-  const data = useMemo<LineDetail | undefined>(
-    () => (context.data && row && more ? { ...context.data, ...(Object.fromEntries(SHARED.map((field) => [field, row[field]])) as Partial<Context>), candidates: more.candidates, history: more.history } : undefined),
-    [context.data, row, more],
-  );
-  return { ...context, data, isPending: enabled && !data };
+  const partial = options.partial ?? false;
+  const data = useMemo<LineDetail | undefined>(() => {
+    if (!row || (!partial && (!context.data || !more))) return undefined;
+    // Until the context comes: the row's own fields, its scene from the row, nothing known about its neighbours, rule or nodes.
+    const base = context.data?.id === row.id ? context.data : ({ ...row, seq: undefined, candidateId: null, group: { id: row.groupId, title: row.groupTitle, key: '' }, neighbors: {}, graphNodes: [], speech: null, sceneNames: [] } as unknown as Context);
+    return { ...base, ...(Object.fromEntries(SHARED.map((field) => [field, row[field]])) as Partial<Context>), candidates: more?.candidates ?? [], history: more?.history ?? [] };
+  }, [context.data, row, more, partial]);
+  return { ...context, data, isPending: enabled && !data, contextReady: Boolean(context.data && context.data.id === unitId), extrasReady: Boolean(more) };
 }
 
 /** One line from the collection (undefined until held). */

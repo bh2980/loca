@@ -14,7 +14,7 @@ import { LineHeadRow, useLineBulk } from '@/components/script/line-bulk';
 import { LineRow } from '@/components/script/line-row';
 import { sceneSelectionState } from '@/components/script/scene-selection';
 import { useTaxonomy } from '@/lib/knowledge';
-import { useLinePage } from '@/lib/units';
+import { preloadLineDetails, useLinePage } from '@/lib/units';
 import { useListeners, useSpeakers } from '@/lib/project';
 import { useProject } from '@/lib/project';
 
@@ -176,6 +176,11 @@ export function LineList({
   const tagById = new Map(taxonomy.tags?.map((tag) => [tag.id, tag]));
   const rows = lines.data?.rows;
   const total = lines.data?.total ?? 0;
+  // The page's details are fetched with the page, so picking a line opens its whole detail at once.
+  const pageKey = lines.isPlaceholderData ? '' : (rows ?? []).map((row) => row.id).join(',');
+  useEffect(() => {
+    if (pageKey) preloadLineDetails(projectId, pageKey.split(','));
+  }, [projectId, pageKey]);
   const emptyNoun = review ? '검토할 대사' : (displayKind ?? kind) === 'ui' ? 'UI 문자열' : (displayKind ?? kind) === 'document' ? '문서' : '대사';
   const groupNoun = (displayKind ?? kind) === 'ui' ? 'UI 묶음' : (displayKind ?? kind) === 'document' ? '문서 묶음' : (displayKind ?? kind) === 'scene' ? '장면' : '묶음';
   const speakers = useSpeakers(projectId);
@@ -302,6 +307,12 @@ export function LineList({
       setArrived(search.line);
     }
   }, [search.line, rows]);
+  // Similar lines are a search per line: the ones just around the picked line are asked now, so moving with ↑↓ finds them ready.
+  useEffect(() => {
+    const at = rows?.findIndex((row) => row.id === search.line) ?? -1;
+    if (at < 0 || !rows) return;
+    for (const row of rows.slice(Math.max(0, at - 2), at + 4)) void queryClient.prefetchQuery(q.lineMatches(row.id));
+  }, [search.line, rows, queryClient]);
 
   // Set filters show as removable chips; while finding, the find bar shows them instead.
   const chips = find ? [] : filterChips(search, statusList, taxonomy.tags ?? [], markStyles);
