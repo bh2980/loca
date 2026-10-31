@@ -284,5 +284,6 @@ export function ruleLines(db: Db, projectId: string, ruleId: string) {
   const routeDependent = rows.filter((line) => uncertain.has(line.key)).length;
   // Only translated lines have endings to fix; untranslated ones get the rule when they are translated.
   const translatedIds = rows.filter((line) => line.translation?.trim()).map((line) => line.id);
-  return { count: rows.length, routeDependent, unitIds: rows.map((line) => line.id), translatedIds, levels, rows: rows.slice(0, 100).map(({ listenerOrigin: _o, listenerConfidence: _c, ...line }) => line) };
+  // Ids only: the pane shows the first lines from the browser's units collection.
+  return { count: rows.length, routeDependent, unitIds: rows.map((line) => line.id), translatedIds, levels };
 }

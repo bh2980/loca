@@ -1,6 +1,6 @@
 import { createAndAttachTag } from '@/lib/create-tag';
 import { useMemo, useRef, useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { ChevronRight, Plus } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { InferRequestType } from 'hono/client';
@@ -13,10 +13,11 @@ import { candidateRow, fail, metaColumns, SourceBadge, type Draft, type Knowledg
 import { splitList } from '@/lib/list-value';
 import { personStyle } from '@/lib/person-colors';
 import { client } from '@/lib/api';
-import { q, tagsIn, useMarkStyles } from '@/lib/queries';
+import { tagsIn, useMarkStyles } from '@/lib/queries';
 import { MarkChip } from '@/components/status';
 import { useTaxonomy } from '@/lib/knowledge';
 import { sent } from '@/lib/collections';
+import { useLinesByKeys } from '@/lib/units';
 
 /** One speaker → listener direction (buildPairs, @tw/shared) with the rows these screens read. */
 export type Pair = PairOf<RelationshipRow, SpeechRuleRow>;
@@ -109,7 +110,8 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
   const markStyles = useMarkStyles(projectId);
   const [openRule, setOpenRule] = useState<string | undefined>(pair.rules.length === 1 ? pair.rules[0].id : undefined);
   const [picking, setPicking] = useState(false);
-  const starts = useQuery(q.linesByKeys(projectId, pair.rules.flatMap((rule) => (rule.startKey ? [rule.startKey] : []))));
+  const startKeys = useMemo(() => pair.rules.flatMap((rule) => (rule.startKey ? [rule.startKey] : [])), [pair.rules]);
+  const starts = useLinesByKeys(projectId, startKeys);
   const startOf = new Map(starts.data?.map((line, index) => [line.key, { ...line, order: index }]));
   const rules = [...pair.rules].sort((a, b) => (a.startKey ? (startOf.get(a.startKey)?.order ?? 1e9) + 1 : 0) - (b.startKey ? (startOf.get(b.startKey)?.order ?? 1e9) + 1 : 0));
   // In the pair the speaker and listener are given; where a stretch starts is chosen by picking a line.

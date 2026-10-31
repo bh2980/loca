@@ -1,7 +1,7 @@
 import { createAndAttachTag } from '@/lib/create-tag';
 /** Detail panes for a glossary term: edit one, or add a new one. */
 import { CopyButton } from '@/components/copy-button';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Check, Play, Plus, Trash2 } from 'lucide-react';
@@ -16,6 +16,7 @@ import { ChangedElsewhere } from '@/components/changed-elsewhere';
 import { q, tagsIn } from '@/lib/queries';
 import { sent } from '@/lib/collections';
 import { useTaxonomy } from '@/lib/knowledge';
+import { useLines } from '@/lib/units';
 
 export interface Term {
   id: string;
@@ -132,7 +133,9 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
 
   const usage = useQuery(q.termUsage(projectId, term.id));
   const [allUses, setAllUses] = useState(false);
-  const uses = usage.data?.rows ?? [];
+  // Which lines use the term is the question; the first of them come from the units collection.
+  const useIds = useMemo(() => usage.data?.unitIds.slice(0, 100), [usage.data]);
+  const uses = useLines(projectId, useIds).rows ?? [];
   const shownUses = allUses ? uses : uses.slice(0, USES_SHOWN);
   const taxonomy = useTaxonomy(projectId);
   const termTags = tagsIn(taxonomy.tags, 'terms');
@@ -230,7 +233,7 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
           )
         }
       >
-        {usage.data && usage.data.rows.length === 0 ? (
+        {usage.data && usage.data.count === 0 ? (
           <Text as="p" variant="body" tone="muted">이 용어가 나오는 대사가 없습니다.</Text>
         ) : (
           <InspectorList>

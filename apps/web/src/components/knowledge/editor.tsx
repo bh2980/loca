@@ -1,7 +1,7 @@
 import { createAndAttachTag } from '@/lib/create-tag';
 /** The detail editor for one knowledge item: fields, unsaved edits that survive navigation, decide/discard. */
-import { cloneElement, isValidElement, useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { cloneElement, isValidElement, useMemo, useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
 import { Check, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { DOCUMENT_KINDS, STYLE_AXES, type StyleAxis, type CharacterRole, type Gender, type AgeBand, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, isSettled, AGE_BAND_LABELS, CHARACTER_ROLE_LABELS, GENDER_LABELS, knowledgeKindScope, type TagScope, type KnowledgeTagKind } from '@tw/shared';
@@ -14,9 +14,10 @@ import { DOCUMENT_KIND } from '@/lib/labels';
 import { Evidence, StretchPicker } from '@/components/knowledge/evidence';
 import { confirmLabel, fail, KINDS, SourceBadge, text, type Kind, type KindSpec, type Row, type Field as KnowledgeField } from '@/components/knowledge/table';
 import { client } from '@/lib/api';
-import { q, tagsIn } from '@/lib/queries';
+import { tagsIn } from '@/lib/queries';
 import { useTaxonomy } from '@/lib/knowledge';
 import { sent } from '@/lib/collections';
+import { useLinesByKeys } from '@/lib/units';
 
 /** A field's value in the draft (the form is kept as JSON in sessionStorage). */
 type Value = string | boolean | string[] | Record<string, string> | null;
@@ -211,8 +212,8 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
 /** 시작 대사: the key of the line a speech rule starts at, picked from the speaker's lines to that listener. */
 function StartKeyField({ projectId, field, value, from, to, onChange }: { projectId: string; field: KnowledgeField; value: string; from: string; to: string; onChange: (value: Value) => void }) {
   const [picking, setPicking] = useState(false);
-  const line = useQuery(q.linesByKeys(projectId, value ? [value] : []));
-  const source = line.data?.[0]?.source;
+  const keys = useMemo(() => (value ? [value] : []), [value]);
+  const source = useLinesByKeys(projectId, keys).data?.[0]?.source;
   return (
     <Field
       label={field.label}

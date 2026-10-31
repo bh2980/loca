@@ -31,7 +31,7 @@ import { hiddenMarkConditions, knownListenerSql, lineFactConditions, markConditi
 import { CompleteRefused, completeLine } from '../services/editor-complete.ts';
 import { assistLine } from '../services/editor-assist.ts';
 import { describeRule, knownListener as knownListenerOf, speechRuleIndex } from '../services/speech.ts';
-import { unitColumns, unitRows, unitRowsByIds } from '../services/unit-rows.ts';
+import { unitColumns, unitRowsByIds } from '../services/unit-rows.ts';
 import { groupRows } from '../services/group-rows.ts';
 import { lineExtras } from '../services/line-extras.ts';
 import { listenerRows } from '../services/project-rows.ts';
@@ -190,25 +190,6 @@ export const sourceRoutes = new Hono<Env>()
     for (const tag of tagRows) tagsByUnit.set(tag.unitId, [...(tagsByUnit.get(tag.unitId) ?? []), tag.tagId]);
     return c.json({ rows: rows.map((row) => ({ ...row, tagIds: tagsByUnit.get(row.id) ?? [] })) });
   })
-  .get('/projects/:projectId/units', validate('query', listQuery), (c) => {
-    const { db } = c.var.deps;
-    const projectId = c.req.param('projectId');
-    const query = c.req.valid('query');
-    const where = unitConditions(projectId, query);
-    // The groups table is only needed for the kind filter; without it the count is one index range.
-    const counted = db.select({ count: count() }).from(s.units);
-    const total = ((query.kind || query.section) ? counted.innerJoin(s.groups, eq(s.groups.id, s.units.groupId)) : counted).where(where).get()!.count;
-    // Opened at a given line (a link from elsewhere): start at the page that holds it.
-    let offset = query.offset;
-    if (query.focus) {
-      const target = db.select({ seq: s.units.seq }).from(s.units).where(and(eq(s.units.id, query.focus), eq(s.units.projectId, projectId))).get();
-      if (target) {
-        const before = ((query.kind || query.section) ? db.select({ count: count() }).from(s.units).innerJoin(s.groups, eq(s.groups.id, s.units.groupId)) : db.select({ count: count() }).from(s.units)).where(and(where, sql`${s.units.seq} < ${target.seq}`)).get()!.count;
-        offset = Math.floor(before / query.limit) * query.limit;
-      }
-    }
-    return c.json({ total, offset, rows: unitRows(db, where, { limit: query.limit, offset }) });
-  })
   /**
    * One page of a filter as ids (script order) with the filter's total and, for the scenes on the
    * page, how many of their lines the filter matches (their checkboxes): the script list's rows come
@@ -240,19 +221,12 @@ export const sourceRoutes = new Hono<Env>()
     const scenes = shown.length ? (grouped ? scenesFrom.innerJoin(s.groups, eq(s.groups.id, s.units.groupId)) : scenesFrom).where(and(where, inArray(s.units.groupId, shown))).groupBy(s.units.groupId).all() : [];
     return c.json({ total, offset, ids: page.map((row) => row.id), scenes });
   })
-  /** Lines by key, in script order: evidence cited by knowledge drafts. */
+  /** Lines by key, in script order, as ids: evidence cited by knowledge drafts, where a speech rule starts. */
   .post('/projects/:projectId/units/by-keys', validate('json', z.object({ keys: z.array(z.string()).max(500) })), (c) => {
     const keys = c.req.valid('json').keys;
-    if (!keys.length) return c.json([]);
-    return c.json(
-      c.var.deps.db
-        .select({ ...unitColumns, groupTitle: s.groups.title })
-        .from(s.units)
-        .innerJoin(s.groups, eq(s.groups.id, s.units.groupId))
-        .where(and(eq(s.units.projectId, c.req.param('projectId')), inArray(s.units.key, keys)))
-        .orderBy(asc(s.units.seq))
-        .all(),
-    );
+    // Ids in script order: the lines themselves come from the browser's units collection.
+    const ids = keys.length ? c.var.deps.db.select({ id: s.units.id }).from(s.units).where(and(eq(s.units.projectId, c.req.param('projectId')), inArray(s.units.key, keys))).orderBy(asc(s.units.seq)).all().map((row) => row.id) : [];
+    return c.json({ ids });
   })
   /** What the bulk bar shows of picked lines (their tags, who decided them), by id: picks outlive the page they were made on. */
   .post('/projects/:projectId/units/meta', validate('json', z.object({ ids: z.array(z.string()).max(20_000) })), (c) => {

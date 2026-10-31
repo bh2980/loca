@@ -41,8 +41,8 @@ describe('CLI parity with the app', () => {
       })
       .route('/', sourceRoutes);
     const appKeys = async (params: Record<string, string>) => {
-      const body = (await (await app.request(`/projects/${projectId}/units?${new URLSearchParams(params)}`)).json()) as { rows: { key: string }[] };
-      return body.rows.map((row) => row.key);
+      const body = (await (await app.request(`/projects/${projectId}/units/ids?${new URLSearchParams(params)}`)).json()) as { ids: string[] };
+      return body.ids.map((id) => db.select({ key: s.units.key }).from(s.units).where(eq(s.units.id, id)).get()!.key);
     };
     const cliKeys = (filter: object) => findLines(db, projectId, lineFilterSchema.parse(filter)).rows.map((row) => row.key);
     const cases: [string, string[]][] = [

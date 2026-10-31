@@ -25,18 +25,6 @@ export const q = {
   /** Every line a filter matches (id and scene, script order), for walking them inside their scenes. */
   unitMatches: (projectId: string, query: { groupId?: string; kind?: 'scene' | 'document' | 'ui'; section?: string; statusId?: string; tagIds?: string; q?: string; speaker?: string; listener?: string; review?: '1'; marks?: string }) =>
     queryOptions({ queryKey: ['units', 'matches', projectId, query], queryFn: () => unwrap(client.projects[':projectId'].units.matches.$get({ param: { projectId }, query })) }),
-  units: (projectId: string, query: { groupId?: string; section?: string; kind?: 'scene' | 'document' | 'ui'; statusId?: string; tagIds?: string; q?: string; speaker?: string; listener?: string; review?: '1'; marks?: string; decidedBy?: 'ai' | 'human'; excluded?: 'hide' | 'only'; focus?: string; offset?: number; limit?: number }) =>
-    queryOptions({
-      queryKey: ['units', 'list', projectId, query],
-      queryFn: () =>
-        unwrap(
-          client.projects[':projectId'].units.$get({
-            param: { projectId },
-            query: { ...query, offset: query.offset?.toString(), limit: query.limit?.toString() } as never,
-          }),
-        ),
-      placeholderData: keepPreviousData,
-    }),
   /** Other lines with the same source, translated or not (a confirmed translation may be applied to them). */
   sameSource: (unitId: string) => queryOptions({ queryKey: ['units', 'same-source', unitId], queryFn: () => unwrap(client.units[':unitId'].same.$get({ param: { unitId } })) }),
   /** Translated lines with the same or a similar source (the editor's suggestions). */
@@ -81,13 +69,6 @@ export const q = {
     queryOptions({ queryKey: ['terms', 'usage', id], queryFn: () => unwrap(client.projects[':projectId'].terms[':id'].usage.$get({ param: { projectId, id } })) }),
   ruleLines: (projectId: string, id: string) =>
     queryOptions({ queryKey: ['units', 'rule-lines', id], queryFn: () => unwrap(client.projects[':projectId']['speech-rules'][':id'].lines.$get({ param: { projectId, id } })) }),
-  /** Lines cited as evidence, by key. */
-  linesByKeys: (projectId: string, keys: string[]) =>
-    queryOptions({
-      queryKey: ['units', 'by-keys', projectId, keys],
-      queryFn: () => unwrap(client.projects[':projectId'].units['by-keys'].$post({ param: { projectId }, json: { keys } })),
-      enabled: keys.length > 0,
-    }),
   /** What one model request sent (kept for whole-script reads and glossary fills). */
   aiCallRequest: (projectId: string, id: string) =>
     queryOptions({ queryKey: ['calls', 'request', id], queryFn: () => unwrap(client.projects[':projectId']['ai-calls'][':id'].request.$get({ param: { projectId, id } })), staleTime: Infinity }),

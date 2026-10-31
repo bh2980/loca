@@ -246,11 +246,23 @@ export const lineIds = (projectId: string, query: LineQuery) =>
   });
 
 /** A page of lines: which lines and in what order from the server, the lines themselves from the collection. */
-export function useLinePage(projectId: string, query: LineQuery) {
-  const page = useQuery(lineIds(projectId, query));
-  const lines = useLines(projectId, page.data?.ids);
+export function useLinePage(projectId: string, query: LineQuery, { enabled = true }: { enabled?: boolean } = {}) {
+  const page = useQuery({ ...lineIds(projectId, query), enabled });
+  const lines = useLines(projectId, enabled ? page.data?.ids : undefined);
   const data = useMemo(() => (page.data && lines.rows ? { total: page.data.total, offset: page.data.offset, scenes: page.data.scenes, rows: lines.rows } : undefined), [page.data, lines.rows]);
   return { data, isPlaceholderData: page.isPlaceholderData || lines.loading, isError: page.isError };
+}
+
+/** Lines by key in script order (evidence, where a speech rule starts): the keys' ids are a question, the lines come from the collection. */
+export function useLinesByKeys(projectId: string, keys: readonly string[]) {
+  const page = useQuery({
+    queryKey: ['units', 'by-keys', projectId, keys],
+    queryFn: () => unwrap(client.projects[':projectId'].units['by-keys'].$post({ param: { projectId }, json: { keys: [...keys] } })),
+    enabled: keys.length > 0,
+    placeholderData: keepPreviousData,
+  });
+  const lines = useLines(projectId, keys.length ? page.data?.ids : undefined);
+  return { data: keys.length ? lines.rows : [] };
 }
 
 /** What a line patch looks like on the line before the server echoes it. */

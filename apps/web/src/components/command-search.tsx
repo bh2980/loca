@@ -10,6 +10,7 @@ import { PersonName } from '@/lib/person-colors';
 import { useCharacters, useDocuments } from '@/lib/knowledge';
 import { useTerms } from '@/lib/terms';
 import { useGroups } from '@/lib/groups';
+import { useLinePage } from '@/lib/units';
 
 export type SearchScope = 'all' | 'lines' | 'scenes' | 'terms' | 'people' | 'docs' | 'chat';
 
@@ -40,10 +41,8 @@ export function CommandSearch({ projectId, compact = false }: { projectId: strin
 
   const cap = (targetScope: SearchScope, defaultCap: number) => (scope === targetScope ? 50 : defaultCap);
 
-  const lines = useQuery({
-    ...q.units(projectId, { q: query, limit: scope === 'lines' ? 50 : 30 }),
-    enabled: open && query.length > 0 && (scope === 'all' || scope === 'lines'),
-  });
+  // Which lines match is asked of the server (ids); the lines come from the units collection.
+  const lines = useLinePage(projectId, { q: query, limit: scope === 'lines' ? 50 : 30 }, { enabled: open && query.length > 0 && (scope === 'all' || scope === 'lines') });
   const scenes = useGroups(projectId, { q: query, enabled: open && query.length > 0 && (scope === 'all' || scope === 'scenes') });
   // The glossary and the knowledge lists are the browser's collections; matched here.
   const termList = useTerms(projectId, { enabled: open && (scope === 'all' || scope === 'terms') });
@@ -70,7 +69,7 @@ export function CommandSearch({ projectId, compact = false }: { projectId: strin
     : [];
 
   const isFetching =
-    ((scope === 'all' || scope === 'lines') && lines.isFetching) ||
+    ((scope === 'all' || scope === 'lines') && lines.isPlaceholderData) ||
     ((scope === 'all' || scope === 'scenes') && scenes.isFetching) ||
     ((scope === 'all' || scope === 'terms') && termList.isFetching) ||
     ((scope === 'all' || scope === 'people') && characterList.isFetching) ||

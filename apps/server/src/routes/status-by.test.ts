@@ -39,8 +39,8 @@ describe('who set it', () => {
     await send('PATCH', `/projects/${projectId}/units`, { unitIds: [units[1].id], checked: true });
     expect(by().map((row) => row.statusBy)).toEqual(['human', 'human', 'ai']);
     // 'AI가 정한 것만' lists what is left.
-    const listed = (await (await send('GET', `/projects/${projectId}/units?decidedBy=ai`, undefined)).json()) as { rows: { key: string; statusBy: string }[] };
-    expect(listed.rows.map((row) => [row.key, row.statusBy])).toEqual([['u2', 'ai']]);
+    const listed = (await (await send('GET', `/projects/${projectId}/units/ids?decidedBy=ai`, undefined)).json()) as { ids: string[] };
+    expect(listed.ids.map((id) => db.select({ key: s.units.key, statusBy: s.units.statusBy }).from(s.units).where(eq(s.units.id, id)).get()).map((row) => [row?.key, row?.statusBy])).toEqual([['u2', 'ai']]);
   });
 
   it('a person confirming an AI item keeps its source; rewriting it makes the content theirs', async () => {
@@ -67,7 +67,7 @@ describe('units list filters on what a row shows', () => {
     db.update(s.units).set({ kind: 'dialogue', listener: null }).where(eq(s.units.id, units[2].id)).run();
     db.update(s.units).set({ note: '메모' }).where(eq(s.units.id, units[0].id)).run();
     db.update(s.units).set({ note: '메모' }).where(eq(s.units.id, units[1].id)).run();
-    const keys = async (query: string) => ((await (await send('GET', `/projects/${projectId}/units?${query}`, undefined)).json()) as { rows: { key: string }[] }).rows.map((row) => row.key);
+    const keys = async (query: string) => ((await (await send('GET', `/projects/${projectId}/units/ids?${query}`, undefined)).json()) as { ids: string[] }).ids.map((id) => db.select({ key: s.units.key }).from(s.units).where(eq(s.units.id, id)).get()?.key);
     expect(await keys('listener=-')).toEqual(['u1', 'u2']);
     expect(await keys('noted=1')).toEqual(['u0', 'u1']);
     expect(await keys('listener=-&noted=1')).toEqual(['u1']);

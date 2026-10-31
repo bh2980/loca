@@ -47,7 +47,8 @@ export const knowledgeRoutes = new Hono<Env>()
     const projectId = c.req.param('projectId')!;
     const term = found(db.select().from(s.terms).where(byProject(s.terms, c.req.param('id'), projectId)).get(), '용어');
     const rows = termUsage(db, projectId, term);
-    return c.json({ count: rows.length, unitIds: rows.map((row) => row.id), rows: rows.slice(0, 100) });
+    // Ids only: the pane shows the first lines from the browser's units collection.
+    return c.json({ count: rows.length, unitIds: rows.map((row) => row.id) });
   })
   .post('/terms', validate('json', termInput), (c) => {
     const projectId = c.req.param('projectId')!;
