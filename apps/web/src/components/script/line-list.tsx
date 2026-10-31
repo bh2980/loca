@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode, useEffectEvent, memo, useLayoutEffect, type ComponentProps } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Play } from 'lucide-react';
 import { LineDetail } from '@/components/line-detail';
@@ -15,6 +15,8 @@ import { LineRow } from '@/components/script/line-row';
 import { sceneSelectionState } from '@/components/script/scene-selection';
 import { useTaxonomy } from '@/lib/knowledge';
 import { useLinePage } from '@/lib/units';
+import { useListeners, useSpeakers } from '@/lib/project';
+import { useProject } from '@/lib/project';
 
 export { filterChips, isFinding, linesSearchSchema, type LinesSearch } from '@/components/script/line-filters';
 
@@ -135,7 +137,7 @@ export function LineList({
   const taxonomy = useTaxonomy(projectId);
   const markStyles = useMarkStyles(projectId);
   // Format tokens read as numbered chips (#1) in every row; the full token is on hover.
-  const projectInfo = useQuery(q.project(projectId));
+  const projectInfo = useProject(projectId);
   const tokenPattern = useMemo(() => tokenPatternOf(projectInfo.data?.formatRules ?? undefined), [projectInfo.data?.formatRules]);
   // Writing a note on the picked line (closed when another line is picked).
   const [noting, setNoting] = useState(false);
@@ -176,8 +178,8 @@ export function LineList({
   const total = lines.data?.total ?? 0;
   const emptyNoun = review ? '검토할 대사' : (displayKind ?? kind) === 'ui' ? 'UI 문자열' : (displayKind ?? kind) === 'document' ? '문서' : '대사';
   const groupNoun = (displayKind ?? kind) === 'ui' ? 'UI 묶음' : (displayKind ?? kind) === 'document' ? '문서 묶음' : (displayKind ?? kind) === 'scene' ? '장면' : '묶음';
-  const speakers = useQuery(q.speakers(projectId));
-  const listeners = useQuery(q.listeners(projectId));
+  const speakers = useSpeakers(projectId);
+  const listeners = useListeners(projectId);
   // Bumped whenever the picked line's editor should take the focus; 0 = just looking.
   const [focusTick, setFocusTick] = useState(0);
   const setEditing = (edit: boolean) => setFocusTick((tick) => (edit ? tick + 1 : 0));
@@ -341,8 +343,6 @@ export function LineList({
           listeners={listeners.data?.listeners ?? []}
           unknownListenerCount={listeners.data?.unknownCount ?? 0}
           listenersPending={listeners.isPending}
-          listenersError={listeners.isError}
-          onRetryListeners={() => { void listeners.refetch(); }}
             withSpeakers={withSpeakers}
           search={search}
           onSearch={(next) => onSearch({ ...next, page: undefined })}

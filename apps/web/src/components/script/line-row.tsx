@@ -1,7 +1,7 @@
 import { createAndAttachTag } from '@/lib/create-tag';
 /** One row of the line list, with the hints and links that open under the picked line. */
 import { useMemo, useState, type ComponentProps, type ReactNode, type RefObject } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { Check, CircleAlert, Ellipsis, PanelRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { AUTO_MARKS, markName, compileFormatRules, isUnknownListener, lineExclusion, listenerLabel, needsListener, SPECIAL_LISTENERS, TAG_SCOPES, type FormatRules, type LineMark, type ListenerOrigin, glossaryMatcher, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
@@ -48,7 +48,7 @@ import {
   DropdownMenuContent,
 } from '@loca/ui';
 import { client } from '@/lib/api';
-import { q, useMarkStyles } from '@/lib/queries';
+import { useMarkStyles } from '@/lib/queries';
 import { SOURCE_GROUP_LABEL, SOURCE_UNIT_LABEL } from '@/lib/labels';
 import { SpeakerCard } from '@/components/script/speaker-card';
 import { changeLines, patchedLine, type Line, useLineDetail } from '@/lib/units';
@@ -58,6 +58,7 @@ import { usePersonColors } from '@/lib/person-colors';
 import { LineMenuItems } from '@/components/script/line-menu';
 import { useTerms } from '@/lib/terms';
 import { useCharacters, useRelationships } from '@/lib/knowledge';
+import { useProject } from '@/lib/project';
 
 /** Who the line is addressed to. Unsure AI guesses count as unknown. */
 function listenerText(line: { kind: string; speaker: string | null; source: string; listener: string | null; listenerOrigin: ListenerOrigin | null; listenerConfidence: number | null }, rules: FormatRules | undefined) {
@@ -80,7 +81,7 @@ export function LineHints({ projectId, line, part }: { projectId: string; line: 
   const people = useCharacters(projectId);
   const relationships = useRelationships(projectId);
   const terms = useTerms(projectId);
-  const project = useQuery(q.project(projectId));
+  const project = useProject(projectId);
   const [draft] = useDraft(`line:${line.id}`, line.translation ?? '');
   const text = draft.trim();
   const speech = unit.data?.speech;
@@ -243,7 +244,7 @@ export function LineRow({
   /** The ✦: lines whose status the AI set (정한 쪽 AI). */
   onFilterAi: () => void;
 }) {
-  const project = useQuery(q.project(projectId)).data;
+  const project = useProject(projectId).data;
   const markStyles = useMarkStyles(projectId);
   const rules = project?.formatRules ?? undefined;
   // 번역 제외: hidden from the list by default; shown on request, its status cell says so.

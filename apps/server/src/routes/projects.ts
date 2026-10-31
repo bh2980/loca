@@ -83,6 +83,8 @@ export const projectRoutes = new Hono<Env>()
     };
     return c.json({ ...project, exclusionRules: exclusionRulesSchema.parse(project.exclusionRules), editorAi: editorAiSchema.parse(project.editorAi), editorCallsToday: editorCallsToday(db, projectId), byStatus, excludedCount, groupCount, reviewCount, aiDecided });
   })
+  /** How many 에디터 AI completions the project made today (its daily cap counts them; ai_calls, calls topic). */
+  .get('/:projectId/editor-calls', (c) => c.json({ today: editorCallsToday(c.var.deps.db, c.req.param('projectId')) }))
   .get('/:projectId/detect-format-rules', (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');

@@ -144,16 +144,15 @@ export function filterChips(search: LinesSearch, statuses: { id: string; name: s
  * Filters the list by status, tag, speaker or listener. Each choice goes into the URL and shows as
  * a removable chip next to the search, like filters that arrive from a link.
  */
-export function LineFilters({ projectId, statuses, tags, speakers, listeners, unknownListenerCount, listenersPending, listenersError, onRetryListeners, withSpeakers = true, search, onSearch }: {
+export function LineFilters({ projectId, statuses, tags, speakers, listeners, unknownListenerCount, listenersPending, withSpeakers = true, search, onSearch }: {
   projectId: string;
   statuses: { id: string; name: string; color: string }[];
   tags: { id: string; name: string; color: string; role?: string | null }[];
   speakers: { name: string; lines: number }[];
   listeners: { name: string; lines: number }[];
   unknownListenerCount: number;
+  /** The listeners are loading (their collection tries again by itself until it loads). */
   listenersPending: boolean;
-  listenersError: boolean;
-  onRetryListeners: () => void;
   /** Speaker and listener filters apply only to dialogue source. */
   withSpeakers?: boolean;
   search: LinesSearch;
@@ -255,23 +254,17 @@ export function LineFilters({ projectId, statuses, tags, speakers, listeners, un
               <Box asChild marginBottom="tight"><Input value={listenerNeedle} onChange={(event) => setListenerNeedle(event.target.value)} onKeyDown={(event) => event.stopPropagation()} placeholder="이름 찾기" aria-label="청자 찾기" /></Box>
               <DropdownMenuCheckboxItem checked={search.listener === UNKNOWN_LISTENER} onSelect={(event) => event.preventDefault()} onCheckedChange={(on) => onSearch({ listener: on ? UNKNOWN_LISTENER : undefined })}>
                 <Text minWidth={0} grow truncate>모름</Text>
-                {!listenersPending && !listenersError && <Text variant="caption" tone="muted" tabular>{unknownListenerCount.toLocaleString()}</Text>}
+                {!listenersPending && <Text variant="caption" tone="muted" tabular>{unknownListenerCount.toLocaleString()}</Text>}
               </DropdownMenuCheckboxItem>
               <DropdownMenuSeparator />
               {listenersPending && <Text as="p" role="status" paddingX="condensed" paddingY="tight" variant="caption" tone="muted">청자 목록을 불러오는 중…</Text>}
-              {listenersError && (
-                <>
-                  <Text as="p" role="alert" paddingX="condensed" paddingY="tight" variant="caption" tone="muted">청자 목록을 불러오지 못했습니다. 연결을 확인하고 다시 시도해 주세요.</Text>
-                  <DropdownMenuItem onSelect={(event) => { event.preventDefault(); onRetryListeners(); }}>다시 시도</DropdownMenuItem>
-                </>
-              )}
-              {!listenersPending && !listenersError && shownListeners.map((listener) => (
+              {!listenersPending && shownListeners.map((listener) => (
                 <DropdownMenuCheckboxItem key={listener.name} checked={search.listener === listener.name} onSelect={(event) => event.preventDefault()} onCheckedChange={(on) => onSearch({ listener: on ? listener.name : undefined })}>
                   <Text minWidth={0} grow truncate>{listener.name}</Text>
                   <Text variant="caption" tone="muted" tabular>{listener.lines.toLocaleString()}</Text>
                 </DropdownMenuCheckboxItem>
               ))}
-              {!listenersPending && !listenersError && shownListeners.length === 0 && <Text as="p" paddingX="condensed" paddingY="tight" variant="caption" tone="muted">{listeners.length === 0 && !listenerNeedle ? '정해진 청자가 없습니다.' : '일치하는 청자가 없습니다.'}</Text>}
+              {!listenersPending && shownListeners.length === 0 && <Text as="p" paddingX="condensed" paddingY="tight" variant="caption" tone="muted">{listeners.length === 0 && !listenerNeedle ? '정해진 청자가 없습니다.' : '일치하는 청자가 없습니다.'}</Text>}
             </DropdownMenuSubContent>
           </DropdownMenuSub>
         </DropdownMenuContent>

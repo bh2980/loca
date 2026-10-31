@@ -1,7 +1,8 @@
-import { infiniteQueryOptions, keepPreviousData, queryOptions, useQuery } from '@tanstack/react-query';
+import { infiniteQueryOptions, keepPreviousData, queryOptions } from '@tanstack/react-query';
 import { ATTACH_PAGE, normalizeTagScopes, type AttachKind, type DetectedCustomFormatRule, type DetectedFormatPreset, type FormatPreset, type MarkStyles, type TagScope } from '@tw/shared';
 import { client, unwrap } from './api';
 import { connectionsApi, targetScope, type SettingsTarget } from './settings-target';
+import { useProject } from './project';
 
 /**
  * Query keys start with the server's change topic (see server events.ts), so an SSE
@@ -25,8 +26,6 @@ export const q = {
   /** The home's defaults a new project is made from (app topic). */
   appDefaults: () => queryOptions({ queryKey: ['app', 'defaults'], queryFn: () => unwrap(client.app.defaults.$get()) }),
   projects: () => queryOptions({ queryKey: ['projects'], queryFn: () => unwrap(client.projects.$get()) }),
-  project: (projectId: string) =>
-    queryOptions({ queryKey: ['units', 'project', projectId], queryFn: () => unwrap(client.projects[':projectId'].$get({ param: { projectId } })) }),
   /** How many lines each status has, and how many lines and items carry each tag (the rows themselves: useTaxonomy). Keyed under units: the counts change with every line. */
   statusCounts: (projectId: string) =>
     queryOptions({
@@ -34,8 +33,6 @@ export const q = {
       queryFn: () => unwrap(client.projects[':projectId'].statuses.$get({ param: { projectId } })),
       select: (data) => ({ statuses: new Map(data.statuses.map((status) => [status.id, status.units])), tags: new Map(data.tags.map((tag) => [tag.id, { units: tag.units, items: tag.items }])) }),
     }),
-  speakers: (projectId: string) => queryOptions({ queryKey: ['units', 'speakers', projectId], queryFn: () => unwrap(client.projects[':projectId'].speakers.$get({ param: { projectId } })) }),
-  listeners: (projectId: string) => queryOptions({ queryKey: ['units', 'listeners', projectId], queryFn: () => unwrap(client.projects[':projectId'].listeners.$get({ param: { projectId } })) }),
   /** Every line a filter matches (id and scene, script order), for walking them inside their scenes. */
   unitMatches: (projectId: string, query: { groupId?: string; kind?: 'scene' | 'document' | 'ui'; section?: string; statusId?: string; tagIds?: string; q?: string; speaker?: string; listener?: string; review?: '1'; marks?: string }) =>
     queryOptions({ queryKey: ['units', 'matches', projectId, query], queryFn: () => unwrap(client.projects[':projectId'].units.matches.$get({ param: { projectId }, query })) }),
@@ -172,8 +169,7 @@ export const q = {
 
 /** The project's own names and colours for automatic tags (markName / markColor fall back to the defaults). */
 export function useMarkStyles(projectId: string | undefined): MarkStyles | undefined {
-  const project = useQuery({ ...q.project(projectId ?? ''), enabled: !!projectId });
-  return (project.data as { markStyles?: MarkStyles } | undefined)?.markStyles;
+  return useProject(projectId).data?.markStyles as MarkStyles | undefined;
 }
 
 /** The tags that can be put in a place (the server sends each tag's effective scope). */

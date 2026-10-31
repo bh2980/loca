@@ -11,7 +11,7 @@ import { Box, EmptyState, Text, type ColumnDef, AlertDialog, AlertDialogCancel, 
 import { Page } from '@/components/page';
 import { MarkChip } from '@/components/status';
 import { MarkPane } from '@/components/settings/mark-pane';
-import { client, unwrap } from '@/lib/api';
+import { client } from '@/lib/api';
 import { sent } from '@/lib/collections';
 import { reorderTaxonomy, useTaxonomy } from '@/lib/knowledge';
 import { STATUS_KIND } from '@/lib/labels';
@@ -19,6 +19,7 @@ import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { usePicked } from '@/lib/use-picked';
 import { HeaderFilter } from '@/components/header-filter';
+import { useProject, saveProject } from '@/lib/project';
 
 type StatusSearch = { status?: string; tag?: string; mark?: AutoMark; on?: TagFilterPlace };
 /** 붙는 곳 filter of the tag table ('knowledge' is not a place of its own). */
@@ -51,7 +52,7 @@ function StatusSettings() {
   const selectedStatus = search.status && search.status !== 'new' ? statuses?.find((status) => status.id === search.status) : undefined;
   const selectedTag = search.tag && search.tag !== 'new' ? tags?.find((tag) => tag.id === search.tag) : undefined;
   const selectedMark = search.mark;
-  const project = useQuery(q.project(projectId));
+  const project = useProject(projectId);
   const markStyles = ((project.data as { markStyles?: MarkStyles } | undefined)?.markStyles ?? {}) as MarkStyles;
 
   useReportView('statuses', [
@@ -105,7 +106,7 @@ function StatusSettings() {
       const next: MarkStyles = { ...markStyles };
       if (Object.keys(own).length) next[variables.mark] = own;
       else delete next[variables.mark];
-      return unwrap(client.projects[':projectId'].$patch({ param: { projectId }, json: { markStyles: next } }));
+      return saveProject(projectId, { markStyles: next });
     },
     onSuccess: () => toast.success('저장했습니다.'),
     onError: fail,

@@ -9,6 +9,7 @@ import { q } from '@/lib/queries';
 import { useTerms } from '@/lib/terms';
 import { useCharacters, useSpeechRules } from '@/lib/knowledge';
 import { useRuns } from '@/lib/runs';
+import { useProject } from '@/lib/project';
 
 interface Step {
   key: string;
@@ -34,7 +35,7 @@ export function GettingStarted({ projectId }: { projectId: string }) {
   const rules = useSpeechRules(projectId);
   const terms = useTerms(projectId);
   const runs = useRuns(projectId);
-  const project = useQuery(q.project(projectId));
+  const project = useProject(projectId);
   const [hidden, setHidden] = useState(() => readHidden(projectId));
   const hide = (value: boolean) => {
     setHidden(value);

@@ -8,6 +8,7 @@ import { withTags } from './services/knowledge-tags.ts';
 import { fillTermUsage } from './services/term-usage.ts';
 import { groupRows } from './services/group-rows.ts';
 import { runRows } from './services/run-rows.ts';
+import { listenerRows, projectRows, speakerRows } from './services/project-rows.ts';
 import { unitRowsByIds } from './services/unit-rows.ts';
 
 /**
@@ -55,6 +56,9 @@ const READERS: Record<FeedCollection, (db: Db, projectId: string, ids?: readonly
   tags: tagRows,
   groups: groupRows,
   runs: runRows,
+  project: (db, projectId) => projectRows(db, projectId),
+  speakers: speakerRows,
+  listeners: listenerRows,
   // Lines are sent as ids (feedRows); the browser reads the ones it holds by id.
   units: (db, projectId, ids) => (ids ? unitRowsByIds(db, projectId, ids) : []),
 };

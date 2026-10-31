@@ -19,6 +19,7 @@ import { offerSameSource } from '@/lib/same-source';
 import { q } from '@/lib/queries';
 import { useLineDetail } from '@/lib/units';
 import { keyLabel } from '@/lib/keys';
+import { useProject } from '@/lib/project';
 
 interface Status {
   id: string;
@@ -75,7 +76,7 @@ export function TranslationEditor({
   const detail = useLineDetail(projectId, unit.id);
   const suggestions = useSuggestions(unit.id, [saved, draft], !compact);
   // The AI continuation: asked once when the line opens empty, or with ⌥/.
-  const project = useQuery(q.project(projectId));
+  const project = useProject(projectId);
   const editorAi = project.data?.editorAi;
   // Each button has its own model (설정 › 에디터); the continuation only when it is on with a model.
   // AI 번역 and 다듬기 share one model.

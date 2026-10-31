@@ -30,6 +30,7 @@ import { dateTime } from '@/lib/datetime';
 import { usePersonColors } from '@/lib/person-colors';
 import { useCharacters, useTaxonomy } from '@/lib/knowledge';
 import { useGroup } from '@/lib/groups';
+import { useProject } from '@/lib/project';
 
 const ORIGIN = { ai: 'AI', human: '사람', import: '가져옴', tool: '도구' } as const;
 /** How many entries of 비슷한 번역 and 이력 show before 더 보기. */
@@ -64,7 +65,7 @@ export function LineDetail({
 }) {
   const unit = useLineDetail(projectId, unitId);
   const taxonomy = useTaxonomy(projectId);
-  const project = useQuery(q.project(projectId));
+  const project = useProject(projectId);
   const people = useCharacters(projectId);
   const colorOf = usePersonColors(projectId);
   const group = useGroup(projectId, unit.data?.group.id);

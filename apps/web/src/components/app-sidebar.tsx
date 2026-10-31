@@ -6,6 +6,7 @@ import { Sidebar, SidebarBrand, SidebarContent, SidebarFooter, SidebarHeader, Si
 import { holds, NAV_GROUPS, useCurrentNav, type NavGroup, type NavItem } from '@/lib/nav';
 import { q } from '@/lib/queries';
 import { setTheme, useTheme, type ThemeChoice } from '@/lib/theme';
+import { useProjectProgress } from '@/lib/project';
 
 const lastKey = (projectId: string, itemId: string) => `tw.nav.${projectId}.${itemId}`;
 const readLast = (projectId: string, itemId: string): { pathname: string; search: Record<string, unknown> } | null => {
@@ -54,7 +55,7 @@ export function AppSidebar({ projectId }: { projectId: string }) {
   const navigate = useNavigate();
   const theme = useTheme();
   const projects = useQuery(q.projects());
-  const project = useQuery(q.project(projectId));
+  const progress = useProjectProgress(projectId);
   const info = projects.data?.find((entry) => entry.id === projectId);
   const current = useCurrentNav(projectId);
   const location = useRouterState({ select: (state) => state.location });
@@ -64,7 +65,7 @@ export function AppSidebar({ projectId }: { projectId: string }) {
   }, [projectId, current.item.id, remembered]);
   const renderGroup = (group: NavGroup) => {
     const settings = group.id === 'settings';
-    const contents = <SidebarMenu>{group.items.map((navItem) => <ScreenItem key={navItem.id} navItem={navItem} projectId={projectId} active={current.item.id === navItem.id} badge={navItem.id === 'script' ? project.data?.reviewCount : undefined} />)}</SidebarMenu>;
+    const contents = <SidebarMenu>{group.items.map((navItem) => <ScreenItem key={navItem.id} navItem={navItem} projectId={projectId} active={current.item.id === navItem.id} badge={navItem.id === 'script' ? progress?.reviewCount : undefined} />)}</SidebarMenu>;
     if (!group.label) return <SidebarGroup key={group.id} inset="tight">{contents}</SidebarGroup>;
     if (settings) return <SidebarGroup key={group.id} inset="none"><SidebarMenu><SidebarMenuItem><DropdownMenu>
       <DropdownMenuTrigger asChild>

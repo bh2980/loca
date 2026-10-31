@@ -1,12 +1,12 @@
 import { cloneElement, type ReactElement, type ReactNode } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { useQueries, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { BookMarked, ChevronRight, CircleAlert, Inbox, MessageSquareQuote, Sparkles, UserRoundSearch, Workflow } from 'lucide-react';
 import { GettingStarted } from '@/components/getting-started';
 import { RunStatusBadge, Box, Button, Heading, Icon, Inline, ListRow, Stack, StatusChipLink, StatusIcon, Meter, Text, TodoIcon, Skeleton } from '@loca/ui';
 import { Elapsed, JobProgress } from '@/components/job-progress';
 import { Page } from '@/components/page';
-import { AUTO_MARKS, markName } from '@tw/shared';
+import { aiDecided, AUTO_MARKS, markName } from '@tw/shared';
 import { q, useMarkStyles } from '@/lib/queries';
 import { dateTime } from '@/lib/datetime';
 import { useProgress } from '@/lib/use-progress';
@@ -15,6 +15,8 @@ import { useTerms } from '@/lib/terms';
 import { useSpeechRules } from '@/lib/knowledge';
 import { useGroups } from '@/lib/groups';
 import { useRuns } from '@/lib/runs';
+import { useProjectProgress } from '@/lib/project';
+import { useCharacters, useDocuments, useRelationships } from '@/lib/knowledge';
 
 export const Route = createFileRoute('/p/$projectId/')({ component: Home });
 
@@ -40,12 +42,15 @@ interface Todo {
  */
 function Home() {
   const { projectId } = Route.useParams();
-  const project = useQuery(q.project(projectId));
+  const projectProgress = useProjectProgress(projectId);
   const markStyles = useMarkStyles(projectId);
   const progress = useProgress(projectId);
   const groups = useGroups(projectId);
-  // Counted as the linked list shows them: status set by AI, 번역 제외 hidden.
-  const aiLineCounts = useQueries({ queries: SCRIPT_KINDS.map((kind) => q.units(projectId, { kind, decidedBy: 'ai', excluded: 'hide', limit: 1 })) });
+  // What AI decided and no person has looked at (✦), each counted as the list its link opens shows it.
+  const documents = useDocuments(projectId);
+  const characters = useCharacters(projectId);
+  const relationships = useRelationships(projectId);
+  const storyEvents = useQuery(q.storyEvents(projectId));
   const rules = useSpeechRules(projectId);
   const terms = useTerms(projectId);
   const runs = useRuns(projectId);
@@ -57,8 +62,9 @@ function Home() {
     const statusCounts = Object.fromEntries(statusList.map((status) => [status.id, kindGroups.reduce((sum, group) => sum + (group.statuses[status.id] ?? 0), 0)]));
     return { kind, groups: kindGroups.length, lines: kindGroups.reduce((sum, group) => sum + group.total, 0), statusCounts };
   }).filter((row) => row.groups > 0);
-  const aiLinesByKind = SCRIPT_KINDS.map((kind, index) => ({ kind, count: aiLineCounts[index]?.data?.total ?? 0 }));
-  const aiDecided = project.data?.aiDecided;
+  const aiLinesByKind = SCRIPT_KINDS.map((kind) => ({ kind, count: projectProgress?.aiDecided[kind] ?? 0 }));
+  const byAi = (rows: readonly { status?: string; statusBy: 'ai' | 'human' }[] | undefined) => (rows ?? []).filter(aiDecided).length;
+  const aiDecidedItems = { terms: byAi(terms.data), knowledge: { documents: byAi(documents.data), characters: byAi(characters.data), pairs: byAi(relationships.data) + byAi(rules.data), events: byAi(storyEvents.data) } };
   const stopped = runs.data?.filter((run) => run.status === 'paused') ?? [];
   const recent = [
     ...(runs.data ?? []).map((run) => ({ kind: 'run' as const, id: run.id, title: run.workflowName, status: run.status, done: (run.states.done ?? 0) + (run.states.failed ?? 0) + (run.states.cancelled ?? 0), total: run.total, at: new Date(run.createdAt) })),
@@ -72,7 +78,7 @@ function Home() {
       key: 'review',
       icon: <Inbox />,
       title: '검토함',
-      count: project.data?.reviewCount ?? 0,
+      count: projectProgress?.reviewCount ?? 0,
       link: <Link to="/p/$projectId/script" params={{ projectId }} search={{ review: true }} />,
     },
     {
@@ -117,14 +123,14 @@ function Home() {
       key: `ai-${key}`,
       icon: <Sparkles />,
       title: `AI가 정한 ${name} 확인 전`,
-      count: aiDecided?.knowledge[key] ?? 0,
+      count: aiDecidedItems.knowledge[key],
       link: <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ display: 'table', ...where, decidedBy: 'ai' }} />,
     })),
     {
       key: 'ai-terms',
       icon: <Sparkles />,
       title: 'AI가 정한 용어 확인 전',
-      count: aiDecided?.terms ?? 0,
+      count: aiDecidedItems.terms,
       link: <Link to="/p/$projectId/glossary" params={{ projectId }} search={{ decidedBy: 'ai' }} />,
     },
     {
@@ -142,7 +148,7 @@ function Home() {
       link: <Link to="/p/$projectId/script" params={{ projectId }} search={{ kind, statuses: initial ? [initial.id] : undefined, mode: 'find' }} />,
     })),
   ];
-  const loading = !project.data || !runs.data || !groups.data || !rules.data || !terms.data || aiLineCounts.some((query) => !query.data);
+  const loading = !projectProgress || !runs.data || !groups.data || !rules.data || !terms.data;
   const open = todos.filter((todo) => todo.count > 0);
 
   return (
@@ -171,7 +177,7 @@ function Home() {
         <Stack direction="row" align="baseline" gap="normal" marginBottom="normal">
           <Heading variant="page-section" minWidth={0}>번역 진행</Heading>
           <Text variant="caption" tone="muted" tabular>
-            최종 상태 {total ? Math.round((done / total) * 100) : 0}% · 대사 {total.toLocaleString()}개 · 묶음 {project.data?.groupCount.toLocaleString() ?? '–'}개
+            최종 상태 {total ? Math.round((done / total) * 100) : 0}% · 대사 {total.toLocaleString()}개 · 묶음 {projectProgress?.groupCount.toLocaleString() ?? '–'}개
           </Text>
         </Stack>
         <Meter size="md" statuses={statusList} counts={counts} />

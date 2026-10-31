@@ -1,6 +1,6 @@
 /** Bulk actions on the picked lines: the picks, their mutations, and the head row that offers them. */
 import { useEffect, useMemo, useRef, useState, type ComponentProps } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { listenerLabel, SPECIAL_LISTENERS } from '@tw/shared';
@@ -10,6 +10,7 @@ import { changeLines, patchedLine } from '@/lib/units';
 import { lineTags, q } from '@/lib/queries';
 import { usePicked } from '@/lib/use-picked';
 import { useCharacters } from '@/lib/knowledge';
+import { useProject } from '@/lib/project';
 
 /** Lines picked by their checkboxes, and the bulk changes the head row makes to them (each shown at once, undone if the server refuses). */
 type SelectionRow = { id: string; tagIds: string[]; statusBy: string };
@@ -102,7 +103,7 @@ export type LineBulk = ReturnType<typeof useLineBulk>;
 export function LineHeadRow({ projectId, rows, bulk, statusList, tags }: { projectId: string; rows: { id: string; speaker: string | null }[]; bulk: LineBulk; statusList: { id: string; name: string; color: string }[]; tags: ComponentProps<typeof TagMenu>['tags'] }) {
   const { picked, pick, stopPicking, check, pickedByAi, setStatus, setListener, tagState, setTag, setTranslate } = bulk;
   const people = useCharacters(projectId);
-  const project = useQuery(q.project(projectId));
+  const project = useProject(projectId);
   const sourceLanguage = project.data?.sourceLanguage?.split('-')[0]?.toLocaleUpperCase();
   const targetLanguage = project.data?.targetLanguage?.split('-')[0]?.toLocaleUpperCase();
 

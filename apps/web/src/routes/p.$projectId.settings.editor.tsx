@@ -1,11 +1,10 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
 import { Tabs, TabsList, TabsTrigger, Skeleton, Box, PageBody } from '@loca/ui';
 import { HeaderActions, Page } from '@/components/page';
 import { EditorAiSection } from '@/components/settings/editor-ai';
 import { ExclusionRulesSection } from '@/components/exclusion-rules';
 import { FormatRulesSection } from '@/components/format-rules';
-import { q } from '@/lib/queries';
+import { useProject, useProjectProgress } from '@/lib/project';
 
 /** The editor's settings in three unrelated parts, one tab each (the tab is in the URL). */
 const TABS = { ai: 'AI', format: '서식 규칙', exclusion: '번역 제외' } as const;
@@ -22,7 +21,8 @@ function EditorSettings() {
   const { projectId } = Route.useParams();
   const { tab = 'ai' } = Route.useSearch();
   const navigate = Route.useNavigate();
-  const project = useQuery(q.project(projectId));
+  const project = useProject(projectId);
+  const progress = useProjectProgress(projectId);
 
   return (
     <Page title="에디터" flush>
@@ -44,7 +44,7 @@ function EditorSettings() {
           tab === 'format' ? (
             <FormatRulesSection projectId={projectId} rules={project.data.formatRules} />
           ) : (
-            <ExclusionRulesSection projectId={projectId} rules={project.data.exclusionRules} formatRules={project.data.formatRules} sourceLanguage={project.data.sourceLanguage} excludedCount={project.data.excludedCount} />
+            <ExclusionRulesSection projectId={projectId} rules={project.data.exclusionRules} formatRules={project.data.formatRules} sourceLanguage={project.data.sourceLanguage} excludedCount={progress?.excludedCount ?? 0} />
           )
         ) : (
           <Box spaceY="comfortable">

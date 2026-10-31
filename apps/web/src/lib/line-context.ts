@@ -1,9 +1,8 @@
 import { useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { compileFormatRules, glossaryMatcher } from '@tw/shared';
-import { q } from '@/lib/queries';
 import { numberTokens, tokenUnits, type TokenKind } from '@/lib/tokens';
 import { useTerms } from './terms';
+import { useProject } from './project';
 
 export interface SourcePart {
   text: string;
@@ -49,7 +48,7 @@ const wordPattern = (name: string) => new RegExp(`(?<![\\p{L}\\p{N}])${escape(na
  */
 /** `kind`: the line's kind, so a term limited to UI lines (or to the rest) is only found where it applies. */
 export function useLineContext(projectId: string, source: string, kind?: string | null) {
-  const project = useQuery(q.project(projectId));
+  const project = useProject(projectId);
   const terms = useTerms(projectId);
 
   const confirmedTerms = useMemo(

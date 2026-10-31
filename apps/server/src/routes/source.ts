@@ -33,6 +33,7 @@ import { assistLine } from '../services/editor-assist.ts';
 import { describeRule, knownListener as knownListenerOf, speechRuleIndex } from '../services/speech.ts';
 import { unitColumns, unitRows, unitRowsByIds } from '../services/unit-rows.ts';
 import { groupRows } from '../services/group-rows.ts';
+import { listenerRows } from '../services/project-rows.ts';
 import { rowChangesOf } from '../db/row-changes.ts';
 
 const NAMES = z.string().optional().transform((value, context) => { if (!value) return undefined; try { const list = JSON.parse(value) as unknown; if (Array.isArray(list) && list.every((item) => typeof item === 'string')) return list as string[]; } catch { /* reported below */ } context.addIssue({ code: 'custom', message: '이름 목록은 JSON 배열입니다.' }); return z.NEVER; });
@@ -157,14 +158,7 @@ export const sourceRoutes = new Hono<Env>()
   .get('/projects/:projectId/listeners', (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
-    const listeners = db
-      .select({ listener: s.units.listener, lines: count() })
-      .from(s.units)
-      .where(and(eq(s.units.projectId, projectId), knownListenerSql, ne(s.units.listener, '')))
-      .groupBy(s.units.listener)
-      .orderBy(desc(count()), asc(s.units.listener))
-      .all()
-      .flatMap((row) => row.listener ? [{ name: row.listener, lines: row.lines }] : []);
+    const listeners = listenerRows(db, projectId).map(({ id: _id, ...row }) => row);
     const unknownCount = db
       .select({ count: count() })
       .from(s.units)

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { useQueries, useQuery } from '@tanstack/react-query';
+import { useQueries } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { CornerDownRight, FileText, Network, Pencil } from 'lucide-react';
 import { useGraphShow } from '@/lib/graph-show';
@@ -13,6 +13,7 @@ import { TokenText } from '@/components/editor/source-text';
 import { tokenPatternOf } from '@/lib/line-context';
 import { personStyle, usePersonColors } from '@/lib/person-colors';
 import { useGroup } from '@/lib/groups';
+import { useProject } from '@/lib/project';
 
 /** Scene-graph node. Scene links are derived from the dialogue graph, which the panel says plainly. */
 export function SceneNodeDetail({ projectId, groupId, onClose }: { projectId: string; groupId: string; onClose: () => void }) {
@@ -114,7 +115,7 @@ export function FlowPane({ projectId, nodeIds, ownIds = nodeIds, title, way, ext
   const [speakerWidth, setSpeakerWidth] = useSpeakerWidth();
   const [show] = useGraphShow();
   // Format tokens read as numbered chips, as in the script.
-  const project = useQuery(q.project(projectId));
+  const project = useProject(projectId);
   const tokens = tokenPatternOf(project.data?.formatRules ?? undefined);
   const list = useRef<HTMLDivElement>(null);
   const results = useQueries({ queries: nodeIds.map((id) => q.graphNode(id)) });

@@ -9,6 +9,7 @@ import { tokenPatternOf } from '@/lib/line-context';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { PersonName } from '@/lib/person-colors';
+import { useProject } from '@/lib/project';
 
 type Line = { unitId: string; key: string; groupId: string; speaker: string | null; source: string; translation: string | null };
 
@@ -20,7 +21,7 @@ type Line = { unitId: string; key: string; groupId: string; speaker: string | nu
  */
 export function SeamCheckPane({ projectId, nodeId, onClose }: { projectId: string; nodeId: string; onClose: () => void }) {
   const detail = useQuery(q.seamDetail(projectId, nodeId));
-  const project = useQuery(q.project(projectId));
+  const project = useProject(projectId);
   const tokens = tokenPatternOf(project.data?.formatRules ?? undefined);
   const data = detail.data;
   const mark = useMutation({

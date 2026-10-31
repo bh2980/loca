@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { lineExclusion, PALETTE, TAG_SCOPES, type LineTranslate } from '@tw/shared';
 import {
@@ -15,12 +15,12 @@ import {
   DropdownMenuSubContent,
 } from '@loca/ui';
 import { client } from '@/lib/api';
-import { q } from '@/lib/queries';
 import { SOURCE_GROUP_LABEL, SOURCE_UNIT_LABEL } from '@/lib/labels';
 import { changeLines, patchedLine, useLineDetail } from '@/lib/units';
 import { useSaveLine } from '@/lib/line-save';
 import { useTaxonomy } from '@/lib/knowledge';
 import { sent } from '@/lib/collections';
+import { useProject } from '@/lib/project';
 
 /** What the line menu needs of a line. */
 export interface MenuLine {
@@ -50,7 +50,7 @@ export function LineMenuItems({ projectId, line, onEdit, editLabel = '번역 편
   onAddLine?: () => void;
 }) {
   const taxonomy = useTaxonomy(projectId);
-  const project = useQuery(q.project(projectId)).data;
+  const project = useProject(projectId).data;
   const statusList = taxonomy.statuses ?? [];
   const tags = (taxonomy.tags ?? []).filter((tag) => !tag.scope || tag.scope.includes('lines'));
   const excluded = lineExclusion(line, project?.formatRules ?? undefined, project?.exclusionRules, project?.sourceLanguage) !== null;

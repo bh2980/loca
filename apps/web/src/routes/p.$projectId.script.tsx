@@ -14,6 +14,7 @@ import { useReportView } from '@/lib/view-context';
 import { keyLabel } from '@/lib/keys';
 import { useTaxonomy } from '@/lib/knowledge';
 import { useGroups } from '@/lib/groups';
+import { useProject, useProjectProgress } from '@/lib/project';
 
 type Kind = GroupRow['kind'];
 const VIEW_ORDER: Kind[] = ['scene', 'ui', 'document'];
@@ -75,7 +76,8 @@ function Script() {
   const { projectId } = Route.useParams();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
-  const project = useQuery(q.project(projectId));
+  const project = useProject(projectId);
+  const progress = useProjectProgress(projectId);
   const allGroups = useGroups(projectId);
   const searched = useGroups(projectId, { q: search.gq, enabled: Boolean(search.gq) });
   const taxonomy = useTaxonomy(projectId);
@@ -239,7 +241,7 @@ function Script() {
               initialIds={initialIds}
               scope={{ group: search.group, review: search.review, section: search.section, kind: view }}
               views={views}
-              reviewCount={project.data?.reviewCount ?? 0}
+              reviewCount={progress?.reviewCount ?? 0}
               gq={search.gq}
               onFilter={(gq) => onSearch({ gq }, { replace: true })}
               marks={finding ? perScene : undefined}

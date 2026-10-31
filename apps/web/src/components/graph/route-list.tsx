@@ -1,6 +1,6 @@
 import { createAndAttachTag } from '@/lib/create-tag';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ChevronDown, ChevronUp, GitFork } from 'lucide-react';
 import { toast } from 'sonner';
@@ -13,9 +13,10 @@ import { Box, Button, DropdownMenu, DropdownMenuContent, DropdownMenuLabel, Drop
 import { client } from '@/lib/api';
 import { tokenPatternOf } from '@/lib/line-context';
 import { keyLabel } from '@/lib/keys';
-import { lineTags, q } from '@/lib/queries';
+import { lineTags } from '@/lib/queries';
 import { changeLines, patchedLine, useLines, type Line } from '@/lib/units';
 import { useTaxonomy } from '@/lib/knowledge';
+import { useProject } from '@/lib/project';
 
 type Row = Line;
 type Status = Parameters<typeof TranslationEditor>[0]['statuses'][number];
@@ -165,7 +166,7 @@ export function RouteList({ projectId, sequence, stages, routeKey, untranslatedI
   const statusList = useMemo(() => taxonomy.statuses ?? [], [taxonomy.statuses]);
   const statusById = useMemo(() => new Map(statusList.map((status) => [status.id, status])), [statusList]);
   const tags = useMemo(() => lineTags(taxonomy.tags), [taxonomy.tags]);
-  const project = useQuery(q.project(projectId));
+  const project = useProject(projectId);
   const rules = project.data?.formatRules ?? undefined;
   const tokenPattern = useMemo(() => tokenPatternOf(rules), [rules]);
   const indexById = useMemo(() => new Map(sequence.map((line, index) => [line.unitId, index] as const)), [sequence]);

@@ -1,17 +1,17 @@
 import { useState } from 'react';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { Download, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Page } from '@/components/page';
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Box, Button, Input, Field, Textarea, Skeleton, Section, PageBody } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
-import { q } from '@/lib/queries';
 import { changedFields, useFormFrom } from '@/lib/use-form-from';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
 import { AiAutoConfirmSetting } from '@/components/settings/ai-confirm';
 import { HomeDefaultsSection } from '@/components/settings/home-defaults';
 import type { FormatRules } from '@tw/shared';
+import { useProject, saveProject } from '@/lib/project';
 
 export const Route = createFileRoute('/p/$projectId/settings/project')({
   component: ProjectSettings,
@@ -19,7 +19,7 @@ export const Route = createFileRoute('/p/$projectId/settings/project')({
 
 function ProjectSettings() {
   const { projectId } = Route.useParams();
-  const project = useQuery(q.project(projectId));
+  const project = useProject(projectId);
   if (!project.data)
     return (
       <Page title="프로젝트" flush>
@@ -43,7 +43,7 @@ function ProjectForm({ projectId, project }: { projectId: string; project: { nam
   const { name, description } = form;
 
   const save = useMutation({
-    mutationFn: () => unwrap(client.projects[':projectId'].$patch({ param: { projectId }, json: changedFields(form, saved) })),
+    mutationFn: () => saveProject(projectId, changedFields(form, saved)),
     onSuccess: () => toast.success('저장했습니다.'),
     onError: (error) => toast.error(error.message),
   });

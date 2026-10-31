@@ -180,6 +180,26 @@ describe('runs in the row feed', () => {
   });
 });
 
+describe('the project, speakers and listeners in the row feed', () => {
+  it('sends the project row on a settings change, a speaker with its character, a listener once known', () => {
+    const { db, projectId } = setup();
+    const unit = db.select().from(s.units).where(eq(s.units.projectId, projectId)).get()!;
+    db.update(s.projects).set({ targetLanguage: 'ko-KR' }).where(eq(s.projects.id, projectId)).run();
+    expect(feedRows(db, projectId)!.rows.project?.upsert).toEqual([expect.objectContaining({ id: projectId, targetLanguage: 'ko-KR', exclusionRules: expect.any(Object) })]);
+    db.update(s.units).set({ speaker: 'MIRA' }).where(eq(s.units.id, unit.id)).run();
+    const speakers = feedRows(db, projectId)!.rows.speakers!;
+    expect(speakers.upsert).toEqual([{ id: 'MIRA', speaker: 'MIRA', lines: 1, character: null }]);
+    expect(speakers.delete).toEqual(['']);
+    db.insert(s.characters).values({ projectId, name: 'Mira', aliases: ['MIRA'] }).run();
+    expect(feedRows(db, projectId)!.rows.speakers?.upsert).toEqual([{ id: 'MIRA', speaker: 'MIRA', lines: 1, character: 'Mira' }]);
+    db.update(s.units).set({ listener: 'Jonas', listenerOrigin: 'human' }).where(eq(s.units.id, unit.id)).run();
+    expect(feedRows(db, projectId)!.rows.listeners).toEqual({ upsert: [{ id: 'Jonas', name: 'Jonas', lines: 1 }], delete: [] });
+    // An unsure AI guess is not a known listener.
+    db.update(s.units).set({ listenerOrigin: 'ai', listenerConfidence: 0.1 }).where(eq(s.units.id, unit.id)).run();
+    expect(feedRows(db, projectId)!.rows.listeners).toEqual({ upsert: [], delete: ['Jonas'] });
+  });
+});
+
 describe('change events with rows', () => {
   it('carry the rows and the count, and a request knows its last change (x-seq)', async () => {
     const { db, projectId, term } = setup();

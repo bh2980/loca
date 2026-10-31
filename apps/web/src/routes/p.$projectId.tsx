@@ -14,9 +14,11 @@ import { useJobNotices } from '@/lib/job-notices';
 import { useCurrentNav } from '@/lib/nav';
 import { useProgress } from '@/lib/use-progress';
 import { dateTime } from '@/lib/datetime';
+import { loadProject } from '@/lib/project';
 
 export const Route = createFileRoute('/p/$projectId')({
-  loader: ({ context, params }) => context.queryClient.ensureQueryData(q.project(params.projectId)),
+  // The project row, or the not-found page.
+  loader: ({ params }) => loadProject(params.projectId),
   component: ProjectLayout,
   errorComponent: ({ error }) => (
     <EmptyState size="page">
