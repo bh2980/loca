@@ -66,9 +66,18 @@ export function ChatPanel({ projectId }: { projectId: string }) {
   }, [projectId, queryClient]);
 
   useEffect(() => {
-    if (sessions.data && sessionId && !sessions.data.some((session) => session.id === sessionId)) setSessionId(null);
+    if (sessions.data && sessionId && !sessions.data.some((session) => session.id === sessionId)) {
+      // Deleted (here or elsewhere): forget it too, or every load asks for it again.
+      try {
+        sessionStorage.removeItem(SESSION_KEY(projectId));
+        localStorage.removeItem(SESSION_KEY(projectId));
+      } catch {
+        /* ignore */
+      }
+      setSessionId(null);
+    }
     if (sessions.data && !sessionId && sessions.data[0]) setSessionId(sessions.data[0].id);
-  }, [sessions.data, sessionId]);
+  }, [sessions.data, sessionId, projectId]);
   useEffect(() => {
     try {
       if (sessionId) {
