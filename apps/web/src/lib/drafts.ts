@@ -61,3 +61,27 @@ export function useDraft(key: string, saved: string): [string, (value: string) =
   }, [key]);
   return [draft ?? saved, setDraft, clear, draft === null ? saved : base];
 }
+
+/**
+ * Which of several drafts differ from what is saved, kept current as they are typed (a pane's tab dots for editors
+ * it does not show right now). Reads the same storage as useDraft.
+ */
+export function useDirtyDrafts(entries: readonly { key: string; saved: string }[]): boolean[] {
+  const keys = entries.map((entry) => entry.key).join('\n');
+  const subscribe = useCallback(
+    (listener: () => void) => {
+      const list = keys ? keys.split('\n') : [];
+      for (const key of list) {
+        const set = listeners.get(key) ?? new Set();
+        set.add(listener);
+        listeners.set(key, set);
+      }
+      return () => {
+        for (const key of list) listeners.get(key)?.delete(listener);
+      };
+    },
+    [keys],
+  );
+  const snapshot = useSyncExternalStore(subscribe, () => entries.map((entry) => (read(entry.key) ?? entry.saved) !== entry.saved ? '1' : '0').join(''));
+  return [...snapshot].map((flag) => flag === '1');
+}

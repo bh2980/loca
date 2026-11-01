@@ -174,18 +174,44 @@ export function SectionHeading({ children, actions, level = "section", as, ruled
 /**
  * A titled group inside a section: its heading, then its content (text-sm), `spaceY` apart. `nested` is for a genuine second level
  * (검증's 지적 / 말투 / 용어 / 형식): the content indents under a subtle rule below its heading. A section's own content never indents.
+ * `collapsible` makes the heading fold the group with the same chevron as a folding section, at the group's size (a run step's
+ * 보낸 프롬프트, a plan's 묶음, a chat tool call's output): open at first, and what a person folds stays folded (`persistKey`).
  */
-export function Group({ title, actions, spaceY = "condensed", nested, children }: {
+export function Group({ title, count, actions, spaceY = "condensed", nested, collapsible, persistKey, children }: {
   title: ReactNode
+  /** Beside the title, quieter. */
+  count?: ReactNode
   actions?: ReactNode
   spaceY?: keyof typeof STYLE.spaceY
   nested?: boolean
   children?: ReactNode
-}) {
+} & Fold) {
+  const body = nested ? <div className={cn("min-w-0 border-l-2 border-subtle pl-3", STYLE.spaceY[spaceY])}>{children}</div> : children
+  if (collapsible) return <FoldingGroup title={title} count={count} actions={actions} spaceY={spaceY} persistKey={persistKey}>{body}</FoldingGroup>
   return (
     <Box as="section" minWidth={0} spaceY={spaceY} variant="body">
-      <SectionHeading level="group" actions={actions}>{title}</SectionHeading>
-      {nested ? <div className={cn("min-w-0 border-l-2 border-subtle pl-3", STYLE.spaceY[spaceY])}>{children}</div> : children}
+      <SectionHeading level="group" actions={actions}>{count != null && count !== "" ? <Inline as="span" gap="tight"><Title title={title} count={count} /></Inline> : title}</SectionHeading>
+      {body}
     </Box>
+  )
+}
+
+function FoldingGroup({ title, count, actions, spaceY, persistKey, children }: { title: ReactNode; count?: ReactNode; actions?: ReactNode; spaceY: keyof typeof STYLE.spaceY; persistKey: string; children?: ReactNode }) {
+  const [open, setOpen] = useSectionOpen(persistKey)
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} asChild>
+      <section className={cn("min-w-0 text-sm", STYLE.spaceY[spaceY])}>
+        <div className="flex min-w-0 items-center justify-between gap-2">
+          <CollapsibleTrigger asChild>
+            <Button type="button" variant="ghost" size="sm" className="group -ml-1.5 h-7 min-w-0 justify-start gap-1.5 px-1.5 text-2xs font-semibold text-muted hover:bg-hover/60 hover:text-default">
+              <ChevronDown className="size-3.5 shrink-0 transition-transform group-data-[state=closed]:-rotate-90" />
+              <Title title={title} count={count} />
+            </Button>
+          </CollapsibleTrigger>
+          {actions && <div className="flex shrink-0 items-center gap-1">{actions}</div>}
+        </div>
+        <CollapsibleContent className={cn("min-w-0", STYLE.spaceY[spaceY])}>{children}</CollapsibleContent>
+      </section>
+    </Collapsible>
   )
 }

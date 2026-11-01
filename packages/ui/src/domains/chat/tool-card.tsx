@@ -1,6 +1,7 @@
 import type * as React from "react"
 import { Check, ChevronRight, CircleAlert, Wrench } from "lucide-react"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../../controls/collapsible"
+import { Group } from "../../patterns/section"
 import { Button } from "../../controls/button"
 import { Spinner } from "../../controls/spinner"
 import { cn } from "../../lib/utils"
@@ -28,19 +29,21 @@ export function ToolCardHeader({ title, suffix, children }: { title: string; suf
 }
 
 /** A tool call that needs no card: one quiet line (state, name), opening to its raw input or output. */
-export function ToolCallRow({ status, label, detail, output, defaultOpen }: { status: "running" | "done" | "error"; label: string; detail?: React.ReactNode; output?: string; defaultOpen?: boolean }) {
+export function ToolCallRow({ status, label, detail, output }: { status: "running" | "done" | "error"; label: string; detail?: React.ReactNode; output?: string }) {
+  const title = (
+    <span className="inline-flex min-w-0 items-center gap-1">
+      {status === "error" ? <CircleAlert className="size-3.5 text-danger" /> : status === "done" ? <Check className="size-3.5" /> : <Spinner />}
+      {label}
+      {detail}
+    </span>
+  )
+  // Nothing to open yet (still running): the line alone.
+  if (!output) return <div className="text-2xs font-semibold text-muted">{title}</div>
+  // Opens like every fold: open at first, and folding it folds every tool call's output from then on.
   return (
-    <Collapsible defaultOpen={defaultOpen}>
-      <CollapsibleTrigger className="group flex items-center gap-1 text-xs text-muted hover:text-default">
-        {status === "error" ? <CircleAlert className="size-3.5 text-danger" /> : status === "done" ? <Check className="size-3.5" /> : <Spinner />}
-        {label}
-        {detail}
-        <ChevronRight className="size-3 transition-transform group-data-[state=open]:rotate-90" />
-      </CollapsibleTrigger>
-      <CollapsibleContent>
-        <pre className="mt-1 max-h-48 overflow-auto rounded-md bg-sunken p-2 text-xs">{output}</pre>
-      </CollapsibleContent>
-    </Collapsible>
+    <Group spaceY="tight" collapsible persistKey="chat.tool-call" title={title}>
+      <pre className="max-h-48 overflow-auto rounded-md bg-sunken p-2 text-xs">{output}</pre>
+    </Group>
   )
 }
 

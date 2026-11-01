@@ -85,6 +85,7 @@ export const Groups: Story = {
     <Stack gap="comfortable">
       <Group title="인물"><Body /></Group>
       <Group title="관계" actions={<Button variant="ghost" size="xs">추가</Button>} spaceY="condensed"><Body /><Body /></Group>
+      <Group title="보낸 프롬프트" count={3} collapsible persistKey="story.group"><Body /></Group>
     </Stack>
   ),
 }

@@ -81,6 +81,8 @@ export interface Field {
   help?: string;
   /** Values offered while typing a 'list' or 'chips' field. */
   suggestions?: string[];
+  /** The pane's second tab (인물's 프로필·문체, 사건's 내용) instead of the first; see TAB_LABELS in the editor. */
+  tab?: 'content';
 }
 /**
  * A field of rows R: `name` is one of R's keys and `type` one whose value is exactly that key's

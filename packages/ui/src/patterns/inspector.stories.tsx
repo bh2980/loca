@@ -91,6 +91,8 @@ export const Tabs: Story = {
     return (
       <Stack gap="comfortable">
         <InspectorTabs value={tab} onChange={setTab} items={[{ value: "a", label: "정보" }, { value: "b", label: "관계" }]} />
+        <Text variant="caption" tone="muted">숫자는 0이어도 보이고, 점은 그 탭에 확인할 것(저장 안 한 수정, 정할 후보)이 있다는 뜻입니다. 탭은 저절로 바뀌지 않습니다:</Text>
+        <InspectorTabs value={tab} onChange={setTab} items={[{ value: "a", label: "기본", attention: true }, { value: "b", label: "근거 대사", count: 0 }]} />
         <Text variant="caption" tone="muted">탭이 하나뿐이면 아무것도 보이지 않습니다:</Text>
         <InspectorTabs value="a" onChange={() => {}} items={[{ value: "a", label: "정보" }]} />
       </Stack>

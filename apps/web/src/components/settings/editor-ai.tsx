@@ -1,8 +1,7 @@
 import { useState } from 'react';
-import { ChevronRight } from 'lucide-react';
 import { AI_PROMPTS, COMPLETE_SYSTEM, CONTEXT_FIELDS, DEFAULT_EDITOR_AI, type EditorAi, type EditorButton } from '@tw/shared';
 import { ModelPicker } from '@/components/model-picker';
-import { Box, Button, Checkbox, Collapsible, CollapsibleContent, CollapsibleTrigger, Field, HelpTip, Icon, Inline, SaveStatusLine, Stack, Switch, Text, Textarea, Input, Section } from '@loca/ui';
+import { Box, Button, Checkbox, Group, Collapsible, CollapsibleContent, CollapsibleTrigger, Field, HelpTip, Inline, SaveStatusLine, Stack, Switch, Text, Textarea, Input, Section } from '@loca/ui';
 import { targetScope, type SettingsTarget } from '@/lib/settings-target';
 import { useTargetSettings } from '@/lib/target-settings';
 import { useFormFrom } from '@/lib/use-form-from';
@@ -177,13 +176,7 @@ export function EditorAiSection({ target }: { target: SettingsTarget }) {
           </Field.Group>
         </Field.Group>
 
-        <Collapsible>
-          <CollapsibleTrigger asChild>
-            <Button variant="ghost" group flush="start">
-              <Icon icon={ChevronRight} turn="group" /> 고급
-            </Button>
-          </CollapsibleTrigger>
-          <CollapsibleContent>
+        <Group title="고급" collapsible persistKey="settings.editor-ai.advanced">
             <Field.Group lead>
               <Field>
                 <Field.Label htmlFor="editor-ai-timeout">에디터 AI 제한 시간 (초)</Field.Label>
@@ -205,8 +198,7 @@ export function EditorAiSection({ target }: { target: SettingsTarget }) {
                 <SavedNumber id="editor-ai-cap" value={complete.dailyCap} min={1} max={100_000} storage={key('cap')} onSave={(dailyCap) => setComplete({ dailyCap })} />
               </Field>
             </Field.Group>
-          </CollapsibleContent>
-        </Collapsible>
+        </Group>
 
         <SaveStatusLine
           status={saveSettings.isPending ? 'saving' : saveSettings.isSuccess ? 'saved' : saveSettings.isError ? 'failed' : 'idle'}

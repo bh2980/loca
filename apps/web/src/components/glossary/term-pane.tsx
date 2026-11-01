@@ -2,11 +2,12 @@ import { createAndAttachTag } from '@/lib/create-tag';
 /** Detail panes for a glossary term: edit one, or add a new one. */
 import { CopyButton } from '@/components/copy-button';
 import { useMemo, useState } from 'react';
+import { useInspectorTab } from '@/lib/inspector-tab';
 import { Link } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Check, Play, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { Inspector, InspectorHeader, InspectorList, TagListEditor, DirtyBar, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Inline, Input, ListRow, Text, Textarea, Section, Field, Box, Checkbox, Label, Stack, Switch } from '@loca/ui';
+import { Inspector, InspectorHeader, InspectorList, InspectorTabs, TagListEditor, DirtyBar, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Inline, Input, ListRow, Text, Textarea, Section, Field, Box, Checkbox, Label, Stack, Switch } from '@loca/ui';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { confirmLabel, SourceBadge, StateCell, type ItemTag } from '@/components/knowledge/table';
 import { ALL_TERM_KINDS, isSettled, TAG_SCOPES, TERM_LINE_KIND_LABELS, TERM_LINE_KINDS, type KnowledgeOrigin, type KnowledgeStatus, type StatusBy, type TermScope } from '@tw/shared';
@@ -103,6 +104,9 @@ export function NewTermPane({ projectId, onClose, onCreated }: { projectId: stri
 /** How many lines of 등장 대사 show before 더 보기. */
 const USES_SHOWN = 5;
 
+type TermTab = 'term' | 'uses';
+const TERM_TABS = ['term', 'uses'] as const;
+
 const TERM_FIELD_LABEL = { source: '원문', target: '번역', note: '메모', scope: '적용 범위', matchCase: '대소문자 일치' };
 
 export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { projectId: string; term: Term; onClose: () => void; onDecide: (accept: boolean) => void; deciding: boolean }) {
@@ -132,11 +136,11 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
   });
 
   const usage = useQuery(q.termUsage(projectId, term.id));
+  const [tab, setTab] = useInspectorTab<TermTab>('term', TERM_TABS);
   const [allUses, setAllUses] = useState(false);
   // Which lines use the term is the question; the first of them come from the units collection.
   const useIds = useMemo(() => usage.data?.unitIds.slice(0, 100), [usage.data]);
   const uses = useLines(projectId, useIds).rows ?? [];
-  const shownUses = allUses ? uses : uses.slice(0, USES_SHOWN);
   const taxonomy = useTaxonomy(projectId);
   const termTags = tagsIn(taxonomy.tags, 'terms');
   const attachedTags = (term.tags ?? [])
@@ -190,62 +194,81 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
           {term.status === 'candidate' ? <span>후보</span> : <StateCell row={{ ...term, evidence: [] }} />}
         </Inline>
       } onClose={onClose} />}
+      tabs={
+        <>
+          {conflicts.length > 0 && <Section><ChangedElsewhere fields={conflicts.map((field) => TERM_FIELD_LABEL[field as keyof typeof TERM_FIELD_LABEL])} onTakeSaved={takeSaved} onKeepMine={keepMine} /></Section>}
+          <InspectorTabs<TermTab>
+            value={tab}
+            onChange={setTab}
+            items={[
+              { value: 'term', label: '용어', attention: dirty },
+              { value: 'uses', label: '등장 대사', count: usage.data?.count ?? null },
+            ]}
+          />
+        </>
+      }
+      scrollKey={tab}
       footer={dirty ? <DirtyBar dirtyCount={Object.keys(changedFields(form, saved)).length} onRevert={takeSaved} onSave={() => save.mutate()} saving={save.isPending} disabled={!form.source.trim()} /> : (candidate ? <Button variant="outline" disabled={deciding || !term.target.trim()} onClick={() => onDecide(true)}><Check /> {confirmLabel([{ ...term, evidence: [] }])}</Button> : null)}
     >
-      {conflicts.length > 0 && <Section><ChangedElsewhere fields={conflicts.map((field) => TERM_FIELD_LABEL[field as keyof typeof TERM_FIELD_LABEL])} onTakeSaved={takeSaved} onKeepMine={keepMine} /></Section>}
-      <Section title="용어">
-        <TermFields form={form} onChange={setForm} />
-      </Section>
-      {term.targetCandidates.length > 0 && (
-        <Section title={`다른 번역어 ${term.targetCandidates.length}`}>
-          <InspectorList>
-            {term.targetCandidates.map((form) => (
-              <ListRow key={form}>
-                <Inline justify="between" align="center" gap="normal">
-                  <Text>{form}</Text>
-                  <Button variant="ghost" disabled={dirty || makeMain.isPending} onClick={() => makeMain.mutate(form)}>메인으로</Button>
-                </Inline>
-              </ListRow>
-            ))}
-          </InspectorList>
+      {tab === 'term' ? (
+        <>
+          <Section>
+            <TermFields form={form} onChange={setForm} />
+          </Section>
+          {term.targetCandidates.length > 0 && (
+            <Section title={`다른 번역어 ${term.targetCandidates.length}`}>
+              <InspectorList>
+                {term.targetCandidates.map((form) => (
+                  <ListRow key={form}>
+                    <Inline justify="between" align="center" gap="normal">
+                      <Text>{form}</Text>
+                      <Button variant="ghost" disabled={dirty || makeMain.isPending} onClick={() => makeMain.mutate(form)}>메인으로</Button>
+                    </Inline>
+                  </ListRow>
+                ))}
+              </InspectorList>
+            </Section>
+          )}
+          <Section title="태그">
+            <TagListEditor
+              tags={attachedTags}
+              allTags={termTags}
+              onToggle={(tagId, add) => tagMutation.mutate({ tagId, add })}
+              onCreate={handleCreateTag}
+              heading="용어에 붙일 태그"
+            />
+          </Section>
+        </>
+      ) : (
+        <Section
+          title="등장 대사"
+          count={usage.data?.count ?? '…'}
+          actions={
+            !!usage.data?.count && (
+              <RunDialog
+                projectId={projectId}
+                unitIds={usage.data.unitIds}
+                defaultIgnoreStatus
+                trigger={<Button variant="outline"><Play /> 실행 · {usage.data.count}줄</Button>}
+              />
+            )
+          }
+        >
+          {usage.data && usage.data.count === 0 ? (
+            <Text as="p" variant="body" tone="muted">이 용어가 나오는 대사가 없습니다.</Text>
+          ) : (
+            <InspectorList>
+              {(allUses ? uses : uses.slice(0, USES_SHOWN)).map((row) => <li key={row.id}><ListRow as="link" variant="line" inset><Link to="/p/$projectId/script" params={{ projectId }} search={{ group: row.groupId, line: row.id }}><Text variant="caption" tone="muted">{row.groupTitle} · </Text>{row.speaker && <Text weight="medium">{row.speaker}: </Text>}{row.source}{row.translation && <Text display="block" tone="muted">{row.translation}</Text>}</Link></ListRow></li>)}
+            </InspectorList>
+          )}
+          {uses.length > USES_SHOWN && (
+            <Button variant="ghost" size="inline" onClick={() => setAllUses((open) => !open)}>{allUses ? '접기' : `${uses.length - USES_SHOWN}개 더 보기`}</Button>
+          )}
+          {allUses && (usage.data?.count ?? 0) > uses.length && (
+            <Text as="p" variant="caption" tone="muted">앞의 {uses.length}줄만 보입니다. 모두 고치려면 실행을 씁니다.</Text>
+          )}
         </Section>
       )}
-      <Section title="태그">
-        <TagListEditor
-          tags={attachedTags}
-          allTags={termTags}
-          onToggle={(tagId, add) => tagMutation.mutate({ tagId, add })}
-          onCreate={handleCreateTag}
-          heading="용어에 붙일 태그"
-        />
-      </Section>
-      <Section
-        collapsible
-        persistKey="term.usage"
-        title="등장 대사"
-        count={usage.data?.count ?? "…"}
-        actions={
-          !!usage.data?.count && (
-            <RunDialog
-              projectId={projectId}
-              unitIds={usage.data.unitIds}
-              defaultIgnoreStatus
-              trigger={<Button variant="outline"><Play /> 실행 · {usage.data.count}줄</Button>}
-            />
-          )
-        }
-      >
-        {usage.data && usage.data.count === 0 ? (
-          <Text as="p" variant="body" tone="muted">이 용어가 나오는 대사가 없습니다.</Text>
-        ) : (
-          <InspectorList>
-            {shownUses.map((row) => <li key={row.id}><ListRow as="link" variant="line" inset><Link to="/p/$projectId/script" params={{ projectId }} search={{ group: row.groupId, line: row.id }}><Text variant="caption" tone="muted">{row.groupTitle} · </Text>{row.speaker && <Text weight="medium">{row.speaker}: </Text>}{row.source}{row.translation && <Text display="block" tone="muted">{row.translation}</Text>}</Link></ListRow></li>)}
-          </InspectorList>
-        )}
-        {uses.length > USES_SHOWN && (
-          <Button variant="ghost" size="inline" onClick={() => setAllUses((open) => !open)}>{allUses ? '접기' : `${uses.length - USES_SHOWN}개 더 보기`}</Button>
-        )}
-      </Section>
     </Inspector>
   );
 }

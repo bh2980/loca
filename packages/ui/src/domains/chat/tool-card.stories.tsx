@@ -29,7 +29,7 @@ export const ToolCallStates: Story = {
   ),
 }
 
-export const ToolCallExpanded: Story = { render: () => <ToolCallRow status="done" label="장면 대사 읽기" output={OUTPUT} defaultOpen /> }
+export const ToolCallExpanded: Story = { render: () => <ToolCallRow status="done" label="장면 대사 읽기" output={OUTPUT} /> }
 
 const Fields = ({ rows }: { rows: [string, string][] }) => (
   <Box as="dl" spaceY="tight">
