@@ -89,9 +89,9 @@ export function useUsedTerms(projectId: string, line: { source: string; kind?: s
 
 /**
  * Hints beside a line. `context`: its term chips (a click puts the term into the box) and who is talking; `result`: what
- * the last run said; `people`: who is talking only (a detail pane, whose 검증 judges the terms and the speech level).
+ * the last run said.
  */
-export function LineHints({ projectId, line, part }: { projectId: string; line: { id: string; source: string; kind?: string; translation: string | null; speaker?: string | null; listener?: string | null; lastRun: { issues: string[] } | null }; part?: 'context' | 'result' | 'people' }) {
+export function LineHints({ projectId, line, part }: { projectId: string; line: { id: string; source: string; kind?: string; translation: string | null; speaker?: string | null; listener?: string | null; lastRun: { issues: string[] } | null }; part?: 'context' | 'result' }) {
   const unit = useLineDetail(projectId, line.id);
   const people = useCharacters(projectId);
   const relationships = useRelationships(projectId);
@@ -132,10 +132,10 @@ export function LineHints({ projectId, line, part }: { projectId: string; line: 
   const context = used.map(termChip);
   // Format checks of the draft sit with the editor (TranslationEditor); here only what the last run said.
   const result = line.lastRun?.issues.slice(0, 1).map((issue) => hint('run', false, issue)) ?? [];
-  const items = part === 'people' ? [] : [...(part !== 'result' ? context : []), ...(part !== 'context' ? result : [])];
+  const items = [...(part !== 'result' ? context : []), ...(part !== 'context' ? result : [])];
   // The speech rule for this speaker → listener, written out under the source (it used to hide in a chip's tooltip).
   const ruleState = guessed === speech?.level ? 'kept' : guessed ? 'broken' : 'plain';
-  const rule = part !== 'result' && part !== 'people' && speech && (
+  const rule = part !== 'result' && speech && (
     <Stack key="speech" as="p" direction="row" align="start" gap="tight" variant="caption" tone={ruleState === 'broken' ? 'warning' : 'muted'}>
       {ruleState === 'kept' && <Icon icon={Check} size="xs" marginTop="hair" shrink={false} tone="success" />}
       {ruleState === 'broken' && <Icon icon={CircleAlert} size="xs" marginTop="hair" shrink={false} />}

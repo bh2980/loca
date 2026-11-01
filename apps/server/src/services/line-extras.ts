@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
 import { inChunks } from '../db/chunk.ts';
+import { nodeName } from '@tw/shared';
 import * as s from '../db/schema.ts';
 
 /** How many runs a line's history shows, newest first. */
@@ -30,7 +31,19 @@ export function lineExtras(db: Db, projectId: string, ids: readonly string[]) {
     ).sort((a, b) => +b.createdAt - +a.createdAt),
     (row) => row.unitId,
   );
-  return own.map((id) => ({ id, candidates: candidates.get(id) ?? [], history: (history.get(id) ?? []).slice(0, HISTORY).map(({ unitId: _unit, ...run }) => run) }));
+  // The workflow step that left a text or touched the line, named as the run's own definition named it ('검수'), so the
+  // history can say which step of the workflow it was; null when the run or the node is gone.
+  const runIds = [...new Set([...[...candidates.values()].flat().map((row) => row.runId), ...[...history.values()].flat().map((row) => row.runId)].filter((runId): runId is string => Boolean(runId)))];
+  const definitions = new Map(inChunks(runIds, (slice) => db.select({ id: s.runs.id, definition: s.runs.definition }).from(s.runs).where(inArray(s.runs.id, slice)).all()).map((row) => [row.id, row.definition]));
+  const step = (runId: string | null, nodeId: string | null) => {
+    const node = runId && nodeId ? definitions.get(runId)?.nodes.find((item) => item.id === nodeId) : undefined;
+    return node ? nodeName(node) : null;
+  };
+  return own.map((id) => ({
+    id,
+    candidates: (candidates.get(id) ?? []).map((row) => ({ ...row, step: step(row.runId, row.nodeId) })),
+    history: (history.get(id) ?? []).slice(0, HISTORY).map(({ unitId: _unit, ...run }) => ({ ...run, step: step(run.runId, run.nodeId) })),
+  }));
 }
 
 export type LineExtras = ReturnType<typeof lineExtras>[number];

@@ -335,6 +335,8 @@ export function LineList({
             showScene={showScene}
             aiNode={search.aiNode}
             onAiNode={(aiNode) => onSearch({ aiNode }, { replace: true })}
+            tab={search.tab}
+            onTab={(tab) => onSearch({ tab }, { replace: true })}
           />
         ) : undefined
       )}

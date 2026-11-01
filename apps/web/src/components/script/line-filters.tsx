@@ -1,3 +1,4 @@
+import type { LineTab } from '@/components/line-detail';
 /** The line filters: the screen's URL search params, the filter menu and the chips that show what is set. */
 import { Fragment, useState } from 'react';
 import { Link } from '@tanstack/react-router';
@@ -45,6 +46,8 @@ export interface LinesSearch {
   detail?: true;
   /** The AI node whose prompt context the line pane previews ("workflowId:nodeId"). */
   aiNode?: string;
+  /** The line pane's tab, when a link names one (else the pane opens as the last line was left). */
+  tab?: LineTab;
 }
 
 const strings = (value: unknown) => (Array.isArray(value) && value.length && value.every((item) => typeof item === 'string') ? (value as string[]) : undefined);
@@ -73,6 +76,7 @@ export const linesSearchSchema = (raw: Record<string, unknown>): LinesSearch => 
   line: typeof raw.line === 'string' ? raw.line : undefined,
   detail: raw.detail === true || raw.detail === 'true' ? true : undefined,
   aiNode: typeof raw.aiNode === 'string' && raw.aiNode.includes(':') ? raw.aiNode : undefined,
+  tab: raw.tab === 'line' || raw.tab === 'history' || raw.tab === 'prompt' ? raw.tab : undefined,
 });
 
 /** The list query's filter params (the server's listQuery): lists of ids comma-joined, names as JSON (a name may hold a comma). */
