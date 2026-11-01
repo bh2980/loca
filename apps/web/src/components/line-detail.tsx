@@ -554,7 +554,7 @@ function LineChecks({ projectId, source, kind, text, rules, targetLanguage, spee
   const guessed = text.trim() ? speechLevelOf(text) : null;
   return (
     <Box spaceY="comfortable">
-      <Group title={lastRun ? <>지적 · <Text asChild weight="normal" tone="muted" underline="hover"><Link to="/p/$projectId/runs/$runId" params={{ projectId, runId: lastRun.runId }}>{lastRun.workflowName}</Link></Text></> : '지적'}>
+      <Group nested title={lastRun ? <>지적 · <Text asChild weight="normal" tone="muted" underline="hover"><Link to="/p/$projectId/runs/$runId" params={{ projectId, runId: lastRun.runId }}>{lastRun.workflowName}</Link></Text></> : '지적'}>
         {lastRun?.issues.length ? (
           <Box as="ul" spaceY="tight" variant="body" tone="warning">{lastRun.issues.map((issue, i) => <DetailIssue key={i}>{issue}</DetailIssue>)}</Box>
         ) : (
@@ -562,7 +562,7 @@ function LineChecks({ projectId, source, kind, text, rules, targetLanguage, spee
         )}
       </Group>
       {speech && (
-        <Group title={`말투 → ${speech.others ? "그 밖의 인물" : listenerLabel(speech.listener)}${speech.routeDependent ? ' (루트에 따라 달라 대본 순서 기준)' : speech.byOrder ? ' (그래프 밖이라 대본 순서 기준)' : ''}`}>
+        <Group nested title={`말투 → ${speech.others ? "그 밖의 인물" : listenerLabel(speech.listener)}${speech.routeDependent ? ' (루트에 따라 달라 대본 순서 기준)' : speech.byOrder ? ' (그래프 밖이라 대본 순서 기준)' : ''}`}>
           <Inline gap="condensed" variant="body">
             <Text asChild minWidth={0} truncate underline="hover">
               <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', item: speech.ruleId }}>
@@ -576,7 +576,7 @@ function LineChecks({ projectId, source, kind, text, rules, targetLanguage, spee
         </Group>
       )}
       {usedTerms.length > 0 && (
-        <Group title="용어">
+        <Group nested title="용어">
           <Box as="ul" spaceY="tight" variant="body">
             {usedTerms.map((term) => {
               const kept = Boolean(text.trim()) && lower.includes(term.target.toLowerCase());
@@ -591,7 +591,7 @@ function LineChecks({ projectId, source, kind, text, rules, targetLanguage, spee
           </Box>
         </Group>
       )}
-      <Group title="형식">
+      <Group nested title="형식">
         {!text.trim() ? (
           <Text as="p" variant="body" tone="muted">번역이 없습니다.</Text>
         ) : formatIssues.length ? (

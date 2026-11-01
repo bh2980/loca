@@ -3,7 +3,7 @@ import { ChevronDown } from "lucide-react"
 import { Button } from "../controls/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../controls/collapsible"
 import { Box } from "../primitives/box"
-import { type STYLE } from "../primitives/style"
+import { STYLE } from "../primitives/style"
 import { Inline } from "../primitives/stack"
 import { Heading } from "../primitives/text"
 import { cn } from "../lib/utils"
@@ -12,7 +12,8 @@ import { useSectionOpen } from "./use-section-open"
 /**
  * The type hierarchy of panes, pages and dialogs, one role per level, so nested information reads as nested:
  * 1. A section of a page or pane (`Section`, `SectionHeading level="section"`: text-section 14px, bold; `page` is one step above, text-base).
- * 2. A group inside a section (`Group`, `SectionHeading level="group"`: text-2xs, semibold, muted).
+ * 2. A group inside a section (`Group`, `SectionHeading level="group"`: text-2xs, semibold, muted). A section's own content sits flush
+ *    with its header's left edge, never indented; only a genuine second level (`Group nested`) indents, under a subtle rule.
  * 3. Row labels (`KeyValue`): text-xs, regular, muted.
  * Content under them is text-sm foreground; counts, keys, times and evidence are text-xs muted.
  * Screens use these parts instead of styling h2/h3/h4/legend themselves (pnpm ui-rules).
@@ -21,7 +22,7 @@ import { useSectionOpen } from "./use-section-open"
 type Fold =
   | { collapsible?: false; persistKey?: never }
   /**
-   * The section folds: its title is a band with a chevron, the content indented under a rule. It starts open; `persistKey` (required)
+   * The section folds: its title is a band with a chevron, the content flush with the header's left edge. It starts open; `persistKey` (required)
    * names where it is (`line.history`), and what a person folds stays folded for every item of that kind (useSectionOpen).
    */
   | { collapsible: true; persistKey: string }
@@ -58,8 +59,9 @@ export type SectionProps = PaneSectionProps | PageSectionProps
 /**
  * A titled part of a pane, or (`variant="page"`) a titled block of a settings page. They render differently and share only the name:
  * - pane (default): its title (14px bold) over the content, a line (border-default) to the next. `collapsible` sections (long or
- *   occasional parts: 문맥, 고급, 이력 …) have a header band with a chevron and their content indented under a rule; they start open
- *   and remember what a person folded (`persistKey`). Nothing starts folded.
+ *   occasional parts: 문맥, 고급, 이력 …) have a header band with a chevron, a strong line under it, and their content flush with the
+ *   header's left edge (the band and line already mark the level; an indent would only spend width). They start open and remember what
+ *   a person folded (`persistKey`). Nothing starts folded. A second level inside a section is `Group nested`.
  * - page: blocks stack in a column; the save rule is one for all: controls that take effect at once (switches, selects) save on change,
  *   with a toast; typed fields (names, rules) save with the block's own 저장 button in `footer`, enabled only when something changed,
  *   with 되돌리기 beside it.
@@ -119,9 +121,7 @@ function FoldingSection({ title, count, children, actions, id, noShrink, persist
           </CollapsibleTrigger>
           {actions && <div className="flex shrink-0 items-center gap-1">{actions}</div>}
         </div>
-        <CollapsibleContent className="px-4 pt-3 pb-4">
-          <div className="min-w-0 space-y-3 border-l-2 border-subtle pl-3">{children}</div>
-        </CollapsibleContent>
+        <CollapsibleContent className="min-w-0 space-y-3 px-4 pt-3 pb-4">{children}</CollapsibleContent>
       </section>
     </Collapsible>
   )
@@ -171,12 +171,21 @@ export function SectionHeading({ children, actions, level = "section", as, ruled
   )
 }
 
-/** A titled group inside a section: its heading, then its content (text-sm), `spaceY` apart. */
-export function Group({ title, actions, spaceY = "condensed", children }: { title: ReactNode; actions?: ReactNode; spaceY?: keyof typeof STYLE.spaceY; children?: ReactNode }) {
+/**
+ * A titled group inside a section: its heading, then its content (text-sm), `spaceY` apart. `nested` is for a genuine second level
+ * (검증's 지적 / 말투 / 용어 / 형식): the content indents under a subtle rule below its heading. A section's own content never indents.
+ */
+export function Group({ title, actions, spaceY = "condensed", nested, children }: {
+  title: ReactNode
+  actions?: ReactNode
+  spaceY?: keyof typeof STYLE.spaceY
+  nested?: boolean
+  children?: ReactNode
+}) {
   return (
     <Box as="section" minWidth={0} spaceY={spaceY} variant="body">
       <SectionHeading level="group" actions={actions}>{title}</SectionHeading>
-      {children}
+      {nested ? <div className={cn("min-w-0 border-l-2 border-subtle pl-3", STYLE.spaceY[spaceY])}>{children}</div> : children}
     </Box>
   )
 }
