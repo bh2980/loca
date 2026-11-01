@@ -101,6 +101,9 @@ export function NewTermPane({ projectId, onClose, onCreated }: { projectId: stri
   );
 }
 
+/** How many lines of 등장 대사 show before 더 보기. */
+const USES_SHOWN = 5;
+
 type TermTab = 'term' | 'uses';
 const TERM_TABS = ['term', 'uses'] as const;
 
@@ -134,6 +137,7 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
 
   const usage = useQuery(q.termUsage(projectId, term.id));
   const [tab, setTab] = useInspectorTab<TermTab>('term', TERM_TABS);
+  const [allUses, setAllUses] = useState(false);
   // Which lines use the term is the question; the first of them come from the units collection.
   const useIds = useMemo(() => usage.data?.unitIds.slice(0, 100), [usage.data]);
   const uses = useLines(projectId, useIds).rows ?? [];
@@ -254,10 +258,13 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
             <Text as="p" variant="body" tone="muted">이 용어가 나오는 대사가 없습니다.</Text>
           ) : (
             <InspectorList>
-              {uses.map((row) => <li key={row.id}><ListRow as="link" variant="line" inset><Link to="/p/$projectId/script" params={{ projectId }} search={{ group: row.groupId, line: row.id }}><Text variant="caption" tone="muted">{row.groupTitle} · </Text>{row.speaker && <Text weight="medium">{row.speaker}: </Text>}{row.source}{row.translation && <Text display="block" tone="muted">{row.translation}</Text>}</Link></ListRow></li>)}
+              {(allUses ? uses : uses.slice(0, USES_SHOWN)).map((row) => <li key={row.id}><ListRow as="link" variant="line" inset><Link to="/p/$projectId/script" params={{ projectId }} search={{ group: row.groupId, line: row.id }}><Text variant="caption" tone="muted">{row.groupTitle} · </Text>{row.speaker && <Text weight="medium">{row.speaker}: </Text>}{row.source}{row.translation && <Text display="block" tone="muted">{row.translation}</Text>}</Link></ListRow></li>)}
             </InspectorList>
           )}
-          {(usage.data?.count ?? 0) > uses.length && uses.length > 0 && (
+          {uses.length > USES_SHOWN && (
+            <Button variant="ghost" size="inline" onClick={() => setAllUses((open) => !open)}>{allUses ? '접기' : `${uses.length - USES_SHOWN}개 더 보기`}</Button>
+          )}
+          {allUses && (usage.data?.count ?? 0) > uses.length && (
             <Text as="p" variant="caption" tone="muted">앞의 {uses.length}줄만 보입니다. 모두 고치려면 실행을 씁니다.</Text>
           )}
         </Section>
