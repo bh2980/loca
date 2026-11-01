@@ -1,20 +1,21 @@
 import { createAndAttachTag } from '@/lib/create-tag';
 /** The detail editor for one knowledge item: fields, unsaved edits that survive navigation, decide/discard. */
-import { cloneElement, isValidElement, useMemo, useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { cloneElement, isValidElement, useMemo, useState, type ReactNode } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { Check, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { DOCUMENT_KINDS, STYLE_AXES, type StyleAxis, type CharacterRole, type Gender, type AgeBand, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, isSettled, AGE_BAND_LABELS, CHARACTER_ROLE_LABELS, GENDER_LABELS, knowledgeKindScope, type TagScope, type KnowledgeTagKind } from '@tw/shared';
-import { TagInput, Inspector, InspectorHeader, InspectorToggle, useControlId, TagListEditor, DirtyBar, Box, Inline, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Select, SelectContent, SelectItem, SelectValue, AiMark, SelectTrigger, Textarea, Section, Field } from '@loca/ui';
+import { TagInput, Inspector, InspectorHeader, InspectorTabs, InspectorToggle, useControlId, TagListEditor, DirtyBar, Box, Inline, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Select, SelectContent, SelectItem, SelectValue, AiMark, SelectTrigger, Textarea, Section, Field } from '@loca/ui';
 import { joinList, splitList } from '@/lib/list-value';
 import { Swatches } from '@/components/settings/swatches';
 import { useDraft } from '@/lib/drafts';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
 import { DOCUMENT_KIND } from '@/lib/labels';
 import { Evidence, StretchPicker } from '@/components/knowledge/evidence';
-import { confirmLabel, fail, KINDS, SourceBadge, text, type Kind, type KindSpec, type Row, type Field as KnowledgeField } from '@/components/knowledge/table';
+import { confirmLabel, fail, KINDS, SourceBadge, text, type Kind, type KindSpec, type RelationshipRow, type Row, type Field as KnowledgeField } from '@/components/knowledge/table';
 import { client } from '@/lib/api';
-import { tagsIn } from '@/lib/queries';
+import { q, tagsIn } from '@/lib/queries';
+import { useInspectorTab } from '@/lib/inspector-tab';
 import { useTaxonomy } from '@/lib/knowledge';
 import { sent } from '@/lib/collections';
 import { useLinesByKeys } from '@/lib/units';
@@ -22,9 +23,29 @@ import { useLinesByKeys } from '@/lib/units';
 /** A field's value in the draft (the form is kept as JSON in sessionStorage). */
 type Value = string | boolean | string[] | Record<string, string> | null;
 
+type EditorTab = 'basic' | 'content' | 'extra' | 'evidence';
 /**
- * Edit one item (unsaved edits survive navigation), see its evidence, and make it official or
- * discard it while it is AI's. As a right-hand pane, or embedded in another pane (a pair's detail).
+ * Each kind's tabs, in this order (노트 has none: it is one form). `content` holds the fields marked `tab: 'content'`;
+ * `extra` is the kind's read-only part (a rule's lines, a relationship's changes); `evidence` the lines it cites.
+ */
+const TAB_LABELS: Record<Kind, Partial<Record<EditorTab, string>>> = {
+  characters: { basic: '기본', content: '프로필·문체', evidence: '근거 대사' },
+  events: { basic: '기본', content: '내용', evidence: '근거 대사' },
+  speechRules: { basic: '규칙', extra: '적용 대사', evidence: '근거 대사' },
+  relationships: { basic: '기본', extra: '관계 변화', evidence: '근거 대사' },
+  documents: {},
+};
+const TAB_ORDER: EditorTab[] = ['basic', 'content', 'extra', 'evidence'];
+
+/** Where an item's unsaved edit is kept, and the saved form it is compared with (a pane that does not show the editor reads both: useDirtyDrafts). */
+export const draftKeyOf = (kind: Kind, id: string) => `knowledge.${kind}.${id}`;
+export const savedOf = (spec: KindSpec, row: Row) => JSON.stringify(Object.fromEntries(spec.fields.map((field) => [field.name, row[field.name] ?? null])));
+
+/**
+ * Edit one item (unsaved edits survive navigation), see its evidence, and make it official or discard it while it is AI's.
+ * As a right-hand pane, in the kind's tabs (TAB_LABELS); the tabs never switch by themselves, a dot marks one holding an
+ * unsaved edit. Embedded in another pane (a pair's detail, which has tabs of its own and decides in its header) it is
+ * the fields and the kind's summary only.
  */
 export function DraftEditor({ projectId, kind, spec, row, characters, onClose, onDecide, embedded }: {
   projectId: string;
@@ -33,15 +54,17 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
   row: Row;
   characters: { id: string; name: string }[];
   onClose?: () => void;
-  onDecide: (action: 'confirm' | 'discard') => void;
+  /** Not used embedded: the pane holding it decides. */
+  onDecide?: (action: 'confirm' | 'discard') => void;
   embedded?: boolean;
 }) {
-  const saved = JSON.stringify(Object.fromEntries(spec.fields.map((field) => [field.name, row[field.name] ?? null])));
-  const [draft, setDraft, clearDraft] = useDraft(`knowledge.${kind}.${row.id}`, saved);
+  const saved = savedOf(spec, row);
+  const [draft, setDraft, clearDraft] = useDraft(draftKeyOf(kind, row.id), saved);
   // What the item was when editing began: if it changes elsewhere meanwhile (a chat proposal
   // accepted, another window), the unsaved edit must not quietly hide the new value.
   const [base, setBase, clearBase] = useDraft(`knowledge-base.${kind}.${row.id}`, '');
   const form = JSON.parse(draft) as Record<string, Value>;
+  const savedForm = JSON.parse(saved) as Record<string, Value>;
   const dirty = draft !== saved;
   const changedElsewhere = dirty && Boolean(base) && base !== saved;
   const clear = () => {
@@ -93,14 +116,25 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
     }
   };
 
-  const longFields = spec.fields.filter((field) => field.type === 'long');
-  const styleFields = spec.fields.filter((field) => field.type === 'style');
-  const basicFields = spec.fields.filter((field) => field.type !== 'long' && field.type !== 'style');
+  // The kind's tabs (none embedded, none for 노트).
+  const labels = embedded ? {} : TAB_LABELS[kind];
+  const tabIds = TAB_ORDER.filter((id) => labels[id]);
+  const tabbed = tabIds.length > 1;
+  const inContent = (field: KnowledgeField) => Boolean(labels.content) && field.tab === 'content';
+  const basicFields = spec.fields.filter((field) => !inContent(field));
+  const contentFields = spec.fields.filter((field) => inContent(field) && field.type !== 'style');
+  const styleFields = spec.fields.filter((field) => inContent(field) && field.type === 'style');
+  const changed = (field: KnowledgeField) => JSON.stringify(form[field.name] ?? null) !== JSON.stringify(savedForm[field.name] ?? null);
+  const [tab, setTab] = useInspectorTab<EditorTab>(`knowledge.${kind}`, (tabIds.length ? tabIds : ['basic']) as [EditorTab, ...EditorTab[]]);
+  // A rule's line count for its tab, from the same query its 적용 대사 tab reads.
+  const ruleLines = useQuery({ ...q.ruleLines(projectId, row.id), enabled: tabbed && kind === 'speechRules' });
+  const extraCount = kind === 'relationships' ? (row as RelationshipRow).changes.length : kind === 'speechRules' ? (ruleLines.data?.count ?? null) : undefined;
 
   const fieldView = (field: KnowledgeField) => {
     const value = form[field.name];
     const change = (next: Value) => update(field.name, next);
     if (field.type === 'bool') return <InspectorToggle key={field.name} label={field.label} description={field.description} help={field.help} checked={Boolean(value)} onChange={change} />;
+    if (field.type === 'style') return <StyleFields key={field.name} value={value as Record<string, string> | null} onChange={change} />;
     if (field.type === 'key')
       return <StartKeyField key={field.name} projectId={projectId} field={field} value={text(value)} from={text(form.fromName)} to={text(form.toName)} onChange={change} />;
     return (
@@ -109,52 +143,18 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
       </Field>
     );
   };
-  const styleView = (field: KnowledgeField) => <StyleFields key={field.name} value={form[field.name] as Record<string, string> | null} onChange={(next) => update(field.name, next)} />;
   const tagsView = row.id && !embedded && (
     <Field label="태그">
       <TagListEditor tags={attachedTags} allTags={knowledgeTags} onToggle={(tagId, add) => tagMutation.mutate({ tagId, add })} onCreate={handleCreateTag} heading="태그" />
     </Field>
   );
-  // Parts such as a rule's lines sit inside a section of their own in a pane, and under a small heading when embedded.
+  // A rule's lines or a relationship's changes: a tab of its own in a pane, a summary under the fields when embedded.
   const extra = spec.extra?.(row);
   const extraView = embedded && isValidElement<{ embedded?: boolean }>(extra) ? cloneElement(extra, { embedded: true }) : extra;
+  const changedView = changedElsewhere && <ChangedElsewhere onTakeSaved={clear} onKeepMine={() => setBase(saved)} />;
 
-  const body = embedded ? (
-    <Box spaceY="comfortable">
-      {changedElsewhere && <ChangedElsewhere onTakeSaved={clear} onKeepMine={() => setBase(saved)} />}
-      <Box spaceY="normal">
-        {basicFields.map(fieldView)}
-        {longFields.map(fieldView)}
-        {styleFields.map(styleView)}
-      </Box>
-      {extraView}
-      <Evidence projectId={projectId} keys={row.evidence} embedded />
-    </Box>
-  ) : (
-    <>
-      {changedElsewhere && <Section><ChangedElsewhere onTakeSaved={clear} onKeepMine={() => setBase(saved)} /></Section>}
-      <Section title="기본 정보">
-        <Box spaceY="normal">
-          {basicFields.map(fieldView)}
-          {tagsView}
-        </Box>
-      </Section>
-      {longFields.length > 0 && (
-        <Section title="내용">
-          <Box spaceY="normal">{longFields.map(fieldView)}</Box>
-        </Section>
-      )}
-      {styleFields.length > 0 && (
-        <Section title="문체">
-          <Box spaceY="normal">{styleFields.map(styleView)}</Box>
-        </Section>
-      )}
-      {extraView}
-      <Evidence projectId={projectId} keys={row.evidence} />
-    </>
-  );
-  const confirm = (alignEnd?: boolean) => (
-    <Button marginLeft={alignEnd ? 'auto' : undefined} disabled={save.isPending} onClick={() => onDecide('confirm')}>
+  const confirm = (
+    <Button disabled={save.isPending} onClick={() => onDecide?.('confirm')}>
       <Check /> {confirmLabel([row])}
     </Button>
   );
@@ -178,21 +178,60 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
     </AlertDialog>
   );
   const discardButton = (
-    <Button variant="ghost" tone="danger" onClick={() => onDecide('discard')}>
+    <Button variant="ghost" tone="danger" onClick={() => onDecide?.('discard')}>
       <Trash2 /> 버리기
     </Button>
   );
-  const dirtyBar = <DirtyBar dirtyCount={1} onRevert={clear} onSave={() => save.mutate(draft)} saving={save.isPending} />;
+  const dirtyBar = <DirtyBar dirtyCount={spec.fields.filter(changed).length || 1} onRevert={clear} onSave={() => save.mutate(draft)} saving={save.isPending} />;
+
   if (embedded)
+    // Deciding (확인함·버리기) is the pair pane's, in its header; here the edit is saved or reverted, and an official item can be deleted.
     return (
       <Box spaceY="comfortable">
-        {body}
-        <Inline wrap gap="condensed">
-          {official ? deleteButton : discardButton}
-          {dirty ? dirtyBar : !official ? confirm(true) : null}
-        </Inline>
+        {changedView}
+        <Box spaceY="normal">{spec.fields.map(fieldView)}</Box>
+        {extraView}
+        {(official || dirty) && (
+          <Inline wrap gap="condensed">
+            {official && deleteButton}
+            {dirty && dirtyBar}
+          </Inline>
+        )}
       </Box>
     );
+
+  const panels: Record<EditorTab, ReactNode> = {
+    basic: (
+      <Section>
+        <Box spaceY="normal">
+          {basicFields.map(fieldView)}
+          {tagsView}
+        </Box>
+      </Section>
+    ),
+    content: (
+      <>
+        {contentFields.length > 0 && (
+          <Section>
+            <Box spaceY="normal">{contentFields.map(fieldView)}</Box>
+          </Section>
+        )}
+        {styleFields.length > 0 && (
+          <Section title="문체">
+            <Box spaceY="normal">{styleFields.map(fieldView)}</Box>
+          </Section>
+        )}
+      </>
+    ),
+    extra: extraView,
+    evidence: <Evidence projectId={projectId} keys={row.evidence} />,
+  };
+  const tabItems = tabIds.map((id) => ({
+    value: id,
+    label: labels[id],
+    count: id === 'evidence' ? row.evidence.length : id === 'extra' ? extraCount : undefined,
+    attention: id === 'basic' ? basicFields.some(changed) : id === 'content' ? [...contentFields, ...styleFields].some(changed) : false,
+  }));
   return (
     <Inspector footerStart={<>{official ? deleteButton : discardButton}</>}
       header={<InspectorHeader kind={KINDS[kind]} name={spec.label(row)} status={
@@ -202,9 +241,34 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
           {row.status === 'candidate' ? <span>후보</span> : <Inline as="span" inline gap="tight">확정 <AiMark by={row.statusBy} /></Inline>}
         </Inline>
       } onClose={onClose} />}
-      footer={dirty ? dirtyBar : !official ? confirm() : null}
+      tabs={(changedView || tabbed) && (
+        <>
+          {changedView && <Section>{changedView}</Section>}
+          {tabbed && <InspectorTabs<EditorTab> value={tab} onChange={setTab} items={tabItems} />}
+        </>
+      )}
+      scrollKey={tabbed ? tab : undefined}
+      footer={dirty ? dirtyBar : !official ? confirm : null}
     >
-      {body}
+      {tabbed ? (
+        panels[tab]
+      ) : (
+        // 노트: one form.
+        <>
+          <Section title="기본 정보">
+            <Box spaceY="normal">
+              {spec.fields.filter((field) => field.type !== 'long').map(fieldView)}
+              {tagsView}
+            </Box>
+          </Section>
+          {spec.fields.some((field) => field.type === 'long') && (
+            <Section title="내용">
+              <Box spaceY="normal">{spec.fields.filter((field) => field.type === 'long').map(fieldView)}</Box>
+            </Section>
+          )}
+          {extraView}
+        </>
+      )}
     </Inspector>
   );
 }

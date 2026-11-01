@@ -6,7 +6,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation } from '@tanstack/react-query';
 import { ArrowLeftRight, GanttChart, Network, Plus, Table2, Users } from 'lucide-react';
 import { toast } from 'sonner';
-import { CHARACTER_ROLE_LABELS, OTHERS_LISTENER, parseMarks, type AutoMark, styleNames, isSettled, aiDecided, KNOWLEDGE_SOURCES, listenerLabel, SPEECH_LEVEL_LABELS, type KnowledgeSource, type TagScope, personLabel, type DecidedBy, buildPairs, knowledgeMatches, pairKey, pairMatches, pairSummary, type KnowledgeFilter } from '@tw/shared';
+import { CHARACTER_ROLE_LABELS, OTHERS_LISTENER, parseMarks, type AutoMark, styleNames, isSettled, aiDecided, KNOWLEDGE_SOURCES, listenerLabel, SPEECH_LEVEL_LABELS, type KnowledgeSource, type TagScope, personLabel, type DecidedBy, buildPairs, knowledgeMatches, pairKey, pairMatches, pairSummary, UNRESOLVED_RELATIONSHIP_KIND, type KnowledgeFilter } from '@tw/shared';
 import {
   EmptyState,
   TagMenu,
@@ -184,9 +184,9 @@ function Knowledge() {
         { name: 'gender', label: '성별', type: 'gender' },
         { name: 'ageBand', label: '나이대', type: 'ageBand' },
         { name: 'role', label: '역할', type: 'role' },
-        { name: 'profile', label: '프로필', type: 'long' },
-        { name: 'speech', label: '말버릇', type: 'long' },
-        { name: 'style', label: '문체', type: 'style' },
+        { name: 'profile', label: '프로필', type: 'long', tab: 'content' },
+        { name: 'speech', label: '말버릇', type: 'long', tab: 'content' },
+        { name: 'style', label: '문체', type: 'style', tab: 'content' },
       ],
       label: (row) => row.name,
       save: patchTo(api.characters[':id'].$patch),
@@ -226,9 +226,9 @@ function Knowledge() {
       ],
       fields: [
         { name: 'title', label: '제목', type: 'text' },
-        { name: 'summary', label: '요약', type: 'long' },
-        { name: 'cause', label: '원인', type: 'long' },
-        { name: 'outcome', label: '결과', type: 'long' },
+        { name: 'summary', label: '요약', type: 'long', tab: 'content' },
+        { name: 'cause', label: '원인', type: 'long', tab: 'content' },
+        { name: 'outcome', label: '결과', type: 'long', tab: 'content' },
         { name: 'participants', label: '관련 인물', type: 'list', suggestions: (people.data ?? []).map((c) => c.name) },
       ],
       label: (row) => row.title,
@@ -335,7 +335,7 @@ function Knowledge() {
     () =>
       visiblePairs
         .filter((candidate) => candidate.fromId && candidate.toId)
-        .map((candidate) => ({ id: candidate.key, fromId: candidate.fromId!, toId: candidate.toId!, kind: candidate.relationship?.kind ?? '', changes: candidate.relationship?.changes, mutual: Boolean(candidate.relationship?.mutual), dashed: pairSummary(candidate).status === 'candidate' })),
+        .map((candidate) => ({ id: candidate.key, fromId: candidate.fromId!, toId: candidate.toId!, kind: candidate.relationship?.kind ?? '', changes: candidate.relationship?.changes, mutual: Boolean(candidate.relationship?.mutual), dashed: candidate.relationship ? candidate.relationship.status === 'candidate' : pairSummary(candidate).status === 'candidate', quiet: !candidate.relationship || candidate.relationship.kind === UNRESOLVED_RELATIONSHIP_KIND })),
     [visiblePairs],
   );
 
