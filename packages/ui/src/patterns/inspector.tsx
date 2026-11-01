@@ -15,6 +15,8 @@ export interface InspectorProps {
   flush?: boolean
   /** The footer's left side: the pane's destructive action (삭제, 버리기), apart from the primary action on the right. */
   footerStart?: ReactNode
+  /** Changing it starts the body back at the top (a new tab is read from its start). */
+  scrollKey?: string
 }
 
 function InspectorFooter({ children, start }: { children?: ReactNode; start?: ReactNode }) {
@@ -36,12 +38,13 @@ export function Inspector({
   bare,
   flush,
   footerStart,
+  scrollKey,
 }: InspectorProps) {
   return (
     <div className={cn("flex h-full min-h-0 flex-col border-l border-default bg-panel", bare && "min-w-0 border-l-0")}>
       {header}
       {tabs}
-      <ScrollArea className="min-h-0 flex-1">
+      <ScrollArea key={scrollKey} className="min-h-0 flex-1">
         {loading ? (
           <div className="space-y-3 p-4" aria-label="불러오는 중" aria-busy="true">
             <Skeleton shape="line" width="1/2" />
