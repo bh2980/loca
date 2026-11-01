@@ -9,7 +9,7 @@ import { ContextItemList } from '@/components/ai-context';
 import { LineDetail } from '@/components/line-detail';
 import { TermEditor } from '@/components/glossary/term-pane';
 import { HeaderActions, Page } from '@/components/page';
-import { Inspector, InspectorHeader, KeyValue, KeyValueRow, Section, EmptyState, SectionHeading, DataTable, type ColumnDef, Pager, FilterBar, ActionBar, Separator, SplitPane, RunStatusBadge, StatusBarItem, Notice, NoticeDescription, Chip, Box, Button, Icon, Inline, Text, Collapsible, CollapsibleContent, CollapsibleTrigger, Progress, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Tabs, TabsList, TabsTrigger, Skeleton } from '@loca/ui';
+import { Inspector, InspectorHeader, Group, KeyValue, KeyValueRow, Section, EmptyState, SectionHeading, DataTable, type ColumnDef, Pager, FilterBar, ActionBar, Separator, SplitPane, RunStatusBadge, StatusBarItem, Notice, NoticeDescription, Chip, Box, Button, Icon, Inline, Text, Collapsible, CollapsibleContent, CollapsibleTrigger, Progress, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Tabs, TabsList, TabsTrigger, Skeleton } from '@loca/ui';
 import { HeaderFilter } from '@/components/header-filter';
 import { client, unwrap } from '@/lib/api';
 import { ITEM_STATE } from '@/lib/labels';
@@ -337,7 +337,7 @@ function RunDetail() {
               plan.data.total ? (
                 <>
                   <SectionHeading marginBottom="normal">번역 계획</SectionHeading>
-                  <BatchList list={plan.data} defaultOpen />
+                  <BatchList list={plan.data} />
                 </>
               ) : (
                 <EmptyState noun="저장된 번역 계획" />
@@ -382,46 +382,24 @@ function RunDetail() {
                       <CollapsibleContent>
                         {step.error && <Text as="p" tone="danger">{[errorKindLabel(step.errorKind), step.error].filter(Boolean).join(' · ')}</Text>}
                         {Array.isArray(step.context) && (
-                          <Collapsible>
-                            <CollapsibleTrigger asChild>
-                              <Button variant="ghost" group weight="normal" tone="muted">
-                                <Icon icon={ChevronRight} turn="group" />
-                                넣은 문맥 {step.context.filter((item) => item.included).length}개
-                                {step.context.some((item) => !item.included) && ` · 상한 초과 ${step.context.filter((item) => !item.included).length}`}
-                              </Button>
-                            </CollapsibleTrigger>
-                            <CollapsibleContent>
-                              <Box marginTop="condensed">
-                                <ContextItemList items={step.context} />
-                              </Box>
-                            </CollapsibleContent>
-                          </Collapsible>
+                          <Group
+                            title="넣은 문맥"
+                            count={`${step.context.filter((item) => item.included).length}개${step.context.some((item) => !item.included) ? ` · 상한 초과 ${step.context.filter((item) => !item.included).length}` : ''}`}
+                            collapsible
+                            persistKey="run.step.context"
+                          >
+                            <ContextItemList items={step.context} />
+                          </Group>
                         )}
                         {step.prompt && (
-                          <Collapsible>
-                            <CollapsibleTrigger asChild>
-                              <Button variant="ghost" group weight="normal" tone="muted">
-                                <Icon icon={ChevronRight} turn="group" />
-                                보낸 프롬프트
-                              </Button>
-                            </CollapsibleTrigger>
-                            <CollapsibleContent>
-                              <Box as="pre" marginTop="tight" maxHeight="scroll-lg" overflow="auto" radius="base" background="sunken" padding="condensed" variant="caption" preserveLines>{step.prompt}</Box>
-                            </CollapsibleContent>
-                          </Collapsible>
+                          <Group title="보낸 프롬프트" collapsible persistKey="run.step.prompt">
+                              <Box as="pre" maxHeight="scroll-lg" overflow="auto" radius="base" background="sunken" padding="condensed" variant="caption" preserveLines>{step.prompt}</Box>
+                          </Group>
                         )}
                         {step.output != null && (
-                          <Collapsible>
-                            <CollapsibleTrigger asChild>
-                              <Button variant="ghost" group weight="normal" tone="muted">
-                                <Icon icon={ChevronRight} turn="group" />
-                                응답
-                              </Button>
-                            </CollapsibleTrigger>
-                            <CollapsibleContent>
-                              <Box as="pre" marginTop="tight" maxHeight="scroll-lg" overflow="auto" radius="base" background="sunken" padding="condensed" variant="caption">{JSON.stringify(step.output, null, 2)}</Box>
-                            </CollapsibleContent>
-                          </Collapsible>
+                          <Group title="응답" collapsible persistKey="run.step.response">
+                              <Box as="pre" maxHeight="scroll-lg" overflow="auto" radius="base" background="sunken" padding="condensed" variant="caption">{JSON.stringify(step.output, null, 2)}</Box>
+                          </Group>
                         )}
                       </CollapsibleContent>
                       </Box>
