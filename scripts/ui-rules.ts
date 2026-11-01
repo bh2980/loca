@@ -17,6 +17,8 @@ const LEGACY_RULES: { name: string; pattern: RegExp }[] = [
   { name: 'Button size="sm"/"xs" (sm is the default; one size)', pattern: /<(Button|AiButton)\b[^>]*\bsize="(sm|xs)"/ },
   { name: 'Button height/size override in className', pattern: /<(Button|AiButton)\b[^>]*className="[^"]*\b(h-\d+|size-\d+)\b/ },
   { name: 'styled heading (use SectionHeading / GroupHeading, or FieldRow labels)', pattern: /<(h[1-6]|legend)\b[^>]*className=/ },
+  // A folding part starts open and remembers what the person folded (Section collapsible + persistKey); nothing starts folded.
+  { name: 'defaultOpen={false} (a folding part starts open: Section collapsible persistKey="…")', pattern: /defaultOpen=\{false\}/ },
 
 ];
 /**
@@ -45,7 +47,7 @@ const NAMESPACE: Record<string, string> = {
 // What follows a prefix without being a colour (bg-cover, text-center, ring-inset, border-dashed ...).
 const NOT_A_COLOR: Record<string, RegExp> = {
   bg: /^(?:fixed|local|scroll|clip|origin|bottom|center|left|right|top|repeat|no|auto|cover|contain|none|linear|radial|conic|gradient|blend|size)(?:-|$)/,
-  text: /^(?:xs|sm|base|lg|xl|left|right|center|justify|start|end|wrap|nowrap|balance|pretty|ellipsis|clip|top|bottom|middle|baseline|sub|super|anchor)$/,
+  text: /^(?:xs|sm|section|base|lg|xl|left|right|center|justify|start|end|wrap|nowrap|balance|pretty|ellipsis|clip|top|bottom|middle|baseline|sub|super|anchor)$/,
   border: /^(?:solid|dashed|dotted|double|hidden|none|collapse|separate|spacing)(?:-|$)/,
   ring: /^(?:inset|offset)(?:-|$)/,
   outline: /^(?:none|hidden|dashed|dotted|double|solid|offset|style)(?:-|$)/,

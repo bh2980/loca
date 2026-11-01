@@ -1,69 +1,106 @@
 import type * as React from "react"
-import { ChevronRight } from "lucide-react"
+import { ChevronDown } from "lucide-react"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../controls/collapsible"
+import { cn } from "../lib/utils"
 
 /**
- * The entries of a history (a line's texts and runs), newest first: a list with hairlines between them.
+ * A history as a timeline, newest first, in days ("오늘 · 11월 1일"): each entry has who did it (a mark on the
+ * timeline), what it was, its time (always shown), the text it left and what changed, and its actions under it.
  */
-export function HistoryList({ children }: { children: React.ReactNode }) {
-  return <ul className="divide-y divide-subtle">{children}</ul>
+export function HistoryDay({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <section className="space-y-2">
+      <h4 className="text-xs font-medium text-subtle">{label}</h4>
+      <ol>{children}</ol>
+    </section>
+  )
 }
 
+const ACTOR = {
+  workflow: "bg-success/15 text-success",
+  person: "bg-accent-soft text-on-accent-soft",
+  ai: "bg-ai-soft text-ai",
+  neutral: "bg-neutral text-muted",
+} as const
+
+export type HistoryActor = keyof typeof ACTOR
+
 /**
- * One entry of a history. A head line (`title`, `badges`, `time` at the right) and, under it, a two-line `preview`; with
- * `children` the head opens the entry (the preview gives way to the whole text and what changed). `action` (되돌리기) takes the
- * time's place while the entry is hovered, focused or open, so it has no room of its own (as a menu row's count and action).
+ * One entry of a history. `mark` is one letter on the timeline (W for a workflow, a person's initial, AI), `title` who
+ * did it (bold) and `meta` what it was (· 수정 단계), `badges` beside them (현재 번역), `time` at the right end, always
+ * shown. `children` (the text, its 이전/이후, a warning) and `actions` (되돌리기, 실행 기록 보기) sit under the head.
  */
-export function HistoryItem({ title, badges, time, preview, action, children }: {
+export function HistoryEntry({ actor, mark, title, meta, badges, time, actions, muted, children }: {
+  actor: HistoryActor
+  mark: React.ReactNode
   title: React.ReactNode
+  meta?: React.ReactNode
   badges?: React.ReactNode
   time?: React.ReactNode
-  preview?: React.ReactNode
-  action?: React.ReactNode
+  actions?: React.ReactNode
+  /** A text that never was the line's (a declined suggestion). */
+  muted?: boolean
   children?: React.ReactNode
 }) {
-  const head = (
-    <>
-      <span className="min-w-0 truncate text-sm font-medium text-default">{title}</span>
-      {badges && <span className="flex shrink-0 items-center gap-1">{badges}</span>}
-    </>
-  )
-  // The time and the action share one cell at the right end: the action shows over the hidden time.
-  const end = (time || action) && (
-    <span className="ml-auto grid shrink-0 items-center justify-items-end *:col-start-1 *:row-start-1">
-      {time && (
-        <span className={action ? "text-xs text-subtle tabular-nums group-hover/history:invisible group-focus-within/history:invisible group-data-[state=open]/history:invisible" : "text-xs text-subtle tabular-nums"}>
-          {time}
-        </span>
-      )}
-      {action && (
-        <span className="invisible flex items-center group-hover/history:visible group-focus-within/history:visible group-data-[state=open]/history:visible">{action}</span>
-      )}
-    </span>
-  )
-  if (!children)
-    return (
-      <li className="group/history py-2">
-        <div className="flex min-w-0 items-center gap-2 pl-5.5">
-          {head}
-          {end}
-        </div>
-        {preview && <div className="mt-0.5 line-clamp-2 pl-5.5 text-xs text-muted">{preview}</div>}
-      </li>
-    )
   return (
-    <Collapsible asChild>
-      <li className="group/history py-2">
-        <div className="flex min-w-0 items-center gap-2">
-          <CollapsibleTrigger className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-focus/40">
-            <ChevronRight className="size-3.5 shrink-0 text-muted transition-transform group-data-[state=open]/history:rotate-90" aria-hidden="true" />
-            {head}
-          </CollapsibleTrigger>
-          {end}
+    <li className="relative grid grid-cols-[1.25rem_minmax(0,1fr)] gap-x-2.5 pb-4 last:pb-1 before:absolute before:top-6 before:bottom-1 before:left-2.5 before:w-px before:bg-line last:before:hidden">
+      <span aria-hidden="true" className={cn("mt-px flex size-5 items-center justify-center rounded-full text-2xs font-bold", ACTOR[actor])}>{mark}</span>
+      <div className="min-w-0 space-y-1.5">
+        <div className="flex min-w-0 items-baseline gap-1.5">
+          <span className="min-w-0 truncate text-sm">
+            <span className="font-semibold text-default">{title}</span>
+            {meta && <span className="text-xs text-muted"> · {meta}</span>}
+          </span>
+          {badges && <span className="flex shrink-0 items-center gap-1 self-center">{badges}</span>}
+          {time && <span className="ml-auto shrink-0 text-xs text-subtle tabular-nums">{time}</span>}
         </div>
-        {preview && <div className="mt-0.5 line-clamp-2 pl-5.5 text-sm break-words whitespace-pre-line text-muted group-data-[state=open]/history:hidden">{preview}</div>}
-        <CollapsibleContent className="mt-1 space-y-2 pl-5.5 text-sm">{children}</CollapsibleContent>
-      </li>
+        {children && <div className={cn("space-y-1.5 text-sm break-words whitespace-pre-line", muted ? "text-muted" : "text-default")}>{children}</div>}
+        {actions && <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">{actions}</div>}
+      </div>
+    </li>
+  )
+}
+
+/** What an entry changed: the text before (removed words struck) and after (added words marked), labelled. */
+export function HistoryDiff({ before, after }: { before: React.ReactNode; after: React.ReactNode }) {
+  return (
+    <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2.5 gap-y-1 border-l-2 border-subtle pl-2.5 text-xs">
+      <dt className="text-subtle">이전</dt>
+      <dd className="min-w-0 break-words whitespace-pre-line text-muted">{before}</dd>
+      <dt className="text-subtle">이후</dt>
+      <dd className="min-w-0 break-words whitespace-pre-line text-default">{after}</dd>
+    </dl>
+  )
+}
+
+/** The entries that left the text as it was (a check that changed nothing, a failure), folded into one box under the timeline. */
+export function HistoryFolded({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <Collapsible className="group/folded rounded-md border border-default">
+      <CollapsibleTrigger className="flex w-full cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-left text-xs font-semibold text-default outline-none focus-visible:ring-2 focus-visible:ring-focus/40">
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+        <span className="flex items-center gap-1 font-normal text-muted">
+          <span className="group-data-[state=open]/folded:hidden">펼치기</span>
+          <span className="hidden group-data-[state=open]/folded:inline">접기</span>
+          <ChevronDown className="size-3.5 transition-transform group-data-[state=open]/folded:rotate-180" aria-hidden="true" />
+        </span>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <ul className="divide-y divide-subtle border-t border-default">{children}</ul>
+      </CollapsibleContent>
     </Collapsible>
+  )
+}
+
+/** One row of HistoryFolded: what ran (bold) and on what, its state and time at the right. */
+export function HistoryFoldedRow({ title, meta, end }: { title: React.ReactNode; meta?: React.ReactNode; end?: React.ReactNode }) {
+  return (
+    <li className="flex min-w-0 items-center gap-2 px-3 py-1.5 text-xs">
+      <span className="min-w-0 flex-1 truncate">
+        <span className="font-semibold text-default">{title}</span>
+        {meta && <span className="text-muted"> · {meta}</span>}
+      </span>
+      {end && <span className="shrink-0 tabular-nums">{end}</span>}
+    </li>
   )
 }

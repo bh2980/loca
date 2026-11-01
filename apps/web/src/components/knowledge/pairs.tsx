@@ -235,8 +235,8 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
       </Section>
       <Section
         title={relationshipKind ? `관계 · ${relationshipKind}` : '관계'}
-        // Open where there is something to settle: a candidate, or a line just drawn that says nothing yet.
-        defaultOpen={Boolean(pair.relationship && (pair.relationship.status === 'candidate' || !pair.relationship.description))}
+        collapsible
+        persistKey="pair.relationship"
         actions={
           pair.relationship && (
             <Inline as="span" gap="tight">

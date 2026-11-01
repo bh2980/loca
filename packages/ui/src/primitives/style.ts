@@ -305,8 +305,8 @@ export const STYLE = {
     /** The heading roles (Heading): the page's title, a section of a page, a section of a pane, a group inside a section. */
     page: "text-base font-semibold tracking-tight text-default",
     "page-section": "text-base font-semibold text-default",
-    section: "text-sm font-semibold text-default",
-    group: "text-xs font-semibold text-default",
+    section: "text-section font-bold text-default",
+    group: "text-2xs font-semibold text-muted",
   },
   /** Color by meaning (semantic tokens only). */
   tone: {

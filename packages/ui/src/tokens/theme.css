@@ -10,8 +10,10 @@
  * or it is not a class. Opacity modifiers on a role (`bg-accent/40`) are fine inside packages/ui. `pnpm ui-rules`
  * checks that every colour class names a token defined here.
  *
- * Light = "A Slate": cool slate neutrals (hue 258), one cobalt accent, lines only between regions.
- * Dark  = "C Night": graphite (hue 265), one signal-teal accent, regions by tone steps, no drawn lines.
+ * Light = "A Slate": cool slate neutrals (hue 258), one cobalt accent.
+ * Dark  = "C Night": graphite (hue 265), one signal-teal accent.
+ * Both draw the same lines: border-default between regions and sections (#caced3 / #3d4046), border-subtle inside one
+ * (a nested group's rule, #e1e4e9 / #2c2f36); a folding section's header is a band (bg-band). The inspector mockups set these.
  * The light assignments sit in the @theme block (Tailwind reads the role names from it); .dark reassigns the roles
  * that differ. Every value is a base step (var(--slate-3)), another role, or a mix of those; never a literal.
  *
@@ -42,7 +44,8 @@
   --background-color-review: var(--amber-660); /* needs a person to review */
   --background-color-ai: var(--violet-470); /* made by AI */
   --background-color-ai-soft: var(--violet-950); /* a light wash of AI */
-  --background-color-line: var(--slate-7); /* a line drawn as a fill: separators, scrollbar thumbs, resize handles */
+  --background-color-line: var(--slate-850); /* a line drawn as a fill: separators, scrollbar thumbs, resize handles */
+  --background-color-band: var(--slate-964); /* the header band of a folding section */
   --background-color-neutral: var(--slate-11); /* a grey dot or stroke drawn as a fill */
   --background-color-neutral-subtle: var(--slate-10); /* a fainter grey dot */
   --background-color-inverse: var(--slate-12); /* a dark fill in the light theme and the reverse (tooltip) */
@@ -64,9 +67,9 @@
   --text-color-review: var(--amber-500);
   --text-color-ai: var(--violet-470);
 
-  /* Border: lines go between regions only; rows and sections use space and surface instead. */
-  --border-color-default: var(--slate-7); /* between regions */
-  --border-color-subtle: var(--slate-6); /* inside a region */
+  /* Border: one line between regions and sections, a lighter one inside a section. */
+  --border-color-default: var(--slate-850); /* between regions and sections */
+  --border-color-subtle: var(--slate-918); /* inside a region or section */
   --border-color-input: var(--slate-9); /* a field's edge, 3.1:1 on a white field (WCAG 1.4.11) */
   --border-color-strong: var(--slate-12); /* an outline in the text colour (hover, the main person) */
   --border-color-neutral: var(--slate-11); /* a grey rule or outline */
@@ -80,13 +83,13 @@
 
   /* Ring, outline, divide, decoration */
   --ring-color-focus: var(--cobalt-530-a45); /* the focus ring */
-  --ring-color-line: var(--slate-7); /* a hairline drawn as a ring (message bubbles) */
+  --ring-color-line: var(--slate-850); /* a hairline drawn as a ring (message bubbles) */
   --ring-color-strong: var(--slate-12); /* the picked swatch */
   --ring-color-accent: var(--cobalt-530);
   --ring-color-danger: var(--red-550); /* an invalid field */
   --ring-color-warning: var(--orange-520);
   --outline-color-focus: var(--cobalt-530-a45);
-  --divide-color-subtle: var(--slate-6);
+  --divide-color-subtle: var(--slate-918);
   --text-decoration-color-accent: var(--cobalt-530);
   --text-decoration-color-danger: var(--red-550);
 
@@ -184,7 +187,8 @@
   --background-color-review: var(--amber-800);
   --background-color-ai: var(--violet-840);
   --background-color-ai-soft: var(--violet-320);
-  --background-color-line: var(--night-7);
+  --background-color-line: var(--night-371);
+  --background-color-band: var(--night-264);
   --background-color-neutral: var(--night-11);
   --background-color-neutral-subtle: var(--night-10);
   --background-color-inverse: var(--night-12);
@@ -204,9 +208,8 @@
   --text-color-review: var(--amber-840);
   --text-color-ai: var(--violet-840);
 
-  /* No drawn lines in the dark theme: the region line is one tone step. */
-  --border-color-default: var(--night-7);
-  --border-color-subtle: var(--night-5);
+  --border-color-default: var(--night-371);
+  --border-color-subtle: var(--night-305);
   --border-color-input: var(--night-9); /* 3:1 on a dark field */
   --border-color-strong: var(--night-12);
   --border-color-neutral: var(--night-11);
@@ -219,13 +222,13 @@
   --border-color-review: var(--amber-800);
 
   --ring-color-focus: var(--teal-800-a50);
-  --ring-color-line: var(--night-7);
+  --ring-color-line: var(--night-371);
   --ring-color-strong: var(--night-12);
   --ring-color-accent: var(--teal-800);
   --ring-color-danger: var(--red-700);
   --ring-color-warning: var(--orange-780);
   --outline-color-focus: var(--teal-800-a50);
-  --divide-color-subtle: var(--night-5);
+  --divide-color-subtle: var(--night-305);
   --text-decoration-color-accent: var(--teal-800);
   --text-decoration-color-danger: var(--red-700);
 

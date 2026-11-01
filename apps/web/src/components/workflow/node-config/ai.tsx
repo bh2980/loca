@@ -112,11 +112,11 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
         )}
       </Section>
 
-      <Section title={`문맥 · ${contextOn}개 켬`} defaultOpen={false}>
+      <Section title="문맥" count={`${contextOn}개 켬`} collapsible persistKey="node.ai.context">
         <AiContextFields config={config} set={set} input={input} />
       </Section>
 
-      <Section title="고급" defaultOpen={false}>
+      <Section title="고급" collapsible persistKey="node.ai.advanced">
         <>
           {takesTemperature && (
             <Field label="온도">
@@ -223,7 +223,7 @@ function AiInputSection({ node, refs, set }: { node: AiNode; refs: NodeRefs; set
   const id = (name: string) => `ai-input-${node.id}-${name}`;
   return (
     // Open whenever a step before it returns something, so what it can take in is in sight.
-    <Section title="입력" defaultOpen={input.previous || steps.length > 0}>
+    <Section title="입력" collapsible persistKey="node.ai.input">
       <Box spaceY="normal">
         <CheckItem
           id={id('previous')}
