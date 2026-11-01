@@ -209,7 +209,7 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
       below={
         <Box spaceY="condensed">
           {decision(rule ? `말투 ${SPEECH_LEVEL_LABELS[rule.level]}${rules.length > 1 ? ` · ${startLabel(rule)}` : ''}` : '말투 없음', rule, 'speechRules', rule ? ruleDirty(rule.id) : false)}
-          {decision(relationship ? `관계 ${relationship.kind}` : '관계 없음', relationship, 'relationships', relationshipDirty, unresolved)}
+          {decision(relationship ? (unresolved ? relationship.kind : `관계 ${relationship.kind}`) : '관계 없음', relationship, 'relationships', relationshipDirty, unresolved)}
           {pairItemsList.length > 0 && (
             <Field label="태그" help="이 쌍의 관계와 말투 규칙 모두에 붙습니다.">
               <TagListEditor tags={attachedPairTags} allTags={knowledgeTags} onToggle={(tagId, add) => pairTagMutation.mutate({ tagId, add })} onCreate={handleCreatePairTag} heading="태그" />
