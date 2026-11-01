@@ -30,6 +30,8 @@ export interface GraphRelationship {
   mutual: boolean;
   /** Drawn dashed: a candidate not yet used as context. */
   dashed?: boolean;
+  /** Not a relationship yet (관계 미확인, or none): its label stays quiet, even selected. */
+  quiet?: boolean;
 }
 
 const NODE_WIDTH = 150;
@@ -71,7 +73,7 @@ function keepLayout(storageKey: string, layout: Layout, store = true) {
 /** `target`: the person the open context menu acts on, ringed like a selection while the selection itself stays (as in the scene graph). */
 type PersonNode = Node<{ label: string; role: GraphCharacter['role']; color?: string; dim: boolean; target: boolean }, 'person'>;
 /** A line's label: one row per relationship it stands for (two when the pair goes both ways). */
-type LabelRow = { id: string; text: string; selected: boolean };
+type LabelRow = { id: string; text: string; selected: boolean; quiet?: boolean };
 type RelationEdge = Edge<{ offset: number; rows: LabelRow[]; dim: boolean; focus: boolean; dashed?: boolean; showLabel: boolean; onPick: (id: string) => void }, 'relation'>;
 
 function PersonNodeView({ data, selected, isConnectable }: NodeProps<PersonNode>) {
@@ -129,7 +131,7 @@ function FloatingEdge({ id, source, target, markerStart, markerEnd, data, select
             style={{ transform: `translate(-50%, -50%) translate(${label.x}px, ${label.y}px)`, pointerEvents: 'all' }}
           >
             {data?.rows.map((row) => (
-              <Button key={row.id} variant="ghost" size="inline" justifyContent="start" radius="none" weight={row.selected ? 'medium' : 'normal'} nowrap tone={row.selected || selected || data.focus ? 'accent' : undefined} onClick={(event) => {
+              <Button key={row.id} variant="ghost" size="inline" justifyContent="start" radius="none" weight={row.selected && !row.quiet ? 'medium' : 'normal'} nowrap tone={row.quiet ? 'muted' : row.selected || selected || data.focus ? 'accent' : undefined} onClick={(event) => {
                   // The line under the label would otherwise take the click and pick the first relationship.
                   event.stopPropagation();
                   data.onPick(row.id);
@@ -334,8 +336,9 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
           target: head.toId,
           data: {
             offset,
-            rows: members.map((relationship, at) => ({ id: relationship.id, text: relationRow(members.length > 1 ? (at === 0 ? 'forward' : 'back') : relationship.mutual ? 'both' : 'forward', relationship.kind, relationship.changes), selected: relationship.id === selectedRelationshipId })),
-            dashed: members.every((relationship) => relationship.dashed),
+            rows: members.map((relationship, at) => ({ id: relationship.id, text: relationRow(members.length > 1 ? (at === 0 ? 'forward' : 'back') : relationship.mutual ? 'both' : 'forward', relationship.kind, relationship.changes), selected: relationship.id === selectedRelationshipId, quiet: relationship.quiet })),
+            // A direction with no relationship (a speech rule only) says nothing about the line.
+            dashed: (members.some((relationship) => relationship.kind) ? members.filter((relationship) => relationship.kind) : members).every((relationship) => relationship.dashed),
             dim: emphasis.active && !ids.some((id) => emphasis.edgeIds.has(id)),
             focus: ids.some((id) => emphasis.edgeIds.has(id)),
             showLabel: ids.some((id) => emphasis.labelled.has(id)),
