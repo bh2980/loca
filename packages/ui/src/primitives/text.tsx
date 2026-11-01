@@ -32,7 +32,8 @@ export type HeadingProps = Omit<TextProps, "variant" | "as"> & {
   as?: "h1" | "h2" | "h3" | "h4" | "legend"
   /**
    * page: the page's title (text-base, semibold, tight tracking); page-section: a section of a full page such as the project home
-   * (text-base); section: a section of a pane or dialog (text-sm); group: a group inside a section (text-xs). All semibold, foreground.
+   * (text-base); section: a section of a pane or dialog (text-section, 14px bold); group: a group inside a section (text-2xs semibold,
+   * muted). The others semibold, foreground.
    */
   variant?: HeadingVariant
 }

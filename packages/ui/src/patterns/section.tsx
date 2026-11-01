@@ -7,27 +7,34 @@ import { type STYLE } from "../primitives/style"
 import { Inline } from "../primitives/stack"
 import { Heading } from "../primitives/text"
 import { cn } from "../lib/utils"
+import { useSectionOpen } from "./use-section-open"
 
 /**
  * The type hierarchy of panes, pages and dialogs, one role per level, so nested information reads as nested:
- * 1. A section of a page or pane (`Section`, `SectionHeading level="section"`: text-sm, semibold; `page` is one step above, text-base).
- * 2. A group inside a section (`Group`, `SectionHeading level="group"`: text-xs, semibold).
+ * 1. A section of a page or pane (`Section`, `SectionHeading level="section"`: text-section 14px, bold; `page` is one step above, text-base).
+ * 2. A group inside a section (`Group`, `SectionHeading level="group"`: text-2xs, semibold, muted).
  * 3. Row labels (`KeyValue`): text-xs, regular, muted.
  * Content under them is text-sm foreground; counts, keys, times and evidence are text-xs muted.
  * Screens use these parts instead of styling h2/h3/h4/legend themselves (pnpm ui-rules).
  */
 
-interface PaneSectionProps {
+type Fold =
+  | { collapsible?: false; persistKey?: never }
+  /**
+   * The section folds: its title is a band with a chevron, the content indented under a rule. It starts open; `persistKey` (required)
+   * names where it is (`line.history`), and what a person folds stays folded for every item of that kind (useSectionOpen).
+   */
+  | { collapsible: true; persistKey: string }
+
+type PaneSectionProps = Fold & {
   variant?: "pane"
   /** Without a title the section is a plain block with the same inset and divider. */
   title?: ReactNode
+  /** Beside the title, quieter (how many items, how many are on). */
+  count?: ReactNode
   children?: ReactNode
   /** At the right of the title row. */
   actions?: ReactNode
-  /** Given, the section folds and starts open or closed; without it the section is plain (most are). */
-  defaultOpen?: boolean
-  /** Fold even without a default (rarely needed: pass defaultOpen instead). */
-  collapsible?: boolean
   id?: string
   /** Keeps its height in a column that scrolls (it never shrinks). */
   noShrink?: boolean
@@ -50,56 +57,71 @@ export type SectionProps = PaneSectionProps | PageSectionProps
 
 /**
  * A titled part of a pane, or (`variant="page"`) a titled block of a settings page. They render differently and share only the name:
- * - pane (default): plain, divided from the next by a hairline. A pane is a few sections the eye reads top to bottom, and a chevron on
- *   each one is noise; only long or occasional parts fold (문맥, 고급, 프롬프트, 이력): give them `defaultOpen`.
+ * - pane (default): its title (14px bold) over the content, a line (border-default) to the next. `collapsible` sections (long or
+ *   occasional parts: 문맥, 고급, 이력 …) have a header band with a chevron and their content indented under a rule; they start open
+ *   and remember what a person folded (`persistKey`). Nothing starts folded.
  * - page: blocks stack in a column; the save rule is one for all: controls that take effect at once (switches, selects) save on change,
  *   with a toast; typed fields (names, rules) save with the block's own 저장 button in `footer`, enabled only when something changed,
  *   with 되돌리기 beside it.
  */
 export function Section(props: SectionProps) {
   if (props.variant === "page") return <PageSection {...props} />
+  if (props.collapsible && props.title !== undefined) return <FoldingSection {...props} />
   return <PaneSection {...props} />
 }
 
-const PANE_BLOCK = "scroll-mt-4 border-b border-subtle px-4 py-3"
+const LINE = "scroll-mt-4 border-b border-default"
 
-function PaneSection({ title, children, actions, defaultOpen, collapsible, id, noShrink }: PaneSectionProps) {
+const Title = ({ title, count }: { title: ReactNode; count?: ReactNode }) => (
+  <>
+    <span className="truncate">{title}</span>
+    {count != null && count !== "" && <span className="shrink-0 font-medium text-subtle">{count}</span>}
+  </>
+)
+
+function PaneSection({ title, count, children, actions, id, noShrink }: PaneSectionProps) {
   const extra = noShrink && "shrink-0"
   if (title === undefined)
     return (
-      <section id={id} className={cn(PANE_BLOCK, extra)}>
-        {children}
-      </section>
-    )
-  const folds = collapsible ?? defaultOpen !== undefined
-  if (!folds)
-    return (
-      <section id={id} className={cn(PANE_BLOCK, "space-y-3", extra)}>
-        <div className="flex min-h-7 items-center justify-between gap-2">
-          <h3 className="min-w-0 truncate text-sm font-semibold text-default">{title}</h3>
-          {actions && <div className="flex shrink-0 items-center gap-1">{actions}</div>}
-        </div>
+      <section id={id} className={cn(LINE, "space-y-3 px-4 py-4", extra)}>
         {children}
       </section>
     )
   return (
-    <Collapsible defaultOpen={defaultOpen ?? true} asChild>
-      <section id={id} className={cn(PANE_BLOCK, "space-y-3", extra)}>
-        <div className="flex min-h-7 items-center justify-between gap-2">
+    <section id={id} className={cn(LINE, "space-y-3 px-4 pt-4 pb-5", extra)}>
+      <div className="flex min-h-6 items-center justify-between gap-2">
+        <h3 className="flex min-w-0 items-baseline gap-1 text-section font-bold text-default">
+          <Title title={title} count={count} />
+        </h3>
+        {actions && <div className="flex shrink-0 items-center gap-1">{actions}</div>}
+      </div>
+      {children}
+    </section>
+  )
+}
+
+function FoldingSection({ title, count, children, actions, id, noShrink, persistKey }: PaneSectionProps & { collapsible: true; persistKey: string }) {
+  const [open, setOpen] = useSectionOpen(persistKey)
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} asChild>
+      <section id={id} className={cn(LINE, "group/section", noShrink && "shrink-0")}>
+        <div className="flex min-h-10 items-center justify-between gap-2 border-default bg-band px-4 group-data-[state=open]/section:border-b">
           <CollapsibleTrigger asChild>
             <Button
               type="button"
               variant="ghost"
               size="sm"
-              className="group -ml-1 h-7 min-w-0 flex-1 justify-start gap-1 px-1 text-sm font-semibold text-default hover:bg-hover/50"
+              className="group -ml-1.5 h-8 min-w-0 flex-1 justify-start gap-2 px-1.5 text-section font-bold text-default hover:bg-hover/60"
             >
               <ChevronDown className="size-3.5 shrink-0 text-muted transition-transform group-data-[state=closed]:-rotate-90" />
-              <span className="truncate">{title}</span>
+              <Title title={title} count={count} />
             </Button>
           </CollapsibleTrigger>
           {actions && <div className="flex shrink-0 items-center gap-1">{actions}</div>}
         </div>
-        <CollapsibleContent className="space-y-3">{children}</CollapsibleContent>
+        <CollapsibleContent className="px-4 pt-3 pb-4">
+          <div className="min-w-0 space-y-3 border-l-2 border-subtle pl-3">{children}</div>
+        </CollapsibleContent>
       </section>
     </Collapsible>
   )

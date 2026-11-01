@@ -20,14 +20,14 @@ export function KeyValue({ align = "center", framed, children }: { align?: KeyVa
   )
 }
 
-/** A row of a `KeyValue`: the label in the muted caption type, the value beside it; `description` under both. */
+/** A row of a `KeyValue`: the label in the muted caption type, the value beside it (body type, medium); `description` under both. */
 export function KeyValueRow({ label, children, description }: { label: ReactNode; children?: ReactNode; description?: ReactNode }) {
   const align = useContext(AlignContext)
   if (align === "start")
     return (
       <div className="col-span-2 grid grid-cols-subgrid items-start">
         <div className="min-w-0 pt-0.5 text-xs text-muted">{label}</div>
-        <div className="min-w-0">{children}</div>
+        <div className="min-w-0 font-medium text-default">{children}</div>
         {description != null && <p className="col-span-2 text-xs font-normal text-muted">{description}</p>}
       </div>
     )
@@ -36,7 +36,7 @@ export function KeyValueRow({ label, children, description }: { label: ReactNode
       <div className="min-w-0 self-start pt-1">
         <div className="min-w-0 whitespace-normal break-words text-xs text-muted">{label}</div>
       </div>
-      <div className="min-w-0 text-sm">{children}</div>
+      <div className="min-w-0 text-sm font-medium text-default">{children}</div>
       {description != null && <p className="col-span-2 text-xs font-normal text-muted">{description}</p>}
     </div>
   )

@@ -24,13 +24,13 @@ export const Pane: Story = {
   ),
 }
 
-/** `defaultOpen` makes it fold (starts open or closed); without it a pane section is plain. */
+/** `collapsible` + `persistKey`: a header band with a chevron, open at first; what is folded stays folded. */
 export const Collapsible: Story = {
   render: () => (
     <Box border="all" radius="md">
-      <Section title="문맥" defaultOpen><Body /></Section>
-      <Section title="고급" defaultOpen={false}><Body /></Section>
-      <Section title="이력" collapsible actions={<Text variant="caption" tone="muted">3건</Text>}><Body /></Section>
+      <Section title="문맥" count="5개 켬" collapsible persistKey="story.context"><Body /></Section>
+      <Section title="고급" collapsible persistKey="story.advanced"><Body /></Section>
+      <Section title="이력" count={3} collapsible persistKey="story.history" actions={<Text variant="caption" tone="muted">3건</Text>}><Body /></Section>
     </Box>
   ),
 }

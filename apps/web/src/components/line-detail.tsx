@@ -256,7 +256,7 @@ export function LineDetail({
 
           <HistorySection projectId={projectId} unit={line} tokenPattern={tokenPattern} ready={unit.extrasReady} />
 
-          <Section title="AI 프롬프트" defaultOpen={false}>
+          <Section title="AI 프롬프트" collapsible persistKey="line.prompt">
             <AiContextPanel projectId={projectId} unitKey={line.key} unitKind={line.kind} aiNode={aiNode} onAiNode={onAiNode} />
           </Section>
         </>
@@ -380,7 +380,7 @@ function HistorySection({ projectId, unit, tokenPattern, ready }: { projectId: s
     });
   const runLink = (runId: string, label: string) => <Text asChild underline="hover"><Link to="/p/$projectId/runs/$runId" params={{ projectId, runId }}>{label}</Link></Text>;
   return (
-    <Section title={ready ? `이력 ${entries.length}` : '이력 …'} defaultOpen={false}>
+    <Section title={ready ? `이력 ${entries.length}` : '이력 …'} collapsible persistKey="line.history">
       {entries.length ? (
         <HistoryList>
           {shown.map((entry) => {

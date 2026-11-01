@@ -32,7 +32,7 @@ export function InspectorHeader({
 }: InspectorHeaderProps) {
   const docked = useHasDock()
   return (
-    <div className="shrink-0 border-b border-subtle bg-panel px-4 py-3">
+    <div className="shrink-0 border-b border-default bg-panel px-4 py-3">
     <div className="flex items-start gap-2">
       {onBack && (
         <Button type="button" variant="ghost" size="icon-xs" onClick={onBack} aria-label="돌아가기" title="돌아가기 (Esc)" className="-ml-1 mt-0.5 shrink-0 text-muted hover:text-default">

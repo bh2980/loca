@@ -220,8 +220,10 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
         />
       </Section>
       <Section
-        defaultOpen={false}
-        title={`등장 대사 ${usage.data?.count ?? "…"}`}
+        collapsible
+        persistKey="term.usage"
+        title="등장 대사"
+        count={usage.data?.count ?? "…"}
         actions={
           !!usage.data?.count && (
             <RunDialog

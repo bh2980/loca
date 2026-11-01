@@ -89,6 +89,8 @@
   --text-xs--line-height: 1.25rem;
   --text-sm: 0.84375rem;
   --text-sm--line-height: 1.375rem;
+  --text-section: 0.875rem; /* a section's title (Section, Heading section) */
+  --text-section--line-height: 1.25rem;
   --text-base: 0.9375rem;
   --text-base--line-height: 1.5rem;
   --text-lg: 1.0625rem;

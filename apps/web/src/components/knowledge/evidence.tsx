@@ -27,14 +27,21 @@ function Fold({ label, children }: { label: ReactNode; children: ReactNode }) {
 
 /**
  * A titled part of the pane, or (embedded in a pair's pane, where it already sits inside a section)
- * the same content under a small heading. `fold` keeps the content folded either way.
+ * the same content under a small heading. `fold` (the place's persist key) makes it fold: a folding section in the pane, folded under
+ * its small heading when embedded.
  */
-function Part({ title, actions, embedded, fold, children }: { title: string; actions?: ReactNode; embedded?: boolean; fold?: boolean; children: ReactNode }) {
+function Part({ title, actions, embedded, fold, children }: { title: string; actions?: ReactNode; embedded?: boolean; fold?: string; children: ReactNode }) {
   if (!embedded)
     return (
-      <Section title={title} actions={actions} defaultOpen={fold ? false : undefined}>
-        {children}
-      </Section>
+      fold ? (
+        <Section title={title} actions={actions} collapsible persistKey={fold}>
+          {children}
+        </Section>
+      ) : (
+        <Section title={title} actions={actions}>
+          {children}
+        </Section>
+      )
     );
   return (
     <Box spaceY="condensed">
@@ -59,7 +66,7 @@ export function Evidence({ projectId, keys, embedded }: { projectId: string; key
   const lines = useLinesByKeys(projectId, cited);
   if (!keys.length) return null;
   return (
-    <Part title={`근거 대사 ${keys.length}`} embedded={embedded} fold>
+    <Part title={`근거 대사 ${keys.length}`} embedded={embedded} fold="knowledge.evidence">
       <InspectorList>
         {lines.data?.map((line) => (
           <li key={line.id}>
