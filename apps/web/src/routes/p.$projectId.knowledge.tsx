@@ -6,7 +6,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation } from '@tanstack/react-query';
 import { ArrowLeftRight, GanttChart, Network, Plus, Table2, Users } from 'lucide-react';
 import { toast } from 'sonner';
-import { CHARACTER_ROLE_LABELS, OTHERS_LISTENER, parseMarks, type AutoMark, styleNames, isSettled, aiDecided, KNOWLEDGE_SOURCES, listenerLabel, SPEECH_LEVEL_LABELS, type KnowledgeSource, type TagScope, personLabel, type DecidedBy, buildPairs, knowledgeMatches, pairKey, pairMatches, pairSummary, UNRESOLVED_RELATIONSHIP_KIND, type KnowledgeFilter } from '@tw/shared';
+import { CHARACTER_ROLE_LABELS, OTHERS_LISTENER, parseMarks, type AutoMark, styleNames, isSettled, aiDecided, KNOWLEDGE_SOURCES, listenerLabel, SPEECH_LEVEL_LABELS, type KnowledgeSource, type TagScope, personLabel, type DecidedBy, buildPairs, knowledgeMatches, pairKey, pairMatches, pairSummary, type KnowledgeFilter } from '@tw/shared';
 import {
   EmptyState,
   TagMenu,
@@ -335,7 +335,7 @@ function Knowledge() {
     () =>
       visiblePairs
         .filter((candidate) => candidate.fromId && candidate.toId)
-        .map((candidate) => ({ id: candidate.key, fromId: candidate.fromId!, toId: candidate.toId!, kind: candidate.relationship?.kind ?? '', changes: candidate.relationship?.changes, mutual: Boolean(candidate.relationship?.mutual), dashed: candidate.relationship ? candidate.relationship.status === 'candidate' : pairSummary(candidate).status === 'candidate', quiet: !candidate.relationship || candidate.relationship.kind === UNRESOLVED_RELATIONSHIP_KIND })),
+        .map((candidate) => ({ id: candidate.key, fromId: candidate.fromId!, toId: candidate.toId!, kind: candidate.relationship?.kind ?? '', changes: candidate.relationship?.changes, mutual: Boolean(candidate.relationship?.mutual), dashed: pairSummary(candidate).status === 'candidate' })),
     [visiblePairs],
   );
 
