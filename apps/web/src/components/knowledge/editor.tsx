@@ -47,7 +47,7 @@ export const savedOf = (spec: KindSpec, row: Row) => JSON.stringify(Object.fromE
  * unsaved edit. Embedded in another pane (a pair's detail, which has tabs of its own and decides in its header) it is
  * the fields and the kind's summary only.
  */
-export function DraftEditor({ projectId, kind, spec, row, characters, onClose, onDecide, embedded }: {
+export function DraftEditor({ projectId, kind, spec, row, characters, onClose, onDecide, embedded, bare }: {
   projectId: string;
   kind: Kind;
   spec: KindSpec;
@@ -57,6 +57,8 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
   /** Not used embedded: the pane holding it decides. */
   onDecide?: (action: 'confirm' | 'discard') => void;
   embedded?: boolean;
+  /** Embedded, the fields only: the pane around it shows the kind's summary (a change point of a pair's timeline). */
+  bare?: boolean;
 }) {
   const saved = savedOf(spec, row);
   const [draft, setDraft, clearDraft] = useDraft(draftKeyOf(kind, row.id), saved);
@@ -136,7 +138,7 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
     if (field.type === 'bool') return <InspectorToggle key={field.name} label={field.label} description={field.description} help={field.help} checked={Boolean(value)} onChange={change} />;
     if (field.type === 'style') return <StyleFields key={field.name} value={value as Record<string, string> | null} onChange={change} />;
     if (field.type === 'key')
-      return <StartKeyField key={field.name} projectId={projectId} field={field} value={text(value)} from={text(form.fromName)} to={text(form.toName)} onChange={change} />;
+      return <StartKeyField key={field.name} projectId={projectId} field={field} value={text(value)} from={text(form.fromName ?? row.fromName)} to={text(form.toName ?? row.toName)} onChange={change} />;
     return (
       <Field key={field.name} label={field.label} description={field.description} help={field.help}>
         <FieldInput field={field} value={value} characters={characters} onChange={change} />
@@ -190,7 +192,7 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
       <Box spaceY="comfortable">
         {changedView}
         <Box spaceY="normal">{spec.fields.map(fieldView)}</Box>
-        {extraView}
+        {!bare && extraView}
         {(official || dirty) && (
           <Inline wrap gap="condensed">
             {official && deleteButton}
@@ -339,7 +341,7 @@ function StyleFields({ value, onChange }: { value: Record<string, string> | null
 
 const NORMAL = '__normal';
 
-function FieldInput({ field, value, characters, onChange }: { field: KnowledgeField; value: Value; characters: { id: string; name: string }[]; onChange: (value: Value) => void }) {
+export function FieldInput({ field, value, characters, onChange }: { field: KnowledgeField; value: Value; characters: { id: string; name: string }[]; onChange: (value: Value) => void }) {
   // The control takes the id of the Field around it (see ControlIdContext).
   const id = useControlId();
   if (field.type === 'long') return <Box asChild leading="relaxed"><Textarea variant="body" rows={field.name === 'body' ? 6 : 3} mono={field.name === 'body'} value={text(value)} onChange={(event) => onChange(event.target.value)} /></Box>;

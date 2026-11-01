@@ -5,7 +5,7 @@ import { useQueries, useQuery } from '@tanstack/react-query';
 import { Play } from 'lucide-react';
 import { listenerLabel, SPEECH_LEVEL_LABELS, type SpeechLevel } from '@tw/shared';
 import { RunDialog } from '@/components/workflow/run-dialog';
-import { Box, Chip, Group, InspectorList, InspectorResult, Button, Inline, ListRow, Text, TextLink, Section, SectionHeading } from '@loca/ui';
+import { Box, Chip, Group, InspectorList, InspectorResult, Button, Inline, ListRow, Text, TextLink, Section, SectionHeading, Timeline, TimelineFields, TimelineNote, TimelinePoint, TimelineQuotes } from '@loca/ui';
 import { q } from '@/lib/queries';
 import { PersonName } from '@/lib/person-colors';
 import { useLinePage, useLines, useLinesByKeys } from '@/lib/units';
@@ -130,34 +130,32 @@ export function RelationshipChanges({ projectId, changes, embedded, actions }: {
   const atKeys = useMemo(() => changes.map((change) => change.at), [changes]);
   const lines = useLinesByKeys(projectId, atKeys);
   const byKey = new Map(lines.data?.map((line) => [line.key, line]));
+  // In story order (the keys come back in script order), the same timeline as a pair's speech changes.
+  const order = new Map(lines.data?.map((line, index) => [line.key, index]));
+  const sorted = [...changes].sort((a, b) => (order.get(a.at) ?? 1e9) - (order.get(b.at) ?? 1e9));
   return (
     <Part title={`관계 변화 ${changes.length}`} embedded={embedded} actions={actions}>
       {!changes.length ? (
         <Empty>이야기 중 관계가 바뀌는 지점이 없습니다.</Empty>
       ) : (
-        <InspectorList>
-          {changes.map((change) => {
+        <Timeline label="관계 변화">
+          {sorted.map((change, index) => {
             const line = byKey.get(change.at);
             return (
-              <ListRow key={`${change.at}-${change.kind}`} density="loose">
-                <p>
-                  <Text weight="medium">→ {change.kind}</Text>
-                  {change.cause && <Text tone="muted"> · {change.cause}</Text>}
-                </p>
+              <TimelinePoint key={`${change.at}-${change.kind}`} title={`${change.at}부터`} meta={line?.groupTitle}>
+                <TimelineFields items={[{ label: '관계', before: sorted[index - 1]?.kind, after: change.kind }]} />
+                {change.cause && <TimelineNote>{change.cause}</TimelineNote>}
                 {line && (
-                  <Box asChild marginTop="tight">
-                    <TextLink asChild block tone="muted" underline="hover">
-                      <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.groupId, line: line.id }}>
-                        {line.speaker && `${line.speaker}: `}
-                        {line.source}
-                      </Link>
-                    </TextLink>
-                  </Box>
+                  <TextLink asChild block tone="muted" underline="hover">
+                    <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.groupId, line: line.id }}>
+                      <TimelineQuotes items={[{ id: line.id, label: line.key, text: `${line.speaker ? `${line.speaker}: ` : ''}${line.source}`, sub: line.translation || undefined }]} />
+                    </Link>
+                  </TextLink>
                 )}
-              </ListRow>
+              </TimelinePoint>
             );
           })}
-        </InspectorList>
+        </Timeline>
       )}
     </Part>
   );

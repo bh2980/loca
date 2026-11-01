@@ -1,20 +1,19 @@
 import { createAndAttachTag } from '@/lib/create-tag';
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Check, Plus } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { InferRequestType } from 'hono/client';
 import { toast } from 'sonner';
-import { isSpecialListener, listenerLabel, markName, OTHERS_LISTENER, pairKey, pairMarks, pairSummary, SPEECH_LEVEL_LABELS, UNRESOLVED_RELATIONSHIP_KIND, type Pair as PairOf } from '@tw/shared';
-import { EmptyState, DataTable, type ColumnDef, Inspector, InspectorHeader, InspectorList, InspectorResult, InspectorTabs, TagListEditor, Chip, Box, Button, Inline, ListRow, Text, Section, Field } from '@loca/ui';
+import { isSpecialListener, listenerLabel, OTHERS_LISTENER, pairKey, pairMarks, pairSummary, SPEECH_LEVEL_LABELS, UNRESOLVED_RELATIONSHIP_KIND, type Pair as PairOf } from '@tw/shared';
+import { EmptyState, DataTable, type ColumnDef, Inspector, InspectorHeader, InspectorResult, InspectorTabs, TagListEditor, Chip, Box, Button, Inline, Text, Section, Field } from '@loca/ui';
 import { DraftEditor, draftKeyOf, savedOf } from '@/components/knowledge/editor';
-import { PairLines, StretchPicker, usePairLines } from '@/components/knowledge/evidence';
-import { candidateRow, confirmLabel, fail, metaColumns, SourceBadge, type Draft, type KnowledgeFilterState, type KindSpec, type RelationshipRow, type SpeechRuleRow } from '@/components/knowledge/table';
-import { splitList } from '@/lib/list-value';
+import { PairLines, usePairLines } from '@/components/knowledge/evidence';
+import { SpeechTimeline } from '@/components/knowledge/speech-timeline';
+import { candidateRow, confirmLabel, fail, metaColumns, type Draft, type KnowledgeFilterState, type KindSpec, type RelationshipRow, type SpeechRuleRow } from '@/components/knowledge/table';
 import { personStyle } from '@/lib/person-colors';
 import { client } from '@/lib/api';
-import { tagsIn, useMarkStyles } from '@/lib/queries';
-import { MarkChip } from '@/components/status';
+import { tagsIn } from '@/lib/queries';
 import { useTaxonomy } from '@/lib/knowledge';
 import { sent } from '@/lib/collections';
 import { useLinesByKeys } from '@/lib/units';
@@ -93,10 +92,10 @@ type PairTab = 'speech' | 'relationship' | 'lines';
 const PAIR_TABS = ['speech', 'relationship', 'lines'] as const;
 
 /**
- * Right pane for a pair, in three tabs: 말투 (what translation uses: one row per stretch, "처음부터 · 해요체", "this line on · 해체",
- * the picked one's editor under the list), 관계 (a fact of the story), 근거 대사 (the lines the rules apply to and the lines cited,
- * each once). A new stretch starts at a line picked from this pair's lines, never a typed key. The header sums up both
- * decisions and holds their buttons, so they show on every tab; a tab with a candidate or an unsaved edit carries a dot.
+ * Right pane for a pair, in three tabs: 말투 (what translation uses: the base speech from the start, then a timeline of the
+ * points where it changes, each decided and edited in place: SpeechTimeline), 관계 (a fact of the story, its changes on the
+ * same timeline), 근거 대사 (the lines the rules apply to and the lines cited, each once). The header sums up both decisions
+ * (the base speech's and the relationship's) and holds their buttons; a tab with a candidate or an unsaved edit carries a dot.
  */
 export function PairDetail({ projectId, pair, relationships, speechRules, addRule, characters, others, onOpenPair, onClose, onDecide }: {
   projectId: string;
@@ -112,36 +111,17 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
   onClose: () => void;
   onDecide: (kind: 'relationships' | 'speechRules', ids: string[], action: 'confirm' | 'discard') => void;
 }) {
-  const markStyles = useMarkStyles(projectId);
   const [tab, setTab] = useInspectorTab<PairTab>('pair', PAIR_TABS);
-  const [picked, setPicked] = useState<string | undefined>();
-  const [picking, setPicking] = useState(false);
   const startKeys = useMemo(() => pair.rules.flatMap((rule) => (rule.startKey ? [rule.startKey] : [])), [pair.rules]);
   const starts = useLinesByKeys(projectId, startKeys);
   const startOf = new Map(starts.data?.map((line, index) => [line.key, { ...line, order: index }]));
   const rules = [...pair.rules].sort((a, b) => (a.startKey ? (startOf.get(a.startKey)?.order ?? 1e9) + 1 : 0) - (b.startKey ? (startOf.get(b.startKey)?.order ?? 1e9) + 1 : 0));
-  // One stretch is open at a time: the one picked, else the first that waits for a decision, else the first.
-  const rule = rules.find((item) => item.id === picked) ?? rules.find((item) => item.status === 'candidate') ?? rules[0];
   // In the pair the speaker and listener are given; where a stretch starts is chosen by picking a line.
   const ruleSpec = { ...speechRules, fields: speechRules.fields.filter((field) => !['fromName', 'toName', 'startKey'].includes(field.name)) };
+  // A change point's own form also moves its start line.
+  const pointSpec = { ...speechRules, fields: speechRules.fields.filter((field) => !['fromName', 'toName'].includes(field.name)) };
+  const base = rules.find((item) => !item.startKey);
   const addRelationship = useMutation({ mutationFn: () => relationships.create!(), onError: fail });
-  const addStretch = useMutation({
-    mutationFn: (key: string) => {
-      const before = rules.at(-1);
-      return addRule({ fromName: pair.from, toName: pair.to, level: before?.level ?? 'haeyo', address: before?.address ?? '', startKey: key });
-    },
-    onSuccess: (row) => {
-      setPicking(false);
-      setPicked(row.id);
-    },
-    onError: fail,
-  });
-  const startLabel = (item: SpeechRuleRow) => {
-    if (!item.startKey) return '처음부터';
-    const line = startOf.get(item.startKey);
-    return line ? `“${line.source.length > 28 ? `${line.source.slice(0, 27)}…` : line.source}”부터` : `${item.startKey}부터`;
-  };
-
   const taxonomy = useTaxonomy(projectId);
   const knowledgeTags = tagsIn(taxonomy.tags, 'people');
   const summaryTags = pairSummary(pair).tags ?? [];
@@ -173,7 +153,7 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
 
   const relationship = pair.relationship;
   // Unsaved edits of the embedded editors (the rules' and the relationship's), for the tab dots and the header buttons.
-  const drafts = [...rules.map((item) => ({ key: draftKeyOf('speechRules', item.id), saved: savedOf(ruleSpec, item) })), ...(relationship ? [{ key: draftKeyOf('relationships', relationship.id), saved: savedOf(relationships, relationship) }] : [])];
+  const drafts = [...rules.map((item) => ({ key: draftKeyOf('speechRules', item.id), saved: savedOf(item.startKey ? pointSpec : ruleSpec, item) })), ...(relationship ? [{ key: draftKeyOf('relationships', relationship.id), saved: savedOf(relationships, relationship) }] : [])];
   const dirty = useDirtyDrafts(drafts);
   const ruleDirty = (id: string) => dirty[rules.findIndex((item) => item.id === id)] ?? false;
   const relationshipDirty = relationship ? dirty[rules.length] : false;
@@ -208,7 +188,7 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
       onClose={onClose}
       below={
         <Box spaceY="condensed">
-          {decision(rule ? `말투 ${SPEECH_LEVEL_LABELS[rule.level]}${rules.length > 1 ? ` · ${startLabel(rule)}` : ''}` : '말투 없음', rule, 'speechRules', rule ? ruleDirty(rule.id) : false)}
+          {decision(base ? `말투 ${SPEECH_LEVEL_LABELS[base.level]}${rules.length > 1 ? ` · 변화 ${rules.length - 1}` : ''}` : rules.length ? `말투 변화 ${rules.length}` : '말투 없음', base, 'speechRules', base ? ruleDirty(base.id) : false)}
           {decision(relationship ? (unresolved ? relationship.kind : `관계 ${relationship.kind}`) : '관계 없음', relationship, 'relationships', relationshipDirty, unresolved)}
           {pairItemsList.length > 0 && (
             <Field label="태그" help="이 쌍의 관계와 말투 규칙 모두에 붙습니다.">
@@ -222,59 +202,20 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
 
   const speech = (
     <>
-      <Section
-        title={`변화 지점 ${rules.length}`}
-        actions={
-          <Button variant="ghost" onClick={() => setPicking((value) => !value)} aria-pressed={picking}>
-            <Plus /> 변화 지점 추가
-          </Button>
-        }
-      >
-        {picking && <StretchPicker projectId={projectId} from={pair.from} to={pair.to} taken={new Set(pair.rules.map((item) => item.startKey ?? ''))} onPick={(key) => addStretch.mutate(key)} onCancel={() => setPicking(false)} />}
-        {rules.length === 0 && (
-          <Text as="p" variant="body" tone="muted">
-            {!isSpecialListener(pair.to) && others?.rules.length
-              ? `규칙이 없어 ${pair.from}의 ‘그 밖의 인물’ 규칙(${SPEECH_LEVEL_LABELS[others.rules[0].level]})이 쓰입니다.`
-              : '말투 규칙이 없습니다.'}
-          </Text>
-        )}
-        {rules.length > 0 && (
-          <InspectorList>
-            {rules.map((item) => {
-              const review = reviewOf(item);
-              return (
-                <ListRow key={item.id} variant="choice" selected={item.id === rule?.id}>
-                  <Button variant="ghost" size="row" aria-pressed={item.id === rule?.id} onClick={() => setPicked(item.id)}>
-                    <Text minWidth={0} grow>
-                      <Text display="block" variant="caption" tone="muted" truncate>{startLabel(item)}</Text>
-                      <Inline as="span" gap="condensed">
-                        <Text weight="medium">{SPEECH_LEVEL_LABELS[item.level]}</Text>
-                        {item.address ? <Text tone="muted" truncate>호칭 {splitList(item.address).map((form) => `“${form}”`).join(' · ')}</Text> : null}
-                        {review && (
-                          <span title={review}>
-                            <MarkChip mark="review" projectId={projectId} />
-                          </span>
-                        )}
-                      </Inline>
-                    </Text>
-                    {item.status === 'candidate' && <Chip variant="outline">후보</Chip>}
-                    {ruleDirty(item.id) && <Chip variant="outline">고침</Chip>}
-                    <SourceBadge row={item} />
-                  </Button>
-                </ListRow>
-              );
-            })}
-          </InspectorList>
-        )}
-      </Section>
-      {rule && (
-        <Section>
-          <Box spaceY="normal">
-            {reviewOf(rule) && <InspectorResult tone="info">{markName('review', markStyles)}: {reviewOf(rule)}</InspectorResult>}
-            <DraftEditor key={rule.id} embedded projectId={projectId} kind="speechRules" spec={ruleSpec} row={rule} characters={characters} />
-          </Box>
-        </Section>
-      )}
+      <SpeechTimeline
+        projectId={projectId}
+        from={pair.from}
+        to={pair.to}
+        rules={rules}
+        startOf={startOf}
+        spec={ruleSpec}
+        pointSpec={pointSpec}
+        characters={characters}
+        dirty={ruleDirty}
+        onDecide={(ids, action) => onDecide('speechRules', ids, action)}
+        addRule={addRule}
+        fallback={!isSpecialListener(pair.to) && others?.rules.length ? `규칙이 없어 ${pair.from}의 ‘그 밖의 인물’ 규칙(${SPEECH_LEVEL_LABELS[others.rules[0].level]})이 쓰입니다.` : undefined}
+      />
       {!isSpecialListener(pair.to) && onOpenPair && (
         <Section>
           <Button
