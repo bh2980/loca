@@ -18,6 +18,8 @@
  *   FAKE_CLI_PID_FILE         write the process id here at start (tests check the process was killed)
  *   FAKE_CLI_IGNORE_SIGTERM   1 = ignore SIGTERM, so only the adapter's forced kill ends the process
  *   FAKE_CLI_EXIT             exit with this code and a stderr message instead of answering
+ *   FAKE_CLI_LINGER           1 = stay running after the answer is written (as agy 1.3 can: "stream input closed
+ *                             after 1 turn(s)" and no exit), until the process is killed
  *   MOCK_*                    the fault and latency variables of mock-llm-core (DROP_RATE, DUP_RATE, EMPTY_RATE,
  *                             BAD_JSON_RATE, TRUNCATE_RATE, 429_RATE, LATENCY_MS, SEED, PROFILE).
  *                             Latency is 0 unless MOCK_LATENCY_MS is set.
@@ -258,4 +260,6 @@ export async function main(kind) {
       break;
     }
   }
+  // Stays up after answering until killed (never exits on its own).
+  if (process.env.FAKE_CLI_LINGER === '1') await new Promise(() => setInterval(() => {}, 1000));
 }

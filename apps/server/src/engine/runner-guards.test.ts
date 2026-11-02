@@ -423,6 +423,11 @@ describe('slots per node', () => {
     start();
     const now = { T: 0, R: 0 };
     const peak = { T: 0, R: 0 };
+    // Translate requests are held until all four slots (2 per run) are in flight, so the peak does not hang on timing
+    // (on a busy machine a 5ms call could end before the next one starts); a second at most, so a runner that sends
+    // fewer at once fails the count instead of hanging.
+    let release = () => {};
+    const full = new Promise<void>((resolve) => (release = resolve));
     const port: ModelPort = {
       ask: async () => {
         throw new Error('unused');
@@ -430,7 +435,8 @@ describe('slots per node', () => {
       generate: async (_route, request) => {
         const kind = request.system.includes('Review each') ? 'R' : 'T';
         peak[kind] = Math.max(peak[kind], ++now[kind]);
-        await new Promise((resolve) => setTimeout(resolve, 5));
+        if (kind === 'T' && now.T >= 4) release();
+        await (kind === 'T' ? Promise.race([full, new Promise((resolve) => setTimeout(resolve, 1000))]) : new Promise((resolve) => setTimeout(resolve, 5)));
         now[kind]--;
         const lines = promptEntries(request.prompt);
         if (kind === 'R') return { object: { results: lines.map((line) => ({ id: line.id, passed: true, issues: [] })) }, usage: {} } as never;

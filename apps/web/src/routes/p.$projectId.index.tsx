@@ -1,6 +1,6 @@
 import { cloneElement, type ReactElement, type ReactNode } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { BookMarked, ChevronRight, CircleAlert, Inbox, MessageSquareQuote, Sparkles, UserRoundSearch, Workflow } from 'lucide-react';
+import { BookMarked, ChevronRight, CircleAlert, Download, Inbox, MessageSquareQuote, Sparkles, UserRoundSearch, Workflow } from 'lucide-react';
 import { GettingStarted } from '@/components/getting-started';
 import { RunStatusBadge, Box, Button, Heading, Icon, Inline, ListRow, Stack, StatusChipLink, StatusIcon, Meter, Text, TodoIcon, Skeleton } from '@loca/ui';
 import { Elapsed, JobProgress } from '@/components/job-progress';
@@ -178,6 +178,14 @@ function Home() {
           <Text variant="caption" tone="muted" tabular>
             최종 상태 {total ? Math.round((done / total) * 100) : 0}% · 대사 {total.toLocaleString()}개 · 묶음 {projectProgress?.groupCount.toLocaleString() ?? '–'}개
           </Text>
+          {/* The finished translation goes out from here too (it is also in 설정 › 프로젝트 and the command palette). */}
+          <Box marginLeft="auto">
+            <Button variant="outline" asChild>
+              <a href={`/api/projects/${projectId}/export`} download>
+                <Download /> 번역 결과 내보내기
+              </a>
+            </Button>
+          </Box>
         </Stack>
         <Meter size="md" statuses={statusList} counts={counts} />
         <Box as="ul" marginTop="normal" spaceY="condensed">

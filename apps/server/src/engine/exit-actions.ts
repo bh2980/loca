@@ -4,7 +4,7 @@
  * are listed; nothing here counts as a visit. What a node used to guard still holds: a status a person gave a line keeps
  * its translation (a run that picks lines by status), a tag that may not go on this kind of item is skipped.
  */
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq, or } from 'drizzle-orm';
 import { get } from 'es-toolkit/compat';
 import { filtersByStatus, KNOWLEDGE_STATUSES, normalizeTagScopes, previousStepId, type ExitAction, type KnowledgeStatus, type TagExitAction, type WorkflowDefinition } from '@tw/shared';
 import type { Db } from '../db/index.ts';
@@ -53,9 +53,25 @@ function restoreTags(tx: Tx, run: Run, ids: readonly string[]) {
   }
 }
 
-/** Applies an exit's actions to the item; returns the notes for the run's detail (a person's status kept, a tag not found…). */
+/** What a run says when it leaves a status a person set (scope.changeHuman off). */
+export const HUMAN_STATUS_NOTE = '사람이 정한 상태라 바꾸지 않았습니다.';
+
+/**
+ * Applies an exit's actions to the item; returns the notes for the run's detail (a person's status kept, a tag not
+ * found…). The line's history knows the tags it changed came from this run (event_actor, read by the line_events
+ * triggers).
+ */
 export function applyExitActions(tx: Tx, run: Run, item: Item, nodeId: string, port: string, actions: readonly ExitAction[]): string[] {
   if (!actions.length) return [];
+  tx.insert(s.eventActor).values({ one: 1, runId: run.id }).onConflictDoUpdate({ target: s.eventActor.one, set: { runId: run.id } }).run();
+  try {
+    return applyActions(tx, run, item, nodeId, port, actions);
+  } finally {
+    tx.delete(s.eventActor).run();
+  }
+}
+
+function applyActions(tx: Tx, run: Run, item: Item, nodeId: string, port: string, actions: readonly ExitAction[]): string[] {
   const notes: string[] = [];
   // What a `fromField` reads: the result of this node, or of the step before it (previousStepId skips 오류 exits and nodes without a result).
   const step = previousStepId(run.definition, [...item.data.path, { nodeId, port }]);
@@ -79,13 +95,24 @@ export function applyExitActions(tx: Tx, run: Run, item: Item, nodeId: string, p
     return notes;
   }
 
+  // What a person decided stays unless the run was asked to change it too (scope.changeHuman): a status a person set,
+  // a tag a person put on, by the line's history (the last change of it was not a run's).
+  const keepHuman = !run.scope.changeHuman;
+  const lastBy = (kind: 'status' | 'tag', tagId?: string) => tx.select({ runId: s.lineEvents.runId, after: s.lineEvents.after }).from(s.lineEvents)
+    .where(and(eq(s.lineEvents.unitId, item.subjectId), eq(s.lineEvents.kind, kind), ...(tagId ? [or(eq(s.lineEvents.after, tagId), eq(s.lineEvents.before, tagId))] : [])))
+    .orderBy(desc(s.lineEvents.id)).limit(1).get();
   for (const action of actions) {
     if (action.type === 'status') {
       if (!action.statusId) continue;
       // A run that picks lines by status never replaces what a person decided (#51): the line keeps its status.
-      const current = tx.select({ translation: s.units.translation, statusBy: s.units.statusBy }).from(s.units).where(and(eq(s.units.id, item.subjectId), eq(s.units.projectId, run.projectId))).get();
+      const current = tx.select({ translation: s.units.translation, statusBy: s.units.statusBy, statusId: s.units.statusId }).from(s.units).where(and(eq(s.units.id, item.subjectId), eq(s.units.projectId, run.projectId))).get();
       if (personOwns(current, item.data.candidateText, filtersByStatus(run.scope))) {
         notes.push(HUMAN_OWNED_NOTE);
+        continue;
+      }
+      const last = lastBy('status');
+      if (keepHuman && current?.statusId !== action.statusId && last && !last.runId) {
+        notes.push(HUMAN_STATUS_NOTE);
         continue;
       }
       tx.update(s.units).set({ statusId: action.statusId, statusBy: 'ai', statusRunId: run.id }).where(eq(s.units.id, item.subjectId)).run();
@@ -95,7 +122,12 @@ export function applyExitActions(tx: Tx, run: Run, item: Item, nodeId: string, p
     for (const name of unmatched) notes.push(`없는 태그 이름: ${name}`);
     if (!ids.length) continue;
     if (action.action === 'add') restoreTags(tx, run, ids);
-    const { skipped } = attachUnitTags(tx, run.projectId, [item.subjectId], action.action === 'add' ? { add: ids } : { remove: ids }, { onMisplaced: 'skip' });
+    // A tag a person put on is not taken off by a run that was not asked to.
+    const kept = action.action === 'remove' && keepHuman ? ids.filter((id) => { const last = lastBy('tag', id); return last && !last.runId && last.after === id; }) : [];
+    for (const id of kept) notes.push(`사람이 붙인 태그 ‘${tx.select({ name: s.tags.name }).from(s.tags).where(eq(s.tags.id, id)).get()?.name ?? id}’는 떼지 않았습니다.`);
+    const changing = ids.filter((id) => !kept.includes(id));
+    if (!changing.length) continue;
+    const { skipped } = attachUnitTags(tx, run.projectId, [item.subjectId], action.action === 'add' ? { add: changing } : { remove: changing }, { onMisplaced: 'skip' });
     for (const tag of skipped) notes.push(`‘${tag.name}’ 태그는 대사에 붙일 수 없어 붙이지 않았습니다.`);
   }
   return notes;

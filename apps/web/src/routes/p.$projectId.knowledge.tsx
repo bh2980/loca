@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import { CHARACTER_ROLE_LABELS, OTHERS_LISTENER, parseMarks, type AutoMark, styleNames, isSettled, aiDecided, KNOWLEDGE_SOURCES, listenerLabel, SPEECH_LEVEL_LABELS, type KnowledgeSource, type TagScope, personLabel, type DecidedBy, buildPairs, knowledgeMatches, pairKey, pairMatches, pairSummary, type KnowledgeFilter } from '@tw/shared';
 import {
   EmptyState,
+  Inline,
   TagMenu,
   Box,
   Text,
@@ -380,7 +381,14 @@ function Knowledge() {
   );
   const total = graph ? `인물 ${characters.length.toLocaleString()}명 · 관계 ${visiblePairs.length.toLocaleString()}쌍` : pairsView ? `${visiblePairs.length.toLocaleString()}쌍` : `${rows.length.toLocaleString()}${tab === 'people' ? '명' : '개'}`;
   const count = pending ? undefined : `${total}${unofficialHere > 0 ? ` · 확인 필요 ${unofficialHere.toLocaleString()}` : ''}`;
-  const empty = <EmptyState noun={`${KINDS[tableKind]} 항목`} filtered={filtered} />;
+  // An empty list says how to fill it: add one by hand, or run the workflow that extracts them.
+  const emptyActions = (
+    <Inline gap="condensed" justify="center" wrap>
+      {spec.create && <Button variant="outline" disabled={create.isPending} onClick={() => create.mutate()}><Plus /> {KINDS[tableKind]} 직접 추가</Button>}
+      <RunDialog projectId={projectId} trigger={<Button variant="outline"><Play /> 추출 워크플로 실행</Button>} />
+    </Inline>
+  );
+  const empty = <EmptyState noun={`${KINDS[tableKind]} 항목`} filtered={filtered} action={emptyActions} />;
 
   const [deletingIds, setDeletingIds] = useState<string[] | null>(null);
 
@@ -550,6 +558,8 @@ function Knowledge() {
             {/* Pairs come from speech rules too: laying out before they arrive would lay out twice. */}
             {people.isPending || relationships.isPending || rules.isPending ? (
               <Skeleton shape="page" marginTop="comfortable" marginBottom="comfortable" marginLeft="comfortable" marginRight="comfortable" />
+            ) : !characters.length && !filtered ? (
+              <EmptyState noun="인물" hint="대본에서 인물·관계를 뽑아 오거나 직접 추가합니다." action={emptyActions} />
             ) : (
               <RelationshipGraph
                 storageKey={`tw.relationships.${projectId}`}
@@ -580,6 +590,7 @@ function Knowledge() {
                 selected={search.item}
                 onOpen={(id) => set({ item: id })}
                 badge={(event) => <SourceBadge row={rows.find((row) => row.id === event.id)!} />}
+                emptyAction={emptyActions}
               />
             )}
           </Box>

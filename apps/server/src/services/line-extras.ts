@@ -6,10 +6,13 @@ import * as s from '../db/schema.ts';
 
 /** How many runs a line's history shows, newest first. */
 const HISTORY = 20;
+/** How many other events (status, tags, note, texts swapped, suggestions turned down) it shows, newest first. */
+const EVENTS = 100;
 
 /**
  * What the line detail shows besides the line and its context: its texts and AI 제안 (candidates,
- * newest first) and the runs that went through it (실행 기록). The browser holds these for the lines
+ * newest first), the runs that went through it (실행 기록) and what else happened to it (line_events: its status,
+ * tags, note, the text it shows, suggestions turned down; with the run that did it). The browser holds these for the lines
  * it has open and reads them again when the row feed names the line (candidates and run items note it).
  */
 export function lineExtras(db: Db, projectId: string, ids: readonly string[]) {
@@ -31,10 +34,17 @@ export function lineExtras(db: Db, projectId: string, ids: readonly string[]) {
     ).sort((a, b) => +b.createdAt - +a.createdAt),
     (row) => row.unitId,
   );
+  const events = Map.groupBy(
+    inChunks(own, (slice) => db.select().from(s.lineEvents).where(inArray(s.lineEvents.unitId, slice)).orderBy(desc(s.lineEvents.at), desc(s.lineEvents.id)).all())
+      .sort((a, b) => +b.at - +a.at || b.id - a.id),
+    (row) => row.unitId,
+  );
   // The workflow step that left a text or touched the line, named as the run's own definition named it ('검수'), so the
   // history can say which step of the workflow it was; null when the run or the node is gone.
-  const runIds = [...new Set([...[...candidates.values()].flat().map((row) => row.runId), ...[...history.values()].flat().map((row) => row.runId)].filter((runId): runId is string => Boolean(runId)))];
-  const definitions = new Map(inChunks(runIds, (slice) => db.select({ id: s.runs.id, definition: s.runs.definition }).from(s.runs).where(inArray(s.runs.id, slice)).all()).map((row) => [row.id, row.definition]));
+  const runIds = [...new Set([...[...candidates.values()].flat().map((row) => row.runId), ...[...history.values()].flat().map((row) => row.runId), ...[...events.values()].flat().map((row) => row.runId)].filter((runId): runId is string => Boolean(runId)))];
+  const runRows = inChunks(runIds, (slice) => db.select({ id: s.runs.id, definition: s.runs.definition, workflowName: s.runs.workflowName }).from(s.runs).where(inArray(s.runs.id, slice)).all());
+  const definitions = new Map(runRows.map((row) => [row.id, row.definition]));
+  const workflowOf = new Map(runRows.map((row) => [row.id, row.workflowName]));
   const step = (runId: string | null, nodeId: string | null) => {
     const node = runId && nodeId ? definitions.get(runId)?.nodes.find((item) => item.id === nodeId) : undefined;
     return node ? nodeName(node) : null;
@@ -43,6 +53,8 @@ export function lineExtras(db: Db, projectId: string, ids: readonly string[]) {
     id,
     candidates: (candidates.get(id) ?? []).map((row) => ({ ...row, step: step(row.runId, row.nodeId) })),
     history: (history.get(id) ?? []).slice(0, HISTORY).map(({ unitId: _unit, ...run }) => ({ ...run, step: step(run.runId, run.nodeId) })),
+    // The run's workflow by name ('검수'), null for a person or a tool, or a run since deleted.
+    events: (events.get(id) ?? []).slice(0, EVENTS).map(({ unitId: _unit, ...event }) => ({ ...event, workflowName: event.runId ? workflowOf.get(event.runId) ?? null : null })),
   }));
 }
 

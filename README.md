@@ -13,6 +13,7 @@
 
 - [Node.js](https://nodejs.org) 22.12 이상
 - pnpm 10: Node.js를 설치한 뒤 터미널에서 `corepack enable` 한 번
+  - 전역 폴더에 쓸 권한이 없어 `EACCES`로 실패하면(관리자 권한 없는 Linux·macOS) 내 폴더에 설치합니다: `COREPACK_HOME=~/.cache/corepack corepack enable --install-directory ~/.local/bin` (`~/.local/bin`이 `PATH`에 있어야 합니다)
 
 이 저장소를 받은 폴더에서 차례로 실행합니다. Windows PowerShell에서도 같습니다.
 
@@ -32,7 +33,15 @@ pnpm start
 
 - 다음부터는 `pnpm start`만 하면 됩니다. 저장소를 새로 받았을 때(`git pull`)는 `pnpm install`과 `pnpm build`를 다시 합니다. 빌드가 소스보다 오래되면 서버가 터미널에 그렇게 알려 줍니다.
 - 데이터는 저장소 안의 `.workbench/workbench.sqlite` 한 파일입니다. 처음부터 다시 하려면 프로그램을 끄고 `.workbench` 폴더를 지우면 됩니다.
-- AI 서비스의 API 키는 파일이 아니라 Windows 자격 증명 관리자(macOS는 키체인)에 저장됩니다.
+- AI 서비스의 API 키는 파일이 아니라 Windows 자격 증명 관리자(macOS는 키체인, Linux는 Secret Service)에 저장됩니다.
+
+### Linux에서
+
+API 키를 저장하려면 Secret Service가 켜져 있고 잠금이 풀려 있어야 합니다(데스크톱이면 보통 GNOME Keyring이나 KWallet이 이미 있습니다). 없으면 연결을 저장할 때 "키 저장소(Secret Service)가 없거나 잠겨 있습니다"라고 나옵니다.
+
+- 데스크톱: `gnome-keyring`(또는 KeePassXC의 Secret Service 연동)을 설치하고 로그인 키링의 잠금을 풉니다.
+- 화면 없는 서버: `gnome-keyring-daemon --unlock`을 D-Bus 세션 안에서 띄우는 방법이 있습니다. 키를 저장하지 않는 CLI 연결(Claude Code·Codex 등, 로그인은 각 CLI가 합니다)만 쓰면 키 저장소가 필요 없습니다.
+- `WORKBENCH_SECRETS=memory`는 키를 메모리에만 두어 서버를 다시 켜면 키가 사라집니다. 시험용으로만 쓰세요.
 
 ## 처음 써 보기
 

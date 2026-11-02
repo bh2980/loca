@@ -9,7 +9,7 @@ import { snapshotWorkflowModels } from '../services/routes.ts';
 import { runProgress } from '../services/run-detail.ts';
 import { memoryStore } from '../services/secrets.ts';
 import { HUMAN_OWNED_NOTE } from './apply-candidate.ts';
-import { applyExitActions } from './exit-actions.ts';
+import { applyExitActions, HUMAN_STATUS_NOTE } from './exit-actions.ts';
 import { createRun } from './run-create.ts';
 import { Runner, type ModelPort } from './runner.ts';
 
@@ -89,6 +89,11 @@ describe('exit actions in a run', () => {
     expect(tagNamesOf(ctx, 'a1')).toEqual(['긴급', '나중']);
     const unit = unitOf(ctx, 'a1');
     expect([unit.statusId, unit.statusBy, unit.statusRunId]).toEqual([confirmed.id, 'ai', runId]);
+    // The line's history has each change, by the run that did it (taking off a tag it lacks is none; event_actor is cleared after).
+    const events = ctx.db.select().from(s.lineEvents).where(eq(s.lineEvents.unitId, unit.id)).all();
+    expect(events.filter((event) => event.kind === 'tag').map((event) => event.runId)).toEqual([runId, runId, runId, second]);
+    expect(events.filter((event) => event.kind === 'status').map((event) => event.runId)).toEqual([runId, runId]);
+    expect(ctx.db.select().from(s.eventActor).all()).toEqual([]);
   });
 
   it('are applied once, before the exit\'s lines split: every branch sees the tag and the new status', async () => {
@@ -144,6 +149,26 @@ describe('exit actions in a run', () => {
     expect(unitOf(ctx, 'a1').statusId).toBe(confirmed.id);
   });
 
+  it('leave a status a person set and a tag a person put on, unless the run is asked to change them too (S6)', async () => {
+    const ctx = setup(1);
+    const { review, confirmed, urgent } = ctx;
+    const line = unitOf(ctx, 'a1');
+    // A person marks the line for another look: 검토 필요 and a tag.
+    ctx.db.update(s.units).set({ statusId: review.id, statusBy: 'human' }).where(eq(s.units.id, line.id)).run();
+    ctx.db.insert(s.unitTags).values({ unitId: line.id, tagId: urgent.id }).run();
+    const pass = flow({ c: cond(always, { true: [untag([urgent.id]), status(confirmed.id)] }) }, ['entry -> c', 'c.true -> end']);
+    const kept = start(ctx, pass);
+    const { runner } = await drain(ctx, kept);
+    expect(unitOf(ctx, 'a1').statusId).toBe(review.id);
+    expect(tagNamesOf(ctx, 'a1')).toEqual(['긴급']);
+    expect(runProgress(ctx.db, runner, ctx.projectId, [kept])[0]!.exits['c:true']).toEqual({ notes: { '사람이 붙인 태그 ‘긴급’는 떼지 않았습니다.': 1, [HUMAN_STATUS_NOTE]: 1 } });
+    // Asked to change them too: they change.
+    const changed = start(ctx, pass, { changeHuman: true });
+    await drain(ctx, changed);
+    expect(unitOf(ctx, 'a1').statusId).toBe(confirmed.id);
+    expect(tagNamesOf(ctx, 'a1')).toEqual([]);
+  });
+
   it('skip a tag name an AI made up (and say so) instead of creating it, and put on the ones the project has', async () => {
     const ctx = setup(1);
     const { issues, urgent } = ctx;
@@ -172,7 +197,7 @@ describe('exit actions in a run', () => {
     expect([tagNamesOf(ctx, 'a1'), tagNamesOf(ctx, 'a2')]).toEqual([['긴급'], ['긴급']]);
   });
 
-  it('end a line that left through an 오류 exit with actions and no edge as done, with the failure handled', async () => {
+  it('end a line that left through an 오류 exit that sets a status (and no edge) as done; tags alone keep it failed', async () => {
     const ctx = setup(1);
     const { issues, review } = ctx;
     const failing = (exits: Record<string, ExitAction[]>) => flow({ boom: script('throw new Error("boom");', exits) }, ['entry -> boom']);
@@ -188,6 +213,13 @@ describe('exit actions in a run', () => {
     const failed = await drain(bare, start(bare, failing({})));
     expect(failed.items[0]!.state).toBe('failed');
     expect(failed.items[0]!.error).toContain('boom');
+
+    // Tags alone only mark it: the line still ends failed ('실패한 줄 다시' offers it), tagged.
+    const tagged = setup(1);
+    const marked = await drain(tagged, start(tagged, failing({ error: [tag([tagged.issues.aiFailed!])] })));
+    expect(marked.items[0]!.state).toBe('failed');
+    expect(marked.items[0]!.error).toContain('boom');
+    expect(tagNamesOf(tagged, 'a1')).toEqual([ISSUE_KINDS.aiFailed.name]);
   });
 
   it('set a term\'s status in a term workflow, and refuse a line status there', async () => {

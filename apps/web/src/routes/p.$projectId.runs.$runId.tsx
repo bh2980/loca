@@ -9,7 +9,7 @@ import { parseExitKey } from '@/components/workflow/exit-marks';
 import { ContextItemList } from '@/components/ai-context';
 import { LineDetail } from '@/components/line-detail';
 import { TermEditor } from '@/components/glossary/term-pane';
-import { HeaderActions, Page } from '@/components/page';
+import { HeaderActions, HeaderViews, Page } from '@/components/page';
 import { Inspector, InspectorHeader, Group, KeyValue, KeyValueRow, Section, EmptyState, SectionHeading, DataTable, type ColumnDef, Pager, FilterBar, ActionBar, Separator, SplitPane, RunStatusBadge, StatusBarItem, Notice, NoticeDescription, Chip, Box, Button, Inline, Text, ExpandableRow, Progress, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Tabs, TabsList, TabsTrigger, Skeleton } from '@loca/ui';
 import { HeaderFilter } from '@/components/header-filter';
 import { client, unwrap } from '@/lib/api';
@@ -291,7 +291,8 @@ function RunDetail() {
           ))
         }
       >
-        <HeaderActions>
+        {/* The views next to the title (as every page's); the run's actions stay at the right. */}
+        <HeaderViews>
           <Box asChild alignSelf="stretch">
           <Tabs value={view} onValueChange={(value) => setSearch({ tab: value === 'steps' || value === 'plan' || value === 'graph' ? value : undefined }, true)}>
             <Box asChild height="full" border="noBottom">
@@ -305,7 +306,8 @@ function RunDetail() {
             </Box>
           </Tabs>
           </Box>
-          <Box asChild marginLeft="tight" marginRight="tight" height="icon"><Separator orientation="vertical" /></Box>
+        </HeaderViews>
+        <HeaderActions>
           {data.status === 'running' && <Button onClick={() => control.mutate('pause')}><Pause /> 일시정지</Button>}
           {data.status === 'paused' && <Button variant={data.limits?.hit ? 'outline' : 'default'} onClick={() => control.mutate('resume')}><Play /> 재개</Button>}
           {data.status === 'completed' && (totals.failed ?? 0) > 0 && !data.filling && <ContinueRun runId={runId} failed={totals.failed ?? 0} paused={false} />}

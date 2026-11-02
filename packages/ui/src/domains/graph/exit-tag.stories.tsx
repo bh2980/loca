@@ -1,7 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useId, type ReactNode } from "react"
-import { ArrowRight, Braces, GitFork, Minus, ScanSearch } from "lucide-react"
-import { StatusIcon, TagChip } from "../../patterns/status"
+import { Braces, GitFork, ScanSearch } from "lucide-react"
 import { STATUS_COLORS } from "@tw/shared"
 import { ExitTag, ExitTagAdd, ExitTagList, type ExitTagItem } from "./exit-tag"
 import { NodeCard } from "./node-card"
@@ -27,6 +26,9 @@ const removeAll: ExitTagItem[] = [
   { kind: "status", name: "완료", color: DONE, statusKind: "final" },
 ]
 
+// Tags a result decides: named by the step, with the tags set for its values.
+const fail: ExitTagItem[] = [{ kind: "tag", action: "add", name: "AI 검수", fromResult: true, options: removeAll.filter((item) => item.kind === "tag").slice(0, 6).map(({ name, color }) => ({ name, color })) }]
+
 /** Light and dark side by side. */
 const Both = ({ children, width }: { children: () => ReactNode; width: number }) => (
   <div className="flex flex-wrap gap-6 p-6">
@@ -41,11 +43,11 @@ export const States: Story = {
     <Both width={700}>
       {() => (
         <div className="grid grid-cols-4 items-start gap-5">
-          <Labeled text="태그 1개 떼기"><ExitTag items={[{ kind: "tag", action: "remove", name: "형식 오류", color: FORMAT }]} /></Labeled>
-          <Labeled text="태그 1개 붙이기"><ExitTag items={[{ kind: "tag", action: "add", name: "형식 오류", color: FORMAT }]} /></Labeled>
-          <Labeled text="결과의 종류로 붙이기"><ExitTag items={[{ kind: "tag", action: "add", name: "검수 지적", fromResult: true }]} /></Labeled>
+          <Labeled text="태그 1개 제거"><ExitTag items={[{ kind: "tag", action: "remove", name: "형식 오류", color: FORMAT }]} /></Labeled>
+          <Labeled text="태그 1개 추가"><ExitTag items={[{ kind: "tag", action: "add", name: "형식 오류", color: FORMAT }]} /></Labeled>
+          <Labeled text="AI 검수 결과에 따라 추가"><ExitTag items={fail} /></Labeled>
           <Labeled text="상태 바꾸기"><ExitTag items={[{ kind: "status", name: "검토 필요", color: REVIEW, inReview: true }]} /></Labeled>
-          <Labeled text="상태 + 태그 7개 떼기"><ExitTag items={removeAll} /></Labeled>
+          <Labeled text="상태 + 태그 7개 제거"><ExitTag items={removeAll} /></Labeled>
           <Labeled text="고름 (출구 패널이 열림)"><ExitTag selected items={[{ kind: "tag", action: "add", name: "형식 오류", color: FORMAT }]} /></Labeled>
           <Labeled text="멀리서 볼 때 (배율 낮음)"><ExitTag compact items={removeAll} /></Labeled>
           <Labeled text="조건의 예/아니요와 함께"><ExitTag label="아니요" items={[{ kind: "status", name: "검토 필요", color: REVIEW, inReview: true }]} /></Labeled>
@@ -95,7 +97,6 @@ const Dot = ({ x, y, tone = "neutral", picked }: { x: number; y: number; tone?: 
 )
 
 const pass: ExitTagItem[] = removeAll
-const fail: ExitTagItem[] = [{ kind: "tag", action: "add", name: "검수 지적", fromResult: true }]
 const error: ExitTagItem[] = [{ kind: "status", name: "검토 필요", color: REVIEW, inReview: true }]
 
 /**
@@ -154,42 +155,6 @@ export const Fit: Story = {
   render: () => (
     <Both width={460}>
       {() => <div style={{ width: 820 * 0.52, height: 560 * 0.52 }}><div style={{ transform: "scale(0.52)", transformOrigin: "0 0" }}><Scene /></div></div>}
-    </Both>
-  ),
-}
-
-/** Hover list options, for a pick: A groups the tags under one heading, B marks each tag with − or +. */
-const Card = ({ title, children }: { title: string; children: ReactNode }) => (
-  <div className="space-y-1.5"><p className="text-xs text-subtle">{title}</p><div className="w-44 rounded-md border border-default bg-overlay p-2 shadow-md">{children}</div></div>
-)
-const StatusRow = () => (
-  <p className="flex items-center gap-1.5 text-xs font-medium"><ArrowRight className="size-3 text-muted" /><StatusIcon status={{ color: DONE, kind: "final" }} />완료</p>
-)
-const tagsOf = (items: ExitTagItem[]) => items.filter((item) => item.kind === "tag")
-export const HoverOptions: Story = {
-  render: () => (
-    <Both width={560}>
-      {() => (
-        <div className="flex items-start gap-6">
-          <Card title="A. 묶음 제목 한 번">
-            <div className="space-y-2">
-              <StatusRow />
-              <div className="space-y-1">
-                <p className="text-xs text-muted">태그 7개 떼기</p>
-                <div className="flex flex-wrap gap-1">{tagsOf(pass).map((item) => <TagChip key={item.name} tag={{ name: item.name, color: item.color ?? "" }} />)}</div>
-              </div>
-            </div>
-          </Card>
-          <Card title="B. 태그마다 − / +">
-            <div className="space-y-1">
-              <StatusRow />
-              {tagsOf(pass).map((item) => (
-                <p key={item.name} className="flex items-center gap-1.5"><Minus className="size-3 shrink-0 text-muted" aria-label="떼기" /><TagChip tag={{ name: item.name, color: item.color ?? "" }} /></p>
-              ))}
-            </div>
-          </Card>
-        </div>
-      )}
     </Both>
   ),
 }

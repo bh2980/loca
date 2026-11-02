@@ -82,6 +82,8 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   const [pickedStatuses, setPickedStatuses] = useState<Set<string>>(new Set());
   // What a row shows, as filters: 최종 아님, 정한 쪽 AI, 메모 있음 (lines), 번역 비어 있음 (terms).
   const [pickedFacts, setPickedFacts] = useState<Set<string>>(new Set());
+  // A person's statuses and tags stay unless this is ticked for this run (it is not remembered).
+  const [changeHuman, setChangeHuman] = useState(false);
 
   const taxonomy = useTaxonomy(projectId, { enabled: open });
   // This run's models by AI node, where the person picked another than the node's own (the workflow is not changed).
@@ -233,7 +235,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
     mutationFn: () => {
       // The caps the fields hold (the suggestion until changed), past which the run pauses.
       const limits = startLimits(suggested, capEdits);
-      return unwrap(client.workflows[':id'].runs.$post({ param: { id: workflowId! }, json: { ...request, ...(Object.keys(limits).length ? { limits } : {}) } }));
+      return unwrap(client.workflows[':id'].runs.$post({ param: { id: workflowId! }, json: { ...request, ...(changeHuman && !terms ? { changeHuman: true } : {}), ...(Object.keys(limits).length ? { limits } : {}) } }));
     },
     onSuccess: (run) => {
       rememberFilters();
@@ -462,6 +464,14 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
 
         </Bleed>
 
+        {/* Right above the start: what this run may do to what a person decided. */}
+        {!terms && data && total ? (
+          <Inline as="label" gap="condensed" variant="body">
+            <Checkbox checked={changeHuman} onCheckedChange={(checked) => setChangeHuman(checked === true)} />
+            사람이 정한 상태·붙인 태그도 바꾸기
+            <Text variant="caption" tone="muted">끄면 그대로 두고 실행 상세에 남깁니다</Text>
+          </Inline>
+        ) : null}
         {start.isError && <Text as="p" variant="body" tone="danger">{start.error.message}</Text>}
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>

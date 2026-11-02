@@ -130,9 +130,6 @@ const failsTo = (aiId: string, failedId: string) => edge(aiId, 'error', failedId
 /** Edges along a chain of nodes, each from its `out` exit. */
 const chain = (...ids: string[]) => ids.slice(1).map((id, index) => edge(ids[index]!, 'out', id));
 
-/** An extraction AI node whose 오류 exit (what its retry rules could not send back) puts the `AI 실패` tag on the line. */
-const failTagged = (node: WorkflowNode, ids: TemplateIds): WorkflowNode => withExits(node, { error: [tagAction('add', { tagIds: issueTagIds(ids, ['aiFailed']) })] });
-
 /** 용어 검사: a confirmed glossary term in the source whose Korean form the translation lacks fails the line (no model call). */
 const glossaryCheckNode = (row: number, column = 0): WorkflowNode => ({
   id: 'glossary',
@@ -261,7 +258,7 @@ function reviewLoop(ids: TemplateIds, judgeSpeech: boolean): WorkflowDefinition 
         // The findings were about the text AI 수정 replaced: off before the checks look at the new one.
         exits: { true: [tagAction('remove', { tagIds: issueTagIds(ids, ISSUE_KIND_IDS) })], false: needsReview },
       },
-      failTagged(aiNode('terms', 'terms', ids.model, 10), ids),
+      aiNode('terms', 'terms', ids.model, 10),
       saveList('save-terms', 'saveTerms', 'terms', 'terms', 11),
     ],
     edges: [
@@ -313,7 +310,7 @@ export function reviewTemplate(ids: TemplateIds): WorkflowDefinition {
 export function termExtractionTemplate(ids: TemplateIds): WorkflowDefinition {
   return {
     settings: { ...SETTINGS },
-    nodes: [entryNode(), failTagged(aiNode('terms', 'terms', ids.model, 1), ids), saveList('save-terms', 'saveTerms', 'terms', 'terms', 2)],
+    nodes: [entryNode(), aiNode('terms', 'terms', ids.model, 1), saveList('save-terms', 'saveTerms', 'terms', 'terms', 2)],
     edges: chain('entry', 'terms', 'save-terms'),
   };
 }
@@ -364,7 +361,7 @@ export function peopleRelationsTemplate(ids: TemplateIds): WorkflowDefinition {
     settings: { ...SETTINGS },
     nodes: [
       entryNode(),
-      failTagged(aiNode('people', 'knowledge', ids.model, 1), ids),
+      aiNode('people', 'knowledge', ids.model, 1),
       { id: 'gather', type: 'gather', position: at(2), label: '인물·관계 조각 모으기', config: { fields: MERGED_PATHS } },
       {
         id: 'merge',
@@ -385,7 +382,7 @@ export function peopleRelationsTemplate(ids: TemplateIds): WorkflowDefinition {
 export function eventExtractionTemplate(ids: TemplateIds): WorkflowDefinition {
   return {
     settings: { ...SETTINGS },
-    nodes: [entryNode(), failTagged(aiNode('events', 'events', ids.model, 1), ids), saveList('save-events', 'saveEvents', 'events', 'events', 2)],
+    nodes: [entryNode(), aiNode('events', 'events', ids.model, 1), saveList('save-events', 'saveEvents', 'events', 'events', 2)],
     edges: [...chain('entry', 'events', 'save-events')],
   };
 }
@@ -398,7 +395,7 @@ export function eventExtractionTemplate(ids: TemplateIds): WorkflowDefinition {
 export function listenerTemplate(ids: TemplateIds): WorkflowDefinition {
   return {
     settings: { ...SETTINGS },
-    nodes: [entryNode(), failTagged(aiNode('listener', 'listener', ids.model, 1), ids), applyNode('set-listener', 'setListener', 2, { map: { listener: 'value', confidence: 'confidence' } })],
+    nodes: [entryNode(), aiNode('listener', 'listener', ids.model, 1), applyNode('set-listener', 'setListener', 2, { map: { listener: 'value', confidence: 'confidence' } })],
     edges: [...chain('entry', 'listener', 'set-listener')],
   };
 }
@@ -420,7 +417,7 @@ export function analysisTemplate(ids: TemplateIds): WorkflowDefinition {
     settings: { ...SETTINGS },
     nodes: [
       entryNode(),
-      failTagged(aiNode(analysis, 'analysis', ids.model, 1, 0, '작품 분석'), ids),
+      aiNode(analysis, 'analysis', ids.model, 1, 0, '작품 분석'),
       saveList('save-characters', 'saveCharacters', 'analysis', 'characters', 2),
       saveList('save-relationships', 'saveRelationships', 'analysis', 'relationships', 3),
       saveList('save-speech-rules', 'saveSpeechRules', 'analysis', 'speechRules', 4),

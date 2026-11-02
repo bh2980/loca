@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { Tabs, TabsList, TabsTrigger, Skeleton, Box, PageBody } from '@loca/ui';
-import { HeaderActions, Page } from '@/components/page';
+import { HeaderViews, Page } from '@/components/page';
 import { EditorAiSection } from '@/components/settings/editor-ai';
 import { ExclusionRulesSection } from '@/components/exclusion-rules';
 import { FormatRulesSection } from '@/components/format-rules';
@@ -26,7 +26,8 @@ function EditorSettings() {
 
   return (
     <Page title="에디터" flush>
-      <HeaderActions>
+      {/* Which part is shown: next to the title, as every page's views (not far right with the tools). */}
+      <HeaderViews>
         <Tabs stretch value={tab} onValueChange={(value) => void navigate({ search: { tab: value === 'ai' ? undefined : (value as Tab) }, replace: true })}>
           <TabsList variant="line" fill aria-label="에디터 설정">
             {(Object.keys(TABS) as Tab[]).map((id) => (
@@ -36,7 +37,7 @@ function EditorSettings() {
             ))}
           </TabsList>
         </Tabs>
-      </HeaderActions>
+      </HeaderViews>
       <PageBody>
         {tab === 'ai' ? (
           <EditorAiSection target={{ kind: 'project', projectId }} />

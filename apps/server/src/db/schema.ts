@@ -162,6 +162,38 @@ export const unitTags = sqliteTable(
   (t) => [primaryKey({ columns: [t.unitId, t.tagId] }), index('unit_tags_tag').on(t.tagId)],
 );
 
+export const LINE_EVENT_KINDS = ['status', 'tag', 'note', 'text', 'decline'] as const;
+export type LineEventKind = (typeof LINE_EVENT_KINDS)[number];
+/**
+ * What happened to a line besides its texts, for its history (이력): its status (before → after), a tag put on (after)
+ * or taken off (before), its note (before → after), the text it shows (candidate ids, before → after: a 되돌리기 picks
+ * an older one), a suggestion turned down (after: the candidate). Written by triggers (migration 0123), so every way
+ * a line changes is kept: a person, the CLI, the chat, a run. `runId`: the run that did it (a status a run set, a tag
+ * an exit action put on, a text a run saved), else none (a person or a tool). Kept as long as the line.
+ */
+export const lineEvents = sqliteTable(
+  'line_events',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    unitId: text('unit_id').notNull().references(() => units.id, { onDelete: 'cascade' }),
+    kind: text('kind', { enum: LINE_EVENT_KINDS }).notNull(),
+    before: text('before'),
+    after: text('after'),
+    runId: text('run_id'),
+    at: integer('at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (t) => [index('line_events_unit').on(t.unitId, t.at)],
+);
+
+/**
+ * The run whose writes are going on now (one row at most): set around a run's exit actions, so the triggers that
+ * write line_events know a tag came from it. Empty otherwise (a person, the CLI, the chat).
+ */
+export const eventActor = sqliteTable('event_actor', {
+  one: integer('one').primaryKey(),
+  runId: text('run_id'),
+});
+
 /**
  * Tags on knowledge items (terms, documents, people, relationships, events, speech rules): the same
  * project tags as lines. `note` says why the app put it there (확인 권장's reasons); a person's own
@@ -553,6 +585,8 @@ export interface RunScope {
   kinds?: string[];
   /** Text in the source. */
   q?: string;
+  /** Also change a status a person set and take off tags a person put on (off: they stay, and the run says so). */
+  changeHuman?: boolean;
 }
 /** The connection + model a call goes to, frozen with the connection's details. */
 export interface RouteSnapshot {

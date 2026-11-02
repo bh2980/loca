@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { CircleAlert, CircleCheck, Network, Pencil } from 'lucide-react';
 import { CopyButton } from '@/components/copy-button';
 import { CHARACTER_ROLE_LABELS, sameTranslation, checkFormat, exclusionReason, isUnknownListener, type LineTranslate, listenerLabel, needsListener, SPEECH_LEVEL_LABELS, speechLevelOf, TAG_SCOPES, type FormatRules, type SpeechLevel } from '@tw/shared';
-import { AiMark, Chip, Box, Button, CandidateCard, DetailIssue, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, EditorChangedWord, EditorDiffWord, Group, HistoryDay, HistoryDiff, HistoryEntry, HistoryFolded, HistoryFoldedRow, type HistoryActor, Icon, Inline, InspectorHeader, Inspector, InspectorList, InspectorTabs, SegmentedControl, SpeakerIdentity, StatusIcon, Switch, TagListEditor, Text, ListItem, Section, KeyValue, KeyValueRow } from '@loca/ui';
+import { AiMark, Chip, TagChip, Box, Button, CandidateCard, DetailIssue, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, EditorChangedWord, EditorDiffWord, Group, HistoryDay, HistoryDiff, HistoryEntry, HistoryFolded, HistoryFoldedRow, type HistoryActor, Icon, Inline, InspectorHeader, Inspector, InspectorList, InspectorTabs, SegmentedControl, SpeakerIdentity, StatusIcon, Switch, TagListEditor, Text, ListItem, Section, KeyValue, KeyValueRow } from '@loca/ui';
 import { changeLines, patchedLine, useLineDetail } from '@/lib/units';
 import { AiButton } from '@/components/ai-button';
 import { AiContextPanel } from '@/components/ai-context';
@@ -427,10 +427,28 @@ function historyOf(unit: LineRecord) {
     } else entries.push({ key: `c:${candidate.id}`, at: time(candidate.createdAt), candidate, times: 1, current });
   }
   const runs = unit.history.filter((run) => !ownRuns.has(run.runId)).map((run) => ({ key: `r:${run.id}`, at: time(run.createdAt), run }));
-  return { texts, entries, runs, count: entries.length + runs.length };
+  // What else happened to it: its status, tags, note, a 되돌리기 (a text event to an older text). A text event forward
+  // is the text's own entry already; a declined suggestion is its own (muted) text entry.
+  const byId = new Map(unit.candidates.map((candidate) => [candidate.id, candidate]));
+  const reverted = (event: LineRecord['events'][number]) => {
+    const from = event.before ? byId.get(event.before) : undefined;
+    const to = event.after ? byId.get(event.after) : undefined;
+    return event.kind === 'text' && from && to && time(to.createdAt) < time(from.createdAt) ? to : undefined;
+  };
+  const events = unit.events.filter((event) => event.kind === 'status' || event.kind === 'tag' || event.kind === 'note' || reverted(event)).map((event) => ({ key: `e:${event.id}`, at: time(event.at), event, revertedTo: reverted(event) }));
+  // The text the line shows now came from a 되돌리기 when the newest text event is one: '현재 번역' goes on it.
+  const lastText = unit.events.find((event) => event.kind === 'text');
+  const currentByRevert = lastText && reverted(lastText) && lastText.after === unit.candidateId ? `e:${lastText.id}` : undefined;
+  // A run's text that replaced a person's: the text entry says so (and when the person's was).
+  const overwrote = new Map(unit.events.flatMap((event) => {
+    const from = event.before ? byId.get(event.before) : undefined;
+    const to = event.after ? byId.get(event.after) : undefined;
+    return event.kind === 'text' && from?.origin === 'human' && to?.runId && time(to.createdAt) > time(from.createdAt) ? [[to.id, from] as const] : [];
+  }));
+  return { texts, entries, runs, events, currentByRevert, overwrote, count: entries.length + runs.length + events.length };
 }
 
-type HistoryFilter = 'all' | 'texts' | 'runs';
+type HistoryFilter = 'all' | 'texts' | 'events' | 'runs';
 
 /**
  * The 이력 tab: the line's history as a timeline in days. An entry says who left the text (a workflow and its step, a
@@ -442,7 +460,8 @@ function HistoryTab({ projectId, unit, tokenPattern, ready }: { projectId: strin
   const save = useSaveLine(projectId);
   const [filter, setFilter] = useState<HistoryFilter>('all');
   const runs = new Map(unit.history.map((run) => [run.runId, run]));
-  const { texts, entries, runs: quietRuns } = historyOf(unit);
+  const { texts, entries, runs: quietRuns, events, currentByRevert, overwrote } = historyOf(unit);
+  const taxonomy = useTaxonomy(projectId);
   type Version = (typeof texts)[number];
   // The text each one changed from: the next older one the line had (a declined suggestion was never the line's).
   const kept = texts.filter((candidate) => candidate.state === 'history');
@@ -454,8 +473,9 @@ function HistoryTab({ projectId, unit, tokenPattern, ready }: { projectId: strin
     });
   const runLink = (runId: string, label: string) => <Text asChild tone="accent" underline="hover"><Link to="/p/$projectId/runs/$runId" params={{ projectId, runId }}>{label}</Link></Text>;
   const timeline = [
-    ...(filter === 'runs' ? entries.filter((entry) => entry.candidate.runId) : entries),
+    ...(filter === 'events' ? [] : filter === 'runs' ? entries.filter((entry) => entry.candidate.runId) : entries),
     ...(filter === 'runs' ? quietRuns : []),
+    ...(filter === 'all' || filter === 'events' ? events : []),
   ].sort((a, b) => b.at - a.at);
 
   const textEntry = (entry: (typeof entries)[number]) => {
@@ -477,7 +497,7 @@ function HistoryTab({ projectId, unit, tokenPattern, ready }: { projectId: strin
         meta={who.what}
         muted={declined}
         badges={<>
-          {entry.current && <Chip variant="outline">현재 번역</Chip>}
+          {entry.current && !currentByRevert && <Chip variant="outline">현재 번역</Chip>}
           {entry.times > 1 && <Text variant="caption" tone="muted" tabular>×{entry.times}</Text>}
         </>}
         time={hourMinute(candidate.createdAt)}
@@ -497,6 +517,43 @@ function HistoryTab({ projectId, unit, tokenPattern, ready }: { projectId: strin
           />
         )}
         {run?.data.issues?.[0] && <Text as="p" variant="caption" tone="warning">{run.data.issues[0]}</Text>}
+        {overwrote.get(candidate.id) && <Text as="p" variant="caption" tone="warning">{hourMinute(overwrote.get(candidate.id)!.createdAt)} 사람 수정을 덮어씀</Text>}
+      </HistoryEntry>
+    );
+  };
+  const statusOf = (id: string | null) => taxonomy.statuses?.find((status) => status.id === id);
+  const tagOf = (id: string | null) => taxonomy.tags?.find((tag) => tag.id === id);
+  const eventEntry = (entry: (typeof events)[number]) => {
+    const { event, revertedTo } = entry;
+    const who = event.runId
+      ? { actor: 'workflow' as const, mark: 'W', name: event.workflowName ? `워크플로 '${event.workflowName}'` : '워크플로' }
+      : { actor: 'person' as const, mark: '사', name: '사람' };
+    const tag = tagOf(event.after ?? event.before);
+    const meta = event.kind === 'status' ? '상태 바꿈'
+      : event.kind === 'tag' ? (event.after ? '태그 붙임' : '태그 뗌')
+      : event.kind === 'note' ? (event.after ? '메모' : '메모 지움')
+      : `↩ ${hourMinute(revertedTo!.createdAt)} 버전으로 되돌림`;
+    return (
+      <HistoryEntry
+        key={entry.key}
+        actor={who.actor}
+        mark={who.mark}
+        title={who.name}
+        meta={meta}
+        badges={currentByRevert === entry.key && <Chip variant="outline">현재 번역</Chip>}
+        time={hourMinute(event.at)}
+        actions={event.runId && runLink(event.runId, '실행 기록 보기')}
+      >
+        {event.kind === 'status' && (
+          <Inline as="p" gap="tight" wrap>
+            {statusOf(event.before) && <><StatusIcon status={statusOf(event.before)!} /> {statusOf(event.before)!.name}</>}
+            <Text tone="muted">→</Text>
+            {statusOf(event.after) ? <><StatusIcon status={statusOf(event.after)!} /> {statusOf(event.after)!.name}</> : '삭제된 상태'}
+          </Inline>
+        )}
+        {event.kind === 'tag' && <TagChip tag={tag ?? { name: '삭제된 태그', color: '' }} />}
+        {event.kind === 'note' && event.after && <Text as="p" breakWords preserveLines>{event.after}</Text>}
+        {revertedTo && <Text as="p" breakWords preserveLines><TokenText text={revertedTo.text} source={unit.source} pattern={tokenPattern} /></Text>}
       </HistoryEntry>
     );
   };
@@ -517,17 +574,17 @@ function HistoryTab({ projectId, unit, tokenPattern, ready }: { projectId: strin
 
   return (
     <Section>
-      <SegmentedControl variant="pills" ariaLabel="이력 거르기" value={filter} onChange={(next) => setFilter(next as HistoryFilter)} items={[{ value: 'all', label: '전체' }, { value: 'texts', label: '번역만' }, { value: 'runs', label: '실행' }]} />
+      <SegmentedControl variant="pills" ariaLabel="이력 거르기" value={filter} onChange={(next) => setFilter(next as HistoryFilter)} items={[{ value: 'all', label: '전체' }, { value: 'texts', label: '번역만' }, { value: 'events', label: '결정·상태·태그' }, { value: 'runs', label: '실행' }]} />
       {!ready ? (
         <Text as="p" variant="caption" tone="subtle">이력을 불러오는 중…</Text>
       ) : timeline.length ? (
         byDay(timeline, (entry) => entry.at).map((day) => (
           <HistoryDay key={day.key} label={dayLabel(day.key)}>
-            {day.items.map((entry) => ('run' in entry ? runEntry(entry) : textEntry(entry)))}
+            {day.items.map((entry) => ('run' in entry ? runEntry(entry) : 'event' in entry ? eventEntry(entry) : textEntry(entry)))}
           </HistoryDay>
         ))
       ) : (
-        <Text as="p" variant="caption" tone="subtle">{filter === 'runs' ? '이 줄이 포함된 실행이 없습니다.' : '아직 번역이 없습니다.'}</Text>
+        <Text as="p" variant="caption" tone="subtle">{filter === 'runs' ? '이 줄이 포함된 실행이 없습니다.' : filter === 'events' ? '아직 상태·태그·메모를 바꾼 적이 없습니다.' : '아직 번역이 없습니다.'}</Text>
       )}
       {ready && filter === 'all' && quietRuns.length > 0 && (
         <HistoryFolded label={`번역에 영향 없는 실행 ${quietRuns.length}건`}>

@@ -431,9 +431,11 @@ export class Runner {
     }
     const edges = definition.edges.filter((candidate) => candidate.source === item.nodeId && candidate.sourceHandle === port);
     const path = [...item.data.path, { nodeId: item.nodeId, port, at: Date.now() }].slice(-200);
-    // 출구 동작: the exit marks the line (tags, status) once, before its lines split. Doing so handles a failure the
-    // exit carried, as a node there did: a line that ends here after it is done. If an action cannot be done (the
-    // database refuses), the line fails here; it is not sent out the 오류 exit, whose actions could fail the same way.
+    // 출구 동작: the exit marks the line (tags, status) once, before its lines split. A status it sets (검토 필요) is a
+    // decision about the failure the exit carried, as is a line going on to another node: the line is no longer
+    // failed. Tags alone only mark it: a line that ends there still ends failed (counted as failed, offered again by
+    // '실패한 줄 다시'). If an action cannot be done (the database refuses), the line fails here; it is not sent out the
+    // 오류 exit, whose actions could fail the same way.
     const actions = exitActions(this.node(run, item.nodeId), port);
     if (actions.length) {
       try {
@@ -445,9 +447,11 @@ export class Runner {
         tx.update(s.runItems).set({ state: 'failed', error: message, data: { ...item.data, path }, notBefore: null }).where(eq(s.runItems.id, item.id)).run();
         return;
       }
-      failure = undefined;
-      error = undefined;
-      item = { ...item, data: { ...item.data, error: undefined } };
+      if (edges.length || actions.some((action) => action.type === 'status')) {
+        failure = undefined;
+        error = undefined;
+        item = { ...item, data: { ...item.data, error: undefined } };
+      }
     }
     const moved = (target: string | undefined) => {
       let state: ItemState = 'queued';
