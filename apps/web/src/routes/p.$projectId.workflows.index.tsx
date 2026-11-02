@@ -117,9 +117,8 @@ function Workflows() {
           <RunDialog
             projectId={projectId}
             workflowId={row.original.id}
-            disabled={row.original.errorCount > 0}
             trigger={
-              <Button variant="ghost" disabled={row.original.errorCount > 0}>
+              <Button variant="ghost" disabledReason={row.original.errorCount > 0 && `오류 ${row.original.errorCount}개를 고친 뒤 실행할 수 있습니다.`}>
                 <Play /> 실행
               </Button>
             }

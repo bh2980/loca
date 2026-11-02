@@ -453,7 +453,7 @@ function ModelTest({ target, connectionId, need }: { target: SettingsTarget; con
       label="모델 시험"
       description="실제 모델을 부릅니다"
       action={
-        <Button variant="outline" disabled={!source.trim() || !choice.model || test.isPending} onClick={() => test.mutate()}>
+        <Button variant="outline" disabled={test.isPending} disabledReason={!choice.model ? '시험할 모델을 고르세요.' : !source.trim() && '번역해 볼 원문을 쓰세요.'} onClick={() => test.mutate()}>
           {test.isPending && <Spinner />}
           시험
         </Button>
@@ -474,9 +474,10 @@ function ModelTest({ target, connectionId, need }: { target: SettingsTarget; con
       {!!tests.data?.length && (
         <Box as="ul" spaceY="hair" variant="caption" tone="muted">
           {tests.data.slice(0, 3).map((call) => (
-            <Stack as="li" key={call.id} direction="row" align="baseline" justify="between" gap="normal">
-              <Text tabular>{dateTime(call.startedAt)} · {call.model}</Text>
-              <Text minWidth={0} truncate tone={call.status === 'failed' ? 'danger' : undefined}>
+            // Two lines, nothing cut: which model, then how it went (a failure's whole message says whether it was the limit or the key).
+            <Stack as="li" key={call.id} gap="none">
+              <Text tabular breakWords>{dateTime(call.startedAt)} · {call.model}</Text>
+              <Text breakWords preserveLines tone={call.status === 'failed' ? 'danger' : undefined}>
                 {call.status === 'running' ? '진행 중' : call.status === 'failed' ? `실패${call.error ? `: ${call.error}` : ''}` : `${((new Date(call.finishedAt!).getTime() - new Date(call.startedAt).getTime()) / 1000).toFixed(1)}초`}
               </Text>
             </Stack>

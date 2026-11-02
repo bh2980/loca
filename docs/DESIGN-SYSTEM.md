@@ -151,14 +151,14 @@
 
 | 부품 | 속성 | 합쳐서 없어진 것 |
 |---|---|---|
-| `Button` | `variant` `size` `tone` `weight` `flush` `align` `reveal` `group` 레이아웃 옵션 | RowRevealButton, RulesAddButton, DisclosureButton |
+| `Button` | `variant` `size` `tone` `weight` `flush` `align` `reveal` `group` `disabledReason`(끄고 이유를 툴팁·설명으로 말한다; 이유가 화면에 안 보이는 비활성은 모두 이것) 레이아웃 옵션 | RowRevealButton, RulesAddButton, DisclosureButton |
 | `Select` (`SelectTrigger`) | `width` `size` `bare` `fixed` | ScriptSelectTrigger, DetailSelectTrigger, KnowledgeSelectTrigger, FullSelectTrigger, RulesKindSelectTrigger, CompactSelect |
 | `Input` · `NumberInput` | `size` `mono` `width` `align` `variant` `onSunken` (간격은 `Box asChild`) | ScriptInput, RulesInput, MonoInput, KnowledgeCodeInput, NumberFieldInput, PromptNameInput |
 | `Textarea` | `mono` `variant` `autoSize` `resize` `rows` | KnowledgeTextarea, PromptTextarea, MonoTextarea, RulesSampleTextarea |
 | `SearchField` · `MenuSearchField` | `size` `onCanvas` `end` | SearchInput, ScriptSearchField, ConversationSearchField |
 | `Combobox` | 옵션 목록 | SearchableSelect |
 | `TagInput` | `value` `onChange` `suggestions` `placeholder` (쉼표·Enter로 태그가 되고, 칸을 떠나면 입력한 글이 태그로 남는다) | ChipField, ChipTextInput, ChipSuggestionList, ChipSuggestionItem, ChipInput |
-| `Collapsible` (`CollapsibleContent`) | `paddingTop` `paddingBottom` `paddingLeft` `marginTop` (접혀 있어도 빈 숨은 요소로 남는다) | InstructionsBody, KnowledgeFold |
+| `Collapsible` (`CollapsibleContent`) | `paddingTop` `paddingBottom` `paddingLeft` `marginTop` (접혀 있어도 빈 숨은 요소로 남는다). 화면(`apps/web`)은 직접 쓰지 않고 아래 두 접기 패턴을 쓴다(`pnpm ui-rules`) | InstructionsBody, KnowledgeFold |
 | `Dialog` (`DialogContent`) | `size` (`sm` 32rem · `md` 36rem · `lg` 48rem) `tall` | LargeDialog, ImportDialogContent |
 | `PopoverContent` · `DropdownMenuContent` · `DropdownMenuSubContent` · `ContextMenuContent` | `width` `padding` `maxHeight` (메뉴는 `trigger` `fit`도) | StatusPopoverContent, FilterPopoverContent, KnowledgePairPopoverContent, ShortcutPopoverContent, ScriptLineMenuContent, ScriptLineSubmenuContent, ScriptFilterMenuContent, ScriptFilterSubmenuContent, ScriptGroupMenuContent, EditorMenuContent, ProjectMenuContent, SettingsMenuContent, ConversationMenuContent |
 | `Spinner` | `size` `tone` `fixed` | AccentSpinner |
@@ -186,7 +186,7 @@
 | `Swatch` · `SwatchPicker` | `color` | SwatchButton, SwatchDot, PickerSwatch, PickerSwatchInput |
 | `DataTable` | `compact` `rowState` 열 `tone` `variant` `weight` `tabular` `mono` `dense` | CompactDataTable, TablePanel, CellInline, 열의 className |
 | `StatusIcon` · `TagChip` · `AiMark` | `small` | SmallStatusIcon |
-| 그 밖 | `Toolbar`류 `FilterBar` `Pager` `FilterChips` · `ActionBar` · `SelectionBar` (`grow`) · `Inspector` `InspectorHeader` `InspectorTabs` `InspectorList` `InspectorResult` `InspectorActionRow` `InspectorToggle` `DirtyBar` · `Disclosure` · `PaneHeader` · `Page` `PageBody` `PageHeader` `HeaderActions` `HeaderViews` `PageHeading` · `RightDock` 부품(`DockProvider` `DockInspector` `DockHeader` `DockHeaderSlot` `WorkspaceShell`) · `Card` · `Markdown` · `TagMenu` `TagListEditor` · `HistoryList` `HistoryItem`(접힌 이력 한 줄, 열면 전문·바뀐 곳, 되돌리기는 hover·열림 때 날짜 자리에) · `FilePickButton`(파일 선택 창을 여는 버튼) · `PermissionMatrix` · `ViewSwitch` · `FilterHeaderButton` `FilterCheck` | |
+| 그 밖 | `Toolbar`류 `FilterBar` `Pager` `FilterChips` · `ActionBar` · `SelectionBar` (`grow`) · `Inspector` `InspectorHeader` `InspectorTabs` `InspectorList` `InspectorResult` `InspectorActionRow` `InspectorToggle` `DirtyBar` · `Disclosure` · `ExpandableRow`(두 번째 접기 패턴: 목록의 한 항목이 아래로 펼쳐짐. 닫힌 채 시작, 열 때 내용을 만든다. `toggle` row/chevron, `size` row/inline, `meta`, `ruled`. 창의 구역은 `Section`/`Group collapsible`) · `PaneHeader` · `Page` `PageBody` `PageHeader` `HeaderActions` `HeaderViews` `PageHeading` · `RightDock` 부품(`DockProvider` `DockInspector` `DockHeader` `DockHeaderSlot` `WorkspaceShell`) · `Card` · `Markdown` · `TagMenu` `TagListEditor` · `HistoryList` `HistoryItem`(접힌 이력 한 줄, 열면 전문·바뀐 곳, 되돌리기는 hover·열림 때 날짜 자리에) · `FilePickButton`(파일 선택 창을 여는 버튼) · `PermissionMatrix` · `ViewSwitch` · `FilterHeaderButton` `FilterCheck` | |
 
 **⑤ 업무 `domains/` (55 파일)** 업무 뜻이 있거나 클래스를 ②로 말할 수 없는 부품만 남는다. 모두 ②~④로 짜고 `className`을 받지 않는다.
 

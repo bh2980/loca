@@ -1,9 +1,8 @@
-import { ChevronRight } from "lucide-react"
 import type * as React from "react"
 import { Box } from "../../primitives/box"
-import { Icon } from "../../primitives/icon"
 import { Text } from "../../primitives/text"
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../../controls/collapsible"
+import { ExpandableRow } from "../../patterns/expandable-row"
+import { Group } from "../../patterns/section"
 import { Select, SelectContent, SelectTrigger, SelectValue } from "../../controls/select"
 import { Chip, type ChipProps } from "../../patterns/chip"
 import { cn } from "../../lib/utils"
@@ -45,29 +44,20 @@ export function TagToggle({ tag, sign, faint, struck, ...props }: Omit<ChipProps
   )
 }
 
-/** The folded 상세 of a request: a small heading that opens its content. */
+/** The 상세 of a request: a folding group like every other (open at first, remembered), its parts below. */
 export function RequestDetails({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <Collapsible>
-      <CollapsibleTrigger className="group flex items-center gap-1 text-xs font-semibold">
-        <Icon icon={ChevronRight} size="sm" turn="group" />
-        {title}
-      </CollapsibleTrigger>
-      <CollapsibleContent className="pt-1">{children}</CollapsibleContent>
-    </Collapsible>
+    <Group title={title} collapsible persistKey="request.details" spaceY="tight">
+      <div>{children}</div>
+    </Group>
   )
 }
 
-/** One folded part of a request's details: its name and size are visible, the content opens on demand. */
+/** One part of a request's details: its name and size are visible, the content opens on demand. */
 export function RequestPart({ title, size, children }: { title: string; size: React.ReactNode; children: React.ReactNode }) {
   return (
-    <Collapsible className="border-b border-subtle last:border-b-0">
-      <CollapsibleTrigger className="group flex w-full items-center gap-1 py-2 text-left text-sm">
-        <Icon icon={ChevronRight} size="sm" tone="muted" shrink={false} turn="group" />
-        <span className="font-medium">{title}</span>
-        <span className="ml-auto truncate pl-2 text-xs text-muted tabular-nums">{size}</span>
-      </CollapsibleTrigger>
-      <CollapsibleContent className="pb-3 pl-4">{children}</CollapsibleContent>
-    </Collapsible>
+    <ExpandableRow ruled summary={<span className="font-medium">{title}</span>} meta={size}>
+      {children}
+    </ExpandableRow>
   )
 }

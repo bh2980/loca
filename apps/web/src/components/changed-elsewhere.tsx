@@ -1,4 +1,5 @@
 import { Button, Notice } from '@loca/ui';
+import { particle } from '@/lib/josa';
 
 /**
  * An unsaved edit whose item changed elsewhere meanwhile (a chat proposal accepted, a workflow,
@@ -21,7 +22,7 @@ export function ChangedElsewhere({ fields, onTakeSaved, onKeepMine }: { fields?:
         </>
       }
     >
-      {`고치는 동안 ${fields?.length ? `${fields.join(', ')}이(가)` : '이 항목이'} 다른 곳에서 바뀌었습니다. 아래는 아직 저장하지 않은 내 수정입니다.`}
+      {`고치는 동안 ${fields?.length ? `${fields.join(', ')}${particle(fields.join(', '), '이', '가')}` : '이 항목이'} 다른 곳에서 바뀌었습니다. 아래는 아직 저장하지 않은 내 수정입니다.`}
     </Notice>
   );
 }

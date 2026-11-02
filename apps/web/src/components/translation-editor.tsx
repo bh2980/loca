@@ -70,6 +70,8 @@ export function TranslationEditor({
   const saved = (unit.translation ?? '').trim();
   const [draft, setDraft, clearDraft, base] = useDraft(`line:${unit.id}`, saved);
   const dirty = draft !== saved;
+  // Settling a collision gives the box its focus back, so ⌘S works without another click.
+  const [refocus, setRefocus] = useState(0);
   const next = nextStatus(statuses, unit.statusId);
   const line = useLineContext(projectId, unit.source, unit.kind);
   // The line's detail carries its AI 제안 (list rows do not).
@@ -203,7 +205,7 @@ export function TranslationEditor({
 
   return (
     <Box spaceY="condensed" onClick={(event) => event.stopPropagation()}>
-      {dirty && base !== saved && <ChangedElsewhere fields={['번역']} onTakeSaved={() => clearDraft()} onKeepMine={() => { clearDraft(); setDraft(draft); }} />}
+      {dirty && base !== saved && <ChangedElsewhere fields={['번역']} onTakeSaved={() => (clearDraft(), setRefocus((tick) => tick + 1))} onKeepMine={() => { clearDraft(); setDraft(draft); setRefocus((tick) => tick + 1); }} />}
       <TranslationInput
         unitId={unit.id}
         value={draft}
@@ -222,7 +224,7 @@ export function TranslationEditor({
         onContinue={completes ? () => ask(draft) : undefined}
         continuing={ai.loading}
         onDismissContinuation={() => (pending.current?.abort(), setAi((state) => ({ ...state, loading: false, dismissed: true })))}
-        focusKey={focusKey}
+        focusKey={(focusKey ?? 0) + refocus}
       />
       {marks}
       {/* What 다듬기 changed in the box and why, while the box still holds its answer. */}
@@ -246,7 +248,7 @@ export function TranslationEditor({
       )}
       <DraftChecks unitId={unit.id} source={unit.source} draft={draft} units={line.units} terms={line.terms} tags={tags} rules={project.data?.formatRules ?? undefined} targetLanguage={project.data?.targetLanguage} onPlace={placeMissing} />
       <Inline wrap gap="condensed" paddingTop="tight">
-        {dirty && <EditorDraftNote>초안 보관됨</EditorDraftNote>}
+        {dirty && <EditorDraftNote>저장 안 한 수정 · 이 브라우저에 보관됨</EditorDraftNote>}
         {save.isPending && <Text variant="caption" tone="muted" aria-live="polite">저장 중…</Text>}
         {marks === undefined && !dirty && unit.statusBy === 'ai' && (
           <Inline as="span" gap="tight" variant="caption" tone="muted">
@@ -254,9 +256,9 @@ export function TranslationEditor({
           </Inline>
         )}
         <Inline gap="condensed" minWidth={0} shrink={false}>
-          {next ? <EditorAction icon={Check} disabled={save.isPending || !draft.trim()} onClick={() => run(true)} title={keyLabel('Mod+Enter')}>
+          {next ? <EditorAction icon={Check} disabled={save.isPending} disabledReason={!draft.trim() && '번역이 비어 있습니다. 번역을 쓴 뒤 넘길 수 있습니다.'} onClick={() => run(true)} title={keyLabel('Mod+Enter')}>
             {next.name}{onDone ? '하고 다음' : '하기'}
-          </EditorAction> : onDone ? <EditorAction icon={ArrowDown} disabled={save.isPending || (dirty && !draft.trim() && statuses.find((status) => status.id === unit.statusId)?.kind === 'final')} onClick={() => run(true)} title={keyLabel('Mod+Enter')}>
+          </EditorAction> : onDone ? <EditorAction icon={ArrowDown} disabled={save.isPending} disabledReason={dirty && !draft.trim() && statuses.find((status) => status.id === unit.statusId)?.kind === 'final' && '완료 상태인 줄의 번역은 비울 수 없습니다.'} onClick={() => run(true)} title={keyLabel('Mod+Enter')}>
             {dirty ? '저장하고 다음 줄' : '다음 줄'}
           </EditorAction> : dirty ? <EditorAction icon={Save} disabled={save.isPending} onClick={() => run(false)} title={keyLabel('Mod+S')}>
             저장
@@ -265,7 +267,7 @@ export function TranslationEditor({
             <EditorAction icon={Languages} variant="ghost" disabled={!!assist.loading} onClick={() => requestAssist('translate')}>
               {draft.trim() ? 'AI 다시' : 'AI 번역'}
             </EditorAction>
-            <EditorAction icon={WandSparkles} variant="ghost" disabled={!!assist.loading || !draft.trim()} onClick={() => requestAssist('refine')} title={keyLabel('Alt+.')}>
+            <EditorAction icon={WandSparkles} variant="ghost" disabled={!!assist.loading} disabledReason={!draft.trim() && '다듬을 번역이 없습니다.'} onClick={() => requestAssist('refine')} title={keyLabel('Alt+.')}>
               다듬기
             </EditorAction>
           </>}

@@ -3,13 +3,13 @@ import { CopyButton } from '@/components/copy-button';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, OctagonAlert, Pause, Play, CircleStop } from 'lucide-react';
+import { ChevronLeft, OctagonAlert, Pause, Play, CircleStop } from 'lucide-react';
 import { runNodeName, type WorkflowNode } from '@tw/shared';
 import { ContextItemList } from '@/components/ai-context';
 import { LineDetail } from '@/components/line-detail';
 import { TermEditor } from '@/components/glossary/term-pane';
 import { HeaderActions, Page } from '@/components/page';
-import { Inspector, InspectorHeader, Group, KeyValue, KeyValueRow, Section, EmptyState, SectionHeading, DataTable, type ColumnDef, Pager, FilterBar, ActionBar, Separator, SplitPane, RunStatusBadge, StatusBarItem, Notice, NoticeDescription, Chip, Box, Button, Icon, Inline, Text, Collapsible, CollapsibleContent, CollapsibleTrigger, Progress, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Tabs, TabsList, TabsTrigger, Skeleton } from '@loca/ui';
+import { Inspector, InspectorHeader, Group, KeyValue, KeyValueRow, Section, EmptyState, SectionHeading, DataTable, type ColumnDef, Pager, FilterBar, ActionBar, Separator, SplitPane, RunStatusBadge, StatusBarItem, Notice, NoticeDescription, Chip, Box, Button, Inline, Text, ExpandableRow, Progress, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Tabs, TabsList, TabsTrigger, Skeleton } from '@loca/ui';
 import { HeaderFilter } from '@/components/header-filter';
 import { client, unwrap } from '@/lib/api';
 import { ITEM_STATE } from '@/lib/labels';
@@ -360,26 +360,20 @@ function RunDetail() {
               <ul>
                 {steps.data.map((step) => (
                   <Box as="li" key={step.id} paddingX="comfortable" paddingY="condensed" variant="body">
-                    <Collapsible>
-                      <CollapsibleTrigger asChild>
-                        <Button variant="ghost" group width="full" justifyContent="start" weight="normal">
-                          <Icon icon={ChevronRight} tone="muted" turn="group" />
-                          {/* The spaces keep the row's words apart when read or copied (#48); the flex gap already spaces them on screen. */}
+                    <ExpandableRow
+                      summary={<>{/* The spaces keep the row's words apart when read or copied (#48); the flex gap already spaces them on screen. */}
                           <Text width="field" truncate align="start" weight="medium">{nodeName(step.nodeId)}</Text>{' '}
                           <Chip variant={step.ok ? 'outline' : 'solid'} tone={step.ok ? undefined : 'danger'}>{step.ok ? '성공' : '실패'}</Chip>{' '}
                           {!step.ok && errorKindLabel(step.errorKind) && <Chip variant="outline">{errorKindLabel(step.errorKind)}</Chip>}{' '}
                           <Text tone="muted">{terms ? `용어 ${step.subjectIds.length}개` : `대사 ${step.subjectIds.length}줄`}</Text>{' '}
                           <Text minWidth={0} truncate tone="muted">{[data.models.find((model) => model.connectionId === step.connectionId)?.name, step.model].filter(Boolean).join(' · ')}</Text>
                           {' '}
-                          <Text marginLeft="auto" variant="caption" tone="muted" tabular>
-                            {((new Date(step.finishedAt).getTime() - new Date(step.startedAt).getTime()) / 1000).toFixed(1)}s
+                      </>}
+                      meta={<>{((new Date(step.finishedAt).getTime() - new Date(step.startedAt).getTime()) / 1000).toFixed(1)}s
                             {step.inputTokens != null && ` · 입력 ${step.inputTokens.toLocaleString()}${step.cachedInputTokens ? `(캐시 ${step.cachedInputTokens.toLocaleString()})` : ''} · 출력 ${(step.outputTokens ?? 0).toLocaleString()}`}
-                            {step.costUsd != null && ` · $${step.costUsd.toFixed(4)}`}
-                          </Text>
-                        </Button>
-                      </CollapsibleTrigger>
-                      <Box asChild marginTop="condensed" spaceY="condensed" paddingLeft="indent">
-                      <CollapsibleContent>
+                            {step.costUsd != null && ` · $${step.costUsd.toFixed(4)}`}</>}
+                    >
+                      <Box spaceY="condensed">
                         {step.error && <Text as="p" tone="danger">{[errorKindLabel(step.errorKind), step.error].filter(Boolean).join(' · ')}</Text>}
                         {Array.isArray(step.context) && (
                           <Group
@@ -401,9 +395,8 @@ function RunDetail() {
                               <Box as="pre" maxHeight="scroll-lg" overflow="auto" radius="base" background="sunken" padding="condensed" variant="caption">{JSON.stringify(step.output, null, 2)}</Box>
                           </Group>
                         )}
-                      </CollapsibleContent>
                       </Box>
-                    </Collapsible>
+                    </ExpandableRow>
                   </Box>
                 ))}
                 {steps.data.length === 0 && <Text as="li" paddingX="comfortable" paddingY="spacious" variant="body" tone="muted">아직 AI 호출이 없습니다.</Text>}

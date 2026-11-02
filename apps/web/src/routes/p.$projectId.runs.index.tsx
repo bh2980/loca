@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { ChevronRight, Copy } from 'lucide-react';
+import { Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import { useQuery } from '@tanstack/react-query';
 import { Page } from '@/components/page';
-import { InspectorHeader, Inspector, InspectorList, SplitPane, EmptyState, DataTable, type ColumnDef, RunStatusBadge, Box, Button, Icon, Inline, Progress, Spinner, Text, Collapsible, CollapsibleContent, CollapsibleTrigger, Skeleton, ContextMenuItem, ListItem, Section } from '@loca/ui';
+import { InspectorHeader, Inspector, InspectorList, SplitPane, EmptyState, DataTable, type ColumnDef, RunStatusBadge, Box, Button, Inline, Progress, Spinner, Text, ExpandableRow, Skeleton, ContextMenuItem, ListItem, Section } from '@loca/ui';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { dateTime, clock } from '@/lib/datetime';
@@ -242,26 +242,19 @@ function SentRequest({ projectId, callId, hasRequest, hasResponse }: { projectId
   const [open, setOpen] = useState(false);
   const request = useQuery({ ...q.aiCallRequest(projectId, callId), enabled: open });
   return (
-    <Box asChild paddingTop="tight">
-    <Collapsible open={open} onOpenChange={setOpen}>
-      <CollapsibleTrigger asChild>
-        <Button variant="ghost" size="inline" flush="start" tone="muted">
-          <Icon icon={ChevronRight} turn={open} /> {hasRequest ? (hasResponse ? '입출력' : '보낸 내용') : '받은 출력'}
-        </Button>
-      </CollapsibleTrigger>
-      <Box asChild marginTop="tight" spaceY="condensed">
-      <CollapsibleContent>
-        {!request.data ? (
-          <Skeleton height="placeholder-sm" />
-        ) : (
-          <>
-            {request.data.request != null && <CallText label="보낸 내용" text={request.data.request} />}
-            {request.data.response != null && <CallText label="받은 출력" text={request.data.response} />}
-          </>
-        )}
-      </CollapsibleContent>
-      </Box>
-    </Collapsible>
+    <Box paddingTop="tight">
+      <ExpandableRow size="inline" open={open} onOpenChange={setOpen} summary={hasRequest ? (hasResponse ? '입출력' : '보낸 내용') : '받은 출력'}>
+        <Box spaceY="condensed">
+          {!request.data ? (
+            <Skeleton height="placeholder-sm" />
+          ) : (
+            <>
+              {request.data.request != null && <CallText label="보낸 내용" text={request.data.request} />}
+              {request.data.response != null && <CallText label="받은 출력" text={request.data.response} />}
+            </>
+          )}
+        </Box>
+      </ExpandableRow>
     </Box>
   );
 }

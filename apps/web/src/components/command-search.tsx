@@ -1,10 +1,11 @@
 import { useDeferredValue, useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import { BookA, FileText, ListTree, MessageSquare, ScrollText, Search, UserRound } from 'lucide-react';
+import { BookA, FileText, Keyboard, ListTree, MessageSquare, ScrollText, Search, UserRound } from 'lucide-react';
 import { Chip, Box, Button, CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, Inline, Kbd, Text } from '@loca/ui';
 import { q } from '@/lib/queries';
 import { keyLabel } from '@/lib/keys';
+import { openShortcutHelp } from '@/components/shortcut-help';
 import { chatDock } from '@/lib/chat-dock';
 import { PersonName } from '@/lib/person-colors';
 import { useCharacters, useDocuments } from '@/lib/knowledge';
@@ -32,7 +33,7 @@ const has = (needle: string, ...texts: (string | null | undefined)[]) => texts.s
  * ⌘K: anywhere in the project — scenes, glossary terms, people, documents, chat history and lines (source,
  * translation, speaker, key) — and jump there. The line list's own 찾기 only narrows what it shows.
  */
-export function CommandSearch({ projectId, compact = false }: { projectId: string; compact?: boolean }) {
+export function CommandSearch({ projectId, compact = false, listen = true }: { projectId: string; compact?: boolean; /** Off for a copy that is mounted but hidden, so ⌘K opens one dialog. */ listen?: boolean }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [scope, setScope] = useState<SearchScope>('all');
@@ -77,6 +78,7 @@ export function CommandSearch({ projectId, compact = false }: { projectId: strin
     ((scope === 'all' || scope === 'chat') && chatSearch.isFetching);
 
   useEffect(() => {
+    if (!listen) return;
     const onKey = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault();
@@ -85,7 +87,7 @@ export function CommandSearch({ projectId, compact = false }: { projectId: strin
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [listen]);
 
   const go = (to: () => void) => {
     setOpen(false);
@@ -112,6 +114,14 @@ export function CommandSearch({ projectId, compact = false }: { projectId: strin
         </Inline>
         <CommandList>
           {query && <CommandEmpty>{isFetching ? '찾는 중…' : '결과가 없습니다.'}</CommandEmpty>}
+          {!query && (
+            <CommandGroup heading="도움말">
+              <CommandItem value="shortcut-help" onSelect={() => go(openShortcutHelp)}>
+                <Keyboard /> 단축키 보기
+                <Kbd>?</Kbd>
+              </CommandItem>
+            </CommandGroup>
+          )}
           {(scope === 'all' || scope === 'scenes') && !!sceneHits.length && (
             <CommandGroup heading="장면">
               {sceneHits.map((scene) => (

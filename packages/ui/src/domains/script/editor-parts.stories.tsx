@@ -50,7 +50,7 @@ export const DiffAndNotes: Story = {
         <EditorDiffWord change="removed">찾았잖아</EditorDiffWord> <EditorDiffWord change="added">찾았다고</EditorDiffWord> <EditorDiffWord>한참</EditorDiffWord>
       </EditorPreviousDiff>
       <Text variant="caption" tone="warning">
-        <Inline as="span" inline gap="tight">용어 1</Inline> <EditorDraftNote>초안 보관됨</EditorDraftNote> <EditorTermMark dotted>하윤</EditorTermMark>
+        <Inline as="span" inline gap="tight">용어 1</Inline> <EditorDraftNote>저장 안 한 수정 · 이 브라우저에 보관됨</EditorDraftNote> <EditorTermMark dotted>하윤</EditorTermMark>
       </Text>
     </Stack>
   ),

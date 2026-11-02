@@ -6,6 +6,7 @@ import { ApiError } from '@/lib/api';
 import { AppSidebar } from '@/components/app-sidebar';
 import { ChatPanel } from '@/components/chat/chat-panel';
 import { CommandSearch } from '@/components/command-search';
+import { ShortcutHelp } from '@/components/shortcut-help';
 import { chatDock, useChatDockOpen } from '@/lib/chat-dock';
 import { useChatUnread } from '@/lib/chat-unread';
 import { useJobNotices } from '@/lib/job-notices';
@@ -88,11 +89,11 @@ function ProjectLayout() {
         <AppSidebar projectId={projectId} />
         <SidebarInset>
           <WorkspaceShell open={open} onOpenChange={(next) => { setPropertiesOpen(next); if (!next) chatDock.set(false); }} dock={<>
-            <DockHeader mode={chatOpen ? 'agent' : 'properties'} onMode={changeMode} onToggle={toggleDock} unread={unread || waiting > 0} tools={<CommandSearch projectId={projectId} compact />} hasProperties={hasInspector} />
+            <DockHeader mode={chatOpen ? 'agent' : 'properties'} onMode={changeMode} onToggle={toggleDock} unread={unread || waiting > 0} tools={<><CommandSearch projectId={projectId} compact listen={open} /><ShortcutHelp listen={open} /></>} hasProperties={hasInspector} />
             <DockPane active={!chatOpen}><DockInspector /></DockPane>
             <DockPane active={chatOpen}><ChatPanel projectId={projectId} /></DockPane>
           </>}>
-            <PageHeader title={current.item.label} leading={<SidebarTrigger />} tools={!open && <DockHeader mode="properties" onMode={changeMode} onToggle={toggleDock} open={false} tools={<CommandSearch projectId={projectId} compact />} />} />
+            <PageHeader title={current.item.label} leading={<SidebarTrigger />} tools={!open && <DockHeader mode="properties" onMode={changeMode} onToggle={toggleDock} open={false} tools={<><CommandSearch projectId={projectId} compact /><ShortcutHelp /></>} />} />
             <Stack as="main" minHeight={0} grow overflow="hidden" background="page"><Outlet /></Stack>
             <AppStatusBar>
               <Popover>

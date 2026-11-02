@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { AI_PROMPTS, COMPLETE_SYSTEM, CONTEXT_FIELDS, DEFAULT_EDITOR_AI, type EditorAi, type EditorButton } from '@tw/shared';
 import { ModelPicker } from '@/components/model-picker';
-import { Box, Button, Checkbox, Group, Collapsible, CollapsibleContent, CollapsibleTrigger, Field, HelpTip, Inline, SaveStatusLine, Stack, Switch, Text, Textarea, Input, Section } from '@loca/ui';
+import { Box, Button, Checkbox, Group, ExpandableRow, Field, HelpTip, Inline, SaveStatusLine, Stack, Switch, Text, Textarea, Input, Section } from '@loca/ui';
 import { targetScope, type SettingsTarget } from '@/lib/settings-target';
 import { useTargetSettings } from '@/lib/target-settings';
 import { useFormFrom } from '@/lib/use-form-from';
@@ -58,26 +58,24 @@ function Instructions({ id, label, value, preset, presetLabel, storage, onSave }
   const [open, setOpen] = useState(false);
   const own = value !== preset;
   return (
-    <Collapsible open={open} onOpenChange={setOpen}>
-      <Inline gap="condensed" minWidth={0} variant="body">
+    <ExpandableRow
+      toggle="chevron"
+      open={open}
+      onOpenChange={setOpen}
+      label={`${label} 지시문 ${open ? '닫기' : '편집'}`}
+      summary={<>
         <Text width="field-xs" shrink={false}>{label}</Text>
         <Text minWidth={0} grow truncate tone="muted">{own ? `${presetLabel}에서 바꿈` : `${presetLabel} 사용 중`}</Text>
-        {own && (
-          <Button variant="ghost" onClick={() => onSave(preset)}>
-            되돌리기
-          </Button>
-        )}
-        <CollapsibleTrigger asChild>
-          <Button variant="ghost" aria-expanded={open}>
-            {open ? '닫기' : '편집'}
-          </Button>
-        </CollapsibleTrigger>
-      </Inline>
-      <CollapsibleContent paddingTop="condensed">
-        <SavedText id={id} label={`${label} 지시문`} value={value} storage={storage} onSave={onSave} />
-        <Field.Description attached>출력 형식 안내는 서버가 덧붙입니다.</Field.Description>
-      </CollapsibleContent>
-    </Collapsible>
+      </>}
+      meta={own && (
+        <Button variant="ghost" onClick={() => onSave(preset)}>
+          되돌리기
+        </Button>
+      )}
+    >
+      <SavedText id={id} label={`${label} 지시문`} value={value} storage={storage} onSave={onSave} />
+      <Field.Description attached>출력 형식 안내는 서버가 덧붙입니다.</Field.Description>
+    </ExpandableRow>
   );
 }
 

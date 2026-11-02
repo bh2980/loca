@@ -1,10 +1,8 @@
 import type * as React from "react"
-import { Check, ChevronRight, CircleAlert, Wrench } from "lucide-react"
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../../controls/collapsible"
+import { Check, CircleAlert, Wrench } from "lucide-react"
+import { ExpandableRow } from "../../patterns/expandable-row"
 import { Group } from "../../patterns/section"
-import { Button } from "../../controls/button"
 import { Spinner } from "../../controls/spinner"
-import { cn } from "../../lib/utils"
 
 /** A card in the conversation for a change or result: a header (`ToolCardHeader`), a body and optional footer buttons. */
 export function ToolCard({ children }: { children: React.ReactNode }) {
@@ -47,19 +45,19 @@ export function ToolCallRow({ status, label, detail, output }: { status: "runnin
   )
 }
 
-/** A line of source text with where it comes from; long text is clamped and opens in full. */
+/** A line of source text with where it comes from; long text is clamped and opens in full (the shared `ExpandableRow`). */
 export function SourceExcerpt({ heading, text, expandLabel }: { heading: string; text: string; expandLabel: string }) {
   return (
-    <Collapsible className="min-w-0 rounded-md bg-sunken/50 px-2 py-2">
-      <CollapsibleTrigger className="group flex w-full min-w-0 flex-col items-start text-left">
-        <span className="text-subtle">{heading}</span>
-        <span className="mt-0.5 line-clamp-2 break-words text-default" title={text}>{text}</span>
-        <span className="mt-1 text-subtle">{expandLabel} <ChevronRight className="inline size-3 transition-transform group-data-[state=open]:rotate-90" /></span>
-      </CollapsibleTrigger>
-      <CollapsibleContent>
-        <p className="mt-2 whitespace-pre-wrap break-words border-t border-subtle pt-2 text-default">{text}</p>
-      </CollapsibleContent>
-    </Collapsible>
+    <div className="min-w-0 rounded-md bg-sunken/50 px-1 py-1">
+      <ExpandableRow label={expandLabel} summary={
+        <span className="flex min-w-0 flex-col">
+          <span className="text-xs text-subtle">{heading}</span>
+          <span className="mt-0.5 line-clamp-2 break-words text-xs text-default group-data-[state=open]:hidden" title={text}>{text}</span>
+        </span>
+      }>
+        <p className="whitespace-pre-wrap break-words text-xs text-default">{text}</p>
+      </ExpandableRow>
+    </div>
   )
 }
 
@@ -75,12 +73,10 @@ export function ToolErrorCard({ children }: { children: React.ReactNode }) {
 /** Where the server summarized the conversation's start: a line that opens to the summary the model reads in its place. */
 export function CompactionNotice({ title, open, onToggle, children }: { title: string; open: boolean; onToggle: () => void; children: React.ReactNode }) {
   return (
-    <div className="text-xs text-muted" role="status">
-      <Button variant="ghost" size="row" className="gap-1 px-0 text-xs" onClick={onToggle} aria-expanded={open}>
-        <ChevronRight className={cn("size-3.5 transition-transform", open && "rotate-90")} />
-        {title}
-      </Button>
-      {open && <p className="mt-1 rounded-md bg-sunken px-3 py-2 whitespace-pre-wrap">{children}</p>}
+    <div role="status">
+      <ExpandableRow size="inline" open={open} onOpenChange={onToggle} summary={title}>
+        <p className="rounded-md bg-sunken px-3 py-2 text-xs whitespace-pre-wrap text-muted">{children}</p>
+      </ExpandableRow>
     </div>
   )
 }

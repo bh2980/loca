@@ -1,8 +1,8 @@
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { LineMark } from '@tw/shared';
 import { Link } from '@tanstack/react-router';
-import { AppWindow, Check, ChevronRight, FileText, Inbox, MessageSquareText, Plus, type LucideIcon } from 'lucide-react';
-import { Box, Button, Collapsible, CollapsibleContent, CollapsibleTrigger, ContextMenu, ContextMenuTrigger, Icon, Inline, ListRow, Stack, Count, SearchField, Meter, Text, Tooltip, TooltipContent, TooltipTrigger, type StatusLike, ContextMenuContent } from '@loca/ui';
+import { AppWindow, Check, FileText, Inbox, MessageSquareText, Plus, type LucideIcon } from 'lucide-react';
+import { Box, Button, ExpandableRow, ContextMenu, ContextMenuTrigger, Icon, Inline, ListRow, Stack, Count, SearchField, Meter, Text, Tooltip, TooltipContent, TooltipTrigger, type StatusLike, ContextMenuContent } from '@loca/ui';
 import { GROUP_KIND, SCRIPT_VIEW, SOURCE_GROUP_LABEL } from '@/lib/labels';
 
 export interface GroupRow {
@@ -143,18 +143,10 @@ export function GroupList({ projectId, groups, finalIds, initialIds, scope, revi
 /** A section of scenes: a fold button and the link that selects the section, the scenes under it. */
 function SectionBranch({ label, open, onOpenChange, navigation, disabled, children }: { label: string; open: boolean; onOpenChange: (open: boolean) => void; navigation: ReactNode; disabled: boolean; children: ReactNode }) {
   return (
-    <Box asChild marginTop="condensed">
-      <Collapsible open={open} onOpenChange={onOpenChange}>
-        <Inline minWidth={0} gap="tight">
-          <CollapsibleTrigger asChild>
-            <Button variant="ghost" size="icon-sm" disabled={disabled} aria-label={`${open ? '접기' : '펴기'} ${label}`} aria-expanded={open} title={`${open ? '접기' : '펴기'} ${label}`}>
-              <Icon icon={ChevronRight} turn={open} />
-            </Button>
-          </CollapsibleTrigger>
-          {navigation}
-        </Inline>
-        <Box asChild paddingLeft="wide"><CollapsibleContent>{children}</CollapsibleContent></Box>
-      </Collapsible>
+    <Box marginTop="condensed">
+      <ExpandableRow toggle="chevron" open={open} onOpenChange={onOpenChange} disabled={disabled} label={`${open ? '접기' : '펴기'} ${label}`} summary={navigation}>
+        {children}
+      </ExpandableRow>
     </Box>
   );
 }
