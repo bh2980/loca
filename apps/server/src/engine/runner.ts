@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import { and, asc, count, desc, eq, gt, gte, inArray, isNull, lte, ne, notInArray, or, sql } from 'drizzle-orm';
 import jsonLogic from 'json-logic-js';
 import * as ai from '@tw/ai';
-import { CONNECTION_KIND_INFO, judgmentProblem, SPEECH_LEVEL_LABELS, estimateTokens, batchConfigSchema, batchTokens, lineCostIn, FUNCTIONS, functionTakes, INPUT_TYPES, choiceKey, isUnknownListener, lineMarksOf, runNodeName, type AiNode, type ConditionData, type FunctionName, type ItemErrorKind, pickPaths, previousStepId, retryModel, type FunctionNode, type RetryNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+import { CONNECTION_KIND_INFO, judgmentProblem, SPEECH_LEVEL_LABELS, estimateTokens, batchConfigSchema, batchTokens, lineCostIn, FUNCTIONS, functionTakes, INPUT_TYPES, choiceKey, isUnknownListener, lineMarksOf, runNodeName, type AiNode, type ConditionData, type FunctionName, type ItemErrorKind, nodeRetries, pickPaths, previousStepId, retryModel, retryRuleIndex, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
 type GatherNode = Extract<WorkflowNode, { type: 'gather' }>;
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
@@ -35,7 +35,7 @@ type Unit = typeof s.units.$inferSelect;
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 type StepRecord = Omit<typeof s.runSteps.$inferInsert, 'ok' | 'finishedAt'>;
 /** A queued line waiting at a slow node, with its script position for batching. */
-type Waiting = { id: string; unitId: string; nodeId: string; groupId: string; seq: number; kind: string; tokens: number; since: Date; plan: number | null; factor: number; /** The model a 재요청 node sends it to this node on (a run.models key); null: the node's own. */ model: string | null };
+type Waiting = { id: string; unitId: string; nodeId: string; groupId: string; seq: number; kind: string; tokens: number; since: Date; plan: number | null; factor: number; /** The model a retry rule sends it to this node on (a run.models key); null: the node's own. */ model: string | null };
 
 /** Functions that write beyond the line itself, and the change topic they touch. */
 const FUNCTION_TOPICS: Record<string, Topic[]> = { ...APPLY_TOPICS, setStatus: ['terms'] };
@@ -52,7 +52,7 @@ const SETTLE_BUDGET_MS = 25;
 const SETTLE_GAP_MS = 10;
 /**
  * Failures that will not go away by trying the next batch: the run pauses at the first one. A rate
- * limit is not among them: it leaves through the node's "error" exit like any failure (a 재요청 node
+ * limit is not among them: it leaves through the node's "error" exit like any failure (a retry rule
  * can wait and send it again), and an exhausted subscription fails every call at once, which the
  * consecutive-failure guard catches within a few calls.
  */
@@ -157,7 +157,7 @@ function withCaps(current: s.RunLimits | null, caps: RunCaps | undefined): s.Run
   return next;
 }
 
-/** Runs that resumeRun / continueRun set going: a runner wakes them now instead of when a 재요청 wait it slept on ends. */
+/** Runs that resumeRun / continueRun set going: a runner wakes them now instead of when a retry wait it slept on ends. */
 const woken = new EventEmitter();
 
 /**
@@ -215,7 +215,7 @@ export class Runner {
   private followUp?: NodeJS.Timeout;
   private inflight = new Map<string, Set<Promise<void>>>();
   private aborts = new Map<string, AbortController>();
-  /** Runs with nothing to do until lines held by a 재요청 node's wait are due: when, and the timer that ticks then. No polling meanwhile. */
+  /** Runs with nothing to do until lines held by a retry rule's wait are due: when, and the timer that ticks then. No polling meanwhile. */
   private sleeping = new Map<string, { until: number; timer: NodeJS.Timeout }>();
 
   constructor(
@@ -260,7 +260,7 @@ export class Runner {
     try {
       let active = false;
       for (const run of this.db.select().from(s.runs).where(eq(s.runs.status, 'running')).all()) {
-        // A run whose lines all wait for a 재요청 node's wait does nothing until the first is due.
+        // A run whose lines all wait for a retry rule's wait does nothing until the first is due.
         const asleep = this.sleeping.get(run.id);
         if (asleep) {
           if (asleep.until > Date.now()) continue;
@@ -355,7 +355,7 @@ export class Runner {
     // Insertion order, not finished_at: calls that end in the same millisecond must not swap places.
     // Failures before the person last continued the run (on another model, say) do not count again.
     const since = run.continuations.at(-1)?.at;
-    // A failed request whose lines a 재요청 node sends back is neither a failure nor a success here (retriedSteps).
+    // A failed request whose lines retry rules send back is neither a failure nor a success here (retriedSteps).
     const skipped = [...(this.retriedSteps.get(runId) ?? [])];
     const recent = this.db.select({ ok: s.runSteps.ok }).from(s.runSteps).where(and(eq(s.runSteps.runId, runId), since ? gte(s.runSteps.startedAt, new Date(since)) : undefined, skipped.length ? notInArray(s.runSteps.id, skipped) : undefined)).orderBy(desc(sql`rowid`)).limit(max).all();
     if (recent.length === max && recent.every((step) => !step.ok))
@@ -399,7 +399,7 @@ export class Runner {
    * exit with several edges sends the line down each of them: the item takes the first, and a copy
    * of it each of the others (validation keeps those branches apart until they end).
    */
-  private route(tx: Tx, run: Run, item: Item, port: string, error?: string, kind?: ItemErrorKind, notBefore?: number) {
+  private route(tx: Tx, run: Run, item: Item, port: string, error?: string, kind?: ItemErrorKind) {
     const definition: WorkflowDefinition = run.definition;
     // What conditions read as error: set by an "error" exit (a node without its own kind keeps the
     // failure it was sent with), kept through conditions (they only route the
@@ -409,6 +409,25 @@ export class Runner {
     const failure =
       port === 'error' ? (kind || !previous ? { kind: kind ?? 'other', message: error ?? '', nodeId: item.nodeId } : { ...previous, message: error || previous.message }) : routing ? previous : undefined;
     item = { ...item, data: { ...item.data, error: failure, ...(port === 'error' && failure && { lastError: failure }) } };
+    // A failed line an AI node's retry rule takes goes to the same node again, without a visit: in smaller requests,
+    // after a wait, on another model, as the rule says. Anything else leaves through the 오류 exit.
+    const resend = port === 'error' && failure ? this.retryRule(run, this.node(run, item.nodeId), item, failure.kind) : undefined;
+    if (resend) {
+      const { rule, key } = resend;
+      const picked = retryModel(rule);
+      const retry: NonNullable<ItemData['retry']> = {
+        times: { ...item.data.retry?.times, [key]: (item.data.retry?.times[key] ?? 0) + 1 },
+        factor: (item.data.retry?.factor ?? 1) * rule.scale,
+        last: { kind: failure!.kind, message: failure!.message, nodeId: item.nodeId, rule: Number(key.slice(key.lastIndexOf(':') + 1)), ...(rule.wait > 0 && { waitSeconds: rule.wait }) },
+        ...(picked && { model: { nodeId: item.nodeId, key: choiceKey(picked) } }),
+      };
+      const path = [...item.data.path, { nodeId: item.nodeId, port: 'retry', at: Date.now() }].slice(-200);
+      tx.update(s.runItems)
+        .set({ state: 'queued', error: null, data: { ...item.data, error: undefined, retry, path }, notBefore: rule.wait > 0 ? new Date(Date.now() + rule.wait * 1000) : null })
+        .where(eq(s.runItems.id, item.id))
+        .run();
+      return;
+    }
     const edges = definition.edges.filter((candidate) => candidate.source === item.nodeId && candidate.sourceHandle === port);
     const path = [...item.data.path, { nodeId: item.nodeId, port, at: Date.now() }].slice(-200);
     const moved = (target: string | undefined) => {
@@ -429,7 +448,7 @@ export class Runner {
           message = `'${node ? runNodeName(definition, node) : nodeId}' 노드 방문 상한(${definition.settings.maxVisitsPerNode}회)을 넘었습니다.`;
         }
       }
-      return { nodeId, state, visits, data: { ...item.data, path }, error: message, notBefore: notBefore ? new Date(notBefore) : null };
+      return { nodeId, state, visits, data: { ...item.data, path }, error: message, notBefore: null };
     };
     tx.update(s.runItems).set(moved(edges[0]?.target)).where(eq(s.runItems.id, item.id)).run();
     for (const edge of edges.slice(1)) tx.insert(s.runItems).values({ runId: run.id, subjectId: item.subjectId, plan: item.plan, ...moved(edge.target) }).run();
@@ -495,7 +514,7 @@ export class Runner {
     return new Map(rows.map((row) => [`${row.plan}|${row.nodeId}`, row.count]));
   }
 
-  /** Failed steps per run that a 재요청 node takes back: they do not count toward 연속 실패. */
+  /** Failed steps per run whose lines retry rules take back: they do not count toward 연속 실패. */
   private retriedSteps = new Map<string, Set<string>>();
   /** Requests in flight per run and node: how many of a node's batches are being worked on at once. */
   private callsByNode = new Map<string, Map<string, number>>();
@@ -616,7 +635,7 @@ export class Runner {
         this.db.update(s.runs).set({ status: 'completed', finishedAt: new Date() }).where(eq(s.runs.id, run.id)).run();
         this.notify(run.id);
       } else {
-        // Lines held by a 재요청 node's wait: nothing to do until the first is due.
+        // Lines held by a retry rule's wait: nothing to do until the first is due.
         const due = this.db
           .select({ at: sql<number>`min(${s.runItems.notBefore})` })
           .from(s.runItems)
@@ -648,7 +667,7 @@ export class Runner {
       if (!node) continue;
       held.set(nodeId, { node, lines });
       const before = [...(upstream.get(nodeId) ?? [])].filter((id) => id !== nodeId);
-      // Lines a 재요청 node sent back are batched apart from the others, by a smaller budget (their factor), and apart by the model they will go to.
+      // Lines a retry rule sent back are batched apart from the others, by a smaller budget (their factor), and apart by the model they will go to.
       for (const sized of Map.groupBy(lines, (line) => `${line.factor}|${line.model ?? ''}`).values()) {
         const config = node.type === 'ai' ? scaleBatch(runBatch(run, node), sized[0]!.factor) : null;
         let batches: Waiting[][];
@@ -766,23 +785,6 @@ export class Runner {
           return this.route(tx, run, item, 'error', `조건식 오류: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
-      case 'retry': {
-        // Sent back while the failure is one of its kinds and the node's times are not used up; else on through
-        // its error exit (the next 재요청 node of a chain, or the workflow's failure path), untouched.
-        if (!this.accepts(node, item)) return this.route(tx, run, item, 'error');
-        const error = item.data.error!;
-        const { wait } = node.config;
-        // The AI node the lines go back to, and the model they go on there (none picked: that node's own).
-        const target = run.definition.edges.find((edge) => edge.source === node.id && edge.sourceHandle === 'retry')?.target;
-        const picked = retryModel(node);
-        const retry: NonNullable<ItemData['retry']> = {
-          times: { ...item.data.retry?.times, [node.id]: (item.data.retry?.times[node.id] ?? 0) + 1 },
-          factor: (item.data.retry?.factor ?? 1) * node.config.scale,
-          last: { kind: error.kind, message: error.message, nodeId: node.id, ...(wait > 0 && { waitSeconds: wait }) },
-          ...(picked && target && { model: { nodeId: target, key: choiceKey(picked) } }),
-        };
-        return this.route(tx, run, { ...item, data: { ...item.data, retry } }, 'retry', undefined, undefined, wait > 0 ? Date.now() + wait * 1000 : undefined);
-      }
       case 'function': {
         if (!functionTakes(node.config.fn, run.subject)) return this.route(tx, run, item, 'error', unsupported(run.definition, node, run.subject), 'unsupported');
         const fn = syncFunctions[node.config.fn as FunctionName];
@@ -801,9 +803,15 @@ export class Runner {
     }
   }
 
-  /** Whether a 재요청 node sends the item back: its failure is one of the node's kinds and the item has not used up the node's times. */
-  private accepts(node: RetryNode, item: Item) {
-    return Boolean(item.data.error && node.config.kinds.includes(item.data.error.kind) && (item.data.retry?.times[node.id] ?? 0) < node.config.maxTimes);
+  /**
+   * The rule of an AI node that sends `item` back after a failure of `kind`, with its index (the key its times are
+   * counted under is `node:index`), or undefined when none does: the line leaves through 오류.
+   */
+  private retryRule(run: Run, node: WorkflowNode | undefined, item: Item, kind: ItemErrorKind) {
+    if (node?.type !== 'ai') return undefined;
+    const rules = nodeRetries(run.definition, node);
+    const index = retryRuleIndex(rules, kind, (at) => item.data.retry?.times[`${node.id}:${at}`] ?? 0);
+    return index < 0 ? undefined : { rule: rules[index]!, key: `${node.id}:${index}` };
   }
 
   private dispatch(run: Run, node: WorkflowNode, lines: Waiting[]) {
@@ -815,7 +823,7 @@ export class Runner {
     if (!controller || controller.signal.aborted) this.aborts.set(run.id, (controller = new AbortController()));
     const set = this.inflight.get(run.id) ?? new Set();
     this.inflight.set(run.id, set);
-    // Lines sent back on a model of a 재요청 node go together on that model (the batches were grouped by it).
+    // Lines sent back on a retry rule's model go together on that model (the batches were grouped by it).
     const modelKey = node.type === 'ai' ? (lines[0]?.model ?? choiceKey(node.config.model)) : null;
     const byNode = this.callsByNode.get(run.id) ?? new Map<string, number>();
     this.callsByNode.set(run.id, byNode);
@@ -1073,20 +1081,9 @@ export class Runner {
     this.guard(run.id, { code: (error as { code?: string }).code, message });
   }
 
-  /**
-   * Whether every one of these lines (as they were before this failure) is sent back by the 재요청 nodes
-   * after `nodeId`'s error exit, for a failure of `kind`: the first node of the chain takes it, or else the next one, and so on.
-   */
+  /** Whether every one of these lines (as they were before this failure) is sent back by `nodeId`'s retry rules for a failure of `kind`. */
   private takenBack(run: Run, nodeId: string, batch: Item[], kind: ItemErrorKind) {
-    return batch.every((item) => {
-      const seen = new Set<string>();
-      for (let from = nodeId; ; ) {
-        const next = this.node(run, run.definition.edges.find((edge) => edge.source === from && edge.sourceHandle === 'error')?.target ?? '');
-        if (next?.type !== 'retry' || seen.has(next.id)) return false;
-        seen.add(next.id);
-        if (this.accepts(next, { ...item, data: { ...item.data, error: { kind, message: '', nodeId } } })) return true;
-        from = next.id;
-      }
-    });
+    const node = this.node(run, nodeId);
+    return batch.every((item) => this.retryRule(run, node, item, kind) !== undefined);
   }
 }

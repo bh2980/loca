@@ -19,19 +19,21 @@ interface NodeLibraryProps {
   onSelect: (item: NodeLibraryItem) => void
   onDragStart?: (item: NodeLibraryItem, event: React.DragEvent<HTMLButtonElement>) => void
   placeholder?: string
+  /** `rail` (default) stands beside a canvas; `menu` fills a popover (its search takes the focus). */
+  variant?: "rail" | "menu"
 }
 
 /** Searchable node palette. Items can be clicked or dragged onto a canvas. */
-export function NodeLibrary({ groups, onSelect, onDragStart, placeholder = "노드 찾기" }: NodeLibraryProps) {
+export function NodeLibrary({ groups, onSelect, onDragStart, placeholder = "노드 찾기", variant = "rail" }: NodeLibraryProps) {
   const [query, setQuery] = useState("")
   const filtered = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase()
     return groups.map((group) => ({ ...group, items: group.items.filter((item) => !needle || `${item.label} ${item.description ?? ""} ${group.label}`.toLocaleLowerCase().includes(needle)) })).filter((group) => group.items.length)
   }, [groups, query])
-  return <section className="flex min-h-0 w-rail shrink-0 flex-col border-r bg-navigation" aria-label="노드 라이브러리">
+  return <section className={variant === "menu" ? "flex max-h-scroll-lg min-h-0 flex-col" : "flex min-h-0 w-rail shrink-0 flex-col border-r bg-navigation"} aria-label="노드 라이브러리">
     <label className="relative m-2 block shrink-0">
       <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted" />
-      <Input aria-label="노드 검색" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={placeholder} className="h-7 pl-8 text-xs" />
+      <Input aria-label="노드 검색" autoFocus={variant === "menu"} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={placeholder} className="h-7 pl-8 text-xs" />
     </label>
     <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
       {filtered.map((group) => <div key={group.id} className="mb-3">

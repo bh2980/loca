@@ -89,7 +89,7 @@ export function RunCaps({ suggested, edits, onChange }: { suggested: Caps | unde
   const shown = (key: keyof Caps) => (edits[key] === undefined ? suggested?.[key] : edits[key]);
   return (
     <Grid columns="twoFromSm" gap="normal">
-      <Field label="호출 상한" description="비우면 상한 없이 실행합니다." help="이만큼 쓰면 실행을 멈춥니다. 재요청 노드가 있으면 그 여유분이 들어 있습니다.">
+      <Field label="호출 상한" description="비우면 상한 없이 실행합니다." help="이만큼 쓰면 실행을 멈춥니다. AI 노드의 재시도 규칙이 쓸 수 있는 여유분이 들어 있습니다.">
         <NumberInput optional min={1} value={shown('maxCalls')} onValueChange={(next) => onChange({ ...edits, maxCalls: next ?? null })} />
       </Field>
       <Field label="입력 상한" description="비우면 상한 없이 실행합니다." help="실행 전체가 AI에 보내는 입력 토큰(캐시 포함)이 이만큼 되기 전에 멈춥니다.">

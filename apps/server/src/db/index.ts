@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:f
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
-import { exclusionRulesSchema, formatRulesSchema, lineExclusion, needsListener, type LineTranslate } from '@tw/shared';
+import { DEFAULT_RETRY_RULES, exclusionRulesSchema, formatRulesSchema, lineExclusion, needsListener, retryRuleSchema, type LineTranslate } from '@tw/shared';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import * as schema from './schema.ts';
@@ -84,6 +84,42 @@ export function registerMigrationFunctions(sqlite: Database.Database) {
     const parsed = JSON.parse(definition) as { nodes?: { type?: string; config?: { expression?: unknown } }[] };
     for (const node of parsed.nodes ?? []) if (node.type === 'condition' && node.config && 'expression' in node.config) node.config.expression = rewrite(node.config.expression);
     return JSON.stringify(parsed);
+  });
+  // retry_rules(definition json): 재요청 nodes became AI nodes' retry rules (0121). Each AI node takes the chain behind its
+  // 오류 exit as its rules (the workflow's when they are the default ones, none when it had no chain), its 오류 exit goes
+  // where the chain's last 오류 went, and the retry nodes and their edges go. retry_node_origin(definition json, node id):
+  // the AI node a retry node sent back to, for items queued at one; any other node id as it is.
+  type Raw = { nodes?: { id: string; type?: string; config?: Record<string, unknown> }[]; edges?: { id: string; source: string; sourceHandle: string; target: string }[]; settings?: Record<string, unknown> };
+  const retryChains = (parsed: Raw) => {
+    const byId = new Map((parsed.nodes ?? []).map((node) => [node.id, node]));
+    const errorTarget = (from: string) => (parsed.edges ?? []).find((edge) => edge.source === from && edge.sourceHandle === 'error')?.target;
+    return (parsed.nodes ?? []).flatMap((node) => {
+      if (node.type !== 'ai') return [];
+      const chain: string[] = [];
+      for (let next = errorTarget(node.id); next && byId.get(next)?.type === 'retry' && !chain.includes(next); next = errorTarget(next)) chain.push(next);
+      return [{ ai: node, chain, last: chain.length ? errorTarget(chain.at(-1)!) : undefined }];
+    });
+  };
+  sqlite.function('retry_rules', { deterministic: true }, (definition: unknown) => {
+    if (typeof definition !== 'string') return definition;
+    const parsed = JSON.parse(definition) as Raw;
+    const byId = new Map((parsed.nodes ?? []).map((node) => [node.id, node]));
+    const retries = new Set((parsed.nodes ?? []).filter((node) => node.type === 'retry').map((node) => node.id));
+    const defaults = JSON.stringify(DEFAULT_RETRY_RULES);
+    const added: NonNullable<Raw['edges']> = [];
+    for (const { ai, chain, last } of retryChains(parsed)) {
+      const rules = chain.map((id) => retryRuleSchema.parse(byId.get(id)!.config ?? {}));
+      ai.config = { ...ai.config, retries: !chain.length ? [] : JSON.stringify(rules) === defaults ? null : rules };
+      if (last && !retries.has(last)) added.push({ id: `${ai.id}-error-${last}`, source: ai.id, sourceHandle: 'error', target: last });
+    }
+    parsed.nodes = (parsed.nodes ?? []).filter((node) => !retries.has(node.id));
+    parsed.edges = [...(parsed.edges ?? []).filter((edge) => !retries.has(edge.source) && !retries.has(edge.target)), ...added];
+    parsed.settings = { ...parsed.settings, retries: DEFAULT_RETRY_RULES };
+    return JSON.stringify(parsed);
+  });
+  sqlite.function('retry_node_origin', { deterministic: true }, (definition: unknown, nodeId: unknown) => {
+    if (typeof definition !== 'string' || typeof nodeId !== 'string') return nodeId;
+    return retryChains(JSON.parse(definition) as Raw).find((entry) => entry.chain.includes(nodeId))?.ai.id ?? nodeId;
   });
 }
 

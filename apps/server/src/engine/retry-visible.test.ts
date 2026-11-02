@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import * as ai from '@tw/ai';
-import { importFileSchema, translationTemplate, type BatchConfig, type RetryConfig } from '@tw/shared';
+import { importFileSchema, translationTemplate, DEFAULT_RETRY_RULES, type BatchConfig, type RetryRule } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
@@ -14,7 +14,7 @@ import { createRun } from './run-create.ts';
 import { issueTagIds } from '../services/issue-tags.ts';
 
 /**
- * What a failure does is visible in the workflow: the 재요청 nodes chained on the AI node's 오류 exit
+ * What a failure does is visible in the workflow: the AI node's retry rules (settings.retries, or its own)
  * are the only thing between a failed request and the failure path. Nothing is retried, switched to
  * another connection or requeued by the runner on its own.
  */
@@ -24,10 +24,10 @@ const RATE_LIMIT = () => new ai.ModelError('rate-limit', 'slow down');
 const NETWORK = () => new ai.ModelError('network', 'connection reset');
 
 interface Options {
-  /** Edits to the two 재요청 nodes of the translate node (`-resend`, `-wait`). */
-  resend?: Partial<RetryConfig>;
-  wait?: Partial<RetryConfig>;
-  /** false: the 재요청 nodes are taken out, the AI node's 오류 exit leads to nothing. */
+  /** Edits to the two default retry rules (index 0: request failures, index 1: provider failures). */
+  resend?: Partial<RetryRule>;
+  wait?: Partial<RetryRule>;
+  /** false: no retry rules and no failure marker, the AI node's 오류 exit leads to nothing. */
   retry?: boolean;
   failures?: number;
 }
@@ -50,16 +50,15 @@ function setup(lines: number, batch: Partial<BatchConfig>, { resend, wait, retry
     confirmed: statuses.find((status) => status.kind === 'final')!.id,
   }));
   const nodes = template.nodes
-    .filter((node) => retry || (node.type !== 'retry' && !node.id.endsWith('-failed')))
+    .filter((node) => retry || node.id !== 'needs-review')
     .map((node) => {
       if (node.type === 'ai' && node.id === 'translate') return { ...node, config: { ...node.config, concurrency: 1, batch: { mode: 'group' as const, size: 60, maxTokens: null, ...batch } } };
-      if (node.type === 'retry' && node.id === 'translate-resend') return { ...node, config: { ...node.config, ...resend } };
-      if (node.type === 'retry' && node.id === 'translate-wait') return { ...node, config: { ...node.config, ...wait } };
       return node;
     });
   const ids = new Set(nodes.map((node) => node.id));
   const edges = template.edges.filter((edge) => ids.has(edge.source) && ids.has(edge.target));
-  const definition = { ...template, nodes, edges, settings: { ...template.settings, maxConsecutiveFailures: failures } };
+  const retries: RetryRule[] = retry ? [{ ...DEFAULT_RETRY_RULES[0]!, ...resend }, { ...DEFAULT_RETRY_RULES[1]!, ...wait }] : [];
+  const definition = { ...template, nodes, edges, settings: { ...template.settings, maxConsecutiveFailures: failures, retries } };
   const workflow = db.insert(s.workflows).values({ projectId, name: '번역', description: '', definition }).returning().get();
   const runId = createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: {} }).runId;
   return { db, runId, projectId, reviewStatusId: review.id, choice };
@@ -88,7 +87,7 @@ const runOf = (db: ReturnType<typeof setup>['db'], runId: string) => db.select()
 const itemsOf = (db: ReturnType<typeof setup>['db'], runId: string) => db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all();
 const stepsOf = (db: ReturnType<typeof setup>['db'], runId: string) => db.select().from(s.runSteps).where(eq(s.runSteps.runId, runId)).all();
 
-describe('without a 재요청 node', () => {
+describe('without retry rules', () => {
   it('sends a rate limit out through 오류 with its kind, once: nothing is retried or requeued', async () => {
     const { db, runId } = setup(4, { mode: 'count', size: 4 }, { retry: false });
     const fake = model(() => RATE_LIMIT());
@@ -116,7 +115,7 @@ describe('without a 재요청 node', () => {
   });
 });
 
-describe('a 재요청 node that waits', () => {
+describe('a retry rule that waits', () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
@@ -133,8 +132,8 @@ describe('a 재요청 node that waits', () => {
     expect(runOf(db, runId).status).toBe('running');
     const waiting = itemsOf(db, runId);
     expect(waiting.every((item) => item.state === 'queued' && item.nodeId === 'translate' && item.notBefore?.getTime() === Date.now() + 60_000)).toBe(true);
-    expect(waiting[0]!.data.retry).toMatchObject({ times: { 'translate-wait': 1 }, factor: 1, last: { kind: 'rate-limit', nodeId: 'translate-wait', waitSeconds: 60 } });
-    // A rate limit a 재요청 node takes back is not a failure in a row: 연속 실패 1 does not pause the run.
+    expect(waiting[0]!.data.retry).toMatchObject({ times: { 'translate:1': 1 }, factor: 1, last: { kind: 'rate-limit', nodeId: 'translate', rule: 1, waitSeconds: 60 } });
+    // A rate limit a retry rule takes back is not a failure in a row: 연속 실패 1 does not pause the run.
     // (checked below: the run is still 'running' after the failed call)
 
     // Nothing happens, and nothing polls, until it is due.
@@ -217,7 +216,7 @@ describe('a 재요청 node that waits', () => {
   });
 });
 
-describe('chained 재요청 nodes', () => {
+describe('several retry rules', () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
@@ -235,43 +234,43 @@ describe('chained 재요청 nodes', () => {
     const items = itemsOf(db, runId);
     const waiting = items.filter((item) => item.state === 'queued');
     expect(waiting).toHaveLength(4);
-    expect(waiting.every((item) => item.data.retry?.times['translate-resend'] === 1 && item.data.retry.times['translate-wait'] === 1 && item.data.retry.last?.nodeId === 'translate-wait')).toBe(true);
-    // The path shows the order: AI → first 재요청 (cut-off, sent back) → AI → first 재요청 (not its kind: 오류) → second → AI.
+    expect(waiting.every((item) => item.data.retry?.times['translate:0'] === 1 && item.data.retry.times['translate:1'] === 1 && item.data.retry.last?.nodeId === 'translate' && item.data.retry.last.rule === 1)).toBe(true);
+    // The path shows the order: AI → first rule (cut-off, sent back) → AI → second rule (rate limit, sent back), never through 오류.
     const path = waiting[0]!.data.path.map((step) => `${step.nodeId}:${step.port}`);
-    expect(path.slice(path.indexOf('translate-resend:retry'))).toEqual(['translate-resend:retry', 'translate:error', 'translate-resend:error', 'translate-wait:retry']);
+    expect(path.slice(path.indexOf('translate:retry'))).toEqual(['translate:retry', 'translate:retry']);
 
     vi.setSystemTime(Date.now() + 61_000);
     await runner.drain();
-    // Half size stays (the second node keeps the size), so the 4 go back as one request of 4.
+    // Half size stays (the second rule keeps the size), so the 4 go back as one request of 4.
     expect(fake.sizes()).toEqual([8, 4, 4, 4]);
     expect(runOf(db, runId).status).toBe('completed');
     expect(itemsOf(db, runId).every((item) => item.state === 'done')).toBe(true);
     await runner.stop();
   });
 
-  it('counts the times of each node on its own: two halvings, one more try at the second, then the failure path', async () => {
+  it('counts the times of each rule on its own: two halvings, one more try at the second, then the failure path', async () => {
     const { db, runId, projectId, reviewStatusId } = setup(8, { mode: 'count', size: 8 }, { wait: { kinds: ['cut-off'], scale: 1, wait: 0, maxTimes: 1 } });
     const fake = model(() => CUT_OFF());
     await new Runner(db, memoryStore(), fake.port).drain();
-    // 8, 2 × 4, 4 × 2, then the second node sends them back once more as they are: 4 × 2, then nothing.
+    // 8, 2 × 4, 4 × 2, then the second rule sends them back once more as they are: 4 × 2, then nothing.
     expect(fake.sizes().sort((a, b) => b - a)).toEqual([8, 4, 4, 2, 2, 2, 2, 2, 2, 2, 2]);
     for (const item of itemsOf(db, runId)) {
       expect(item.state).toBe('done');
-      expect(item.data.retry).toMatchObject({ times: { 'translate-resend': 2, 'translate-wait': 1 }, factor: 0.25 });
+      expect(item.data.retry).toMatchObject({ times: { 'translate:0': 2, 'translate:1': 1 }, factor: 0.25 });
     }
     expect(db.select().from(s.units).where(eq(s.units.projectId, projectId)).all().every((unit) => unit.statusId === reviewStatusId)).toBe(true);
   });
 
-  it('stops at maxTimes of the node a failure kind belongs to', async () => {
+  it('stops at maxTimes of the rule a failure kind belongs to', async () => {
     const { db, runId } = setup(4, { mode: 'count', size: 4 }, { wait: { wait: 0, maxTimes: 3 } });
     const fake = model(() => RATE_LIMIT());
     await new Runner(db, memoryStore(), fake.port).drain();
     // The first request and three sent back, then 검토 필요로.
     expect(fake.sizes()).toEqual([4, 4, 4, 4]);
-    expect(itemsOf(db, runId).every((item) => item.state === 'done' && item.data.retry?.times['translate-wait'] === 3 && item.data.retry.times['translate-resend'] === undefined)).toBe(true);
+    expect(itemsOf(db, runId).every((item) => item.state === 'done' && item.data.retry?.times['translate:1'] === 3 && item.data.retry.times['translate:0'] === undefined)).toBe(true);
   });
 
-  it('does not count a request whose lines a node of the chain sends back as a failure in a row', async () => {
+  it('does not count a request whose lines a retry rule sends back as a failure in a row', async () => {
     const { db, runId } = setup(40, { mode: 'count', size: 4 }, { wait: { wait: 0 }, failures: 2 });
     // Three first-time requests are rate-limited, then everything works.
     let first = 0;
@@ -281,12 +280,12 @@ describe('chained 재요청 nodes', () => {
   });
 });
 
-describe('a 재요청 node with another model', () => {
+describe('a retry rule with another model', () => {
   it('sends its lines back on that model, apart from the lines the AI node\'s own model goes on with, and records the model used', async () => {
     const { db, runId, choice } = setup(8, { mode: 'count', size: 4 }, {});
-    // Edit the run's own workflow: the second 재요청 node sends rate-limited lines to another model of the connection.
+    // Edit the run's own workflow: the second rule sends rate-limited lines to another model of the connection.
     const run = runOf(db, runId);
-    const definition = { ...run.definition, nodes: run.definition.nodes.map((node) => (node.id === 'translate-wait' && node.type === 'retry' ? { ...node, config: { ...node.config, wait: 0, model: { connectionId: choice.connectionId, model: 'm2', effort: 'low' } } } : node)) };
+    const definition = { ...run.definition, settings: { ...run.definition.settings, retries: run.definition.settings.retries.map((rule, index) => (index === 1 ? { ...rule, wait: 0, model: { connectionId: choice.connectionId, model: 'm2', effort: 'low' } } : rule)) } };
     db.update(s.runs).set({ definition, models: snapshotWorkflowModels(db, definition) }).where(eq(s.runs.id, runId)).run();
     expect(Object.values(runOf(db, runId).models).map((snapshot) => snapshot.route.model).sort()).toEqual(['m', 'm2']);
 
@@ -305,19 +304,19 @@ describe('a 재요청 node with another model', () => {
     const steps = stepsOf(db, runId).filter((step) => step.nodeId === 'translate');
     expect(steps.map((step) => [step.ok, step.model]).sort()).toEqual([[false, 'm'], [false, 'm'], [true, 'm'], [true, 'm'], [true, 'm2']].sort());
     expect(steps.find((step) => step.model === 'm2')?.connectionId).toBe(choice.connectionId);
-    const item = itemsOf(db, runId).find((candidate) => candidate.data.retry?.times['translate-wait'])!;
+    const item = itemsOf(db, runId).find((candidate) => candidate.data.retry?.times['translate:1'])!;
     expect(item.data.retry?.model).toEqual({ nodeId: 'translate', key: `${choice.connectionId}|m2|low` });
   });
 
-  it('forgets the other model when a later 재요청 node has none picked', async () => {
+  it('forgets the other model when a later rule has none picked', async () => {
     const { db, runId, choice } = setup(4, { mode: 'count', size: 4 }, {
       resend: { kinds: ['rate-limit'], scale: 1, maxTimes: 1, wait: 0, model: { connectionId: '', model: '' } },
       wait: { kinds: ['rate-limit', 'cut-off'], wait: 0 },
     });
     const run = runOf(db, runId);
-    const definition = { ...run.definition, nodes: run.definition.nodes.map((node) => (node.id === 'translate-resend' && node.type === 'retry' ? { ...node, config: { ...node.config, model: { connectionId: choice.connectionId, model: 'm2' } } } : node)) };
+    const definition = { ...run.definition, settings: { ...run.definition.settings, retries: run.definition.settings.retries.map((rule, index) => (index === 0 ? { ...rule, model: { connectionId: choice.connectionId, model: 'm2' } } : rule)) } };
     db.update(s.runs).set({ definition, models: snapshotWorkflowModels(db, definition) }).where(eq(s.runs.id, runId)).run();
-    // m → rate-limit → resend (m2) → cut off → wait node (own model again) → ok.
+    // m → rate-limit → resend (m2) → cut off → second rule (own model again) → ok.
     const fake = model((n) => (n === 1 ? RATE_LIMIT() : n === 2 ? CUT_OFF() : null));
     await new Runner(db, memoryStore(), fake.port).drain();
     expect(fake.requests.map((request) => request.model)).toEqual(['m', 'm2', 'm']);

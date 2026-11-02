@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Background, Handle, MarkerType, useConnection, NodeToolbar, Panel, Position, ReactFlow, SelectionMode, type Edge, type Node, type NodeChange, type NodeProps, type ReactFlowInstance } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { Copy, Trash2 } from 'lucide-react';
-import { Box, CanvasToolbar, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger, EmptyState, EventFlowCard, Inline, SelectionToolbox, Stack, Text, FlowHandle } from '@loca/ui';
+import { Box, CanvasToolbar, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger, EmptyState, EventFlowCard, Inline, SelectionToolbox, Stack, Text, FlowHandle, useCanvasDismiss } from '@loca/ui';
 import { personStyle, usePersonColors } from '@/lib/person-colors';
 import { useIsDark } from '@/lib/theme';
 import { GRAPH_KEYS, useGraphShortcuts } from '@/lib/graph-shortcuts';
@@ -95,6 +95,7 @@ export function EventFlow({ projectId, events, selected, onOpen, badge, filtered
   /** What it can change (the page's, each undoable); without it the flow only shows and selects. */
   actions?: EventFlowActions;
 }) {
+  const dismiss = useCanvasDismiss();
   const dark = useIsDark();
   const colorOf = usePersonColors(projectId);
   const placed = useMemo(() => events.filter((event) => event.at).sort((a, b) => a.at!.seq - b.at!.seq), [events]);
@@ -275,7 +276,7 @@ export function EventFlow({ projectId, events, selected, onOpen, badge, filtered
     <ContextMenu onOpenChange={(open) => !open && setMenu(null)}>
     <ContextMenuTrigger asChild>
     <Box ref={frame} height="full">
-    <ReactFlow colorMode={dark ? 'dark' : 'light'}
+    <ReactFlow colorMode={dark ? 'dark' : 'light'} ref={dismiss}
       key={viewKey.current}
       nodes={flowNodes}
       edges={edges}

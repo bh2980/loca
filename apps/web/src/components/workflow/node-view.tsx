@@ -1,6 +1,6 @@
 import { memo, useEffect } from 'react';
 import { Handle, Position, useUpdateNodeInternals, type Node, type NodeProps } from '@xyflow/react';
-import { BookPlus, Braces, CircleDot, Code, Combine, Flag, GitFork, Globe, ListChecks, MessageCircleQuestion, NotebookPen, RotateCcw, ScanSearch, Workflow, Sparkles, SpellCheck, Tag, UserCheck } from 'lucide-react';
+import { BookPlus, Braces, CircleDot, Code, Combine, Flag, GitFork, Globe, ListChecks, MessageCircleQuestion, NotebookPen, ScanSearch, Workflow, Sparkles, SpellCheck, Tag, UserCheck } from 'lucide-react';
 import { functionGroup, nodeName, nodePorts, type WorkflowNode } from '@tw/shared';
 import { FlowHandle, NodeCard, type CanvasDirection, type FoldChipProps } from '@loca/ui';
 
@@ -25,7 +25,6 @@ export function nodeIcon(node: WorkflowNode): Icon {
     case 'function': return FUNCTION_ICON[node.config.fn] ?? Code;
     case 'condition': return GitFork;
     case 'gather': return Combine;
-    case 'retry': return RotateCcw;
     case 'call': return Workflow;
     case 'end': return Flag;
   }
@@ -40,7 +39,6 @@ const handleTone = (port: string) => {
 };
 const portHelp: Record<string, string> = {
   error: '오류: 모델이나 함수 실행 중 문제가 생겼을 때',
-  retry: '다시 보냄: 실패한 대사를 작게·기다렸다가·다른 모델로 AI 노드에 되돌릴 때',
   fail: '실패: 검수 기준을 통과하지 못했을 때',
   false: '거짓: 조건식이 거짓일 때',
   rejected: '거절: 검토 결과 거절되었을 때',
@@ -54,6 +52,10 @@ export type FlowNode = Node<{
   /** Target status of a status-change node, shown in that status's colour. */
   status?: { name: string; color: string };
   live?: { queued: number; running: number; failed: number; calls?: number; limit?: number; passed?: number; retry?: string };
+  /** An AI node's retry rules in a few words (retryBadge). */
+  retry?: { text: string; detail?: string };
+  /** An AI node's model, as a chip (nodeBadge). */
+  badge?: string;
   direction: CanvasDirection;
   /** Lines enter here (the hidden entry node points at it): its 시작 mark, which opens the start settings. */
   start?: { label: string; onOpen?: () => void };
@@ -67,7 +69,7 @@ export type FlowNode = Node<{
 
 /** Workflow ports move with the shared graph orientation and keep their accessible names. */
 export const WorkflowNodeView = memo(function WorkflowNodeView({ id, data, selected }: NodeProps<FlowNode>) {
-  const { node, summary, errors, warnings, status, live, direction, start, open, folds, foldClose } = data;
+  const { node, summary, retry, badge, errors, warnings, status, live, direction, start, open, folds, foldClose } = data;
   const updateNodeInternals = useUpdateNodeInternals();
   useEffect(() => updateNodeInternals(id), [direction, id, updateNodeInternals]);
   const Icon = nodeIcon(node);
@@ -79,7 +81,8 @@ export const WorkflowNodeView = memo(function WorkflowNodeView({ id, data, selec
     id: port.id,
     label: port.id === 'error' ? '오류' : port.label,
     tone: workflowPortTone(port.id),
-    open: open.includes(port.id),
+    // An unconnected 오류 ends the line failed, as everywhere: no mark for it.
+    open: open.includes(port.id) && port.id !== 'error',
     fold: folds?.[port.id],
     handle: <FlowHandle look={handleTone(port.id)}><Handle
       type="source"
@@ -92,16 +95,21 @@ export const WorkflowNodeView = memo(function WorkflowNodeView({ id, data, selec
     /></FlowHandle>,
   }));
   const kind = node.type === 'function' ? (node.config.fn === 'setStatus' ? 'status' : functionGroup(node.config.fn)) : node.type;
-  const detail = node.type === 'function' && node.config.fn === 'setStatus'
-    ? `→ ${status?.name ?? '상태 그대로'}`
-    : summary;
+  // A status change reads as its status (a pill in its colour); a save and a tag node say their verb before the name.
+  const isStatus = node.type === 'function' && node.config.fn === 'setStatus';
+  const detail = isStatus ? undefined : summary;
+  const verb = kind === 'apply' ? (node.type === 'function' && node.config.fn === 'tagLines' ? '태그' : '저장') : undefined;
   const cardIcon = <Icon />;
 
   return <NodeCard
     kind={kind}
     icon={cardIcon}
-    title={nodeName(node)}
+    title={isStatus && !node.label && status ? `→ ${status.name}` : nodeName(node)}
     summary={detail}
+    retry={retry}
+    badge={badge}
+    verb={verb}
+    color={isStatus ? status?.color : undefined}
     inputHandle={inputHandle}
     outputs={outputs}
     direction={direction}

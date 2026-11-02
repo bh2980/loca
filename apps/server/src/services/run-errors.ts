@@ -6,13 +6,13 @@ import * as s from '../db/schema.ts';
 type Run = Pick<typeof s.runs.$inferSelect, 'id' | 'subject' | 'definition'>;
 export type RunError = { unitId: string; key: string | null; nodeId: string; node: string; kind: string; message: string };
 
-/** Nodes that call out (AI, HTTP, script) and so can fail; a 재요청 node only passes a failure on. */
+/** Nodes that call out (AI, HTTP, script) and so can fail. */
 const callsOut = (node: WorkflowNode | undefined) => node?.type === 'ai' || (node?.type === 'function' && Boolean((FUNCTIONS[node.config.fn as FunctionName] as { async?: boolean } | undefined)?.async));
 
 /**
  * Items of a run that failed, or that finished after their last call went out through its error exit
  * (a workflow that routes errors to e.g. a 검토 필요 status node finishes them as done). The item's
- * error is cleared once a node takes it, so its path says where it failed and the last 재요청 says why.
+ * error is cleared once a node takes it, so its path says where it failed and the last retry says why.
  */
 export function runErrors(db: Db, run: Run): RunError[] {
   const byId = new Map(run.definition.nodes.map((node) => [node.id, node]));

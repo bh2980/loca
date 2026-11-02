@@ -634,15 +634,15 @@ export interface ItemData {
   /** Nodes and exits taken, for display. */
   path: { nodeId: string; port: string; at: number }[];
   /**
-   * Sent back by 재요청 nodes: how often at each (by node id), and the size factor the AI node batches it by (the
-   * nodes' scales multiplied).
+   * Sent back by AI nodes' retry rules: how often by each (by `node id:rule index`), and the size factor the AI node
+   * batches it by (the rules' scales multiplied).
    */
   retry?: {
     times: Record<string, number>;
     factor: number;
-    /** The failure that sent the line back last (the run page says why a line waits), the 재요청 node that did, and how long it made the line wait. */
-    last?: { kind: ItemErrorKind; message: string; nodeId: string; waitSeconds?: number };
-    /** The model the last 재요청 node sends the line to `nodeId` (an AI node) on, as its choiceKey; unset = that node's own models. Applies only at that node. */
+    /** The failure that sent the line back last (the run page says why a line waits), the AI node and the index of its rule that did, and how long it made the line wait. */
+    last?: { kind: ItemErrorKind; message: string; nodeId: string; rule?: number; waitSeconds?: number };
+    /** The model the last retry rule sends the line to `nodeId` (an AI node) on, as its choiceKey; unset = that node's own models. Applies only at that node. */
     model?: { nodeId: string; key: string };
   };
   /** The last failure that sent the line out through an "error" exit; cleared when a node handles it (ConditionData.error). */
@@ -663,7 +663,7 @@ export const runItems = sqliteTable(
     visits: json<Record<string, number>>('visits').notNull(),
     data: json<ItemData>('data').notNull(),
     error: text('error'),
-    /** A 재요청 node's wait: the line is not sent before this time (the scheduler skips it, and wakes when the first is due). */
+    /** A retry rule's wait: the line is not sent before this time (the scheduler skips it, and wakes when the first is due). */
     notBefore: integer('not_before', { mode: 'timestamp_ms' }),
     /** The run plan's batch this line belongs to (see planRun); null for runs started before plans. */
     plan: integer('plan'),
@@ -681,7 +681,7 @@ export const runSteps = sqliteTable(
     /** The items the call was for (lines or terms, as the run's subject says). */
     subjectIds: json<string[]>('subject_ids').notNull(),
     ok: integer('ok', { mode: 'boolean' }).notNull(),
-    /** The connection the call went out through: a node can share its work over several, and a 재요청 node can send lines on another model. */
+    /** The connection the call went out through: a node can share its work over several, and a retry rule can send lines on another model. */
     connectionId: text('connection_id'),
     model: text('model'),
     prompt: text('prompt'),

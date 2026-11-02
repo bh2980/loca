@@ -46,6 +46,14 @@ const SECTIONS: { title: string; keys: [string, string][] }[] = [
     ],
   },
   {
+    title: '워크플로 그래프',
+    keys: [
+      ['Delete', '고른 노드 삭제 · 고른 프레임은 안의 노드까지 삭제'],
+      ['Mod+Shift+G', '고른 프레임만 삭제 (노드는 남음)'],
+      ['Mod+Z', '되돌리기'],
+    ],
+  },
+  {
     title: '대사 그래프',
     keys: [
       ['Enter', '고른 노드 옆에 번역 카드'],

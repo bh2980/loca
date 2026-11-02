@@ -135,21 +135,19 @@ describe('preflight split', () => {
     expect(await plan()).toMatchObject({ linesTokens: 19_500 });
   });
 
-  it('keeps room in the call cap for a 재요청 node, at its worst', async () => {
+  it('keeps room in the call cap for retry rules, at their worst', async () => {
     const db = openDatabase(':memory:');
     const connection = db.insert(s.connections).values({ kind: 'openai', name: 'mock', baseUrl: 'http://mock/v1' }).returning().get();
     const { projectId } = importProject(db, importFileSchema.parse(realistic(600).file), { connectionId: connection.id, model: 'm' });
     const workflow = translateOnlyWorkflow(db, projectId);
-    const retry = workflow.definition.nodes.find((node) => node.type === 'retry');
-    expect(retry?.type === 'retry' && retry.config).toMatchObject({ scale: 0.5, maxTimes: 2 });
+    expect(workflow.definition.settings.retries[0]).toMatchObject({ scale: 0.5, maxTimes: 2 });
     const withRetry = await preflight(db, workflow, {});
     const full = withRetry.nodes[0]!.full;
-    // Without the node: only the usual 30% room.
-    const retries = new Set(workflow.definition.nodes.filter((node) => node.type === 'retry').map((node) => node.id));
-    const definition = { ...workflow.definition, nodes: workflow.definition.nodes.filter((node) => node.type !== 'retry'), edges: workflow.definition.edges.filter((edge) => !retries.has(edge.source) && !retries.has(edge.target)) };
+    // Without rules: only the usual 30% room.
+    const definition = { ...workflow.definition, settings: { ...workflow.definition.settings, retries: [] } };
     const without = await preflight(db, { ...workflow, definition }, {});
     expect(without.suggestedLimits.maxCalls).toBe(Math.ceil(full * 1.3));
-    // The chain's first node: two rounds at half and quarter size (full / 0.5 + full / 0.25 more calls); the second keeps that size for its three rounds.
+    // The first rule: two rounds at half and quarter size (full / 0.5 + full / 0.25 more calls); the second rule keeps that size for its three rounds.
     expect(withRetry.suggestedLimits.maxCalls).toBe(Math.ceil(full * 1.3 + Math.ceil(full / 0.5) + Math.ceil(full / 0.25) + 3 * Math.ceil(full / 0.25)));
   });
 });

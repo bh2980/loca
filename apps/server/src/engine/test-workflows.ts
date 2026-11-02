@@ -4,16 +4,16 @@ import * as s from '../db/schema.ts';
 
 /**
  * Tests that only need a plain "translate and save" flow: the project's 번역 workflow cut down to
- * entry → AI 번역 (→ 재요청) → 번역 저장.
+ * entry → AI 번역 → 번역 저장 (the AI node keeps the workflow's retry rules).
  */
 export function translateOnlyWorkflow(db: Db, projectId: string) {
   const row = db.select().from(s.workflows).where(and(eq(s.workflows.projectId, projectId), eq(s.workflows.name, '번역'))).get()!;
-  const keep = new Set(['entry', 'translate', 'translate-resend', 'translate-wait', 'save']);
+  const keep = new Set(['entry', 'translate', 'save']);
   const { definition } = row;
   return { ...row, definition: { ...definition, nodes: definition.nodes.filter((node) => keep.has(node.id)), edges: definition.edges.filter((edge) => keep.has(edge.source) && keep.has(edge.target)) } };
 }
 
-const DROPPED = new Set(['terms', 'terms-resend', 'terms-wait', 'terms-failed', 'save-terms', 'speech', 'speech-resend', 'speech-wait', 'speech-sure', 'speech-ok', 'tag-speech']);
+const DROPPED = new Set(['terms', 'terms-failed', 'save-terms', 'speech', 'speech-sure', 'speech-ok', 'tag-speech']);
 /**
  * The 번역 workflow without its closing 용어 추출 branch and its 말투 판정 (형식 검사 goes straight to AI
  * 검수): tests that count the translate/review calls of a line.

@@ -21,13 +21,13 @@ const EXAMPLE_TOKENS = 40;
 /** Term items have no scene: they share one group, so batch rules that keep scenes whole do not apply. */
 export const TERM_GROUP = 'terms';
 
-/** The size factor a 재요청 node left on a queued item (1 for one never sent back), as a column of the waiting rows. */
+/** The size factor a retry rule left on a queued item (1 for one never sent back), as a column of the waiting rows. */
 export const RETRY_FACTOR = sql<number>`coalesce(json_extract(${s.runItems.data}, '$.retry.factor'), 1)`;
 
-/** The model a 재요청 node sends a queued item to its node on (a run.models key), or null: the node's own. Only counts at the AI node it was set for. */
+/** The model a retry rule sends a queued item to its node on (a run.models key), or null: the node's own. Only counts at the AI node it was set for. */
 export const RETRY_MODEL = sql<string | null>`case when json_extract(${s.runItems.data}, '$.retry.model.nodeId') = ${s.runItems.nodeId} then json_extract(${s.runItems.data}, '$.retry.model.key') end`;
 
-/** Queued term items at slow nodes that are due (not held by a 재요청 node's wait), most used first (then by source), with a position to batch by. */
+/** Queued term items at slow nodes that are due (not held by a retry rule's wait), most used first (then by source), with a position to batch by. */
 export function waitingTerms(db: Db, runId: string, slowIds: string[], now: Date) {
   return db
     .select({

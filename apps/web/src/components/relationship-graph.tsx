@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useGraphShortcuts } from '@/lib/graph-shortcuts';
 import { BaseEdge, Background, EdgeLabelRenderer, Handle, MarkerType, NodeToolbar, Panel, Position, ReactFlow, useInternalNode, type Edge, type EdgeProps, type InternalNode, type Node, type NodeChange, type NodeProps, type ReactFlowInstance, SelectionMode } from '@xyflow/react';
-import { Box, Button, CanvasToolbar, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger, Inline, PersonNodeFrame, RelationLabelFrame, SelectionToolbox, Text, FlowHandle } from '@loca/ui';
+import { Box, Button, CanvasToolbar, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger, Inline, PersonNodeFrame, RelationLabelFrame, SelectionToolbox, Text, FlowHandle, useCanvasDismiss } from '@loca/ui';
 import { Copy, Trash2 } from 'lucide-react';
 import type { RelationshipGraphActions } from '@/components/knowledge/graph-actions';
 import { GRAPH_KEYS } from '@/lib/graph-shortcuts';
@@ -167,6 +167,7 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
   /** What it can change (the page's, each undoable); without it the graph only shows and selects. */
   actions?: RelationshipGraphActions;
 }) {
+  const dismiss = useCanvasDismiss();
   const dark = useIsDark();
   // Characters picked with a Shift+drag box or ⌘/Ctrl+click, as in the other graphs: ringed, even a
   // single one; only a plain click is the page's selection with its pane. The graph's own: tables keep theirs.
@@ -371,7 +372,7 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
     <ContextMenu onOpenChange={(open) => !open && setMenu(null)}>
     <ContextMenuTrigger asChild>
     <Box height="full" width="full">
-    <ReactFlow colorMode={dark ? 'dark' : 'light'}
+    <ReactFlow colorMode={dark ? 'dark' : 'light'} ref={dismiss}
       key={viewKey.current}
       nodes={flowNodes}
       edges={edges}

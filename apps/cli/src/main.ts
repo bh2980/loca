@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { Command, Option } from 'commander';
 import { hc } from 'hono/client';
 import type { AppType } from '@tw/server/app';
-import { acceptedLabel, AUTO_MARKS, CHECK_KINDS, EXCLUSION_REASON_LABELS, CONTEXT_ITEM_KINDS, importFileJsonSchema, importFileSchema, importWarnings, KNOWLEDGE_MARK_IDS, KNOWLEDGE_STATUS_LABELS, LINE_MARK_IDS, lineChangeSchema, summarizeImport, retryConfigSchema, retrySummary, TERM_MARK_IDS, termScopeLabel, type AutoMark, type KnowledgeStatus, type LineFilterInput, type LineMark, personLabel, DECIDED_BY, type DecidedBy, EXCLUDED_FILTERS, type ExcludedFilter } from '@tw/shared';
+import { acceptedLabel, AUTO_MARKS, CHECK_KINDS, EXCLUSION_REASON_LABELS, CONTEXT_ITEM_KINDS, importFileJsonSchema, importFileSchema, importWarnings, KNOWLEDGE_MARK_IDS, KNOWLEDGE_STATUS_LABELS, LINE_MARK_IDS, lineChangeSchema, summarizeImport, retryRuleSchema, retrySummary, TERM_MARK_IDS, termScopeLabel, type AutoMark, type KnowledgeStatus, type LineFilterInput, type LineMark, personLabel, DECIDED_BY, type DecidedBy, EXCLUDED_FILTERS, type ExcludedFilter } from '@tw/shared';
 
 /**
  * loca — the workbench from a terminal, for people and for agents with a shell (codex, claude…).
@@ -852,19 +852,19 @@ workflows
   .action(async (ref: string) => {
     const found = await resolveWorkflow(ref);
     type Node = { id: string; type: string; label?: string; config: Record<string, any> };
-    const data = await readTool<{ id: string; name: string; description: string; definition: { nodes: Node[]; edges: { source: string; sourceHandle: string; target: string }[] }; issues: { level: string; message: string; nodeId?: string }[] }>('read_workflow', { workflowId: found.id });
+    const data = await readTool<{ id: string; name: string; description: string; definition: { nodes: Node[]; edges: { source: string; sourceHandle: string; target: string }[]; settings?: { retries?: unknown[] }; groups?: { label: string; nodeIds: string[] }[] }; issues: { level: string; message: string; nodeId?: string }[] }>('read_workflow', { workflowId: found.id });
     if (globals().json) return print({ id: data.id, name: data.name, description: data.description, definition: data.definition, issues: data.issues });
     const names = new Map((await unwrap(api().projects[':projectId'].workflows.$get({ param: { projectId: await projectId() } }))).map((item) => [item.id, item.name]));
+    const rules = (list: unknown[]) => (list.length ? list.map((rule) => retrySummary(retryRuleSchema.parse(rule))).join(' / ') : '안 함');
     const summary = (node: Node) =>
       node.type === 'entry' ? `대상 ${node.config.input === 'terms' ? '용어' : '대사'} (실행 범위로 고름)`
-      : node.type === 'ai' ? `${node.config.output}·${node.config.scope ?? 'line'}${node.config.preset ? ` · 프리셋 ${node.config.preset}` : ''} · ${node.config.model?.model || '모델 없음'} · 동시 ${node.config.concurrency ?? 1}${node.config.fields?.length ? ` · 필드 ${node.config.fields.map((field: { name: string }) => field.name).join(', ')}` : ''}`
+      : node.type === 'ai' ? `${node.config.output}·${node.config.scope ?? 'line'}${node.config.preset ? ` · 프리셋 ${node.config.preset}` : ''} · ${node.config.model?.model || '모델 없음'} · 동시 ${node.config.concurrency ?? 1}${node.config.fields?.length ? ` · 필드 ${node.config.fields.map((field: { name: string }) => field.name).join(', ')}` : ''} · 재시도 ${Array.isArray(node.config.retries) ? rules(node.config.retries) : '워크플로 기본'}`
       : node.type === 'function' ? `${node.config.fn}${node.config.fn === 'http' || node.config.fn === 'script' ? ` · 동시 ${node.config.concurrency ?? 2}` : ''}`
       : node.type === 'condition' ? JSON.stringify(node.config.expression)
-      : node.type === 'retry' ? `재요청 · ${retrySummary(retryConfigSchema.parse(node.config ?? {}))}`
       : node.type === 'gather' ? `모으기 (앞 단계 결과)${node.config.fields?.length ? ` · 필드 ${node.config.fields.join(', ')}` : ''}`
       : node.type === 'call' ? `호출: ${names.get(node.config.workflowId) ?? (node.config.workflowId ? `(없는 워크플로 ${node.config.workflowId})` : '고르지 않음')}`
       : '';
-    console.log(`${data.name}  (${data.id})${data.description ? `\n${data.description}` : ''}\n`);
+    console.log(`${data.name}  (${data.id})${data.description ? `\n${data.description}` : ''}\n재시도 규칙(워크플로 기본): ${rules(data.definition.settings?.retries ?? [])}${data.definition.groups?.length ? `\n프레임: ${data.definition.groups.map((group) => `${group.label || '이름 없음'} (${group.nodeIds.join(', ')})`).join(' / ')}` : ''}\n`);
     for (const node of data.definition.nodes) {
       const out = data.definition.edges.filter((edge) => edge.source === node.id).map((edge) => `${edge.sourceHandle} → ${edge.target}`);
       console.log(`${node.id.padEnd(16)} ${node.type.padEnd(9)} ${node.label ?? ''}\n${' '.repeat(17)}${short(summary(node), 120)}${out.length ? `\n${' '.repeat(17)}${out.join(' · ')}` : ''}`);

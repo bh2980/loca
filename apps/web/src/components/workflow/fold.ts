@@ -2,7 +2,8 @@
  * 접기: a display-only way to keep workflow graphs short. Nodes that only hang off another node are
  * drawn as one small dashed chip instead (the stored definition and the runner never change).
  *
- *  - A dead-end side branch (a 재요청 and its failure marker) folds into a chip on its owner's exit.
+ *  - A dead-end side branch (a failure marker) folds into a chip on its owner's exit.
+ *  - A dead end several exits lead to (the one 검토 필요로) folds into a chip on each of them: one fold, opened and closed together.
  *  - A 태그 붙이기 that only passes lines on folds into a chip on the line it sits on.
  *
  * Everything here is pure: `computeFolds` finds the folds, `foldText` words the chip, `foldedDefinition`
@@ -10,13 +11,14 @@
  * open (the editor and the run graph keep that in sessionStorage, per workflow / run).
  */
 import { retryLiveText } from '../../lib/retry-info';
-import { ITEM_ERROR_KINDS, TAG_ACTIONS, nodeName, retryScaleText, retryWaitText, nodePorts, tagLinesParams, type RetryConfig, type WorkflowDefinition, type WorkflowEdge, type WorkflowNode } from '@tw/shared';
+import { TAG_ACTIONS, nodeName, nodePorts, tagLinesParams, type WorkflowDefinition, type WorkflowEdge, type WorkflowNode } from '@tw/shared';
+import type { LineMark } from '@loca/ui';
 
 /** A branch of more nodes than this is not a side detail any more. */
 export const MAX_FOLDED_NODES = 4;
 
 export interface Fold {
-  /** Stable across edits: `owner:port` for a branch, `pass:node` for a pass-through tag node. */
+  /** Stable across edits: `owner:port` for a branch, `end:node` for a shared dead end (one entry per exit, all with this id), `pass:node` for a pass-through tag node. */
   id: string;
   kind: 'branch' | 'edge';
   /** branch: the node whose exit the chip sits on. edge: the node the line leaves. */
@@ -32,6 +34,8 @@ export interface Fold {
 }
 
 const isMark = (node: WorkflowNode) => node.type === 'entry' || node.type === 'end';
+/** Nodes that only mark the lines passing through them: drawn on the line when nothing else hangs off them. */
+const LINE_MARKING = new Set(['tagLines', 'setStatus']);
 
 export function computeFolds(definition: WorkflowDefinition): Fold[] {
   const byId = new Map(definition.nodes.map((node) => [node.id, node]));
@@ -85,7 +89,7 @@ export function computeFolds(definition: WorkflowDefinition): Fold[] {
     return shown >= 1 && shown <= MAX_FOLDED_NODES ? order : undefined;
   };
 
-  // Rule 1. The first exit is the node's main way on (완료, 통과, 다음, 참, 다시 보냄): a tail of the workflow is not a side detail.
+  // Rule 1. The first exit is the node's main way on (완료, 통과, 다음, 참): a tail of the workflow is not a side detail.
   let branches: Fold[] = [];
   for (const owner of definition.nodes) {
     if (isMark(owner)) continue;
@@ -96,12 +100,26 @@ export function computeFolds(definition: WorkflowDefinition): Fold[] {
   }
   // A branch inside another branch stays folded in it.
   branches = branches.filter((fold) => !branches.some((other) => other !== fold && other.nodeIds.includes(fold.owner)));
+  // Rule 3. A node that leads nowhere (or only to the hidden end) and that several side exits lead to: a chip on each of them.
+  for (const node of definition.nodes) {
+    if (isMark(node) || branches.some((fold) => fold.nodeIds.includes(node.id))) continue;
+    const into = inTo(node.id);
+    const ends = outOf(node.id).map((edge) => edge.target);
+    if (into.length < 2 || ends.some((id) => byId.get(id)?.type !== 'end')) continue;
+    const sideExit = (edge: WorkflowEdge) => {
+      const source = byId.get(edge.source);
+      return Boolean(source && !isMark(source) && nodePorts(source).findIndex((port) => port.id === edge.sourceHandle) > 0 && !branches.some((fold) => fold.nodeIds.includes(source.id)));
+    };
+    if (!into.every(sideExit)) continue;
+    for (const edge of into) branches.push({ id: `end:${node.id}`, kind: 'branch', owner: edge.source, port: edge.sourceHandle, nodeIds: [node.id, ...new Set(ends)] });
+  }
   const insideBranch = (id: string) => branches.some((fold) => fold.nodeIds.includes(id));
 
-  // Rule 2. Only 태그 붙이기 / 떼기 pass through: one line in, one 완료 line out, 오류 unconnected or a branch of its own.
+  // Rule 2. A 태그 붙이기 / 떼기 or 상태 변경 a line passes through (one line in, one 완료 line out, 오류 unconnected or a
+  // branch of its own) only marks the line: it is drawn on the line. Several in a row are one line with each of them on it.
   const passes = new Map<string, { into: WorkflowEdge; onward: WorkflowEdge }>();
   for (const node of definition.nodes) {
-    if (node.type !== 'function' || node.config.fn !== 'tagLines' || insideBranch(node.id)) continue;
+    if (node.type !== 'function' || !LINE_MARKING.has(node.config.fn) || insideBranch(node.id)) continue;
     const into = inTo(node.id);
     const outs = outOf(node.id).filter((edge) => edge.sourceHandle === 'out');
     const errors = outOf(node.id).filter((edge) => edge.sourceHandle === 'error');
@@ -110,15 +128,19 @@ export function computeFolds(definition: WorkflowDefinition): Fold[] {
     passes.set(node.id, { into: into[0]!, onward: outs[0]! });
   }
   const edges: Fold[] = [];
-  for (const [id, { into, onward }] of passes) {
+  for (const [id, { into }] of passes) {
+    // A run starts at a pass-through whose line comes from a shown node.
+    if (passes.has(into.source)) continue;
+    const run = [id];
+    for (let next = passes.get(id)!.onward.target; passes.has(next) && !run.includes(next); next = passes.get(next)!.onward.target) run.push(next);
     const source = byId.get(into.source);
-    const target = byId.get(onward.target);
-    // The line must be drawn between two shown nodes, and a neighbouring pass-through would hide one end.
-    if (!source || !target || isMark(source) || isMark(target) || source.id === id || target.id === id) continue;
-    if (passes.has(source.id) || passes.has(target.id) || insideBranch(source.id) || insideBranch(target.id)) continue;
-    const errorBranch = branches.find((fold) => fold.owner === id && fold.port === 'error');
-    edges.push({ id: `pass:${id}`, kind: 'edge', owner: source.id, port: into.sourceHandle, nodeIds: [id, ...(errorBranch?.nodeIds ?? [])], target: target.id, edgeId: into.id });
-    if (errorBranch) branches = branches.filter((fold) => fold !== errorBranch);
+    const target = byId.get(passes.get(run.at(-1)!)!.onward.target);
+    // The line must be drawn between two shown nodes.
+    if (!source || !target || isMark(source) || isMark(target) || run.includes(target.id)) continue;
+    if (insideBranch(source.id) || insideBranch(target.id)) continue;
+    const errorBranches = branches.filter((fold) => run.includes(fold.owner) && fold.port === 'error');
+    edges.push({ id: `pass:${id}`, kind: 'edge', owner: source.id, port: into.sourceHandle, nodeIds: [...run, ...errorBranches.flatMap((fold) => fold.nodeIds)], target: target.id, edgeId: into.id });
+    branches = branches.filter((fold) => !errorBranches.includes(fold));
   }
   return [...branches, ...edges];
 }
@@ -138,20 +160,6 @@ function brief(node: WorkflowNode, names: FoldNames): string {
   return nodeName(node);
 }
 
-/** At most this many error kinds are named in a 재요청 chip; the rest are counted ("외 3"). */
-const CHIP_KINDS = 2;
-
-/**
- * What a 재요청 node does, in the chip's few words: "출력 잘림·시간 초과 시 절반으로 2번",
- * "사용량 한도·연결 끊김 시 60초 뒤 그대로 3번", "사용량 한도 시 gpt-5로 3번" (the kinds come first, since a chain has several nodes).
- */
-export function retryChipText(config: RetryConfig) {
-  const kinds = config.kinds.map((kind) => ITEM_ERROR_KINDS[kind]);
-  const named = kinds.length ? `${kinds.slice(0, CHIP_KINDS).join('·')}${kinds.length > CHIP_KINDS ? ` 외 ${kinds.length - CHIP_KINDS}` : ''}` : '고른 오류 없음';
-  const size = config.scale >= 1 ? (config.model?.model ? '' : '그대로') : `${retryScaleText(config.scale)}${config.scale === 0.5 ? '으로' : '로'}`.replace('%으로', '%로');
-  return [`${named} 시`, config.wait > 0 ? `${retryWaitText(config.wait)} 뒤` : '', config.model?.model ? `${config.model.model}로` : '', size, `${config.maxTimes}번`].filter(Boolean).join(' ');
-}
-
 /** "태그 붙이기 · 검수 지적", "태그 떼기 · 고른 태그 7개": what a tag node does, in the chip's few words. */
 export function tagChipText(node: WorkflowNode): string {
   if (node.type !== 'function' || node.config.fn !== 'tagLines') return nodeName(node);
@@ -161,15 +169,48 @@ export function tagChipText(node: WorkflowNode): string {
   return [`태그 ${TAG_ACTIONS[tags.action]}`, ...picked, from].filter(Boolean).join(' · ');
 }
 
-/** The chip's text: 재요청 first ("출력 잘림 시 절반으로 2번 → 사용량 한도 시 60초 뒤 그대로 3번 → 검토 필요"), a lone tag node by what it does, else the names joined. */
+/** The chip's text: a lone tag node by what it does, else the names joined ("AI 실패 태그 → 끝", "검토 필요"). */
 export function foldText(definition: WorkflowDefinition, fold: Fold, names: FoldNames = {}): string {
   const nodes = fold.nodeIds.flatMap((id) => definition.nodes.find((node) => node.id === id) ?? []);
   const first = nodes[0];
   if (!first) return '';
-  // A chain of 재요청 nodes reads one after the other, then whatever they end in ("… 2번 → … 3번 → 검토 필요").
-  if (first.type === 'retry') return nodes.map((node) => (node.type === 'retry' ? retryChipText(node.config) : brief(node, names))).join(' → ');
   if (fold.kind === 'edge' || (nodes.length === 1 && first.type === 'function' && first.config.fn === 'tagLines')) return tagChipText(first);
   return nodes.map((node) => brief(node, names)).join(' → ');
+}
+
+/** A line's tags and statuses by id, for its marks. */
+export interface MarkNames {
+  tags?: ReadonlyMap<string, { name: string; color: string }>;
+  statuses?: ReadonlyMap<string, { name: string; color: string }>;
+}
+
+/** At most this many tags of one node are named on a line; the rest are counted ("#형식 외 5"). */
+const LINE_TAGS = 2;
+
+/**
+ * What a line fold's nodes do to the lines, as marks on the line: each tag a 태그 붙이기 adds (+) or a 떼기 takes off (−),
+ * a result field's tags by the field ("+#검수 지적"), a 상태 변경's status. Other nodes give none.
+ */
+export function lineMarks(definition: WorkflowDefinition, fold: Fold, names: MarkNames = {}): LineMark[] {
+  if (fold.kind !== 'edge') return [];
+  return fold.nodeIds.flatMap((id): LineMark[] => {
+    const node = definition.nodes.find((item) => item.id === id);
+    if (node?.type !== 'function') return [];
+    if (node.config.fn === 'setStatus') {
+      const statusId = (node.config.params as { statusId?: string }).statusId ?? '';
+      const status = names.statuses?.get(statusId);
+      return [{ nodeId: id, kind: 'status', name: status?.name ?? nodeName(node), color: status?.color }];
+    }
+    if (node.config.fn !== 'tagLines') return [];
+    const tags = tagLinesParams.parse(node.config.params);
+    const sign: LineMark['sign'] = tags.action === 'remove' ? '−' : '+';
+    const picked = tags.tagIds.map((tagId) => names.tags?.get(tagId) ?? { name: '삭제된 태그', color: '' });
+    const shown: LineMark[] = picked.slice(0, picked.length > LINE_TAGS ? 1 : LINE_TAGS).map((tag, index) => ({
+      nodeId: id, kind: 'tag', sign, name: index === 0 && picked.length > LINE_TAGS ? `${tag.name} 외 ${picked.length - 1}` : tag.name, color: tag.color || undefined,
+    }));
+    const field = tags.map.tag && (tags.map.tag === 'categories' ? '검수 지적' : tags.map.tag === 'kind' ? '검사 종류' : tags.map.tag);
+    return [...shown, ...(field ? [{ nodeId: id, kind: 'tag' as const, sign, name: field }] : [])];
+  });
 }
 
 export const foldContaining = (folds: readonly Fold[], nodeId: string) => folds.find((fold) => fold.nodeIds.includes(nodeId));
@@ -184,7 +225,8 @@ export function foldedDefinition(definition: WorkflowDefinition, folds: readonly
   if (!hidden.size) return { definition, closed, hidden };
   const merged = closed.filter((fold) => fold.kind === 'edge').flatMap((fold) => {
     const edge = definition.edges.find((item) => item.id === fold.edgeId);
-    return edge && fold.target ? [{ ...edge, target: fold.target, layout: undefined }] : [];
+    // Its stored route is the one a layout made while folded; one made unfolded ends at the tag node, and the canvas, finding it does not meet the ports, draws its own.
+    return edge && fold.target ? [{ ...edge, target: fold.target }] : [];
   });
   const kept = definition.edges.filter((edge) => !hidden.has(edge.source) && !hidden.has(edge.target));
   return { definition: { ...definition, nodes: definition.nodes.filter((node) => !hidden.has(node.id)), edges: [...kept, ...merged] }, closed, hidden };
@@ -225,7 +267,7 @@ export const NO_OPEN_FOLDS: FoldState = { open: [] };
 export const isFoldOpen = (state: FoldState, id: string) => state.open.includes(id);
 export const toggleFold = (state: FoldState, id: string): FoldState => ({ open: isFoldOpen(state, id) ? state.open.filter((open) => open !== id) : [...state.open, id] });
 /** Opens every fold, or closes them all. */
-export const setAllFolds = (folds: readonly Fold[], open: boolean): FoldState => ({ open: open ? folds.map((fold) => fold.id) : [] });
+export const setAllFolds = (folds: readonly Fold[], open: boolean): FoldState => ({ open: open ? [...new Set(folds.map((fold) => fold.id))] : [] });
 export const allFoldsOpen = (folds: readonly Fold[], state: FoldState) => folds.length > 0 && folds.every((fold) => isFoldOpen(state, fold.id));
 /** Opens the fold a node is folded in (selecting a folded node by URL, search or an issue shows it); the same state when it needs nothing. */
 export function openFoldContaining(state: FoldState, folds: readonly Fold[], nodeId: string | undefined): FoldState {
@@ -271,7 +313,8 @@ export function foldPlacements(
   const sizeOf = (id: string) => sizes.get(id) ?? { width: vertical ? 224 : 288, height: 96 };
   const nodeOf = (id: string) => definition.nodes.find((node) => node.id === id);
   const rectAt = (id: string, at: { x: number; y: number }): Rect => ({ left: at.x, top: at.y, right: at.x + sizeOf(id).width, bottom: at.y + sizeOf(id).height });
-  const openFolds = folds.filter((fold) => open.has(fold.id));
+  // A shared dead end is one fold with an entry per exit: placed once, by its first.
+  const openFolds = folds.filter((fold, index) => open.has(fold.id) && folds.findIndex((other) => other.id === fold.id) === index);
   const folded = new Set(openFolds.flatMap((fold) => fold.nodeIds));
   const occupied: Rect[] = definition.nodes.filter((node) => !isMark(node) && !folded.has(node.id)).map((node) => rectAt(node.id, node.position));
   const placed = new Map<string, { x: number; y: number }>();

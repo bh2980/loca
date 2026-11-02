@@ -46,7 +46,7 @@ export function collapseCalls(definition: WorkflowDefinition): WorkflowDefinitio
   return { ...definition, nodes, edges };
 }
 
-/** `retrying`: on a 재요청 node, the lines it sent back that wait for the AI node again, with the failure kinds. */
+/** `retrying`: on an AI node, the lines its retry rules sent back that wait to go again, with the failure kinds. */
 export type LiveCounts = { queued: number; running: number; failed: number; calls?: number; limit?: number; passed?: number; retrying?: { count: number; kinds: Record<string, number> } };
 interface RunCounts {
   nodes: { nodeId: string; state: string; count: number }[];

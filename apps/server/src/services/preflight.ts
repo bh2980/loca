@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray, isNotNull, ne, sql } from 'drizzle-orm';
-import { autoBudgets, batchConfigSchema, INPUT_TYPES, workflowInput, readinessUses, CONNECTION_KIND_INFO, estimateTokens, limitsWithSource, isFreeModel, isUnknownListener, needsListener, runNodeName, termMatcher, type AiNode, type WorkflowDefinition } from '@tw/shared';
+import { autoBudgets, batchConfigSchema, INPUT_TYPES, workflowInput, readinessUses, CONNECTION_KIND_INFO, estimateTokens, limitsWithSource, isFreeModel, isUnknownListener, needsListener, nodeRetries, runNodeName, termMatcher, type AiNode, type WorkflowDefinition } from '@tw/shared';
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -175,36 +175,28 @@ export async function preflight(db: Db, requested: Pick<typeof s.workflows.$infe
  * (listeners, speech rules) does not apply.
  */
 /**
- * Room the caps keep for the 재요청 nodes behind an AI node's error exit (a chain, each after the last),
- * at their worst: every request fails each time, so round k resends all `full` requests' lines in
- * requests (the nodes' scales so far)^k as large. Each round carries the lines once more plus every
- * smaller request's fixed overhead. Nothing without such a node.
+ * Room the caps keep for an AI node's retry rules (each after the last), at their worst: every request fails each
+ * time, so round k resends all `full` requests' lines in requests (the rules' scales so far)^k as large. Each round
+ * carries the lines once more plus every smaller request's fixed overhead. Nothing without rules.
  */
 function retryHeadroom(definition: WorkflowDefinition, estimate: NodeEstimate, perRequest: number) {
   let calls = 0;
   let inputTokens = 0;
   let scale = 1;
-  const seen = new Set<string>();
-  let from = estimate.nodeId;
-  for (;;) {
-    const target = definition.edges.find((edge) => edge.source === from && edge.sourceHandle === 'error')?.target;
-    const retry = definition.nodes.find((node) => node.id === target);
-    if (retry?.type !== 'retry' || seen.has(retry.id)) break;
-    seen.add(retry.id);
-    for (let round = 1; round <= retry.config.maxTimes; round += 1) {
-      scale *= retry.config.scale;
+  const node = definition.nodes.find((candidate) => candidate.id === estimate.nodeId);
+  for (const rule of node?.type === 'ai' ? nodeRetries(definition, node) : [])
+    for (let round = 1; round <= rule.maxTimes; round += 1) {
+      scale *= rule.scale;
       const requests = Math.ceil(estimate.full / scale);
       calls += requests;
       inputTokens += estimate.full * estimate.promptTokens + requests * (perRequest - estimate.promptTokens);
     }
-    from = retry.id;
-  }
   return { calls, inputTokens };
 }
 
 /**
  * Caps to start with: the expectation (or the maximum) plus room for re-requests, and the worst a
- * 재요청 node can add (retryHeadroom). No input cap while a connection's fixed overhead is unmeasured:
+ * node's retry rules can add (retryHeadroom). No input cap while a connection's fixed overhead is unmeasured:
  * the estimate would leave it out and the run would stop early. One run measures it.
  */
 function suggestLimits(definition: WorkflowDefinition, estimates: NodeEstimate[], calls: { expected: number | null; max: number }, inputTokens: { expected: number | null; max: number }) {

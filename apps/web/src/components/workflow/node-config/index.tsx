@@ -8,7 +8,6 @@ import { AiConfig } from '@/components/workflow/node-config/ai';
 import { ConditionEditor } from '@/components/workflow/node-config/condition';
 import { GatherConfig } from '@/components/workflow/node-config/gather';
 import { CallConfig } from '@/components/workflow/node-config/call';
-import { RetryConfig } from '@/components/workflow/node-config/retry';
 import { FunctionConfig } from '@/components/workflow/node-config/function';
 import { type NodeRefs } from '@/components/workflow/node-config/shared';
 
@@ -65,11 +64,10 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
 
           {node.type === 'ai' ? (
             <AiConfig part="rest" node={node} refs={refs} onChange={onChange} />
-          ) : node.type === 'function' || node.type === 'condition' || node.type === 'gather' || node.type === 'retry' || node.type === 'call' ? (
+          ) : node.type === 'function' || node.type === 'condition' || node.type === 'gather' || node.type === 'call' ? (
             <Section title={NODE_TYPES[node.type].label}>
               {node.type === 'function' && <FunctionConfig node={node} refs={refs} readOnly={readOnly} onChange={onChange} />}
               {node.type === 'gather' && <GatherConfig node={node} refs={refs} onChange={onChange} />}
-              {node.type === 'retry' && <RetryConfig node={node} onChange={onChange} />}
               {node.type === 'call' && <CallConfig node={node} refs={refs} onChange={onChange} />}
               {node.type === 'condition' && <ConditionEditor node={node} nodes={refs.nodes} refs={refs} readOnly={readOnly} onChange={onChange} />}
             </Section>

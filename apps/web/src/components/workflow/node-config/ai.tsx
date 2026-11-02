@@ -1,10 +1,11 @@
 /** AI node settings, grouped by the user's task: model, instruction, output, advanced. */
 import { useEffect, useState } from 'react';
-import { AI_OUTPUTS, AI_SCOPES, CONTEXT_FIELDS, CHOICE_SOURCES, CONNECTION_KIND_INFO, BATCH_MODE_LABELS, autoBudgets, contextConfigSchema, INPUT_TYPES, limitsFor, nodeName, previousSteps, type WorkflowSubject, type AiOutput, type AiScope, type BatchConfig, type Capability, type ChoiceSource, type WorkflowNode } from '@tw/shared';
+import { AI_OUTPUTS, AI_SCOPES, CONTEXT_FIELDS, CHOICE_SOURCES, CONNECTION_KIND_INFO, BATCH_MODE_LABELS, autoBudgets, contextConfigSchema, DEFAULT_RETRY_RULES, INPUT_TYPES, limitsFor, nodeName, previousSteps, retrySummary, type WorkflowSubject, type AiOutput, type AiScope, type BatchConfig, type Capability, type ChoiceSource, type WorkflowNode } from '@tw/shared';
 import { Box, Button, Dialog, DialogContent, DialogHeader, DialogTitle, HelpTip, Inline, Input, NumberInput, SelectField, SelectItem, Stack, Text, Textarea, Section, Group, Field } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
 import { ModelPicker } from '@/components/model-picker';
 import { JsonFieldsEditor } from '@/components/workflow/node-config/json-fields-editor';
+import { RetryRules } from '@/components/workflow/node-config/retry';
 import { numberOrNull } from '@/lib/form-values';
 import { CheckItem, CountRow, StepChips, ToggleRow, outputFieldNames, refsInput, type AiNode, type NodeRefs } from '@/components/workflow/node-config/shared';
 
@@ -116,6 +117,8 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
         <AiContextFields config={config} set={set} input={input} />
       </Section>
 
+      <AiRetrySection node={node} refs={refs} set={set} />
+
       <Section title="고급" collapsible persistKey="node.ai.advanced">
         <>
           {takesTemperature && (
@@ -165,12 +168,43 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
               </Field>
             )}
           </>
-          <Field label="요청 제한 시간 (분)" help="요청 하나의 제한 시간입니다. 넘기면 그 대사들이 오류(시간 초과) 출구로 나갑니다. 다시 보내려면 오류 출구에 재요청 노드를 이으세요.">
+          <Field label="요청 제한 시간 (분)" help="요청 하나의 제한 시간입니다. 넘기면 그 대사들은 시간 초과로 실패해, 재시도 규칙이 받으면 다시 보내고 아니면 '오류' 출구로 나갑니다.">
             <Box asChild width="field"><NumberInput min={1} max={240} value={config.timeoutMinutes} onValueChange={(timeoutMinutes) => timeoutMinutes !== undefined && set({ timeoutMinutes })} /></Box>
           </Field>
         </>
       </Section>
     </>
+  );
+}
+
+/**
+ * 재시도: what this node sends again before a line leaves through 오류. It follows the workflow's rules, its own, or none:
+ * picked here, not guessed. Its own rules start as a copy of the workflow's.
+ */
+function AiRetrySection({ node, refs, set }: { node: AiNode; refs: NodeRefs; set: (patch: Partial<AiNode['config']>) => void }) {
+  const own = node.config.retries;
+  const workflow = refs.retries ?? DEFAULT_RETRY_RULES;
+  const mode = own === null ? 'workflow' : own.length ? 'own' : 'none';
+  return (
+    <Section title="재시도" count={mode === 'none' ? '안 함' : `최대 ${(own ?? workflow).reduce((sum, rule) => sum + rule.maxTimes, 0)}번`} collapsible persistKey="node.ai.retry">
+      <Box spaceY="normal">
+        <Field label="규칙" help="요청이 실패한 대사를 '오류' 출구로 내보내기 전에 이 노드에 다시 보내는 규칙입니다. 작게, 기다렸다가, 다른 모델로 보낼 수 있습니다. 다시 보낸 횟수는 노드 방문 상한에 세지 않습니다.">
+          <SelectField value={mode} onValueChange={(next) => set({ retries: next === 'workflow' ? null : next === 'none' ? [] : structuredClone(own?.length ? own : workflow) })}>
+            <SelectItem value="workflow">워크플로 기본 따름</SelectItem>
+            <SelectItem value="own">이 노드만 따로</SelectItem>
+            <SelectItem value="none">재시도 안 함</SelectItem>
+          </SelectField>
+        </Field>
+        {mode === 'workflow' && (
+          <Box spaceY="tight">
+            {workflow.length ? workflow.map((rule, index) => <Text as="p" key={index} variant="caption" tone="muted">{retrySummary(rule)}</Text>) : <Text as="p" variant="caption" tone="muted">워크플로 기본은 재시도하지 않습니다.</Text>}
+            {refs.onOpenWorkflowSettings && <Button variant="ghost" size="inline" flush="start" onClick={refs.onOpenWorkflowSettings}>워크플로 설정에서 바꾸기</Button>}
+          </Box>
+        )}
+        {mode === 'own' && own && <RetryRules id={`retry-${node.id}`} rules={own} onChange={(retries) => set({ retries })} />}
+        {mode === 'none' && <Text as="p" variant="caption" tone="muted">실패한 대사는 모두 바로 '오류' 출구로 나갑니다.</Text>}
+      </Box>
+    </Section>
   );
 }
 

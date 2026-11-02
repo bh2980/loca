@@ -125,7 +125,7 @@ export function readAiOutput(node: AiNode, raw: unknown, lines: PromptLine[], mo
       if (node.config.scope === 'batch') {
         // An answer that breaks a field's limits counts as none: every line is asked again.
         if (!strict.safeParse(raw ?? {}).success) return lines.map(() => null);
-        // Pairs whose views are not one or two distinct directions of the pair fail the request, so a 재요청 node can send it again.
+        // Pairs whose views are not one or two distinct directions of the pair fail the request, so a retry rule can send it again.
         const problem = asksRelationshipViews(fields) ? relationshipViewsProblem(raw) : null;
         if (problem) return lines.map(() => ({ port: 'error', error: `관계 형식이 맞지 않습니다: ${problem}`, errorKind: 'invalid-output' as const }));
         // One answer for the whole request; to save space in run_items.data (H7) only the first line carries it.

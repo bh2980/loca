@@ -11,7 +11,6 @@ const statusNames = new Map([['needs-review', '검토 필요']]);
 const node = (id: string, type: string, config: unknown = {}, label?: string) => workflowNodeSchema.parse({ id, type, label, position: { x: 0, y: 0 }, config });
 const fn = (id: string, name: string, params: Record<string, unknown> = {}, label?: string) => node(id, 'function', { fn: name, params }, label);
 const tag = (id: string, params: Record<string, unknown> = {}) => fn(id, 'tagLines', { action: 'add', map: { tag: 'categories' }, ...params }, id);
-const retry = (id: string) => node(id, 'retry', { kinds: ['cut-off'], scale: 0.5, maxTimes: 2 });
 const edge = (source: string, sourceHandle: string, target: string): WorkflowEdge => ({ id: `${source}-${sourceHandle}-${target}`, source, sourceHandle, target });
 const definition = (nodes: ReturnType<typeof node>[], edges: WorkflowEdge[]) => workflowDefinitionSchema.parse({ nodes: [node('entry', 'entry'), ...nodes], edges: [edge('entry', 'out', nodes[0]!.id), ...edges] }) as WorkflowDefinition;
 const ids = (folds: Fold[]) => folds.map((fold) => fold.id).sort();
@@ -19,30 +18,29 @@ const find = (folds: Fold[], id: string) => folds.find((fold) => fold.id === id)
 
 describe('computeFolds on the 번역 template', () => {
   const folds = computeFolds(template);
-  it('folds each AI node\'s 재요청 branch, the 3-times condition\'s dead end and the tag nodes on lines', () => {
-    expect(ids(folds)).toEqual([
-      'pass:tag-format', 'pass:tag-review', 'pass:tag-term', 'pass:untag-format', 'pass:untag-review', 'pass:untag-revised', 'pass:untag-term',
-      'retry:false', 'revised:false',
-      'review:error', 'revise:error', 'terms:error', 'translate:error',
-    ].sort());
+  it('folds the one 검토 필요 end onto every exit that leads to it, the AI 실패 marker and the tag nodes on lines', () => {
+    expect([...new Set(ids(folds))]).toEqual([
+      'end:needs-review', 'pass:tag-format', 'pass:tag-review', 'pass:tag-term', 'pass:untag-format', 'pass:untag-review', 'pass:untag-revised', 'pass:untag-term', 'terms:error',
+    ]);
   });
-  it('takes the two chained 재요청 nodes and the failure marker into the exit of the AI node', () => {
-    expect(find(folds, 'translate:error')?.nodeIds).toEqual(['translate-resend', 'translate-wait', 'translate-failed']);
-    expect(find(folds, 'terms:error')?.nodeIds).toEqual(['terms-resend', 'terms-wait', 'terms-failed']);
-    // The second 재요청's own 오류 exit is not a fold of its own: it is inside its owner's.
-    expect(folds.some((fold) => fold.owner.endsWith('-resend') || fold.owner.endsWith('-wait'))).toBe(false);
+  it('puts a chip for the shared end on each exit, all one fold', () => {
+    const ends = folds.filter((fold) => fold.id === 'end:needs-review');
+    expect(ends.map((fold) => `${fold.owner}:${fold.port}`).sort()).toEqual(['review:error', 'revise-again:false', 'revise:error', 'revised:false', 'translate:error']);
+    expect(ends.every((fold) => fold.nodeIds.join() === 'needs-review')).toBe(true);
+    expect(find(folds, 'terms:error')?.nodeIds).toEqual(['terms-failed']);
   });
-  it('hides 21 side nodes and keeps the main path', () => {
+  it('hides 10 side nodes (완료로 rides on the line with the tag node before it) and keeps the main path', () => {
     const hidden = new Set(folds.flatMap((fold) => fold.nodeIds));
-    expect(hidden.size).toBe(21);
-    for (const id of ['translate', 'save', 'check', 'glossary', 'review', 'confirm', 'terms', 'save-terms', 'retry', 'revise', 'save-revision', 'revised']) expect(hidden.has(id)).toBe(false);
+    expect(hidden.size).toBe(10);
+    expect(find(folds, 'pass:untag-review')).toMatchObject({ nodeIds: ['untag-review', 'confirm'], owner: 'review', target: 'terms' });
+    for (const id of ['translate', 'save', 'check', 'glossary', 'review', 'terms', 'save-terms', 'revise-again', 'revise', 'save-revision', 'revised']) expect(hidden.has(id)).toBe(false);
   });
   it('draws a tag node as one line from its source to its target, keeping the id of the line into it', () => {
     const fold = find(folds, 'pass:tag-format')!;
-    expect(fold).toMatchObject({ kind: 'edge', owner: 'check', port: 'fail', target: 'retry', edgeId: 'check-fail-tag-format' });
+    expect(fold).toMatchObject({ kind: 'edge', owner: 'check', port: 'fail', target: 'revise-again', edgeId: 'check-fail-tag-format' });
     const drawn = foldedDefinition(template, folds, new Set());
-    expect(drawn.definition.edges.find((item) => item.id === 'check-fail-tag-format')).toMatchObject({ source: 'check', sourceHandle: 'fail', target: 'retry' });
-    expect(drawn.definition.nodes.some((item) => item.id === 'tag-format')).toBe(false);
+    expect(drawn.definition.edges.find((item) => item.id === 'check-fail-tag-format')).toMatchObject({ source: 'check', sourceHandle: 'fail', target: 'revise-again' });
+    expect(drawn.definition.nodes.some((item) => item.id === 'tag-format' || item.id === 'needs-review')).toBe(false);
     expect(drawn.definition.edges.every((item) => !drawn.hidden.has(item.source) && !drawn.hidden.has(item.target))).toBe(true);
   });
   it('shows everything again when every fold is open', () => {
@@ -51,12 +49,12 @@ describe('computeFolds on the 번역 template', () => {
 });
 
 describe('computeFolds on small definitions', () => {
-  it('folds a dead-end chain on an error exit, with the 재요청 looping back', () => {
-    const d = definition([fn('a', 'http'), retry('r'), fn('m', 'setStatus', { statusId: 'needs-review' }, '검토 필요로'), fn('next', 'script')], [
-      edge('a', 'out', 'next'), edge('a', 'error', 'r'), edge('r', 'retry', 'a'), edge('r', 'error', 'm'),
+  it('folds a dead-end chain on an error exit', () => {
+    const d = definition([fn('a', 'http'), fn('h', 'http'), fn('m', 'setStatus', { statusId: 'needs-review' }, '검토 필요로'), fn('next', 'script')], [
+      edge('a', 'out', 'next'), edge('a', 'error', 'h'), edge('h', 'out', 'm'),
     ]);
     const folds = computeFolds(d);
-    expect(folds).toEqual([{ id: 'a:error', kind: 'branch', owner: 'a', port: 'error', nodeIds: ['r', 'm'] }]);
+    expect(folds).toEqual([{ id: 'a:error', kind: 'branch', owner: 'a', port: 'error', nodeIds: ['h', 'm'] }]);
     expect(foldContaining(folds, 'm')?.id).toBe('a:error');
   });
   it('folds a chain ending at the hidden 끝 node and words it by names', () => {
@@ -71,9 +69,18 @@ describe('computeFolds on small definitions', () => {
     ]);
     expect(computeFolds(d)).toEqual([]);
   });
-  it('does not fold a branch that is also reached from another node', () => {
+  it('folds a dead end two side exits share into a chip on each, one fold', () => {
     const d = definition([fn('a', 'http'), fn('b', 'http'), fn('side', 'script')], [edge('a', 'out', 'b'), edge('a', 'error', 'side'), edge('b', 'error', 'side')]);
-    expect(computeFolds(d)).toEqual([]);
+    expect(computeFolds(d)).toEqual([
+      { id: 'end:side', kind: 'branch', owner: 'a', port: 'error', nodeIds: ['side'] },
+      { id: 'end:side', kind: 'branch', owner: 'b', port: 'error', nodeIds: ['side'] },
+    ]);
+  });
+  it('does not fold a shared node a main exit leads to, or one that leads on', () => {
+    const main = definition([fn('a', 'http'), fn('b', 'http'), fn('side', 'script')], [edge('a', 'out', 'side'), edge('b', 'error', 'side'), edge('side', 'out', 'b')]);
+    expect(computeFolds(main).filter((fold) => fold.nodeIds.includes('side'))).toEqual([]);
+    const onward = definition([fn('a', 'http'), fn('b', 'http'), fn('side', 'script'), fn('c', 'script')], [edge('a', 'out', 'b'), edge('a', 'error', 'side'), edge('b', 'error', 'side'), edge('b', 'out', 'c'), edge('side', 'out', 'c')]);
+    expect(computeFolds(onward)).toEqual([]);
   });
   it('does not fold more than 4 nodes', () => {
     const chain = (count: number) => {
@@ -111,27 +118,21 @@ describe('computeFolds on small definitions', () => {
     const d = definition([fn('a', 'formatCheck'), fn('p', 'script'), fn('b', 'script')], [edge('a', 'pass', 'b'), edge('a', 'fail', 'p'), edge('p', 'keep', 'b')]);
     expect(computeFolds(d)).toEqual([]);
   });
-  it('leaves two tag nodes in a row alone', () => {
-    const d = definition([fn('a', 'formatCheck'), tag('t1'), tag('t2'), fn('b', 'script')], [edge('a', 'pass', 'b'), edge('a', 'fail', 't1'), edge('t1', 'out', 't2'), edge('t2', 'out', 'b')]);
-    expect(computeFolds(d)).toEqual([]);
+  it('puts several marking nodes in a row on one line', () => {
+    const d = definition([fn('a', 'formatCheck'), tag('t1'), fn('s', 'setStatus', { statusId: 'needs-review' }), fn('b', 'script')], [edge('a', 'pass', 'b'), edge('a', 'fail', 't1'), edge('t1', 'out', 's'), edge('s', 'out', 'b')]);
+    expect(computeFolds(d)).toEqual([{ id: 'pass:t1', kind: 'edge', owner: 'a', port: 'fail', nodeIds: ['t1', 's'], target: 'b', edgeId: 'a-fail-t1' }]);
   });
 });
 
 describe('foldText', () => {
   const folds = computeFolds(template);
   const text = (id: string, names = { status: statusNames }) => foldText(template, find(folds, id)!, names);
-  it('words a 재요청 and what its failure goes to', () => {
-    expect(text('translate:error')).toBe('출력 잘림·요청이 너무 김 외 3 시 절반으로 2번 → 사용량 한도·연결 끊김 시 1분 뒤 그대로 3번 → 검토 필요');
-    expect(text('terms:error')).toBe('출력 잘림·요청이 너무 김 외 3 시 절반으로 2번 → 사용량 한도·연결 끊김 시 1분 뒤 그대로 3번 → AI 실패 태그');
+  it('words a lone tag marker by what it does and the shared end by its status', () => {
+    expect(text('terms:error')).toBe('태그 붙이기 · 고른 태그 1개');
+    expect(text('end:needs-review')).toBe('검토 필요');
   });
   it('falls back to the node\'s name without status names', () => {
-    expect(text('translate:error', { status: new Map() as never })).toBe('출력 잘림·요청이 너무 김 외 3 시 절반으로 2번 → 사용량 한도·연결 끊김 시 1분 뒤 그대로 3번 → 검토 필요로');
-  });
-  it('words a 재요청 with no failure branch and other scales', () => {
-    const d = definition([fn('a', 'http'), node('r', 'retry', { kinds: ['cut-off'], scale: 0.7, maxTimes: 3 })], [edge('a', 'error', 'r'), edge('r', 'retry', 'a')]);
-    expect(foldText(d, computeFolds(d)[0]!)).toBe('출력 잘림 시 70%로 3번');
-    const other = definition([fn('a', 'http'), node('r', 'retry', { kinds: ['rate-limit'], scale: 1, wait: 90, maxTimes: 1, model: { connectionId: 'c', model: 'gpt-x' } })], [edge('a', 'error', 'r'), edge('r', 'retry', 'a')]);
-    expect(foldText(other, computeFolds(other)[0]!)).toBe('사용량 한도 시 1분 30초 뒤 gpt-x로 1번');
+    expect(text('end:needs-review', { status: new Map() as never })).toBe('검토 필요로');
   });
   it('words tag nodes by what they do', () => {
     expect(text('pass:untag-format')).toBe('태그 떼기 · 고른 태그 1개');
@@ -142,33 +143,28 @@ describe('foldText', () => {
     const d = definition([fn('a', 'http'), tag('t', { action: 'remove', map: {}, tagIds: ['format-tag'] }), fn('x', 'script'), fn('y', 'script')], [edge('a', 'error', 't'), edge('a', 'out', 'x'), edge('x', 'error', 'y')]);
     expect(foldText(d, find(computeFolds(d), 'a:error')!)).toBe('태그 떼기 · 고른 태그 1개');
     expect(foldText(d, find(computeFolds(d), 'x:error')!)).toBe('스크립트');
-    expect(text('retry:false')).toBe('검토 필요');
   });
 });
 
 describe('what a chip counts', () => {
   const folds = computeFolds(template);
   it('adds up the issues on the folded nodes', () => {
-    const issues = [{ level: 'error' as const, nodeId: 'translate-resend' }, { level: 'warning' as const, nodeId: 'translate-failed' }, { level: 'error' as const, nodeId: 'save' }, { level: 'error' as const }];
-    expect(foldIssues(find(folds, 'translate:error')!, issues)).toEqual({ errors: 1, warnings: 1 });
+    const issues = [{ level: 'error' as const, nodeId: 'needs-review' }, { level: 'warning' as const, nodeId: 'needs-review' }, { level: 'error' as const, nodeId: 'save' }, { level: 'error' as const }];
+    expect(foldIssues(find(folds, 'end:needs-review')!, issues)).toEqual({ errors: 1, warnings: 1 });
   });
   it('adds up a run\'s live counts and leaves zeros out', () => {
-    const live = new Map([['review-resend', { queued: 2, running: 0, failed: 1 }], ['review-failed', { queued: 1, running: 0, failed: 2 }], ['review', { queued: 9, running: 9, failed: 9 }]]);
-    expect(foldLiveText(find(folds, 'review:error')!, live)).toBe('대기 3 · 실패 3');
-    expect(foldLiveText(find(folds, 'translate:error')!, live)).toBe('');
-  });
-  it('says how many lines are being resent and why', () => {
-    const live = new Map([['review-resend', { queued: 0, running: 0, failed: 0, retrying: { count: 12, kinds: { 'cut-off': 9, timeout: 3 } } }]]);
-    expect(foldLiveText(find(folds, 'review:error')!, live)).toBe('다시 보냄 12 · 출력 잘림');
+    const live = new Map([['needs-review', { queued: 3, running: 0, failed: 3 }], ['review', { queued: 9, running: 9, failed: 9 }]]);
+    expect(foldLiveText(find(folds, 'end:needs-review')!, live)).toBe('대기 3 · 실패 3');
+    expect(foldLiveText(find(folds, 'terms:error')!, live)).toBe('');
   });
 });
 
 describe('which folds are open', () => {
   const folds = computeFolds(template);
   it('toggles a fold and opens or closes all of them', () => {
-    const open = toggleFold(NO_OPEN_FOLDS, 'translate:error');
-    expect(isFoldOpen(open, 'translate:error')).toBe(true);
-    expect(isFoldOpen(toggleFold(open, 'translate:error'), 'translate:error')).toBe(false);
+    const open = toggleFold(NO_OPEN_FOLDS, 'terms:error');
+    expect(isFoldOpen(open, 'terms:error')).toBe(true);
+    expect(isFoldOpen(toggleFold(open, 'terms:error'), 'terms:error')).toBe(false);
     expect(allFoldsOpen(folds, open)).toBe(false);
     const all = setAllFolds(folds, true);
     expect(allFoldsOpen(folds, all)).toBe(true);
@@ -176,9 +172,9 @@ describe('which folds are open', () => {
     expect(allFoldsOpen([], NO_OPEN_FOLDS)).toBe(false);
   });
   it('opens the fold of a selected folded node, and changes nothing otherwise', () => {
-    const opened = openFoldContaining(NO_OPEN_FOLDS, folds, 'translate-failed');
-    expect(opened.open).toEqual(['translate:error']);
-    expect(openFoldContaining(opened, folds, 'translate-failed')).toBe(opened);
+    const opened = openFoldContaining(NO_OPEN_FOLDS, folds, 'needs-review');
+    expect(opened.open).toEqual(['end:needs-review']);
+    expect(openFoldContaining(opened, folds, 'needs-review')).toBe(opened);
     expect(openFoldContaining(NO_OPEN_FOLDS, folds, 'check')).toBe(NO_OPEN_FOLDS);
     expect(openFoldContaining(NO_OPEN_FOLDS, folds, undefined)).toBe(NO_OPEN_FOLDS);
   });

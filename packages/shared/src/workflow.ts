@@ -271,14 +271,13 @@ export type ItemErrorKind = keyof typeof ITEM_ERROR_KINDS;
 export const ITEM_ERROR_KIND_IDS = Object.keys(ITEM_ERROR_KINDS) as ItemErrorKind[];
 
 /**
- * 재요청: sends lines that failed back to an AI node, in smaller requests, after a wait, on another
- * model: whatever of that the node says. A line whose last failure is one of `kinds` and that has been
- * sent back fewer than `maxTimes` times at this node leaves through "retry" (its size factor times
- * `scale`, which the AI node it reaches batches by; held for `wait` seconds first; sent with `model`
- * instead of the AI node's own when one is set); any other leaves through "error" with its original
- * failure, which may lead on to another 재요청 node (a chain: each counts its own times). Instant: no AI call.
+ * A 재시도 규칙 of an AI node: a line whose failure is one of `kinds` and that this rule has sent back fewer
+ * than `maxTimes` times goes to the same AI node again (its size factor times `scale`, which the node
+ * batches by; held for `wait` seconds first; sent with `model` instead of the node's own when one is set).
+ * The rules are tried in order; a failure no rule takes (or one whose rules are used up) leaves through
+ * the node's 오류 exit. A node without rules of its own uses the workflow's (settings.retries).
  */
-export const retryConfigSchema = z
+export const retryRuleSchema = z
   .object({
     kinds: z.array(z.enum(ITEM_ERROR_KIND_IDS as [ItemErrorKind, ...ItemErrorKind[]])).default(['cut-off']),
     /** 1 = the same size as before. */
@@ -290,14 +289,24 @@ export const retryConfigSchema = z
     model: draftModelChoiceSchema.nullable().default(null),
   })
   .prefault({});
-export type RetryConfig = z.infer<typeof retryConfigSchema>;
+export type RetryRule = z.infer<typeof retryRuleSchema>;
+/**
+ * The rules a new workflow starts with: what failed because of the request (cut off, too long, left out,
+ * malformed, timed out) goes again in half-size requests, at most twice; what failed because of the provider
+ * (usage limit, dropped connection) goes again unchanged after 60 seconds, at most 3 times.
+ */
+export const DEFAULT_RETRY_RULES: RetryRule[] = [
+  retryRuleSchema.parse({ kinds: ['cut-off', 'too-long', 'missing', 'invalid-output', 'timeout'], scale: 0.5, maxTimes: 2 }),
+  retryRuleSchema.parse({ kinds: ['rate-limit', 'network'], scale: 1, wait: 60, maxTimes: 3 }),
+];
+const retryRulesSchema = z.array(retryRuleSchema).max(5);
 /** "그대로", "절반", "30%": how much of its size a resent request keeps. */
 export const retryScaleText = (scale: number) => (scale >= 1 ? '그대로' : scale === 0.5 ? '절반' : `${Math.round(scale * 100)}%`);
 /** "60초", "2분", "1시간 30분": a wait, in words. */
 export const retryWaitText = (seconds: number) =>
   seconds < 60 ? `${seconds}초` : seconds % 60 ? `${Math.floor(seconds / 60)}분 ${seconds % 60}초` : seconds < 3600 ? `${seconds / 60}분` : `${Math.floor(seconds / 3600)}시간${seconds % 3600 ? ` ${(seconds % 3600) / 60}분` : ''}`;
-/** A retry node's one-line summary: "출력 잘림 · 절반 크기 · 최대 2번", "사용량 한도 · 같은 크기 · 60초 기다림 · 다른 모델 gpt-5 · 최대 3번". */
-export const retrySummary = (config: RetryConfig) =>
+/** A retry rule's one-line summary: "출력 잘림 · 절반 크기 · 최대 2번", "사용량 한도 · 같은 크기 · 60초 기다림 · 다른 모델 gpt-5 · 최대 3번". */
+export const retrySummary = (config: RetryRule) =>
   [
     config.kinds.length ? config.kinds.map((kind) => ITEM_ERROR_KINDS[kind]).join('·') : '고른 오류 없음',
     config.scale >= 1 ? '같은 크기' : `${retryScaleText(config.scale)} 크기`,
@@ -343,6 +352,8 @@ export const aiNodeConfigSchema = z.object({
   concurrency: z.number().int().min(1).max(16).default(1),
   /** What the request reads besides the context: the lines, and what an earlier node produced for them. */
   input: aiInputSchema,
+  /** 재시도 규칙 of this node; null = the workflow's (settings.retries), [] = none (every failure leaves through 오류). */
+  retries: retryRulesSchema.nullable().default(null),
 });
 
 export const workflowNodeSchema = z.discriminatedUnion('type', [
@@ -363,7 +374,6 @@ export const workflowNodeSchema = z.discriminatedUnion('type', [
   }),
   z.object({ ...base, type: z.literal('end'), config: z.object({}).default({}) }),
   z.object({ ...base, type: z.literal('gather'), config: gatherConfigSchema }),
-  z.object({ ...base, type: z.literal('retry'), config: retryConfigSchema }),
   z.object({ ...base, type: z.literal('call'), config: callConfigSchema }),
 ]);
 
@@ -379,6 +389,19 @@ export const workflowEdgeSchema = z.object({
   }).optional(),
 });
 
+/**
+ * A frame: a step's name and nodes, drawn as a box on the canvas (display only, a run never reads it). `box` is where
+ * the box stands (auto layout sets it, a person moves or resizes it); a frame without one, or a node outside it, is
+ * drawn as large as it takes to hold every node it has.
+ */
+export const workflowGroupSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().default(''),
+  nodeIds: z.array(z.string()).default([]),
+  box: z.object({ x: z.number(), y: z.number(), width: z.number().positive(), height: z.number().positive() }).optional(),
+});
+export type WorkflowGroup = z.infer<typeof workflowGroupSchema>;
+
 export const workflowDefinitionSchema = z.object({
   nodes: z.array(workflowNodeSchema),
   edges: z.array(workflowEdgeSchema),
@@ -391,13 +414,20 @@ export const workflowDefinitionSchema = z.object({
    * on a workflow.
    */
   calls: z.record(z.string(), z.object({ name: z.string(), workflowId: z.string() })).optional(),
+  /**
+   * Frames a person draws around steps (번역 · 자동 검사 · AI 검수 …), in reading order: display only, the runner
+   * never reads them. A node is in at most one; nodes in none are drawn outside every frame.
+   */
+  groups: z.array(workflowGroupSchema).optional(),
   settings: z
     .object({
       maxVisitsPerNode: z.number().int().min(1).max(50).default(5),
       /** The run pauses after this many model or function calls in a row fail. */
       maxConsecutiveFailures: z.number().int().min(1).max(50).default(3),
+      /** The 재시도 규칙 every AI node without rules of its own uses. */
+      retries: retryRulesSchema.default(DEFAULT_RETRY_RULES),
     })
-    .default({ maxVisitsPerNode: 5, maxConsecutiveFailures: 3 }),
+    .prefault({}),
 });
 
 export type ContextConfig = z.infer<typeof contextConfigSchema>;
@@ -419,7 +449,6 @@ export function withRunModels(definition: WorkflowDefinition, models: RunModels 
 }
 export type AiNode = Extract<WorkflowNode, { type: 'ai' }>;
 export type FunctionNode = Extract<WorkflowNode, { type: 'function' }>;
-export type RetryNode = Extract<WorkflowNode, { type: 'retry' }>;
 
 /** The model an AI node sends its requests with, or null while none is picked. */
 export function nodeModel(node: AiNode): ModelChoice | null {
@@ -427,56 +456,28 @@ export function nodeModel(node: AiNode): ModelChoice | null {
   return choice.connectionId && choice.model ? { connectionId: choice.connectionId, model: choice.model, ...(choice.effort && { effort: choice.effort }) } : null;
 }
 
-/** The model a 재요청 node sends lines back on instead of the AI node's own, when it is picked. */
-export function retryModel(node: RetryNode): ModelChoice | null {
-  const choice = node.config.model;
+/** The 재시도 규칙 an AI node follows: its own, or the workflow's when it has none of its own. */
+export const nodeRetries = (definition: Pick<WorkflowDefinition, 'settings'>, node: AiNode): RetryRule[] => node.config.retries ?? definition.settings.retries;
+
+/** The model a retry rule sends lines back on instead of the AI node's own, when it is picked. */
+export function retryModel(rule: RetryRule): ModelChoice | null {
+  const choice = rule.model;
   return choice?.connectionId && choice.model ? { connectionId: choice.connectionId, model: choice.model, ...(choice.effort && { effort: choice.effort }) } : null;
 }
 
-/** Every model a workflow may call: its AI nodes' and the models its 재요청 nodes send lines back on. */
-export const definitionModels = (definition: Pick<WorkflowDefinition, 'nodes'>): ModelChoice[] =>
-  definition.nodes.flatMap((node) => ((node.type === 'ai' ? nodeModel(node) : node.type === 'retry' ? retryModel(node) : null) ?? []));
-
 /**
- * Where a 재요청 node's lines come from: the AI nodes whose 오류 exit leads to it, directly or through
- * other 재요청 nodes (a chain), and `bad` when something else leads to it (any other node or exit).
+ * The rule of `rules` that sends a line back after a failure of `kind`: the first that names the kind and has times
+ * left (`times(index)`: how often that rule sent this line back already), or -1 when none does.
  */
-export function retryOrigins(definition: Pick<WorkflowDefinition, 'nodes' | 'edges'>, retryId: string): { origins: string[]; bad: boolean } {
-  const byId = new Map(definition.nodes.map((node) => [node.id, node]));
-  const origins = new Set<string>();
-  let bad = false;
-  const seen = new Set<string>();
-  const walk = (id: string) => {
-    if (seen.has(id)) return;
-    seen.add(id);
-    const into = definition.edges.filter((edge) => edge.target === id);
-    if (!into.length) bad = true;
-    for (const edge of into) {
-      const source = byId.get(edge.source);
-      if (source?.type === 'ai' && edge.sourceHandle === 'error') origins.add(source.id);
-      else if (source?.type === 'retry' && edge.sourceHandle === 'error') walk(source.id);
-      else bad = true;
-    }
-  };
-  walk(retryId);
-  return { origins: [...origins], bad };
-}
+export const retryRuleIndex = (rules: readonly RetryRule[], kind: string, times: (index: number) => number) =>
+  rules.findIndex((rule, index) => rule.kinds.includes(kind as ItemErrorKind) && times(index) < rule.maxTimes);
 
-/** How many times a line can be sent back to an AI node by the 재요청 chains behind its 오류 exit (the sum of their limits). */
-export function resendsOf(definition: Pick<WorkflowDefinition, 'nodes' | 'edges'>, aiId: string): number {
-  const byId = new Map(definition.nodes.map((node) => [node.id, node]));
-  const seen = new Set<string>();
-  const walk = (from: string): number =>
-    definition.edges
-      .filter((edge) => edge.source === from && edge.sourceHandle === 'error')
-      .reduce((sum, edge) => {
-        const node = byId.get(edge.target);
-        if (node?.type !== 'retry' || seen.has(node.id)) return sum;
-        seen.add(node.id);
-        return sum + node.config.maxTimes + walk(node.id);
-      }, 0);
-  return walk(aiId);
-}
+/** Every model a workflow may call: its AI nodes' and the models their retry rules send lines back on. */
+export const definitionModels = (definition: Pick<WorkflowDefinition, 'nodes' | 'settings'>): ModelChoice[] =>
+  definition.nodes.flatMap((node) => (node.type === 'ai' ? [nodeModel(node), ...nodeRetries(definition, node).map(retryModel)].flatMap((model) => model ?? []) : []));
+
+/** How many times an AI node's retry rules can send one line back (the sum of their limits). */
+export const resendsOf = (definition: Pick<WorkflowDefinition, 'settings'>, node: AiNode): number => nodeRetries(definition, node).reduce((sum, rule) => sum + rule.maxTimes, 0);
 
 /** Functions that change the line itself (its status, tags or representative translation). */
 const LINE_CHANGING_FUNCTIONS = new Set(['setStatus']);
@@ -493,7 +494,6 @@ export const NODE_TYPES: Record<WorkflowNodeType, NodeTypeInfo> = {
   function: { label: '함수', description: '형식 검사·상태 변경·HTTP 호출·스크립트 등 정해진 동작을 실행합니다.', hasInput: true },
   condition: { label: '조건', description: '방문 횟수·앞 노드의 출력·대사 속성 등으로 분기합니다.', hasInput: true },
   end: { label: '종료', description: '대사의 흐름을 마칩니다.', hasInput: true },
-  retry: { label: '재요청', description: '실패한 대사를 AI 노드에 다시 보냅니다. 더 작게, 기다렸다가, 다른 모델로 보낼 수 있고, 정한 횟수를 넘으면 오류로 나갑니다.', hasInput: true },
   call: { label: '워크플로 호출', description: '다른 워크플로를 이 대사들에 실행합니다. 끝까지 가면 완료로, 실패로 끝나게 되면 오류로 나옵니다.', hasInput: true },
   gather: { label: '모으기', description: '앞 노드의 결과를 모든 요청이 끝날 때까지 모았다가, 합친 결과 하나를 다음 노드로 넘깁니다.', hasInput: true },
 };
@@ -511,13 +511,11 @@ export function nodePorts(node: WorkflowNode): Port[] {
     case 'function':
       return functionPorts(node.config.fn, node.config.params);
     case 'condition':
-      return [{ id: 'true', label: '참' }, { id: 'false', label: '거짓' }];
+      return [{ id: 'true', label: '예' }, { id: 'false', label: '아니요' }];
     case 'end':
       return [];
     case 'gather':
       return [{ id: 'out', label: '다음' }];
-    case 'retry':
-      return [{ id: 'retry', label: '다시 보냄' }, ERROR];
     case 'call':
       return [...OUT, ERROR];
   }
@@ -599,6 +597,17 @@ export interface WorkflowRefs {
   toolConnectionIds: Set<string>;
 }
 
+/** What is wrong with retry rules: a rule that sends lines back on another model must name one that still exists. */
+function retryRuleProblems(rules: readonly RetryRule[], refs: { connections: { has: (id: string) => boolean } }): string[] {
+  return rules.flatMap((rule, index) => {
+    const which = rules.length > 1 ? `규칙 ${index + 1}: ` : '';
+    if (!rule.kinds.length) return [`${which}다시 보낼 오류를 하나 이상 고르세요.`];
+    if (rule.model && (!rule.model.connectionId || !rule.model.model)) return [`${which}다시 보낼 모델을 고르거나 '같은 모델'로 되돌리세요.`];
+    if (rule.model && !refs.connections.has(rule.model.connectionId)) return [`${which}다시 보낼 AI 연결이 삭제되었습니다. 다시 고르세요.`];
+    return [];
+  });
+}
+
 export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowRefs): WorkflowIssue[] {
   const issues: WorkflowIssue[] = [];
   const error = (message: string, at: Pick<WorkflowIssue, 'nodeId' | 'edgeId'> = {}) => issues.push({ level: 'error', message, ...at });
@@ -625,11 +634,6 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
     if (!nodePorts(source).some((port) => port.id === edge.sourceHandle))
       error(`'${nodeName(source)}'에 없는 출구입니다: ${edge.sourceHandle}`, { edgeId: edge.id });
     if (!NODE_TYPES[target.type].hasInput) error('진입 노드로 들어가는 연결은 둘 수 없습니다.', { edgeId: edge.id });
-    if (source.type === 'retry' && edge.sourceHandle === 'retry') {
-      const { origins } = retryOrigins(definition, source.id);
-      if (target.type !== 'ai') error(`'${nodeName(source)}'의 '다시 보냄'은 AI 노드로 이어져야 합니다.`, { edgeId: edge.id });
-      else if (origins.length === 1 && origins[0] !== target.id) error(`'${nodeName(source)}'의 '다시 보냄'은 오류 출구로 이 재요청에 닿는 AI 노드('${nodeName(graph.getNodeAttribute(origins[0]!, 'node') as WorkflowNode)}')로 이어져야 합니다.`, { edgeId: edge.id });
-    }
     const port = `${edge.source}:${edge.sourceHandle}`;
     if (definition.edges.some((other) => other !== edge && other.source === edge.source && other.sourceHandle === edge.sourceHandle && other.target === edge.target && definition.edges.indexOf(other) < definition.edges.indexOf(edge)))
       error('같은 출구에서 같은 노드로 가는 연결이 두 번 있습니다.', { edgeId: edge.id });
@@ -702,17 +706,7 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
       }
       if (!input.lines && !(input.previous && node.config.output === 'json' && node.config.scope === 'batch')) error('대사 없이 보내려면 앞 단계 결과를 넣고, 출력을 JSON · 묶음 전체로 하세요.', { nodeId: node.id });
     }
-    if (node.type === 'ai') {
-      const resends = resendsOf(definition, node.id);
-      if (resends && resends + 1 > definition.settings.maxVisitsPerNode)
-        warn(`다시 보내기가 모두 합쳐 최대 ${resends}번이면 이 노드를 ${resends + 1}번 지납니다. 노드 방문 상한(${definition.settings.maxVisitsPerNode}회)을 넘으면 그 대사는 실패로 끝납니다.`, { nodeId: node.id });
-    }
-    if (node.type === 'retry') {
-      const { origins, bad } = retryOrigins(definition, node.id);
-      if (bad || origins.length !== 1) error(origins.length > 1 ? 'AI 노드 하나의 오류 출구 뒤에만 이을 수 있습니다. 여러 AI 노드가 이 재요청을 함께 쓸 수 없습니다.' : '재요청은 AI 노드의 오류 출구(또는 다른 재요청의 오류 출구) 바로 뒤에만 둘 수 있습니다.', { nodeId: node.id });
-      if (node.config.model && (!node.config.model.connectionId || !node.config.model.model)) error('다시 보낼 모델을 고르거나 \'같은 모델\'로 되돌리세요.', { nodeId: node.id });
-      else if (node.config.model && !refs.connections.has(node.config.model.connectionId)) error('고른 AI 연결이 삭제되었습니다. 다시 고르세요.', { nodeId: node.id });
-    }
+    if (node.type === 'ai' && node.config.retries) retryRuleProblems(node.config.retries, refs).forEach((message) => error(message, { nodeId: node.id }));
     if (node.type === 'call') {
       const picked = node.config.workflowId;
       const called = refs.workflows.find((workflow) => workflow.id === picked);
@@ -779,15 +773,23 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
       if (!reachable.has(node.id)) warn('진입 노드에서 도달할 수 없는 노드입니다.', { nodeId: node.id });
   }
 
+  // Frames: each node in one at most, and only nodes that exist.
+  const framed = new Map<string, string>();
+  for (const group of definition.groups ?? []) for (const id of group.nodeIds) {
+    if (!graph.hasNode(id)) warn(`'${group.label || '이름 없는 프레임'}' 프레임에 없는 노드(${id})가 있습니다.`);
+    else if (framed.has(id)) warn(`노드가 '${framed.get(id)}'과 '${group.label}' 두 프레임에 들어 있습니다.`, { nodeId: id });
+    else framed.set(id, group.label || '이름 없는 프레임');
+  }
+
+  // The workflow's retry rules matter once an AI node follows them.
+  if (definition.nodes.some((node) => node.type === 'ai' && !node.config.retries)) retryRuleProblems(definition.settings.retries, refs).forEach((message) => error(`워크플로 재시도 규칙: ${message}`));
+
   // A loop is fine as long as something inside it can leave it; otherwise only the visit limit stops it.
   for (const component of stronglyConnectedComponents(graph)) {
     const looping = component.length > 1 || graph.hasDirectedEdge(component[0], component[0]);
     if (!looping) continue;
-    // Something in the loop must be able to choose a different exit; a 재요청 node leaves after its own count.
-    const exits = component.some((id) => {
-      const node = graph.getNodeAttribute(id, 'node') as WorkflowNode;
-      return node.type === 'retry' || nodePorts(node).filter((port) => port.id !== 'error').length > 1;
-    });
+    // Something in the loop must be able to choose a different exit.
+    const exits = component.some((id) => nodePorts(graph.getNodeAttribute(id, 'node') as WorkflowNode).filter((port) => port.id !== 'error').length > 1);
     if (!exits)
       warn(`분기 없이 도는 순환이 있습니다. 노드 방문 상한(${definition.settings.maxVisitsPerNode}회)에서만 멈춥니다.`, {
         nodeId: component[0],

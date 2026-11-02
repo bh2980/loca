@@ -107,7 +107,7 @@ describe('워크플로 호출 in a run', () => {
 
     // No call node in the run: its nodes are the called workflow's, prefixed, and the call is named.
     expect(run.definition.nodes.some((node) => node.type === 'call')).toBe(false);
-    expect(run.definition.nodes.map((node) => node.id)).toEqual(expect.arrayContaining(['call/terms', 'call/save-terms', 'call/terms-resend']));
+    expect(run.definition.nodes.map((node) => node.id)).toEqual(expect.arrayContaining(['call/terms', 'call/save-terms']));
     expect(run.definition.calls).toEqual({ call: { name: '용어 추출', workflowId: fixture.called.id } });
     expect(run.definition.settings.maxVisitsPerNode).toBe(fixture.workflow.definition.settings.maxVisitsPerNode);
     const steps = fixture.db.select().from(s.runSteps).where(eq(s.runSteps.runId, runId)).all();
@@ -147,7 +147,7 @@ describe('워크플로 호출 in a run', () => {
     expect(fixture.db.select().from(s.units).all().every((unit) => unit.translation?.startsWith('[ko] '))).toBe(true);
   });
 
-  it('a 재요청 inside the called workflow sends a cut-off request again, smaller, and succeeds', async () => {
+  it('a retry rule inside the called workflow sends a cut-off request again, smaller, and succeeds', async () => {
     const fixture = setup();
     const { runId } = start(fixture);
     const fake = model((_size, n) => (n === 1 ? CUT_OFF() : null));
@@ -156,7 +156,7 @@ describe('워크플로 호출 in a run', () => {
     expect(runOf(fixture.db, runId).status).toBe('completed');
     const items = itemsOf(fixture.db, runId);
     expect(items.every((item) => item.state === 'done' && !item.data.error)).toBe(true);
-    expect(items.every((item) => item.data.retry?.times['call/terms-resend'] === 1)).toBe(true);
+    expect(items.every((item) => item.data.retry?.times['call/terms:0'] === 1)).toBe(true);
     expect(fixture.db.select().from(s.terms).where(eq(s.terms.projectId, fixture.projectId)).all()).toHaveLength(1);
   });
 

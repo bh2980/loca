@@ -80,6 +80,7 @@
   --border-color-warning: var(--orange-520);
   --border-color-success: var(--green-450);
   --border-color-review: var(--amber-660);
+  --border-color-ai: var(--violet-470); /* an AI step's card edge (faint: border-ai/40) */
 
   /* Ring, outline, divide, decoration */
   --ring-color-focus: var(--cobalt-530-a45); /* the focus ring */
@@ -220,6 +221,7 @@
   --border-color-warning: var(--orange-780);
   --border-color-success: var(--green-800);
   --border-color-review: var(--amber-800);
+  --border-color-ai: var(--violet-840);
 
   --ring-color-focus: var(--teal-800-a50);
   --ring-color-line: var(--night-371);

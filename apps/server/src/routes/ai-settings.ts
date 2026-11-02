@@ -27,7 +27,7 @@ const inScope = (projectId: string | null): SQL => (projectId === null ? isNull(
 /** The connection by id, in this scope only (404 otherwise). */
 const scoped = (c: Context<Env>, id: string) => found(c.var.deps.db.select().from(s.connections).where(and(eq(s.connections.id, id), inScope(scopeOf(c)))).get(), '연결');
 
-/** Where a connection is picked in its project: AI nodes and 재요청 nodes (by workflow) and conversations. */
+/** Where a connection is picked in its project: AI nodes and their retry rules, a workflow's own retry rules (by workflow), and conversations. */
 function usesOf(db: Db, id: string, projectId: string | null) {
   if (projectId === null) return [];
   const workflows = db
@@ -35,7 +35,7 @@ function usesOf(db: Db, id: string, projectId: string | null) {
     .from(s.workflows)
     .where(eq(s.workflows.projectId, projectId))
     .all()
-    .filter((row) => row.definition.nodes.some((node) => (node.type === 'ai' && node.config.model.connectionId === id) || (node.type === 'retry' && node.config.model?.connectionId === id)))
+    .filter((row) => [...row.definition.nodes.flatMap((node) => (node.type === 'ai' ? [node.config.model, ...(node.config.retries ?? []).map((rule) => rule.model)] : [])), ...row.definition.settings.retries.map((rule) => rule.model)].some((model) => model?.connectionId === id))
     .map((row) => `워크플로 '${row.name}'`);
   const chats = db.select({ id: s.chatSessions.id }).from(s.chatSessions).where(and(eq(s.chatSessions.projectId, projectId), eq(s.chatSessions.connectionId, id))).all().length;
   return [...workflows, ...(chats ? [`대화 ${chats}개`] : [])];

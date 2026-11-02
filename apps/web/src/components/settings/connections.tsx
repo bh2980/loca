@@ -364,7 +364,7 @@ function ConnectionPane({ target, connection, onClose }: { target: SettingsTarge
   return (
     <Inspector footerStart={<><DeleteButton
           label={`연결 '${connection.name}'`}
-          description="워크플로 노드(재요청 노드의 다른 모델 포함)·대화가 이 연결을 쓰고 있으면 삭제되지 않습니다. 저장된 API 키도 함께 삭제됩니다."
+          description="워크플로 노드(재시도 규칙의 다른 모델 포함)·대화가 이 연결을 쓰고 있으면 삭제되지 않습니다. 저장된 API 키도 함께 삭제됩니다."
           pending={remove.isPending}
           onConfirm={() => remove.mutate()}
         /></>}
