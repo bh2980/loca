@@ -1,4 +1,5 @@
 import { and, eq, inArray } from 'drizzle-orm';
+import { AGE_BAND_LABELS, CHARACTER_ROLE_LABELS, GENDER_LABELS, SPEECH_LEVEL_LABELS } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { snapshot } from './proposal-undo.ts';
@@ -43,8 +44,11 @@ const FIELDS: Record<s.KnowledgeKind, [string, string][]> = {
 };
 
 const SHOWN_CHARS = 500;
-const show = (value: unknown): string => {
+/** Fields whose stored value is a code: shown by its name, as the app's own fields show it. */
+const NAMES: Record<string, Record<string, string>> = { role: CHARACTER_ROLE_LABELS, gender: GENDER_LABELS, ageBand: AGE_BAND_LABELS, level: SPEECH_LEVEL_LABELS };
+const show = (value: unknown, field?: string): string => {
   if (value === null || value === undefined || value === '') return '(비어 있음)';
+  if (field && typeof value === 'string' && NAMES[field]?.[value]) return NAMES[field][value];
   const text = Array.isArray(value) ? value.join(', ') : typeof value === 'boolean' ? (value ? '예' : '아니오') : typeof value === 'object' ? JSON.stringify(value) : String(value);
   return text.length > SHOWN_CHARS ? `${text.slice(0, SHOWN_CHARS)}…` : text;
 };
@@ -91,10 +95,10 @@ function itemsOf(db: Db, proposal: Proposal): ProposalDetailItem[] {
     const changes = FIELDS[kind]
       .filter(([field]) => request[field] !== undefined)
       .flatMap(([field, name]) => {
-        const after = show(request[field]);
+        const after = show(request[field], field);
         if (!id) return [{ field: name, after }];
         if (before === undefined || !(field in before)) return proposal.status === 'accepted' ? [{ field: name, after }] : [];
-        const was = show(before[field]);
+        const was = show(before[field], field);
         return was === after ? [] : [{ field: name, before: was, after }];
       });
     return { kind, action: id ? ('수정' as const) : ('추가' as const), label: labelOf(kind, request, row), changes };
@@ -114,9 +118,11 @@ function refsOf(db: Db, proposal: Proposal): Record<string, string> {
   };
   switch (proposal.tool) {
     case 'update_unit':
+    case 'propose_translation':
+    case 'decide_suggestion':
       for (const unitId of ids('unitId'))
         for (const unit of db.select({ id: s.units.id, key: s.units.key, speaker: s.units.speaker, source: s.units.source }).from(s.units).where(and(eq(s.units.id, unitId), eq(s.units.projectId, proposal.projectId))).all())
-          refs[unit.id] = `${unit.key}${unit.speaker ? ` · ${unit.speaker}` : ''}: ${unit.source.trim().slice(0, 60)}`;
+          refs[unit.id] = `${unit.key}${unit.speaker ? ` · ${unit.speaker}` : ''}: ${unit.source.trim().slice(0, 200)}`;
       named('groups', ids('groupId'));
       break;
     case 'update_group':

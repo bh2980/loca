@@ -32,18 +32,21 @@ export function ScriptTranslationRow({ checkbox, speaker, status, source, transl
       </article>
     )
   }
+  // Side by side when the list has room; narrower (a pane open beside it, a small window) the translation goes under the source, both full width.
   return (
-    <article className={cn("grid min-w-0 grid-cols-[1.5rem_minmax(0,1fr)_minmax(0,1fr)] gap-x-2 px-3", compact || layout === "review" ? "py-2" : "py-3", state)}>
-      <div className="row-span-2 flex justify-center pt-0.5">{checkbox}</div>
-      <div className="min-w-0 border-r border-subtle pr-3">
-        {speaker && <div className="mb-1 min-h-4">{speaker}</div>}
-        <div className={cn("min-w-0", compact ? "text-sm leading-5" : "text-sm leading-relaxed")}>{source}</div>
-      </div>
-      <div className="min-w-0 pl-2">
-        {(status || meta) && <div className="mb-1 flex min-h-4 items-center gap-2">{status}{meta && <span className="ml-auto flex items-center gap-1">{meta}</span>}</div>}
-        <div className={cn("min-w-0", compact ? "text-sm leading-5" : "text-sm leading-relaxed")}>{translation}</div>
-        {actions && <div className="mt-2">{actions}</div>}
-      </div>
-    </article>
+    <div className="@container/line min-w-0">
+      <article className={cn("grid min-w-0 grid-cols-[1.5rem_minmax(0,1fr)] gap-x-2 px-3 @2xl/line:grid-cols-[1.5rem_minmax(0,1fr)_minmax(0,1fr)]", compact || layout === "review" ? "py-2" : "py-3", state)}>
+        <div className="row-span-2 flex justify-center pt-0.5">{checkbox}</div>
+        <div className="min-w-0 pb-2 @2xl/line:border-r @2xl/line:border-subtle @2xl/line:pr-3 @2xl/line:pb-0">
+          {speaker && <div className="mb-1 min-h-4">{speaker}</div>}
+          <div className={cn("min-w-0", compact ? "text-sm leading-5" : "text-sm leading-relaxed")}>{source}</div>
+        </div>
+        <div className="col-start-2 min-w-0 border-t border-subtle pt-2 @2xl/line:col-start-auto @2xl/line:border-t-0 @2xl/line:pt-0 @2xl/line:pl-2">
+          {(status || meta) && <div className="mb-1 flex min-h-4 items-center gap-2">{status}{meta && <span className="ml-auto flex items-center gap-1">{meta}</span>}</div>}
+          <div className={cn("min-w-0", compact ? "text-sm leading-5" : "text-sm leading-relaxed")}>{translation}</div>
+          {actions && <div className="mt-2">{actions}</div>}
+        </div>
+      </article>
+    </div>
   )
 }

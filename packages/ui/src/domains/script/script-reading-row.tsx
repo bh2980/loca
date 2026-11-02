@@ -21,9 +21,9 @@ export function ScriptReadingRow({ speaker, speakerColor, listener, listenerIsPe
       <div className="mb-2 flex min-w-0 items-center justify-between gap-2">
         <SpeakerIdentity speaker={speaker} color={speakerColor} listener={listener} listenerIsPerson={listenerIsPerson} />
         <span className="flex shrink-0 items-center gap-1 text-xs text-muted">
+          <AiMark by={statusBy} />
           <StatusIcon status={status} />
           {status?.name ?? "상태 없음"}
-          <AiMark by={statusBy} />
         </span>
       </div>
       <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2 md:gap-4">

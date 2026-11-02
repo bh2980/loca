@@ -1,11 +1,13 @@
 /** The knowledge tables: row types, cells, filters and bulk decisions shared by the knowledge, glossary and pairs screens. */
+import { useParams } from '@tanstack/react-router';
 import { type ReactNode } from 'react';
 import { Check, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { InferResponseType } from 'hono/client';
 import { AUTO_MARKS, markColor, markName, type MarkStyles, type AgeBand, type CharacterRole, type CharacterStyle, type Gender, type DOCUMENT_KINDS, type SpeechLevel, type AutoMark, KNOWLEDGE_MARK_IDS, knowledgeMarksOf, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, sourceOf, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type StatusBy, DECIDED_BY, DECIDED_BY_LABELS, type DecidedBy } from '@tw/shared';
-import { DataTable, type ColumnDef, type FilterChip, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, AiMark, Inline, Stack, StatusIcon, TagChip, Text } from '@loca/ui';
+import { DataTable, type ColumnDef, type FilterChip, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, AiMark, Inline, Stack, StatusIcon, TagChip, Text, Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
 import { MarkChip } from '@/components/status';
+import { useMarkStyles } from '@/lib/queries';
 import { HeaderFilter, MarkFilter, markTagGroups, togglePick, type FilterOption, type FilterPick } from '@/components/header-filter';
 import type { client } from '@/lib/api';
 
@@ -130,7 +132,7 @@ export const defineKind = <R extends Row, const F extends FieldOf<R>>(spec: Kind
 export const fail = (error: Error) => toast.error(error.message);
 export const text = (value: unknown) => (typeof value === 'string' ? value : '');
 
-/** 출처: who wrote the content (작품 분석, 워크플로·채팅, 대본에서 찾음, 가져오기, 사람). */
+/** 출처: who wrote the content (작품 분석, AI, 대본에서 찾음, 가져오기, 사람). */
 export function SourceBadge({ row }: { row: Draft }) {
   return <Text variant="caption" tone="muted">{SOURCE_LABELS[sourceOf(row)]}</Text>;
 }
@@ -162,37 +164,42 @@ export function TagCell({ tags, known, marks, reviewNote }: { tags?: ItemTag[]; 
     const info = known.find((tag) => tag.id === item.id);
     return info ? [{ ...item, info }] : [];
   });
+  const styles = useMarkStyles((useParams({ strict: false }) as { projectId?: string }).projectId);
   if (!shown.length && !marks?.length) return null;
+  // One line, so every row keeps the table's height: the first chip, the rest as +N (named on hover).
+  const chips = [
+    ...(marks ?? []).map((mark) => ({ key: mark, title: mark === 'review' ? reviewNote : undefined, name: markName(mark, styles), chip: <MarkChip mark={mark} /> })),
+    ...shown.map((item) => ({ key: item.id, title: item.note ?? undefined, name: item.info.name, chip: <TagChip tag={item.info} /> })),
+  ];
+  const [first, ...rest] = chips;
   return (
-    <Stack as="span" direction="row" wrap gap="tight">
-      {marks?.map((mark) =>
-        mark === 'review' && reviewNote ? (
-          <span key={mark} title={reviewNote}>
-            <MarkChip mark={mark} />
-          </span>
-        ) : (
-          <MarkChip key={mark} mark={mark} />
-        ),
+    <Stack as="span" direction="row" gap="tight" minWidth={0}>
+      <span title={first!.title}>{first!.chip}</span>
+      {rest.length > 0 && (
+        <Tooltip>
+          <TooltipTrigger asChild><Text variant="caption" tone="muted" shrink={false}>+{rest.length}</Text></TooltipTrigger>
+          <TooltipContent>{rest.map((chip) => `#${chip.name}`).join(' · ')}</TooltipContent>
+        </Tooltip>
       )}
-      {shown.map((item) => (
-        <span key={item.id} title={item.note ?? undefined}>
-          <TagChip tag={item.info} />
-        </span>
-      ))}
     </Stack>
   );
 }
 
 const sourceOptions: FilterOption[] = KNOWLEDGE_SOURCES.map((value) => ({ value, label: SOURCE_LABELS[value] }));
 
-/** 상태 cell, drawn like a line's status (shape + colour + name): 확정 (used as context, ✦ when AI confirmed it) or 후보 (not yet). */
+/** An item's name, after ✦ when AI confirmed it and no person has looked since (the mark goes before what AI decided, everywhere). */
+export function AiNamed({ row, children }: { row: Pick<Draft, 'status' | 'statusBy'>; children: ReactNode }) {
+  if (row.status === 'candidate' || row.statusBy !== 'ai') return <>{children}</>;
+  return <Inline as="span" inline gap="tight"><AiMark by="ai" /><span>{children}</span></Inline>;
+}
+
+/** 상태 cell, drawn like a line's status (shape + colour + name): 확정 (used as context) or 후보 (not yet); who decided it is the ✦ before the name. */
 export function StateCell({ row }: { row: Draft }) {
   const candidate = row.status === 'candidate';
   return (
     <Inline as="span" inline gap="tight">
       <StatusIcon status={{ kind: candidate ? 'initial' : 'final', color: candidate ? 'var(--text-color-warning)' : 'var(--text-color-success)' }} />
       {KNOWLEDGE_STATUS_LABELS[candidate ? 'candidate' : 'confirmed']}
-      {!candidate && <AiMark by={row.statusBy} />}
     </Inline>
   );
 }
@@ -252,7 +259,8 @@ export function metaColumns<T>(draftOf: (row: T) => Draft, filters: KnowledgeFil
     },
     {
       id: 'source',
-      meta: { width: 88, label: '출처' },
+      // Who wrote it: the ✦ before the name already says what AI decided, so it starts hidden (열 고르기 shows it and its filter).
+      meta: { width: 88, label: '출처', hiddenByDefault: true },
       header: () => <HeaderFilter label="출처" value={filters.source} options={sourceOptions} onChange={(value) => filters.onChange({ source: value as SourceFilter })} />,
       cell: ({ row }) => <SourceBadge row={draftOf(row.original)} />,
     },
@@ -345,7 +353,7 @@ export function KnowledgeTable({ id, spec, rows, loading, selected, onOpen, pick
   filters: KnowledgeFilterState;
 }) {
   const columns: ColumnDef<Row, unknown>[] = [
-    ...spec.columns.map((column, index): ColumnDef<Row, unknown> => ({ id: column.head, header: column.head, meta: { width: column.width, weight: column.weight, tabular: column.tabular, hideable: index === 0 ? false : undefined }, cell: ({ row }) => column.cell(row.original) })),
+    ...spec.columns.map((column, index): ColumnDef<Row, unknown> => ({ id: column.head, header: column.head, meta: { width: column.width, weight: column.weight, tabular: column.tabular, hideable: index === 0 ? false : undefined }, cell: ({ row }) => (index === 0 ? <AiNamed row={row.original}>{column.cell(row.original)}</AiNamed> : column.cell(row.original)) })),
     ...metaColumns<Row>((row) => row, filters),
   ];
   return <DataTable id={id} columns={columns} rows={rows} loading={loading} rowId={(row) => row.id} selected={selected} onRowClick={(row) => onOpen(row.id)} rowState={candidateRow} picked={picked} onPick={onPick} bulk={bulk} empty={empty} />;

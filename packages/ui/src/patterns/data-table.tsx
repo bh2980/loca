@@ -65,6 +65,8 @@ declare module "@tanstack/react-table" {
     label?: string
     /** False keeps the column always shown (the main identifying column). */
     hideable?: false
+    /** Starts hidden (information few need, in a crowded table); 열 고르기 shows it, and that is remembered. */
+    hiddenByDefault?: true
   }
 }
 
@@ -131,17 +133,18 @@ function loadWidths(id?: string): ColumnSizingState {
 }
 
 const columnsKey = (id: string) => `loca-table-columns:${id}`
-type SavedColumns = { order: string[]; hidden: string[] }
+/** `shown`: columns hidden by default that the person turned on. */
+type SavedColumns = { order: string[]; hidden: string[]; shown: string[] }
 
 function loadColumns(id?: string): SavedColumns {
-  const none = { order: [], hidden: [] }
+  const none = { order: [], hidden: [], shown: [] }
   if (!id || typeof window === "undefined") return none
   try {
     const raw = JSON.parse(localStorage.getItem(columnsKey(id)) ?? "null") as Partial<SavedColumns> | null
     const strings = (value: unknown) =>
       Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []
     return raw && typeof raw === "object"
-      ? { order: strings(raw.order), hidden: strings(raw.hidden) }
+      ? { order: strings(raw.order), hidden: strings(raw.hidden), shown: strings(raw.shown) }
       : none
   } catch {
     return none
@@ -392,12 +395,13 @@ function Table<T>({
     const unhideable = new Set(
       columns.filter((column) => column.meta?.hideable === false).map((column) => column.id)
     )
+    const byDefault = columns.filter((column) => column.meta?.hiddenByDefault && column.id && !saved.shown.includes(column.id)).map((column) => column.id!)
     return Object.fromEntries(
-      saved.hidden
+      [...saved.hidden, ...byDefault]
         .filter((hidden) => !unhideable.has(hidden))
         .map((hidden) => [hidden, false])
     )
-  }, [saved.hidden, columns])
+  }, [saved.hidden, saved.shown, columns])
 
   const table = useReactTable({
     data: rows ?? [],
@@ -412,7 +416,7 @@ function Table<T>({
 
   useEffect(() => saveWidths(id, sizing), [id, sizing])
   useEffect(
-    () => saveColumns(id, saved.order.length || saved.hidden.length ? saved : undefined),
+    () => saveColumns(id, saved.order.length || saved.hidden.length || saved.shown.length ? saved : undefined),
     [id, saved]
   )
 
@@ -432,7 +436,7 @@ function Table<T>({
   })
 
   const resetColumns = () => {
-    setSaved({ order: [], hidden: [] })
+    setSaved({ order: [], hidden: [], shown: [] })
     setSizing({})
   }
 
@@ -694,6 +698,7 @@ function Table<T>({
                           hidden: shown
                             ? previous.hidden.filter((hidden) => hidden !== columnId)
                             : [...new Set([...previous.hidden, columnId])],
+                          shown: shown ? [...new Set([...previous.shown, columnId])] : previous.shown.filter((one) => one !== columnId),
                         }))
                       }
                       onReset={resetColumns}

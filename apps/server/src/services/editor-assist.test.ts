@@ -72,6 +72,15 @@ describe('the editor AI assist', () => {
     expect(seen.timeoutMs).toBe(30_000);
   });
 
+  it('asked from the line\'s pane (suggest), the answer waits as the line\'s AI 제안; one the same as the translation is none', async () => {
+    const { db, unit } = setup();
+    const result = await assistLine(db, memoryStore(), unit.id, { mode: 'translate', draft: '', suggest: true }, undefined, fake('지각이야.'));
+    if ('unchanged' in result) throw new Error('expected a candidate');
+    expect(db.select().from(s.candidates).where(eq(s.candidates.id, result.candidateId)).get()!.state).toBe('pending');
+    expect(db.select().from(s.units).where(eq(s.units.id, unit.id)).get()!.translation).toBe('늦었네.');
+    expect(await assistLine(db, memoryStore(), unit.id, { mode: 'translate', draft: '', suggest: true }, undefined, fake('늦었네.'))).toEqual({ unchanged: true });
+  });
+
   it('makes no candidate when there is nothing to fix', async () => {
     const { db, unit } = setup();
     const before = db.select().from(s.candidates).all().length;

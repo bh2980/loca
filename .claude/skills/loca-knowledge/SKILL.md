@@ -29,7 +29,7 @@ loca views list
 ```
 고르는 조건은 `-g <장면>`, `-s <화자>`, `--line <키>`, `-q <글자>`, `--between <시작> <끝>`, `--around <n>`, `--mode view|mark`입니다. 두 대사 사이의 실제 경로는 `loca call find_reading_route`로 찾습니다(시작·끝 키는 `find_lines`·`line_context`로 먼저 확인, 반환된 링크로 앱에서 엶).
 
-항목의 `source`는 내용을 만든 쪽입니다: workflow(워크플로·채팅) · script(대본에서 찾음) · import(가져오기) · human(사람).
+항목의 `source`는 내용을 만든 쪽입니다: workflow(AI) · script(대본에서 찾음) · import(가져오기) · human(사람).
 
 ## 인물과 관계
 - 기존 인물은 `id`로 고칩니다(`loca call list_characters`). 같은 이름으로 새로 만들면 거절됩니다.
@@ -66,7 +66,7 @@ loca call save_group_summary '{"groupId":"…","description":"…"}'   # 장면�
 ```
 - 노트 `kind`: `story` 스토리 · `world` 세계관 · `style` 문체 · `note` 메모. `alwaysInclude`(번역 문맥에 넣기)는 작품 노트 문맥을 켠 AI 노드에 전문이 들어가니 짧고 꼭 필요한 것만 켭니다.
 - 장면 설명은 AI 번역 노드가 장면 문맥으로 받습니다: 누가 있는지, 무슨 일이 있는지, 분위기.
-- 사건의 `evidence`는 그 사건을 보여 주는 대사 키입니다. 근거가 없으면 #근거 부재가 붙습니다.
+- 사건의 `evidence`는 그 사건을 보여 주는 대사 키입니다. AI가 쓴 자료에 근거가 없으면 #근거 부재가 붙습니다(사람이 쓴 자료에는 붙지 않음).
 - 사건 흐름의 선: `loca knowledge events --json`의 `next`가 사건이 이어지는 사건입니다(`source` `graph` = 대사 그래프에서 계산, `added` = 직접 이음). 대사 그래프로는 안 보이는 인과(나란히 열리는 장면)만 `loca call link_events '{"fromId":"…","toId":"…","action":"link"}'`로 잇고, 틀린 선은 `"action":"unlink"`로 뺍니다(계산된 선은 다시 계산해도 빠진 채). 사건이 엉뚱한 곳에 있어서 선이 틀렸다면 잇지 말고 `save_event`로 `evidence`를 고칩니다.
 
 ## 여러 개를 한 번에

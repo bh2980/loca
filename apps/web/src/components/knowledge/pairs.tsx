@@ -10,7 +10,7 @@ import { EmptyState, DataTable, type ColumnDef, Inspector, InspectorHeader, Insp
 import { DraftEditor, draftKeyOf, savedOf } from '@/components/knowledge/editor';
 import { PairLines, usePairLines } from '@/components/knowledge/evidence';
 import { SpeechTimeline } from '@/components/knowledge/speech-timeline';
-import { candidateRow, confirmLabel, fail, metaColumns, type Draft, type KnowledgeFilterState, type KindSpec, type RelationshipRow, type SpeechRuleRow } from '@/components/knowledge/table';
+import { AiNamed, candidateRow, confirmLabel, fail, metaColumns, type Draft, type KnowledgeFilterState, type KindSpec, type RelationshipRow, type SpeechRuleRow } from '@/components/knowledge/table';
 import { personStyle } from '@/lib/person-colors';
 import { client } from '@/lib/api';
 import { tagsIn } from '@/lib/queries';
@@ -65,9 +65,13 @@ export function PairTable({ pairs, loading, selected, picked, onPick, onOpen, bu
   filters: KnowledgeFilterState;
 }) {
   const columns: ColumnDef<Pair, unknown>[] = [
-    { id: 'pair', header: '화자 → 청자', meta: { width: 240, weight: 'medium', hideable: false }, cell: ({ row: { original: pair } }) => <><span style={personStyle(colorOf?.(pair.from))}>{pair.from}</span> → <span style={personStyle(colorOf?.(pair.to))}>{listenerLabel(pair.to)}</span></> },
-    { id: 'relationship', header: '관계', meta: { width: 200 }, cell: ({ row: { original: pair } }) => (pair.relationship ? pair.relationship.kind : <Text tone="muted">—</Text>) },
-    { id: 'speech', header: '말투', cell: ({ row: { original: pair } }) => (pair.rules.length ? levelsText(pair.rules) : <Text tone="muted">—</Text>) },
+    { id: 'pair', header: '화자 → 청자', meta: { width: 240, weight: 'medium', hideable: false }, cell: ({ row: { original: pair } }) => <AiNamed row={pairSummary(pair)}>
+      <span style={personStyle(colorOf?.(pair.from))}>{pair.from}</span> → <span style={personStyle(colorOf?.(pair.to))}>{listenerLabel(pair.to)}</span>
+      {/* 여럿·불특정 다수… are not people: the relationship graph has no node for them. */}
+      {isSpecialListener(pair.to) && <Text variant="caption" tone="subtle"> · 그래프에 없음</Text>}
+    </AiNamed> },
+    { id: 'relationship', header: '관계', meta: { width: 200 }, cell: ({ row: { original: pair } }) => (pair.relationship ? pair.relationship.kind : <Text tone="subtle">관계 없음</Text>) },
+    { id: 'speech', header: '말투', cell: ({ row: { original: pair } }) => (pair.rules.length ? levelsText(pair.rules) : <Text tone="subtle">규칙 없음</Text>) },
     ...metaColumns<Pair>(pairSummary, filters, pairMarks),
   ];
   return (

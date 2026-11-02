@@ -237,11 +237,11 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
   }));
   return (
     <Inspector footerStart={<>{official ? deleteButton : discardButton}</>}
-      header={<InspectorHeader kind={KINDS[kind]} name={spec.label(row)} status={
+      header={<InspectorHeader kind={KINDS[kind]} name={<>{row.status !== 'candidate' && row.statusBy === 'ai' && <><AiMark by="ai" />{' '}</>}{spec.label({ ...row, ...form } as typeof row)}</>} status={
         <Inline as="span" gap="tight">
           <SourceBadge row={row} />
           <span>·</span>
-          {row.status === 'candidate' ? <span>후보</span> : <Inline as="span" inline gap="tight">확정 <AiMark by={row.statusBy} /></Inline>}
+          {row.status === 'candidate' ? <span>후보</span> : <span>확정</span>}
         </Inline>
       } onClose={onClose} />}
       tabs={(changedView || tabbed) && (
@@ -345,7 +345,8 @@ const NORMAL = '__normal';
 export function FieldInput({ field, value, characters, onChange }: { field: KnowledgeField; value: Value; characters: { id: string; name: string }[]; onChange: (value: Value) => void }) {
   // The control takes the id of the Field around it (see ControlIdContext).
   const id = useControlId();
-  if (field.type === 'long') return <Box asChild leading="relaxed"><Textarea variant="body" rows={field.name === 'body' ? 6 : 3} mono={field.name === 'body'} value={text(value)} onChange={(event) => onChange(event.target.value)} /></Box>;
+  // Grows with its text (a summary read in full, not scrolled in three rows); a note's body is prose, not code.
+  if (field.type === 'long') return <Box asChild leading="relaxed"><Textarea variant="body" autoSize rows={field.name === 'body' ? 6 : 3} value={text(value)} onChange={(event) => onChange(event.target.value)} /></Box>;
   if (field.type === 'color') return <Swatches value={text(value)} onChange={onChange} onClear={() => onChange('')} />;
   if (field.type === 'list') return <TagInput id={id} value={(value as string[] | null) ?? []} onChange={onChange} suggestions={field.suggestions} placeholder="쉼표나 Enter로 추가" />;
   if (field.type === 'chips') return <TagInput id={id} value={splitList(value)} onChange={(chips) => onChange(joinList(chips))} suggestions={field.suggestions} placeholder="쉼표나 Enter로 추가" />;

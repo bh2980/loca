@@ -273,7 +273,7 @@ export function ChangePreview({ name, input, pending = true, details }: { name: 
       );
     }
     case 'propose_translation':
-      return <Box as="dl" spaceY="tight">{field('번역', input.text)}{field('메모', input.note)}</Box>;
+      return <Box as="dl" spaceY="tight">{field('대사', input.unitId)}{field('번역', input.text)}{field('메모', input.note)}</Box>;
     case 'decide_suggestion':
       return <Box as="dl" spaceY="tight">{field('대사', input.unitId)}{field('결정', input.decision === 'apply' ? '적용 (현재 번역으로)' : '거절 (이력에만 남김)')}</Box>;
     case 'save_group_summary':

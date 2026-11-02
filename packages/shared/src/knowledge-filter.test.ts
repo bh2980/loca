@@ -18,7 +18,9 @@ describe('knowledgeMatches (the knowledge page and the list tools)', () => {
   });
 
   it('reads automatic tags and tags, and 숨기기 leaves out any one of them', () => {
-    const marked = item({ evidence: [], reviewNote: '근거 확인', tags: [{ id: 't1' }, { id: 't2' }] });
+    const marked = item({ origin: 'ai', evidence: [], reviewNote: '근거 확인', tags: [{ id: 't1' }, { id: 't2' }] });
+    // What a person wrote needs no lines behind it.
+    expect(knowledgeMatches(item({ evidence: [] }), { marks: ['noEvidence'] })).toBe(false);
     expect(knowledgeMatches(marked, { marks: ['review', 'noEvidence'] })).toBe(true);
     expect(knowledgeMatches(item(), { marks: ['review'] })).toBe(false);
     expect(knowledgeMatches(marked, { tags: ['t1', 't2'] })).toBe(true);

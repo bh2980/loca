@@ -9,7 +9,7 @@ import { HeaderFilter, MarkFilter, markTagGroups, togglePick, type FilterPick } 
 import { NEW_TERM, NewTermPane, TermEditor, type Term } from '@/components/glossary/term-pane';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { HeaderActions, Page } from '@/components/page';
-import { BulkDecide, parseStatusFilter, parseDecidedBy, StateFilter, SourceBadge, StateCell, statusOptions, type StatusFilter, TagCell } from '@/components/knowledge/table';
+import { AiNamed, BulkDecide, parseStatusFilter, parseDecidedBy, StateFilter, SourceBadge, StateCell, statusOptions, type StatusFilter, TagCell } from '@/components/knowledge/table';
 import { AUTO_MARKS, markColor, markName, type AutoMark, isSettled, parseMarks, TERM_MARK_IDS, termMarksOf, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, type KnowledgeSource, aiDecided, DECIDED_BY_LABELS, type DecidedBy, termMatches, type TermFilter } from '@tw/shared';
 import { client, unwrap } from '@/lib/api';
 import { tagsIn, useMarkStyles } from '@/lib/queries';
@@ -153,7 +153,7 @@ function Glossary() {
   ];
 
   const columns: ColumnDef<Term, unknown>[] = [
-    { id: 'source', header: '원문', meta: { hideable: false }, cell: ({ row }) => <Text weight="medium">{row.original.source}</Text> },
+    { id: 'source', header: '원문', meta: { hideable: false }, cell: ({ row }) => <Text weight="medium"><AiNamed row={row.original}>{row.original.source}</AiNamed></Text> },
     {
       id: 'target',
       header: () => <HeaderFilter label="번역" value={search.emptyTarget === undefined ? undefined : search.emptyTarget ? 'empty' : 'filled'} options={[{ value: 'empty', label: '비어 있음' }, { value: 'filled', label: '있음' }]} onChange={(value) => setFilter({ emptyTarget: value === undefined ? undefined : value === 'empty' })} />,
@@ -173,7 +173,7 @@ function Glossary() {
       header: () => (
         <HeaderFilter label="출처" value={search.source} options={KNOWLEDGE_SOURCES.map((value) => ({ value, label: SOURCE_LABELS[value] }))} onChange={(source) => setFilter({ source: source as KnowledgeSource | undefined })} />
       ),
-      meta: { width: 96, label: '출처' },
+      meta: { width: 96, label: '출처', hiddenByDefault: true },
       cell: ({ row }) => <SourceBadge row={asDraft(row.original)} />,
     },
     {

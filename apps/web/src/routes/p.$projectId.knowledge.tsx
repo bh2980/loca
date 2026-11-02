@@ -43,7 +43,7 @@ import { RunDialog } from '@/components/workflow/run-dialog';
 import { Play } from 'lucide-react';
 import { DraftEditor } from '@/components/knowledge/editor';
 import { RelationshipChanges, RuleLines } from '@/components/knowledge/evidence';
-import { BulkDecide, fail, parseStatusFilter, parseDecidedBy, type StatusFilter, KINDS, KnowledgeFilters, knowledgeFilterChips, KNOWLEDGE_MARK_IDS, type KnowledgeFilterState, SourceBadge, type Kind, type KindSpec, type Row, type SourceFilter, defineKind, metaColumns, candidateRow } from '@/components/knowledge/table';
+import { AiNamed, BulkDecide, fail, parseStatusFilter, parseDecidedBy, type StatusFilter, KINDS, KnowledgeFilters, knowledgeFilterChips, KNOWLEDGE_MARK_IDS, type KnowledgeFilterState, SourceBadge, type Kind, type KindSpec, type Row, type SourceFilter, defineKind, metaColumns, candidateRow } from '@/components/knowledge/table';
 import { PairDetail, pairItems, PairTable, useStablePairs, type Pair, type SpeechRuleCreate } from '@/components/knowledge/pairs';
 import { AddPairPopover } from '@/components/knowledge/add-pair-popover';
 import { EventFlow } from '@/components/knowledge/event-flow';
@@ -65,7 +65,7 @@ const TABS = { people: '인물·관계', events: '사건', documents: '노트' }
 type Tab = keyof typeof TABS;
 interface KnowledgeSearch {
   tab?: Tab;
-  /** 출처 filter: who wrote it (작품 분석, 워크플로·채팅, 대본에서 찾음, 가져오기, 사람). */
+  /** 출처 filter: who wrote it (작품 분석, AI, 대본에서 찾음, 가져오기, 사람). */
   source?: KnowledgeSource;
   /** 상태 filter: 후보 or 확정. */
   status?: StatusFilter;
@@ -162,7 +162,7 @@ function Knowledge() {
         { name: 'alwaysInclude', label: '문맥에 넣기', help: '켜면 노트 문맥을 켠 AI 노드에 이 노트의 전문이 들어갑니다.', type: 'bool' },
         { name: 'body', label: '본문', type: 'long' },
       ],
-      create: () => sent(projectId, api.documents.$post({ param: { projectId }, json: { title: '새 노트', kind: 'note', body: '', alwaysInclude: false } })),
+      create: () => sent(projectId, api.documents.$post({ param: { projectId }, json: { title: '새 노트', kind: 'note', body: '', alwaysInclude: true } })),
       label: (row) => row.title,
       save: patchTo(api.documents[':id'].$patch),
       remove: (id) => sent(projectId, api.documents[':id'].$delete(param(id))),
@@ -419,7 +419,7 @@ function Knowledge() {
           id: column.head,
           header: column.head,
           meta: { width: column.width, weight: column.weight, tabular: column.tabular, hideable: index === 0 ? false : undefined },
-          cell: ({ row }) => column.cell(row.original),
+          cell: ({ row }) => (index === 0 ? <AiNamed row={row.original}>{column.cell(row.original)}</AiNamed> : column.cell(row.original)),
         })
       ),
       ...metaColumns<Row>((row) => row, filters),
@@ -589,7 +589,6 @@ function Knowledge() {
                 actions={eventActions}
                 selected={search.item}
                 onOpen={(id) => set({ item: id })}
-                badge={(event) => <SourceBadge row={rows.find((row) => row.id === event.id)!} />}
                 emptyAction={emptyActions}
               />
             )}

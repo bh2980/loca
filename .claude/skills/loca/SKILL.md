@@ -28,7 +28,7 @@ description: Common rules for working on a loca translation project from the ter
 ## 바꾸는 일과 터미널 권한 모드
 - 프로젝트를 바꾸는 명령은 모두 같은 관문을 지납니다: `import`, `call`의 변경 도구, `workflows save`, `runs start/resume/continue`, `terms discover`, `statuses order` 등.
 - 관문은 앱의 설정 › 채팅 › **터미널 권한 모드**를 따릅니다. 사람이 정하고, 에이전트는 바꿀 수 없습니다.
-  - **수락/거절**: 제안으로 기다립니다. 사람이 앱의 채팅 패널 ‘제안’에서 수락해야 반영됩니다.
+  - **매번 묻기**: 제안으로 기다립니다. 사람이 앱의 채팅 패널 ‘제안’에서 수락해야 반영됩니다.
   - **자동 검토**: 검사를 통과한 작은 변경(20개 이하, 경고 없음)은 바로 반영합니다. 실행(AI 비용), 삭제, 큰 변경, 경고가 있는 변경은 제안으로 기다립니다.
   - **바로 반영**: 허용된 작업을 바로 반영합니다. 실행도 바로 시작합니다.
 - 어느 쪽이 됐는지는 명령 출력이 말합니다.
@@ -41,7 +41,7 @@ description: Common rules for working on a loca translation project from the ter
   - 제안은 `loca proposals wait <id>`로 기다립니다(거절·실패면 종료 코드 1).
   - 실행은 `--wait`으로 기다립니다(`loca-workflows`).
   - 둘 다 앱의 변경 알림을 받아 기다리니 직접 반복 조회하지 않습니다. 오래 걸리면 `--timeout <분>`을 씁니다.
-- 되돌리기: `loca proposals undo <id...>`. 터미널 권한 모드가 반영한 것만 되돌리고, 사람이 수락한 제안은 앱에서 되돌립니다. 모드가 수락/거절이면 되돌리기도 사람이 앱에서 합니다.
+- 되돌리기: `loca proposals undo <id...>`. 터미널 권한 모드가 반영한 것만 되돌리고, 사람이 수락한 제안은 앱에서 되돌립니다. 모드가 매번 묻기이면 되돌리기도 사람이 앱에서 합니다.
 - 목록: `loca proposals list --status pending`으로 기다리는 제안을, `loca proposals show <id>`로 결과를 봅니다.
 - 예외: `loca views create/update/delete`는 번역 데이터가 아니라 그래프에 보일 노드만 저장하므로 바로 저장되고, `loca projects import`는 있던 프로젝트를 건드리지 않고 새로 만들므로 바로 됩니다.
 - 실행 일시정지·취소(`loca runs pause/cancel`)는 비용이 들지 않아 모드와 상관없이 바로 됩니다.
@@ -57,7 +57,7 @@ description: Common rules for working on a loca translation project from the ter
 - 홈 기본값 고치기, 저장한 지시 고치기
 - 프로젝트 삭제
 - 자료·용어를 "사람이 확인함"으로 표시하기
-- "수락/거절" 모드에서 제안 결정
+- "매번 묻기" 모드에서 제안 결정
 
 이런 일이 필요하면 무엇을 왜 해야 하는지 사용자에게 말합니다.
 
@@ -113,7 +113,7 @@ description: Common rules for working on a loca translation project from the ter
 ## 혼자 끝까지: "○○ 초벌 해 줘"
 1. `loca workflows list`로 워크플로를 고르고, `loca runs plan <워크플로> <범위>`로 미리 봅니다. 범위 예: `--section "Chapter 2"`, `-g <장면>`, `--view <보기>`.
    - 준비 상태(청자 미상, 후보 말투 규칙·용어)에 걸린 것은 고칠 수 있으면 고칩니다(`loca-knowledge`, `loca-glossary`). 못 고치면 보고에 넣습니다.
-2. `loca runs start <워크플로> <범위> --wait`으로 실행합니다. 모드가 "수락/거절"이면 수락을 기다린다고 사용자에게 한 줄 알립니다.
+2. `loca runs start <워크플로> <범위> --wait`으로 실행합니다. 모드가 "매번 묻기"이면 수락을 기다린다고 사용자에게 한 줄 알립니다.
 3. 요약이 실패나 "오류로 빠진 줄"을 말하면 다시 합니다.
    - 실패한 줄: `loca runs continue <id> --retry-failed --wait`
    - 오류로 빠진 줄: `loca runs start <워크플로> --rerun-errors <id> --wait`. 같은 원인(연결 끊김 등)이 되풀이되면 `--model`로 다른 모델을 쓰거나 사용자에게 알립니다.

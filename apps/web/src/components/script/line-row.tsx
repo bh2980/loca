@@ -324,18 +324,20 @@ export function LineRow({
       {marked && <Text shrink={false} tone="warning">● {findLabel}</Text>}
     </Inline>
   );
-  const statusContent = (
-    <Inline as="span" gap="tight" minWidth={0} variant="caption" tone="muted">
-      <StatusIcon status={status} />
-      <Text truncate>{status?.name}</Text>
-      {excluded && <Text truncate>· 번역 제외</Text>}
-    </Inline>
-  );
   const aiMeta = line.statusBy === 'ai' ? (
     <Chip as="button" variant="bare" title="AI가 정한 줄만 보기" onClick={(event) => (event.stopPropagation(), onFilterAi())}>
       <AiMark by="ai" />
     </Chip>
   ) : null;
+  const statusContent = (
+    <Inline as="span" gap="tight" minWidth={0} variant="caption" tone="muted">
+      {/* ✦ before what AI decided and no person has looked at since: the line's status (and its translation). */}
+      {aiMeta}
+      <StatusIcon status={status} />
+      <Text truncate>{status?.name}</Text>
+      {excluded && <Text truncate>· 번역 제외</Text>}
+    </Inline>
+  );
   // One menu for the line, the same from ⋯, from a right-click on the row (opened at the pointer) and on its graph node.
   const menuItems = (
     <LineMenuItems
@@ -404,7 +406,7 @@ export function LineRow({
       checkbox={checkbox}
       speaker={identity}
       status={statusContent}
-      meta={aiMeta || actions ? <>{aiMeta}{actions}</> : null}
+      meta={actions}
       source={source}
       translation={translation}
       selected={selected}

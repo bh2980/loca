@@ -43,7 +43,7 @@ describe('what a proposal card says it changes', () => {
     const proposal = propose(db, { projectId, sessionId: null, source: 'cli', tool: 'save_knowledge', input: { speechRules: [{ id: rule.id, level: 'haeyo', note: '직장 선배' }] } });
     const [item] = proposalDetails(db, proposal)!.items;
     expect(item.label).toBe('Alice → Bob');
-    expect(item.changes).toEqual([{ field: '말투', before: 'hae', after: 'haeyo' }, { field: '메모', before: '(비어 있음)', after: '직장 선배' }]);
+    expect(item.changes).toEqual([{ field: '말투', before: '해체(반말)', after: '해요체' }, { field: '메모', before: '(비어 있음)', after: '직장 선배' }]);
   });
 
   it('after it is accepted, the old values come from what undoing it would restore', () => {

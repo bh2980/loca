@@ -19,7 +19,7 @@ export const AGENT_TOOL_TARGETS = {
 export type AgentToolTarget = keyof typeof AGENT_TOOL_TARGETS;
 export const AGENT_TOOL_ACTIONS = {
   read: { label: '읽기', description: '읽기만 합니다.' },
-  change: { label: '변경', description: '만들거나 고칩니다. 대화의 권한 모드에 따라 카드로 묻거나(수락/거절) 바로 반영합니다(자동 검토·바로 반영).' },
+  change: { label: '변경', description: '만들거나 고칩니다. 대화의 권한 모드에 따라 카드로 묻거나(매번 묻기) 바로 반영합니다(자동 검토·바로 반영).' },
   run: { label: '실행', description: '워크플로 실행을 제안합니다. 수락하면 시작되고 AI 비용이 듭니다.' },
   delete: { label: '삭제', description: '항목을 지우거나 합칩니다. 자동 검토 모드에서도 항상 묻습니다.' },
 } as const;
@@ -114,7 +114,7 @@ export function acceptedLabel(toolName: string): { decided: string; short: strin
 export const PERMISSION_MODES = ['ask', 'auto', 'bypass'] as const;
 export type PermissionMode = (typeof PERMISSION_MODES)[number];
 export const PERMISSION_MODE_INFO: Record<PermissionMode, { label: string; description: string }> = {
-  ask: { label: '수락/거절', description: '변경마다 카드에서 수락하거나 거절합니다.' },
+  ask: { label: '매번 묻기', description: '변경마다 카드로 묻고, 사람이 수락하거나 거절합니다.' },
   auto: { label: '자동 검토', description: '검사를 통과한 작은 변경은 바로 반영하고, 큰 일괄 변경·삭제·실행(비용)·경고가 있는 변경만 묻습니다.' },
   bypass: { label: '바로 반영', description: '허용한 작업을 확인 없이 반영합니다. 변경 기록은 남고 되돌릴 수 있습니다.' },
 };
