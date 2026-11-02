@@ -770,6 +770,8 @@ function GraphPage() {
             // Opening another view or section is navigation (a history entry); the pane's selection does not carry over.
             onPick={(value) => void navigate({ search: (previous) => ({ ...previous, section: value, node: undefined, omitted: undefined, viewInfo: undefined }) })}
             onDelete={setDeletingView}
+            picked={picked.size}
+            onNewFromPicked={() => { setNewName(''); setNaming({ nodeIds: realNodes(picked), x: window.innerWidth / 2, y: 140 }); }}
           />
         )}
         <DeleteViewDialog
@@ -1469,10 +1471,19 @@ function GraphPage() {
                 }
                 details={
                   <>
+                    {/* A picking's actions on the canvas, not only in the right-click menu (the same ones). */}
                     {picked.size > 1 && (
-                      <Chip as="p" variant="note">
-                        노드 {picked.size.toLocaleString()}개 선택
+                      <Chip as="div" variant="bar" removable>
+                        <span>노드 {picked.size.toLocaleString()}개 선택</span>
+                        <Button variant="ghost" size="inline" onClick={() => { setNewName(''); setNaming({ nodeIds: realNodes(picked), x: window.innerWidth / 2, y: 140 }); }}>보기로 저장</Button>
+                        <Button variant="ghost" size="inline" onClick={() => void runPicked(picked)}>워크플로 실행</Button>
+                        {editing && <Button variant="ghost" size="inline" onClick={() => void edits.linkInOrder({ nodeIds: realNodes(picked) })}>대본 순서로 잇기</Button>}
+                        <Button variant="ghost" size="inline" onClick={() => setPicked(new Set())}>선택 해제</Button>
                       </Chip>
+                    )}
+                    {/* One node picked: how to pick more. */}
+                    {dialogue && search.node && !picked.size && (
+                      <Chip as="p" variant="note">{keyLabel('Mod')}+클릭으로 여러 개 고르기</Chip>
                     )}
                     {view && viewDetail.data && (
                       <Chip as="div" variant="bar" removable>

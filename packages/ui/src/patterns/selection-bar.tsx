@@ -10,6 +10,11 @@ export interface SelectionBarProps {
   children?: ReactNode
   /** Takes the rest of its row (a bar in the head row of a list). */
   grow?: boolean
+  /**
+   * Everything on the page is picked and the list has more (Gmail's rule): a way to pick all of them, said next to the
+   * count ("필터에 맞는 41줄 모두 고르기").
+   */
+  more?: { label: string; onSelect: () => void }
 }
 
 export function SelectionBar({
@@ -17,6 +22,7 @@ export function SelectionBar({
   onClear,
   children,
   grow,
+  more,
 }: SelectionBarProps) {
   const { rootRef, onKeyDown } = useToolbarRoving([children, count])
   return (
@@ -39,6 +45,7 @@ export function SelectionBar({
         {count.toLocaleString()}개
         <span className="hidden @md/picked:inline font-normal text-muted"> 선택됨</span>
       </span>
+      {more && <Button variant="ghost" size="xs" className="shrink-0 text-accent" onClick={more.onSelect}>{more.label}</Button>}
       {children}
       <Button
         variant="ghost"

@@ -316,6 +316,26 @@ export function LineList({
 
   // Set filters show as removable chips; while finding, the find bar shows them instead.
   const chips = find ? [] : filterChips(search, statusList, taxonomy.tags ?? [], markStyles);
+  const filtered = !find && hasLineFilter(search);
+  // Gmail's rule: a new filter or search starts a new picking, so no line stays picked out of sight. The lines picked
+  // before are let go, and one undo brings them back.
+  const filterKey = JSON.stringify({ ...sceneFilter, groupId });
+  const lastFilter = useRef(filterKey);
+  useEffect(() => {
+    if (lastFilter.current === filterKey) return;
+    lastFilter.current = filterKey;
+    if (!picked.size) return;
+    const before = [...picked];
+    pick(before, false);
+    toast('필터가 바뀌어 고른 줄을 풀었습니다.', { action: { label: '되돌리기', onClick: () => pick(before, true) } });
+  }, [filterKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Everything on this page picked: the rest of the list (every line the filter keeps) is one click away.
+  const pickAllMatching = async () => {
+    const { rows: all } = await queryClient.fetchQuery({ ...q.unitMatches(projectId, { ...sceneFilter, groupId }), staleTime: 0 });
+    bulk.remember(all);
+    pick(all.map((row) => row.id), true);
+  };
+  const clearFilters = () => onSearch(Object.assign({ page: undefined }, ...chips.map((chip) => chip.clear)));
 
   // The details pane opens only on request (the 상세 button, the row's menu): picking or moving between
   // lines never reveals it, and closing it keeps the picked line.
@@ -372,14 +392,19 @@ export function LineList({
         <Text marginLeft="auto" nowrap variant="caption" tone="muted">{review && "검토함 · "}{total.toLocaleString()}줄</Text>
       </FilterBar></EditorToolbar>
       {banner}
-      {!!rows?.length && <LineHeadRow projectId={projectId} rows={rows} bulk={bulk} statusList={statusList} tags={lineTags(taxonomy.tags)} />}
+      {!!rows?.length && <LineHeadRow projectId={projectId} rows={rows} bulk={bulk} statusList={statusList} tags={lineTags(taxonomy.tags)} allMatching={{ total, filtered, onPick: () => void pickAllMatching() }} />}
       <Box minHeight={0} grow overflow="y">
         {!rows ? (
           <Box spaceY="comfortable" padding="comfortable">
             <Skeleton shape="row" count={6} />
           </Box>
         ) : rows.length === 0 ? (
-          <EmptyState variant="roomy" noun={emptyNoun} filtered={!review && hasLineFilter(search)} action={!review && !hasLineFilter(search) ? emptyAction : undefined} />
+          filtered ? (
+            // Filters carry over (into 검토함 too): an empty list says they are why, and takes them off.
+            <EmptyState variant="roomy" noun={emptyNoun} filtered filters={{ count: chips.length, onClear: clearFilters }} />
+          ) : (
+            <EmptyState variant="roomy" noun={emptyNoun} action={!review ? emptyAction : undefined} />
+          )
         ) : (
           <ul>
             {rows.map((line, index) => {

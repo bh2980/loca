@@ -11,7 +11,7 @@ const SEARCH_FROM = 8;
  * Which part of the dialogue graph is shown: all of it, a section, or a stored view. A stored
  * view's row has its own delete button, shown on hover or focus.
  */
-export function ViewMenu({ sections, views, chosen, openedLabel, onPick, onDelete }: {
+export function ViewMenu({ sections, views, chosen, openedLabel, onPick, onDelete, picked = 0, onNewFromPicked }: {
   sections: { name: string; nodes: number }[];
   views: MenuView[];
   /** `view:<id>`, a section name, or nothing for the whole graph. */
@@ -20,6 +20,9 @@ export function ViewMenu({ sections, views, chosen, openedLabel, onPick, onDelet
   openedLabel: string | undefined;
   onPick: (value: string) => void;
   onDelete: (view: { id: string; label: string }) => void;
+  /** How many nodes are picked: '선택으로 새 보기' saves them (it says how to pick when none are). */
+  picked?: number;
+  onNewFromPicked?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -114,6 +117,15 @@ export function ViewMenu({ sections, views, chosen, openedLabel, onPick, onDelet
                 <Text minWidth={0} grow truncate>{opened.label}</Text>
               </ListRow>
             )}
+          </>
+        )}
+        {onNewFromPicked && (
+          <>
+            <DropdownMenuSeparator />
+            <ListRow as="menuitem" disabled={picked < 1} onSelect={() => { setOpen(false); onNewFromPicked(); }}>
+              <Text minWidth={0} grow truncate>{picked > 0 ? `선택으로 새 보기 (${picked.toLocaleString()}개)` : '선택으로 새 보기'}</Text>
+              {picked < 1 && <Text shrink={false} variant="caption" tone="muted">노드를 먼저 고르세요</Text>}
+            </ListRow>
           </>
         )}
         {query && !shownSections.length && !shownViews.length && !matches('전체') && (
