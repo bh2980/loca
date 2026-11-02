@@ -40,7 +40,7 @@ export function snapshotChoices(db: Db, choices: ModelChoice[]): Record<string, 
   }));
 }
 
-/** Every model a workflow may call (its AI nodes' and what its 재요청 nodes send lines back on), frozen for a run. */
+/** Every model a workflow may call (its AI nodes' and what their retry rules send lines back on), frozen for a run. */
 export const snapshotWorkflowModels = (db: Db, definition: WorkflowDefinition) => snapshotChoices(db, definitionModels(definition));
 
 export function resolveRoute(db: Db, snapshot: AiSnapshot, secrets: SecretStore): ResolvedRoute {

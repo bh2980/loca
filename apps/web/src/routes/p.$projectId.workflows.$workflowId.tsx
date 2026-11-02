@@ -23,21 +23,24 @@ import {
   applyNodeChanges,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { ArrowLeftRight, ArrowUpDown, ChevronRight, Copy, Focus, LayoutGrid, Maximize, Pencil, Plus, SlidersHorizontal, Trash2, Unlink } from 'lucide-react';
+import { ArrowLeftRight, ArrowUpDown, ChevronRight, Copy, Focus, Frame, Group, LayoutGrid, LogOut, Maximize, Pencil, Plus, SlidersHorizontal, Trash2, Ungroup, Unlink } from 'lucide-react';
 import { toast } from 'sonner';
-import { AI_PRESETS, APPLY_PALETTE_ORDER, INPUT_TYPES, NODE_TYPES, retryConfigSchema, type BatchConfig, functionGroup, APPLY_TARGETS, FUNCTIONS, FUNCTION_NAMES, functionTakes, presetTakes, workflowInput, PALETTE_FUNCTION_NAMES, nodeName, nodePorts, syncEntryEdges, workflowNodeSchema, type FunctionName, type WorkflowDefinition, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
+import { AI_PRESETS, APPLY_PALETTE_ORDER, INPUT_TYPES, NODE_TYPES, type BatchConfig, functionGroup, APPLY_TARGETS, FUNCTIONS, FUNCTION_NAMES, functionTakes, presetTakes, workflowInput, PALETTE_FUNCTION_NAMES, nodeName, nodePorts, syncEntryEdges, workflowNodeSchema, type FunctionName, type WorkflowDefinition, type WorkflowGroup, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
 import { Page, StatusBarItem } from '@/components/page';
 import { autoLayout } from '@/components/workflow/auto-layout';
 import { WorkflowSettings } from '@/components/workflow/workflow-settings';
 import { NodeConfig } from '@/components/workflow/node-config';
 import { WorkflowNodeView, type FlowNode } from '@/components/workflow/node-view';
 import { WorkflowEdgeView, type FlowEdge } from '@/components/workflow/workflow-edge';
-import { entryStarts, flowEdges, nodeSummary, openPorts, targetStatus } from '@/components/workflow/flow-graph';
-import { allFoldsOpen, computeFolds, foldContaining, foldedDefinition, foldIssues, foldPlacements, foldText, isFoldOpen, openFoldContaining, setAllFolds, toggleFold, type Fold } from '@/components/workflow/fold';
+import { entryStarts, flowEdges, nodeBadge, nodeSummary, openPorts, targetStatus } from '@/components/workflow/flow-graph';
+import { allFoldsOpen, computeFolds, foldContaining, foldedDefinition, foldIssues, foldPlacements, foldText, isFoldOpen, lineMarks, openFoldContaining, setAllFolds, toggleFold, type Fold } from '@/components/workflow/fold';
 import { useFoldState } from '@/components/workflow/use-fold-state';
 import { WorkflowIssueBar } from '@/components/workflow/issue-bar';
+import { FrameNodeView, FrameTintView, frameTints, addFrame, fitFrames, frameAt, frameId, frameNodes, groupIdOf, groupNodes, groupOf, isFrameId, moveFrame, moveIntoGroup, pruneGroups, renameGroup, resizeFrame, ungroup, type FrameNode } from '@/components/workflow/frames';
+import { FramePanel } from '@/components/workflow/frame-panel';
+import { retryBadge } from '@/lib/retry-info';
 import { RunDialog } from '@/components/workflow/run-dialog';
-import { SplitPane, PageHeading, HeaderActions, NodeLibrary, CanvasToolbar, CanvasSurface, SelectionToolbox, type CanvasDirection, type NodeLibraryGroup, Box, Button, Icon, Inline, Stack, Text, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent, DropdownMenuLabel, Input, Skeleton, Popover, PopoverContent, PopoverTrigger } from '@loca/ui';
+import { SplitPane, PageHeading, HeaderActions, NodeLibrary, CanvasToolbar, EdgeLegend, CanvasSurface, CanvasDrawLayer, SelectionToolbox, type CanvasDirection, type NodeLibraryGroup, Box, Button, Icon, Inline, Stack, Text, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent, DropdownMenuLabel, Input, Skeleton, Popover, PopoverContent, PopoverTrigger } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { tagsIn } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
@@ -45,7 +48,8 @@ import { workflowEdits } from '@/lib/workflow-edits';
 import { sameWorkflowDraft, reconcileSavedDraft, normalizeWorkflowDraft } from '@/lib/workflow-draft';
 import { dateTime } from '@/lib/datetime';
 import { useIsDark } from '@/lib/theme';
-import { useGraphShortcuts, type GraphShortcuts } from '@/lib/graph-shortcuts';
+import { GRAPH_KEYS, useGraphShortcuts, type GraphShortcuts } from '@/lib/graph-shortcuts';
+import { keyLabel } from '@/lib/keys';
 import { useTaxonomy } from '@/lib/knowledge';
 import { useRuns } from '@/lib/runs';
 import { useWorkflow, useWorkflows } from '@/lib/workflows';
@@ -102,8 +106,10 @@ interface GraphClipboard {
 let graphClipboard: GraphClipboard | null = null;
 
 export const Route = createFileRoute('/p/$projectId/workflows/$workflowId')({
-  validateSearch: (raw: Record<string, unknown>): { node?: string; direction?: CanvasDirection } => ({
+  validateSearch: (raw: Record<string, unknown>): { node?: string; frame?: string; direction?: CanvasDirection } => ({
     node: typeof raw.node === 'string' ? raw.node : undefined,
+    // A picked frame (its pane opens); a node and a frame are not picked at once.
+    frame: typeof raw.frame === 'string' && typeof raw.node !== 'string' ? raw.frame : undefined,
     direction: raw.direction === 'horizontal' ? 'horizontal' : raw.direction === 'vertical' ? 'vertical' : undefined,
   }),
   component: WorkflowRoute,
@@ -128,7 +134,7 @@ const readDraft = (id: string): Draft | null => {
   }
 };
 
-const nodeTypes = { workflow: WorkflowNodeView };
+const nodeTypes = { workflow: WorkflowNodeView, frame: FrameNodeView, frameTint: FrameTintView };
 const edgeTypes = { workflow: WorkflowEdgeView };
 const viewportKey = (id: string, direction: CanvasDirection) => `loca.workflow.viewport.${id}.${direction}`;
 function readViewport(id: string, direction: CanvasDirection): { x: number; y: number; zoom: number } | undefined {
@@ -188,6 +194,7 @@ function WorkflowEditor() {
 
   // Validate the draft on the server (same rules as run start), debounced.
   const [issues, setIssues] = useState<WorkflowIssue[]>([]);
+  const [libraryOpen, setLibraryOpen] = useState(false);
   // The selected line (for Delete/Backspace and the "선 삭제" button); edges are rebuilt from the
   // definition, so their selection is kept here.
   const [edgeId, setEdgeId] = useState<string>();
@@ -282,6 +289,7 @@ function WorkflowEditor() {
     }));
   }, [openFolds, folds]); // eslint-disable-line react-hooks/exhaustive-deps
   const foldNames = useMemo(() => ({ status: summaryNames.status }), [taxonomy.statuses]); // eslint-disable-line react-hooks/exhaustive-deps
+  const markNames = useMemo(() => ({ tags: new Map(taxonomy.tags?.map((tag) => [tag.id, tag])), statuses: new Map(taxonomy.statuses?.map((status) => [status.id, status])) }), [taxonomy.tags, taxonomy.statuses]);
   const foldChip = (fold: Fold) => current && {
     text: foldText(current.definition, fold, foldNames),
     open: isFoldOpen(foldState, fold.id),
@@ -313,6 +321,8 @@ function WorkflowEditor() {
           node,
           direction,
           summary: summary(node),
+          badge: nodeBadge(node, summaryNames),
+          retry: retryBadge(current.definition, node),
           errors: issues.filter((issue) => issue.nodeId === node.id && issue.level === 'error').map((issue) => issue.message),
           warnings: issues.filter((issue) => issue.nodeId === node.id && issue.level === 'warning').map((issue) => issue.message),
           start: starts.has(node.id) && entry ? { label: startLabel, onOpen: () => select(entry.id) } : undefined,
@@ -325,6 +335,141 @@ function WorkflowEditor() {
     },
     [shown, folds, foldState, current?.definition, search.node, multi, direction, issues, taxonomy.statuses, connections.data, measured], // eslint-disable-line react-hooks/exhaustive-deps
   );
+  // The steps the workflow stores, drawn as boxes behind the nodes. While nodes are dragged the boxes stand still
+  // (frozen), and the frame they would join is marked; while one is resized it follows the handle (resizing).
+  const [dropFrame, setDropFrame] = useState<string>();
+  const [dropHint, setDropHint] = useState<string>();
+  const [renamingFrame, setRenamingFrame] = useState<string>();
+  const [frozen, setFrozen] = useState<Map<string, NonNullable<WorkflowGroup['box']>> | null>(null);
+  const [resizing, setResizing] = useState<{ groupId: string; box: NonNullable<WorkflowGroup['box']> } | null>(null);
+  const standing = useMemo(() => (resizing ? new Map([...(frozen ?? []), [resizing.groupId, resizing.box]]) : frozen ?? undefined), [frozen, resizing]);
+  const frameBoxes = useMemo(() => frameNodes(shown, current?.definition.groups, measured, undefined, standing), [shown, current?.definition.groups, measured, standing]);
+  const pickedGroup = current?.definition.groups?.find((group) => group.id === search.frame);
+  // The nodes on the canvas: a folded one keeps a position it is not drawn at, so only these size a frame.
+  const shownIds = useMemo(() => new Set(shown.map((node) => node.id)), [shown]);
+  const frames: FrameNode[] = frameBoxes.map((frame) => {
+    const groupId = groupIdOf(frame.id);
+    return {
+      ...frame,
+      data: {
+        ...frame.data,
+        picked: search.frame === groupId,
+        over: dropFrame === frame.id,
+        renaming: renamingFrame === groupId,
+        onRename: (label: string) => setDraft((value) => ({ ...value, definition: renameGroup(value.definition, groupId, label) })),
+        onRenamed: () => setRenamingFrame(undefined),
+        onUngroup: () => ungroupFrame(groupId),
+        onDelete: () => deleteFrame(groupId),
+        ungroupKey: keyLabel(GRAPH_KEYS.ungroup),
+        onResize: (box: NonNullable<WorkflowGroup['box']>) => (setResizing(null), setDraft((value) => ({ ...value, definition: resizeFrame(value.definition, groupId, box, measured, shownIds) }))),
+      },
+    };
+  });
+  const selectFrame = (groupId: string | undefined) => void navigate({ search: (previous) => ({ ...previous, node: undefined, frame: groupId }) });
+  /** 삭제: the frame and the nodes in it (and their lines), as Figma deletes a section with its contents. One edit (one undo). */
+  const deleteFrame = (groupId: string) => {
+    const group = current?.definition.groups?.find((item) => item.id === groupId);
+    if (!group) return;
+    const doomed = new Set(group.nodeIds.filter((id) => current?.definition.nodes.find((node) => node.id === id)?.type !== 'entry'));
+    setDraft((value) => ({
+      ...value,
+      definition: syncEntryEdges({
+        ...value.definition,
+        nodes: value.definition.nodes.filter((node) => !doomed.has(node.id)),
+        edges: value.definition.edges.filter((edge) => !doomed.has(edge.source) && !doomed.has(edge.target)),
+        groups: (value.definition.groups ?? []).filter((item) => item.id !== groupId).map((item) => ({ ...item, nodeIds: item.nodeIds.filter((id) => !doomed.has(id)) })),
+      }),
+    }));
+    setMulti([]);
+    if (search.frame === groupId || (search.node && doomed.has(search.node))) select(undefined);
+    setContextMenu(null);
+  };
+  /** 프레임만 삭제: the frame goes, its nodes stay where they are. */
+  const ungroupFrame = (groupId: string) => {
+    setDraft((value) => ({ ...value, definition: ungroup(value.definition, groupId) }));
+    if (search.frame === groupId) selectFrame(undefined);
+    setContextMenu(null);
+  };
+  /** A new frame around the picked nodes: it is picked, with its name being typed. */
+  const groupPicked = (ids: string[]) => {
+    if (!ids.length) return;
+    const groupId = `g-${crypto.randomUUID().slice(0, 8)}`;
+    setDraft((value) => ({ ...value, definition: groupNodes(value.definition, ids, measured, '새 단계', groupId).definition }));
+    setMulti([]);
+    selectFrame(groupId);
+    setRenamingFrame(groupId);
+    setContextMenu(null);
+  };
+  // '＋ 프레임' with nodes picked frames them; with none it lets the canvas draw one (a press adds one at that point).
+  const [drawingFrame, setDrawingFrame] = useState(false);
+  const DEFAULT_FRAME = { width: 360, height: 240 };
+  const createFrame = (box: NonNullable<WorkflowGroup['box']>) => {
+    const groupId = `g-${crypto.randomUUID().slice(0, 8)}`;
+    setDraft((value) => ({ ...value, definition: addFrame(value.definition, box, measured, shownIds, direction, '새 단계', groupId).definition }));
+    setDrawingFrame(false);
+    setMulti([]);
+    selectFrame(groupId);
+    setRenamingFrame(groupId);
+    setContextMenu(null);
+  };
+  const frameAtScreen = (x: number, y: number) => {
+    const at = flow.screenToFlowPosition({ x, y });
+    return { x: Math.round(at.x), y: Math.round(at.y), ...DEFAULT_FRAME };
+  };
+  const drawFrame = (box: { x: number; y: number; width: number; height: number }) => {
+    if (!box.width && !box.height) return createFrame(frameAtScreen(box.x, box.y));
+    const from = flow.screenToFlowPosition({ x: box.x, y: box.y });
+    const to = flow.screenToFlowPosition({ x: box.x + box.width, y: box.y + box.height });
+    createFrame({ x: Math.round(from.x), y: Math.round(from.y), width: Math.max(200, Math.round(to.x - from.x)), height: Math.max(120, Math.round(to.y - from.y)) });
+  };
+  const addFramePressed = () => {
+    const picked = multi.filter((id) => shown.some((node) => node.id === id));
+    if (picked.length) return groupPicked(picked);
+    setDrawingFrame((value) => !value);
+  };
+  /** The menu items that move nodes between frames: into another one, or out of theirs. */
+  const frameMenu = (ids: string[]) => {
+    const groups = current?.definition.groups ?? [];
+    const own = new Set(ids.map((id) => groupOf(groups, id)));
+    const others = groups.filter((group) => !(own.size === 1 && own.has(group.id)));
+    return (
+      <>
+        {others.length > 0 && (
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <Icon icon={Frame} size="sm" />
+              <span>프레임으로 옮기기</span>
+            </DropdownMenuSubTrigger>
+            <Box asChild width="menu">
+            <DropdownMenuSubContent>
+              {others.map((group) => (
+                <DropdownMenuItem key={group.id} onSelect={() => moveToFrame(ids, group.id)}>
+                  <Text truncate>{group.label || '이름 없는 프레임'}</Text>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuSubContent>
+            </Box>
+          </DropdownMenuSub>
+        )}
+        {[...own].some(Boolean) && (
+          <DropdownMenuItem onSelect={() => moveToFrame(ids, null)}>
+            <Icon icon={LogOut} size="sm" />
+            <span>프레임에서 빼기</span>
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuSeparator />
+      </>
+    );
+  };
+  const moveToFrame = (ids: string[], groupId: string | null) => (setDraft((value) => ({ ...value, definition: fitFrames(moveIntoGroup(value.definition, ids, groupId), measured, shownIds) })), setContextMenu(null));
+  // Where a dragged node is let go says where it belongs, by where its middle is, as drawn: in a frame other than its
+  // own, in that one; outside every frame, in none; in its own, as it was. The boxes are those from when the drag began.
+  const dragBoxes = useRef<FrameNode[]>([]);
+  const dropInto = (node: { id: string; position: { x: number; y: number } }) => {
+    const size = measured[node.id] ?? { width: 224, height: 66 };
+    const over = frameAt(dragBoxes.current, { x: node.position.x + size.width / 2, y: node.position.y + size.height / 2 });
+    return over ? groupIdOf(over) : null;
+  };
   const edges: FlowEdge[] = useMemo(
     () => {
       if (!current || !view) return [];
@@ -332,17 +477,18 @@ function WorkflowEditor() {
       const chips = new Map(view.closed.filter((fold) => fold.kind === 'edge').map((fold) => [fold.edgeId, fold] as const));
       return flowEdges(view.definition, { selected: edgeId, hovered: hoveredEdgeId }).map((edge) => {
         const fold = chips.get(edge.id);
-        return fold ? { ...edge, data: { ...edge.data, fold: foldChip(fold) } } : edge;
+        return fold ? { ...edge, data: { ...edge.data, fold: foldChip(fold), marks: lineMarks(current.definition, fold, markNames), onMark: (id: string) => select(id) } } : edge;
       });
     },
-    [view, edgeId, hoveredEdgeId, foldState, issues, taxonomy.statuses], // eslint-disable-line react-hooks/exhaustive-deps
+    [view, edgeId, hoveredEdgeId, foldState, issues, taxonomy.statuses, taxonomy.tags], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
-  const select = (id: string | undefined) => void navigate({ search: (previous) => ({ ...previous, node: id }) });
+  const select = (id: string | undefined) => void navigate({ search: (previous) => ({ ...previous, node: id, frame: undefined }) });
   const selected = current?.definition.nodes.find((node) => node.id === search.node);
   useReportView('workflow', [
     workflow.data && { kind: '워크플로', id: workflow.data.id, label: workflow.data.name },
     selected && { kind: '워크플로 노드', id: selected.id, label: `${nodeName(selected)} (${selected.type})`, detail: `저장 전 설정: ${JSON.stringify(selected.config).slice(0, 5000)}` },
+    pickedGroup && { kind: '워크플로 프레임', id: pickedGroup.id, label: pickedGroup.label || '이름 없는 프레임', detail: `노드: ${pickedGroup.nodeIds.join(', ')}` },
   ]);
 
   // Node edits proposed in the chat land in the draft; bumping the revision remounts the
@@ -366,7 +512,31 @@ function WorkflowEditor() {
     [workflowId, current, setDraft], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
-  const onNodesChange = (changes: NodeChange<FlowNode>[]) => {
+  const onNodesChange = (allChanges: NodeChange<FlowNode | FrameNode>[]) => {
+    // Dragging a frame's header moves it and its nodes by as much. Resizing it (no `dragging` on its moves) follows the
+    // handle until let go (onResize stores the box).
+    const frameMoves = allChanges.flatMap((change) => {
+      if (change.type !== 'position' || !change.position || !isFrameId(change.id) || !('dragging' in change) || change.dragging === undefined) return [];
+      const frame = frames.find((item) => item.id === change.id);
+      return frame && (frame.position.x !== change.position.x || frame.position.y !== change.position.y) ? [{ groupId: groupIdOf(change.id), dx: change.position.x - frame.position.x, dy: change.position.y - frame.position.y }] : [];
+    });
+    if (frameMoves.length) setDraft((value) => ({ ...value, definition: frameMoves.reduce((definition, move) => moveFrame(definition, move.groupId, move.dx, move.dy, measured, shown), value.definition) }));
+    // A resize reports the new corner (a move) and the new size together; both go into one box, or a move from the top or
+    // left edge would be undone by the size that follows it.
+    const resized = new Map<string, Partial<NonNullable<WorkflowGroup['box']>>>();
+    for (const change of allChanges) {
+      if (!('id' in change) || !isFrameId(change.id) || ('dragging' in change && change.dragging !== undefined)) continue;
+      const part = resized.get(change.id) ?? {};
+      if (change.type === 'dimensions' && change.resizing && change.dimensions) resized.set(change.id, { ...part, ...change.dimensions });
+      else if (change.type === 'position' && change.position) resized.set(change.id, { ...part, ...change.position });
+    }
+    for (const [id, part] of resized) {
+      const frame = frames.find((item) => item.id === id);
+      if (!frame) continue;
+      const base = { x: frame.position.x, y: frame.position.y, width: frame.width!, height: frame.height! };
+      setResizing((before) => ({ groupId: groupIdOf(id), box: { ...(before?.groupId === groupIdOf(id) ? before.box : base), ...part } }));
+    }
+    const changes = allChanges.filter((change) => !('id' in change) || !isFrameId(change.id)) as NodeChange<FlowNode>[];
     const sized = changes.filter((change) => change.type === 'dimensions' && change.dimensions);
     if (sized.length)
       setMeasured((previous) => {
@@ -399,6 +569,7 @@ function WorkflowEditor() {
       definition: syncEntryEdges({
         ...draftValue.definition,
         nodes: draftValue.definition.nodes.filter((node) => !removed.includes(node.id)).map((node) => ({ ...node, position: next.find((item) => item.id === node.id)?.position ?? node.position })),
+        groups: pruneGroups(draftValue.definition.groups, draftValue.definition.nodes.filter((node) => !removed.includes(node.id))),
         // Every route is global ELK geometry. Any manual node move can stale feedback loops or
         // labels elsewhere, so clear the route snapshot and let React Flow route until re-layout.
         edges: draftValue.definition.edges.filter((edge) => !removed.includes(edge.source) && !removed.includes(edge.target)).map((edge) => ({ ...edge, layout: undefined })),
@@ -448,13 +619,12 @@ function WorkflowEditor() {
     let id = prefix;
     for (let n = 2; taken.has(id); n++) id = `${prefix}${n}`;
     const node = workflowNodeSchema.parse({ id, position, config: {}, ...seed });
-    setDraft((value) => ({
-      ...value,
-      definition: syncEntryEdges({
-        ...value.definition,
-        nodes: [...value.definition.nodes, node],
-      }),
-    }));
+    // Dropped on a frame, it joins that step.
+    const into = drop && frameAt(frameBoxes, { x: position.x + 20, y: position.y + 20 });
+    setDraft((value) => {
+      const definition = syncEntryEdges({ ...value.definition, nodes: [...value.definition.nodes, node] });
+      return { ...value, definition: into ? fitFrames(moveIntoGroup(definition, [id], groupIdOf(into)), measured, new Set([...shownIds, id])) : definition };
+    });
     select(id);
   };
 
@@ -466,7 +636,8 @@ function WorkflowEditor() {
       const next = await autoLayout(view.definition, sizes, layoutDirection);
       const positions = new Map(next.nodes.map((node) => [node.id, node.position]));
       const routes = new Map(next.edges.map((edge) => [edge.id, edge.layout]));
-      setDraft((value) => ({ ...value, definition: { ...value.definition, direction: layoutDirection, nodes: value.definition.nodes.map((node) => ({ ...node, position: positions.get(node.id) ?? node.position })), edges: value.definition.edges.map((edge) => ({ ...edge, layout: routes.get(edge.id) })) } }));
+      const boxes = new Map((next.groups ?? []).map((group) => [group.id, group.box]));
+      setDraft((value) => ({ ...value, definition: { ...value.definition, direction: layoutDirection, nodes: value.definition.nodes.map((node) => ({ ...node, position: positions.get(node.id) ?? node.position })), edges: value.definition.edges.map((edge) => ({ ...edge, layout: routes.get(edge.id) })), groups: value.definition.groups?.map((group) => ({ ...group, box: boxes.get(group.id) ?? group.box })) } }));
       const focusId = search.node ?? definitions[0]?.id;
       const focusNode = next.nodes.find((node) => node.id === focusId);
       const focusSize = focusId ? sizes.get(focusId) : undefined;
@@ -582,6 +753,7 @@ function WorkflowEditor() {
     cut: () => actions.current.cut?.(),
     paste: () => actions.current.paste?.(),
     remove: () => actions.current.remove?.(),
+    ungroup: () => actions.current.ungroup?.(),
   }, Boolean(current));
 
   if (!workflow.data || !current)
@@ -625,7 +797,6 @@ function WorkflowEditor() {
       items: [
         { id: 'condition', label: '조건', kind: 'condition' as const, icon: null },
         { id: 'gather', label: '모으기', kind: 'gather' as const, icon: null },
-        { id: 'retry', label: '재요청', kind: 'retry' as const, icon: null, description: NODE_TYPES.retry.description },
         { id: 'call', label: '워크플로 호출', kind: 'call' as const, icon: null, description: '다른 워크플로를 여기서 돌립니다.' },
       ],
     },
@@ -644,7 +815,6 @@ function WorkflowEditor() {
     else if (FUNCTION_NAMES.includes(id as FunctionName)) addNode({ type: 'function', config: { fn: id, params: {}, concurrency: 2 } }, id, position);
     else if (id === 'ai') addNode({ type: 'ai', config: { model: newNodeModel(), output: 'json', scope: 'line', batch: batchFor(), fields: [{ name: 'note', type: 'string', description: '' }] } } as never, id, position);
     else if (id === 'gather') addNode({ type: 'gather', config: { from: '', fields: [] } }, id, position);
-    else if (id === 'retry') addNode({ type: 'retry', config: retryConfigSchema.parse({}) }, id, position);
     else if (id === 'call') addNode({ type: 'call', config: { workflowId: '' } }, id, position);
     else if (id === 'condition') addNode({ type: 'condition', config: { expression: true, description: '' } }, id, position);
   };
@@ -655,6 +825,7 @@ function WorkflowEditor() {
         ...value.definition,
         nodes: value.definition.nodes.filter((node) => node.id !== nodeId),
         edges: value.definition.edges.filter((edge) => edge.source !== nodeId && edge.target !== nodeId),
+        groups: pruneGroups(value.definition.groups, value.definition.nodes.filter((node) => node.id !== nodeId)),
       }),
     }));
     if (search.node === nodeId) select(undefined);
@@ -669,6 +840,7 @@ function WorkflowEditor() {
         ...value.definition,
         nodes: value.definition.nodes.filter((node) => !doomed.has(node.id)),
         edges: value.definition.edges.filter((edge) => !doomed.has(edge.source) && !doomed.has(edge.target)),
+        groups: pruneGroups(value.definition.groups, value.definition.nodes.filter((node) => !doomed.has(node.id))),
       }),
     }));
     setMulti([]);
@@ -718,7 +890,8 @@ function WorkflowEditor() {
     copy: () => void (copyPicked() && toast.success(`노드 ${pickedIds.length}개를 복사했습니다.`)),
     cut: () => void (copyPicked() && deleteNodes(pickedIds)),
     paste: () => graphClipboard && pasteNodes(graphClipboard),
-    remove: () => (edgeId ? removeEdges([edgeId]) : deleteNodes(pickedIds)),
+    remove: () => (edgeId ? removeEdges([edgeId]) : pickedGroup && !pickedIds.length ? deleteFrame(pickedGroup.id) : deleteNodes(pickedIds)),
+    ungroup: () => (pickedGroup && !pickedIds.length ? ungroupFrame(pickedGroup.id) : undefined),
   };
 
   return (
@@ -749,6 +922,16 @@ function WorkflowEditor() {
         <Text truncate variant="caption" tone="muted" role="status">{save.isPending ? '저장 중…' : save.isError ? '저장 실패 · 편집 보관됨' : draft ? '저장 대기' : `자동 저장됨 ${savedAt(workflow.data.updatedAt)}`}</Text>
       </PageHeading>
       <HeaderActions>
+        {/* The palette, out of the canvas's way: search it, click a node to add it, or drag one onto the canvas. */}
+        <Popover open={libraryOpen} onOpenChange={setLibraryOpen}>
+          <PopoverTrigger asChild>
+            <Button variant="outline"><Plus /> 노드</Button>
+          </PopoverTrigger>
+          <PopoverContent align="end" padding="none" width="menu-lg">
+            <NodeLibrary variant="menu" groups={palette} onSelect={(item) => { addFromLibrary(item.id); setLibraryOpen(false); }} onDragStart={() => window.setTimeout(() => setLibraryOpen(false))} />
+          </PopoverContent>
+        </Popover>
+        <Button variant={drawingFrame ? 'secondary' : 'outline'} aria-pressed={drawingFrame} title={multi.length ? '고른 노드를 새 프레임으로 묶습니다' : '캔버스에 끌어서 프레임을 그립니다 (한 번 누르면 그 자리에 추가)'} onClick={addFramePressed}><Frame /> 프레임</Button>
         <RunDialog projectId={projectId} workflowId={workflowId} disabledReason={save.isPending ? '저장하는 중입니다.' : errorCount > 0 && `오류 ${errorCount}개를 고친 뒤 실행할 수 있습니다. 위의 고치기를 누르세요.`} dirty={Boolean(draft)} />
         {draft && <Button variant="ghost" disabled={save.isPending} onClick={discard}>되돌리기</Button>}
       </HeaderActions>
@@ -773,10 +956,22 @@ function WorkflowEditor() {
       )}
       <SplitPane fill="height"
         id="workflow"
-        selectionKey={selected?.id}
+        selectionKey={selected?.id ?? (pickedGroup && frameId(pickedGroup.id))}
         defaultWidth="360px"
         pane={
-          current && !selected && !multi.length ? (
+          current && pickedGroup && !selected ? (
+            <Box height="full" minWidth={0} overflow="hiddenX" background="page">
+              <FramePanel
+                group={pickedGroup}
+                nodes={current.definition.nodes}
+                onRename={(label) => setDraft((value) => ({ ...value, definition: renameGroup(value.definition, pickedGroup.id, label) }))}
+                onUngroup={() => ungroupFrame(pickedGroup.id)}
+                onDelete={() => deleteFrame(pickedGroup.id)}
+                onOpenNode={select}
+                onClose={() => selectFrame(undefined)}
+              />
+            </Box>
+          ) : current && !selected && !multi.length ? (
             <Box height="full" minWidth={0} overflow="hiddenX" background="page">
               <WorkflowSettings settings={current.definition.settings} onChange={(settings) => setDraft((value) => ({ ...value, definition: { ...value.definition, settings } }))} />
             </Box>
@@ -797,6 +992,8 @@ function WorkflowEditor() {
                   edges: current.definition.edges,
                   workflows: workflows.data,
                   onOpenNode: select,
+                  retries: current.definition.settings.retries,
+                  onOpenWorkflowSettings: () => select(undefined),
                 }}
                 onChange={(next) => setDraft((value) => ({ ...value, definition: { ...value.definition, nodes: value.definition.nodes.map((node) => (node.id === next.id ? next : node)), edges: value.definition.edges.map((edge) => ({ ...edge, layout: undefined })) } }))}
                 onDelete={deleteSelected}
@@ -807,21 +1004,45 @@ function WorkflowEditor() {
         }
       >
         <Stack direction="row" minHeight={0} grow paddingBottom="statusBar">
-        <NodeLibrary groups={palette} onSelect={(item) => addFromLibrary(item.id)} />
         <CanvasSurface ref={canvasRef} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; }} onDrop={(event) => {
           event.preventDefault();
           const id = event.dataTransfer.getData('application/x-loca-workflow-node');
           if (palette.some((group) => group.items.some((item) => item.id === id))) addFromLibrary(id, flow.screenToFlowPosition({ x: event.clientX, y: event.clientY }));
         }}>
           <ReactFlow colorMode={dark ? 'dark' : 'light'}
-            nodes={nodes}
+            nodes={[...frameTints(frames), ...frames, ...nodes] as FlowNode[]}
             edges={edges}
             nodeTypes={nodeTypes}
             edgeTypes={edgeTypes}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
+            onNodeDragStart={(_event, node) => {
+              if (isFrameId(node.id) || !current.definition.groups?.length) return void (dragBoxes.current = []);
+              dragBoxes.current = frameBoxes;
+              setFrozen(new Map(frameBoxes.map((frame) => [groupIdOf(frame.id), { x: frame.position.x, y: frame.position.y, width: frame.width!, height: frame.height! }])));
+            }}
+            onNodeDrag={(_event, node) => {
+              if (!dragBoxes.current.length) return;
+              const into = dropInto(node);
+              const own = groupOf(current.definition.groups, node.id);
+              const name = (groupId: string) => current.definition.groups?.find((group) => group.id === groupId)?.label || '이름 없는 프레임';
+              setDropFrame(into && into !== own ? frameId(into) : undefined);
+              setDropHint(into && into !== own ? `'${name(into)}'에 넣기` : !into && own ? `'${name(own)}'에서 빼기` : undefined);
+            }}
+            onNodeDragStop={(_event, node, dragged) => {
+              setDropFrame(undefined);
+              setDropHint(undefined);
+              if (!dragBoxes.current.length) return;
+              const into = dropInto(node);
+              const ids = dragged.map((item) => item.id).filter((id) => !isFrameId(id));
+              dragBoxes.current = [];
+              setFrozen(null);
+              const moves = ids.some((id) => groupOf(current.definition.groups, id) !== (into ?? undefined));
+              setDraft((value) => ({ ...value, definition: fitFrames(moves ? moveIntoGroup(value.definition, ids, into) : value.definition, measured, shownIds) }));
+            }}
             onNodeClick={(event, node) => {
+              if (isFrameId(node.id)) return (setMulti([]), setEdgeId(undefined), setContextMenu(null), selectFrame(groupIdOf(node.id)));
               if (event.metaKey || event.ctrlKey) return;
               setMulti([]);
               select(node.id);
@@ -839,9 +1060,19 @@ function WorkflowEditor() {
             }}
             onEdgeMouseEnter={(_event, edge) => setHoveredEdgeId(edge.id)}
             onEdgeMouseLeave={() => setHoveredEdgeId(undefined)}
-            onPaneClick={() => (select(undefined), setMulti([]), setEdgeId(undefined), setContextMenu(null))}
+            // The room inside a frame is the canvas (it pans), but a click there picks the frame.
+            onPaneClick={(event) => {
+              setMulti([]);
+              setEdgeId(undefined);
+              setContextMenu(null);
+              const at = flow.screenToFlowPosition({ x: event.clientX, y: event.clientY });
+              const under = frameAt(frameBoxes, at);
+              if (under) selectFrame(groupIdOf(under));
+              else select(undefined);
+            }}
             onNodeContextMenu={(event, flowNode) => {
               event.preventDefault();
+              if (isFrameId(flowNode.id)) return;
               setEdgeId(undefined);
               if (multi.length >= 2 && multi.includes(flowNode.id)) return setContextMenu({ kind: 'nodes', ids: multi, x: event.clientX, y: event.clientY });
               // The menu acts on this node; the selection (and its config pane) stays as it was.
@@ -878,6 +1109,8 @@ function WorkflowEditor() {
             onMoveEnd={(_event, viewport) => sessionStorage.setItem(viewportKey(workflowId, direction), JSON.stringify(viewport))}
             // Same as the dialogue graph: left or middle drag pans, Shift+drag draws a selection box, ⌘/Ctrl+click adds a node.
             panOnDrag={[0, 1]}
+            // Dragging a node moves it; it does not pick it (picking is a click, ⌘/Ctrl+click or Shift+drag).
+            selectNodesOnDrag={false}
             selectionKeyCode="Shift"
             multiSelectionKeyCode={['Meta', 'Control']}
             selectionMode={SelectionMode.Partial}
@@ -887,15 +1120,31 @@ function WorkflowEditor() {
             proOptions={{ hideAttribution: true }}
           >
             <Background size={1.5} gap={20} color="var(--fill-graph-grid)" />
-            <Panel position="bottom-right"><CanvasToolbar zoomPercent={zoom * 100} onZoomIn={() => void flow.zoomIn()} onZoomOut={() => void flow.zoomOut()} onFit={() => fitWholeWorkflow(flow, 200)} onResetZoom={() => void flow.zoomTo(1, { duration: 180 })} onLayout={() => void arrange(direction, true)} layoutLabel="자동 정렬" direction={direction} onDirectionChange={changeDirection} foldsOpen={folds.length ? allFoldsOpen(folds, foldState) : undefined} onToggleFolds={() => setFoldState(setAllFolds(folds, !allFoldsOpen(folds, foldState)))} minimapVisible={minimap} onToggleMinimap={() => setMinimap((value) => !value)} /></Panel>
-            {minimap && <MiniMap position="top-right" pannable zoomable />}
+            <Panel position="top-right"><EdgeLegend /></Panel>
+            <Panel position="bottom-left"><CanvasToolbar zoomPercent={zoom * 100} onZoomIn={() => void flow.zoomIn()} onZoomOut={() => void flow.zoomOut()} onFit={() => fitWholeWorkflow(flow, 200)} onResetZoom={() => void flow.zoomTo(1, { duration: 180 })} onLayout={() => void arrange(direction, true)} layoutLabel="자동 정렬" direction={direction} onDirectionChange={changeDirection} foldsOpen={folds.length ? allFoldsOpen(folds, foldState) : undefined} onToggleFolds={() => setFoldState(setAllFolds(folds, !allFoldsOpen(folds, foldState)))} minimapVisible={minimap} onToggleMinimap={() => setMinimap((value) => !value)} /></Panel>
+            {minimap && <MiniMap position="bottom-right" pannable zoomable />}
             {selected && shown.some((node) => node.id === selected.id) && <NodeToolbar nodeId={selected.id} isVisible position={Position.Top} offset={16}><SelectionToolbox actions={[
               ...(selected.type !== 'entry' ? [{ id: 'copy', label: '복제', icon: <Copy />, onSelect: () => addNode({ type: selected.type, label: selected.label, config: structuredClone(selected.config) }, selected.id + '-copy', { x: selected.position.x + 240, y: selected.position.y }) },
               { id: 'delete', label: '삭제', icon: <Trash2 />, destructive: true, onSelect: deleteSelected }] : []),
             ]} /></NodeToolbar>}
+            {/* A frame sits under the nodes; its toolbar must not (it would take that layer and miss the pointer). */}
+            {pickedGroup && frames.some((frame) => frame.id === frameId(pickedGroup.id)) && <NodeToolbar nodeId={frameId(pickedGroup.id)} isVisible position={Position.Top} offset={8} style={{ zIndex: 1000 }}><SelectionToolbox actions={[
+              { id: 'rename', label: '이름 바꾸기', icon: <Pencil />, onSelect: () => setRenamingFrame(pickedGroup.id) },
+              { id: 'ungroup', label: '프레임만 삭제', icon: <Ungroup />, onSelect: () => ungroupFrame(pickedGroup.id) },
+              { id: 'delete', label: '삭제', icon: <Trash2 />, destructive: true, onSelect: () => deleteFrame(pickedGroup.id) },
+            ]} /></NodeToolbar>}
+            {drawingFrame && <Panel position="top-center"><Inline role="status" gap="condensed" background="overlay" border="all" radius="md" shadow="sm" paddingX="comfortable" paddingY="condensed" variant="caption"><Icon icon={Frame} size="sm" tone="accent" />끌어서 프레임을 그리세요. 한 번 누르면 그 자리에 추가합니다 · Esc 취소</Inline></Panel>}
+            {/* What letting go will do, while nodes are dragged across frames. */}
+            {dropHint && <Panel position="top-center"><Inline role="status" gap="condensed" background="overlay" border="all" radius="md" shadow="sm" paddingX="comfortable" paddingY="condensed" variant="caption"><Icon icon={Frame} size="sm" tone="accent" />{dropHint}</Inline></Panel>}
+            {multi.length > 1 && <NodeToolbar nodeId={multi} isVisible position={Position.Top} offset={16}><SelectionToolbox actions={[
+              { id: 'frame', label: '프레임으로 묶기', icon: <Group />, onSelect: () => groupPicked(multi.filter((id) => shown.some((node) => node.id === id))) },
+              { id: 'copy', label: `${multi.length}개 복제`, icon: <Copy />, onSelect: () => duplicateNodes(multi) },
+              { id: 'delete', label: `${multi.length}개 삭제`, icon: <Trash2 />, destructive: true, onSelect: () => deleteNodes(multi) },
+            ]} /></NodeToolbar>}
             {/* A box selection also picks the edges between its nodes; those go with the nodes, not as one edge to delete. */}
             {edgeId && multi.length < 2 && <Panel position="top-center"><SelectionToolbox actions={[{ id: 'delete-edge', label: '연결 삭제', icon: <Trash2 />, destructive: true, onSelect: () => removeEdges([edgeId]) }]} /></Panel>}
           </ReactFlow>
+          {drawingFrame && <CanvasDrawLayer label="끌어서 프레임 그리기" onDraw={drawFrame} onCancel={() => setDrawingFrame(false)} />}
           {contextMenu && (
             <DropdownMenu open={Boolean(contextMenu)} onOpenChange={(open) => !open && setContextMenu(null)} modal={false}>
               <DropdownMenuTrigger asChild>
@@ -919,6 +1168,11 @@ function WorkflowEditor() {
                     <span>설정 열기</span>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => groupPicked([contextMenu.node.id])}>
+                    <Icon icon={Group} size="sm" />
+                    <span>새 프레임으로 묶기</span>
+                  </DropdownMenuItem>
+                  {frameMenu([contextMenu.node.id])}
                   <DropdownMenuItem
                     onSelect={() => {
                       addNode(
@@ -963,6 +1217,11 @@ function WorkflowEditor() {
               {contextMenu.kind === 'nodes' && (
                 <Box asChild width="menu">
                 <DropdownMenuContent align="start" side="bottom" sideOffset={2}>
+                  <DropdownMenuItem onSelect={() => groupPicked(contextMenu.ids.filter((id) => shown.some((node) => node.id === id)))}>
+                    <Icon icon={Group} size="sm" />
+                    <span>프레임으로 묶기</span>
+                  </DropdownMenuItem>
+                  {frameMenu(contextMenu.ids)}
                   <DropdownMenuItem onSelect={() => duplicateNodes(contextMenu.ids)}>
                     <Icon icon={Copy} size="sm" />
                     <span>{contextMenu.ids.length}개 복제</span>
@@ -993,6 +1252,10 @@ function WorkflowEditor() {
               {contextMenu.kind === 'pane' && (
                 <Box asChild width="menu">
                 <DropdownMenuContent align="start" side="bottom" sideOffset={2}>
+                  <DropdownMenuItem onSelect={() => createFrame(frameAtScreen(contextMenu.x, contextMenu.y))}>
+                    <Icon icon={Frame} size="sm" />
+                    <span>여기에 프레임 추가</span>
+                  </DropdownMenuItem>
                   <DropdownMenuSub>
                     <DropdownMenuSubTrigger>
                       <Icon icon={Plus} size="sm" />

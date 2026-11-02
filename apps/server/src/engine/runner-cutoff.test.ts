@@ -19,8 +19,8 @@ import { issueTagIds } from '../services/issue-tags.ts';
 const CUT_OFF = () => new ai.ModelError('cli', 'Your previous response was cut off because it exceeded the output token limit', false);
 
 /**
- * One scene of `lines` lines run through the translate/review template (whose AI nodes are followed by
- * a 재요청 node), its translate node batching as `batch`. `resend: false` takes the 재요청 nodes out.
+ * One scene of `lines` lines run through the translate/review template (whose AI nodes follow the workflow's
+ * default retry rules), its translate node batching as `batch`. `resend: false` takes the rules and the failure marker out.
  */
 function setup(lines: number, batch: Partial<BatchConfig>, { resend = true, failures = 50 }: { resend?: boolean; failures?: number } = {}) {
   const db = openDatabase(':memory:');
@@ -39,11 +39,11 @@ function setup(lines: number, batch: Partial<BatchConfig>, { resend = true, fail
     confirmed: statuses.find((status) => status.kind === 'final')!.id,
   }));
   const nodes = template.nodes
-    .filter((node) => resend || (node.type !== 'retry' && !node.id.endsWith('-failed')))
+    .filter((node) => resend || node.id !== 'needs-review')
     .map((node) => (node.type === 'ai' && node.id === 'translate' ? { ...node, config: { ...node.config, concurrency: 1, batch: { mode: 'group' as const, size: 60, maxTokens: null, ...batch } } } : node));
   const ids = new Set(nodes.map((node) => node.id));
   const edges = template.edges.filter((edge) => ids.has(edge.source) && ids.has(edge.target));
-  const definition = { ...template, nodes, edges, settings: { ...template.settings, maxConsecutiveFailures: failures } };
+  const definition = { ...template, nodes, edges, settings: { ...template.settings, maxConsecutiveFailures: failures, ...(!resend && { retries: [] }) } };
   const workflow = db.insert(s.workflows).values({ projectId, name: '번역', description: '', definition }).returning().get();
   const runId = createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: {} }).runId;
   return { db, runId, projectId, reviewStatusId: review.id };
@@ -71,7 +71,7 @@ function model(fail: (n: number, size: number) => Error | null) {
 const runOf = (db: ReturnType<typeof setup>['db'], runId: string) => db.select().from(s.runs).where(eq(s.runs.id, runId)).get()!;
 const itemsOf = (db: ReturnType<typeof setup>['db'], runId: string) => db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all();
 
-describe('재요청 node', () => {
+describe('retry rules', () => {
   it('sends cut-off lines back at 0.5, then 0.25 of the request size, then out through 오류 to 검토 필요 with the original failure kept on the item', async () => {
     const { db, runId, projectId, reviewStatusId } = setup(8, { mode: 'count', size: 8 });
     const fake = model(() => CUT_OFF());
@@ -81,9 +81,9 @@ describe('재요청 node', () => {
     const items = itemsOf(db, runId);
     expect(items).toHaveLength(8);
     for (const item of items) {
-      // The 재요청's 오류 exit is wired to 검토 필요로: the line is handed to a person, not failed.
+      // The AI node's 오류 exit is wired to 검토 필요로: the line is handed to a person, not failed.
       expect(item.state).toBe('done');
-      expect(item.data.retry).toMatchObject({ times: { 'translate-resend': 2 }, factor: 0.25, last: { kind: 'cut-off' } });
+      expect(item.data.retry).toMatchObject({ times: { 'translate:0': 2 }, factor: 0.25, last: { kind: 'cut-off' } });
     }
     const units = db.select().from(s.units).where(eq(s.units.projectId, projectId)).all();
     expect(units.every((unit) => unit.statusId === reviewStatusId)).toBe(true);
@@ -93,7 +93,7 @@ describe('재요청 node', () => {
     const { db, runId, projectId, reviewStatusId } = setup(8, { mode: 'count', size: 8 });
     const fake = model(() => new Error('boom'));
     await new Runner(db, memoryStore(), fake.port).drain();
-    // Not resent at all: 'other' is not one of the 재요청's kinds, so the line goes straight to 검토 필요로.
+    // Not resent at all: 'other' is not one of the rules' kinds, so the line goes straight to 검토 필요로.
     expect(fake.sizes()).toEqual([8]);
     for (const item of itemsOf(db, runId)) {
       expect(item.state).toBe('done');
@@ -145,7 +145,7 @@ describe('재요청 node', () => {
 });
 
 describe('cut-offs and 연속 실패', () => {
-  it('does not count cut-offs a 재요청 node takes back: four in a row do not pause, and the smaller requests succeed', async () => {
+  it('does not count cut-offs a retry rule takes back: four in a row do not pause, and the smaller requests succeed', async () => {
     const { db, runId } = setup(40, { mode: 'count', size: 4 }, { failures: 3 });
     // The first four first-time requests (4 lines) are cut off; the smaller ones sent back are answered.
     let firstTime = 0;
@@ -164,7 +164,7 @@ describe('cut-offs and 연속 실패', () => {
     expect(runOf(db, runId).status).toBe('paused');
   });
 
-  it('pauses at the third cut-off request in a row when no 재요청 node follows', async () => {
+  it('pauses at the third cut-off request in a row when the AI node has no retry rule', async () => {
     const { db, runId } = setup(40, { mode: 'count', size: 4 }, { resend: false, failures: 3 });
     const fake = model(() => CUT_OFF());
     await new Runner(db, memoryStore(), fake.port).drain();
@@ -195,11 +195,11 @@ describe('cut-offs and 연속 실패', () => {
 });
 
 describe('lines being resent, as the run page reads them', () => {
-  it('exposes why a line waits, filters by it, and counts the failure kinds per 재요청 node', async () => {
+  it('exposes why a line waits, filters by it, and counts the failure kinds per AI node', async () => {
     const { db, runId } = setup(8, { mode: 'count', size: 8 });
     // The first request is cut off and its 8 lines are sent back once, after a wait of a minute: they wait at the AI node.
     const run = runOf(db, runId);
-    db.update(s.runs).set({ definition: { ...run.definition, nodes: run.definition.nodes.map((node) => (node.id === 'translate-resend' && node.type === 'retry' ? { ...node, config: { ...node.config, wait: 60 } } : node)) } }).where(eq(s.runs.id, runId)).run();
+    db.update(s.runs).set({ definition: { ...run.definition, settings: { ...run.definition.settings, retries: run.definition.settings.retries.map((rule, index) => (index === 0 ? { ...rule, wait: 60 } : rule)) } } }).where(eq(s.runs.id, runId)).run();
     const runner = new Runner(db, memoryStore(), model((n) => (n === 1 ? CUT_OFF() : null)).port);
     await runner.drain();
     const app = new Hono<Env>()
@@ -211,13 +211,13 @@ describe('lines being resent, as the run page reads them', () => {
 
     const all = (await (await app.request(`/runs/${runId}/items`)).json()) as { total: number; rows: { state: string; retry: { times: number; max: number; kind: string; message: string; nodeId: string; waitsUntil: number | null } | null }[] };
     expect(all.total).toBe(8);
-    expect(all.rows.every((row) => row.state === 'queued' && row.retry?.times === 1 && row.retry.max === 2 && row.retry.kind === 'cut-off' && row.retry.message.length > 0 && row.retry.nodeId === 'translate-resend' && row.retry.waitsUntil! > Date.now())).toBe(true);
+    expect(all.rows.every((row) => row.state === 'queued' && row.retry?.times === 1 && row.retry.max === 2 && row.retry.kind === 'cut-off' && row.retry.message.length > 0 && row.retry.nodeId === 'translate' && row.retry.waitsUntil! > Date.now())).toBe(true);
     const retrying = (await (await app.request(`/runs/${runId}/items?state=retrying`)).json()) as { total: number };
     expect(retrying.total).toBe(8);
     expect(((await (await app.request(`/runs/${runId}/items?state=failed`)).json()) as { total: number }).total).toBe(0);
 
     const detail = (await (await app.request(`/runs/${runId}`)).json()) as { retrying: Record<string, { count: number; kinds: Record<string, number> }> };
-    expect(detail.retrying).toEqual({ 'translate-resend': { count: 8, kinds: { 'cut-off': 8 } } });
+    expect(detail.retrying).toEqual({ translate: { count: 8, kinds: { 'cut-off': 8 } } });
     // The run page lists its model calls by id and reads each one once.
     const { ids } = (await (await app.request(`/runs/${runId}/steps/ids`)).json()) as { ids: string[] };
     const read = await app.request(`/projects/${run.projectId}/run-steps`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ids }) });

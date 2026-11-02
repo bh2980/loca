@@ -1,6 +1,6 @@
 /** Pieces shared by the node-kind configs: shared field primitives and the node/ref types. */
 import { Box, Button, Checkbox, HelpTip, Inline, NodeKindIcon, NumberInput, InspectorToggle, Switch, Text } from '@loca/ui';
-import { CONNECTION_KIND_INFO, functionGroup, leavesResult, nodeName, nodeOutputFields, workflowInput, type ModelLimits, type WorkflowEdge, type WorkflowNode, type WorkflowSubject } from '@tw/shared';
+import { CONNECTION_KIND_INFO, functionGroup, leavesResult, nodeName, nodeOutputFields, workflowInput, type ModelLimits, type RetryRule, type WorkflowEdge, type WorkflowNode, type WorkflowSubject } from '@tw/shared';
 import { nodeIcon } from '@/components/workflow/node-view';
 
 export type AiNode = Extract<WorkflowNode, { type: 'ai' }>;
@@ -20,6 +20,9 @@ export interface NodeRefs {
   workflows?: { id: string; name: string; input: WorkflowSubject }[];
   /** Opens another node's settings (a step chip's click). */
   onOpenNode?: (id: string) => void;
+  /** The workflow's retry rules (what an AI node without its own follows), and a way to its settings where they are edited. */
+  retries?: RetryRule[];
+  onOpenWorkflowSettings?: () => void;
 }
 
 /** The step(s) a node takes its result from, as small chips with the node's icon; a click opens that node. */

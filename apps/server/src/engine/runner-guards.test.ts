@@ -13,13 +13,13 @@ import { createRun, createRunInSteps } from './run-create.ts';
 import { withoutTerms } from './test-workflows.ts';
 import { issueTagIds } from '../services/issue-tags.ts';
 
-/** The template without its 재요청 nodes (a failure that needs a smaller request then ends the line, and without their failure markers), unless `keep`. */
+/** The template without retry rules (a failure that needs a smaller request then ends the line, and without the 검토 필요 end), unless `keep`. */
 function withoutResend(full: ReturnType<typeof translationTemplate>, keep: boolean) {
   const definition = withoutTerms(full);
   if (keep) return definition;
-  const nodes = definition.nodes.filter((node) => node.type !== 'retry' && !node.id.endsWith('-failed'));
+  const nodes = definition.nodes.filter((node) => node.id !== 'needs-review');
   const ids = new Set(nodes.map((node) => node.id));
-  return { ...definition, nodes, edges: definition.edges.filter((edge) => ids.has(edge.source) && ids.has(edge.target)) };
+  return { ...definition, nodes, settings: { ...definition.settings, retries: [] }, edges: definition.edges.filter((edge) => ids.has(edge.source) && ids.has(edge.target)) };
 }
 
 /** A project of `scenes` scenes; scene i has `size(i)` lines. Scene keys sort opposite to script order. */
@@ -136,7 +136,7 @@ describe('runner guards', () => {
     const run = runOf(db, runId);
     expect(run.status).toBe('paused');
     expect(run.notice).toContain('3번 연달아');
-    // The 재요청 nodes resend malformed answers (twice each) without counting them; only what they give up on counts.
+    // The retry rules resend malformed answers (twice each) without counting them; only what they give up on counts.
     expect(fake.firsts.length).toBeLessThanOrEqual(8);
   });
 
@@ -269,11 +269,11 @@ describe('incomplete answers', () => {
     const items = db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all();
     expect(items.every((item) => item.state === 'done')).toBe(true);
     const translations = db.select().from(s.runSteps).where(eq(s.runSteps.runId, runId)).all().filter((step) => step.nodeId === 'translate');
-    // 10 lines, 7 answered; the 3 left out came back through 재요청 (missing) on their own.
+    // 10 lines, 7 answered; the 3 left out came back through the retry rule (missing) on their own.
     expect(translations.map((step) => [step.subjectIds.length, step.returnedItems])).toEqual([[10, 7], [3, 3]]);
   });
 
-  it('never splits a malformed answer: its lines leave through "error" (invalid-output), the 재요청 node sends them back smaller twice, then 검토 필요로 takes them', async () => {
+  it('never splits a malformed answer: its lines leave through "error" (invalid-output), its retry rule sends them back smaller twice, then 검토 필요로 takes them', async () => {
     const { db, start } = setup(1, () => 8);
     const runId = start();
     const fake: ModelPort = {
@@ -292,9 +292,9 @@ describe('incomplete answers', () => {
     await new Runner(db, memoryStore(), fake).drain();
     const items = db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all();
     expect(items.every((item) => item.state === 'done')).toBe(true);
-    expect(JSON.stringify(items.map((item) => item.data.retry?.times))).toContain('translate-resend');
+    expect(JSON.stringify(items.map((item) => item.data.retry?.times))).toContain('translate:0');
     const translations = db.select().from(s.runSteps).where(eq(s.runSteps.runId, runId)).all().filter((step) => step.nodeId === 'translate');
-    // Never split: the whole scene goes again, once for each of the 재요청's two tries.
+    // Never split: the whole scene goes again, once for each of the rule's two tries.
     expect(translations.map((step) => step.subjectIds.length)).toEqual([8, 8, 8]);
     expect(runOf(db, runId).status).toBe('completed');
   });

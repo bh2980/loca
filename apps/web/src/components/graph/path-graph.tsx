@@ -5,7 +5,7 @@ import ELK from 'elkjs/lib/elk-api.js';
 import ElkWorker from 'elkjs/lib/elk-worker.min.js?worker';
 import '@xyflow/react/dist/style.css';
 import { useSize } from '@/hooks/use-size';
-import { ArmChip, Chip, Box, ForkNodeFrame, Inline, PathEdgeLabel, PathNodeButton, PathNodeCard, SeamStateChip, Text, FlowHandle } from '@loca/ui';
+import { ArmChip, Chip, Box, ForkNodeFrame, Inline, PathEdgeLabel, PathNodeButton, PathNodeCard, SeamStateChip, Text, FlowHandle, useCanvasDismiss } from '@loca/ui';
 import { q } from '@/lib/queries';
 import { useQuery } from '@tanstack/react-query';
 import { foldTranslated, splitBackEdges, windowOf, placeSeams, type Arm, type Hub, type Overview } from '@/components/graph/path-window';
@@ -390,6 +390,7 @@ export function PathGraph({ projectId, slice, texts, checks, at, all, selectedId
   /** Called once the first layout is on screen (for timing). */
   onReady?: () => void;
 }) {
+  const dismiss = useCanvasDismiss();
   const dark = useIsDark();
   const moveRef = useRef(onMove);
   moveRef.current = onMove;
@@ -535,7 +536,7 @@ export function PathGraph({ projectId, slice, texts, checks, at, all, selectedId
   const opening = all && fitted < MIN_FIT_ZOOM ? placed.filter((item) => positions.at[item.id].y < size.height / OPEN_ZOOM).map((item) => ({ id: item.id })) : undefined;
   return (
     <Box ref={frame} height="full" width="full" data-path-nodes={placed.length}>
-    <ReactFlow colorMode={dark ? 'dark' : 'light'}
+    <ReactFlow colorMode={dark ? 'dark' : 'light'} ref={dismiss}
       key={key}
       nodes={nodes}
       edges={edges}

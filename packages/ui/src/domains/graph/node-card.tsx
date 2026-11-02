@@ -1,12 +1,13 @@
 import type { ReactNode } from "react"
 import type { LucideIcon } from "lucide-react"
 import { Icon } from "../../primitives/icon"
-import { AlertCircle, AlertTriangle } from "lucide-react"
+import { AlertCircle, AlertTriangle, RotateCcw } from "lucide-react"
 import { cn } from "../../lib/utils"
 import type { CanvasDirection } from "./canvas-direction-control"
 import { FoldChip, type FoldChipProps } from "./fold-chip"
+import { paletteColor } from "../../patterns/palette"
 
-export type NodeCardKind = "entry" | "ai" | "apply" | "status" | "function" | "condition" | "gather" | "retry" | "call" | "end"
+export type NodeCardKind = "entry" | "ai" | "apply" | "status" | "function" | "condition" | "gather" | "call" | "end"
 
 interface NodeCardPort {
   id: string
@@ -29,7 +30,15 @@ interface NodeCardProps {
   errors?: number
   warnings?: number
   /** Lines waiting, being worked on and failed here; `calls`/`limit`: requests in flight and how many can be at once; `passed`: lines that went through (a run's graph). */
-  live?: { queued: number; running: number; failed: number; calls?: number; limit?: number; passed?: number; /** A 재요청 node: the lines it sent back that wait to be sent again, as a phrase ("다시 보냄 12 · 출력 잘림"). */ retry?: string }
+  live?: { queued: number; running: number; failed: number; calls?: number; limit?: number; passed?: number; /** An AI node: the lines its retry rules sent back that wait to be sent again, as a phrase ("다시 보냄 12 · 출력 잘림"). */ retry?: string }
+  /** An AI node's retry rules in a few words ("재시도 최대 5번"), with every rule in `detail` (its tooltip). */
+  retry?: { text: string; detail?: string }
+  /** An AI node's model, as a chip in its header ("grok-4.7"). */
+  badge?: string
+  /** A one-line node's verb before its title ("저장", "태그"). */
+  verb?: string
+  /** A status change's status colour: the dot of its pill. */
+  color?: string
   /** An AI node's 동시 처리 수: shown as ×n when it sends more than one request at once. */
   parallel?: number
   selected?: boolean
@@ -43,117 +52,99 @@ interface NodeCardProps {
   foldClose?: () => void
 }
 
-export const NODE_CARD_KIND_APPEARANCE: Record<NodeCardKind, { label: string; icon: string; header: string; dot: string; capsule?: boolean }> = {
-  entry: { label: "진입", icon: "text-muted", header: "bg-node-header-neutral text-muted", dot: "bg-neutral", capsule: true },
-  ai: { label: "AI", icon: "text-ai", header: "bg-node-header-ai text-ai", dot: "bg-ai" },
-  // One colour per editor group: AI (보라), 반영 (파랑), 함수 (초록), 흐름 (노랑: 조건, 모으기, 재요청);
+export const NODE_CARD_KIND_APPEARANCE: Record<NodeCardKind, { label: string; icon: string; header: string; dot: string; border: string; title: string; capsule?: boolean }> = {
+  entry: { label: "진입", icon: "text-muted", header: "bg-node-header-neutral text-muted", dot: "bg-neutral", border: "border-default", title: "text-default", capsule: true },
+  ai: { label: "AI", icon: "text-ai", header: "bg-node-header-ai text-ai", dot: "bg-ai", border: "border-ai/40", title: "text-ai" },
+  // One colour per editor group: AI (보라), 반영 (파랑), 함수 (초록), 흐름 (노랑: 조건, 모으기, 호출);
   // 상태 변경 stands out from the other 반영 nodes in the status hue (분홍), since it moves lines between statuses.
-  apply: { label: "반영", icon: "text-accent", header: "bg-node-header-check text-accent", dot: "bg-accent" },
-  status: { label: "상태 변경", icon: "text-node-state", header: "bg-node-header-state text-node-state", dot: "bg-node-state" },
-  function: { label: "함수", icon: "text-success", header: "bg-node-header-status text-success", dot: "bg-success" },
-  condition: { label: "조건", icon: "text-review", header: "bg-node-header-flow text-review", dot: "bg-review" },
-  gather: { label: "모으기", icon: "text-review", header: "bg-node-header-flow text-review", dot: "bg-review" },
-  retry: { label: "재요청", icon: "text-review", header: "bg-node-header-flow text-review", dot: "bg-review" },
-  call: { label: "워크플로 호출", icon: "text-review", header: "bg-node-header-flow text-review", dot: "bg-review" },
-  end: { label: "종료", icon: "text-muted", header: "", dot: "bg-neutral", capsule: true },
+  apply: { label: "반영", icon: "text-accent", header: "bg-node-header-check text-accent", dot: "bg-accent", border: "border-default", title: "text-default" },
+  status: { label: "상태 변경", icon: "text-node-state", header: "bg-node-header-state text-node-state", dot: "bg-node-state", border: "border-default", title: "text-default" },
+  function: { label: "함수", icon: "text-success", header: "bg-node-header-status text-success", dot: "bg-success", border: "border-success/40", title: "text-success" },
+  condition: { label: "조건", icon: "text-review", header: "bg-node-header-flow text-review", dot: "bg-review", border: "border-review/50", title: "text-review" },
+  gather: { label: "모으기", icon: "text-review", header: "bg-node-header-flow text-review", dot: "bg-review", border: "border-review/50", title: "text-review" },
+  call: { label: "워크플로 호출", icon: "text-review", header: "bg-node-header-flow text-review", dot: "bg-review", border: "border-review/50", title: "text-review" },
+  end: { label: "종료", icon: "text-muted", header: "", dot: "bg-neutral", border: "border-default", title: "text-default", capsule: true },
 }
 
 const WIDTH = { entry: "w-48", vertical: "w-56", horizontal: "w-72" } as const
 
-/** Compact workflow node shared by graph renderers: capsule for entry/end, chamfered diamond for condition, rounded rectangle for actions. */
-export function NodeCard({ kind, icon, title, summary, inputHandle, outputs = [], errors = 0, warnings = 0, live, parallel, selected, disabled, direction = "vertical", width, start, foldClose }: NodeCardProps) {
+/**
+ * A workflow node, its shape by what it does: an AI step is a card (a tinted header with its model, what it makes, its
+ * retries); a check or a condition is its header alone; a save is one line with its verb; a status change is a pill in
+ * its status's colour; the entry and the end are capsules. Exits are the dots on its edge (the handles): no row of exit
+ * names, the lines say which is which by their colour.
+ */
+export function NodeCard({ kind, icon, title, summary, retry, badge, verb, color, inputHandle, outputs = [], errors = 0, warnings = 0, live, parallel, selected, disabled, direction = "vertical", width, start, foldClose }: NodeCardProps) {
   const style = NODE_CARD_KIND_APPEARANCE[kind]
   const hasLive = live && live.queued + live.running + live.failed + (live.passed ?? 0) + (live.retry ? 1 : 0) > 0
-  const isHorizontal = direction === "horizontal"
-  const isCondition = kind === "condition"
-  const isCapsule = style.capsule
+  const shape = kind === "apply" ? "line" : kind === "status" || style.capsule ? "pill" : kind === "function" || kind === "condition" ? "header" : "card"
+  const issueMark = errors > 0 ? (
+    <span className="flex shrink-0 items-center gap-1 rounded-full bg-danger/10 px-1.5 text-xs font-medium text-danger" title={`${errors}개 오류`}><AlertCircle className="size-3" />{errors}</span>
+  ) : warnings > 0 ? (
+    <span className="flex shrink-0 items-center gap-1 text-xs text-warning" title={`${warnings}개 주의`}><AlertTriangle className="size-3" />{warnings}</span>
+  ) : null
+  const liveRow = hasLive && (
+    <span className="flex min-w-0 gap-2 text-xs tabular-nums">
+      {live.limit !== undefined && (live.calls ?? 0) > 0 && <span className="font-medium text-default" title="동시에 보낸 요청 / 이 노드가 한 번에 보낼 수 있는 요청(동시 처리 수)">요청 {live.calls}/{live.limit}</span>}
+      {live.retry && <span className="truncate text-warning">{live.retry}</span>}
+      {live.running > 0 && <span className="font-medium text-default">처리 {live.running}</span>}
+      {live.queued > 0 && <span className="text-muted">{kind === "gather" ? "기다리는 중" : "대기"} {live.queued}</span>}
+      {live.failed > 0 && <span className="text-danger">실패 {live.failed}</span>}
+      {(live.passed ?? 0) > 0 && <span className="text-muted" title="이 노드를 지나간 줄 (다시 지나간 줄은 한 번)">지나감 {live.passed}</span>}
+    </span>
+  )
+  const edge = selected ? "border-accent ring-2 ring-accent/30" : errors > 0 ? "border-danger" : style.border
 
-  const content = (
-    <>
-      <div className={cn("min-w-0 flex-1", isHorizontal ? "flex flex-col justify-center" : "")}>
-        <div className={cn(
-          "flex min-h-8 items-center gap-2 px-2 py-2",
-          isHorizontal
-            ? cn("rounded-tl-md rounded-tr-none rounded-b-none", isCapsule && "rounded-tl-full")
-            : cn("rounded-t-md rounded-b-none", isCapsule && "rounded-t-full"),
-          isCondition && "border-b border-review/30",
-          style.header
-        )}>
-          {/* The header colour already tells the group; the icon stays small and plain for every kind. */}
+  let body: ReactNode
+  if (shape === "line")
+    body = (
+      <div className={cn("flex min-h-8 min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-md border bg-surface pr-2 shadow-xs", edge)}>
+        <span className={cn("w-1 self-stretch", style.dot)} />
+        <span className={cn("shrink-0 text-xs font-semibold", style.icon)}>{verb ?? style.label}</span>
+        <span className="min-w-0 truncate text-sm font-medium">{title}</span>
+        {issueMark}
+        {(liveRow || summary) && <span className="ml-auto min-w-0 shrink truncate text-xs text-muted" title={summary}>{liveRow || summary}</span>}
+      </div>
+    )
+  else if (shape === "pill")
+    body = (
+      <div className={cn("flex h-7 min-w-0 items-center gap-1.5 rounded-full border bg-surface px-3 shadow-xs", edge)}>
+        {kind === "status" ? <span className="size-2 shrink-0 rounded-full" style={{ background: color ? paletteColor(color) : "var(--background-color-node-state)" }} /> : <span className={cn("flex size-4 shrink-0 items-center justify-center [&_svg]:size-3.5", style.icon)}>{icon}</span>}
+        <span className="min-w-0 truncate text-sm font-medium">{title}</span>
+        {issueMark}
+        {liveRow}
+      </div>
+    )
+  else
+    body = (
+      <div className={cn("flex min-w-0 flex-1 flex-col rounded-md border bg-surface text-default shadow-xs", edge)}>
+        <div className={cn("flex min-h-8 items-center gap-1.5 px-2 py-1", shape === "header" ? "flex-1 rounded-[5px]" : cn("rounded-t-[5px] border-b", style.border), style.header)}>
           <span className={cn("flex size-4 shrink-0 items-center justify-center [&_svg]:size-3.5", style.icon)}>{icon}</span>
-          <span className="min-w-0 flex-1 truncate text-sm font-semibold">{title}</span>
+          <span className={cn("min-w-0 flex-1 truncate text-sm font-semibold", style.title)}>{title}</span>
           {parallel !== undefined && parallel > 1 && (
             <span className="shrink-0 rounded-sm bg-page/60 px-1 text-xs font-medium tabular-nums text-default" title={`동시 처리 수 ${parallel}: 요청을 ${parallel}개까지 동시에 보냅니다`}>×{parallel}</span>
           )}
-          {errors > 0 ? (
-            <span className="flex shrink-0 items-center gap-1 rounded-sm bg-danger/10 px-1 text-xs font-medium text-danger" title={`${errors}개 오류`}>
-              <AlertCircle className="size-3" />{errors}
-            </span>
-          ) : warnings > 0 ? (
-            <span className="flex shrink-0 items-center gap-1 text-xs text-warning" title={`${warnings}개 주의`}><AlertTriangle className="size-3" />{warnings}</span>
-          ) : null}
+          {badge && <span className="max-w-24 shrink-0 truncate rounded-full border border-default bg-surface px-1.5 text-xs text-muted" title={badge}>{badge}</span>}
+          {issueMark}
+          {shape === "header" && liveRow}
         </div>
-        {summary && <p className={cn("px-2 py-2 text-xs text-muted", isHorizontal ? "line-clamp-2" : "min-h-7 truncate")}>{summary}</p>}
-        {hasLive && <div className="flex gap-2 border-t border-subtle px-2 py-1 text-xs tabular-nums">
-          {live.limit !== undefined && (live.calls ?? 0) > 0 && <span className="font-medium text-default" title="동시에 보낸 요청 / 이 노드가 한 번에 보낼 수 있는 요청(동시 처리 수)">요청 {live.calls}/{live.limit}</span>}
-          {live.retry && <span className="text-warning">{live.retry}</span>}
-          {live.running > 0 && <span className="font-medium text-default">처리 {live.running}</span>}
-          {live.queued > 0 && <span className="text-muted">{kind === "gather" ? "기다리는 중" : "대기"} {live.queued}</span>}
-          {live.failed > 0 && <span className="text-danger">실패 {live.failed}</span>}
-          {(live.passed ?? 0) > 0 && <span className="text-muted" title="이 노드를 지나간 줄 (다시 지나간 줄은 한 번)">지나감 {live.passed}</span>}
-        </div>}
+        {shape === "card" && (summary || retry || liveRow) && (
+          <div className="space-y-0.5 px-2 py-1.5">
+            {summary && <p className="truncate text-xs text-muted" title={summary}>{summary}</p>}
+            {retry && <p className="flex items-center gap-1 text-xs text-subtle" title={retry.detail}><RotateCcw className="size-3 shrink-0" aria-hidden="true" /><span className="truncate">{retry.text}</span></p>}
+            {liveRow && <div className="pt-0.5">{liveRow}</div>}
+          </div>
+        )}
       </div>
-      {outputs.length > 0 && <div className={cn(
-        "relative text-xs",
-        isHorizontal
-          ? cn(
-              "grid min-h-full min-w-10 w-10 shrink-0 self-stretch grid-cols-1 items-center rounded-r-md",
-              isCondition ? "border-l border-review/30 bg-review/10" : "border-l border-default bg-sunken/40",
-              isCapsule && "rounded-r-full"
-            )
-          : cn(
-              "grid min-h-7 items-center rounded-b-md border-t",
-              isCondition ? "border-review/30 bg-review/10" : "border-default bg-sunken/40",
-              isCapsule && "rounded-b-full"
-            ),
-      )} style={isHorizontal ? { gridTemplateRows: `repeat(${outputs.length}, minmax(1.25rem, 1fr))` } : { gridTemplateColumns: `repeat(${outputs.length}, minmax(0, 1fr))` }}>
-        {outputs.map((port) => <span key={port.id} className={cn(
-          "min-w-0 truncate",
-          isHorizontal ? "px-1 text-center font-medium" : "text-center",
-          port.tone === "destructive" && "text-danger font-semibold",
-          port.tone === "warning" && "text-warning font-semibold",
-          port.tone === "neutral" && (isCondition ? "text-success font-semibold" : "text-muted"),
-        )} title={port.label}>{port.label}</span>)}
-      </div>}
-    </>
-  )
+    )
 
   return (
-    <div className={cn(
-      "relative flex w-full overflow-visible",
-      isHorizontal ? "min-h-16" : "",
-      disabled && "opacity-55",
-      width && WIDTH[width],
-    )}>
+    <div
+      className={cn("relative flex w-full overflow-visible", disabled && "opacity-55", width && WIDTH[width], shape === "pill" && "justify-center")}
+      title={shape === "header" ? summary : undefined}
+    >
       {inputHandle}
-      <div className={cn(
-        "relative flex min-w-0 flex-1 overflow-visible rounded-md border bg-surface text-default shadow-xs",
-        isCondition
-          ? selected
-            ? "border-accent ring-2 ring-accent/40"
-            : errors > 0
-              ? "border-danger"
-              : "border-review/70"
-          : selected
-            ? "border-accent ring-1 ring-accent"
-            : errors > 0
-              ? "border-danger"
-              : "border-default",
-        isHorizontal ? "min-h-16 flex-row" : "flex-col",
-        isCapsule && (kind === "end" || !isHorizontal ? "rounded-full" : "rounded-l-full"),
-      )}>
-        {content}
-      </div>
+      {body}
       {outputs.map((port) => <span key={`${port.id}-handle`}>{port.handle}</span>)}
       {start && <StartMark direction={direction} {...start} />}
       {outputs.map((port, index) => port.fold && <FoldMark key={`${port.id}-fold`} direction={direction} at={(index + 0.5) / outputs.length} {...port.fold} />)}

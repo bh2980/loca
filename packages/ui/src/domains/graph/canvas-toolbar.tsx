@@ -45,7 +45,7 @@ export function CanvasToolbar({ zoomPercent, onZoomIn, onZoomOut, onFit, onReset
     {onLayout && <Button variant="ghost" size={layoutLabel ? "sm" : "icon-xs"} aria-label={layoutLabel ?? "자동 정렬"} title={layoutLabel ?? "자동 정렬"} onClick={onLayout}><WandSparkles />{layoutLabel && <span className={COMPACT}>{layoutLabel}</span>}</Button>}
     {onToggleFolds && foldsOpen !== undefined && <>
       <Divider />
-      <Button variant="ghost" size="sm" aria-label={foldsOpen ? "모두 접기" : "모두 펼치기"} title={foldsOpen ? "접힌 노드를 모두 접기" : "접힌 노드를 모두 펼치기"} onClick={onToggleFolds}>{foldsOpen ? <ChevronsDownUp /> : <ChevronsUpDown />}<span className={COMPACT}>{foldsOpen ? "접기" : "모두 펼치기"}</span></Button>
+      <Button variant={foldsOpen ? "secondary" : "ghost"} size="sm" aria-pressed={foldsOpen} aria-label={foldsOpen ? "접힌 노드 접기" : "접힌 노드 펼치기"} title={foldsOpen ? "선 위의 태그·상태와 끝 칩을 다시 접기" : "선 위의 태그·상태와 끝 칩을 노드로 펼치기"} onClick={onToggleFolds}>{foldsOpen ? <ChevronsDownUp /> : <ChevronsUpDown />}<span className={COMPACT}>{foldsOpen ? "접힌 노드 접기" : "접힌 노드 펼치기"}</span></Button>
     </>}
     {direction && onDirectionChange && <>
       <Divider />

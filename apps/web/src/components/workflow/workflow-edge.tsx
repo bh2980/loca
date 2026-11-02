@@ -1,4 +1,4 @@
-import { EdgeLabelPill, EdgeLabelRow, FoldChip, type FoldChipProps } from '@loca/ui';
+import { EdgeLabelPill, EdgeLabelRow, FoldChip, LineMarks, type FoldChipProps, type LineMark } from '@loca/ui';
 import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath, type Edge, type EdgeProps } from '@xyflow/react';
 
 export interface WorkflowEdgeData extends Record<string, unknown> {
@@ -7,6 +7,9 @@ export interface WorkflowEdgeData extends Record<string, unknown> {
   labelPosition?: { x: number; y: number };
   /** Nodes folded into this line (a tag node): a chip beside the label. */
   fold?: FoldChipProps;
+  /** What those nodes do, drawn on the line while folded (tags, a status); a click opens that node. */
+  marks?: LineMark[];
+  onMark?: (nodeId: string) => void;
 }
 
 export type FlowEdge = Edge<WorkflowEdgeData, 'workflow'>;
@@ -37,7 +40,9 @@ export function WorkflowEdgeView({
 
   return <>
     <BaseEdge id={id} path={path} markerEnd={markerEnd} style={{ ...style, strokeLinejoin: 'round', strokeLinecap: 'round' }} interactionWidth={26} />
-    {data?.fold ? <EdgeLabelRenderer>
+    {data?.fold && !data.fold.open && data.marks?.length && data.onMark ? <EdgeLabelRenderer>
+      <LineMarks marks={data.marks} onOpen={data.onMark} style={{ transform: `translate(-50%, -50%) translate(${labelPosition.x}px, ${labelPosition.y}px)` }} />
+    </EdgeLabelRenderer> : data?.fold ? <EdgeLabelRenderer>
       <EdgeLabelRow style={{ transform: `translate(-50%, -50%) translate(${labelPosition.x}px, ${labelPosition.y}px)` }}>
         {data.label && <EdgeLabelPill>{data.label}</EdgeLabelPill>}
         <FoldChip {...data.fold} />

@@ -21,7 +21,6 @@ const KINDS: { kind: NodeCardKind; icon: typeof Bot; title: string; summary: str
   { kind: "function", icon: Wand2, title: "서식 검사", summary: "변수가 빠진 줄 찾기" },
   { kind: "condition", icon: GitBranch, title: "조건", summary: "서식이 맞는가" },
   { kind: "gather", icon: Layers, title: "모으기", summary: "장면 단위로" },
-  { kind: "retry", icon: Repeat, title: "재요청", summary: "실패 시 절반으로 2번" },
   { kind: "call", icon: Repeat, title: "워크플로 호출", summary: "검수 워크플로" },
   { kind: "end", icon: Square, title: "끝", summary: "" },
 ]
@@ -55,7 +54,7 @@ export const Live: Story = {
     <Stack gap="condensed" align="start">
       <NodeCard kind="ai" width="vertical" icon={<Bot />} title="AI 번역" summary="gpt-6.1-sol" parallel={4} live={{ queued: 12, running: 4, failed: 1, calls: 4, limit: 4, passed: 230 }} />
       <NodeCard kind="gather" width="vertical" icon={<Layers />} title="모으기" live={{ queued: 8, running: 0, failed: 0 }} />
-      <NodeCard kind="retry" width="vertical" icon={<Repeat />} title="재요청" live={{ queued: 0, running: 0, failed: 0, retry: "다시 보냄 12 · 출력 잘림" }} />
+      <NodeCard kind="ai" width="vertical" icon={<Bot />} title="AI 검수" summary="판정 · 장면별" retry={{ text: "재시도 최대 5번" }} live={{ queued: 12, running: 0, failed: 0, retry: "다시 보냄 12 · 출력 잘림" }} />
     </Stack>
   ),
 }
@@ -133,7 +132,7 @@ export const KindIcons: Story = {
 
 const GROUPS: NodeLibraryGroup[] = [
   { id: "ai", label: "AI", items: [{ id: "translate", label: "AI 번역", kind: "ai", icon: <Bot />, description: "원문을 번역합니다" }, { id: "review", label: "AI 검수", kind: "ai", icon: <Bot /> }] },
-  { id: "flow", label: "흐름", items: [{ id: "cond", label: "조건", kind: "condition", icon: <GitBranch /> }, { id: "retry", label: "아주 긴 이름의 재요청 노드가 줄어드는 모습", kind: "retry", icon: <Repeat /> }] },
+  { id: "flow", label: "흐름", items: [{ id: "cond", label: "조건", kind: "condition", icon: <GitBranch /> }, { id: "call", label: "아주 긴 이름의 워크플로 호출 노드가 줄어드는 모습", kind: "call", icon: <Repeat /> }] },
 ]
 
 /** The searchable palette: full, and empty (no groups, so every search is empty). */

@@ -17,10 +17,12 @@ export interface GraphShortcuts {
   paste?: () => void;
   /** Delete, Backspace */
   remove?: () => void;
+  /** ⌘/Ctrl+Shift+G: takes the picked container away and keeps what it holds (a workflow frame). */
+  ungroup?: () => void;
 }
 
 /** The shortcut hints a graph's menus show, in keyLabel form. */
-export const GRAPH_KEYS = { undo: 'Mod+Z', redo: 'Mod+Shift+Z', copy: 'Mod+C', cut: 'Mod+X', paste: 'Mod+V', remove: 'Delete' } as const;
+export const GRAPH_KEYS = { undo: 'Mod+Z', redo: 'Mod+Shift+Z', copy: 'Mod+C', cut: 'Mod+X', paste: 'Mod+V', remove: 'Delete', ungroup: 'Mod+Shift+G' } as const;
 
 /** Where typing goes to a field (or a dialog or menu has the keys), the graph does not act. */
 const typingIn = (target: EventTarget | null) =>
@@ -55,6 +57,7 @@ export function useGraphShortcuts(shortcuts: GraphShortcuts, enabled = true) {
       if (mod && key === 'c') return act(latest.current.copy);
       if (mod && key === 'x') return act(latest.current.cut);
       if (mod && key === 'v') return act(latest.current.paste);
+      if (mod && event.shiftKey && key === 'g') return act(latest.current.ungroup);
       if (!mod && (event.key === 'Delete' || event.key === 'Backspace')) return act(latest.current.remove);
     };
     window.addEventListener('keydown', onKey);

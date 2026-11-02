@@ -28,7 +28,7 @@ describe('condition rows', () => {
   });
 
   it('reads a template’s revise-limit condition as a row (visits)', () => {
-    const retry = translationTemplate({ model: { connectionId: '', model: '' }, untranslated: 'u', translated: 'd', needsReview: 'n', confirmed: 'c' }).nodes.find((node) => node.id === 'retry');
+    const retry = translationTemplate({ model: { connectionId: '', model: '' }, untranslated: 'u', translated: 'd', needsReview: 'n', confirmed: 'c' }).nodes.find((node) => node.id === 'revise-again');
     expect(retry?.type === 'condition' && parseCondition(retry.config.expression)).toEqual({ join: 'and', clauses: [{ kind: 'visits', nodeId: 'revise', limit: 3 }] });
   });
 

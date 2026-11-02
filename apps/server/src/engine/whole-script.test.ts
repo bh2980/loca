@@ -128,8 +128,10 @@ describe('a node reading the script whole', () => {
       },
     });
     const base = wholeFlow(choice, peopleNode);
+    // No retry rule: the read refused as too long leaves through 오류 at once.
     const definition = workflowDefinitionSchema.parse({
       ...base,
+      settings: { ...base.settings, retries: [] },
       nodes: [...base.nodes, { id: 'scenes', type: 'ai', position: at, config: { model: choice, instructions: 'Read the script.', batch: { mode: 'group', size: 1, maxTokens: 500 }, ...peopleNode } }],
       edges: [...base.edges, { id: '3', source: 'read', sourceHandle: 'error', target: 'scenes' }, { id: '4', source: 'scenes', sourceHandle: 'out', target: 'end' }],
     });

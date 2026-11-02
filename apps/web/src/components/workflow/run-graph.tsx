@@ -7,23 +7,24 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Background, Panel, ReactFlow, ReactFlowProvider, useNodesInitialized, useReactFlow, useViewport, type NodeChange, type Viewport } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import type { WorkflowDefinition } from '@tw/shared';
-import { Box, Button, CanvasToolbar, Inline, Text, type CanvasDirection } from '@loca/ui';
+import { Box, Button, CanvasToolbar, EdgeLegend, Inline, Text, type CanvasDirection, useCanvasDismiss } from '@loca/ui';
 import { X } from 'lucide-react';
 import { ITEM_STATE } from '@/lib/labels';
 import { callMembers, callOf, collapseCalls, liveCounts, topCallIds } from '@/components/workflow/run-calls';
-import { allFoldsOpen, computeFolds, foldedDefinition, foldLiveText, foldPlacements, foldText, isFoldOpen, openFoldContaining, setAllFolds, toggleFold, type Fold } from '@/components/workflow/fold';
+import { FrameNodeView, FrameTintView, frameNodes, frameTints, isFrameId, type FrameNode } from '@/components/workflow/frames';
+import { allFoldsOpen, computeFolds, foldedDefinition, foldLiveText, foldPlacements, foldText, isFoldOpen, lineMarks, openFoldContaining, setAllFolds, toggleFold, type Fold } from '@/components/workflow/fold';
 import { useFoldState } from '@/components/workflow/use-fold-state';
 import { WorkflowNodeView, type FlowNode } from '@/components/workflow/node-view';
 import { WorkflowEdgeView } from '@/components/workflow/workflow-edge';
-import { entryStarts, flowEdges, nodeSummary, openPorts, targetStatus } from '@/components/workflow/flow-graph';
-import { retryLiveText } from '@/lib/retry-info';
+import { entryStarts, flowEdges, nodeBadge, nodeSummary, openPorts, targetStatus } from '@/components/workflow/flow-graph';
+import { retryBadge, retryLiveText } from '@/lib/retry-info';
 import { useIsDark } from '@/lib/theme';
 import { useTaxonomy } from '@/lib/knowledge';
 import { useConnections } from '@/lib/app-data';
 import { autoLayout } from '@/components/workflow/auto-layout';
 import { toast } from 'sonner';
 
-const nodeTypes = { workflow: WorkflowNodeView };
+const nodeTypes = { workflow: WorkflowNodeView, frame: FrameNodeView, frameTint: FrameTintView };
 /** The whole graph, never larger than 100%. */
 const FIT = { padding: 0.2, maxZoom: 1, minZoom: 0.05 };
 const edgeTypes = { workflow: WorkflowEdgeView };
@@ -79,6 +80,7 @@ export function RunGraph(props: { projectId: string; run: RunGraphData; selected
 }
 
 function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; run: RunGraphData; selected?: string; onOpenNode: (nodeId: string) => void }) {
+  const dismiss = useCanvasDismiss();
   const dark = useIsDark();
   const flow = useReactFlow();
   const { zoom } = useViewport();
@@ -110,7 +112,8 @@ function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; ru
   const [sizes, setSizes] = useState<Record<string, { width: number; height: number }>>({});
   // While a node is dragged it follows the pointer here; where it is dropped is kept (and the lines go straight).
   const [dragging, setDragging] = useState<Record<string, { x: number; y: number }>>({});
-  const onNodesChange = (changes: NodeChange<FlowNode>[]) => {
+  const onNodesChange = (allChanges: NodeChange<FlowNode | FrameNode>[]) => {
+    const changes = allChanges.filter((change) => !('id' in change) || !isFrameId(change.id)) as NodeChange<FlowNode>[];
     const sized = changes.flatMap((change) => (change.type === 'dimensions' && change.dimensions ? [[change.id, change.dimensions] as const] : []));
     if (sized.length) setSizes((previous) => ({ ...previous, ...Object.fromEntries(sized) }));
     const moved = changes.flatMap((change) => (change.type === 'position' && change.position ? [change] : []));
@@ -160,6 +163,8 @@ function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; ru
           node,
           direction,
           summary: node.type === 'call' ? `노드 ${run.definition.nodes.filter((inner) => inner.id.startsWith(`${node.id}/`)).length}개` : nodeSummary(node, definition, names),
+          retry: retryBadge(run.definition, node),
+          badge: nodeBadge(node, names),
           errors: [],
           warnings: [],
           live: live.get(node.id) && { ...live.get(node.id)!, retry: retryLiveText(live.get(node.id)!.retrying) || undefined },
@@ -174,11 +179,23 @@ function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; ru
   const edges = useMemo(() => {
     const chips = new Map(view.closed.filter((fold) => fold.kind === 'edge').map((fold) => [fold.edgeId, fold] as const));
     const foldNames = { status: new Map(taxonomy.statuses?.map((status) => [status.id, status.name])) };
+    const markNames = { tags: new Map(taxonomy.tags?.map((tag) => [tag.id, tag])), statuses: new Map(taxonomy.statuses?.map((status) => [status.id, status])) };
     return flowEdges(view.definition).map((edge) => {
       const fold = chips.get(edge.id);
-      return fold ? { ...edge, data: { ...edge.data, fold: { text: foldText(definition, fold, foldNames), live: foldLiveText(fold, live), onToggle: () => setFoldState((state) => toggleFold(state, fold.id)) } } } : edge;
+      return fold ? { ...edge, data: { ...edge.data, fold: { text: foldText(definition, fold, foldNames), live: foldLiveText(fold, live), onToggle: () => setFoldState((state) => toggleFold(state, fold.id)) }, marks: lineMarks(definition, fold, markNames), onMark: onOpenNode } } : edge;
     });
-  }, [view, definition, live, taxonomy.statuses, setFoldState]);
+  }, [view, definition, live, taxonomy.statuses, taxonomy.tags, setFoldState, onOpenNode]);
+
+  // The run's steps, drawn around their nodes with how their lines are doing (what every node in the frame holds now).
+  // A run's graph keeps a layout of its own, so a frame is as large as its nodes here, not where the editor stood it.
+  const frames = useMemo(() => frameNodes(nodes, definition.groups?.map(({ box: _box, ...group }) => group), sizes, (group) => {
+    const sum = group.nodeIds.reduce((total, id) => {
+      const counts = live.get(id);
+      return counts ? { running: total.running + counts.running, queued: total.queued + counts.queued, failed: total.failed + counts.failed } : total;
+    }, { running: 0, queued: 0, failed: 0 });
+    const parts = [sum.running && `처리 ${sum.running.toLocaleString()}`, sum.queued && `대기 ${sum.queued.toLocaleString()}`, sum.failed && `실패 ${sum.failed.toLocaleString()}`].filter(Boolean);
+    return parts.length ? <Text variant="caption" tone="muted" tabular>{parts.join(' · ')}</Text> : undefined;
+  }).map((frame) => ({ ...frame, draggable: false })), [nodes, definition.groups, sizes, live]);
 
   // A remembered view comes back as it was; the first look fits the whole graph once every node is measured.
   const measured = useNodesInitialized();
@@ -190,9 +207,9 @@ function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; ru
   }, [measured, saved, flow]);
 
   return (
-    <ReactFlow
+    <ReactFlow ref={dismiss}
       colorMode={dark ? 'dark' : 'light'}
-      nodes={nodes}
+      nodes={[...frameTints(frames), ...frames, ...nodes] as FlowNode[]}
       edges={edges}
       nodeTypes={nodeTypes}
       edgeTypes={edgeTypes}
@@ -201,7 +218,7 @@ function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; ru
       nodesConnectable={false}
       edgesFocusable={false}
       minZoom={0.05}
-      onNodeClick={(_event, node) => (topCallIds(run.definition).includes(node.id) ? setOpenCall((open) => (open === node.id ? undefined : node.id)) : onOpenNode(node.id))}
+      onNodeClick={(_event, node) => isFrameId(node.id) ? undefined : (topCallIds(run.definition).includes(node.id) ? setOpenCall((open) => (open === node.id ? undefined : node.id)) : onOpenNode(node.id))}
       onMoveEnd={(_event, viewport) => {
         try {
           sessionStorage.setItem(viewportKey(run.id), JSON.stringify(viewport));
@@ -233,7 +250,8 @@ function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; ru
           <Button variant="outline" marginTop="condensed" width="full" onClick={() => onOpenNode(openCall)}>이 호출의 대사 전체 보기</Button>
         </Panel></Box>
       )}
-      <Panel position="bottom-right">
+      <Panel position="top-right"><EdgeLegend /></Panel>
+      <Panel position="bottom-left">
         <CanvasToolbar zoomPercent={zoom * 100} onZoomIn={() => void flow.zoomIn()} onZoomOut={() => void flow.zoomOut()} onFit={() => void flow.fitView({ ...FIT, duration: 200 })} onResetZoom={() => void flow.zoomTo(1, { duration: 180 })} foldsOpen={folds.length ? allFoldsOpen(folds, foldState) : undefined} onToggleFolds={() => setFoldState(setAllFolds(folds, !allFoldsOpen(folds, foldState)))} onLayout={() => void arrange()} layoutLabel="자동 정렬" />
       </Panel>
     </ReactFlow>

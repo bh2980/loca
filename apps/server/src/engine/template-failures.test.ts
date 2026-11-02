@@ -53,7 +53,7 @@ function setup(templateKey: string) {
 }
 
 describe('every AI node of a template fails the same way', () => {
-  it.each(['listener', 'people', 'events', 'terms'])('%s: an AI that keeps timing out is sent again twice, then the lines end with the AI 실패 tag', async (key) => {
+  it.each(['listener', 'people', 'events', 'terms'])('%s: an AI that keeps timing out is sent again twice by the default retry rule, then the lines end with the AI 실패 tag', async (key) => {
     const { db, runId, aiFailed } = setup(key);
     const fake = alwaysTimesOut();
     await new Runner(db, memoryStore(), fake.port).drain();
@@ -61,7 +61,7 @@ describe('every AI node of a template fails the same way', () => {
     expect(items).toHaveLength(4);
     // Each item is handed on to the tag node and ends done; the failure is on the line, not in the run.
     expect(items.every((item) => item.state === 'done' && item.data.path.some((step) => step.nodeId.endsWith('-failed')))).toBe(true);
-    expect(items.every((item) => item.data.retry?.times[`${items[0]!.data.path.find((step) => step.nodeId.endsWith('-resend'))!.nodeId}`] === 2)).toBe(true);
+    expect(items.every((item) => item.data.retry?.times[`${items[0]!.data.path.find((step) => step.port === 'retry')!.nodeId}:0`] === 2)).toBe(true);
     const tagged = db.select().from(s.unitTags).where(eq(s.unitTags.tagId, aiFailed.id)).all();
     expect(tagged).toHaveLength(4);
     // One request per line batch and two resends each: nothing else was asked.
@@ -74,7 +74,7 @@ describe('every AI node of a template fails the same way', () => {
     const fake = alwaysTimesOut();
     await new Runner(db, memoryStore(), fake.port).drain();
     const items = db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all();
-    expect(items.every((item) => item.state === 'done' && item.data.path.some((step) => step.nodeId === 'translate-failed'))).toBe(true);
+    expect(items.every((item) => item.state === 'done' && item.data.path.some((step) => step.nodeId === 'needs-review'))).toBe(true);
     expect(db.select().from(s.units).all().every((unit) => unit.statusId === review.id)).toBe(true);
     // Nothing past the failed AI 번역 ran.
     expect(items.every((item) => !item.data.path.some((step) => step.nodeId === 'review' || step.nodeId === 'save'))).toBe(true);

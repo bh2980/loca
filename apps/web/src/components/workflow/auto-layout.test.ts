@@ -126,14 +126,53 @@ function expectLabelsStayClear(result: WorkflowDefinition, direction: 'vertical'
   }
 }
 
-describe('workflow auto layout direction on the relay retry pipeline', () => {
-  it.each(['vertical', 'horizontal'] as const)('keeps all 34 nodes readable and routes their declared ports in %s mode', async (direction) => {
+describe('workflow auto layout direction on the review-loop template', () => {
+  it.each(['vertical', 'horizontal'] as const)('in frames: keeps the nodes apart, each frame together, and every line on its ports in %s mode', async (direction) => {
     const result = await autoLayout(definition, sizesFor(direction), direction);
+    expectNoNodeOverlap(result, direction);
+    expectEdgesUseTheirDeclaredPorts(result, direction);
+    expectRoutesAvoidUnrelatedNodes(result, direction);
+    // Frames do not overlap: the boxes of their nodes stay apart.
+    const boxes = (result.groups ?? []).map((group) => {
+      const rects = group.nodeIds.map((id) => rect(result.nodes.find((node) => node.id === id)!, direction));
+      return { id: group.id, left: Math.min(...rects.map((r) => r.left)), top: Math.min(...rects.map((r) => r.top)), right: Math.max(...rects.map((r) => r.right)), bottom: Math.max(...rects.map((r) => r.bottom)) };
+    });
+    for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) expect(overlaps(boxes[i]!, boxes[j]!), `${boxes[i]!.id} overlaps ${boxes[j]!.id}`).toBe(false);
+  });
+
+  // A node left out of every frame is a block of its own; frames of different widths that share a column stack, not overlap.
+  it.each(['vertical', 'horizontal'] as const)('stores each frame\'s box, none overlapping, with a node out of every frame in %s mode', async (direction) => {
+    const loose = { ...definition, groups: definition.groups!.map((group) => ({ ...group, nodeIds: group.nodeIds.filter((id) => id !== 'check') })) };
+    for (const input of [definition, loose]) {
+      const result = await autoLayout(input, sizesFor(direction), direction);
+      const boxes = (result.groups ?? []).map((group) => ({ id: group.id, left: group.box!.x, top: group.box!.y, right: group.box!.x + group.box!.width, bottom: group.box!.y + group.box!.height }));
+      expect(boxes.length).toBe(input.groups!.length);
+      for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) expect(overlaps(boxes[i]!, boxes[j]!), `${boxes[i]!.id} overlaps ${boxes[j]!.id}`).toBe(false);
+      for (const group of result.groups ?? []) for (const id of group.nodeIds) {
+        const node = rect(result.nodes.find((item) => item.id === id)!, direction);
+        expect(node.left >= group.box!.x && node.right <= group.box!.x + group.box!.width && node.top >= group.box!.y && node.bottom <= group.box!.y + group.box!.height, `${id} inside ${group.id}`).toBe(true);
+      }
+    }
+  });
+
+  it.each(['vertical', 'horizontal'] as const)('places an empty frame after the block before it, apart from the others, in %s mode', async (direction) => {
+    const groups = [...definition.groups!];
+    groups.splice(1, 0, { id: 'empty', label: '빈 단계', nodeIds: [], box: { x: 0, y: 0, width: 320, height: 200 } });
+    const result = await autoLayout({ ...definition, groups }, sizesFor(direction), direction);
+    const boxes = result.groups!.map((group) => ({ id: group.id, left: group.box!.x, top: group.box!.y, right: group.box!.x + group.box!.width, bottom: group.box!.y + group.box!.height }));
+    for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) expect(overlaps(boxes[i]!, boxes[j]!), `${boxes[i]!.id} overlaps ${boxes[j]!.id}`).toBe(false);
+    const empty = boxes.find((box) => box.id === 'empty')!;
+    const before = boxes.find((box) => box.id === groups[0]!.id)!;
+    expect(direction === 'vertical' ? empty.left >= before.right : empty.top >= before.bottom).toBe(true);
+  });
+
+  it.each(['vertical', 'horizontal'] as const)('without frames: keeps all 22 nodes readable and routes their declared ports in %s mode', async (direction) => {
+    const result = await autoLayout({ ...definition, groups: undefined }, sizesFor(direction), direction);
 
     expect(result.direction).toBe(direction);
-    // The review-loop fixture: two chained 재요청 nodes and a failure marker (검토 필요로 / AI 실패 태그) behind each of its four AI nodes, and the 태그 붙이기·떼기 node on each exit of the checks (형식 검사, 용어 검사).
-    expect(result.nodes).toHaveLength(34);
-    expect(result.edges).toHaveLength(44);
+    // The review-loop fixture: the one 검토 필요로 end that every give-up leads to, an AI 실패 태그 behind 용어 추출, and the 태그 붙이기·떼기 node on each exit of the checks (형식 검사, 용어 검사).
+    expect(result.nodes).toHaveLength(22);
+    expect(result.edges).toHaveLength(28);
     expectNoNodeOverlap(result, direction);
     expectForwardSpacing(result, direction);
     expectEdgesUseTheirDeclaredPorts(result, direction);
@@ -141,8 +180,8 @@ describe('workflow auto layout direction on the relay retry pipeline', () => {
     expectLabelsStayClear(result, direction);
   });
 
-  it.each(['vertical', 'horizontal'] as const)('routes the retry feedback around unrelated node interiors in %s mode', async (direction) => {
-    const result = await autoLayout(definition, sizesFor(direction), direction);
+  it.each(['vertical', 'horizontal'] as const)('routes the revise loop\'s way back around unrelated node interiors in %s mode', async (direction) => {
+    const result = await autoLayout({ ...definition, groups: undefined }, sizesFor(direction), direction);
     const feedback = result.edges.find((edge) => edge.id === 'untag-revised-out-check')!;
     expect(feedback.source).toBe('untag-revised');
     expect(feedback.target).toBe('check');
@@ -151,7 +190,8 @@ describe('workflow auto layout direction on the relay retry pipeline', () => {
   });
 
   it.each(WORKFLOW_TEMPLATES.map((template) => template.key))('lays out the %s template top to bottom without overlaps, its main path in execution order', async (key) => {
-    const template = WORKFLOW_TEMPLATES.find((candidate) => candidate.key === key)!.build({ model: EMPTY_MODEL_CHOICE, issueTags: { format: 'f', term: 't', speech: 'sp', meaning: 'm', style: 'st', other: 'o', aiFailed: 'a' }, needsReview: 's' });
+    // The flat layout: a template's frames are laid out across, tested above.
+    const template = { ...WORKFLOW_TEMPLATES.find((candidate) => candidate.key === key)!.build({ model: EMPTY_MODEL_CHOICE, issueTags: { format: 'f', term: 't', speech: 'sp', meaning: 'm', style: 'st', other: 'o', aiFailed: 'a' }, needsReview: 's' }), groups: undefined };
     const sizes = new Map(template.nodes.map((node) => [node.id, { width: 224, height: 148 }]));
     const result = await autoLayout(template, sizes, 'vertical');
     for (let i = 0; i < result.nodes.length; i++) for (let j = i + 1; j < result.nodes.length; j++) {

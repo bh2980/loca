@@ -99,7 +99,7 @@ describe('the default 번역 workflow, end to end with a fake model', () => {
     const result = await run({ source: 'Hi\r\nthere', translate: () => '안녕\r\n여러분', passes: () => false, revise: () => '안녕\n여러분' });
     expect(result.status).toBe('검토 필요');
     expect(result.calls).toMatchObject({ translate: 1, review: 1, revise: 1, terms: 0 });
-    expect(result.items[0]!.data.path.map((step) => step.nodeId).slice(-2)).toEqual(['revised', 'unrevised']);
+    expect(result.items[0]!.data.path.map((step) => step.nodeId).slice(-2)).toEqual(['revised', 'needs-review']);
     // The model's \n is stored as the source's \r\n.
     expect(result.unit.translation).toBe('안녕\r\n여러분');
   });
