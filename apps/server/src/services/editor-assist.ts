@@ -23,10 +23,10 @@ const KIND_LABELS: Record<string, string> = { meaning: '의미', rule: '규칙',
  * The editor's 'AI 번역' and '다듬기' for one line: the AI node their settings make (설정 › 에디터: one
  * model, context and time limit for both, each button's instructions from the AI 번역 / AI 다듬기 presets), the same
  * prompt and context as a workflow's AI node. The answer becomes an AI candidate of the line (with
- * 다듬기's "changes" as its note); the line's translation does not change. 다듬기 with nothing to fix
+ * 다듬기's "changes" as its note), or with `suggest` the line's waiting AI 제안; the line's translation does not change. 다듬기 with nothing to fix
  * makes no candidate (`unchanged`).
  */
-export async function assistLine(db: Db, secrets: SecretStore, unitId: string, request: { mode: AssistMode; draft: string }, signal?: AbortSignal, generate: typeof ai.generate = ai.generate) {
+export async function assistLine(db: Db, secrets: SecretStore, unitId: string, request: { mode: AssistMode; draft: string; suggest?: boolean }, signal?: AbortSignal, generate: typeof ai.generate = ai.generate) {
   const unit = db.select().from(s.units).where(eq(s.units.id, unitId)).get();
   if (!unit) throw new CompleteRefused('대사가 없습니다.', 400);
   const project = db.select().from(s.projects).where(eq(s.projects.id, unit.projectId)).get()!;
@@ -56,10 +56,13 @@ export async function assistLine(db: Db, secrets: SecretStore, unitId: string, r
   if (!text) throw new CompleteRefused('모델이 번역을 돌려주지 않았습니다. 다시 해 보세요.', 400);
   // Whitespace alone is not a change worth a candidate.
   if (refine && text.replace(/\s+/g, ' ') === request.draft.trim().replace(/\s+/g, ' ')) return { unchanged: true as const };
+  // An AI 제안 the same as the line's translation would only be a mark with nothing to decide.
+  if (request.suggest && text.replace(/\s+/g, ' ') === (unit.translation ?? '').trim().replace(/\s+/g, ' ')) return { unchanged: true as const };
   const changes = Array.isArray(entry?.changes) ? (entry.changes as { kind?: unknown; why?: unknown }[]) : [];
   const reasons = changes.flatMap((change) => (typeof change.why === 'string' && change.why.trim() ? [`${KIND_LABELS[String(change.kind)] ?? '표현'} · ${change.why.trim()}`] : []));
   const note = refine ? ['다듬기', ...reasons].join(' — ') : 'AI 번역';
-  const candidateId = addCandidate(db, { unitId, text, origin: 'ai', model: result.route.model, note });
+  // `suggest` (the line's pane): it waits as the line's AI 제안 (적용 · 거절) instead of going into an open box.
+  const candidateId = addCandidate(db, { unitId, text, origin: 'ai', model: result.route.model, note, ...(request.suggest && { state: 'pending' as const }) });
   events.changed(unit.projectId, 'units');
   return { candidateId, text, reasons };
 }

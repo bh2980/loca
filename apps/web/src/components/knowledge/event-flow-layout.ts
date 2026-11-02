@@ -1,7 +1,7 @@
 import ELK, { type ElkNode } from 'elkjs/lib/elk.bundled.js';
 
 const elk = new ELK();
-export const EVENT_CARD = { width: 288, height: 92 };
+export const EVENT_CARD = { width: 288, height: 104 };
 export type EventFlowDirection = 'vertical' | 'horizontal';
 export interface LayoutEvent { id: string; next: { id: string; label: string | null }[] }
 

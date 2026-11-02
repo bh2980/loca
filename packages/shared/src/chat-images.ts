@@ -51,9 +51,11 @@ export function imageDecision(known: boolean | undefined, count: number) {
  */
 export function contextMeter(input: { inputTokens: number | null | undefined; window: number | null | undefined }) {
   if (!input.window || input.window <= 0 || input.inputTokens === null || input.inputTokens === undefined) return null;
-  const ratio = input.inputTokens / input.window;
-  const percent = Math.min(100, Math.max(0, Math.round(ratio * 100)));
-  return { percent, tokens: input.inputTokens, window: input.window, level: percent >= 90 ? ('full' as const) : percent >= 70 ? ('high' as const) : ('ok' as const) };
+  // More than the window: one request cannot be, so it is a turn's sum over the agent's own steps (ACP agents report a
+  // turn), each reading the conversation again. It says nothing about how full the window is: no percent, no warning.
+  if (input.inputTokens > input.window) return { percent: null, tokens: input.inputTokens, window: input.window, level: 'ok' as const };
+  const percent = Math.max(0, Math.round((input.inputTokens / input.window) * 100));
+  return { percent, tokens: input.inputTokens, window: input.window, level: percent >= 95 ? ('full' as const) : percent >= 80 ? ('high' as const) : ('ok' as const) };
 }
 
 /**

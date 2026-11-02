@@ -9,7 +9,7 @@ import { Check, Play, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Inspector, InspectorHeader, InspectorList, InspectorTabs, TagListEditor, DirtyBar, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Inline, Input, ListRow, Text, Textarea, Section, Field, Box, Checkbox, Label, Stack, Switch } from '@loca/ui';
 import { RunDialog } from '@/components/workflow/run-dialog';
-import { confirmLabel, SourceBadge, StateCell, type ItemTag } from '@/components/knowledge/table';
+import { AiNamed, confirmLabel, SourceBadge, StateCell, type ItemTag } from '@/components/knowledge/table';
 import { ALL_TERM_KINDS, isSettled, TAG_SCOPES, TERM_LINE_KIND_LABELS, TERM_LINE_KINDS, type KnowledgeOrigin, type KnowledgeStatus, type StatusBy, type TermScope } from '@tw/shared';
 import { client } from '@/lib/api';
 import { changedFields, useFormFrom } from '@/lib/use-form-from';
@@ -187,7 +187,7 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
           {candidate && (
             <Button variant="ghost" tone="danger" disabled={deciding} onClick={() => onDecide(false)}>버리기</Button>
           )}</>}
-      header={<InspectorHeader kind="용어" name={term.source} status={
+      header={<InspectorHeader kind="용어" name={<AiNamed row={term}>{term.source}</AiNamed>} status={
         <Inline as="span" gap="condensed">
           <SourceBadge row={{ ...term, evidence: [] }} />
           <span>·</span>

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Background, Handle, MarkerType, useConnection, NodeToolbar, Panel, Position, ReactFlow, SelectionMode, type Edge, type Node, type NodeChange, type NodeProps, type ReactFlowInstance } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { Copy, Trash2 } from 'lucide-react';
-import { Box, CanvasToolbar, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger, EmptyState, EventFlowCard, Inline, SelectionToolbox, Stack, Text, FlowHandle, useCanvasDismiss } from '@loca/ui';
+import { AiMark, Box, CanvasToolbar, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger, EmptyState, EventFlowCard, Inline, SelectionToolbox, Stack, Text, FlowHandle, useCanvasDismiss } from '@loca/ui';
 import { personStyle, usePersonColors } from '@/lib/person-colors';
 import { useIsDark } from '@/lib/theme';
 import { GRAPH_KEYS, useGraphShortcuts } from '@/lib/graph-shortcuts';
@@ -19,12 +19,14 @@ export interface FlowEvent {
   summary: string;
   participants: string[];
   status: string;
+  /** Who confirmed it: ✦ before the title while AI did and no person has looked. */
+  statusBy?: 'ai' | 'human' | null;
   at: { seq: number; section: string | null; scene: string; key: string } | null;
   /** Events this one leads to: derived from the dialogue graph (with the choice/condition way when it splits), or drawn by hand. */
   next: ({ id: string; label: string | null; source: 'graph' } | { id: string; label: null; source: 'added'; origin: string })[];
 }
 
-type EventNode = Node<{ event: FlowEvent; badge: ReactNode; elsewhere: string | null; direction: EventFlowDirection; target: boolean; colorOf: (name: string) => string | undefined }, 'event'>;
+type EventNode = Node<{ event: FlowEvent; elsewhere: string | null; direction: EventFlowDirection; target: boolean; colorOf: (name: string) => string | undefined }, 'event'>;
 type SectionNode = Node<{ title: string }, 'section'>;
 
 /** Events copied with ⌘/Ctrl+C or 복사, pasted as copies ("제목 (복사)"). */
@@ -46,8 +48,7 @@ function EventCard({ data, selected, isConnectable }: NodeProps<EventNode>) {
           whichever card it is dropped on (EventFlow's onConnectEnd), never snapping to that card's dots. */}
       <FlowHandle look={dot(isConnectable)}><Handle type="target" position={target} isConnectable={isConnectable} isConnectableEnd={false} title="끌어서 앞 사건과 잇기" /></FlowHandle>
       <Stack as="span" direction="row" align="baseline" gap="condensed">
-        <Text variant="label" truncate>{event.title}</Text>
-        <Text marginLeft="auto" shrink={false}>{data.badge}</Text>
+        <Text variant="label" lines={2}>{event.status !== 'candidate' && event.statusBy === 'ai' && <><AiMark by="ai" />{' '}</>}{event.title}</Text>
       </Stack>
       <Text variant="caption" tone="muted" truncate>
         {event.at?.scene}
@@ -59,7 +60,7 @@ function EventCard({ data, selected, isConnectable }: NodeProps<EventNode>) {
           </span>
         ))}
       </Text>
-      {event.summary && <Text variant="caption" tone="muted" lines={2} marginTop="hair">{event.summary}</Text>}
+      {event.summary && <Text variant="caption" tone="muted" lines={1} marginTop="hair">{event.summary}</Text>}
       {data.elsewhere && <Text variant="caption" tone="muted" truncate marginTop="auto">→ {data.elsewhere}</Text>}
       <FlowHandle look={dot(isConnectable)}><Handle type="source" position={source} isConnectable={isConnectable} isConnectableEnd={false} title="끌어서 다음 사건과 잇기" /></FlowHandle>
     </EventFlowCard>
@@ -81,7 +82,7 @@ const nodeTypes = { event: EventCard, section: SectionTitle };
  * right-click menus, a toolbox over one picked event, the canvas toolbar (with 가로·세로). Dragged
  * positions stay in this browser until 자동 정렬; an edit keeps everyone where they are.
  */
-export function EventFlow({ projectId, events, selected, onOpen, badge, filtered, direction = 'vertical', onDirectionChange, actions, emptyAction }: {
+export function EventFlow({ projectId, events, selected, onOpen, filtered, direction = 'vertical', onDirectionChange, actions, emptyAction }: {
   projectId: string;
   events: FlowEvent[];
   /** Filters are set (so none matching is not the same as none yet). */
@@ -89,7 +90,6 @@ export function EventFlow({ projectId, events, selected, onOpen, badge, filtered
   /** The page's open item: an event id, or a line's key (lineKey). */
   selected?: string;
   onOpen: (item?: string) => void;
-  badge: (event: FlowEvent) => ReactNode;
   direction?: EventFlowDirection;
   onDirectionChange?: (direction: EventFlowDirection) => void;
   /** What it can change (the page's, each undoable); without it the flow only shows and selects. */
@@ -221,14 +221,14 @@ export function EventFlow({ projectId, events, selected, onOpen, badge, filtered
           id: event.id,
           type: 'event',
           position: moved[event.id] ?? layout.positions[event.id] ?? { x: 0, y: 0 },
-          data: { event, badge: badge(event), colorOf, elsewhere: elsewhere.length ? elsewhere.map((step) => `${sectionOf.get(step.id) || '다른 구역'}: ${byId.get(step.id)?.title}`).join(', ') : null, direction, target: Boolean(menuFor?.includes(event.id)) },
+          data: { event, colorOf, elsewhere: elsewhere.length ? elsewhere.map((step) => `${sectionOf.get(step.id) || '다른 구역'}: ${byId.get(step.id)?.title}`).join(', ') : null, direction, target: Boolean(menuFor?.includes(event.id)) },
           selected: picked.size ? picked.has(event.id) : event.id === selectedEvent,
           width: CARD.width,
           height: CARD.height,
         };
       }),
     ];
-  }, [layout, events, moved, selectedEvent, sectionOf, byId, badge, direction, picked, menuFor, colorOf]);
+  }, [layout, events, moved, selectedEvent, sectionOf, byId, direction, picked, menuFor, colorOf]);
   // Positions while dragging sit on top of the memoized nodes; the drop is kept in `moved`.
   const frame = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState<Record<string, { x: number; y: number }>>({});
@@ -379,7 +379,8 @@ export function EventFlow({ projectId, events, selected, onOpen, badge, filtered
         />
       </Panel>
       {edits && one && (
-        <NodeToolbar nodeId={one} isVisible position={Position.Top} offset={12}>
+        // Beside the card, on the side no line comes in from: over it, it hid the 장 title above the first event.
+        <NodeToolbar nodeId={one} isVisible position={direction === 'vertical' ? Position.Right : Position.Bottom} align="start" offset={8}>
           <SelectionToolbox actions={[
             { id: 'copy', label: '복제', icon: <Copy />, onSelect: () => void paste([one]) },
             { id: 'delete', label: '삭제', icon: <Trash2 />, onSelect: removeSelection },

@@ -29,9 +29,11 @@ describe('chat images', () => {
 describe('context meter', () => {
   it('is the share of the window the last input used, hidden when either is unknown', () => {
     expect(contextMeter({ inputTokens: 50_000, window: 200_000 })).toMatchObject({ percent: 25, level: 'ok' });
-    expect(contextMeter({ inputTokens: 150_000, window: 200_000 })).toMatchObject({ percent: 75, level: 'high' });
+    expect(contextMeter({ inputTokens: 150_000, window: 200_000 })).toMatchObject({ percent: 75, level: 'ok' });
+    expect(contextMeter({ inputTokens: 170_000, window: 200_000 })).toMatchObject({ percent: 85, level: 'high' });
     expect(contextMeter({ inputTokens: 190_000, window: 200_000 })).toMatchObject({ percent: 95, level: 'full' });
-    expect(contextMeter({ inputTokens: 300_000, window: 200_000 })?.percent).toBe(100);
+    // A turn summed over an agent's steps: no percent, no warning.
+    expect(contextMeter({ inputTokens: 300_000, window: 200_000 })).toMatchObject({ percent: null, level: 'ok' });
     expect(contextMeter({ inputTokens: 0, window: 200_000 })?.percent).toBe(0);
     expect(contextMeter({ inputTokens: 5, window: null })).toBeNull();
     expect(contextMeter({ inputTokens: null, window: 200_000 })).toBeNull();

@@ -145,11 +145,11 @@ export async function undoProposals(db: Db, owner: string | { terminal: string }
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   const results: { id: string; ok: boolean; error?: string; skipped?: string[] }[] = [];
   const rebasedLines = new Map<string, { before: number; now: number }>();
-  // A person who set the terminal back to 수락/거절 decides its changes again, undoing included.
+  // A person who set the terminal back to 매번 묻기 decides its changes again, undoing included.
   const asking = typeof owner !== 'string' && projectAgentSettings(db, owner.terminal).terminalPermissionMode === 'ask';
   for (const original of rows) {
     if (asking) {
-      results.push({ id: original.id, ok: false, error: '터미널 권한 모드가 수락/거절이라 앱에서 되돌립니다' });
+      results.push({ id: original.id, ok: false, error: '터미널 권한 모드가 매번 묻기라 앱에서 되돌립니다' });
       continue;
     }
     if (sessionId === null && original.decidedBy === 'person') {

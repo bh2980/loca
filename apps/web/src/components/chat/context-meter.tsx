@@ -18,9 +18,13 @@ export function ContextMeter({ usage }: { usage: ChatUsage | null | undefined })
   if (!usage || !meter) return null;
   return (
     <ContextMeterView percent={meter.percent} level={meter.level}>
-      <p>
-        마지막 답의 입력 {meter.tokens.toLocaleString()} / 문맥 창 {meter.window.toLocaleString()} 토큰
-      </p>
+      {meter.percent === null ? (
+        <p>마지막 답은 에이전트가 여러 번 나눠 읽어 입력이 합쳐 {meter.tokens.toLocaleString()} 토큰으로 왔습니다. 한 번에 읽은 양이 아니라 문맥 창({meter.window.toLocaleString()} 토큰)이 얼마나 찼는지는 알 수 없습니다.</p>
+      ) : (
+        <p>
+          마지막 답이 읽은 입력 {meter.tokens.toLocaleString()} / 문맥 창 {meter.window.toLocaleString()} 토큰
+        </p>
+      )}
       <p>
         이 대화 요청 {usage.calls.toLocaleString()}회 · 토큰 {usage.tokens.toLocaleString()}
         {usage.costUsd !== null && ` · 비용 $${usage.costUsd.toFixed(usage.costUsd < 0.01 ? 4 : 2)}`}

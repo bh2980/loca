@@ -40,7 +40,7 @@ export const AUTO_MARKS = {
   review: { name: '확인 권장', on: ['people', 'documents', 'events'], color: '#c46016', description: '분석이 사람의 확인이 필요하다고 본 자료(이유는 마우스를 올리면 보임). 사람이 확인함·버리기·고치기로 정하면 떨어짐' },
   diverged: { name: '번역 불일치', on: ['lines'], color: '#d24c49', description: '같은 원문이 다른 곳에서 다르게 번역됨' },
   aiSuggestion: { name: 'AI 제안 대기', on: ['lines'], color: '#2b7bd3', description: 'AI가 낸 번역 제안이 적용·거절을 기다림 (사람이 번역한 줄에 실행이 낸 번역, 채팅·터미널의 번역 제안)' },
-  noEvidence: { name: '근거 부재', on: ['people', 'documents', 'events'], color: '#c46016', description: '근거 대사가 없음' },
+  noEvidence: { name: '근거 부재', on: ['people', 'documents', 'events'], color: '#c46016', description: 'AI가 쓴 자료인데 근거 대사가 없음 (사람이 쓴 자료에는 붙지 않음)' },
   unused: { name: '대본 미등장', on: ['terms'], color: '#79818c', description: '원문이나 화자에 나오는 대사가 없음' },
   duplicateTarget: { name: '번역어 중복', on: ['terms'], color: '#c46016', description: '원문이 다른 용어와 번역어가 같음 (막지는 않음: 같은 말로 옮기는 게 맞을 수도 있음)' },
 } as const satisfies Record<string, { name: string; on: readonly TagScope[]; color: string; description: string }>;
@@ -140,8 +140,8 @@ export function lineMarksOf(line: { /** It has an AI 제안 waiting (candidates 
 }
 
 /** The marks a knowledge item carries. */
-export function knowledgeMarksOf(item: { status: KnowledgeStatus; statusBy: StatusBy; evidence?: readonly unknown[]; /** Why the analysis wants a person to look (확인 권장); empty when none. */ reviewNote?: string }): AutoMark[] {
-  return [Boolean(item.reviewNote) && 'review', item.evidence !== undefined && item.evidence.length === 0 && 'noEvidence'].filter((mark): mark is AutoMark => Boolean(mark));
+export function knowledgeMarksOf(item: { status: KnowledgeStatus; statusBy: StatusBy; evidence?: readonly unknown[]; /** Who wrote it: what a person wrote needs no lines behind it (근거 부재 is an AI's claim without them). */ origin?: string; /** Why the analysis wants a person to look (확인 권장); empty when none. */ reviewNote?: string }): AutoMark[] {
+  return [Boolean(item.reviewNote) && 'review', item.origin !== 'human' && item.evidence !== undefined && item.evidence.length === 0 && 'noEvidence'].filter((mark): mark is AutoMark => Boolean(mark));
 }
 
 /** The marks a glossary term carries. `duplicateTarget` comes from the whole glossary (withDuplicateTargets). */

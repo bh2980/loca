@@ -1,4 +1,3 @@
-import { Sparkles } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipTrigger } from "../controls/tooltip"
 import { cn } from "../lib/utils"
 import { Chip } from "./chip"
@@ -80,19 +79,19 @@ export function TagChip({ tag }: { tag: Pick<StatusLike, "name" | "color"> }) {
 }
 
 /**
- * ✦ beside a status or 확정 that AI set and no person has looked at since.
- * The same mark everywhere: lines, knowledge, terms. Renders nothing when a person set it.
+ * ✦ before what AI decided and no person has looked at since (a translation, a name, a status): one filled four-point star,
+ * the same everywhere. Renders nothing when a person set it.
  */
 export function AiMark({ by }: { by: "ai" | "human" | null | undefined }) {
   if (by !== "ai") return null
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span role="img" aria-label="AI 초안" className={"inline-flex shrink-0 text-ai"}>
-          <Sparkles className="size-3" />
+        <span role="img" aria-label="AI가 정함" className={"inline-flex shrink-0 text-ai"}>
+          <svg viewBox="0 0 16 16" aria-hidden className="size-3 fill-current"><path d="M8 0C8.6 4.6 11.4 7.4 16 8C11.4 8.6 8.6 11.4 8 16C7.4 11.4 4.6 8.6 0 8C4.6 7.4 7.4 4.6 8 0Z" /></svg>
         </span>
       </TooltipTrigger>
-      <TooltipContent>AI 초안 · 아직 사람이 확인하지 않음</TooltipContent>
+      <TooltipContent>AI가 정함 · 아직 사람이 확인하지 않음</TooltipContent>
     </Tooltip>
   )
 }

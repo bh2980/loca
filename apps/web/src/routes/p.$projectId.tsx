@@ -5,6 +5,7 @@ import { Bell, CheckCircle2, Pause, Play, TriangleAlert } from 'lucide-react';
 import { ApiError } from '@/lib/api';
 import { AppSidebar } from '@/components/app-sidebar';
 import { ChatPanel } from '@/components/chat/chat-panel';
+import { ProposalList } from '@/components/chat/proposal-list';
 import { CommandSearch } from '@/components/command-search';
 import { ShortcutHelp } from '@/components/shortcut-help';
 import { chatDock, useChatDockOpen } from '@/lib/chat-dock';
@@ -62,7 +63,9 @@ function ProjectLayout() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
-  const waiting = useProposals(projectId, { status: 'pending' }).total ?? 0;
+  const terminalProposals = useProposals(projectId, { status: 'pending' });
+  const waiting = terminalProposals.total ?? 0;
+  const pending = terminalProposals.data ?? [];
   const changeMode = (mode: 'properties' | 'agent') => {
     if (mode === 'properties' && !hasInspector) return;
     setLastMode(mode);
@@ -91,7 +94,7 @@ function ProjectLayout() {
         <AppSidebar projectId={projectId} />
         <SidebarInset>
           <WorkspaceShell open={open} onOpenChange={(next) => { setPropertiesOpen(next); if (!next) chatDock.set(false); }} dock={<>
-            <DockHeader mode={chatOpen ? 'agent' : 'properties'} onMode={changeMode} onToggle={toggleDock} unread={unread || waiting > 0} tools={<><CommandSearch projectId={projectId} compact listen={open} /><ShortcutHelp listen={open} /></>} hasProperties={hasInspector} />
+            <DockHeader mode={chatOpen ? 'agent' : 'properties'} onMode={changeMode} onToggle={toggleDock} unread={unread} tools={<><CommandSearch projectId={projectId} compact listen={open} /><ShortcutHelp listen={open} /></>} hasProperties={hasInspector} />
             <DockPane active={!chatOpen}><DockInspector /></DockPane>
             <DockPane active={chatOpen}><ChatPanel projectId={projectId} /></DockPane>
           </>}>
@@ -245,7 +248,7 @@ function ProjectLayout() {
                     )}
                   </StatusBarButton>
                 </PopoverTrigger>
-                <PopoverContent side="top" align="end" width="popover">
+                <PopoverContent side="top" align="end" width={waiting > 0 ? 'popover-lg' : 'popover'} maxHeight="dialog">
                   <Box spaceY="normal">
                     <SectionHeading ruled
                       as="h3"
@@ -259,63 +262,33 @@ function ProjectLayout() {
                     >
                       알림
                     </SectionHeading>
+                    {/* Changes sent from the terminal (loca), decided here: the chat holds only its own conversation's. */}
                     {waiting > 0 && (
-                      <Notice>
-                        <Inline justify="between">
-                          <SectionHeading level="group">대기 중인 제안</SectionHeading>
-                          <Count tone="accent">
-                            {waiting}건
-                          </Count>
-                        </Inline>
-                        <Button
-                          variant="outline"
-                          width="full"
-                          onClick={() => {
-                            setLastMode('agent');
-                            setPropertiesOpen(true);
-                            chatDock.set(true);
-                          }}
-                        >
-                          에이전트 열기
-                        </Button>
-                      </Notice>
+                      <Box spaceY="tight">
+                        <SectionHeading level="group" marginBottom="none">터미널에서 온 제안</SectionHeading>
+                        <ProposalList projectId={projectId} proposals={pending} />
+                      </Box>
                     )}
-                    <Box spaceY="condensed">
-                      <SectionHeading level="group" marginBottom="none"
-                        actions={
-                          <TextLink asChild variant="caption" weight="normal" tone="muted" underline="always" quiet>
-                            <Link to="/p/$projectId/runs" params={{ projectId }}>
-                              실행 기록
-                            </Link>
-                          </TextLink>
-                        }
-                      >
-                        최근 실행
-                      </SectionHeading>
-                      {progress.recentRuns.length === 0 ? (
-                        <Text as="p" paddingY="tight" align="center" variant="caption" tone="muted">기록이 없습니다.</Text>
-                      ) : (
-                        progress.recentRuns.slice(0, 3).map((run) => (
+                    {/* Only the runs that need a look (failed lines, paused): every recent run is under 워크플로 next to it. */}
+                    {failedRuns.length > 0 && (
+                      <Box spaceY="condensed">
+                        <SectionHeading level="group" marginBottom="none">확인할 실행</SectionHeading>
+                        {failedRuns.slice(0, 3).map((run) => (
                           <ListRow as="link" key={run.id} density="loose">
-                            <Link
-                              to="/p/$projectId/runs/$runId"
-                              params={{ projectId, runId: run.id }}
-                            >
+                            <Link to="/p/$projectId/runs/$runId" params={{ projectId, runId: run.id }}>
                               <Inline minWidth={0} gap="tight" truncate>
-                                {run.status === 'completed' && (run.states.failed ?? 0) === 0 && <Icon icon={CheckCircle2} size="xs" shrink={false} tone="success" />}
-                                {((run.states.failed ?? 0) > 0 || run.status === 'cancelled') && <Icon icon={TriangleAlert} size="xs" shrink={false} tone="danger" />}
-                                {run.status === 'running' && <Spinner size="xs" tone="accent" fixed />}
-                                {run.status === 'paused' && <Icon icon={Play} size="xs" shrink={false} tone="warning" />}
+                                {run.status === 'paused' ? <Icon icon={Play} size="xs" shrink={false} tone="warning" /> : <Icon icon={TriangleAlert} size="xs" shrink={false} tone="danger" />}
                                 <Text truncate>{run.workflowName}</Text>
                               </Inline>
                               <Text shrink={false} variant="caption" tabular tone="muted">
-                                {dateTime(run.createdAt)}
+                                {run.status === 'paused' ? '일시정지' : `실패 ${(run.states.failed ?? 0).toLocaleString()}줄`}
                               </Text>
                             </Link>
                           </ListRow>
-                        ))
-                      )}
-                    </Box>
+                        ))}
+                      </Box>
+                    )}
+                    {!hasNotification && <Text as="p" paddingY="tight" align="center" variant="caption" tone="muted">새 알림이 없습니다.</Text>}
                   </Box>
                 </PopoverContent>
               </Popover>

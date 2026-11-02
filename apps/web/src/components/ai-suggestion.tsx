@@ -18,9 +18,12 @@ interface Candidate {
   state: 'pending' | 'history' | 'declined';
 }
 
-/** Where a waiting suggestion came from: a workflow run on a line a person translated, or the chat / terminal. */
+/**
+ * Where a waiting suggestion came from: a workflow run (on a line a person translated) by its run; otherwise its model and note,
+ * which say it (the pane's AI 번역 · 다듬기, or what the chat or terminal wrote) — a suggestion carries no more than that.
+ */
 export const suggestionFrom = (candidate: Pick<Candidate, 'runId' | 'model' | 'note'>) =>
-  [candidate.runId ? '워크플로 실행' : '채팅 제안', candidate.model, candidate.note].filter(Boolean).join(' · ');
+  [candidate.runId && '워크플로 실행', candidate.model, candidate.note].filter(Boolean).join(' · ');
 
 /**
  * The newest AI 제안 waiting on the line, with the words that differ from its translation marked: 적용 makes it the line's

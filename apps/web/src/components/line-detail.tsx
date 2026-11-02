@@ -3,12 +3,11 @@ import { useState, type ReactNode } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { toast } from 'sonner';
-import { CircleAlert, CircleCheck, Network, Pencil } from 'lucide-react';
+import { CircleAlert, CircleCheck, Network, Pencil, Sparkles } from 'lucide-react';
 import { CopyButton } from '@/components/copy-button';
 import { CHARACTER_ROLE_LABELS, sameTranslation, checkFormat, exclusionReason, isUnknownListener, type LineTranslate, listenerLabel, needsListener, SPEECH_LEVEL_LABELS, speechLevelOf, TAG_SCOPES, type FormatRules, type SpeechLevel } from '@tw/shared';
-import { AiMark, Chip, TagChip, Box, Button, CandidateCard, DetailIssue, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, EditorChangedWord, EditorDiffWord, Group, HistoryDay, HistoryDiff, HistoryEntry, HistoryFolded, HistoryFoldedRow, type HistoryActor, Icon, Inline, InspectorHeader, Inspector, InspectorList, InspectorTabs, SegmentedControl, SpeakerIdentity, StatusIcon, Switch, TagListEditor, Text, ListItem, Section, KeyValue, KeyValueRow } from '@loca/ui';
+import { AiMark, Chip, TagChip, Box, Button, CandidateCard, DetailIssue, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, EditorChangedWord, EditorDiffWord, Group, HistoryDay, HistoryDiff, HistoryEntry, HistoryFolded, HistoryFoldedRow, type HistoryActor, Icon, Inline, InspectorHeader, Inspector, InspectorList, InspectorTabs, SegmentedControl, SpeakerIdentity, Spinner, StatusIcon, Switch, TagListEditor, Text, ListItem, Section, KeyValue, KeyValueRow } from '@loca/ui';
 import { changeLines, patchedLine, useLineDetail } from '@/lib/units';
-import { AiButton } from '@/components/ai-button';
 import { AiContextPanel } from '@/components/ai-context';
 import { TranslationEditor } from '@/components/translation-editor';
 import { AiSuggestion, suggestionFrom } from '@/components/ai-suggestion';
@@ -21,7 +20,7 @@ import { replaceLineText } from '@/components/editor/translation-input';
 import { ListenerPicker } from '@/components/script/listener-picker';
 import { SpeakerCard } from '@/components/script/speaker-card';
 import { SourceEditor } from '@/components/script/source-editor';
-import { client } from '@/lib/api';
+import { apiFetch, client } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
 import { lineTags, q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
@@ -159,8 +158,7 @@ export function LineDetail({
 
   const metadata = line && (
     <>
-      {status && <Inline as="span" inline gap="tight"><StatusIcon status={status} />{status.name}</Inline>}
-      {line.statusBy === 'ai' && <AiMark by="ai" />}
+      {status && <Inline as="span" inline gap="tight">{line.statusBy === 'ai' && <AiMark by="ai" />}<StatusIcon status={status} />{status.name}</Inline>}
       {showScene ? <Text asChild truncate underline="hover"><Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.group.id, line: line.id }}>{line.group.title}</Link></Text> : <Text truncate>{line.group.title}</Text>}
     </>
   );
@@ -238,7 +236,7 @@ export function LineDetail({
       {editor && <Section><TranslationEditor projectId={projectId} unit={{ id: line.id, source: line.source, translation: line.translation, statusId: line.statusId, statusBy: line.statusBy }} statuses={taxonomy.statuses ?? []} /></Section>}
       {/* The editor in this pane shows the AI 제안 and TM itself. */}
       {!editor && <AiSuggestion framed projectId={projectId} unit={line} draft={draft} dirty={!sameTranslation(draft, line.translation)} base={base} onDraft={useText} />}
-      {!editor && <SimilarSection unit={line} draft={draft} onUse={useText} tokenPattern={tokenPattern} />}
+      {!editor && <SimilarSection projectId={projectId} unit={line} draft={draft} onUse={useText} tokenPattern={tokenPattern} />}
       {(line.speaker || line.speech) && <PeopleSection projectId={projectId} line={line} speakerPerson={speakerPerson} listening={listening} listenerPicker={listenerPicker} people={people.data ?? []} />}
       <Section title="검증" collapsible persistKey="line.checks">
         <LineChecks projectId={projectId} source={line.source} kind={line.kind} text={draft} rules={project.data?.formatRules} targetLanguage={project.data?.targetLanguage} speech={line.speech} lastRun={lastRun ? { runId: lastRun.runId, workflowName: lastRun.workflowName, issues: lastRun.data.issues ?? [] } : null} />
@@ -311,18 +309,40 @@ export function LineDetail({
   );
 }
 
+/**
+ * The editor's AI 번역 / 다듬기 from the line's pane, called directly (설정 › 에디터: its model, context and instructions), not
+ * through the chat: the answer waits as the line's AI 제안 above, to 적용 or 거절.
+ */
+function AssistButton({ projectId, unit, mode, children }: { projectId: string; unit: LineRecord; mode: 'translate' | 'refine'; children: ReactNode }) {
+  const hasModel = Boolean(useProject(projectId).data?.editorAi?.model.model);
+  const assist = useMutation({
+    mutationFn: async () => {
+      const response = await apiFetch(`/api/units/${unit.id}/assist`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode, draft: mode === 'refine' ? unit.translation ?? '' : '', suggest: true }) });
+      const body = (await response.json()) as { unchanged?: boolean; error?: string };
+      if (!response.ok) throw new Error(body.error ?? 'AI 응답을 받지 못했습니다.');
+      return body;
+    },
+    onSuccess: (body) => body.unchanged && toast.info(mode === 'refine' ? '고칠 곳이 없습니다.' : '지금 번역과 같은 답이 왔습니다.'),
+    onError: (error) => toast.error(error.message),
+  });
+  return (
+    <Button variant="ghost" disabled={assist.isPending} disabledReason={!hasModel && '설정 › 에디터에서 AI 번역·다듬기 모델을 고르세요.'} onClick={() => assist.mutate()}>
+      {assist.isPending ? <Spinner /> : <Icon icon={Sparkles} size="sm" tone="accent" />} {assist.isPending ? (mode === 'refine' ? '다듬는 중…' : '만드는 중…') : children}
+    </Button>
+  );
+}
+
 /** Translations of the same or a similar source elsewhere (TM): the first few, the rest one click away; 쓰기 puts one into the box. */
-function SimilarSection({ unit, draft, onUse, tokenPattern }: { unit: LineRecord; draft: string; onUse: (text: string) => void; tokenPattern: RegExp | null }) {
+function SimilarSection({ projectId, unit, draft, onUse, tokenPattern }: { projectId: string; unit: LineRecord; draft: string; onUse: (text: string) => void; tokenPattern: RegExp | null }) {
   const matches = useQuery(q.lineMatches(unit.id));
   const [all, setAll] = useState(false);
-  const subject = unit.kind === 'ui' ? 'UI 문자열' : unit.kind === 'document' ? '문서' : '대사';
   const rows = matches.data ?? [];
   const shown = all ? rows : rows.slice(0, FIRST_FEW);
   const inEditor = (text: string) => draft !== (unit.translation ?? '') && text === draft;
   return (
     <Section title="비슷한 번역" count={matches.isPending ? '…' : rows.length} collapsible persistKey="line.similar" actions={<>
-      <AiButton variant="ghost" prompt={`${subject}의 번역을 제안해줘.`}>AI 제안 받기</AiButton>
-      {unit.translation && <AiButton variant="ghost" send={false} prompt={`${subject}의 번역을 이렇게 다듬어줘: `}>다듬기</AiButton>}
+      <AssistButton projectId={projectId} unit={unit} mode="translate">AI 제안 받기</AssistButton>
+      {unit.translation && <AssistButton projectId={projectId} unit={unit} mode="refine">다듬기</AssistButton>}
     </>}>
       <InspectorList>
         {shown.map((match) => {

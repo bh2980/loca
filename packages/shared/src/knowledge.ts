@@ -36,7 +36,7 @@ export const aiDecided = (item: { status?: string; statusBy: StatusBy }) => item
  */
 export const KNOWLEDGE_SOURCES = ['workflow', 'script', 'import', 'human'] as const;
 export type KnowledgeSource = (typeof KNOWLEDGE_SOURCES)[number];
-export const SOURCE_LABELS: Record<KnowledgeSource, string> = { workflow: '워크플로·채팅', script: '대본에서 찾음', import: '가져오기', human: '사람' };
+export const SOURCE_LABELS: Record<KnowledgeSource, string> = { workflow: 'AI', script: '대본에서 찾음', import: '가져오기', human: '사람' };
 export const sourceOf = (item: { origin: KnowledgeOrigin }): KnowledgeSource => (item.origin === 'ai' ? 'workflow' : item.origin);
 /** Nothing left to decide: confirmed by a person. Everything else can be confirmed or discarded. */
 export const isSettled = (item: { status: KnowledgeStatus; statusBy: StatusBy }) => item.status === 'confirmed' && item.statusBy === 'human';

@@ -25,7 +25,6 @@ import { ConversationMenu } from './conversation-menu';
 import { RunCardView, type RunCardControls } from './run-card';
 import { useComposerMenu, type RunMode } from './use-composer-menu';
 import { useUndo } from './proposal-card';
-import { ProposalList } from './proposal-list';
 import { PermissionModePicker } from './permission-mode';
 import { CHAT_IMAGES_MAX, compactionMarker, imageDecision, IMAGE_UNSUPPORTED_NOTE, messageChips, runCardOf, type ChatChip, type PermissionMode, type RunCard } from '@tw/shared';
 import { imageFilesOf, prepareImage, type PendingImage } from '@/lib/chat-image-file';
@@ -150,7 +149,6 @@ export function ChatPanel({ projectId }: { projectId: string }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      <ExternalProposals projectId={projectId} />
       {/* A connection picked without a model yet still counts, so the picker asks for the model. */}
       {current ? (
         <Conversation key={current.id} projectId={projectId} sessionId={current.id} mode={current.permissionMode} model={current.connectionId ? { connectionId: current.connectionId, model: current.model ?? '', ...(current.effort && { effort: current.effort }) } : null} />
@@ -827,26 +825,6 @@ function DecisionNotice({ text }: { text: string }) {
     <Inline as="p" gap="tight" variant="caption" tone="muted" title={text}>
       <Icon icon={Check} size="sm" /> 제안 결과를 에이전트에게 알렸습니다{summary && ` (${summary})`}
     </Inline>
-  );
-}
-
-/** Changes sent from the CLI (by a person or an agent using it), waiting for a decision. */
-function ExternalProposals({ projectId }: { projectId: string }) {
-  const pending = useProposals(projectId, { status: 'pending' }).data ?? [];
-  const [open, setOpen] = useState(true);
-  if (!pending.length) return null;
-  return (
-    <Box maxHeight="pane" shrink={false} overflow="y" border="bottom" background="page">
-      <Button variant="ghost" size="row" radius="none" paddingX="normal" paddingY="condensed" weight="semibold" onClick={() => setOpen(!open)} aria-expanded={open}>
-        <Icon icon={ChevronRight} tone="muted" turn={open} />
-        제안 {pending.length.toLocaleString()}개 대기 중
-      </Button>
-      {open && (
-        <Box paddingX="normal" paddingBottom="normal">
-          <ProposalList projectId={projectId} proposals={pending} title="제안" />
-        </Box>
-      )}
-    </Box>
   );
 }
 
