@@ -1,8 +1,7 @@
 import type * as React from "react"
-import { ChevronDown, PencilLine } from "lucide-react"
+import { PencilLine } from "lucide-react"
 import { cn } from "../../lib/utils"
-import { Button } from "../../controls/button"
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../../controls/collapsible"
+import { ExpandableRow } from "../../patterns/expandable-row"
 
 /**
  * One row of a dialogue-graph selection read like a script: who | what (the column widths are the parent's `style`). A row that opens
@@ -59,21 +58,21 @@ export function FlowLine({ show, source, translation, clamp }: { show: FlowShow;
 }
 
 /**
- * A line of a node as a folded row: who and its text (`what`) in the same two columns as a `FlowRow`, a chevron that turns, and the
- * line's details under it once opened. `columns` is the parent's column style, as for `FlowRow`.
+ * A line of a node as a folded row (the shared `ExpandableRow`): who and its text (`what`) in the same two columns as a `FlowRow`,
+ * and the line's details under it once opened. `columns` is the parent's column style, as for `FlowRow`.
  */
 export function FlowDisclosure({ who, what, columns, defaultOpen, children }: { who: React.ReactNode; what: React.ReactNode; columns: React.CSSProperties; defaultOpen?: boolean; children: React.ReactNode }) {
   return (
-    <Collapsible defaultOpen={defaultOpen} className="border-b border-subtle last:border-b-0">
-      <CollapsibleTrigger asChild>
-        <Button variant="ghost" className="group grid h-auto w-full items-start gap-3 rounded-none px-4 py-3 text-left font-normal whitespace-normal text-default hover:bg-sunken" style={{ ...columns, gridTemplateColumns: `${columns.gridTemplateColumns} auto` }}>
+    <div className="px-3">
+      <ExpandableRow ruled defaultOpen={defaultOpen} summary={
+        <span className="grid min-w-0 flex-1 items-start gap-3" style={columns}>
           <span className="truncate pt-px text-xs text-muted">{who}</span>
-          <div className="min-w-0 text-sm">{what}</div>
-          <ChevronDown className="mt-0.5 size-3.5 text-muted transition-transform group-data-[state=closed]:-rotate-90" aria-hidden="true" />
-        </Button>
-      </CollapsibleTrigger>
-      <CollapsibleContent className="border-t border-subtle bg-sunken/20">{children}</CollapsibleContent>
-    </Collapsible>
+          <span className="min-w-0 text-sm">{what}</span>
+        </span>
+      }>
+        {children}
+      </ExpandableRow>
+    </div>
   )
 }
 

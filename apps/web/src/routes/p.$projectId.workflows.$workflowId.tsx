@@ -35,6 +35,7 @@ import { WorkflowEdgeView, type FlowEdge } from '@/components/workflow/workflow-
 import { entryStarts, flowEdges, nodeSummary, openPorts, targetStatus } from '@/components/workflow/flow-graph';
 import { allFoldsOpen, computeFolds, foldContaining, foldedDefinition, foldIssues, foldPlacements, foldText, isFoldOpen, openFoldContaining, setAllFolds, toggleFold, type Fold } from '@/components/workflow/fold';
 import { useFoldState } from '@/components/workflow/use-fold-state';
+import { WorkflowIssueBar } from '@/components/workflow/issue-bar';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { SplitPane, PageHeading, HeaderActions, NodeLibrary, CanvasToolbar, CanvasSurface, SelectionToolbox, type CanvasDirection, type NodeLibraryGroup, Box, Button, Icon, Inline, Stack, Text, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent, DropdownMenuLabel, Input, Skeleton, Popover, PopoverContent, PopoverTrigger } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
@@ -101,9 +102,8 @@ interface GraphClipboard {
 let graphClipboard: GraphClipboard | null = null;
 
 export const Route = createFileRoute('/p/$projectId/workflows/$workflowId')({
-  validateSearch: (raw: Record<string, unknown>): { node?: string; nodeTab?: 'io' | 'errors'; direction?: CanvasDirection } => ({
+  validateSearch: (raw: Record<string, unknown>): { node?: string; direction?: CanvasDirection } => ({
     node: typeof raw.node === 'string' ? raw.node : undefined,
-    nodeTab: raw.nodeTab === 'io' || raw.nodeTab === 'errors' ? raw.nodeTab : undefined,
     direction: raw.direction === 'horizontal' ? 'horizontal' : raw.direction === 'vertical' ? 'vertical' : undefined,
   }),
   component: WorkflowRoute,
@@ -749,7 +749,7 @@ function WorkflowEditor() {
         <Text truncate variant="caption" tone="muted" role="status">{save.isPending ? '저장 중…' : save.isError ? '저장 실패 · 편집 보관됨' : draft ? '저장 대기' : `자동 저장됨 ${savedAt(workflow.data.updatedAt)}`}</Text>
       </PageHeading>
       <HeaderActions>
-        <RunDialog projectId={projectId} workflowId={workflowId} disabled={errorCount > 0 || save.isPending} dirty={Boolean(draft)} />
+        <RunDialog projectId={projectId} workflowId={workflowId} disabledReason={save.isPending ? '저장하는 중입니다.' : errorCount > 0 && `오류 ${errorCount}개를 고친 뒤 실행할 수 있습니다. 위의 고치기를 누르세요.`} dirty={Boolean(draft)} />
         {draft && <Button variant="ghost" disabled={save.isPending} onClick={discard}>되돌리기</Button>}
       </HeaderActions>
       {save.isError && <Inline role="alert" gap="condensed" border="bottom" background="dangerSoft" paddingX="comfortable" paddingY="condensed" variant="caption" tone="danger">저장하지 못했습니다. 편집은 이 브라우저에 보관됩니다. {save.error.message}<Button variant="outline" disabled={stale || !draft} onClick={() => draft && save.mutate(draft)}>다시 저장</Button></Inline>}
@@ -761,6 +761,7 @@ function WorkflowEditor() {
           </Button>
         </Inline>
       )}
+      <WorkflowIssueBar issues={issues} nodes={current.definition.nodes} onFix={select} />
       {/* The editor only edits: how a run is going is on its own page (실행 기록 › 그래프). */}
       {activeRun && (
         <Inline role="status" gap="normal" border="bottom" background="sunken" paddingX="comfortable" paddingY="condensed" variant="caption" tone="muted">
@@ -784,8 +785,6 @@ function WorkflowEditor() {
               <NodeConfig
                 key={`${selected.id}:${revision}`}
                 node={selected}
-                tab={search.nodeTab ?? 'settings'}
-                onTab={(nodeTab) => void navigate({ search: (previous) => ({ ...previous, nodeTab: nodeTab === 'settings' ? undefined : nodeTab }) })}
                 issues={issues.filter((issue) => issue.nodeId === selected.id)}
                 refs={{
                   statuses: taxonomy.statuses ?? [],

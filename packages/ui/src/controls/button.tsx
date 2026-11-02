@@ -3,9 +3,10 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import { Slot } from '@radix-ui/react-slot';
 import { cn } from '../lib/utils';
 import { GAP, type StyleProps, splitStyle, styleVariants } from '../primitives/style';
+import { Tooltip, TooltipContent, TooltipTrigger } from './tooltip';
 
 const buttonVariants = cva(
-  "inline-flex shrink-0 items-center justify-center gap-1 rounded-md text-xs font-medium tracking-tight whitespace-nowrap transition-all outline-none focus-visible:border-focus focus-visible:ring-[2px] focus-visible:ring-focus/40 disabled:pointer-events-none disabled:opacity-40 aria-invalid:border-danger aria-invalid:ring-danger/20 select-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+  "inline-flex shrink-0 items-center justify-center gap-1 rounded-md text-xs font-medium tracking-tight whitespace-nowrap transition-all outline-none focus-visible:border-focus focus-visible:ring-[2px] focus-visible:ring-focus/40 disabled:pointer-events-none disabled:opacity-40 aria-disabled:cursor-not-allowed aria-disabled:opacity-40 aria-invalid:border-danger aria-invalid:ring-danger/20 select-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
   {
     variants: {
       variant: {
@@ -60,13 +61,20 @@ export interface ButtonProps
   reveal?: boolean | 'row';
   /** The color a muted button takes under the pointer, when not the default one (a delete). */
   hoverTone?: 'danger';
+  /**
+   * Turns the button off and says why (no model chosen, nothing to run): the reason is its tooltip
+   * and its accessible description. It stays focusable and hoverable so the reason can be read; a
+   * click does nothing. Prefer it to `disabled` wherever the reason is not obvious from the screen.
+   */
+  disabledReason?: string | false | null;
 }
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant = "default", size = "sm", asChild = false, gap, flush, group, align, reveal, hoverTone, ...allProps }, ref) => {
+  ({ className, variant = "default", size = "sm", asChild = false, gap, flush, group, align, reveal, hoverTone, disabledReason, ...allProps }, ref) => {
     const Comp = asChild ? Slot : "button";
     const [style, props] = splitStyle(allProps);
-    return (
+    const reasonId = React.useId();
+    const button = (
       <Comp
         ref={ref}
         data-slot="button"
@@ -74,7 +82,25 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         data-size={size}
         className={cn(buttonVariants({ variant, size, className: cn(gap && GAP.gap[gap], flush === 'start' && (size === 'inline' ? '-ml-1' : '-ml-2'), flush === 'block' && '-my-1', group && 'group', align === 'start' && 'items-start', reveal === 'row' ? 'opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100' : reveal && 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100', hoverTone === 'danger' && 'hover:text-danger', styleVariants(style), className) }))}
         {...props}
+        {...(disabledReason ? {
+          disabled: false,
+          'aria-disabled': true,
+          'aria-describedby': cn(props['aria-describedby'], reasonId),
+          // A trigger's own handler (a dialog's, a form's submit) checks for this and stands down.
+          onClick: (event: React.MouseEvent<HTMLButtonElement>) => event.preventDefault(),
+        } : {})}
       />
+    );
+    if (!disabledReason) return button;
+    return (
+      <>
+        <Tooltip>
+          <TooltipTrigger asChild>{button}</TooltipTrigger>
+          <TooltipContent>{disabledReason}</TooltipContent>
+        </Tooltip>
+        {/* The description screen readers read, there whether or not the tooltip is open. */}
+        <span id={reasonId} hidden>{disabledReason}</span>
+      </>
     );
   }
 );

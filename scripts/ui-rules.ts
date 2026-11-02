@@ -19,6 +19,8 @@ const LEGACY_RULES: { name: string; pattern: RegExp }[] = [
   { name: 'styled heading (use SectionHeading / GroupHeading, or FieldRow labels)', pattern: /<(h[1-6]|legend)\b[^>]*className=/ },
   // A folding part starts open and remembers what the person folded (Section collapsible + persistKey); nothing starts folded.
   { name: 'defaultOpen={false} (a folding part starts open: Section collapsible persistKey="…")', pattern: /defaultOpen=\{false\}/ },
+  // Two folding patterns, one look: parts of a pane (Section / Group collapsible) and rows that open (ExpandableRow).
+  { name: 'Collapsible in a screen (use Section / Group collapsible, or ExpandableRow)', pattern: /\bCollapsible(?:Trigger|Content)?\b/ },
 
 ];
 /**

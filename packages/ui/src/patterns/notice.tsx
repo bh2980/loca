@@ -1,7 +1,7 @@
 import type * as React from "react"
 import type { ReactNode } from "react"
 import { cn } from "../lib/utils"
-import { Inline, Stack } from "../primitives/stack"
+import { Inline } from "../primitives/stack"
 import { Text } from "../primitives/text"
 
 type NoticeTone = "neutral" | "warning" | "danger"
@@ -60,10 +60,11 @@ export function Notice({ tone = "neutral", variant = "inline", as: Tag = "div", 
     const banner = BANNER[tone]
     return (
       <div className={cn("flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-xs", banner.box)} {...props}>
-        <Text tone={banner.text}>{children}</Text>
-        <Stack as="span" direction="row" gap="tight" marginLeft="auto">
+        {/* The text takes the room left; when the choices do not fit beside it they go to the next line, and wrap among themselves in a narrow column. */}
+        <Text tone={banner.text} className="min-w-0 flex-1 basis-48">{children}</Text>
+        <span className="ml-auto flex max-w-full flex-wrap justify-end gap-1">
           {actions}
-        </Stack>
+        </span>
       </div>
     )
   }

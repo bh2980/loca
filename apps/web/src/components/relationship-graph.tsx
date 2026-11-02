@@ -10,7 +10,7 @@ import ELK from 'elkjs/lib/elk.bundled.js';
 import '@xyflow/react/dist/style.css';
 import type { CharacterRole } from '@tw/shared';
 import { personStyle } from '@/lib/person-colors';
-import { relationRow } from '@/lib/relation-label';
+import { relationLabel, relationRow } from '@/lib/relation-label';
 import { useIsDark } from '@/lib/theme';
 
 export interface GraphCharacter {
@@ -120,7 +120,7 @@ function FloatingEdge({ id, source, target, markerStart, markerEnd, data, select
     <>
       <BaseEdge id={id} path={path} markerStart={markerStart} markerEnd={markerEnd} interactionWidth={20} style={{ stroke: selected || data?.focus ? 'var(--stroke-accent)' : 'var(--stroke-graph-edge)', strokeWidth: selected ? 2.5 : data?.focus ? 2 : 1.5, opacity: data?.dim ? 0.2 : 1, strokeDasharray: data?.dashed ? '5 4' : undefined }} />
       {/* Labels of every relationship at once pile up; they show for the selected or hovered person, or on the selected line. */}
-      {(selected || data?.showLabel) && (
+      {(selected || data?.showLabel) && !!data?.rows.length && (
         <EdgeLabelRenderer>
           <RelationLabelFrame
             data-relation-label
@@ -334,7 +334,8 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
           target: head.toId,
           data: {
             offset,
-            rows: members.map((relationship, at) => ({ id: relationship.id, text: relationRow(members.length > 1 ? (at === 0 ? 'forward' : 'back') : relationship.mutual ? 'both' : 'forward', relationship.kind, relationship.changes), selected: relationship.id === selectedRelationshipId })),
+            // A direction with no relationship (only a speech rule) gets no row; its arrowhead still says the direction.
+            rows: members.flatMap((relationship, at) => relationLabel(relationship.kind, relationship.changes) ? [{ id: relationship.id, text: relationRow(members.length > 1 ? (at === 0 ? 'forward' : 'back') : relationship.mutual ? 'both' : 'forward', relationship.kind, relationship.changes), selected: relationship.id === selectedRelationshipId }] : []),
             dashed: members.every((relationship) => relationship.dashed),
             dim: emphasis.active && !ids.some((id) => emphasis.edgeIds.has(id)),
             focus: ids.some((id) => emphasis.edgeIds.has(id)),

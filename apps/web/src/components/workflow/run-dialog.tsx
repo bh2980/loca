@@ -37,7 +37,7 @@ const KIND_ORDER: GroupKind[] = ['scene', 'ui', 'document'];
  * project, never preselected), what in those lines would spoil the translation and where to fix it,
  * how long and how much in plain words, and which models.
  */
-export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: givenGroupIds, unitIds: givenUnitIds, termIds: givenTermIds, subject: givenSubject = 'lines', unitsLabel, viewKind, dirty, disabled, trigger, defaultIgnoreStatus = false, remember, open: controlledOpen, onOpenChange, hideTrigger = false }: {
+export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: givenGroupIds, unitIds: givenUnitIds, termIds: givenTermIds, subject: givenSubject = 'lines', unitsLabel, viewKind, dirty, disabledReason, trigger, defaultIgnoreStatus = false, remember, open: controlledOpen, onOpenChange, hideTrigger = false }: {
   projectId: string;
   /** Omit to let the user pick a workflow (when starting from a scene or a line selection). */
   workflowId?: string;
@@ -51,7 +51,8 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   /** Opened from the script's UI or documents view: every line of that kind is the scope to start from. */
   viewKind?: GroupKind;
   dirty?: boolean;
-  disabled?: boolean;
+  /** Turns the default trigger off and says why (the workflow has errors). */
+  disabledReason?: string | false;
   trigger?: ReactNode;
   /** Start with the entry-status check off (re-running lines that are already done). */
   defaultIgnoreStatus?: boolean;
@@ -260,6 +261,15 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
     wasOpen.current = open;
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Why 시작 is off, the first that applies. A model picked without its model yet would quietly run on the node's own: finish or undo it first.
+  const startBlocked =
+    !workflowId ? '실행할 워크플로를 고르세요.'
+    : total === undefined ? `${terms ? '용어' : '줄'} 수를 세는 중입니다.`
+    : stale ? '바꾼 범위로 다시 세는 중입니다.'
+    : !total ? (terms ? '실행할 용어가 없습니다.' : '이 범위에는 실행할 대사가 없습니다.')
+    : Object.keys(chosenModels).length !== Object.keys(runModels).length ? '연결만 고르고 모델을 고르지 않은 노드가 있습니다. 모델을 고르거나 되돌리세요.'
+    : false;
+
   return (
     <Dialog
       open={open}
@@ -267,7 +277,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
     >
       {!hideTrigger && <DialogTrigger asChild>
         {trigger ?? (
-          <Button disabled={disabled}>
+          <Button disabledReason={disabledReason}>
             <Play /> 실행
           </Button>
         )}
@@ -457,8 +467,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
           <Button variant="outline" onClick={() => setOpen(false)}>
             취소
           </Button>
-          {/* A model picked without its model yet would quietly run on the node's own: finish or undo it first. */}
-          <Button disabled={!total || !workflowId || stale || start.isPending || Object.keys(chosenModels).length !== Object.keys(runModels).length} onClick={() => start.mutate()}>
+          <Button disabled={start.isPending} disabledReason={startBlocked} onClick={() => start.mutate()}>
             {start.isPending ? <Spinner /> : <Play />} {total ? `${total.toLocaleString()}${unit} 실행` : '실행 시작'}
           </Button>
         </DialogFooter>

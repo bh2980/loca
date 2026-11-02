@@ -1,7 +1,7 @@
 /** AI node settings, grouped by the user's task: model, instruction, output, advanced. */
 import { useEffect, useState } from 'react';
 import { AI_OUTPUTS, AI_SCOPES, CONTEXT_FIELDS, CHOICE_SOURCES, CONNECTION_KIND_INFO, BATCH_MODE_LABELS, autoBudgets, contextConfigSchema, INPUT_TYPES, limitsFor, nodeName, previousSteps, type WorkflowSubject, type AiOutput, type AiScope, type BatchConfig, type Capability, type ChoiceSource, type WorkflowNode } from '@tw/shared';
-import { Box, Button, Dialog, DialogContent, DialogHeader, DialogTitle, HelpTip, Inline, Input, NumberInput, SelectField, SelectItem, Stack, Text, Textarea, Section, Field } from '@loca/ui';
+import { Box, Button, Dialog, DialogContent, DialogHeader, DialogTitle, HelpTip, Inline, Input, NumberInput, SelectField, SelectItem, Stack, Text, Textarea, Section, Group, Field } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
 import { ModelPicker } from '@/components/model-picker';
 import { JsonFieldsEditor } from '@/components/workflow/node-config/json-fields-editor';
@@ -181,7 +181,7 @@ export function AiContextFields({ config, set, input }: { config: Pick<AiNode['c
   const setContext = (patch: Partial<typeof context>) => set({ context: { ...context, ...patch } });
   return (
     <>
-      <Box spaceY="normal">
+      <Group title={lines ? '대사 범위' : '예시'} spaceY="normal">
         {lines ? <>
             <CountRow label={CONTEXT_FIELDS.precedingLines.label} help={CONTEXT_FIELDS.precedingLines.help} unit="줄" value={context.precedingLines} fallback={8} max={50} onChange={(value) => setContext({ precedingLines: value })} />
             {context.precedingLines > 0 && (
@@ -193,8 +193,8 @@ export function AiContextFields({ config, set, input }: { config: Pick<AiNode['c
         </> : (
             <CountRow label={CONTEXT_FIELDS.examples.label} help={CONTEXT_FIELDS.examples.help} unit="줄" value={context.examples} fallback={2} max={5} onChange={(value) => setContext({ examples: value })} />
         )}
-      </Box>
-      <Box spaceY="normal" border="top" borderColor="subtle" paddingTop="normal">
+      </Group>
+      <Group title="함께 보낼 자료" spaceY="normal">
         <ToggleRow label={CONTEXT_FIELDS.candidate.label} help={CONTEXT_FIELDS.candidate.help} checked={config.include.candidate} onChange={(value) => set({ include: { ...config.include, candidate: value } })} />
         <ToggleRow label={CONTEXT_FIELDS.glossary.label} help={CONTEXT_FIELDS.glossary.help} checked={context.glossary} onChange={(value) => setContext({ glossary: value })} />
         {lines && <ToggleRow label={CONTEXT_FIELDS.speech.label} help={CONTEXT_FIELDS.speech.help} checked={context.speech} onChange={(value) => setContext({ speech: value })} />}
@@ -203,7 +203,7 @@ export function AiContextFields({ config, set, input }: { config: Pick<AiNode['c
         <ToggleRow label={CONTEXT_FIELDS.characters.label} help={CONTEXT_FIELDS.characters.help} checked={context.characters} onChange={(value) => setContext({ characters: value })} />
         <ToggleRow label={CONTEXT_FIELDS.relationships.label} help={CONTEXT_FIELDS.relationships.help} checked={context.relationships} onChange={(value) => setContext({ relationships: value })} />
         <ToggleRow label={CONTEXT_FIELDS.documents.label} help={CONTEXT_FIELDS.documents.help} checked={context.documents} onChange={(value) => setContext({ documents: value })} />
-      </Box>
+      </Group>
     </>
   );
 }

@@ -19,6 +19,7 @@ import { useInspectorTab } from '@/lib/inspector-tab';
 import { useTaxonomy } from '@/lib/knowledge';
 import { sent } from '@/lib/collections';
 import { useLinesByKeys } from '@/lib/units';
+import { particle } from '@/lib/josa';
 
 /** A field's value in the draft (the form is kept as JSON in sessionStorage). */
 type Value = string | boolean | string[] | Record<string, string> | null;
@@ -170,7 +171,7 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>사람이 정한 항목을 삭제할까요?</AlertDialogTitle>
-          <AlertDialogDescription>“{spec.label(row)}”이(가) 사라지고 더 이상 AI 문맥에 쓰이지 않습니다.</AlertDialogDescription>
+          <AlertDialogDescription>“{spec.label(row)}”{particle(spec.label(row), '이', '가')} 사라지고 더 이상 AI 문맥에 쓰이지 않습니다.</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>취소</AlertDialogCancel>

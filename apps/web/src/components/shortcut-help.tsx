@@ -59,13 +59,19 @@ const SECTIONS: { title: string; keys: [string, string][] }[] = [
 /** "Alt+Up Alt+Down" → each combination in the platform's words. */
 const shown = (keys: string) => keys.split(' ').map((combo) => (combo.length > 1 && combo.includes('+') ? keyLabel(combo) : combo));
 
+const OPEN_EVENT = 'loca:shortcut-help';
+/** Opens the shortcut list from elsewhere (the command palette). */
+export const openShortcutHelp = () => window.dispatchEvent(new Event(OPEN_EVENT));
+
 /**
  * The shortcut list, from the header's keyboard button or `?` anywhere outside a text field. A
- * popover, not a page: it is glanced at and closed.
+ * popover, not a page: it is glanced at and closed. `listen` is off for a copy that is mounted but
+ * hidden (the closed dock's header), so one key opens one list.
  */
-export function ShortcutHelp() {
+export function ShortcutHelp({ listen = true }: { listen?: boolean }) {
   const [open, setOpen] = useState(false);
   useEffect(() => {
+    if (!listen) return;
     const onKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       const typing = target && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName));
@@ -74,13 +80,18 @@ export function ShortcutHelp() {
         setOpen((value) => !value);
       }
     };
+    const onOpen = () => setOpen(true);
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
+    window.addEventListener(OPEN_EVENT, onOpen);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener(OPEN_EVENT, onOpen);
+    };
+  }, [listen]);
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="ghost" size="icon" aria-label="단축키 (?)" title="단축키 (?)">
+        <Button variant="ghost" size="icon-sm" aria-label="단축키 (?)" title="단축키 (?)">
           <Keyboard />
         </Button>
       </PopoverTrigger>
