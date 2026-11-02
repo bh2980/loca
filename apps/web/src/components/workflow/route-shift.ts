@@ -40,14 +40,25 @@ function tidy(points: Point[]): Point[] {
   return out;
 }
 
-/** `layout` with its source end moved by `source` and its target end by `target`; undefined when it cannot keep its shape. */
+/** `layout` with its source end moved by `source` and its target end by `target`; undefined without a route. */
 export function shiftRoute(layout: Layout | undefined, source: Delta, target: Delta): Layout | undefined {
   if (!layout) return undefined;
   if (still(source) && still(target)) return layout;
   if (source.dx === target.dx && source.dy === target.dy) {
     return { points: layout.points.map((point) => shift(point, source)), ...(layout.labelPosition && { labelPosition: shift(layout.labelPosition, source) }) };
   }
-  if (layout.points.length < 3) return undefined;
+  if (layout.points.length < 2) return undefined;
+  if (layout.points.length === 2) {
+    // A straight line between two nodes: its ends move, and it steps across at its middle.
+    const a = shift(layout.points[0]!, source);
+    const b = shift(layout.points[1]!, target);
+    const down = Math.abs(layout.points[0]!.x - layout.points[1]!.x) < 0.5;
+    const points = down
+      ? [a, { x: a.x, y: (a.y + b.y) / 2 }, { x: b.x, y: (a.y + b.y) / 2 }, b]
+      : [a, { x: (a.x + b.x) / 2, y: a.y }, { x: (a.x + b.x) / 2, y: b.y }, b];
+    const next = tidy(points);
+    return { points: next, ...(layout.labelPosition && { labelPosition: nearest(next, layout.labelPosition) }) };
+  }
   let points = layout.points;
   if (!still(source)) points = moveStart(points, source);
   if (!still(target)) points = moveStart([...points].reverse(), target).reverse();

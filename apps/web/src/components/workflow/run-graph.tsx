@@ -23,6 +23,7 @@ import { useIsDark } from '@/lib/theme';
 import { useTaxonomy } from '@/lib/knowledge';
 import { useConnections } from '@/lib/app-data';
 import { autoLayout } from '@/components/workflow/auto-layout';
+import { shiftRoute } from '@/components/workflow/route-shift';
 import { toast } from 'sonner';
 
 const nodeTypes = { workflow: WorkflowNodeView, frame: FrameNodeView, frameTint: FrameTintView };
@@ -99,7 +100,9 @@ function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; ru
     return {
       ...base,
       nodes: base.nodes.map((node) => (layout.positions[node.id] ? { ...node, position: layout.positions[node.id] } : node)),
-      edges: base.edges.map((edge) => ({ ...edge, layout: (layout.routes ? layout.routes[edge.id] : undefined) as typeof edge.layout })),
+      // A layout kept without routes (older pages dropped them on a click) draws the run's own routes; a line whose ends
+      // moved away from them is drawn plainly (routeMatchesPorts).
+      edges: base.edges.map((edge) => ({ ...edge, layout: (layout.routes?.[edge.id] ?? edge.layout) as typeof edge.layout })),
     };
   }, [run.definition, layout]);
   const [openCall, setOpenCall] = useState<string>();
@@ -117,15 +120,25 @@ function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; ru
     const changes = allChanges.filter((change) => !('id' in change) || !isFrameId(change.id)) as NodeChange<FlowNode>[];
     const sized = changes.flatMap((change) => (change.type === 'dimensions' && change.dimensions ? [[change.id, change.dimensions] as const] : []));
     if (sized.length) setSizes((previous) => ({ ...previous, ...Object.fromEntries(sized) }));
-    const moved = changes.flatMap((change) => (change.type === 'position' && change.position ? [change] : []));
+    // React Flow reports a position on a plain click too (the node did not move): only a real move counts.
+    // Where the node is drawn now (a fold's placement first, as `nodes` draws it).
+    const at = (id: string) => placements.get(id) ?? definition.nodes.find((node) => node.id === id)?.position;
+    const moved = changes.flatMap((change) => (change.type === 'position' && change.position && (change.dragging || change.position.x !== at(change.id)?.x || change.position.y !== at(change.id)?.y) ? [change] : []));
     if (!moved.length) return;
-    const dropped = moved.filter((change) => !change.dragging);
+    const dropped = moved.filter((change) => !change.dragging && at(change.id) && (change.position!.x !== at(change.id)!.x || change.position!.y !== at(change.id)!.y));
     setDragging((previous) => {
       const next = { ...previous };
       for (const change of moved) if (change.dragging) next[change.id] = change.position!; else delete next[change.id];
       return next;
     });
-    if (dropped.length) keepLayout({ positions: { ...layout?.positions, ...Object.fromEntries(dropped.map((change) => [change.id, change.position!])) }, routes: null });
+    if (!dropped.length) return;
+    // The dropped nodes' lines keep their shape and follow them (shiftRoute); every other line stays as it was.
+    const deltas = new Map(dropped.map((change) => [change.id, { dx: change.position!.x - at(change.id)!.x, dy: change.position!.y - at(change.id)!.y }]));
+    const still = { dx: 0, dy: 0 };
+    keepLayout({
+      positions: { ...layout?.positions, ...Object.fromEntries(dropped.map((change) => [change.id, change.position!])) },
+      routes: Object.fromEntries(definition.edges.map((edge) => [edge.id, deltas.has(edge.source) || deltas.has(edge.target) ? shiftRoute(edge.layout, deltas.get(edge.source) ?? still, deltas.get(edge.target) ?? still) : edge.layout])),
+    });
   };
   const arrange = async () => {
     const measuredSizes = new Map(flow.getNodes().map((node) => [node.id, { width: node.measured?.width ?? 224, height: node.measured?.height ?? 66 }]));
