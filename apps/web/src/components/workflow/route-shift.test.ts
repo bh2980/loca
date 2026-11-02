@@ -27,7 +27,7 @@ describe('shiftRoute', () => {
     expect(next.points.at(-1)).toEqual({ x: 150, y: 130 });
     expect(square(next.points)).toBe(true);
   });
-  it('gives up on a two-point line whose ends move apart', () => {
-    expect(shiftRoute({ points: [{ x: 0, y: 0 }, { x: 0, y: 50 }] }, { dx: 5, dy: 0 }, { dx: 0, dy: 0 })).toBeUndefined();
+  it('steps a straight line across at its middle when one end moves sideways', () => {
+    expect(shiftRoute({ points: [{ x: 0, y: 0 }, { x: 0, y: 50 }] }, { dx: 20, dy: 0 }, { dx: 0, dy: 0 })).toEqual({ points: [{ x: 20, y: 0 }, { x: 20, y: 25 }, { x: 0, y: 25 }, { x: 0, y: 50 }] });
   });
 });
