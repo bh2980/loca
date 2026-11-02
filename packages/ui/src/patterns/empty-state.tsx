@@ -1,6 +1,7 @@
 import type * as React from "react"
 import type { ReactNode } from "react"
 import { cva, type VariantProps } from "class-variance-authority"
+import { Button } from "../controls/button"
 import { cn } from "../lib/utils"
 
 function subject(noun: string) {
@@ -29,6 +30,8 @@ export type EmptyStateProps =
       filtered?: boolean
       hint?: ReactNode
       action?: ReactNode
+      /** `filtered`: how many filters are set and how to take them off ("필터 2개가 걸려 있습니다 · [필터 끄기]"). */
+      filters?: { count: number; onClear: () => void }
       variant?: keyof typeof INLINE
     }
   | (Omit<React.ComponentProps<"div">, "className"> & {
@@ -45,7 +48,7 @@ export function EmptyState(props: EmptyStateProps) {
     const { size = "pane", overlay, ...rest } = props as Omit<React.ComponentProps<"div">, "className"> & { size?: "pane" | "page"; overlay?: boolean }
     return <div data-slot="empty" {...rest} className={cn(FRAME[size], overlay && "absolute inset-0")} />
   }
-  const { noun, filtered, hint, action, variant = "default" } = props
+  const { noun, filtered, hint, action, filters, variant = "default" } = props
   const particle = subject(noun)
   return (
     <div className={INLINE[variant]}>
@@ -54,6 +57,12 @@ export function EmptyState(props: EmptyStateProps) {
       </p>
       {!filtered && hint && <p className="mt-1 text-subtle">{hint}</p>}
       {!filtered && action && <div className="mt-3 flex justify-center">{action}</div>}
+      {filtered && filters && filters.count > 0 && (
+        <>
+          <p className="mt-1 text-subtle">필터 {filters.count}개가 걸려 있습니다.</p>
+          <div className="mt-3 flex justify-center"><Button variant="outline" onClick={filters.onClear}>필터 끄기</Button></div>
+        </>
+      )}
     </div>
   )
 }

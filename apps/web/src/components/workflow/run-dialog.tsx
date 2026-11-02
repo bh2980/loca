@@ -4,12 +4,13 @@ import { keepPreviousData, useMutation, useQuery, type UseQueryResult } from '@t
 import type { InferResponseType } from 'hono/client';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { ChevronRight, Play } from 'lucide-react';
-import { Box, Heading, Icon, Inline, ReadinessDot, ScopeRow, SearchField, Button, Checkbox, Label, RadioGroup, RadioGroupItem, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Skeleton, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue, Spinner, StatusIcon, SectionHeading, Text, Bleed, KeyValue, KeyValueRow } from '@loca/ui';
+import { Box, ExpandableRow, Heading, Icon, Inline, ReadinessDot, ScopeRow, SearchField, Button, Checkbox, Label, RadioGroup, RadioGroupItem, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Skeleton, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue, Spinner, StatusIcon, SectionHeading, Text, Bleed, KeyValue, KeyValueRow } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { INPUT_TYPES, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, TERM_MARK_IDS, WORKFLOW_SUBJECT_IDS, LINE_MARK_IDS, type AutoMark, type LineMark, AUTO_MARK_IDS } from '@tw/shared';
 import { MarkChip } from '@/components/status';
 import type { ModelValue } from '@/components/model-picker';
 import { Pace, RunCaps, RunModels } from './run-estimate';
+import { paceParts } from '@/lib/run-summary';
 import { startLimits, type CapEdits } from '@/lib/run-limits';
 import { tagsIn } from '@/lib/queries';
 import { SCRIPT_VIEW } from '@/lib/labels';
@@ -80,6 +81,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   const [pickedTags, setPickedTags] = useState<Set<string>>(new Set());
   const [pickedMarks, setPickedMarks] = useState<Set<string>>(new Set());
   const [pickedStatuses, setPickedStatuses] = useState<Set<string>>(new Set());
+  const filterCount = (): number => pickedStatuses.size + pickedTags.size + pickedMarks.size + pickedFacts.size;
   // What a row shows, as filters: 최종 아님, 정한 쪽 AI, 메모 있음 (lines), 번역 비어 있음 (terms).
   const [pickedFacts, setPickedFacts] = useState<Set<string>>(new Set());
   // A person's statuses and tags stay unless this is ticked for this run (it is not remembered).
@@ -293,6 +295,43 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
 
         {/* Side padding so focus rings and the picked scope are not cut by the scroll box. */}
         <Bleed by="tight" maxHeight="dialog" spaceY="comfortable" overflow="auto" paddingX="tight" paddingY="hair">
+          {/* What will run, first: the count follows the scope chosen below. */}
+          <Box spaceY="tight" border="bottom" paddingBottom="condensed">
+            <Text as="p" variant="title">
+              {!ready ? null : total === undefined && plan.isError ? (
+                <Text tone="danger">
+                  {terms ? '용어' : '줄'} 수를 세지 못했습니다: {plan.error.message}{' '}
+                  <Button variant="ghost" size="inline" onClick={() => void plan.refetch()}>
+                    다시 시도
+                  </Button>
+                </Text>
+              ) : total === undefined ? (
+                <Text tone="muted">
+                  세는 중…
+                  {slow && (
+                    <>
+                      {' '}서버 응답이 늦습니다.{' '}
+                      <Button variant="ghost" size="inline" onClick={() => void plan.refetch()}>
+                        다시 시도
+                      </Button>
+                    </>
+                  )}
+                </Text>
+              ) : total === 0 ? (
+                <Text tone="muted">{terms ? (termIds?.length ? '고른 용어 중 실행할 것이 없습니다.' : '조건에 맞는 용어가 없습니다. 필터를 줄이거나 용어집에서 용어를 골라 실행하세요.') : '이 범위에는 실행할 대사가 없습니다.'}</Text>
+              ) : (
+                <>
+                  <Text as="b" weight="medium" tabular>{total.toLocaleString()}{unit}</Text>{terms ? '를' : '을'} 실행합니다
+                  {data!.lines.translated > 0 && <Text tone="muted"> (그중 이미 {terms ? '표기가 있는 용어' : '번역 있는 줄'} {data!.lines.translated.toLocaleString()})</Text>}
+                </>
+              )}
+              {data && data.lines.excluded > 0 && <Text tone="muted"> · 번역 제외 {data.lines.excluded.toLocaleString()}줄은 빠집니다</Text>}
+            </Text>
+            {data && total ? <Text as="p" variant="body" tone="muted">AI 요청 {paceParts(data).callText}{paceParts(data).time && ` · 약 ${paceParts(data).time}`}{paceParts(data).money && ` · ${paceParts(data).money}`}</Text> : null}
+            {!terms && wholeProject && Boolean(total) && (
+              <Text as="p" variant="caption" tone="warning">프로젝트 전체입니다. 처음이면 장면 하나로 먼저 시험해 보세요.</Text>
+            )}
+          </Box>
           {!fixedWorkflowId && (
             <Box spaceY="condensed">
             <Select value={workflowId ?? ''} onValueChange={choose}>
@@ -359,8 +398,9 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
               )}
             </Box>
 
-            <Box as="fieldset" spaceY="condensed">
-              <Heading as="legend" minWidth={0} marginBottom="condensed">필터</Heading>
+            {/* Filters are rarely set here: one line saying which, open to change them. */}
+            <ExpandableRow defaultOpen={filterCount() > 0} summary={<Text>필터 <Text tone="muted">· {filterCount() ? `${filterCount()}개` : '없음'}</Text></Text>}>
+              <Box as="fieldset" spaceY="condensed">
               <KeyValue align="start">
                 <KeyValueRow label="상태">
                   <Inline wrap gapX="comfortable" gapY="tight">
@@ -403,67 +443,45 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
                   </Inline>
                 </KeyValueRow>
               </KeyValue>
-            </Box>
+              </Box>
+            </ExpandableRow>
 
-            <Text as="p" variant="body">
-              {!ready ? null : total === undefined && plan.isError ? (
-                <Text tone="danger">
-                  {terms ? '용어' : '줄'} 수를 세지 못했습니다: {plan.error.message}{' '}
-                  <Button variant="ghost" size="inline" onClick={() => void plan.refetch()}>
-                    다시 시도
-                  </Button>
-                </Text>
-              ) : total === undefined ? (
-                <Text tone="muted">
-                  세는 중…
-                  {slow && (
-                    <>
-                      {' '}서버 응답이 늦습니다.{' '}
-                      <Button variant="ghost" size="inline" onClick={() => void plan.refetch()}>
-                        다시 시도
-                      </Button>
-                    </>
-                  )}
-                </Text>
-              ) : total === 0 ? (
-                <Text tone="muted">{terms ? (termIds?.length ? '고른 용어 중 실행할 것이 없습니다.' : '조건에 맞는 용어가 없습니다. 필터를 줄이거나 용어집에서 용어를 골라 실행하세요.') : '이 범위에는 실행할 대사가 없습니다.'}</Text>
-              ) : (
-                <>
-                  <Text as="b" weight="medium" tabular>{total.toLocaleString()}{unit}</Text>{terms ? '를' : '을'} 실행합니다
-                  {data!.lines.translated > 0 && <Text tone="muted"> (그중 이미 {terms ? '표기가 있는 용어' : '번역 있는 줄'} {data!.lines.translated.toLocaleString()})</Text>}
-                </>
-              )}
-              {data && data.lines.excluded > 0 && <Text tone="muted"> · 번역 제외 {data.lines.excluded.toLocaleString()}줄은 빠집니다</Text>}
-            </Text>
-            {!terms && wholeProject && Boolean(total) && (
-              <Text as="p" variant="caption" tone="warning">프로젝트 전체입니다. 처음이면 장면 하나로 먼저 시험해 보세요.</Text>
-            )}
           </Box>
 
-          {/* Listeners, speech rules and glossary checks are about lines: a term run has none of them. */}
-          {data && total && !terms ? (
-            <Readiness
-              projectId={projectId}
-              readiness={data.readiness}
-              oneScene={scopeTarget === 'here' && here?.length === 1 ? here[0].id : undefined}
-              onLeave={() => setOpen(false)}
-            />
-          ) : null}
-          {data && total ? <Pace data={data} projectId={projectId} /> : null}
-          {data && total ? <RunCaps suggested={suggested} edits={capEdits} onChange={setCapEdits} /> : null}
+          {/* The estimate's detail and the caps: one line, open for the steps and the caps. */}
           {data && total ? (
+            <ExpandableRow summary={<Text>예상 자세히 <Text tone="muted">· 단계별 요청 · 상한 호출 {(capEdits.maxCalls === undefined ? suggested?.maxCalls : capEdits.maxCalls)?.toLocaleString() ?? '없음'}회에서 멈춤</Text></Text>}>
+              <Box spaceY="comfortable">
+                <Pace data={data} projectId={projectId} />
+                <RunCaps suggested={suggested} edits={capEdits} onChange={setCapEdits} />
+              </Box>
+            </ExpandableRow>
+          ) : null}
+          {data && total ? (
+            <ExpandableRow summary={<Text>모델 <Text tone="muted">· AI 노드 {data.nodes.length}개{Object.keys(chosenModels).length ? ` · ${Object.keys(chosenModels).length}개 이번만 바꿈` : ' · 워크플로대로'}</Text></Text>}>
             <RunModels
               nodes={data.nodes}
               picked={runModels}
               onPick={(nodeId, value) => setRunModels((previous) => ({ ...previous, [nodeId]: value }))}
               onReset={(nodeId) => setRunModels(({ [nodeId]: _gone, ...rest }) => rest)}
             />
+            </ExpandableRow>
           ) : null}
           {ready && plan.isError && plan.data && <Text as="p" variant="body" tone="danger">계획을 다시 계산하지 못했습니다: {plan.error.message}</Text>}
           {ready && plan.isPending && <Skeleton height="placeholder-sm" width="full" />}
 
         </Bleed>
 
+        {/* The readiness warnings right above the start, read before it is pressed. */}
+        {/* Listeners, speech rules and glossary checks are about lines: a term run has none of them. */}
+        {data && total && !terms ? (
+          <Readiness
+            projectId={projectId}
+            readiness={data.readiness}
+            oneScene={scopeTarget === 'here' && here?.length === 1 ? here[0].id : undefined}
+            onLeave={() => setOpen(false)}
+          />
+        ) : null}
         {/* Right above the start: what this run may do to what a person decided. */}
         {!terms && data && total ? (
           <Inline as="label" gap="condensed" variant="body">
@@ -636,12 +654,14 @@ function Readiness({ projectId, readiness, oneScene, onLeave }: { projectId: str
       ),
     },
   ];
-  const rows = checks.filter((row) => readiness.applies[row.uses]);
+  const applies = checks.filter((row) => readiness.applies[row.uses]);
   // A workflow that neither writes nor judges translations with this context has nothing to get ready.
-  if (!rows.length) return null;
+  if (!applies.length) return null;
+  // Only what is not ready is listed; all ready is one quiet line.
+  const rows = applies.filter((row) => !row.ok);
+  if (!rows.length) return <Inline gap="condensed" variant="body" tone="muted"><ReadinessDot ok /> 준비됨 · 청자·말투 규칙·용어</Inline>;
   return (
     <Box as="section" spaceY="condensed">
-      <SectionHeading>준비 상태</SectionHeading>
       <Box as="ul" radius="md" border="all" variant="body">
         {rows.map((row, index) => (
           <Inline as="li" key={index} gap="condensed" paddingX="normal" paddingY="condensed">

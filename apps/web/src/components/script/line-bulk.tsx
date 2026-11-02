@@ -100,7 +100,7 @@ export function useLineBulk({ projectId, pickKey, rows, tagName, aiOnly }: { pro
 export type LineBulk = ReturnType<typeof useLineBulk>;
 
 /** The head row above the lines: column labels, or the picked lines' actions. */
-export function LineHeadRow({ projectId, rows, bulk, statusList, tags }: { projectId: string; rows: { id: string; speaker: string | null }[]; bulk: LineBulk; statusList: { id: string; name: string; color: string }[]; tags: ComponentProps<typeof TagMenu>['tags'] }) {
+export function LineHeadRow({ projectId, rows, bulk, statusList, tags, allMatching }: { projectId: string; rows: { id: string; speaker: string | null }[]; bulk: LineBulk; statusList: { id: string; name: string; color: string }[]; tags: ComponentProps<typeof TagMenu>['tags']; /** The list has more than this page: how many, and picking them all. */ allMatching?: { total: number; filtered: boolean; onPick: () => void } }) {
   const { picked, pick, stopPicking, check, pickedByAi, setStatus, setListener, tagState, setTag, setTranslate } = bulk;
   const people = useCharacters(projectId);
   const project = useProject(projectId);
@@ -128,7 +128,7 @@ export function LineHeadRow({ projectId, rows, bulk, statusList, tags }: { proje
           source={<span>원문{sourceLanguage && <Text marginLeft="tight" tone="subtle">· {sourceLanguage}</Text>}</span>}
           translation={<span>번역{targetLanguage && <Text marginLeft="tight" tone="subtle">· {targetLanguage}</Text>}</span>}
           selection={picked.size > 0 ? (
-            <SelectionBar grow count={picked.size} onClear={stopPicking}>
+            <SelectionBar grow count={picked.size} onClear={stopPicking} more={allFinal && allMatching && allMatching.total > picked.size ? { label: `${allMatching.filtered ? '필터에 맞는 ' : ''}${allMatching.total.toLocaleString()}줄 모두 고르기`, onSelect: allMatching.onPick } : undefined}>
               <EditorAction icon={Check} variant="outline" disabled={!hasAi || check.isPending} aria-label="AI가 정한 줄을 확인함" onClick={() => check.mutate(pickedByAi)}>
                 확인함{hasAi ? ` ${pickedByAi.length}` : ''}
               </EditorAction>
