@@ -61,7 +61,7 @@ async function gone(pid: number) {
   return !alive(pid);
 }
 
-const KEYS = ['FAKE_CLI_FIXED_TOKENS', 'FAKE_CLI_CACHED_TOKENS', 'FAKE_CLI_STARTUP_MS', 'FAKE_CLI_PID_FILE', 'FAKE_CLI_IGNORE_SIGTERM', 'FAKE_CLI_EXIT', 'MOCK_BAD_JSON_RATE', 'MOCK_TRUNCATE_RATE', 'MOCK_DROP_RATE', 'MOCK_429_RATE'];
+const KEYS = ['FAKE_CLI_LINGER', 'FAKE_CLI_FIXED_TOKENS', 'FAKE_CLI_CACHED_TOKENS', 'FAKE_CLI_STARTUP_MS', 'FAKE_CLI_PID_FILE', 'FAKE_CLI_IGNORE_SIGTERM', 'FAKE_CLI_EXIT', 'MOCK_BAD_JSON_RATE', 'MOCK_TRUNCATE_RATE', 'MOCK_DROP_RATE', 'MOCK_429_RATE'];
 let saved: Record<string, string | undefined>;
 let before: string[];
 beforeEach(() => {
@@ -158,6 +158,26 @@ describe.each(KINDS)('fake $kind CLI', ({ kind, bin, anthropicStyle, reportsCost
     await new Promise((resolve) => setTimeout(resolve, 200));
     expect(await gone(pid)).toBe(true);
   });
+});
+
+describe('a CLI that stays up after its answer (agy 1.3)', () => {
+  it('reads the answer and ends the process soon after its result event, long before the time limit', async () => {
+    process.env.FAKE_CLI_LINGER = '1';
+    process.env.FAKE_CLI_PID_FILE = path.join(tmpdir(), `fake-cli-${process.pid}-linger.pid`);
+    const started = Date.now();
+    const result = await cliGenerate(route('antigravity', 'agy'), request({ timeoutMs: 15_000 }));
+    expect(result.object.results.map((line) => line.id)).toEqual(['L1', 'L2']);
+    expect(Date.now() - started).toBeLessThan(6000);
+    expect(await gone(Number(readFileSync(process.env.FAKE_CLI_PID_FILE, 'utf8')))).toBe(true);
+  }, 12_000);
+
+  it('keeps an answer it printed when the call then runs out of time', async () => {
+    process.env.FAKE_CLI_LINGER = '1';
+    process.env.FAKE_CLI_IGNORE_SIGTERM = '1';
+    // The time limit ends it before the grace does: the answer is still there.
+    const result = await cliGenerate(route('antigravity', 'agy'), request({ timeoutMs: 600 }));
+    expect(result.object.results).toHaveLength(2);
+  }, 12_000);
 });
 
 describe('fake CLI extras', () => {

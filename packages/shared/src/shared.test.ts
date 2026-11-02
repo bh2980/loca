@@ -303,8 +303,8 @@ describe('templates', () => {
     const definition = workflowDefinitionSchema.parse(termExtractionTemplate(ids));
     expect(errors(definition)).toEqual([]);
     expect(kinds(definition)).toEqual(['entry', 'ai', 'saveTerms']);
-    // The AI's 오류 exit puts the AI 실패 tag on the line; it has no edge, so the line ends there.
-    expect(definition.nodes.find((node) => node.id === 'terms')?.exits).toEqual({ error: [{ type: 'tag', action: 'add', tagIds: ['t0'], categoryTags: {} }] });
+    // The AI's 오류 exit has no action and no edge: a failed line ends failed in the run (no tag on the line).
+    expect(definition.nodes.find((node) => node.id === 'terms')?.exits?.error ?? []).toEqual([]);
     expect(definition.edges.some((edge) => edge.sourceHandle === 'error')).toBe(false);
     expect(definition.nodes.find((node) => node.id === 'save-terms')).toMatchObject({ config: { params: { list: 'terms', map: { source: 'source', target: 'target', kind: 'kind', meaning: 'meaning', evidence: 'evidence' } } } });
   });
@@ -554,7 +554,7 @@ describe('retry rules', () => {
       ...defaultWorkflows(ids).map((workflow) => ({ name: `default ${workflow.name}`, definition: workflow.definition })),
       { name: 'analysis', definition: analysisTemplate(ids) },
     ];
-    // The marker per AI node: 번역's three set 검토 필요; every extraction AI puts the AI 실패 tag; 용어 번역 (terms) and the merge have none.
+    // The marker per AI node: 번역's three set 검토 필요; the others have none (a failed line ends failed in the run).
     const statusMarkers = new Set(['translate', 'review', 'revise']);
     for (const { name, definition } of everything) {
       expect(definition.nodes.some((node) => (node.type as string) === 'retry'), `${name} has no retry node`).toBe(false);
@@ -569,10 +569,9 @@ describe('retry rules', () => {
         if (node.id === 'speech') { expect(goesOn, 'a failed 말투 판정 goes on to AI 검수').toEqual(['review']); continue; }
         // The marker is the exit's own action; the exit has no edge, so the line ends there.
         expect(goesOn, `${name}/${node.id} 오류 has no edge`).toEqual([]);
-        expect(marker, `${name}/${node.id} 오류 → marker`).toHaveLength(1);
         const isTranslation = (name === 'translation' || name === 'default 번역' || name === 'review' || name === 'default 검수') && statusMarkers.has(node.id);
-        if (isTranslation) expect(marker[0], `${name}/${node.id}`).toEqual({ type: 'status', statusId: 's2' });
-        else expect(marker[0]).toEqual({ type: 'tag', action: 'add', tagIds: ['t0'], categoryTags: {} });
+        if (isTranslation) expect(marker, `${name}/${node.id}`).toEqual([{ type: 'status', statusId: 's2' }]);
+        else expect(marker, `${name}/${node.id} 오류 has no marker`).toEqual([]);
       }
     }
   });

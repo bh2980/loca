@@ -715,6 +715,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         noted: z.boolean().optional().describe('Lines with (true) or without (false) a memo.'),
         decidedBy: z.enum(DECIDED_BY).optional().describe('Who decided it (정한 쪽): ai (✦, no person has checked it) or human; a line\'s status, or a term\'s decision.'),
         emptyTarget: z.boolean().optional().describe('A terms workflow: terms with no Korean form (true) or with one (false).'),
+        changeHuman: z.boolean().optional().describe('Also change a status a person set and take off tags a person put on. Without it the run leaves what a person decided and notes it in the run detail.'),
         models: runModelInput.optional().describe(MODELS_HELP),
       }),
       needsApproval: true,

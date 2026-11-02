@@ -240,6 +240,27 @@ export function readCliOutput<T>(kind: CliKind, stdout: string, schema: z.ZodTyp
   return { object: parsed.data, usage };
 }
 
+/**
+ * The event a CLI ends its answer with, for one that can stay up after it: agy 1.3 logs "stream input closed after
+ * 1 turn(s)" and does not exit. Once it is out the answer is complete: the process gets a moment to exit, then is
+ * ended, and the answer is read from what it printed (also when the call ran out of time after it).
+ */
+const FINAL_EVENT: Partial<Record<CliKind, (event: unknown) => boolean>> = {
+  antigravity: (event) => record(event)?.event === 'result',
+};
+/** How long a CLI that printed its final event may take to exit on its own before it is ended. */
+const EXIT_GRACE_MS = 1000;
+const hasFinalEvent = (kind: CliKind, stdout: string) => {
+  const final = FINAL_EVENT[kind];
+  return Boolean(final) && stdout.split('\n').some((text) => {
+    try {
+      return final!(JSON.parse(text));
+    } catch {
+      return false;
+    }
+  });
+};
+
 export async function cliGenerate<T>(route: ResolvedRoute, request: GenerateRequest<T>, tempRoot = tmpdir()): Promise<GenerateResult<T>> {
   const kind = route.kind as CliKind;
   const schema = z.toJSONSchema(request.schema, { target: 'draft-7' });
@@ -250,6 +271,8 @@ export async function cliGenerate<T>(route: ResolvedRoute, request: GenerateRequ
   const prompt =
     (kind === 'codex' ? request.prompt : `${instructions}\n\n${request.prompt}`) +
     (kind === 'opencode' ? `\n\nAnswer with one JSON value that follows this JSON Schema, and nothing else:\n${JSON.stringify(schema)}` : '');
+  // Ends a CLI that stays up after its final event (FINAL_EVENT).
+  let ending: NodeJS.Timeout | undefined;
   try {
     await Promise.all([writeFile(files.schema, JSON.stringify(schema)), writeFile(files.prompt, prompt), ...(kind === 'codex' ? [writeFile(files.instructions, instructions)] : [])]);
     const subprocess = execaCli(cliCommand(kind, route.executable), args(kind, route, schema, files, request.timeoutMs), {
@@ -261,6 +284,14 @@ export async function cliGenerate<T>(route: ResolvedRoute, request: GenerateRequ
       forceKillAfterDelay: 3000,
       windowsHide: true,
     });
+    if (FINAL_EVENT[kind]) {
+      let seen = '';
+      subprocess.stdout?.on('data', (chunk: Buffer) => {
+        if (ending) return;
+        seen += chunk.toString();
+        if (hasFinalEvent(kind, seen)) ending = setTimeout(() => subprocess.kill(), EXIT_GRACE_MS);
+      });
+    }
     const result = await subprocess;
     const lastMessage = kind === 'codex' ? await readFile(files.result, 'utf8').catch(() => '') : '';
     try {
@@ -272,6 +303,15 @@ export async function cliGenerate<T>(route: ResolvedRoute, request: GenerateRequ
     if (error instanceof ModelError) throw error;
     if (error instanceof ExecaError) {
       if (error.isCanceled) throw new ModelError('cancelled', '작업이 취소되었습니다.');
+      // Ended after its answer (by us, or by the time limit while it lingered): the answer is kept.
+      const printed = (error.stdout ?? '').toString();
+      if (hasFinalEvent(kind, printed)) {
+        try {
+          return readCliOutput(kind, printed, request.schema);
+        } catch (failure) {
+          throw failure instanceof ModelError ? withOutput(failure, '', printed) : failure;
+        }
+      }
       if (error.timedOut) throw new ModelError('timeout', 'CLI 호출이 제한 시간을 초과했습니다.');
       if (error.code === 'ENOENT') throw new ModelError('config', cliMissing(cliCommand(kind, route.executable)), false);
       // A CLI that exits non-zero often still printed its envelope on stdout: its own error, and usage.
@@ -296,6 +336,7 @@ export async function cliGenerate<T>(route: ResolvedRoute, request: GenerateRequ
     }
     throw new ModelError('unknown', error instanceof Error ? error.message : String(error), false);
   } finally {
+    clearTimeout(ending);
     await rm(dir, { recursive: true, force: true });
   }
 }

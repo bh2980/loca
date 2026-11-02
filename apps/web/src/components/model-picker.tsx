@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useParams } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, ChevronsUpDown } from 'lucide-react';
 import { CONNECTION_KIND_INFO, isFreeModel, type Capability, type ConnectionKind } from '@tw/shared';
 import { Chip, Box, Button, Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, Field, Icon, Inline, Popover, PopoverContent, PopoverTrigger, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Stack, Text } from '@loca/ui';
@@ -18,10 +18,13 @@ export interface ModelValue {
 const DEFAULT_EFFORT = '__default';
 
 /** A connection's models, as it lists them (APIs can list hundreds; CLIs may list none). */
+const modelsQuery = (target: SettingsTarget, connectionId: string) => ({
+  queryKey: ['connections', targetScope(target), connectionId, 'models'],
+  queryFn: () => unwrap(connectionsApi(target).models(connectionId)),
+});
 function useModels(target: SettingsTarget, connectionId: string | undefined) {
   return useQuery({
-    queryKey: ['connections', targetScope(target), connectionId, 'models'],
-    queryFn: () => unwrap(connectionsApi(target).models(connectionId!)),
+    ...modelsQuery(target, connectionId ?? ''),
     enabled: !!connectionId,
     staleTime: 60_000,
     retry: false,
@@ -95,8 +98,16 @@ export function ModelPicker({
   const list = models.data?.models ?? [];
   const typed = query.trim();
 
+  const queryClient = useQueryClient();
+  // Another connection keeps the model when it has one of the same name (the same model through another account);
+  // otherwise the model is picked anew. Nothing is filled in for the person.
   const pickConnection = (connectionId: string) => {
+    const keep = value?.model;
     onChange({ connectionId, model: '' });
+    if (!keep) return;
+    void queryClient.fetchQuery({ ...modelsQuery(target, connectionId), staleTime: 60_000, retry: false })
+      .then((listed) => { if (listed.models?.includes(keep)) onChange({ connectionId, model: keep }); })
+      .catch(() => {});
   };
   const pickModel = (model: string) => {
     onChange({ connectionId: value!.connectionId, model, ...(value?.effort && efforts.includes(value.effort) && { effort: value.effort }) });

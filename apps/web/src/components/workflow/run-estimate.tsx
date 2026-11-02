@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { InferResponseType } from 'hono/client';
 import { Link } from '@tanstack/react-router';
 import { Box, Button, Grid, Inline, NumberInput, SectionHeading, Stack, Text, Field } from '@loca/ui';
@@ -59,9 +60,18 @@ export function Pace({ data, projectId }: { data: PlanData; projectId?: string }
  * shares its requests with, for this run. The workflow keeps its own (change it there for good).
  */
 export function RunModels({ nodes, picked, onPick, onReset, changedNote = '이번 실행만' }: { nodes: PlanData['nodes']; picked: Record<string, ModelValue>; onPick: (nodeId: string, value: ModelValue) => void; onReset: (nodeId: string) => void; /** Says how far a picked model reaches. */ changedNote?: string }) {
+  // The pick for every step: kept here while its connection and then its model are chosen.
+  const [all, setAll] = useState<ModelValue | null>(null);
   return (
     <Box as="section" spaceY="condensed">
       <SectionHeading>모델</SectionHeading>
+      {/* One pick for every AI step at once (each can still be changed below). */}
+      {nodes.length > 1 && (
+        <Inline minWidth={0} wrap gap="condensed">
+          <Text width="field" shrink={false} truncate variant="body" weight="medium">모든 AI 노드</Text>
+          <ModelPicker value={all} onChange={(value) => { setAll(value); for (const node of nodes) onPick(node.nodeId, value); }} grow />
+        </Inline>
+      )}
       {nodes.map((node) => {
         const own = node.choice.connectionId && node.choice.model ? node.choice : null;
         const changed = Boolean(picked[node.nodeId]);

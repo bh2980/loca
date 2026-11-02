@@ -53,17 +53,17 @@ function setup(templateKey: string) {
 }
 
 describe('every AI node of a template fails the same way', () => {
-  it.each(['listener', 'people', 'events', 'terms'])('%s: an AI that keeps timing out is sent again twice by the default retry rule, then the lines end with the AI 실패 tag', async (key) => {
+  it.each(['listener', 'people', 'events', 'terms'])('%s: an AI that keeps timing out is sent again twice by the default retry rule, then the lines end failed in the run, untagged', async (key) => {
     const { db, runId, aiFailed } = setup(key);
     const fake = alwaysTimesOut();
     await new Runner(db, memoryStore(), fake.port).drain();
     const items = db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all();
     expect(items).toHaveLength(4);
-    // Each item leaves the AI node's 오류 exit, whose action tags it, and ends done there (the exit has no edge); the failure is on the line, not in the run.
-    expect(items.every((item) => item.state === 'done' && !item.data.error && item.data.path.at(-1)?.port === 'error')).toBe(true);
+    // Each item leaves the AI node's 오류 exit, which has nothing after it: it ends failed, so '실패한 줄 다시' offers it.
+    expect(items.every((item) => item.state === 'failed' && item.data.path.at(-1)?.port === 'error')).toBe(true);
     expect(items.every((item) => item.data.retry?.times[`${items[0]!.data.path.find((step) => step.port === 'retry')!.nodeId}:0`] === 2)).toBe(true);
-    const tagged = db.select().from(s.unitTags).where(eq(s.unitTags.tagId, aiFailed.id)).all();
-    expect(tagged).toHaveLength(4);
+    // Not a translation failure: the lines get no 'AI 실패' tag (the run says what failed).
+    expect(db.select().from(s.unitTags).where(eq(s.unitTags.tagId, aiFailed.id)).all()).toHaveLength(0);
     // One request per line batch and two resends each: nothing else was asked.
     expect(fake.calls.length % 3).toBe(0);
     expect(db.select().from(s.runs).where(eq(s.runs.id, runId)).get()!.status).toBe('completed');

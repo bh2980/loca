@@ -81,7 +81,7 @@ const nodeTypes = { event: EventCard, section: SectionTitle };
  * right-click menus, a toolbox over one picked event, the canvas toolbar (with 가로·세로). Dragged
  * positions stay in this browser until 자동 정렬; an edit keeps everyone where they are.
  */
-export function EventFlow({ projectId, events, selected, onOpen, badge, filtered, direction = 'vertical', onDirectionChange, actions }: {
+export function EventFlow({ projectId, events, selected, onOpen, badge, filtered, direction = 'vertical', onDirectionChange, actions, emptyAction }: {
   projectId: string;
   events: FlowEvent[];
   /** Filters are set (so none matching is not the same as none yet). */
@@ -94,6 +94,8 @@ export function EventFlow({ projectId, events, selected, onOpen, badge, filtered
   onDirectionChange?: (direction: EventFlowDirection) => void;
   /** What it can change (the page's, each undoable); without it the flow only shows and selects. */
   actions?: EventFlowActions;
+  /** With no events yet: the way to get some (add one, run an extraction). */
+  emptyAction?: ReactNode;
 }) {
   const dismiss = useCanvasDismiss();
   const dark = useIsDark();
@@ -268,7 +270,7 @@ export function EventFlow({ projectId, events, selected, onOpen, badge, filtered
     if (Date.now() - editedRef.current > 5000 || !viewKey.current) viewKey.current = layout.key;
   }
 
-  if (!events.length) return <EmptyState noun="사건" filtered={filtered} />;
+  if (!events.length) return <EmptyState noun="사건" filtered={filtered} hint="대본에서 사건을 뽑아 오거나 직접 추가합니다." action={emptyAction} />;
   if (!layout) return <Inline height="full" justify="center" variant="body" tone="muted">배치 계산 중…</Inline>;
   const one = selection.length === 1 && !picked.size ? selection[0] : undefined;
   const menuLine = menu?.kind === 'line' ? menu.line : undefined;

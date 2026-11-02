@@ -1,7 +1,7 @@
 import { DockProvider, DockInspector, DockHeader, WorkspaceShell, PageHeader, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle, Button, SidebarTrigger, AppStatusBar, STATUS_BAR_SLOT_ID, Popover, PopoverTrigger, StatusIcon, SidebarInset, SidebarProvider, Box, Count, DockPane, Icon, Inline, Notice, ListRow, Chip, Meter, Progress, Stack, StatusBarButton, Text, Spinner, TextLink, PopoverContent, SectionHeading, EmptyState } from '@loca/ui';
 import { useCallback, useEffect, useState } from 'react';
 import { createFileRoute, Link, Outlet } from '@tanstack/react-router';
-import { Bell, CheckCircle2, Play, TriangleAlert } from 'lucide-react';
+import { Bell, CheckCircle2, Pause, Play, TriangleAlert } from 'lucide-react';
 import { ApiError } from '@/lib/api';
 import { AppSidebar } from '@/components/app-sidebar';
 import { ChatPanel } from '@/components/chat/chat-panel';
@@ -76,7 +76,9 @@ function ProjectLayout() {
 
   const percent = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
   const activeCount = progress.activeRuns.length;
-  const firstActive = progress.activeRuns[0];
+  // A running run first: a paused one is shown as paused (⏸), never with the spinner.
+  const firstActive = progress.activeRuns.find((run) => run.status === 'running') ?? progress.activeRuns[0];
+  const allPaused = activeCount > 0 && progress.activeRuns.every((run) => run.status === 'paused');
   const runDone = (r: (typeof progress.activeRuns)[number]) =>
     (r.states.done ?? 0) + (r.states.failed ?? 0) + (r.states.cancelled ?? 0) + (r.states.skipped ?? 0);
   const firstActiveDone = firstActive ? runDone(firstActive) : 0;
@@ -161,9 +163,9 @@ function ProjectLayout() {
                   <StatusBarButton gap="tight" marginLeft="auto">
                     {activeCount > 0 ? (
                       <>
-                        <Spinner size="xs" tone="accent" />
+                        {allPaused ? <Icon icon={Pause} size="xs" shrink={false} tone="warning" /> : <Spinner size="xs" tone="accent" />}
                         <Text nowrap tabular>
-                          {firstActive.workflowName} ({firstActiveDone.toLocaleString()}/{firstActive.total.toLocaleString()})
+                          {allPaused && '일시정지 · '}{firstActive.workflowName} ({firstActiveDone.toLocaleString()}/{firstActive.total.toLocaleString()})
                           {activeCount > 1 && ` 외 ${activeCount - 1}건`}
                         </Text>
                       </>

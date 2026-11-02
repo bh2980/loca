@@ -18,6 +18,11 @@ export const runScopeSchema = z.object({
   listeners: z.array(z.string()).optional(),
   kinds: z.array(z.string()).optional(),
   q: z.string().optional(),
+  /**
+   * Also change what a person decided: a status a person set and tags a person put on (the line's history says who
+   * did it last). Off: the run leaves them and says so in its detail.
+   */
+  changeHuman: z.boolean().optional(),
 });
 
 /** The part of a preflight the run card shows (and starts with): kept on the card, so the card says what it said when it was made. */

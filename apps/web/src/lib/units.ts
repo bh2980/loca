@@ -235,7 +235,7 @@ export function useLines(projectId: string, ids: readonly string[] | undefined) 
 /** The fields a line's context (GET units/:id) shares with its row: read from the row, so one change shows in the list and the pane together. */
 const SHARED = ['source', 'speaker', 'translation', 'statusId', 'statusBy', 'statusRunId', 'listener', 'listenerOrigin', 'listenerConfidence', 'note', 'translate', 'tagIds', 'updatedAt'] as const;
 
-export type LineDetail = Context & Pick<LineExtras, 'candidates' | 'history'>;
+export type LineDetail = Context & Pick<LineExtras, 'candidates' | 'history' | 'events'>;
 
 /**
  * A line's detail: its context (neighbours, speech rule, graph nodes, the scene's names), fetched for
@@ -256,7 +256,7 @@ export function useLineDetail(projectId: string, unitId: string, options: { enab
     if (!row || (!partial && (!context.data || !more))) return undefined;
     // Until the context comes: the row's own fields, its scene from the row, nothing known about its neighbours, rule or nodes.
     const base = context.data?.id === row.id ? context.data : ({ ...row, seq: undefined, candidateId: null, group: { id: row.groupId, title: row.groupTitle, key: '' }, neighbors: {}, graphNodes: [], speech: null, sceneNames: [] } as unknown as Context);
-    return { ...base, ...(Object.fromEntries(SHARED.map((field) => [field, row[field]])) as Partial<Context>), candidates: more?.candidates ?? [], history: more?.history ?? [] };
+    return { ...base, ...(Object.fromEntries(SHARED.map((field) => [field, row[field]])) as Partial<Context>), candidates: more?.candidates ?? [], history: more?.history ?? [], events: more?.events ?? [] };
   }, [context.data, row, more, partial]);
   return { ...context, data, isPending: enabled && !data, contextReady: Boolean(context.data && context.data.id === unitId), extrasReady: Boolean(more) };
 }

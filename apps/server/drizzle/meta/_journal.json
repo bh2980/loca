@@ -862,6 +862,13 @@
       "when": 1793634209973,
       "tag": "0122_exit_actions",
       "breakpoints": true
+    },
+    {
+      "idx": 123,
+      "version": "6",
+      "when": 1793651761619,
+      "tag": "0123_line_events",
+      "breakpoints": true
     }
   ]
 }
