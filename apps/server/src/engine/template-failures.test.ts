@@ -59,8 +59,8 @@ describe('every AI node of a template fails the same way', () => {
     await new Runner(db, memoryStore(), fake.port).drain();
     const items = db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all();
     expect(items).toHaveLength(4);
-    // Each item is handed on to the tag node and ends done; the failure is on the line, not in the run.
-    expect(items.every((item) => item.state === 'done' && item.data.path.some((step) => step.nodeId.endsWith('-failed')))).toBe(true);
+    // Each item leaves the AI node's 오류 exit, whose action tags it, and ends done there (the exit has no edge); the failure is on the line, not in the run.
+    expect(items.every((item) => item.state === 'done' && !item.data.error && item.data.path.at(-1)?.port === 'error')).toBe(true);
     expect(items.every((item) => item.data.retry?.times[`${items[0]!.data.path.find((step) => step.port === 'retry')!.nodeId}:0`] === 2)).toBe(true);
     const tagged = db.select().from(s.unitTags).where(eq(s.unitTags.tagId, aiFailed.id)).all();
     expect(tagged).toHaveLength(4);
@@ -74,7 +74,7 @@ describe('every AI node of a template fails the same way', () => {
     const fake = alwaysTimesOut();
     await new Runner(db, memoryStore(), fake.port).drain();
     const items = db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all();
-    expect(items.every((item) => item.state === 'done' && item.data.path.some((step) => step.nodeId === 'needs-review'))).toBe(true);
+    expect(items.every((item) => item.state === 'done' && item.data.path.at(-1)?.nodeId === 'translate' && item.data.path.at(-1)?.port === 'error')).toBe(true);
     expect(db.select().from(s.units).all().every((unit) => unit.statusId === review.id)).toBe(true);
     // Nothing past the failed AI 번역 ran.
     expect(items.every((item) => !item.data.path.some((step) => step.nodeId === 'review' || step.nodeId === 'save'))).toBe(true);

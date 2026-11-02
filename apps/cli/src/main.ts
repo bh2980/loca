@@ -865,8 +865,16 @@ workflows
       : node.type === 'call' ? `호출: ${names.get(node.config.workflowId) ?? (node.config.workflowId ? `(없는 워크플로 ${node.config.workflowId})` : '고르지 않음')}`
       : '';
     console.log(`${data.name}  (${data.id})${data.description ? `\n${data.description}` : ''}\n재시도 규칙(워크플로 기본): ${rules(data.definition.settings?.retries ?? [])}${data.definition.groups?.length ? `\n프레임: ${data.definition.groups.map((group) => `${group.label || '이름 없음'} (${group.nodeIds.join(', ')})`).join(' / ')}` : ''}\n`);
+    // An exit's actions (tags, status) as ids: `[+태그 id, −태그 id, 상태 → id]`.
+    const actionText = (action: Record<string, any>) => action.type === 'status' ? `상태 → ${action.statusId}` : `${action.action === 'remove' ? '−' : '+'}${[...(action.tagIds ?? []), ...(action.fromField ? [`(결과의 ${action.fromField})`] : [])].join(' ')}`;
     for (const node of data.definition.nodes) {
-      const out = data.definition.edges.filter((edge) => edge.source === node.id).map((edge) => `${edge.sourceHandle} → ${edge.target}`);
+      const exits = (node as Node & { exits?: Record<string, Record<string, any>[]> }).exits ?? {};
+      const ports = [...new Set([...data.definition.edges.filter((edge) => edge.source === node.id).map((edge) => edge.sourceHandle), ...Object.keys(exits)])];
+      const out = ports.map((port) => {
+        const targets = data.definition.edges.filter((edge) => edge.source === node.id && edge.sourceHandle === port).map((edge) => edge.target);
+        const actions = exits[port]?.length ? ` [${exits[port]!.map(actionText).join(', ')}]` : '';
+        return `${port} → ${targets.join(', ') || '끝'}${actions}`;
+      });
       console.log(`${node.id.padEnd(16)} ${node.type.padEnd(9)} ${node.label ?? ''}\n${' '.repeat(17)}${short(summary(node), 120)}${out.length ? `\n${' '.repeat(17)}${out.join(' · ')}` : ''}`);
     }
     if (data.issues.length) console.log(`\n검증:\n${data.issues.map((issue) => `  ${issue.level === 'error' ? '오류' : '경고'}${issue.nodeId ? ` [${issue.nodeId}]` : ''} ${issue.message}`).join('\n')}`);

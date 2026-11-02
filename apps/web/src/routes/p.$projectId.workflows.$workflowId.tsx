@@ -23,17 +23,20 @@ import {
   applyNodeChanges,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { ArrowLeftRight, ArrowUpDown, ChevronRight, Copy, Focus, Frame, Group, LayoutGrid, LogOut, Maximize, Pencil, Plus, SlidersHorizontal, Trash2, Ungroup, Unlink } from 'lucide-react';
+import { ArrowLeftRight, ArrowUpDown, ChevronRight, Copy, Focus, Frame, Group, LayoutGrid, LogOut, Maximize, Pencil, Plus, SlidersHorizontal, Tag, Trash2, Ungroup, Unlink } from 'lucide-react';
 import { toast } from 'sonner';
-import { AI_PRESETS, APPLY_PALETTE_ORDER, INPUT_TYPES, NODE_TYPES, type BatchConfig, functionGroup, APPLY_TARGETS, FUNCTIONS, FUNCTION_NAMES, functionTakes, presetTakes, workflowInput, PALETTE_FUNCTION_NAMES, nodeName, nodePorts, syncEntryEdges, workflowNodeSchema, type FunctionName, type WorkflowDefinition, type WorkflowGroup, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
+import { AI_PRESETS, APPLY_PALETTE_ORDER, INPUT_TYPES, NODE_TYPES, type BatchConfig, functionGroup, APPLY_TARGETS, FUNCTIONS, FUNCTION_NAMES, functionTakes, presetTakes, workflowInput, PALETTE_FUNCTION_NAMES, nodeName, nodePorts, syncEntryEdges, workflowNodeSchema, exitActions, exitActionsFromNodes, withExitActions, type ExitAction, type FunctionName, type WorkflowDefinition, type WorkflowGroup, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
 import { Page, StatusBarItem } from '@/components/page';
 import { autoLayout } from '@/components/workflow/auto-layout';
+import { shiftRoute } from '@/components/workflow/route-shift';
 import { WorkflowSettings } from '@/components/workflow/workflow-settings';
 import { NodeConfig } from '@/components/workflow/node-config';
 import { WorkflowNodeView, type FlowNode } from '@/components/workflow/node-view';
 import { WorkflowEdgeView, type FlowEdge } from '@/components/workflow/workflow-edge';
-import { entryStarts, flowEdges, nodeBadge, nodeSummary, openPorts, targetStatus } from '@/components/workflow/flow-graph';
-import { allFoldsOpen, computeFolds, foldContaining, foldedDefinition, foldIssues, foldPlacements, foldText, isFoldOpen, lineMarks, openFoldContaining, setAllFolds, toggleFold, type Fold } from '@/components/workflow/fold';
+import { entryStarts, flowEdges, nodeBadge, nodeSummary, openPorts } from '@/components/workflow/flow-graph';
+import { exitKey, exitTagItems, parseExitKey, tagRoomOf } from '@/components/workflow/exit-marks';
+import { ExitPanel } from '@/components/workflow/node-config/exit-actions';
+import { allFoldsOpen, computeFolds, foldContaining, foldedDefinition, foldIssues, foldPlacements, foldText, isFoldOpen, openFoldContaining, setAllFolds, toggleFold, type Fold } from '@/components/workflow/fold';
 import { useFoldState } from '@/components/workflow/use-fold-state';
 import { WorkflowIssueBar } from '@/components/workflow/issue-bar';
 import { FrameNodeView, FrameTintView, frameTints, addFrame, fitFrames, frameAt, frameId, frameNodes, groupIdOf, groupNodes, groupOf, isFrameId, moveFrame, moveIntoGroup, pruneGroups, renameGroup, resizeFrame, ungroup, type FrameNode } from '@/components/workflow/frames';
@@ -106,10 +109,11 @@ interface GraphClipboard {
 let graphClipboard: GraphClipboard | null = null;
 
 export const Route = createFileRoute('/p/$projectId/workflows/$workflowId')({
-  validateSearch: (raw: Record<string, unknown>): { node?: string; frame?: string; direction?: CanvasDirection } => ({
+  validateSearch: (raw: Record<string, unknown>): { node?: string; frame?: string; exit?: string; direction?: CanvasDirection } => ({
     node: typeof raw.node === 'string' ? raw.node : undefined,
-    // A picked frame (its pane opens); a node and a frame are not picked at once.
+    // A picked frame or exit (its pane opens); one thing is picked at a time.
     frame: typeof raw.frame === 'string' && typeof raw.node !== 'string' ? raw.frame : undefined,
+    exit: typeof raw.exit === 'string' && typeof raw.node !== 'string' && typeof raw.frame !== 'string' ? raw.exit : undefined,
     direction: raw.direction === 'horizontal' ? 'horizontal' : raw.direction === 'vertical' ? 'vertical' : undefined,
   }),
   component: WorkflowRoute,
@@ -128,13 +132,22 @@ interface Draft {
 const draftKey = (id: string) => `tw.workflow.draft.${id}`;
 const readDraft = (id: string): Draft | null => {
   try {
-    return JSON.parse(sessionStorage.getItem(draftKey(id)) ?? 'null');
+    const draft = JSON.parse(sessionStorage.getItem(draftKey(id)) ?? 'null') as Draft | null;
+    // A draft kept from before tags and statuses became exit actions is converted as the saved workflows were (0122).
+    return draft && { ...draft, definition: exitActionsFromNodes(draft.definition) };
   } catch {
     return null;
   }
 };
 
 const nodeTypes = { workflow: WorkflowNodeView, frame: FrameNodeView, frameTint: FrameTintView };
+
+/** The 출구 동작 the palette offers: not nodes, they go on the exit of the line they are dropped on (or picked, then clicked). */
+const EXIT_ACTION_ITEMS: { id: string; label: string; kind: 'apply' | 'status'; make: () => ExitAction }[] = [
+  { id: 'exit:tag-add', label: '태그 붙이기', kind: 'apply', make: () => ({ type: 'tag', action: 'add', tagIds: [], categoryTags: {} }) },
+  { id: 'exit:tag-remove', label: '태그 떼기', kind: 'apply', make: () => ({ type: 'tag', action: 'remove', tagIds: [], categoryTags: {} }) },
+  { id: 'exit:status', label: '상태 바꾸기', kind: 'status', make: () => ({ type: 'status', statusId: '' }) },
+];
 const edgeTypes = { workflow: WorkflowEdgeView };
 const viewportKey = (id: string, direction: CanvasDirection) => `loca.workflow.viewport.${id}.${direction}`;
 function readViewport(id: string, direction: CanvasDirection): { x: number; y: number; zoom: number } | undefined {
@@ -288,10 +301,9 @@ function WorkflowEditor() {
       definition: { ...value.definition, nodes: value.definition.nodes.map((node) => (placed.has(node.id) ? { ...node, position: placed.get(node.id)! } : node)) },
     }));
   }, [openFolds, folds]); // eslint-disable-line react-hooks/exhaustive-deps
-  const foldNames = useMemo(() => ({ status: summaryNames.status }), [taxonomy.statuses]); // eslint-disable-line react-hooks/exhaustive-deps
   const markNames = useMemo(() => ({ tags: new Map(taxonomy.tags?.map((tag) => [tag.id, tag])), statuses: new Map(taxonomy.statuses?.map((status) => [status.id, status])) }), [taxonomy.tags, taxonomy.statuses]);
   const foldChip = (fold: Fold) => current && {
-    text: foldText(current.definition, fold, foldNames),
+    text: foldText(current.definition, fold),
     open: isFoldOpen(foldState, fold.id),
     ...foldIssues(fold, issues),
     onToggle: () => toggleFoldOf(fold),
@@ -327,13 +339,15 @@ function WorkflowEditor() {
           warnings: issues.filter((issue) => issue.nodeId === node.id && issue.level === 'warning').map((issue) => issue.message),
           start: starts.has(node.id) && entry ? { label: startLabel, onOpen: () => select(entry.id) } : undefined,
           open: openPorts(node, current.definition),
-          status: targetStatus(node, taxonomy.statuses),
-          folds: Object.fromEntries(folds.filter((fold) => fold.kind === 'branch' && fold.owner === node.id).flatMap((fold) => [[fold.port, foldChip(fold)!]])),
-          foldClose: (() => { const fold = folds.find((item) => item.kind === 'edge' && item.nodeIds[0] === node.id && isFoldOpen(foldState, item.id)); return fold && (() => toggleFoldOf(fold)); })(),
+          folds: Object.fromEntries(folds.filter((fold) => fold.owner === node.id).flatMap((fold) => [[fold.port, foldChip(fold)!]])),
+          // An exit no line leaves ends in a short line of its own, with what it does at its end (the layout keeps that room).
+          exitMarks: Object.fromEntries(openPorts(node, current.definition).map((port) => [port, exitTagItems(node, port, markNames, current.definition)])),
+          onOpenExit: (port: string) => selectExit(exitKey(node.id, port)),
+          pickedExit: parseExitKey(search.exit)?.nodeId === node.id ? parseExitKey(search.exit)?.port : undefined,
         },
       }));
     },
-    [shown, folds, foldState, current?.definition, search.node, multi, direction, issues, taxonomy.statuses, connections.data, measured], // eslint-disable-line react-hooks/exhaustive-deps
+    [shown, folds, foldState, current?.definition, search.node, search.exit, multi, direction, issues, taxonomy.statuses, taxonomy.tags, connections.data, measured], // eslint-disable-line react-hooks/exhaustive-deps
   );
   // The steps the workflow stores, drawn as boxes behind the nodes. While nodes are dragged the boxes stand still
   // (frozen), and the frame they would join is marked; while one is resized it follows the handle (resizing).
@@ -365,7 +379,7 @@ function WorkflowEditor() {
       },
     };
   });
-  const selectFrame = (groupId: string | undefined) => void navigate({ search: (previous) => ({ ...previous, node: undefined, frame: groupId }) });
+  const selectFrame = (groupId: string | undefined) => void navigate({ search: (previous) => ({ ...previous, node: undefined, exit: undefined, frame: groupId }) });
   /** 삭제: the frame and the nodes in it (and their lines), as Figma deletes a section with its contents. One edit (one undo). */
   const deleteFrame = (groupId: string) => {
     const group = current?.definition.groups?.find((item) => item.id === groupId);
@@ -402,6 +416,22 @@ function WorkflowEditor() {
   };
   // '＋ 프레임' with nodes picked frames them; with none it lets the canvas draw one (a press adds one at that point).
   const [drawingFrame, setDrawingFrame] = useState(false);
+  // An exit action picked from '＋ 노드', waiting for the line to go on (Esc lets it go).
+  const [pickingExit, setPickingExit] = useState<string>();
+  useEffect(() => {
+    if (!pickingExit) return;
+    const key = (event: KeyboardEvent) => event.key === 'Escape' && setPickingExit(undefined);
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, [pickingExit]);
+  /** Puts a new action of the kind `itemId` on the exit and opens it, its fields first. */
+  const addExitAction = (nodeId: string, port: string, itemId: string) => {
+    const item = EXIT_ACTION_ITEMS.find((candidate) => candidate.id === itemId);
+    setPickingExit(undefined);
+    if (!item) return;
+    setDraft((value) => ({ ...value, definition: { ...value.definition, nodes: value.definition.nodes.map((node) => (node.id === nodeId ? withExitActions(node, port, [...exitActions(node, port), item.make()]) : node)) } }));
+    selectExit(exitKey(nodeId, port));
+  };
   const DEFAULT_FRAME = { width: 360, height: 240 };
   const createFrame = (box: NonNullable<WorkflowGroup['box']>) => {
     const groupId = `g-${crypto.randomUUID().slice(0, 8)}`;
@@ -473,22 +503,43 @@ function WorkflowEditor() {
   const edges: FlowEdge[] = useMemo(
     () => {
       if (!current || !view) return [];
-      // A closed tag fold is one line with a chip on it (it keeps the id of the line into the tag node).
-      const chips = new Map(view.closed.filter((fold) => fold.kind === 'edge').map((fold) => [fold.edgeId, fold] as const));
+      // An exit's actions are drawn on its first line (they apply once, before its lines split).
+      const first = new Map<string, string>();
+      for (const edge of view.definition.edges) if (!first.has(exitKey(edge.source, edge.sourceHandle))) first.set(exitKey(edge.source, edge.sourceHandle), edge.id);
       return flowEdges(view.definition, { selected: edgeId, hovered: hoveredEdgeId }).map((edge) => {
-        const fold = chips.get(edge.id);
-        return fold ? { ...edge, data: { ...edge.data, fold: foldChip(fold), marks: lineMarks(current.definition, fold, markNames), onMark: (id: string) => select(id) } } : edge;
+        const source = view.definition.nodes.find((node) => node.id === edge.source);
+        const port = (edge as { sourceHandle?: string | null }).sourceHandle ?? 'out';
+        const key = exitKey(edge.source, port);
+        const picked = search.exit === key;
+        const items = source && first.get(key) === edge.id ? exitTagItems(source, port, markNames, current.definition) : [];
+        // The picked exit's lines in the accent, all of them: the canvas says which exit the pane is about.
+        const style = picked ? { ...edge.style, stroke: 'var(--stroke-accent)', strokeWidth: 3 } : edge.style;
+        const markerEnd = picked && typeof edge.markerEnd === 'object' ? { ...edge.markerEnd, color: 'var(--stroke-accent)' } : edge.markerEnd;
+        const data = {
+          ...edge.data,
+          hovered: edge.id === hoveredEdgeId,
+          ...(items.length ? { tag: { items, exit: source ? nodePorts(source).find((item) => item.id === port)?.label ?? port : port, selected: picked, onOpen: () => selectExit(key) } } : { onAdd: () => selectExit(key) }),
+        };
+        return { ...edge, style, markerEnd, data };
       });
     },
-    [view, edgeId, hoveredEdgeId, foldState, issues, taxonomy.statuses, taxonomy.tags], // eslint-disable-line react-hooks/exhaustive-deps
+    [view, edgeId, hoveredEdgeId, foldState, issues, search.exit, taxonomy.statuses, taxonomy.tags], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
-  const select = (id: string | undefined) => void navigate({ search: (previous) => ({ ...previous, node: id, frame: undefined }) });
+  const select = (id: string | undefined) => void navigate({ search: (previous) => ({ ...previous, node: id, frame: undefined, exit: undefined }) });
+  /** Opens an exit's pane (`node id:exit`): its actions and where its lines go. */
+  const selectExit = (key: string | undefined) => void navigate({ search: (previous) => ({ ...previous, node: undefined, frame: undefined, exit: key }) });
+  const pickedExit = (() => {
+    const at = parseExitKey(search.exit);
+    const node = at && current?.definition.nodes.find((item) => item.id === at.nodeId);
+    return node && at && nodePorts(node).some((port) => port.id === at.port) ? { node, port: at.port } : undefined;
+  })();
   const selected = current?.definition.nodes.find((node) => node.id === search.node);
   useReportView('workflow', [
     workflow.data && { kind: '워크플로', id: workflow.data.id, label: workflow.data.name },
     selected && { kind: '워크플로 노드', id: selected.id, label: `${nodeName(selected)} (${selected.type})`, detail: `저장 전 설정: ${JSON.stringify(selected.config).slice(0, 5000)}` },
     pickedGroup && { kind: '워크플로 프레임', id: pickedGroup.id, label: pickedGroup.label || '이름 없는 프레임', detail: `노드: ${pickedGroup.nodeIds.join(', ')}` },
+    pickedExit && { kind: '워크플로 출구', id: exitKey(pickedExit.node.id, pickedExit.port), label: `${nodeName(pickedExit.node)} · ${pickedExit.port}`, detail: `출구 동작: ${JSON.stringify(exitActions(pickedExit.node, pickedExit.port))}` },
   ]);
 
   // Node edits proposed in the chat land in the draft; bumping the revision remounts the
@@ -504,7 +555,8 @@ function WorkflowEditor() {
         else if (edit.field === 'expression' && node.type === 'condition') next = { ...node, config: { expression: edit.value, description: edit.description || node.config.description } };
         else if (edit.field === 'code' && node.type === 'function' && node.config.fn === 'script') next = { ...node, config: { ...node.config, params: { ...node.config.params, code: String(edit.value ?? '') } } };
         else return '이 노드에는 해당 항목이 없습니다.';
-        setDraft((value) => ({ ...value, definition: { ...value.definition, nodes: value.definition.nodes.map((candidate) => (candidate.id === node.id ? next : candidate)), edges: value.definition.edges.map((edge) => ({ ...edge, layout: undefined })) } }));
+        // The lines keep their routes: one that no longer meets its node's ports is drawn plainly (routeMatchesPorts).
+        setDraft((value) => ({ ...value, definition: { ...value.definition, nodes: value.definition.nodes.map((candidate) => (candidate.id === node.id ? next : candidate)) } }));
         setRevision((value) => value + 1);
         select(node.id);
         return null;
@@ -564,23 +616,27 @@ function WorkflowEditor() {
     if (!moved.length && !removed.length) return;
     if (removed.length) setMulti([]);
     const next = applyNodeChanges(moved, nodes);
+    // How far each dragged node went: its lines keep their shape and follow it (shiftRoute).
+    const deltas = new Map(moved.flatMap((change) => {
+      if (change.type !== 'position' || !change.position) return [];
+      const before = nodes.find((item) => item.id === change.id)?.position;
+      return before ? [[change.id, { dx: change.position.x - before.x, dy: change.position.y - before.y }] as const] : [];
+    }));
+    const still = { dx: 0, dy: 0 };
     setDraft((draftValue) => ({
       ...draftValue,
       definition: syncEntryEdges({
         ...draftValue.definition,
         nodes: draftValue.definition.nodes.filter((node) => !removed.includes(node.id)).map((node) => ({ ...node, position: next.find((item) => item.id === node.id)?.position ?? node.position })),
         groups: pruneGroups(draftValue.definition.groups, draftValue.definition.nodes.filter((node) => !removed.includes(node.id))),
-        // Every route is global ELK geometry. Any manual node move can stale feedback loops or
-        // labels elsewhere, so clear the route snapshot and let React Flow route until re-layout.
-        edges: draftValue.definition.edges.filter((edge) => !removed.includes(edge.source) && !removed.includes(edge.target)).map((edge) => ({ ...edge, layout: undefined })),
+        // A moved node's lines keep their shape: their end at it follows it; every other line stays as it was.
+        edges: draftValue.definition.edges.filter((edge) => !removed.includes(edge.source) && !removed.includes(edge.target)).map((edge) => (deltas.has(edge.source) || deltas.has(edge.target) ? { ...edge, layout: shiftRoute(edge.layout, deltas.get(edge.source) ?? still, deltas.get(edge.target) ?? still) } : edge)),
       }),
     }));
     if (removed.includes(search.node ?? '')) select(undefined);
   };
   const removeEdges = (ids: string[]) => {
-    // A folded tag node's line is two lines in the definition: cutting it cuts both.
-    const tagged = view?.closed.filter((fold) => fold.kind === 'edge' && ids.includes(fold.edgeId ?? ''));
-    const gone = new Set([...ids, ...(current?.definition.edges.filter((edge) => tagged?.some((fold) => edge.source === fold.nodeIds[0] && edge.sourceHandle === 'out')).map((edge) => edge.id) ?? [])]);
+    const gone = new Set(ids);
     setDraft((value) => ({
       ...value,
       definition: syncEntryEdges({
@@ -633,7 +689,7 @@ function WorkflowEditor() {
     const sizes = new Map(flow.getNodes().map((node) => [node.id, { width: node.measured?.width ?? 224, height: node.measured?.height ?? 66 }]));
     try {
       // Laid out as drawn: closed folds are not in the graph, their nodes and lines keep what they had.
-      const next = await autoLayout(view.definition, sizes, layoutDirection);
+      const next = await autoLayout(view.definition, sizes, layoutDirection, tagRoomOf(view.definition, markNames));
       const positions = new Map(next.nodes.map((node) => [node.id, node.position]));
       const routes = new Map(next.edges.map((edge) => [edge.id, edge.layout]));
       const boxes = new Map((next.groups ?? []).map((group) => [group.id, group.box]));
@@ -784,7 +840,13 @@ function WorkflowEditor() {
     {
       id: 'apply',
       label: '반영',
-      items: APPLY_PALETTE_ORDER.filter((fn) => functionTakes(fn, input)).map((fn) => ({ id: fn, label: FUNCTIONS[fn].label, kind: fn === 'setStatus' ? ('status' as const) : ('apply' as const), icon: null })),
+      items: APPLY_PALETTE_ORDER.filter((fn) => functionTakes(fn, input)).map((fn) => ({ id: fn, label: FUNCTIONS[fn].label, kind: 'apply' as const, icon: null })),
+    },
+    {
+      // Not nodes: dropped on a line (or picked, then a line clicked), they go on that line's exit.
+      id: 'exit',
+      label: '출구 동작 (선에 붙임)',
+      items: EXIT_ACTION_ITEMS.map((item) => ({ id: item.id, label: item.label, kind: item.kind, icon: null })),
     },
     {
       id: 'function',
@@ -807,6 +869,8 @@ function WorkflowEditor() {
     return { ...batch, mode: modes.includes(batch?.mode ?? 'group') ? (batch?.mode ?? 'group') : modes[0]! };
   };
   const addFromLibrary = (id: string, position?: { x: number; y: number }) => {
+    const exitItem = EXIT_ACTION_ITEMS.find((item) => item.id === id);
+    if (exitItem) return setPickingExit(exitItem.id);
     const preset = (AI_PRESETS as unknown as Record<string, PresetEntry>)[id];
     if (preset) {
       const { label, description: _description, ...config } = preset;
@@ -959,7 +1023,30 @@ function WorkflowEditor() {
         selectionKey={selected?.id ?? (pickedGroup && frameId(pickedGroup.id))}
         defaultWidth="360px"
         pane={
-          current && pickedGroup && !selected ? (
+          current && pickedExit && !selected ? (
+            <Box height="full" minWidth={0} overflow="hiddenX" background="page">
+              <ExitPanel
+                key={exitKey(pickedExit.node.id, pickedExit.port)}
+                node={pickedExit.node}
+                port={pickedExit.port}
+                issues={issues.filter((issue) => issue.nodeId === pickedExit.node.id)}
+                refs={{
+                  statuses: taxonomy.statuses ?? [],
+                  tags: tagsIn(taxonomy.tags, input),
+                  projectId,
+                  workflowId,
+                  connections: connections.data ?? [],
+                  nodes: current.definition.nodes,
+                  edges: current.definition.edges,
+                  workflows: workflows.data,
+                  onOpenNode: select,
+                }}
+                onChange={(next) => setDraft((value) => ({ ...value, definition: { ...value.definition, nodes: value.definition.nodes.map((node) => (node.id === next.id ? next : node)) } }))}
+                onRemoveEdge={(id) => removeEdges([id])}
+                onClose={() => selectExit(undefined)}
+              />
+            </Box>
+          ) : current && pickedGroup && !selected ? (
             <Box height="full" minWidth={0} overflow="hiddenX" background="page">
               <FramePanel
                 group={pickedGroup}
@@ -992,10 +1079,11 @@ function WorkflowEditor() {
                   edges: current.definition.edges,
                   workflows: workflows.data,
                   onOpenNode: select,
+                  onOpenExit: (nodeId: string, port: string) => selectExit(exitKey(nodeId, port)),
                   retries: current.definition.settings.retries,
                   onOpenWorkflowSettings: () => select(undefined),
                 }}
-                onChange={(next) => setDraft((value) => ({ ...value, definition: { ...value.definition, nodes: value.definition.nodes.map((node) => (node.id === next.id ? next : node)), edges: value.definition.edges.map((edge) => ({ ...edge, layout: undefined })) } }))}
+                onChange={(next) => setDraft((value) => ({ ...value, definition: { ...value.definition, nodes: value.definition.nodes.map((node) => (node.id === next.id ? next : node)) } }))}
                 onDelete={deleteSelected}
                 onClose={() => select(undefined)}
               />
@@ -1007,6 +1095,12 @@ function WorkflowEditor() {
         <CanvasSurface ref={canvasRef} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; }} onDrop={(event) => {
           event.preventDefault();
           const id = event.dataTransfer.getData('application/x-loca-workflow-node');
+          // An exit action dropped on a line goes on that line's exit; anywhere else it waits for a line to be clicked.
+          if (EXIT_ACTION_ITEMS.some((item) => item.id === id)) {
+            const line = (document.elementFromPoint(event.clientX, event.clientY) as Element | null)?.closest('.react-flow__edge')?.getAttribute('data-id');
+            const edge = line ? current.definition.edges.find((item) => item.id === line) : undefined;
+            return edge ? addExitAction(edge.source, edge.sourceHandle, id) : setPickingExit(id);
+          }
           if (palette.some((group) => group.items.some((item) => item.id === id))) addFromLibrary(id, flow.screenToFlowPosition({ x: event.clientX, y: event.clientY }));
         }}>
           <ReactFlow colorMode={dark ? 'dark' : 'light'}
@@ -1050,13 +1144,15 @@ function WorkflowEditor() {
               setContextMenu(null);
             }}
             // A plain click picks only the line: the node's selection (and its pane) goes, as anywhere else a plain click picks one thing.
+            // A plain click on a line opens its exit (what it does to the lines, where they go); with an exit action
+            // picked from '＋ 노드', the click puts it there.
             onEdgeClick={(event, edge) => {
-              if (!(event.metaKey || event.ctrlKey)) {
-                select(undefined);
-                setMulti([]);
-              }
-              setEdgeId(edge.id);
               setContextMenu(null);
+              setEdgeId(edge.id);
+              if (event.metaKey || event.ctrlKey) return;
+              setMulti([]);
+              if (pickingExit) return addExitAction(edge.source, edge.sourceHandle ?? 'out', pickingExit);
+              selectExit(exitKey(edge.source, edge.sourceHandle ?? 'out'));
             }}
             onEdgeMouseEnter={(_event, edge) => setHoveredEdgeId(edge.id)}
             onEdgeMouseLeave={() => setHoveredEdgeId(undefined)}
@@ -1133,6 +1229,7 @@ function WorkflowEditor() {
               { id: 'ungroup', label: '프레임만 삭제', icon: <Ungroup />, onSelect: () => ungroupFrame(pickedGroup.id) },
               { id: 'delete', label: '삭제', icon: <Trash2 />, destructive: true, onSelect: () => deleteFrame(pickedGroup.id) },
             ]} /></NodeToolbar>}
+            {pickingExit && <Panel position="top-center"><Inline role="status" gap="condensed" background="overlay" border="all" radius="md" shadow="sm" paddingX="comfortable" paddingY="condensed" variant="caption"><Icon icon={Tag} size="sm" tone="accent" />{EXIT_ACTION_ITEMS.find((item) => item.id === pickingExit)?.label}: 붙일 선을 누르세요 · Esc 취소</Inline></Panel>}
             {drawingFrame && <Panel position="top-center"><Inline role="status" gap="condensed" background="overlay" border="all" radius="md" shadow="sm" paddingX="comfortable" paddingY="condensed" variant="caption"><Icon icon={Frame} size="sm" tone="accent" />끌어서 프레임을 그리세요. 한 번 누르면 그 자리에 추가합니다 · Esc 취소</Inline></Panel>}
             {/* What letting go will do, while nodes are dragged across frames. */}
             {dropHint && <Panel position="top-center"><Inline role="status" gap="condensed" background="overlay" border="all" radius="md" shadow="sm" paddingX="comfortable" paddingY="condensed" variant="caption"><Icon icon={Frame} size="sm" tone="accent" />{dropHint}</Inline></Panel>}

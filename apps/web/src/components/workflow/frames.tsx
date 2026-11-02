@@ -10,6 +10,7 @@ import { memo, type ReactNode } from 'react';
 import { NodeResizer, type Node, type NodeProps } from '@xyflow/react';
 import { FRAME_HEADER, FRAME_PAD, WorkflowFrame, WorkflowFrameTint } from '@loca/ui';
 import type { WorkflowDefinition, WorkflowGroup } from '@tw/shared';
+import { shiftRoute } from './route-shift';
 
 export const FRAME_PREFIX = 'frame:';
 export const isFrameId = (id: string) => id.startsWith(FRAME_PREFIX);
@@ -58,14 +59,15 @@ export const FrameNodeView = memo(function FrameNodeView({ data }: NodeProps<Fra
   );
 });
 
-export type FrameTintNode = Node<Record<string, never>, 'frameTint'>;
-export const FrameTintView = memo(function FrameTintView() {
-  return <WorkflowFrameTint />;
+export type FrameTintNode = Node<{ picked?: boolean; over?: boolean }, 'frameTint'>;
+export const FrameTintView = memo(function FrameTintView({ data }: NodeProps<FrameTintNode>) {
+  return <WorkflowFrameTint selected={data.picked} over={data.over} />;
 });
 
 /**
- * The shade under each frame (below the lines; the frame, its edge and header, stands over them so a line never covers
- * its header). Its id starts with FRAME_PREFIX too, so the pages leave it out of node changes; it takes no pointer.
+ * Each frame's edge and shade, under the lines and under the frame itself (header and all, also under the lines); it
+ * shows the frame picked or a drop target too. Its id starts with FRAME_PREFIX, so the pages
+ * leave it out of node changes; it takes no pointer.
  */
 export const frameTints = (frames: readonly FrameNode[]): FrameTintNode[] => frames.map((frame) => ({
   id: `${FRAME_PREFIX}tint:${groupIdOf(frame.id)}`,
@@ -80,7 +82,7 @@ export const frameTints = (frames: readonly FrameNode[]): FrameTintNode[] => fra
   focusable: false,
   deletable: false,
   connectable: false,
-  data: {},
+  data: { picked: frame.data.picked, over: frame.data.over },
 }));
 
 /** The box that holds the given nodes with the frame's room around them (FRAME_PAD, FRAME_HEADER above). */
@@ -129,8 +131,9 @@ export function frameNodes(
       width: box.width,
       height: box.height,
       style: { width: box.width, height: box.height, pointerEvents: 'none' },
-      // Over the lines (its shade, frameTints, is under them) and, listed first, under the nodes.
-      // Only the header drags it (the room inside pans the canvas).
+      // Under the lines, header and all (a line into the frame runs over its name), above its shade (frameTints, listed
+      // before it at the same level), under the nodes. Only the header drags it (the room inside pans the canvas).
+      zIndex: -1,
       dragHandle: '[data-frame-handle]',
       deletable: false,
       connectable: false,
@@ -151,7 +154,8 @@ export function moveFrame(definition: WorkflowDefinition, groupId: string, dx: n
   return {
     ...definition,
     nodes: definition.nodes.map((node) => (members.has(node.id) ? { ...node, position: { x: node.position.x + dx, y: node.position.y + dy } } : node)),
-    edges: definition.edges.map((edge) => (members.has(edge.source) || members.has(edge.target) ? { ...edge, layout: undefined } : edge)),
+    // Its lines keep their shape: inside the frame they move with it, to or from it their end moves (shiftRoute).
+    edges: definition.edges.map((edge) => (members.has(edge.source) || members.has(edge.target) ? { ...edge, layout: shiftRoute(edge.layout, members.has(edge.source) ? { dx, dy } : { dx: 0, dy: 0 }, members.has(edge.target) ? { dx, dy } : { dx: 0, dy: 0 }) } : edge)),
     groups: definition.groups?.map((item) => (item.id === groupId && box ? { ...item, box: { ...box, x: box.x + dx, y: box.y + dy } } : item)),
   };
 }

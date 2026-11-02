@@ -5,7 +5,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuShortc
 import { Input } from "../../controls/input"
 
 /** The room a frame keeps around its nodes: its header above them, and the same margin on every other side. */
-export const FRAME_PAD = 16
+export const FRAME_PAD = 32
 export const FRAME_HEADER = 32
 
 /**
@@ -48,12 +48,11 @@ export function WorkflowFrame({ label, meta, live, over, selected, renaming, onR
     setEditing(null)
     onRenamed?.()
   }
-  // Picked: ringed as a picked node is. A drop target: the accent edge, dashed, over a wash. The room inside is clear: the
-  // frame stands over the lines (its header must take the pointer where a line crosses it), and WorkflowFrameTint, under
-  // them, shades the room.
-  const ring = over ? "border-dashed border-accent bg-accent-soft/40" : selected ? "border-accent ring-2 ring-accent/30" : "border-default"
+  // Only the header stands over the lines (it must take the pointer where a line crosses it). The edge, the shade, the
+  // picked ring and the drop wash are WorkflowFrameTint's, under the lines, so a line crossing the edge is not cut by it;
+  // the transparent edge here keeps the header inside the drawn one.
   return (
-    <div className={"size-full rounded-lg border-2 " + ring}>
+    <div className="size-full rounded-lg border-2 border-transparent">
       <div
         data-frame-handle
         className={"group/frame pointer-events-auto flex items-center gap-1.5 rounded-t-lg border-b border-subtle px-2 text-xs " + (onRename ? "cursor-grab active:cursor-grabbing " : "") + (selected ? "bg-accent-soft" : "bg-surface")}
@@ -108,9 +107,11 @@ export function WorkflowFrame({ label, meta, live, over, selected, renaming, onR
   )
 }
 
-/** The shade of a frame's room, drawn under the lines (the frame itself stands over them), at the frame's size. */
-export function WorkflowFrameTint() {
-  return <div className="size-full rounded-lg bg-surface/70" />
+/** A frame's edge and the shade of its room, drawn under the lines (only the frame's header stands over them), at the frame's size. */
+export function WorkflowFrameTint({ selected, over }: { selected?: boolean; over?: boolean }) {
+  // Picked: ringed as a picked node is. A drop target: the accent edge, dashed, over a wash.
+  const ring = over ? "border-dashed border-accent bg-accent-soft/40" : selected ? "border-accent bg-surface/70 ring-2 ring-accent/30" : "border-default bg-surface/70"
+  return <div className={"size-full rounded-lg border-2 " + ring} />
 }
 
 /** The lines' colours, once, at the canvas's corner: the main way, 실패, 오류, a line going back. */

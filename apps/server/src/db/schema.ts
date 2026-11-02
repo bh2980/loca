@@ -594,6 +594,8 @@ export const runs = sqliteTable(
     limits: json<RunLimits>('limits'),
     /** Why the runner paused the run on its own (a guard, an error); cleared on resume. */
     notice: text('notice'),
+    /** The tags its exit actions put on, as they were when it started: one deleted while it runs is made again from this. */
+    tags: json<RunTag[]>('tags').notNull().default(sql`'[]'`),
     /** Each time a person continued the run with other models or re-queued its failed lines (#41), oldest first. */
     continuations: json<RunContinuation[]>('continuations').notNull().default(sql`'[]'`),
     createdAt: createdAt(),
@@ -629,6 +631,8 @@ export interface ItemData {
   issues?: string[];
   /** What the run did without changing the line (kept out of issues, which feed the revise prompt). */
   notes?: string[];
+  /** What an exit's actions could not do for this line (`at`: node id:exit), for the run's detail: a person's status kept, a tag name no tag has. */
+  exitNotes?: { at: string; note: string }[];
   /** Every node's output for this line, by node id. Conditions and later nodes read these. */
   outputs?: Record<string, Record<string, unknown>>;
   /** Nodes and exits taken, for display. */
@@ -650,6 +654,9 @@ export interface ItemData {
   /** The last failure the line went out an "error" exit with, kept after a node handles it: the run's summary says why a line ended where it did. */
   lastError?: { kind: ItemErrorKind; message: string; nodeId: string };
 }
+
+/** A tag as a run kept it (see runs.tags). */
+export type RunTag = { id: string; name: string; color: string; scope: TagScope[]; description: string };
 
 export const runItems = sqliteTable(
   'run_items',

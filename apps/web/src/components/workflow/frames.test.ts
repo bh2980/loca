@@ -58,8 +58,8 @@ describe('stored frame boxes', () => {
   const group = { id: 'one', label: '1', nodeIds: ['x'], box: { x: -100, y: -100, width: 500, height: 400 } };
   it('stands at its box, grown only to hold a node of its own outside it', () => {
     expect(frameBox(group, nodes, {})).toEqual(group.box);
-    expect(frameBox({ ...group, nodeIds: ['x', 'y'] }, nodes, {})).toEqual({ x: -100, y: -100, width: 600 + 224 + 16 + 100, height: 400 });
-    expect(frameBox({ ...group, box: undefined }, nodes, {})).toEqual({ x: -16, y: -48, width: 224 + 32, height: 66 + 64 });
+    expect(frameBox({ ...group, nodeIds: ['x', 'y'] }, nodes, {})).toEqual({ x: -100, y: -100, width: 600 + 224 + 32 + 100, height: 400 });
+    expect(frameBox({ ...group, box: undefined }, nodes, {})).toEqual({ x: -32, y: -64, width: 224 + 64, height: 66 + 96 });
   });
   it('keeps its edge still while nodes are dragged (frozen)', () => {
     const [frame] = frameNodes([{ id: 'x', position: { x: 900, y: 900 } }], [group], {}, undefined, new Map([['one', group.box]]));
@@ -67,9 +67,9 @@ describe('stored frame boxes', () => {
   });
   it('moves with its nodes, resizes, and is stored grown by fitFrames', () => {
     const definition = { ...template, nodes: template.nodes.map((node) => (node.id === template.groups![0]!.nodeIds[0] ? { ...node, position: { x: 0, y: 0 } } : node)), groups: [{ ...template.groups![0]!, nodeIds: [template.groups![0]!.nodeIds[0]!], box: { x: 10, y: 10, width: 50, height: 50 } }] } as WorkflowDefinition;
-    expect(moveFrame(definition, definition.groups![0]!.id, 5, 7).groups![0]!.box).toMatchObject({ x: -16 + 5, y: -48 + 7 });
+    expect(moveFrame(definition, definition.groups![0]!.id, 5, 7).groups![0]!.box).toMatchObject({ x: -32 + 5, y: -64 + 7 });
     expect(resizeFrame(definition, definition.groups![0]!.id, { x: 0, y: 0, width: 300, height: 200 }).groups![0]!.box).toEqual({ x: 0, y: 0, width: 300, height: 200 });
-    expect(fitFrames(definition, {}).groups![0]!.box).toEqual({ x: -16, y: -48, width: 256, height: 130 });
+    expect(fitFrames(definition, {}).groups![0]!.box).toEqual({ x: -32, y: -64, width: 288, height: 162 });
   });
 });
 

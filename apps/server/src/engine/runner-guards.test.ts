@@ -17,7 +17,12 @@ import { issueTagIds } from '../services/issue-tags.ts';
 function withoutResend(full: ReturnType<typeof translationTemplate>, keep: boolean) {
   const definition = withoutTerms(full);
   if (keep) return definition;
-  const nodes = definition.nodes.filter((node) => node.id !== 'needs-review');
+  // The AI nodes' 오류 exits carry the 검토 필요 status; without it a failed line ends failed.
+  const nodes = definition.nodes.map((node) => {
+    if (!node.exits?.error) return node;
+    const { error: _error, ...exits } = node.exits;
+    return { ...node, exits };
+  });
   const ids = new Set(nodes.map((node) => node.id));
   return { ...definition, nodes, settings: { ...definition.settings, retries: [] }, edges: definition.edges.filter((edge) => ids.has(edge.source) && ids.has(edge.target)) };
 }

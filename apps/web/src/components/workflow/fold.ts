@@ -2,40 +2,34 @@
  * 접기: a display-only way to keep workflow graphs short. Nodes that only hang off another node are
  * drawn as one small dashed chip instead (the stored definition and the runner never change).
  *
- *  - A dead-end side branch (a failure marker) folds into a chip on its owner's exit.
- *  - A dead end several exits lead to (the one 검토 필요로) folds into a chip on each of them: one fold, opened and closed together.
- *  - A 태그 붙이기 that only passes lines on folds into a chip on the line it sits on.
+ *  - A dead-end side branch folds into a chip on its owner's exit.
+ *  - A dead end several exits lead to folds into a chip on each of them: one fold, opened and closed together.
+ *
+ * Tags and statuses are not nodes but exit actions, drawn on the lines by exit-marks.ts.
  *
  * Everything here is pure: `computeFolds` finds the folds, `foldText` words the chip, `foldedDefinition`
  * draws the definition with the closed folds left out, and the `FoldState` helpers keep which folds are
  * open (the editor and the run graph keep that in sessionStorage, per workflow / run).
  */
 import { retryLiveText } from '../../lib/retry-info';
-import { TAG_ACTIONS, nodeName, nodePorts, tagLinesParams, type WorkflowDefinition, type WorkflowEdge, type WorkflowNode } from '@tw/shared';
-import type { LineMark } from '@loca/ui';
+import { nodeName, nodePorts, type WorkflowDefinition, type WorkflowEdge, type WorkflowNode } from '@tw/shared';
 
 /** A branch of more nodes than this is not a side detail any more. */
 export const MAX_FOLDED_NODES = 4;
 
 export interface Fold {
-  /** Stable across edits: `owner:port` for a branch, `end:node` for a shared dead end (one entry per exit, all with this id), `pass:node` for a pass-through tag node. */
+  /** Stable across edits: `owner:port` for a branch, `end:node` for a shared dead end (one entry per exit, all with this id). */
   id: string;
-  kind: 'branch' | 'edge';
-  /** branch: the node whose exit the chip sits on. edge: the node the line leaves. */
+  kind: 'branch';
+  /** The node whose exit the chip sits on. */
   owner: string;
-  /** branch: the owner's exit. edge: the exit of the node the line leaves. */
+  /** The owner's exit. */
   port: string;
-  /** The folded nodes in reading order (an edge fold's first is the tag node). May include the hidden 끝 node. */
+  /** The folded nodes in reading order. May include the hidden 끝 node. */
   nodeIds: string[];
-  /** edge: where the line goes on to once the tag node is folded away. */
-  target?: string;
-  /** edge: the line into the tag node; the drawn line keeps its id. */
-  edgeId?: string;
 }
 
 const isMark = (node: WorkflowNode) => node.type === 'entry' || node.type === 'end';
-/** Nodes that only mark the lines passing through them: drawn on the line when nothing else hangs off them. */
-const LINE_MARKING = new Set(['tagLines', 'setStatus']);
 
 export function computeFolds(definition: WorkflowDefinition): Fold[] {
   const byId = new Map(definition.nodes.map((node) => [node.id, node]));
@@ -113,123 +107,26 @@ export function computeFolds(definition: WorkflowDefinition): Fold[] {
     if (!into.every(sideExit)) continue;
     for (const edge of into) branches.push({ id: `end:${node.id}`, kind: 'branch', owner: edge.source, port: edge.sourceHandle, nodeIds: [node.id, ...new Set(ends)] });
   }
-  const insideBranch = (id: string) => branches.some((fold) => fold.nodeIds.includes(id));
-
-  // Rule 2. A 태그 붙이기 / 떼기 or 상태 변경 a line passes through (one line in, one 완료 line out, 오류 unconnected or a
-  // branch of its own) only marks the line: it is drawn on the line. Several in a row are one line with each of them on it.
-  const passes = new Map<string, { into: WorkflowEdge; onward: WorkflowEdge }>();
-  for (const node of definition.nodes) {
-    if (node.type !== 'function' || !LINE_MARKING.has(node.config.fn) || insideBranch(node.id)) continue;
-    const into = inTo(node.id);
-    const outs = outOf(node.id).filter((edge) => edge.sourceHandle === 'out');
-    const errors = outOf(node.id).filter((edge) => edge.sourceHandle === 'error');
-    if (into.length !== 1 || outs.length !== 1 || outs.length + errors.length !== outOf(node.id).length) continue;
-    if (errors.length && !branches.some((fold) => fold.owner === node.id && fold.port === 'error')) continue;
-    passes.set(node.id, { into: into[0]!, onward: outs[0]! });
-  }
-  const edges: Fold[] = [];
-  for (const [id, { into }] of passes) {
-    // A run starts at a pass-through whose line comes from a shown node.
-    if (passes.has(into.source)) continue;
-    const run = [id];
-    for (let next = passes.get(id)!.onward.target; passes.has(next) && !run.includes(next); next = passes.get(next)!.onward.target) run.push(next);
-    const source = byId.get(into.source);
-    const target = byId.get(passes.get(run.at(-1)!)!.onward.target);
-    // The line must be drawn between two shown nodes.
-    if (!source || !target || isMark(source) || isMark(target) || run.includes(target.id)) continue;
-    if (insideBranch(source.id) || insideBranch(target.id)) continue;
-    const errorBranches = branches.filter((fold) => run.includes(fold.owner) && fold.port === 'error');
-    edges.push({ id: `pass:${id}`, kind: 'edge', owner: source.id, port: into.sourceHandle, nodeIds: [...run, ...errorBranches.flatMap((fold) => fold.nodeIds)], target: target.id, edgeId: into.id });
-    branches = branches.filter((fold) => !errorBranches.includes(fold));
-  }
-  return [...branches, ...edges];
+  return branches;
 }
 
-export interface FoldNames {
-  /** Status id → name, for a status-change node folded into a chip. */
-  status?: ReadonlyMap<string, string>;
-}
+/** A node as a chip names it: the hidden end as 끝, else its name. */
+const brief = (node: WorkflowNode) => (node.type === 'end' ? '끝' : nodeName(node));
 
-/** A node as a chip names it: a status change by its status, the hidden end as 끝, else its name. */
-function brief(node: WorkflowNode, names: FoldNames): string {
-  if (node.type === 'end') return '끝';
-  if (node.type === 'function' && node.config.fn === 'setStatus') {
-    const statusId = (node.config.params as { statusId?: string }).statusId;
-    return (statusId && names.status?.get(statusId)) || nodeName(node);
-  }
-  return nodeName(node);
-}
-
-/** "태그 붙이기 · 검수 지적", "태그 떼기 · 고른 태그 7개": what a tag node does, in the chip's few words. */
-export function tagChipText(node: WorkflowNode): string {
-  if (node.type !== 'function' || node.config.fn !== 'tagLines') return nodeName(node);
-  const tags = tagLinesParams.parse(node.config.params);
-  const picked = tags.tagIds.length ? [`고른 태그 ${tags.tagIds.length}개`] : [];
-  const from = tags.map.tag && (tags.map.tag === 'categories' ? '검수 지적' : tags.map.tag === 'kind' ? '검사 종류' : `결과의 ${tags.map.tag}`);
-  return [`태그 ${TAG_ACTIONS[tags.action]}`, ...picked, from].filter(Boolean).join(' · ');
-}
-
-/** The chip's text: a lone tag node by what it does, else the names joined ("AI 실패 태그 → 끝", "검토 필요"). */
-export function foldText(definition: WorkflowDefinition, fold: Fold, names: FoldNames = {}): string {
-  const nodes = fold.nodeIds.flatMap((id) => definition.nodes.find((node) => node.id === id) ?? []);
-  const first = nodes[0];
-  if (!first) return '';
-  if (fold.kind === 'edge' || (nodes.length === 1 && first.type === 'function' && first.config.fn === 'tagLines')) return tagChipText(first);
-  return nodes.map((node) => brief(node, names)).join(' → ');
-}
-
-/** A line's tags and statuses by id, for its marks. */
-export interface MarkNames {
-  tags?: ReadonlyMap<string, { name: string; color: string }>;
-  statuses?: ReadonlyMap<string, { name: string; color: string }>;
-}
-
-/** At most this many tags of one node are named on a line; the rest are counted ("#형식 외 5"). */
-const LINE_TAGS = 2;
-
-/**
- * What a line fold's nodes do to the lines, as marks on the line: each tag a 태그 붙이기 adds (+) or a 떼기 takes off (−),
- * a result field's tags by the field ("+#검수 지적"), a 상태 변경's status. Other nodes give none.
- */
-export function lineMarks(definition: WorkflowDefinition, fold: Fold, names: MarkNames = {}): LineMark[] {
-  if (fold.kind !== 'edge') return [];
-  return fold.nodeIds.flatMap((id): LineMark[] => {
-    const node = definition.nodes.find((item) => item.id === id);
-    if (node?.type !== 'function') return [];
-    if (node.config.fn === 'setStatus') {
-      const statusId = (node.config.params as { statusId?: string }).statusId ?? '';
-      const status = names.statuses?.get(statusId);
-      return [{ nodeId: id, kind: 'status', name: status?.name ?? nodeName(node), color: status?.color }];
-    }
-    if (node.config.fn !== 'tagLines') return [];
-    const tags = tagLinesParams.parse(node.config.params);
-    const sign: LineMark['sign'] = tags.action === 'remove' ? '−' : '+';
-    const picked = tags.tagIds.map((tagId) => names.tags?.get(tagId) ?? { name: '삭제된 태그', color: '' });
-    const shown: LineMark[] = picked.slice(0, picked.length > LINE_TAGS ? 1 : LINE_TAGS).map((tag, index) => ({
-      nodeId: id, kind: 'tag', sign, name: index === 0 && picked.length > LINE_TAGS ? `${tag.name} 외 ${picked.length - 1}` : tag.name, color: tag.color || undefined,
-    }));
-    const field = tags.map.tag && (tags.map.tag === 'categories' ? '검수 지적' : tags.map.tag === 'kind' ? '검사 종류' : tags.map.tag);
-    return [...shown, ...(field ? [{ nodeId: id, kind: 'tag' as const, sign, name: field }] : [])];
-  });
+/** The chip's text: the folded nodes' names joined ("AI 수정 → 끝"). */
+export function foldText(definition: WorkflowDefinition, fold: Fold): string {
+  return fold.nodeIds.flatMap((id) => definition.nodes.find((node) => node.id === id) ?? []).map(brief).join(' → ');
 }
 
 export const foldContaining = (folds: readonly Fold[], nodeId: string) => folds.find((fold) => fold.nodeIds.includes(nodeId));
 
-/**
- * The definition as drawn: the nodes of closed folds are left out together with the lines on them, and a
- * closed edge fold leaves one line (it keeps the id of the line into the tag node) from its source to its target.
- */
+/** The definition as drawn: the nodes of closed folds are left out together with the lines on them. */
 export function foldedDefinition(definition: WorkflowDefinition, folds: readonly Fold[], open: ReadonlySet<string>): { definition: WorkflowDefinition; closed: Fold[]; hidden: Set<string> } {
   const closed = folds.filter((fold) => !open.has(fold.id));
   const hidden = new Set(closed.flatMap((fold) => fold.nodeIds));
   if (!hidden.size) return { definition, closed, hidden };
-  const merged = closed.filter((fold) => fold.kind === 'edge').flatMap((fold) => {
-    const edge = definition.edges.find((item) => item.id === fold.edgeId);
-    // Its stored route is the one a layout made while folded; one made unfolded ends at the tag node, and the canvas, finding it does not meet the ports, draws its own.
-    return edge && fold.target ? [{ ...edge, target: fold.target }] : [];
-  });
   const kept = definition.edges.filter((edge) => !hidden.has(edge.source) && !hidden.has(edge.target));
-  return { definition: { ...definition, nodes: definition.nodes.filter((node) => !hidden.has(node.id)), edges: [...kept, ...merged] }, closed, hidden };
+  return { definition: { ...definition, nodes: definition.nodes.filter((node) => !hidden.has(node.id)), edges: kept }, closed, hidden };
 }
 
 /** Errors and warnings (validation issues) on the folded nodes, for the chip's count. */

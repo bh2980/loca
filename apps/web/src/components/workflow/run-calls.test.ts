@@ -3,7 +3,7 @@ import { expandCalls, workflowDefinitionSchema, type WorkflowDefinition } from '
 import { callMembers, callOf, collapseCalls, liveCounts, topCallIds } from './run-calls';
 
 const at = { x: 40, y: 80 };
-const act = (id: string, label?: string, position = { x: 0, y: 0 }) => ({ id, type: 'function', position, label, config: { fn: 'setStatus', params: {} } });
+const act = (id: string, label?: string, position = { x: 0, y: 0 }) => ({ id, type: 'function', position, label, config: { fn: 'saveCandidate', params: {} } });
 const call = (id: string, workflowId: string) => ({ id, type: 'call', position: at, config: { workflowId } });
 const flow = (nodes: object[], edges: string[]) =>
   workflowDefinitionSchema.parse({

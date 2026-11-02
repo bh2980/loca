@@ -23,7 +23,10 @@ const LOOK = {
 
 export type FlowHandleLook = keyof typeof LOOK
 
-/** Gives the one `Handle` inside it its look by name: `<FlowHandle look="workflow"><Handle type="target" .../></FlowHandle>`. */
-export function FlowHandle({ look, children }: { look: FlowHandleLook; children: ReactElement }) {
-  return <Slot className={LOOK[look]}>{children}</Slot>
+/**
+ * Gives the one `Handle` inside it its look by name: `<FlowHandle look="workflow"><Handle type="target" .../></FlowHandle>`.
+ * `picked`: the exit open in its pane, ringed in the accent.
+ */
+export function FlowHandle({ look, picked, children }: { look: FlowHandleLook; picked?: boolean; children: ReactElement }) {
+  return <Slot className={picked ? `${LOOK[look]} !ring-2 !ring-accent !ring-offset-1 !ring-offset-surface` : LOOK[look]}>{children}</Slot>
 }

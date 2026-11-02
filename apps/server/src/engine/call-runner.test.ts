@@ -29,9 +29,9 @@ function setup({ termsBatch = 8, callError }: { termsBatch?: number; callError?:
   const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).all();
   const review = db.insert(s.statuses).values({ projectId, name: '사람 확인 필요', color: '#b26f00', kind: 'normal', inReview: true, sort: 10 }).returning().get();
 
-  // The called workflow without its AI 실패 태그 marker: a failure that survives its 재요청 leaves the call through 오류.
+  // The called workflow without its AI 실패 tag (the exit action of the AI's 오류 exit): a failure that survives its retries leaves the call through 오류.
   const full = termExtractionTemplate({ model: choice });
-  const extraction = { ...full, nodes: full.nodes.filter((node) => !node.id.endsWith('-failed')), edges: full.edges.filter((edge) => !edge.target.endsWith('-failed')) };
+  const extraction = { ...full, nodes: full.nodes.map(({ exits: _exits, ...node }) => node) };
   const called = db.insert(s.workflows).values({
     projectId,
     name: '용어 추출',
@@ -52,14 +52,14 @@ function setup({ termsBatch = 8, callError }: { termsBatch?: number; callError?:
       ...base.nodes,
       { id: 'call', type: 'call', position: at, config: { workflowId: called.id } },
       ...(callError ? [
-        { id: 'is-other', type: 'condition', position: at, config: { expression: { '==': [{ var: 'error.kind' }, 'other'] } } },
-        { id: 'to-review', type: 'function', position: at, config: { fn: 'setStatus', params: { statusId: review.id } } },
+        // Its true exit sets the review status: an exit action, not a node.
+        { id: 'is-other', type: 'condition', position: at, config: { expression: { '==': [{ var: 'error.kind' }, 'other'] } }, exits: { true: [{ type: 'status', statusId: review.id }] } },
       ] : []),
     ],
     edges: [
       ...base.edges,
       { id: 'save-call', source: 'save', sourceHandle: 'out', target: 'call' },
-      ...(callError ? [{ id: 'call-error', source: 'call', sourceHandle: 'error', target: 'is-other' }, { id: 'other-review', source: 'is-other', sourceHandle: 'true', target: 'to-review' }] : []),
+      ...(callError ? [{ id: 'call-error', source: 'call', sourceHandle: 'error', target: 'is-other' }] : []),
     ],
   });
   const workflow = db.insert(s.workflows).values({ projectId, name: '번역 후 용어 추출', description: '', definition: outer }).returning().get();

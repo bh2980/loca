@@ -201,16 +201,6 @@ describe('apply nodes', () => {
     expect(apply(ctx, 'setListener', params, { value: 'unknown', confidence: 0.95 }, 'a2').output).toMatchObject({ recorded: false, reason: '청자 미상' });
   });
 
-  it('tags lines by name and never creates a tag', () => {
-    const ctx = setup();
-    const tag = ctx.db.insert(s.tags).values({ projectId: ctx.projectId, name: '긴급', color: 'x' }).returning().get();
-    const params = { map: { tag: 'value' } };
-    apply(ctx, 'tagLines', params, { value: '긴급' }, 'a1');
-    expect(ctx.db.select().from(s.unitTags).all().map((row) => row.tagId)).toEqual([tag.id]);
-    expect(apply(ctx, 'tagLines', params, { value: '없는 태그' }, 'a2').output).toMatchObject({ tagged: false });
-    expect(tagsOfProject(ctx)).toHaveLength(1);
-  });
-
   it('is registered as instant functions and names the topics it writes', () => {
     expect(Object.keys(syncFunctions)).toEqual(expect.arrayContaining(Object.keys(APPLY_TOPICS)));
     expect(APPLY_TOPICS.saveTerms).toEqual(['terms']);
@@ -218,57 +208,7 @@ describe('apply nodes', () => {
   });
 });
 
-describe('태그 붙이기 / 떼기', () => {
-  const tagNamesOf = (ctx: Ctx, key: string) => {
-    const unit = ctx.db.select().from(s.units).where(eq(s.units.key, key)).get()!;
-    const tags = ctx.db.select().from(s.tags).all();
-    return ctx.db.select().from(s.unitTags).where(eq(s.unitTags.unitId, unit.id)).all().map((row) => tags.find((tag) => tag.id === row.tagId)!.name).sort();
-  };
-
-  it('adds and removes the tags picked in the pane: a finding tag is picked like any other', () => {
-    const ctx = setup();
-    const urgent = ctx.db.insert(s.tags).values({ projectId: ctx.projectId, name: '긴급', color: 'x' }).returning().get();
-    const format = issueTagIds(ctx.db, ctx.projectId).format!;
-    const added = apply(ctx, 'tagLines', { action: 'add', tagIds: [urgent.id, format] }, undefined, 'a1').output as { tagged: boolean; action: string; tags: string[] };
-    expect({ ...added, tags: [...added.tags].sort() }).toEqual({ tagged: true, action: 'add', tags: ['긴급', '형식 오류'] });
-    expect(tagNamesOf(ctx, 'a1')).toEqual(['긴급', '형식 오류']);
-    apply(ctx, 'tagLines', { action: 'remove', tagIds: [urgent.id] }, undefined, 'a1');
-    expect(tagNamesOf(ctx, 'a1')).toEqual(['형식 오류']);
-    expect(tagsOfProject(ctx)).toHaveLength(1);
-  });
-
-  it('turns the values of a result field into tags: the tag its category is connected to, else the tag of that name; none is made', () => {
-    const ctx = setup();
-    ctx.db.insert(s.tags).values({ projectId: ctx.projectId, name: '긴급', color: 'x' }).run();
-    const ids = issueTagIds(ctx.db, ctx.projectId);
-    const params = { action: 'add', map: { tag: 'categories' }, categoryTags: { speech: ids.speech!, term: ids.term! } };
-    apply(ctx, 'tagLines', params, { categories: ['speech', 'term', '긴급', '없는 태그'] }, 'a1');
-    expect(tagNamesOf(ctx, 'a1')).toEqual(['긴급', '말투 어긋남', '용어 위반']);
-    expect(tagsOfProject(ctx).map((tag) => tag.name)).toEqual(['긴급']);
-    expect(apply(ctx, 'tagLines', params, { categories: ['없는 태그'] }, 'a2').output).toMatchObject({ tagged: false });
-    expect(apply(ctx, 'tagLines', params, undefined, 'a2').output).toMatchObject({ tagged: false });
-    // A single text field works too (a check's kind).
-    apply(ctx, 'tagLines', { action: 'remove', map: { tag: 'kind' }, categoryTags: { speech: ids.speech! } }, { kind: 'speech' }, 'a1');
-    expect(tagNamesOf(ctx, 'a1')).toEqual(['긴급', '용어 위반']);
-  });
-
-  it('a pass-path 떼기 removes only the tags it names and leaves another check\'s and the person\'s', () => {
-    const ctx = setup();
-    const urgent = ctx.db.insert(s.tags).values({ projectId: ctx.projectId, name: '긴급', color: 'x' }).returning().get();
-    const ids = issueTagIds(ctx.db, ctx.projectId);
-    apply(ctx, 'tagLines', { action: 'add', tagIds: [urgent.id, ids.format!, ids.term!] }, undefined, 'a1');
-    expect(tagNamesOf(ctx, 'a1')).toEqual(['긴급', '용어 위반', '형식 오류']);
-    apply(ctx, 'tagLines', { action: 'remove', tagIds: [ids.format!] }, { kind: 'format', passed: true }, 'a1');
-    expect(tagNamesOf(ctx, 'a1')).toEqual(['긴급', '용어 위반']);
-    apply(ctx, 'tagLines', { action: 'remove', tagIds: Object.values(ids) }, undefined, 'a1');
-    expect(tagNamesOf(ctx, 'a1')).toEqual(['긴급']);
-  });
-
-  it('refuses a node with nothing to tag', () => {
-    const ctx = setup();
-    expect(() => apply(ctx, 'tagLines', { action: 'add' }, { x: 1 }, 'a1')).toThrow();
-  });
-});
+// Tags and statuses are exit actions now: see ../exit-actions.test.ts.
 
 describe('checks only judge', () => {
   it('formatCheck and glossaryCheck return a verdict and their kind and touch no tags', () => {

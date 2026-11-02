@@ -1,6 +1,6 @@
 import { and, eq } from 'drizzle-orm';
 import { get } from 'es-toolkit/compat';
-import { AGE_BANDS, APPLY_FUNCTION_NAMES, APPLY_TARGETS, applyParams, DOCUMENT_KINDS, normalizeTagScopes, tagLinesParams, aiStatus, sameTranslation, TERM_KIND_LABELS, TERM_KINDS, UNKNOWN_LISTENER, withMainTarget, withSourceWhitespace, withTargetCandidate, type ApplyField, type ApplyFunctionName, type ApplyParams } from '@tw/shared';
+import { AGE_BANDS, APPLY_FUNCTION_NAMES, APPLY_TARGETS, applyParams, DOCUMENT_KINDS, normalizeTagScopes, aiStatus, sameTranslation, TERM_KIND_LABELS, TERM_KINDS, UNKNOWN_LISTENER, withMainTarget, withSourceWhitespace, withTargetCandidate, type ApplyField, type ApplyFunctionName, type ApplyParams } from '@tw/shared';
 import type { Db } from '../../db/index.ts';
 import * as s from '../../db/schema.ts';
 import type { Topic } from '../../events.ts';
@@ -132,7 +132,7 @@ interface Handler {
 }
 
 /** Targets that write the item itself (shape `line`): one item per visit. */
-type ItemTarget = 'saveCandidate' | 'tagLines' | 'setListener';
+type ItemTarget = 'saveCandidate' | 'setListener';
 const HANDLERS: Record<Exclude<ApplyFunctionName, ItemTarget>, Handler> = {
   saveTerms: {
     write: (items, { tx, write }) => aiSaveTerms(tx, write, items as never),
@@ -173,7 +173,6 @@ const HANDLERS: Record<Exclude<ApplyFunctionName, ItemTarget>, Handler> = {
 export const APPLY_TOPICS: Record<ApplyFunctionName, Topic[]> = {
   saveCandidate: ['terms'],
   setListener: [],
-  tagLines: ['terms'],
   saveTerms: ['terms'],
   saveCharacters: ['knowledge'],
   saveRelationships: ['knowledge'],
@@ -183,7 +182,6 @@ export const APPLY_TOPICS: Record<ApplyFunctionName, Topic[]> = {
 };
 
 function run(fn: ApplyFunctionName, tx: Tx, raw: unknown, input: FunctionInput): FunctionResult {
-  if (fn === 'tagLines') return runTags(tx, raw, input);
   const params = applyParams.parse(raw);
   const target = APPLY_TARGETS[fn];
   const missing = (target.fields as readonly ApplyField[]).filter((field) => field.required && !params.map[field.name]);
@@ -246,39 +244,6 @@ function runLine(fn: 'saveCandidate' | 'setListener', context: Context, item: It
   return { port: 'out', output: { recorded: result.set === 1, listener: entry.listener, confidence: entry.confidence, ...(result.skipped[0] ? { reason: result.skipped[0].reason } : {}) } };
 }
 
-/**
- * 태그 붙이기 / 떼기, the only node that adds or removes tags in a workflow (checks and reviews only
- * judge). The tags: the ones picked in the pane, and for each value of the previous step's result field
- * `map.tag` (a review's categories, a check's kind) the tag `categoryTags` connects it to, else the tag of
- * that name. Every tag is the project's own and must be able to go on this kind of item; none is made here.
- */
-function runTags(tx: Tx, raw: unknown, input: FunctionInput): FunctionResult {
-  const params = tagLinesParams.parse(raw);
-  const add = params.action === 'add';
-  const scope = input.subject === 'lines' ? 'lines' : 'terms';
-  const names: string[] = [];
-  if (params.map.tag) {
-    const output = input.previous;
-    if (!output && !params.tagIds.length) return { port: 'out', output: { tagged: false, reason: '앞 단계의 결과가 이 항목에 없습니다.' } };
-    if (output) names.push(...(coerce({ name: 'tag', label: '', type: 'strings' }, get(output, params.map.tag)) as string[]));
-  } else if (!params.tagIds.length) throw new Error(`'태그 붙이기' 노드에 ${add ? '붙일' : '뗄'} 태그가 없습니다.`);
-
-  const tags = knowledgeOf(tx as unknown as Db, input.projectId).tags().filter((tag) => normalizeTagScopes(tag.scope).includes(scope));
-  const tagIds = new Set(params.tagIds.filter((id) => tags.some((tag) => tag.id === id)));
-  const unmatched: string[] = [];
-  for (const name of names) {
-    const connected = params.categoryTags[name] ?? params.categoryTags[lower(name)];
-    const tag = tags.find((candidate) => candidate.id === connected) ?? tags.find((candidate) => lower(candidate.name) === lower(name));
-    if (tag) tagIds.add(tag.id);
-    else unmatched.push(name);
-  }
-  const named = tags.filter((tag) => tagIds.has(tag.id)).map((tag) => tag.name);
-  if (!named.length) return { port: 'out', output: { tagged: false, action: params.action, reason: unmatched.length ? `연결된 태그나 같은 이름의 ${scope === 'lines' ? '대사' : '용어'} 태그가 없습니다: ${unmatched.join(', ')}` : `${add ? '붙일' : '뗄'} 태그가 없습니다.` } };
-
-  if (input.subject === 'lines') attachUnitTags(tx, input.projectId, [input.unit.id], add ? { add: [...tagIds] } : { remove: [...tagIds] }, { onMisplaced: 'skip' });
-  else for (const id of tagIds) setKnowledgeTag(tx, input.projectId, 'terms', [input.term.id], id, add);
-  return { port: 'out', output: { tagged: true, action: params.action, tags: named } };
-}
 
 /** 번역 저장 on a term: its Korean form and note (a form a person saved is kept). */
 function runTerm(context: Context, item: Item): FunctionResult {
