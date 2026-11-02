@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import Graph from 'graphology';
-import { APPLY_TARGETS, FUNCTIONS, TAG_ACTIONS, type TagLinesParams, functionPorts, functionTakes, jsonFieldSchema, type ApplyFunctionName, type ApplyParams, type FunctionName, type JsonField, type Port } from './functions.ts';
+import { APPLY_TARGETS, FUNCTIONS, TAG_ACTIONS, functionPorts, functionTakes, jsonFieldSchema, type ApplyFunctionName, type ApplyParams, type FunctionName, type JsonField, type Port } from './functions.ts';
 import { stronglyConnectedComponents } from 'graphology-components';
 import { choiceKey, draftModelChoiceSchema, EMPTY_MODEL_CHOICE, modelChoiceSchema, type ModelChoice } from './model-choice.ts';
 import { KNOWLEDGE_STATUSES } from './knowledge.ts';
@@ -52,7 +52,54 @@ export const batchConfigSchema = z.object({
 });
 
 const position = z.object({ x: z.number(), y: z.number() });
-const base = { id: z.string().min(1), position, label: z.string().optional() };
+
+/**
+ * 출구 동작: what a line gets as it leaves a node's exit, before the exit's lines split (docs/DESIGN-EXIT-ACTIONS.md).
+ * Nodes do the work; an exit marks the line. `tag` puts tags on or takes them off: the ones picked (`tagIds`), and with
+ * `fromField` the values of that field of the previous step's result (a review's `categories`) as tags, through
+ * `categoryTags` (value → tag id) or a tag of that name. `status` sets the line's status (a term's: 후보·확정·버림).
+ */
+export const exitActionSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('tag'),
+    action: z.enum(['add', 'remove']).default('add'),
+    tagIds: z.array(z.string()).default([]),
+    fromField: z.string().trim().min(1).optional(),
+    categoryTags: z.record(z.string(), z.string()).default({}),
+  }),
+  /** `statusId` empty: not picked yet (validation asks for one). */
+  z.object({ type: z.literal('status'), statusId: z.string() }),
+]);
+export type ExitAction = z.infer<typeof exitActionSchema>;
+export type TagExitAction = Extract<ExitAction, { type: 'tag' }>;
+
+const base = {
+  id: z.string().min(1),
+  position,
+  label: z.string().optional(),
+  /** Exit id → its actions, in the order they apply. An exit without actions is left out. */
+  exits: z.record(z.string(), z.array(exitActionSchema)).optional(),
+};
+
+/** The actions on a node's exit (none when it has none). */
+export const exitActions = (node: Pick<WorkflowNode, 'exits'> | undefined, port: string): ExitAction[] => node?.exits?.[port] ?? [];
+/** A node with `actions` on its exit `port` (an empty list takes the exit's actions away). */
+export function withExitActions<T extends WorkflowNode>(node: T, port: string, actions: ExitAction[]): T {
+  const exits = { ...node.exits };
+  if (actions.length) exits[port] = actions;
+  else delete exits[port];
+  return { ...node, exits: Object.keys(exits).length ? exits : undefined };
+}
+/** Whether any exit of the node sets a status. */
+export const setsStatus = (node: Pick<WorkflowNode, 'exits'>) => Object.values(node.exits ?? {}).some((actions) => actions.some((action) => action.type === 'status'));
+
+/**
+ * The step whose result an exit's `fromField` reads: the node itself when it leaves a result (not through its 오류 exit,
+ * which carries none), else the first result node behind it.
+ */
+export function exitResultSteps(definition: Pick<WorkflowDefinition, 'nodes' | 'edges'>, node: WorkflowNode, port: string): WorkflowNode[] {
+  return port !== 'error' && leavesResult(node) ? [node] : previousSteps(definition, node.id);
+}
 
 /**
  * What an AI node returns: a form, not a purpose. Where a result goes in the project is up to the
@@ -122,7 +169,7 @@ export function nodeOutputFields(node: WorkflowNode | undefined): JsonField[] | 
   if (!node) return null;
   if (node.type === 'ai') {
     if (node.config.output === 'json') return node.config.fields;
-    if (node.config.output === 'verdict') return [{ name: 'passed', type: 'boolean', description: '' }, { name: 'issues', type: 'strings', description: '' }, { name: 'categories', type: 'strings', description: '' }];
+    if (node.config.output === 'verdict') return [{ name: 'passed', type: 'boolean', description: '통과 여부' }, { name: 'issues', type: 'strings', description: '찾은 문제' }, { name: 'categories', type: 'strings', description: '찾은 문제의 종류' }];
     if (node.config.output === 'choice') return [{ name: 'value', type: 'string', description: '' }, { name: 'confidence', type: 'number', description: '' }, { name: 'reason', type: 'string', description: '' }];
     return [{ name: 'text', type: 'string', description: '' }];
   }
@@ -240,8 +287,8 @@ export const presetTakes = (preset: { inputs?: readonly WorkflowSubject[] }, inp
 export const gatherConfigSchema = z.object({ fields: z.array(z.string().trim().min(1)).default([]) }).prefault({});
 export type GatherConfig = z.infer<typeof gatherConfigSchema>;
 
-/** Functions that write the item itself (its status, translation, listener, tags, a term's form or status). */
-export const ITEM_CHANGING_FUNCTIONS = new Set(['setStatus', 'saveCandidate', 'setListener', 'tagLines']);
+/** Functions that write the item itself (its translation, listener, a term's form). Exit actions write it too (tags, status). */
+export const ITEM_CHANGING_FUNCTIONS = new Set(['saveCandidate', 'setListener']);
 
 /** An AI node's call time limit when it does not set one, in minutes. */
 export const DEFAULT_CALL_MINUTES = 10;
@@ -480,7 +527,6 @@ export const definitionModels = (definition: Pick<WorkflowDefinition, 'nodes' | 
 export const resendsOf = (definition: Pick<WorkflowDefinition, 'settings'>, node: AiNode): number => nodeRetries(definition, node).reduce((sum, rule) => sum + rule.maxTimes, 0);
 
 /** Functions that change the line itself (its status, tags or representative translation). */
-const LINE_CHANGING_FUNCTIONS = new Set(['setStatus']);
 
 export interface NodeTypeInfo {
   label: string;
@@ -668,7 +714,7 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
       const node = definition.nodes.find((candidate) => candidate.id === met[0]);
       error(`${where}가 '${node ? nodeName(node) : met[0]}'에서 다시 만납니다. 한 출구에서 나간 갈래는 따로 끝나야 합니다.`, { nodeId: source?.id });
     }
-    const changing = branches.filter((branch) => [...branch].some((id) => { const node = definition.nodes.find((candidate) => candidate.id === id); return node?.type === 'function' && LINE_CHANGING_FUNCTIONS.has(node.config.fn); }));
+    const changing = branches.filter((branch) => [...branch].some((id) => { const node = definition.nodes.find((candidate) => candidate.id === id); return Boolean(node && setsStatus(node)); }));
     if (changing.length > 1) error(`${where} 중 둘 이상이 대사의 상태를 바꿉니다. 상태 변경은 한 갈래에만 두세요.`, { nodeId: source?.id });
   }
 
@@ -678,6 +724,9 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
         port.id === 'error' ||
         (port.id === 'out' && node.type !== 'entry') ||
         usedPorts.has(`${node.id}:${port.id}`) ||
+        // An exit that sets a status and has no line ends the line there, in that status (검토 필요로 끝). One that only
+        // tags still needs its line: lines silently stopping after a check is far more often a line forgotten.
+        exitActions(node, port.id).some((action) => action.type === 'status') ||
         (port.id === 'fail' && usedPorts.has(`${node.id}:pass`)) ||
         ((port.id === 'true' || port.id === 'false') && (usedPorts.has(`${node.id}:true`) || usedPorts.has(`${node.id}:false`)))
       ) continue;
@@ -726,6 +775,7 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
         const next = definition.nodes.find((other) => other.id === id)!;
         // After a gather one item carries the combined result: nothing may change "the item".
         if (next.type === 'function' && ITEM_CHANGING_FUNCTIONS.has(next.config.fn)) error(`'${nodeName(next)}'는 모으기 뒤에 둘 수 없습니다. 모은 뒤에는 대사·용어가 아니라 합친 결과 하나가 흐릅니다.`, { nodeId: next.id });
+        if (Object.keys(next.exits ?? {}).length) error(`'${nodeName(next)}'의 출구 동작(태그·상태)은 모으기 뒤에 둘 수 없습니다. 모은 뒤에는 대사·용어가 아니라 합친 결과 하나가 흐릅니다.`, { nodeId: next.id });
         if (next.type === 'ai' && next.config.input.lines) error('모으기 뒤의 AI 노드는 입력에서 대사를 빼고(대사도 넣기 끔) 모은 결과를 읽어야 합니다.', { nodeId: next.id });
       }
     }
@@ -742,14 +792,6 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
         continue;
       }
       const params = parsed.data as Record<string, unknown>;
-      if (node.config.fn === 'setStatus') {
-        const known = input === 'terms' ? (KNOWLEDGE_STATUSES as readonly string[]).includes(params.statusId as string) : refs.statusIds.has(params.statusId as string);
-        if (params.statusId && !known) error('삭제된 상태입니다.', { nodeId: node.id });
-        for (const id of [...(params.addTagIds as string[]), ...(params.removeTagIds as string[])])
-          if (!refs.tagIds.has(id)) error('삭제된 태그가 있습니다.', { nodeId: node.id });
-      }
-      if (node.config.fn === 'tagLines')
-        for (const id of params.tagIds as string[]) if (!refs.tagIds.has(id)) error('삭제된 태그가 있습니다.', { nodeId: node.id });
       if (node.config.fn === 'http') {
         if (!/^https?:\/\//.test(String(params.url).trim())) error('HTTP 호출할 주소(https://…)를 입력하세요.', { nodeId: node.id });
         if (params.connectionId && !refs.toolConnectionIds.has(params.connectionId as string)) error('삭제된 API 키입니다.', { nodeId: node.id });
@@ -758,6 +800,7 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
     }
     if (node.type === 'condition' && (node.config.expression === undefined || node.config.expression === null))
       error('조건식을 입력하세요.', { nodeId: node.id });
+    for (const message of exitActionIssues(definition, node, input, refs)) (message.level === 'error' ? error : warn)(message.message, { nodeId: node.id });
   }
 
   if (entries.length === 1) {
@@ -815,18 +858,53 @@ function callsBack(calledId: string, refs: WorkflowRefs): boolean {
 }
 
 /**
+ * What is wrong with a node's exit actions: an exit it does not have, a status or tag that is gone or not of this
+ * workflow's input, a tag action with nothing to put on, a `fromField` with no result before it; and, as warnings, two
+ * statuses on one exit (the last one stays) or one tag both put on and taken off there.
+ */
+export function exitActionIssues(definition: Pick<WorkflowDefinition, 'nodes' | 'edges'>, node: WorkflowNode, input: 'lines' | 'terms', refs: Pick<WorkflowRefs, 'statusIds' | 'tagIds'>): { level: 'error' | 'warning'; message: string }[] {
+  const issues: { level: 'error' | 'warning'; message: string }[] = [];
+  const ports = new Map(nodePorts(node).map((port) => [port.id, port.label]));
+  for (const [port, actions] of Object.entries(node.exits ?? {})) {
+    if (!actions.length) continue;
+    const exit = ports.get(port);
+    if (!exit) {
+      issues.push({ level: 'error', message: `없는 출구(${port})에 동작이 있습니다. 출구 동작을 지우세요.` });
+      continue;
+    }
+    const where = `'${exit}' 출구`;
+    const statuses = actions.filter((action) => action.type === 'status');
+    for (const action of statuses) {
+      if (!action.statusId) {
+        issues.push({ level: 'error', message: `${where}: 바꿀 상태를 고르세요.` });
+        continue;
+      }
+      const known = input === 'terms' ? (KNOWLEDGE_STATUSES as readonly string[]).includes(action.statusId) : refs.statusIds.has(action.statusId);
+      if (!known) issues.push({ level: 'error', message: input === 'terms' ? `${where}: 용어의 상태는 후보·확정·버림 중 하나입니다.` : `${where}: 삭제된 상태입니다. 다시 고르세요.` });
+    }
+    if (statuses.length > 1) issues.push({ level: 'warning', message: `${where}에 상태 바꾸기가 ${statuses.length}개 있습니다. 마지막 것만 남습니다.` });
+    const tags = actions.filter((action): action is TagExitAction => action.type === 'tag');
+    for (const action of tags) {
+      if (action.tagIds.some((id) => !refs.tagIds.has(id))) issues.push({ level: 'error', message: `${where}: 삭제된 태그가 있습니다. 다시 고르세요.` });
+      if (!action.tagIds.length && !action.fromField) issues.push({ level: 'error', message: `${where}: ${action.action === 'remove' ? '뗄' : '붙일'} 태그를 고르거나, 태그 이름이 든 결과 필드를 고르세요.` });
+      if (action.fromField) {
+        const steps = exitResultSteps(definition, node, port);
+        if (!steps.length || steps.some((step) => step.type === 'gather')) issues.push({ level: 'error', message: `${where}: 태그 이름을 읽을 결과가 앞에 없습니다. 결과를 내는 노드의 출구에 붙이세요.` });
+      }
+    }
+    const added = new Set(tags.filter((action) => action.action === 'add').flatMap((action) => action.tagIds));
+    if (tags.some((action) => action.action === 'remove' && action.tagIds.some((id) => added.has(id)))) issues.push({ level: 'warning', message: `${where}에서 같은 태그를 붙이고 뗍니다. 적힌 순서대로 적용됩니다.` });
+  }
+  return issues;
+}
+
+/**
  * What is wrong with an apply node's source and mapping: the previous step (along the edges) must be an
  * AI or script node, a `list` target needs the list field, and every required field must be mapped.
  */
 export function applyIssues(definition: Pick<WorkflowDefinition, 'nodes' | 'edges'>, nodeId: string, fn: ApplyFunctionName, params: ApplyParams): string[] {
   const target = APPLY_TARGETS[fn];
   const steps = previousSteps(definition, nodeId);
-  if (fn === 'tagLines') {
-    const tags = params as TagLinesParams;
-    const named = Boolean(tags.map.tag);
-    if (!named && !tags.tagIds.length) return [`${tags.action === 'remove' ? '뗄' : '붙일'} 태그를 고르거나, 태그 이름이 든 앞 단계 결과 필드를 고르세요.`];
-    return named && (!steps.length || steps.some((step) => step.type === 'gather')) ? ['앞 단계에 결과를 내는 노드가 없습니다. 태그 이름을 읽을 노드 뒤에 이으세요.'] : [];
-  }
   if (!steps.length || steps.some((step) => step.type === 'gather')) return ['앞 단계에 결과를 내는 AI·스크립트 노드가 없습니다. 반영할 결과를 내는 노드 뒤에 이으세요.'];
   const issues: string[] = [];
   if (target.shape === 'list' && !params.list) issues.push('항목을 가져올 목록 필드를 고르세요.');

@@ -20,6 +20,8 @@ export interface NodeRefs {
   workflows?: { id: string; name: string; input: WorkflowSubject }[];
   /** Opens another node's settings (a step chip's click). */
   onOpenNode?: (id: string) => void;
+  /** Opens an exit's pane (its 출구 동작 and lines). */
+  onOpenExit?: (nodeId: string, port: string) => void;
   /** The workflow's retry rules (what an AI node without its own follows), and a way to its settings where they are edited. */
   retries?: RetryRule[];
   onOpenWorkflowSettings?: () => void;

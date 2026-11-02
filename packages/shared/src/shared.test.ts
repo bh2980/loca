@@ -7,7 +7,7 @@ import { checkFormat, compileFormatRules, matchTokens, withSourceWhitespace, glo
 import { importFileSchema, importWarnings, summarizeImport } from './import-format.ts';
 import { politenessOf, speechLevelOf, styleInstruction, styleNames } from './knowledge.ts';
 import { termMarksOf, withDuplicateTargets } from './marks.ts';
-import { ANALYSIS_WORKFLOW, analysisTemplate, defaultWorkflows, eventExtractionTemplate, listenerTemplate, peopleRelationsTemplate, termExtractionTemplate, translationTemplate, WORKFLOW_TEMPLATES } from './defaults.ts';
+import { ANALYSIS_WORKFLOW, analysisTemplate, defaultWorkflows, eventExtractionTemplate, listenerTemplate, peopleRelationsTemplate, termExtractionTemplate, termTranslationTemplate, translationTemplate, WORKFLOW_TEMPLATES } from './defaults.ts';
 import { APPLY_TARGETS } from './functions.ts';
 import { AI_PRESETS, AI_PROMPTS, presetConfig } from './presets.ts';
 import { CONTEXT_FIELDS } from './context.ts';
@@ -69,27 +69,60 @@ describe('workflow validation', () => {
     expect(validateWorkflow(template, refs).filter((issue) => issue.level === 'error')).toEqual([]);
   });
 
-  it('wires the checks\' exits through 태그 붙이기 / 떼기 nodes: fail adds its tag, pass removes only that one; the review maps its categories to tags', () => {
+  it('puts the checks\' tags on their exits: fail adds its tag, pass removes only that one; the review maps its categories to tags', () => {
     const template = workflowDefinitionSchema.parse(translationTemplate(ids));
-    const tag = (id: string) => (template.nodes.find((node) => node.id === id) as unknown as { config: { fn: string; params: { action: string; map: Record<string, string>; tagIds: string[]; categoryTags: Record<string, string> } } }).config;
-    expect(tag('tag-format').params).toMatchObject({ action: 'add', tagIds: ['t-format'] });
-    expect(tag('untag-format').params).toMatchObject({ action: 'remove', tagIds: ['t-format'] });
-    expect(tag('tag-review').params).toMatchObject({ action: 'add', map: { tag: 'categories' }, categoryTags: { format: 't-format', term: 't-term', speech: 't-speech', meaning: 't-meaning', style: 't-style', other: 't-other' } });
-    expect(tag('untag-review').params).toMatchObject({ action: 'remove' });
-    expect(new Set(tag('untag-review').params.tagIds)).toEqual(new Set(Object.values(issueTags)));
+    const node = (id: string) => template.nodes.find((candidate) => candidate.id === id)!;
+    // No tag or status node is left: they are exit actions now.
+    expect(template.nodes.some((candidate) => candidate.type === 'function' && ['tagLines', 'setStatus'].includes(candidate.config.fn))).toBe(false);
+    expect(node('check').exits).toEqual({
+      pass: [{ type: 'tag', action: 'remove', tagIds: ['t-format'], categoryTags: {} }],
+      fail: [{ type: 'tag', action: 'add', tagIds: ['t-format'], categoryTags: {} }],
+    });
+    expect(node('glossary').exits).toEqual({
+      pass: [{ type: 'tag', action: 'remove', tagIds: ['t-term'], categoryTags: {} }],
+      fail: [{ type: 'tag', action: 'add', tagIds: ['t-term'], categoryTags: {} }],
+    });
+    const review = node('review').exits!;
+    expect(review.fail).toEqual([{ type: 'tag', action: 'add', tagIds: [], fromField: 'categories', categoryTags: { format: 't-format', term: 't-term', speech: 't-speech', meaning: 't-meaning', style: 't-style', other: 't-other' } }]);
+    // A passing review takes every issue tag off, then confirms.
+    expect(review.pass).toHaveLength(2);
+    expect(review.pass![0]).toMatchObject({ type: 'tag', action: 'remove' });
+    expect(new Set((review.pass![0] as { tagIds: string[] }).tagIds)).toEqual(new Set(Object.values(issueTags)));
+    expect(review.pass![1]).toEqual({ type: 'status', statusId: 's3' });
+    expect(review.error).toEqual([{ type: 'status', statusId: 's2' }]);
     const exit = (source: string, handle: string) => template.edges.find((edge) => edge.source === source && edge.sourceHandle === handle)?.target;
-    expect([exit('check', 'fail'), exit('check', 'pass'), exit('review', 'fail'), exit('review', 'pass')]).toEqual(['tag-format', 'untag-format', 'tag-review', 'untag-review']);
-    // A node that picks nothing to tag is told so.
-    const empty = { ...template, nodes: template.nodes.map((node) => (node.id === 'tag-format' ? { ...node, config: { ...node.config, params: { action: 'add' } } } : node)) } as WorkflowDefinition;
-    expect(validateWorkflow(empty, refs)).toContainEqual(expect.objectContaining({ level: 'error', nodeId: 'tag-format', message: expect.stringContaining('태그를 고르') }));
+    expect([exit('check', 'fail'), exit('check', 'pass'), exit('review', 'fail'), exit('review', 'pass')]).toEqual(['revise-again', 'glossary', 'revise-again', 'terms']);
+    // An exit that picks nothing to tag is told so.
+    const empty: WorkflowDefinition = { ...template, nodes: template.nodes.map((n) => (n.id === 'check' ? { ...n, exits: { ...n.exits, fail: [{ type: 'tag' as const, action: 'add' as const, tagIds: [], categoryTags: {} }] } } : n)) };
+    expect(validateWorkflow(empty, refs)).toContainEqual(expect.objectContaining({ level: 'error', nodeId: 'check', message: expect.stringContaining('태그를 고르') }));
   });
 
   it('reports a deleted connection and an unconnected exit on the node', () => {
     const template = workflowDefinitionSchema.parse(translationTemplate(ids));
-    const broken: WorkflowDefinition = { ...template, edges: template.edges.filter((edge) => edge.id !== 'check-pass-untag-format') };
+    const broken: WorkflowDefinition = { ...template, edges: template.edges.filter((edge) => edge.id !== 'check-pass-glossary') };
     const issues = validateWorkflow(broken, { ...refs, connections: new Map() });
     expect(issues).toContainEqual(expect.objectContaining({ level: 'error', nodeId: 'translate' }));
     expect(issues).toContainEqual(expect.objectContaining({ level: 'error', nodeId: 'check', message: expect.stringContaining('통과') }));
+  });
+
+  it('checks the actions on an exit: a missing exit, a deleted status or tag, no result to read names from, two statuses, a tag put on and taken off', () => {
+    const template = workflowDefinitionSchema.parse(translationTemplate(ids));
+    const on = (id: string, exits: NonNullable<WorkflowNode['exits']>): WorkflowDefinition => ({ ...template, nodes: template.nodes.map((n) => (n.id === id ? { ...n, exits } : n)) });
+    const tagOf = (tagIds: string[], extra: object = {}) => ({ type: 'tag' as const, action: 'add' as const, tagIds, categoryTags: {}, ...extra });
+    const issues = (definition: WorkflowDefinition) => validateWorkflow(definition, refs).filter((issue) => issue.nodeId === definition.nodes.find((n) => n.exits !== template.nodes.find((t) => t.id === n.id)?.exits)?.id);
+    expect(issues(on('check', { out: [tagOf(['t-format'])] }))).toContainEqual(expect.objectContaining({ level: 'error', message: expect.stringContaining('없는 출구') }));
+    expect(issues(on('check', { fail: [{ type: 'status', statusId: 'gone' }] }))).toContainEqual(expect.objectContaining({ level: 'error', message: expect.stringContaining('삭제된 상태') }));
+    expect(issues(on('check', { fail: [tagOf(['gone'])] }))).toContainEqual(expect.objectContaining({ level: 'error', message: expect.stringContaining('삭제된 태그') }));
+    // A condition reads the result behind it; a failed first step has no result and nothing before it: the names have nowhere to come from.
+    expect(issues(on('revise-again', { true: [tagOf([], { fromField: 'categories' })] }))).toEqual([]);
+    expect(issues(on('translate', { error: [tagOf([], { fromField: 'categories' })] }))).toContainEqual(expect.objectContaining({ level: 'error', message: expect.stringContaining('결과가 앞에 없습니다') }));
+    expect(issues(on('review', { fail: [{ type: 'status', statusId: 's1' }, { type: 'status', statusId: 's2' }] }))).toContainEqual(expect.objectContaining({ level: 'warning', message: expect.stringContaining('마지막 것만') }));
+    expect(issues(on('check', { fail: [tagOf(['t-format']), { ...tagOf(['t-format']), action: 'remove' as const }] }))).toContainEqual(expect.objectContaining({ level: 'warning', message: expect.stringContaining('붙이고 뗍니다') }));
+    // A term workflow's status is one of the term statuses, not a line status.
+    const terms = workflowDefinitionSchema.parse(termTranslationTemplate(ids));
+    const termStatus = (statusId: string): WorkflowDefinition => ({ ...terms, nodes: terms.nodes.map((n) => (n.id === 'save-term' ? { ...n, exits: { out: [{ type: 'status' as const, statusId }] } } : n)) });
+    expect(validateWorkflow(termStatus('confirmed'), refs).filter((issue) => issue.level === 'error')).toEqual([]);
+    expect(validateWorkflow(termStatus('s2'), refs)).toContainEqual(expect.objectContaining({ level: 'error', nodeId: 'save-term', message: expect.stringContaining('후보·확정·버림') }));
   });
 
   it('lets an exit send lines down several branches that end apart, with one changing the line', () => {
@@ -100,13 +133,15 @@ describe('workflow validation', () => {
       { id: 's1', source: 'review', sourceHandle: 'pass', target: 'side-terms' },
       { id: 's2', source: 'side-terms', sourceHandle: 'out', target: 'side-add' },
     ];
-    const ok: WorkflowDefinition = { ...template, nodes: [...template.nodes, ...side], edges: [...template.edges, ...sideEdges] };
+    // One branch changes the line: 용어 추출 leaves 검토 필요 on it.
+    const setsReview = (n: WorkflowNode) => (n.id === 'terms' ? { ...n, exits: { ...n.exits, out: [{ type: 'status' as const, statusId: 's2' }] } } : n);
+    const ok: WorkflowDefinition = { ...template, nodes: [...template.nodes.map(setsReview), ...side], edges: [...template.edges, ...sideEdges] };
     expect(validateWorkflow(ok, refs).filter((issue) => issue.level === 'error')).toEqual([]);
     // Meeting at a node that does work: the line would be handled twice.
-    const rejoined: WorkflowDefinition = { ...ok, edges: [...ok.edges, { id: 's3', source: 'side-add', sourceHandle: 'out', target: 'confirm' }] };
+    const rejoined: WorkflowDefinition = { ...ok, edges: [...ok.edges, { id: 's3', source: 'side-add', sourceHandle: 'out', target: 'save-terms' }] };
     expect(validateWorkflow(rejoined, refs)).toContainEqual(expect.objectContaining({ level: 'error', nodeId: 'review', message: expect.stringContaining('다시 만납니다') }));
     // Both branches setting the status.
-    const twice: WorkflowDefinition = { ...ok, nodes: ok.nodes.map((n) => (n.id === 'side-add' ? node('side-add', { fn: 'setStatus', params: { statusId: 's1' } }) : n)) };
+    const twice: WorkflowDefinition = { ...ok, nodes: ok.nodes.map((n) => (n.id === 'side-add' ? { ...n, exits: { out: [{ type: 'status' as const, statusId: 's1' }] } } : n)) };
     expect(validateWorkflow(twice, refs)).toContainEqual(expect.objectContaining({ level: 'error', message: expect.stringContaining('상태를 바꿉니다') }));
   });
 
@@ -267,14 +302,17 @@ describe('templates', () => {
   it('term extraction template is entry → AI → save terms, written directly', () => {
     const definition = workflowDefinitionSchema.parse(termExtractionTemplate(ids));
     expect(errors(definition)).toEqual([]);
-    expect(kinds(definition)).toEqual(['entry', 'ai', 'tagLines', 'saveTerms']);
+    expect(kinds(definition)).toEqual(['entry', 'ai', 'saveTerms']);
+    // The AI's 오류 exit puts the AI 실패 tag on the line; it has no edge, so the line ends there.
+    expect(definition.nodes.find((node) => node.id === 'terms')?.exits).toEqual({ error: [{ type: 'tag', action: 'add', tagIds: ['t0'], categoryTags: {} }] });
+    expect(definition.edges.some((edge) => edge.sourceHandle === 'error')).toBe(false);
     expect(definition.nodes.find((node) => node.id === 'save-terms')).toMatchObject({ config: { params: { list: 'terms', map: { source: 'source', target: 'target', kind: 'kind', meaning: 'meaning', evidence: 'evidence' } } } });
   });
 
   it('people template gathers the people, relationships and speech rules of every scene, merges them once and saves each list once, the people as proposals where a person owns the profile', () => {
     const definition = workflowDefinitionSchema.parse(peopleRelationsTemplate(ids));
     expect(errors(definition)).toEqual([]);
-    expect(kinds(definition)).toEqual(['entry', 'ai', 'tagLines', 'gather', 'ai', 'saveCharacters', 'saveRelationships', 'saveSpeechRules']);
+    expect(kinds(definition)).toEqual(['entry', 'ai', 'gather', 'ai', 'saveCharacters', 'saveRelationships', 'saveSpeechRules']);
     expect(definition.edges.filter((edge) => edge.sourceHandle === 'out').map((edge) => `${edge.source}>${edge.target}`)).toEqual([
       'entry>people', 'people>gather', 'gather>merge', 'merge>save-characters', 'save-characters>save-relationships', 'save-relationships>save-speech-rules',
     ]);
@@ -327,7 +365,7 @@ describe('templates', () => {
     const saved = translationTemplate(ids).nodes.find((node) => node.id === 'save');
     expect(saved).toMatchObject({ config: { fn: 'saveCandidate', params: { map: { text: 'text' } } } });
     const listener = listenerTemplate(ids);
-    expect(kinds(listener)).toEqual(['entry', 'ai', 'tagLines', 'setListener']);
+    expect(kinds(listener)).toEqual(['entry', 'ai', 'setListener']);
     expect(listener.nodes.find((node) => node.id === 'set-listener')).toMatchObject({ config: { params: { map: { listener: 'value', confidence: 'confidence' } } } });
   });
 
@@ -523,15 +561,18 @@ describe('retry rules', () => {
       expect(workflowDefinitionSchema.parse(definition).settings, name).toMatchObject({ maxVisitsPerNode: 5, maxConsecutiveFailures: 3, retries: DEFAULT_RETRY_RULES });
       for (const node of definition.nodes.filter((candidate) => candidate.type === 'ai')) {
         expect(node.type === 'ai' && node.config.retries, `${name}/${node.id} follows the workflow's rules`).toBeFalsy();
-        const marker = definition.edges.filter((edge) => edge.source === node.id && edge.sourceHandle === 'error').map((edge) => definition.nodes.find((candidate) => candidate.id === edge.target)!);
-        if (name.endsWith('termTranslate')) { expect(marker, 'terms cannot take the line tag').toEqual([]); continue; }
-        if (node.id === 'merge') { expect(marker, 'after the 모으기 no line stands for the failure').toEqual([]); continue; }
+        const goesOn = definition.edges.filter((edge) => edge.source === node.id && edge.sourceHandle === 'error').map((edge) => edge.target);
+        const marker = node.exits?.error ?? [];
+        if (name.endsWith('termTranslate')) { expect(marker, 'terms cannot take the line tag').toEqual([]); expect(goesOn).toEqual([]); continue; }
+        if (node.id === 'merge') { expect(marker, 'after the 모으기 no line stands for the failure').toEqual([]); expect(goesOn).toEqual([]); continue; }
         // 말투 판정 that keeps failing hands the line on to AI 검수, which still reads it.
-        if (node.id === 'speech') { expect(marker.map((target) => target.id), 'a failed 말투 판정 goes on to AI 검수').toEqual(['review']); continue; }
+        if (node.id === 'speech') { expect(goesOn, 'a failed 말투 판정 goes on to AI 검수').toEqual(['review']); continue; }
+        // The marker is the exit's own action; the exit has no edge, so the line ends there.
+        expect(goesOn, `${name}/${node.id} 오류 has no edge`).toEqual([]);
         expect(marker, `${name}/${node.id} 오류 → marker`).toHaveLength(1);
         const isTranslation = (name === 'translation' || name === 'default 번역' || name === 'review' || name === 'default 검수') && statusMarkers.has(node.id);
-        if (isTranslation) expect(marker[0], `${name}/${node.id}`).toMatchObject({ id: 'needs-review', label: '검토 필요로', config: { fn: 'setStatus', params: { statusId: 's2' } } });
-        else expect(marker[0]).toMatchObject({ label: 'AI 실패 태그', config: { fn: 'tagLines', params: { action: 'add', tagIds: ['t0'] } } });
+        if (isTranslation) expect(marker[0], `${name}/${node.id}`).toEqual({ type: 'status', statusId: 's2' });
+        else expect(marker[0]).toEqual({ type: 'tag', action: 'add', tagIds: ['t0'], categoryTags: {} });
       }
     }
   });
@@ -546,19 +587,21 @@ describe('retry rules', () => {
     }
   });
 
-  it('lays the 번역 template out top to bottom: main path in column 0, the revise loop in its own columns, one 검토 필요로 end', () => {
+  it('lays the 번역 template out top to bottom: main path in column 0, the revise loop in its own columns, no node left for the markers', () => {
     const definition = translationTemplate(ids);
     const place = (id: string) => definition.nodes.find((node) => node.id === id)!.position;
-    const main = ['entry', 'translate', 'save', 'check', 'untag-format', 'review', 'untag-review', 'confirm', 'terms', 'save-terms'];
+    const main = ['entry', 'translate', 'save', 'check', 'glossary', 'review', 'terms', 'save-terms'];
     expect(main.map((id) => place(id).x)).toEqual(main.map(() => 0));
     const ys = main.map((id) => place(id).y);
     expect(ys).toEqual([...ys].sort((a, b) => a - b));
     expect(new Set(ys).size).toBe(ys.length);
-    expect(place('terms-failed').y).toBe(place('terms').y);
     expect(place('revise').x).toBe(place('revise-again').x);
-    expect(definition.nodes.filter((node) => node.label === '검토 필요로').map((node) => node.id)).toEqual(['needs-review']);
-    // Edges go down or sideways, except the loops: 수정으로 바뀌었나? → (지적 태그 떼기 →) 형식 검사, and AI 수정 back to 검토 필요로.
-    const loops = new Set(['untag-revised-out-check', 'revised-false-needs-review', 'revise-error-needs-review']);
+    // 검토 필요 is an exit action now: no node of its own, and every way to give up carries it.
+    expect(definition.nodes.some((node) => node.label === '검토 필요로')).toBe(false);
+    const needsReview = (id: string, port: string) => definition.nodes.find((node) => node.id === id)?.exits?.[port];
+    for (const [id, port] of [['translate', 'error'], ['review', 'error'], ['revise', 'error'], ['revise-again', 'false'], ['revised', 'false']]) expect(needsReview(id!, port!), `${id}.${port}`).toEqual([{ type: 'status', statusId: 's2' }]);
+    // Edges go down or sideways, except the loop: 수정으로 바뀌었나? → 형식 검사.
+    const loops = new Set(['revised-true-check']);
     const upwards = definition.edges.filter((edge) => place(edge.target).y < place(edge.source).y).map((edge) => edge.id);
     for (const id of upwards) expect(loops.has(id), id).toBe(true);
   });
@@ -571,8 +614,8 @@ describe('analysis workflow and presets', () => {
 
   it('builds the work analysis: one AI node, then every list saved in a chain', () => {
     const definition = workflowDefinitionSchema.parse(analysisTemplate(ids));
-    expect(definition.nodes.map((node) => (node.type === 'function' ? node.config.fn : node.type))).toEqual(['entry', 'ai', 'tagLines', 'saveCharacters', 'saveRelationships', 'saveSpeechRules', 'saveEvents', 'saveTerms', 'saveDocument']);
-    expect(definition.edges.filter((edge) => edge.source === 'analysis').map((edge) => [edge.sourceHandle, edge.target])).toEqual([['out', 'save-characters'], ['error', 'analysis-failed']]);
+    expect(definition.nodes.map((node) => (node.type === 'function' ? node.config.fn : node.type))).toEqual(['entry', 'ai', 'saveCharacters', 'saveRelationships', 'saveSpeechRules', 'saveEvents', 'saveTerms', 'saveDocument']);
+    expect(definition.edges.filter((edge) => edge.source === 'analysis').map((edge) => [edge.sourceHandle, edge.target])).toEqual([['out', 'save-characters']]);
     expect(validateWorkflow(definition, { statusIds: new Set(), connections: new Set(['c']), tagIds: new Set(['t0']) } as never).filter((issue) => issue.level === 'error').map((issue) => issue.message)).toEqual([]);
     expect(definition.nodes.find((node) => node.id === 'save-overview')).toMatchObject({ config: { params: { map: { title: 'overviewTitle', body: 'overview' } } } });
   });

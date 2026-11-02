@@ -4,7 +4,8 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { ChevronLeft, OctagonAlert, Pause, Play, CircleStop } from 'lucide-react';
-import { runNodeName, type WorkflowNode } from '@tw/shared';
+import { nodePorts, runNodeName, type WorkflowNode } from '@tw/shared';
+import { parseExitKey } from '@/components/workflow/exit-marks';
 import { ContextItemList } from '@/components/ai-context';
 import { LineDetail } from '@/components/line-detail';
 import { TermEditor } from '@/components/glossary/term-pane';
@@ -197,6 +198,12 @@ function RunDetail() {
   );
 
   const percent = data.total ? Math.round((finished / data.total) * 100) : 0;
+  const exitNotes = Object.entries(data.exits ?? {}).flatMap(([at, exit]) => {
+    const where = parseExitKey(at);
+    const node = where && data.definition.nodes.find((item) => item.id === where.nodeId);
+    const port = node && nodePorts(node).find((item) => item.id === where!.port);
+    return Object.entries(exit.notes).map(([note, count]) => ({ at, note, count, where: `${node ? nodeName(node.id) : at} · ${port?.label ?? where?.port ?? ''}` }));
+  });
   const runInfo = (
     <Inspector header={<InspectorHeader kind="실행" name={data.workflowName} status={<RunStatusBadge status={data.status} />} />}>
       <Section title="진행">
@@ -221,6 +228,18 @@ function RunDetail() {
           </KeyValue>
         )}
       </Section>
+      {exitNotes.length > 0 && (
+        // What exit actions could not do (a person's status kept, a tag name no tag has), by exit: counted once, not per line.
+        <Section title="출구 동작 알림" count={exitNotes.length}>
+          <KeyValue>
+            {exitNotes.map((entry) => (
+              <KeyValueRow key={`${entry.at}:${entry.note}`} label={entry.where}>
+                <Text breakWords>{entry.note} <Text tone="muted" tabular>{entry.count.toLocaleString()}{terms ? '개' : '줄'}</Text></Text>
+              </KeyValueRow>
+            ))}
+          </KeyValue>
+        </Section>
+      )}
       <Section title="실행">
         <KeyValue>
           <KeyValueRow label="실행 ID">

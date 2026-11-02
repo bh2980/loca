@@ -106,7 +106,8 @@ export function runItemRows(db: Db, projectId: string, ids: readonly string[]) {
 
 /**
  * How runs are doing now, one row per run: items by node and state, model calls and tokens (in all
- * and by model), how many items went through each node (지나감), the lines waiting to be sent again by
+ * and by model), how many items went through each node (지나감), what exits' actions could not do, the lines waiting
+ * to be sent again by
  * each AI node's retry rules, and the requests each node has in flight.
  */
 export function runProgress(db: Db, runner: Runner, projectId: string, ids: readonly string[]) {
@@ -133,6 +134,10 @@ export function runProgress(db: Db, runner: Runner, projectId: string, ids: read
         .all<{ nodeId: string; count: number }>(sql`select json_extract(step.value, '$.nodeId') as nodeId, count(distinct item.id) as count from ${s.runItems} item, json_each(item.data, '$.path') step where item.run_id = ${run.id} group by nodeId`)
         .map((row) => [row.nodeId, row.count]),
     );
+    // What the exits' actions could not do (node id:exit → note → lines): a person's status kept, a tag name no tag has.
+    const exits: Record<string, { notes: Record<string, number> }> = {};
+    for (const row of db.all<{ at: string; note: string; count: number }>(sql`select json_extract(entry.value, '$.at') as at, json_extract(entry.value, '$.note') as note, count(distinct item.id) as count from ${s.runItems} item, json_each(item.data, '$.exitNotes') entry where item.run_id = ${run.id} group by at, note`))
+      (exits[row.at] ??= { notes: {} }).notes[row.note] = row.count;
     // Lines waiting to go through an AI node again, by that node: how many, and the failure kinds that sent them back.
     const retrying: Record<string, { count: number; kinds: Record<string, number> }> = {};
     for (const row of db.all<{ nodeId: string; kind: string; count: number }>(sql`select json_extract(data, '$.retry.last.nodeId') as nodeId, json_extract(data, '$.retry.last.kind') as kind, count(*) as count from ${s.runItems} where run_id = ${run.id} and ${RETRYING} group by nodeId, kind`)) {
@@ -140,7 +145,7 @@ export function runProgress(db: Db, runner: Runner, projectId: string, ids: read
       entry.count += row.count;
       entry.kinds[row.kind] = row.count;
     }
-    return { id: run.id, status: run.status, notice: run.notice, total: run.total, finishedAt: run.finishedAt, nodes, calls: runner.liveCalls(run.id), usage, byModel, passed, retrying, filling: run.notice === FILLING };
+    return { id: run.id, status: run.status, notice: run.notice, total: run.total, finishedAt: run.finishedAt, nodes, calls: runner.liveCalls(run.id), usage, byModel, passed, exits, retrying, filling: run.notice === FILLING };
   });
 }
 

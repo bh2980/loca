@@ -10,10 +10,11 @@ export function translateOnlyWorkflow(db: Db, projectId: string) {
   const row = db.select().from(s.workflows).where(and(eq(s.workflows.projectId, projectId), eq(s.workflows.name, '번역'))).get()!;
   const keep = new Set(['entry', 'translate', 'save']);
   const { definition } = row;
-  return { ...row, definition: { ...definition, nodes: definition.nodes.filter((node) => keep.has(node.id)), edges: definition.edges.filter((edge) => keep.has(edge.source) && keep.has(edge.target)) } };
+  // Their exit actions go too (the AI's 오류 exit would set 검토 필요): a failed line ends failed.
+  return { ...row, definition: { ...definition, nodes: definition.nodes.filter((node) => keep.has(node.id)).map(({ exits: _exits, ...node }) => node), edges: definition.edges.filter((edge) => keep.has(edge.source) && keep.has(edge.target)) } };
 }
 
-const DROPPED = new Set(['terms', 'terms-failed', 'save-terms', 'speech', 'speech-sure', 'speech-ok', 'tag-speech']);
+const DROPPED = new Set(['terms', 'save-terms', 'speech', 'speech-sure', 'speech-ok', 'has-rule']);
 /**
  * The 번역 workflow without its closing 용어 추출 branch and its 말투 판정 (형식 검사 goes straight to AI
  * 검수): tests that count the translate/review calls of a line.
@@ -21,5 +22,16 @@ const DROPPED = new Set(['terms', 'terms-failed', 'save-terms', 'speech', 'speec
 export function withoutTerms<T extends { nodes: { id: string }[]; edges: { id?: string; source: string; sourceHandle?: string; target: string }[] }>(definition: T): T {
   const edges = definition.edges.filter((edge) => !DROPPED.has(edge.source) && !DROPPED.has(edge.target));
   const judged = definition.nodes.some((node) => node.id === 'speech');
-  return { ...definition, nodes: definition.nodes.filter((node) => !DROPPED.has(node.id)), edges: judged ? [...edges, { id: 'untag-format-out-review', source: 'untag-format', sourceHandle: 'out', target: 'review' } as T['edges'][number]] : edges };
+  const closed = definition.nodes.some((node) => node.id === 'terms');
+  // A passing review had 용어 추출 after it; an exit that leads nowhere is unconnected, so it ends at an end node.
+  const end = { id: 'done', type: 'end', position: { x: 0, y: 0 }, config: {} } as unknown as T['nodes'][number];
+  return {
+    ...definition,
+    nodes: [...definition.nodes.filter((node) => !DROPPED.has(node.id)), ...(closed ? [end] : [])],
+    edges: [
+      ...edges,
+      ...(judged ? [{ id: 'glossary-pass-review', source: 'glossary', sourceHandle: 'pass', target: 'review' } as T['edges'][number]] : []),
+      ...(closed ? [{ id: 'review-pass-done', source: 'review', sourceHandle: 'pass', target: 'done' } as T['edges'][number]] : []),
+    ],
+  };
 }

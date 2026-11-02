@@ -1,6 +1,6 @@
 /** What the editor and a run's graph share: a node's one-line summary and the edges as React Flow draws them. */
 import { MarkerType } from '@xyflow/react';
-import { AI_OUTPUTS, APPLY_TARGETS, BATCH_MODE_LABELS, FUNCTIONS, TAG_ACTIONS, tagLinesParams, WORKFLOW_SUBJECTS, nodeName, nodePorts, previousSteps, callSummary, workflowInput, type FunctionName, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+import { AI_OUTPUTS, APPLY_TARGETS, BATCH_MODE_LABELS, FUNCTIONS, WORKFLOW_SUBJECTS, nodeName, nodePorts, previousSteps, callSummary, workflowInput, type FunctionName, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
 import type { FlowEdge } from '@/components/workflow/workflow-edge';
 
 export interface SummaryNames {
@@ -43,17 +43,8 @@ export function nodeSummary(node: WorkflowNode, definition: WorkflowDefinition, 
       return `${AI_OUTPUTS[node.config.output].label} · ${BATCH_MODE_LABELS[node.config.batch.mode]}`;
     case 'function': {
       const params = node.config.params as Record<string, unknown>;
-      if (node.config.fn === 'setStatus')
-        return [params.statusId && `→ ${names.status.get(params.statusId as string) ?? '삭제된 상태'}`].filter(Boolean).join(' · ') || '변경 없음';
       if (node.config.fn === 'http') return `${(params.method as string) ?? 'POST'} ${names.connection.get(params.connectionId as string) ?? '연결 없음'}/${(params.path as string) ?? ''}`;
       if (node.config.fn === 'script') return `출구: ${((params.ports as string[]) ?? ['out']).join(', ')}`;
-      if (node.config.fn === 'tagLines') {
-        // "붙이기 · 검수 지적 종류", "떼기 · 형식": the action, then where the tags come from.
-        const tags = tagLinesParams.parse(params);
-        const named = tags.map.tag && (tags.map.tag === 'categories' ? '검수 지적 종류' : tags.map.tag === 'kind' ? '검사 종류' : `결과의 ${tags.map.tag}`);
-        const picked = tags.tagIds.length ? [`태그 ${tags.tagIds.length}개`] : [];
-        return [TAG_ACTIONS[tags.action], ...picked, named].filter(Boolean).join(' · ');
-      }
       if (node.config.fn in APPLY_TARGETS) return savesTo(node, definition);
       if (node.config.fn === 'formatCheck') {
         const checks = [
@@ -101,12 +92,6 @@ export function entryStarts(definition: WorkflowDefinition, names: SummaryNames)
 export const openPorts = (node: WorkflowNode, definition: WorkflowDefinition) =>
   nodePorts(node).map((port) => port.id).filter((port) => !definition.edges.some((edge) => edge.source === node.id && edge.sourceHandle === port));
 
-/** A status-change node's target status, shown in that status's colour. */
-export function targetStatus(node: WorkflowNode, statuses: { id: string; name: string; color: string }[] | undefined) {
-  const statusId = node.type === 'function' && node.config.fn === 'setStatus' ? (node.config.params as { statusId?: string }).statusId : undefined;
-  const status = statusId ? statuses?.find((item) => item.id === statusId) : undefined;
-  return status && { name: status.name, color: status.color };
-}
 
 /** The definition's edges as drawn (entry and end hidden), coloured by exit; `selected`/`hovered` are drawn thicker. */
 export function flowEdges(definition: WorkflowDefinition, { selected, hovered }: { selected?: string; hovered?: string } = {}): FlowEdge[] {

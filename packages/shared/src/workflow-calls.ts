@@ -1,4 +1,4 @@
-import { INPUT_TYPES, nodeName, nodePorts, workflowInput, type WorkflowDefinition, type WorkflowEdge, type WorkflowNode } from './workflow.ts';
+import { exitActions, INPUT_TYPES, nodeName, nodePorts, workflowInput, type ExitAction, type WorkflowDefinition, type WorkflowEdge, type WorkflowNode } from './workflow.ts';
 
 /** A saved workflow as expandCalls reads it. */
 export interface CallableWorkflow {
@@ -83,18 +83,36 @@ function expand(definition: Pick<WorkflowDefinition, 'nodes' | 'edges' | 'calls'
     const connect = (source: string, sourceHandle: string, targets: string[]) => {
       for (const target of targets) added.push({ id: fresh(`${source}:${sourceHandle}>${target}`), source, sourceHandle, target });
     };
+    // A line that leaves the call leaves by one of its exits: that exit's actions (tags, status) go on the inner exit it
+    // leaves W by, after the inner exit's own.
+    const leaving: Record<string, Record<string, ExitAction[]>> = {};
+    const leaves = (nodeId: string, port: string, callPort: 'out' | 'error') => {
+      const actions = exitActions(call, callPort);
+      if (actions.length && !leaving[nodeId]?.[port]) (leaving[nodeId] ??= {})[port] = actions;
+    };
     for (const node of work) {
       for (const port of nodePorts(node)) {
         const own = inner.edges.filter((edge) => edge.source === node.id && edge.sourceHandle === port.id);
-        if (own.length) for (const edge of own) connect(prefix(node.id), port.id, into(edge.target));
-        else connect(prefix(node.id), port.id, port.id === 'error' ? errorTargets : outTargets);
+        if (own.length) for (const edge of own) {
+          connect(prefix(node.id), port.id, into(edge.target));
+          if (ends.has(edge.target)) leaves(node.id, port.id, 'out');
+        }
+        else {
+          connect(prefix(node.id), port.id, port.id === 'error' ? errorTargets : outTargets);
+          leaves(node.id, port.id, port.id === 'error' ? 'error' : 'out');
+        }
       }
     }
+    const withLeaving = (node: WorkflowNode): WorkflowNode => {
+      const extra = leaving[node.id];
+      if (!extra) return node;
+      return { ...node, exits: { ...node.exits, ...Object.fromEntries(Object.entries(extra).map(([port, actions]) => [port, [...exitActions(node, port), ...actions]])) } };
+    };
     const entryTargets = entry ? inner.edges.filter((edge) => edge.source === entry.id && edge.sourceHandle === 'out').flatMap((edge) => into(edge.target)) : [];
     // W with nothing after its entry does nothing: lines go straight on out of the call.
     const enter = (entryTargets.length ? entryTargets : outTargets).filter((target) => target !== call.id);
 
-    nodes = [...nodes, ...work.map((node) => ({ ...node, id: prefix(node.id), position: call.position }))];
+    nodes = [...nodes, ...work.map((node) => ({ ...withLeaving(node), id: prefix(node.id), position: call.position }))];
     calls[call.id] = { name: called.name, workflowId: picked };
     for (const [key, value] of Object.entries(inner.calls)) calls[prefix(key)] = value;
 

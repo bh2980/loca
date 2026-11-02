@@ -35,7 +35,8 @@ function expectNoNodeOverlap(result: WorkflowDefinition, direction: 'vertical' |
 }
 
 function expectForwardSpacing(result: WorkflowDefinition, direction: 'vertical' | 'horizontal') {
-  const chain = ['entry', 'translate', 'save', 'check', 'review', 'confirm'];
+  // The entry node is not drawn (its 시작 mark is on the first node), so the drawn path starts at 번역.
+  const chain = ['translate', 'save', 'check', 'glossary', 'review', 'terms'];
   const gaps = chain.slice(1).map((id, index) => {
     const before = result.nodes.find((node) => node.id === chain[index])!;
     const after = result.nodes.find((node) => node.id === id)!;
@@ -104,6 +105,32 @@ function expectRoutesAvoidUnrelatedNodes(result: WorkflowDefinition, direction: 
   }
 }
 
+/**
+ * No two lines of different exits run along the same track for more than a few pixels (each line can be followed),
+ * but lines into the same node merge before its input; and no line's mark sits on a track it shares.
+ */
+function expectNoSharedRuns(result: WorkflowDefinition) {
+  type Run = { edge: string; exit: string; target: string; flat: boolean; at: number; low: number; high: number };
+  const runs: Run[] = result.edges.flatMap((edge) => (edge.layout?.points ?? []).slice(1).map((point, index) => {
+    const from = edge.layout!.points[index]!;
+    const flat = Math.abs(from.y - point.y) < 0.5;
+    return { edge: edge.id, exit: `${edge.source}:${edge.sourceHandle}`, target: edge.target, flat, at: flat ? from.y : from.x, low: Math.min(flat ? from.x : from.y, flat ? point.x : point.y), high: Math.max(flat ? from.x : from.y, flat ? point.x : point.y) };
+  }));
+  for (let i = 0; i < runs.length; i++) for (let j = i + 1; j < runs.length; j++) {
+    const a = runs[i]!, b = runs[j]!;
+    if (a.exit === b.exit || a.flat !== b.flat || Math.abs(a.at - b.at) > 1) continue;
+    const shared = Math.min(a.high, b.high) - Math.max(a.low, b.low);
+    if (shared <= 8) continue;
+    expect(a.target, `${a.edge} and ${b.edge} share a track`).toBe(b.target);
+    // Only an exit with actions has a mark on its line.
+    for (const run of [a, b].filter((item) => { const [node, port] = item.exit.split(':'); return result.nodes.find((candidate) => candidate.id === node)?.exits?.[port!]?.length; })) {
+      const mark = result.edges.find((edge) => edge.id === run.edge)?.layout?.labelPosition;
+      const on = mark && (run.flat ? Math.abs(mark.y - run.at) < 1 : Math.abs(mark.x - run.at) < 1) && (run.flat ? mark.x : mark.y) > Math.max(a.low, b.low) && (run.flat ? mark.x : mark.y) < Math.min(a.high, b.high);
+      expect(on, `${run.edge}'s mark sits on the track it shares`).toBeFalsy();
+    }
+  }
+}
+
 function expectLabelsStayClear(result: WorkflowDefinition, direction: 'vertical' | 'horizontal') {
   const nodes = new Map(result.nodes.map((node) => [node.id, node]));
   const labels = result.edges.map((edge) => {
@@ -132,6 +159,7 @@ describe('workflow auto layout direction on the review-loop template', () => {
     expectNoNodeOverlap(result, direction);
     expectEdgesUseTheirDeclaredPorts(result, direction);
     expectRoutesAvoidUnrelatedNodes(result, direction);
+    expectNoSharedRuns(result);
     // Frames do not overlap: the boxes of their nodes stay apart.
     const boxes = (result.groups ?? []).map((group) => {
       const rects = group.nodeIds.map((id) => rect(result.nodes.find((node) => node.id === id)!, direction));
@@ -155,6 +183,30 @@ describe('workflow auto layout direction on the review-loop template', () => {
     }
   });
 
+  // Every exit with actions has a mark of 120 × 22: on a line between frames it sits in the room between them, never in a
+  // frame by the node; an exit no line leaves keeps its mark's room inside its frame.
+  it.each(['vertical', 'horizontal'] as const)('puts the marks of lines between frames outside every frame and keeps room for end marks in %s mode', async (direction) => {
+    const room = { width: 120, height: 22 };
+    const marked = (nodeId: string, port: string) => (definition.nodes.find((node) => node.id === nodeId)?.exits?.[port]?.length ? room : undefined);
+    const tagRoom = { edge: (edge: WorkflowEdge) => marked(edge.source, edge.sourceHandle), exit: marked };
+    const result = await autoLayout(definition, sizesFor(direction), direction, tagRoom);
+    const frameOf = (id: string) => result.groups!.find((group) => group.nodeIds.includes(id));
+    const boxes = result.groups!.map((group) => group.box!);
+    const crossing = result.edges.filter((edge) => frameOf(edge.source) && frameOf(edge.target) && frameOf(edge.source) !== frameOf(edge.target) && marked(edge.source, edge.sourceHandle));
+    expect(crossing.length).toBeGreaterThan(0);
+    for (const edge of crossing) {
+      const at = edge.layout!.labelPosition!;
+      const inside = boxes.some((box) => at.x > box.x && at.x < box.x + box.width && at.y > box.y && at.y < box.y + box.height);
+      expect(inside, `${edge.id}'s mark ${JSON.stringify(at)} is outside every frame ${JSON.stringify(boxes)} ${JSON.stringify(edge.layout!.points)}`).toBe(false);
+    }
+    // AI 검수's 오류 ends the line (검토 필요): its frame keeps the room for the mark after the exit.
+    const review = result.nodes.find((node) => node.id === 'review')!;
+    const box = frameOf('review')!.box!;
+    const size = nodeSize(review, direction);
+    if (direction === 'vertical') expect(box.y + box.height - (review.position.y + size.height)).toBeGreaterThanOrEqual(room.height + 28);
+    else expect(box.x + box.width - (review.position.x + size.width)).toBeGreaterThanOrEqual(room.width);
+  });
+
   it.each(['vertical', 'horizontal'] as const)('places an empty frame after the block before it, apart from the others, in %s mode', async (direction) => {
     const groups = [...definition.groups!];
     groups.splice(1, 0, { id: 'empty', label: '빈 단계', nodeIds: [], box: { x: 0, y: 0, width: 320, height: 200 } });
@@ -166,13 +218,13 @@ describe('workflow auto layout direction on the review-loop template', () => {
     expect(direction === 'vertical' ? empty.left >= before.right : empty.top >= before.bottom).toBe(true);
   });
 
-  it.each(['vertical', 'horizontal'] as const)('without frames: keeps all 22 nodes readable and routes their declared ports in %s mode', async (direction) => {
+  it.each(['vertical', 'horizontal'] as const)('without frames: keeps all 12 nodes readable and routes their declared ports in %s mode', async (direction) => {
     const result = await autoLayout({ ...definition, groups: undefined }, sizesFor(direction), direction);
 
     expect(result.direction).toBe(direction);
-    // The review-loop fixture: the one 검토 필요로 end that every give-up leads to, an AI 실패 태그 behind 용어 추출, and the 태그 붙이기·떼기 node on each exit of the checks (형식 검사, 용어 검사).
-    expect(result.nodes).toHaveLength(22);
-    expect(result.edges).toHaveLength(28);
+    // The review-loop fixture: tags and statuses are exit actions, so only the real steps are nodes (12) and the failing exits of the checks all lead back to 재번역.
+    expect(result.nodes).toHaveLength(12);
+    expect(result.edges).toHaveLength(14);
     expectNoNodeOverlap(result, direction);
     expectForwardSpacing(result, direction);
     expectEdgesUseTheirDeclaredPorts(result, direction);
@@ -182,8 +234,8 @@ describe('workflow auto layout direction on the review-loop template', () => {
 
   it.each(['vertical', 'horizontal'] as const)('routes the revise loop\'s way back around unrelated node interiors in %s mode', async (direction) => {
     const result = await autoLayout({ ...definition, groups: undefined }, sizesFor(direction), direction);
-    const feedback = result.edges.find((edge) => edge.id === 'untag-revised-out-check')!;
-    expect(feedback.source).toBe('untag-revised');
+    const feedback = result.edges.find((edge) => edge.id === 'revised-true-check')!;
+    expect(feedback.source).toBe('revised');
     expect(feedback.target).toBe('check');
     expect(feedback.layout!.points.length).toBeGreaterThanOrEqual(2);
     expectRoutesAvoidUnrelatedNodes({ ...result, edges: [feedback] }, direction);

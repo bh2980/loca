@@ -6,17 +6,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Background, Panel, ReactFlow, ReactFlowProvider, useNodesInitialized, useReactFlow, useViewport, type NodeChange, type Viewport } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import type { WorkflowDefinition } from '@tw/shared';
+import { nodePorts, type WorkflowDefinition } from '@tw/shared';
 import { Box, Button, CanvasToolbar, EdgeLegend, Inline, Text, type CanvasDirection, useCanvasDismiss } from '@loca/ui';
 import { X } from 'lucide-react';
 import { ITEM_STATE } from '@/lib/labels';
 import { callMembers, callOf, collapseCalls, liveCounts, topCallIds } from '@/components/workflow/run-calls';
 import { FrameNodeView, FrameTintView, frameNodes, frameTints, isFrameId, type FrameNode } from '@/components/workflow/frames';
-import { allFoldsOpen, computeFolds, foldedDefinition, foldLiveText, foldPlacements, foldText, isFoldOpen, lineMarks, openFoldContaining, setAllFolds, toggleFold, type Fold } from '@/components/workflow/fold';
+import { allFoldsOpen, computeFolds, foldedDefinition, foldLiveText, foldPlacements, foldText, isFoldOpen, openFoldContaining, setAllFolds, toggleFold, type Fold } from '@/components/workflow/fold';
 import { useFoldState } from '@/components/workflow/use-fold-state';
 import { WorkflowNodeView, type FlowNode } from '@/components/workflow/node-view';
 import { WorkflowEdgeView } from '@/components/workflow/workflow-edge';
-import { entryStarts, flowEdges, nodeBadge, nodeSummary, openPorts, targetStatus } from '@/components/workflow/flow-graph';
+import { entryStarts, flowEdges, nodeBadge, nodeSummary, openPorts } from '@/components/workflow/flow-graph';
+import { exitKey, exitTagItems, tagRoomOf } from '@/components/workflow/exit-marks';
 import { retryBadge, retryLiveText } from '@/lib/retry-info';
 import { useIsDark } from '@/lib/theme';
 import { useTaxonomy } from '@/lib/knowledge';
@@ -129,7 +130,7 @@ function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; ru
   const arrange = async () => {
     const measuredSizes = new Map(flow.getNodes().map((node) => [node.id, { width: node.measured?.width ?? 224, height: node.measured?.height ?? 66 }]));
     try {
-      const next = await autoLayout(view.definition, measuredSizes, direction);
+      const next = await autoLayout(view.definition, measuredSizes, direction, tagRoomOf(view.definition, { tags: new Map(taxonomy.tags?.map((tag) => [tag.id, tag])), statuses: new Map(taxonomy.statuses?.map((status) => [status.id, status])) }));
       keepLayout({ positions: { ...layout?.positions, ...Object.fromEntries(next.nodes.map((node) => [node.id, node.position])) }, routes: Object.fromEntries(next.edges.map((edge) => [edge.id, edge.layout])) });
       requestAnimationFrame(() => void flow.fitView({ ...FIT, duration: 300 }));
     } catch (error) {
@@ -146,8 +147,8 @@ function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; ru
   const nodes: FlowNode[] = useMemo(() => {
     const names = { status: new Map(taxonomy.statuses?.map((status) => [status.id, status.name])), connection: new Map(connections.data?.map((connection) => [connection.id, connection.name])), connectionsLoaded: Boolean(connections.data) };
     const { entry, starts, label } = entryStarts(definition, names);
-    const foldNames = { status: names.status };
-    const chip = (fold: Fold) => ({ text: foldText(definition, fold, foldNames), open: isFoldOpen(foldState, fold.id), live: foldLiveText(fold, live), onToggle: () => setFoldState((state) => toggleFold(state, fold.id)) });
+    const markNames = { tags: new Map(taxonomy.tags?.map((tag) => [tag.id, tag])), statuses: new Map(taxonomy.statuses?.map((status) => [status.id, status])) };
+    const chip = (fold: Fold) => ({ text: foldText(definition, fold), open: isFoldOpen(foldState, fold.id), live: foldLiveText(fold, live), onToggle: () => setFoldState((state) => toggleFold(state, fold.id)) });
     return view.definition.nodes
       .filter((node) => node.type !== 'entry' && node.type !== 'end')
       .map((node) => ({
@@ -170,21 +171,24 @@ function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; ru
           live: live.get(node.id) && { ...live.get(node.id)!, retry: retryLiveText(live.get(node.id)!.retrying) || undefined },
           start: starts.has(node.id) && entry ? { label } : undefined,
           open: openPorts(node, definition),
-          status: targetStatus(node, taxonomy.statuses),
-          folds: Object.fromEntries(folds.filter((fold) => fold.kind === 'branch' && fold.owner === node.id).map((fold) => [fold.port, chip(fold)])),
-          foldClose: (() => { const fold = folds.find((item) => item.kind === 'edge' && item.nodeIds[0] === node.id && isFoldOpen(foldState, item.id)); return fold && (() => setFoldState((state) => toggleFold(state, fold.id))); })(),
+          folds: Object.fromEntries(folds.filter((fold) => fold.owner === node.id).map((fold) => [fold.port, chip(fold)])),
+          exitMarks: Object.fromEntries(openPorts(node, definition).map((port) => [port, exitTagItems(node, port, markNames, definition)])),
+          onOpenExit: () => onOpenNode(node.id),
         },
       }));
-  }, [definition, view, folds, foldState, placements, run.definition, direction, live, selected, sizes, dragging, taxonomy.statuses, connections.data, setFoldState]);
+  }, [definition, view, folds, foldState, placements, run.definition, direction, live, selected, sizes, dragging, taxonomy.statuses, taxonomy.tags, connections.data, setFoldState]); // eslint-disable-line react-hooks/exhaustive-deps
   const edges = useMemo(() => {
-    const chips = new Map(view.closed.filter((fold) => fold.kind === 'edge').map((fold) => [fold.edgeId, fold] as const));
-    const foldNames = { status: new Map(taxonomy.statuses?.map((status) => [status.id, status.name])) };
     const markNames = { tags: new Map(taxonomy.tags?.map((tag) => [tag.id, tag])), statuses: new Map(taxonomy.statuses?.map((status) => [status.id, status])) };
+    // An exit's actions on its first line, each with how many lines left by it.
+    const first = new Map<string, string>();
+    for (const edge of view.definition.edges) if (!first.has(exitKey(edge.source, edge.sourceHandle))) first.set(exitKey(edge.source, edge.sourceHandle), edge.id);
     return flowEdges(view.definition).map((edge) => {
-      const fold = chips.get(edge.id);
-      return fold ? { ...edge, data: { ...edge.data, fold: { text: foldText(definition, fold, foldNames), live: foldLiveText(fold, live), onToggle: () => setFoldState((state) => toggleFold(state, fold.id)) }, marks: lineMarks(definition, fold, markNames), onMark: onOpenNode } } : edge;
+      const source = view.definition.nodes.find((node) => node.id === edge.source);
+      const port = (edge as { sourceHandle?: string | null }).sourceHandle ?? 'out';
+      const items = source && first.get(exitKey(source.id, port)) === edge.id ? exitTagItems(source, port, markNames, definition) : [];
+      return items.length ? { ...edge, data: { ...edge.data, tag: { items, exit: nodePorts(source!).find((item) => item.id === port)?.label ?? port, onOpen: () => onOpenNode(source!.id) } } } : edge;
     });
-  }, [view, definition, live, taxonomy.statuses, taxonomy.tags, setFoldState, onOpenNode]);
+  }, [view, definition, taxonomy.statuses, taxonomy.tags, onOpenNode]);
 
   // The run's steps, drawn around their nodes with how their lines are doing (what every node in the frame holds now).
   // A run's graph keeps a layout of its own, so a frame is as large as its nodes here, not where the editor stood it.

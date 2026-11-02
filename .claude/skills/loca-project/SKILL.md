@@ -28,7 +28,7 @@ loca call delete_status '{"ids":["…","…"],"moveTo":"<남길 상태 id>"}'   
 - 순서: `loca statuses order <앞에 둘 이름...>` (빠진 것은 지금 순서대로 뒤에. 되돌리기는 `loca proposals undo`).
 
 ## 태그
-태그는 붙는 곳(`scope`)에만 붙습니다: `lines` 대사 · `terms` 용어집 · `people` 인물·관계 · `events` 사건 · `documents` 노트 (`knowledge`는 people·documents·events 셋). 검사·검수가 찾은 문제를 적는 태그(`형식 오류`·`말투 어긋남` 등, 새 프로젝트에 처음부터 있음)도 보통 태그입니다: 이름·색·설명·붙는 곳을 바꾸거나 지울 수 있고, 워크플로의 태그 붙이기 노드가 고른 태그를 붙이고 뗍니다(번역이 바뀌어도 저절로 떨어지지 않음). 앱이 관리하는 태그는 없습니다. 자료의 #확인 권장은 자동 태그로, 분석이 남긴 이유(`reviewNote`)가 있는 동안 붙고 사람이 확인함·버리기·고치기로 정하면 떨어집니다.
+태그는 붙는 곳(`scope`)에만 붙습니다: `lines` 대사 · `terms` 용어집 · `people` 인물·관계 · `events` 사건 · `documents` 노트 (`knowledge`는 people·documents·events 셋). 검사·검수가 찾은 문제를 적는 태그(`형식 오류`·`말투 어긋남` 등, 새 프로젝트에 처음부터 있음)도 보통 태그입니다: 이름·색·설명·붙는 곳을 바꾸거나 지울 수 있고, 워크플로의 출구 동작(태그 붙이기·떼기)이 고른 태그를 붙이고 뗍니다(번역이 바뀌어도 저절로 떨어지지 않음). 앱이 관리하는 태그는 없습니다. 자료의 #확인 권장은 자동 태그로, 분석이 남긴 이유(`reviewNote`)가 있는 동안 붙고 사람이 확인함·버리기·고치기로 정하면 떨어집니다.
 ```
 loca tags                                        # 태그와 기본 표시의 붙는 곳, 색, 쓰인 수
 loca call save_status '{"type":"tag","name":"지명","description":"땅·나라·건물 이름","scope":["terms"]}'
@@ -63,7 +63,7 @@ loca call update_project_settings @"$W/settings.json"
 - 정규식이 필요하면 `loca regex "<무엇을 찾을지>" --target token|check`로 만듭니다. 에디터 AI 모델을 한 번 부르고 저장하지 않으니, 결과를 규칙에 넣어 보냅니다.
 - 보낸 항목은 **통째로 바뀝니다.** 먼저 읽고, 바꿀 객체(예: `formatRules`) 전체를 고쳐서 보냅니다.
 - `formatRules`: 형식 검사가 지키는 자리표시자 프리셋(중괄호 변수, printf, 마크업 태그 등)과 직접 만든 패턴. 바꾼 뒤 `loca check format`으로 결과가 기대대로인지 봅니다.
-- `aiAutoConfirm`(앱: 설정 › 프로젝트 › AI 문맥): AI가 만든 용어·자료를 바로 확정할지(true, 기본) 후보로 둘지(false). 문맥에는 확정된 용어·자료만 들어갑니다. 대사의 상태는 바꾸지 않습니다(대사 상태는 사람이나 워크플로의 상태 변경 노드만 바꿈). 사용자가 정하는 설정이니 묻고 바꿉니다.
+- `aiAutoConfirm`(앱: 설정 › 프로젝트 › AI 문맥): AI가 만든 용어·자료를 바로 확정할지(true, 기본) 후보로 둘지(false). 문맥에는 확정된 용어·자료만 들어갑니다. 대사의 상태는 바꾸지 않습니다(대사 상태는 사람이나 워크플로의 출구 동작(상태 바꾸기)만 바꿈). 사용자가 정하는 설정이니 묻고 바꿉니다.
 - `editorAi`: 편집기 AI. AI 번역·다듬기 버튼은 `model`(CLI 연결도 됨), `context`(함께 보낼 것)를 같이 쓰고, `translate`·`refine`에는 각자의 `instructions`·`include`만 있습니다(빈 값은 AI 번역·AI 다듬기 프리셋으로 채움, 워크플로 노드와 따로). `complete`는 자동완성(`enabled`, API 연결 `model`, `instructions`, `precedingLines`, `glossary`, `speech`, `timeoutSeconds`, `delayMs`(대사를 열고 기다린 뒤 자동 요청, 기본 500), `dailyCap`). `timeoutSeconds`(기본 60)는 AI 번역·다듬기·자연어로 정규식 만들기의 제한 시간.
 - 채팅 설정(권한 모드, 도구 권한, 새 대화 모델)은 에이전트가 바꿀 수 없습니다.
 

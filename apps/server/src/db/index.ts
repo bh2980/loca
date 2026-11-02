@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:f
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
-import { DEFAULT_RETRY_RULES, exclusionRulesSchema, formatRulesSchema, lineExclusion, needsListener, retryRuleSchema, type LineTranslate } from '@tw/shared';
+import { exitActionsFromNodes, DEFAULT_RETRY_RULES, exclusionRulesSchema, formatRulesSchema, lineExclusion, needsListener, retryRuleSchema, type LineTranslate } from '@tw/shared';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import * as schema from './schema.ts';
@@ -120,6 +120,31 @@ export function registerMigrationFunctions(sqlite: Database.Database) {
   sqlite.function('retry_node_origin', { deterministic: true }, (definition: unknown, nodeId: unknown) => {
     if (typeof definition !== 'string' || typeof nodeId !== 'string') return nodeId;
     return retryChains(JSON.parse(definition) as Raw).find((entry) => entry.chain.includes(nodeId))?.ai.id ?? nodeId;
+  });
+  // exit_actions(definition json): 태그 붙이기·떼기 and 상태 변경 nodes became exit actions (0122,
+  // docs/DESIGN-EXIT-ACTIONS.md; the conversion is @tw/shared's, which a browser's unsaved draft goes through too).
+  // exit_action_next(definition json, node id): where a line waiting at such a node goes instead (the first other node
+  // along its 다음 exit), '' when it would end there; any other node id as it is.
+  type ExitRaw = { nodes?: { id: string; type?: string; config?: { fn?: string } }[]; edges?: { source: string; sourceHandle: string; target: string }[] };
+  const marking = (node: NonNullable<ExitRaw['nodes']>[number] | undefined) => node?.type === 'function' && (node.config?.fn === 'tagLines' || node.config?.fn === 'setStatus');
+  sqlite.function('exit_actions', { deterministic: true }, (definition: unknown) => {
+    if (typeof definition !== 'string') return definition;
+    const parsed = JSON.parse(definition) as unknown;
+    const converted = exitActionsFromNodes(parsed);
+    return converted === parsed ? definition : JSON.stringify(converted);
+  });
+  sqlite.function('exit_action_next', { deterministic: true }, (definition: unknown, nodeId: unknown) => {
+    if (typeof definition !== 'string' || typeof nodeId !== 'string') return nodeId;
+    const parsed = JSON.parse(definition) as ExitRaw;
+    const byId = new Map((parsed.nodes ?? []).map((node) => [node.id, node]));
+    if (!marking(byId.get(nodeId))) return nodeId;
+    const seen = new Set<string>();
+    let at: string | undefined = nodeId;
+    while (at && marking(byId.get(at)) && !seen.has(at)) {
+      seen.add(at);
+      at = (parsed.edges ?? []).find((edge) => edge.source === at && edge.sourceHandle === 'out')?.target;
+    }
+    return at && !marking(byId.get(at)) ? at : '';
   });
 }
 

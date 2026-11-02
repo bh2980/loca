@@ -117,13 +117,6 @@ export const formatCheckParams = z.object({
     .default([]),
 });
 
-export const setStatusParams = z.object({
-  /** A lines workflow: one of the project's statuses; a terms workflow: candidate, confirmed or rejected. */
-  statusId: z.string().optional(),
-  addTagIds: z.array(z.string()).default([]),
-  removeTagIds: z.array(z.string()).default([]),
-});
-
 /**
  * 반영 노드: put a node's output into the project. Each one is the workflow form of a chat/CLI
  * write tool and goes through the same service. What they take is declared in APPLY_TARGETS.
@@ -176,14 +169,6 @@ export const APPLY_TARGETS = {
     ],
     tool: 'set_listeners',
     inputs: ['lines'],
-  },
-  tagLines: {
-    label: '태그 붙이기',
-    description: '이 항목에 태그를 붙이거나 뗍니다. 고른 태그와, 앞 단계 결과가 이름 붙인 태그를 함께 쓸 수 있습니다. 문제 유형 태그는 처음 붙일 때 프로젝트에 만들어지고, 그 밖의 태그는 이름이 같은 것이 있을 때만 다룹니다.',
-    shape: 'line',
-    fields: [{ name: 'tag', label: '태그 이름', type: 'strings' }],
-    tool: 'propose_changes',
-    inputs: ['lines', 'terms'],
   },
   saveTerms: {
     label: '용어 저장',
@@ -311,22 +296,9 @@ export const applyParams = z.object({
 });
 export type ApplyParams = z.infer<typeof applyParams>;
 
-/**
- * 태그 붙이기 / 떼기: the one place a line (or term) gets or loses a tag in a workflow. The tags come
- * from the pane (`tagIds`: tags of the project, picked), from the previous step's result (`map.tag`: a
- * field holding values such as a review's `categories` or a check's `kind`), or both. Each value is the
- * tag `categoryTags` connects it to (speech → #말투 어긋남), else the tag of that name. All tags are the
- * project's own: nothing is created here. Checks and reviews only judge; they never tag.
- */
+/** An exit's tag action: put on or take off (exitActionSchema in workflow.ts). */
 export const TAG_ACTIONS = { add: '붙이기', remove: '떼기' } as const;
 export type TagAction = keyof typeof TAG_ACTIONS;
-export const tagLinesParams = applyParams.extend({
-  action: z.enum(['add', 'remove']).default('add'),
-  tagIds: z.array(z.string()).default([]),
-  /** A value of the `map.tag` field (a review's category, a check's kind) → the tag (id) it stands for. */
-  categoryTags: z.record(z.string(), z.string()).default({}),
-});
-export type TagLinesParams = z.infer<typeof tagLinesParams>;
 
 export const httpParams = z.object({
   /** Full address, e.g. "https://api.example.com/spell?lang=ko"; "{{unit.key}}"-style values are filled in (URL-encoded). */
@@ -381,19 +353,10 @@ export const FUNCTIONS = {
     inputs: ['lines', 'terms'],
     outputs: CHECK_OUTPUTS,
   },
-  setStatus: {
-    label: '상태 변경',
-    description: '이 항목의 상태와 태그를 바꿉니다: 대사는 프로젝트의 상태, 용어는 후보·확정·버림(버린 용어는 다시 제안되지 않음).',
-    params: setStatusParams,
-    ports: () => out,
-    async: false,
-    inputs: ['lines', 'terms'],
-  },
   ...(Object.fromEntries(
     Object.entries(APPLY_TARGETS).map(([name, target]) => [name, { label: target.label, description: target.description, params: applyParams, ports: () => out, async: false, inputs: target.inputs }]),
   ) as unknown as Record<ApplyFunctionName, FunctionInfo<typeof applyParams>>),
   saveCharacters: { label: APPLY_TARGETS.saveCharacters.label, description: APPLY_TARGETS.saveCharacters.description, params: applyParams, ports: () => out, async: false, inputs: APPLY_TARGETS.saveCharacters.inputs },
-  tagLines: { label: APPLY_TARGETS.tagLines.label, description: APPLY_TARGETS.tagLines.description, params: tagLinesParams, ports: () => out, async: false, inputs: APPLY_TARGETS.tagLines.inputs },
   http: {
     label: 'HTTP 호출',
     description: '외부 API(맞춤법·사전 등)를 주소로 호출하고, 응답에서 고른 값을 선언한 결과 칸으로 돌려줍니다. text 칸은 대사의 지금 번역이 됩니다. 키가 필요하면 설정의 API 키를 고릅니다.',
@@ -417,7 +380,6 @@ export type FunctionName = keyof typeof FUNCTIONS;
 export const FUNCTION_NAMES = Object.keys(FUNCTIONS) as FunctionName[];
 /** Standalone deterministic functions exposed in the workflow node library under '함수 동작'. */
 export const PALETTE_FUNCTION_NAMES: FunctionName[] = [
-  'setStatus',
   'formatCheck',
   'glossaryCheck',
   'script',
@@ -425,13 +387,13 @@ export const PALETTE_FUNCTION_NAMES: FunctionName[] = [
 ];
 
 /**
- * The editor's group of a function node, which also gives its colour: 반영 writes to the project (the
- * apply targets and the status changes), 함수 reads and judges or computes.
+ * The editor's group of a function node, which also gives its colour: 반영 writes to the project (the apply
+ * targets), 함수 reads and judges or computes. Tags and statuses are exit actions, not nodes.
  */
-export const functionGroup = (fn: string): 'apply' | 'function' => (fn in APPLY_TARGETS || fn === 'setStatus' ? 'apply' : 'function');
+export const functionGroup = (fn: string): 'apply' | 'function' => (fn in APPLY_TARGETS ? 'apply' : 'function');
 
-/** The 반영 group in the editor: 상태 변경 first (it moves lines between statuses), then 태그 붙이기, then the 저장 nodes (the item's own, then the project's knowledge). */
-export const APPLY_PALETTE_ORDER: FunctionName[] = ['setStatus', 'tagLines', 'saveCandidate', 'setListener', 'saveTerms', 'saveCharacters', 'saveRelationships', 'saveSpeechRules', 'saveEvents', 'saveDocument'];
+/** The 반영 group in the editor: the 저장 nodes (the item's own, then the project's knowledge). */
+export const APPLY_PALETTE_ORDER: FunctionName[] = ['saveCandidate', 'setListener', 'saveTerms', 'saveCharacters', 'saveRelationships', 'saveSpeechRules', 'saveEvents', 'saveDocument'];
 
 export function functionPorts(fn: string, params: unknown): Port[] {
   const info = FUNCTIONS[fn as FunctionName] as unknown as FunctionInfo | undefined;

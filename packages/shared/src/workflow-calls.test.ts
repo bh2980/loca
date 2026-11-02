@@ -6,7 +6,7 @@ const at = { x: 0, y: 0 };
 /** A condition node: ports true / false. */
 const cond = (id: string, label?: string) => ({ id, type: 'condition', position: at, label, config: { expression: true } });
 /** A function node: ports out / error. */
-const act = (id: string, label?: string) => ({ id, type: 'function', position: at, label, config: { fn: 'setStatus', params: {} } });
+const act = (id: string, label?: string) => ({ id, type: 'function', position: at, label, config: { fn: 'saveCandidate', params: {} } });
 const call = (id: string, workflowId: string) => ({ id, type: 'call', position: at, config: { workflowId } });
 const entry = (input: 'lines' | 'terms' = 'lines') => ({ id: 'entry', type: 'entry', position: at, config: { input } });
 const end = (id = 'end') => ({ id, type: 'end', position: at, config: {} });
@@ -92,7 +92,7 @@ describe('expandCalls', () => {
     const node = expanded.nodes.find((candidate) => candidate.id === 'c1/c2/n')!;
     expect(callTrail(expanded, 'c1/c2/n')).toEqual(['가운데', '안쪽']);
     expect(runNodeName(expanded, node)).toBe('가운데 › 안쪽 › 용어 저장');
-    expect(runNodeName(expanded, expanded.nodes.find((candidate) => candidate.id === 'z')!)).toBe('상태 변경');
+    expect(runNodeName(expanded, expanded.nodes.find((candidate) => candidate.id === 'z')!)).toBe('번역 저장');
   });
 
   it('expands two calls of the same workflow into separate copies, and a call that leads back to itself', () => {
@@ -103,6 +103,20 @@ describe('expandCalls', () => {
     expect(Object.keys(expanded.calls!).sort()).toEqual(['c1', 'c2']);
     const loop = flow([call('c', 'W'), cond('again')], ['entry -> c', 'c -> again', 'again.true -> c']);
     expect(edgesOf(expandCalls(loop, library({ W: { definition: w } })))).toEqual(['again.true -> c/w', 'c/w.out -> again', 'entry.out -> c/w']);
+  });
+
+  it('carries the call\'s exit actions onto the inner exits that leave the call, after their own', () => {
+    const status = { type: 'status' as const, statusId: 's-review' };
+    const tag = { type: 'tag' as const, action: 'add' as const, tagIds: ['t1'], categoryTags: {} };
+    const w = flow([act('w1'), act('w2')], ['entry -> w1', 'w1 -> w2', 'w1.error -> w2']);
+    const w1 = w.nodes.find((node) => node.id === 'w1')!;
+    w1.exits = { error: [tag] };
+    const outer = flow([{ ...call('c', 'W'), exits: { out: [tag], error: [status] } }, act('z')], ['entry -> c', 'c -> z']);
+    const expanded = expandCalls(outer, library({ W: { definition: w } }));
+    const exits = (id: string) => expanded.nodes.find((node) => node.id === id)?.exits;
+    // w2 leaves W by out (to the call's 완료 target) and by error (unconnected: the call's 오류); w1 stays inside W.
+    expect(exits('c/w2')).toEqual({ out: [tag], error: [status] });
+    expect(exits('c/w1')).toEqual({ error: [tag] });
   });
 
   it('ignores the called workflow\'s entry config and settings', () => {

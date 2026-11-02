@@ -5,6 +5,7 @@ import { AlertCircle, AlertTriangle, RotateCcw } from "lucide-react"
 import { cn } from "../../lib/utils"
 import type { CanvasDirection } from "./canvas-direction-control"
 import { FoldChip, type FoldChipProps } from "./fold-chip"
+import { ExitTag, type ExitTagItem } from "./exit-tag"
 import { paletteColor } from "../../patterns/palette"
 
 export type NodeCardKind = "entry" | "ai" | "apply" | "status" | "function" | "condition" | "gather" | "call" | "end"
@@ -18,6 +19,8 @@ interface NodeCardPort {
   open?: boolean
   /** Nodes that hang off this exit, folded into a chip below (or beside) it; open, the chip is 접기. */
   fold?: FoldChipProps
+  /** What this exit does to the lines when no line leaves it (its 출구 동작 then end the line), drawn below (or beside) it. */
+  marks?: { items: ExitTagItem[]; onOpen: () => void; selected?: boolean; compact?: boolean }
 }
 
 interface NodeCardProps {
@@ -148,6 +151,7 @@ export function NodeCard({ kind, icon, title, summary, retry, badge, verb, color
       {outputs.map((port) => <span key={`${port.id}-handle`}>{port.handle}</span>)}
       {start && <StartMark direction={direction} {...start} />}
       {outputs.map((port, index) => port.fold && <FoldMark key={`${port.id}-fold`} direction={direction} at={(index + 0.5) / outputs.length} {...port.fold} />)}
+      {outputs.map((port, index) => !port.fold && port.marks && <ExitMarks key={`${port.id}-marks`} direction={direction} at={(index + 0.5) / outputs.length} label={port.label} tone={port.tone} {...port.marks} />)}
       {foldClose && <div className="absolute bottom-full right-0 mb-1"><FoldChip text="" open onToggle={foldClose} /></div>}
       {outputs.map((port, index) => port.open && <EndMark key={`${port.id}-end`} direction={direction} at={(index + 0.5) / outputs.length} failed={port.tone === "destructive"} />)}
     </div>
@@ -195,6 +199,29 @@ function FoldMark({ direction, at, ...chip }: { direction: CanvasDirection; at: 
     >
       <span className={cn("bg-neutral/50", vertical ? "ml-0.5 h-2 w-px" : "h-px w-3")} />
       <FoldChip {...chip} />
+    </div>
+  )
+}
+
+/** How long the short line of an exit no line leaves is (the auto layout keeps the same room). */
+const END_STEM = 28
+
+/** A line's colour by its exit's tone, as the canvas draws lines. */
+const LINE_STROKE = { neutral: "var(--stroke-graph-edge)", warning: "var(--stroke-warning)", destructive: "var(--stroke-danger)" }
+
+/**
+ * The end of an exit no line leaves: its own short line in the exit's colour, and the exit's mark at its end (the auto
+ * layout keeps that room clear).
+ */
+function ExitMarks({ direction, at, label, tone = "neutral", ...tag }: { direction: CanvasDirection; at: number; label: string; tone?: NodeCardPort["tone"] } & NonNullable<NodeCardPort["marks"]>) {
+  const vertical = direction !== "horizontal"
+  return (
+    <div
+      className={cn("pointer-events-none absolute z-10 flex items-center", vertical ? "top-full -translate-x-1/2 flex-col" : "left-full -translate-y-1/2 flex-row")}
+      style={vertical ? { left: `${at * 100}%` } : { top: `${at * 100}%` }}
+    >
+      <span style={{ background: LINE_STROKE[tone], ...(vertical ? { width: 1.75, height: END_STEM } : { height: 1.75, width: END_STEM }) }} />
+      <ExitTag {...tag} exit={label} />
     </div>
   )
 }

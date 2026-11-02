@@ -89,18 +89,21 @@ function fakeModel(): ModelPort & { calls: string[] } {
   };
 }
 
-/** Translate, review; failing lines are revised twice, then sent to the review status. */
+/** A status set on the exit of a node: what the line gets as it leaves. */
+const status = (statusId: string) => ({ type: 'status' as const, statusId });
+/** A node with actions on its exits. */
+const onExit = (node: object, exits: Record<string, object[]>) => ({ ...node, exits });
+
+/** Translate, review; failing lines are revised twice, then sent to the review status (the exit of the condition that gives up). */
 function reviewFlow(choice: unknown, confirmed: string, needsReview: string) {
   return flow(
     {
       translate: ai(choice, { output: 'text', instructions: 'Translate.' }),
-      review: ai(choice, { output: 'verdict', instructions: 'Review each translation.' }),
-      confirm: fn('setStatus', { statusId: confirmed }),
-      again: { type: 'condition', position: at, config: { expression: { '<': [{ var: 'visits.review' }, 3] } } },
+      review: onExit(ai(choice, { output: 'verdict', instructions: 'Review each translation.' }), { pass: [status(confirmed)] }),
+      again: onExit({ type: 'condition', position: at, config: { expression: { '<': [{ var: 'visits.review' }, 3] } } }, { false: [status(needsReview)] }),
       revise: ai(choice, { output: 'text', instructions: 'Revise each translation to fix the issues.' }),
-      escalate: fn('setStatus', { statusId: needsReview }),
     },
-    ['entry -> translate', 'translate -> review', 'review.pass -> confirm', 'review.fail -> again', 'again.true -> revise', 'revise -> review', 'again.false -> escalate', 'confirm -> end'],
+    ['entry -> translate', 'translate -> review', 'review.pass -> end', 'review.fail -> again', 'again.true -> revise', 'revise -> review', 'again.false -> end'],
   );
 }
 
@@ -118,7 +121,7 @@ describe('workflow runner', () => {
     const statuses = new Map(db.select().from(s.statuses).all().map((status) => [status.id, status.name]));
     const units = new Map(db.select().from(s.units).all().map((unit) => [unit.id, unit]));
     expect(items.filter((item) => item.state === 'done')).toHaveLength(30);
-    const escalated = items.filter((item) => item.nodeId === 'escalate');
+    const escalated = items.filter((item) => item.data.path.some((step) => step.nodeId === 'again' && step.port === 'false'));
     expect(escalated).toHaveLength(3);
     for (const item of escalated) {
       // Review ran three times and failed each time; the condition allows two revisions in between.
@@ -300,7 +303,7 @@ describe('function nodes', () => {
     const definition = flow(
       {
         translate: ai(choice, { output: 'text', instructions: 'Translate.' }),
-        script: {
+        script: onExit({
           type: 'function',
           position: at,
           config: {
@@ -310,11 +313,10 @@ describe('function nodes', () => {
               code: 'export default function run(input) { return { candidate: "[" + input.outputs.translate.text + "]", port: input.unit.source === "Hi {name}" ? "first" : "other", data: { length: input.outputs.translate.text.length } }; }',
             },
           },
-        },
-        http: fn('http', { url: `http://127.0.0.1:${port}/spell`, connectionId: tool.id, body: '{ "text": "{{candidate}}" }', fields: [{ name: 'text', type: 'string', description: '' }], paths: { text: 'result.text' } }),
-        confirm: fn('setStatus', { statusId: confirmed.id }),
+        }, { other: [status(confirmed.id)] }),
+        http: onExit(fn('http', { url: `http://127.0.0.1:${port}/spell`, connectionId: tool.id, body: '{ "text": "{{candidate}}" }', fields: [{ name: 'text', type: 'string', description: '' }], paths: { text: 'result.text' } }), { out: [status(confirmed.id)] }),
       },
-      ['entry -> translate', 'translate -> script', 'script.first -> http', 'script.other -> confirm', 'http -> confirm', 'confirm -> end'],
+      ['entry -> translate', 'translate -> script', 'script.first -> http', 'script.other -> end', 'http -> end'],
     );
     const workflow = save(db, projectId, definition);
     const runner = new Runner(db, memoryStore(), fakeModel());
@@ -392,25 +394,26 @@ describe('function nodes', () => {
 
 describe('who set the status', () => {
   it('keeps a person\'s translation and status in a status-filtered run, and only reports it', async () => {
-    const { syncFunctions } = await import('./functions/index.ts');
+    const { applyExitActions } = await import('./exit-actions.ts');
     const { db, projectId } = setup(1);
     const unit = db.select().from(s.units).where(eq(s.units.projectId, projectId)).get()!;
     const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).all();
     const initial = statuses.find((status) => status.kind === 'initial')!;
     const final = statuses.find((status) => status.kind === 'final')!;
-    const call = (data: Record<string, unknown>) =>
-      db.transaction((tx) => syncFunctions.setStatus!(tx as never, { statusId: final.id }, { subject: 'lines', unit, item: { data }, tagIds: [], projectId, runId: 'r' } as never));
+    const definition = flow({}, ['entry -> end']);
+    const call = (candidateText: string) =>
+      db.transaction((tx) => applyExitActions(tx, { id: 'r', projectId, subject: 'lines', scope: { statusIds: [initial.id] }, tags: [], definition }, { subjectId: unit.id, data: { path: [], outputs: {}, candidateText } }, 'entry', 'out', [status(final.id)]));
 
     // A person saved '내 번역' after the run started: the run keeps their text and status (#51).
     db.update(s.units).set({ translation: '내 번역', statusBy: 'human' }).where(eq(s.units.id, unit.id)).run();
-    const kept = call({ candidateId: 'c1', candidateText: 'AI 번역' });
-    expect(kept.issues?.[0]).toContain('사람이 저장한 번역이 있어 바꾸지 않았습니다');
+    const kept = call('AI 번역');
+    expect(kept[0]).toContain('사람이 저장한 번역이 있어 바꾸지 않았습니다');
     const row = db.select().from(s.units).where(eq(s.units.id, unit.id)).get()!;
     expect([row.translation, row.candidateId, row.statusBy, row.statusId]).toEqual(['내 번역', unit.candidateId, 'human', initial.id]);
 
     // AI owns the line: the status changes; the text was already written by the node that produced it.
     db.update(s.units).set({ translation: 'AI 초벌', statusBy: 'ai' }).where(eq(s.units.id, unit.id)).run();
-    call({ candidateId: 'c2', candidateText: 'AI 번역 2' });
+    expect(call('AI 번역 2')).toEqual([]);
     const after = db.select().from(s.units).where(eq(s.units.id, unit.id)).get()!;
     expect([after.translation, after.statusBy, after.statusId]).toEqual(['AI 초벌', 'ai', final.id]);
   });

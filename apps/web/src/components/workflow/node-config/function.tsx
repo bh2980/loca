@@ -1,9 +1,9 @@
-/** Config of a function node: the function picked and its parameters (set status, HTTP call, script). */
+/** Config of a function node: the function picked and its parameters (checks, saves, HTTP call, script). */
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Play, Plus, Trash2 } from 'lucide-react';
-import { APPLY_FUNCTION_NAMES, APPLY_TARGETS, ISSUE_KIND_IDS, ISSUE_KIND_LABELS, TAG_ACTIONS, tagLinesParams, fieldsFromSample, httpParams, nodeOutputFields, applyIssues, DEFAULT_PARTICLE_PATTERN, formatPatternError, FUNCTIONS, functionTakes, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, JSON_FIELD_TYPE_LABELS, nodeName, PALETTE_FUNCTION_NAMES, previousSteps, type ApplyField, type ApplyFunctionName, type ApplyParams, type TagAction, type TagLinesParams, type CustomFormatRule, type JsonFieldType, type WorkflowDefinition, type FunctionName, type JsonField, type WorkflowNode } from '@tw/shared';
-import { Box, Button, Inline, Input, NumberInput, InspectorActionRow, InspectorList, InspectorResult, InspectorToggle, Select, SelectContent, SelectField, SelectItem, SelectTrigger, SelectValue, Stack, Textarea, StatusIcon, TagToggle, Text, ListItem, Field } from '@loca/ui';
+import { APPLY_FUNCTION_NAMES, APPLY_TARGETS, fieldsFromSample, httpParams, nodeOutputFields, applyIssues, DEFAULT_PARTICLE_PATTERN, formatPatternError, FUNCTIONS, functionTakes, JSON_FIELD_TYPE_LABELS, nodeName, PALETTE_FUNCTION_NAMES, previousSteps, type ApplyField, type ApplyFunctionName, type ApplyParams, type CustomFormatRule, type JsonFieldType, type WorkflowDefinition, type FunctionName, type JsonField, type WorkflowNode } from '@tw/shared';
+import { Box, Button, Inline, Input, NumberInput, InspectorActionRow, InspectorList, InspectorResult, InspectorToggle, Select, SelectContent, SelectField, SelectItem, SelectTrigger, SelectValue, Stack, Textarea, Text, ListItem, Field } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
 import { AiConfirmNote } from '@/components/settings/ai-confirm';
 import { AiRegexInput } from '@/components/ai-regex-input';
@@ -32,14 +32,10 @@ export function FunctionConfig({ node, refs, readOnly, onChange }: { node: Funct
         return <FormatCheckConfig params={params} refs={refs} set={set} />;
       case 'glossaryCheck':
         return <InspectorResult tone="info">설정 항목이 없습니다.</InspectorResult>;
-      case 'setStatus':
-        return <SetStatusConfig params={params} refs={refs} set={set} setMany={setMany} />;
       case 'http':
         return <HttpConfig params={params} refs={refs} set={set} />;
       case 'script':
         return <ScriptConfig params={params} projectId={refs.projectId} readOnly={readOnly} set={set} />;
-      case 'tagLines':
-        return <TagLinesConfig node={node} params={params as TagLinesParams} refs={refs} setMany={setMany} />;
       default:
         return fn in APPLY_TARGETS ? <ApplyConfig node={node} fn={fn as ApplyFunctionName} params={params as ApplyParams} refs={refs} setMany={setMany} /> : null;
     }
@@ -179,146 +175,6 @@ function FormatCheckConfig({ params, refs, set }: { params: Record<string, unkno
           </Button>
         </Box>
       </Field>
-    </>
-  );
-}
-
-function SetStatusConfig({ params, refs, set, setMany }: { params: Record<string, unknown>; refs: NodeRefs; set: (key: string, value: unknown) => void; setMany: (patch: Record<string, unknown>) => void }) {
-  const add = params.addTagIds as string[], remove = params.removeTagIds as string[];
-  return (
-    <>
-      <Field
-        label="바꿀 상태"
-        description={refs.statuses.find((status) => status.id === params.statusId)?.humanOnly ? '워크플로가 지정하지 않는 상태 → 실행하면 검토함으로 갑니다.' : '고르지 않으면 상태는 그대로 두고 태그만 바꿉니다.'}>
-        <SelectField value={(params.statusId as string) ?? 'keep'} onValueChange={(value) => set('statusId', value === 'keep' ? undefined : value)}>
-          <SelectItem value="keep">바꾸지 않음</SelectItem>
-          {refsInput(refs) === 'terms'
-            ? KNOWLEDGE_STATUSES.map((status) => <SelectItem key={status} value={status}>{KNOWLEDGE_STATUS_LABELS[status]}</SelectItem>)
-            : refs.statuses.map((status) => (
-                <SelectItem key={status.id} value={status.id}>
-                  <StatusIcon status={status} /> {status.name}
-                </SelectItem>
-              ))}
-        </SelectField>
-      </Field>
-      {refs.tags.length > 0 && (
-        <Field label="태그" description="누르면 + 붙이기, 한 번 더 누르면 − 떼기, 또 누르면 그대로 둡니다.">
-          <Stack direction="row" wrap gap="tight">
-            {refs.tags.map((tag) => {
-              const on = add.includes(tag.id), off = remove.includes(tag.id);
-              return (
-                // The tag's own chip is the toggle (no pill in a button): faint until picked, + puts it on, − takes it off.
-                <TagToggle
-                  key={tag.id}
-                  tag={tag}
-                  sign={on || off ? (on ? '+' : '−') : undefined}
-                  faint={!on && !off}
-                  struck={off}
-                  aria-pressed={on || off}
-                  onClick={() =>
-                    setMany({
-                      addTagIds: on ? add.filter((id) => id !== tag.id) : off ? add : [...add, tag.id],
-                      removeTagIds: on ? [...remove, tag.id] : remove.filter((id) => id !== tag.id),
-                    })
-                  }
-                />
-              );
-            })}
-          </Stack>
-        </Field>
-      )}
-    </>
-  );
-}
-
-
-/**
- * 태그 붙이기 / 떼기: what to do, which tags (picked here and/or read from a field of the previous step's result), and for
- * a field which tag each of its values stands for (a review's category speech → #말투 어긋남; a value not listed goes on as
- * the tag of that name). Checks and reviews only judge; this node is where tags change.
- */
-function TagLinesConfig({ node, params, refs, setMany }: { node: FunctionNode; params: TagLinesParams; refs: NodeRefs; setMany: (patch: Record<string, unknown>) => void }) {
-  const add = params.action === 'add';
-  const definition = { nodes: refs.nodes, edges: refs.edges ?? [] } as unknown as WorkflowDefinition;
-  const steps = previousSteps(definition, node.id).filter((step) => step.type !== 'gather');
-  // Fields that can hold tag names: texts and lists of texts.
-  const fields = [...new Map(steps.flatMap((step) => nodeOutputFields(step) ?? []).filter((field) => field.type === 'string' || field.type === 'strings').map((field) => [field.name, field])).values()];
-  const from = params.map.tag;
-  const toggle = (id: string) => setMany({ tagIds: params.tagIds.includes(id) ? params.tagIds.filter((item) => item !== id) : [...params.tagIds, id] });
-  const chip = (on: boolean, label: string, color: string, onClick: () => void) => (
-    <TagToggle key={label} tag={{ name: label, color }} sign={on ? (add ? '+' : '−') : undefined} faint={!on} struck={on && !add} aria-pressed={on} onClick={onClick} />
-  );
-  const issues = applyIssues(definition, node.id, 'tagLines', params);
-  const connect = (kind: string, tagId: string) => {
-    const next = { ...params.categoryTags };
-    if (tagId === 'none') delete next[kind];
-    else next[kind] = tagId;
-    setMany({ categoryTags: next });
-  };
-
-  return (
-    <>
-      <Field label="동작">
-        <SelectField value={params.action} onValueChange={(action) => setMany({ action })}>
-          {(Object.keys(TAG_ACTIONS) as TagAction[]).map((action) => (
-            <SelectItem key={action} value={action}>
-              {TAG_ACTIONS[action]}
-            </SelectItem>
-          ))}
-        </SelectField>
-      </Field>
-
-      <Field label="고른 태그" description={`누르면 ${add ? '붙일' : '뗄'} 태그에 넣고, 한 번 더 누르면 뺍니다.`}>
-        <Stack direction="row" wrap gap="tight">
-          {refs.tags.map((tag) => chip(params.tagIds.includes(tag.id), tag.name, tag.color, () => toggle(tag.id)))}
-        </Stack>
-      </Field>
-
-      <Field
-        label="앞 단계 결과의 종류"
-        description={steps.length ? '고르면 그 필드의 값마다 아래에서 이은 태그를, 잇지 않은 값은 같은 이름의 태그를 씁니다.' : undefined}
-        help="AI 검수의 categories처럼 앞 단계가 알려준 종류로 태그를 정합니다. 고른 태그와 함께 쓸 수 있습니다."
-      >
-        {steps.length ? (
-          <>
-            <StepChips steps={steps} refs={refs} suffix="의 결과" />
-            <SelectField value={from ?? 'none'} ariaLabel="태그 이름 필드" onValueChange={(next) => setMany({ map: next === 'none' ? {} : { tag: next } })}>
-              <SelectItem value="none">쓰지 않음</SelectItem>
-              {from && !fields.some((field) => field.name === from) && <SelectItem value={from}>{from} (없어짐)</SelectItem>}
-              {fields.map((field) => (
-                <SelectItem key={field.name} value={field.name}>
-                  {field.name} · {JSON_FIELD_TYPE_LABELS[field.type]}
-                </SelectItem>
-              ))}
-            </SelectField>
-          </>
-        ) : (
-          <Text as="p" variant="caption" tone="muted">앞 단계에 결과를 내는 노드(AI·검사·스크립트)가 없습니다.</Text>
-        )}
-      </Field>
-
-      {from && (
-        <Field label="종류 → 태그" description="AI 검수와 검사가 내는 종류마다 붙이거나 뗄 태그를 고릅니다.">
-          <Stack gap="tight">
-            {ISSUE_KIND_IDS.map((kind) => (
-              <Inline key={kind} gap="condensed">
-                <Text minWidth={0} grow variant="body">{ISSUE_KIND_LABELS[kind]} <Text tone="subtle" mono variant="caption">{kind}</Text></Text>
-                <SelectField value={params.categoryTags[kind] ?? 'none'} ariaLabel={`${ISSUE_KIND_LABELS[kind]}의 태그`} onValueChange={(next) => connect(kind, next)}>
-                  <SelectItem value="none">같은 이름의 태그</SelectItem>
-                  {params.categoryTags[kind] && !refs.tags.some((tag) => tag.id === params.categoryTags[kind]) && <SelectItem value={params.categoryTags[kind]!}>(지워진 태그)</SelectItem>}
-                  {refs.tags.map((tag) => <SelectItem key={tag.id} value={tag.id}>#{tag.name}</SelectItem>)}
-                </SelectField>
-              </Inline>
-            ))}
-          </Stack>
-        </Field>
-      )}
-
-      {issues.map((message) => (
-        <InspectorResult key={message} tone="info">
-          {message}
-        </InspectorResult>
-      ))}
     </>
   );
 }

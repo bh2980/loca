@@ -6,12 +6,15 @@ import { Group } from "../../patterns/section"
 import { Select, SelectContent, SelectTrigger, SelectValue } from "../../controls/select"
 import { Chip, type ChipProps } from "../../patterns/chip"
 import { cn } from "../../lib/utils"
+import { X } from "lucide-react"
+import { Button } from "../../controls/button"
+import { SelectItem } from "../../controls/select"
 
 /** A select that fills the width of its field: the trigger with the chosen value, the choices (`children`: SelectItem) in the list. */
-export function SelectField({ value, onValueChange, ariaLabel, children }: { value?: string; onValueChange?: (value: string) => void; ariaLabel?: string; children: React.ReactNode }) {
+export function SelectField({ value, onValueChange, ariaLabel, placeholder, children }: { value?: string; onValueChange?: (value: string) => void; ariaLabel?: string; placeholder?: string; children: React.ReactNode }) {
   return (
     <Select value={value} onValueChange={onValueChange}>
-      <SelectTrigger width="full" aria-label={ariaLabel}><SelectValue /></SelectTrigger>
+      <SelectTrigger width="full" aria-label={ariaLabel}><SelectValue placeholder={placeholder} /></SelectTrigger>
       <SelectContent>{children}</SelectContent>
     </Select>
   )
@@ -59,5 +62,35 @@ export function RequestPart({ title, size, children }: { title: string; size: Re
     <ExpandableRow ruled summary={<span className="font-medium">{title}</span>} meta={size}>
       {children}
     </ExpandableRow>
+  )
+}
+
+/**
+ * The tags picked for something, each its own chip with a button that takes it out, and a list to pick one more from (the
+ * tags not picked yet). `empty`: said when none is picked.
+ */
+export function PickedTags({ tags, picked, onChange, pickLabel = "태그 고르기", empty }: { tags: readonly { id: string; name: string; color: string }[]; picked: readonly string[]; onChange: (picked: string[]) => void; pickLabel?: string; empty?: string }) {
+  const rest = tags.filter((tag) => !picked.includes(tag.id))
+  return (
+    <Box spaceY="tight">
+      {picked.length > 0 ? (
+        <div className="flex flex-wrap gap-1">
+          {picked.map((id) => {
+            const tag = tags.find((item) => item.id === id)
+            return (
+              <Chip key={id} variant="tint" color={tag?.color} removable>
+                #{tag?.name ?? "삭제된 태그"}
+                <Button variant="ghost" size="icon-xs" aria-label={`#${tag?.name ?? "삭제된 태그"} 빼기`} onClick={() => onChange(picked.filter((item) => item !== id))}><X /></Button>
+              </Chip>
+            )
+          })}
+        </div>
+      ) : empty && <Text as="p" variant="caption" tone="muted">{empty}</Text>}
+      {rest.length > 0 && (
+        <SelectField value="" placeholder={pickLabel} ariaLabel={pickLabel} onValueChange={(id) => id && onChange([...picked, id])}>
+          {rest.map((tag) => <SelectItem key={tag.id} value={tag.id}>#{tag.name}</SelectItem>)}
+        </SelectField>
+      )}
+    </Box>
   )
 }

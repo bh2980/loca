@@ -50,7 +50,12 @@ function setup(lines: number, batch: Partial<BatchConfig>, { resend, wait, retry
     confirmed: statuses.find((status) => status.kind === 'final')!.id,
   }));
   const nodes = template.nodes
-    .filter((node) => retry || node.id !== 'needs-review')
+    // Without the marker the AI nodes' 오류 exits carry no action (the 검토 필요 status) and lead to nothing.
+    .map((node) => {
+      if (retry || !node.exits?.error) return node;
+      const { error: _error, ...exits } = node.exits;
+      return { ...node, exits };
+    })
     .map((node) => {
       if (node.type === 'ai' && node.id === 'translate') return { ...node, config: { ...node.config, concurrency: 1, batch: { mode: 'group' as const, size: 60, maxTokens: null, ...batch } } };
       return node;

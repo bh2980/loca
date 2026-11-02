@@ -143,6 +143,13 @@ export function planRun(db: Db | Tx, definition: WorkflowDefinition, unitIds: st
 
 type RunInput = { projectId: string; workflow: typeof s.workflows.$inferSelect; models: Record<string, s.AiSnapshot>; scope: s.RunScope; limits?: s.RunLimits };
 
+/** The project's tags that the definition's exit actions name. */
+function exitTags(db: Db, projectId: string, definition: WorkflowDefinition): s.RunTag[] {
+  const ids = new Set(definition.nodes.flatMap((node) => Object.values(node.exits ?? {}).flat().flatMap((action) => (action.type === 'tag' ? [...action.tagIds, ...Object.values(action.categoryTags)] : []))));
+  if (!ids.size) return [];
+  return db.select({ id: s.tags.id, name: s.tags.name, color: s.tags.color, scope: s.tags.scope, description: s.tags.description }).from(s.tags).where(eq(s.tags.projectId, projectId)).all().filter((tag) => ids.has(tag.id));
+}
+
 /** The run's lines and their plan batches, and the run row to store. */
 function runRows(db: Db, input: RunInput) {
   // Called workflows are put in place first: the run stores, plans and budgets the nodes it will really run.
@@ -170,6 +177,8 @@ function runRows(db: Db, input: RunInput) {
     status: 'running' as s.RunStatus,
     total: unitIds.length,
     limits: input.limits ?? null,
+    // The tags its exit actions name, as they are now: one deleted while the run goes on is made again from these.
+    tags: exitTags(db, input.projectId, definition),
   };
   const items = unitIds.map((unitId) => ({ runId, subjectId: unitId, nodeId: entry.id, state: 'queued' as const, visits: { [entry.id]: 1 }, data: { path: [], outputs: {} } as ItemData, plan: plan.get(unitId) ?? null }));
   return { run, items };

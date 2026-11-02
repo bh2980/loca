@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import { and, asc, count, desc, eq, gt, gte, inArray, isNull, lte, ne, notInArray, or, sql } from 'drizzle-orm';
 import jsonLogic from 'json-logic-js';
 import * as ai from '@tw/ai';
-import { CONNECTION_KIND_INFO, judgmentProblem, SPEECH_LEVEL_LABELS, estimateTokens, batchConfigSchema, batchTokens, lineCostIn, FUNCTIONS, functionTakes, INPUT_TYPES, choiceKey, isUnknownListener, lineMarksOf, runNodeName, type AiNode, type ConditionData, type FunctionName, type ItemErrorKind, nodeRetries, pickPaths, previousStepId, retryModel, retryRuleIndex, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+import { CONNECTION_KIND_INFO, judgmentProblem, SPEECH_LEVEL_LABELS, estimateTokens, batchConfigSchema, batchTokens, lineCostIn, FUNCTIONS, functionTakes, INPUT_TYPES, choiceKey, isUnknownListener, lineMarksOf, runNodeName, type AiNode, type ConditionData, type FunctionName, type ItemErrorKind, nodeRetries, pickPaths, previousStepId, exitActions, retryModel, retryRuleIndex, type FunctionNode, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
 type GatherNode = Extract<WorkflowNode, { type: 'gather' }>;
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
@@ -14,6 +14,7 @@ import { buildContext, runPairLines } from '../services/context.ts';
 import { resolveRoute } from '../services/routes.ts';
 import type { SecretStore } from '../services/secrets.ts';
 import { runAsyncFunction, syncFunctions, type FunctionInput } from './functions/index.ts';
+import { applyExitActions } from './exit-actions.ts';
 import { APPLY_TOPICS } from './functions/apply.ts';
 import { packGroups, planBatches, scaleBatch } from './batches.ts';
 import { readAiOutput, type Outcome } from './ai-output.ts';
@@ -38,7 +39,7 @@ type StepRecord = Omit<typeof s.runSteps.$inferInsert, 'ok' | 'finishedAt'>;
 type Waiting = { id: string; unitId: string; nodeId: string; groupId: string; seq: number; kind: string; tokens: number; since: Date; plan: number | null; factor: number; /** The model a retry rule sends it to this node on (a run.models key); null: the node's own. */ model: string | null };
 
 /** Functions that write beyond the line itself, and the change topic they touch. */
-const FUNCTION_TOPICS: Record<string, Topic[]> = { ...APPLY_TOPICS, setStatus: ['terms'] };
+const FUNCTION_TOPICS: Record<string, Topic[]> = { ...APPLY_TOPICS };
 /** A partial batch waits this long for more lines from upstream before it is sent anyway. */
 const GATHER_MS = 5_000;
 /**
@@ -406,7 +407,7 @@ export class Runner {
     // line), cleared once a working node handles it.
     const previous = item.data.error;
     const routing = this.node(run, item.nodeId)?.type === 'condition';
-    const failure =
+    let failure =
       port === 'error' ? (kind || !previous ? { kind: kind ?? 'other', message: error ?? '', nodeId: item.nodeId } : { ...previous, message: error || previous.message }) : routing ? previous : undefined;
     item = { ...item, data: { ...item.data, error: failure, ...(port === 'error' && failure && { lastError: failure }) } };
     // A failed line an AI node's retry rule takes goes to the same node again, without a visit: in smaller requests,
@@ -430,6 +431,24 @@ export class Runner {
     }
     const edges = definition.edges.filter((candidate) => candidate.source === item.nodeId && candidate.sourceHandle === port);
     const path = [...item.data.path, { nodeId: item.nodeId, port, at: Date.now() }].slice(-200);
+    // 출구 동작: the exit marks the line (tags, status) once, before its lines split. Doing so handles a failure the
+    // exit carried, as a node there did: a line that ends here after it is done. If an action cannot be done (the
+    // database refuses), the line fails here; it is not sent out the 오류 exit, whose actions could fail the same way.
+    const actions = exitActions(this.node(run, item.nodeId), port);
+    if (actions.length) {
+      try {
+        const notes = applyExitActions(tx, run, item, item.nodeId, port, actions);
+        if (notes.length) item = { ...item, data: { ...item.data, exitNotes: [...(item.data.exitNotes ?? []), ...notes.map((note) => ({ at: `${item.nodeId}:${port}`, note }))].slice(-50) } };
+      } catch (cause) {
+        const node = this.node(run, item.nodeId);
+        const message = `'${node ? runNodeName(definition, node) : item.nodeId}'의 출구 동작을 하지 못했습니다: ${cause instanceof Error ? cause.message : String(cause)}`;
+        tx.update(s.runItems).set({ state: 'failed', error: message, data: { ...item.data, path }, notBefore: null }).where(eq(s.runItems.id, item.id)).run();
+        return;
+      }
+      failure = undefined;
+      error = undefined;
+      item = { ...item, data: { ...item.data, error: undefined } };
+    }
     const moved = (target: string | undefined) => {
       let state: ItemState = 'queued';
       let nodeId = item.nodeId;
@@ -727,6 +746,8 @@ export class Runner {
     for (const item of items) {
       const node = this.node(run, item.nodeId);
       for (const topic of node?.type === 'function' ? (FUNCTION_TOPICS[node.config.fn] ?? []) : []) topics.add(topic);
+      // A term's status or tags set by an exit action (a line's reach the screens through the row feed).
+      if (run.subject === 'terms' && Object.keys(node?.exits ?? {}).length) topics.add('terms');
     }
     this.db.transaction((tx) => {
       if (run.subject === 'terms') {

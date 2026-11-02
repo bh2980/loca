@@ -1,7 +1,7 @@
 /** Edits one workflow node's config; the node kinds live beside this file. */
 import { RequestPreview } from './request-preview';
 import { Trash2 } from 'lucide-react';
-import { INPUT_TYPES, NODE_TYPES, nodeName, nodePorts, WORKFLOW_SUBJECT_IDS, type WorkflowSubject, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
+import { INPUT_TYPES, NODE_TYPES, exitActions, nodeName, nodePorts, WORKFLOW_SUBJECT_IDS, type WorkflowSubject, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
 import { Button, Icon as GlyphIcon, SelectField, SelectItem, Inspector, Text, InspectorHeader, Input, Section, Group, Field, KeyValue, KeyValueRow, Notice } from '@loca/ui';
 import { nodeIcon } from '../node-view';
 import { AiConfig } from '@/components/workflow/node-config/ai';
@@ -10,6 +10,7 @@ import { GatherConfig } from '@/components/workflow/node-config/gather';
 import { CallConfig } from '@/components/workflow/node-config/call';
 import { FunctionConfig } from '@/components/workflow/node-config/function';
 import { type NodeRefs } from '@/components/workflow/node-config/shared';
+import { exitActionText, resultStepNames } from '@/components/workflow/exit-marks';
 
 export type { NodeRefs };
 
@@ -31,6 +32,7 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
   const incoming = refs.edges?.filter((edge) => edge.target === node.id) ?? [];
   const outgoing = refs.edges?.filter((edge) => edge.source === node.id) ?? [];
   const outgoingPorts = nodePorts(node);
+  const names = { tags: new Map(refs.tags.map((tag) => [tag.id, tag])), statuses: new Map(refs.statuses.map((status) => [status.id, status])) };
 
   return (
     <Inspector bare flush footerStart={!readOnly && node.type !== 'entry' ? (<><Button variant="ghost" tone="danger" onClick={onDelete}>
@@ -104,6 +106,7 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
             <KeyValue>
               {outgoingPorts.length ? outgoingPorts.map((port) => {
                 const targets = outgoing.filter((edge) => edge.sourceHandle === port.id).map((edge) => refs.nodes.find((item) => item.id === edge.target));
+                const actions = exitActions(node, port.id);
                 return (
                   <KeyValueRow key={port.id} label={port.label}>
                     {targets.length ? (
@@ -113,7 +116,13 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
                         </Text>
                       ))
                     ) : (
-                      <Text tone="muted">연결 없음</Text>
+                      <Text tone="muted">{actions.length ? '끝' : '연결 없음'}</Text>
+                    )}
+                    {/* What the exit does to the lines leaving it; its pane edits them. */}
+                    {refs.onOpenExit && (
+                      <Button variant="ghost" justifyContent="start" weight="normal" onClick={() => refs.onOpenExit?.(node.id, port.id)}>
+                        <Text truncate tone={actions.length ? 'default' : 'muted'}>{actions.length ? actions.map((action) => exitActionText(action, names, resultStepNames({ nodes: refs.nodes, edges: refs.edges ?? [] }, node, port.id))).join(' · ') : '출구 동작 추가'}</Text>
+                      </Button>
                     )}
                   </KeyValueRow>
                 );

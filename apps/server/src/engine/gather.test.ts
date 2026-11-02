@@ -81,8 +81,11 @@ describe('모으기', () => {
   it('refuses nodes that change an item after it, an AI node that still reads lines, and a gather inside a loop', () => {
     const { choice } = setup();
     const messages = (definition: ReturnType<typeof flow>) => validateWorkflow(definition, refs(choice)).filter((issue) => issue.level === 'error').map((issue) => issue.message);
-    const status = flow(choice, { nodes: [{ id: 'mark', type: 'function', position: at, config: { fn: 'setStatus', params: {} } }], edges: [{ id: '4', source: 'combine', sourceHandle: 'out', target: 'mark' }] });
-    expect(messages(status)).toContainEqual(expect.stringContaining('모으기 뒤에 둘 수 없습니다'));
+    const save = flow(choice, { nodes: [{ id: 'mark', type: 'function', position: at, config: { fn: 'saveCandidate', params: {} } }], edges: [{ id: '4', source: 'combine', sourceHandle: 'out', target: 'mark' }] });
+    expect(messages(save)).toContainEqual(expect.stringContaining('모으기 뒤에 둘 수 없습니다'));
+    // Exit actions (tags, status) change the item too: a node after the gather may not carry them.
+    const status = flow(choice, { nodes: [{ id: 'mark', type: 'condition', position: at, config: { expression: true }, exits: { true: [{ type: 'status', statusId: 's1' }] } }], edges: [{ id: '4', source: 'combine', sourceHandle: 'out', target: 'mark' }] });
+    expect(messages(status)).toContainEqual(expect.stringContaining('출구 동작'));
     const lines = flow(choice);
     const withLines = workflowDefinitionSchema.parse({ ...lines, nodes: lines.nodes.map((node) => (node.id === 'combine' && node.type === 'ai' ? { ...node, config: { ...node.config, input: { previous: true, lines: true, fields: [] } } } : node)) });
     expect(messages(withLines)).toContainEqual(expect.stringContaining('대사를 빼고'));

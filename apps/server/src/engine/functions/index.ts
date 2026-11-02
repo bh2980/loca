@@ -1,7 +1,7 @@
 import type { z } from 'zod';
 import { and, asc, eq } from 'drizzle-orm';
 import { get } from 'es-toolkit/compat';
-import { checkFormat, formatCheckParams, FUNCTIONS, httpParams, KNOWLEDGE_STATUSES, type KnowledgeStatus, scriptParams, setStatusParams, type FunctionName, type JsonField, filtersByStatus } from '@tw/shared';
+import { checkFormat, formatCheckParams, FUNCTIONS, httpParams, KNOWLEDGE_STATUSES, type KnowledgeStatus, scriptParams, type FunctionName, type JsonField } from '@tw/shared';
 import type { Db } from '../../db/index.ts';
 import * as s from '../../db/schema.ts';
 import { connectionKey } from '../../services/app-defaults.ts';
@@ -42,17 +42,6 @@ export function lineView(input: FunctionInput) {
   };
 }
 
-/** 상태 변경 on a term: candidate, confirmed or rejected (a rejected term is not proposed again), and its tags. */
-function setTermStatus(tx: Tx, params: z.infer<typeof setStatusParams>, input: Extract<FunctionInput, { subject: 'terms' }>): FunctionResult {
-  if (params.statusId) {
-    if (!(KNOWLEDGE_STATUSES as readonly string[]).includes(params.statusId)) throw new Error('용어의 상태는 후보·확정·버림 중 하나입니다.');
-    tx.update(s.terms).set({ status: params.statusId as KnowledgeStatus, statusBy: 'ai', runId: input.runId }).where(eq(s.terms.id, input.term.id)).run();
-  }
-  for (const tagId of params.addTagIds) setKnowledgeTag(tx, input.projectId, 'terms', [input.term.id], tagId, true);
-  for (const tagId of params.removeTagIds) setKnowledgeTag(tx, input.projectId, 'terms', [input.term.id], tagId, false);
-  return { port: 'out', output: { status: params.statusId ?? input.term.status } };
-}
-
 // ── instant functions (run inside the runner's transaction) ──────────
 
 /** Whether a run picks its lines by the entry node's statuses (rather than lines named regardless of status). */
@@ -74,34 +63,6 @@ export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknow
       .filter((term) => !text.toLowerCase().includes(term.target.toLowerCase()))
       .map((term) => `용어 "${term.source}"은(는) "${term.target}"(으)로 옮겨야 합니다.`);
     return { port: issues.length ? 'fail' : 'pass', issues, output: { text, passed: !issues.length, issues, kind: 'term' } };
-  },
-
-  setStatus(tx, raw, input) {
-    const params = setStatusParams.parse(raw);
-    if (input.subject === 'terms') return setTermStatus(tx, params, input);
-    const unit = lineOf(input);
-    // Translations now go into the line when a node produces them (engine/apply-candidate.ts, #42);
-    // this node only sets the status and tags. A run sets the line's status, so AI set it;
-    // a person's change later makes it theirs. A run that picks lines by status
-    // never replaces a translation a person wrote (#51): its entry skips such lines, and one a person
-    // saved while the run was on it keeps its status here. A run on lines named regardless of status
-    // (말투만 고치기, '상태 무시') is asked to rewrite them, so its status change goes through.
-    const current = tx.select({ translation: s.units.translation, statusBy: s.units.statusBy }).from(s.units).where(eq(s.units.id, unit.id)).get();
-    const run = tx.select({ scope: s.runs.scope }).from(s.runs).where(eq(s.runs.id, input.runId)).get();
-    const humanOwns = personOwns(current, input.item.data.candidateText, !run || filtersByStatus(run.scope));
-    const patch: Partial<typeof s.units.$inferInsert> = {};
-    const issues: string[] = [];
-    if (humanOwns) {
-      // Keep the person's translation and status; the run's text stays a candidate beside it.
-      issues.push(HUMAN_OWNED_NOTE);
-    } else {
-      if (params.statusId) Object.assign(patch, { statusId: params.statusId, statusBy: 'ai', statusRunId: input.runId });
-      if (Object.keys(patch).length) tx.update(s.units).set(patch).where(eq(s.units.id, unit.id)).run();
-    }
-    // A tag that no longer belongs on lines (its places were narrowed after the node was set up) is skipped, with a notice.
-    const { skipped } = attachUnitTags(tx, input.projectId, [unit.id], { add: params.addTagIds, remove: params.removeTagIds }, { onMisplaced: 'skip' });
-    for (const tag of skipped) issues.push(`‘${tag.name}’ 태그는 대사에 붙일 수 없어 붙이지 않았습니다.`);
-    return issues.length ? { port: 'out', issues } : { port: 'out' };
   },
 
 
