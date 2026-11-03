@@ -89,7 +89,7 @@ describe('인물·관계 추출 template, end to end', () => {
     const nova = people.get('NOVA')!.id;
     const fromNova = rels.find((rel) => rel.fromId === nova)!;
     expect(fromNova).toMatchObject({ toId: mira, kind: '선장', mutual: false, evidence: ['g1-0', 'g3-0'] });
-    expect(fromNova.changes).toEqual([{ at: 'g1-0', kind: '은인', cause: '구조' }, { at: 'g3-1', kind: '믿는 선장', cause: '수리' }]);
+    expect(fromNova.changes).toMatchObject([{ at: 'g1-0', kind: '은인', cause: '구조', statusBy: 'ai' }, { at: 'g3-1', kind: '믿는 선장', cause: '수리', statusBy: 'ai' }]);
     expect(rels.find((rel) => rel.fromId === mira)).toMatchObject({ toId: nova, kind: '정비사', changes: [] });
     const rules = db.select().from(s.speechRules).where(eq(s.speechRules.projectId, projectId)).all();
     // The person's rule for MIRA → group stays (the merge's other level for it is not added); the new pair is added.

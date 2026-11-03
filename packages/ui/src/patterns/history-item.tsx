@@ -1,7 +1,8 @@
 import type * as React from "react"
-import { ChevronDown } from "lucide-react"
+import { ChevronDown, Workflow } from "lucide-react"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../controls/collapsible"
 import { cn } from "../lib/utils"
+import { avatarStyle } from "./person-avatar"
 
 /**
  * A history as a timeline, newest first, in days ("오늘 · 11월 1일"): each entry has who did it (a mark on the
@@ -26,13 +27,15 @@ const ACTOR = {
 export type HistoryActor = keyof typeof ACTOR
 
 /**
- * One entry of a history. `mark` is one letter on the timeline (W for a workflow, a person's initial, AI), `title` who
+ * One entry of a history. `mark` is one letter on the timeline (a person's initial, AI; a workflow always shows its mark), `title` who
  * did it (bold) and `meta` what it was (· 수정 단계), `badges` beside them (현재 번역), `time` at the right end, always
  * shown. `children` (the text, its 이전/이후, a warning) and `actions` (되돌리기, 실행 기록 보기) sit under the head.
  */
-export function HistoryEntry({ actor, mark, title, meta, badges, time, actions, muted, children }: {
+export function HistoryEntry({ actor, mark, markColor, title, meta, badges, time, actions, muted, children }: {
   actor: HistoryActor
   mark: React.ReactNode
+  /** A person's own colour (프로필) for their mark, instead of the actor's. */
+  markColor?: string | null
   title: React.ReactNode
   meta?: React.ReactNode
   badges?: React.ReactNode
@@ -44,7 +47,8 @@ export function HistoryEntry({ actor, mark, title, meta, badges, time, actions, 
 }) {
   return (
     <li className="relative grid grid-cols-[1.25rem_minmax(0,1fr)] gap-x-2.5 pb-4 last:pb-1 before:absolute before:top-6 before:bottom-1 before:left-2.5 before:w-px before:bg-line last:before:hidden">
-      <span aria-hidden="true" className={cn("mt-px flex size-5 items-center justify-center rounded-full text-2xs font-bold", ACTOR[actor])}>{mark}</span>
+      {/* A person is a circle with their letter; a workflow a square with the workflow mark, told apart by shape too. */}
+      <span aria-hidden="true" style={avatarStyle(markColor)} className={cn("mt-px flex size-5 items-center justify-center text-2xs font-bold", actor === "workflow" ? "rounded-md" : "rounded-full", !markColor && ACTOR[actor])}>{actor === "workflow" ? <Workflow className="size-3" /> : mark}</span>
       <div className="min-w-0 space-y-1.5">
         <div className="flex min-w-0 items-baseline gap-1.5">
           <span className="min-w-0 truncate text-sm">
@@ -58,18 +62,6 @@ export function HistoryEntry({ actor, mark, title, meta, badges, time, actions, 
         {actions && <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">{actions}</div>}
       </div>
     </li>
-  )
-}
-
-/** What an entry changed: the text before (removed words struck) and after (added words marked), labelled. */
-export function HistoryDiff({ before, after }: { before: React.ReactNode; after: React.ReactNode }) {
-  return (
-    <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2.5 gap-y-1 border-l-2 border-subtle pl-2.5 text-xs">
-      <dt className="text-subtle">이전</dt>
-      <dd className="min-w-0 break-words whitespace-pre-line text-muted">{before}</dd>
-      <dt className="text-subtle">이후</dt>
-      <dd className="min-w-0 break-words whitespace-pre-line text-default">{after}</dd>
-    </dl>
   )
 }
 

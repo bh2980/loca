@@ -1,11 +1,11 @@
 import { memo, useEffect } from 'react';
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router';
 import { BookOpen, Check, ChevronsUpDown, Languages, Monitor, Moon, Plus, Settings2, Sun, Workflow } from 'lucide-react';
-import { Sidebar, SidebarBrand, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuBadge, SidebarMenuButton, SidebarMenuIcon, SidebarMenuItem, SidebarRail, DropdownMenu, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuRadioItem, Icon, SidebarGroup, SidebarGroupLabel, SidebarMenuLabel, Text, DropdownMenuContent, MenuLabel } from '@loca/ui';
+import { Sidebar, SidebarBrand, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuBadge, SidebarMenuButton, SidebarMenuIcon, SidebarMenuItem, SidebarRail, DropdownMenu, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuRadioItem, Icon, SidebarGroup, SidebarGroupLabel, SidebarMenuLabel, Text, DropdownMenuContent, MenuLabel, PersonAvatar } from '@loca/ui';
 import { holds, NAV_GROUPS, useCurrentNav, type NavGroup, type NavItem } from '@/lib/nav';
 import { setTheme, useTheme, type ThemeChoice } from '@/lib/theme';
 import { useProjectProgress } from '@/lib/project';
-import { useProjects } from '@/lib/app-data';
+import { useProfile, useProjects } from '@/lib/app-data';
 
 const lastKey = (projectId: string, itemId: string) => `tw.nav.${projectId}.${itemId}`;
 const readLast = (projectId: string, itemId: string): { pathname: string; search: Record<string, unknown> } | null => {
@@ -91,6 +91,7 @@ function ProjectSwitcher({ projectId }: { projectId: string }) {
 
 export function AppSidebar({ projectId }: { projectId: string }) {
   const theme = useTheme();
+  const profile = useProfile();
   const current = useCurrentNav(projectId);
   const renderGroup = (group: NavGroup) => {
     const settings = group.id === 'settings';
@@ -98,12 +99,16 @@ export function AppSidebar({ projectId }: { projectId: string }) {
     if (!group.label) return <SidebarGroup key={group.id} inset="tight">{contents}</SidebarGroup>;
     if (settings) return <SidebarGroup key={group.id} inset="none"><SidebarMenu><SidebarMenuItem><DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <SidebarMenuButton isActive={current.group.id === 'settings'} aria-label="설정" title="설정">
+        {/* The person (프로필) at the foot, as chat apps keep it: their avatar and name open the profile and the settings. */}
+        <SidebarMenuButton isActive={current.group.id === 'settings'} aria-label={`${profile.label} · 프로필과 설정`} title="프로필과 설정">
+          <SidebarMenuIcon><PersonAvatar mark={profile.mark} color={profile.color} /></SidebarMenuIcon>
+          <SidebarMenuLabel placement="vanishing">{profile.label}</SidebarMenuLabel>
           <SidebarMenuIcon><Settings2 /></SidebarMenuIcon>
-          <SidebarMenuLabel placement="vanishing">{group.label}</SidebarMenuLabel>
         </SidebarMenuButton>
       </DropdownMenuTrigger>
       <DropdownMenuContent side="top" align="start" width="menu-lg" maxHeight="dialog">
+        <DropdownMenuItem asChild><Link to="/settings/profile"><PersonAvatar mark={profile.mark} color={profile.color} /> 프로필 편집</Link></DropdownMenuItem>
+        <DropdownMenuSeparator />
         <DropdownMenuLabel>설정</DropdownMenuLabel>
         {group.items.map((navItem) => <SettingsItem key={navItem.id} navItem={navItem} projectId={projectId} active={current.item.id === navItem.id} />)}
         <DropdownMenuSeparator />

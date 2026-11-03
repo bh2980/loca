@@ -28,6 +28,13 @@ export function useAppDefaults({ enabled = true }: { enabled?: boolean } = {}) {
   return { ...rows, data: rows.data?.[0] };
 }
 
+/** 프로필: the person as the app shows them (the sidebar, a line's 이력): their name or '사람', its first letter, their colour. */
+export function useProfile() {
+  const defaults = useAppDefaults().data;
+  const name = defaults?.displayName ?? '';
+  return { name, label: name || '사람', mark: [...(name || '사람')][0]!, color: defaults?.avatarColor || null, loaded: Boolean(defaults) };
+}
+
 /** Replaces the sections given: shown at once, put back on failure, done once the feed brings the saved row. */
 export function saveAppDefaults(patch: AppDefaultsPatch) {
   const rows = defaultsRow();

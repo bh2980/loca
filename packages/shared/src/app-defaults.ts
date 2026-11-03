@@ -76,6 +76,10 @@ export const templateStatusesSchema = z
   });
 
 export const appDefaultsSchema = z.object({
+  /** 프로필: what the person is called where their own decisions are listed (a line's 이력, the sidebar); empty: '사람'. Not copied into projects. */
+  displayName: z.string().trim().max(32).default(''),
+  /** 프로필: their avatar's colour (a palette colour, as the swatches store it); empty: the accent's. */
+  avatarColor: z.string().default(''),
   editorAi: editorAiSchema.prefault({}),
   agentSettings: agentSettingsSchema.prefault({}),
   aiAutoConfirm: z.boolean().default(true),
@@ -90,7 +94,7 @@ export const appDefaultsSchema = z.object({
     .prefault({}),
 });
 export type AppDefaults = z.infer<typeof appDefaultsSchema>;
-const PATCHABLE = ['editorAi', 'agentSettings', 'aiAutoConfirm', 'statuses', 'tags', 'workflows'] as const;
+const PATCHABLE = ['displayName', 'avatarColor', 'editorAi', 'agentSettings', 'aiAutoConfirm', 'statuses', 'tags', 'workflows'] as const;
 /**
  * A change to some sections: only the sections sent are parsed and returned. Not
  * `appDefaultsSchema.partial()` (nor `.optional()` per field): Zod 4 still fills a section left out

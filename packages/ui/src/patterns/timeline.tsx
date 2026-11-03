@@ -37,10 +37,11 @@ function PointCard({ title, meta, status, children, counts, actions, active }: {
 }) {
   return (
     <div className={cn("min-w-0 rounded-md border bg-surface", active ? "border-accent ring-1 ring-accent" : "border-default")}>
-      <div className="flex min-w-0 items-center gap-2 px-3 pt-2.5">
-        <span className="min-w-0 flex-1 truncate text-xs">
-          <span className="font-semibold text-default">{title}</span>
-          {meta && <span className="text-muted"> · {meta}</span>}
+      <div className="flex min-w-0 items-start gap-2 px-3 pt-2.5">
+        {/* Where it is (a chapter, a scene) on its own line: beside the title it was cut off first. */}
+        <span className="min-w-0 flex-1 text-xs">
+          <span className="block truncate font-semibold text-default">{title}</span>
+          {meta && <span className="block truncate text-muted">{meta}</span>}
         </span>
         {status && <span className="flex shrink-0 items-center gap-1">{status}</span>}
       </div>

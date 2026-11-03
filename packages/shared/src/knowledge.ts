@@ -176,8 +176,17 @@ export const relationshipChangeSchema = z.object({
   /** The relationship from then on (one short noun), as `kind` of the relationship itself. */
   kind: z.string().min(1),
   cause: z.string().default(''),
+  /** Decided on its own, as a speech rule's stretch is: a candidate change is not AI context. Unset: as its relationship. */
+  status: z.enum(['candidate', 'confirmed']).optional(),
+  /** Who set that status (ai: no person has looked since). Unset: as its relationship. */
+  statusBy: z.enum(['ai', 'human']).optional(),
 });
 export type RelationshipChange = z.infer<typeof relationshipChangeSchema>;
+
+/** A change's status and who set it: its own, or its relationship's for a change saved before changes had one. */
+export function changeState(relationship: { status: string; statusBy: 'ai' | 'human' | null }, change: Pick<RelationshipChange, 'status' | 'statusBy'>) {
+  return { status: change.status ?? (relationship.status === 'candidate' ? 'candidate' as const : 'confirmed' as const), statusBy: change.statusBy ?? relationship.statusBy ?? 'human' };
+}
 
 /** Final consonant index of a Hangul syllable (0 = none, 4 = ㄴ, 17 = ㅂ, 18 = ㅄ, 20 = ㅆ, 25 = ㅌ). */
 const finalOf = (syllable: string | undefined) => {

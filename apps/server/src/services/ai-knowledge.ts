@@ -314,7 +314,8 @@ export function aiSaveRelationships(tx: Tx, write: AiWrite, items: AiRelationshi
       counts.unresolved.push(`${item.from} → ${item.to}`);
       continue;
     }
-    const changes = (item.changes ?? []).flatMap((change) => (change.at && change.kind?.trim() ? [{ at: change.at, kind: change.kind.trim(), cause: change.cause ?? '' }] : []));
+    // Each change is decided on its own: an AI's lands as its other results do (AI 결과 바로 확정, or a candidate).
+    const changes = (item.changes ?? []).flatMap((change) => (change.at && change.kind?.trim() ? [{ at: change.at, kind: change.kind.trim(), cause: change.cause ?? '', status: draft(write).status === 'candidate' ? 'candidate' as const : 'confirmed' as const, statusBy: 'ai' as const }] : []));
     const evidence = strings(item.evidence);
     const stale = placeholders.filter((rel) => (rel.fromId === fromId && rel.toId === toId) || (rel.fromId === toId && rel.toId === fromId));
     if (stale.length) {

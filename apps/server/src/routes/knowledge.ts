@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, asc, eq, inArray, ne, or } from 'drizzle-orm';
 import { z } from 'zod';
-import { EVENT_LINK_KINDS, SNAPSHOT_COLLECTIONS, KNOWLEDGE_TAG_KINDS, modelChoiceSchema, patchOf, withDuplicateTargets } from '@tw/shared';
+import { EVENT_LINK_KINDS, relationshipChangeSchema, SNAPSHOT_COLLECTIONS, KNOWLEDGE_TAG_KINDS, modelChoiceSchema, patchOf, withDuplicateTargets } from '@tw/shared';
 import { badRequest, found, notFound, validate, type Env } from '../context.ts';
 import { eachChunk, inChunks } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
@@ -135,6 +135,18 @@ export const knowledgeRoutes = new Hono<Env>()
     const projectId = c.req.param('projectId')!;
     const row = found(db.select().from(s.relationships).where(byProject(s.relationships, c.req.param('id'), projectId)).get(), '관계');
     return c.json(withTags(db, 'relationships', [row])[0]);
+  })
+  /**
+   * A relationship's changes alone (관계 변화: one confirmed, fixed, dropped or added): its own status and content stay, so
+   * deciding a change is not deciding the relationship.
+   */
+  .patch('/relationships/:id/changes', validate('json', z.object({ changes: z.array(relationshipChangeSchema) })), (c) => {
+    const { db } = c.var.deps;
+    const projectId = c.req.param('projectId')!;
+    found(db.select({ id: s.relationships.id }).from(s.relationships).where(byProject(s.relationships, c.req.param('id'), projectId)).get(), '관계');
+    db.update(s.relationships).set({ changes: c.req.valid('json').changes }).where(byProject(s.relationships, c.req.param('id'), projectId)).run();
+    events.changed(projectId, 'knowledge');
+    return c.json({ ok: true });
   })
   .post('/relationships', validate('json', relationshipInput), (c) => {
     const projectId = c.req.param('projectId')!;

@@ -30,7 +30,7 @@ export const unitColumns = {
  */
 export function unitRows(db: Db, where: SQL | undefined, page?: { limit: number; offset: number }) {
   const query = db
-    .select({ ...unitColumns, groupTitle: s.groups.title, groupKind: s.groups.kind, origin: s.candidates.origin, model: s.candidates.model, suggested: sql`exists (select 1 from ${s.candidates} c where c.unit_id = ${s.units.id} and c.state = 'pending')`.mapWith(Boolean) })
+    .select({ ...unitColumns, groupTitle: s.groups.title, groupSection: s.groups.section, groupKind: s.groups.kind, origin: s.candidates.origin, model: s.candidates.model, suggested: sql`exists (select 1 from ${s.candidates} c where c.unit_id = ${s.units.id} and c.state = 'pending')`.mapWith(Boolean) })
     .from(s.units)
     .innerJoin(s.groups, eq(s.groups.id, s.units.groupId))
     .leftJoin(s.candidates, eq(s.candidates.id, s.units.candidateId))

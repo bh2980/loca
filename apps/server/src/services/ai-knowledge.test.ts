@@ -175,7 +175,8 @@ describe('AI knowledge writes', () => {
     // Different kinds: two directional rows, each with its own kind and changes.
     save([view('Bob', 'Alice', '두목', { changes: [{ at: 'a3', kind: '적', cause: '배신' }] }), view('Alice', 'Bob', '부하', { description: '믿는다' })]);
     expect(row().map((r) => [r.fromId === row()[0]!.fromId ? 'first' : 'second', r.kind, r.mutual, r.changes.map((change) => change.kind)])).toEqual([['first', '두목', false, ['적']], ['second', '부하', false, []]]);
-    expect(row()[0]!.changes).toEqual([{ at: 'a3', kind: '적', cause: '배신' }]);
+    // Each change is the AI's, decided as its other results are.
+    expect(row()[0]!.changes).toMatchObject([{ at: 'a3', kind: '적', cause: '배신', statusBy: 'ai' }]);
     db.delete(s.relationships).run();
     // The same kind, no changes (the descriptions may differ): one mutual row.
     save([view('Alice', 'Bob', '협력자', { description: '함께 일한다', evidence: ['a1'] }), view('Bob', 'Alice', '협력자', { description: '', evidence: ['a2'] })]);

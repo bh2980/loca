@@ -14,6 +14,7 @@ import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as PProjectIdRouteImport } from './routes/p.$projectId'
 import { Route as SettingsIndexRouteImport } from './routes/settings.index'
 import { Route as SettingsAppearanceRouteImport } from './routes/settings.appearance'
+import { Route as SettingsProfileRouteImport } from './routes/settings.profile'
 import { Route as PProjectIdIndexRouteImport } from './routes/p.$projectId.index'
 import { Route as PProjectIdGlossaryRouteImport } from './routes/p.$projectId.glossary'
 import { Route as PProjectIdGraphRouteImport } from './routes/p.$projectId.graph'
@@ -59,6 +60,11 @@ const SettingsIndexRoute = SettingsIndexRouteImport.update({
 const SettingsAppearanceRoute = SettingsAppearanceRouteImport.update({
   id: '/appearance',
   path: '/appearance',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsProfileRoute = SettingsProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
   getParentRoute: () => SettingsRoute,
 } as any)
 const PProjectIdIndexRoute = PProjectIdIndexRouteImport.update({
@@ -181,6 +187,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRouteWithChildren
   '/p/$projectId': typeof PProjectIdRouteWithChildren
   '/settings/appearance': typeof SettingsAppearanceRoute
+  '/settings/profile': typeof SettingsProfileRoute
   '/settings/': typeof SettingsIndexRoute
   '/p/$projectId/glossary': typeof PProjectIdGlossaryRoute
   '/p/$projectId/graph': typeof PProjectIdGraphRoute
@@ -207,6 +214,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
+  '/settings/profile': typeof SettingsProfileRoute
   '/settings': typeof SettingsIndexRoute
   '/p/$projectId/glossary': typeof PProjectIdGlossaryRoute
   '/p/$projectId/graph': typeof PProjectIdGraphRoute
@@ -236,6 +244,7 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRouteWithChildren
   '/p/$projectId': typeof PProjectIdRouteWithChildren
   '/settings/appearance': typeof SettingsAppearanceRoute
+  '/settings/profile': typeof SettingsProfileRoute
   '/settings/': typeof SettingsIndexRoute
   '/p/$projectId/glossary': typeof PProjectIdGlossaryRoute
   '/p/$projectId/graph': typeof PProjectIdGraphRoute
@@ -266,6 +275,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/p/$projectId'
     | '/settings/appearance'
+    | '/settings/profile'
     | '/settings/'
     | '/p/$projectId/glossary'
     | '/p/$projectId/graph'
@@ -292,6 +302,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/settings/appearance'
+    | '/settings/profile'
     | '/settings'
     | '/p/$projectId/glossary'
     | '/p/$projectId/graph'
@@ -320,6 +331,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/p/$projectId'
     | '/settings/appearance'
+    | '/settings/profile'
     | '/settings/'
     | '/p/$projectId/glossary'
     | '/p/$projectId/graph'
@@ -385,6 +397,13 @@ declare module '@tanstack/react-router' {
       path: '/appearance'
       fullPath: '/settings/appearance'
       preLoaderRoute: typeof SettingsAppearanceRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/profile': {
+      id: '/settings/profile'
+      path: '/profile'
+      fullPath: '/settings/profile'
+      preLoaderRoute: typeof SettingsProfileRouteImport
       parentRoute: typeof SettingsRoute
     }
     '/p/$projectId/': {
@@ -539,6 +558,7 @@ declare module '@tanstack/react-router' {
 
 interface SettingsRouteChildren {
   SettingsAppearanceRoute: typeof SettingsAppearanceRoute
+  SettingsProfileRoute: typeof SettingsProfileRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
   SettingsDefaultsChatRoute: typeof SettingsDefaultsChatRoute
   SettingsDefaultsConnectionsRoute: typeof SettingsDefaultsConnectionsRoute
@@ -549,6 +569,7 @@ interface SettingsRouteChildren {
 
 const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsAppearanceRoute: SettingsAppearanceRoute,
+  SettingsProfileRoute: SettingsProfileRoute,
   SettingsIndexRoute: SettingsIndexRoute,
   SettingsDefaultsChatRoute: SettingsDefaultsChatRoute,
   SettingsDefaultsConnectionsRoute: SettingsDefaultsConnectionsRoute,
