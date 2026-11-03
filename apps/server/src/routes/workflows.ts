@@ -339,7 +339,7 @@ export const workflowRoutes = new Hono<Env>()
     const { models, retryFailed } = c.req.valid('json');
     const result = await continuePreflight(db, run, models, retryFailed);
     if (!result.ok) badRequest(result.error);
-    return c.json({ lines: result.lines, plan: result.plan });
+    return c.json({ workflowId: result.workflowId, lines: result.lines, plan: result.plan });
   })
   /** Continue a paused or finished run, on other models for some AI steps and/or with its failed lines again. */
   .post('/runs/:id/continue', validate('json', continueSchema), (c) => {

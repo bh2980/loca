@@ -8,6 +8,7 @@
  *
  *   cobalt  light accent (hue 262) and its blues    teal    dark accent (hue 192)
  *   red orange amber green violet   meaning: danger, warning, needs review, done, AI
+ *   rose                            the dark header of a node that sets a state (the step of hue-12 beside the others)
  *
  * A meaning or accent step is named family + lightness (oklch L x 1000), so --cobalt-530 is oklch(0.53 ...). A suffix is the
  * same colour with alpha: --cobalt-530-a45 is cobalt-530 at 45%. Alpha of a neutral (shadow, scrim) is a color-mix of its step in theme.css.
@@ -68,27 +69,33 @@
   --teal-800-a50: oklch(0.8 0.12 192 / 0.5);
   --teal-340: oklch(0.34 0.07 192);
   --teal-320: oklch(0.32 0.05 192);
+  --teal-300: oklch(0.3 0.035 192);
   --teal-200: oklch(0.2 0.03 220);
 
   --red-700: oklch(0.7 0.17 25);
   --red-550: oklch(0.55 0.2 27);
+  --red-600: oklch(0.6 0.12 25);
 
   --orange-780: oklch(0.78 0.14 60);
   --orange-520: oklch(0.52 0.13 55);
+  --orange-640: oklch(0.64 0.1 60);
 
   --amber-840: oklch(0.84 0.12 80);
   --amber-800: oklch(0.8 0.14 78);
   --amber-660: oklch(0.66 0.15 62);
   --amber-500: oklch(0.5 0.12 60);
+  --amber-380: oklch(0.38 0.055 70);
 
   --green-800: oklch(0.8 0.13 155);
   --green-450: oklch(0.45 0.11 152);
+  --green-380: oklch(0.38 0.055 152);
 
   --violet-950: oklch(0.95 0.025 300);
   --violet-840: oklch(0.84 0.08 300);
   --violet-470: oklch(0.47 0.12 300);
   --violet-380: oklch(0.38 0.055 278);
   --violet-320: oklch(0.32 0.06 300);
+  --rose-380: oklch(0.38 0.055 345);
 
   /* Status colours the user picks (the stored colour is the light hex in @tw/shared STATUS_COLORS; tokens/palette.ts maps it to the hue). */
   --hue-1: oklch(0.6 0.02 258);

@@ -9,7 +9,7 @@ import { client, unwrap } from '@/lib/api';
 import { INPUT_TYPES, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, TERM_MARK_IDS, WORKFLOW_SUBJECT_IDS, LINE_MARK_IDS, type AutoMark, type LineMark, AUTO_MARK_IDS } from '@tw/shared';
 import { MarkChip } from '@/components/status';
 import type { ModelValue } from '@/components/model-picker';
-import { Pace, RunCaps, RunModels } from './run-estimate';
+import { Pace, RunCaps, RunModels, UntestedModels } from './run-estimate';
 import { paceParts } from '@/lib/run-summary';
 import { startLimits, type CapEdits } from '@/lib/run-limits';
 import { tagsIn } from '@/lib/queries';
@@ -328,6 +328,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
               {data && data.lines.excluded > 0 && <Text tone="muted"> · 번역 제외 {data.lines.excluded.toLocaleString()}줄은 빠집니다</Text>}
             </Text>
             {data && total ? <Text as="p" variant="body" tone="muted">AI 요청 {paceParts(data).callText}{paceParts(data).time && ` · 약 ${paceParts(data).time}`}{paceParts(data).money && ` · ${paceParts(data).money}`}</Text> : null}
+            {data && total ? <UntestedModels projectId={projectId} data={data} /> : null}
             {!terms && wholeProject && Boolean(total) && (
               <Text as="p" variant="caption" tone="warning">프로젝트 전체입니다. 처음이면 장면 하나로 먼저 시험해 보세요.</Text>
             )}

@@ -49,5 +49,22 @@ export async function continuePreflight(db: Db, run: Run, models: RunModels | un
   const unitIds = remainingLines(db, run.id, retryFailed);
   // The run's items as they are: lines by id regardless of status, or terms by id.
   const scope = run.subject === 'terms' ? { termIds: unitIds } : { unitIds };
-  return { ok: true as const, lines: unitIds.length, plan: await preflight(db, { id: run.workflowId, projectId: run.projectId, definition: switched.definition }, scope) };
+  const plan = await preflight(db, { id: run.workflowId, projectId: run.projectId, definition: switched.definition }, scope);
+  // On the same models, this run's own record says how long a line takes better than recent calls do.
+  const own = switched.changes.length ? null : ownPace(db, run, switched.definition, unitIds.length);
+  return { ok: true as const, workflowId: run.workflowId, lines: unitIds.length, plan: own === null ? plan : { ...plan, pace: { ...plan.pace, seconds: own, unmeasured: [] } } };
+}
+
+/**
+ * Seconds for `lines` more at this run's own pace: the time its AI requests took (failed and timed out ones too: they
+ * held a slot as long as they ran), spread over its parallel requests, per line it finished. null under 3 lines.
+ */
+function ownPace(db: Db, run: Run, definition: Run['definition'], lines: number) {
+  const finished = new Set(db.select({ id: s.runItems.subjectId }).from(s.runItems).where(and(eq(s.runItems.runId, run.id), inArray(s.runItems.state, ['done', 'failed']))).all().map((row) => row.id)).size;
+  if (finished < 3) return null;
+  const calls = db.select({ started: s.aiCalls.startedAt, finished: s.aiCalls.finishedAt }).from(s.aiCalls).where(and(eq(s.aiCalls.kind, 'run'), eq(s.aiCalls.refId, run.id))).all().filter((call) => call.finished);
+  if (!calls.length) return null;
+  const busy = calls.reduce((sum, call) => sum + (call.finished!.getTime() - call.started.getTime()) / 1000, 0);
+  const parallel = Math.max(1, definition.nodes.reduce((sum, node) => sum + (node.type === 'ai' ? node.config.concurrency : 0), 0));
+  return Math.round((busy / parallel / finished) * lines);
 }

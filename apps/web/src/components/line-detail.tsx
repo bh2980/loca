@@ -538,6 +538,8 @@ function HistoryTab({ projectId, unit, tokenPattern, ready }: { projectId: strin
         )}
         {run?.data.issues?.[0] && <Text as="p" variant="caption" tone="warning">{run.data.issues[0]}</Text>}
         {overwrote.get(candidate.id) && <Text as="p" variant="caption" tone="warning">{hourMinute(overwrote.get(candidate.id)!.createdAt)} 사람 수정을 덮어씀</Text>}
+        {/* A person's text kept over a change made meanwhile (내 수정 유지): the server's note says over what. */}
+        {candidate.origin === 'human' && candidate.note && <Text as="p" variant="caption" tone="warning">{candidate.note}</Text>}
       </HistoryEntry>
     );
   };

@@ -181,9 +181,10 @@ export const modelTestRoutes = new Hono<Env>()
           ? ai.judge(route, { state: { source }, instructions: 'Is this text well-formed?', timeoutMs: CALL_TIMEOUT_MS.connectionTest }).then((judged) => ({ text: judged.passed ? 'pass' : 'fail', usage: judged.usage }))
           : ai
               .generate(route, {
-                system: `Translate the text into ${targetLanguage}.`,
+                // `count` makes the answer a few hundred tokens long, so the call tells the model's output speed (the run estimate's time, request-speed.ts).
+                system: `Translate the text into ${targetLanguage}. Also put the numbers from 1 to 150, separated by spaces, in "count".`,
                 prompt: source,
-                schema: z.object({ text: z.string() }),
+                schema: z.object({ text: z.string(), count: z.string() }),
                 maxOutputTokens: live.snapshot.maxOutputTokens,
                 timeoutMs: CALL_TIMEOUT_MS.connectionTest,
               })
