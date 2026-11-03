@@ -1,7 +1,8 @@
 import { and, desc, eq, inArray, isNotNull, ne, sql } from 'drizzle-orm';
-import { autoBudgets, batchConfigSchema, INPUT_TYPES, workflowInput, readinessUses, CONNECTION_KIND_INFO, estimateTokens, limitsWithSource, isFreeModel, isUnknownListener, needsListener, nodeRetries, runNodeName, termMatcher, type AiNode, type WorkflowDefinition } from '@tw/shared';
+import { autoBudgets, nodeOutputFields, batchConfigSchema, INPUT_TYPES, workflowInput, readinessUses, CONNECTION_KIND_INFO, estimateTokens, limitsWithSource, isFreeModel, isUnknownListener, needsListener, nodeRetries, runNodeName, termMatcher, type AiNode, type WorkflowDefinition } from '@tw/shared';
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
+import { requestSeconds } from './request-speed.ts';
 import * as s from '../db/schema.ts';
 import { packGroups } from '../engine/batches.ts';
 import { buildPrompt, promptLineId } from '../engine/prompts.ts';
@@ -43,6 +44,8 @@ export interface NodeEstimate {
   overheadTokens: number | null;
   /** From past runs of this workflow: requests per line at this node; null without history. */
   historyRate: number | null;
+  /** Estimated tokens of the answer, per request: what the request's time mostly is (requestSeconds). */
+  answerTokens: number;
   /** How its lines are split into requests, and which numbers decided it. */
   split: NodeSplit;
 }
@@ -136,6 +139,7 @@ export async function preflight(db: Db, requested: Pick<typeof s.workflows.$infe
       promptTokens: samplePrompt(db, projectId, node, { source: project.sourceLanguage, target: project.targetLanguage }, requests),
       overheadTokens: connection ? overheadOf(db, connection.id) : null,
       historyRate,
+      answerTokens: answerTokens(node, requests),
       split: splitOf(node, workflow.definition.nodes.find((candidate): candidate is AiNode => candidate.id === node.id && candidate.type === 'ai'), requests.length, connection, autos.get(node.id)!),
     };
   }
@@ -248,6 +252,7 @@ async function termPreflight(db: Db, workflow: { id: string | null; projectId: s
         promptTokens: prompt ? estimateTokens(Object.values(buildPrompt(node, languages, prompt.context, prompt.lines)).join('\n\n')) : 0,
         overheadTokens: connection ? overheadOf(db, connection.id) : null,
         historyRate,
+        answerTokens: answerTokens(node, requests),
         split: splitOf(node, workflow.definition.nodes.find((candidate): candidate is AiNode => candidate.id === node.id && candidate.type === 'ai'), requests.length, connection, autos.get(node.id)!),
       };
     });
@@ -331,12 +336,14 @@ function aiLoad(db: Db, definition: WorkflowDefinition) {
 }
 
 /**
- * How long and how much, from the connections' own recent calls in runs: the median seconds per
- * request, spread over the node's parallel requests (동시 처리 수), and the average cost a provider
- * reported. CLI connections run on a subscription. null where there is no history yet.
+ * How long and how much: each node's requests at its model's own output speed for an answer this long (requestSeconds),
+ * spread over its parallel requests (동시 처리 수), and the average cost a provider reported in runs. CLI connections run on
+ * a subscription. `unmeasured` are the nodes whose model has never answered here (no 모델 시험, no call): the time is
+ * null until it is tested, never guessed.
  */
 function paceOf(db: Db, estimates: NodeEstimate[]) {
   let seconds: number | null = 0;
+  const unmeasured: string[] = [];
   let cost: number | null = 0;
   let subscription = false;
   for (const estimate of estimates) {
@@ -355,12 +362,11 @@ function paceOf(db: Db, estimates: NodeEstimate[]) {
         .filter((call) => call.finished);
     const own = estimate.choice.model ? recent(estimate.choice.model) : [];
     const calls = own.length >= 3 ? own : recent();
-    const parallel = estimate.concurrency;
-    if (!calls.length) seconds = null;
-    else if (seconds !== null) {
-      const durations = calls.map((call) => (call.finished!.getTime() - call.started.getTime()) / 1000).sort((a, b) => a - b);
-      seconds += (durations[Math.floor(durations.length / 2)] * requests) / Math.max(1, parallel);
-    }
+    const perRequest = estimate.choice.model ? requestSeconds(db, estimate.connection.id, estimate.choice.model, estimate.answerTokens) : null;
+    if (perRequest === null) {
+      seconds = null;
+      unmeasured.push(estimate.nodeId);
+    } else if (seconds !== null) seconds += (perRequest * requests) / Math.max(1, estimate.concurrency);
     // opencode's built-in "-free" models cost nothing and need no plan (same rule as the UI badge).
     if (isFreeModel(estimate.connection.kind, estimate.choice.model)) continue;
     if (estimate.connection.cli) subscription = true;
@@ -370,7 +376,7 @@ function paceOf(db: Db, estimates: NodeEstimate[]) {
       else if (cost !== null) cost += (priced.reduce((sum, call) => sum + call.cost!, 0) / priced.length) * requests;
     }
   }
-  return { seconds: seconds === null ? null : Math.round(seconds), costUsd: cost, subscription };
+  return { seconds: seconds === null ? null : Math.round(seconds), costUsd: cost, subscription, unmeasured };
 }
 
 /**
@@ -420,22 +426,38 @@ export function overheadOf(db: Db, connectionId: string): number | null {
   return extra[Math.floor(extra.length / 2)];
 }
 
+/**
+ * Tokens a node's answer takes per request, on average: per line, the frame its answer has (the result's fields, empty)
+ * and for a text or json answer about the line's own text again (a translation is about as long as its source; what a
+ * json node extracts is read off those lines too). A verdict or a choice writes only its short fields.
+ */
+function answerTokens(node: AiNode, requests: { tokens: number }[][]) {
+  if (!requests.length) return 0;
+  const frame = estimateTokens(JSON.stringify({ id: promptLineId(0), ...Object.fromEntries((nodeOutputFields(node) ?? []).map((field) => [field.name, field.type === 'boolean' ? true : field.type === 'number' ? 1 : field.type === 'strings' ? [] : ''])) }));
+  const echoes = node.config.output === 'text' || node.config.output === 'json';
+  const total = requests.reduce((sum, request) => sum + request.reduce((lines, line) => lines + frame + (echoes ? line.tokens : 0), 0), 0);
+  return Math.round(total / requests.length);
+}
+
+/** The prompt a node sends for these lines, as a run builds it (`lines` are its prompt ids, for the answer's schema). */
+export function requestPrompt(db: Db, projectId: string, node: AiNode, languages: { source: string; target: string }, unitIds: string[]) {
+  const rows = db.select().from(s.units).where(inArray(s.units.id, unitIds)).all().sort((a, b) => a.seq - b.seq);
+  const choiceOptions = node.config.output === 'choice' ? resolveChoiceOptions(db, projectId, node.config.choice) : undefined;
+  const ids = rows.map((_, index) => promptLineId(index));
+  // A node reading the script whole sends the script text, not the per-line context.
+  if (node.config.batch.mode === 'whole') return { ...wholeScriptRequest(db, projectId, node, languages, rows, choiceOptions), lines: ids };
+  const context = buildContext(db, projectId, rows, node.config.context);
+  const lines = rows.map((row, index) => ({ id: ids[index], unitId: row.id, groupId: row.groupId, key: row.key, kind: row.kind, speaker: row.speaker, source: row.source, candidate: row.translation ?? undefined }));
+  return { ...buildPrompt(node, languages, context, lines, choiceOptions), lines: ids };
+}
+
 /** Average estimated tokens of the prompt a node would send, built for a few of its real requests. */
 function samplePrompt(db: Db, projectId: string, node: AiNode, languages: { source: string; target: string }, requests: { id: string }[][]): number {
   if (!requests.length) return 0;
   const step = Math.max(1, Math.floor(requests.length / SAMPLE));
   const picked = requests.filter((_, index) => index % step === 0).slice(0, SAMPLE);
   const sizes = picked.map((request) => {
-    const rows = db.select().from(s.units).where(inArray(s.units.id, request.map((line) => line.id))).all().sort((a, b) => a.seq - b.seq);
-    const choiceOptions = node.config.output === 'choice' ? resolveChoiceOptions(db, projectId, node.config.choice) : undefined;
-    // A node reading the script whole sends the script text, not the per-line context.
-    if (node.config.batch.mode === 'whole') {
-      const { system, prompt } = wholeScriptRequest(db, projectId, node, languages, rows, choiceOptions);
-      return estimateTokens(`${system}\n\n${prompt}`);
-    }
-    const context = buildContext(db, projectId, rows, node.config.context);
-    const lines = rows.map((row, index) => ({ id: promptLineId(index), unitId: row.id, groupId: row.groupId, key: row.key, kind: row.kind, speaker: row.speaker, source: row.source, candidate: row.translation ?? undefined }));
-    const { system, prompt } = buildPrompt(node, languages, context, lines, choiceOptions);
+    const { system, prompt } = requestPrompt(db, projectId, node, languages, request.map((line) => line.id));
     return estimateTokens(`${system}\n\n${prompt}`);
   });
   return Math.round(sizes.reduce((total, size) => total + size, 0) / sizes.length);

@@ -1,10 +1,11 @@
 import { useState } from 'react';
+import { useParams } from '@tanstack/react-router';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Play, RotateCcw } from 'lucide-react';
 import { Box, Button, Checkbox, Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Inline, Skeleton, Text } from '@loca/ui';
 import type { ModelValue } from '@/components/model-picker';
 import { client, unwrap } from '@/lib/api';
-import { Pace, RunModels } from './run-estimate';
+import { Pace, RunModels, UntestedModels } from './run-estimate';
 
 /**
  * Continue a paused or finished run (#41): pick another model for any AI step, send the failed
@@ -18,6 +19,7 @@ export function ContinueRun({ runId, failed, paused, open: controlledOpen, onOpe
   const [picked, setPicked] = useState<Record<string, ModelValue>>({});
   const [retryFailed, setRetryFailed] = useState(failed > 0);
   const queryClient = useQueryClient();
+  const { projectId } = useParams({ strict: false }) as { projectId?: string };
   const models = Object.fromEntries(Object.entries(picked).filter(([, value]) => value.connectionId && value.model)) as Record<string, { connectionId: string; model: string; effort?: string }>;
   const request = { ...(Object.keys(models).length ? { models } : {}), retryFailed };
   const plan = useQuery({
@@ -59,6 +61,7 @@ export function ContinueRun({ runId, failed, paused, open: controlledOpen, onOpe
           )}
           {nothing && <Text as="p" variant="body" tone="muted">이어서 처리할 대사가 없습니다.</Text>}
           {data && !nothing && <Pace data={data.plan} />}
+          {data && !nothing && projectId && <UntestedModels projectId={projectId} data={data.plan} />}
           {data && !nothing && (
             <RunModels
               nodes={data.plan.nodes}

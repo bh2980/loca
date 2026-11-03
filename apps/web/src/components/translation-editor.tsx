@@ -154,6 +154,8 @@ export function TranslationEditor({
 
   const queryClient = useQueryClient();
   const save = useSaveLine(projectId);
+  // 내 수정 유지 was picked over a change made meanwhile: the next save of this line says so (its history shows it).
+  const [keptMine, setKeptMine] = useState<string | null>(null);
   // Everything sent is what was typed when saving began: typing goes on while it is on its way.
   const run = (advance: boolean) => {
     if (save.isPending) return;
@@ -170,9 +172,10 @@ export function TranslationEditor({
     const statusId = advance && next ? next.id : undefined;
     if (!changed && !statusId) return onDone?.(advance);
     save.mutate(
-      { unitId: unit.id, ...(changed && { text: sent, base }), statusId },
+      { unitId: unit.id, ...(changed && { text: sent, base, ...(keptMine === unit.id && { keepMine: true }) }), statusId },
       {
         onSuccess: () => {
+          setKeptMine(null);
           // Only the draft that was sent: anything typed after it stays a draft.
           clearDraft(sent);
           if (changed && sent.trim()) void offerSame(sent);
@@ -205,7 +208,7 @@ export function TranslationEditor({
 
   return (
     <Box spaceY="condensed" onClick={(event) => event.stopPropagation()}>
-      {dirty && base !== saved && <ChangedElsewhere fields={['번역']} onTakeSaved={() => (clearDraft(), setRefocus((tick) => tick + 1))} onKeepMine={() => { clearDraft(); setDraft(draft); setRefocus((tick) => tick + 1); }} />}
+      {dirty && base !== saved && <ChangedElsewhere fields={['번역']} onTakeSaved={() => (clearDraft(), setRefocus((tick) => tick + 1))} onKeepMine={() => { clearDraft(); setDraft(draft); setKeptMine(unit.id); setRefocus((tick) => tick + 1); }} />}
       <TranslationInput
         unitId={unit.id}
         value={draft}

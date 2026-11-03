@@ -29,7 +29,7 @@ export const runScopeSchema = z.object({
 export const runCardPlanSchema = z.object({
   lines: z.object({ total: z.number(), excluded: z.number() }),
   totals: z.object({ calls: z.object({ min: z.number(), expected: z.number().nullable(), max: z.number() }) }),
-  pace: z.object({ seconds: z.number().nullable(), costUsd: z.number().nullable(), subscription: z.boolean() }),
+  pace: z.object({ seconds: z.number().nullable(), costUsd: z.number().nullable(), subscription: z.boolean(), unmeasured: z.array(z.string()).optional() }),
   suggestedLimits: z.object({ maxCalls: z.number().optional(), maxInputTokens: z.number().optional() }).optional(),
 });
 export type RunCardPlan = z.infer<typeof runCardPlanSchema>;

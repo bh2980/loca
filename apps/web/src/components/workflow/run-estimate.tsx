@@ -12,6 +12,23 @@ import type { client } from '@/lib/api';
 export type PlanData = InferResponseType<(typeof client.workflows)[':id']['preflight']['$post'], 200>;
 
 /**
+ * The models with no time in the estimate: they never answered here (no 모델 시험, no call), so their speed is unknown.
+ * A 모델 시험 on the connection measures it; the link opens that connection.
+ */
+export function UntestedModels({ projectId, data }: { projectId: string; data: PlanData }) {
+  const nodes = data.nodes.filter((node) => data.pace.unmeasured.includes(node.nodeId));
+  if (!nodes.length) return null;
+  return (
+    <Text as="p" variant="caption" tone="muted">
+      아직 시험하지 않은 모델이라 걸릴 시간을 모릅니다: {[...new Set(nodes.map((node) => node.model ?? node.name))].join(', ')}.{' '}
+      <Text asChild tone="accent" underline="hover">
+        <Link to="/p/$projectId/settings/connections" params={{ projectId }} search={{ conn: nodes[0]!.connection?.id }}>모델 시험하기</Link>
+      </Text>
+    </Text>
+  );
+}
+
+/**
  * How long and how much, in plain words (for the models picked below). With `projectId`, also how
  * many AI requests other runs already send at once and what this one adds: a notice, never a block.
  */

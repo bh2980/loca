@@ -12,6 +12,8 @@ export interface LineSaveInput {
   statusId?: string;
   /** The translation the edit started from: the server refuses to overwrite a line changed since. */
   base?: string | null;
+  /** 내 수정 유지: saved over a change made meanwhile, and the line's history says so. */
+  keepMine?: boolean;
 }
 
 /**

@@ -1481,10 +1481,6 @@ function GraphPage() {
                         <Button variant="ghost" size="inline" onClick={() => setPicked(new Set())}>선택 해제</Button>
                       </Chip>
                     )}
-                    {/* One node picked: how to pick more. */}
-                    {dialogue && search.node && !picked.size && (
-                      <Chip as="p" variant="note">{keyLabel('Mod')}+클릭으로 여러 개 고르기</Chip>
-                    )}
                     {view && viewDetail.data && (
                       <Chip as="div" variant="bar" removable>
                         <span>

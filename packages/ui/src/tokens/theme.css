@@ -179,7 +179,8 @@
   --background-color-sunken: var(--night-5);
   --background-color-quiet: var(--night-7);
   --background-color-hover: var(--night-7);
-  --background-color-selected: var(--teal-340);
+  /* A step above hover with a hint of the accent: the picked row is found, not the loudest thing on the screen. */
+  --background-color-selected: var(--teal-300);
   --background-color-accent: var(--teal-800);
   --background-color-accent-soft: var(--teal-320);
   --background-color-danger: var(--red-700);
@@ -241,8 +242,9 @@
   --stroke-muted: var(--night-11);
   --stroke-subtle: var(--night-10);
   --stroke-accent: var(--teal-800);
-  --stroke-danger: var(--red-700);
-  --stroke-warning: var(--orange-780);
+  /* The graph's 오류 / 실패 lines: quieter than the text tones, so in the dark the exceptions are not the brightest lines. */
+  --stroke-danger: var(--red-600);
+  --stroke-warning: var(--orange-640);
 
   --background-color-sidebar-item: var(--night-7);
   --background-color-sidebar-badge: var(--teal-800);
@@ -253,8 +255,12 @@
   --background-color-graph-node: var(--night-8);
   --stroke-graph-node: var(--night-9);
 
+  /* One lightness for every kind's header (a light tint mixed into a dark surface came out the same grey): the hue tells them apart. */
   --background-color-node-header-ai: var(--violet-380);
   --background-color-node-header-check: var(--cobalt-370);
+  --background-color-node-header-flow: var(--amber-380);
+  --background-color-node-header-status: var(--green-380);
+  --background-color-node-header-state: var(--rose-380);
 
   --background-color-floating-toolbar: var(--night-8);
 

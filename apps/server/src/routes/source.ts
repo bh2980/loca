@@ -99,6 +99,13 @@ function unitConditions(projectId: string, query: Omit<z.infer<typeof listQuery>
 }
 
 /** A line's text, candidate and status: one save (services/line-save.ts). */
+/** What a 내 수정 유지 save kept the person's text over: the run that changed the line, or a change made meanwhile. */
+function keptNote(db: Pick<Db, 'select'>, candidateId: string | null) {
+  const replaced = candidateId ? db.select({ runId: s.candidates.runId }).from(s.candidates).where(eq(s.candidates.id, candidateId)).get() : undefined;
+  const run = replaced?.runId ? db.select({ name: s.runs.workflowName }).from(s.runs).where(eq(s.runs.id, replaced.runId)).get() : undefined;
+  return run ? `실행 '${run.name}'에서 바뀐 번역 대신 내 수정을 유지함` : '그사이 바뀐 번역 대신 내 수정을 유지함';
+}
+
 const lineSave = z.object({
   /** New text from a person: selected as the line's text (an existing candidate with the same text is reused). */
   text: z.string().optional(),
@@ -106,6 +113,8 @@ const lineSave = z.object({
   statusId: z.string().optional(),
   /** The translation the editor started from; a save over a line changed since is refused (409). */
   base: z.string().nullable().optional(),
+  /** The person chose 내 수정 유지 over a change made meanwhile: saved anyway, and the line's history says so. */
+  keepMine: z.boolean().optional(),
 })
   .strict()
   .refine((save) => !(save.text !== undefined && save.candidateId), '번역 글과 후보 중 하나만 보내세요.');
@@ -353,8 +362,9 @@ export const sourceRoutes = new Hono<Env>()
     const body = c.req.valid('json');
     const unit = found(db.select().from(s.units).where(eq(s.units.id, unitId)).get(), '대사');
     assertProjectRefs(db, unit.projectId, { statusId: body.statusId, candidateId: body.candidateId });
+    const { keepMine, ...save } = body;
     try {
-      db.transaction((tx) => saveLine(tx, unit, body));
+      db.transaction((tx) => saveLine(tx, unit, keepMine ? { ...save, base: undefined, note: keptNote(tx, unit.candidateId) } : save));
     } catch (error) {
       if (error instanceof LineConflict) return c.json({ error: error.message }, 409);
       throw error;
