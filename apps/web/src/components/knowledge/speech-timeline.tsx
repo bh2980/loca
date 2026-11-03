@@ -5,6 +5,7 @@ import { Check, Plus } from 'lucide-react';
 import { listenerLabel, markName, SPEECH_LEVEL_LABELS, type SpeechLevel } from '@tw/shared';
 import { Box, Button, Chip, Field, Inline, InspectorList, InspectorResult, Input, ListRow, Section, Text, Timeline, TimelineFields, TimelineNote, TimelinePoint, TimelineQuotes, TimelineStart } from '@loca/ui';
 import { DraftEditor, FieldInput } from '@/components/knowledge/editor';
+import { placeOf, quoteLabel } from '@/components/knowledge/evidence';
 import { confirmLabel, fail, SourceBadge, type KindSpec, type SpeechRuleRow } from '@/components/knowledge/table';
 import { splitList } from '@/lib/list-value';
 import { q, useMarkStyles } from '@/lib/queries';
@@ -40,7 +41,7 @@ function Quotes({ projectId, keys }: { projectId: string; keys: string[] }) {
   const first = useMemo(() => keys.slice(0, 2), [keys]);
   const lines = useLinesByKeys(projectId, first).data ?? [];
   if (!lines.length) return null;
-  return <TimelineQuotes items={lines.map((line) => ({ id: line.id, label: line.key, text: `${line.speaker ? `${line.speaker}: ` : ''}${line.source}`, sub: line.translation || undefined }))} />;
+  return <TimelineQuotes items={lines.map((line) => ({ id: line.id, label: quoteLabel(line), text: `${line.speaker ? `${line.speaker}: ` : ''}${line.source}`, sub: line.translation || undefined }))} />;
 }
 
 export function SpeechTimeline({ projectId, from, to, rules, startOf, spec, pointSpec, characters, dirty, onDecide, addRule, fallback }: {
@@ -157,7 +158,7 @@ export function SpeechTimeline({ projectId, from, to, rules, startOf, spec, poin
                     key={rule.id}
                     mark={rule.status === 'candidate' ? 'candidate' : 'confirmed'}
                     title={`${rule.startKey}부터`}
-                    meta={start?.groupTitle}
+                    meta={placeOf(start)}
                     status={status(rule)}
                     counts={<Counts projectId={projectId} rule={rule} range={rangeOf(index, rule.startKey!)} />}
                     actions={actions(rule)}

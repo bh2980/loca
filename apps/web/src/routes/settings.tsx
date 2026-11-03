@@ -38,6 +38,11 @@ function SettingsLayout() {
               <Link to="/settings/appearance">테마</Link>
             </AppSettingsNavItem>
           </AppSettingsNavGroup>
+          <AppSettingsNavGroup title="나">
+            <AppSettingsNavItem active={pathname.startsWith('/settings/profile')}>
+              <Link to="/settings/profile">프로필</Link>
+            </AppSettingsNavItem>
+          </AppSettingsNavGroup>
         </>
       }
     >

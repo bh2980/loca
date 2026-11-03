@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray, lt } from 'drizzle-orm';
-import { CONTEXT_PRIORITY, contextConfigSchema, contextTokens, estimateTokens, isSpecialListener, listenerLabel, mentions, personNote, styleInstruction, talkingPairs, termMatcher, type AgeBand, type PairLine, type TalkingPair, type ContextConfig, type ContextItem, type ContextItemKind, type Gender, type RelationshipChange } from '@tw/shared';
+import { changeState, CONTEXT_PRIORITY, contextConfigSchema, contextTokens, estimateTokens, isSpecialListener, listenerLabel, mentions, personNote, styleInstruction, talkingPairs, termMatcher, type AgeBand, type PairLine, type TalkingPair, type ContextConfig, type ContextItem, type ContextItemKind, type Gender, type RelationshipChange } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import { inChunks } from '../db/chunk.ts';
 import { documents as documentsTable, graphEdges, graphNodes, groups, runItems, units } from '../db/schema.ts';
@@ -472,7 +472,9 @@ export function buildContext(
         continue;
       }
       // Changes up to or reachable by this batch, in script order; those passed before its first line set the kind.
-      const validChanges = (rel.changes ?? []).filter((ch) => isPassedOrReachable(ch.at)).sort((a, b) => sequence(a.at) - sequence(b.at));
+      // A candidate change is not context yet (as a candidate item is not); one a person or the AI confirmed is.
+      const decided = (rel.changes ?? []).filter((ch) => changeState(rel, ch).status === 'confirmed');
+      const validChanges = decided.filter((ch) => isPassedOrReachable(ch.at)).sort((a, b) => sequence(a.at) - sequence(b.at));
       const applied = validChanges.filter((ch) => isBeforeFirst(ch.at));
       const current = applied.at(-1);
       // A change on only some routes that always comes before the one now in force changes nothing.
@@ -487,7 +489,7 @@ export function buildContext(
         ...(later.length && { changes: later }),
       };
       const ai = unverified(rel);
-      const totalChanges = rel.changes?.length ?? 0;
+      const totalChanges = decided.length;
       const changeNote = [
         applied.length ? `첫 줄 기준 변화 ${applied.length}건 반영` : '',
         later.length ? `묶음 안·경로에 따라 바뀌는 변화 ${later.length}건` : '',

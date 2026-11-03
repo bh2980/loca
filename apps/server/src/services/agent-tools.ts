@@ -505,7 +505,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       execute: (input) => saveCharacterItem(db, projectId, input, saver),
     }),
     save_relationship: tool({
-      description: 'Create a relationship between two stored characters (by name or alias), or update it when id is given.',
+      description: 'Create a relationship between two stored characters (by name or alias), or update it when id is given. Each of its changes has its own status (candidate changes are not AI context) and statusBy; a change sent without them takes the relationship\'s.',
       inputSchema: upsert(relationshipInput.omit({ fromId: true, toId: true })).extend({ from: z.string().optional(), to: z.string().optional() }),
       needsApproval: true,
       execute: (input) => saveRelationshipItem(db, projectId, input, saver),

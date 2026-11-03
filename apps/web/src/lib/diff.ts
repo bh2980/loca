@@ -4,11 +4,14 @@ export interface DiffPart {
   change?: 'removed' | 'added';
 }
 
-/** Words with the spaces after them, so joining the parts gives the text back. */
-const words = (text: string) => text.match(/\S+\s*|\s+/g) ?? [];
+/**
+ * The pieces compared, so joining them gives the text back: a Hangul letter alone (Korean changes inside a word, by its
+ * endings: 찾아볼게요 → 찾아올게요 is one letter, not the word), otherwise a word with the spaces after it.
+ */
+const words = (text: string) => text.match(/[\u1100-\u11ff\u3130-\u318f\uac00-\ud7a3]\s*|[^\s\u1100-\u11ff\u3130-\u318f\uac00-\ud7a3]+\s*|\s+/g) ?? [];
 
 /**
- * A word-level diff of two translations (longest common subsequence over words), for showing what
+ * A diff of two translations (longest common subsequence over words, Hangul by letter), for showing what
  * a later candidate changed. Neighbouring parts of the same kind are merged.
  */
 export function wordDiff(before: string, after: string): DiffPart[] {

@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { CircleAlert, CircleCheck, Network, Pencil, Sparkles } from 'lucide-react';
 import { CopyButton } from '@/components/copy-button';
 import { CHARACTER_ROLE_LABELS, sameTranslation, checkFormat, exclusionReason, isUnknownListener, type LineTranslate, listenerLabel, needsListener, SPEECH_LEVEL_LABELS, speechLevelOf, TAG_SCOPES, type FormatRules, type SpeechLevel } from '@tw/shared';
-import { AiMark, Chip, TagChip, Box, Button, CandidateCard, DetailIssue, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, EditorChangedWord, EditorDiffWord, Group, HistoryDay, HistoryDiff, HistoryEntry, HistoryFolded, HistoryFoldedRow, type HistoryActor, Icon, Inline, InspectorHeader, Inspector, InspectorList, InspectorTabs, SegmentedControl, SpeakerIdentity, Spinner, StatusIcon, Switch, TagListEditor, Text, ListItem, Section, KeyValue, KeyValueRow } from '@loca/ui';
+import { AiMark, Chip, TagChip, Box, Button, CandidateCard, DetailIssue, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, EditorChangedWord, EditorDiffWord, Group, HistoryDay, HistoryEntry, HistoryFolded, HistoryFoldedRow, type HistoryActor, Icon, Inline, InspectorHeader, Inspector, InspectorList, InspectorTabs, SegmentedControl, SpeakerIdentity, Spinner, StatusIcon, Switch, TagListEditor, Text, ListItem, Section, KeyValue, KeyValueRow } from '@loca/ui';
 import { changeLines, patchedLine, useLineDetail } from '@/lib/units';
 import { AiContextPanel } from '@/components/ai-context';
 import { TranslationEditor } from '@/components/translation-editor';
@@ -31,6 +31,7 @@ import { usePersonColors } from '@/lib/person-colors';
 import { type Character, useCharacters, useRelationships, useTaxonomy } from '@/lib/knowledge';
 import { useGroup } from '@/lib/groups';
 import { useProject } from '@/lib/project';
+import { useProfile } from '@/lib/app-data';
 import type { LineDetail as LineDetailData } from '@/lib/units';
 
 /** Who left a text that no run left, on the history's timeline: a mark and a name. */
@@ -477,6 +478,9 @@ type HistoryFilter = 'all' | 'texts' | 'events' | 'runs';
  * narrow it.
  */
 function HistoryTab({ projectId, unit, tokenPattern, ready }: { projectId: string; unit: LineRecord; tokenPattern: RegExp | null; /** The line's texts and runs have come (the pane draws before them). */ ready: boolean }) {
+  // The person as their 프로필 has them (name, letter, colour), '사람' without a name (never a made-up one).
+  const profile = useProfile();
+  const person = { actor: 'person' as const, mark: profile.mark, name: profile.label };
   const save = useSaveLine(projectId);
   const [filter, setFilter] = useState<HistoryFilter>('all');
   const runs = new Map(unit.history.map((run) => [run.runId, run]));
@@ -498,6 +502,9 @@ function HistoryTab({ projectId, unit, tokenPattern, ready }: { projectId: strin
     ...(filter === 'all' || filter === 'events' ? events : []),
   ].sort((a, b) => b.at - a.at);
 
+  // Entries whose change is shown in their text (바뀐 곳 보기); the plain text otherwise.
+  const [diffShown, setDiffShown] = useState<ReadonlySet<string>>(new Set());
+  const toggleDiff = (id: string) => setDiffShown((shown) => { const next = new Set(shown); if (!next.delete(id)) next.add(id); return next; });
   const textEntry = (entry: (typeof entries)[number]) => {
     const { candidate } = entry;
     const declined = candidate.state === 'declined';
@@ -505,14 +512,16 @@ function HistoryTab({ projectId, unit, tokenPattern, ready }: { projectId: strin
     const previous = declined ? kept.find((older) => older.id === unit.candidateId) : before(candidate);
     const canTake = !entry.current && !sameTranslation(candidate.text, unit.translation);
     const who = candidate.runId
-      ? { actor: 'workflow' as const, mark: 'W', name: run ? `워크플로 '${run.workflowName}'` : '워크플로', what: candidate.step ?? (previous ? '수정' : '첫 번역') }
-      : { ...ORIGIN[candidate.origin], what: declined ? '제안 거절함' : candidate.origin === 'human' ? '직접 고침' : candidate.origin === 'ai' ? 'AI 제안 적용' : undefined };
+      ? { actor: 'workflow' as const, mark: '', name: run ? `워크플로 '${run.workflowName}'` : '워크플로', what: candidate.step ?? (previous ? '수정' : '첫 번역') }
+      : { ...(candidate.origin === 'human' ? person : ORIGIN[candidate.origin]), what: declined ? '제안 거절함' : candidate.origin === 'human' ? '직접 고침' : candidate.origin === 'ai' ? 'AI 제안 적용' : undefined };
     const diff = previous && wordDiff(previous.text.trim(), candidate.text.trim());
+    const showing = diffShown.has(candidate.id);
     return (
       <HistoryEntry
         key={entry.key}
         actor={who.actor}
         mark={who.mark}
+        markColor={who.actor === 'person' ? profile.color : undefined}
         title={who.name}
         meta={who.what}
         muted={declined}
@@ -521,21 +530,19 @@ function HistoryTab({ projectId, unit, tokenPattern, ready }: { projectId: strin
           {entry.times > 1 && <Text variant="caption" tone="muted" tabular>×{entry.times}</Text>}
         </>}
         time={hourMinute(candidate.createdAt)}
-        actions={(canTake || run || (!candidate.runId && candidate.model)) && <>
+        actions={(canTake || run || diff || (!candidate.runId && candidate.model)) && <>
           {canTake && <Button variant="ghost" size="inline" tone="accent" disabled={save.isPending} onClick={() => restore(candidate)}>{declined ? '적용' : '되돌리기'}</Button>}
+          {diff && <Button variant="ghost" size="inline" tone="accent" aria-pressed={showing} onClick={() => toggleDiff(candidate.id)}>{showing ? '바뀐 곳 숨기기' : '바뀐 곳 보기'}</Button>}
           {run && runLink(run.runId, '실행 기록 보기')}
           {!candidate.runId && candidate.origin === 'ai' && candidate.model && <Text tone="subtle">제안: {suggestionFrom(candidate)}</Text>}
         </>}
       >
+        {/* The text once; what changed from the one before is marked in it (struck out, added) only when asked (바뀐 곳 보기). */}
         <Text as="p" breakWords preserveLines>
-          <TokenText text={candidate.text} source={unit.source} pattern={tokenPattern} />
+          {diff && showing
+            ? diff.map((part, index) => <EditorDiffWord key={index} change={part.change === 'removed' || part.change === 'added' ? part.change : undefined}>{part.text}</EditorDiffWord>)
+            : <TokenText text={candidate.text} source={unit.source} pattern={tokenPattern} />}
         </Text>
-        {diff && (
-          <HistoryDiff
-            before={diff.filter((part) => part.change !== 'added').map((part, index) => <EditorDiffWord key={index} change={part.change === 'removed' ? 'removed' : undefined}>{part.text}</EditorDiffWord>)}
-            after={diff.filter((part) => part.change !== 'removed').map((part, index) => <EditorDiffWord key={index} change={part.change === 'added' ? 'added' : undefined}>{part.text}</EditorDiffWord>)}
-          />
-        )}
         {run?.data.issues?.[0] && <Text as="p" variant="caption" tone="warning">{run.data.issues[0]}</Text>}
         {overwrote.get(candidate.id) && <Text as="p" variant="caption" tone="warning">{hourMinute(overwrote.get(candidate.id)!.createdAt)} 사람 수정을 덮어씀</Text>}
         {/* A person's text kept over a change made meanwhile (내 수정 유지): the server's note says over what. */}
@@ -548,8 +555,8 @@ function HistoryTab({ projectId, unit, tokenPattern, ready }: { projectId: strin
   const eventEntry = (entry: (typeof events)[number]) => {
     const { event, revertedTo } = entry;
     const who = event.runId
-      ? { actor: 'workflow' as const, mark: 'W', name: event.workflowName ? `워크플로 '${event.workflowName}'` : '워크플로' }
-      : { actor: 'person' as const, mark: '사', name: '사람' };
+      ? { actor: 'workflow' as const, mark: '', name: event.workflowName ? `워크플로 '${event.workflowName}'` : '워크플로' }
+      : person;
     const tag = tagOf(event.after ?? event.before);
     const meta = event.kind === 'status' ? '상태 바꿈'
       : event.kind === 'tag' ? (event.after ? '태그 붙임' : '태그 뗌')
@@ -560,6 +567,7 @@ function HistoryTab({ projectId, unit, tokenPattern, ready }: { projectId: strin
         key={entry.key}
         actor={who.actor}
         mark={who.mark}
+        markColor={who.actor === 'person' ? profile.color : undefined}
         title={who.name}
         meta={meta}
         badges={currentByRevert === entry.key && <Chip variant="outline">현재 번역</Chip>}
@@ -583,7 +591,7 @@ function HistoryTab({ projectId, unit, tokenPattern, ready }: { projectId: strin
     <HistoryEntry
       key={entry.key}
       actor="workflow"
-      mark="W"
+      mark=""
       title={`워크플로 '${entry.run.workflowName}'`}
       meta={entry.run.step ?? STATE[entry.run.state]}
       time={hourMinute(entry.run.createdAt)}

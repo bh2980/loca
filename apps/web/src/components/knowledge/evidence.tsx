@@ -1,11 +1,14 @@
 /** Read-only facts in a knowledge item's tabs: its evidence lines, a speech rule's lines, a relationship's changes, a pair's lines merged; and the picker for a stretch's first line. */
-import { useMemo, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
-import { useQueries, useQuery } from '@tanstack/react-query';
-import { Play } from 'lucide-react';
-import { listenerLabel, SPEECH_LEVEL_LABELS, type SpeechLevel } from '@tw/shared';
+import { useMutation, useQueries, useQuery } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { Check, Play, Plus } from 'lucide-react';
+import { changeState, listenerLabel, SPEECH_LEVEL_LABELS, type RelationshipChange, type SpeechLevel } from '@tw/shared';
 import { RunDialog } from '@/components/workflow/run-dialog';
-import { Box, Chip, Group, InspectorList, InspectorResult, Button, Inline, ListRow, Text, TextLink, Section, SectionHeading, Timeline, TimelineFields, TimelineNote, TimelinePoint, TimelineQuotes } from '@loca/ui';
+import { AiMark, Box, Chip, Field, Group, Input, InspectorList, InspectorResult, Button, Inline, ListRow, Text, TextLink, Section, SectionHeading, Timeline, TimelineFields, TimelineNote, TimelinePoint, TimelineQuotes } from '@loca/ui';
+import { client } from '@/lib/api';
+import { sent } from '@/lib/collections';
 import { q } from '@/lib/queries';
 import { PersonName } from '@/lib/person-colors';
 import { useLinePage, useLines, useLinesByKeys } from '@/lib/units';
@@ -126,38 +129,108 @@ export function RuleLines({ projectId, ruleId, candidate, embedded }: { projectI
   );
 }
 
-export function RelationshipChanges({ projectId, changes, embedded, actions }: { projectId: string; changes: { at: string; kind: string; cause: string }[]; embedded?: boolean; actions?: ReactNode }) {
+/** Where a timeline point is in the story, in its header: the chapter (the scene's 구역), else the scene; the scene stands by the quoted line. */
+export const placeOf = (line: { groupSection?: string | null; groupTitle?: string | null } | undefined) => (line ? line.groupSection || line.groupTitle || undefined : undefined);
+/** A quoted line's label: its key and, under a chapter header, its scene. */
+export const quoteLabel = (line: { key: string; groupSection?: string | null; groupTitle?: string | null }) => (line.groupSection && line.groupTitle ? `${line.key} · ${line.groupTitle}` : line.key);
+
+type Change = RelationshipChange;
+
+/**
+ * 관계 변화 in story order, each decided on its own as a speech rule's stretch is: 확정 · 버리기 for a candidate, 확인함 for one
+ * the AI confirmed (✦), 편집 and 삭제 for any, and 변화 추가. Saved through the relationship's changes alone, so deciding a
+ * change is not deciding the relationship. Without `relationship.id` (a relationship not saved yet) it is only shown.
+ */
+export function RelationshipChanges({ projectId, relationship, embedded, actions }: { projectId: string; relationship: { id?: string; status: string; statusBy: 'ai' | 'human' | null; changes: Change[] }; embedded?: boolean; actions?: ReactNode }) {
+  const { changes } = relationship;
   const atKeys = useMemo(() => changes.map((change) => change.at), [changes]);
   const lines = useLinesByKeys(projectId, atKeys);
   const byKey = new Map(lines.data?.map((line) => [line.key, line]));
   // In story order (the keys come back in script order), the same timeline as a pair's speech changes.
   const order = new Map(lines.data?.map((line, index) => [line.key, index]));
   const sorted = [...changes].sort((a, b) => (order.get(a.at) ?? 1e9) - (order.get(b.at) ?? 1e9));
+  const [editing, setEditing] = useState<number | 'new' | null>(null);
+  const save = useMutation({
+    mutationFn: (next: Change[]) => sent(projectId, client.projects[':projectId'].relationships[':id'].changes.$patch({ param: { projectId, id: relationship.id! }, json: { changes: next } })),
+    onSuccess: () => setEditing(null),
+    onError: (error) => toast.error(error.message),
+  });
+  const editable = Boolean(relationship.id);
+  const replace = (change: Change, next: Change | null) => save.mutate(changes.flatMap((one) => (one === change ? (next ? [next] : []) : [one])));
+  const decided = (change: Change): Change => ({ ...change, status: 'confirmed', statusBy: 'human' });
   return (
-    <Part title={`관계 변화 ${changes.length}`} embedded={embedded} actions={actions}>
-      {!changes.length ? (
+    <Part title={`관계 변화 ${changes.length}`} embedded={embedded} actions={<>
+      {actions}
+      {editable && <Button variant="ghost" aria-pressed={editing === 'new'} onClick={() => setEditing((open) => (open === 'new' ? null : 'new'))}><Plus /> 변화 추가</Button>}
+    </>}>
+      {!changes.length && editing !== 'new' ? (
         <Empty>이야기 중 관계가 바뀌는 지점이 없습니다.</Empty>
       ) : (
         <Timeline label="관계 변화">
           {sorted.map((change, index) => {
             const line = byKey.get(change.at);
+            const state = changeState(relationship, change);
+            const at = changes.indexOf(change);
             return (
-              <TimelinePoint key={`${change.at}-${change.kind}`} title={`${change.at}부터`} meta={line?.groupTitle}>
-                <TimelineFields items={[{ label: '관계', before: sorted[index - 1]?.kind, after: change.kind }]} />
-                {change.cause && <TimelineNote>{change.cause}</TimelineNote>}
-                {line && (
-                  <TextLink asChild block tone="muted" underline="hover">
-                    <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.groupId, line: line.id }}>
-                      <TimelineQuotes items={[{ id: line.id, label: line.key, text: `${line.speaker ? `${line.speaker}: ` : ''}${line.source}`, sub: line.translation || undefined }]} />
-                    </Link>
-                  </TextLink>
-                )}
+              <TimelinePoint
+                key={`${change.at}-${change.kind}-${index}`}
+                mark={state.status}
+                title={<Inline as="span" inline gap="tight">{state.status === 'confirmed' && <AiMark by={state.statusBy} />}{change.at}부터</Inline>}
+                meta={placeOf(line)}
+                status={state.status === 'candidate' ? <Chip variant="outline" tone="warning">후보</Chip> : <Chip variant="quiet">확정</Chip>}
+                active={editing === at}
+                actions={editable && <>
+                  <Button variant="ghost" size="inline" aria-pressed={editing === at} onClick={() => setEditing((open) => (open === at ? null : at))}>{editing === at ? '닫기' : '편집'}</Button>
+                  {state.status === 'candidate' ? <>
+                    <Button variant="ghost" size="inline" tone="danger" disabled={save.isPending} onClick={() => replace(change, null)}>버리기</Button>
+                    <Button size="inline" disabled={save.isPending} onClick={() => replace(change, decided(change))}><Check /> 확정</Button>
+                  </> : <>
+                    {state.statusBy === 'ai' && <Button variant="ghost" size="inline" disabled={save.isPending} onClick={() => replace(change, decided(change))}><Check /> 확인함</Button>}
+                    <Button variant="ghost" size="inline" tone="danger" disabled={save.isPending} onClick={() => replace(change, null)}>삭제</Button>
+                  </>}
+                </>}
+              >
+                {editing === at ? (
+                  <ChangeForm change={change} pending={save.isPending} onSave={(next) => replace(change, decided(next))} onCancel={() => setEditing(null)} />
+                ) : <>
+                  <TimelineFields items={[{ label: '관계', before: sorted[index - 1]?.kind, after: change.kind }]} />
+                  {change.cause && <TimelineNote>{change.cause}</TimelineNote>}
+                  {line && (
+                    <TextLink asChild block tone="muted" underline="hover">
+                      <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.groupId, line: line.id }}>
+                        <TimelineQuotes items={[{ id: line.id, label: quoteLabel(line), text: `${line.speaker ? `${line.speaker}: ` : ''}${line.source}`, sub: line.translation || undefined }]} />
+                      </Link>
+                    </TextLink>
+                  )}
+                </>}
               </TimelinePoint>
             );
           })}
+          {editing === 'new' && (
+            <TimelinePoint mark="add" title="새 변화" active>
+              <ChangeForm change={{ at: '', kind: '', cause: '' }} pending={save.isPending} onSave={(next) => save.mutate([...changes, decided(next)])} onCancel={() => setEditing(null)} />
+            </TimelinePoint>
+          )}
         </Timeline>
       )}
     </Part>
+  );
+}
+
+/** One change's fields: the line it shows at (its key), the relationship from then on, why. A person's save confirms it. */
+function ChangeForm({ change, pending, onSave, onCancel }: { change: Change; pending: boolean; onSave: (change: Change) => void; onCancel: () => void }) {
+  const [draft, setDraft] = useState({ at: change.at, kind: change.kind, cause: change.cause });
+  const ready = draft.at.trim() && draft.kind.trim();
+  return (
+    <Box spaceY="normal">
+      <Field label="시작 대사" description="이 대사부터 관계가 바뀝니다 (대사 키)"><Input mono value={draft.at} onChange={(event) => setDraft({ ...draft, at: event.target.value })} /></Field>
+      <Field label="관계"><Input value={draft.kind} onChange={(event) => setDraft({ ...draft, kind: event.target.value })} /></Field>
+      <Field label="계기"><Input value={draft.cause} onChange={(event) => setDraft({ ...draft, cause: event.target.value })} /></Field>
+      <Inline gap="condensed" justify="end">
+        <Button variant="ghost" onClick={onCancel}>취소</Button>
+        <Button variant="outline" disabled={!ready || pending} onClick={() => onSave({ ...change, at: draft.at.trim(), kind: draft.kind.trim(), cause: draft.cause.trim() })}>저장</Button>
+      </Inline>
+    </Box>
   );
 }
 

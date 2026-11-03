@@ -213,6 +213,17 @@ describe('context builder', () => {
     expect(run('Patty is here')).toContain('Pat');
   });
 
+  it('leaves a candidate change out: the relationship holds its kind until a person or the AI confirms the change', () => {
+    const { db, projectId, unit } = setup();
+    const mira = db.select().from(s.characters).where(eq(s.characters.name, 'MIRA')).get()!;
+    const jonas = db.select().from(s.characters).where(eq(s.characters.name, 'JONAS')).get()!;
+    db.insert(s.relationships).values({ projectId, fromId: mira.id, toId: jonas.id, kind: 'colleagues', description: '동료 수사관', changes: [{ at: 'panel.1', kind: '경쟁자', cause: '조사 방식', status: 'candidate', statusBy: 'ai' }] }).run();
+    const batch = [{ ...unit('panel.2'), source: 'MIRA speaks to JONAS.' }];
+    expect(buildContext(db, projectId, batch, config({ characters: true, relationships: true })).relationships.find((r) => r.description === '동료 수사관')).toMatchObject({ kind: 'colleagues' });
+    db.update(s.relationships).set({ changes: [{ at: 'panel.1', kind: '경쟁자', cause: '조사 방식', status: 'confirmed', statusBy: 'human' }] }).run();
+    expect(buildContext(db, projectId, batch, config({ characters: true, relationships: true })).relationships.find((r) => r.description === '동료 수사관')).toMatchObject({ kind: '경쟁자' });
+  });
+
   it('filters relationship changes and future relationships to prevent spoilers based on graph passage', () => {
     const { db, projectId, unit } = setup();
     const mira = db.select().from(s.characters).where(eq(s.characters.name, 'MIRA')).get()!;

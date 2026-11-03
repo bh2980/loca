@@ -216,7 +216,7 @@ function Knowledge() {
           ? () => sent(projectId, api.relationships.$post({ param: { projectId }, json: { fromId: people.data![0].id, toId: people.data![1].id, kind: '관계' } }))
           : undefined,
       remove: (id) => sent(projectId, api.relationships[':id'].$delete(param(id))),
-      extra: (row) => <RelationshipChanges projectId={projectId} changes={row.changes} />,
+      extra: (row) => <RelationshipChanges projectId={projectId} relationship={row} />,
     }),
     events: defineKind({
       rows: storyEvents.data ?? [],
