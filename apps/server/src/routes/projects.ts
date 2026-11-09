@@ -108,21 +108,6 @@ export const projectRoutes = new Hono<Env>()
     events.changed(undefined, 'projects');
     return c.json({ ok: true });
   })
-  /** Translation results in the standard format's key space, ready for a game-side re-importer. */
-  .get('/:projectId/export', (c) => {
-    const { db } = c.var.deps;
-    const projectId = c.req.param('projectId');
-    const project = found(db.select().from(s.projects).where(eq(s.projects.id, projectId)).get(), '프로젝트');
-    const rows = db
-      .select({ key: s.units.key, source: s.units.source, translation: s.units.translation, status: s.statuses.name })
-      .from(s.units)
-      .innerJoin(s.statuses, eq(s.statuses.id, s.units.statusId))
-      .where(eq(s.units.projectId, projectId))
-      .orderBy(asc(s.units.seq))
-      .all();
-    c.header('Content-Disposition', `attachment; filename="${encodeURIComponent(project.name)}-translations.json"`);
-    return c.json({ format: 'translation-workbench/translations-v1', project: project.name, targetLanguage: project.targetLanguage, units: rows });
-  })
 
   // ── statuses & tags ────────────────────────────────────────────────
   .get('/:projectId/statuses', (c) => {

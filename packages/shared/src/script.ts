@@ -36,6 +36,8 @@ export const lineFilterSchema = z.object({
   hideMarks: lineMarksSchema.optional(),
   translated: z.boolean().optional(),
   keys: z.array(z.string().min(1)).optional(),
+  /** Lines by id: the ones picked in the script list. */
+  ids: z.array(z.string().min(1)).optional(),
   /** Lines of a saved dialogue graph view (id or label): a part of the graph someone picked out. */
   view: z.string().min(1).optional(),
   offset: z.number().int().min(0).default(0),
@@ -43,6 +45,21 @@ export const lineFilterSchema = z.object({
 });
 export type LineFilter = z.infer<typeof lineFilterSchema>;
 export type LineFilterInput = z.input<typeof lineFilterSchema>;
+
+/** What becomes of the lines in scope whose translation does not go in the file: the source stands in for it, or they stay out. */
+export const RESULT_REST = ['source', 'omit'] as const;
+export type ResultRest = (typeof RESULT_REST)[number];
+
+/**
+ * The finished translation as a file for the game (the app's 번역 결과 내보내기, `loca results`): which lines (a filter, as the
+ * script list's), whose translation goes in (statuses by name or id; none given: the final ones), and what becomes of the rest.
+ */
+export const resultRequestSchema = z.object({
+  filter: lineFilterSchema.default({ offset: 0, limit: 200 }),
+  statuses: z.array(z.string().min(1)).optional(),
+  rest: z.enum(RESULT_REST).default('source'),
+});
+export type ResultRequest = z.input<typeof resultRequestSchema>;
 
 /** One line of a batch change: from `loca import`, or the chat's propose_changes. */
 export const lineChangeSchema = z.object({

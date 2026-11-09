@@ -136,6 +136,8 @@ W=$(pnpm --silent loca workspace new ch1)     # .loca/ch1 작업 폴더 (git에 
 pnpm loca export --section "Chapter 1" --untranslated --context 4 --terms -o "$W/ch1.jsonl"
 pnpm loca import "$W/ch1.out.jsonl" --dry-run
 pnpm loca import "$W/ch1.out.jsonl"     # 제안 1건 → 앱에서 수락하면 반영
+pnpm loca results --dry-run             # 번역 결과 파일: 몇 줄이 들어가는지와 형식 오류 (읽기만)
+pnpm loca results -o ko.json            # 게임에 넣을 파일 (앱의 번역 결과 내보내기와 같음)
 ```
 
 앱 없이 되는 명령: `loca format schema`(표준 파일 JSON Schema), `loca format check <파일>`(형식 오류·요약·경고),

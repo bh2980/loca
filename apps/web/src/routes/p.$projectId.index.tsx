@@ -10,6 +10,7 @@ import { useMarkStyles } from '@/lib/queries';
 import { dateTime } from '@/lib/datetime';
 import { useProgress } from '@/lib/use-progress';
 import { SCRIPT_VIEW } from '@/lib/labels';
+import { exportDialog } from '@/lib/export-dialog';
 import { useTerms } from '@/lib/terms';
 import { useSpeechRules } from '@/lib/knowledge';
 import { useGroups } from '@/lib/groups';
@@ -180,10 +181,8 @@ function Home() {
           </Text>
           {/* The finished translation goes out from here too (it is also in 설정 › 프로젝트 and the command palette). */}
           <Box marginLeft="auto">
-            <Button variant="outline" asChild>
-              <a href={`/api/projects/${projectId}/export`} download>
-                <Download /> 번역 결과 내보내기
-              </a>
+            <Button variant="outline" onClick={() => exportDialog.open()}>
+              <Download /> 번역 결과 내보내기
             </Button>
           </Box>
         </Stack>

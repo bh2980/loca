@@ -94,6 +94,7 @@ export function findLines(db: Db, projectId: string, filter: LineFilter, options
   // Asking for translated or untranslated lines (exports, checks) asks for lines to translate: 번역 제외 lines stay out.
   if (filter.translated !== undefined) where.push(filter.translated ? sql`${s.units.translation} is not null and ${s.units.translation} != ''` : sql`(${s.units.translation} is null or ${s.units.translation} = '')`, translatableSql(projectId));
   if (filter.keys?.length) where.push(inList(s.units.key, filter.keys));
+  if (filter.ids?.length) where.push(inList(s.units.id, filter.ids));
   if (filter.view) where.push(inList(s.units.id, viewUnitIds(db, projectId, filter.view)));
   if (options.seq) where.push(sql`${s.units.seq} >= ${options.seq[0]} and ${s.units.seq} < ${options.seq[1]}`);
 

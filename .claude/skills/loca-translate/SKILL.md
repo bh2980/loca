@@ -45,6 +45,14 @@ description: Translate game script lines in a loca project from the terminal in 
    경고(자리표시자, 용어)가 있으면 고쳐서 다시 `--dry-run`. 충돌은 그사이 사람이 고친 줄이라 건너뜁니다(덮어쓰지 않음).
 6. 반영됐는지 제안으로 기다리는지(터미널 권한 모드), 몇 줄인지 알립니다. 오류·충돌 줄이 있으면 `import`는 종료 코드 1입니다(나머지 줄은 들어감). 끝나면 `loca workspace clean ch1-translate`.
 
+게임에 넣을 **번역 결과 파일**은 `loca export`(번역하려고 꺼내는 JSONL)가 아니라 `loca results`입니다. 앱의 번역 결과 내보내기와 규칙이 같습니다.
+```
+loca results --dry-run                             # 파일에 몇 줄, 번역·원문 몇 줄, 형식 오류 (파일은 안 만듦)
+loca results -o "$W/ko.json"                       # 최종 상태의 번역, 나머지 줄은 원문으로
+loca results --section "Chapter 1" --include 검토 --rest omit -o "$W/ch1.json"
+```
+번역이 들어가지 않은 줄에는 `fromSource: true`가 붙습니다. 형식 오류가 있어도 파일은 만들어지니 `--dry-run`의 경고를 사용자에게 알립니다.
+
 import 파일의 줄에는 번역 말고도 `status`(상태 이름), `addTags`·`removeTags`(대사에 붙는 태그만), `listener`(사람이 확정한 청자), `translate`(`exclude` 번역에서 뺌 · `include` 번역함 · `null` 규칙대로)를 넣을 수 있습니다. 번역 제외 줄은 내보내기에 나오지 않으니 번역할 필요가 없습니다.
 
 ## 대사 그래프의 한 흐름 따라 번역하기

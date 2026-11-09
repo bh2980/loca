@@ -38,7 +38,7 @@ export function ExclusionRulesSection({ projectId, rules, formatRules, sourceLan
   return (
     <Section variant="page"
       title="번역 제외"
-      description="번역할 대상이 아닌 원문. 진행률·남은 줄·실행·내보내기·검사에서 빠지고, 번역은 건드리지 않습니다. 줄마다 상세에서 직접 정할 수도 있습니다."
+      description="번역할 대상이 아닌 원문. 진행률·남은 줄·실행·검사에서 빠지고, 번역은 건드리지 않습니다. 번역 결과를 내보낼 때는 번역 없이 나머지 줄로 처리합니다. 줄마다 상세에서 직접 정할 수도 있습니다."
       actions={
         <TextLink asChild variant="caption" tone="muted" underline="offset" quiet>
           <Link to="/p/$projectId/script" params={{ projectId }} search={{ excluded: 'only' }}>

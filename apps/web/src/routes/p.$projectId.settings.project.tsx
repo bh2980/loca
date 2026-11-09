@@ -11,6 +11,7 @@ import { ChangedElsewhere } from '@/components/changed-elsewhere';
 import { AiAutoConfirmSetting } from '@/components/settings/ai-confirm';
 import { HomeDefaultsSection } from '@/components/settings/home-defaults';
 import type { FormatRules } from '@tw/shared';
+import { exportDialog } from '@/lib/export-dialog';
 import { useProject, saveProject } from '@/lib/project';
 
 export const Route = createFileRoute('/p/$projectId/settings/project')({
@@ -101,10 +102,8 @@ function ProjectForm({ projectId, project }: { projectId: string; project: { nam
           <HomeDefaultsSection projectId={projectId} />
 
           <Section variant="page" title="번역 결과">
-            <Button variant="outline" asChild>
-              <a href={`/api/projects/${projectId}/export`} download>
-                <Download /> 내보내기
-              </a>
+            <Button variant="outline" onClick={() => exportDialog.open()}>
+              <Download /> 내보내기
             </Button>
           </Section>
 

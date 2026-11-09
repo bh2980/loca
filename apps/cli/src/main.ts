@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { Command, Option } from 'commander';
 import { hc } from 'hono/client';
 import type { AppType } from '@tw/server/app';
-import { acceptedLabel, AUTO_MARKS, FEED_EVENT, CHECK_KINDS, EXCLUSION_REASON_LABELS, CONTEXT_ITEM_KINDS, importFileJsonSchema, importFileSchema, importWarnings, KNOWLEDGE_MARK_IDS, KNOWLEDGE_STATUS_LABELS, LINE_MARK_IDS, lineChangeSchema, summarizeImport, retryRuleSchema, retrySummary, TERM_MARK_IDS, termScopeLabel, type AutoMark, type KnowledgeStatus, type LineFilterInput, type LineMark, personLabel, DECIDED_BY, type DecidedBy, EXCLUDED_FILTERS, type ExcludedFilter } from '@tw/shared';
+import { acceptedLabel, AUTO_MARKS, FEED_EVENT, CHECK_KINDS, EXCLUSION_REASON_LABELS, CONTEXT_ITEM_KINDS, importFileJsonSchema, importFileSchema, importWarnings, KNOWLEDGE_MARK_IDS, KNOWLEDGE_STATUS_LABELS, LINE_MARK_IDS, lineChangeSchema, summarizeImport, retryRuleSchema, retrySummary, TERM_MARK_IDS, termScopeLabel, type AutoMark, type KnowledgeStatus, type LineFilterInput, type LineMark, personLabel, DECIDED_BY, type DecidedBy, EXCLUDED_FILTERS, type ExcludedFilter, RESULT_REST, type ResultRest } from '@tw/shared';
 
 /**
  * loca — the workbench from a terminal, for people and for agents with a shell (codex, claude…).
@@ -552,6 +552,33 @@ withFilters(program.command('export').description('번역할 대사를 JSONL로 
     if (options.out) {
       writeFileSync(options.out, text);
       log(`대사 ${rows.length.toLocaleString()}개를 ${options.out}에 저장했습니다.`);
+    } else process.stdout.write(text);
+  });
+
+withFilters(program.command('results').description('번역 결과 파일 만들기 (앱의 번역 결과 내보내기와 같음): 게임에 넣을 파일. 범위는 필터로(없으면 프로젝트 전체), 번역은 최종 상태의 것을 넣습니다. 번역하려고 꺼내는 건 export'))
+  .option('--include <statuses...>', '번역을 넣을 상태 이름 (없으면 최종 상태)')
+  .addOption(new Option('--rest <처리>', '나머지 줄(그 상태가 아니거나, 번역이 없거나, 번역 제외): source = 원문으로 넣기, omit = 파일에서 빼기').choices(RESULT_REST).default('source'))
+  .option('--dry-run', '파일은 만들지 않고 줄 수와 형식 오류만 보기')
+  .option('-o, --out <파일>', '저장할 파일 (없으면 표준 출력)')
+  .action(async (options: FilterOptions & { include?: string[]; rest: ResultRest; dryRun?: boolean; out?: string }) => {
+    if (options.limit || options.offset) throw new CliError('results는 범위 전체를 파일로 만듭니다. --limit, --offset 대신 필터로 좁히세요.');
+    const id = await projectId();
+    const json = { filter: filterFrom(options), statuses: options.include, rest: options.rest };
+    const results = api().projects[':projectId'].results;
+    const [plan, check] = await Promise.all([unwrap(results.plan.$post({ param: { projectId: id }, json })), unwrap(results.check.$post({ param: { projectId: id }, json }))]);
+    if (plan.unknownStatuses.length) throw new CliError(`없는 상태입니다: ${plan.unknownStatuses.join(', ')}`);
+    // Stdout may be the file: what a person reads goes to stderr, unless they asked for only that.
+    if (options.dryRun && globals().json) return print({ ...plan, check });
+    const say = options.dryRun ? console.log : log;
+    say(`파일에 ${plan.inFile.toLocaleString()}줄 · 번역 ${plan.translated.toLocaleString()}줄 · ${options.rest === 'source' ? `원문 ${plan.rest.total.toLocaleString()}줄` : `뺀 줄 ${plan.rest.total.toLocaleString()}줄`} (번역 제외 ${plan.rest.excluded.toLocaleString()}, 번역 없음 ${plan.rest.empty.toLocaleString()})`);
+    if (check.total) say(`형식 오류 ${check.total.toLocaleString()}줄이 파일에 들어갑니다:\n${check.rows.slice(0, 10).map((row) => `  ${row.key}: ${row.issue}`).join('\n')}${check.total > 10 ? `\n  외 ${(check.total - 10).toLocaleString()}줄` : ''}`);
+    if (options.dryRun) return;
+    if (!plan.translated) throw new CliError('들어갈 번역이 없습니다. --include로 상태를 고르거나 범위를 확인하세요.');
+    const file = await unwrap(results.$post({ param: { projectId: id }, json }));
+    const text = `${JSON.stringify(file, null, 2)}\n`;
+    if (options.out) {
+      writeFileSync(options.out, text);
+      log(`${plan.inFile.toLocaleString()}줄을 ${options.out}에 저장했습니다.`);
     } else process.stdout.write(text);
   });
 

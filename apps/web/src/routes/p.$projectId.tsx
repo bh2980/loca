@@ -7,6 +7,7 @@ import { AppSidebar } from '@/components/app-sidebar';
 import { ChatPanel } from '@/components/chat/chat-panel';
 import { ProposalList } from '@/components/chat/proposal-list';
 import { CommandSearch } from '@/components/command-search';
+import { ExportDialog } from '@/components/export-dialog';
 import { ShortcutHelp } from '@/components/shortcut-help';
 import { chatDock, useChatDockOpen } from '@/lib/chat-dock';
 import { useChatUnread } from '@/lib/chat-unread';
@@ -100,6 +101,7 @@ function ProjectLayout() {
           </>}>
             <PageHeader title={current.item.label} leading={<SidebarTrigger />} tools={!open && <DockHeader mode="properties" onMode={changeMode} onToggle={toggleDock} open={false} tools={<><CommandSearch projectId={projectId} compact /><ShortcutHelp /></>} />} />
             <Stack as="main" minHeight={0} grow overflow="hidden" background="page"><Outlet /></Stack>
+            <ExportDialog projectId={projectId} />
             <AppStatusBar>
               <Popover>
                 <PopoverTrigger asChild>

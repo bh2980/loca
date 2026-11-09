@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode, useEffectEvent, memo, useLayoutEffect, type ComponentProps } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Play } from 'lucide-react';
+import { Download, Play } from 'lucide-react';
 import { LineDetail } from '@/components/line-detail';
 import { useRevealDock, EditorToolbar, FilterChips, Pager, FilterBar, ActionBar, Button, Box, Text, SearchField, Skeleton, EmptyState, SplitPane } from '@loca/ui';
 import { HeaderActions } from '@/components/page';
 import { tokenPatternOf } from '@/lib/line-context';
 import { RunDialog } from '@/components/workflow/run-dialog';
+import { exportDialog, type ExportView } from '@/lib/export-dialog';
 import { lineTags, q, useMarkStyles } from '@/lib/queries';
 import { markColor, type LineMark } from '@tw/shared';
-import { hasLineFilter, LineFilters, filterChips, lineQueryParams, type LinesSearch } from '@/components/script/line-filters';
+import { hasLineFilter, lineFilterCount, lineFilterOf, LineFilters, filterChips, lineQueryParams, type LinesSearch } from '@/components/script/line-filters';
 import { LineHeadRow, useLineBulk } from '@/components/script/line-bulk';
 import { LineRow } from '@/components/script/line-row';
 import { sceneSelectionState } from '@/components/script/scene-selection';
@@ -106,6 +107,7 @@ export function LineList({
   emptyAction,
   lineActions,
   withSpeakers = true,
+  exportLabel,
 }: {
   projectId: string;
   groupId?: string;
@@ -133,6 +135,8 @@ export function LineList({
   dockSelectionKey?: string;
   emptyAction?: ReactNode;
   withSpeakers?: boolean;
+  /** What this list is called in the export dialog ("Chapter 1", "전체 UI"); none: no 내보내기 here. */
+  exportLabel?: string;
 }) {
   const taxonomy = useTaxonomy(projectId);
   const markStyles = useMarkStyles(projectId);
@@ -173,6 +177,8 @@ export function LineList({
   }, [focusing, lines.data, lines.isPlaceholderData]); // eslint-disable-line react-hooks/exhaustive-deps
   const statusList = useMemo(() => taxonomy.statuses ?? [], [taxonomy.statuses]);
   const statusById = new Map(statusList.map((status) => [status.id, status]));
+  // What 내보내기 starts from: this list, as it is filtered. Walking a filter inside a scene shows the whole scene.
+  const exportView: ExportView | undefined = exportLabel ? { filter: lineFilterOf(find ? {} : search, { groupId, section, kind, reviewStatuses: review ? statusList.filter((status) => status.inReview).map((status) => status.id) : undefined }), label: exportLabel, filters: find ? 0 : lineFilterCount(search) } : undefined;
   const tagById = new Map(taxonomy.tags?.map((tag) => [tag.id, tag]));
   const rows = lines.data?.rows;
   const total = lines.data?.total ?? 0;
@@ -362,6 +368,7 @@ export function LineList({
       )}
     >
       <HeaderActions>
+        {exportView && <Button variant="outline" onClick={() => exportDialog.open({ view: exportView, unitIds: picked.size ? [...picked] : undefined })}><Download /> 내보내기</Button>}
         <RunDialog projectId={projectId} unitIds={picked.size ? [...picked] : undefined} groupIds={picked.size ? undefined : runGroupIds} viewKind={picked.size || runGroupIds ? undefined : runKind}
           trigger={<Button><Play /> {picked.size ? `실행 · ${picked.size.toLocaleString()}줄` : "실행"}</Button>} />
         {!find && !review && hasLineFilter(search) && <ActionBar aria-label="대사 목록 동작" items={[{ id: 'find-in-scene', label: '장면에서 찾아가기', onSelect: () => onSearch({ mode: 'find', page: undefined }) }]} />}
@@ -392,7 +399,7 @@ export function LineList({
         <Text marginLeft="auto" nowrap variant="caption" tone="muted">{review && "검토함 · "}{total.toLocaleString()}줄</Text>
       </FilterBar></EditorToolbar>
       {banner}
-      {!!rows?.length && <LineHeadRow projectId={projectId} rows={rows} bulk={bulk} statusList={statusList} tags={lineTags(taxonomy.tags)} allMatching={{ total, filtered, onPick: () => void pickAllMatching() }} />}
+      {!!rows?.length && <LineHeadRow projectId={projectId} rows={rows} bulk={bulk} exportView={exportView} statusList={statusList} tags={lineTags(taxonomy.tags)} allMatching={{ total, filtered, onPick: () => void pickAllMatching() }} />}
       <Box minHeight={0} grow overflow="y">
         {!rows ? (
           <Box spaceY="comfortable" padding="comfortable">

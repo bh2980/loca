@@ -259,6 +259,7 @@ function Script() {
             section={search.group || search.review ? undefined : search.section}
             search={search}
             onSearch={onSearch}
+            exportLabel={group?.title ?? selectedSection ?? (search.review ? '검토함' : `전체 ${SCRIPT_VIEW[view]}`)}
             onOpenScene={(groupId, line) => openGroup(groupId, line)}
             lineActions={{
               editSource: (line) => sourceAt('edit-unit', line.groupKind, undefined, line.id),

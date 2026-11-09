@@ -1,11 +1,12 @@
 /** Bulk actions on the picked lines: the picks, their mutations, and the head row that offers them. */
 import { useEffect, useMemo, useRef, useState, type ComponentProps } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { Check } from 'lucide-react';
+import { Check, Download } from 'lucide-react';
 import { toast } from 'sonner';
 import { listenerLabel, SPECIAL_LISTENERS } from '@tw/shared';
 import { TagMenu, Checkbox, EditorAction, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue, StatusIcon, Text, TranslationColumnHeader, Input, SelectionBar } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
+import { exportDialog, type ExportView } from '@/lib/export-dialog';
 import { changeLines, patchedLine } from '@/lib/units';
 import { lineTags, q } from '@/lib/queries';
 import { usePicked } from '@/lib/use-picked';
@@ -100,7 +101,7 @@ export function useLineBulk({ projectId, pickKey, rows, tagName, aiOnly }: { pro
 export type LineBulk = ReturnType<typeof useLineBulk>;
 
 /** The head row above the lines: column labels, or the picked lines' actions. */
-export function LineHeadRow({ projectId, rows, bulk, statusList, tags, allMatching }: { projectId: string; rows: { id: string; speaker: string | null }[]; bulk: LineBulk; statusList: { id: string; name: string; color: string }[]; tags: ComponentProps<typeof TagMenu>['tags']; /** The list has more than this page: how many, and picking them all. */ allMatching?: { total: number; filtered: boolean; onPick: () => void } }) {
+export function LineHeadRow({ projectId, rows, bulk, statusList, tags, allMatching, exportView }: { exportView?: ExportView; projectId: string; rows: { id: string; speaker: string | null }[]; bulk: LineBulk; statusList: { id: string; name: string; color: string }[]; tags: ComponentProps<typeof TagMenu>['tags']; /** The list has more than this page: how many, and picking them all. */ allMatching?: { total: number; filtered: boolean; onPick: () => void } }) {
   const { picked, pick, stopPicking, check, pickedByAi, setStatus, setListener, tagState, setTag, setTranslate } = bulk;
   const people = useCharacters(projectId);
   const project = useProject(projectId);
@@ -160,6 +161,7 @@ export function LineHeadRow({ projectId, rows, bulk, statusList, tags, allMatchi
                   <SelectItem value="exclude">제외</SelectItem>
                 </SelectContent>
               </Select>
+              <EditorAction icon={Download} variant="outline" onClick={() => exportDialog.open({ view: exportView, unitIds: [...picked] })}>내보내기</EditorAction>
             </SelectionBar>
           ) : undefined}
         />
