@@ -368,7 +368,8 @@ export function LineList({
       )}
     >
       <HeaderActions>
-        {exportView && <Button variant="outline" onClick={() => exportDialog.open({ view: exportView, unitIds: picked.size ? [...picked] : undefined })}><Download /> 내보내기</Button>}
+        {/* Like 실행 beside it: the picked lines when there are any, else what the list shows. */}
+        {exportView && <Button variant="outline" onClick={() => exportDialog.open({ view: exportView, unitIds: picked.size ? [...picked] : undefined })}><Download /> {picked.size ? `내보내기 · ${picked.size.toLocaleString()}줄` : '내보내기'}</Button>}
         <RunDialog projectId={projectId} unitIds={picked.size ? [...picked] : undefined} groupIds={picked.size ? undefined : runGroupIds} viewKind={picked.size || runGroupIds ? undefined : runKind}
           trigger={<Button><Play /> {picked.size ? `실행 · ${picked.size.toLocaleString()}줄` : "실행"}</Button>} />
         {!find && !review && hasLineFilter(search) && <ActionBar aria-label="대사 목록 동작" items={[{ id: 'find-in-scene', label: '장면에서 찾아가기', onSelect: () => onSearch({ mode: 'find', page: undefined }) }]} />}
@@ -399,7 +400,7 @@ export function LineList({
         <Text marginLeft="auto" nowrap variant="caption" tone="muted">{review && "검토함 · "}{total.toLocaleString()}줄</Text>
       </FilterBar></EditorToolbar>
       {banner}
-      {!!rows?.length && <LineHeadRow projectId={projectId} rows={rows} bulk={bulk} exportView={exportView} statusList={statusList} tags={lineTags(taxonomy.tags)} allMatching={{ total, filtered, onPick: () => void pickAllMatching() }} />}
+      {!!rows?.length && <LineHeadRow projectId={projectId} rows={rows} bulk={bulk} statusList={statusList} tags={lineTags(taxonomy.tags)} allMatching={{ total, filtered, onPick: () => void pickAllMatching() }} />}
       <Box minHeight={0} grow overflow="y">
         {!rows ? (
           <Box spaceY="comfortable" padding="comfortable">

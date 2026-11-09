@@ -75,21 +75,6 @@ function ExportBody({ projectId, start }: { projectId: string; start: ExportStar
           <DialogDescription>게임에 넣을 파일을 만듭니다.</DialogDescription>
         </DialogHeader>
         <Bleed by="tight" maxHeight="dialog" spaceY="comfortable" overflow="auto" paddingX="tight" paddingY="hair">
-          <Box border="bottom" paddingBottom="condensed">
-            <Text as="p" variant="title" aria-live="polite">
-              {data ? (
-                <>
-                  <Text as="b" weight="medium" tabular>파일에 {data.inFile.toLocaleString()}줄</Text>
-                  <Text tone="muted" tabular> · 번역 {data.translated.toLocaleString()}줄{rest === 'source' && restTotal > 0 && ` · 원문 ${restTotal.toLocaleString()}줄`}</Text>
-                </>
-              ) : plan.isError ? (
-                <Text tone="danger">줄 수를 세지 못했습니다: {plan.error.message} <Button variant="ghost" size="inline" onClick={() => void plan.refetch()}>다시 시도</Button></Text>
-              ) : (
-                <Text tone="muted">세는 중…</Text>
-              )}
-            </Text>
-          </Box>
-
           <Box as="fieldset" spaceY="condensed">
             <Heading as="legend" minWidth={0} marginBottom="condensed">대상</Heading>
             {(start.view || start.unitIds?.length) ? (
@@ -182,6 +167,18 @@ function ExportBody({ projectId, start }: { projectId: string; start: ExportStar
         )}
         {save.isError && <Text as="p" variant="body" tone="danger">내보내지 못했습니다: {save.error.message}</Text>}
         <DialogFooter>
+          {/* What the file holds, beside the button that makes it: the button already says how many lines. */}
+          <Inline grow minWidth={0}>
+            <Text variant="caption" tone={plan.isError && !data ? 'danger' : 'muted'} tabular aria-live="polite">
+              {data ? (
+                <>번역 {data.translated.toLocaleString()}{restTotal > 0 && (rest === 'source' ? ` · 원문 ${restTotal.toLocaleString()}` : ` · ${restTotal.toLocaleString()}줄 뺌`)}</>
+              ) : plan.isError ? (
+                <>줄 수를 세지 못했습니다: {plan.error.message} <Button variant="ghost" size="inline" onClick={() => void plan.refetch()}>다시 시도</Button></>
+              ) : (
+                '세는 중…'
+              )}
+            </Text>
+          </Inline>
           <Button variant="outline" onClick={() => exportDialog.close()}>취소</Button>
           <Button disabled={save.isPending} disabledReason={blocked} onClick={() => save.mutate()}>
             {save.isPending ? <Spinner /> : <Download />} {data ? `${data.inFile.toLocaleString()}줄 내보내기` : '내보내기'}
