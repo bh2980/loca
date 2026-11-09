@@ -1,11 +1,12 @@
 import { Hono } from 'hono';
 import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
-import { batchChangeSchema, lineFilterSchema } from '@tw/shared';
+import { batchChangeSchema, lineFilterSchema, resultRequestSchema } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { proposeChange } from '../services/change-gate.ts';
 import { undoProposals } from '../services/proposals.ts';
+import { resultCheck, resultFile, resultPlan } from '../services/results.ts';
 import { runErrors } from '../services/run-errors.ts';
 import { agentCatalog, jsonSchemaOf } from '../services/agent-catalog.ts';
 import { previewContext } from '../services/context-preview.ts';
@@ -59,6 +60,16 @@ export const scriptRoutes = new Hono<Env>()
       return c.json(exportLines(c.var.deps.db, c.req.param('projectId'), filter, { before, terms, all }));
     },
   )
+  /** The finished translation as a file for the game (the app's 번역 결과 내보내기, `loca results`). */
+  .post('/projects/:projectId/results', validate('json', resultRequestSchema), (c) => {
+    const file = found(resultFile(c.var.deps.db, c.req.param('projectId'), c.req.valid('json')), '프로젝트');
+    c.header('Content-Disposition', `attachment; filename="${encodeURIComponent(file.project)}-translations.json"`);
+    return c.json(file);
+  })
+  /** What that file would hold: its numbers and first lines. */
+  .post('/projects/:projectId/results/plan', validate('json', resultRequestSchema), (c) => c.json(resultPlan(c.var.deps.db, c.req.param('projectId'), c.req.valid('json'))))
+  /** The lines in that file whose translation breaks the source's placeholders, tags or line breaks. */
+  .post('/projects/:projectId/results/check', validate('json', resultRequestSchema), async (c) => c.json(await resultCheck(c.var.deps.db, c.req.param('projectId'), c.req.valid('json'))))
   /** Check a batch; unless dryRun, the valid, non-conflicting lines become one proposal. */
   .post('/projects/:projectId/import', validate('json', batchChangeSchema.extend({ dryRun: z.boolean().default(false) })), async (c) => {
     const { db } = c.var.deps;

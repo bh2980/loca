@@ -3,7 +3,7 @@ import type { LineTab } from '@/components/line-detail';
 import { Fragment, useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { ChevronDown } from 'lucide-react';
-import { DECIDED_BY, DECIDED_BY_LABELS, type DecidedBy, markName, type AutoMark, type MarkStyles, LINE_MARK_IDS, type LineMark, parseMarks } from '@tw/shared';
+import { DECIDED_BY, DECIDED_BY_LABELS, type DecidedBy, type LineFilterInput, markName, type AutoMark, type MarkStyles, LINE_MARK_IDS, type LineMark, parseMarks } from '@tw/shared';
 import { FilterModeSwitch, markTagGroups, pickOf, PickIcon, togglePick, type FilterPick } from '@/components/header-filter';
 
 import { Box, Button, DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuTrigger, Inline, Input, StatusIcon, Text, DropdownMenuContent, DropdownMenuSubContent, MenuLabel } from '@loca/ui';
@@ -100,6 +100,41 @@ export function lineQueryParams(search: LinesSearch) {
     excluded: search.excluded === 'show' ? undefined : search.excluded === 'only' ? ('only' as const) : ('hide' as const),
   };
 }
+
+/**
+ * The list's lines as the filter the server shares with the CLI (LineFilter): its scope (a group, a section, a view or the
+ * review inbox, whose statuses narrow what is asked) and what the URL filters. What an export of this list starts from:
+ * 번역 제외 lines the list hides stay in, because the file decides what becomes of them (the rest of the lines), and a file
+ * filled with the source should hold every key.
+ */
+export function lineFilterOf(search: LinesSearch, scope: { groupId?: string; section?: string; kind?: 'scene' | 'document' | 'ui'; reviewStatuses?: string[] } = {}): LineFilterInput {
+  const inReview = scope.reviewStatuses && (search.statuses?.length ? search.statuses.filter((id) => scope.reviewStatuses!.includes(id)) : scope.reviewStatuses);
+  // An empty list asks for nothing, not for every status.
+  const statuses = inReview ? (inReview.length ? inReview : ['__none__']) : search.statuses;
+  return {
+    ...(scope.groupId && { groups: [scope.groupId] }),
+    ...(scope.section && { sections: [scope.section] }),
+    ...(scope.kind && { groupKind: scope.kind }),
+    q: search.q,
+    statuses,
+    tags: search.tags,
+    speakers: search.speakers,
+    listeners: search.listener ? [search.listener] : undefined,
+    marks: search.marks,
+    hideStatuses: search.hideStatuses,
+    hideSpeakers: search.hideSpeakers,
+    hideTags: search.hideTags,
+    hideMarks: search.hideMarks,
+    unfinished: search.unfinished,
+    decidedBy: search.decidedBy,
+    noted: search.noted,
+    excluded: search.excluded === 'only' ? 'only' : undefined,
+  };
+}
+
+/** How many filters narrow the list (what a person set, not the default hiding of 번역 제외). */
+export const lineFilterCount = (search: LinesSearch) =>
+  [search.q, search.statuses?.length, search.tags?.length, search.speakers?.length, search.listener, search.marks?.length, search.hideStatuses?.length, search.hideSpeakers?.length, search.hideTags?.length, search.hideMarks?.length, search.unfinished !== undefined, search.decidedBy, search.noted !== undefined, search.excluded].filter(Boolean).length;
 
 /** Whether any line filter is set (search, status, tag, speaker, listener, automatic marks, the row facts). */
 export const hasLineFilter = (search: LinesSearch) =>

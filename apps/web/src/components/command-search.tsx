@@ -7,6 +7,7 @@ import { q } from '@/lib/queries';
 import { keyLabel } from '@/lib/keys';
 import { openShortcutHelp } from '@/components/shortcut-help';
 import { chatDock } from '@/lib/chat-dock';
+import { exportDialog } from '@/lib/export-dialog';
 import { PersonName } from '@/lib/person-colors';
 import { useCharacters, useDocuments } from '@/lib/knowledge';
 import { useTerms } from '@/lib/terms';
@@ -117,7 +118,7 @@ export function CommandSearch({ projectId, compact = false, listen = true }: { p
           {/* Things to do, not only to find: shown with no query, or when the query names them. */}
           {(!query || '번역 결과 내보내기 export'.includes(query.trim().toLowerCase())) && (
             <CommandGroup heading="동작">
-              <CommandItem value="export" onSelect={() => go(() => window.location.assign(`/api/projects/${projectId}/export`))}>
+              <CommandItem value="export" onSelect={() => go(() => exportDialog.open())}>
                 <Download /> 번역 결과 내보내기
               </CommandItem>
             </CommandGroup>

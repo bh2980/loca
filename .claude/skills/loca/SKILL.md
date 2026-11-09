@@ -72,7 +72,7 @@ description: Common rules for working on a loca translation project from the ter
 
 줄이나 항목에 이미 보이는 사실은 그 칸의 필터로 겁니다.
 
-| 무엇 | 대사 (`lines`·`export`·`check`·`runs`) | 용어 (`terms`·`runs`) | 자료 (`knowledge`) |
+| 무엇 | 대사 (`lines`·`export`·`results`·`check`·`runs`) | 용어 (`terms`·`runs`) | 자료 (`knowledge`) |
 |---|---|---|---|
 | 상태가 최종 아님 (남은 일) / 최종 | `--unfinished` / `--finished` | | |
 | 정한 쪽: AI가 정하고 사람이 아직 안 봄(✦) / 사람 | `--by ai` / `--by human` | `--by ai` / `--by human` | `--by ai` / `--by human` |
@@ -81,7 +81,7 @@ description: Common rules for working on a loca translation project from the ter
 | 번역 제외 뺌 / 그것만 | `--excluded hide` / `--excluded only` | | |
 | 번역어 비어 있음 / 있음 | | `--empty-target` / `--has-target` | |
 
-- **번역 제외**는 번역 대상이 아닌 줄입니다: 빈 원문, 서식만 있는 줄, 글자 없는 줄, 프로젝트의 제외 규칙에 걸린 줄, 사람이 직접 뺀 줄. 진행률·최종 아님·실행·`export --untranslated`/`--translated`·`check`에서 빠지고, 번역은 건드리지 않습니다. `loca lines`는 상태 옆에 `· 번역 제외`, AI가 정한 상태에 `✦`를 붙여 보여 줍니다.
+- **번역 제외**는 번역 대상이 아닌 줄입니다: 빈 원문, 서식만 있는 줄, 글자 없는 줄, 프로젝트의 제외 규칙에 걸린 줄, 사람이 직접 뺀 줄. 진행률·최종 아님·실행·`export --untranslated`/`--translated`·`check`에서 빠지고, 번역은 건드리지 않습니다. `results`에서는 번역 없이 나머지 줄로 처리합니다. `loca lines`는 상태 옆에 `· 번역 제외`, AI가 정한 상태에 `✦`를 붙여 보여 줍니다.
 - **#AI 제안 대기**는 AI가 낸 번역이 사람의 적용·거절을 기다리는 줄입니다: 사람이 번역한 줄에 실행이 낸 번역(그 줄의 번역은 바뀌지 않음), `propose_translation`으로 올린 제안. 사람이 줄 상세의 "AI 제안"에서 적용하거나 거절하고, 에이전트는 사용자가 시킬 때만 `loca call decide_suggestion`(`{unitId, candidateId, decision: apply|decline}`, 제안의 id는 `loca call read_line`의 `suggestions`)으로 정합니다. 줄이 전에 가졌던 번역은 `history`에 있습니다.
 - 자동 태그를 걸 때는 `--mark`를 씁니다. 반대로 빼려면 `--hide-mark`·`--hide-tag`·`--hide-status`·`--hide-speaker`를 씁니다(하나라도 해당하면 뺌).
 - 앱의 대사 목록은 번역 제외를 기본으로 숨깁니다(필터 바의 숨김 칩). CLI의 `lines`는 숨기지 않으니 필요하면 `--excluded hide`를 붙입니다.
@@ -93,7 +93,7 @@ description: Common rules for working on a loca translation project from the ter
 - 대사 상태와 태그는 프로젝트마다 다르니 `loca statuses`, `loca tags`로 확인합니다. 태그는 붙는 곳(대사·자료·용어집)에만 붙습니다.
 
 ## 범위: 대사 그래프 보기
-- 사람이 앱에서 떼어 둔 대사 그래프의 일부(저장된 보기)는 `--view <이름|id>`로 범위가 됩니다: `lines`, `export`, `check`, `runs plan/start`.
+- 사람이 앱에서 떼어 둔 대사 그래프의 일부(저장된 보기)는 `--view <이름|id>`로 범위가 됩니다: `lines`, `export`, `results`, `check`, `runs plan/start`.
 - 에이전트가 직접 만들 수도 있습니다: `loca views create --label … --between <시작키> <끝키>`(두 대사 사이의 모든 경로), `-g` 장면, `-s` 인물.
 - `loca views show <보기>`는 보기를 흐름 순서로 보여 줍니다. 갈림과 합쳐짐, 선택지 이름이 함께 나옵니다.
 
