@@ -1,9 +1,11 @@
 import { and, eq, inArray, ne } from 'drizzle-orm';
-import { batchChangeSchema, type BatchChange } from '@tw/shared';
+import { batchChangeSchema, type BatchChange, type RunCardPlan } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { DELETABLE, deletable, type DeletableKind } from './item-delete.ts';
 import { inChunks } from '../db/chunk.ts';
+import { preflight } from './preflight.ts';
+import { planOf, resolveStartRun, type StartRunInput } from './run-plan.ts';
 import { normalizeBatch, validateBatch, type BatchReport } from './script-query.ts';
 
 /** Lines checked per step; the event loop is handed back in between (a 50k-line check takes about a second). */
@@ -70,12 +72,23 @@ for (const [tool, field, what, exists] of [
  * - a change to a row that does not exist is refused at once, and the agent hears why;
  * - a batch of line changes keeps the lines that can change, fills in missing revs (so a line
  *   edited before acceptance is skipped, not overwritten) and reports what it left out and the
- *   warnings about the rest.
+ *   warnings about the rest;
+ * - a run is checked as it would start (unknown names, an empty scope), and its card gets what it would take in and cost.
  */
 export async function prepareProposal(db: Db, projectId: string, tool: string, input: Record<string, unknown>): Promise<Prepared> {
   const byId = BY_ID[tool];
   const id = byId && input[byId.field];
   if (byId && typeof id === 'string' && id && !byId.exists(db, projectId, id)) return { ok: false, error: `없는 ${byId.what}입니다.`, hint: `(${byId.field}=${id}) 목록 도구로 id를 확인하세요.` };
+  if (tool === 'start_run') {
+    try {
+      const resolved = resolveStartRun(db, projectId, input as unknown as StartRunInput);
+      if (!resolved.ok) return { ok: false, error: resolved.error };
+      const plan = planOf((await preflight(db, resolved.workflow, resolved.scope)) as unknown as RunCardPlan);
+      return { ok: true, input, report: { dropped: [], warnings: [], run: { input: resolved.subject, plan } } };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
   if (tool === 'save_knowledge') {
     // Each item is checked like its single tool; one missing id refuses the whole change so the agent fixes it.
     const single = { characters: 'save_character', relationships: 'save_relationship', speechRules: 'save_speech_rule', events: 'save_event', documents: 'save_document' } as const;
@@ -144,4 +157,5 @@ export async function prepareProposal(db: Db, projectId: string, tool: string, i
 
 /** What the agent is told about a proposal the check trimmed. */
 export const reportText = (report: s.ProposalReport | null) =>
-  report?.dropped.length ? ` 오류·충돌로 ${report.dropped.length}줄을 뺐습니다(예: ${report.dropped[0].key} ${report.dropped[0].reason}).` : '';
+  (report?.dropped.length ? ` 오류·충돌로 ${report.dropped.length}줄을 뺐습니다(예: ${report.dropped[0].key} ${report.dropped[0].reason}).` : '') +
+  (report?.run ? ` 대상은 ${report.run.plan.lines.total.toLocaleString()}${report.run.input === 'terms' ? '개' : '줄'}입니다.` : '');

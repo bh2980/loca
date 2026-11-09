@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouterState } from '@tanstack/react-router';
-import type { FeedRows } from '@tw/shared';
+import { FEED_EVENT, type FeedRows } from '@tw/shared';
 import { CLIENT_ID } from './api';
 import { feed } from './feed';
 
@@ -61,7 +61,7 @@ export function useLiveInvalidation() {
       source = new EventSource('/api/events');
       alive();
       source.addEventListener('ping', alive);
-      source.addEventListener('change', onChange);
+      source.addEventListener(FEED_EVENT, onChange);
       source.addEventListener('error', reconnect);
       // Only a reconnect may have missed events; the first open has nothing stale.
       source.addEventListener('open', () => {

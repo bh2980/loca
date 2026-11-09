@@ -54,7 +54,7 @@ export const Live: Story = {
     <Stack gap="condensed" align="start">
       <NodeCard kind="ai" width="vertical" icon={<Bot />} title="AI 번역" summary="gpt-6.1-sol" parallel={4} live={{ queued: 12, running: 4, failed: 1, calls: 4, limit: 4, passed: 230 }} />
       <NodeCard kind="gather" width="vertical" icon={<Layers />} title="모으기" live={{ queued: 8, running: 0, failed: 0 }} />
-      <NodeCard kind="ai" width="vertical" icon={<Bot />} title="AI 검수" summary="판정 · 장면별" retry={{ text: "재시도 최대 5번" }} live={{ queued: 12, running: 0, failed: 0, retry: "다시 보냄 12 · 출력 잘림" }} />
+      <NodeCard kind="ai" width="vertical" icon={<Bot />} title="AI 검수" summary="판정 · 장면별" retry={{ text: "재시도 규칙 2개" }} live={{ queued: 12, running: 0, failed: 0, retry: "다시 보냄 12 · 출력 잘림" }} />
     </Stack>
   ),
 }

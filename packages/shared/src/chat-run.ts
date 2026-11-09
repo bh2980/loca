@@ -67,3 +67,38 @@ export function runCardOf(message: { parts?: readonly { type: string }[] }): Run
   const parsed = runCardSchema.safeParse(part.data);
   return parsed.success ? parsed.data : null;
 }
+
+/**
+ * A run this conversation started has stopped: finished, cancelled, or paused by itself (a cap, repeated failures). A
+ * message of the record like a card: the panel shows it where it landed, and the agent reads it with its next message,
+ * so hearing of the end costs nothing and starts nothing. The numbers are as they were then; read_run has the rest.
+ */
+export const RUN_END_PART = 'data-run-end' as const;
+export const runEndSchema = z.object({
+  id: z.string(),
+  runId: z.string(),
+  workflowName: z.string(),
+  subject: z.enum(['lines', 'terms']),
+  status: z.enum(['completed', 'paused', 'cancelled']),
+  total: z.number(),
+  /** Lines (or terms) per state. */
+  states: z.record(z.string(), z.number()),
+  /** Why it paused. */
+  notice: z.string().nullable(),
+  at: z.number(),
+});
+export type RunEnd = z.infer<typeof runEndSchema>;
+
+/** The record message that holds a run's end. */
+export const runEndMessage = (end: RunEnd) => ({ id: end.id, role: 'user' as const, metadata: { kind: 'run-end' }, parts: [{ type: RUN_END_PART, data: end }] });
+
+/** The run's end a stored message holds, or null for any other message (or a malformed one). */
+export function runEndOf(message: { parts?: readonly { type: string }[] }): RunEnd | null {
+  const part = message.parts?.find((item) => item.type === RUN_END_PART) as { data?: unknown } | undefined;
+  if (!part) return null;
+  const parsed = runEndSchema.safeParse(part.data);
+  return parsed.success ? parsed.data : null;
+}
+
+/** A card or a run's end: part of the record, not of the exchange. It is never the reply being continued or the message being revised. */
+export const isRunRecord = (message: { parts?: readonly { type: string }[] }) => Boolean(message.parts?.some((part) => part.type === RUN_CARD_PART || part.type === RUN_END_PART));

@@ -141,7 +141,7 @@ export function planRun(db: Db | Tx, definition: WorkflowDefinition, unitIds: st
   return new Map(batches.flatMap((batch, index) => batch.map((line) => [line.id, index] as const)));
 }
 
-type RunInput = { projectId: string; workflow: typeof s.workflows.$inferSelect; models: Record<string, s.AiSnapshot>; scope: s.RunScope; limits?: s.RunLimits };
+type RunInput = { projectId: string; workflow: typeof s.workflows.$inferSelect; models: Record<string, s.AiSnapshot>; scope: s.RunScope; limits?: s.RunLimits; /** The conversation it starts from: hears its end. */ sessionId?: string | null };
 
 /** The project's tags that the definition's exit actions name. */
 function exitTags(db: Db, projectId: string, definition: WorkflowDefinition): s.RunTag[] {
@@ -177,6 +177,7 @@ function runRows(db: Db, input: RunInput) {
     status: 'running' as s.RunStatus,
     total: unitIds.length,
     limits: input.limits ?? null,
+    sessionId: input.sessionId ?? null,
     // The tags its exit actions name, as they are now: one deleted while the run goes on is made again from these.
     tags: exitTags(db, input.projectId, definition),
   };

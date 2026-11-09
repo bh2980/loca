@@ -104,7 +104,7 @@ describe('the run card is stored in the conversation', () => {
 
 describe('what the agent is told about a card', () => {
   it('one line: the workflow, the target and its size, the run id and the state (pending and cancelled too)', () => {
-    expect(runCardLine(card({ state: 'started', runId: 'run-1' }))).toBe("사용자가 이 대화에서 워크플로 '번역'을 장면 Ferry(12줄)에 실행함 · run run-1 · 실행 시작함, 결과는 read_run으로 확인");
+    expect(runCardLine(card({ state: 'started', runId: 'run-1' }))).toBe("사용자가 이 대화에서 워크플로 '번역'을 장면 Ferry(12줄)에 실행함 · run run-1 · 실행 시작함, 끝나면 이 대화에 결과가 기록됨");
     expect(runCardLine(card())).toBe("사용자가 이 대화에서 워크플로 '번역'을 장면 Ferry(12줄)에 실행함 · run 없음 · 확인 대기 중, 아직 실행하지 않음");
     expect(runCardLine(card({ state: 'cancelled', input: 'terms' }))).toContain('(12개)에 실행함 · run 없음 · 확인 카드에서 취소함, 실행하지 않음');
   });

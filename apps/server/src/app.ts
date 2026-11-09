@@ -3,6 +3,7 @@ import { bodyLimit } from 'hono/body-limit';
 import { compress } from 'hono/compress';
 import { HTTPException } from 'hono/http-exception';
 import { streamSSE } from 'hono/streaming';
+import { FEED_EVENT } from '@tw/shared';
 import type { Deps, Env } from './context.ts';
 import { rowChangesOf } from './db/row-changes.ts';
 import { events, trackChanges, type ChangeEvent } from './events.ts';
@@ -36,7 +37,7 @@ export function createApp(deps: Deps) {
     .get('/events', (c) =>
       streamSSE(c, async (stream) => {
         // The client may be gone before the write: that is not an error worth crashing for.
-        const send = (event: ChangeEvent) => void stream.writeSSE({ event: 'change', data: JSON.stringify(event) }).catch(() => {});
+        const send = (event: ChangeEvent) => void stream.writeSSE({ event: FEED_EVENT, data: JSON.stringify(event) }).catch(() => {});
         // Shutting down ends the stream cleanly, so browsers reconnect instead of reporting a cut-off response.
         const close = () => stream.abort();
         events.on('change', send);

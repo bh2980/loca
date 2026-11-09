@@ -1,5 +1,6 @@
-import { AGENT_TOOLS, APP_DEFAULT_SECTION_LABELS, type AppDefaultSection, type AgeBand, type AutoMark, type Gender, personLabel, CHARACTER_ROLE_LABELS, type CharacterRole } from '@tw/shared';
+import { AGENT_TOOLS, APP_DEFAULT_SECTION_LABELS, TERM_LINE_KIND_LABELS, type AppDefaultSection, type AgeBand, type AutoMark, type Gender, personLabel, CHARACTER_ROLE_LABELS, type CharacterRole, type RunCardPlan, type TermLineKind } from '@tw/shared';
 import { MarkChip } from '@/components/status';
+import { cardSummary } from '@/lib/chat-run';
 import { Box, Markdown, Grid, Inline, Text, SectionHeading } from '@loca/ui';
 
 export const LABEL: Record<string, string> = Object.fromEntries(Object.entries(AGENT_TOOLS).map(([name, info]) => [name, info.label]));
@@ -42,7 +43,7 @@ function KnowledgeChanges({ items }: { items: ProposalDetails['items'] }) {
 }
 
 /** A readable preview of what an approval-gated tool would change. */
-export function ChangePreview({ name, input, pending = true, details }: { name: string; input: Record<string, unknown>; /** Still waiting for a decision: only then does it say what accepting will do. */ pending?: boolean; details?: ProposalDetails | null }) {
+export function ChangePreview({ name, input, pending = true, details, run }: { name: string; input: Record<string, unknown>; /** Still waiting for a decision: only then does it say what accepting will do. */ pending?: boolean; details?: ProposalDetails | null; /** A proposed run: what it would take in and cost when it was proposed (the proposal's report). */ run?: { input: 'lines' | 'terms'; plan: RunCardPlan } }) {
   // An id the project can name is shown as its name.
   const named = (value: unknown) => (typeof value === 'string' ? (details?.refs[value] ?? value) : value);
   const field = (label: string, value: unknown) =>
@@ -233,41 +234,61 @@ export function ChangePreview({ name, input, pending = true, details }: { name: 
       );
     }
     case 'start_run': {
-      const count = (key: string) => ((input[key] as unknown[] | undefined) ?? []).length;
-      const scope = [
-        count('groupIds') && `장면·묶음 ${count('groupIds')}개`,
-        count('unitIds') && `대사 ${count('unitIds')}개`,
-        count('tagIds') && `태그 ${count('tagIds')}개`,
-        input.unfinished === true ? '최종 아님' : input.unfinished === false && '최종',
-        input.decidedBy && `정한 쪽 ${input.decidedBy === 'ai' ? 'AI' : '사람'}`,
-        input.noted === true ? '메모 있음' : input.noted === false && '메모 없음',
-        input.emptyTarget === true ? '번역 비어 있음' : input.emptyTarget === false && '번역 있음',
-      ].filter(Boolean).join(', ');
-      const marks = (input.marks as AutoMark[] | undefined) ?? [];
+      const list = (key: string) => (input[key] as string[] | undefined) ?? [];
+      // A long list reads as its first names and how many more.
+      const some = (key: string) => {
+        const names = list(key).map((value) => String(named(value)));
+        return names.length > 3 ? `${names.slice(0, 3).join(', ')} 외 ${names.length - 3}개` : names.join(', ');
+      };
+      const terms = run?.input === 'terms';
+      const marks = list('marks') as AutoMark[];
+      const narrowed = ['groupIds', 'unitIds', 'kinds', 'statuses', 'speakers', 'listeners', 'tagIds', 'termIds', 'marks'].some((key) => list(key).length > 0) || ['q', 'unfinished', 'decidedBy', 'noted', 'emptyTarget'].some((key) => input[key] !== undefined);
+      const summary = run && cardSummary(run.input, run.plan);
+      const models = Object.entries((input.models as Record<string, { connection?: string; model?: string }> | undefined) ?? {});
       return (
         <Box as="dl" spaceY="tight">
           {field('워크플로', input.workflowId)}
-          <Grid columns="field" gap="condensed">
-            <Text as="dt" variant="caption" tone="muted">범위</Text>
-            <Inline as="dd" minWidth={0} wrap gap="tight" breakWords>
-              {scope || marks.length === 0 ? scope || '진입 조건에 맞는 모든 대사' : null}
-              {marks.map((mark) => (
-                <MarkChip key={mark} mark={mark} />
-              ))}
-            </Inline>
-          </Grid>
-          {field('상태 조건', input.ignoreStatus ? '무시하고 실행' : '진입 상태에 맞는 대사만')}
+          {summary && field('대상', [summary.targets, `AI 요청 ${summary.requests}`, summary.time && `약 ${summary.time}`, summary.money].filter(Boolean).join(' · '))}
+          {summary && summary.excluded > 0 && field('빠지는 줄', `번역 제외 ${summary.excluded.toLocaleString()}줄`)}
+          {!narrowed && field('범위', terms ? '용어집 전체' : '프로젝트 전체')}
+          {field('장면', some('groupIds'))}
+          {list('unitIds').length > 0 && field('대사', `${list('unitIds').length.toLocaleString()}개`)}
+          {field('종류', list('kinds').map((kind) => TERM_LINE_KIND_LABELS[kind as TermLineKind] ?? kind).join(', '))}
+          {field('상태', some('statuses'))}
+          {field('화자', some('speakers'))}
+          {field('청자', list('listeners').map((listener) => (listener === '-' ? '청자 모름' : listener)).join(', '))}
+          {field('태그', some('tagIds'))}
+          {field('용어', some('termIds'))}
+          {marks.length > 0 && (
+            <Grid columns="field" gap="condensed">
+              <Text as="dt" variant="caption" tone="muted">표시</Text>
+              <Inline as="dd" minWidth={0} wrap gap="tight">
+                {marks.map((mark) => <MarkChip key={mark} mark={mark} />)}
+              </Inline>
+            </Grid>
+          )}
+          {field('원문', input.q)}
+          {input.unfinished !== undefined && field('진행', input.unfinished ? '최종 아님' : '최종')}
+          {input.decidedBy !== undefined && field('정한 쪽', input.decidedBy === 'ai' ? 'AI' : '사람')}
+          {input.noted !== undefined && field('메모', input.noted ? '있음' : '없음')}
+          {input.emptyTarget !== undefined && field('번역', input.emptyTarget ? '비어 있음' : '있음')}
+          {!terms && field('사람이 정한 것', input.changeHuman ? '상태·태그도 바꿈' : '그대로 두고 실행 상세에 남김')}
+          {models.length > 0 && field('모델', models.map(([node, pick]) => `${node === '*' ? '모든 AI 노드' : String(named(node))} → ${String(named(pick.connection))} · ${pick.model}`).join(', '))}
           {pending && <Text as="p" tone="muted">수락하면 바로 실행이 시작되고 AI 호출 비용이 듭니다.</Text>}
         </Box>
       );
     }
     case 'continue_run': {
-      const models = Object.keys((input.models as Record<string, unknown> | undefined) ?? {}).length;
+      const models = Object.entries((input.models as Record<string, { connection?: string; model?: string }> | undefined) ?? {});
+      const limits = input.limits as { maxCalls?: number | null; maxInputTokens?: number | null } | undefined;
+      const cap = (value: number | null | undefined, unit: string) => (value === undefined ? undefined : value === null ? '없앰' : `${value.toLocaleString()}${unit}`);
       return (
         <Box as="dl" spaceY="tight">
           {field('실행', input.runId)}
           {field('실패한 대사', input.retryFailed ? '실패한 단계부터 다시' : '그대로 두기')}
-          {models > 0 && field('다른 모델', `AI 단계 ${models}개`)}
+          {models.length > 0 && field('모델', models.map(([node, pick]) => `${node === '*' ? '모든 AI 노드' : String(named(node))} → ${String(named(pick.connection))} · ${pick.model}`).join(', '))}
+          {limits?.maxCalls !== undefined && field('호출 상한', cap(limits.maxCalls, '회'))}
+          {limits?.maxInputTokens !== undefined && field('입력 토큰 상한', cap(limits.maxInputTokens, ''))}
           {pending && <Text as="p" tone="muted">수락하면 실행이 이어지고 AI 호출 비용이 듭니다.</Text>}
         </Box>
       );

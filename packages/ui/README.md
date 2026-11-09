@@ -61,7 +61,7 @@ Workbench의 화면 부품과 토큰. 화면은 여기 있는 부품만으로 �
 간격·크기: `padding` `paddingX` `paddingY` `paddingTop` `paddingBottom` `paddingLeft` `paddingRight` · `marginTop` `marginBottom` `marginLeft` `marginRight` · `spaceY` · `width` `maxWidth` `minWidth` `height` `maxHeight` `minHeight` (Stack·Inline·Grid는 `gap` `gapX` `gapY`).
 면: `background` `border` `borderColor` `divide` `radius` `shadow` `ring`.
 배치: `grow` `shrink` `overflow` `position`(`relative`) `display`(`block` `flex`) `alignSelf` `justifyContent` `fieldSizing` `resize` `cursor` `opacity` `userSelect`.
-글자: `variant` `tone` `weight` `mono` `tabular` `truncate` `lines` `leading` `lineThrough` `underline`(`true` `offset` `hover`) `preserveLines` `breakWords`(`true` `all`) `nowrap` `textAlign` `srOnly`.
+글자: `variant` `tone` `weight` `mono` `tabular` `truncate` `lines` `leading` `lineThrough` `underline`(`true` `offset` `hover`) `preserveLines` `breakWords`(`true` `all` `keep`: 한글을 단어 사이에서만 줄바꿈) `nowrap` `textAlign` `srOnly`.
 
 한 부품이나 한 라이브러리만 쓰는 옵션은 여기 없고 그 부품의 prop입니다: React Flow 연결점의 모양은 `FlowHandle look`, 위에 덮는 자리는 `Overlay` · `CanvasFloat` · `VirtualItem`, 부모 안쪽 여백을 넘는 상자는 `Bleed by`, 목록 첫·마지막 줄의 여백 제거와 줄 호버 묶음은 `ListItem trim` · `group`, 버튼의 정렬·호버 표시·접힘 화살표 묶음은 `Button flush` · `align` · `reveal` · `group`, 대화창 너비·높이는 `DialogContent size` · `tall`, 경고 안 줄은 `AlertRow`.
 

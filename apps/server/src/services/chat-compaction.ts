@@ -1,13 +1,13 @@
 import type { UIMessage } from 'ai';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { estimateTokens, limitsFor, runCardOf } from '@tw/shared';
+import { estimateTokens, limitsFor, runCardOf, runEndOf } from '@tw/shared';
 import * as ai from '@tw/ai';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { logged } from './ai-calls.ts';
-import { runCardLine, transcript } from './chat-context.ts';
+import { runCardLine, runEndLine, transcript } from './chat-context.ts';
 
 /**
  * A conversation is sent whole until it would not fit the model's window; then, as pi does, the
@@ -38,7 +38,9 @@ const IMAGE_TOKENS = 1_500;
 /** A run card costs its line, not the scope ids it carries. */
 const cardPart = (part: UIMessage['parts'][number]) => {
   const card = runCardOf({ parts: [part] });
-  return card ? { type: 'run-card', line: runCardLine(card) } : part;
+  if (card) return { type: 'run-card', line: runCardLine(card) };
+  const end = runEndOf({ parts: [part] });
+  return end ? { type: 'run-end', line: runEndLine(end) } : part;
 };
 export const partsTokens = (parts: UIMessage['parts']) => estimateTokens(parts.map((part) => (part.type === 'file' ? { type: 'file' } : cardPart(part)))) + IMAGE_TOKENS * parts.filter((part) => part.type === 'file').length;
 

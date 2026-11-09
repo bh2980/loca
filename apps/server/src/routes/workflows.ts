@@ -20,7 +20,7 @@ import { deleteWorkflow, saveWorkflow, workflowCallers, WorkflowMutationError } 
 import { issueTagIds } from '../services/issue-tags.ts';
 import { runRows } from '../services/run-rows.ts';
 import { workflowRows } from '../services/workflow-rows.ts';
-import { connectionName, connectionNames, runItemIds, runItemRows, runProgress } from '../services/run-detail.ts';
+import { connectionName, connectionNames, runItemIds, runNodeExits, runItemRows, runProgress } from '../services/run-detail.ts';
 import { aiCallRows } from '../services/log-rows.ts';
 import { rowChangesOf } from '../db/row-changes.ts';
 
@@ -28,7 +28,7 @@ const scopeSchema = runScopeSchema;
 /** A run's scope and, optionally, the models it uses instead of its nodes' own (by AI node id). */
 const runSchema = scopeSchema.extend({ models: runModelsSchema.optional() });
 const runLimitsSchema = z.object({ maxCalls: z.number().int().min(1).optional(), maxInputTokens: z.number().int().min(1).optional() });
-const runItemQuery = z.object({ state: z.string().optional(), nodeId: z.string().optional(), offset: z.coerce.number().default(0), limit: z.coerce.number().max(500).default(100) });
+const runItemQuery = z.object({ state: z.string().optional(), nodeId: z.string().optional(), through: z.string().optional(), exit: z.string().optional(), offset: z.coerce.number().default(0), limit: z.coerce.number().max(500).default(100) });
 const continueSchema = z.object({ models: runModelsSchema.optional(), retryFailed: z.boolean().default(false) });
 
 /** A whole-script run continued or resumed while another one runs: refused like a second start. */
@@ -310,6 +310,8 @@ export const workflowRoutes = new Hono<Env>()
   })
   /** One page of a run's items as ids: the run page reads the items from the browser's run items collection. */
   .get('/runs/:id/items/ids', validate('query', runItemQuery), (c) => c.json(runItemIds(c.var.deps.db, c.req.param('id'), c.req.valid('query'))))
+  /** What a node did with its items: the run graph's node pane. */
+  .get('/runs/:id/node-exits', validate('query', z.object({ nodeId: z.string() })), (c) => c.json(runNodeExits(c.var.deps.db, c.req.param('id'), c.req.valid('query').nodeId)))
   /** Run items by id, with the feed's count when read (the browser's run items collection). */
   .post('/projects/:projectId/run-items', validate('json', z.object({ ids: z.array(z.string()).max(500) })), (c) => {
     const seq = rowChangesOf(c.var.deps.db.$client).seq;

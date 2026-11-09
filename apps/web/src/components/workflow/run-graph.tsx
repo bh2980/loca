@@ -255,7 +255,7 @@ function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; ru
           <Box as="ul" spaceY="tight">
             {callMembers(run.definition, openCall, run.nodes).map((member) => (
               <Box as="li" key={member.node.id} paddingLeft={member.depth ? 'comfortable' : undefined}>
-                <Button variant="ghost" height="auto" width="full" justifyContent="between" gap="condensed" paddingY="tight" weight="normal" title="이 노드의 대사 보기" onClick={() => onOpenNode(member.node.id)}>
+                <Button variant="ghost" height="auto" width="full" justifyContent="between" gap="condensed" paddingY="tight" weight="normal" title="이 노드를 거친 대사 보기" onClick={() => onOpenNode(member.node.id)}>
                   <Text minWidth={0} truncate align="start">{member.name}</Text>
                   <Text shrink={false} variant="caption" tone="muted" tabular>
                     {(Object.keys(ITEM_STATE) as (keyof typeof ITEM_STATE)[]).filter((state) => member.counts[state]).map((state) => `${ITEM_STATE[state]} ${member.counts[state]!.toLocaleString()}`).join(' · ') || '대사 없음'}

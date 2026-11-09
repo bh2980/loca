@@ -35,13 +35,12 @@ export function retryLiveText(retrying?: { count: number; kinds: Record<string, 
 }
 
 /**
- * An AI node's retry rules on its card: "재시도 최대 5번" (every rule's times together), each rule in `detail`; "재시도 안 함" when it
- * has none. Undefined for any other node.
+ * An AI node's retry rules on its card: "재시도 규칙 2개" (no one line is sent back that many times: each rule counts its own
+ * failures), each rule in `detail`; "재시도 안 함" when it has none. Undefined for any other node.
  */
 export function retryBadge(definition: Pick<WorkflowDefinition, 'settings'>, node: WorkflowNode): { text: string; detail?: string } | undefined {
   if (node.type !== 'ai') return undefined;
   const rules = nodeRetries(definition, node);
   if (!rules.length) return { text: '재시도 안 함' };
-  const times = rules.reduce((sum, rule) => sum + rule.maxTimes, 0);
-  return { text: `재시도 최대 ${times}번${node.config.retries ? '' : ' · 워크플로 기본'}`, detail: rules.map(retrySummary).join('\n') };
+  return { text: `재시도 규칙 ${rules.length}개${node.config.retries ? '' : ' · 워크플로 기본'}`, detail: rules.map(retrySummary).join('\n') };
 }

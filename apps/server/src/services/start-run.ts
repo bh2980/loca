@@ -21,7 +21,7 @@ export const fitScope = (definition: WorkflowDefinition, scope: s.RunScope) => {
  * card share it. This run's models (the dialog's picks) stand in for the nodes' own; the workflow
  * is not changed. Refused (400) when the scope, the workflow or a workflow it calls has errors.
  */
-export async function startWorkflowRun(db: Db, workflowId: string, input: { scope: s.RunScope; models?: z.infer<typeof runModelsSchema>; limits?: { maxCalls?: number; maxInputTokens?: number } }) {
+export async function startWorkflowRun(db: Db, workflowId: string, input: { scope: s.RunScope; models?: z.infer<typeof runModelsSchema>; limits?: { maxCalls?: number; maxInputTokens?: number }; sessionId?: string | null }) {
   const stored = found(db.select().from(s.workflows).where(eq(s.workflows.id, workflowId)).get(), '워크플로');
   const scope = { ...input.scope };
   fitScope(stored.definition, scope);
@@ -31,7 +31,7 @@ export async function startWorkflowRun(db: Db, workflowId: string, input: { scop
   try {
     const called = calledWorkflowErrors(db, workflow.projectId, workflow.definition, workflow.id);
     if (called.length) badRequest(`부르는 워크플로에 오류가 ${called.length}개 있습니다: ${called[0]}`);
-    return await createRunInSteps(db, { projectId: workflow.projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope, limits: input.limits });
+    return await createRunInSteps(db, { projectId: workflow.projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope, limits: input.limits, sessionId: input.sessionId });
   } catch (error) {
     if (error instanceof HTTPException) throw error;
     badRequest(error instanceof Error ? error.message : String(error));

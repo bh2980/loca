@@ -34,7 +34,7 @@ interface NodeCardProps {
   warnings?: number
   /** Lines waiting, being worked on and failed here; `calls`/`limit`: requests in flight and how many can be at once; `passed`: lines that went through (a run's graph). */
   live?: { queued: number; running: number; failed: number; calls?: number; limit?: number; passed?: number; /** An AI node: the lines its retry rules sent back that wait to be sent again, as a phrase ("다시 보냄 12 · 출력 잘림"). */ retry?: string }
-  /** An AI node's retry rules in a few words ("재시도 최대 5번"), with every rule in `detail` (its tooltip). */
+  /** An AI node's retry rules in a few words ("재시도 규칙 2개"), with every rule in `detail` (its tooltip). */
   retry?: { text: string; detail?: string }
   /** An AI node's model, as a chip in its header ("grok-4.7"). */
   badge?: string

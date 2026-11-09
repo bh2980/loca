@@ -128,7 +128,7 @@ function Scene({ hover }: { hover?: boolean }) {
       <At x={500} y={40}><div style={{ width: 300, height: 260 }} className="pointer-events-none"><WorkflowFrame label="용어 추출" meta="노드 2" onRename={() => {}} onUngroup={() => {}} /></div></At>
       <At x={500} y={372}><div style={{ width: 300, height: 170 }} className="pointer-events-none"><WorkflowFrame label="수정 루프" meta="노드 4" onRename={() => {}} onUngroup={() => {}} /></div></At>
 
-      <At x={78} y={110} width={224}><NodeCard kind="ai" icon={<ScanSearch />} title="AI 검수" badge="mock" summary="판정 · 장면별" retry={{ text: "재시도 최대 5번" }} /></At>
+      <At x={78} y={110} width={224}><NodeCard kind="ai" icon={<ScanSearch />} title="AI 검수" badge="mock" summary="판정 · 장면별" retry={{ text: "재시도 규칙 2개" }} /></At>
       <Dot x={x[0]!} y={198} /><Dot x={x[1]!} y={198} tone="warning" picked /><Dot x={x[2]!} y={198} tone="destructive" />
       <At x={538} y={110} width={224}><NodeCard kind="ai" icon={<Braces />} title="AI 용어 추출" badge="mock" summary="JSON · 장면별" retry={{ text: "재시도 최대 5번" }} /></At>
       <At x={538} y={222} width={224}><NodeCard kind="apply" icon={<Braces />} verb="저장" title="용어 저장" /></At>

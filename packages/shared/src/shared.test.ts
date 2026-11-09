@@ -12,7 +12,7 @@ import { APPLY_TARGETS } from './functions.ts';
 import { AI_PRESETS, AI_PROMPTS, presetConfig } from './presets.ts';
 import { CONTEXT_FIELDS } from './context.ts';
 import { APPLY_PALETTE_ORDER, fieldsFromSample, FUNCTION_NAMES, functionGroup } from './functions.ts';
-import { applyIssues, contextConfigSchema, nodeOutputFields, nodePorts, pickPaths, previousStepId, previousSteps, readinessUses, retrySummary, retryModel, retryRuleIndex, retryScaleText, resendsOf, nodeRetries, DEFAULT_RETRY_RULES, definitionModels, ITEM_ERROR_KINDS, validateWorkflow, workflowDefinitionSchema, workflowNodeSchema, type RetryRule, type WorkflowDefinition, type WorkflowNode } from './workflow.ts';
+import { applyIssues, contextConfigSchema, nodeOutputFields, nodePorts, pickPaths, previousStepId, previousSteps, readinessUses, retryAction, retrySummary, retryWhen, retryModel, retryRuleIndex, retryScaleText, resendsOf, nodeRetries, DEFAULT_RETRY_RULES, definitionModels, ITEM_ERROR_KINDS, validateWorkflow, workflowDefinitionSchema, workflowNodeSchema, type RetryRule, type WorkflowDefinition, type WorkflowNode } from './workflow.ts';
 
 const model = { connectionId: 'c', model: 'm' };
 /** The project's tag for each kind checks and reviews name (a new project has one of each). */
@@ -492,12 +492,18 @@ describe('retry rules', () => {
 
   it('is summarised in one line, wait and model included', () => {
     const base = rule();
-    expect(retrySummary(base)).toBe('출력 잘림 · 절반 크기 · 최대 2번');
-    expect(retrySummary({ ...base, kinds: ['cut-off', 'too-long'], scale: 0.25, maxTimes: 3 })).toBe('출력 잘림·요청이 너무 김 · 25% 크기 · 최대 3번');
-    expect(retrySummary({ ...base, kinds: ['rate-limit', 'network'], scale: 1, wait: 60, maxTimes: 3 })).toBe('사용량 한도·연결 끊김 · 같은 크기 · 1분 기다림 · 최대 3번');
-    expect(retrySummary({ ...base, kinds: ['rate-limit'], scale: 1, wait: 90, model: { connectionId: 'c', model: 'gpt-x' }, maxTimes: 1 })).toBe('사용량 한도 · 같은 크기 · 1분 30초 기다림 · 다른 모델 gpt-x · 최대 1번');
+    expect(retrySummary(base)).toBe('출력 잘림일 때 한 번에 보내는 양을 절반으로 줄여 최대 2번 다시 보냄');
+    expect(retrySummary({ ...base, kinds: ['cut-off', 'too-long'], scale: 0.25, maxTimes: 3 })).toBe('출력 잘림·요청이 너무 김일 때 한 번에 보내는 양을 4분의 1로 줄여 최대 3번 다시 보냄');
+    expect(retrySummary({ ...base, kinds: ['rate-limit', 'network'], scale: 1, wait: 60, maxTimes: 3 })).toBe('사용량 한도·연결 끊김이면 1분 뒤 그대로 최대 3번 다시 보냄');
+    expect(retrySummary({ ...base, kinds: ['rate-limit'], scale: 1, wait: 90, model: { connectionId: 'c', model: 'gpt-x' }, maxTimes: 1 })).toBe('사용량 한도일 때 1분 30초 뒤 그대로 다른 모델 gpt-x로 최대 1번 다시 보냄');
+    // The default rules read as what they mean, not as a list of failure kinds.
+    expect(DEFAULT_RETRY_RULES.map(retryWhen)).toEqual(['요청이나 응답에 문제가 있으면', '사용량 한도·연결 끊김이면']);
+    expect(DEFAULT_RETRY_RULES.map(retryAction)).toEqual(['한 번에 보내는 양을 절반으로 줄여 최대 2번 다시 보냄', '1분 뒤 그대로 최대 3번 다시 보냄']);
+    expect(retryWhen({ kinds: [] })).toBe('고른 오류 없음');
+    expect(retryWhen({ kinds: Object.keys(ITEM_ERROR_KINDS) as RetryRule['kinds'] })).toBe('어떤 오류든');
     expect(retryScaleText(1)).toBe('그대로');
     expect(retryScaleText(0.5)).toBe('절반');
+    expect(retryScaleText(0.25)).toBe('4분의 1');
     expect(retryScaleText(0.3)).toBe('30%');
   });
 

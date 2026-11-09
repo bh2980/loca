@@ -197,7 +197,7 @@ function AiRetrySection({ node, refs, set }: { node: AiNode; refs: NodeRefs; set
         </Field>
         {mode === 'workflow' && (
           <Box spaceY="tight">
-            {workflow.length ? workflow.map((rule, index) => <Text as="p" key={index} variant="caption" tone="muted">{retrySummary(rule)}</Text>) : <Text as="p" variant="caption" tone="muted">워크플로 기본은 재시도하지 않습니다.</Text>}
+            {workflow.length ? workflow.map((rule, index) => <Text as="p" key={index} variant="caption" tone="muted" breakWords="keep">{retrySummary(rule)}</Text>) : <Text as="p" variant="caption" tone="muted">워크플로 기본은 재시도하지 않습니다.</Text>}
             {refs.onOpenWorkflowSettings && <Button variant="ghost" size="inline" flush="start" onClick={refs.onOpenWorkflowSettings}>워크플로 설정에서 바꾸기</Button>}
           </Box>
         )}

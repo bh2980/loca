@@ -1,5 +1,5 @@
 import type { UIMessage } from 'ai';
-import { runCardMessage, runCardOf, type RunCard, type RunCardPlan } from '@tw/shared';
+import { isRunRecord, runCardMessage, type RunCard, type RunCardPlan } from '@tw/shared';
 import { paceParts } from './run-summary';
 
 /** The card's numbers in words: how many lines (or terms), requests, time and cost, as they were when the card was made. */
@@ -18,7 +18,7 @@ export function withCard<T extends { messages: unknown[] }>(session: T, card: Ru
 }
 
 /**
- * The conversation on screen with the run cards of the stored one: a card this window does not have
+ * The conversation on screen with the run cards and run ends of the stored one: one this window does not have
  * goes where the stored conversation has it (after the message that precedes it there), and one it has
  * is replaced by the stored state. Other messages are never touched (a reply may be streaming in
  * them); null when nothing changes.
@@ -26,7 +26,7 @@ export function withCard<T extends { messages: unknown[] }>(session: T, card: Ru
 export function syncCards(local: UIMessage[], stored: UIMessage[]): UIMessage[] | null {
   let next = local;
   stored.forEach((message, index) => {
-    if (!runCardOf(message)) return;
+    if (!isRunRecord(message)) return;
     const at = next.findIndex((item) => item.id === message.id);
     if (at >= 0) {
       if (JSON.stringify(next[at]!.parts) !== JSON.stringify(message.parts)) next = next.map((item, i) => (i === at ? message : item));

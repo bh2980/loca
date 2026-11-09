@@ -334,7 +334,7 @@ export const STYLE = {
   /** Keeps the text's own line breaks. */
   preserveLines: { true: "whitespace-pre-wrap" },
   /** `true` breaks at word edges first; `all` anywhere (a long key or path). */
-  breakWords: { true: "break-words", all: "break-all" },
+  breakWords: { true: "break-words", all: "break-all", keep: "break-keep" },
   nowrap: { true: "whitespace-nowrap" },
   textAlign: { start: "text-left", center: "text-center", end: "text-right" },
   opacity: { 0: "opacity-0", 50: "opacity-50", 60: "opacity-60", 100: "opacity-100" },

@@ -24,6 +24,13 @@ const APP_ONLY: readonly string[] = ['projects', 'appDefaults'];
 /** What a project's collections load whole (GET /projects/:id/sync/:collection). */
 export const SNAPSHOT_COLLECTIONS = FEED_COLLECTIONS.filter((name): name is Exclude<FeedCollection, HeldCollection | 'projects' | 'appDefaults'> => !(HELD_COLLECTIONS as readonly string[]).includes(name) && !APP_ONLY.includes(name));
 export type SnapshotCollection = (typeof SNAPSHOT_COLLECTIONS)[number];
+/**
+ * The name of the change events on GET /events. Never "change": React reads window.event.type to rank an update, and an
+ * update made while handling a "change" event is drawn at once as if a person had typed, in a microtask. A table that kept
+ * drawing that way never gave the browser a turn to read the rows it was waiting for: the page froze.
+ */
+export const FEED_EVENT = 'feed';
+
 /** More changed rows of a held collection than this in one event go out as `reload` instead of ids (a bulk change, an import). */
 export const FEED_UNITS_LIMIT = 500;
 

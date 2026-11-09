@@ -44,15 +44,30 @@ export const connectionNames = (db: Db) => new Map(db.select({ id: s.connections
 export const connectionName = (names: Map<string, string>, id: string | null, kind: string | null) =>
   (id && names.get(id)) ?? (kind ? (CONNECTION_KIND_INFO[kind as keyof typeof CONNECTION_KIND_INFO]?.label ?? kind) : null);
 
-export type RunItemQuery = { state?: string; nodeId?: string; offset: number; limit: number };
+export type RunItemQuery = { state?: string; nodeId?: string; through?: string; exit?: string; offset: number; limit: number };
 
-/** A run's items in a state or at a node (a call's id also matches every node inside it: the run graph's call card opens them all). */
-function itemsWhere(runId: string, { state, nodeId }: Pick<RunItemQuery, 'state' | 'nodeId'>): SQL {
+/**
+ * A run's items in a state, at a node (where each is now; a call's id also matches every node inside it: the run graph's
+ * call card opens them all), or that came through a node, wherever they are now (the run graph's nodes open these: a
+ * finished line has moved on from every node but its last), optionally out of one of its exits.
+ */
+function itemsWhere(runId: string, { state, nodeId, through, exit }: Pick<RunItemQuery, 'state' | 'nodeId' | 'through' | 'exit'>): SQL {
   const conditions = [eq(s.runItems.runId, runId)];
   if (state === 'retrying') conditions.push(RETRYING);
   else if (state) conditions.push(eq(s.runItems.state, state as s.ItemState));
   if (nodeId) conditions.push(or(eq(s.runItems.nodeId, nodeId), sql`substr(${s.runItems.nodeId}, 1, ${nodeId.length + 1}) = ${`${nodeId}/`}`)!);
+  // `visits` has every node an item reached, including the one it is waiting at.
+  if (through) conditions.push(sql`exists (select 1 from json_each(${s.runItems.visits}) visit where visit.key = ${through} or substr(visit.key, 1, ${through.length + 1}) = ${`${through}/`})`);
+  if (through && exit) conditions.push(sql`exists (select 1 from json_each(${s.runItems.data}, '$.path') step where json_extract(step.value, '$.nodeId') = ${through} and json_extract(step.value, '$.port') = ${exit})`);
   return and(...conditions)!;
+}
+
+/** What a node did with its items, for its pane: how many reached it, how many are there now, and how many left by each exit (an item that left by one twice counts once). */
+export function runNodeExits(db: Db, runId: string, nodeId: string) {
+  const arrived = db.select({ count: count() }).from(s.runItems).where(itemsWhere(runId, { through: nodeId })).get()!.count;
+  const here = db.select({ count: count() }).from(s.runItems).where(and(eq(s.runItems.runId, runId), eq(s.runItems.nodeId, nodeId), inArray(s.runItems.state, ['queued', 'running']))).get()!.count;
+  const exits = db.all<{ port: string; count: number }>(sql`select json_extract(step.value, '$.port') as port, count(distinct item.id) as count from ${s.runItems} item, json_each(item.data, '$.path') step where item.run_id = ${runId} and json_extract(step.value, '$.nodeId') = ${nodeId} group by port order by count desc`);
+  return { arrived, here, exits };
 }
 
 /** One page of a run's items as ids, with how many there are: lines in script order, terms most used first. */
@@ -128,10 +143,12 @@ export function runProgress(db: Db, runner: Runner, projectId: string, ids: read
       .groupBy(s.runSteps.connectionId, s.runSteps.model)
       .all()
       .map((row) => ({ ...row, name: connectionName(names, row.connectionId, null) }));
-    // Items that went through each node (a line that visited a node twice counts once): the run graph's "지나감".
+    // Items that went through each node (a line that visited a node twice counts once): the run graph's "지나감". What
+    // reached a node, less what is on its first visit there and has not left: `visits` is far smaller to read than `path`.
     const passed = Object.fromEntries(
       db
-        .all<{ nodeId: string; count: number }>(sql`select json_extract(step.value, '$.nodeId') as nodeId, count(distinct item.id) as count from ${s.runItems} item, json_each(item.data, '$.path') step where item.run_id = ${run.id} group by nodeId`)
+        .all<{ nodeId: string; count: number }>(sql`select visit.key as nodeId, count(*) - sum(item.node_id = visit.key and item.state <> 'done' and visit.value = 1) as count from ${s.runItems} item, json_each(item.visits) visit where item.run_id = ${run.id} group by visit.key`)
+        .filter((row) => row.count > 0)
         .map((row) => [row.nodeId, row.count]),
     );
     // What the exits' actions could not do (node id:exit → note → lines): a person's status kept, a tag name no tag has.

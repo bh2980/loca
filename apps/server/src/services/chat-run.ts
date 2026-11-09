@@ -1,4 +1,4 @@
-import { convertToModelMessages, stepCountIs, streamText, type ModelMessage, type UIMessage } from 'ai';
+import { convertToModelMessages, stepCountIs, streamText, type ModelMessage, type StopCondition, type ToolSet, type UIMessage } from 'ai';
 import { eq } from 'drizzle-orm';
 import { CALL_TIMEOUT_MS, chatTitle, estimateTokens } from '@tw/shared';
 import * as ai from '@tw/ai';
@@ -9,7 +9,7 @@ import { events } from '../events.ts';
 import { startCall } from './ai-calls.ts';
 import { AGENT_SYSTEM } from './agent-tools.ts';
 import { gatedTools } from './change-gate.ts';
-import { expandRecord, isRunCard, lastExchange, mergeIncoming, type AnsweredBy } from './chat-context.ts';
+import { expandRecord, isRunRecord, lastExchange, mergeIncoming, type AnsweredBy } from './chat-context.ts';
 import { fitRecord } from './chat-compaction.ts';
 import { imageDecision } from '@tw/shared';
 import { incomingImageProblem, withoutImages } from './chat-images.ts';
@@ -18,7 +18,7 @@ import { hasInterjections, takeInterjections, writeInterjections, type Interject
 import { deletingChats, afterTurn, startTurn, turnEnded, turnStartedAt, type ChatTurn } from './chat-turns.ts';
 import { chatStream, errorText } from './chat-stream.ts';
 import { cliChatResponse } from './cli-chat.ts';
-import { hasUnreportedDecisions, openProposals, takeDecisions } from './proposals.ts';
+import { hasDecisionsToAnswer, openProposals, RUN_STARTING_TOOLS, takeDecisions } from './proposals.ts';
 import { liveChoice } from './routes.ts';
 import { withFittedResults } from './tool-output.ts';
 
@@ -53,7 +53,7 @@ export async function runChatTurn(deps: Pick<Deps, 'db' | 'secrets'>, given: typ
   if (!messages.length) throw new Error('보낼 메시지가 없습니다.');
   const answeredBy: AnsweredBy = { kind: route.kind, connectionId: session.connectionId, model: route.model };
 
-  const firstUser = messages.find((message) => message.role === 'user' && !isRunCard(message));
+  const firstUser = messages.find((message) => message.role === 'user' && !isRunRecord(message));
   const firstText = firstUser?.parts.find((part) => part.type === 'text');
   if (session.title === '새 대화' && firstText && 'text' in firstText) {
     db.update(s.chatSessions).set({ title: chatTitle(firstText.text) }).where(eq(s.chatSessions.id, session.id)).run();
@@ -83,11 +83,12 @@ export async function runChatTurn(deps: Pick<Deps, 'db' | 'secrets'>, given: typ
  * running turn takes them at its next step; if it had already finished, this runs again when it
  * ends. Otherwise the server starts a turn whose question is the results (a user message marked
  * `metadata.kind = 'decisions'`), and the panel attaches to its stream (GET /chat/:id/stream).
+ * A run that was accepted starts no turn: it goes on by itself and records its end here (chat-run-end.ts).
  */
 export function continueAfterDecisions(deps: Pick<Deps, 'db' | 'secrets'>, sessionId: string) {
   const { db } = deps;
   if (deletingChats.has(sessionId)) return;
-  if (openProposals(db, sessionId) || !hasUnreportedDecisions(db, sessionId)) return;
+  if (openProposals(db, sessionId) || !hasDecisionsToAnswer(db, sessionId)) return;
   if (turnStartedAt(sessionId) !== null) {
     afterTurn(sessionId, () => continueAfterDecisions(deps, sessionId));
     return;
@@ -116,6 +117,9 @@ export const toolTokens = (db: Db, projectId: string) => estimateTokens(agentCat
 
 /** Steps one API turn may take, across the passes steering messages start. */
 const MAX_STEPS = 30;
+
+/** A run was started two steps ago: the step after it said so, and the turn is over (the run goes on without it). */
+const afterStartingRun: StopCondition<ToolSet> = ({ steps }) => Boolean(steps.at(-2)?.toolCalls.some((call) => RUN_STARTING_TOOLS.has(call.toolName)));
 
 /**
  * The API (OpenAI-compatible) chat turn: passes of streamText in one reply. A pass stops early when
@@ -181,7 +185,7 @@ function apiChatResponse(input: {
           messages: modelMessages,
           tools,
           // A waiting steering message ends the pass after the current step (its tool results are in).
-          stopWhen: [stepCountIs(MAX_STEPS - steps), () => hasInterjections(db, session.id)],
+          stopWhen: [stepCountIs(MAX_STEPS - steps), () => hasInterjections(db, session.id), afterStartingRun],
           maxOutputTokens: live.snapshot.maxOutputTokens,
           providerOptions: ai.openaiProviderOptions(route),
           abortSignal: AbortSignal.any([turn.signal, idle.signal]),

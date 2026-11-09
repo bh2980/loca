@@ -96,7 +96,7 @@ function ProjectLayout() {
           <WorkspaceShell open={open} onOpenChange={(next) => { setPropertiesOpen(next); if (!next) chatDock.set(false); }} dock={<>
             <DockHeader mode={chatOpen ? 'agent' : 'properties'} onMode={changeMode} onToggle={toggleDock} unread={unread} tools={<><CommandSearch projectId={projectId} compact listen={open} /><ShortcutHelp listen={open} /></>} hasProperties={hasInspector} />
             <DockPane active={!chatOpen}><DockInspector /></DockPane>
-            <DockPane active={chatOpen}><ChatPanel projectId={projectId} /></DockPane>
+            <DockPane active={chatOpen}><ChatPanel projectId={projectId} active={chatOpen} /></DockPane>
           </>}>
             <PageHeader title={current.item.label} leading={<SidebarTrigger />} tools={!open && <DockHeader mode="properties" onMode={changeMode} onToggle={toggleDock} open={false} tools={<><CommandSearch projectId={projectId} compact /><ShortcutHelp /></>} />} />
             <Stack as="main" minHeight={0} grow overflow="hidden" background="page"><Outlet /></Stack>

@@ -1,8 +1,8 @@
 import { useEffect, useMemo } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import type { RunCard } from '@tw/shared';
-import { Box, Button, Inline, Progress, Spinner, Stack, Text } from '@loca/ui';
+import type { RunCard, RunEnd } from '@tw/shared';
+import { Box, Button, Inline, Progress, RunStatusBadge, Spinner, Stack, Text } from '@loca/ui';
 import { cardSummary } from '@/lib/chat-run';
 import { answerRunCard } from '@/lib/chat-run-api';
 import { keyLabel } from '@/lib/keys';
@@ -105,6 +105,25 @@ function RunProgress({ projectId, runId }: { projectId: string; runId: string })
         {run && (run.states.failed ?? 0) > 0 && <Text tabular>실패 {run.states.failed!.toLocaleString()}</Text>}
         <Text asChild marginLeft="auto" underline="offset"><Link to="/p/$projectId/runs/$runId" params={{ projectId, runId }}>실행 보기</Link></Text>
       </Inline>
+    </Box>
+  );
+}
+
+const END_TITLE = { completed: '실행이 끝났습니다', paused: '실행이 멈췄습니다', cancelled: '실행을 취소했습니다' } as const;
+
+/** A run started here has stopped: what came of it and the way to it. Nothing else happens in the conversation until the person writes (the agent reads this then). */
+export function RunEndView({ projectId, end }: { projectId: string; end: RunEnd }) {
+  const unit = end.subject === 'terms' ? '개' : '줄';
+  const counts = [['done', '완료'], ['failed', '실패'], ['cancelled', '취소']].flatMap(([state, label]) => ((end.states[state!] ?? 0) > 0 ? [`${label} ${end.states[state!]!.toLocaleString()}${unit}`] : []));
+  return (
+    <Box spaceY="tight" radius="md" border="all" background="sunken" paddingX="normal" paddingY="condensed" variant="body" role="status">
+      <Inline wrap gap="condensed">
+        <RunStatusBadge status={end.status} />
+        <Text minWidth={0} weight="medium">‘{end.workflowName}’ {END_TITLE[end.status]}</Text>
+        <Text asChild marginLeft="auto" variant="caption" underline="offset"><Link to="/p/$projectId/runs/$runId" params={{ projectId, runId: end.runId }}>실행 보기</Link></Text>
+      </Inline>
+      {counts.length > 0 && <Text as="p" variant="caption" tone="muted" tabular>{counts.join(' · ')}</Text>}
+      {end.notice && <Text as="p" variant="caption" tone="muted" breakWords>{end.notice}</Text>}
     </Box>
   );
 }
