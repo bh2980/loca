@@ -99,12 +99,13 @@ export function usageFor(promptChars: number, completionChars: number, options: 
   return { prompt_tokens: prompt, completion_tokens: completion, total_tokens: prompt + completion, prompt_tokens_details: { cached_tokens: Math.min(options.cachedTokens, prompt) } };
 }
 
-export type MockKind = 'complete' | 'test' | 'regex' | 'text' | 'revise' | 'refine' | 'verdict' | 'choice' | 'json' | 'jsonBatch';
+export type MockKind = 'complete' | 'test' | 'regex' | 'summary' | 'text' | 'revise' | 'refine' | 'verdict' | 'choice' | 'json' | 'jsonBatch';
 
 /** Which answer the prompt asks for. The server's FORMAT sentences (engine/format-sentences.ts) name the output form; instructions tell translate from revise. */
 export function detectKind(system: string): MockKind {
   if (system.startsWith('Translate the text into')) return 'test';
   if (system.includes('JavaScript 정규식 전문가')) return 'regex';
+  if (system.includes('채팅의 앞부분을 요약합니다')) return 'summary';
   if (system.includes('continue a Korean game translation')) return 'complete';
   // AI 다듬기 answers per line as json (text + changes): read before the generic json forms.
   if (system.includes('Do not rephrase what is already correct')) return 'refine';
@@ -196,7 +197,7 @@ const stubborn = (source: string) => /orders/i.test(source);
 const termForms = (source: string, glossary: { source: string; target: string }[]) =>
   glossary.filter((term) => term.target && source.toLowerCase().includes(term.source.toLowerCase())).map((term) => ` ${term.target}`).join('');
 
-function structured(kind: Exclude<MockKind, 'test' | 'complete' | 'regex'>, rows: Row[], schema: unknown, glossary: { source: string; target: string }[] = []): { body: unknown; entries?: { key: string; textKey?: string } } {
+function structured(kind: Exclude<MockKind, 'test' | 'complete' | 'regex' | 'summary'>, rows: Row[], schema: unknown, glossary: { source: string; target: string }[] = []): { body: unknown; entries?: { key: string; textKey?: string } } {
   const properties = (schema as JsonDef | undefined)?.properties ?? {};
   switch (kind) {
     // The editor's 다듬기: a "[KO] " draft is marked checked (one reasoned change); anything else has nothing to fix.
@@ -303,6 +304,10 @@ export function respond(request: MockRequest, options: MockOptions, rand: () => 
     body = request.user.includes('치환자(placeholder)')
       ? { label: '모의 이중 대괄호 변수', kind: 'placeholder', pattern: String.raw`\[\[[A-Z_]+\]\]`, example: '[[NAME]]' }
       : { label: '모의 영문 대문자 약어', kind: 'forbidden', pattern: String.raw`\b[A-Z]{2,}\b`, example: 'HP NPC' };
+    lines = 1;
+  } else if (kind === 'summary') {
+    // The chat's compaction: its start, summarized. The prompt is the conversation as text, not a batch.
+    body = { summary: `[모의 요약] 앞 대화 ${request.user.length.toLocaleString()}자를 줄였습니다.` };
     lines = 1;
   } else if (kind === 'test') {
     // A model test (AI 연결 › 모델 시험): one plain sentence, not a JSON batch.

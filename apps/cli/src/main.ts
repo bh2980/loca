@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { Command, Option } from 'commander';
 import { hc } from 'hono/client';
 import type { AppType } from '@tw/server/app';
-import { acceptedLabel, AUTO_MARKS, CHECK_KINDS, EXCLUSION_REASON_LABELS, CONTEXT_ITEM_KINDS, importFileJsonSchema, importFileSchema, importWarnings, KNOWLEDGE_MARK_IDS, KNOWLEDGE_STATUS_LABELS, LINE_MARK_IDS, lineChangeSchema, summarizeImport, retryRuleSchema, retrySummary, TERM_MARK_IDS, termScopeLabel, type AutoMark, type KnowledgeStatus, type LineFilterInput, type LineMark, personLabel, DECIDED_BY, type DecidedBy, EXCLUDED_FILTERS, type ExcludedFilter } from '@tw/shared';
+import { acceptedLabel, AUTO_MARKS, FEED_EVENT, CHECK_KINDS, EXCLUSION_REASON_LABELS, CONTEXT_ITEM_KINDS, importFileJsonSchema, importFileSchema, importWarnings, KNOWLEDGE_MARK_IDS, KNOWLEDGE_STATUS_LABELS, LINE_MARK_IDS, lineChangeSchema, summarizeImport, retryRuleSchema, retrySummary, TERM_MARK_IDS, termScopeLabel, type AutoMark, type KnowledgeStatus, type LineFilterInput, type LineMark, personLabel, DECIDED_BY, type DecidedBy, EXCLUDED_FILTERS, type ExcludedFilter } from '@tw/shared';
 
 /**
  * loca — the workbench from a terminal, for people and for agents with a shell (codex, claude…).
@@ -249,7 +249,7 @@ async function waitFor<T>(topic: string, check: () => Promise<T | undefined>, ti
       while ((end = buffer.indexOf('\n\n')) >= 0) {
         const block = buffer.slice(0, end);
         buffer = buffer.slice(end + 2);
-        if (!/^event: change$/m.test(block)) continue;
+        if (!block.split('\n').includes(`event: ${FEED_EVENT}`)) continue;
         const data = /^data: (.*)$/m.exec(block)?.[1];
         const event = data ? (JSON.parse(data) as { projectId?: string; topics: string[] }) : null;
         if (!event || (event.projectId && event.projectId !== id) || !event.topics.includes(topic)) continue;

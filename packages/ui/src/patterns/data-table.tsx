@@ -344,6 +344,12 @@ export function DataTable<T>(props: DataTableProps<T>) {
   return <Table key={props.id} {...props} />
 }
 
+/**
+ * What a table holds while it has no rows: one array, always. A new [] on every render looks like new data to TanStack
+ * Table, which draws again; a page stuck on that never lets the browser read the rows it is waiting for.
+ */
+const NO_ROWS: never[] = []
+
 function Table<T>({
   id,
   columns,
@@ -404,10 +410,13 @@ function Table<T>({
   }, [saved.hidden, saved.shown, columns])
 
   const table = useReactTable({
-    data: rows ?? [],
+    data: rows ?? NO_ROWS,
     columns,
     getRowId: rowId,
     getCoreRowModel: getCoreRowModel(),
+    // There is no paging here. Left on, every new row array (pages may rebuild theirs on every render) resets a page
+    // that does not exist, in a microtask, and that update draws the table again.
+    autoResetPageIndex: false,
     enableColumnResizing: true,
     columnResizeMode: "onChange",
     state: { columnSizing: sizing, columnOrder, columnVisibility },

@@ -27,6 +27,7 @@
     "@hono/node-server": "^2.1.4",
     "@types/node": "^24.0.0",
     "hono": "^4.13.13",
+    "jsdom": "^31.0.0",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "vitest": "^5.0.3",

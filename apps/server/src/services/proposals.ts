@@ -34,6 +34,7 @@ export function listedProposal(proposal: typeof s.proposals.$inferSelect) {
   const report = rest.report;
   const listedReport = report && (report.dropped.length > PREVIEW_CHANGES || report.warnings.length > PREVIEW_CHANGES)
     ? {
+      ...report,
       dropped: report.dropped.slice(0, PREVIEW_CHANGES),
       warnings: report.warnings.slice(0, PREVIEW_CHANGES),
       counts: { dropped: report.dropped.length, warnings: report.warnings.length },
@@ -76,7 +77,7 @@ export async function decideProposal(db: Db, id: string, accept: boolean, by: 'p
   if (!accept) return claimed;
   let status: 'accepted' | 'failed' = 'accepted';
   let result: unknown = null;
-  const tool = agentCatalog(db, proposal.projectId, { model: proposal.model ?? null, saver: proposalSaver(by) }, { unrestricted: undoing }).find((candidate) => candidate.name === proposal.tool && candidate.changes);
+  const tool = agentCatalog(db, proposal.projectId, { model: proposal.model ?? null, saver: proposalSaver(by), sessionId: proposal.sessionId }, { unrestricted: undoing }).find((candidate) => candidate.name === proposal.tool && candidate.changes);
   const undoAfter = captureUndo(db, proposal);
   try {
     if (!tool) throw new Error(`알 수 없는 도구입니다: ${proposal.tool}`);
@@ -115,6 +116,15 @@ const DECISION_WORD = { rejected: '사용자가 거절함', failed: '수락했�
 const unreported = (sessionId: string) => and(eq(s.proposals.sessionId, sessionId), isNull(s.proposals.reportedAt), isNotNull(s.proposals.decidedAt), inArray(s.proposals.status, ['accepted', 'rejected', 'failed']));
 
 export const hasUnreportedDecisions = (db: Db, sessionId: string) => Boolean(db.select({ id: s.proposals.id }).from(s.proposals).where(unreported(sessionId)).get());
+
+/** Tools that start a run: the run goes on without the conversation, which hears of it when it ends. */
+export const RUN_STARTING_TOOLS: ReadonlySet<string> = new Set(['start_run', 'continue_run']);
+
+/**
+ * Whether decisions are waiting that the agent should answer now. A run that was accepted and started is not one: nothing
+ * follows from it until it ends, so it is told with the next message instead of starting a reply beside the run.
+ */
+export const hasDecisionsToAnswer = (db: Db, sessionId: string) => db.select({ tool: s.proposals.tool, status: s.proposals.status }).from(s.proposals).where(unreported(sessionId)).all().some((decision) => decision.status !== 'accepted' || !RUN_STARTING_TOOLS.has(decision.tool));
 
 /** Proposals of the conversation still waiting for (or being applied after) a decision. */
 export const openProposals = (db: Db, sessionId: string) => db.select({ id: s.proposals.id }).from(s.proposals).where(and(eq(s.proposals.sessionId, sessionId), inArray(s.proposals.status, ['pending', 'running']))).all().length;

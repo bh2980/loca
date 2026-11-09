@@ -12,7 +12,9 @@
  *   MOCK_LATENCY_MS     base latency + up to 25% jitter (default 400ms, 1500ms for a whole-script request)
  * Chat: the model "mock-slow" waits 3 s per step. Keywords call tools: 인물 → save_character, 용어 → save_terms
  *   (2 terms; "용어 많이" 25, over auto review's limit), "번역 바꿔" → find_lines then propose_changes on 3 lines,
- *   "간략" → find_lines then show_graph saving a view of 3 of those lines.
+ *   "간략" → find_lines then show_graph saving a view of 3 of those lines. "워크플로 돌려" → project_overview then start_run of
+ *   the 번역 workflow ("UI만" narrows it to UI lines); with "기다려" it then keeps reading the run, as an agent should not.
+ * A chat too long for its model is compacted: the summary request gets a mock summary.
  *   MOCK_DROP_RATE      fraction of per-line entries left out of the answer
  *   MOCK_DUP_RATE       fraction of entries that repeat the previous entry's id
  *   MOCK_EMPTY_RATE     fraction of translations with empty text
@@ -149,6 +151,7 @@ app.post('/v1/chat/completions', async (c) => {
     else if (/용어/.test(user) && tools.has('save_terms')) call = { name: 'save_terms', args: { terms: [{ source: 'Relay Station', target: '중계소' }, { source: 'Breaker', target: '차단기' }] } };
     else if (/인물|캐릭터/.test(user) && tools.has('save_character'))
       call = { name: 'save_character', args: { name: 'MIRA', aliases: ['Mira'], profile: '## 미라\n- 전직 통신병\n- 짧고 단정한 반말\n- 조나스와 오랜 동료' } };
+    else if (/워크플로\s*돌려/.test(user) && tools.has('start_run') && tools.has('project_overview')) call = { name: 'project_overview', args: {} };
     else if (tools.has('project_overview')) call = { name: 'project_overview', args: {} };
   }
   // A "번역 바꿔" request: once find_lines answered, propose new translations for the lines it found.
@@ -156,6 +159,16 @@ app.post('/v1/chat/completions', async (c) => {
   if (!call && last?.role === 'tool' && /번역\s*(바꿔|고쳐|수정)/.test(user) && asked?.tool_calls?.[0]?.function.name === 'find_lines' && tools.has('propose_changes')) {
     const found = [...text(last).matchAll(/"key":"([^"]+)"[^{}]*?"rev":(\d+)/g)].slice(0, 3);
     if (found.length) call = { name: 'propose_changes', args: { changes: found.map(([, key, rev]) => ({ key, rev: Number(rev), translation: `[모의 수정] ${key}` })) } };
+  }
+  // A "워크플로 돌려" request: once the overview answered, start the 번역 workflow.
+  if (!call && last?.role === 'tool' && /워크플로\s*돌려/.test(user) && asked?.tool_calls?.[0]?.function.name === 'project_overview' && tools.has('start_run')) {
+    const workflowId = /"id":"([^"]+)","name":"번역"/.exec(text(last))?.[1];
+    if (workflowId) call = { name: 'start_run', args: { workflowId, ...(/UI만/.test(user) && { kinds: ['ui'] }) } };
+  }
+  // "기다려": read the run again and again instead of ending the reply, as an agent should not (the turn ends for it).
+  if (!call && last?.role === 'tool' && /기다려/.test(user) && tools.has('read_run')) {
+    const runId = /runId\\?":\\?"([^"\\]+)/.exec(text(last))?.[1];
+    if (runId) call = { name: 'read_run', args: { runId } };
   }
   // An "간략 보기" request: once find_lines answered, keep a few of those lines as a view; what lies between them is left out.
   if (!call && last?.role === 'tool' && /간략/.test(user) && asked?.tool_calls?.[0]?.function.name === 'find_lines' && tools.has('show_graph')) {

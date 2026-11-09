@@ -56,6 +56,12 @@ const kinds: [string, AiNode][] = [
 ];
 
 describe('mock LLM answers match the server schemas', () => {
+  it("the chat's compaction gets a summary, though its prompt is the conversation as text", () => {
+    const outcome = respond({ system: '당신은 번역 작업실 채팅의 앞부분을 요약합니다.', user: '요약할 대화:\n사용자: 안녕' }, { ...DEFAULT_OPTIONS, latencyMs: 0 });
+    expect(outcome.status).toBe(200);
+    expect(JSON.parse(outcome.content)).toEqual({ summary: expect.stringContaining('모의 요약') });
+  });
+
   for (const [name, ai] of kinds)
     it(`${name} output parses with outputSchema`, () => {
       const outcome = ask(ai);

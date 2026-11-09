@@ -23,6 +23,7 @@ import { wholeScriptRequest } from './whole-script.ts';
 import { resolveChoiceOptions } from '../services/choice-options.ts';
 import { judgmentOutcome, judgmentQuestions } from './judgment.ts';
 import { logged } from '../services/ai-calls.ts';
+import { recordRunEnd } from '../services/chat-run-end.ts';
 import { outputCutOff } from '../services/whole-script-limits.ts';
 import { loadTerms, RETRY_FACTOR, RETRY_MODEL, termCondition, termInput, termPrompt, waitingTerms } from './subjects.ts';
 import { overheadOf } from '../services/preflight.ts';
@@ -324,6 +325,7 @@ export class Runner {
   cancel(runId: string) {
     this.aborts.get(runId)?.abort();
     this.wake(runId);
+    const wasGoing = ['running', 'paused'].includes(this.db.select({ status: s.runs.status }).from(s.runs).where(eq(s.runs.id, runId)).get()?.status ?? '');
     this.db.transaction((tx) => {
       tx.update(s.runs).set({ status: 'cancelled', finishedAt: new Date() }).where(eq(s.runs.id, runId)).run();
       tx.update(s.runItems)
@@ -331,6 +333,7 @@ export class Runner {
         .where(and(eq(s.runItems.runId, runId), inArray(s.runItems.state, ['queued', 'running'])))
         .run();
     });
+    if (wasGoing) recordRunEnd(this.db, runId);
     this.notify(runId);
   }
 
@@ -339,7 +342,8 @@ export class Runner {
     const run = this.db.select({ limits: s.runs.limits }).from(s.runs).where(eq(s.runs.id, runId)).get();
     // A cap that stopped the run is remembered in its limits, so the run page can offer to raise it.
     const limits = cap && run?.limits ? { ...run.limits, hit: cap } : undefined;
-    this.db.update(s.runs).set({ status: 'paused', notice, ...(limits ? { limits } : {}) }).where(and(eq(s.runs.id, runId), eq(s.runs.status, 'running'))).run();
+    const paused = this.db.update(s.runs).set({ status: 'paused', notice, ...(limits ? { limits } : {}) }).where(and(eq(s.runs.id, runId), eq(s.runs.status, 'running'))).run();
+    if (paused.changes) recordRunEnd(this.db, runId);
     this.notify(runId);
   }
 
@@ -656,6 +660,7 @@ export class Runner {
         .all();
       if (!open.length) {
         this.db.update(s.runs).set({ status: 'completed', finishedAt: new Date() }).where(eq(s.runs.id, run.id)).run();
+        recordRunEnd(this.db, run.id);
         this.notify(run.id);
       } else {
         // Lines held by a retry rule's wait: nothing to do until the first is due.

@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { keepPreviousData, queryOptions, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { InferResponseType } from 'hono/client';
 import { client, unwrap } from './api';
@@ -72,7 +72,7 @@ function stepsOf(projectId: string) {
   return held;
 }
 
-export type RunItemQuery = { state?: string; nodeId?: string; offset?: number };
+export type RunItemQuery = { state?: string; nodeId?: string; through?: string; exit?: string; offset?: number };
 
 /** A page of a run's items as ids (runs topic: an item may move in or out of a state or a node). */
 const runItemIds = (runId: string, query: RunItemQuery) =>
@@ -82,27 +82,53 @@ const runItemIds = (runId: string, query: RunItemQuery) =>
     placeholderData: keepPreviousData,
   });
 
-/** One page of a run's items: { total, subject, rows } once the page's items and their lines are held; each row with its line's (or term's) words and status. */
+type RunItemsPage = { total: number; subject: 'lines' | 'terms'; rows: RunItemRow[] };
+
+/**
+ * One page of a run's items: { total, subject, rows } once the page's items and their lines are held; each row with its
+ * line's (or term's) words and status. A bulk change drops the held lines and they are read again: the page stays as it
+ * was meanwhile, never an empty table. `failed`: a read failed and the page is not complete (`retry` asks again).
+ */
 export function useRunItems(projectId: string, runId: string, query: RunItemQuery) {
   const page = useQuery(runItemIds(runId, query));
   const held = useHeld(itemsOf(projectId), page.data?.ids);
   const lineIds = useMemo(() => held.rows?.flatMap((item) => (item.term ? [] : [item.unitId])), [held.rows]);
   const lines = useLines(projectId, lineIds);
   const { statuses } = useTaxonomy(projectId);
-  const data = useMemo(() => {
-    if (!page.data || !held.rows || !lines.rows) return undefined;
+  const shown = useRef<{ runId: string; page: RunItemsPage } | undefined>(undefined);
+  const before = shown.current?.runId === runId ? shown.current.page : undefined;
+  const fresh = useMemo<RunItemsPage | undefined>(() => {
+    if (!page.data || !held.rows || !lines.rows || (lines.loading && before)) return undefined;
     const status = new Map((statuses ?? []).map((row) => [row.id, row]));
     const rows = held.rows.flatMap((item): RunItemRow[] => {
       if (item.term) return [{ ...item, key: item.term.source, speaker: null, source: item.term.source, target: item.term.target, statusName: null, statusColor: null }];
       const line = lines.byId.get(item.unitId);
       if (!line) return [];
-      const shown = status.get(line.statusId);
-      return [{ ...item, key: line.key, speaker: line.speaker, source: line.source, target: null, statusName: shown?.name ?? null, statusColor: shown?.color ?? null }];
+      const statusRow = status.get(line.statusId);
+      return [{ ...item, key: line.key, speaker: line.speaker, source: line.source, target: null, statusName: statusRow?.name ?? null, statusColor: statusRow?.color ?? null }];
     });
     return { total: page.data.total, subject: page.data.subject, rows };
-  }, [page.data, held.rows, lines.rows, lines.byId, statuses]);
-  return { data };
+  }, [page.data, held.rows, lines.rows, lines.byId, lines.loading, statuses]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (fresh) shown.current = { runId, page: fresh };
+  const failed = page.isError || held.failed || lines.failed;
+  return {
+    data: fresh ?? before,
+    failed,
+    retry: () => {
+      void page.refetch();
+      held.retry();
+      lines.retry();
+    },
+  };
 }
+
+/** What a node did with its items (runs topic: an item may reach or leave it at any time). */
+export const runNodeExits = (runId: string, nodeId: string) =>
+  queryOptions({
+    queryKey: ['runs', 'node-exits', runId, nodeId],
+    queryFn: () => unwrap(client.runs[':id']['node-exits'].$get({ param: { id: runId }, query: { nodeId } })),
+    placeholderData: keepPreviousData,
+  });
 
 /** A run's latest model calls as ids (runs topic: a call is logged as the run goes). */
 const runStepIds = (runId: string) =>

@@ -10,7 +10,7 @@ import { ContextItemList } from '@/components/ai-context';
 import { LineDetail } from '@/components/line-detail';
 import { TermEditor } from '@/components/glossary/term-pane';
 import { HeaderActions, HeaderViews, Page } from '@/components/page';
-import { Inspector, InspectorHeader, Group, KeyValue, KeyValueRow, Section, EmptyState, SectionHeading, DataTable, type ColumnDef, Pager, FilterBar, ActionBar, Separator, SplitPane, RunStatusBadge, StatusBarItem, Notice, NoticeDescription, Chip, Box, Button, Inline, Text, ExpandableRow, Progress, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Tabs, TabsList, TabsTrigger, Skeleton } from '@loca/ui';
+import { Inspector, InspectorHeader, Group, KeyValue, KeyValueRow, Section, EmptyState, SectionHeading, DataTable, type ColumnDef, Pager, FilterBar, ActionBar, Separator, SplitPane, RunStatusBadge, StatusBarItem, Notice, NoticeDescription, NoticeRow, Chip, Box, Button, Inline, Text, ExpandableRow, Progress, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Tabs, TabsList, TabsTrigger, Skeleton } from '@loca/ui';
 import { HeaderFilter } from '@/components/header-filter';
 import { client, unwrap } from '@/lib/api';
 import { ITEM_STATE } from '@/lib/labels';
@@ -24,12 +24,16 @@ import { RunGraph } from '@/components/workflow/run-graph';
 import { topCallIds } from '@/components/workflow/run-calls';
 import { dateTime } from '@/lib/datetime';
 import { useTerms } from '@/lib/terms';
-import { useRunDetail, useRunItems, useRunSteps, type RunItemRow } from '@/lib/run-detail';
+import { runNodeExits, useRunDetail, useRunItems, useRunSteps, type RunItemRow } from '@/lib/run-detail';
 
 type State = keyof typeof ITEM_STATE | 'retrying';
 interface RunSearch {
   state?: State;
+  /** Where the lines are now (the 위치 column's filter). */
   node?: string;
+  /** The lines that came through a node (the run graph opens these), and out of which of its exits. */
+  through?: string;
+  exit?: string;
   page?: number;
   line?: string;
   tab?: 'steps' | 'plan' | 'graph';
@@ -40,6 +44,8 @@ export const Route = createFileRoute('/p/$projectId/runs/$runId')({
   validateSearch: (raw: Record<string, unknown>): RunSearch => ({
     state: typeof raw.state === 'string' && (raw.state in ITEM_STATE || raw.state === 'retrying') ? (raw.state as State) : undefined,
     node: typeof raw.node === 'string' ? raw.node : undefined,
+    through: typeof raw.through === 'string' ? raw.through : undefined,
+    exit: typeof raw.exit === 'string' ? raw.exit : undefined,
     page: typeof raw.page === 'number' && raw.page > 0 ? raw.page : undefined,
     line: typeof raw.line === 'string' ? raw.line : undefined,
     tab: raw.tab === 'steps' || raw.tab === 'plan' || raw.tab === 'graph' ? raw.tab : undefined,
@@ -52,6 +58,18 @@ const PAGE = 100;
 
 type Item = RunItemRow;
 
+/** A page part that could not be read, and a way to ask again: never a skeleton that goes on forever. */
+function ReadFailed({ title, message, onRetry }: { title: string; message?: string; onRetry: () => void }) {
+  return (
+    <Box padding="comfortable">
+      <Notice tone="danger" icon={<OctagonAlert />} title={title}>
+        {message && <NoticeDescription>{message}</NoticeDescription>}
+        <NoticeRow><Button variant="outline" onClick={onRetry}>다시 시도</Button></NoticeRow>
+      </Notice>
+    </Box>
+  );
+}
+
 function RunDetail() {
   const [continueOpen, setContinueOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
@@ -59,7 +77,8 @@ function RunDetail() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const run = useRunDetail(projectId, runId);
-  const items = useRunItems(projectId, runId, { state: search.state, nodeId: search.node, offset: (search.page ?? 0) * PAGE });
+  const items = useRunItems(projectId, runId, { state: search.state, nodeId: search.node, through: search.through, exit: search.through ? search.exit : undefined, offset: (search.page ?? 0) * PAGE });
+  const nodeExits = useQuery({ ...runNodeExits(runId, search.through ?? ''), enabled: Boolean(search.through) });
   const terms = items.data?.subject === 'terms';
   const termList = useTerms(projectId, { enabled: terms && Boolean(search.line) });
   const selectedTerm = terms ? termList.data?.find((term) => term.id === search.line) : undefined;
@@ -76,11 +95,13 @@ function RunDetail() {
   if (!run.data)
     return (
       <Page title="실행" flush>
-        <Box spaceY="normal" padding="comfortable">
-          <Skeleton height="control" width="1/2" />
-          <Skeleton height="placeholder-sm" />
-          <Skeleton height="placeholder-md" />
-        </Box>
+        {run.isError ? <ReadFailed title="실행을 불러오지 못했습니다" message={run.error.message} onRetry={() => void run.refetch()} /> : (
+          <Box spaceY="normal" padding="comfortable">
+            <Skeleton height="control" width="1/2" />
+            <Skeleton height="placeholder-sm" />
+            <Skeleton height="placeholder-md" />
+          </Box>
+        )}
       </Page>
     );
   const data = run.data;
@@ -108,7 +129,12 @@ function RunDetail() {
   });
   const active = data.status === 'running' || data.status === 'paused';
   const total = items.data?.total ?? 0;
-  const filtered = Boolean(search.state || search.node);
+  const filtered = Boolean(search.state || search.node || search.through);
+  const noun = terms ? '용어' : '대사';
+  const exitLabel = (port: string) => {
+    const node = search.through ? nodeById.get(search.through) : undefined;
+    return (node && nodePorts(node).find((item) => item.id === port)?.label) ?? (port === 'retry' ? '다시 보냄' : port);
+  };
 
   const columns: ColumnDef<Item, unknown>[] = [
     ...(terms ? [] : [{ id: 'speaker', header: '화자', meta: { width: 112 }, cell: ({ row }) => row.original.speaker ?? '—' } satisfies ColumnDef<Item, unknown>]),
@@ -266,13 +292,41 @@ function RunDetail() {
     </Inspector>
   );
 
+  // A node of the run graph: what came through it and how it left, each exit opening its lines.
+  const nodeInfo = search.through && (
+    <Inspector header={<InspectorHeader kind="노드" name={nodeName(search.through)} />}>
+      <Section title={`이 노드를 거친 ${noun}`}>
+        {nodeExits.isError ? <Text as="p" variant="caption" tone="danger">{nodeExits.error.message}</Text> : (
+          <KeyValue>
+            <KeyValueRow label="도착"><Text tabular>{nodeExits.data ? `${nodeExits.data.arrived.toLocaleString()}${terms ? '개' : '줄'}` : '…'}</Text></KeyValueRow>
+            {(nodeExits.data?.here ?? 0) > 0 && <KeyValueRow label="지금 여기"><Text tabular>{nodeExits.data!.here.toLocaleString()}{terms ? '개' : '줄'}</Text></KeyValueRow>}
+          </KeyValue>
+        )}
+      </Section>
+      {(nodeExits.data?.exits.length ?? 0) > 0 && (
+        <Section title="나간 출구">
+          <Box as="ul" spaceY="tight">
+            {nodeExits.data!.exits.map((exit) => (
+              <Box as="li" key={exit.port}>
+                <Button variant={search.exit === exit.port ? 'secondary' : 'ghost'} height="auto" width="full" justifyContent="between" gap="condensed" paddingY="tight" weight="normal" aria-pressed={search.exit === exit.port} title={`이 출구로 나간 ${noun} 보기`} onClick={() => setSearch({ exit: search.exit === exit.port ? undefined : exit.port, page: undefined }, true)}>
+                  <Text minWidth={0} truncate align="start">{exitLabel(exit.port)}</Text>
+                  <Text shrink={false} variant="caption" tone="muted" tabular>{exit.count.toLocaleString()}</Text>
+                </Button>
+              </Box>
+            ))}
+          </Box>
+        </Section>
+      )}
+    </Inspector>
+  );
+
   return (
     <Page title={data.workflowName} flush back={<Button variant="ghost" asChild><Link to="/p/$projectId/runs" params={{ projectId }}><ChevronLeft /> 실행 기록</Link></Button>}>
       <SplitPane fill="height"
-        id="run-lines" selectionKey={search.line}
+        id="run-lines" selectionKey={search.line ?? search.through}
         defaultWidth="400px"
         pane={
-          !search.line ? runInfo : (terms ? (
+          !search.line ? (nodeInfo || runInfo) : (terms ? (
             selectedTerm ? (
               <TermEditor key={selectedTerm.id} projectId={projectId} term={selectedTerm} onClose={() => setSearch({ line: undefined }, true)} onDecide={(accept) => decide.mutate(accept)} deciding={decide.isPending} />
             ) : (
@@ -321,11 +375,10 @@ function RunDetail() {
         <StatusBarItem><RunStatusBadge status={data.status} /></StatusBarItem>
         {/* Only a filter (a state or node picked elsewhere) earns a bar: it says how many it left and takes it off. The run's count is on the tab. */}
         {view === 'items' && filtered && <FilterBar end={items.data ? <Text variant="micro" tabular>{total.toLocaleString()}{terms ? '개' : '줄'}</Text> : undefined}>
-          {filtered && (
-            <Button variant="ghost" onClick={() => setSearch({ state: undefined, node: undefined, page: undefined, line: undefined }, true)}>
-              필터 지우기
-            </Button>
-          )}
+          {search.through && <Text minWidth={0} truncate variant="caption">‘{nodeName(search.through)}’ 노드를 거친 {noun}{search.exit ? ` · 출구 ${exitLabel(search.exit)}` : ''}</Text>}
+          <Button variant="ghost" onClick={() => setSearch({ state: undefined, node: undefined, through: undefined, exit: undefined, page: undefined, line: undefined }, true)}>
+            필터 지우기
+          </Button>
         </FilterBar>}
 
         {data.status === 'paused' && data.notice && (
@@ -337,7 +390,7 @@ function RunDetail() {
           </Box>
         )}
 
-        {view === 'items' ? (
+        {view === 'items' ? (items.failed && !items.data ? <ReadFailed title={`${noun}를 불러오지 못했습니다`} onRetry={items.retry} /> : (
           <DataTable id="run-items"
             columns={columns}
             rows={items.data?.rows}
@@ -345,12 +398,14 @@ function RunDetail() {
             loading={!items.data}
             selected={items.data?.rows.find((item) => item.unitId === search.line)?.id}
             onRowClick={(item) => setSearch({ line: search.line === item.unitId ? undefined : item.unitId }, true)}
-            empty={<EmptyState noun={terms ? '용어' : '대사'} filtered={filtered} />}
+            empty={search.through && !search.exit && !search.state && !search.node
+              ? <EmptyState noun={noun} hint="아직 이 노드에 도착하지 않았습니다." />
+              : <EmptyState noun={noun} filtered={filtered} />}
             footer={<Pager page={search.page ?? 0} total={total} pageSize={PAGE} onPage={(page) => setSearch({ page: page || undefined })} />}
           />
-        ) : view === 'graph' ? (
+        )) : view === 'graph' ? (
           <Box minHeight={0} grow>
-            <RunGraph projectId={projectId} run={data} selected={search.node} onOpenNode={(node) => setSearch({ tab: undefined, node, state: undefined, page: undefined, line: undefined })} />
+            <RunGraph projectId={projectId} run={data} selected={search.through ?? search.node} onOpenNode={(through) => setSearch({ tab: undefined, through, exit: undefined, node: undefined, state: undefined, page: undefined, line: undefined })} />
           </Box>
         ) : view === 'plan' ? (
           <Box minHeight={0} grow overflow="auto" padding="comfortable">

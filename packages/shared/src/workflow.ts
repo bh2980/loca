@@ -347,22 +347,43 @@ export const DEFAULT_RETRY_RULES: RetryRule[] = [
   retryRuleSchema.parse({ kinds: ['rate-limit', 'network'], scale: 1, wait: 60, maxTimes: 3 }),
 ];
 const retryRulesSchema = z.array(retryRuleSchema).max(5);
-/** "그대로", "절반", "30%": how much of its size a resent request keeps. */
-export const retryScaleText = (scale: number) => (scale >= 1 ? '그대로' : scale === 0.5 ? '절반' : `${Math.round(scale * 100)}%`);
+/**
+ * The failure kinds as a person thinks of them: what is wrong with this request (a smaller one may do), what is wrong with
+ * the service (the same one, later), and the rest. `when` reads a rule that takes exactly the group; a rule's fields list them by group.
+ */
+export const RETRY_KIND_GROUPS: { name: string; when?: string; kinds: ItemErrorKind[] }[] = [
+  { name: '요청·응답 문제', when: '요청이나 응답에 문제가 있으면', kinds: ['cut-off', 'too-long', 'missing', 'invalid-output', 'timeout'] },
+  { name: '서비스 문제', when: '사용량 한도·연결 끊김이면', kinds: ['rate-limit', 'network'] },
+  { name: '그 밖의 오류', kinds: ['refused', 'unsupported', 'other'] },
+];
+/** How much of its size a resent request can keep, as a rule's field offers it. */
+export const RETRY_SCALES = [1, 0.5, 0.25] as const;
+/** "그대로", "절반", "4분의 1", "30%": how much of its size a resent request keeps. */
+export const retryScaleText = (scale: number) => (scale >= 1 ? '그대로' : scale === 0.5 ? '절반' : scale === 0.25 ? '4분의 1' : `${Math.round(scale * 100)}%`);
+/** "절반으로", "4분의 1로", "30%로": what a resent request is reduced to. */
+export const retryScaleTo = (scale: number) => `${retryScaleText(scale)}${scale === 0.5 ? '으로' : '로'}`;
 /** "60초", "2분", "1시간 30분": a wait, in words. */
 export const retryWaitText = (seconds: number) =>
   seconds < 60 ? `${seconds}초` : seconds % 60 ? `${Math.floor(seconds / 60)}분 ${seconds % 60}초` : seconds < 3600 ? `${seconds / 60}분` : `${Math.floor(seconds / 3600)}시간${seconds % 3600 ? ` ${(seconds % 3600) / 60}분` : ''}`;
-/** A retry rule's one-line summary: "출력 잘림 · 절반 크기 · 최대 2번", "사용량 한도 · 같은 크기 · 60초 기다림 · 다른 모델 gpt-5 · 최대 3번". */
-export const retrySummary = (config: RetryRule) =>
+/** When a retry rule acts: "요청이나 응답에 문제가 있으면", "사용량 한도·연결 끊김이면", "출력 잘림일 때". */
+export function retryWhen({ kinds }: Pick<RetryRule, 'kinds'>) {
+  if (!kinds.length) return '고른 오류 없음';
+  if (kinds.length === ITEM_ERROR_KIND_IDS.length) return '어떤 오류든';
+  const group = RETRY_KIND_GROUPS.find((candidate) => candidate.when && candidate.kinds.length === kinds.length && candidate.kinds.every((kind) => kinds.includes(kind)));
+  return group?.when ?? `${kinds.map((kind) => ITEM_ERROR_KINDS[kind]).join('·')}일 때`;
+}
+/** What a retry rule does: "한 번에 보내는 양을 절반으로 줄여 최대 2번 다시 보냄", "1분 뒤 그대로 다른 모델 gpt-5로 최대 3번 다시 보냄". */
+export const retryAction = (config: RetryRule) =>
   [
-    config.kinds.length ? config.kinds.map((kind) => ITEM_ERROR_KINDS[kind]).join('·') : '고른 오류 없음',
-    config.scale >= 1 ? '같은 크기' : `${retryScaleText(config.scale)} 크기`,
-    config.wait > 0 && `${retryWaitText(config.wait)} 기다림`,
-    config.model && `다른 모델 ${config.model.model || '(고르지 않음)'}`,
-    `최대 ${config.maxTimes}번`,
+    config.wait > 0 && `${retryWaitText(config.wait)} 뒤`,
+    config.scale >= 1 ? '그대로' : `한 번에 보내는 양을 ${retryScaleTo(config.scale)} 줄여`,
+    config.model && `다른 모델 ${config.model.model || '(고르지 않음)'}로`,
+    `최대 ${config.maxTimes}번 다시 보냄`,
   ]
     .filter(Boolean)
-    .join(' · ');
+    .join(' ');
+/** A retry rule in one sentence: when it acts, and what it does. */
+export const retrySummary = (config: RetryRule) => `${retryWhen(config)} ${retryAction(config)}`;
 
 /**
  * 워크플로 호출: runs another saved workflow on the lines that reach it. A line that reaches the end of

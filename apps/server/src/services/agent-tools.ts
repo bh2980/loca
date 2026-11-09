@@ -21,7 +21,7 @@ import { createStatus, createTag, deleteStatuses, deleteTags, orderStatuses, ord
 import { deleteWorkflow, saveWorkflow, WorkflowMutationError } from './workflow-mutations.ts';
 import { createGroup, createUnit, deleteGroup, deleteUnits, updateGroup, updateUnit } from './source-mutations.ts';
 import { mentions } from './context.ts';
-import { createRunInSteps, FILLING, refuseSecondWholeScript, selectRunTerms, selectRunUnits } from '../engine/run-create.ts';
+import { createRunInSteps, FILLING, refuseSecondWholeScript } from '../engine/run-create.ts';
 import { continueRun, resumeRun } from '../engine/runner.ts';
 import { switchedRun } from './run-continue.ts';
 import { groupRunErrors, runErrors } from './run-errors.ts';
@@ -42,7 +42,7 @@ import { annotateKnowledge, knowledgeFilterInput } from './knowledge-list.ts';
 import { findTerm, termUsage } from './term-usage.ts';
 import { tagOverview } from './tag-overview.ts';
 import { setKnowledgeTag } from './knowledge-tags.ts';
-import { planRun, resolveRunModels, resolveRunScope, runModelInput, scopeMismatch } from './run-plan.ts';
+import { planRun, resolveRunModels, resolveStartRun, runModelInput } from './run-plan.ts';
 import { applyBatch, checkScript, findLines, lineContext, normalizeBatch, runStats, sceneStats, scenesWith, validateBatch } from './script-query.ts';
 import { addCandidate, declineSuggestion } from './candidates.ts';
 import { saveLine } from './line-save.ts';
@@ -67,7 +67,10 @@ class KnowledgeRefused extends Error {}
 
 /** `unrestricted`: every tool whatever the project's agent permissions, for undoing an accepted change (its inverse may be a delete the agent is not allowed). */
 /** `author.saver`: who an applied change is recorded as (an accepted proposal: AI wrote it, the decider set it); a person in the app without. */
-export function agentTools(db: Db, projectId: string, author: { model: string | null; saver?: Saver } = { model: null }, options: { unrestricted?: boolean } = {}) {
+/** What a started run tells the agent: the run goes on without the conversation. */
+const RUN_APART_NOTE = '실행은 이 대화와 따로 돌아갑니다. 시작을 한 문장으로 알리고 답을 마치세요. 끝나면 이 대화에 결과가 기록됩니다. 기다리거나 read_run으로 반복해서 확인하지 마세요.';
+
+export function agentTools(db: Db, projectId: string, author: { model: string | null; saver?: Saver; /** The conversation asking: a run it starts reports its end there. */ sessionId?: string | null } = { model: null }, options: { unrestricted?: boolean } = {}) {
   const saver = author.saver ?? PERSON;
   const changed = (...topics: Parameters<typeof events.changed>[1][]) => events.changed(projectId, ...topics);
   /**
@@ -461,7 +464,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       },
     }),
     read_run: tool({
-      description: 'A run\'s progress: status (running, paused, completed, cancelled) and why it paused (notice), item counts per state and per node and state, where finished items ended (ends: the node they stopped at, by name) and the errors that sent items out through an error exit (errors: kind, node, message, count — such items are done, not failed, when the workflow routes errors to e.g. a status node), and recent failures with the line key (or term source). errored: true lists every item that failed or left through an error exit (unitId, key), to start a new run on just those. subject says what the counts are: lines or terms (total, nodes[].count and failures[].unitId are line ids or term ids).',
+      description: 'A run started from this conversation records its end here by itself: read this when the person asks, or for the detail behind that record; never wait on a run by reading it again and again. A run\'s progress: status (running, paused, completed, cancelled) and why it paused (notice), item counts per state and per node and state, where finished items ended (ends: the node they stopped at, by name) and the errors that sent items out through an error exit (errors: kind, node, message, count — such items are done, not failed, when the workflow routes errors to e.g. a status node), and recent failures with the line key (or term source). errored: true lists every item that failed or left through an error exit (unitId, key), to start a new run on just those. subject says what the counts are: lines or terms (total, nodes[].count and failures[].unitId are line ids or term ids).',
       inputSchema: z.object({ runId: z.string(), errored: z.boolean().default(false) }),
       execute: ({ runId, errored }) => {
         const run = db.select({ id: s.runs.id, workflow: s.runs.workflowName, status: s.runs.status, notice: s.runs.notice, subject: s.runs.subject, total: s.runs.total, definition: s.runs.definition }).from(s.runs).where(and(eq(s.runs.id, runId), eq(s.runs.projectId, projectId))).get();
@@ -719,33 +722,13 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         models: runModelInput.optional().describe(MODELS_HELP),
       }),
       needsApproval: true,
-      execute: async ({ workflowId, models, termIds, statuses, marks, speakers, listeners, kinds, q, unfinished, noted, decidedBy: by, emptyTarget, ...lineScope }) => {
-        const stored = db.select().from(s.workflows).where(and(eq(s.workflows.id, workflowId), eq(s.workflows.projectId, projectId))).get();
-        if (!stored) return { ok: false, error: '워크플로를 찾을 수 없습니다.' };
-        const picked = resolveRunModels(db, projectId, stored.definition, models);
-        if (picked.unknown.length) return { ok: false, error: `찾지 못함: ${picked.unknown.join(', ')}` };
-        const workflow = { ...stored, definition: withRunModels(stored.definition, picked.models) };
-        const errors = workflowIssues(db, projectId, workflow.definition, workflow.id).filter((issue) => issue.level === 'error');
-        if (errors.length) return { ok: false, error: `워크플로에 오류가 있습니다: ${errors[0].message}` };
+      execute: async (input) => {
+        const resolved = resolveStartRun(db, projectId, input);
+        if (!resolved.ok) return resolved;
+        const { workflow, scope } = resolved;
         try {
-          const called = calledWorkflowErrors(db, projectId, workflow.definition, workflow.id);
-          if (called.length) return { ok: false, error: `부르는 워크플로에 오류가 있습니다: ${called[0]}` };
-        } catch (error) {
-          return { ok: false, error: error instanceof Error ? error.message : String(error) };
-        }
-        const found = (termIds ?? []).map((term) => ({ term, row: findTerm(db, projectId, term) }));
-        if (found.some((entry) => !entry.row)) return { ok: false, error: `찾지 못함: ${found.filter((entry) => !entry.row).map((entry) => `용어 ${entry.term}`).join(', ')}` };
-        const subject = workflowInput(workflow.definition);
-        const named = resolveRunScope(db, projectId, { statuses, speakers, listeners, kinds, q, unfinished, noted, decidedBy: by, emptyTarget }, subject);
-        if (named.unknown.length) return { ok: false, error: `찾지 못함: ${named.unknown.join(', ')}` };
-        const { statusIds: namedStatuses, ...namedLines } = named.scope;
-        const scope: s.RunScope = { ...lineScope, ...namedLines, ...(marks?.length && { marks: marks as s.RunScope['marks'] }), ...(namedStatuses && { statusIds: namedStatuses }), ...(found.length && { termIds: [...new Set(found.map((entry) => entry.row!.id))] }) };
-        const mismatch = scopeMismatch(subject, scope);
-        if (mismatch) return { ok: false, error: mismatch };
-        if (subject === 'terms' ? !selectRunTerms(db, projectId, scope).length : !selectRunUnits(db, projectId, scope).length) return { ok: false, error: subject === 'terms' ? '조건에 맞는 용어가 없습니다.' : '조건에 맞는 대사가 없습니다.' };
-        try {
-          const run = await createRunInSteps(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope });
-          return { ok: true, ...run, workflow: workflow.name };
+          const run = await createRunInSteps(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope, sessionId: author.sessionId });
+          return { ok: true, ...run, workflow: workflow.name, ...(author.sessionId && { note: RUN_APART_NOTE }) };
         } catch (error) {
           // e.g. a whole-script run is already running (the same guard as the run dialog).
           return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -779,17 +762,22 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         // Node ids of the run's own definition (calls already expanded), as the run page's 다른 모델로 takes them.
         const picked = resolveRunModels(db, projectId, run.definition, models);
         if (picked.unknown.length) return { ok: false, error: `찾지 못함: ${picked.unknown.join(', ')}` };
+        // From here on its end is reported to the conversation that went on with it.
+        const note = author.sessionId ? { note: RUN_APART_NOTE } : {};
+        const adopt = () => void (author.sessionId && db.update(s.runs).set({ sessionId: author.sessionId }).where(eq(s.runs.id, run.id)).run());
         if (run.status === 'paused' && !retryFailed && !Object.keys(picked.models).length) {
           if (!resumeRun(db, run.id, limits)) return { ok: false, error: '이어서 할 수 없는 실행입니다 (대사를 넣는 중이거나 이미 진행 중).' };
+          adopt();
           events.changed(projectId, 'runs');
-          return { ok: true, runId: run.id, resumed: true };
+          return { ok: true, runId: run.id, resumed: true, ...note };
         }
         const switched = switchedRun(db, run, picked.models);
         if (!switched.ok) return switched;
         const result = continueRun(db, run.id, { definition: switched.definition, models: switched.models, changes: switched.changes, retryFailed }, limits);
         if (!result.ok) return result;
+        adopt();
         events.changed(projectId, 'runs');
-        return { ok: true, runId: run.id, retried: result.retried, changes: switched.changes };
+        return { ok: true, runId: run.id, retried: result.retried, changes: switched.changes, ...note };
       },
     }),
     propose_changes: tool({
@@ -1061,7 +1049,7 @@ export const AGENT_SYSTEM = `당신은 게임 번역 작업실 loca의 프로젝
 - 새 원문 항목은 create_group/create_unit으로 만들고, 기존 원문의 번역 제안은 propose_translation으로 올립니다. 원문을 바꾸면 번역 상태가 초기화됩니다.
 - 대사 번역을 제안할 때는 read_line으로 앞뒤 대사·용어·화자 프로필을 읽고 propose_translation으로 AI 제안을 올립니다(사람이 그 줄에서 적용·거절). 확정 용어는 반드시 지킵니다. 사용자가 기다리는 제안을 적용하거나 거절하라고 하면 decide_suggestion을 씁니다.
 - 편집기에 열린 워크플로의 노드(지시문·조건식·스크립트 코드)를 바꿀 때는 save_workflow가 아니라 edit_workflow_node를 씁니다. 화면 정보의 노드 설정이 저장 전 최신 상태입니다.
-- 워크플로 실행은 사용자가 요청할 때만 start_run으로 제안합니다. 실행 전에 대상 대사 수와 범위를 알려 주고, 결과는 read_run으로 확인합니다.
+- 워크플로 실행은 사용자가 요청할 때만 start_run으로 제안합니다. 실행 전에 대상 대사 수와 범위를 알려 줍니다. 실행은 이 대화와 따로 돌아갑니다: 시작을 한 문장으로 알리고 답을 마치세요. 수락되어도 대화가 이어지지 않으며, 끝나면 대화에 결과가 기록되어 사용자의 다음 메시지와 함께 읽습니다. 기다리거나 read_run으로 진행을 반복해서 확인하지 않습니다. read_run은 사용자가 묻거나 기록된 결과의 자세한 내용이 필요할 때 씁니다.
 - 장면 요약은 사용자가 요청할 때만 read_scene으로 끝까지 읽은 뒤 save_group_summary로 제안합니다.
 - 번역이 빈 용어 후보를 채울 때는 find_lines(q)로 원문 용례를 읽고 save_terms로 번역·메모만 채웁니다(상태는 후보 그대로).
 - 이미 있는 항목을 고치는 제안(save_* 에 id)에는 바꿀 필드만 넣습니다. 넣지 않은 필드는 그대로 남습니다.

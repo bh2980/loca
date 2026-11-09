@@ -1,13 +1,15 @@
 import { and, eq, inArray, ne, or } from 'drizzle-orm';
-import { KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, AUTO_MARKS, marksOn, nodeName, withRunModels, workflowInput, type AutoMark, type RunModels, type WorkflowDefinition, type WorkflowSubject , type DecidedBy } from '@tw/shared';
+import { KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, AUTO_MARKS, marksOn, nodeName, withRunModels, workflowInput, type AutoMark, type RunCardPlan, type RunModels, type WorkflowDefinition, type WorkflowSubject , type DecidedBy } from '@tw/shared';
 import { z } from 'zod';
 import { inChunks, inList } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { tagIdsOf } from './knowledge-list.ts';
+import { selectRunTerms, selectRunUnits } from '../engine/run-create.ts';
 import { preflight } from './preflight.ts';
 import { findTerm } from './term-usage.ts';
 import { lookups } from './script-query.ts';
+import { calledWorkflowErrors, workflowIssues } from './workflow-issues.ts';
 
 export interface PlanInput {
   /** Workflow id or name. */
@@ -125,6 +127,62 @@ export function scopeMismatch(input: WorkflowSubject, scope: s.RunScope): string
   const foreign = (scope.marks ?? []).filter((mark) => !marksOn(input).includes(mark));
   if (foreign.length) return `${input === 'terms' ? '용어' : '대사'}에 없는 표시입니다: ${foreign.map((mark) => AUTO_MARKS[mark].name).join(', ')}`;
   return null;
+}
+
+/** The part of a preflight a person decides on: a run card and the card of a proposed run keep it, so they say what they said when they were made. */
+export const planOf = (full: RunCardPlan): RunCardPlan => ({ lines: { total: full.lines.total, excluded: full.lines.excluded }, totals: { calls: full.totals.calls }, pace: full.pace, ...(full.suggestedLimits && { suggestedLimits: { maxCalls: full.suggestedLimits.maxCalls, maxInputTokens: full.suggestedLimits.maxInputTokens } }) });
+
+/** What start_run is given: a saved workflow and a scope in the agent's terms (names or ids). */
+export interface StartRunInput {
+  workflowId: string;
+  groupIds?: string[];
+  unitIds?: string[];
+  tagIds?: string[];
+  marks?: string[];
+  termIds?: string[];
+  statuses?: string[];
+  speakers?: string[];
+  listeners?: string[];
+  kinds?: string[];
+  q?: string;
+  unfinished?: boolean;
+  noted?: boolean;
+  decidedBy?: DecidedBy;
+  emptyTarget?: boolean;
+  changeHuman?: boolean;
+  models?: RunModelInput;
+}
+
+/**
+ * What a start_run means, or why it cannot run: the workflow with this run's models and the scope, with something in it.
+ * The proposal asks when it is made (the card then says what accepting starts) and the tool again when it runs.
+ */
+export function resolveStartRun(db: Db, projectId: string, { workflowId, models, termIds, statuses, marks, speakers, listeners, kinds, q, unfinished, noted, decidedBy, emptyTarget, ...lineScope }: StartRunInput) {
+  const refuse = (error: string) => ({ ok: false as const, error });
+  const stored = db.select().from(s.workflows).where(and(eq(s.workflows.id, workflowId), eq(s.workflows.projectId, projectId))).get();
+  if (!stored) return refuse('워크플로를 찾을 수 없습니다.');
+  const picked = resolveRunModels(db, projectId, stored.definition, models);
+  if (picked.unknown.length) return refuse(`찾지 못함: ${picked.unknown.join(', ')}`);
+  const workflow = { ...stored, definition: withRunModels(stored.definition, picked.models) };
+  const errors = workflowIssues(db, projectId, workflow.definition, workflow.id).filter((issue) => issue.level === 'error');
+  if (errors.length) return refuse(`워크플로에 오류가 있습니다: ${errors[0].message}`);
+  try {
+    const called = calledWorkflowErrors(db, projectId, workflow.definition, workflow.id);
+    if (called.length) return refuse(`부르는 워크플로에 오류가 있습니다: ${called[0]}`);
+  } catch (error) {
+    return refuse(error instanceof Error ? error.message : String(error));
+  }
+  const found = (termIds ?? []).map((term) => ({ term, row: findTerm(db, projectId, term) }));
+  if (found.some((entry) => !entry.row)) return refuse(`찾지 못함: ${found.filter((entry) => !entry.row).map((entry) => `용어 ${entry.term}`).join(', ')}`);
+  const subject = workflowInput(workflow.definition);
+  const named = resolveRunScope(db, projectId, { statuses, speakers, listeners, kinds, q, unfinished, noted, decidedBy, emptyTarget }, subject);
+  if (named.unknown.length) return refuse(`찾지 못함: ${named.unknown.join(', ')}`);
+  const { statusIds: namedStatuses, ...namedLines } = named.scope;
+  const scope: s.RunScope = { ...lineScope, ...namedLines, ...(marks?.length && { marks: marks as s.RunScope['marks'] }), ...(namedStatuses && { statusIds: namedStatuses }), ...(found.length && { termIds: [...new Set(found.map((entry) => entry.row!.id))] }) };
+  const mismatch = scopeMismatch(subject, scope);
+  if (mismatch) return refuse(mismatch);
+  if (subject === 'terms' ? !selectRunTerms(db, projectId, scope).length : !selectRunUnits(db, projectId, scope).length) return refuse(subject === 'terms' ? '조건에 맞는 용어가 없습니다.' : '조건에 맞는 대사가 없습니다.');
+  return { ok: true as const, workflow, subject, scope };
 }
 
 /**

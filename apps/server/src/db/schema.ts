@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { customType, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import type { AppDefaults } from '@tw/shared';
+import type { AppDefaults, RunCardPlan } from '@tw/shared';
 import { type DecidedBy, AGE_BANDS, CHARACTER_ROLES, GENDERS, KNOWLEDGE_TAG_KINDS, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, EVENT_LINK_KINDS, GRAPH_ORIGINS, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, type MarkStyles, PERMISSION_MODES, type CharacterStyle, type EditorAi, type ExclusionRules, type ModelLimits, LINE_TRANSLATE, type AutoMark, type ContextItem, type FormatRules, type ItemErrorKind, type NodeType, type RelationshipChange, type WorkflowDefinition, workflowDefinitionSchema, WORKFLOW_SUBJECT_IDS, type WorkflowSubject, ALL_TERM_KINDS, type TermScope } from '@tw/shared';
 import type { Usage } from '@tw/ai';
 
@@ -632,6 +632,8 @@ export const runs = sqliteTable(
     tags: json<RunTag[]>('tags').notNull().default(sql`'[]'`),
     /** Each time a person continued the run with other models or re-queued its failed lines (#41), oldest first. */
     continuations: json<RunContinuation[]>('continuations').notNull().default(sql`'[]'`),
+    /** The conversation that started (or last continued) it: its end is recorded there (chat-run-end.ts). */
+    sessionId: text('session_id'),
     createdAt: createdAt(),
     finishedAt: integer('finished_at', { mode: 'timestamp_ms' }),
   },
@@ -761,6 +763,8 @@ export interface ProposalReport {
   dropped: { key: string; reason: string }[];
   warnings: { key: string; issues: string[] }[];
   counts?: { dropped: number; warnings: number };
+  /** A proposed run: what it would take in and cost, as it stood when it was proposed. */
+  run?: { input: WorkflowSubject; plan: RunCardPlan };
 }
 
 export type ProposalStatus = 'pending' | 'running' | 'accepted' | 'rejected' | 'failed';

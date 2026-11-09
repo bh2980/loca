@@ -1,5 +1,7 @@
 import type { UIMessage } from 'ai';
-import { RUN_CARD_PART, runCardOf, type RunCard } from '@tw/shared';
+import { isRunRecord, RUN_CARD_PART, RUN_END_PART, runCardOf, runEndOf, type RunCard, type RunEnd } from '@tw/shared';
+
+export { isRunRecord };
 
 /**
  * Model context built from the one conversation record (`chat_sessions.messages`).
@@ -46,13 +48,25 @@ function toolLine(part: ToolPart) {
 export function runCardLine(card: RunCard) {
   const unit = card.input === 'terms' ? '개' : '줄';
   const target = `${card.chips.map((chip) => `${chip.kind} ${chip.label}`).join(', ')}(${card.plan.lines.total.toLocaleString()}${unit})`;
-  const state = card.state === 'started' ? '실행 시작함, 결과는 read_run으로 확인' : card.state === 'cancelled' ? '확인 카드에서 취소함, 실행하지 않음' : '확인 대기 중, 아직 실행하지 않음';
+  const state = card.state === 'started' ? '실행 시작함, 끝나면 이 대화에 결과가 기록됨' : card.state === 'cancelled' ? '확인 카드에서 취소함, 실행하지 않음' : '확인 대기 중, 아직 실행하지 않음';
   return `사용자가 이 대화에서 워크플로 '${card.workflowName}'을 ${target}에 실행함 · ${card.runId ? `run ${card.runId}` : 'run 없음'} · ${state}`;
+}
+
+const END_STATUS: Record<RunEnd['status'], string> = { completed: '끝남', paused: '스스로 멈춤', cancelled: '취소됨' };
+const END_STATE: Record<string, string> = { done: '완료', failed: '실패', cancelled: '취소', queued: '대기', running: '처리 중' };
+
+/** What the agent is told when a run this conversation started stops: the numbers and the id read_run takes for the rest. */
+export function runEndLine(end: RunEnd) {
+  const unit = end.subject === 'terms' ? '개' : '줄';
+  const counts = Object.entries(end.states).filter(([, count]) => count > 0).map(([state, count]) => `${END_STATE[state] ?? state} ${count.toLocaleString()}${unit}`).join(', ');
+  return `이 대화에서 시작한 워크플로 실행 '${end.workflowName}'이 ${END_STATUS[end.status]} · run ${end.runId} · 전체 ${end.total.toLocaleString()}${unit}${counts && ` (${counts})`}${end.notice ? ` · 이유: ${end.notice}` : ''}`;
 }
 
 const cardLine = (part: { type: string }) => {
   const card = runCardOf({ parts: [part] });
-  return card ? runCardLine(card) : '';
+  if (card) return runCardLine(card);
+  const end = runEndOf({ parts: [part] });
+  return end ? runEndLine(end) : '';
 };
 
 /** One message as text: what was said plus the tools it used and what they returned. */
@@ -61,7 +75,7 @@ export function messageText(message: UIMessage) {
   for (const part of message.parts) {
     if (part.type === 'text' && part.text.trim()) pieces.push(part.text);
     else if (part.type === 'file') pieces.push('[이미지 첨부]');
-    else if (part.type === RUN_CARD_PART) pieces.push(cardLine(part));
+    else if (part.type === RUN_CARD_PART || part.type === RUN_END_PART) pieces.push(cardLine(part));
     else if (part.type.startsWith('tool-') || part.type === 'dynamic-tool') pieces.push(toolLine(part as ToolPart));
   }
   return pieces.join('\n');
@@ -77,13 +91,13 @@ export const isSteer = (part: { type: string }): part is SteerPart => part.type 
 /**
  * The record as the model reads it: each reply split where a steering message reached the model
  * (reply so far, the person's message, the rest of the reply), and each run card turned into the
- * user message that tells what it is (runCardLine). Context builders read this, so every backend
+ * user message that tells what it is (runCardLine, runEndLine). Context builders read this, so every backend
  * sees the conversation in the order it happened.
  */
 export function expandRecord(messages: UIMessage[]): UIMessage[] {
-  if (!messages.some((message) => message.parts.some((part) => isSteer(part) || part.type === RUN_CARD_PART))) return messages;
+  if (!messages.some((message) => isRunRecord(message) || message.parts.some(isSteer))) return messages;
   return messages.flatMap((message) => {
-    if (message.parts.some((part) => part.type === RUN_CARD_PART)) {
+    if (isRunRecord(message)) {
       const text = messageText(message);
       return text ? [{ ...message, parts: [{ type: 'text' as const, text }] }] : [];
     }
@@ -105,8 +119,8 @@ export function expandRecord(messages: UIMessage[]): UIMessage[] {
   });
 }
 
-/** A run card's line already says whose it is. */
-const isCard = (message: UIMessage) => (message.metadata as { kind?: string } | undefined)?.kind === 'run-card';
+/** A run card's or a run end's line already says whose it is. */
+const isCard = (message: UIMessage) => ['run-card', 'run-end'].includes((message.metadata as { kind?: string } | undefined)?.kind ?? '');
 
 const speaker = (message: UIMessage) => {
   if (message.role === 'user') return '사용자';
@@ -136,11 +150,8 @@ export function catchUp(earlier: UIMessage[], seen: number) {
   return text ? `지난번 이후 이 대화에서 오간 내용(다른 AI가 답한 부분):\n${text}` : null;
 }
 
-/** Run cards are part of the record but not of the exchange: they never count as the reply being continued or the message being revised. */
-export const isRunCard = (message: UIMessage) => message.parts.some((part) => part.type === RUN_CARD_PART);
-
-/** The newest message that is not a run card. */
-export const lastExchange = (messages: UIMessage[]) => messages.findLast((message) => !isRunCard(message));
+/** The newest message that is not a run card or a run's end. */
+export const lastExchange = (messages: UIMessage[]) => messages.findLast((message) => !isRunRecord(message));
 
 /**
  * Puts a message the browser sent into the stored record. The server owns the record: a new message
@@ -151,8 +162,8 @@ export function mergeIncoming(stored: UIMessage[], incoming: UIMessage | undefin
   let messages = [...stored];
   if (trigger === 'regenerate-message') {
     let end = messages.length;
-    while (end > 0 && (messages[end - 1]!.role === 'assistant' || isRunCard(messages[end - 1]!))) end--;
-    messages = [...messages.slice(0, end), ...messages.slice(end).filter(isRunCard)];
+    while (end > 0 && (messages[end - 1]!.role === 'assistant' || isRunRecord(messages[end - 1]!))) end--;
+    messages = [...messages.slice(0, end), ...messages.slice(end).filter(isRunRecord)];
   }
   if (!incoming) return messages;
   const at = messages.findIndex((message) => message.id === incoming.id);
@@ -165,12 +176,12 @@ export function mergeIncoming(stored: UIMessage[], incoming: UIMessage | undefin
 }
 
 /**
- * The record a reply ends with, plus the run cards made while it was running (the record it was
- * built from did not have them) and the newest answer of each card both know: a card is answered
- * from the panel at any time, not only between turns.
+ * The record a reply ends with, plus the run cards made and the runs ended while it was running (the
+ * record it was built from did not have them) and the newest answer of each card both know: a card is
+ * answered from the panel at any time, not only between turns.
  */
 export function withStoredCards(final: UIMessage[], stored: UIMessage[]): UIMessage[] {
-  const latest = new Map(stored.filter(isRunCard).map((message) => [message.id, message]));
+  const latest = new Map(stored.filter(isRunRecord).map((message) => [message.id, message]));
   if (!latest.size) return final;
   const known = new Set(final.map((message) => message.id));
   return [...final.map((message) => latest.get(message.id) ?? message), ...[...latest.values()].filter((message) => !known.has(message.id))];

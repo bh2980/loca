@@ -1,4 +1,5 @@
 import { useMutation } from '@tanstack/react-query';
+import { Link } from '@tanstack/react-router';
 import { Check, X } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
@@ -46,6 +47,8 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
   });
   const failure = proposal.status === 'failed' ? String((proposal.result as { error?: string } | null)?.error ?? '') : '';
   const skipped = proposal.status === 'accepted' ? ((proposal.result as { skipped?: unknown[] } | null)?.skipped?.length ?? 0) : 0;
+  // A run this proposal started or went on with.
+  const runId = proposal.status === 'accepted' ? (proposal.result as { runId?: string } | null)?.runId : undefined;
   return (
     <ToolCard>
       <ToolCardHeader title={LABEL[proposal.tool] ?? proposal.tool} suffix={proposal.source === 'cli' && <Text weight="normal" tone="muted">· CLI</Text>}>
@@ -61,7 +64,8 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
         {decide.isPending && <Spinner size="xs" />}
       </ToolCardHeader>
       <Box paddingX="normal" paddingY="condensed" variant="body">
-        <ChangePreview name={proposal.tool} input={proposal.input} pending={proposal.status === 'pending'} details={proposal.details} />
+        <ChangePreview name={proposal.tool} input={proposal.input} pending={proposal.status === 'pending'} details={proposal.details} run={proposal.report?.run} />
+        {runId && <Text as="p" marginTop="condensed" variant="caption"><Text asChild underline="offset"><Link to="/p/$projectId/runs/$runId" params={{ projectId: proposal.projectId, runId }}>실행 보기</Link></Text></Text>}
         {proposal.report && <ProposalReport report={proposal.report} />}
         {proposal.status === 'pending' && proposal.review && <Text as="p" marginTop="condensed" border="top" paddingTop="condensed" tone="muted">자동 검토가 넘김: {proposal.review}</Text>}
       </Box>
@@ -107,6 +111,7 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
 function ProposalReport({ report }: { report: NonNullable<Proposal['report']> & { counts?: { dropped: number; warnings: number } } }) {
   const dropped = report.counts?.dropped ?? report.dropped.length;
   const warnings = report.counts?.warnings ?? report.warnings.length;
+  if (!dropped && !warnings) return null;
   return (
     <Box marginTop="condensed" spaceY="tight" border="top" paddingTop="condensed" tone="muted">
       {dropped > 0 && (

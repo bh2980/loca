@@ -1,5 +1,5 @@
 import { and, eq, inArray } from 'drizzle-orm';
-import { AGE_BAND_LABELS, CHARACTER_ROLE_LABELS, GENDER_LABELS, SPEECH_LEVEL_LABELS } from '@tw/shared';
+import { AGE_BAND_LABELS, CHARACTER_ROLE_LABELS, GENDER_LABELS, KNOWLEDGE_STATUS_LABELS, nodeName, SPEECH_LEVEL_LABELS, type KnowledgeStatus, type WorkflowDefinition } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { snapshot } from './proposal-undo.ts';
@@ -116,6 +116,16 @@ function refsOf(db: Db, proposal: Proposal): Record<string, string> {
     const column = table === 'groups' ? s.groups.title : (t as typeof s.statuses).name;
     for (const row of db.select({ id: (t as typeof s.statuses).id, name: column }).from(t as typeof s.statuses).where(and(eq((t as typeof s.statuses).projectId, proposal.projectId), inArray((t as typeof s.statuses).id, wanted))).all()) refs[row.id] = row.name;
   };
+  // A run's models name AI nodes and connections, by id or by name.
+  const modelRefs = (definition: WorkflowDefinition | undefined) => {
+    const models = isRecord(input.models) ? input.models : {};
+    for (const key of Object.keys(models)) {
+      const node = definition?.nodes.find((candidate) => candidate.id === key);
+      if (node) refs[key] = nodeName(node);
+    }
+    const connections = Object.values(models).flatMap((pick) => (isRecord(pick) && typeof pick.connection === 'string' ? [pick.connection] : []));
+    if (connections.length) for (const row of db.select({ id: s.connections.id, name: s.connections.name }).from(s.connections).where(and(eq(s.connections.projectId, proposal.projectId), inArray(s.connections.id, connections))).all()) refs[row.id] = row.name;
+  };
   switch (proposal.tool) {
     case 'update_unit':
     case 'propose_translation':
@@ -139,10 +149,25 @@ function refsOf(db: Db, proposal: Proposal): Record<string, string> {
       break;
     case 'save_workflow':
     case 'delete_workflow':
-    case 'start_run':
     case 'edit_workflow_node':
       named('workflows', [...ids('id'), ...ids('workflowId')]);
       break;
+    case 'start_run': {
+      named('workflows', ids('workflowId'));
+      named('groups', ids('groupIds'));
+      named('tags', ids('tagIds'));
+      named('statuses', ids('statuses'));
+      for (const value of ids('statuses')) if (value in KNOWLEDGE_STATUS_LABELS) refs[value] = KNOWLEDGE_STATUS_LABELS[value as KnowledgeStatus];
+      if (ids('termIds').length) for (const term of db.select({ id: s.terms.id, source: s.terms.source }).from(s.terms).where(and(eq(s.terms.projectId, proposal.projectId), inArray(s.terms.id, ids('termIds')))).all()) refs[term.id] = term.source;
+      modelRefs(db.select({ definition: s.workflows.definition }).from(s.workflows).where(and(eq(s.workflows.id, ids('workflowId')[0] ?? ''), eq(s.workflows.projectId, proposal.projectId))).get()?.definition);
+      break;
+    }
+    case 'continue_run': {
+      const run = db.select({ name: s.runs.workflowName, definition: s.runs.definition }).from(s.runs).where(and(eq(s.runs.id, ids('runId')[0] ?? ''), eq(s.runs.projectId, proposal.projectId))).get();
+      if (run) refs[ids('runId')[0]!] = run.name;
+      modelRefs(run?.definition);
+      break;
+    }
   }
   return refs;
 }

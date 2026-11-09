@@ -7,6 +7,7 @@ import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { chatRunScope } from './chat-run-scope.ts';
 import { preflight } from './preflight.ts';
+import { planOf } from './run-plan.ts';
 import { fitScope, startWorkflowRun } from './start-run.ts';
 
 /**
@@ -18,9 +19,6 @@ import { fitScope, startWorkflowRun } from './start-run.ts';
  */
 
 const record = (db: Db, sessionId: string) => found(db.select().from(s.chatSessions).where(eq(s.chatSessions.id, sessionId)).get(), '대화');
-
-/** The part of a preflight a card keeps. */
-export const planOf = (full: RunCardPlan): RunCardPlan => ({ lines: { total: full.lines.total, excluded: full.lines.excluded }, totals: { calls: full.totals.calls }, pace: full.pace, ...(full.suggestedLimits && { suggestedLimits: { maxCalls: full.suggestedLimits.maxCalls, maxInputTokens: full.suggestedLimits.maxInputTokens } }) });
 
 /** Makes the card for the picks of a /workflow (the run dialog's scope and preflight) and adds it to the end of the conversation. */
 export async function createRunCard(db: Db, sessionId: string, input: { workflowId: string; chips: ChatChip[] }): Promise<RunCard> {
@@ -83,7 +81,7 @@ export async function answerRunCard(db: Db, sessionId: string, cardId: string, a
   }
   starting.add(card.id);
   try {
-    const { runId } = await startWorkflowRun(db, card.workflowId, { scope: card.scope, limits: startLimits(card.plan.suggestedLimits) });
+    const { runId } = await startWorkflowRun(db, card.workflowId, { scope: card.scope, limits: startLimits(card.plan.suggestedLimits), sessionId });
     const next: RunCard = { ...card, state: 'started', runId };
     replaceCard(db, sessionId, next);
     return next;
