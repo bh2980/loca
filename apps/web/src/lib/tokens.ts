@@ -78,8 +78,16 @@ export function numberTokens(text: string, source: string, pattern: RegExp | nul
   return tokens.map((token, index) => ({ text: token.text, from: token.from, to: token.to, kind: token.kind, number: token.kind === 'close' ? numbers[token.partner] : numbers[index] }));
 }
 
-/** The chip's text: ⟨1 opens, 1⟩ closes, ⟨1⟩ stands alone; ? when the source lacks the token. */
-export function chipLabel(kind: TokenKind, number: number) {
+/** Longest token text a chip shows in full; a longer one is cut (its tooltip has all of it). */
+const CHIP_TEXT = 20;
+
+/**
+ * The chip's text. A token standing alone shows itself (`{player}`, `%d`), so it never reads as a number in the line; a pair
+ * shows its number at both ends (⟨1 opens, 1⟩ closes), where the tags' own text would bury the words between them. Without
+ * the text (or for a pair) the lone one is ⟨1⟩; ? when the source lacks the token.
+ */
+export function chipLabel(kind: TokenKind, number: number, text?: string) {
+  if (kind === 'single' && text) return text.length > CHIP_TEXT ? `${text.slice(0, CHIP_TEXT - 1)}…` : text;
   const n = number ? String(number) : '?';
   return kind === 'open' ? `⟨${n}` : kind === 'close' ? `${n}⟩` : `⟨${n}⟩`;
 }

@@ -21,4 +21,10 @@ describe('token chips (one number per pair)', () => {
   it('an opener without its closer is a lone token', () => {
     expect(labels('<br>line', '<br>line')).toEqual(['⟨1⟩']);
   });
+  it('a lone token shows itself, so it never reads as a number in the line; a pair keeps its number', () => {
+    const shown = (text: string, source: string) => numberTokens(text, source, pattern).map((token) => chipLabel(token.kind, token.number, token.text));
+    expect(shown('Not a word. {player}', 'Not a word. {player}')).toEqual(['{player}']);
+    expect(shown('<b>hi</b> {name}', '<b>hi</b> {name}')).toEqual(['⟨1', '1⟩', '{name}']);
+    expect(chipLabel('single', 3, '{a_very_long_placeholder_name}')).toBe('{a_very_long_placeh…');
+  });
 });

@@ -1,32 +1,53 @@
-import { useEffect, useRef } from 'react';
-import { useNavigate } from '@tanstack/react-router';
-import { toast } from 'sonner';
-import { useRuns } from './runs';
+import { useEffect, useRef, useSyncExternalStore } from 'react';
+import { useRuns, type Run } from './runs';
+
+/** A run that ended while the project was open: what the bell (알림) lists until someone opens it. */
+export type RunNews = Pick<Run, 'id' | 'workflowName' | 'status' | 'total' | 'subject' | 'notice'>;
+
+const EMPTY: RunNews[] = [];
+const news = new Map<string, RunNews[]>();
+const listeners = new Set<() => void>();
+const changed = () => {
+  for (const listener of listeners) listener();
+};
+const subscribe = (listener: () => void) => {
+  listeners.add(listener);
+  return () => void listeners.delete(listener);
+};
+
+/** Puts a run's end in the bell (once per run; a later end of the same run replaces it). */
+export function addRunNews(projectId: string, run: RunNews) {
+  news.set(projectId, [run, ...(news.get(projectId) ?? EMPTY).filter((entry) => entry.id !== run.id)]);
+  changed();
+}
+
+/** Read: the bell was opened and closed, so these are no longer new. */
+export function clearRunNews(projectId: string) {
+  if (!news.get(projectId)?.length) return;
+  news.delete(projectId);
+  changed();
+}
+
+/** The runs that ended since the bell was last opened, newest first. */
+export function useRunNews(projectId: string) {
+  return useSyncExternalStore(subscribe, () => news.get(projectId) ?? EMPTY, () => EMPTY);
+}
 
 /**
- * Long work ends while the user is elsewhere: a workflow run
- * that finishes, fails or pauses says so wherever they are, with what came out and a way to it.
- * Only changes seen while the project is open are announced (nothing on first load).
+ * Long work ends while the user is elsewhere: a workflow run that finishes or pauses goes into the bell (알림) in the
+ * status bar, with a count on it, instead of a toast of its own. Only changes seen while the project is open count
+ * (nothing on first load); a run someone cancelled is not news.
  */
 export function useJobNotices(projectId: string) {
-  const navigate = useNavigate();
   const runs = useRuns(projectId);
   const seen = useRef(new Map<string, string>());
 
   useEffect(() => {
-    const items = [
-      ...(runs.data ?? []).map((run) => ({ id: run.id, status: run.status, notice: () => runNotice(run) })),
-    ];
-    for (const item of items) {
-      const before = seen.current.get(item.id);
-      seen.current.set(item.id, item.status);
-      if (before === 'running' && item.status !== 'running') item.notice();
+    for (const run of runs.data ?? []) {
+      const before = seen.current.get(run.id);
+      seen.current.set(run.id, run.status);
+      if (before === 'running' && (run.status === 'completed' || run.status === 'paused'))
+        addRunNews(projectId, { id: run.id, workflowName: run.workflowName, status: run.status, total: run.total, subject: run.subject, notice: run.notice });
     }
-
-    function runNotice(run: NonNullable<typeof runs.data>[number]) {
-      const open = { label: '실행 보기', onClick: () => void navigate({ to: '/p/$projectId/runs/$runId', params: { projectId, runId: run.id } }) };
-      if (run.status === 'completed') toast.success(`‘${run.workflowName}’ 실행이 끝났습니다`, { description: `${run.total.toLocaleString()}${run.subject === 'terms' ? '개' : '줄'}`, action: open, duration: 15_000 });
-      else if (run.status === 'paused') toast.warning(`‘${run.workflowName}’ 실행이 멈췄습니다`, { description: run.notice ?? undefined, action: open, duration: 15_000 });
-    }
-  }, [runs.data, navigate, projectId]);
+  }, [runs.data, projectId]);
 }

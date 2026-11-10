@@ -94,7 +94,7 @@ export function TokenChip({ part, hint, onPick, missing = false }: { part: Sourc
           pickable={!!onPick}
           onMouseDown={onPick && ((event) => (event.preventDefault(), onPick()))}
         >
-          {chipLabel(part.token?.kind ?? 'single', part.token?.number ?? 0)}
+          {chipLabel(part.token?.kind ?? 'single', part.token?.number ?? 0, part.text)}
         </EditorTokenChip>
       </TooltipTrigger>
       <EditorTokenTip text={part.text} stray={!part.token?.number} hint={hint} />

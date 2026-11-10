@@ -31,7 +31,7 @@ class GhostChip extends WidgetType {
   toDOM() {
     const chip = document.createElement('span');
     chip.className = `cm-token-chip cm-token-ghost ${chipHue(this.insert.number)}`;
-    chip.textContent = chipLabel(this.insert.kind, this.insert.number);
+    chip.textContent = chipLabel(this.insert.kind, this.insert.number, this.insert.text);
     chip.title = `${this.insert.text} · Tab으로 넣기`;
     return chip;
   }
@@ -85,7 +85,7 @@ class ContinuationText extends WidgetType {
       }
       const chip = document.createElement('span');
       chip.className = `cm-token-chip cm-token-ghost ${chipHue(part.token.number)}`;
-      chip.textContent = chipLabel(part.token.kind, part.token.number);
+      chip.textContent = chipLabel(part.token.kind, part.token.number, part.text);
       span.append(chip);
     }
     return span;
@@ -208,7 +208,7 @@ export interface TranslationInputProps {
 
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-/** A format token drawn as its number in the source (⟨1 … 1⟩ for a pair, ⟨1⟩ alone, ? when the source lacks it); the full text is its tooltip. */
+/** A format token as a chip coloured by its number in the source: a lone one shows itself, a pair its number (⟨1 … 1⟩, ? when the source lacks it). */
 class TokenChip extends WidgetType {
   constructor(
     readonly token: string,
@@ -223,7 +223,7 @@ class TokenChip extends WidgetType {
   toDOM() {
     const chip = document.createElement('span');
     chip.className = this.number ? `cm-token-chip ${chipHue(this.number)}` : 'cm-token-chip cm-token-stray';
-    chip.textContent = chipLabel(this.kind, this.number);
+    chip.textContent = chipLabel(this.kind, this.number, this.token);
     return chip;
   }
 }

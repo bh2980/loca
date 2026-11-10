@@ -9,6 +9,13 @@ export const GRAPH_SHOW_ITEMS: { value: GraphShow; label: string }[] = [
   { value: 'both', label: '둘 다' },
 ];
 
+/** A line card's text by what is shown: the source, the translation alone, or the source over the translation (the main graph and the route view alike). */
+export function shownText(show: GraphShow, text: string, translation?: string | null): { body: string; bodyStrong?: boolean; second?: string; missing?: 'body' | 'second' } {
+  if (show === 'source') return { body: text };
+  if (show === 'translation') return translation ? { body: translation, bodyStrong: true } : { body: '번역 없음', missing: 'body' };
+  return { body: text, second: translation ?? '번역 없음', ...(!translation && { missing: 'second' as const }) };
+}
+
 const KEY = 'tw.graph.flowShow';
 const listeners = new Set<() => void>();
 

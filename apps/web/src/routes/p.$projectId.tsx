@@ -11,9 +11,10 @@ import { ExportDialog } from '@/components/export-dialog';
 import { ShortcutHelp } from '@/components/shortcut-help';
 import { chatDock, useChatDockOpen } from '@/lib/chat-dock';
 import { useChatUnread } from '@/lib/chat-unread';
-import { useJobNotices } from '@/lib/job-notices';
+import { clearRunNews, useJobNotices, useRunNews } from '@/lib/job-notices';
 import { useCurrentNav } from '@/lib/nav';
 import { useProgress } from '@/lib/use-progress';
+import { shownAfterClear, useRecentRunsCleared } from '@/lib/recent-runs';
 import { dateTime } from '@/lib/datetime';
 import { loadProject } from '@/lib/project';
 import { useProposals } from '@/lib/proposals';
@@ -87,7 +88,16 @@ function ProjectLayout() {
     (r.states.done ?? 0) + (r.states.failed ?? 0) + (r.states.cancelled ?? 0) + (r.states.skipped ?? 0);
   const firstActiveDone = firstActive ? runDone(firstActive) : 0;
   const failedRuns = progress.recentRuns.filter((run) => (run.states.failed ?? 0) > 0 || run.status === 'paused');
-  const hasNotification = waiting > 0 || failedRuns.length > 0;
+  // Runs that ended since the bell was last opened: counted on it, listed first, and not listed again below.
+  const runNews = useRunNews(projectId);
+  const lookRuns = failedRuns.filter((run) => !runNews.some((news) => news.id === run.id));
+  const bellCount = waiting + runNews.length;
+  const hasNotification = bellCount > 0 || failedRuns.length > 0;
+  const alarming = failedRuns.length > 0 || runNews.some((run) => run.status === 'paused');
+  // 최근 실행 after its 지우기: only runs that ended since (the runs page keeps them all).
+  const [clearedAt, clearRecent] = useRecentRunsCleared(projectId);
+  const recentShown = progress.recentRuns.filter((run) => shownAfterClear(run, clearedAt));
+  const runList = activeCount > 0 ? progress.activeRuns : recentShown;
 
   return (
     <DockProvider onActivate={revealProperties} onContentChange={setHasInspector}>
@@ -184,20 +194,24 @@ function ProjectLayout() {
                     <SectionHeading ruled
                       as="h3"
                       actions={
-                        <TextLink asChild variant="caption" weight="normal" tone="muted" underline="always" quiet>
+                        // Hides the finished runs here only; nothing is deleted.
+                        activeCount === 0 && recentShown.length > 0 ? <Button variant="ghost" size="inline" onClick={clearRecent}>지우기</Button> : undefined
+                      }
+                    >
+                      {activeCount > 0 ? `실행 중 ${activeCount}` : '최근 실행'}
+                      <Text marginLeft="condensed" variant="caption" weight="normal">
+                        <TextLink asChild tone="muted" underline="always" quiet>
                           <Link to="/p/$projectId/runs" params={{ projectId }}>
                             전체 보기
                           </Link>
                         </TextLink>
-                      }
-                    >
-                      {activeCount > 0 ? `실행 중 ${activeCount}` : '최근 실행'}
+                      </Text>
                     </SectionHeading>
                     <Box spaceY="condensed">
-                      {(activeCount > 0 ? progress.activeRuns : progress.recentRuns).length === 0 ? (
-                        <Text as="p" paddingY="condensed" align="center" variant="caption" tone="muted">실행 기록이 없습니다.</Text>
+                      {runList.length === 0 ? (
+                        <Text as="p" paddingY="condensed" align="center" variant="caption" tone="muted">{clearedAt && progress.recentRuns.length ? '지운 뒤 끝난 실행이 없습니다.' : '실행 기록이 없습니다.'}</Text>
                       ) : (
-                        (activeCount > 0 ? progress.activeRuns : progress.recentRuns).map((run) => {
+                        runList.map((run) => {
                           const done = runDone(run);
                           const pct = run.total > 0 ? Math.round((done / run.total) * 100) : 0;
                           const hasFail = (run.states.failed ?? 0) > 0;
@@ -239,13 +253,14 @@ function ProjectLayout() {
                 </PopoverContent>
               </Popover>
 
-              <Popover>
+              {/* Closing it reads what ended: the count goes and those runs stay under 최근 실행. */}
+              <Popover onOpenChange={(next) => !next && clearRunNews(projectId)}>
                 <PopoverTrigger asChild>
-                  <StatusBarButton gap="tight" aria-label="알림">
+                  <StatusBarButton gap="tight" aria-label={bellCount > 0 ? `알림 ${bellCount}건` : '알림'}>
                     <Icon icon={Bell} size="xs" />
                     {hasNotification && (
-                      <Text weight="medium" tabular tone={failedRuns.length > 0 ? 'danger' : 'accent'}>
-                        {waiting > 0 ? waiting : '!'}
+                      <Text weight="medium" tabular tone={alarming ? 'danger' : 'accent'}>
+                        {bellCount > 0 ? bellCount : '!'}
                       </Text>
                     )}
                   </StatusBarButton>
@@ -271,11 +286,30 @@ function ProjectLayout() {
                         <ProposalList projectId={projectId} proposals={pending} />
                       </Box>
                     )}
+                    {/* Runs that ended while the project was open, in place of a toast of their own. */}
+                    {runNews.length > 0 && (
+                      <Box spaceY="condensed">
+                        <SectionHeading level="group" marginBottom="none">끝난 실행</SectionHeading>
+                        {runNews.slice(0, 5).map((run) => (
+                          <ListRow as="link" key={run.id} density="loose">
+                            <Link to="/p/$projectId/runs/$runId" params={{ projectId, runId: run.id }}>
+                              <Inline minWidth={0} gap="tight" truncate>
+                                {run.status === 'paused' ? <Icon icon={Pause} size="xs" shrink={false} tone="warning" /> : <Icon icon={CheckCircle2} size="xs" shrink={false} tone="success" />}
+                                <Text truncate>{run.workflowName}</Text>
+                              </Inline>
+                              <Text minWidth={0} variant="caption" tabular tone="muted" truncate title={run.notice ?? undefined}>
+                                {run.status === 'paused' ? (run.notice ?? '일시정지') : `${run.total.toLocaleString()}${run.subject === 'terms' ? '개' : '줄'} 끝남`}
+                              </Text>
+                            </Link>
+                          </ListRow>
+                        ))}
+                      </Box>
+                    )}
                     {/* Only the runs that need a look (failed lines, paused): every recent run is under 워크플로 next to it. */}
-                    {failedRuns.length > 0 && (
+                    {lookRuns.length > 0 && (
                       <Box spaceY="condensed">
                         <SectionHeading level="group" marginBottom="none">확인할 실행</SectionHeading>
-                        {failedRuns.slice(0, 3).map((run) => (
+                        {lookRuns.slice(0, 3).map((run) => (
                           <ListRow as="link" key={run.id} density="loose">
                             <Link to="/p/$projectId/runs/$runId" params={{ projectId, runId: run.id }}>
                               <Inline minWidth={0} gap="tight" truncate>
