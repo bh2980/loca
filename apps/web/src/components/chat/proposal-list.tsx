@@ -81,7 +81,7 @@ export function ProposalList({ projectId, proposals }: { projectId: string; prop
               <Button variant="ghost" disabled={decide.isPending} onClick={() => run('reject', [proposal.id])}>거절</Button>
               <Button variant="outline" disabled={decide.isPending} onClick={() => run('accept', [proposal.id])}><Check /> 수락</Button>
             </Inline>
-            <ChangePreview name={proposal.tool} input={proposal.input} details={proposal.details} />
+            <ChangePreview name={proposal.tool} input={proposal.input} details={proposal.details} run={proposal.report?.run} />
           </Box>
         ))}
       </Box>

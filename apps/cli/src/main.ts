@@ -1063,6 +1063,19 @@ for (const [action, description] of [
       console.log(`${run.workflow}: ${RUN_STATUS[run.status]} (${run.id})`);
     });
 
+/** --max-calls / --max-input-tokens as a run's caps: a number sets one, none runs without it, a flag left out keeps what there is (a new run: the suggestion). */
+function capsFrom(options: { maxCalls?: string; maxInputTokens?: string }) {
+  const cap = (flag: string, value: string | undefined) => {
+    if (value === undefined || value === 'none') return value === 'none' ? null : undefined;
+    const count = Number(value);
+    if (!Number.isInteger(count) || count < 1) throw new CliError(`${flag}에는 1 이상의 정수나 none을 쓰세요: ${value}`);
+    return count;
+  };
+  const maxCalls = cap('--max-calls', options.maxCalls);
+  const maxInputTokens = cap('--max-input-tokens', options.maxInputTokens);
+  return maxCalls !== undefined || maxInputTokens !== undefined ? { ...(maxCalls !== undefined && { maxCalls }), ...(maxInputTokens !== undefined && { maxInputTokens }) } : undefined;
+}
+
 runs
   .command('resume <id>')
   .description('일시정지한 실행 이어 하기 (AI 비용이 들어 터미널 권한 모드를 따름: 바로 되거나 제안으로 기다림)')
@@ -1071,8 +1084,7 @@ runs
   .option('--wait', '실행이 끝날 때까지 기다린 뒤 요약')
   .option('--timeout <분>', '--wait을 이만큼만')
   .action(async (id: string, options: { maxCalls?: string; maxInputTokens?: string; wait?: boolean; timeout?: string }) => {
-    const cap = (value: string | undefined) => (value === undefined ? undefined : value === 'none' ? null : Number(value));
-    const limits = options.maxCalls !== undefined || options.maxInputTokens !== undefined ? { maxCalls: cap(options.maxCalls), maxInputTokens: cap(options.maxInputTokens) } : undefined;
+    const limits = capsFrom(options);
     await followRun(await proposeTool('continue_run', { runId: id, limits }), options, '실행 이어 하기');
   });
 
@@ -1121,6 +1133,7 @@ runs
       totals: { calls: { min: number; expected: number | null; max: number }; inputTokens: { min: number; expected: number | null; max: number } };
       pace: { seconds: number | null; costUsd: number | null; subscription: boolean };
       load: { runs: number; max: number; added: number };
+      suggestedLimits?: { maxCalls?: number; maxInputTokens?: number };
       readiness: { dialogueLines: number; unknownListenerLines: number; candidateRules: Names; candidateTerms: Names; pairsWithoutRule: { count: number; examples: string[] } };
     }>('plan_run', { workflow, groups, keys, tags: options.tag, marks: options.mark, terms: options.term, statuses: options.status, speakers: options.speaker, listeners: options.listener, kinds: options.kind, q: options.q, unfinished: options.unfinished || undefined, noted: options.noted || undefined, decidedBy: options.by, emptyTarget: options.emptyTarget || undefined, models: runModels(options.model) });
     if (globals().json) return print(data);
@@ -1133,6 +1146,8 @@ runs
     console.log(`  AI 요청 ${range(data.totals.calls)} · 입력 토큰 ${range(data.totals.inputTokens)}${data.pace.seconds !== null ? ` · 약 ${Math.round(data.pace.seconds / 60)}분` : ''}${data.pace.subscription ? ' · 구독' : data.pace.costUsd !== null ? ` · 약 $${data.pace.costUsd.toFixed(2)}` : ''}`);
     for (const node of data.nodes) console.log(`    ${node.name}  ${node.model ?? '(모델 없음)'}  요청 ${range(node.requests)} · 동시 ${node.concurrency} · 프롬프트 약 ${node.promptTokens.toLocaleString()}토큰`);
     if (data.load.runs) console.log(`  주의: 다른 실행 ${data.load.runs}개가 AI 요청을 최대 ${data.load.max}개까지 동시에 보내는 중입니다. 이 실행을 시작하면 최대 ${data.load.max + data.load.added}개가 됩니다.   → loca runs list`);
+    const caps = [data.suggestedLimits?.maxCalls && `호출 ${data.suggestedLimits.maxCalls.toLocaleString()}회`, data.suggestedLimits?.maxInputTokens && `입력 토큰 ${data.suggestedLimits.maxInputTokens.toLocaleString()}`].filter(Boolean);
+    if (caps.length) console.log(`  상한 ${caps.join(' · ')}에서 일시정지 (실행 창과 같은 권장값, runs start가 그대로 씀)   → 바꾸려면 --max-calls·--max-input-tokens`);
     if (terms) return console.log('\n용어 입력 워크플로는 청자·말투 규칙 준비 상태를 보지 않습니다. 시작 전 loca terms로 대상 용어를 확인하세요.');
     const ready = data.readiness;
     console.log('\n준비 상태');
@@ -1165,9 +1180,11 @@ runs
   .option('-q, --q <글자>', 'plan과 같은 원문 글자 조건')
   .option('--rerun-errors <실행id>', '그 실행에서 실패했거나 오류 출구로 빠진 대사·용어만 (다른 범위 조건과 함께 쓰면 모두 만족)')
   .option('--change-human', '사람이 정한 상태·붙인 태그도 바꾸기 (없으면 그대로 두고 실행 상세에 남김)')
+  .option('--max-calls <n>', '호출 상한 (없으면 plan의 권장 상한, 실행 창과 같음; none이면 상한 없이)')
+  .option('--max-input-tokens <n>', '입력 토큰 상한 (없으면 plan의 권장 상한; none이면 상한 없이)')
   .option('--wait', '(제안이면 결정을 기다린 뒤) 실행이 끝날 때까지 기다리고 요약. 깨끗하게 끝나지 않으면 종료 코드 1')
   .option('--timeout <분>', '--wait을 이만큼만')
-  .action(async (ref: string, options: { group?: string[]; key?: string[]; mark?: string[]; tag?: string[]; term?: string[]; status?: string[]; model?: string[]; view?: string; section?: string[]; speaker?: string[]; listener?: string[]; kind?: string[]; q?: string; unfinished?: boolean; noted?: boolean; by?: DecidedBy; emptyTarget?: boolean; rerunErrors?: string; changeHuman?: boolean; wait?: boolean; timeout?: string }) => {
+  .action(async (ref: string, options: { group?: string[]; key?: string[]; mark?: string[]; tag?: string[]; term?: string[]; status?: string[]; model?: string[]; view?: string; section?: string[]; speaker?: string[]; listener?: string[]; kind?: string[]; q?: string; unfinished?: boolean; noted?: boolean; by?: DecidedBy; emptyTarget?: boolean; rerunErrors?: string; changeHuman?: boolean; maxCalls?: string; maxInputTokens?: string; wait?: boolean; timeout?: string }) => {
     const workflow = await resolveWorkflow(ref);
     const groupIds = options.section?.length ? await sectionGroups(options.section, options.group) : (await resolveGroups(options.group))?.map((group) => group.id);
     let unitIds: string[] | undefined;
@@ -1193,7 +1210,7 @@ runs
     const tagIds = options.tag?.length
       ? (await readTool<{ tags: { id: string; name: string }[] }>('list_tags')).tags.filter((tag) => options.tag!.includes(tag.name)).map((tag) => tag.id)
       : undefined;
-    const outcome = await proposeTool('start_run', { workflowId: workflow.id, groupIds, unitIds, tagIds, marks: options.mark, termIds, statuses: options.status, speakers: options.speaker, listeners: options.listener, kinds: options.kind, q: options.q, unfinished: options.unfinished || undefined, noted: options.noted || undefined, decidedBy: options.by, emptyTarget: options.emptyTarget || undefined, changeHuman: options.changeHuman || undefined, models: runModels(options.model) });
+    const outcome = await proposeTool('start_run', { workflowId: workflow.id, groupIds, unitIds, tagIds, marks: options.mark, termIds, statuses: options.status, speakers: options.speaker, listeners: options.listener, kinds: options.kind, q: options.q, unfinished: options.unfinished || undefined, noted: options.noted || undefined, decidedBy: options.by, emptyTarget: options.emptyTarget || undefined, changeHuman: options.changeHuman || undefined, models: runModels(options.model), limits: capsFrom(options) });
     await followRun(outcome, options, '실행 시작');
   });
 
@@ -1288,7 +1305,7 @@ views
   .action(async () => {
     const rows = await unwrap(api().projects[':projectId'].graph.views.$get({ param: { projectId: await projectId() } }));
     if (globals().json) return printList(rows.length, await Promise.all(rows.map(async (row) => ({ ...row, link: await viewLink(row.id) }))));
-    for (const row of rows) console.log(`${row.label}  노드 ${row.nodes} · ${row.origin === 'ai' ? 'AI' : '직접'}  (${row.id})\n    ${await viewLink(row.id)}`);
+    for (const row of rows) console.log(`${row.label}  노드 ${row.nodes} · ${row.origin === 'ai' ? 'AI' : '직접'}${row.route ? ' · 경로' : ''}  (${row.id})\n    ${await viewLink(row.id)}`);
   });
 
 views
@@ -1300,12 +1317,14 @@ views
   .option('--line <keys...>', '대사 키')
   .option('-q, --q <글자>', '대사에 들어 있는 글자')
   .option('--between <keys...>', '두 대사(시작 키, 끝 키) 사이의 모든 경로')
+  .option('--route <keys...>', '두 대사(시작 키, 끝 키)를 잇는 경로 하나로 경로 보기를 만듦 (갈림길마다 기본 갈래, `views update --branch`로 바꿈; 다른 조건과 같이 쓰지 않음)')
   .option('--around <n>', '앞뒤로 몇 걸음 더', '0')
   .option('--exclude <keys...>', '뺄 대사·노드')
   .option('--request <설명>', '무엇을 보려는지 (다시 만들 때 쓰임)')
   .addOption(new Option('--mode <방식>', 'view: 저장된 보기로, mark: 전체 그래프에서 강조만').choices(['view', 'mark']).default('view'))
-  .action(async (options: { label: string; scene?: string[]; speaker?: string[]; line?: string[]; q?: string; between?: string[]; around: string; exclude?: string[]; request?: string; mode: 'view' | 'mark' }) => {
+  .action(async (options: { label: string; scene?: string[]; speaker?: string[]; line?: string[]; q?: string; between?: string[]; route?: string[]; around: string; exclude?: string[]; request?: string; mode: 'view' | 'mark' }) => {
     if (options.between && options.between.length !== 2) throw new CliError('--between에는 시작과 끝 대사 키 두 개를 줍니다.');
+    if (options.route && options.route.length !== 2) throw new CliError('--route에는 시작과 끝 대사 키 두 개를 줍니다.');
     const result = await readTool<{ ok: boolean; error?: string; nodes: number; unknown: string[]; open: { to: string; search: Record<string, string> } }>('show_graph', {
       label: options.label,
       request: options.request,
@@ -1315,6 +1334,7 @@ views
       lines: options.line,
       q: options.q,
       between: options.between ? { start: options.between[0], end: options.between[1] } : undefined,
+      route: options.route ? { start: options.route[0], end: options.route[1] } : undefined,
       around: Number(options.around),
       exclude: options.exclude,
     });
@@ -1333,6 +1353,12 @@ views
     type Way = { key: string; label: string | null };
     const flow = await unwrap(api().projects[':projectId'].views[':ref'].flow.$get({ param: { projectId: await projectId(), ref: encodeURIComponent(ref) } }));
     log(`${flow.view.label}: 노드 ${flow.nodes.length.toLocaleString()}개 · 대사 ${flow.nodes.reduce((sum, node) => sum + node.lines.length, 0).toLocaleString()}줄  (${flow.view.id})`);
+    // A route view: where it starts and ends, and the branch it takes at each fork (another: `views update --branch`).
+    if (flow.route) {
+      log(`경로: ${flow.route.start} → ${flow.route.end}${flow.route.forks.length ? ` · 갈림길 ${flow.route.forks.length}곳` : ''}`);
+      for (const fork of flow.route.forks)
+        log(`  ⑂ ${fork.key}${fork.label ? ` [${short(fork.label, 30)}]` : ''}: ${fork.options.map((option) => `${option.key === fork.taken ? '*' : ''}${option.key}${option.label ? ` [${short(option.label, 30)}]` : ''}`).join(' | ')}`);
+    }
     if (options.jsonl) return printJsonl(flow.nodes);
     if (globals().json) return print(flow);
     const ways = (list: Way[]) => list.map((way) => `${way.key}${way.label ? ` [${short(way.label, 30)}]` : ''}`).join(', ');
@@ -1347,15 +1373,22 @@ views
 
 views
   .command('update <보기>')
-  .description('보기 이름 바꾸기, 대사(그 대사를 가진 노드) 더하기·빼기. 번역 데이터는 바꾸지 않아 바로 저장됩니다')
+  .description('보기 이름 바꾸기, 대사(그 대사를 가진 노드) 더하기·빼기, 경로 보기의 갈림길에서 다른 갈래 고르기. 번역 데이터는 바꾸지 않아 바로 저장됩니다. 경로 보기에 노드를 손으로 더하거나 빼면 그 경로가 아니게 되어 보통 보기가 됩니다')
   .option('--label <이름>', '새 이름')
   .option('--add <keys...>', '더할 대사·노드 키')
   .option('--remove <keys...>', '뺄 대사·노드 키')
-  .action(async (ref: string, options: { label?: string; add?: string[]; remove?: string[] }) => {
+  .option('--branch <pairs...>', '경로 보기: `갈림길 키=고를 갈래 키` (views show가 보여 주는 키)')
+  .action(async (ref: string, options: { label?: string; add?: string[]; remove?: string[]; branch?: string[] }) => {
+    const branches = (options.branch ?? []).map((pair) => {
+      const [at, to, ...rest] = pair.split('=');
+      if (!at || !to || rest.length) throw new CliError(`--branch는 갈림길=갈래 꼴로 줍니다: ${pair}`);
+      return { at, to };
+    });
     const flow = await unwrap(api().projects[':projectId'].views[':ref'].flow.$get({ param: { projectId: await projectId(), ref: encodeURIComponent(ref) } }));
-    const view = await unwrap(api().projects[':projectId'].graph.views[':id'].$patch({ param: { projectId: await projectId(), id: flow.view.id }, json: { label: options.label, addKeys: options.add ?? [], removeKeys: options.remove ?? [] } }));
+    if (branches.length && !flow.route) throw new CliError(`경로로 만든 보기가 아니라 갈림길이 없습니다: ${flow.view.label}`);
+    const view = await unwrap(api().projects[':projectId'].graph.views[':id'].$patch({ param: { projectId: await projectId(), id: flow.view.id }, json: { label: options.label, addKeys: options.add ?? [], removeKeys: options.remove ?? [], branches } }));
     if (globals().json) return print(view);
-    console.log(`${view.label}: 노드 ${view.nodes.toLocaleString()}개  ${await viewLink(view.id)}`);
+    console.log(`${view.label}: 노드 ${view.nodes.toLocaleString()}개${view.route ? ' · 경로 보기' : ''}  ${await viewLink(view.id)}`);
   });
 
 views

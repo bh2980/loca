@@ -1,6 +1,6 @@
 import { memo, useEffect } from 'react';
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router';
-import { BookOpen, Check, ChevronsUpDown, Languages, Monitor, Moon, Plus, Settings2, Sun, Workflow } from 'lucide-react';
+import { BookOpen, Check, ChevronsUpDown, Languages, Monitor, Moon, Plus, Settings, Sun, Workflow } from 'lucide-react';
 import { Sidebar, SidebarBrand, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuBadge, SidebarMenuButton, SidebarMenuIcon, SidebarMenuItem, SidebarRail, DropdownMenu, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuRadioItem, Icon, SidebarGroup, SidebarGroupLabel, SidebarMenuLabel, Text, DropdownMenuContent, MenuLabel, PersonAvatar } from '@loca/ui';
 import { holds, NAV_GROUPS, useCurrentNav, type NavGroup, type NavItem } from '@/lib/nav';
 import { setTheme, useTheme, type ThemeChoice } from '@/lib/theme';
@@ -97,13 +97,13 @@ export function AppSidebar({ projectId }: { projectId: string }) {
     const settings = group.id === 'settings';
     const contents = <SidebarMenu>{group.items.map((navItem) => <ScreenItem key={navItem.id} navItem={navItem} projectId={projectId} active={current.item.id === navItem.id} />)}</SidebarMenu>;
     if (!group.label) return <SidebarGroup key={group.id} inset="tight">{contents}</SidebarGroup>;
+    // The footer pads it already: none here lines its icon up with 홈 at the top.
     if (settings) return <SidebarGroup key={group.id} inset="none"><SidebarMenu><SidebarMenuItem><DropdownMenu>
       <DropdownMenuTrigger asChild>
-        {/* The person (프로필) at the foot, as chat apps keep it: their avatar and name open the profile and the settings. */}
-        <SidebarMenuButton isActive={current.group.id === 'settings'} aria-label={`${profile.label} · 프로필과 설정`} title="프로필과 설정">
-          <SidebarMenuIcon><PersonAvatar mark={profile.mark} color={profile.color} /></SidebarMenuIcon>
-          <SidebarMenuLabel placement="vanishing">{profile.label}</SidebarMenuLabel>
-          <SidebarMenuIcon><Settings2 /></SidebarMenuIcon>
+        {/* 설정 at the foot, drawn like 홈 at the top: the profile, every setting and the theme open from it. */}
+        <SidebarMenuButton isActive={current.group.id === 'settings'} activeWeight="medium" tooltip="설정">
+          <SidebarMenuIcon><Settings /></SidebarMenuIcon>
+          <SidebarMenuLabel placement="plain">설정</SidebarMenuLabel>
         </SidebarMenuButton>
       </DropdownMenuTrigger>
       <DropdownMenuContent side="top" align="start" width="menu-lg" maxHeight="dialog">
@@ -127,7 +127,7 @@ export function AppSidebar({ projectId }: { projectId: string }) {
       <RememberScreen projectId={projectId} itemId={current.item.id} />
       <SidebarHeader><SidebarMenu><SidebarMenuItem><ProjectSwitcher projectId={projectId} /></SidebarMenuItem></SidebarMenu></SidebarHeader>
       <SidebarContent>{NAV_GROUPS.filter((group) => group.id !== 'settings').map(renderGroup)}</SidebarContent>
-      <SidebarFooter><SidebarGroup inset="none">{renderGroup(NAV_GROUPS.find((group) => group.id === 'settings')!)}</SidebarGroup></SidebarFooter>
+      <SidebarFooter>{renderGroup(NAV_GROUPS.find((group) => group.id === 'settings')!)}</SidebarFooter>
       <SidebarRail />
     </Sidebar>
   );

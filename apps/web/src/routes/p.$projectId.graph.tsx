@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, useLayoutEffect } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeftRight, ClipboardPaste, CopyPlus, ListOrdered, Trash2, FilePlus2, FolderPlus, MinusCircle, ArrowUpDown, Copy, ExternalLink, Flag, Focus, Network, Play, Route as RouteIcon, SlidersHorizontal } from 'lucide-react';
+import { ArrowLeftRight, ClipboardPaste, CopyPlus, ListOrdered, MousePointerClick, Trash2, FilePlus2, FolderPlus, MinusCircle, ArrowUpDown, Copy, ExternalLink, Flag, Focus, Network, Play, SlidersHorizontal } from 'lucide-react';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { GraphCanvas, type GraphCanvasHandle, type LayoutEdge, type NodeInfo, type Viewport } from '@/components/graph/graph-canvas';
 import { LINE_CARD_WIDTH, LineCard } from '@/components/graph/line-card';
@@ -23,9 +23,9 @@ import { q } from '@/lib/queries';
 import { lineContext, useLineDetail } from '@/lib/units';
 import { useReportView } from '@/lib/view-context';
 import { DeleteViewDialog, OmittedPane, ViewInspector, ViewReason, useViewActions } from '@/components/graph/view-inspector';
-import { ViewMenu } from '@/components/graph/view-menu';
+import { GraphViewMenu, ScriptToggle, ViewMenu } from '@/components/graph/view-menu';
 import { PathMode } from '@/components/graph/path-mode';
-import { GRAPH_SHOW_ITEMS, useGraphPaneView, useGraphShow, type GraphShow } from '@/lib/graph-show';
+import { GRAPH_SHOW_ITEMS, shownText as shownTextOf, useGraphPaneView, useGraphShow, type GraphShow } from '@/lib/graph-show';
 import { AUTO_OPEN_NODES, nodeAfterToggle, pickedAfterToggle, unfoldChains } from '@/components/graph/unfold-chains';
 import { cn } from '@/lib/utils';
 import { useGraphViews } from '@/lib/logs';
@@ -70,6 +70,8 @@ interface GraphSearch {
   edit?: string;
   /** The right pane shows the open view's own details (name, request, counts). */
   viewInfo?: true;
+  /** An open route view laid out as 그래프 + 대본: its graph beside its lines in reading order. */
+  script?: true;
   /** The right pane lists what a derived edge leaves out (the edge's id in the open layout). */
   omitted?: string;
   /** Node finder text (matches are listed under the box). */
@@ -105,6 +107,7 @@ export const Route = createFileRoute('/p/$projectId/graph')({
     jump: raw.jump === true || raw.jump === 'true' ? true : undefined,
     edit: typeof raw.edit === 'string' && raw.edit ? raw.edit : undefined,
     viewInfo: raw.viewInfo === true || raw.viewInfo === 'true' || raw.viewInfo === '1' || raw.viewInfo === 1 ? true : undefined,
+    script: raw.script === true || raw.script === 'true' || raw.script === '1' || raw.script === 1 ? true : undefined,
     omitted: typeof raw.omitted === 'string' && raw.omitted ? raw.omitted : undefined,
     q: typeof raw.q === 'string' && raw.q ? raw.q : undefined,
     edge: typeof raw.edge === 'string' && raw.edge ? raw.edge : undefined,
@@ -159,34 +162,45 @@ function GraphRoute() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const direction = search.direction ?? 'vertical';
-  const isRouteView = search.scope === 'dialogue' && Boolean(search.routeStart && search.routeEnd && !search.pickStep);
+  const dialogue = search.scope === 'dialogue';
+  const isPicking = Boolean(dialogue && (search.pickStep || search.pickStart || search.pickEnd));
+  // A route picked but not saved yet: its graph and script, with 보기로 저장.
+  const isRouteView = dialogue && Boolean(search.routeStart && search.routeEnd && !search.pickStep);
+  // A saved route view laid out as 그래프 + 대본.
+  const viewId = dialogue && search.section?.startsWith('view:') ? search.section.slice('view:'.length) : undefined;
+  const scriptView = useQuery({ ...q.graphView(projectId, viewId ?? ''), enabled: Boolean(viewId && search.script && !isRouteView && !isPicking) });
+  const viewActions = useViewActions(projectId);
+  const onDirectionChange = (next: GraphDirection) => void navigate({ search: (previous) => ({ ...previous, direction: next }) });
+  const onEdit = (edit: string | undefined) => void navigate({ search: (previous) => ({ ...previous, edit }), replace: true });
+  const toggle = (
+    <ModeToggle
+      value="dialogue"
+      onChange={(mode) => void navigate({
+        search: (previous) => ({
+          ...previous,
+          scope: mode,
+          routeStart: undefined,
+          routeEnd: undefined,
+          pickStart: undefined,
+          pickEnd: undefined,
+          pickStep: undefined,
+          script: undefined,
+        }),
+      })}
+    />
+  );
 
   if (isRouteView) {
     return (
       <PathMode
         projectId={projectId}
         direction={direction}
-        onDirectionChange={(next) => void navigate({ search: (previous) => ({ ...previous, direction: next }) })}
-        toggle={
-          <ModeToggle
-            value="dialogue"
-            onChange={(mode) => void navigate({
-              search: (previous) => ({
-                ...previous,
-                scope: mode,
-                routeStart: undefined,
-                routeEnd: undefined,
-                pickStart: undefined,
-                pickEnd: undefined,
-                pickStep: undefined,
-              }),
-            })}
-          />
-        }
+        onDirectionChange={onDirectionChange}
+        toggle={toggle}
         start={search.routeStart}
         end={search.routeEnd}
         edit={search.edit}
-        onEdit={(edit) => void navigate({ search: (previous) => ({ ...previous, edit }), replace: true })}
+        onEdit={onEdit}
         onBeginPicking={(pickStep) => void navigate({
           search: (previous) => ({
             ...previous,
@@ -209,8 +223,55 @@ function GraphRoute() {
             edit: undefined,
           }),
         })}
+        // Saved, it opens as that view with its script (the same screen); the route draft leaves the URL.
+        onSaved={(id) => void navigate({
+          search: (previous) => ({ ...previous, section: `view:${id}`, script: true, routeStart: undefined, routeEnd: undefined, node: undefined, omitted: undefined, viewInfo: undefined }),
+          replace: true,
+        })}
       />
     );
+  }
+
+  if (viewId && search.script && !isPicking) {
+    const saved = scriptView.data;
+    if (saved?.route)
+      return (
+        <PathMode
+          key={viewId}
+          projectId={projectId}
+          view={{ id: viewId, label: saved.label }}
+          direction={direction}
+          onDirectionChange={onDirectionChange}
+          toggle={toggle}
+          viewMenu={
+            <GraphViewMenu
+              projectId={projectId}
+              direction={direction}
+              chosen={search.section}
+              openedLabel={saved.label}
+              onPick={(value) => void navigate({ search: (previous) => ({ ...previous, section: value, script: value === previous.section ? true : undefined, node: undefined, edit: undefined, omitted: undefined, viewInfo: undefined }) })}
+              onDeleted={(id) => id === viewId && void navigate({ search: (previous) => ({ ...previous, section: undefined, script: undefined, edit: undefined }) })}
+              onNewRoute={() => void navigate({ search: (previous) => ({ ...previous, script: undefined, pickStep: 'start', node: undefined, edit: undefined }) })}
+            />
+          }
+          layoutToggle={<ScriptToggle value onChange={(script) => void navigate({ search: (previous) => ({ ...previous, script: script || undefined, edit: undefined }) })} />}
+          start={saved.route.start}
+          end={saved.route.end}
+          via={saved.route.via ?? ''}
+          onViaChange={(via) => viewActions.change.mutateAsync({ id: viewId, via })}
+          edit={search.edit}
+          onEdit={onEdit}
+        />
+      );
+    if (scriptView.isPending)
+      return (
+        <Page title="그래프" flush>
+          <Inline height="full" justify="center" gap="condensed" variant="body" tone="muted" role="status">
+            <Spinner /> 보기를 불러오는 중…
+          </Inline>
+        </Page>
+      );
+    // Not a route view (or gone): the graph alone.
   }
 
   return <GraphPage />;
@@ -302,6 +363,19 @@ function GraphPage() {
   } | null>(null);
   /** Box or modifier-click selection; a single selection stays in the URL (`node`). */
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  // 보기 만들기 › 노드 골라서: a plain click picks a node (or takes it back) instead of opening it, until the view is named or this is cancelled.
+  const [collecting, setCollecting] = useState(false);
+  useEffect(() => {
+    if (!collecting) return;
+    // Esc leaves it (a menu or the naming box open on top closes first, on its own Esc).
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented || document.querySelector('[role="dialog"], [role="menu"]')) return;
+      setCollecting(false);
+      setPicked(new Set());
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [collecting]);
   const [runUnits, setRunUnits] = useState<string[]>();
   const find = search.q ?? '';
   const setFind = (q: string | undefined) => void navigate({ search: (previous) => ({ ...previous, q }), replace: true });
@@ -314,8 +388,7 @@ function GraphPage() {
     const lineCard = (node: { id: string; speaker?: string | null; text?: string | null; total?: number }) =>
       node.text ? { title: `${node.speaker ?? '지문·화면 문구'}${(node.total ?? 0) > 1 ? ` · ${node.total}줄` : ''}`, titleColor: colorOf(node.speaker), ...shownText(node.text, translations?.[node.id]) } : {};
     // The first line's text by what is shown: the source, the translation alone, or the source over the translation.
-    const shownText = (text: string, translation?: string | null): Pick<NodeInfo, 'body' | 'bodyStrong' | 'second' | 'missing'> =>
-      show === 'source' ? { body: text } : show === 'translation' ? (translation ? { body: translation, bodyStrong: true } : { body: '번역 없음', missing: 'body' }) : { body: text, second: translation ?? '번역 없음', ...(!translation && { missing: 'second' as const }) };
+    const shownText = (text: string, translation?: string | null) => shownTextOf(show, text, translation);
     const map = new Map<string, NodeInfo>(
       (graph.data?.nodes ?? []).map((node) => [node.id, { ...node, label: node.label ?? (node.type ? (types[node.type]?.label ?? node.type) : null), ...(node.kind === 'script' && lineCard(node)), ...(node.kind === 'choice' && { title: `▶ ${node.text ?? ''} 고르면`, body: node.text }) }]),
     );
@@ -600,6 +673,7 @@ function GraphPage() {
         setNaming(null);
         setNewName('');
         setPicked(new Set());
+        setCollecting(false);
         void navigate({ search: (previous) => ({ ...previous, section: `view:${id}`, node: undefined, edit: undefined, omitted: undefined, viewInfo: undefined }) });
       },
     });
@@ -618,8 +692,8 @@ function GraphPage() {
       },
     });
   };
-  /** The views a node set can be added to (the open one already holds its nodes). */
-  const otherViews = savedViews.filter((saved) => saved.id !== viewId);
+  /** The views a node set can be added to (the open one already holds its nodes; a route view holds its route's). */
+  const otherViews = savedViews.filter((saved) => saved.id !== viewId && !saved.route);
   const derivedEdges = edges.filter((edge) => edge.derived).length;
   const reasonOf = (nodeId: string) => {
     const reasons = viewDetail.data?.reasons;
@@ -736,32 +810,8 @@ function GraphPage() {
         />
       </HeaderViews>
       <HeaderActions>
+        {/* What part of the graph is shown, and where a view is made: from a route, or from nodes picked on the canvas. */}
         {dialogue && (
-          <Button
-            variant={isPicking ? 'secondary' : 'outline'}
-            onClick={() => void navigate({
-              search: (prev) => isPicking
-                ? {
-                    ...prev,
-                    routeStart: undefined,
-                    routeEnd: undefined,
-                    pickStart: undefined,
-                    pickEnd: undefined,
-                    pickStep: undefined,
-                  }
-                : {
-                    ...prev,
-                    pickStep: 'start',
-                    node: undefined,
-                    edit: undefined,
-                  },
-            })}
-          >
-            <Icon icon={RouteIcon} size="sm" marginRight="tight" />
-            {isPicking ? '취소' : '경로 따라 번역'}
-          </Button>
-        )}
-        {dialogue && (sections.length > 1 || savedViews.length > 0 || view) && (
           <ViewMenu
             sections={sections}
             views={savedViews}
@@ -771,8 +821,21 @@ function GraphPage() {
             onPick={(value) => void navigate({ search: (previous) => ({ ...previous, section: value, node: undefined, omitted: undefined, viewInfo: undefined }) })}
             onDelete={setDeletingView}
             picked={picked.size}
-            onNewFromPicked={() => { setNewName(''); setNaming({ nodeIds: realNodes(picked), x: window.innerWidth / 2, y: 140 }); }}
+            onNewRoute={() => {
+              setCollecting(false);
+              setPicked(new Set());
+              void navigate({ search: (prev) => ({ ...prev, pickStep: 'start', node: undefined, edit: undefined }) });
+            }}
+            onNewNodes={() => {
+              setCollecting(true);
+              setContextMenu(null);
+              if (search.node) select(undefined);
+            }}
           />
+        )}
+        {/* A route view opens as the graph alone or with its script beside it. */}
+        {dialogue && viewDetail.data?.route && !isPicking && (
+          <ScriptToggle value={false} onChange={(script) => void navigate({ search: (previous) => ({ ...previous, script: script || undefined, node: undefined, edit: undefined, omitted: undefined, viewInfo: undefined }) })} />
         )}
         <DeleteViewDialog
           projectId={projectId}
@@ -938,7 +1001,8 @@ function GraphPage() {
               selectedIds={!picked.size && contextMenu?.nodeId ? new Set([contextMenu.nodeId]) : picked}
               onSelectMany={isPicking ? undefined : (ids, additive) => {
                 setContextMenu(null);
-                const next = new Set(additive ? picked : []);
+                // While collecting for a view a box adds to what is picked, as ⌘/Ctrl does.
+                const next = new Set(additive || collecting ? picked : []);
                 if (additive && search.node && !next.size) next.add(shown(search.node));
                 for (const id of ids) {
                   if (portals.has(id) || id.startsWith('omitted:')) continue;
@@ -956,6 +1020,15 @@ function GraphPage() {
               onViewportChange={(viewport) => sessionStorage.setItem(key, JSON.stringify(viewport))}
               onSelect={(id) => {
                 setContextMenu(null);
+                if (collecting) {
+                  if (id && !id.startsWith('omitted:') && !portals.has(id)) setPicked((current) => {
+                    const next = new Set(current);
+                    if (next.has(id)) next.delete(id);
+                    else next.add(id);
+                    return next;
+                  });
+                  return;
+                }
                 setPicked(new Set());
                 if (!id) {
                   select(undefined);
@@ -1074,7 +1147,7 @@ function GraphPage() {
                       </DropdownMenuSubContent></Box>
                     </DropdownMenuSub>
                   )}
-                  {viewId && (
+                  {viewId && !viewDetail.data?.route && (
                     <DropdownMenuItem onSelect={() => leaveView(picked)}>
                       <span>보기에서 빼기 ({realNodes(picked).length.toLocaleString()})</span>
                     </DropdownMenuItem>
@@ -1472,7 +1545,15 @@ function GraphPage() {
                 details={
                   <>
                     {/* A picking's actions on the canvas, not only in the right-click menu (the same ones). */}
-                    {picked.size > 1 && (
+                    {collecting && (
+                      <Chip as="div" variant="bar" role="status">
+                        <Icon icon={MousePointerClick} size="xs" />
+                        <span>{picked.size ? `보기에 넣을 노드 ${picked.size.toLocaleString()}개 · 누르면 더하고 다시 누르면 뺍니다` : '보기에 넣을 노드를 누르거나 끌어서 고르세요'}</span>
+                        <Button variant="ghost" size="inline" disabled={!picked.size} onClick={() => { setNewName(''); setNaming({ nodeIds: realNodes(picked), x: window.innerWidth / 2, y: 140 }); }}>이름 정하기</Button>
+                        <Button variant="ghost" size="inline" onClick={() => { setCollecting(false); setPicked(new Set()); }}>취소</Button>
+                      </Chip>
+                    )}
+                    {!collecting && picked.size > 1 && (
                       <Chip as="div" variant="bar" removable>
                         <span>노드 {picked.size.toLocaleString()}개 선택</span>
                         <Button variant="ghost" size="inline" onClick={() => { setNewName(''); setNaming({ nodeIds: realNodes(picked), x: window.innerWidth / 2, y: 140 }); }}>보기로 저장</Button>
@@ -1484,7 +1565,7 @@ function GraphPage() {
                     {view && viewDetail.data && (
                       <Chip as="div" variant="bar" removable>
                         <span>
-                          보기 "{view.label}" · 남김 {view.nodes.toLocaleString()} · 생략 구간 {derivedEdges.toLocaleString()} · {viewDetail.data.origin === 'ai' ? 'AI' : '직접'}
+                          보기 "{view.label}" · 남김 {view.nodes.toLocaleString()} · 생략 구간 {derivedEdges.toLocaleString()} · {viewDetail.data.route ? '경로' : viewDetail.data.origin === 'ai' ? 'AI' : '직접'}
                           {viewDetail.data.missing.length > 0 && <Text tone="danger"> · 원본에 없음 {viewDetail.data.missing.length.toLocaleString()}</Text>}
                         </span>
                         <Button variant="ghost" onClick={() => void navigate({ search: (previous) => ({ ...previous, viewInfo: true, node: undefined, omitted: undefined, edit: undefined }), replace: true })}>

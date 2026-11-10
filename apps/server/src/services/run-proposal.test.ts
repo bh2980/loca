@@ -88,4 +88,21 @@ describe('a proposed run', () => {
     expect(row.result).toMatchObject({ ok: true, total: 1 });
     expect(row.report?.run?.plan.lines.total).toBe(1);
   });
+
+  it('starts with the caps the run dialog would suggest, unless it asks for others or none', async () => {
+    const { db, projectId, workflow, chat } = setup();
+    const started = async (input: Record<string, unknown>) => {
+      const gate = await proposeChange(db, { projectId, sessionId: chat.id, source: 'api', tool: 'start_run', input: { workflowId: workflow.id, ...input } });
+      if (!gate.ok) throw new Error(gate.error);
+      const row = await decideProposal(db, gate.proposalId, true);
+      const runId = (row.result as { runId: string }).runId;
+      return { suggested: row.report?.run?.plan.suggestedLimits, limits: db.select({ limits: s.runs.limits }).from(s.runs).where(eq(s.runs.id, runId)).get()!.limits };
+    };
+    const plain = await started({ kinds: ['ui'] });
+    expect(plain.suggested?.maxCalls).toBeGreaterThan(0);
+    // The same numbers as the run dialog's preflight for this scope: one rule, wherever the run starts.
+    expect(plain.limits).toEqual(plain.suggested);
+    expect((await started({ kinds: ['ui'], limits: { maxCalls: 7 } })).limits).toMatchObject({ maxCalls: 7 });
+    expect((await started({ kinds: ['ui'], limits: { maxCalls: null, maxInputTokens: null } })).limits).toBeNull();
+  });
 });

@@ -27,7 +27,8 @@ import { rowChangesOf } from '../db/row-changes.ts';
 const scopeSchema = runScopeSchema;
 /** A run's scope and, optionally, the models it uses instead of its nodes' own (by AI node id). */
 const runSchema = scopeSchema.extend({ models: runModelsSchema.optional() });
-const runLimitsSchema = z.object({ maxCalls: z.number().int().min(1).optional(), maxInputTokens: z.number().int().min(1).optional() });
+/** A new run's caps: a number sets one, null runs without it, left out takes the suggested cap (services/start-run.ts runLimits). */
+const runLimitsSchema = z.object({ maxCalls: z.number().int().min(1).nullable().optional(), maxInputTokens: z.number().int().min(1).nullable().optional() });
 const runItemQuery = z.object({ state: z.string().optional(), nodeId: z.string().optional(), through: z.string().optional(), exit: z.string().optional(), offset: z.coerce.number().default(0), limit: z.coerce.number().max(500).default(100) });
 const continueSchema = z.object({ models: runModelsSchema.optional(), retryFailed: z.boolean().default(false) });
 

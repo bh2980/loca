@@ -10,7 +10,7 @@ import { badRequest } from '../http-errors.ts';
  * reads lines through script-query.ts, so that script-query can use it.
  */
 
-const stored = (db: Db, id: string) => db.select({ id: s.graphViews.id, label: s.graphViews.label, nodeIds: s.graphViews.nodeIds }).from(s.graphViews).where(eq(s.graphViews.id, id)).get()!;
+const stored = (db: Db, id: string) => db.select({ id: s.graphViews.id, label: s.graphViews.label, nodeIds: s.graphViews.nodeIds, route: s.graphViews.route }).from(s.graphViews).where(eq(s.graphViews.id, id)).get()!;
 
 /** A stored view by id or label: exact, then the one label containing it. */
 export function findView(db: Db, projectId: string, ref: string) {
@@ -73,7 +73,7 @@ export function viewFlow(db: Db, projectId: string, ref: string) {
       if (left === 0) ready.push(way.to);
     }
   }
-  return { view: { id: view.id, label: view.label }, nodes: order };
+  return { view: { id: view.id, label: view.label, route: view.route }, nodes: order };
 }
 
 /** The lines of a view in reading order (see viewFlow). */

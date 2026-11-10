@@ -348,6 +348,8 @@ export const graphViews = sqliteTable('graph_views', {
   request: text('request'),
   /** Why the chat kept each node, by node id (ai views). */
   reasons: json<Record<string, string>>('reasons').notNull().default({}),
+  /** A view made from one reading route (경로로 만들기): its ends and the branch chosen at each fork (`fork:target,…`); it holds that route's nodes. */
+  route: json<{ start: string; end: string; via?: string }>('route'),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });

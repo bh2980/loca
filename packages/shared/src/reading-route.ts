@@ -59,3 +59,20 @@ export const readingRouteForkSchema = z.object({
   options: z.array(readingRouteForkOptionSchema),
 });
 export type ReadingRouteFork = z.infer<typeof readingRouteForkSchema>;
+
+/** A route view's route: its two end nodes and the branch chosen at each fork (`fork:target,…`). */
+export const viewRouteSchema = z.object({
+  start: z.string().min(1),
+  end: z.string().min(1),
+  via: z.string().max(20_000).optional(),
+});
+export type ViewRouteInput = z.infer<typeof viewRouteSchema>;
+
+/** A route's `via` (`fork:target,…`) with `target` taken at `fork`, in place of the branch it took there. */
+export function viaWith(via: string | undefined, fork: string, target: string): string {
+  const parts = (via ?? '').split(',').map((part) => part.trim()).filter(Boolean);
+  const at = parts.findIndex((part) => part.startsWith(`${fork}:`));
+  if (at >= 0) parts[at] = `${fork}:${target}`;
+  else parts.push(`${fork}:${target}`);
+  return parts.join(',');
+}

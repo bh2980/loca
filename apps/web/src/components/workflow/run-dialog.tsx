@@ -12,7 +12,7 @@ import { lineScopeSections, ScopePicker, toggled, type PickSection } from '@/com
 import type { ModelValue } from '@/components/model-picker';
 import { Pace, RunCaps, RunModels, UntestedModels } from './run-estimate';
 import { paceParts } from '@/lib/run-summary';
-import { startLimits, type CapEdits } from '@/lib/run-limits';
+import { startCaps, startLimits, type CapEdits } from '@/lib/run-limits';
 import { tagsIn } from '@/lib/queries';
 import { useTerms } from '@/lib/terms';
 import { useTaxonomy } from '@/lib/knowledge';
@@ -230,8 +230,8 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   const suggested = data?.suggestedLimits;
   const start = useMutation({
     mutationFn: () => {
-      // The caps the fields hold (the suggestion until changed), past which the run pauses.
-      const limits = startLimits(suggested, capEdits);
+      // The caps past which the run pauses: what the person changed; the server adds the suggestion the fields show for the rest.
+      const limits = startLimits(capEdits);
       return unwrap(client.workflows[':id'].runs.$post({ param: { id: workflowId! }, json: { ...request, ...(changeHuman && !terms ? { changeHuman: true } : {}), ...(Object.keys(limits).length ? { limits } : {}) } }));
     },
     onSuccess: (run) => {
@@ -446,7 +446,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
 
           {/* The estimate's detail and the caps: one line, open for the steps and the caps. */}
           {data && total ? (
-            <ExpandableRow summary={<Text>예상 자세히 <Text tone="muted">· 단계별 요청 · 상한 호출 {(capEdits.maxCalls === undefined ? suggested?.maxCalls : capEdits.maxCalls)?.toLocaleString() ?? '없음'}회에서 멈춤</Text></Text>}>
+            <ExpandableRow summary={<Text>예상 자세히 <Text tone="muted">· 단계별 요청 · 상한 {startCaps(capEdits, suggested)}</Text></Text>}>
               <Box spaceY="comfortable">
                 <Pace data={data} projectId={projectId} />
                 <RunCaps suggested={suggested} edits={capEdits} onChange={setCapEdits} />

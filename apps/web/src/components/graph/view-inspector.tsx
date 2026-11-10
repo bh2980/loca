@@ -24,12 +24,14 @@ export function useViewActions(projectId: string) {
   // The list is a collection (done once the feed brings the row); what a view holds is asked again.
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ['graph', projectId, 'views'] });
   const create = useMutation({
-    mutationFn: (input: { label: string; nodeIds: string[] }) => sent(projectId, client.projects[':projectId'].graph.views.$post({ param: { projectId }, json: input })),
+    // Nodes picked in the graph, or one reading route (the view holds that route's nodes).
+    mutationFn: (input: { label: string; nodeIds?: string[]; route?: { start: string; end: string; via?: string } }) => sent(projectId, client.projects[':projectId'].graph.views.$post({ param: { projectId }, json: input })),
     onSuccess: refresh,
     onError: (error) => toast.error(error instanceof Error ? error.message : '보기를 만들지 못했습니다.'),
   });
   const change = useMutation({
-    mutationFn: (input: { id: string; label?: string; add?: string[]; remove?: string[] }) => {
+    // `via`: another branch at a route view's fork (its nodes become that route's).
+    mutationFn: (input: { id: string; label?: string; add?: string[]; remove?: string[]; via?: string }) => {
       const { id, ...json } = input;
       return sent(projectId, client.projects[':projectId'].graph.views[':id'].$patch({ param: { projectId, id }, json: { add: [], remove: [], ...json } }));
     },
@@ -137,6 +139,7 @@ export function ViewInspector({ projectId, viewId, shownNodes, derivedEdges, onC
           </Field>
         </Box>
         <KeyValue>
+          <KeyValueRow label="만든 방법">{data.route ? '경로 (갈림길은 대본에서 바꿈)' : ai ? 'AI' : '노드 고르기'}</KeyValueRow>
           <KeyValueRow label="수정">{dateTime(data.updatedAt)}</KeyValueRow>
           <KeyValueRow label="남긴 노드">{data.nodeIds.length.toLocaleString()}개</KeyValueRow>
           <KeyValueRow label="화면 노드">{shownNodes.toLocaleString()}개</KeyValueRow>

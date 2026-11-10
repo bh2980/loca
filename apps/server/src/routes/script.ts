@@ -13,6 +13,7 @@ import { previewContext } from '../services/context-preview.ts';
 import { checkBatch, refusalText } from '../services/proposal-check.ts';
 import { fitResult } from '../services/tool-output.ts';
 import { viewFlow } from '../services/view-flow.ts';
+import { projectReadingRoute } from '../services/reading-route.ts';
 import { inChunks } from '../db/chunk.ts';
 import { speakerRows } from '../services/project-rows.ts';
 import { checkScript, exportLines, findLines, firstAppearance, lineContext, runStats, sceneStats, scenesWith } from '../services/script-query.ts';
@@ -102,8 +103,23 @@ export const scriptRoutes = new Hono<Env>()
       const unitId = at === 'first' ? node.units[0] : node.units.at(-1);
       return (unitId && rows.get(unitId)?.key) ?? node.label ?? node.key;
     };
+    // A route view: its forks, the branch it takes at each and the others (by node key), so `loca views update --branch` can take another.
+    const route = flow.view.route;
+    const forks = route ? projectReadingRoute(db, projectId, { start: route.start, end: route.end, via: route.via }).forks : [];
+    const forkIds = route ? [...new Set([route.start, route.end, ...forks.flatMap((fork) => [fork.nodeId, ...fork.options.map((option) => option.targetId)])])] : [];
+    const keys = new Map(inChunks(forkIds, (slice) => db.select({ id: s.graphNodes.id, key: s.graphNodes.key }).from(s.graphNodes).where(inArray(s.graphNodes.id, slice)).all()).map((row) => [row.id, row.key]));
     return c.json({
-      view: flow.view,
+      view: { id: flow.view.id, label: flow.view.label },
+      route: route && {
+        start: keys.get(route.start) ?? route.start,
+        end: keys.get(route.end) ?? route.end,
+        forks: forks.map((fork) => ({
+          key: keys.get(fork.nodeId) ?? fork.nodeId,
+          label: fork.label,
+          taken: keys.get(fork.selectedId) ?? fork.selectedId,
+          options: fork.options.map((option) => ({ key: keys.get(option.targetId) ?? option.targetId, label: option.label, preview: option.preview })),
+        })),
+      },
       nodes: flow.nodes.map((node) => ({
         key: node.key,
         label: node.label,

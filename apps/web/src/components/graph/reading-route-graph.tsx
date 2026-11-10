@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Box, Button, CanvasSurface, EmptyDescription, EmptyHeader, EmptyTitle, Inline, Spinner, Overlay, EmptyState } from '@loca/ui';
+import { Button, CanvasOverlay, CanvasSurface, EmptyDescription, EmptyHeader, EmptyTitle, Inline, SegmentedControl, Spinner, Overlay, EmptyState } from '@loca/ui';
 import { useSize } from '@/hooks/use-size';
 import { q } from '@/lib/queries';
 import { useQuery } from '@tanstack/react-query';
+import { GRAPH_SHOW_ITEMS, shownText, useGraphShow, type GraphShow } from '@/lib/graph-show';
+import { useLines } from '@/lib/units';
 import { readingStageLayout } from './reading-stage-layout';
 import { GraphCanvas, type GraphCanvasHandle, type NodeInfo, type Viewport } from './graph-canvas';
 
@@ -38,9 +40,17 @@ export function ReadingRouteGraph({ projectId, stages, routeKey, direction, onDi
   const viewportKey = `tw.graph.reading-route.v6.${projectId}.${routeKey}.${direction}`;
   const initialViewport = readViewport(viewportKey);
   const previousEdit = useRef({ routeKey, edit });
+  // What the cards show of each line, the same setting as the main graph's cards.
+  const [show, setShow] = useGraphShow();
+  const sourceNodes = useMemo(() => new Map((graph.data?.nodes ?? []).map((node) => [node.id, node])), [graph.data]);
+  const shownLines = useMemo(
+    () => (show === 'source' ? undefined : stages.flatMap((stage) => stage.nodeIds.flatMap((id) => { const unitId = sourceNodes.get(id)?.unitId; return unitId ? [unitId] : []; }))),
+    [show, stages, sourceNodes],
+  );
+  const lines = useLines(projectId, shownLines).byId;
 
   const routeNodes = useMemo(() => {
-    const sourceNodes = new Map((graph.data?.nodes ?? []).map((node) => [node.id, node]));
+    const translationOf = (node: { unitId?: string | null }) => (shownLines && node.unitId ? lines.get(node.unitId)?.translation?.trim().slice(0, 120) || null : null);
     return stages.flatMap((stage): RouteNode[] => {
       const sources = stage.nodeIds.flatMap((id) => {
         const node = sourceNodes.get(id);
@@ -54,6 +64,9 @@ export function ReadingRouteGraph({ projectId, stages, routeKey, direction, onDi
       const body = stage.parallel
         ? sources.map((node) => node.text ?? node.preview ?? node.label).filter(Boolean).join(' · ')
         : source.text ?? source.preview ?? source.label ?? '';
+      const translation = stage.parallel
+        ? sources.map(translationOf).filter(Boolean).join(' · ') || null
+        : translationOf(source);
       return [{
         id,
         firstUnitId: stage.unitIds[0] ?? '',
@@ -65,11 +78,12 @@ export function ReadingRouteGraph({ projectId, stages, routeKey, direction, onDi
           preview: stage.parallel ? body : source.preview,
           key: stage.parallel ? stage.id : source.key,
           title: stage.parallel ? `함께 실행${count ? ` · ${count}줄` : ''}` : count > 0 ? `${speaker}${count > 1 ? ` · ${count}줄` : ''}` : (source.label ?? source.key),
-          body,
+          // A line card shows what 원문·번역·둘 다 says; a card without lines keeps its label.
+          ...(count > 0 ? shownText(show, body, translation) : { body }),
         },
       }];
     });
-  }, [graph.data, stages]);
+  }, [sourceNodes, stages, show, shownLines, lines]);
 
   const { nodes, edges } = useMemo(() => readingStageLayout(routeNodes.map((node) => node.id), direction), [routeNodes, direction]);
   const info = useMemo(() => new Map(routeNodes.map((node) => [node.id, node.info])), [routeNodes]);
@@ -132,6 +146,7 @@ export function ReadingRouteGraph({ projectId, stages, routeKey, direction, onDi
             }}
             onSelect={(id) => onEdit(routeNodes.find((node) => node.id === id)?.firstUnitId || undefined)}
           />
+          <CanvasOverlay tools={<SegmentedControl ariaLabel="카드에 보여 줄 것" value={show} onChange={(next) => setShow(next as GraphShow)} items={GRAPH_SHOW_ITEMS} />} />
         </>
       )}
     </CanvasSurface>

@@ -1,0 +1,1 @@
+ALTER TABLE `graph_views` ADD `route` text;

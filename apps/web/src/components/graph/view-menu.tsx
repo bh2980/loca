@@ -1,17 +1,29 @@
 import { useRef, useState } from 'react';
-import { ChevronDown, Trash2 } from 'lucide-react';
-import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuSeparator, DropdownMenuTrigger, Icon, ListRow, MenuLabel, MenuRowAction, MenuRowMeta, MenuSearchField, Text } from '@loca/ui';
+import { useQuery } from '@tanstack/react-query';
+import { q } from '@/lib/queries';
+import { useGraphViews } from '@/lib/logs';
+import { DeleteViewDialog } from './view-inspector';
+import { ChevronDown, MousePointerClick, Route as RouteIcon, Trash2 } from 'lucide-react';
+import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, Icon, ListRow, MenuLabel, MenuRowAction, MenuRowMeta, MenuSearchField, Stack, Text, ViewSwitch } from '@loca/ui';
 
-export interface MenuView { id: string; label: string; origin: string; nodes: number }
+export interface MenuView { id: string; label: string; origin: string; nodes: number; route?: unknown }
+
+/** How an open route view is laid out: the graph alone, or the graph with its lines in reading order beside it (the script). */
+export function ScriptToggle({ value, onChange }: { value: boolean; onChange: (script: boolean) => void }) {
+  return <ViewSwitch label="보기 배치" value={value ? 'script' : 'graph'} onChange={(next) => onChange(next === 'script')} items={[
+    { value: 'graph', label: '그래프' }, { value: 'script', label: '그래프 + 대본' },
+  ]} />;
+}
 
 /** With this many entries a search box is worth its room. */
 const SEARCH_FROM = 8;
 
 /**
- * Which part of the dialogue graph is shown: all of it, a section, or a stored view. A stored
- * view's row has its own delete button, shown on hover or focus.
+ * Which part of the dialogue graph is shown: all of it, a section, or a stored view; and where a new
+ * view is made (from a route, or from nodes picked on the canvas). A stored view's row has its own
+ * delete button, shown on hover or focus.
  */
-export function ViewMenu({ sections, views, chosen, openedLabel, onPick, onDelete, picked = 0, onNewFromPicked }: {
+export function ViewMenu({ sections, views, chosen, openedLabel, onPick, onDelete, picked = 0, onNewRoute, onNewNodes }: {
   sections: { name: string; nodes: number }[];
   views: MenuView[];
   /** `view:<id>`, a section name, or nothing for the whole graph. */
@@ -20,9 +32,12 @@ export function ViewMenu({ sections, views, chosen, openedLabel, onPick, onDelet
   openedLabel: string | undefined;
   onPick: (value: string) => void;
   onDelete: (view: { id: string; label: string }) => void;
-  /** How many nodes are picked: '선택으로 새 보기' saves them (it says how to pick when none are). */
+  /** How many nodes are picked already: 노드 골라서 만들기 starts from them. */
   picked?: number;
-  onNewFromPicked?: () => void;
+  /** 경로로 만들기: pick a start and an end in the graph. */
+  onNewRoute?: () => void;
+  /** 노드 골라서 만들기: clicks pick nodes until the view is named. */
+  onNewNodes?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -88,6 +103,7 @@ export function ViewMenu({ sections, views, chosen, openedLabel, onPick, onDelet
             <MenuLabel>저장된 보기</MenuLabel>
             {shownViews.map((view) => (
               <ListRow as="menuitem" key={view.id} selected={chosen === `view:${view.id}`} onSelect={() => pick(`view:${view.id}`)} onPointerMove={keepSearchFocus}>
+                {Boolean(view.route) && <Icon icon={RouteIcon} size="xs" tone="muted" aria-label="경로 보기" />}
                 <Text minWidth={0} grow truncate>
                   {view.origin === 'ai' && <Text tone="muted">✦ </Text>}
                   {view.label}
@@ -119,13 +135,28 @@ export function ViewMenu({ sections, views, chosen, openedLabel, onPick, onDelet
             )}
           </>
         )}
-        {onNewFromPicked && (
+        {(onNewRoute || onNewNodes) && !query && (
           <>
             <DropdownMenuSeparator />
-            <ListRow as="menuitem" disabled={picked < 1} onSelect={() => { setOpen(false); onNewFromPicked(); }}>
-              <Text minWidth={0} grow truncate>{picked > 0 ? `선택으로 새 보기 (${picked.toLocaleString()}개)` : '선택으로 새 보기'}</Text>
-              {picked < 1 && <Text shrink={false} variant="caption" tone="muted">노드를 먼저 고르세요</Text>}
-            </ListRow>
+            <MenuLabel>새 보기</MenuLabel>
+            {onNewRoute && (
+              <DropdownMenuItem onSelect={() => { setOpen(false); onNewRoute(); }}>
+                <RouteIcon />
+                <Stack minWidth={0}>
+                  <span>경로로 만들기</span>
+                  <Text variant="caption" tone="muted">시작과 끝을 골라 그 길을 엽니다</Text>
+                </Stack>
+              </DropdownMenuItem>
+            )}
+            {onNewNodes && (
+              <DropdownMenuItem onSelect={() => { setOpen(false); onNewNodes(); }}>
+                <MousePointerClick />
+                <Stack minWidth={0}>
+                  <span>{picked > 0 ? `노드 골라서 만들기 (${picked.toLocaleString()}개 고름)` : '노드 골라서 만들기'}</span>
+                  <Text variant="caption" tone="muted">누른 노드만 남깁니다</Text>
+                </Stack>
+              </DropdownMenuItem>
+            )}
           </>
         )}
         {query && !shownSections.length && !shownViews.length && !matches('전체') && (
@@ -133,5 +164,29 @@ export function ViewMenu({ sections, views, chosen, openedLabel, onPick, onDelet
         )}
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+/**
+ * The 보기 menu with the lists it shows (sections, stored views) and its delete dialog, for a screen
+ * that does not hold them itself: an open route view laid out with its script.
+ */
+export function GraphViewMenu({ projectId, direction, chosen, openedLabel, onPick, onDeleted, onNewRoute }: {
+  projectId: string;
+  direction: 'vertical' | 'horizontal';
+  chosen: string | undefined;
+  openedLabel: string | undefined;
+  onPick: (value: string) => void;
+  onDeleted: (id: string) => void;
+  onNewRoute?: () => void;
+}) {
+  const sections = useQuery(q.graphSections(projectId, direction)).data ?? [];
+  const views = useGraphViews(projectId).data ?? [];
+  const [deleting, setDeleting] = useState<{ id: string; label: string } | null>(null);
+  return (
+    <>
+      <ViewMenu sections={sections} views={views} chosen={chosen} openedLabel={openedLabel} onPick={onPick} onDelete={setDeleting} onNewRoute={onNewRoute} />
+      <DeleteViewDialog projectId={projectId} view={deleting} onClose={() => setDeleting(null)} onDeleted={(id) => { setDeleting(null); onDeleted(id); }} />
+    </>
   );
 }
