@@ -4,7 +4,7 @@ import { walkRoute, type RouteGraph } from './route-slice.ts';
 type Weights = Map<string, number>;
 
 /**
- * 남은 갈래 (docs/PLAN-30.md): which untranslated lines of the dialogue graph the current route does
+ * 남은 갈래: which untranslated lines of the dialogue graph the current route does
  * not pass, grouped by the choice on the route where they leave it, and which lines no route reaches at
  * all. "No missed branches": every reachable untranslated line is in exactly one group until a route
  * passes it, and `throughPicks` gives a route that does.

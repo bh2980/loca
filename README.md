@@ -189,4 +189,4 @@ scripts         샘플 생성(pnpm samples), 모의 LLM(pnpm mock-llm)
 pnpm typecheck && pnpm test
 ```
 
-Windows에서도 전체 검사는 `pnpm verify`로 실행합니다. 격리된 데이터와 mock LLM으로 재현하는 방법과 확인 결과는 [Windows 검증 기록](docs/WINDOWS-VALIDATION.md)에 있습니다.
+Windows에서도 전체 검사는 `pnpm verify`로 실행합니다. 격리된 데이터로 돌릴 때는 `WORKBENCH_DATA_DIR`과 `WORKBENCH_SECRETS=memory`를, mock LLM 포트는 `MOCK_LLM_PORT`를 지정합니다.

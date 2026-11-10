@@ -122,7 +122,7 @@ export function registerMigrationFunctions(sqlite: Database.Database) {
     return retryChains(JSON.parse(definition) as Raw).find((entry) => entry.chain.includes(nodeId))?.ai.id ?? nodeId;
   });
   // exit_actions(definition json): 태그 붙이기·떼기 and 상태 변경 nodes became exit actions (0122,
-  // docs/DESIGN-EXIT-ACTIONS.md; the conversion is @tw/shared's, which a browser's unsaved draft goes through too).
+  // the conversion is @tw/shared's, which a browser's unsaved draft goes through too).
   // exit_action_next(definition json, node id): where a line waiting at such a node goes instead (the first other node
   // along its 다음 exit), '' when it would end there; any other node id as it is.
   type ExitRaw = { nodes?: { id: string; type?: string; config?: { fn?: string } }[]; edges?: { source: string; sourceHandle: string; target: string }[] };

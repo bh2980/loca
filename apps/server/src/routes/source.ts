@@ -447,7 +447,7 @@ export const sourceRoutes = new Hono<Env>()
     events.changed(projectId, 'graph', 'units');
     return c.json({ picks: preview.picks, round: state.round });
   })
-  /** 남은 갈래 (docs/PLAN-30.md): untranslated lines the current route does not pass, by the choice they leave it at, and lines no route reaches. */
+  /** 남은 갈래: untranslated lines the current route does not pass, by the choice they leave it at, and lines no route reaches. */
   .get('/projects/:projectId/route/remaining', (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
