@@ -171,20 +171,22 @@ export function cancelViewLayouts(projectId: string, key?: string) {
  * A chosen set of dialogue-graph nodes laid out on its own, once (a few hundred nodes take a
  * second or two), stored under section `key` so the graph route serves it like a section. Lines
  * that continue outside the set end in portals named after the scene they continue in.
+ * `derived: false` (a route view) keeps only the edges between the chosen nodes: the ways the
+ * route did not take are not drawn as derived edges between its nodes.
  */
-export function nodeSetLayout(db: Db, projectId: string, key: string, nodeIds: string[], label = '', direction: LayoutDirection = 'vertical'): Promise<void> {
+export function nodeSetLayout(db: Db, projectId: string, key: string, nodeIds: string[], label = '', direction: LayoutDirection = 'vertical', derived = true): Promise<void> {
   const jobKey = `${projectId}:${key}:${direction}`;
   const running = viewJobs.get(jobKey);
   if (running) return running.promise;
   const job: ViewJob = { promise: Promise.resolve(), cancelled: false };
   viewJobs.set(jobKey, job);
-  job.promise = computeNodeSetLayout(db, projectId, key, nodeIds, label, direction, job).finally(() => {
+  job.promise = computeNodeSetLayout(db, projectId, key, nodeIds, label, direction, job, derived).finally(() => {
     if (viewJobs.get(jobKey) === job) viewJobs.delete(jobKey);
   });
   return job.promise;
 }
 
-async function computeNodeSetLayout(db: Db, projectId: string, key: string, nodeIds: string[], label: string, direction: LayoutDirection, job: ViewJob) {
+async function computeNodeSetLayout(db: Db, projectId: string, key: string, nodeIds: string[], label: string, direction: LayoutDirection, job: ViewJob, derived: boolean) {
   const existing = db.select({ status: graphLayouts.status, version: sql<number>`coalesce(json_extract(${graphLayouts.data}, '$.version'), 0)` }).from(graphLayouts).where(and(eq(graphLayouts.projectId, projectId), eq(graphLayouts.scope, 'dialogue'), eq(graphLayouts.section, key), eq(graphLayouts.direction, direction))).get();
   if (existing?.status === 'ready' && existing.version >= LAYOUT_VERSION) return;
   save(db, projectId, 'dialogue', { status: 'pending', data: null, error: null }, key, direction);
@@ -192,7 +194,8 @@ async function computeNodeSetLayout(db: Db, projectId: string, key: string, node
   const chosen = new Set(nodeIds);
   const titleOf = new Map(db.select({ id: groups.id, title: groups.title }).from(groups).where(eq(groups.projectId, projectId)).all().map((group) => [group.id, group.title]));
   const nodes = db.select({ id: graphNodes.id, kind: graphNodes.kind, groupId: graphNodes.groupId, unitIds: graphNodes.unitIds }).from(graphNodes).where(eq(graphNodes.projectId, projectId)).all();
-  const { edges: viewed, via } = viewEdges(chosen, db.select({ id: graphEdges.id, from: graphEdges.fromId, to: graphEdges.toId }).from(graphEdges).where(eq(graphEdges.projectId, projectId)).all());
+  const all = db.select({ id: graphEdges.id, from: graphEdges.fromId, to: graphEdges.toId }).from(graphEdges).where(eq(graphEdges.projectId, projectId)).all();
+  const { edges: viewed, via } = derived ? viewEdges(chosen, all) : { edges: all.filter((edge) => chosen.has(edge.from) && chosen.has(edge.to)), via: new Map<string, string[]>() };
   const rank = projectRanks(db, projectId, db.select({ from: graphEdges.fromId, to: graphEdges.toId }).from(graphEdges).where(eq(graphEdges.projectId, projectId)).all());
   const omitted = omittedFacts(db, nodes, via);
   // A derived edge says what it leaves out on its label, so the layout keeps room for it.

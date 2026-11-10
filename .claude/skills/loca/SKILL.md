@@ -95,7 +95,8 @@ description: Common rules for working on a loca translation project from the ter
 ## 범위: 대사 그래프 보기
 - 사람이 앱에서 떼어 둔 대사 그래프의 일부(저장된 보기)는 `--view <이름|id>`로 범위가 됩니다: `lines`, `export`, `results`, `check`, `runs plan/start`.
 - 에이전트가 직접 만들 수도 있습니다: `loca views create --label … --between <시작키> <끝키>`(두 대사 사이의 모든 경로), `-g` 장면, `-s` 인물.
-- `loca views show <보기>`는 보기를 흐름 순서로 보여 줍니다. 갈림과 합쳐짐, 선택지 이름이 함께 나옵니다.
+- 경로 보기는 `loca views create --label … --route <시작키> <끝키>`로 만듭니다. 두 대사를 잇는 경로 하나만 담고, 갈림길마다 기본 갈래를 고릅니다. 앱에서는 대본을 옆에 펼쳐 열 수 있습니다. 다른 갈래는 `loca views update <보기> --branch <갈림 키>=<갈래 키>`로 고릅니다. 경로 보기에 `--add`·`--remove`로 노드를 손대면 보통 보기가 됩니다.
+- `loca views show <보기>`는 보기를 흐름 순서로 보여 줍니다. 갈림과 합쳐짐, 선택지 이름이 함께 나옵니다. 경로 보기면 갈림길마다 고를 수 있는 갈래를 키로 보여 주고, 고른 갈래에 `*`를 붙입니다.
 
 ## 출력과 종료 코드
 - `--json`은 목록을 항상 `{ total, rows }`로 냅니다. 많으면 `--jsonl`이나 `--all`로 파일에 받아 읽습니다. 안내문은 stderr로 나가니 stdout만 파싱합니다.

@@ -56,7 +56,7 @@ loca results --section "Chapter 1" --include 검토 --rest omit -o "$W/ch1.json"
 import 파일의 줄에는 번역 말고도 `status`(상태 이름), `addTags`·`removeTags`(대사에 붙는 태그만), `listener`(사람이 확정한 청자), `translate`(`exclude` 번역에서 뺌 · `include` 번역함 · `null` 규칙대로)를 넣을 수 있습니다. 번역 제외 줄은 내보내기에 나오지 않으니 번역할 필요가 없습니다.
 
 ## 대사 그래프의 한 흐름 따라 번역하기
-사람이 앱에서 떼어 둔 보기(또는 `loca views create --between <시작키> <끝키>`로 만든 보기)를 범위로 씁니다.
+사람이 앱에서 떼어 둔 보기(또는 `loca views create --between <시작키> <끝키>`로 만든 보기, 경로 하나만이면 `--route <시작키> <끝키>`로 만든 경로 보기)를 범위로 씁니다.
 ```
 loca views show "<보기>"                                    # 흐름 순서, 갈림(⤷)과 합쳐짐(⤶), 선택지 이름
 loca export --view "<보기>" --untranslated -c 4 -t -o "$W/flow.jsonl"   # 흐름 순서로, 갈래별 앞 대사와 함께

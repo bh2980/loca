@@ -1305,7 +1305,7 @@ views
   .action(async () => {
     const rows = await unwrap(api().projects[':projectId'].graph.views.$get({ param: { projectId: await projectId() } }));
     if (globals().json) return printList(rows.length, await Promise.all(rows.map(async (row) => ({ ...row, link: await viewLink(row.id) }))));
-    for (const row of rows) console.log(`${row.label}  노드 ${row.nodes} · ${row.origin === 'ai' ? 'AI' : '직접'}  (${row.id})\n    ${await viewLink(row.id)}`);
+    for (const row of rows) console.log(`${row.label}  노드 ${row.nodes} · ${row.origin === 'ai' ? 'AI' : '직접'}${row.route ? ' · 경로' : ''}  (${row.id})\n    ${await viewLink(row.id)}`);
   });
 
 views
@@ -1317,12 +1317,14 @@ views
   .option('--line <keys...>', '대사 키')
   .option('-q, --q <글자>', '대사에 들어 있는 글자')
   .option('--between <keys...>', '두 대사(시작 키, 끝 키) 사이의 모든 경로')
+  .option('--route <keys...>', '두 대사(시작 키, 끝 키)를 잇는 경로 하나로 경로 보기를 만듦 (갈림길마다 기본 갈래, `views update --branch`로 바꿈; 다른 조건과 같이 쓰지 않음)')
   .option('--around <n>', '앞뒤로 몇 걸음 더', '0')
   .option('--exclude <keys...>', '뺄 대사·노드')
   .option('--request <설명>', '무엇을 보려는지 (다시 만들 때 쓰임)')
   .addOption(new Option('--mode <방식>', 'view: 저장된 보기로, mark: 전체 그래프에서 강조만').choices(['view', 'mark']).default('view'))
-  .action(async (options: { label: string; scene?: string[]; speaker?: string[]; line?: string[]; q?: string; between?: string[]; around: string; exclude?: string[]; request?: string; mode: 'view' | 'mark' }) => {
+  .action(async (options: { label: string; scene?: string[]; speaker?: string[]; line?: string[]; q?: string; between?: string[]; route?: string[]; around: string; exclude?: string[]; request?: string; mode: 'view' | 'mark' }) => {
     if (options.between && options.between.length !== 2) throw new CliError('--between에는 시작과 끝 대사 키 두 개를 줍니다.');
+    if (options.route && options.route.length !== 2) throw new CliError('--route에는 시작과 끝 대사 키 두 개를 줍니다.');
     const result = await readTool<{ ok: boolean; error?: string; nodes: number; unknown: string[]; open: { to: string; search: Record<string, string> } }>('show_graph', {
       label: options.label,
       request: options.request,
@@ -1332,6 +1334,7 @@ views
       lines: options.line,
       q: options.q,
       between: options.between ? { start: options.between[0], end: options.between[1] } : undefined,
+      route: options.route ? { start: options.route[0], end: options.route[1] } : undefined,
       around: Number(options.around),
       exclude: options.exclude,
     });
@@ -1350,6 +1353,12 @@ views
     type Way = { key: string; label: string | null };
     const flow = await unwrap(api().projects[':projectId'].views[':ref'].flow.$get({ param: { projectId: await projectId(), ref: encodeURIComponent(ref) } }));
     log(`${flow.view.label}: 노드 ${flow.nodes.length.toLocaleString()}개 · 대사 ${flow.nodes.reduce((sum, node) => sum + node.lines.length, 0).toLocaleString()}줄  (${flow.view.id})`);
+    // A route view: where it starts and ends, and the branch it takes at each fork (another: `views update --branch`).
+    if (flow.route) {
+      log(`경로: ${flow.route.start} → ${flow.route.end}${flow.route.forks.length ? ` · 갈림길 ${flow.route.forks.length}곳` : ''}`);
+      for (const fork of flow.route.forks)
+        log(`  ⑂ ${fork.key}${fork.label ? ` [${short(fork.label, 30)}]` : ''}: ${fork.options.map((option) => `${option.key === fork.taken ? '*' : ''}${option.key}${option.label ? ` [${short(option.label, 30)}]` : ''}`).join(' | ')}`);
+    }
     if (options.jsonl) return printJsonl(flow.nodes);
     if (globals().json) return print(flow);
     const ways = (list: Way[]) => list.map((way) => `${way.key}${way.label ? ` [${short(way.label, 30)}]` : ''}`).join(', ');
@@ -1364,15 +1373,22 @@ views
 
 views
   .command('update <보기>')
-  .description('보기 이름 바꾸기, 대사(그 대사를 가진 노드) 더하기·빼기. 번역 데이터는 바꾸지 않아 바로 저장됩니다')
+  .description('보기 이름 바꾸기, 대사(그 대사를 가진 노드) 더하기·빼기, 경로 보기의 갈림길에서 다른 갈래 고르기. 번역 데이터는 바꾸지 않아 바로 저장됩니다. 경로 보기에 노드를 손으로 더하거나 빼면 그 경로가 아니게 되어 보통 보기가 됩니다')
   .option('--label <이름>', '새 이름')
   .option('--add <keys...>', '더할 대사·노드 키')
   .option('--remove <keys...>', '뺄 대사·노드 키')
-  .action(async (ref: string, options: { label?: string; add?: string[]; remove?: string[] }) => {
+  .option('--branch <pairs...>', '경로 보기: `갈림길 키=고를 갈래 키` (views show가 보여 주는 키)')
+  .action(async (ref: string, options: { label?: string; add?: string[]; remove?: string[]; branch?: string[] }) => {
+    const branches = (options.branch ?? []).map((pair) => {
+      const [at, to, ...rest] = pair.split('=');
+      if (!at || !to || rest.length) throw new CliError(`--branch는 갈림길=갈래 꼴로 줍니다: ${pair}`);
+      return { at, to };
+    });
     const flow = await unwrap(api().projects[':projectId'].views[':ref'].flow.$get({ param: { projectId: await projectId(), ref: encodeURIComponent(ref) } }));
-    const view = await unwrap(api().projects[':projectId'].graph.views[':id'].$patch({ param: { projectId: await projectId(), id: flow.view.id }, json: { label: options.label, addKeys: options.add ?? [], removeKeys: options.remove ?? [] } }));
+    if (branches.length && !flow.route) throw new CliError(`경로로 만든 보기가 아니라 갈림길이 없습니다: ${flow.view.label}`);
+    const view = await unwrap(api().projects[':projectId'].graph.views[':id'].$patch({ param: { projectId: await projectId(), id: flow.view.id }, json: { label: options.label, addKeys: options.add ?? [], removeKeys: options.remove ?? [], branches } }));
     if (globals().json) return print(view);
-    console.log(`${view.label}: 노드 ${view.nodes.toLocaleString()}개  ${await viewLink(view.id)}`);
+    console.log(`${view.label}: 노드 ${view.nodes.toLocaleString()}개${view.route ? ' · 경로 보기' : ''}  ${await viewLink(view.id)}`);
   });
 
 views

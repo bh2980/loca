@@ -8,6 +8,7 @@ import { nodeSetLayout, cancelViewLayouts } from './layout.ts';
 import type { LayoutDirection } from './layout-types.ts';
 import { events } from '../events.ts';
 import { allLines } from './script-query.ts';
+import { projectReadingRoute } from './reading-route.ts';
 
 /** What an agent can pick graph nodes by; every part is optional and they add up. */
 export interface NodePick {
@@ -139,6 +140,22 @@ export interface ViewOrigin {
   origin: 'ai' | 'manual';
   request?: string | null;
   reasons?: Record<string, string>;
+  /** Made from one reading route: it holds that route's nodes. */
+  route?: ViewRoute;
+}
+
+/** One reading route: its two end nodes and the branch chosen at each fork (`fork:target,…`, the route view's own format). */
+export interface ViewRoute {
+  start: string;
+  end: string;
+  via?: string;
+}
+
+/** The nodes a route view holds: every node the reading route goes through, or why there is no route. */
+export function routeNodes(db: Db, projectId: string, route: ViewRoute): { nodeIds: string[] } | { error: string } {
+  const found = projectReadingRoute(db, projectId, { start: route.start, end: route.end, via: route.via || undefined });
+  if (found.status !== 'found' || !found.nodeIds.length) return { error: '시작과 끝을 잇는 길이 없습니다.' };
+  return { nodeIds: found.nodeIds };
 }
 
 /** Stores a new view of these nodes and returns its id. */
@@ -146,21 +163,36 @@ export function saveView(db: Db, projectId: string, nodeIds: string[], label: st
   const ids = [...new Set(nodeIds)].sort();
   const id = randomUUID().replaceAll('-', '').slice(0, 16);
   const reasons = Object.fromEntries(Object.entries(made.reasons ?? {}).filter(([nodeId, reason]) => ids.includes(nodeId) && reason.trim()));
-  db.insert(s.graphViews).values({ id, projectId, label, nodeIds: ids, origin: made.origin, request: made.request ?? null, reasons }).run();
+  const route = made.route ? { start: made.route.start, end: made.route.end, ...(made.route.via && { via: made.route.via }) } : null;
+  db.insert(s.graphViews).values({ id, projectId, label, nodeIds: ids, origin: made.origin, request: made.request ?? null, reasons, route }).run();
   events.changed(projectId, 'graph');
   return id;
 }
 
-/** Renames a view or changes its nodes; a changed node set drops its stored layouts, which are made again on the next open. */
-export function updateView(db: Db, projectId: string, id: string, change: { label?: string; add?: string[]; remove?: string[] }) {
+/**
+ * Renames a view or changes its nodes; a changed node set drops its stored layouts, which are made again on the next open.
+ * A route view changes its nodes by `via` (another branch at a fork: the route's nodes again); nodes added or left out
+ * by hand make it a plain view of nodes, since it no longer is that route.
+ */
+export function updateView(db: Db, projectId: string, id: string, change: { label?: string; add?: string[]; remove?: string[]; via?: string }) {
   const view = readView(db, projectId, id);
   if (!view) return null;
+  let route = view.route;
+  let base = view.nodeIds;
+  if (change.via !== undefined) {
+    if (!route) return { error: '경로로 만든 보기가 아니라 갈림길을 바꿀 수 없습니다.' } as const;
+    route = { start: route.start, end: route.end, ...(change.via && { via: change.via }) };
+    const found = routeNodes(db, projectId, route);
+    if ('error' in found) return found;
+    base = [...new Set(found.nodeIds)].sort();
+  }
   const remove = new Set(change.remove ?? []);
-  const nodeIds = [...new Set([...view.nodeIds.filter((nodeId) => !remove.has(nodeId)), ...(change.add ?? [])])].sort();
+  const nodeIds = [...new Set([...base.filter((nodeId) => !remove.has(nodeId)), ...(change.add ?? [])])].sort();
+  if (route && nodeIds.join(',') !== base.join(',')) route = null;
   const changed = nodeIds.join(',') !== view.nodeIds.join(',') || Boolean(change.label?.trim() && change.label.trim() !== view.label);
   const reasons = Object.fromEntries(Object.entries(view.reasons).filter(([nodeId]) => nodeIds.includes(nodeId)));
   db.transaction((tx) => {
-    tx.update(s.graphViews).set({ label: change.label?.trim() || view.label, nodeIds, reasons, updatedAt: new Date() }).where(eq(s.graphViews.id, id)).run();
+    tx.update(s.graphViews).set({ label: change.label?.trim() || view.label, nodeIds, reasons, route, updatedAt: new Date() }).where(eq(s.graphViews.id, id)).run();
     if (changed) cancelViewLayouts(projectId, `view:${id}`);
     if (changed) tx.delete(s.graphLayouts).where(and(eq(s.graphLayouts.projectId, projectId), eq(s.graphLayouts.section, `view:${id}`))).run();
   });
@@ -180,7 +212,7 @@ export function deleteView(db: Db, projectId: string, id: string) {
 /** The project's views, newest change first. */
 export function listViews(db: Db, projectId: string, ids?: readonly string[]) {
   return db
-    .select({ id: s.graphViews.id, label: s.graphViews.label, origin: s.graphViews.origin, request: s.graphViews.request, nodeIds: s.graphViews.nodeIds, updatedAt: s.graphViews.updatedAt })
+    .select({ id: s.graphViews.id, label: s.graphViews.label, origin: s.graphViews.origin, request: s.graphViews.request, route: s.graphViews.route, nodeIds: s.graphViews.nodeIds, updatedAt: s.graphViews.updatedAt })
     .from(s.graphViews)
     .where(and(eq(s.graphViews.projectId, projectId), ids ? inList(s.graphViews.id, ids) : undefined))
     .all()
@@ -215,6 +247,6 @@ export async function viewSection(db: Db, projectId: string, id: string, directi
   const view = readView(db, projectId, id);
   if (!view) throw new Error('없는 보기입니다.');
   const key = `view:${id}`;
-  await nodeSetLayout(db, projectId, key, view.nodeIds, view.label, direction);
+  await nodeSetLayout(db, projectId, key, view.nodeIds, view.label, direction, !view.route);
   return key;
 }

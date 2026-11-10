@@ -33,7 +33,7 @@ import { pullDefaults, readAppDefaults } from './app-defaults.ts';
 
 /** 홈 기본값 sections the agent may pull (connections carry keys and chat settings its own permissions: the person's). */
 const PULLABLE = ['editorAi', 'prompts', 'aiAutoConfirm', 'statuses', 'tags', 'workflows'] as const;
-import { pickNodes, saveView, sectionWithMost, viewSection, VIEW_LIMIT } from './graph-views.ts';
+import { pickNodes, routeNodes, saveView, sectionWithMost, viewSection, VIEW_LIMIT, type ViewRoute } from './graph-views.ts';
 import { PERSON, type Saver } from './status-by.ts';
 import { asNew, characterByName as characterByNameOf, saveCharacterItem, saveKnowledgeItem, saveRelationshipItem, sent } from './knowledge-save.ts';
 import { aiSetLineListeners } from './ai-knowledge.ts';
@@ -251,13 +251,14 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
     }),
     show_graph: tool({
       description:
-        'Show the user part of the dialogue graph (the whole graph is too large to read): pick nodes by scenes (ids, keys or titles), speakers (lines they speak), lines (line keys), q (text in lines) and/or between (every node on any path from start to end — all branches of an event, unlike find_reading_route which finds one route; start/end are exact line keys/ids or node keys/ids, verify them with find_lines or line_context first); they add up. around adds the nodes that many steps before and after; exclude leaves lines/nodes out. keep names nodes one by one (exact line keys/ids or node keys/ids) with a short Korean reason each. mode "mark" highlights them in the graph (shown in the section holding most of them); mode "view" saves them as a view (a simplified graph of only these nodes, which the user can reopen, rename and edit): nodes left out between two kept nodes are joined by dashed derived edges the app computes from the real graph, however far apart — keep only the nodes needed to understand what the user asked about, and never invent connections. Put the user\'s request in "request". Use list_scenes, scenes_with, find_lines, line_context or find_reading_route first. Returns a link the user clicks; tell them what you kept and why.',
+        'Show the user part of the dialogue graph (the whole graph is too large to read): pick nodes by scenes (ids, keys or titles), speakers (lines they speak), lines (line keys), q (text in lines) and/or between (every node on any path from start to end — all branches of an event, unlike find_reading_route which finds one route; start/end are exact line keys/ids or node keys/ids, verify them with find_lines or line_context first); they add up. around adds the nodes that many steps before and after; exclude leaves lines/nodes out. keep names nodes one by one (exact line keys/ids or node keys/ids) with a short Korean reason each. mode "mark" highlights them in the graph (shown in the section holding most of them); mode "view" saves them as a view (a simplified graph of only these nodes, which the user can reopen, rename and edit): nodes left out between two kept nodes are joined by dashed derived edges the app computes from the real graph, however far apart — keep only the nodes needed to understand what the user asked about, and never invent connections. Put the user\'s request in "request". route instead saves one reading route from start to end as a view (the same route find_reading_route finds, with its default branch at each fork; exact line keys/ids or node keys/ids): the user opens it with its lines in reading order beside the graph and can take other branches there; it cannot be combined with the other picks. Use list_scenes, scenes_with, find_lines, line_context or find_reading_route first. Returns a link the user clicks; tell them what you kept and why.',
       inputSchema: z.object({
         scenes: z.array(z.string().min(1)).max(500).default([]),
         speakers: z.array(z.string().min(1)).default([]),
         lines: z.array(z.string().min(1)).max(5000).default([]),
         q: z.string().optional(),
         between: z.object({ start: z.string().min(1), end: z.string().min(1) }).optional(),
+        route: findReadingRouteInputSchema.optional(),
         exclude: z.array(z.string().min(1)).max(5000).default([]),
         keep: z.array(z.object({ ref: z.string().min(1), reason: z.string().max(200).optional() })).max(2000).default([]),
         around: z.number().int().min(0).max(5).default(0),
@@ -265,11 +266,21 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         request: z.string().max(500).optional().describe('What the user asked for, in their words (saved with a view so it can be remade).'),
         label: z.string().max(80).describe('A few words for the user on what this view shows, e.g. "Mira ↔ Jonas 대화".'),
       }),
-      execute: async ({ mode, label, request, ...pick }) => {
-        const { nodeIds, reasons, unknown, scenes } = pickNodes(db, projectId, pick);
+      execute: async ({ mode, label, request, route: asked, ...pick }) => {
+        let route: ViewRoute | undefined;
+        if (asked) {
+          if (pick.scenes.length || pick.speakers.length || pick.lines.length || pick.q || pick.between || pick.exclude.length || pick.keep.length || pick.around)
+            return { ok: false, error: 'route는 다른 조건(scenes, speakers, lines, q, between, exclude, keep, around)과 함께 쓸 수 없습니다.' };
+          const found = findReadingRoute(db, projectId, asked);
+          if (!found.ok) return { ok: false, error: found.error };
+          route = { start: found.start.nodeId, end: found.end.nodeId };
+        }
+        const routed = route ? routeNodes(db, projectId, route) : undefined;
+        if (routed && 'error' in routed) return { ok: false, error: routed.error };
+        const { nodeIds, reasons, unknown, scenes } = routed ? { nodeIds: routed.nodeIds, reasons: {}, unknown: [], scenes: [] } : pickNodes(db, projectId, pick);
         if (!nodeIds.length) return { ok: false, error: unknown.length ? `찾지 못함: ${unknown.slice(0, 5).join(', ')}` : '조건에 맞는 노드가 없습니다.' };
         if (nodeIds.length > VIEW_LIMIT) return { ok: false, error: `노드가 ${nodeIds.length.toLocaleString()}개라 너무 많습니다. ${VIEW_LIMIT.toLocaleString()}개 이하로 좁혀 주세요.` };
-        const id = saveView(db, projectId, nodeIds, label, { origin: 'ai', request: request ?? null, reasons });
+        const id = saveView(db, projectId, nodeIds, label, { origin: 'ai', request: request ?? null, reasons, route });
         const search = mode === 'view' ? { scope: 'dialogue', section: await viewSection(db, projectId, id) } : { scope: 'dialogue', mark: id, section: sectionWithMost(db, projectId, nodeIds) ?? undefined };
         return { ok: true, nodes: nodeIds.length, scenes, unknown, label, open: { to: '/p/$projectId/graph', search } };
       },
@@ -720,6 +731,10 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         emptyTarget: z.boolean().optional().describe('A terms workflow: terms with no Korean form (true) or with one (false).'),
         changeHuman: z.boolean().optional().describe('Also change a status a person set and take off tags a person put on. Without it the run leaves what a person decided and notes it in the run detail.'),
         models: runModelInput.optional().describe(MODELS_HELP),
+        limits: z
+          .object({ maxCalls: z.number().int().min(1).nullable().optional(), maxInputTokens: z.number().int().min(1).nullable().optional() })
+          .optional()
+          .describe('Caps past which the run pauses, as in the run dialog. Left out: the suggested caps plan_run reports (expected requests and input ×1.3 plus room for retries). A number sets one; null runs without it. Change them only when the user asks.'),
       }),
       needsApproval: true,
       execute: async ({ limits, ...input }) => {
@@ -731,10 +746,6 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
           return { ok: true, ...run, workflow: workflow.name, ...(author.sessionId && { note: RUN_APART_NOTE }) };
         } catch (error) {
           // e.g. a whole-script run is already running (the same guard as the run dialog).
-        limits: z
-          .object({ maxCalls: z.number().int().min(1).nullable().optional(), maxInputTokens: z.number().int().min(1).nullable().optional() })
-          .optional()
-          .describe('Caps past which the run pauses, as in the run dialog. Left out: the suggested caps plan_run reports (expected requests and input ×1.3 plus room for retries). A number sets one; null runs without it. Change them only when the user asks.'),
           return { ok: false, error: error instanceof Error ? error.message : String(error) };
         }
       },

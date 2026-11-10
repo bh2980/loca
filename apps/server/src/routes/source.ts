@@ -3,7 +3,7 @@ import { readingRouteQuery } from '../services/reading-route-query.ts';
 import { projectReadingRoute } from '../services/reading-route.ts';
 import { and, asc, count, desc, eq, gt, inArray, lt, ne, notInArray, notLike, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
-import { createGroupSchema, updateGroupSchema, createUnitSchema, updateUnitSchema, isSpecialListener, LINE_TRANSLATE, type NodeType } from '@tw/shared';
+import { createGroupSchema, updateGroupSchema, createUnitSchema, updateUnitSchema, isSpecialListener, LINE_TRANSLATE, viaWith, viewRouteSchema, type NodeType } from '@tw/shared';
 import { createGroup, updateGroup, deleteGroup, createUnit, updateUnit, deleteUnits } from '../services/source-mutations.ts';
 import { deleteNodes, duplicateNodes, edgeDetail, insertLineAfter, linkInOrder, linkNodes, nodeByKey, undoGraphEdit, unlinkEdges } from '../services/graph-edit.ts';
 import { attachUnitTags } from '../services/tag-scope.ts';
@@ -18,7 +18,7 @@ import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { computeLayouts, LAYOUT_VERSION } from '../services/layout.ts';
 import type { LayoutDirection } from '../services/layout-types.ts';
-import { deleteView, listViews, missingNodes, readView, saveView, sectionWithMost, updateView, viewSection } from '../services/graph-views.ts';
+import { deleteView, listViews, missingNodes, readView, routeNodes, saveView, sectionWithMost, updateView, viewSection } from '../services/graph-views.ts';
 import { graphKey } from '../services/route-slice.ts';
 import { projectSlice } from '../services/project-slice.ts';
 import { defaultPicks, effectivePicks, previewNext, projectRouteInputs, routeLines, routeProgress } from '../services/next-route.ts';
@@ -659,13 +659,20 @@ export const sourceRoutes = new Hono<Env>()
   })
   /** The project's stored views of the dialogue graph (see graph-views.ts), newest change first. */
   .get('/projects/:projectId/graph/views', (c) => c.json(listViews(c.var.deps.db, c.req.param('projectId'))))
-  /** A view made by a person from a selection in the graph. */
-  .post('/projects/:projectId/graph/views', validate('json', z.object({ label: z.string().trim().min(1).max(80), nodeIds: z.array(z.string().min(1)).min(1).max(5000) })), (c) => {
-    const { db } = c.var.deps;
-    const projectId = c.req.param('projectId');
-    const { label, nodeIds } = c.req.valid('json');
-    return c.json({ id: saveView(db, projectId, nodeIds, label, { origin: 'manual' }) }, 201);
-  })
+  /** A view made by a person: from nodes picked in the graph, or from one reading route (it holds that route's nodes). */
+  .post(
+    '/projects/:projectId/graph/views',
+    validate('json', z.object({ label: z.string().trim().min(1).max(80), nodeIds: z.array(z.string().min(1)).max(5000).default([]), route: viewRouteSchema.optional() }).refine((value) => value.nodeIds.length > 0 || value.route, '노드를 고르거나 경로를 주세요.')),
+    (c) => {
+      const { db } = c.var.deps;
+      const projectId = c.req.param('projectId');
+      const { label, nodeIds, route } = c.req.valid('json');
+      if (!route) return c.json({ id: saveView(db, projectId, nodeIds, label, { origin: 'manual' }) }, 201);
+      const found = routeNodes(db, projectId, route);
+      if ('error' in found) badRequest(found.error);
+      return c.json({ id: saveView(db, projectId, found.nodeIds, label, { origin: 'manual', route }) }, 201);
+    },
+  )
   /** A stored view: what it holds, how it was made, and the section showing most of it. */
   .get('/projects/:projectId/graph/views/:id', (c) => {
     const { db } = c.var.deps;
@@ -677,21 +684,28 @@ export const sourceRoutes = new Hono<Env>()
       origin: view.origin,
       request: view.request,
       reasons: view.reasons,
+      route: view.route,
       nodeIds: view.nodeIds,
       missing: missingNodes(db, projectId, view.nodeIds),
       updatedAt: view.updatedAt,
       section: sectionWithMost(db, projectId, view.nodeIds),
     });
   })
-  /** Rename a view, or add / leave out nodes (its layout is made again). */
-  .patch('/projects/:projectId/graph/views/:id', validate('json', z.object({ label: z.string().trim().min(1).max(80).optional(), add: z.array(z.string().min(1)).max(5000).default([]), remove: z.array(z.string().min(1)).max(5000).default([]), addKeys: z.array(z.string().min(1)).max(5000).default([]), removeKeys: z.array(z.string().min(1)).max(5000).default([]) })), (c) => {
+  /** Rename a view, add / leave out nodes, or take another branch at a route view's fork (`via`); its layout is made again. */
+  .patch('/projects/:projectId/graph/views/:id', validate('json', z.object({ label: z.string().trim().min(1).max(80).optional(), add: z.array(z.string().min(1)).max(5000).default([]), remove: z.array(z.string().min(1)).max(5000).default([]), addKeys: z.array(z.string().min(1)).max(5000).default([]), removeKeys: z.array(z.string().min(1)).max(5000).default([]), via: z.string().max(20_000).optional(), branches: z.array(z.object({ at: z.string().min(1), to: z.string().min(1) })).max(200).default([]) })), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
-    // Line or node keys (the CLI) become the nodes holding them.
-    const { addKeys, removeKeys, ...change } = c.req.valid('json');
+    // Line or node keys (the CLI) become the nodes holding them; `branches` (the CLI) take another branch at forks named by key.
+    const { addKeys, removeKeys, branches, ...change } = c.req.valid('json');
     const byKey = (keys: string[]) => keys.map((key) => nodeByKey(db, projectId, key));
-    const view = found(updateView(db, projectId, c.req.param('id'), { ...change, add: [...change.add, ...byKey(addKeys)], remove: [...change.remove, ...byKey(removeKeys)] }) ?? undefined, '보기');
-    return c.json({ id: view.id, label: view.label, nodes: view.nodeIds.length });
+    let via = change.via;
+    if (branches.length) {
+      via ??= found(readView(db, projectId, c.req.param('id')), '보기').route?.via ?? '';
+      for (const branch of branches) via = viaWith(via, nodeByKey(db, projectId, branch.at), nodeByKey(db, projectId, branch.to));
+    }
+    const view = found(updateView(db, projectId, c.req.param('id'), { ...change, via, add: [...change.add, ...byKey(addKeys)], remove: [...change.remove, ...byKey(removeKeys)] }) ?? undefined, '보기');
+    if ('error' in view) badRequest(view.error);
+    return c.json({ id: view.id, label: view.label, nodes: view.nodeIds.length, route: view.route });
   })
   .delete('/projects/:projectId/graph/views/:id', (c) => {
     const { db } = c.var.deps;
