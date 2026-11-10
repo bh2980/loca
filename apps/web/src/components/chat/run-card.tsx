@@ -4,6 +4,7 @@ import { Link } from '@tanstack/react-router';
 import type { RunCard, RunEnd } from '@tw/shared';
 import { Box, Button, Inline, Progress, RunStatusBadge, Spinner, Stack, Text } from '@loca/ui';
 import { cardSummary } from '@/lib/chat-run';
+import { startCaps } from '@/lib/run-limits';
 import { answerRunCard } from '@/lib/chat-run-api';
 import { keyLabel } from '@/lib/keys';
 import { AttachChip } from './attach-chip';
@@ -74,6 +75,7 @@ export function RunCardView({ projectId, sessionId, card, onChange, onAnswered, 
             </>
           )}
           {summary.excluded > 0 && <Text variant="caption" tone="muted"> · 번역 제외 {summary.excluded.toLocaleString()}줄은 빠집니다</Text>}
+          {!summary.empty && <Text variant="caption" tone="muted"> · 상한 {startCaps(undefined, card.plan.suggestedLimits)}</Text>}
         </p>
       )}
       {answer.isError && <Text as="p" variant="caption" tone="danger" role="alert">{answer.error.message}</Text>}

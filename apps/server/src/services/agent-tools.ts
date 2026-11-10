@@ -21,11 +21,11 @@ import { createStatus, createTag, deleteStatuses, deleteTags, orderStatuses, ord
 import { deleteWorkflow, saveWorkflow, WorkflowMutationError } from './workflow-mutations.ts';
 import { createGroup, createUnit, deleteGroup, deleteUnits, updateGroup, updateUnit } from './source-mutations.ts';
 import { mentions } from './context.ts';
-import { createRunInSteps, FILLING, refuseSecondWholeScript } from '../engine/run-create.ts';
+import { FILLING, refuseSecondWholeScript } from '../engine/run-create.ts';
+import { startCheckedRun } from './start-run.ts';
 import { continueRun, resumeRun } from '../engine/runner.ts';
 import { switchedRun } from './run-continue.ts';
 import { groupRunErrors, runErrors } from './run-errors.ts';
-import { snapshotWorkflowModels } from './routes.ts';
 import { readWebPage, webSearch } from './web.ts';
 import { deleteItems, DELETABLE_KINDS } from './item-delete.ts';
 import { projectSettingsInput, readProjectSettings, updateProjectSettings } from './project-settings.ts';
@@ -376,7 +376,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
     }),
     plan_run: tool({
       description:
-        'The run dialog\'s preview for a workflow and scope, without starting anything or calling a model: lines in scope, batches, requests and tokens per AI node, and readiness (dialogue lines with unknown listener, speech rules and glossary terms no person has confirmed, with their names, and frequent speaker pairs without a rule). workflow is an id or name; scope of a lines workflow: groups (key/id/title), keys (line keys), tags (all), marks (all), statuses (names or ids), unfinished, decidedBy, noted, speakers, listeners, kinds, q (source text) — combined with AND like the dialog; none = every line. A terms workflow (entry input "terms") counts glossary terms instead (the totals under lines are terms) and takes terms (ids or sources), statuses (후보/확정/버림) and term marks, most used first; none = every term. Line scopes are refused for it and terms for a lines workflow. Use it before proposing start_run.',
+        'The run dialog\'s preview for a workflow and scope, without starting anything or calling a model: lines in scope, batches, requests and tokens per AI node, and readiness (dialogue lines with unknown listener, speech rules and glossary terms no person has confirmed, with their names, and frequent speaker pairs without a rule), and suggestedLimits: the caps start_run uses unless told otherwise (the run pauses there). workflow is an id or name; scope of a lines workflow: groups (key/id/title), keys (line keys), tags (all), marks (all), statuses (names or ids), unfinished, decidedBy, noted, speakers, listeners, kinds, q (source text) — combined with AND like the dialog; none = every line. A terms workflow (entry input "terms") counts glossary terms instead (the totals under lines are terms) and takes terms (ids or sources), statuses (후보/확정/버림) and term marks, most used first; none = every term. Line scopes are refused for it and terms for a lines workflow. Use it before proposing start_run.',
       inputSchema: z.object({ workflow: z.string().min(1), groups: z.array(z.string()).optional(), keys: z.array(z.string()).optional(), tags: z.array(z.string()).optional(), marks: z.array(z.string()).optional().describe('Automatic marks the items must all have: line marks, or term marks for a terms workflow.'), terms: z.array(z.string()).optional().describe('A terms workflow: glossary terms by id or source.'), statuses: z.array(z.string()).optional().describe('Statuses the items must be in (none = any): status names or ids for lines, 후보/확정/버림 for terms.'), speakers: z.array(z.string()).optional().describe('Lines said by these speakers (names, aliases or speaker keys).'), listeners: z.array(z.string()).optional().describe("Lines said to these listeners; '-' = listener not known."), kinds: z.array(z.string()).optional().describe('Line kinds: dialogue, ui, …'), q: z.string().optional().describe('Text in the source.'), unfinished: z.boolean().optional(), noted: z.boolean().optional(), decidedBy: z.enum(DECIDED_BY).optional(), emptyTarget: z.boolean().optional(), models: runModelInput.optional().describe(MODELS_HELP) }),
       execute: (input) => planRun(db, projectId, input),
     }),
@@ -722,15 +722,19 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         models: runModelInput.optional().describe(MODELS_HELP),
       }),
       needsApproval: true,
-      execute: async (input) => {
+      execute: async ({ limits, ...input }) => {
         const resolved = resolveStartRun(db, projectId, input);
         if (!resolved.ok) return resolved;
         const { workflow, scope } = resolved;
         try {
-          const run = await createRunInSteps(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope, sessionId: author.sessionId });
+          const run = await startCheckedRun(db, workflow, { scope, limits, sessionId: author.sessionId });
           return { ok: true, ...run, workflow: workflow.name, ...(author.sessionId && { note: RUN_APART_NOTE }) };
         } catch (error) {
           // e.g. a whole-script run is already running (the same guard as the run dialog).
+        limits: z
+          .object({ maxCalls: z.number().int().min(1).nullable().optional(), maxInputTokens: z.number().int().min(1).nullable().optional() })
+          .optional()
+          .describe('Caps past which the run pauses, as in the run dialog. Left out: the suggested caps plan_run reports (expected requests and input ×1.3 plus room for retries). A number sets one; null runs without it. Change them only when the user asks.'),
           return { ok: false, error: error instanceof Error ? error.message : String(error) };
         }
       },

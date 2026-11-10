@@ -1,6 +1,7 @@
 import { AGENT_TOOLS, APP_DEFAULT_SECTION_LABELS, TERM_LINE_KIND_LABELS, type AppDefaultSection, type AgeBand, type AutoMark, type Gender, personLabel, CHARACTER_ROLE_LABELS, type CharacterRole, type RunCardPlan, type TermLineKind } from '@tw/shared';
 import { MarkChip } from '@/components/status';
 import { cardSummary } from '@/lib/chat-run';
+import { startCaps, type CapEdits } from '@/lib/run-limits';
 import { Box, Markdown, Grid, Inline, Text, SectionHeading } from '@loca/ui';
 
 export const LABEL: Record<string, string> = Object.fromEntries(Object.entries(AGENT_TOOLS).map(([name, info]) => [name, info.label]));
@@ -274,6 +275,7 @@ export function ChangePreview({ name, input, pending = true, details, run }: { n
           {input.emptyTarget !== undefined && field('번역', input.emptyTarget ? '비어 있음' : '있음')}
           {!terms && field('사람이 정한 것', input.changeHuman ? '상태·태그도 바꿈' : '그대로 두고 실행 상세에 남김')}
           {models.length > 0 && field('모델', models.map(([node, pick]) => `${node === '*' ? '모든 AI 노드' : String(named(node))} → ${String(named(pick.connection))} · ${pick.model}`).join(', '))}
+          {(run || input.limits !== undefined) && field('상한', startCaps(input.limits as CapEdits | undefined, run?.plan.suggestedLimits))}
           {pending && <Text as="p" tone="muted">수락하면 바로 실행이 시작되고 AI 호출 비용이 듭니다.</Text>}
         </Box>
       );

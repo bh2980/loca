@@ -151,13 +151,15 @@ export interface StartRunInput {
   emptyTarget?: boolean;
   changeHuman?: boolean;
   models?: RunModelInput;
+  /** The run's caps (start-run.ts runLimits); not part of what it runs on. */
+  limits?: { maxCalls?: number | null; maxInputTokens?: number | null };
 }
 
 /**
  * What a start_run means, or why it cannot run: the workflow with this run's models and the scope, with something in it.
  * The proposal asks when it is made (the card then says what accepting starts) and the tool again when it runs.
  */
-export function resolveStartRun(db: Db, projectId: string, { workflowId, models, termIds, statuses, marks, speakers, listeners, kinds, q, unfinished, noted, decidedBy, emptyTarget, ...lineScope }: StartRunInput) {
+export function resolveStartRun(db: Db, projectId: string, { workflowId, models, termIds, statuses, marks, speakers, listeners, kinds, q, unfinished, noted, decidedBy, emptyTarget, limits: _limits, ...lineScope }: StartRunInput) {
   const refuse = (error: string) => ({ ok: false as const, error });
   const stored = db.select().from(s.workflows).where(and(eq(s.workflows.id, workflowId), eq(s.workflows.projectId, projectId))).get();
   if (!stored) return refuse('워크플로를 찾을 수 없습니다.');

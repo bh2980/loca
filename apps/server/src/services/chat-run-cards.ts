@@ -51,8 +51,8 @@ export async function createRunCard(db: Db, sessionId: string, input: { workflow
   return card;
 }
 
-/** The caps a card starts its run with: the preflight's suggestion, as the run dialog does when its fields are left as they are. */
-const startLimits = (suggested: RunCardPlan['suggestedLimits']) => ({ ...(suggested?.maxCalls ? { maxCalls: suggested.maxCalls } : {}), ...(suggested?.maxInputTokens ? { maxInputTokens: suggested.maxInputTokens } : {}) });
+/** The caps a card starts its run with: the suggestion it was made with, as it showed them (none where it had none). */
+const startLimits = (suggested: RunCardPlan['suggestedLimits']) => ({ maxCalls: suggested?.maxCalls ?? null, maxInputTokens: suggested?.maxInputTokens ?? null });
 
 /** Cards being started right now (the run is made in steps): a second 실행 on the same card is refused instead of starting a second run. */
 const starting = new Set<string>();
