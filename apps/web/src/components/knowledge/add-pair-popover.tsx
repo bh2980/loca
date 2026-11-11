@@ -19,7 +19,7 @@ interface Person {
   name: string;
 }
 
-/** One end of the pair: a picked person, or a new name; listeners can also be 여럿 / 불특정 다수 / 혼잣말 / 그 밖의 인물. */
+/** One end of the pair: a picked person, or a new name; listeners can also be 여럿 / 불특정 다수 / 혼잣말 / 내레이션 / 플레이어 / 그 밖의 인물. */
 function End({ label, value, name, onValue, onName, options, placeholder }: { label: string; value: string; name: string; onValue: (value: string) => void; onName: (name: string) => void; options: ComboboxOption[]; placeholder: string }) {
   return (
     <KeyValueRow label={label}>

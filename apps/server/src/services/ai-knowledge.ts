@@ -70,7 +70,7 @@ export function mainPairs(tx: Tx | Db, projectId: string, people: { name: string
   const counts = new Map<string, number>();
   for (const line of lines) {
     const listener = knownListener({ listener: line.listener, listenerOrigin: line.origin, listenerConfidence: line.confidence });
-    if (!line.speaker || !listener || listener === 'group' || listener === 'self') continue;
+    if (!line.speaker || !listener || listener === 'group' || listener === 'self' || listener === 'narration' || listener === 'player') continue;
     const key = `${person(line.speaker)}|${person(listener)}`;
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }

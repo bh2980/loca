@@ -85,6 +85,22 @@ const GENERIC_ALIASES = new Set([
 ]);
 const MIN_ALIAS_LENGTH = 3;
 
+/** The register a line takes toward a listener who is nobody in the story, when the speaker has no rule for it. */
+const REGISTER_NOTES: Partial<Record<string, { note: string; reason: string }>> = {
+  self: {
+    note: 'Thinking aloud: a monologue register (plain endings such as ~군, ~네, ~지, ~나), not the speech level the speaker uses with others.',
+    reason: '혼잣말 (독백체 안내, 화자 → self 규칙이 있으면 그것)',
+  },
+  narration: {
+    note: 'Narration: the speaker tells the story to the audience. Use a narrative register (written endings such as ~했다, ~였다, or ~했지, ~였어 when they talk to the audience like a listener) and keep it through the stretch, not the speech level the speaker uses with others.',
+    reason: '내레이션 (서술체 안내, 화자 → narration 규칙이 있으면 그것)',
+  },
+  player: {
+    note: 'Said to the player outside the story (instructions, prompts, a broken fourth wall): the register the game uses with the player (the style documents, else 해요체), not the speech level toward the player character.',
+    reason: '플레이어 (게임이 플레이어에게 쓰는 말투 안내, 화자 → player 규칙이 있으면 그것)',
+  },
+};
+
 /** Whether an alias may trigger character matching: not a common word and at least three characters. */
 export const usableAlias = (alias: string) => {
   const word = alias.trim().toLowerCase();
@@ -343,29 +359,33 @@ export function buildContext(
       .where(inArray(units.id, batch.map((unit) => unit.id)))
       .all();
     const rules = speechRuleIndex(db, projectId).resolve(lines);
-    // "group" names who is there: the other speakers of the scene.
+    // "group" names who may be listening: the other speakers of the scene (present, or on the same radio or call).
     const present = lines.some((line) => knownListener(line) === 'group') ? speakersOf(db, [...new Set(lines.map((line) => line.groupId))]) : new Map<string, string[]>();
     const told = (line: (typeof lines)[number], listener: string) =>
       listener === 'group'
-        ? `everyone present${(present.get(line.groupId) ?? []).filter((name) => name !== line.speaker).length ? ` (${(present.get(line.groupId) ?? []).filter((name) => name !== line.speaker).slice(0, 8).join(', ')})` : ''}`
+        ? `several people listening${(present.get(line.groupId) ?? []).filter((name) => name !== line.speaker).length ? ` (${(present.get(line.groupId) ?? []).filter((name) => name !== line.speaker).slice(0, 8).join(', ')})` : ''}`
         : listener === 'public'
           ? 'the public (an unspecified audience)'
           : listener === 'self'
             ? 'self (thinking aloud)'
-            : listener;
+            : listener === 'narration'
+              ? 'the audience (narration: telling the story, not said to anyone in it)'
+              : listener === 'player'
+                ? 'the player (outside the story)'
+                : listener;
     for (const line of lines) {
       const listener = knownListener(line);
       if (!listener) continue;
       const found = rules.get(line.key);
-      // Thinking aloud with no rule of the speaker's own for it: a monologue, not how they talk to others.
-      const monologue = listener === 'self' && !found;
+      // A listener that is nobody in the story, with no rule of the speaker's own for it: its register, not how they talk to others.
+      const register = found ? undefined : REGISTER_NOTES[listener];
       const entry = {
         listener: told(line, listener),
         ...(found && { rule: describeRule(found.rule), ...(found.rule.note && { note: found.rule.note }), ...(found.byOrder && { byOrder: true as const }) }),
-        ...(monologue && { note: 'Thinking aloud: a monologue register (plain endings such as ~군, ~네, ~지, ~나), not the speech level the speaker uses with others.' }),
+        ...(register && { note: register.note }),
       };
       candidates.speech.push({
-        item: { kind: 'speech', label: `${line.key}: ${line.speaker ?? '?'} → ${listenerLabel(listener)}${found ? ` · ${describeRule(found.rule)}` : ''}`, reason: found ? `확정 말투 규칙${found.routeDependent ? ' (구간 시작을 거쳤는지가 루트에 따라 달라 대본 순서 기준)' : found.byOrder ? ' (그래프 밖이라 구간은 대본 순서 기준)' : ''}` : monologue ? '혼잣말 (독백체 안내, 화자 → self 규칙이 있으면 그것)' : '청자만 (이 쌍의 확정 규칙 없음)' },
+        item: { kind: 'speech', label: `${line.key}: ${line.speaker ?? '?'} → ${listenerLabel(listener)}${found ? ` · ${describeRule(found.rule)}` : ''}`, reason: found ? `확정 말투 규칙${found.routeDependent ? ' (구간 시작을 거쳤는지가 루트에 따라 달라 대본 순서 기준)' : found.byOrder ? ' (그래프 밖이라 구간은 대본 순서 기준)' : ''}` : register ? register.reason : '청자만 (이 쌍의 확정 규칙 없음)' },
         payload: entry,
         keep: () => (result.speech[line.id] = entry),
       });

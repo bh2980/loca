@@ -215,7 +215,7 @@ function BulkListener({ speakers, cast, onPick }: { speakers: string[]; cast: st
           </SelectGroup>
         )}
         <SelectGroup>
-          <SelectLabel>여럿 · 혼잣말</SelectLabel>
+          <SelectLabel>특별한 청자</SelectLabel>
           {Object.entries(SPECIAL_LISTENERS).map(([key, label]) => (
             <SelectItem key={key} value={key}>
               {label}

@@ -83,7 +83,7 @@ export function ListenerPicker({ line, cast, onPick, inline = false, arrow = tru
             </SelectGroup>
           )}
           <SelectGroup>
-            <SelectLabel>여럿 · 혼잣말</SelectLabel>
+            <SelectLabel>특별한 청자</SelectLabel>
             {Object.entries(SPECIAL_LISTENERS).map(([key, label]) => (
               <SelectItem key={key} value={key}>
                 {label}

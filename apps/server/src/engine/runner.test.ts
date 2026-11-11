@@ -199,7 +199,7 @@ describe('choice output', () => {
     const { runId } = start(db, projectId, workflow, {});
     await runner.drain();
 
-    expect(seen[0].system).toContain('Options for "value": "Alice", "Pat", "group", "public", "self", "others". Use null when none of them fits.');
+    expect(seen[0].system).toContain('Options for "value": "Alice", "Pat", "group", "public", "self", "narration", "player", "others". Use null when none of them fits.');
     expect(JSON.parse(seen[0].prompt).cast).toEqual([{ name: 'Alice', aliases: [] }, { name: 'Pat', aliases: [], player: true }]);
     const items = db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all();
     expect(items.map((item) => item.data.outputs?.listener)).toEqual([{ value: 'Pat', confidence: 0.95 }, { value: 'others', confidence: 0.95, reason: 'AI가 적은 청자: Nobody' }, { value: null, confidence: 0.95 }]);
