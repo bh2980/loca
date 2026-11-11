@@ -166,7 +166,7 @@ export function bestRoute(g: RouteGraph, weights: Weights, start: Picks): NextRo
 
 /**
  * The next route: the local search, and when it gains nothing while untranslated lines are still
- * reachable (behind choices it does not look past, docs/PLAN-30.md), the search again from a route
+ * reachable (behind choices it does not look past), the search again from a route
  * through the first remaining branch. So 0 lines means every reachable line has a translation.
  */
 export function nextRoute(g: RouteGraph, weights: Weights, picks: Picks): NextRouteResult {

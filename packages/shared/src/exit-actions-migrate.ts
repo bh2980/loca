@@ -1,5 +1,5 @@
 /**
- * 태그 붙이기·떼기 and 상태 변경 were nodes; they are exit actions now (docs/DESIGN-EXIT-ACTIONS.md, migration 0122). This
+ * 태그 붙이기·떼기 and 상태 변경 were nodes; they are exit actions now. This
  * turns a definition with such nodes into one without: each node's work goes onto every exit that led to it, those lines
  * go where its 다음 exit went (none: the exit ends the line), its 오류 lines go; upstream nodes first, so a run of them adds
  * up in order. The database's migration and a browser's unsaved draft from before go through it. A definition without

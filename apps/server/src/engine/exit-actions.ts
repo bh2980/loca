@@ -1,5 +1,8 @@
 /**
- * 출구 동작: what a line gets as it leaves a node's exit, before the exit's lines split (docs/DESIGN-EXIT-ACTIONS.md).
+ * 출구 동작: what a line gets as it leaves a node's exit, before the exit's lines split.
+ * An error exit first checks the retry rule; a line sent again gets no action, it has not left yet. A line that leaves an
+ * exit with no line after it ends completed when an action set its status, failed when an error exit only tagged it.
+ * Actions are not nodes, so they never count as a visit; a line that comes round a loop gets them again.
  * The runner calls applyExitActions inside the step's transaction, once per item and exit, in the order the actions
  * are listed; nothing here counts as a visit. What a node used to guard still holds: a status a person gave a line keeps
  * its translation (a run that picks lines by status), a tag that may not go on this kind of item is skipped.

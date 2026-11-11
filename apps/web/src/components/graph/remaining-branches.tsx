@@ -11,7 +11,7 @@ export interface RemainingBranchItem {
 }
 
 /**
- * 남은 갈래 (docs/PLAN-30.md): the branches the current route does not pass that still have
+ * 남은 갈래: the branches the current route does not pass that still have
  * untranslated lines, by the choice they leave it at. 이 갈래로 takes the route through the branch's
  * first untranslated line (the next round when this route is translated).
  */

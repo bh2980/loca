@@ -21,8 +21,8 @@
 | `slate` | 1 … 12 | 밝은 테마의 바탕·면·선·글자 (hue 258, 글자 262) |
 | `night` | 1 … 12 | 어두운 테마의 바탕·면·선·글자 (hue 265) |
 | `cobalt` | 950 910 530 450 370 (+`530-a45`) | 밝은 테마의 강조 하나 (버튼·선택·초점)와 그 옅은 파랑 |
-| `teal` | 850 800 340 320 200 (+`800-a50`) | 어두운 테마의 강조 하나 |
-| `red` `orange` `amber` `green` `violet` | 둘 다 | 위험 · 경고 · 검토 필요 · 완료 · AI |
+| `teal` | 850 800 340 320 300 200 (+`800-a50`) | 어두운 테마의 강조 하나 |
+| `red` `orange` `amber` `green` `violet` `rose` | 둘 다 | 위험 · 경고 · 검토 필요 · 완료 · AI · 노드 머리 |
 | `hue-1..12` `token-1..6` | 테마마다 값이 따로 | 데이터 색: 사용자가 고르는 상태 색, 서식 토큰 칩 짝. 코드가 직접 쓸 수 있는 유일한 원시 값(`var(--hue-${n})`) |
 
 `-aNN`은 같은 색의 투명도(`cobalt-530-a45` = 45%). 회색의 투명도(그림자 `--elevation-color`, 막 `bg-scrim`)는 theme.css가 단계를 `color-mix`로 섞어 만든다. 강조·의미 색 계열은 밝기 이름을 그대로 둔다(`cobalt-530` …): 회색처럼 번호가 뜻을 갖지 않고 단계 수도 계열마다 달라, 번호로 바꿔도 얻는 규칙이 없다.
@@ -46,24 +46,6 @@
 | 고리 `ring-*` | `focus` `line` `strong` `accent` `danger` `warning` | 초점 고리, 고리로 그린 머리카락 선, 고른 견본, 의미 |
 | 그 밖 | `outline-focus` `divide-subtle` `decoration-accent` `decoration-danger` | |
 | 그림 | `fill-accent` `fill-muted` `fill-page` · `stroke-default` `stroke-muted` `stroke-subtle` `stroke-accent` `stroke-danger` `stroke-warning` | SVG·React Flow가 `var(--fill-…)`로 읽는다 |
-
-옛 이름 → 새 이름 (검토용):
-
-| 옛 | 새 |
-|---|---|
-| `background` `card` `popover` | `bg-page` `bg-surface` `bg-overlay` |
-| `muted` `secondary` `accent` `selection` | `bg-sunken` `bg-quiet` `bg-hover` `bg-selected` |
-| `primary` `primary-soft` `primary-foreground` `primary-ink` | `bg-accent` `bg-accent-soft` `text-on-accent` `text-on-accent-soft` (`text-primary` → `text-accent`) |
-| `destructive` | `danger` (`bg-` `text-` `border-` `ring-` `decoration-`) |
-| `foreground` `muted-foreground` `subtle-foreground` | `text-default` `text-muted` `text-subtle` |
-| `card-foreground` `popover-foreground` `accent-foreground` `secondary-foreground` | `text-default` |
-| `review-ink` | `text-review` |
-| `border` `border-subtle` `input` `ring` | `border-default` `border-subtle` `border-input` `ring-focus` `border-focus` `outline-focus` |
-| `bg-border` `ring-border` | `bg-line` `ring-line` |
-| `bg-muted-foreground` `border-muted-foreground` `bg-subtle-foreground` | `bg-neutral` `border-neutral` `bg-neutral-subtle` |
-| `bg-foreground` `text-background` `border-foreground` `ring-foreground` | `bg-inverse` `text-inverse` `border-strong` `ring-strong` |
-| `bg-input` `bg-ring` `border-card` `bg-black/40` | `bg-track` `bg-focus` `border-surface` `bg-scrim` |
-| `text-info` (은 정의가 없어 아무것도 칠하지 않았다) | 지움 |
 
 **부품 전용** — 한 업무 부품만 쓰는 값은 역할이나 원시 단계를 가리키고 부품 이름으로 짓는다: 사이드바 `bg-sidebar` `text-sidebar` `bg-sidebar-item` `bg-sidebar-badge`; 그래프 `bg-graph-canvas` `fill-graph-grid` `stroke-graph-edge` `bg-graph-node` `stroke-graph-node` `bg-graph-kind-{choice,condition,wait,event,state}` (canvas-colors.ts가 이름으로 읽는다) `text-graph-choice` `bg-graph-choice` `border-graph-choice`; 노드 카드 `bg-node-header-{neutral,ai,check,flow,status,state}` `text-node-state` `bg-node-state`; `bg-floating-toolbar` `text-floating-toolbar` `bg-floating-toolbar-hover`; `bg-meter-track`; 그림자 색 `--elevation-color`(`shadow-*` 값이 쓴다). 옛 `sidebar-border` `sidebar-ring` `graph-select`는 `border-default` `ring-focus` `accent`와 같은 값이라 없앴다.
 
@@ -113,18 +95,6 @@
 
 단계를 줄일 때 옛 값은 가장 가까운 단계로 옮긴다(같은 거리면 입력칸·메뉴·스크롤 영역은 큰 쪽, 불러오는 자리는 작은 쪽). 간격 6px은 아이콘과 글자 사이·칩 안쪽이면 4, 그 밖은 8. 10px은 촘촘한 줄·작은 조작부 안쪽이면 8, 묶음 사이면 12. 20px은 창 안이면 16, 화면 구역 사이면 24. 부품 안쪽의 Tailwind 간격도 같은 단계만 쓴다(0.5 1 2 3 4 6 8 12): 1.5 → 1 또는 2, 2.5 → 2 또는 3, 3.5 → 3, 5 → 4, 7 → 8. 아이콘·상자 크기(`size-3.5`)는 간격이 아니라 그대로 둔다.
 
-#### 값 정리 (2026-10-26)
-
-체계는 그대로 두고 값만 규칙적으로 맞췄다. 화면이 조금 달라지는 것은 승인된 변경이다. 합치거나 없앤 단계:
-
-- 회색: 밝은 18단계 → `slate-1..12`, 어두운 17단계 → `night-1..12`. 회색의 투명도 단계(`slate-240-a08`, `night-0-a35`, `night-0-a40`)는 없애고 `color-mix`로 대신한다.
-- 간격: `snug`(6) `cozy`(10) `roomy`(20) 삭제. `snug` → `tight` 또는 `condensed`, `cozy` → `condensed` 또는 `normal`, `roomy` → `comfortable`.
-- 너비: `field-3xs` `field-2xs` → `field-xs`; `field-xs` → `field-sm`; `field-md` `field-lg` → `field`; `field-xl` `field-2xl` → `field-lg`; `menu-2xs` `-xs` `-sm` `-md` → `menu`; `menu-xl` → `menu-lg`; `popover-sm` → `popover`; `card` → `popover-lg`; `list` → `rail`(12rem).
-- 최대 너비: `label-sm` `label-lg` → `label`; `form` `column` → `reading`.
-- 높이: `placeholder`(6rem) `-block` → `placeholder-sm`; `placeholder-lg` `-xl` → `placeholder-md`(8rem); `height` `dialog` `dialog-lg`(75vh 85vh) → `DialogContent tall`.
-- 최대 높이: `scroll-xs` `-md` → `scroll-sm`; `scroll-list` `-lg` `-xl` → `scroll`; `scroll-2xl` `-3xl` → `scroll-lg`; `pane` 45% → 50%; `popover` `popover-tall` `window` → `dialog`(70vh); `overlay` → `pane`.
-- 최소 높이: `textarea-xs` `-md` → `textarea-sm`; `textarea-lg` → `textarea`(8rem); `textarea-xl` → `textarea-lg`.
-
 한 부품만 쓰는 크기·위치(React Flow 연결점, 덮는 자리, 목록 줄의 여백 제거)는 `style.ts`가 아니라 그 부품의 prop이다: `FlowHandle` `Overlay` `CanvasFloat` `VirtualItem` `Bleed` `ListItem` `AlertRow`, `Button`의 `flush` `align` `reveal` `group`, `DialogContent`의 `size`. 옵션 전체 목록은 `packages/ui/README.md`.
 
 ## 2. 부품 5단
@@ -145,50 +115,50 @@
 
 한 모양에 부품 하나다. 화면별 사본(`ScriptSelectTrigger`, `RulesInput`, `KnowledgeSplitPane` …)은 모두 아래 부품의 속성으로 합쳐 없앴다. 한 곳에서 클래스만 입히던 껍데기(`ScriptPage`, `NavigationPane`, `HeaderTabs`, `RowChevron` …)는 화면이 ②~④로 직접 짠다. `src/index.ts`는 층별로 파일 하나에 한 줄이다.
 
-**② 기초 `primitives/` (9 파일)** `Box` `Stack` `Inline` `Grid` `Text` `Heading` `Icon` · `ListItem` `Overlay`(`VirtualItem`, `Bleed`) · `style.ts` `tags.ts`(속성 표)
+**② 기초 `primitives/` ** `Box` `Stack` `Inline` `Grid` `Text` `Heading` `Icon` · `ListItem` `Overlay`(`VirtualItem`, `Bleed`) · `style.ts` `tags.ts`(속성 표)
 
-**③ 조작 `controls/` (34 파일, shadcn 기반)**
+**③ 조작 `controls/` (shadcn 기반)**
 
-| 부품 | 속성 | 합쳐서 없어진 것 |
-|---|---|---|
-| `Button` | `variant` `size` `tone` `weight` `flush` `align` `reveal` `group` `disabledReason`(끄고 이유를 툴팁·설명으로 말한다; 이유가 화면에 안 보이는 비활성은 모두 이것) 레이아웃 옵션 | RowRevealButton, RulesAddButton, DisclosureButton |
-| `Select` (`SelectTrigger`) | `width` `size` `bare` `fixed` | ScriptSelectTrigger, DetailSelectTrigger, KnowledgeSelectTrigger, FullSelectTrigger, RulesKindSelectTrigger, CompactSelect |
-| `Input` · `NumberInput` | `size` `mono` `width` `align` `variant` `onSunken` (간격은 `Box asChild`) | ScriptInput, RulesInput, MonoInput, KnowledgeCodeInput, NumberFieldInput, PromptNameInput |
-| `Textarea` | `mono` `variant` `autoSize` `resize` `rows` | KnowledgeTextarea, PromptTextarea, MonoTextarea, RulesSampleTextarea |
-| `SearchField` · `MenuSearchField` | `size` `onCanvas` `end` | SearchInput, ScriptSearchField, ConversationSearchField |
-| `Combobox` | 옵션 목록 | SearchableSelect |
-| `TagInput` | `value` `onChange` `suggestions` `placeholder` (쉼표·Enter로 태그가 되고, 칸을 떠나면 입력한 글이 태그로 남는다) | ChipField, ChipTextInput, ChipSuggestionList, ChipSuggestionItem, ChipInput |
-| `Collapsible` (`CollapsibleContent`) | `paddingTop` `paddingBottom` `paddingLeft` `marginTop` (접혀 있어도 빈 숨은 요소로 남는다). 화면(`apps/web`)은 직접 쓰지 않고 아래 두 접기 패턴을 쓴다(`pnpm ui-rules`) | InstructionsBody, KnowledgeFold |
-| `Dialog` (`DialogContent`) | `size` (`sm` 32rem · `md` 36rem · `lg` 48rem) `tall` | LargeDialog, ImportDialogContent |
-| `PopoverContent` · `DropdownMenuContent` · `DropdownMenuSubContent` · `ContextMenuContent` | `width` `padding` `maxHeight` (메뉴는 `trigger` `fit`도) | StatusPopoverContent, FilterPopoverContent, KnowledgePairPopoverContent, ShortcutPopoverContent, ScriptLineMenuContent, ScriptLineSubmenuContent, ScriptFilterMenuContent, ScriptFilterSubmenuContent, ScriptGroupMenuContent, EditorMenuContent, ProjectMenuContent, SettingsMenuContent, ConversationMenuContent |
-| `Spinner` | `size` `tone` `fixed` | AccentSpinner |
-| `TextLink` | `tone` `quiet` `underline` `variant` `weight` `block` `asChild` | RulesQuietLink, LinkStyle, PopoverActionLink |
-| `SegmentedControl` | `fill` `fixed` | FilterSegmentedBar |
-| `Tabs` · `TabsList` | `stretch` · `variant` `fill` | HeaderTabs, HeaderTabsList |
-| 그 밖 | `AlertDialog` `Sheet` `Tooltip` (`HelpTip`) `HoverCard` `Command` `Checkbox` `Switch` `RadioGroup` `Toggle` `ToggleGroup` `Collapsible` `ScrollArea` `Separator` `Resizable*` `Kbd` `Label` `InputGroup` `Toaster` | |
+| 부품 | 속성 |
+|---|---|
+| `Button` | `variant` `size` `tone` `weight` `flush` `align` `reveal` `group` `disabledReason`(끄고 이유를 툴팁·설명으로 말한다; 이유가 화면에 안 보이는 비활성은 모두 이것) 레이아웃 옵션 |
+| `Select` (`SelectTrigger`) | `width` `size` `bare` `fixed` |
+| `Input` · `NumberInput` | `size` `mono` `width` `align` `variant` `onSunken` (간격은 `Box asChild`) |
+| `Textarea` | `mono` `variant` `autoSize` `resize` `rows` |
+| `SearchField` · `MenuSearchField` | `size` `onCanvas` `end` |
+| `Combobox` | 옵션 목록 |
+| `TagInput` | `value` `onChange` `suggestions` `placeholder` (쉼표·Enter로 태그가 되고, 칸을 떠나면 입력한 글이 태그로 남는다) |
+| `Collapsible` (`CollapsibleContent`) | `paddingTop` `paddingBottom` `paddingLeft` `marginTop` (접혀 있어도 빈 숨은 요소로 남는다). 화면(`apps/web`)은 직접 쓰지 않고 아래 두 접기 패턴을 쓴다(`pnpm ui-rules`) |
+| `Dialog` (`DialogContent`) | `size` (`sm` 32rem · `md` 36rem · `lg` 48rem) `tall` |
+| `PopoverContent` · `DropdownMenuContent` · `DropdownMenuSubContent` · `ContextMenuContent` | `width` `padding` `maxHeight` (메뉴는 `trigger` `fit`도) |
+| `Spinner` | `size` `tone` `fixed` |
+| `TextLink` | `tone` `quiet` `underline` `variant` `weight` `block` `asChild` |
+| `SegmentedControl` | `fill` `fixed` |
+| `Tabs` · `TabsList` | `stretch` · `variant` `fill` |
+| 그 밖 | `AlertDialog` `Sheet` `Tooltip` (`HelpTip`) `HoverCard` `Command` `Checkbox` `Switch` `RadioGroup` `Toggle` `ToggleGroup` `Collapsible` `ScrollArea` `Separator` `Resizable*` `Kbd` `Label` `InputGroup` `Toaster` |
 
-**④ 패턴 `patterns/` (38 파일)**
+**④ 패턴 `patterns/` **
 
-| 부품 | 속성 | 합쳐서 없어진 것 |
-|---|---|---|
-| `Field` (`Field.Label` `.Description` `.Error` `.Content` `.Group` `.Set`) | `label` `description` `help` `error` `action` `width` · `orientation` | SettingsFieldGroup, InspectorField, FieldNote, NormalLabel, FixedLabel, NodeFieldset, ClearableFieldRow |
-| `KeyValue` (`KeyValueRow`) | `align` `framed` | PropertyGrid, FieldRows, ImportSummaryRows, ScriptSpeakerFact |
-| `Section` · `SectionHeading` · `Group` | `variant` (`pane` `page`) `title` `description` `actions` `footer` `tone` · `level` `ruled` | InspectorSection, InspectorBlock, SettingsSection, GroupHeading, PopoverSectionTitle, FlushGroupHeading |
-| `MenuLabel` | `tone` (`muted` `strong` `quiet`) | MutedMenuLabel, MenuHeadingLabel, ScriptFilterGroupLabel, ConversationMenuHeading |
-| `ListRow` | `as` (`li` `link` `button` `menuitem`) `variant` `density` `selected` `active` `flagged` `stacked` | PopoverRowLink, KnowledgeListItem, ScriptListItem, TodoRowLink, RunRowLink, ConversationItem, SearchResultButton, KnowledgeRowButton, ScriptSectionNavLink, ScriptGroupNavLink, NavigationItem |
-| `Chip` (`Chip.Dot`) | `as` `variant` `tone` `size` `soft` `faint` `removable` `color` | Badge, CanvasChip(+Label, Note), ChipDot, WayChip, ChipTag, ScriptTermChip, ScriptHintChip, ScriptChipButton, TagPreviewChip, KnowledgeNameBadge, KnowledgeReviewBadge, EditorSuggestionOrigin |
-| `Count` | `tone` | CountBadge, RulesCountBadge, ScriptMarkCount |
-| `Notice` (`NoticeRow` `NoticeDescription`) | `tone` `variant` (`inline` `banner` `floating`) `placement` `actions` `icon` `title` | NoticeBox, RulesWarningBanner, ErrorNotice, CanvasToast, ServerNotice, Alert |
-| `Progress` · `Meter` | `size` `tone` `grow` `indeterminate` · `size` `width` | JobProgressBar, RunProgressBar · StatusMeter, ScriptStatusMeter, StatusBar |
-| `Skeleton` | `shape` (`line` `row` `card` `page`) `count` `height` `width` | RowSkeleton, ProjectCardSkeleton, ScriptRowSkeleton, SettingsPageSkeleton, KnowledgeLoadingBlock |
-| `EmptyState` (`Empty*`) | `size` (`inline` `pane` `page`) `variant` `overlay` | OutlinedEmpty, FullPageEmpty, ScriptEmptyState, Empty |
-| `SplitPane` | `fill` `minSize` | KnowledgeSplitPane, FullHeightSplitPane, ScriptLineSplit |
-| `Swatch` · `SwatchPicker` | `color` | SwatchButton, SwatchDot, PickerSwatch, PickerSwatchInput |
-| `DataTable` | `compact` `rowState` 열 `tone` `variant` `weight` `tabular` `mono` `dense` | CompactDataTable, TablePanel, CellInline, 열의 className |
-| `StatusIcon` · `TagChip` · `AiMark` | `small` | SmallStatusIcon |
-| 그 밖 | `Toolbar`류 `FilterBar` `Pager` `FilterChips` · `ActionBar` · `SelectionBar` (`grow`) · `Inspector` `InspectorHeader` `InspectorTabs` `InspectorList` `InspectorResult` `InspectorActionRow` `InspectorToggle` `DirtyBar` · `Disclosure` · `ExpandableRow`(두 번째 접기 패턴: 목록의 한 항목이 아래로 펼쳐짐. 닫힌 채 시작, 열 때 내용을 만든다. `toggle` row/chevron, `size` row/inline, `meta`, `ruled`. 창의 구역은 `Section`/`Group collapsible`) · `PaneHeader` · `Page` `PageBody` `PageHeader` `HeaderActions` `HeaderViews` `PageHeading` · `RightDock` 부품(`DockProvider` `DockInspector` `DockHeader` `DockHeaderSlot` `WorkspaceShell`) · `Card` · `Markdown` · `TagMenu` `TagListEditor` · `HistoryList` `HistoryItem`(접힌 이력 한 줄, 열면 전문·바뀐 곳, 되돌리기는 hover·열림 때 날짜 자리에) · `FilePickButton`(파일 선택 창을 여는 버튼) · `PermissionMatrix` · `ViewSwitch` · `FilterHeaderButton` `FilterCheck` | |
+| 부품 | 속성 |
+|---|---|
+| `Field` (`Field.Label` `.Description` `.Error` `.Content` `.Group` `.Set`) | `label` `description` `help` `error` `action` `width` · `orientation` |
+| `KeyValue` (`KeyValueRow`) | `align` `framed` |
+| `Section` · `SectionHeading` · `Group` | `variant` (`pane` `page`) `title` `description` `actions` `footer` `tone` · `level` `ruled` |
+| `MenuLabel` | `tone` (`muted` `strong` `quiet`) |
+| `ListRow` | `as` (`li` `link` `button` `menuitem`) `variant` `density` `selected` `active` `flagged` `stacked` |
+| `Chip` (`Chip.Dot`) | `as` `variant` `tone` `size` `soft` `faint` `removable` `color` |
+| `Count` | `tone` |
+| `Notice` (`NoticeRow` `NoticeDescription`) | `tone` `variant` (`inline` `banner` `floating`) `placement` `actions` `icon` `title` |
+| `Progress` · `Meter` | `size` `tone` `grow` `indeterminate` · `size` `width` |
+| `Skeleton` | `shape` (`line` `row` `card` `page`) `count` `height` `width` |
+| `EmptyState` (`Empty*`) | `size` (`inline` `pane` `page`) `variant` `overlay` |
+| `SplitPane` | `fill` `minSize` |
+| `Swatch` · `SwatchPicker` | `color` |
+| `DataTable` | `compact` `rowState` 열 `tone` `variant` `weight` `tabular` `mono` `dense` |
+| `StatusIcon` · `TagChip` · `AiMark` | `small` |
+| 그 밖 | `Toolbar`류 `FilterBar` `Pager` `FilterChips` · `ActionBar` · `SelectionBar` (`grow`) · `Inspector` `InspectorHeader` `InspectorTabs` `InspectorList` `InspectorResult` `InspectorActionRow` `InspectorToggle` `DirtyBar` · `Disclosure` · `ExpandableRow`(두 번째 접기 패턴: 목록의 한 항목이 아래로 펼쳐짐. 닫힌 채 시작, 열 때 내용을 만든다. `toggle` row/chevron, `size` row/inline, `meta`, `ruled`. 창의 구역은 `Section`/`Group collapsible`) · `PaneHeader` · `Page` `PageBody` `PageHeader` `HeaderActions` `HeaderViews` `PageHeading` · 오른쪽 도크 부품(`DockProvider` `DockContent` `DockLevel` `DockInspector` `DockHeader` `DockHeaderSlot` `WorkspaceShell`) · `Card` · `Markdown` · `TagMenu` `TagListEditor` · `HistoryDay` `HistoryEntry` `HistoryFolded`(접힌 이력 한 줄, 열면 전문·바뀐 곳, 되돌리기는 hover·열림 때 날짜 자리에) · `FilePickButton`(파일 선택 창을 여는 버튼) · `PermissionMatrix` · `ViewSwitch` · `FilterHeaderButton` `FilterCheck` |
 
-**⑤ 업무 `domains/` (55 파일)** 업무 뜻이 있거나 클래스를 ②로 말할 수 없는 부품만 남는다. 모두 ②~④로 짜고 `className`을 받지 않는다.
+**⑤ 업무 `domains/` ** 업무 뜻이 있거나 클래스를 ②로 말할 수 없는 부품만 남는다. 모두 ②~④로 짜고 `className`을 받지 않는다.
 
 | 업무 | 남은 부품 (화면 수) |
 |---|---|
@@ -216,6 +186,3 @@
 ## 4. Storybook
 순서: Foundations(토큰) → Primitives → Controls → Patterns → Domains.
 조작·패턴은 모든 상태(기본·hover 대신 선택·비활성·오류·빈 값·긴 글)를, 업무 부품은 주요 상태를 둔다. 밝은/어두운 테마를 툴바에서 바꾼다.
-
-## 5. 검증
-바꿀 때마다 화면 34개 상태와 채팅 상태의 모든 요소의 계산된 스타일·위치를 밝은·어두운 테마에서 바꾸기 전과 비교한다. 기준: 바뀐 요소 0개. 일부러 바꾸는 경우(단계 합치기 등)는 따로 승인받는다.

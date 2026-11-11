@@ -1,28 +1,28 @@
-# 채팅 입력 다시 설계 (검토용 초안)
+# 채팅 입력 설계
 
-> 상태: 확정·구현됨 (5장 결정 반영). 4장 표에서 완료 여부를 본다.
+> 상태: 확정·구현됨. 아래는 지금 코드가 따르는 설계와 그 근거다.
 > 원칙: 로직은 워크플로 한 곳에만 둔다. 채팅에 숨은 기능을 박지 않는다. 키보드만으로 끝까지 갈 수 있어야 한다.
 
 ---
 
 ## 1. 번역가가 채팅에 묻는 것과 필요한 것
 
-| # | 이런 질문 | 가리킬 대상 (`@`) | 에이전트가 쓸 도구 | 지금 있나 |
-|---|---|---|---|---|
-| 1 | 이 대사 무슨 뜻이야? 말장난이야? | 대사 | `read_line`, `line_context` | 있음 |
-| 2 | 이 장면 앞에서 무슨 일이 있었지? | 장면 | `read_scene`, `list_events` | 있음 |
-| 3 | 지금 누구한테 하는 말이야? | 대사 | `read_line` (청자), `line_context` | 있음 |
-| 4 | Gentleman이 Lookout한테 앞에서 존댓말 썼어? | 인물 2명, 또는 관계 | `find_lines` (speakers + listeners), `list_speech_rules` | 있음 |
-| 5 | 'The Rat'을 지금까지 어떻게 번역했어? | 용어, 또는 검색어 | `term_usage`, `find_lines` (q) | 있음 |
-| 6 | 이 인물 말버릇 예시 몇 개 보여 줘 | 인물 | `find_lines` (speakers), `list_characters` | 있음 |
-| 7 | 이 대사 번역 후보 세 개, 톤 다르게 | 대사 | 답변만 + 고르면 `propose_translation` | 있음 |
-| 8 | 이 장면 번역 읽고 어색한 곳 짚어 줘 | 장면 | `read_scene` + `propose_changes` | 있음 |
-| 9 | '금고털이'를 전부 '금고 전문가'로 바꿔 줘 | 검색어 (또는 용어) | `find_lines` (q) + `propose_changes` | 있음 |
-| 10 | Mole이 Gentleman한테 반말한 대사 다 고쳐 줘 | 인물 2명 | `find_lines` + `propose_changes` | 있음 |
-| 11 | 검토 필요 대사를 이유별로 묶어 줘 | 상태, 태그 | `find_lines` (statuses, tags, marks) | 있음 |
-| 12 | 어느 장면이 제일 덜 됐어? | 없음 | `project_overview`, `list_scenes`, `script_stats` | 확인 필요 (장면별 상태 집계가 있는지) |
-| 13 | 방금 돌린 워크플로, 왜 실패가 많아? | 실행 기록 | `read_run` | 있음 (재요청 이유까지 나오는지 확인 필요) |
-| 14 | 이 장면만 다시 번역해 줘 | 장면 + 워크플로 | `start_run` (사용자 승인) | 있음 |
+| # | 이런 질문 | 가리킬 대상 (`@`) | 에이전트가 쓸 도구|
+|---|---|---|---|
+| 1 | 이 대사 무슨 뜻이야? 말장난이야? | 대사 | `read_line`, `line_context`|
+| 2 | 이 장면 앞에서 무슨 일이 있었지? | 장면 | `read_scene`, `list_events`|
+| 3 | 지금 누구한테 하는 말이야? | 대사 | `read_line` (청자), `line_context`|
+| 4 | Gentleman이 Lookout한테 앞에서 존댓말 썼어? | 인물 2명, 또는 관계 | `find_lines` (speakers + listeners), `list_speech_rules`|
+| 5 | 'The Rat'을 지금까지 어떻게 번역했어? | 용어, 또는 검색어 | `term_usage`, `find_lines` (q)|
+| 6 | 이 인물 말버릇 예시 몇 개 보여 줘 | 인물 | `find_lines` (speakers), `list_characters`|
+| 7 | 이 대사 번역 후보 세 개, 톤 다르게 | 대사 | 답변만 + 고르면 `propose_translation`|
+| 8 | 이 장면 번역 읽고 어색한 곳 짚어 줘 | 장면 | `read_scene` + `propose_changes`|
+| 9 | '금고털이'를 전부 '금고 전문가'로 바꿔 줘 | 검색어 (또는 용어) | `find_lines` (q) + `propose_changes`|
+| 10 | Mole이 Gentleman한테 반말한 대사 다 고쳐 줘 | 인물 2명 | `find_lines` + `propose_changes`|
+| 11 | 검토 필요 대사를 이유별로 묶어 줘 | 상태, 태그 | `find_lines` (statuses, tags, marks)|
+| 12 | 어느 장면이 제일 덜 됐어? | 없음 | `project_overview`, `list_scenes`, `script_stats`|
+| 13 | 방금 돌린 워크플로, 왜 실패가 많아? | 실행 기록 | `read_run`|
+| 14 | 이 장면만 다시 번역해 줘 | 장면 + 워크플로 | `start_run` (사용자 승인)|
 
 **결론**
 - 질문 대부분은 지금 도구로 답할 수 있다.
@@ -132,20 +132,7 @@
 
 ---
 
-## 4. 지금 구현에서 바꾸거나 지울 것
-
-| 지금 | 바꾼 뒤 | 상태 |
-|---|---|---|
-| `@`가 대사·장면·인물·용어·문서를 한 목록에 섞어서 보여 줌 | 2장의 흐름 (지금 화면 → 종류 → 서버 검색) | 완료 |
-| 인물(목록에는 있으나 일부 프로젝트에서 0), 관계, 사건, 말투 규칙, 태그·상태, 워크플로, 실행 기록 없음 | 추가 | 완료 (`GET /projects/:id/chat/attach`, 12종) |
-| 방향키로 움직여도 스크롤이 따라오지 않음 | 따라오게 | 완료 (`scrollIntoView({ block: 'nearest' })`) |
-| 보낸 메시지에 칩이 안 남음 | 남김 | 완료 (`message.metadata.chips`, 칩을 누르면 그 화면으로) |
-| `/new` `/rename` `/model` `/permissions` `/stop` | 삭제 | 완료 |
-| `/`에 워크플로 없음 | 3장의 흐름 | 완료 (대상 고르기 → 실행 확인 카드 → 진행) |
-
----
-
-## 5. 열린 질문 → 결정
+## 4. 결정
 
 1. **`{대상}`**: 쓴다. 저장한 지시를 고르면 첫 `{대상}` 자리에서 `@` 고르기가 열리고, 고른 항목은 칩으로 붙고 그 자리는 짧은 이름으로 바뀐다. `{대상}`이 둘 이상이면 다음 자리가 이어서 열린다.
 2. **실행 확인 카드**: 대상을 카드에서 바꾸지 않는다. 바꾸려면 [취소]하고 처음부터 다시 한다.

@@ -54,7 +54,7 @@ export const batchConfigSchema = z.object({
 const position = z.object({ x: z.number(), y: z.number() });
 
 /**
- * 출구 동작: what a line gets as it leaves a node's exit, before the exit's lines split (docs/DESIGN-EXIT-ACTIONS.md).
+ * 출구 동작: what a line gets as it leaves a node's exit, before the exit's lines split.
  * Nodes do the work; an exit marks the line. `tag` puts tags on or takes them off: the ones picked (`tagIds`), and with
  * `fromField` the values of that field of the previous step's result (a review's `categories`) as tags, through
  * `categoryTags` (value → tag id) or a tag of that name. `status` sets the line's status (a term's: 후보·확정·버림).
