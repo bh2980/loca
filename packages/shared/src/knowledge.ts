@@ -58,12 +58,14 @@ export const LISTENER_MIN_CONFIDENCE = 0.9;
 export const isUnsureListener = (line: { listenerOrigin: ListenerOrigin | null; listenerConfidence: number | null }) =>
   line.listenerOrigin === 'ai' && (line.listenerConfidence ?? 0) < LISTENER_MIN_CONFIDENCE;
 /**
- * Listeners that are not one named person: everyone present, an unspecified audience (broadcasts,
- * notices, posts), the speaker themself (thinking aloud), and anyone without a profile (extras such
- * as SWAT, a passer-by). Speech rules can name them as the listener too ("Mira → group"). A listener
- * nobody could tell is null (an AI null = looked, unsure).
+ * Listeners that are not one named person: several people listening (present, or on the same radio or
+ * call), an unspecified audience (broadcasts, notices, posts), the speaker themself (thinking aloud),
+ * the audience of a story the speaker narrates (a recap or voice-over by a speaker; lines without a
+ * speaker take no listener), the player outside the story (instructions, a broken fourth wall), and
+ * anyone without a profile (extras such as SWAT, a passer-by). Speech rules can name them as the
+ * listener too ("Mira → group"). A listener nobody could tell is null (an AI null = looked, unsure).
  */
-export const SPECIAL_LISTENERS = { group: '여럿', public: '불특정 다수', self: '혼잣말', others: '그 밖의 인물' } as const;
+export const SPECIAL_LISTENERS = { group: '여럿', public: '불특정 다수', self: '혼잣말', narration: '내레이션', player: '플레이어', others: '그 밖의 인물' } as const;
 export type SpecialListener = keyof typeof SPECIAL_LISTENERS;
 export const isSpecialListener = (name: string | null | undefined): name is SpecialListener => !!name && Object.hasOwn(SPECIAL_LISTENERS, name);
 /**

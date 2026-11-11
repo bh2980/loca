@@ -132,8 +132,19 @@ describe('context builder', () => {
     db.insert(s.speechRules).values([{ projectId, fromName: 'Mira', toName: 'group', level: 'haeyo' }, { projectId, fromName: 'Mira', toName: 'self', level: 'hae' }]).run();
     const context = buildContext(db, projectId, [unit('arrival.1'), unit('arrival.3')], config());
     // The others who speak in the scene (MIRA herself left out).
-    expect(context.speech[unit('arrival.1').id]).toEqual({ listener: 'everyone present (JONAS)', rule: '해요체' });
+    expect(context.speech[unit('arrival.1').id]).toEqual({ listener: 'several people listening (JONAS)', rule: '해요체' });
     expect(context.speech[unit('arrival.3').id]).toEqual({ listener: 'self (thinking aloud)', rule: '해체(반말)' });
+  });
+
+  it('gives narration and the player their own register when the speaker has no rule for them', () => {
+    const { db, projectId, unit } = setup();
+    db.update(s.units).set({ listener: 'narration', listenerOrigin: 'human' }).where(eq(s.units.id, unit('arrival.1').id)).run();
+    db.update(s.units).set({ listener: 'player', listenerOrigin: 'human' }).where(eq(s.units.id, unit('arrival.3').id)).run();
+    db.insert(s.speechRules).values({ projectId, fromName: 'Mira', toName: 'player', level: 'hasipsio' }).run();
+    const context = buildContext(db, projectId, [unit('arrival.1'), unit('arrival.3')], config());
+    expect(context.speech[unit('arrival.1').id]).toMatchObject({ listener: 'the audience (narration: telling the story, not said to anyone in it)', note: expect.stringContaining('~했다') });
+    // A rule of the speaker's own wins over the default register.
+    expect(context.speech[unit('arrival.3').id]).toEqual({ listener: 'the player (outside the story)', rule: '하십시오체' });
   });
 
   it('does not carry a stretch over to a branch its start never leads to, even when that branch comes later in the script', () => {

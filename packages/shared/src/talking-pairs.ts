@@ -21,7 +21,7 @@ const clean = (name: string | null | undefined) => name?.trim() ?? '';
  * The pairs of people who talk to each other in `lines` (script order), counted by two rules that both
  * add one turn to the pair per line:
  * - a line with a named listener counts speaker → listener (both directions add to the same pair);
- *   "group", "public", "self", "others" and "unknown" name nobody, so such a line counts nothing;
+ *   the special listeners ("group", "self", "narration"…) and "unknown" name nobody, so such a line counts nothing;
  * - a spoken line with no listener counts as a turn with the spoken line right before it when that one
  *   is in the same scene and said by someone else (lines without a speaker are skipped over).
  * Names are matched ignoring case and shown as first written. Only pairs with at least `minTurns` turns

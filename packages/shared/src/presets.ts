@@ -55,7 +55,7 @@ const RULE_RELATIONSHIPS =
 const RULE_TALKING_PAIRS =
   '- talkingPairs: when the input has "talkingPairs", those are the pairs of people who talk to each other in these lines ("a", "b") with the number of lines that show it ("turns"). For every listed pair either write the relationship in "relationships" (between + views as above) or list the pair in "pairsWithoutRelationship" with "kind" (notPerson when one of them is a label in "notPeople", noEvidence when the lines show no relationship, undecided otherwise) and a short Korean "reason". A listed pair must not be left out of both. You may also write relationships for pairs that are not listed when the lines show them.';
 const RULE_EVENTS = '- events: what happened, its cause and its outcome, the people involved; include events that later lines refer back to. Write the title and summary wholly in Korean: translate ordinary source words and phrases too, and keep only proper names, in the glossary\'s Korean form when it has one.';
-const RULE_SPEECH_RULES = `- speechRules: for every speaker → listener direction with several lines (the listener may also be "group", "public", "self" or "others": how the speaker talks to several people present, to an unspecified audience, to themself, or to anyone else without a profile or an extra of their own), the Korean speech level the translation should use, one of: ${SPEECH_LEVEL_GUIDE}. Decide from the relationship (age, rank, intimacy, hostility, era and setting) as a Korean translator would; narration-like or written addresses often take 해라체, close friends 해체. "address" is how the speaker should address the listener in Korean (e.g. "수사관님", "언니"); when several forms are used, separate them with commas (e.g. "행크 경위님, 경위님"); empty if none. If the level changes at some point (falling out, reconciliation, promotion), give one rule per stretch: "startKey" is the line id where the new stretch begins (empty for the first). Do not mark a single sarcastic or emotional line as a change. "note" says why.`;
+const RULE_SPEECH_RULES = `- speechRules: for every speaker → listener direction with several lines (the listener may also be "group", "public", "self", "narration", "player" or "others": how the speaker talks to several people listening, to an unspecified audience, to themself, to the audience of a story they narrate, to the player outside the story, or to anyone else without a profile or an extra of their own), the Korean speech level the translation should use, one of: ${SPEECH_LEVEL_GUIDE}. Decide from the relationship (age, rank, intimacy, hostility, era and setting) as a Korean translator would; narration-like or written addresses often take 해라체, close friends 해체. "address" is how the speaker should address the listener in Korean (e.g. "수사관님", "언니"); when several forms are used, separate them with commas (e.g. "행크 경위님, 경위님"); empty if none. If the level changes at some point (falling out, reconciliation, promotion), give one rule per stretch: "startKey" is the line id where the new stretch begins (empty for the first). Do not mark a single sarcastic or emotional line as a change. "note" says why.`;
 const RULE_TERMS = `- terms: names and words whose Korean form must stay the same across the whole translation: people, places, organizations, products and technology, coined words and in-world concepts (also lower-case ones, such as a slang word, a species or a drug), ranks and titles, and interface words that recur. Not ordinary words. Skip what the glossary already has. "source" exactly as the script writes it, "kind" one of ${TERM_KINDS.join(', ')}, "meaning" one short Korean sentence, "target" the Korean form a translator should use (names by Korean loanword convention), "evidence" a few lines where it appears. At most about 150, the most important first.`;
 /** The terms rule for reading translated lines: the Korean form is taken from the translations, never made up. */
 const RULE_TERMS_FROM_TRANSLATIONS = `- terms: names and words whose Korean form must stay the same across the whole translation: people, places, organizations, products and technology, coined words and in-world concepts (also lower-case ones, such as a slang word, a species or a drug), ranks and titles, and interface words that recur. Not ordinary words. Skip what the glossary already has. "source" exactly as the script writes it, "kind" one of ${TERM_KINDS.join(', ')}, "meaning" one short Korean sentence, "target" the Korean form the translations of those lines use for it; when the lines have no translation, or their translations render it in different ways, leave "target" empty and say so in "meaning". "evidence" a few lines where it appears.`;
@@ -109,7 +109,7 @@ const notPeopleFields: JsonField[] = [
 ];
 const speechRuleFields: JsonField[] = [
   field('fromName', 'string', 'The speaker, named as the script does.'),
-  field('toName', 'string', 'The listener: a name, or "group", "public", "self" or "others" (anyone without a profile of their own, e.g. extras).'),
+  field('toName', 'string', 'The listener: a name, or "group", "public", "self", "narration", "player" or "others" (anyone without a profile of their own, e.g. extras).'),
   field('level', 'string', `The Korean speech level the translation should use, one of: ${SPEECH_LEVELS.join(', ')}. ${SPEECH_LEVEL_GUIDE}.`),
   field('address', 'string', 'How the speaker addresses the listener in Korean (e.g. "수사관님"); several forms separated by commas; empty if none.'),
   field('note', 'string', 'Why this level.'),
@@ -229,7 +229,7 @@ export const AI_PROMPTS = {
     scope: 'line',
     include: { candidate: false },
     fields: [
-      { ...field('value', 'string', 'Who the line is addressed to: a cast name, an extra as the lines name them, group / public / self, or unknown when you cannot tell.'), required: true },
+      { ...field('value', 'string', 'Who the line is addressed to: a cast name, an extra as the lines name them, group / public / self / narration / player / others, or unknown when you cannot tell.'), required: true },
       { ...field('confidence', 'number', 'How sure you are.'), min: 0, max: 1 },
     ],
     // Not the lines' own listeners and speech rules: those are what this node decides.
@@ -239,8 +239,14 @@ export const AI_PROMPTS = {
       'For each line, decide who the speaker is addressing, so a Korean translator can pick the right speech level. ' +
       'Read the whole batch as a scene: who is present, turn-taking, vocatives, questions and answers. ' +
       'Answer with the name as in the cast list (the player character included, even if it never speaks). Someone not in the cast — an extra such as a SWAT officer or a passer-by — is named ' +
-      'exactly as they appear as a speaker in the lines (e.g. "SWAT 2"), or as the lines call them when they never speak; never put a cast member in an extra\'s place. Use "group" for several people present, ' +
-      '"public" for an unspecified audience (broadcast, announcement, post), "self" for thinking aloud, and "unknown" when you cannot tell. Give a confidence from 0 to 1; never guess with high confidence.',
+      'exactly as they appear as a speaker in the lines (e.g. "SWAT 2"), or as the lines call them when they never speak; never put a cast member in an extra\'s place. ' +
+      'On a radio, phone or intercom the listener is whoever is on the other end, even off screen: their name, or the extra as the lines call them (e.g. "Dispatch"); "others" when the lines never say who. ' +
+      'Use "group" for several people listening, present or on the same radio or call; ' +
+      '"public" for an unspecified audience in the story (broadcast, announcement, post); ' +
+      '"self" for thinking aloud in the moment (inner thoughts, muttering) — a reaction to someone there is said to them, not to self; ' +
+      '"narration" when the speaker tells the story to the audience rather than to anyone in it (a recap, a voice-over, "That night, we…"), while thinking about what is happening now is "self"; ' +
+      '"player" when the line speaks to the person playing, outside the story (instructions, objectives, a broken fourth wall), while a line to the player character inside the story names them; ' +
+      'and "unknown" when you cannot tell. An exclamation with no one it is aimed at follows the same rules but never with high confidence. Give a confidence from 0 to 1; never guess with high confidence.',
   },
   terms: {
     label: 'AI 용어 추출',
