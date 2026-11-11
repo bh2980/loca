@@ -63,8 +63,8 @@ function runWorker<T = LayoutData>(job: WorkerJob, onWorker: (worker: Worker) =>
   });
 }
 
-/** Bumped when layouts are made differently (9: nodes in script order, so a loop is entered at its first line; 8: direction variants and roomier ELK spacing); older cached layouts are recomputed at startup. */
-export const LAYOUT_VERSION = 9;
+/** Bumped when layouts are made differently (10: a folded run without ways in or out is in the flow, not among the unconnected nodes; 9: nodes in script order, so a loop is entered at its first line; 8: direction variants and roomier ELK spacing); older cached layouts are recomputed at startup. */
+export const LAYOUT_VERSION = 10;
 
 /** Stored direction variants with a stored layout made by an older LAYOUT_VERSION. */
 export function projectsWithOldLayouts(db: Db) {

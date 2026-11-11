@@ -3,7 +3,7 @@ import ELK, { type ElkNode } from 'elkjs/lib/elk.bundled.js';
 import type { LayoutData } from '../db/schema.ts';
 import type { LayoutDirection, LayoutJob } from './layout-types.ts';
 import { deriveSceneGraph, depthBlocks, reduceSceneEdges } from './scene-graph.ts';
-import { foldChains } from './chains.ts';
+import { foldChains, isChain } from './chains.ts';
 import { sectionJobs, type SectionNode } from './section-graph.ts';
 import { byRank } from './script-rank.ts';
 
@@ -203,8 +203,11 @@ async function layout(job: LayoutJob): Promise<LayoutData> {
   const linked = new Set(job.edges.flatMap((edge) => [edge.from, edge.to]));
   const inOrder = new Set(job.ordered?.blocks.flatMap((block) => [...(block.heads ?? []), ...block.rows.flat()]).filter((id) => !linked.has(id)));
   // In script order: ELK enters a loop at the first node it is given.
-  const connected = byRank(job.nodes.filter((node) => linked.has(node.id)));
-  const isolated = job.nodes.filter((node) => !linked.has(node.id) && !inOrder.has(node.id));
+  // A folded run with no way in or out is still linked lines (its edges are inside the block), so it
+  // is placed with the flow as its own component, never among the unconnected nodes.
+  const inFlow = (id: string) => linked.has(id) || isChain(id);
+  const connected = byRank(job.nodes.filter((node) => inFlow(node.id)));
+  const isolated = job.nodes.filter((node) => !inFlow(node.id) && !inOrder.has(node.id));
 
   const main: ElkNode = connected.length
     ? await elk.layout({

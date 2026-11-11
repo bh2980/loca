@@ -4,6 +4,9 @@ import type { LayoutJob } from './layout-types.ts';
 export const CHAIN_MIN = 3;
 /** Size of a folded run: a line box, a little taller for its count. */
 export const CHAIN_SIZE: [number, number] = [260, 84];
+const CHAIN = 'chain:';
+/** Whether a layout node is a folded run (see foldChains) rather than a node of the graph. */
+export const isChain = (id: string) => id.startsWith(CHAIN);
 
 /**
  * Folds straight runs of the dialogue graph (each step the only way out of one node and the only
@@ -39,7 +42,7 @@ export function foldChains(job: LayoutJob, groupOf: (id: string) => string | nul
     const nodeIds = [node.id];
     for (let at = next.get(node.id); at && !nodeIds.includes(at); at = next.get(at)) nodeIds.push(at);
     if (nodeIds.length < CHAIN_MIN) continue;
-    const id = `chain:${node.id}`;
+    const id = `${CHAIN}${node.id}`;
     chains.push({ id, nodeIds });
     for (const member of nodeIds) chainOf.set(member, id);
   }
