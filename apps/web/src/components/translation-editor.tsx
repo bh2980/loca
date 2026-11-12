@@ -17,6 +17,7 @@ import { useSaveLine } from '@/lib/line-writes';
 import { offerSameSource } from '@/lib/same-source';
 import { lineSurroundings, useLineDetail } from '@/lib/units';
 import { keyLabel } from '@/lib/keys';
+import { keyOf, SHORTCUTS, tokenKey } from '@/lib/shortcuts';
 import { useProject } from '@/lib/project';
 import { q } from '@/lib/queries';
 import { completeLine, assistLine } from '@/lib/editor-ai';
@@ -257,18 +258,18 @@ export function TranslationEditor({
           </Inline>
         )}
         <Inline gap="condensed" minWidth={0} shrink={false}>
-          {next ? <EditorAction icon={Check} disabled={save.isPending} disabledReason={!draft.trim() && '번역이 비어 있습니다. 번역을 쓴 뒤 넘길 수 있습니다.'} onClick={() => run(true)} title={keyLabel('Mod+Enter')}>
+          {next ? <EditorAction icon={Check} disabled={save.isPending} disabledReason={!draft.trim() && '번역이 비어 있습니다. 번역을 쓴 뒤 넘길 수 있습니다.'} onClick={() => run(true)} title={keyLabel(keyOf('editorAdvance'))}>
             {next.name}{onDone ? '하고 다음' : '하기'}
-          </EditorAction> : onDone ? <EditorAction icon={ArrowDown} disabled={save.isPending} disabledReason={dirty && !draft.trim() && statuses.find((status) => status.id === unit.statusId)?.kind === 'final' && '완료 상태인 줄의 번역은 비울 수 없습니다.'} onClick={() => run(true)} title={keyLabel('Mod+Enter')}>
+          </EditorAction> : onDone ? <EditorAction icon={ArrowDown} disabled={save.isPending} disabledReason={dirty && !draft.trim() && statuses.find((status) => status.id === unit.statusId)?.kind === 'final' && '완료 상태인 줄의 번역은 비울 수 없습니다.'} onClick={() => run(true)} title={keyLabel(keyOf('editorAdvance'))}>
             {dirty ? '저장하고 다음 줄' : '다음 줄'}
-          </EditorAction> : dirty ? <EditorAction icon={Save} disabled={save.isPending} onClick={() => run(false)} title={keyLabel('Mod+S')}>
+          </EditorAction> : dirty ? <EditorAction icon={Save} disabled={save.isPending} onClick={() => run(false)} title={keyLabel(keyOf('editorSave'))}>
             저장
           </EditorAction> : null}
           {hasModel && <>
             <EditorAction icon={Languages} variant="ghost" disabled={!!assist.loading} onClick={() => requestAssist('translate')}>
               {draft.trim() ? 'AI 다시' : 'AI 번역'}
             </EditorAction>
-            <EditorAction icon={WandSparkles} variant="ghost" disabled={!!assist.loading} disabledReason={!draft.trim() && '다듬을 번역이 없습니다.'} onClick={() => requestAssist('refine')} title={keyLabel('Alt+.')}>
+            <EditorAction icon={WandSparkles} variant="ghost" disabled={!!assist.loading} disabledReason={!draft.trim() && '다듬을 번역이 없습니다.'} onClick={() => requestAssist('refine')} title={keyLabel(keyOf('editorAssist'))}>
               다듬기
             </EditorAction>
           </>}
@@ -276,12 +277,12 @@ export function TranslationEditor({
             <DropdownMenuTrigger asChild><Button variant="ghost" size="icon-sm" aria-label="번역 동작 더보기"><MoreHorizontal /></Button></DropdownMenuTrigger>
             <DropdownMenuContent align="end" width="fit">
               {dirty && <>
-                <DropdownMenuItem disabled={save.isPending} onSelect={() => run(false)}><Save /> 저장만 <Text marginLeft="auto" variant="caption" tone="muted">{keyLabel('Mod+S')}</Text></DropdownMenuItem>
+                <DropdownMenuItem disabled={save.isPending} onSelect={() => run(false)}><Save /> 저장만 <Text marginLeft="auto" variant="caption" tone="muted">{keyLabel(keyOf('editorSave'))}</Text></DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => clearDraft()}><Undo2 /> 되돌리기</DropdownMenuItem>
               </>}
               {dirty && <DropdownMenuSeparator />}
-              <DropdownMenuItem onSelect={putSource}><ClipboardPaste /> 원문 넣기 <Text marginLeft="auto" variant="caption" tone="muted">{keyLabel('Mod+Shift+S')}</Text></DropdownMenuItem>
-              {completes && <DropdownMenuItem disabled={!!ai.loading} onSelect={() => ask(draft)}><Sparkles /> AI 자동완성 <Text marginLeft="auto" variant="caption" tone="muted">{keyLabel('Alt+/')}</Text></DropdownMenuItem>}
+              <DropdownMenuItem onSelect={putSource}><ClipboardPaste /> 원문 넣기 <Text marginLeft="auto" variant="caption" tone="muted">{keyLabel(keyOf('editorCopySource'))}</Text></DropdownMenuItem>
+              {completes && <DropdownMenuItem disabled={!!ai.loading} onSelect={() => ask(draft)}><Sparkles /> AI 자동완성 <Text marginLeft="auto" variant="caption" tone="muted">{keyLabel(keyOf('editorContinue'))}</Text></DropdownMenuItem>}
             </DropdownMenuContent>
           </DropdownMenu>
         </Inline>
@@ -320,7 +321,7 @@ function SuggestionList({ suggestions, source, tokenPattern, onPick }: { suggest
     <EditorSuggestionList label="비슷한 번역" onMore={more > 0 ? () => setAll((open) => !open) : undefined} moreLabel={all ? '접기' : `+${more}개 더보기`}>
         {shown.map((suggestion, index) => (
           <li key={suggestion.key}>
-            <EditorSuggestionRow hint={keyLabel(`Alt+Shift+${index + 1}`)} hintHidden={index >= VISIBLE_SUGGESTIONS} onPick={() => onPick(suggestion)}>
+            <EditorSuggestionRow hint={keyLabel(SHORTCUTS.editorPick.keys[index]!)} hintHidden={index >= VISIBLE_SUGGESTIONS} onPick={() => onPick(suggestion)}>
               {/* The label stays on its own line: beside the text it would squeeze a narrow column down to a letter per line. */}
               <Box asChild maxWidth="full" truncate><Chip variant="outline">{suggestion.label}</Chip></Box>
               <TokenText text={suggestion.text} source={source} pattern={tokenPattern} look="suggestion" />
@@ -438,12 +439,12 @@ function DraftChecks({ unitId, source, draft, units, terms, tags, rules, targetL
           key={unit.number}
           part={{ text: unit.close ? `${unit.open}…${unit.close}` : unit.open, token: { number: unit.number, kind: 'single' } }}
           missing
-          hint={`번역에 없음 · ${keyLabel(`Alt+${unit.number}`)}`}
+          hint={['번역에 없음', tokenKey(unit.number) && keyLabel(tokenKey(unit.number)!)].filter(Boolean).join(' · ')}
           onPick={() => insertUnitIntoLine(unitId, unit)}
         />
       ))}
       {tags.placed.length > 0 && (
-        <Button variant="ghost" size="inline" tone="muted" title={keyLabel('Alt+T')} onClick={onPlace}>
+        <Button variant="ghost" size="inline" tone="muted" title={keyLabel(keyOf('editorPlaceTags'))} onClick={onPlace}>
           제자리에 넣기
         </Button>
       )}

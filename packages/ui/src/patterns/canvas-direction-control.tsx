@@ -1,5 +1,5 @@
 import { ArrowDown, ArrowRight } from "lucide-react"
-import { SegmentedControl } from "../../controls/segmented-control"
+import { SegmentedControl } from "../controls/segmented-control"
 
 export type CanvasDirection = "vertical" | "horizontal"
 

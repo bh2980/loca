@@ -5,7 +5,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Check, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { DOCUMENT_KINDS, STYLE_AXES, type StyleAxis, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, isSettled, AGE_BAND_LABELS, CHARACTER_ROLE_LABELS, GENDER_LABELS, knowledgeKindScope, type TagScope, type KnowledgeTagKind } from '@tw/shared';
-import { TagInput, Inspector, InspectorHeader, InspectorTabs, InspectorToggle, useControlId, TagListEditor, DirtyBar, Box, Inline, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Select, SelectContent, SelectItem, SelectValue, AiMark, SelectTrigger, Textarea, Section, Field } from '@loca/ui';
+import { TagInput, Inspector, InspectorHeader, InspectorTabs, InspectorToggle, useControlId, TagListEditor, DirtyBar, Box, Inline, Button, Input, Select, SelectContent, SelectItem, SelectValue, AiMark, SelectTrigger, Textarea, Section, Field, ConfirmDialog } from '@loca/ui';
 import { joinList, splitList } from '@/lib/list-value';
 import { Swatches } from '@/components/settings/swatches';
 import { useDraft } from '@/lib/drafts';
@@ -158,23 +158,12 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
     </Button>
   );
   const deleteButton = (
-    <AlertDialog>
-      <AlertDialogTrigger asChild>
-        <Button variant="ghost" tone="danger">
-          <Trash2 /> 삭제
-        </Button>
-      </AlertDialogTrigger>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>사람이 정한 항목을 삭제할까요?</AlertDialogTitle>
-          <AlertDialogDescription>“{spec.label(row)}”{particle(spec.label(row), '이', '가')} 사라지고 더 이상 AI 문맥에 쓰이지 않습니다.</AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>취소</AlertDialogCancel>
-          <AlertDialogAction onClick={() => remove.mutate()}>삭제</AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+    <ConfirmDialog
+      trigger={<Button variant="ghost" tone="danger"><Trash2 /> 삭제</Button>}
+      title="사람이 정한 항목을 삭제할까요?"
+      description={`“${spec.label(row)}”${particle(spec.label(row), '이', '가')} 사라지고 더 이상 AI 문맥에 쓰이지 않습니다.`}
+      onConfirm={() => remove.mutate()}
+    />
   );
   const discardButton = (
     <Button variant="ghost" tone="danger" onClick={() => onDecide?.('discard')}>

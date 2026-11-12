@@ -4,12 +4,12 @@ import { Box } from "../../primitives/box"
 import { Stack } from "../../primitives/stack"
 import { Text } from "../../primitives/text"
 import { TooltipProvider } from "../../controls/tooltip"
-import { FlowHandle, type FlowHandleLook } from "./flow-handle"
+import { FlowHandle, type FlowHandleLook } from "../../patterns/flow-handle"
 import { FoldChip } from "./fold-chip"
 import { NodeCard, NodeKindIcon, type NodeCardKind } from "./node-card"
 import { NodeLibrary, type NodeLibraryGroup } from "./node-library"
 
-const meta = { title: "Domains/Graph/Node card", decorators: [(Story) => <TooltipProvider><Box style={{ width: 520 }}><Story /></Box></TooltipProvider>] } satisfies Meta
+const meta = { title: "Domains/Workflow/Node card", decorators: [(Story) => <TooltipProvider><Box style={{ width: 520 }}><Story /></Box></TooltipProvider>] } satisfies Meta
 export default meta
 type Story = StoryObj<typeof meta>
 

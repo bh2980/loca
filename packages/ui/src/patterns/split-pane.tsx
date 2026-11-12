@@ -1,6 +1,7 @@
 import type { ReactNode } from "react"
 import { useDefaultLayout } from "react-resizable-panels"
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "../controls/resizable"
+import { storedItems } from "../lib/storage"
 import { cn } from "../lib/utils"
 import { DockContent, DockLevel, useHasDock } from "./right-dock"
 
@@ -45,9 +46,9 @@ export function SplitPane({
 function LocalSplitPane({ id, pane, children, defaultWidth, minSize, fillClass }: Pick<SplitPaneProps, "id" | "pane" | "children" | "defaultWidth" | "minSize"> & { fillClass?: string }) {
   const open = Boolean(pane)
   const layout = useDefaultLayout({
-    id: `loca-pane-${id}`,
+    id: `pane-${id}`,
     panelIds: open ? ["content", "pane"] : ["content"],
-    storage: typeof window !== "undefined" ? localStorage : undefined,
+    storage: storedItems("local"),
   })
 
   return (

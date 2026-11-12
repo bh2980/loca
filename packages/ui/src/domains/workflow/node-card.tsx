@@ -3,7 +3,7 @@ import type { LucideIcon } from "lucide-react"
 import { Icon } from "../../primitives/icon"
 import { AlertCircle, AlertTriangle, RotateCcw } from "lucide-react"
 import { cn } from "../../lib/utils"
-import type { CanvasDirection } from "./canvas-direction-control"
+import type { CanvasDirection } from "../../patterns/canvas-direction-control"
 import { FoldChip, type FoldChipProps } from "./fold-chip"
 import { ExitTag, type ExitTagItem } from "./exit-tag"
 import { paletteColor } from "../../patterns/palette"
@@ -220,7 +220,7 @@ function ExitMarks({ direction, at, label, tone = "neutral", ...tag }: { directi
       className={cn("pointer-events-none absolute z-10 flex items-center", vertical ? "top-full -translate-x-1/2 flex-col" : "left-full -translate-y-1/2 flex-row")}
       style={vertical ? { left: `${at * 100}%` } : { top: `${at * 100}%` }}
     >
-      <span style={{ background: LINE_STROKE[tone], ...(vertical ? { width: 1.75, height: END_STEM } : { height: 1.75, width: END_STEM }) }} />
+      <span className={vertical ? "w-[1.75px]" : "h-[1.75px]"} style={{ background: LINE_STROKE[tone], ...(vertical ? { height: END_STEM } : { width: END_STEM }) }} />
       <ExitTag {...tag} exit={label} />
     </div>
   )

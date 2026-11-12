@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode, useEffectEvent, memo, useLayoutEffect, type ComponentProps } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode, memo, useLayoutEffect, type ComponentProps } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Download, Play } from 'lucide-react';
@@ -19,12 +19,12 @@ import { preloadLineDetails, useLinePage } from '@/lib/units';
 import { useGroupsById } from '@/lib/groups';
 import { useListeners, useSpeakers } from '@/lib/project';
 import { useProject } from '@/lib/project';
+import { isTyping } from '@/lib/keys';
+import { useShortcuts } from '@/lib/shortcuts';
 
-export { filterChips, isFinding, linesSearchSchema, type LinesSearch } from '@/components/script/line-filters';
+export { filterChips, isFinding, linesSearchParams, type LinesSearch } from '@/components/script/line-filters';
 
 const PAGE_SIZE = 100;
-
-const typing = (target: EventTarget | null) => target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName));
 
 /**
  * The translation screen's lines: source on the left, translation on the right, in script order.
@@ -252,25 +252,13 @@ export function LineList({
     else move(1, true);
   };
 
-  // Reads the latest list and selection when a key comes (an effect event, so the listener is added once).
-  const onKey = useEffectEvent((event: KeyboardEvent) => {
-    if (event.defaultPrevented || event.metaKey || event.ctrlKey) return;
-    const inField = typing(event.target);
-    // While a filter is walked, ⌥↑↓ go to the previous/next match (the script page handles them).
-    if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && event.altKey && find) return;
-    if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && (event.altKey || !inField)) {
-      if (!inField && document.querySelector('[role="dialog"], [role="menu"], [role="listbox"]')) return;
-      event.preventDefault();
-      move(event.key === 'ArrowDown' ? 1 : -1, inField);
-    } else if (event.key === 'Enter' && !inField && search.line && !document.querySelector('[role="dialog"]')) {
-      event.preventDefault();
-      setEditing(true);
-    }
+  useShortcuts({
+    lineMove: (_event, combo) => void move(combo === 'Down' ? 1 : -1),
+    // While a filter is walked, ⌥↑↓ go to the previous/next match (the script page handles them). From the editor the
+    // next line opens for editing too.
+    lineMoveTyping: (event, combo) => (find ? false : void move(combo === 'Alt+Down' ? 1 : -1, isTyping(event.target))),
+    lineEdit: () => (search.line ? setEditing(true) : false),
   });
-  useEffect(() => {
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
   const selectedRow = useRef<HTMLLIElement>(null);
   // A line opened from a link (glossary example, search, evidence) is brought to the middle and
   // flashes once, so it is found at a glance; lines moved to here only scroll as far as needed.

@@ -4,66 +4,40 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation } from '@tanstack/react-query';
 import { Plus, Play, ScanSearch } from 'lucide-react';
 import { toast } from 'sonner';
-import { DataTable, type ColumnDef, EmptyState, TagMenu, FilterChips, SearchField, FilterBar, ActionBar, type FilterChip, Button, Text, useRevealDock, ContextMenuItem, ContextMenuSeparator, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Spinner, SplitPane } from '@loca/ui';
+import { DataTable, type ColumnDef, EmptyState, TagMenu, FilterChips, SearchField, FilterBar, ActionBar, type FilterChip, Button, Text, useRevealDock, ContextMenuItem, ContextMenuSeparator, Spinner, SplitPane, ConfirmDialog } from '@loca/ui';
 import { HeaderFilter, MarkFilter, markTagGroups, togglePick, type FilterPick } from '@/components/header-filter';
 import { NEW_TERM, NewTermPane, TermEditor } from '@/components/glossary/term-pane';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { HeaderActions, Page } from '@/components/page';
-import { AiNamed, BulkDecide, parseStatusFilter, parseDecidedBy, StateFilter, SourceBadge, StateCell, type StatusFilter, TagCell } from '@/components/knowledge/table';
+import { AiNamed, BulkDecide, itemFilterParams, StateFilter, SourceBadge, StateCell, TagCell } from '@/components/knowledge/table';
+import { param, searchParams, type SearchOf } from '@/lib/search';
 import { markColor, markName, type AutoMark, isSettled, parseMarks, TERM_MARK_IDS, termMarksOf, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, type KnowledgeSource, aiDecided, DECIDED_BY_LABELS, type DecidedBy, termMatches, type TermFilter } from '@tw/shared';
 import { tagsIn, useMarkStyles } from '@/lib/queries';
-import { usePicked } from '@/lib/use-picked';
-import { useReportView } from '@/lib/view-context';
+import { useListScreen } from '@/lib/list-screen';
 import { useTerms, withDuplicate, type Term, discoverTerms, deleteTerm, tagTerms } from '@/lib/terms';
 import { decideItems, useTaxonomy } from '@/lib/knowledge';
 
+const glossarySearchParams = {
+  /** The open inspector's tab (lib/inspector-tab.ts). */
+  pane: param.text,
+  q: param.text,
+  term: param.text,
+  ...itemFilterParams(TERM_MARK_IDS),
+  /** 번역 비어 있음 (true) or 있음 (false). */
+  emptyTarget: param.bool,
+};
+type GlossarySearch = SearchOf<typeof glossarySearchParams>;
+
 export const Route = createFileRoute('/p/$projectId/glossary')({
-  validateSearch: (raw: Record<string, unknown>): GlossarySearch => ({
-    pane: typeof raw.pane === 'string' && raw.pane ? raw.pane : undefined,
-    q: typeof raw.q === 'string' && raw.q ? raw.q : undefined,
-    source: typeof raw.source === 'string' && (KNOWLEDGE_SOURCES as readonly string[]).includes(raw.source) ? (raw.source as KnowledgeSource) : undefined,
-    status: parseStatusFilter(raw.status),
-    decidedBy: parseDecidedBy(raw.decidedBy),
-    emptyTarget: raw.emptyTarget === true || raw.emptyTarget === 'true' ? true : raw.emptyTarget === false || raw.emptyTarget === 'false' ? false : undefined,
-    marks: parseMarks(raw.marks, TERM_MARK_IDS),
-    term: typeof raw.term === 'string' && raw.term ? raw.term : undefined,
-    ids: Array.isArray(raw.ids) && raw.ids.length && raw.ids.every((id) => typeof id === 'string') ? (raw.ids as string[]) : undefined,
-    tags: Array.isArray(raw.tags) && raw.tags.length && raw.tags.every((id) => typeof id === 'string') ? (raw.tags as string[]) : undefined,
-    hideMarks: parseMarks(raw.hideMarks, TERM_MARK_IDS),
-    hideTags: Array.isArray(raw.hideTags) && raw.hideTags.length && raw.hideTags.every((id) => typeof id === 'string') ? (raw.hideTags as string[]) : undefined,
-  }),
+  validateSearch: searchParams(glossarySearchParams),
   component: Glossary,
 });
-
-interface GlossarySearch {
-  /** The open inspector's tab (lib/inspector-tab.ts). */
-  pane?: string;
-  q?: string;
-  term?: string;
-  source?: KnowledgeSource;
-  /** 상태 filter (the status URL param): 후보 or 확정; rejected terms are never listed. */
-  status?: StatusFilter;
-  /** 정한 쪽: confirmed by AI (✦) or by a person. */
-  decidedBy?: DecidedBy;
-  /** 번역 비어 있음 (true) or 있음 (false). */
-  emptyTarget?: boolean;
-  /** Automatic marks (the marks URL param): terms carrying all of them. */
-  marks?: AutoMark[];
-  /** Tag ids: terms carrying all of them. */
-  tags?: string[];
-  /** 숨기기: terms carrying any of these marks or tags are left out. */
-  hideMarks?: AutoMark[];
-  hideTags?: string[];
-  /** Only these terms (a run's scope, from the run dialog's readiness list); a removable chip, combined with the other filters. */
-  ids?: string[];
-}
 
 function Glossary() {
   const { projectId } = Route.useParams();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const terms = useTerms(projectId);
-  const { picked, pick, clear: clearPicked } = usePicked(`glossary.${projectId}`);
   const [runOpen, setRunOpen] = useState(false);
   const discover = useMutation({
     mutationFn: () => discoverTerms(projectId),
@@ -91,6 +65,13 @@ function Glossary() {
   const rows = [...filtered].sort((a, b) => Number(isSettled(a)) - Number(isSettled(b)) || (!isSettled(a) ? (b.lines ?? -1) - (a.lines ?? -1) : 0));
   const creating = search.term === NEW_TERM;
   const selected = creating ? undefined : all.find((term) => term.id === search.term);
+  const { setSearch: setFilter, open: select, toggle, picked, pick, clearPicked } = useListScreen({
+    search,
+    navigate,
+    selection: 'term',
+    picks: `glossary.${projectId}`,
+    report: ['glossary-term', [selected && { kind: '용어', id: selected.id, label: `${selected.source} → ${selected.target}` }]],
+  });
   const revealDock = useRevealDock();
   const [deleteTarget, setDeleteTarget] = useState<{ ids: string[]; label: string } | null>(null);
   const remove = useMutation({
@@ -105,10 +86,6 @@ function Glossary() {
     },
     onError: (error) => toast.error(error.message),
   });
-  useReportView('glossary-term', [selected && { kind: '용어', id: selected.id, label: `${selected.source} → ${selected.target}` }]);
-
-  const select = (id?: string) => void navigate({ search: (previous) => ({ ...previous, term: id }), replace: true });
-  const setFilter = (next: Partial<GlossarySearch>) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace: true });
   const taxonomy = useTaxonomy(projectId);
   const markStyles = useMarkStyles(projectId);
   const knownTags = tagsIn(taxonomy.tags, 'terms');
@@ -250,7 +227,7 @@ function Glossary() {
           loading={terms.isLoading}
           empty={<EmptyState noun="용어" filtered={narrowed} />}
           selected={selected?.id}
-          onRowClick={(term) => select(term.id === search.term ? undefined : term.id)}
+          onRowClick={(term) => toggle(term.id)}
           picked={picked}
           onPick={pick}
           rowContextMenu={(row) => {
@@ -325,22 +302,13 @@ function Glossary() {
           }
         />
       </SplitPane>
-      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>용어를 삭제할까요?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {deleteTarget?.label} 용어가 용어집에서 사라집니다. 이미 번역된 대사는 바뀌지 않습니다.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>취소</AlertDialogCancel>
-            <AlertDialogAction onClick={() => { if (deleteTarget) { remove.mutate(deleteTarget.ids); setDeleteTarget(null); } }}>
-              삭제
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        title="용어를 삭제할까요?"
+        description={`${deleteTarget?.label} 용어가 용어집에서 사라집니다. 이미 번역된 대사는 바뀌지 않습니다.`}
+        onConfirm={() => deleteTarget && remove.mutate(deleteTarget.ids)}
+      />
     </Page>
   );
 }

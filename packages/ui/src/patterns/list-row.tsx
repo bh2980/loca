@@ -12,6 +12,8 @@ type ItemRow = Omit<ComponentProps<"li">, "className"> & {
   density?: "tight" | "loose"
   selected?: boolean
   flagged?: boolean
+  /** The row was just arrived at from a link: it flashes once (`onAnimationEnd` says when it is over). */
+  arrived?: boolean
 }
 
 type LinkRow = {
@@ -93,10 +95,10 @@ export function ListRow(props: ListRowProps) {
     const { as: _, selected, stacked, ...rest } = props
     return <DropdownMenuItem className={cn(stacked ? "flex-col items-start gap-0" : "group/row pr-1", selected && "font-medium")} {...rest} />
   }
-  const { as: _, variant = "plain", density = "tight", selected, flagged, ...rest } = props
+  const { as: _, variant = "plain", density = "tight", selected, flagged, arrived, ...rest } = props
   const className =
     variant === "choice"
-      ? cn("transition-colors", selected ? "bg-selected" : "cursor-pointer", flagged && !selected && "bg-warning/5")
+      ? cn("transition-colors", selected ? "bg-selected" : "cursor-pointer", flagged && !selected && "bg-warning/5", arrived && "animate-arrived")
       : density === "tight"
         ? "py-1 first:pt-0 last:pb-0"
         : "py-2 text-sm first:pt-0 last:pb-0"

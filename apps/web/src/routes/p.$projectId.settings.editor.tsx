@@ -5,15 +5,14 @@ import { EditorAiSection } from '@/components/settings/editor-ai';
 import { ExclusionRulesSection } from '@/components/exclusion-rules';
 import { FormatRulesSection } from '@/components/format-rules';
 import { useProject, useProjectProgress } from '@/lib/project';
+import { param, searchParams } from '@/lib/search';
 
 /** The editor's settings in three unrelated parts, one tab each (the tab is in the URL). */
 const TABS = { ai: 'AI', format: '서식 규칙', exclusion: '번역 제외' } as const;
 type Tab = keyof typeof TABS;
 
 export const Route = createFileRoute('/p/$projectId/settings/editor')({
-  validateSearch: (raw: Record<string, unknown>): { tab?: Tab } => ({
-    tab: raw.tab === 'format' || raw.tab === 'exclusion' ? raw.tab : undefined,
-  }),
+  validateSearch: searchParams({ tab: param.oneOf<Tab>(['format', 'exclusion']) }),
   component: EditorSettings,
 });
 

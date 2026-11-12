@@ -4,7 +4,8 @@ import { useQuery } from '@tanstack/react-query';
 import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ListTree, X } from 'lucide-react';
 import { Page } from '@/components/page';
 import { GroupList, type GroupRow } from '@/components/script/group-list';
-import { filterChips, isFinding, LineList, linesSearchSchema, type LinesSearch } from '@/components/script/line-list';
+import { filterChips, isFinding, LineList, linesSearchParams } from '@/components/script/line-list';
+import { param, searchParams, type SearchOf } from '@/lib/search';
 import { lineFilterOf } from '@/components/script/line-filters';
 import { SourceEditor, type SourceEditorMode, type SourceSaved } from '@/components/script/source-editor';
 import { Button, ContextMenuItem, ContextMenuSeparator, EditorToolbarProvider, EditorToolbarSlot, Icon, Inline, PageHeading, ScriptWorkspace, Text, Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
@@ -16,43 +17,38 @@ import { useTaxonomy } from '@/lib/knowledge';
 import { useGroups } from '@/lib/groups';
 import { useProject, useProjectProgress } from '@/lib/project';
 import { stored, STORED } from '@/lib/storage';
+import { SHORTCUTS, useShortcuts } from '@/lib/shortcuts';
 
 type Kind = GroupRow['kind'];
 const VIEW_ORDER: Kind[] = ['scene', 'ui', 'document'];
-interface ScriptSearch extends LinesSearch {
+const GROUP_KINDS = Object.keys(GROUP_KIND) as Kind[];
+const scriptSearchParams = {
+  ...linesSearchParams,
   /** Group whose lines are shown; none = every line of the view (`kind`). */
-  group?: string;
+  group: param.text,
   /** Only lines waiting in the review inbox. */
-  review?: true;
+  review: param.flag,
   /** All lines inside one chapter/section. */
-  section?: string;
+  section: param.text,
   /**
    * The view: the scenes' dialogue, UI strings or documents, each with its own groups on the left.
    * Unset = the picked group's kind, else the first kind the project has. One kind = no views.
    */
-  kind?: Kind;
+  kind: param.oneOf(GROUP_KINDS),
   /** The group list's own search, kept while lines change. */
-  gq?: string;
+  gq: param.text,
   /** Source create/edit mode mounted in the line detail dock. */
-  sourceAction?: SourceEditorMode;
-  sourceKind?: Kind;
-}
+  sourceAction: param.oneOf<SourceEditorMode>(['create-group', 'edit-group', 'create-unit', 'edit-unit']),
+  sourceKind: param.oneOf(GROUP_KINDS),
+};
+type ScriptSearch = SearchOf<typeof scriptSearchParams>;
 
 /** Whether the group list is shown is a per-tab convenience, like folded sections. */
 const readListOpen = () => stored(STORED.scriptListOpen).read();
 const rememberListOpen = (open: boolean) => stored(STORED.scriptListOpen).write(open);
 
 export const Route = createFileRoute('/p/$projectId/script')({
-  validateSearch: (raw: Record<string, unknown>): ScriptSearch => ({
-    ...linesSearchSchema(raw),
-    group: typeof raw.group === 'string' && raw.group ? raw.group : undefined,
-    review: raw.review === true || raw.review === 'true' ? true : undefined,
-    section: typeof raw.section === 'string' && raw.section ? raw.section : undefined,
-    kind: typeof raw.kind === 'string' && raw.kind in GROUP_KIND ? (raw.kind as Kind) : undefined,
-    gq: typeof raw.gq === 'string' && raw.gq ? raw.gq : undefined,
-    sourceAction: ['create-group', 'edit-group', 'create-unit', 'edit-unit'].includes(String(raw.sourceAction)) ? raw.sourceAction as SourceEditorMode : undefined,
-    sourceKind: typeof raw.sourceKind === 'string' && raw.sourceKind in GROUP_KIND ? raw.sourceKind as Kind : undefined,
-  }),
+  validateSearch: searchParams(scriptSearchParams),
   component: Script,
 });
 
@@ -138,16 +134,7 @@ function Script() {
     const was = before.ids.indexOf(search.line);
     if (was >= 0 && position < 0 && matchRows.length) goToMatch(matchRows[Math.min(was, matchRows.length - 1)]);
   }, [matchRows]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    if (!finding) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (!event.altKey || (event.key !== 'ArrowDown' && event.key !== 'ArrowUp')) return;
-      event.preventDefault();
-      step(event.key === 'ArrowDown' ? 1 : -1);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  });
+  useShortcuts({ findStep: (_event, combo) => step(combo === 'Alt+Down' ? 1 : -1) }, { enabled: finding });
   const findLabel = filterChips(search, taxonomy.statuses ?? [], taxonomy.tags ?? [], markStyles).map((chip) => chip.label).concat(search.q ? [`“${search.q}”`] : []).join(' · ');
   const clearFilters = { q: undefined, status: undefined, tags: undefined, speaker: undefined, listener: undefined, marks: undefined, hideMarks: undefined, unfinished: undefined, decidedBy: undefined, noted: undefined, excluded: undefined, mode: undefined, page: undefined };
 
@@ -272,7 +259,7 @@ function Script() {
                           <ChevronUp />
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent>이전 줄 ({keyLabel('Alt+Up')})</TooltipContent>
+                      <TooltipContent>이전 줄 ({keyLabel(SHORTCUTS.findStep.keys[0]!)})</TooltipContent>
                     </Tooltip>
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -280,7 +267,7 @@ function Script() {
                           <ChevronDown />
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent>다음 줄 ({keyLabel('Alt+Down')})</TooltipContent>
+                      <TooltipContent>다음 줄 ({keyLabel(SHORTCUTS.findStep.keys[1]!)})</TooltipContent>
                     </Tooltip>
                     <Button variant="ghost" onClick={() => onSearch({ mode: undefined, group: undefined, page: undefined })}>
                       맞는 줄만 보기

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { APP_DEFAULT_SECTION_LABELS, APP_DEFAULT_SECTIONS, type AppDefaultSection } from '@tw/shared';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Box, Button, Checkbox, Field, Inline, Section, Spinner, Stack, Text } from '@loca/ui';
+import { Box, Button, Checkbox, Field, Inline, Section, Spinner, Stack, Text, ConfirmDialog } from '@loca/ui';
 import { useWorkflows } from '@/lib/workflows';
 import { pullDefaults, pushDefaults } from '@/lib/project';
 
@@ -135,26 +135,23 @@ export function HomeDefaultsSection({ projectId }: { projectId: string }) {
         )}
       </Box>
 
-      <AlertDialog open={dialog.open} onOpenChange={(open) => setDialog((current) => ({ ...current, open }))}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{confirming === 'pull' ? '홈 기본값을 가져올까요?' : '홈 기본값으로 저장할까요?'}</AlertDialogTitle>
-            <AlertDialogDescription>{confirming === 'pull' ? '이 프로젝트에 다음처럼 적용됩니다.' : '홈의 새 프로젝트 기본값이 다음처럼 바뀝니다. 이미 있는 다른 프로젝트는 그대로입니다.'}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <Box as="ul" spaceY="condensed">
-            {checked.map((section) => (
-              <Box as="li" key={section}>
-                <Text as="p" variant="label">{APP_DEFAULT_SECTION_LABELS[section]}</Text>
-                <Text as="p" variant="caption" tone="muted">{effects[section]}</Text>
-              </Box>
-            ))}
-          </Box>
-          <AlertDialogFooter>
-            <AlertDialogCancel>취소</AlertDialogCancel>
-            <AlertDialogAction onClick={() => run.mutate(confirming)}>{confirming === 'pull' ? '가져오기' : '저장'}</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmDialog
+        open={dialog.open}
+        onOpenChange={(open) => setDialog((current) => ({ ...current, open }))}
+        title={confirming === 'pull' ? '홈 기본값을 가져올까요?' : '홈 기본값으로 저장할까요?'}
+        description={confirming === 'pull' ? '이 프로젝트에 다음처럼 적용됩니다.' : '홈의 새 프로젝트 기본값이 다음처럼 바뀝니다. 이미 있는 다른 프로젝트는 그대로입니다.'}
+        confirmLabel={confirming === 'pull' ? '가져오기' : '저장'}
+        onConfirm={() => run.mutate(confirming)}
+      >
+        <Box as="ul" spaceY="condensed">
+          {checked.map((section) => (
+            <Box as="li" key={section}>
+              <Text as="p" variant="label">{APP_DEFAULT_SECTION_LABELS[section]}</Text>
+              <Text as="p" variant="caption" tone="muted">{effects[section]}</Text>
+            </Box>
+          ))}
+        </Box>
+      </ConfirmDialog>
     </Section>
   );
 }

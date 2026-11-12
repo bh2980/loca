@@ -8,76 +8,55 @@ import { FilterModeSwitch, markTagGroups, pickOf, PickIcon, togglePick, type Fil
 
 import { Box, Button, DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuTrigger, Inline, Input, StatusIcon, Text, DropdownMenuContent, DropdownMenuSubContent, MenuLabel } from '@loca/ui';
 import { PersonName } from '@/lib/person-colors';
+import { param, searchParams, type SearchOf } from '@/lib/search';
 
-export interface LinesSearch {
-  q?: string;
+/** The lines' URL search params: what each one is and what it may hold. */
+export const linesSearchParams = {
+  q: param.text,
   /** Status ids: lines in any of them. */
-  statuses?: string[];
+  statuses: param.ids,
   /** Tag ids: lines carrying all of them (with the automatic marks below, all combine). */
-  tags?: string[];
+  tags: param.ids,
   /** Speaker names: lines by any of them. */
-  speakers?: string[];
+  speakers: param.ids,
   /** 숨기기: lines in any of these statuses, by any of these speakers, or with any of these tags are left out. */
-  hideStatuses?: string[];
-  hideSpeakers?: string[];
-  hideTags?: string[];
+  hideStatuses: param.ids,
+  hideSpeakers: param.ids,
+  hideTags: param.ids,
   /** Hidden marks: lines carrying any of them are left out. */
-  hideMarks?: LineMark[];
+  hideMarks: param.read((raw) => parseMarks(raw, LINE_MARK_IDS)),
   /** A character name (a known listener), or "-" for 청자 모름 (said to someone whose listener is unknown or an unsure guess). */
-  listener?: string;
+  listener: param.text,
   /** 최종 아님 (true: the work left) or 최종 (false). */
-  unfinished?: boolean;
+  unfinished: param.bool,
   /** 정한 쪽: who set the status (AI ✦ or a person). */
-  decidedBy?: DecidedBy;
+  decidedBy: param.oneOf(DECIDED_BY),
   /** 메모 있음 (true) or 없음 (false). */
-  noted?: boolean;
+  noted: param.bool,
   /** 번역 제외 lines: absent = hidden (the default), show = with the rest, only = only them. */
-  excluded?: 'show' | 'only';
+  excluded: param.oneOf(['show', 'only']),
   /** Automatic marks (LINE_MARK_IDS): lines carrying every one of them. */
-  marks?: LineMark[];
+  marks: param.read((raw) => parseMarks(raw, LINE_MARK_IDS)),
   /**
    * How a filter shows: listed apart (the default: only the matching lines) or, with mode=find, walked one by one
    * inside their scenes (find, '장면에서 찾아가기', when the conversation around them matters).
    */
-  mode?: 'find';
-  page?: number;
-  line?: string;
+  mode: param.oneOf(['find']),
+  page: param.positive,
+  line: param.text,
   /** The line's details pane is open (closed by default: the row itself is the editor). */
-  detail?: true;
+  detail: param.flag,
   /** The AI node whose prompt context the line pane previews ("workflowId:nodeId"). */
-  aiNode?: string;
+  aiNode: param.read((raw) => (typeof raw === 'string' && raw.includes(':') ? raw : undefined)),
   /** The line pane's tab, when a link names one (else the pane opens as the last line was left). */
-  tab?: LineTab;
-}
+  tab: param.oneOf<LineTab>(['line', 'history', 'prompt']),
+};
+export type LinesSearch = SearchOf<typeof linesSearchParams>;
+export const linesSearchSchema = searchParams(linesSearchParams);
 
-const strings = (value: unknown) => (Array.isArray(value) && value.length && value.every((item) => typeof item === 'string') ? (value as string[]) : undefined);
-
-const bool = (value: unknown) => (value === true || value === 'true' ? true : value === false || value === 'false' ? false : undefined);
 /** 청자 모름 in the listener filter. */
 export const UNKNOWN_LISTENER = '-';
 
-export const linesSearchSchema = (raw: Record<string, unknown>): LinesSearch => ({
-  q: typeof raw.q === 'string' && raw.q ? raw.q : undefined,
-  statuses: strings(raw.statuses),
-  tags: strings(raw.tags),
-  speakers: strings(raw.speakers),
-  hideStatuses: strings(raw.hideStatuses),
-  hideSpeakers: strings(raw.hideSpeakers),
-  hideTags: strings(raw.hideTags),
-  hideMarks: parseMarks(raw.hideMarks, LINE_MARK_IDS),
-  listener: typeof raw.listener === 'string' && raw.listener ? raw.listener : undefined,
-  unfinished: bool(raw.unfinished),
-  decidedBy: DECIDED_BY.find((by) => by === raw.decidedBy),
-  noted: bool(raw.noted),
-  excluded: raw.excluded === 'show' || raw.excluded === 'only' ? raw.excluded : undefined,
-  marks: parseMarks(raw.marks, LINE_MARK_IDS),
-  mode: raw.mode === 'find' ? 'find' : undefined,
-  page: typeof raw.page === 'number' && raw.page > 0 ? raw.page : undefined,
-  line: typeof raw.line === 'string' ? raw.line : undefined,
-  detail: raw.detail === true || raw.detail === 'true' ? true : undefined,
-  aiNode: typeof raw.aiNode === 'string' && raw.aiNode.includes(':') ? raw.aiNode : undefined,
-  tab: raw.tab === 'line' || raw.tab === 'history' || raw.tab === 'prompt' ? raw.tab : undefined,
-});
 
 /**
  * The list's lines as the one line filter (LineFilter in shared, resolved on the server): where the list is (a group, a

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import type { GraphSelection } from '@/lib/graph-selection';
@@ -8,6 +8,7 @@ import { graphSearch } from './graph-search';
 import type { DrawnGraphData } from './use-drawn-graph';
 import type { GraphNav } from './use-graph-nav';
 import { useViewActions } from './view-inspector';
+import { useShortcuts } from '@/lib/shortcuts';
 
 /**
  * What is done with a set of picked nodes that is not an edit of the graph: a workflow run over their lines, and
@@ -28,16 +29,8 @@ export function useNodeSets({ nav, drawn, selection, select }: { nav: GraphNav; 
     setCollecting(false);
     selection.clear();
   };
-  useEffect(() => {
-    if (!collecting) return;
-    // Esc leaves it (a menu or the naming box open on top closes first, on its own Esc).
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || event.defaultPrevented || document.querySelector('[role="dialog"], [role="menu"]')) return;
-      stopCollecting();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [collecting]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Esc leaves it (a menu or the naming box open on top closes first, on its own Esc).
+  useShortcuts({ collectStop: stopCollecting }, { enabled: collecting });
 
   /** The lines of the picked nodes, for a workflow run (its dialog opens on them). */
   const [runUnits, setRunUnits] = useState<string[]>();

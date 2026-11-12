@@ -1,8 +1,8 @@
 import type { ReactNode } from "react"
 import { Check, X } from "lucide-react"
-import { Button, type ButtonProps } from "../../controls/button"
-import { Input } from "../../controls/input"
-import { cn } from "../../lib/utils"
+import { Button, type ButtonProps } from "../controls/button"
+import { Input } from "../controls/input"
+import { cn } from "../lib/utils"
 
 export function MenuRowAction({ danger = false, onClick, ...props }: Omit<ButtonProps, "className" | "onPointerDown" | "onPointerUp"> & { danger?: boolean }) {
   return (

@@ -61,6 +61,20 @@
   --min-height-textarea-sm: 5rem;
   --min-height-textarea: 8rem;
   --min-height-textarea-lg: 14rem;
+
+  /* Motion by use (animate-*): the keyframes live with their names, so a part never names a keyframe of the app. */
+  /* A bar that moves while work runs whose progress cannot be counted (one long model call). */
+  --animate-indeterminate: indeterminate 1.4s ease-in-out infinite;
+  @keyframes indeterminate {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(250%); }
+  }
+  /* A row opened from a link flashes once where it landed. */
+  --animate-arrived: arrived 2s ease-out;
+  @keyframes arrived {
+    0%, 30% { background-color: var(--background-color-selected); }
+    100% { background-color: transparent; }
+  }
 }
 
 @theme inline {

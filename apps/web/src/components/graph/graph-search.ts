@@ -4,83 +4,56 @@
  * the search as it is to the search after). The URL is the page's state (AGENTS.md "Page state"); viewports and
  * preferences are not here (lib/viewport.ts, lib/graph-show.ts).
  */
+import { param, searchParams, type SearchOf } from '@/lib/search';
+
 export type GraphScope = 'scene' | 'dialogue';
 type GraphDirection = 'vertical' | 'horizontal';
 type RouteEnd = 'start' | 'end';
 
-export interface GraphSearch {
+const graphSearchParams = {
   /** The open inspector's tab (lib/inspector-tab.ts). */
-  pane?: string;
-  scope: GraphScope;
-  direction?: GraphDirection;
+  pane: param.text,
+  scope: param.oneOfOr<GraphScope>(['scene', 'dialogue'], 'dialogue'),
+  direction: param.oneOf<GraphDirection>(['vertical', 'horizontal']),
   /** A reading route's two ends, applied: with both, the page shows the route (its graph and script). */
-  routeStart?: string;
-  routeEnd?: string;
+  routeStart: param.text,
+  routeEnd: param.text,
   /** The ends while they are being picked on the graph; `routeStart`/`routeEnd` stay as they were until 경로 찾기. */
-  pickStart?: string;
-  pickEnd?: string;
+  pickStart: param.text,
+  pickEnd: param.text,
   /** Which end the next click picks; present, the page is picking. */
-  pickStep?: RouteEnd;
-  node?: string;
-  scene?: string;
+  pickStep: param.oneOf<RouteEnd>(['start', 'end']),
+  node: param.text,
+  scene: param.text,
   /** Dialogue graph section (chapter, act, day…) or a view ("view:<id>"); "all" draws the whole graph on one sheet. Absent = the first section. */
-  section?: string;
+  section: param.text,
   /** Highlight one node type (original class name, or "kind:<kind>"). */
-  type?: string;
+  type: param.text,
   /** Also draw scene links hidden by the simplification (reachable through other scenes). */
-  links?: 'all';
+  links: param.oneOf(['all']),
   /** Arrived from a line ("그래프에서 보기"): open centred on `node`, then forget it. */
-  jump?: true;
+  jump: param.flag,
   /** A stored view (made in the chat) whose nodes are highlighted. */
-  mark?: string;
+  mark: param.text,
   /** The line open in the translation card beside its node (dialogue graph). */
-  edit?: string;
+  edit: param.text,
   /** The right pane shows the open view's own details (name, request, counts). */
-  viewInfo?: true;
+  viewInfo: param.flag,
   /** An open route view laid out as 그래프 + 대본: its graph beside its lines in reading order. */
-  script?: true;
+  script: param.flag,
   /** The right pane lists what a derived edge leaves out (the edge's id in the open layout). */
-  omitted?: string;
+  omitted: param.text,
   /** Node finder text (matches are listed under the box). */
-  q?: string;
+  q: param.text,
   /** A line of the dialogue graph picked (its drawn id): its pane shows where it comes from, 삭제. */
-  edge?: string;
+  edge: param.text,
   /** 이 대사 뒤에 대사 추가: the node a new line goes after (its pane is open). */
-  addAfter?: string;
+  addAfter: param.text,
   /** The folded runs drawn as their lines (their ids). Absent: a small graph opens them all, a big one none; `[]` is none. */
-  open?: string[];
-}
-
-const text = (value: unknown) => (typeof value === 'string' && value ? value : undefined);
-const flag = (value: unknown) => (value === true || value === 'true' || value === '1' || value === 1 ? (true as const) : undefined);
-
-export function validateGraphSearch(raw: Record<string, unknown>): GraphSearch {
-  return {
-    pane: text(raw.pane),
-    scope: raw.scope === 'scene' ? 'scene' : 'dialogue',
-    direction: raw.direction === 'horizontal' ? 'horizontal' : raw.direction === 'vertical' ? 'vertical' : undefined,
-    routeStart: text(raw.routeStart),
-    routeEnd: text(raw.routeEnd),
-    pickStart: text(raw.pickStart),
-    pickEnd: text(raw.pickEnd),
-    pickStep: raw.pickStep === 'start' || raw.pickStep === 'end' ? raw.pickStep : undefined,
-    node: typeof raw.node === 'string' ? raw.node : undefined,
-    scene: typeof raw.scene === 'string' ? raw.scene : undefined,
-    section: text(raw.section),
-    type: typeof raw.type === 'string' ? raw.type : undefined,
-    links: raw.links === 'all' ? 'all' : undefined,
-    mark: text(raw.mark),
-    jump: raw.jump === true || raw.jump === 'true' ? true : undefined,
-    edit: text(raw.edit),
-    viewInfo: flag(raw.viewInfo),
-    script: flag(raw.script),
-    omitted: text(raw.omitted),
-    q: text(raw.q),
-    edge: text(raw.edge),
-    addAfter: text(raw.addAfter),
-    open: Array.isArray(raw.open) ? raw.open.filter((id): id is string => typeof id === 'string') : undefined,
-  };
-}
+  open: param.list,
+};
+export type GraphSearch = SearchOf<typeof graphSearchParams>;
+export const validateGraphSearch = searchParams(graphSearchParams);
 
 // ── what the page reads off the search ──────────────────────────────────────────
 

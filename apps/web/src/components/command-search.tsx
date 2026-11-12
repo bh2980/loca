@@ -5,6 +5,7 @@ import { BookA, Download, FileText, Keyboard, ListTree, MessageSquare, ScrollTex
 import { Chip, Box, Button, CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, Inline, Kbd, Text } from '@loca/ui';
 import { q } from '@/lib/queries';
 import { keyLabel } from '@/lib/keys';
+import { keyOf, useShortcuts } from '@/lib/shortcuts';
 import { openShortcutHelp } from '@/components/shortcut-help';
 import { chatDock } from '@/lib/chat-dock';
 import { exportDialog } from '@/lib/export-dialog';
@@ -79,17 +80,7 @@ export function CommandSearch({ projectId, compact = false, listen = true }: { p
     ((scope === 'all' || scope === 'docs') && documentList.isLoading) ||
     ((scope === 'all' || scope === 'chat') && chatSearch.isFetching);
 
-  useEffect(() => {
-    if (!listen) return;
-    const onKey = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
-        event.preventDefault();
-        setOpen((value) => !value);
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [listen]);
+  useShortcuts({ search: () => setOpen((value) => !value) }, { enabled: listen });
 
   const go = (to: () => void) => {
     setOpen(false);
@@ -98,8 +89,8 @@ export function CommandSearch({ projectId, compact = false, listen = true }: { p
 
   return (
     <>
-      <Button variant="ghost" size={compact ? "icon-sm" : "default"} aria-label={`검색 (${keyLabel('Mod+K')})`} onClick={() => setOpen(true)}>
-        <Search /> {!compact && <>검색 <Kbd>{keyLabel('Mod+K')}</Kbd></>}
+      <Button variant="ghost" size={compact ? "icon-sm" : "default"} aria-label={`검색 (${keyLabel(keyOf('search'))})`} onClick={() => setOpen(true)}>
+        <Search /> {!compact && <>검색 <Kbd>{keyLabel(keyOf('search'))}</Kbd></>}
       </Button>
       <CommandDialog open={open} onOpenChange={setOpen} shouldFilter={false} title="검색" description="장면, 용어, 인물, 자료, 대사(원문·번역·화자·ID), 대화 기록에서 찾습니다.">
         <CommandInput value={text} onValueChange={setText} placeholder="찾을 내용을 입력하세요" />

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Sparkles, Trash2 } from 'lucide-react';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Box, Button, Inspector, InspectorActionRow, InspectorHeader, InspectorList, Input, Skeleton, Text, ListItem, Section, Field, KeyValue, KeyValueRow } from '@loca/ui';
+import { Box, Button, Inspector, InspectorActionRow, InspectorHeader, InspectorList, Input, Skeleton, Text, ListItem, Section, Field, KeyValue, KeyValueRow, ConfirmDialog } from '@loca/ui';
 import { q } from '@/lib/queries';
 import { chatDock } from '@/lib/chat-dock';
 import { dateTime } from '@/lib/datetime';
@@ -43,36 +43,22 @@ export function useViewActions(projectId: string) {
 /** Asks before a stored view is deleted (from the view list or from its pane); only the view goes, never the graph or the lines. */
 export function DeleteViewDialog({ projectId, view, onClose, onDeleted }: { projectId: string; view: { id: string; label: string } | null; onClose: () => void; onDeleted: (id: string) => void }) {
   const actions = useViewActions(projectId);
-  // The label stays while the dialog fades out after the view is gone.
-  const [shown, setShown] = useState(view);
-  useEffect(() => {
-    if (view) setShown(view);
-  }, [view]);
   return (
-    <AlertDialog open={view !== null} onOpenChange={(open) => !open && onClose()}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>보기 "{shown?.label}"를 지울까요?</AlertDialogTitle>
-          <AlertDialogDescription>보기만 지워집니다. 원본 그래프와 대사는 그대로입니다.</AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>취소</AlertDialogCancel>
-          <AlertDialogAction
-            onClick={() =>
-              view &&
-              actions.remove.mutate(view.id, {
-                onSuccess: () => {
-                  toast.success('보기를 지웠습니다.');
-                  onDeleted(view.id);
-                },
-              })
-            }
-          >
-            삭제
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+    <ConfirmDialog
+      open={view !== null}
+      onOpenChange={(open) => !open && onClose()}
+      title={`보기 "${view?.label}"를 지울까요?`}
+      description="보기만 지워집니다. 원본 그래프와 대사는 그대로입니다."
+      onConfirm={() =>
+        view &&
+        actions.remove.mutate(view.id, {
+          onSuccess: () => {
+            toast.success('보기를 지웠습니다.');
+            onDeleted(view.id);
+          },
+        })
+      }
+    />
   );
 }
 

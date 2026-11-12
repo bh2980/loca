@@ -15,6 +15,7 @@
 ## Page state
 
 - URL search params are the source of truth for page state (filters, selection, tabs: an inspector's tab is the page's `pane` param, `lib/inspector-tab.ts`). Viewports and unsaved drafts live in the tab's storage; never push history entries for polling, panning or SSE refreshes.
+- A route declares its search params once with `param.*` and `searchParams` (`lib/search.ts`); no hand-written `validateSearch`. A list screen wires its URL, open row, picks and `useReportView` through `useListScreen` (`lib/list-screen.ts`): a row click opens the row's pane, a click on the open row closes it, a checkbox only picks, and a row that is a page navigates.
 - What the browser keeps for itself goes through `apps/web/src/lib/storage.ts`: every key is declared in its registry (`STORED`: name, tab or browser, schema, fallback) and read with `stored` / `useStored`; an unsaved edit is a draft (`lib/drafts.ts`). `pnpm ui-rules` refuses `localStorage` / `sessionStorage` anywhere else.
 
 ## Data flow (server → browser)
@@ -43,10 +44,12 @@ Enforced by `pnpm ui-rules` unless marked "review". Details, token tiers and the
 - Colors come from the role names in `packages/ui/src/tokens/theme.css` (light Slate + dark Night themes); never hex, Tailwind palette colours or the raw steps of `tokens/palette.css` outside `tokens/`. One accent, color reserved for meaning, status as shape + colour (`StatusIcon`).
 - Text sizes are the `variant` of `Text`/`Heading` (table in `packages/ui/README.md`); no `text-*` classes and no arbitrary `text-[Npx]`.
 - Buttons: no raw `<button>`; text buttons take no `size` (`size="sm"` is the default, `"xs"` is refused); icon-only buttons use `icon`/`icon-xs`/`icon-sm`, a button inside a sentence uses `inline`. One primary button per screen/pane (review).
-- Collections are tables; details open in a right-hand pane, not modals (AlertDialog only for destructive confirmation; the dialogue graph's translation card is a non-modal card anchored beside its node, not a detail view).
+- Collections are tables; details open in a right-hand pane, not modals (a confirmation before something is destroyed is `ConfirmDialog`, never a hand-written AlertDialog; the dialogue graph's translation card is a non-modal card anchored beside its node, not a detail view).
 - The project chat is a global right-docked panel and every page reports its selection via `useReportView`.
 - Graph screens share one way to do each thing (`apps/web/src/lib`): the picked set is `useGraphSelection`, copy and paste `graph-clipboard.ts`, the keys `useGraphShortcuts`, the remembered viewport `useStoredViewport` (`viewport.ts`), undo `undo-history.ts`; a menu opened where a canvas was right-clicked is `PointMenu`, the picked set's bar is `SelectionBar floating`. The relationship graph and the 사건 흐름 are built on `EditableFlow` (`components/knowledge/editable-flow.tsx`). A new graph uses these; do not give one its own clipboard, key handler or viewport key.
 - The app runs on Windows too: shortcut hints go through `keyLabel` (`lib/keys.ts`), never a hard-coded ⌘/⌥, and handlers accept Ctrl as well as ⌘.
+- A shortcut is declared once in `lib/shortcuts.ts` (keys, label, where it acts): the window handles it with `useShortcuts`, a part that reads its own key events with `matchedKey`/`codeMirrorKey`, and the `?` list prints the declarations. "Is the person typing / is something open on top" is `isTyping`/`overlayOpen` of `lib/keys.ts`, never a screen's own check.
+- `style=` is for values computed from data or geometry; a written-out value is a prop or class of a `@loca/ui` part (`scripts/ui-style.ts` lists the exceptions with reasons).
 - After `shadcn add`, replace any `from "cn"` import with `@/lib/utils` and remove the `cn` package it adds.
 
 ## CLI and agents

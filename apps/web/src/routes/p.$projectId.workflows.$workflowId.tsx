@@ -20,6 +20,7 @@ import { useWorkflowView } from '@/components/workflow/use-workflow-view';
 import { WorkflowCanvasView } from '@/components/workflow/workflow-canvas';
 import { SplitPane, PageHeading, HeaderActions, NodeLibrary, type CanvasDirection, Box, Button, Icon, Inline, Stack, Text, Input, Skeleton, Popover, PopoverContent, PopoverTrigger } from '@loca/ui';
 import { useReportView } from '@/lib/view-context';
+import { param, searchParams } from '@/lib/search';
 import { dateTime } from '@/lib/datetime';
 import { useWorkflows } from '@/lib/workflows';
 
@@ -63,13 +64,12 @@ function NameField({ name, onRename }: { name: string; onRename: (name: string) 
 }
 
 export const Route = createFileRoute('/p/$projectId/workflows/$workflowId')({
-  validateSearch: (raw: Record<string, unknown>): { node?: string; frame?: string; exit?: string; direction?: CanvasDirection } => ({
-    node: typeof raw.node === 'string' ? raw.node : undefined,
-    // A picked frame or exit (its pane opens); one thing is picked at a time.
-    frame: typeof raw.frame === 'string' && typeof raw.node !== 'string' ? raw.frame : undefined,
-    exit: typeof raw.exit === 'string' && typeof raw.node !== 'string' && typeof raw.frame !== 'string' ? raw.exit : undefined,
-    direction: raw.direction === 'horizontal' ? 'horizontal' : raw.direction === 'vertical' ? 'vertical' : undefined,
-  }),
+  // A picked node, frame or exit (its pane opens); one thing is picked at a time.
+  validateSearch: searchParams({ node: param.text, frame: param.text, exit: param.text, direction: param.oneOf<CanvasDirection>(['horizontal', 'vertical']) }, (search) => ({
+    ...search,
+    frame: search.node ? undefined : search.frame,
+    exit: search.node || search.frame ? undefined : search.exit,
+  })),
   component: WorkflowRoute,
 });
 /** The editor is mounted per workflow: its draft, selection, undo history and measured sizes belong to one workflow. */

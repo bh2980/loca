@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Controller, useForm, useWatch } from 'react-hook-form';
-import { Plus } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { z } from 'zod';
 import {
@@ -20,6 +20,7 @@ import {
   Box,
   Button,
   type ColumnDef,
+  ConfirmDialog,
   DataTable,
   DirtyBar,
   EmptyState,
@@ -44,11 +45,11 @@ import {
 } from '@loca/ui';
 import { Page } from '@/components/page';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
-import { DeleteButton } from '@/components/settings/delete-button';
 import { KeyPane, type KeyRow } from '@/components/settings/key-pane';
 import { ExecutableField } from '@/components/settings/executable-field';
 import { type ConnectionRow, type SettingsTarget, connectionWrites, testConnection } from '@/lib/settings-target';
-import { useReportView } from '@/lib/view-context';
+import { useListScreen } from '@/lib/list-screen';
+import { param, type SearchOf } from '@/lib/search';
 import { dateTime } from '@/lib/datetime';
 import { useConnections } from '@/lib/app-data';
 import { useConnectionTests } from '@/lib/ai-calls';
@@ -60,18 +61,16 @@ const LOGIN_LABEL: Record<string, string> = {
 };
 const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-export type ConnectionsSearch = { conn?: string; key?: string };
+/** The open connection or API key (`new` while one is being added); both settings routes read these. */
+export const connectionsSearchParams = { conn: param.text, key: param.text };
+export type ConnectionsSearch = SearchOf<typeof connectionsSearchParams>;
 
 /**
  * The AI connections and API keys of one settings target (a project, or the home's defaults).
- * The selection lives in the route's URL: the route passes it in `search` and applies what `onSearch` asks for.
+ * The selection lives in the route's URL: the route passes its `search` and its `navigate`.
  */
-export function ConnectionsSettings({ target, search, onSearch, description }: { target: SettingsTarget; search: ConnectionsSearch; onSearch: (next: ConnectionsSearch) => void; description?: string }) {
+export function ConnectionsSettings({ target, search, navigate, description }: { target: SettingsTarget; search: ConnectionsSearch; navigate: (options: { search: (previous: ConnectionsSearch) => ConnectionsSearch; replace: boolean }) => unknown; description?: string }) {
   const connections = useConnections(target);
-
-  const openConn = (conn?: string) => onSearch({ conn });
-  const openKey = (key?: string) => onSearch({ key });
-  const close = () => onSearch({});
 
   const aiRows = connections.data?.filter((c) => !connectionCan(c.kind, 'tool'));
   const keyRows = connections.data?.filter((c) => connectionCan(c.kind, 'tool')) as KeyRow[] | undefined;
@@ -79,10 +78,14 @@ export function ConnectionsSettings({ target, search, onSearch, description }: {
   const selectedConn = search.conn && search.conn !== 'new' ? connections.data?.find((c) => c.id === search.conn) : undefined;
   const selectedKey = search.key && search.key !== 'new' ? keyRows?.find((k) => k.id === search.key) : undefined;
 
-  useReportView('settings-connections', [
-    selectedConn && { kind: 'AI 연결', id: selectedConn.id, label: selectedConn.name },
-    selectedKey && { kind: 'API 키', id: selectedKey.id, label: selectedKey.name },
-  ]);
+  const { open, close, toggle } = useListScreen({
+    search,
+    navigate,
+    selection: ['conn', 'key'],
+    report: ['settings-connections', [selectedConn && { kind: 'AI 연결', id: selectedConn.id, label: selectedConn.name }, selectedKey && { kind: 'API 키', id: selectedKey.id, label: selectedKey.name }]],
+  });
+  const openConn = (conn: string) => open(conn, 'conn');
+  const openKey = (key: string) => open(key, 'key');
 
   const aiColumns: ColumnDef<ConnectionRow, unknown>[] = [
     { id: 'name', header: '이름', meta: { hideable: false }, cell: ({ row }) => <Text weight="medium">{row.original.name}</Text> },
@@ -131,7 +134,7 @@ export function ConnectionsSettings({ target, search, onSearch, description }: {
                   rowId={(row) => row.id}
                   selected={selectedConn?.id}
                   empty={<EmptyState noun="AI 연결" />}
-                  onRowClick={(row) => openConn(row.id === search.conn ? undefined : row.id)}
+                  onRowClick={(row) => toggle(row.id, 'conn')}
                 />
               </Box>
             </Section>
@@ -152,7 +155,7 @@ export function ConnectionsSettings({ target, search, onSearch, description }: {
                   rowId={(row) => row.id}
                   selected={search.key}
                   empty={<EmptyState noun="API 키" />}
-                  onRowClick={(row) => openKey(row.id === search.key ? undefined : row.id)}
+                  onRowClick={(row) => toggle(row.id, 'key')}
                 />
               </Box>
             </Section>
@@ -355,10 +358,10 @@ function ConnectionPane({ target, connection, onClose }: { target: SettingsTarge
   };
 
   return (
-    <Inspector footerStart={<><DeleteButton
-          label={`연결 '${connection.name}'`}
+    <Inspector footerStart={<><ConfirmDialog
+          trigger={<Button type="button" variant="ghost" tone="danger" disabled={remove.isPending}><Trash2 /> 삭제</Button>}
+          title={`연결 '${connection.name}'을(를) 삭제할까요?`}
           description="워크플로 노드(재시도 규칙의 다른 모델 포함)·대화가 이 연결을 쓰고 있으면 삭제되지 않습니다. 저장된 API 키도 함께 삭제됩니다."
-          pending={remove.isPending}
           onConfirm={() => remove.mutate()}
         /></>}
       header={<InspectorHeader kind={isTool ? '도구' : 'AI 연결'} name={connection.name} status={info.label} onClose={onClose} />}

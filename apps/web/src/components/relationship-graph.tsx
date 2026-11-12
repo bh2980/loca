@@ -113,7 +113,7 @@ function FloatingEdge({ id, source, target, markerStart, markerEnd, data, select
             data-relation-label
             active={selected || data?.focus}
             dim={data?.dim}
-            style={{ transform: `translate(-50%, -50%) translate(${label.x}px, ${label.y}px)`, pointerEvents: 'all' }}
+            style={{ transform: `translate(-50%, -50%) translate(${label.x}px, ${label.y}px)` }}
           >
             {data?.rows.map((row) => (
               <Button key={row.id} variant="ghost" size="inline" justifyContent="start" radius="none" weight={row.selected ? 'medium' : 'normal'} nowrap tone={row.selected || selected || data.focus ? 'accent' : undefined} onClick={(event) => {

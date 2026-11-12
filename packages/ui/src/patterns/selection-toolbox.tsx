@@ -1,5 +1,5 @@
 import type { ReactNode } from "react"
-import { Button } from "../../controls/button"
+import { Button } from "../controls/button"
 
 interface SelectionToolboxAction {
   id: string

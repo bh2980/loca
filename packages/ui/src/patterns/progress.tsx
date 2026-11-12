@@ -34,7 +34,7 @@ function Progress({ value, tone = "accent", size = "md", grow, indeterminate, ..
   if (indeterminate)
     return (
       <div className={`relative ${layout} overflow-hidden rounded-full ${TONE[tone].track}`} role="progressbar" aria-label="진행 중">
-        <div className={`absolute inset-y-0 w-2/5 rounded-full ${TONE[tone].fill}`} style={{ animation: "indeterminate 1.4s ease-in-out infinite" }} />
+        <div className={`absolute inset-y-0 w-2/5 animate-indeterminate rounded-full ${TONE[tone].fill}`} />
       </div>
     )
   return (

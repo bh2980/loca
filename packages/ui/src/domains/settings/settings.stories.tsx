@@ -9,7 +9,7 @@ import { Swatch, SwatchPicker } from "../../patterns/swatch"
 import { SaveStatusLine } from "./save-status-line"
 import { Skeleton } from "../../patterns/skeleton"
 
-const meta = { title: "Domains/App/Settings parts", decorators: [(Story) => <Box style={{ width: 420 }}><Story /></Box>] } satisfies Meta
+const meta = { title: "Domains/Settings/Parts", decorators: [(Story) => <Box style={{ width: 420 }}><Story /></Box>] } satisfies Meta
 export default meta
 type Story = StoryObj<typeof meta>
 

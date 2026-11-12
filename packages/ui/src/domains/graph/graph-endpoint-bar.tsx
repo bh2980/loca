@@ -6,7 +6,7 @@ import { Inline } from "../../primitives/stack"
 import { cn } from "../../lib/utils"
 
 export type GraphEndpointStep = "start" | "end"
-export interface GraphEndpointValue {
+interface GraphEndpointValue {
   id: string
   label: string
 }

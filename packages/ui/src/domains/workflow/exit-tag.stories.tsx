@@ -6,7 +6,7 @@ import { ExitTag, ExitTagAdd, ExitTagList, type ExitTagItem } from "./exit-tag"
 import { NodeCard } from "./node-card"
 import { WorkflowFrame, WorkflowFrameTint } from "./workflow-frame"
 
-const meta = { title: "Domains/Graph/Exit tag", parameters: { layout: "fullscreen" } } satisfies Meta
+const meta = { title: "Domains/Workflow/Exit tag", parameters: { layout: "fullscreen" } } satisfies Meta
 export default meta
 type Story = StoryObj<typeof meta>
 

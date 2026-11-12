@@ -7,7 +7,7 @@ import { Link } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Check, Play, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { Inspector, InspectorHeader, InspectorList, InspectorTabs, TagListEditor, DirtyBar, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Inline, Input, ListRow, Text, Textarea, Section, Field, Box, Checkbox, Label, Stack, Switch } from '@loca/ui';
+import { Inspector, InspectorHeader, InspectorList, InspectorTabs, TagListEditor, DirtyBar, Button, Inline, Input, ListRow, Text, Textarea, Section, Field, Box, Checkbox, Label, Stack, Switch, ConfirmDialog } from '@loca/ui';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { AiNamed, confirmLabel, SourceBadge, StateCell } from '@/components/knowledge/table';
 import { ALL_TERM_KINDS, isSettled, TAG_SCOPES, TERM_LINE_KIND_LABELS, TERM_LINE_KINDS, type TermScope } from '@tw/shared';
@@ -148,23 +148,12 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
   };
 
   return (
-    <Inspector footerStart={<><AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button variant="ghost" tone="danger">
-                <Trash2 /> 용어 삭제
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>용어를 삭제할까요?</AlertDialogTitle>
-                <AlertDialogDescription>“{term.source}” 용어가 용어집에서 사라집니다. 이미 번역된 대사는 바뀌지 않습니다.</AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>취소</AlertDialogCancel>
-                <AlertDialogAction onClick={() => remove.mutate()}>삭제</AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+    <Inspector footerStart={<><ConfirmDialog
+            trigger={<Button variant="ghost" tone="danger"><Trash2 /> 용어 삭제</Button>}
+            title="용어를 삭제할까요?"
+            description={`“${term.source}” 용어가 용어집에서 사라집니다. 이미 번역된 대사는 바뀌지 않습니다.`}
+            onConfirm={() => remove.mutate()}
+          />
           {candidate && (
             <Button variant="ghost" tone="danger" disabled={deciding} onClick={() => onDecide(false)}>버리기</Button>
           )}</>}

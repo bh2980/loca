@@ -4,7 +4,7 @@ import type { UIMessage } from 'ai';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Box, Button, DockHeaderSlot, Inline, Notice, SectionHeading, Spinner, Stack, Text } from '@loca/ui';
+import { Box, Button, DockHeaderSlot, Inline, Notice, SectionHeading, Spinner, Stack, Text, ConfirmDialog } from '@loca/ui';
 import { Elapsed } from '@/components/job-progress';
 import type { ModelValue } from '@/components/model-picker';
 import { usePendingAgentRequest } from '@/lib/agent';
@@ -126,20 +126,13 @@ export const ChatPanel = memo(function ChatPanel({ projectId, active }: { projec
           <Plus />
         </Button>
       </DockHeaderSlot>
-      <AlertDialog open={Boolean(deleting)} onOpenChange={(open) => !open && setDeleting(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>대화를 삭제할까요?</AlertDialogTitle>
-            <AlertDialogDescription>‘{deleting?.title}’의 메시지가 모두 지워집니다. 이 대화에서 이미 수락한 변경은 그대로 남습니다.</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>취소</AlertDialogCancel>
-            <AlertDialogAction onClick={() => deleting && remove.mutate(deleting.id)}>
-              삭제
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmDialog
+        open={Boolean(deleting)}
+        onOpenChange={(open) => !open && setDeleting(null)}
+        title="대화를 삭제할까요?"
+        description={`‘${deleting?.title}’의 메시지가 모두 지워집니다. 이 대화에서 이미 수락한 변경은 그대로 남습니다.`}
+        onConfirm={() => deleting && remove.mutate(deleting.id)}
+      />
       {/* A connection picked without a model yet still counts, so the picker asks for the model. */}
       {current ? (
         <Conversation key={current.id} active={active} projectId={projectId} sessionId={current.id} onNew={startFromBox} takeFocus={takeFocus} mode={current.permissionMode} model={current.connectionId ? { connectionId: current.connectionId, model: current.model ?? '', ...(current.effort && { effort: current.effort }) } : null} />
@@ -446,12 +439,15 @@ function ChatBody({ active, projectId, sessionId, initial, turn, usage, compacti
         )}
       </Box>
 
-      <AlertDialog open={undoingReply} onOpenChange={setUndoingReply}>
-        <AlertDialogContent>
-          <AlertDialogHeader><AlertDialogTitle>변경을 되돌릴까요?</AlertDialogTitle><AlertDialogDescription>이 답에서 반영된 변경 {replyUndoIds.length}개를 되돌리는 제안을 적용합니다. 그사이 바뀐 대사는 건너뜁니다.</AlertDialogDescription></AlertDialogHeader>
-          <AlertDialogFooter><AlertDialogCancel>취소</AlertDialogCancel><AlertDialogAction disabled={undoReply.isPending} onClick={() => { undoReply.mutate(replyUndoIds); setUndoingReply(false); }}>되돌리기</AlertDialogAction></AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmDialog
+        open={undoingReply}
+        onOpenChange={setUndoingReply}
+        title="변경을 되돌릴까요?"
+        description={`이 답에서 반영된 변경 ${replyUndoIds.length}개를 되돌리는 제안을 적용합니다. 그사이 바뀐 대사는 건너뜁니다.`}
+        confirmLabel="되돌리기"
+        pending={undoReply.isPending}
+        onConfirm={() => { undoReply.mutate(replyUndoIds); setUndoingReply(false); }}
+      />
 
       <ChatComposer
         handle={composer}

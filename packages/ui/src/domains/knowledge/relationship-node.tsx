@@ -24,5 +24,5 @@ export function PersonNodeFrame({ role, active, dim, ...props }: Omit<React.Comp
 
 /** The label of a relationship line, laid over the graph at the line's middle (the page gives `style.transform`). One button per relationship. */
 export function RelationLabelFrame({ active, dim, ...props }: Omit<React.ComponentProps<"div">, "className"> & { active?: boolean; dim?: boolean }) {
-  return <div className={cn("nodrag nopan absolute flex flex-col rounded border bg-page text-xs shadow-xs", active && "border-accent", dim && "opacity-30")} {...props} />
+  return <div className={cn("nodrag nopan pointer-events-auto absolute flex flex-col rounded border bg-page text-xs shadow-xs", active && "border-accent", dim && "opacity-30")} {...props} />
 }

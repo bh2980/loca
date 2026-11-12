@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Text, Inspector, InspectorHeader, Section, Field, Box } from '@loca/ui';
+import { Button, Input, Text, Inspector, InspectorHeader, Section, Field, Box, ConfirmDialog } from '@loca/ui';
 import { type SettingsTarget, connectionWrites } from '@/lib/settings-target';
 
 export type KeyRow = { id: string; name: string; headerTemplate: string | null; hasKey: boolean };
@@ -42,23 +42,12 @@ export function KeyPane({ target, row, onClose, onCreated }: { target: SettingsT
   const dirty = !row || name !== row.name || header !== (row.headerTemplate ?? '') || Boolean(secret.trim());
 
   return (
-    <Inspector footerStart={row ? (<><AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button variant="ghost" tone="danger">
-                <Trash2 /> API 키 삭제
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>API 키를 삭제할까요?</AlertDialogTitle>
-                <AlertDialogDescription>“{row.name}”을(를) 고른 HTTP 노드는 키 없이 호출하게 되어 검증 오류가 납니다.</AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>취소</AlertDialogCancel>
-                <AlertDialogAction onClick={() => remove.mutate()}>삭제</AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog></>) : undefined} header={<InspectorHeader kind="API 키" name={row ? row.name : 'API 키 추가'} onClose={onClose} />} footer={
+    <Inspector footerStart={row ? (<><ConfirmDialog
+            trigger={<Button variant="ghost" tone="danger"><Trash2 /> API 키 삭제</Button>}
+            title="API 키를 삭제할까요?"
+            description={`“${row.name}”을(를) 고른 HTTP 노드는 키 없이 호출하게 되어 검증 오류가 납니다.`}
+            onConfirm={() => remove.mutate()}
+          /></>) : undefined} header={<InspectorHeader kind="API 키" name={row ? row.name : 'API 키 추가'} onClose={onClose} />} footer={
         <>
           {row && dirty && (
             <>

@@ -1,6 +1,6 @@
 import { ChevronsDownUp, ChevronsUpDown, Grid2X2, Maximize, Minus, Plus, WandSparkles } from "lucide-react"
-import { Button } from "../../controls/button"
-import { Icon } from "../../primitives/icon"
+import { Button } from "../controls/button"
+import { Icon } from "../primitives/icon"
 import { CanvasDirectionControl, type CanvasDirection } from "./canvas-direction-control"
 
 interface CanvasToolbarProps {

@@ -11,7 +11,7 @@ import { LineSourceText, MarkedSourceText, TokenText } from '@/components/editor
 import { insertIntoLine } from '@/components/editor/translation-input';
 import { LineNote } from '@/components/script/line-note';
 import { withoutTokens } from '@/lib/source-parts';
-import { Button, Checkbox, AiMark, TagChip, Tooltip, TooltipContent, TooltipTrigger, DropdownMenu, DropdownMenuTrigger, SpeakerIdentity, Chip, Box, Inline, Stack, Text, Icon, StatusIcon, ListRow, ScriptMenuAnchor, ScriptReviewIssue, ScriptSceneRow, ScriptSourceStyle, ScriptTranslationRow, type StatusLike, DropdownMenuContent } from '@loca/ui';
+import { Button, Checkbox, AiMark, TagChip, Tooltip, TooltipContent, TooltipTrigger, DropdownMenu, DropdownMenuTrigger, SpeakerIdentity, Chip, Box, Inline, Stack, Text, Icon, StatusIcon, ListRow, PointAnchor, ScriptReviewIssue, ScriptSceneRow, ScriptSourceStyle, ScriptTranslationRow, type StatusLike, DropdownMenuContent } from '@loca/ui';
 import { useMarkStyles } from '@/lib/queries';
 import { SOURCE_GROUP_LABEL, SOURCE_UNIT_LABEL } from '@/lib/labels';
 import { SpeakerCard } from '@/components/script/speaker-card';
@@ -395,7 +395,7 @@ export function LineRow({
         onClick={onSelect}
         selected={selected}
         flagged={marked}
-        style={arrived ? { animation: 'line-arrived 2s ease-out' } : undefined}
+        arrived={arrived}
         onAnimationEnd={onArrivedEnd}
       >
         <Box
@@ -410,7 +410,7 @@ export function LineRow({
         {menuAt && (
           <DropdownMenu open onOpenChange={(open) => !open && setMenuAt(null)} modal={false}>
             <DropdownMenuTrigger asChild>
-              <ScriptMenuAnchor x={menuAt.x} y={menuAt.y} />
+              <PointAnchor at={menuAt} />
             </DropdownMenuTrigger>
             <DropdownMenuContent width="menu" align="start" onClick={(event) => event.stopPropagation()} onCloseAutoFocus={(event) => event.preventDefault()}>
               {menuItems}

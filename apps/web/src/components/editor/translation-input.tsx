@@ -7,6 +7,8 @@ import { chipHue, chipLabel, numberTokens, type TokenKind, type TokenUnit } from
 import type { TagInsert } from '@/lib/tag-placement';
 import { splitTokens, type SourcePart } from '@/lib/source-parts';
 import { EditorInputBox } from '@loca/ui';
+import { codeMirrorKey, matchedKey } from '@/lib/keys';
+import { keyOf, SHORTCUTS } from '@/lib/shortcuts';
 
 /** Marks a replacement that came from the value prop, so it is not echoed back as typing. */
 const fromOwner = Annotation.define<boolean>();
@@ -405,16 +407,16 @@ export function TranslationInput(props: TranslationInputProps) {
       return true;
     };
     const shortcuts = [
-      { key: 'Mod-s', run: run(() => latest.current.onSave()) },
-      { key: 'Mod-Enter', run: run(() => latest.current.onAdvance()) },
+      { key: codeMirrorKey(keyOf('editorSave')), run: run(() => latest.current.onSave()) },
+      { key: codeMirrorKey(keyOf('editorAdvance')), run: run(() => latest.current.onAdvance()) },
       // Tab takes what is offered: a picked completion (a glossary term, a token), then proposed tokens, then the continuation.
-      { key: 'Tab', run: (editor: EditorView) => takeOffer(editor) },
-      { key: 'Mod-ArrowRight', run: (editor: EditorView) => takeContinuation(editor, true) },
-      { key: 'Alt-/', run: () => (latest.current.onContinue?.(), !!latest.current.onContinue) },
-      { key: 'Alt-.', run: () => (latest.current.onAssist?.(), !!latest.current.onAssist) },
+      { key: codeMirrorKey(keyOf('editorTake')), run: (editor: EditorView) => takeOffer(editor) },
+      { key: codeMirrorKey(keyOf('editorTakeWord')), run: (editor: EditorView) => takeContinuation(editor, true) },
+      { key: codeMirrorKey(keyOf('editorContinue')), run: () => (latest.current.onContinue?.(), !!latest.current.onContinue) },
+      { key: codeMirrorKey(keyOf('editorAssist')), run: () => (latest.current.onAssist?.(), !!latest.current.onAssist) },
       // Esc first closes the completion list or drops proposed tokens, then leaves the box.
       {
-        key: 'Escape',
+        key: codeMirrorKey(keyOf('editorLeave')),
         run: (editor: EditorView) => {
           if (completionStatus(editor.state) !== null) return false;
           if (editor.state.field(ghost)) return (editor.dispatch({ effects: setGhost.of(null) }), true);
@@ -427,7 +429,7 @@ export function TranslationInput(props: TranslationInputProps) {
         },
       },
       // Copy the source into the box (memoQ's Ctrl+Shift+S).
-      { key: 'Mod-Shift-s', run: (editor: EditorView) => (editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: latest.current.source } }), true) },
+      { key: codeMirrorKey(keyOf('editorCopySource')), run: (editor: EditorView) => (editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: latest.current.source } }), true) },
     ];
     const editor = new EditorView({
       parent: host.current!,
@@ -454,13 +456,16 @@ export function TranslationInput(props: TranslationInputProps) {
                 // ⌥ (Alt) shortcuts by physical key: ⌥ turns keys into other characters on a Mac, and a Korean
                 // input method sends them as composing keys. ⌘1…9 / ⌘⇧T never reach the page (browser tab keys).
                 if (!event.altKey || event.metaKey || event.ctrlKey) return false;
-                const digit = Number(/^Digit([1-9])$/.exec(event.code)?.[1] ?? 0);
+                // The combination's last character is its number: ⌥⇧n is suggestion n, ⌥n is format token n.
+                const numbered = (combo: string) => Number(combo.at(-1)) - 1;
+                const pick = matchedKey(event, SHORTCUTS.editorPick.keys);
+                const token = matchedKey(event, SHORTCUTS.editorToken.keys);
                 let action: ((editor: EditorView) => unknown) | null = null;
-                if (digit && event.shiftKey) action = latest.current.onPick ? () => latest.current.onPick?.(digit - 1) : null; // ⌥⇧n: suggestion n
-                else if (digit) action = (editor) => insertNumbered(editor, digit - 1); // ⌥n: format token n
-                else if (event.code === 'KeyT' && !event.shiftKey) action = latest.current.onPlaceTags ? () => latest.current.onPlaceTags?.() : null;
-                else if (event.code === 'Slash') action = latest.current.onContinue ? () => latest.current.onContinue?.() : null;
-                else if (event.code === 'Period') action = latest.current.onAssist ? () => latest.current.onAssist?.() : null;
+                if (pick) action = latest.current.onPick ? () => latest.current.onPick?.(numbered(pick)) : null;
+                else if (token) action = (editor) => insertNumbered(editor, numbered(token));
+                else if (matchedKey(event, SHORTCUTS.editorPlaceTags.keys)) action = latest.current.onPlaceTags ? () => latest.current.onPlaceTags?.() : null;
+                else if (matchedKey(event, SHORTCUTS.editorContinue.keys)) action = latest.current.onContinue ? () => latest.current.onContinue?.() : null;
+                else if (matchedKey(event, SHORTCUTS.editorAssist.keys)) action = latest.current.onAssist ? () => latest.current.onAssist?.() : null;
                 if (!action) return false;
                 event.preventDefault();
                 if (composing) afterComposition = action;

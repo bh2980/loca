@@ -8,12 +8,12 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "../../co
 import { Text } from "../../primitives/text"
 import { TooltipProvider } from "../../controls/tooltip"
 import { Notice } from "../../patterns/notice"
-import { FoundNodeList } from "./canvas-surface"
-import { FloatingZoomBar } from "./canvas-toolbar"
+import { FoundNodeList } from "./graph-canvas-parts"
+import { FloatingZoomBar } from "../../patterns/canvas-toolbar"
 import { FloatingCard } from "./floating-card"
 import { ColumnResizeHandle, FlowLine, FlowRow } from "./flow-pane"
 import { ForkOptionItem } from "./fork-menu"
-import { PersonNodeFrame, RelationLabelFrame } from "./relationship-node"
+import { PersonNodeFrame, RelationLabelFrame } from "../knowledge/relationship-node"
 import { ListRow } from "../../patterns/list-row"
 
 const meta = { title: "Domains/Graph/Path and relationship parts", decorators: [(Story) => <TooltipProvider><Box style={{ width: 420 }}><Story /></Box></TooltipProvider>] } satisfies Meta

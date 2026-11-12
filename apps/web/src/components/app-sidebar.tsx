@@ -1,12 +1,13 @@
 import { memo, useEffect } from 'react';
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router';
 import { BookOpen, Check, ChevronsUpDown, Languages, Monitor, Moon, Plus, Settings, Sun, Workflow } from 'lucide-react';
-import { Sidebar, SidebarBrand, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuBadge, SidebarMenuButton, SidebarMenuIcon, SidebarMenuItem, SidebarRail, DropdownMenu, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuRadioItem, Icon, SidebarGroup, SidebarGroupLabel, SidebarMenuLabel, Text, DropdownMenuContent, MenuLabel, PersonAvatar } from '@loca/ui';
+import { Sidebar, SidebarBrand, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuBadge, SidebarMenuButton, SidebarMenuIcon, SidebarMenuItem, SidebarRail, useSidebar, DropdownMenu, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuRadioItem, Icon, SidebarGroup, SidebarGroupLabel, SidebarMenuLabel, Text, DropdownMenuContent, MenuLabel, PersonAvatar } from '@loca/ui';
 import { holds, NAV_GROUPS, useCurrentNav, type NavGroup, type NavItem } from '@/lib/nav';
 import { setTheme, useTheme, type ThemeChoice } from '@/lib/theme';
 import { useProjectProgress } from '@/lib/project';
 import { useProfile, useProjects } from '@/lib/app-data';
 import { stored, STORED } from '@/lib/storage';
+import { useShortcuts } from '@/lib/shortcuts';
 
 const readLast = (projectId: string, itemId: string) => stored(STORED.sidebarLast, projectId, itemId).read();
 
@@ -88,6 +89,8 @@ function ProjectSwitcher({ projectId }: { projectId: string }) {
 }
 
 export function AppSidebar({ projectId }: { projectId: string }) {
+  const { toggleSidebar } = useSidebar();
+  useShortcuts({ sidebar: toggleSidebar });
   const theme = useTheme();
   const profile = useProfile();
   const current = useCurrentNav(projectId);

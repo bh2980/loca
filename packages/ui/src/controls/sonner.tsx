@@ -20,6 +20,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
         error: <AlertCircle className="size-3.5 text-danger" />,
         loading: <Loader2 className="size-3.5 animate-spin text-muted" />,
       }}
+      // Sonner's own stylesheet sets these variables per theme with attribute selectors: only an inline style outranks it.
       style={
         {
           "--normal-bg": "var(--background-color-overlay)",

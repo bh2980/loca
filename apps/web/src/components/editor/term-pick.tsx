@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Box, Button, EditorTermPopover, Input, Popover, PopoverAnchor, Stack, Text, SectionHeading } from '@loca/ui';
+import { Box, Button, Input, Popover, PopoverAnchor, PopoverContent, Stack, Text, SectionHeading } from '@loca/ui';
 import { selectionInLine } from './translation-input';
 import { useTerms, createTerm } from '@/lib/terms';
 
@@ -42,7 +42,7 @@ export function TermPick({ projectId, unitId, children }: { projectId: string; u
       {children}
       <Popover open={!!pick} onOpenChange={(open) => !open && setPick(undefined)}>
         {pick && <PopoverAnchor virtualRef={{ current: { getBoundingClientRect: () => pick.rect } }} />}
-        <EditorTermPopover side="bottom" align="start" onOpenAutoFocus={(event) => event.preventDefault()}>
+        <PopoverContent side="bottom" align="start" onOpenAutoFocus={(event) => event.preventDefault()}>
           {pick && (
             <Box
               as="form"
@@ -70,7 +70,7 @@ export function TermPick({ projectId, unitId, children }: { projectId: string; u
               </Stack>
             </Box>
           )}
-        </EditorTermPopover>
+        </PopoverContent>
       </Popover>
     </div>
   );

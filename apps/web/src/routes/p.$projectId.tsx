@@ -10,6 +10,7 @@ import { CommandSearch } from '@/components/command-search';
 import { ExportDialog } from '@/components/export-dialog';
 import { ShortcutHelp } from '@/components/shortcut-help';
 import { chatDock, useChatDockOpen } from '@/lib/chat-dock';
+import { useShortcuts } from '@/lib/shortcuts';
 import { useChatUnread } from '@/lib/chat-unread';
 import { clearRunNews, useJobNotices, useRunNews } from '@/lib/job-notices';
 import { useCurrentNav } from '@/lib/nav';
@@ -55,16 +56,7 @@ function ProjectLayout() {
     chatDock.set(false);
   }, []);
   useJobNotices(projectId);
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'i') {
-        event.preventDefault();
-        chatDock.toggle();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  useShortcuts({ chat: () => chatDock.toggle() });
   const terminalProposals = useProposals(projectId, { status: 'pending' });
   const waiting = terminalProposals.total ?? 0;
   const pending = terminalProposals.data ?? [];

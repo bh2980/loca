@@ -38,7 +38,7 @@ function tagCounts(tags: readonly ExitTagItem[]) {
 }
 
 /** The exit's actions in words, one per line: the button's accessible name. */
-export const exitTagWords = (items: readonly ExitTagItem[]) =>
+const exitTagWords = (items: readonly ExitTagItem[]) =>
   items.map((item) => {
     const verb = item.action === "remove" ? "제거" : "추가"
     if (item.kind === "status") return `상태 → ${item.name}`

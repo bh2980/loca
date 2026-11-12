@@ -1,6 +1,7 @@
 import type { ReactNode } from "react"
 import { useDefaultLayout } from "react-resizable-panels"
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "../../controls/resizable"
+import { storedItems } from "../../lib/storage"
 
 /** Resizable graph and reading surfaces with a session-local width preference. */
 export function GraphScriptSplit({ id, graph, children }: {
@@ -9,9 +10,9 @@ export function GraphScriptSplit({ id, graph, children }: {
   children: ReactNode
 }) {
   const layout = useDefaultLayout({
-    id: `loca-graph-script-${id}`,
+    id: `graph-script-${id}`,
     panelIds: ["graph", "script"],
-    storage: typeof window !== "undefined" ? window.sessionStorage : undefined,
+    storage: storedItems("session"),
   })
 
   return (

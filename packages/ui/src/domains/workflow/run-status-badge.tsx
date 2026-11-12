@@ -20,7 +20,7 @@ const DOT = {
   cancelled: "bg-neutral-subtle",
 } as const
 
-export interface RunStatusBadgeProps {
+interface RunStatusBadgeProps {
   status: keyof typeof LABEL
 }
 

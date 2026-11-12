@@ -10,5 +10,5 @@ export interface ScreenPoint {
  * right-click, a place on a canvas) has no element of its own to open from.
  */
 export const PointAnchor = React.forwardRef<HTMLSpanElement, { at: ScreenPoint } & Omit<React.ComponentProps<"span">, "className" | "style">>(function PointAnchor({ at, ...props }, ref) {
-  return <span ref={ref} aria-hidden style={{ position: "fixed", left: at.x, top: at.y, width: 1, height: 1, pointerEvents: "none" }} {...props} />
+  return <span ref={ref} aria-hidden className="pointer-events-none fixed size-px" style={{ left: at.x, top: at.y }} {...props} />
 })

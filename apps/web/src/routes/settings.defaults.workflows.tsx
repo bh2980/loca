@@ -1,17 +1,18 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { Trash2 } from 'lucide-react';
 import { WORKFLOW_TEMPLATES, type SavedWorkflow } from '@tw/shared';
-import { Box, Button, Checkbox, DataTable, EmptyState, Field, Input, Inspector, InspectorHeader, PageBody, Section, SplitPane, Stack, Text, Textarea, type ColumnDef } from '@loca/ui';
+import { Box, Button, Checkbox, ConfirmDialog, DataTable, EmptyState, Field, Input, Inspector, InspectorHeader, PageBody, Section, SplitPane, Stack, Text, Textarea, type ColumnDef } from '@loca/ui';
 import { Page } from '@/components/page';
 import { AiAutoConfirmSetting } from '@/components/settings/ai-confirm';
-import { DeleteButton } from '@/components/settings/delete-button';
 import { changedFields, useFormFrom } from '@/lib/use-form-from';
-import { useReportView } from '@/lib/view-context';
+import { useListScreen } from '@/lib/list-screen';
+import { param, searchParams } from '@/lib/search';
 import { saveAppDefaults, useAppDefaults } from '@/lib/app-data';
 
 export const Route = createFileRoute('/settings/defaults/workflows')({
-  validateSearch: (raw: Record<string, unknown>): { saved?: string } => ({ saved: typeof raw.saved === 'string' && raw.saved ? raw.saved : undefined }),
+  validateSearch: searchParams({ saved: param.text }),
   component: AppWorkflowSettings,
 });
 
@@ -23,9 +24,7 @@ function AppWorkflowSettings() {
   const defaults = useAppDefaults();
   const workflows = defaults.data?.workflows as Workflows | undefined;
   const selected = search.saved ? workflows?.saved.find((item) => item.id === search.saved) : undefined;
-  const close = () => void navigate({ search: {}, replace: true });
-
-  useReportView('settings-default-workflows', [selected && { kind: '저장한 워크플로', id: selected.id, label: selected.name }]);
+  const { close, toggle } = useListScreen({ search, navigate, selection: 'saved', report: ['settings-default-workflows', [selected && { kind: '저장한 워크플로', id: selected.id, label: selected.name }]] });
 
   const save = useMutation({
     // Shown at once, put back on failure.
@@ -87,7 +86,7 @@ function AppWorkflowSettings() {
                   rowId={(row) => row.id}
                   selected={search.saved}
                   empty={<EmptyState noun="저장한 워크플로" />}
-                  onRowClick={(row) => void navigate({ search: { saved: row.id === search.saved ? undefined : row.id }, replace: true })}
+                  onRowClick={(row) => toggle(row.id)}
                   rowLabel={(row) => row.name}
                 />
               </Box>
@@ -109,7 +108,14 @@ function SavedWorkflowPane({ workflow, pending, onClose, onSave, onDelete }: { w
   return (
     <Inspector
       header={<InspectorHeader kind="저장한 워크플로" name={workflow.name} onClose={onClose} />}
-      footerStart={<DeleteButton label={`워크플로 '${workflow.name}'`} description="새로 만드는 프로젝트가 이 워크플로를 받지 않습니다. 이미 있는 프로젝트는 그대로입니다." pending={pending} onConfirm={onDelete} />}
+      footerStart={(
+        <ConfirmDialog
+          trigger={<Button type="button" variant="ghost" tone="danger" disabled={pending}><Trash2 /> 삭제</Button>}
+          title={`워크플로 '${workflow.name}'을(를) 삭제할까요?`}
+          description="새로 만드는 프로젝트가 이 워크플로를 받지 않습니다. 이미 있는 프로젝트는 그대로입니다."
+          onConfirm={onDelete}
+        />
+      )}
       footer={
         <Button disabled={!draft.name.trim() || !dirty || pending} onClick={() => onSave(changedFields(draft, saved))}>
           저장

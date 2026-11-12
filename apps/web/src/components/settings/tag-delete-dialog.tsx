@@ -1,5 +1,5 @@
 /** The one confirmation before tags are deleted: from a tag's pane, the list's bulk delete and a row's menu. */
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@loca/ui';
+import { ConfirmDialog } from '@loca/ui';
 import type { TagRowData, WithoutUnits } from '@/components/settings/status-types';
 
 type DeletedTag = Pick<WithoutUnits<TagRowData>, 'name' | 'units'>;
@@ -25,17 +25,6 @@ export function tagDeleteWording(tags: readonly DeletedTag[]): { title: string; 
 export function TagDeleteDialog({ tags, onClose, onConfirm }: { tags: readonly DeletedTag[] | null; onClose: () => void; onConfirm: () => void }) {
   const wording = tags?.length ? tagDeleteWording(tags) : null;
   return (
-    <AlertDialog open={!!wording} onOpenChange={(next) => !next && onClose()}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>{wording?.title}</AlertDialogTitle>
-          <AlertDialogDescription>{wording?.description}</AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>취소</AlertDialogCancel>
-          <AlertDialogAction onClick={onConfirm}>삭제</AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+    <ConfirmDialog open={!!wording} onOpenChange={(next) => !next && onClose()} title={wording?.title} description={wording?.description} onConfirm={onConfirm} />
   );
 }

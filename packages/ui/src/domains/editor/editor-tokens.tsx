@@ -23,10 +23,6 @@ export function EditorTokenText({ look, children }: { look?: "suggestion" | "rem
   )
 }
 
-/** A paragraph of a line's source: keeps its breaks, wraps long words. */
-export function EditorSourceParagraph({ children }: { children?: React.ReactNode }) {
-  return <Text as="p" breakWords preserveLines>{children}</Text>
-}
 
 /** A numbered format token chip. `hue` is the token's colour class; `stray` is a token the source lacks; `missing` is one the translation lacks; `pickable` puts it at the cursor on press. */
 export function EditorTokenChip({ hue, stray, missing, pickable, ...props }: Omit<React.HTMLAttributes<HTMLSpanElement>, "className"> & { ref?: React.Ref<HTMLSpanElement>; hue: string; stray?: boolean; missing?: boolean; pickable?: boolean }) {

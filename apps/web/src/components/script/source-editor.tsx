@@ -1,8 +1,8 @@
-import { useEffect, useMemo } from 'react';
+import { useMemo } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Trash2 } from 'lucide-react';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Box, Button, DirtyBar, Inspector, InspectorHeader, InspectorResult, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Text, Textarea, Section, Field, KeyValue, KeyValueRow } from '@loca/ui';
+import { Box, Button, DirtyBar, Inspector, InspectorHeader, InspectorResult, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Text, Textarea, Section, Field, KeyValue, KeyValueRow, ConfirmDialog } from '@loca/ui';
 import { useDraft } from '@/lib/drafts';
 import { useLineDetail } from '@/lib/units';
 import { SOURCE_GROUP_LABEL, SOURCE_UNIT_LABEL } from '@/lib/labels';
@@ -10,6 +10,7 @@ import { useGroup, useGroups, createGroup, saveGroup, deleteGroup } from '@/lib/
 import type { LineDetail } from '@/lib/units';
 import { createLine, editLineSource, deleteLine } from '@/lib/line-writes';
 import { undoChange } from '@/lib/undo';
+import { useShortcuts } from '@/lib/shortcuts';
 
 export type SourceGroupKind = 'scene' | 'document' | 'ui';
 export type SourceEditorMode = 'create-group' | 'edit-group' | 'create-unit' | 'edit-unit';
@@ -53,16 +54,8 @@ export function SourceEditor({ projectId, kind, groupId, unitId, mode, onClose, 
   const form = JSON.parse(draft) as Form;
   const dirty = draft !== saved;
   const update = (name: keyof Form, value: string) => setDraft(JSON.stringify({ ...form, [name]: value }));
-  useEffect(() => {
-    if (!onBack) return;
-    // Esc goes back unless an open menu, select or dialog takes it first.
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || event.defaultPrevented || document.querySelector('[role="dialog"][data-state="open"], [role="alertdialog"], [role="listbox"], [role="menu"]')) return;
-      onBack();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onBack]);
+  // Esc goes back unless an open menu, select or dialog takes it first.
+  useShortcuts({ sourceBack: onBack && (() => onBack()) });
 
   const save = useMutation<SourceSaved, Error, string>({
     mutationFn: async (sent: string) => {
@@ -118,19 +111,15 @@ export function SourceEditor({ projectId, kind, groupId, unitId, mode, onClose, 
   const whyDisabled = isGroup ? '이름을 입력하면 추가할 수 있습니다.' : !form.groupId ? `${SOURCE_GROUP_LABEL[form.kind]}을(를) 고르고 원문을 입력하면 추가할 수 있습니다.` : '원문을 입력하면 추가할 수 있습니다.';
 
   return (
-    <Inspector footerStart={(editingGroup || editingUnit) ? (<><AlertDialog>
-            <AlertDialogTrigger asChild><Button type="button" variant="ghost" tone="danger"><Trash2 /> {editingGroup ? '묶음 삭제' : '원문 삭제'}</Button></AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>{editingGroup ? '묶음과 원문을 삭제할까요?' : '원문을 삭제할까요?'}</AlertDialogTitle>
-                <AlertDialogDescription>{editingGroup ? groupDeleteCopy : '이 원문과 대표 번역, 번역 후보 및 실행 기록의 해당 항목이 삭제됩니다. 삭제한 뒤 알림의 되돌리기로 되살릴 수 있습니다.'}</AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>취소</AlertDialogCancel>
-                <AlertDialogAction disabled={remove.isPending || (editingGroup && count === undefined)} onClick={() => remove.mutate()}>{remove.isPending ? '삭제 중…' : '삭제'}</AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog></>) : undefined}
+    <Inspector footerStart={(editingGroup || editingUnit) ? (<><ConfirmDialog
+            trigger={<Button type="button" variant="ghost" tone="danger"><Trash2 /> {editingGroup ? '묶음 삭제' : '원문 삭제'}</Button>}
+            title={editingGroup ? '묶음과 원문을 삭제할까요?' : '원문을 삭제할까요?'}
+            description={editingGroup ? groupDeleteCopy : '이 원문과 대표 번역, 번역 후보 및 실행 기록의 해당 항목이 삭제됩니다. 삭제한 뒤 알림의 되돌리기로 되살릴 수 있습니다.'}
+            confirmLabel={remove.isPending ? '삭제 중…' : '삭제'}
+            pending={remove.isPending}
+            disabled={editingGroup && count === undefined}
+            onConfirm={() => remove.mutate()}
+          /></>) : undefined}
       header={<InspectorHeader kind={isGroup ? SOURCE_GROUP_LABEL[form.kind] : SOURCE_UNIT_LABEL[form.kind]} name={heading} onClose={onClose} onBack={onBack} />}
       loading={loading}
       footer={creating

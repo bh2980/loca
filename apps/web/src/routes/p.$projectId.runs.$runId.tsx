@@ -10,12 +10,12 @@ import { ContextItemList } from '@/components/ai-context';
 import { LineDetail } from '@/components/line-detail';
 import { TermEditor } from '@/components/glossary/term-pane';
 import { HeaderActions, HeaderViews, Page } from '@/components/page';
-import { Inspector, InspectorHeader, Group, KeyValue, KeyValueRow, Section, EmptyState, SectionHeading, DataTable, type ColumnDef, Pager, FilterBar, ActionBar, SplitPane, RunStatusBadge, StatusBarItem, Notice, NoticeDescription, NoticeRow, Chip, Box, Button, Inline, Text, ExpandableRow, Progress, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Tabs, TabsList, TabsTrigger, Skeleton } from '@loca/ui';
+import { Inspector, InspectorHeader, Group, KeyValue, KeyValueRow, Section, EmptyState, SectionHeading, DataTable, type ColumnDef, Pager, FilterBar, ActionBar, SplitPane, RunStatusBadge, StatusBarItem, Notice, NoticeDescription, NoticeRow, Chip, Box, Button, Inline, Text, ExpandableRow, Progress, Tabs, TabsList, TabsTrigger, Skeleton, ConfirmDialog } from '@loca/ui';
 import { HeaderFilter } from '@/components/header-filter';
 import { ITEM_STATE } from '@/lib/labels';
 import { errorKindLabel, retryReason, retryState } from '@/lib/retry-info';
 import { q } from '@/lib/queries';
-import { useReportView } from '@/lib/view-context';
+import { useListScreen } from '@/lib/list-screen';
 import { BatchList } from '@/components/workflow/batch-list';
 import { ContinueRun } from '@/components/workflow/continue-run';
 import { RaiseCaps } from '@/components/workflow/raise-caps';
@@ -26,35 +26,27 @@ import { useTerms } from '@/lib/terms';
 import { runNodeExits, useRunDetail, useRunItems, useRunSteps, type RunItemRow } from '@/lib/run-detail';
 import { controlRun } from '@/lib/runs';
 import { decideItems } from '@/lib/knowledge';
+import { param, searchParams, type SearchOf } from '@/lib/search';
 
 type State = keyof typeof ITEM_STATE | 'retrying';
-interface RunSearch {
+const runSearchParams = {
   /** The open inspector's tab (lib/inspector-tab.ts). */
-  pane?: string;
-  state?: State;
+  pane: param.text,
+  state: param.oneOf<State>([...(Object.keys(ITEM_STATE) as (keyof typeof ITEM_STATE)[]), 'retrying']),
   /** Where the lines are now (the 위치 column's filter). */
-  node?: string;
+  node: param.text,
   /** The lines that came through a node (the run graph opens these), and out of which of its exits. */
-  through?: string;
-  exit?: string;
-  page?: number;
-  line?: string;
-  tab?: 'steps' | 'plan' | 'graph';
-  aiNode?: string;
-}
+  through: param.text,
+  exit: param.text,
+  page: param.positive,
+  line: param.text,
+  tab: param.oneOf(['steps', 'plan', 'graph']),
+  aiNode: param.read((raw) => (typeof raw === 'string' && raw.includes(':') ? raw : undefined)),
+};
+type RunSearch = SearchOf<typeof runSearchParams>;
 
 export const Route = createFileRoute('/p/$projectId/runs/$runId')({
-  validateSearch: (raw: Record<string, unknown>): RunSearch => ({
-    pane: typeof raw.pane === 'string' && raw.pane ? raw.pane : undefined,
-    state: typeof raw.state === 'string' && (raw.state in ITEM_STATE || raw.state === 'retrying') ? (raw.state as State) : undefined,
-    node: typeof raw.node === 'string' ? raw.node : undefined,
-    through: typeof raw.through === 'string' ? raw.through : undefined,
-    exit: typeof raw.exit === 'string' ? raw.exit : undefined,
-    page: typeof raw.page === 'number' && raw.page > 0 ? raw.page : undefined,
-    line: typeof raw.line === 'string' ? raw.line : undefined,
-    tab: raw.tab === 'steps' || raw.tab === 'plan' || raw.tab === 'graph' ? raw.tab : undefined,
-    aiNode: typeof raw.aiNode === 'string' && raw.aiNode.includes(':') ? raw.aiNode : undefined,
-  }),
+  validateSearch: searchParams(runSearchParams),
   component: RunDetail,
 });
 
@@ -96,8 +88,7 @@ function RunDetail() {
   const steps = useRunSteps(projectId, runId, search.tab === 'steps');
   const plan = useQuery({ ...q.runPlan(runId), enabled: search.tab === 'plan' });
   const control = useMutation({ mutationFn: (action: 'pause' | 'resume' | 'cancel') => controlRun(projectId, runId, action) });
-  const setSearch = (next: Partial<RunSearch>, replace = false) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace });
-  useReportView('run', [run.data && { kind: '실행', id: run.data.id, label: run.data.workflowName }]);
+  const { setSearch, toggle } = useListScreen({ search, navigate, selection: 'line', report: ['run', [run.data && { kind: '실행', id: run.data.id, label: run.data.workflowName }]] });
 
   if (!run.data)
     return (
@@ -155,7 +146,7 @@ function RunDetail() {
         <HeaderFilter
           label="위치"
           value={search.node}
-          onChange={(node) => setSearch({ node, page: undefined, line: undefined }, true)}
+          onChange={(node) => setSearch({ node, page: undefined, line: undefined })}
           options={locations}
         />
       ),
@@ -168,7 +159,7 @@ function RunDetail() {
         <HeaderFilter
           label="상태"
           value={search.state}
-          onChange={(state) => setSearch({ state: state as State | undefined, page: undefined, line: undefined }, true)}
+          onChange={(state) => setSearch({ state: state as State | undefined, page: undefined, line: undefined })}
           options={[
             ...(Object.keys(ITEM_STATE) as (keyof typeof ITEM_STATE)[]).filter((state) => totals[state]).map((state) => ({ value: state, label: ITEM_STATE[state], hint: totals[state] })),
             ...(retryingTotal || search.state === 'retrying' ? [{ value: 'retrying', label: '다시 보내는 중', hint: retryingTotal }] : []),
@@ -217,18 +208,15 @@ function RunDetail() {
   ];
 
   const stop = (
-    <AlertDialog open={cancelOpen} onOpenChange={setCancelOpen}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>실행을 취소할까요?</AlertDialogTitle>
-          <AlertDialogDescription>아직 처리하지 않은 {INPUT_TYPES[data.subject].label}는 이 실행에서 빠집니다. 이미 반영된 번역·상태는 그대로입니다.</AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>계속 실행</AlertDialogCancel>
-          <AlertDialogAction onClick={() => control.mutate('cancel')}>실행 취소</AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+    <ConfirmDialog
+      open={cancelOpen}
+      onOpenChange={setCancelOpen}
+      title="실행을 취소할까요?"
+      description={`아직 처리하지 않은 ${INPUT_TYPES[data.subject].label}는 이 실행에서 빠집니다. 이미 반영된 번역·상태는 그대로입니다.`}
+      cancelLabel="계속 실행"
+      confirmLabel="실행 취소"
+      onConfirm={() => control.mutate('cancel')}
+    />
   );
 
   const percent = data.total ? Math.round((finished / data.total) * 100) : 0;
@@ -316,7 +304,7 @@ function RunDetail() {
           <Box as="ul" spaceY="tight">
             {nodeExits.data!.exits.map((exit) => (
               <Box as="li" key={exit.port}>
-                <Button variant={search.exit === exit.port ? 'secondary' : 'ghost'} height="auto" width="full" justifyContent="between" gap="condensed" paddingY="tight" weight="normal" aria-pressed={search.exit === exit.port} title={`이 출구로 나간 ${noun} 보기`} onClick={() => setSearch({ exit: search.exit === exit.port ? undefined : exit.port, page: undefined }, true)}>
+                <Button variant={search.exit === exit.port ? 'secondary' : 'ghost'} height="auto" width="full" justifyContent="between" gap="condensed" paddingY="tight" weight="normal" aria-pressed={search.exit === exit.port} title={`이 출구로 나간 ${noun} 보기`} onClick={() => setSearch({ exit: search.exit === exit.port ? undefined : exit.port, page: undefined })}>
                   <Text minWidth={0} truncate align="start">{exitLabel(exit.port)}</Text>
                   <Text shrink={false} variant="caption" tone="muted" tabular>{exit.count.toLocaleString()}</Text>
                 </Button>
@@ -336,7 +324,7 @@ function RunDetail() {
         pane={
           !search.line ? (nodeInfo || runInfo) : (terms ? (
             selectedTerm ? (
-              <TermEditor key={selectedTerm.id} projectId={projectId} term={selectedTerm} onClose={() => setSearch({ line: undefined }, true)} onDecide={(accept) => decide.mutate(accept)} deciding={decide.isPending} />
+              <TermEditor key={selectedTerm.id} projectId={projectId} term={selectedTerm} onClose={() => setSearch({ line: undefined })} onDecide={(accept) => decide.mutate(accept)} deciding={decide.isPending} />
             ) : (
               <Text as="p" padding="comfortable" variant="body" tone="muted">{Boolean(termList.data) ? '용어집에서 사라진 용어입니다.' : '용어를 불러오는 중…'}</Text>
             )
@@ -344,11 +332,11 @@ function RunDetail() {
             <LineDetail
               projectId={projectId}
               unitId={search.line}
-              onClose={() => setSearch({ line: undefined }, true)}
+              onClose={() => setSearch({ line: undefined })}
               showScene
               editor
               aiNode={search.aiNode}
-              onAiNode={(aiNode) => setSearch({ aiNode }, true)}
+              onAiNode={(aiNode) => setSearch({ aiNode })}
             />
           ))
         }
@@ -356,7 +344,7 @@ function RunDetail() {
         {/* The views next to the title (as every page's); the run's actions stay at the right. */}
         <HeaderViews>
           <Box asChild alignSelf="stretch">
-          <Tabs value={view} onValueChange={(value) => setSearch({ tab: value === 'steps' || value === 'plan' || value === 'graph' ? value : undefined }, true)}>
+          <Tabs value={view} onValueChange={(value) => setSearch({ tab: value === 'steps' || value === 'plan' || value === 'graph' ? value : undefined })}>
             <Box asChild height="full" border="noBottom">
             <TabsList variant="line" aria-label="보기">
               <TabsTrigger value="items">{input.label}별 <Text tone="muted" tabular>{data.total.toLocaleString()}</Text></TabsTrigger>
@@ -384,7 +372,7 @@ function RunDetail() {
         {/* Only a filter (a state or node picked elsewhere) earns a bar: it says how many it left and takes it off. The run's count is on the tab. */}
         {view === 'items' && filtered && <FilterBar end={items.data ? <Text variant="micro" tabular>{total.toLocaleString()}{input.unit}</Text> : undefined}>
           {search.through && <Text minWidth={0} truncate variant="caption">‘{nodeName(search.through)}’ 노드를 거친 {noun}{search.exit ? ` · 출구 ${exitLabel(search.exit)}` : ''}</Text>}
-          <Button variant="ghost" onClick={() => setSearch({ state: undefined, node: undefined, through: undefined, exit: undefined, page: undefined, line: undefined }, true)}>
+          <Button variant="ghost" onClick={() => setSearch({ state: undefined, node: undefined, through: undefined, exit: undefined, page: undefined, line: undefined })}>
             필터 지우기
           </Button>
         </FilterBar>}
@@ -419,15 +407,15 @@ function RunDetail() {
             rowId={(item) => item.id}
             loading={!items.data}
             selected={items.data?.rows.find((item) => item.unitId === search.line)?.id}
-            onRowClick={(item) => setSearch({ line: search.line === item.unitId ? undefined : item.unitId }, true)}
+            onRowClick={(item) => toggle(item.unitId)}
             empty={search.through && !search.exit && !search.state && !search.node
               ? <EmptyState noun={noun} hint="아직 이 노드에 도착하지 않았습니다." />
               : <EmptyState noun={noun} filtered={filtered} />}
-            footer={<Pager page={search.page ?? 0} total={total} pageSize={PAGE} onPage={(page) => setSearch({ page: page || undefined })} />}
+            footer={<Pager page={search.page ?? 0} total={total} pageSize={PAGE} onPage={(page) => setSearch({ page: page || undefined }, 'push')} />}
           />
         )) : view === 'graph' ? (
           <Box minHeight={0} grow>
-            <RunGraph projectId={projectId} run={data} selected={search.through ?? search.node} onOpenNode={(through) => setSearch({ tab: undefined, through, exit: undefined, node: undefined, state: undefined, page: undefined, line: undefined })} />
+            <RunGraph projectId={projectId} run={data} selected={search.through ?? search.node} onOpenNode={(through) => setSearch({ tab: undefined, through, exit: undefined, node: undefined, state: undefined, page: undefined, line: undefined }, 'push')} />
           </Box>
         ) : view === 'plan' ? (
           <Box minHeight={0} grow overflow="auto" padding="comfortable">

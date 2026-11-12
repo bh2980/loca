@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../../controls
 import { SelectItem } from "../../controls/select"
 import { Text } from "../../primitives/text"
 import { FieldChildren, FieldReadRow, RequestDetails, RequestPart, SelectField } from "./node-config-parts"
-import { NodeKindIcon } from "../graph/node-card"
+import { NodeKindIcon } from "./node-card"
 
 const meta = { title: "Domains/Workflow/Node settings", decorators: [(Story) => <Box style={{ width: 340 }}><Story /></Box>] } satisfies Meta
 export default meta

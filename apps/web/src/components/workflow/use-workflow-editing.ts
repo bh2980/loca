@@ -14,6 +14,7 @@ import { exitActionItem, librarySeed, type NodeSeed } from './node-palette';
 import type { WorkflowDraftState } from './use-workflow-draft';
 import type { WorkflowSelection } from './use-workflow-selection';
 import type { WorkflowView } from './use-workflow-view';
+import { useShortcuts } from '@/lib/shortcuts';
 
 type Box = NonNullable<WorkflowGroup['box']>;
 const DEFAULT_FRAME = { width: 360, height: 240 };
@@ -127,12 +128,7 @@ export function useWorkflowEditing({ workflowId, draft, selection, view, directi
   // ── exit actions ───────────────────────────────────────────────────────────────
   // An exit action picked from '＋ 노드', waiting for the line to go on (Esc lets it go).
   const [pickingExit, setPickingExit] = useState<string>();
-  useEffect(() => {
-    if (!pickingExit) return;
-    const key = (event: KeyboardEvent) => event.key === 'Escape' && setPickingExit(undefined);
-    window.addEventListener('keydown', key);
-    return () => window.removeEventListener('keydown', key);
-  }, [pickingExit]);
+  useShortcuts({ exitPickCancel: () => setPickingExit(undefined) }, { enabled: Boolean(pickingExit) });
   /** Puts a new action of the kind `itemId` on the exit and opens it, its fields first. */
   const addExitAction = (nodeId: string, port: string, itemId: string) => {
     const item = exitActionItem(itemId);

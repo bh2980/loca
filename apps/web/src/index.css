@@ -71,18 +71,6 @@
   }
 }
 
-/* A bar that moves while work runs whose progress cannot be counted (one long model call). */
-@keyframes indeterminate {
-  from { transform: translateX(-100%); }
-  to { transform: translateX(250%); }
-}
-
-/* A line opened from a link flashes once where it landed. */
-@keyframes line-arrived {
-  0%, 30% { background-color: var(--background-color-selected); }
-  100% { background-color: transparent; }
-}
-
 /* Format token chips (⟨1 … 1⟩ a pair, ⟨2⟩ alone), in the editor (cm-) and in read-only text alike:
    a little smaller than the text around them, but readable, with room so ⟨1 and the word after it do not run together. */
 @layer components {

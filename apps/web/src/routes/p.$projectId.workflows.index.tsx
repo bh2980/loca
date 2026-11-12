@@ -4,7 +4,7 @@ import { useMutation } from '@tanstack/react-query';
 import { Copy, Play, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { WORKFLOW_TEMPLATES } from '@tw/shared';
-import { EmptyState, DataTable, type ColumnDef, RunStatusBadge, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Chip, Box, Button, Inline, Skeleton, Stack, Text, ContextMenuItem, ContextMenuSeparator, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@loca/ui';
+import { EmptyState, DataTable, type ColumnDef, RunStatusBadge, Chip, Box, Button, Inline, Skeleton, Stack, Text, ContextMenuItem, ContextMenuSeparator, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, ConfirmDialog } from '@loca/ui';
 import { HeaderActions, Page } from '@/components/page';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { dateTime } from '@/lib/datetime';
@@ -91,53 +91,9 @@ function Workflows() {
       header: () => <Text srOnly>실행</Text>,
       meta: { width: 88, dense: true, label: '실행', hideable: false },
       cell: ({ row }) => (
-        <div onClick={(event) => event.stopPropagation()}>
-          <RunDialog
-            projectId={projectId}
-            workflowId={row.original.id}
-            trigger={
-              <Button variant="ghost" disabledReason={row.original.errorCount > 0 && `오류 ${row.original.errorCount}개를 고친 뒤 실행할 수 있습니다.`}>
-                <Play /> 실행
-              </Button>
-            }
-          />
-        </div>
-      ),
-    },
-    {
-      id: 'duplicate',
-      header: () => <Text srOnly>복제</Text>,
-      meta: { width: 48, dense: true, label: '복제', hideable: false },
-      cell: ({ row }) => (
-        <Button variant="ghost" size="icon" reveal="row" aria-label={`${row.original.name} 복제`} disabled={duplicate.isPending} onClick={(event) => { event.stopPropagation(); duplicate.mutate(row.original); }}>
-          <Copy />
+        <Button variant="ghost" size="icon" reveal="row" hoverTone="danger" aria-label={`${row.original.name} 삭제`} onClick={(event) => { event.stopPropagation(); setDeleteTarget(row.original); }}>
+          <Trash2 />
         </Button>
-      ),
-    },
-    {
-      id: 'delete',
-      header: () => <Text srOnly>삭제</Text>,
-      meta: { width: 48, dense: true, label: '삭제', hideable: false },
-      cell: ({ row }) => (
-        <div onClick={(event) => event.stopPropagation()}>
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button variant="ghost" size="icon" reveal="row" hoverTone="danger" aria-label={`${row.original.name} 삭제`}>
-                <Trash2 />
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>‘{row.original.name}’을 삭제할까요?</AlertDialogTitle>
-                <AlertDialogDescription>지난 실행 기록은 남습니다.</AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>취소</AlertDialogCancel>
-                <AlertDialogAction onClick={() => remove.mutate(row.original.id)}>삭제</AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        </div>
       ),
     },
   ];
@@ -193,18 +149,13 @@ function Workflows() {
           )}
         />
       </Stack>
-      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>‘{deleteTarget?.name}’을 삭제할까요?</AlertDialogTitle>
-            <AlertDialogDescription>지난 실행 기록은 남습니다.</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>취소</AlertDialogCancel>
-            <AlertDialogAction onClick={() => { if (deleteTarget) { remove.mutate(deleteTarget.id); setDeleteTarget(null); } }}>삭제</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        title={`‘${deleteTarget?.name}’을 삭제할까요?`}
+        description="지난 실행 기록은 남습니다."
+        onConfirm={() => deleteTarget && remove.mutate(deleteTarget.id)}
+      />
     </Page>
   );
 }

@@ -7,16 +7,16 @@ import { Text } from "../../primitives/text"
 import { EditorAiSuggestion, EditorChangedWord, EditorDiffWord } from "./editor-diff"
 import { Check, Sparkles } from "lucide-react"
 import { Button } from "../../controls/button"
-import { Popover, PopoverTrigger } from "../../controls/popover"
+import { Popover, PopoverContent, PopoverTrigger } from "../../controls/popover"
 import { Tooltip, TooltipTrigger } from "../../controls/tooltip"
 import { EditorAction } from "./editor-action"
-import { EditorToolbar, EditorToolbarProvider, EditorToolbarSlot } from "./editor-toolbar"
-import { EditorDraftNote, EditorTermPopover } from "./editor-misc"
+import { EditorToolbar, EditorToolbarProvider, EditorToolbarSlot } from "../script/editor-toolbar"
+import { EditorDraftNote } from "./editor-misc"
 import { EditorSuggestionList, EditorSuggestionRow } from "./editor-suggestions"
 import { EditorInputBox } from "./editor-input-box"
-import { EditorSourceParagraph, EditorTermMark, EditorTokenChip, EditorTokenText, EditorTokenTip } from "./editor-tokens"
+import { EditorTermMark, EditorTokenChip, EditorTokenText, EditorTokenTip } from "./editor-tokens"
 
-const meta = { title: "Domains/Script/Editor parts" } satisfies Meta
+const meta = { title: "Domains/Editor/Parts" } satisfies Meta
 export default meta
 type Story = StoryObj<typeof meta>
 
@@ -68,8 +68,8 @@ export const Actions: Story = {
 export const SourceText: Story = {
   render: () => (
     <Stack gap="condensed" style={{ width: 360 }}>
-      <EditorSourceParagraph>{"…여기 있었구나.\n한참 찾았잖아. 교실에도 없고"}</EditorSourceParagraph>
-      <EditorSourceParagraph>{"https://example.com/아주아주아주아주아주아주아주아주아주아주긴주소/index.html"}</EditorSourceParagraph>
+      <Text as="p" breakWords preserveLines>{"…여기 있었구나.\n한참 찾았잖아. 교실에도 없고"}</Text>
+      <Text as="p" breakWords preserveLines>{"https://example.com/아주아주아주아주아주아주아주아주아주아주긴주소/index.html"}</Text>
       <Text as="p">
         <EditorTermMark pickable>하윤</EditorTermMark>이 <EditorTermMark dotted>옥상</EditorTermMark>에 있다 <Tooltip open><TooltipTrigger asChild><EditorTokenChip hue="" pickable>1</EditorTokenChip></TooltipTrigger><EditorTokenTip text="{name}" hint="누르면 커서에 넣습니다" /></Tooltip>
       </Text>
@@ -98,7 +98,7 @@ export const PopoverAndToolbar: Story = {
         <EditorToolbar><Chip variant="outline">상태: 번역함</Chip></EditorToolbar>
         <Popover open>
           <PopoverTrigger asChild><Button variant="outline">옥상</Button></PopoverTrigger>
-          <EditorTermPopover><Text>'옥상'을 용어로 추가할까요?</Text><Button>추가</Button></EditorTermPopover>
+          <PopoverContent><Stack gap="condensed" align="start"><Text>'옥상'을 용어로 추가할까요?</Text><Button>추가</Button></Stack></PopoverContent>
         </Popover>
       </Stack>
     </EditorToolbarProvider>

@@ -7,14 +7,14 @@ import { useMutation } from '@tanstack/react-query';
 import { ArrowLeftRight, GanttChart, Network, Plus, Table2, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { CHARACTER_ROLE_LABELS, OTHERS_LISTENER, parseMarks, type AutoMark, styleNames, isSettled, aiDecided, KNOWLEDGE_SOURCES, listenerLabel, SPEECH_LEVEL_LABELS, type KnowledgeSource, type TagScope, personLabel, type DecidedBy, buildPairs, knowledgeMatches, pairKey, pairMatches, pairSummary, type KnowledgeFilter } from '@tw/shared';
-import { EmptyState, Inline, TagMenu, Box, Text, FilterChips, FilterBar, ViewSwitch, Chip, Button, DataTable, type ColumnDef, ContextMenuItem, ContextMenuSeparator, useRevealDock, AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction, Skeleton, SplitPane } from '@loca/ui';
+import { EmptyState, Inline, TagMenu, Box, Text, FilterChips, FilterBar, ViewSwitch, Chip, Button, DataTable, type ColumnDef, ContextMenuItem, ContextMenuSeparator, useRevealDock, Skeleton, SplitPane, ConfirmDialog } from '@loca/ui';
 import { HeaderActions, HeaderViews, Page } from '@/components/page';
 import { RelationshipGraph } from '@/components/relationship-graph';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { Play } from 'lucide-react';
 import { DraftEditor } from '@/components/knowledge/editor';
 import { RelationshipChanges, RuleLines } from '@/components/knowledge/evidence';
-import { AiNamed, BulkDecide, fail, parseStatusFilter, parseDecidedBy, type StatusFilter, KINDS, KnowledgeFilters, knowledgeFilterChips, KNOWLEDGE_MARK_IDS, type KnowledgeFilterState, type Kind, type KindSpec, type Row, defineKind, metaColumns, candidateRow } from '@/components/knowledge/table';
+import { AiNamed, BulkDecide, fail, itemFilterParams, KINDS, KnowledgeFilters, knowledgeFilterChips, KNOWLEDGE_MARK_IDS, type KnowledgeFilterState, type Kind, type KindSpec, type Row, defineKind, metaColumns, candidateRow } from '@/components/knowledge/table';
 import { PairDetail, pairItems, PairTable, useStablePairs, type Pair } from '@/components/knowledge/pairs';
 import { AddPairPopover } from '@/components/knowledge/add-pair-popover';
 import { EventFlow } from '@/components/knowledge/event-flow';
@@ -26,54 +26,28 @@ import { splitList } from '@/lib/list-value';
 import { decideItems, useCharacters, useDocuments, useRelationships, useSpeechRules, useStoryEvents, useTaxonomy, knowledgeWrites } from '@/lib/knowledge';
 import { DOCUMENT_KIND } from '@/lib/labels';
 import { tagsIn, useMarkStyles } from '@/lib/queries';
-import { usePicked } from '@/lib/use-picked';
-import { useReportView } from '@/lib/view-context';
+import { useListScreen } from '@/lib/list-screen';
+import { param, searchParams, type SearchOf } from '@/lib/search';
 
 /** Tabs (the top bar's section tabs link to them). Relationships and speech rules share 인물·관계 because both describe speaker → listener pairs. */
 const TABS = { people: '인물·관계', events: '사건', documents: '노트' } as const;
 type Tab = keyof typeof TABS;
-interface KnowledgeSearch {
+const knowledgeSearchParams = {
   /** The open inspector's tab (lib/inspector-tab.ts). */
-  pane?: string;
-  tab?: Tab;
-  /** 출처 filter: who wrote it (작품 분석, AI, 대본에서 찾음, 가져오기, 사람). */
-  source?: KnowledgeSource;
-  /** 상태 filter: 후보 or 확정. */
-  status?: StatusFilter;
-  /** 정한 쪽: confirmed by AI (✦) or by a person. */
-  decidedBy?: DecidedBy;
-  /** Automatic marks (#확인 권장, #근거 부재): items carrying all of them. */
-  marks?: AutoMark[];
-  /** 태그 filter: project tag ids; items carrying all of them. */
-  tags?: string[];
-  /** 숨기기: items carrying any of these marks or tags are left out. */
-  hideMarks?: AutoMark[];
-  hideTags?: string[];
-  /** Only these items (a run's scope, from the run dialog's readiness list); shown as a removable chip, combined with the other filters. In 인물·관계 tables the pairs holding them. */
-  ids?: string[];
+  pane: param.text,
+  tab: param.oneOf(Object.keys(TABS) as Tab[]),
+  // In 인물·관계 tables `ids` are the pairs holding the items.
+  ...itemFilterParams(KNOWLEDGE_MARK_IDS),
   /** Selected item id, or a pair key ("from→to") in 인물·관계 › 관계. */
-  item?: string;
+  item: param.text,
   /** Presentation. Default is the picture (relationship graph / event flow); 'table' is the table instead (인물·관계: pairs), 'characters' the people table in 인물·관계. */
-  display?: 'table' | 'characters';
-  direction?: 'vertical' | 'horizontal';
-}
+  display: param.oneOf(['table', 'characters']),
+  direction: param.oneOf(['vertical', 'horizontal']),
+};
+type KnowledgeSearch = SearchOf<typeof knowledgeSearchParams>;
 
 export const Route = createFileRoute('/p/$projectId/knowledge')({
-  validateSearch: (raw: Record<string, unknown>): KnowledgeSearch => ({
-    pane: typeof raw.pane === 'string' && raw.pane ? raw.pane : undefined,
-    tab: typeof raw.tab === 'string' && raw.tab in TABS ? (raw.tab as Tab) : undefined,
-    source: typeof raw.source === 'string' && (KNOWLEDGE_SOURCES as readonly string[]).includes(raw.source) ? (raw.source as KnowledgeSource) : undefined,
-    status: parseStatusFilter(raw.status),
-    decidedBy: parseDecidedBy(raw.decidedBy),
-    marks: parseMarks(raw.marks, KNOWLEDGE_MARK_IDS),
-    tags: Array.isArray(raw.tags) && raw.tags.length && raw.tags.every((id) => typeof id === 'string') ? (raw.tags as string[]) : undefined,
-    hideMarks: parseMarks(raw.hideMarks, KNOWLEDGE_MARK_IDS),
-    hideTags: Array.isArray(raw.hideTags) && raw.hideTags.length && raw.hideTags.every((id) => typeof id === 'string') ? (raw.hideTags as string[]) : undefined,
-    ids: Array.isArray(raw.ids) && raw.ids.length && raw.ids.every((id) => typeof id === 'string') ? (raw.ids as string[]) : undefined,
-    item: typeof raw.item === 'string' && raw.item ? raw.item : undefined,
-    display: raw.display === 'table' || raw.display === 'characters' ? raw.display : undefined,
-    direction: raw.direction === 'horizontal' || raw.direction === 'vertical' ? raw.direction : undefined,
-  }),
+  validateSearch: searchParams(knowledgeSearchParams),
   component: Knowledge,
 });
 
@@ -94,7 +68,6 @@ function Knowledge() {
   const pairsView = tab === 'people' && search.display === 'table';
   const timeline = tab === 'events' && search.display !== 'table';
   const direction = search.direction ?? 'vertical';
-  const set = (next: Partial<KnowledgeSearch>, replace = true) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace });
 
   const taxonomy = useTaxonomy(projectId);
   const documents = useDocuments(projectId);
@@ -254,13 +227,17 @@ function Knowledge() {
   const selected = !pairsView ? spec.rows.find((row) => row.id === search.item) : undefined;
   const unofficial = (kind: Kind) => specs[kind].rows.filter((row) => !isSettled(row)).length;
   const unofficialHere = tab === 'people' ? unofficial('characters') + unofficial('relationships') + unofficial('speechRules') : unofficial(tab);
-  useReportView('knowledge', [
-    selected && { kind: KINDS[tableKind], id: selected.id, label: spec.label(selected), detail: !isSettled(selected) ? (selected.status === 'candidate' ? '후보' : '확정 · AI 초안') : undefined },
-    pair && { kind: '관계·말투', id: pair.key, label: `${pair.from} → ${pair.to}` },
-  ]);
-
   // Picks belong to one list (tab + presentation): each keeps its own, and Back brings them back.
-  const { picked: checked, pick, clear: clearChecked } = usePicked(`knowledge.${projectId}.${tab}.${search.display ?? 'picture'}`);
+  const { setSearch: set, open, toggle, picked: checked, pick, clearPicked: clearChecked } = useListScreen({
+    search,
+    navigate,
+    selection: 'item',
+    picks: `knowledge.${projectId}.${tab}.${search.display ?? 'picture'}`,
+    report: ['knowledge', [
+      selected && { kind: KINDS[tableKind], id: selected.id, label: spec.label(selected), detail: !isSettled(selected) ? (selected.status === 'candidate' ? '후보' : '확정 · AI 초안') : undefined },
+      pair && { kind: '관계·말투', id: pair.key, label: `${pair.from} → ${pair.to}` },
+    ]],
+  });
   // The rows change at once (decideItems); the feed brings the saved ones, and a failure puts them back.
   const decide = useMutation({
     mutationFn: ({ items, action }: { items: { kind: Kind; ids: string[] }[]; action: 'confirm' | 'discard' }) => decideItems(projectId, items, action),
@@ -492,7 +469,7 @@ function Knowledge() {
               key={lineKey(line)}
               from={lineEnds.from}
               to={lineEnds.to}
-              onOpen={(id) => set({ item: id })}
+              onOpen={open}
               onRemove={() => {
                 void eventActions.remove({ ids: [], lines: [line] });
                 set({ item: undefined });
@@ -504,7 +481,7 @@ function Knowledge() {
       >
         {(tab === 'people' || tab === 'events') && <HeaderViews>
           <ViewSwitch label="보기" value={tab === 'people' ? graph ? 'graph' : search.display === 'characters' ? 'characters' : 'table' : timeline ? 'timeline' : 'table'}
-            onChange={(value) => set({ display: tab === 'people' ? value === 'graph' ? undefined : value === 'characters' ? 'characters' : 'table' : value === 'table' ? 'table' : undefined, item: undefined }, false)}
+            onChange={(value) => set({ display: tab === 'people' ? value === 'graph' ? undefined : value === 'characters' ? 'characters' : 'table' : value === 'table' ? 'table' : undefined, item: undefined }, 'push')}
             items={tab === 'people' ? [
               { value: 'graph', label: '그래프', icon: <Network /> },
               { value: 'characters', label: '인물', icon: <Users /> },
@@ -553,10 +530,10 @@ function Knowledge() {
                 filtered={filtered}
                 events={specs.events.rows.filter(shown)}
                 direction={direction}
-                onDirectionChange={(next) => set({ direction: next }, false)}
+                onDirectionChange={(next) => set({ direction: next }, 'push')}
                 actions={eventActions}
                 selected={search.item}
-                onOpen={(id) => set({ item: id })}
+                onOpen={open}
                 emptyAction={emptyActions}
               />
             )}
@@ -569,7 +546,7 @@ function Knowledge() {
             selected={pair?.key}
             picked={checked}
             onPick={pick}
-            onOpen={(key) => set({ item: key === pair?.key ? undefined : key })}
+            onOpen={toggle}
             bulk={bulk}
             filters={filters}
           />
@@ -581,7 +558,7 @@ function Knowledge() {
             loading={pending}
             rowId={(row) => row.id}
             selected={search.item}
-            onRowClick={(row) => set({ item: row.id === search.item ? undefined : row.id })}
+            onRowClick={(row) => toggle(row.id)}
             rowState={candidateRow}
             picked={checked}
             onPick={pick}
@@ -592,32 +569,14 @@ function Knowledge() {
           />
         )}
       </SplitPane>
-      <AlertDialog open={Boolean(deletingIds)} onOpenChange={(open) => !open && setDeletingIds(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {deletingIds && deletingIds.length > 1 ? `${deletingIds.length}개 항목을 삭제할까요?` : '항목을 삭제할까요?'}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              삭제한 항목은 사라지고 더 이상 AI 문맥에 쓰이지 않습니다.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>취소</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              disabled={deleteMutation.isPending}
-              onClick={() => {
-                if (deletingIds) {
-                  deleteMutation.mutate(deletingIds);
-                }
-              }}
-            >
-              삭제
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmDialog
+        open={Boolean(deletingIds)}
+        onOpenChange={(open) => !open && setDeletingIds(null)}
+        title={deletingIds && deletingIds.length > 1 ? `${deletingIds.length}개 항목을 삭제할까요?` : '항목을 삭제할까요?'}
+        description="삭제한 항목은 사라지고 더 이상 AI 문맥에 쓰이지 않습니다."
+        pending={deleteMutation.isPending}
+        onConfirm={() => deletingIds && deleteMutation.mutate(deletingIds)}
+      />
     </Page>
   );
 }

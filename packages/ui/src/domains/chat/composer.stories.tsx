@@ -8,7 +8,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuSeparator, DropdownMenuT
 import { AttachmentChip } from "./attachment-chip"
 import { ComposerInput, ComposerMenu, type ComposerGroup } from "./composer"
 import { ContextMeterView } from "./context-meter"
-import { MenuRowAction, MenuRowMeta } from "./conversation-menu"
+import { MenuRowAction, MenuRowMeta } from "../../patterns/menu-row"
 import { ModeSelect } from "./select"
 import { ListRow } from "../../patterns/list-row"
 import { MenuLabel } from "../../patterns/menu-label"
