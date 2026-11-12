@@ -1,11 +1,13 @@
 import { useMemo } from 'react';
 import { useLiveQuery } from '@tanstack/react-db';
 import { duplicateTargets } from '@tw/shared';
-import type { Term } from '@/components/glossary/term-pane';
-import { loaded, projectCollection } from './collections';
+import { loaded, projectCollection, type FeedRow } from './collections';
+
+/** A glossary term as the terms collection holds it. */
+export type Term = FeedRow['terms'];
 
 /** The project's glossary (not rejected terms), kept current by the server's row feed: every screen reads this one. */
-export const termsCollection = (projectId: string) => projectCollection<Term>('terms', projectId);
+export const termsCollection = (projectId: string) => projectCollection('terms', projectId);
 
 /**
  * The glossary in source order, as the old terms query gave it (`data` undefined until loaded), with

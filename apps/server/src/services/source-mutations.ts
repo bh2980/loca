@@ -6,7 +6,6 @@ import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { inList } from '../db/chunk.ts';
 import { badRequest, found } from '../http-errors.ts';
-import { events } from '../events.ts';
 import { computeLayouts, cancelViewLayouts } from './layout.ts';
 import { forgetProjectContext } from './context.ts';
 import { namedListener } from './listeners.ts';
@@ -60,7 +59,6 @@ export function invalidate(tx: Tx, projectId: string) {
 export function changed(db: Db, projectId: string) {
   // The dialogue graph the AI context and exports walk back along is cached per project.
   forgetProjectContext(projectId);
-  events.changed(projectId, 'units', 'graph');
   // Every orientation that has a stored layout is laid out again (one after another, see computeLayouts).
   const directions = db.selectDistinct({ direction: s.graphLayouts.direction }).from(s.graphLayouts).where(eq(s.graphLayouts.projectId, projectId)).all().map((row) => row.direction);
   for (const direction of directions.length ? directions : ['vertical' as const]) void computeLayouts(db, projectId, { direction });
@@ -146,7 +144,6 @@ export function updateUnit(db: Db, projectId: string, unitId: string, raw: z.inp
     return unitOf(tx, projectId, unitId);
   });
   changed(db, projectId);
-  if (input.key && input.key !== unit.key) events.changed(projectId, 'knowledge', 'terms');
   return row;
 }
 
@@ -205,7 +202,6 @@ export function deleteUnits(db: Db, projectId: string, unitIds: string[]) {
   refuseBusy(db, projectId, ids);
   db.transaction((tx) => removeUnits(tx, projectId, ids));
   changed(db, projectId);
-  events.changed(projectId, 'runs', 'knowledge');
   return { deleted: ids.length };
 }
 
@@ -220,6 +216,5 @@ export function deleteGroup(db: Db, projectId: string, groupId: string) {
     invalidate(tx, projectId);
   });
   changed(db, projectId);
-  events.changed(projectId, 'runs', 'knowledge');
   return { deleted: ids.length };
 }

@@ -16,6 +16,7 @@ import { LineRow } from '@/components/script/line-row';
 import { sceneSelectionState } from '@/components/script/scene-selection';
 import { useTaxonomy } from '@/lib/knowledge';
 import { preloadLineDetails, useLinePage } from '@/lib/units';
+import { useGroupsById } from '@/lib/groups';
 import { useListeners, useSpeakers } from '@/lib/project';
 import { useProject } from '@/lib/project';
 
@@ -178,6 +179,9 @@ export function LineList({
   const exportView: ExportView | undefined = exportLabel ? { filter: exportFilterOf(find ? lineFilterOf({ excluded: 'show' }, { groupId, section, kind, review }) : listed), label: exportLabel, filters: find ? 0 : lineFilterCount(search) } : undefined;
   const tagById = new Map(taxonomy.tags?.map((tag) => [tag.id, tag]));
   const rows = lines.data?.rows;
+  // A line names its scene by id: the scene's title and kind come from the groups collection (a UI string's or a document's group is of its line's kind until that has loaded).
+  const groupOf = useGroupsById(projectId);
+  const sceneKind = (line: Pick<RowLine, 'groupId' | 'kind'>) => groupOf.get(line.groupId)?.kind ?? (line.kind === 'dialogue' ? 'scene' : line.kind);
   const total = lines.data?.total ?? 0;
   // The page's details are fetched with the page, so picking a line opens its whole detail at once.
   const pageKey = lines.isPlaceholderData ? '' : (rows ?? []).map((row) => row.id).join(',');
@@ -274,9 +278,9 @@ export function LineList({
   const [arrived, setArrived] = useState<string>();
   // The rows' handlers never change (so a row whose line did not change skips rendering); each calls this
   // list's latest logic, kept after every render.
-  const latest = useRef({ select, advanceFrom, pick, pickScene, onSearch, revealDock, onOpenScene, lineActions, setEditing });
+  const latest = useRef({ select, advanceFrom, pick, pickScene, onSearch, revealDock, onOpenScene, lineActions, setEditing, sceneKind });
   useLayoutEffect(() => {
-    latest.current = { select, advanceFrom, pick, pickScene, onSearch, revealDock, onOpenScene, lineActions, setEditing };
+    latest.current = { select, advanceFrom, pick, pickScene, onSearch, revealDock, onOpenScene, lineActions, setEditing, sceneKind };
   });
   const rowActions = useMemo<RowActions>(() => ({
     pick: (ids, on) => latest.current.pick(ids, on),
@@ -287,8 +291,8 @@ export function LineList({
       latest.current.onSearch({ line: id, detail: true }, { replace: true });
     },
     openScene: (groupId, lineId) => latest.current.onOpenScene?.(groupId, lineId),
-    editSource: (line) => latest.current.lineActions?.editSource(line),
-    addLine: (line) => latest.current.lineActions?.addLine(line),
+    editSource: (line) => latest.current.lineActions?.editSource({ id: line.id, groupId: line.groupId, groupKind: latest.current.sceneKind(line) }),
+    addLine: (line) => latest.current.lineActions?.addLine({ id: line.id, groupId: line.groupId, groupKind: latest.current.sceneKind(line) }),
     showInGraph: (line) => latest.current.lineActions?.showInGraph(line),
     arrivedEnd: () => setArrived(undefined),
     noting: setNoting,
@@ -427,6 +431,8 @@ export function LineList({
                   actions={rowActions}
                   projectId={projectId}
                   line={line}
+                  sceneTitle={groupOf.get(line.groupId)?.title ?? ''}
+                  sceneKind={sceneKind(line)}
                   newScene={sceneLines !== undefined}
                   sceneLines={sceneLines}
                   sceneChecked={sceneLines !== undefined ? sceneState(line.groupId) : false}

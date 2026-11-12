@@ -3,13 +3,12 @@ import { useParams } from '@tanstack/react-router';
 import { type ReactNode } from 'react';
 import { Check, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import type { InferResponseType } from 'hono/client';
 import { AUTO_MARKS, markColor, markName, type MarkStyles, type AgeBand, type CharacterRole, type CharacterStyle, type Gender, type DOCUMENT_KINDS, type SpeechLevel, type AutoMark, KNOWLEDGE_MARK_IDS, knowledgeMarksOf, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, sourceOf, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type StatusBy, DECIDED_BY, DECIDED_BY_LABELS, type DecidedBy } from '@tw/shared';
 import { DataTable, type ColumnDef, type FilterChip, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, AiMark, Inline, Stack, StatusIcon, TagChip, Text, Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
 import { MarkChip } from '@/components/status';
 import { useMarkStyles } from '@/lib/queries';
 import { HeaderFilter, MarkFilter, markTagGroups, togglePick, type FilterOption, type FilterPick } from '@/components/header-filter';
-import type { client } from '@/lib/api';
+import type { FeedRow } from '@/lib/collections';
 
 export const KINDS = { documents: '노트', characters: '인물', relationships: '관계', events: '사건', speechRules: '말투 규칙' } as const;
 export type Kind = keyof typeof KINDS;
@@ -41,14 +40,12 @@ export interface TagInfo {
 /** A knowledge row as the shared table and editor see it: the common fields, the rest by name. */
 export type Row = Draft & Record<string, unknown>;
 
-type KnowledgeApi = (typeof client.projects)[':projectId'];
-type CharactersList = InferResponseType<KnowledgeApi['characters']['$get'], 200>;
-/** Each kind's rows as its list endpoint returns them. */
-export type DocumentRow = InferResponseType<KnowledgeApi['documents']['$get'], 200>[number];
-export type CharacterRow = CharactersList['characters'][number];
-export type RelationshipRow = CharactersList['relationships'][number];
-export type EventRow = InferResponseType<KnowledgeApi['events']['$get'], 200>[number];
-export type SpeechRuleRow = InferResponseType<KnowledgeApi['speech-rules']['$get'], 200>[number];
+/** Each kind's rows as its collection holds them. */
+export type DocumentRow = FeedRow['documents'];
+export type CharacterRow = FeedRow['characters'];
+export type RelationshipRow = FeedRow['relationships'];
+export type EventRow = FeedRow['events'];
+export type SpeechRuleRow = FeedRow['speechRules'];
 
 /** The value each field type edits: what its input shows and what it writes back. */
 interface FieldValues {

@@ -1,10 +1,10 @@
 import { useMemo } from 'react';
 import { queryOptions } from '@tanstack/react-query';
 import { createOptimisticAction, useLiveQuery } from '@tanstack/react-db';
-import type { InferRequestType, InferResponseType } from 'hono/client';
+import type { InferRequestType } from 'hono/client';
 import { agentSettingsSchema, type SavedPrompt } from '@tw/shared';
 import { ApiError, client, unwrap } from './api';
-import { loaded, projectCollection, sent } from './collections';
+import { loaded, projectCollection, sent, type FeedRow } from './collections';
 import { useGroups } from './groups';
 import { useTaxonomy } from './knowledge';
 
@@ -15,11 +15,10 @@ import { useTaxonomy } from './knowledge';
  * changes status does not redraw what only reads a setting (format rules, languages).
  */
 type Api = (typeof client.projects)[':projectId'];
-type Summary = InferResponseType<Api['$get']>;
-export type Project = Omit<Summary, 'byStatus' | 'excludedCount' | 'groupCount' | 'reviewCount' | 'aiDecided' | 'editorCallsToday'>;
+export type Project = FeedRow['project'];
 export type ProjectPatch = InferRequestType<Api['$patch']>['json'];
 
-export const projectRow = (projectId: string) => projectCollection<Project>('project', projectId);
+export const projectRow = (projectId: string) => projectCollection('project', projectId);
 
 /** The project's settings (undefined until loaded). */
 export function useProject(projectId: string | undefined) {
@@ -99,17 +98,14 @@ export function useProjectProgress(projectId: string) {
 export const editorCalls = (projectId: string) =>
   queryOptions({ queryKey: ['calls', 'editor-today', projectId], queryFn: () => unwrap(client.projects[':projectId']['editor-calls'].$get({ param: { projectId } })) });
 
-type Speaker = { id: string; speaker: string | null; lines: number; character: string | null };
-type Listener = { id: string; name: string; lines: number };
-
 /** Each speaker key with its lines and the character it names, most lines first ('' = lines with no speaker). */
 export function useSpeakers(projectId: string) {
-  return loaded<Speaker>(useLiveQuery((query) => query.from({ speaker: projectCollection<Speaker>('speakers', projectId) }).orderBy(({ speaker }) => speaker.lines, 'desc')));
+  return loaded<FeedRow['speakers']>(useLiveQuery((query) => query.from({ speaker: projectCollection('speakers', projectId) }).orderBy(({ speaker }) => speaker.lines, 'desc')));
 }
 
 /** The known listeners, most lines first, and how many lines' listener is unknown (청자 모름, summed from the scene rows). */
 export function useListeners(projectId: string) {
-  const rows = loaded<Listener>(useLiveQuery((query) => query.from({ listener: projectCollection<Listener>('listeners', projectId) }).orderBy(({ listener }) => listener.lines, 'desc')));
+  const rows = loaded<FeedRow['listeners']>(useLiveQuery((query) => query.from({ listener: projectCollection('listeners', projectId) }).orderBy(({ listener }) => listener.lines, 'desc')));
   const progress = useProjectProgress(projectId);
   const data = useMemo(() => (rows.data && progress ? { listeners: rows.data.map(({ name, lines }) => ({ name, lines })), unknownCount: progress.unknownListeners } : undefined), [rows.data, progress]);
   return { data, isPending: !data };

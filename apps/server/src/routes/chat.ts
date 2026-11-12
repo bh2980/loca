@@ -6,7 +6,6 @@ import { z } from 'zod';
 import { agentSettingsSchema, chatChipSchema, ATTACH_KINDS, ATTACH_PAGE, modelChoiceSchema, savedPromptsSchema, PERMISSION_MODES, type ModelChoice } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
-import { events } from '../events.ts';
 import { attachTurn, steerable, turnStartedAt } from '../services/chat-turns.ts';
 import { dequeueSteer, enqueueSteer, stopWithQueued } from '../services/chat-interject.ts';
 import { compactChat, runChatTurn } from '../services/chat-run.ts';
@@ -14,7 +13,6 @@ import { searchAttach } from '../services/attach-search.ts';
 import { answerRunCard, createRunCard } from '../services/chat-run-cards.ts';
 import { chatUsage } from '../services/chat-usage.ts';
 import { readSavedPrompts, writeSavedPrompts } from '../services/saved-prompts.ts';
-import { chatSessionRows } from '../services/log-rows.ts';
 
 /**
  * What the user is looking at when they send a message. The web app reports it from every page,
@@ -64,7 +62,6 @@ const choiceColumns = (choice: Partial<ModelChoice> | { connectionId: string | n
 });
 
 export const chatRoutes = new Hono<Env>()
-  .get('/projects/:projectId/chat', (c) => c.json(chatSessionRows(c.var.deps.db, c.req.param('projectId'))))
   .post('/projects/:projectId/chat', validate('json', z.object({ model: modelChoiceSchema.optional() })), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
@@ -75,7 +72,6 @@ export const chatRoutes = new Hono<Env>()
     // …and starts in the project's default permission mode (#45).
     const permissionMode = settings.defaultPermissionMode;
     const row = db.insert(s.chatSessions).values({ projectId, title: '새 대화', ...choiceColumns(choice), permissionMode }).returning().get();
-    events.changed(projectId, 'chat');
     return c.json(row, 201);
   })
   // @-attach: every kind (lines, scenes, people, relationships, rules, events, notes, terms, tags, statuses, workflows, runs), grouped by kind, paged.
@@ -198,7 +194,6 @@ export const chatRoutes = new Hono<Env>()
     const { title, model, permissionMode } = c.req.valid('json');
     // A mode switch applies from the agent's next change, even mid-turn (change-gate reads it then).
     const row = found(db.update(s.chatSessions).set({ title, permissionMode, ...(model && choiceColumns(model)) }).where(eq(s.chatSessions.id, c.req.param('sessionId'))).returning().get(), '대화');
-    events.changed(row.projectId, 'chat');
     return c.json({ ok: true });
   })
   .delete('/chat/:sessionId', async (c) => {

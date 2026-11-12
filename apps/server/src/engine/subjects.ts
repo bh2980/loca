@@ -25,7 +25,6 @@ import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { tokensSql } from '../db/tokens.ts';
-import type { Topic } from '../events.ts';
 import { buildContext, runPairLines, type BatchContext } from '../services/context.ts';
 import { tagsOf } from '../services/knowledge-tags.ts';
 import { lineConditions } from '../services/line-filter.ts';
@@ -83,10 +82,6 @@ export interface SubjectAdapter {
   subject: Subject;
   /** Where the tags that may go on its items belong (tags.scope). */
   tagScope: TagScope;
-  /** The change topic of the screens that list its items: a run's progress touches it. */
-  topic: Topic;
-  /** Topics an exit's actions touch beyond the row feed (a line's status and tags reach the screens through the feed). */
-  exitTopics: readonly Topic[];
   /** What a start says when its scope names no item. */
   nothingInScope: string;
   /** What an item fails with when the row behind it is gone. */
@@ -255,8 +250,6 @@ function unitLines(db: Db, items: RequestItem[]): { rows: Unit[]; lines: PromptL
 const lines: SubjectAdapter = {
   subject: 'lines',
   tagScope: 'lines',
-  topic: 'units',
-  exitTopics: [],
   nothingInScope: '조건에 맞는 대사가 없습니다.',
   gone: '원문이 없습니다.',
 
@@ -439,9 +432,6 @@ function termLines(db: Db, projectId: string, node: AiNode, items: RequestItem[]
 const terms: SubjectAdapter = {
   subject: 'terms',
   tagScope: 'terms',
-  topic: 'terms',
-  // A term's status or tags set by an exit action.
-  exitTopics: ['terms'],
   nothingInScope: '조건에 맞는 용어가 없습니다.',
   gone: '용어가 없습니다.',
 

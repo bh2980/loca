@@ -2,16 +2,14 @@ import { TOOL_SPECS, APP_DEFAULT_SECTION_LABELS, TAG_SCOPES, TAG_SCOPE_LABELS, T
 import { MarkChip } from '@/components/status';
 import { cardSummary } from '@/lib/chat-run';
 import { GROUP_KIND } from '@/lib/labels';
+import type { Proposal } from '@/lib/proposals';
 import { startCaps, type CapEdits } from '@/lib/run-limits';
 import { Box, Markdown, Grid, Inline, Text, SectionHeading } from '@loca/ui';
 
 export const LABEL: Record<string, string> = Object.fromEntries(Object.entries(TOOL_SPECS).map(([name, spec]) => [name, spec.label]));
 
 /** What the server knows about a proposal beyond its input (names for ids, old values): see services/proposal-details.ts. */
-export interface ProposalDetails {
-  items: { kind: string; action: '수정' | '추가'; label: string; changes: { field: string; before?: string; after: string }[] }[];
-  refs: Record<string, string>;
-}
+export type ProposalDetails = NonNullable<Proposal['details']>;
 const KIND_NAME: Record<string, string> = { characters: '인물', relationships: '관계', speechRules: '말투 규칙', events: '사건', documents: '노트' };
 
 /** Each saved item as who it is, then field by field what it was and what it becomes. */

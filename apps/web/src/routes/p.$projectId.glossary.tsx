@@ -6,7 +6,7 @@ import { Plus, Play, ScanSearch } from 'lucide-react';
 import { toast } from 'sonner';
 import { DataTable, type ColumnDef, EmptyState, TagMenu, FilterChips, SearchField, FilterBar, ActionBar, type FilterChip, Button, Text, useRevealDock, ContextMenuItem, ContextMenuSeparator, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Spinner, SplitPane } from '@loca/ui';
 import { HeaderFilter, MarkFilter, markTagGroups, togglePick, type FilterPick } from '@/components/header-filter';
-import { NEW_TERM, NewTermPane, TermEditor, type Term } from '@/components/glossary/term-pane';
+import { NEW_TERM, NewTermPane, TermEditor } from '@/components/glossary/term-pane';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { HeaderActions, Page } from '@/components/page';
 import { AiNamed, BulkDecide, parseStatusFilter, parseDecidedBy, StateFilter, SourceBadge, StateCell, statusOptions, type StatusFilter, TagCell } from '@/components/knowledge/table';
@@ -16,7 +16,7 @@ import { tagsIn, useMarkStyles } from '@/lib/queries';
 import { usePicked } from '@/lib/use-picked';
 import { useReportView } from '@/lib/view-context';
 import { sent } from '@/lib/collections';
-import { useTerms, withDuplicate } from '@/lib/terms';
+import { useTerms, withDuplicate, type Term } from '@/lib/terms';
 import { decideItems, useTaxonomy } from '@/lib/knowledge';
 
 export const Route = createFileRoute('/p/$projectId/glossary')({

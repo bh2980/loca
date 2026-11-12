@@ -1,5 +1,6 @@
 import { hc, type InferResponseType } from 'hono/client';
 import type { AppType } from '@tw/server/app';
+import type { Topic } from '@tw/shared';
 import { useSyncExternalStore } from 'react';
 
 /**
@@ -24,13 +25,13 @@ export const useServerDown = () =>
   );
 
 /** Told the topics a request changed (its x-changed header), to refetch them at once; set by main.tsx. */
-let onChanged: (topics: string[]) => void = () => {};
-export const setChangeListener = (listener: (topics: string[]) => void) => {
+let onChanged: (topics: Topic[]) => void = () => {};
+export const setChangeListener = (listener: (topics: Topic[]) => void) => {
   onChanged = listener;
 };
 
 /** Refetch these topics now, for changes whose response could not say so (a streamed chat turn). */
-export const notifyChanged = (topics: string[]) => onChanged(topics);
+export const notifyChanged = (topics: Topic[]) => onChanged(topics);
 
 /**
  * This tab's id, sent with every call (x-client): the server names it on an event made only by this
@@ -53,7 +54,7 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit) {
   }
   setServerDown(response.status === 503);
   const changed = response.headers.get('x-changed');
-  if (changed) onChanged(changed.split(','));
+  if (changed) onChanged(changed.split(',') as Topic[]);
   return response;
 }
 

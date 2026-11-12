@@ -4,13 +4,11 @@ import { z } from 'zod';
 import { toolRoute } from '@tw/shared';
 import { badRequest, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
-import { inList } from '../db/chunk.ts';
-import { rowChangesOf } from '../db/row-changes.ts';
 import { checkAgentPermission } from '../services/agent-permission-check.ts';
 import { agentTools, type ToolDef } from '../services/agent-tools.ts';
 import { undoChanges } from '../services/change-gate.ts';
-import { decideProposal, listedProposal } from '../services/proposals.ts';
-import { proposalDetails } from '../services/proposal-details.ts';
+import { decideProposal } from '../services/proposals.ts';
+import { proposalRow } from '../services/proposal-details.ts';
 import { continueAfterDecisions } from '../services/chat-run.ts';
 
 /** Changes proposed by CLI chats and the loca CLI, decided in the chat panel. */
@@ -36,7 +34,7 @@ export const proposalRoutes = new Hono<Env>()
       const rows = db.select().from(s.proposals).where(where).orderBy(desc(s.proposals.createdAt)).limit(limit).offset(offset).all();
       c.header('x-total-count', String(db.select({ count: count() }).from(s.proposals).where(where).get()!.count));
       // `details`: what the card says it changes, with names and the old values (see proposal-details.ts).
-      return c.json(rows.map((row) => ({ ...listedProposal(row), details: proposalDetails(db, row) })));
+      return c.json(rows.map((row) => proposalRow(db, row)));
     },
   )
   /** Which proposals a panel lists, newest first, as ids (one chat's, or those sent from the CLI; `status` narrows them). */
@@ -51,13 +49,6 @@ export const proposalRoutes = new Hono<Env>()
       return c.json({ ids, total: db.select({ count: count() }).from(s.proposals).where(where).get()!.count });
     },
   )
-  /** Proposals by id as the cards show them, with the feed's count when read (the browser's proposals collection). */
-  .post('/projects/:projectId/proposals/by-ids', validate('json', z.object({ ids: z.array(z.string()).max(500) })), (c) => {
-    const { db } = c.var.deps;
-    const seq = rowChangesOf(db.$client).seq;
-    const rows = db.select().from(s.proposals).where(and(eq(s.proposals.projectId, c.req.param('projectId')), inList(s.proposals.id, c.req.valid('json').ids))).all();
-    return c.json({ rows: rows.map((row) => ({ ...listedProposal(row), details: proposalDetails(db, row) })), seq });
-  })
   // Many at once (a run can file hundreds): decided one after the other, oldest first (characters before the
   // relationships that name them), each claimed like a single decision. One that fails does not stop the rest.
   .post(

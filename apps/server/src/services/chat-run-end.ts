@@ -3,7 +3,6 @@ import { eq } from 'drizzle-orm';
 import { runEndMessage, runEndSchema } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { events } from '../events.ts';
 import { runRows } from './run-rows.ts';
 
 /**
@@ -22,5 +21,4 @@ export function recordRunEnd(db: Db, runId: string) {
   if (!end.success) return;
   // Read and written with no await in between: a reply saving its own messages keeps this one (withStoredCards).
   db.update(s.chatSessions).set({ messages: [...(session.messages as UIMessage[]), runEndMessage(end.data) as unknown as UIMessage] }).where(eq(s.chatSessions.id, run.sessionId)).run();
-  events.changed(run.projectId, 'chat');
 }

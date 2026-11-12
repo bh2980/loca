@@ -4,12 +4,10 @@ import type { FeedSnapshot } from '@tw/shared';
 import { feedCollection } from './collections';
 import { feed } from './feed';
 
-type Term = { id: string; source: string; target: string };
-
 const later = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 function setup(projectId: string, snapshot: FeedSnapshot, gate?: Promise<void>) {
-  return feedCollection<Term>({ projectId, name: 'terms', load: async () => (await gate, snapshot) });
+  return feedCollection({ projectId, name: 'terms', load: async () => (await gate, snapshot) });
 }
 
 describe('a feed collection', () => {

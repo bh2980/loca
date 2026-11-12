@@ -3,10 +3,10 @@ import { bodyLimit } from 'hono/body-limit';
 import { compress } from 'hono/compress';
 import { HTTPException } from 'hono/http-exception';
 import { streamSSE } from 'hono/streaming';
-import { FEED_EVENT } from '@tw/shared';
+import { FEED_EVENT, type ChangeEvent } from '@tw/shared';
 import type { Deps, Env } from './context.ts';
 import { rowChangesOf } from './db/row-changes.ts';
-import { events, trackChanges, type ChangeEvent } from './events.ts';
+import { events, trackChanges } from './events.ts';
 import { feedRows } from './feed.ts';
 import { connectionRoutes, modelTestRoutes } from './routes/ai-settings.ts';
 import { appSettingsRoutes } from './routes/app-settings.ts';
@@ -84,5 +84,7 @@ export function createApp(deps: Deps) {
 }
 
 export type AppType = ReturnType<typeof createApp>;
+/** The browser's collections' row types, each from its reader. */
+export type { FeedRow } from './feed.ts';
 /** What each agent tool takes and answers over this API (`POST /projects/:projectId/tools/:name`), for the `loca` CLI's typed reads. */
 export type { ToolInputs, ToolResults } from './services/agent-catalog.ts';

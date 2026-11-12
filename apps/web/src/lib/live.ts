@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useRouterState } from '@tanstack/react-router';
-import { FEED_EVENT, type FeedRows } from '@tw/shared';
+import { FEED_EVENT, type ChangeEvent, type Topic } from '@tw/shared';
 import { CLIENT_ID } from './api';
 import { feed } from './feed';
 
@@ -12,14 +12,14 @@ const SILENCE_MS = 45_000;
 const RETRY_MIN_MS = 1_000;
 const RETRY_MAX_MS = 30_000;
 /**
- * Queries that follow another topic. A line's context (lib/units.ts lineContext) is read again when the
- * feed names its line or a neighbour, and when what it reads besides lines changes: speech rules and
- * characters (knowledge) and the graph's nodes.
+ * Refetches the questions of the changed topics: the queries whose key starts with one, and those keyed
+ * otherwise that say which topics they follow (`meta.follows`, query-client.ts). What a topic implies is
+ * already in the list (IMPLIES in @tw/shared; the server adds it). Used for events and for a write's own x-changed.
  */
-const ALSO: Record<string, string[]> = { knowledge: ['line-context'], graph: ['line-context'] };
-
-/** The query keys to refetch for changed topics: the topics and the queries that follow them. Used for events and for a write's own x-changed. */
-export const refetchKeys = (topics: Iterable<string>) => new Set([...topics].flatMap((topic) => [topic, ...(ALSO[topic] ?? [])]));
+export function refetchTopics(queryClient: QueryClient, topics: Iterable<Topic>) {
+  const changed = new Set<unknown>(topics);
+  void queryClient.invalidateQueries({ predicate: (query) => changed.has(query.queryKey[0]) || (query.meta?.follows?.some((topic) => changed.has(topic)) ?? false) });
+}
 
 /**
  * The server pushes "topics changed" over SSE; we refetch only queries whose key starts with
@@ -33,7 +33,7 @@ export function useLiveInvalidation() {
   });
 
   useEffect(() => {
-    const topics = new Set<string>();
+    const topics = new Set<Topic>();
     let timer: ReturnType<typeof setTimeout> | undefined;
     let opened = false;
     let source: EventSource;
@@ -76,7 +76,7 @@ export function useLiveInvalidation() {
     };
     const onChange = (event: Event) => {
       alive();
-      const data = JSON.parse((event as MessageEvent<string>).data) as { projectId?: string; topics: string[]; origin?: string; rows?: FeedRows; seq?: number };
+      const data = JSON.parse((event as MessageEvent<string>).data) as ChangeEvent;
       // The rows go to the collections whoever made the change: this tab's own write waits for them (feed.wait).
       if (data.projectId && data.rows && data.seq !== undefined) feed.push(data.projectId, data.rows, data.seq);
       // Made only by this tab's own writes, whose answers (x-changed) already refetched it (#20).
@@ -84,14 +84,14 @@ export function useLiveInvalidation() {
       // Another project's events are ignored, except the project list, which every page shows.
       const foreign = data.projectId && data.projectId !== openProjectId;
       if (foreign && !data.topics.includes('projects')) return;
-      for (const key of refetchKeys(foreign ? ['projects'] : data.topics)) topics.add(key);
+      for (const topic of foreign ? (['projects'] as const) : data.topics) topics.add(topic);
       timer ??= setTimeout(() => {
         timer = undefined;
         const batch = [...topics];
         topics.clear();
         // An event that also carries a change from elsewhere (a run, another tab) has no origin and is
         // refetched here even if this tab's own answer already did: skipping it would lose that change.
-        for (const topic of batch) void queryClient.invalidateQueries({ queryKey: [topic] });
+        refetchTopics(queryClient, batch);
       }, BATCH_MS);
     };
     connect();

@@ -6,6 +6,7 @@ import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
 import { snapshotWorkflowModels } from '../services/model-target.ts';
+import { runItemRows } from '../services/run-detail.ts';
 import { memoryStore } from '../services/secrets.ts';
 import { promptEntries } from './prompts.ts';
 import { Runner, type ModelPort } from './runner.ts';
@@ -209,12 +210,13 @@ describe('lines being resent, as the run page reads them', () => {
       })
       .route('/', workflowRoutes);
 
-    const all = (await (await app.request(`/runs/${runId}/items`)).json()) as { total: number; rows: { state: string; retry: { times: number; max: number; kind: string; message: string; nodeId: string; waitsUntil: number | null } | null }[] };
+    // The run page asks which items are on its page (ids), then reads them by id.
+    const page = async (query = '') => (await (await app.request(`/runs/${runId}/items/ids${query}`)).json()) as { total: number; ids: string[] };
+    const all = await page();
     expect(all.total).toBe(8);
-    expect(all.rows.every((row) => row.state === 'queued' && row.retry?.times === 1 && row.retry.max === 2 && row.retry.kind === 'cut-off' && row.retry.message.length > 0 && row.retry.nodeId === 'translate' && row.retry.waitsUntil! > Date.now())).toBe(true);
-    const retrying = (await (await app.request(`/runs/${runId}/items?state=retrying`)).json()) as { total: number };
-    expect(retrying.total).toBe(8);
-    expect(((await (await app.request(`/runs/${runId}/items?state=failed`)).json()) as { total: number }).total).toBe(0);
+    expect(runItemRows(db, run.projectId, all.ids).every((row) => row.state === 'queued' && row.retry?.times === 1 && row.retry.max === 2 && row.retry.kind === 'cut-off' && row.retry.message.length > 0 && row.retry.nodeId === 'translate' && row.retry.waitsUntil! > Date.now())).toBe(true);
+    expect((await page('?state=retrying')).total).toBe(8);
+    expect((await page('?state=failed')).total).toBe(0);
 
     const detail = (await (await app.request(`/runs/${runId}`)).json()) as { retrying: Record<string, { count: number; kinds: Record<string, number> }> };
     expect(detail.retrying).toEqual({ translate: { count: 8, kinds: { 'cut-off': 8 } } });
@@ -237,9 +239,11 @@ describe('lines being resent, as the run page reads them', () => {
         await next();
       })
       .route('/', workflowRoutes);
-    const rows = ((await (await app.request(`/runs/${runId}/items`)).json()) as { rows: { retry: unknown }[] }).rows;
+    const page = async (query = '') => (await (await app.request(`/runs/${runId}/items/ids${query}`)).json()) as { total: number; ids: string[] };
+    const rows = runItemRows(db, runOf(db, runId).projectId, (await page()).ids);
+    expect(rows).toHaveLength(8);
     expect(rows.every((row) => row.retry === null)).toBe(true);
-    expect(((await (await app.request(`/runs/${runId}/items?state=retrying`)).json()) as { total: number }).total).toBe(0);
+    expect((await page('?state=retrying')).total).toBe(0);
     expect(((await (await app.request(`/runs/${runId}`)).json()) as { retrying: object }).retrying).toEqual({});
   });
 });

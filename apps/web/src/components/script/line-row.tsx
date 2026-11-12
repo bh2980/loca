@@ -186,6 +186,8 @@ type LineTag = StatusLike & { role?: string | null };
 export function LineRow({
   projectId,
   line,
+  sceneTitle,
+  sceneKind,
   newScene,
   sceneSelection,
   selected,
@@ -217,6 +219,9 @@ export function LineRow({
 }: {
   projectId: string;
   line: Line;
+  /** The line's scene, from the groups collection (a line names it by id): its title and kind, apart so a scene whose progress changes does not draw its rows again. */
+  sceneTitle: string;
+  sceneKind: 'scene' | 'ui' | 'document';
   /** The line starts a new scene (shown with its title above). */
   newScene: boolean;
   sceneSelection?: { checked: boolean | 'indeterminate'; disabled: boolean; count?: string; onChange: (selected: boolean) => void };
@@ -303,15 +308,15 @@ export function LineRow({
   const sourceTone = narration ? 'narration' : line.kind === 'document' ? 'document' : undefined;
   const header = newScene && (
     <ScriptSceneRow
-      title={line.groupTitle}
+      title={sceneTitle}
       count={sceneSelection?.count}
-      checkbox={sceneSelection && <Checkbox aria-label={`${line.groupTitle} 현재 검색 조건에 맞는 모든 줄 선택${sceneSelection.count ? `, ${sceneSelection.count}` : ''}`} checked={sceneSelection.checked} disabled={sceneSelection.disabled} onCheckedChange={(checked) => sceneSelection.onChange(checked === true)} />}
-      trailing={onOpenScene && <Button variant="ghost" size="inline" onClick={() => onOpenScene(line.groupId, line.id)}>{SOURCE_GROUP_LABEL[line.groupKind]} 열기</Button>}
+      checkbox={sceneSelection && <Checkbox aria-label={`${sceneTitle} 현재 검색 조건에 맞는 모든 줄 선택${sceneSelection.count ? `, ${sceneSelection.count}` : ''}`} checked={sceneSelection.checked} disabled={sceneSelection.disabled} onCheckedChange={(checked) => sceneSelection.onChange(checked === true)} />}
+      trailing={onOpenScene && <Button variant="ghost" size="inline" onClick={() => onOpenScene(line.groupId, line.id)}>{SOURCE_GROUP_LABEL[sceneKind]} 열기</Button>}
     />
   );
   const checkbox = <Checkbox aria-label={`${line.key} 선택`} checked={isPicked} onClick={(event) => event.stopPropagation()} onCheckedChange={(checked) => onPick(Boolean(checked))} />;
   const colorOf = usePersonColors(projectId);
-  const addLineLabel = `이 ${SOURCE_GROUP_LABEL[line.groupKind]}에 ${SOURCE_UNIT_LABEL[line.groupKind]} 추가`;
+  const addLineLabel = `이 ${SOURCE_GROUP_LABEL[sceneKind]}에 ${SOURCE_UNIT_LABEL[sceneKind]} 추가`;
   // Lines without a speaker (UI strings, documents) show their key in its place, level with the status opposite.
   const speaker = line.kind === 'ui' || line.kind === 'document' ? (
     <Text truncate mono variant="caption" tone="muted" title={line.key}>{line.key}</Text>
@@ -342,7 +347,7 @@ export function LineRow({
   const menuItems = (
     <LineMenuItems
       projectId={projectId}
-      line={{ id: line.id, key: line.key, source: line.source, translation: line.translation, statusId: line.statusId, tagIds: line.tagIds, translate: line.translate, groupKind: line.groupKind }}
+      line={{ id: line.id, key: line.key, source: line.source, translation: line.translation, statusId: line.statusId, tagIds: line.tagIds, translate: line.translate, groupKind: sceneKind }}
       onEdit={selected ? undefined : onSelect}
       onOpenDetail={onOpenDetail}
       onShowInGraph={onShowInGraph}

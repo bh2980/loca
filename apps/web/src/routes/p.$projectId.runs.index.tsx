@@ -9,6 +9,7 @@ import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { dateTime, clock } from '@/lib/datetime';
 import { useRuns } from '@/lib/runs';
+import { useConnectionName } from '@/lib/app-data';
 import { useJobCalls } from '@/lib/logs';
 import { INPUT_TYPES } from '@tw/shared';
 
@@ -192,6 +193,7 @@ function Runs() {
 /** The model requests of one job, newest first. */
 function JobCalls({ projectId, job, onClose }: { projectId: string; job: { id: string; kind: keyof typeof JOB_KIND; title: string; stats: Stats | null }; onClose: () => void }) {
   const calls = useJobCalls(projectId, job.id);
+  const connectionName = useConnectionName({ kind: 'project', projectId });
   return (
     <Inspector header={<InspectorHeader kind={JOB_KIND[job.kind]} name={job.title} status={<Text tabular>AI 호출 · 입력/출력 {tokens(job.stats)}</Text>} actions={
         <>
@@ -224,7 +226,7 @@ function JobCalls({ projectId, job, onClose }: { projectId: string; job: { id: s
                 )}
               </Inline>
               <Text as="p" variant="caption" tone="muted" tabular>
-                {clock(call.startedAt)} · {call.connectionName ?? '연결 없음'} · {call.model}
+                {clock(call.startedAt)} · {connectionName(call.connectionId, call.connectionKind) ?? '연결 없음'} · {call.model}
                 {call.inputTokens != null && ` · 입력 ${call.inputTokens.toLocaleString()}${call.cachedInputTokens ? `(캐시 ${call.cachedInputTokens.toLocaleString()})` : ''} / 출력 ${(call.outputTokens ?? 0).toLocaleString()}`}
               </Text>
               {call.error && <Text as="p" variant="caption" breakWords tone="danger">{call.error}</Text>}

@@ -3,7 +3,6 @@ import { z } from 'zod';
 import { aiStatus, appliesEverywhere, duplicateTargets, termMarksOf, termMatches, termText, TERM_MARK_IDS, withMainTarget, withTargetCandidate, type AutoMark, type TermScope } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { events } from '../events.ts';
 import { fillTermUsage } from './term-usage.ts';
 import { knowledgeFilterInput, tagIdsOf, type KnowledgeFilterInput } from './knowledge-list.ts';
 import { withTags } from './knowledge-tags.ts';
@@ -165,7 +164,6 @@ export function discoverAndSave(db: Db, projectId: string) {
       added++;
     }
   });
-  events.changed(projectId, 'terms');
   return { found: found.length, added, updated };
 }
 

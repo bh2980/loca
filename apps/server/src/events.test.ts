@@ -1,5 +1,9 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Events, events, trackChanges, withImplied, type ChangeEvent } from './events.ts';
+import { withImplied, type ChangeEvent } from '@tw/shared';
+import { Events, events, trackChanges } from './events.ts';
 
 describe('Events coalescing', () => {
   beforeEach(() => void vi.useFakeTimers());
@@ -23,7 +27,7 @@ describe('Events coalescing', () => {
     vi.advanceTimersByTime(300);
     expect(got).toHaveLength(1);
     expect(got[0]!.projectId).toBe('p1');
-    expect([...got[0]!.topics].sort()).toEqual(['calls', 'chat', 'graph', 'runs', 'terms', 'units']);
+    expect([...got[0]!.topics].sort()).toEqual(['calls', 'chat', 'graph', 'runs', 'terms', 'units', 'workflows']);
   });
 
   it('keeps projects separate', () => {
@@ -35,7 +39,7 @@ describe('Events coalescing', () => {
     vi.advanceTimersByTime(300);
     expect(got).toHaveLength(3);
     expect(got.find((e) => e.projectId === 'a')!.topics).toEqual(['runs']);
-    expect(got.find((e) => e.projectId === 'b')!.topics).toEqual(['terms', 'units']);
+    expect([...got.find((e) => e.projectId === 'b')!.topics].sort()).toEqual(['terms', 'units', 'workflows']);
   });
 
   it('emits at least every max wait under a steady stream', () => {
@@ -63,14 +67,38 @@ describe('Events coalescing', () => {
 
 describe('implied topics', () => {
   it('refreshes queries that read beyond their own topic', () => {
-    // A speech rule or character change reaches the line hints and filters (units) and term usage.
-    expect([...withImplied(['knowledge'])].sort()).toEqual(['knowledge', 'terms', 'units']);
-    // The reading route reads source connections (graph) and line text/counts (units).
-    expect([...withImplied(['graph'])].sort()).toEqual(['graph', 'terms', 'units']);
-    // A line change does not reach the workflow checks: they read status definitions, not counts.
-    expect(withImplied(['units']).has('workflows')).toBe(false);
+    // A line change reaches term usage (terms) and an AI node's request preview (workflows).
+    expect([...withImplied(['units'])].sort()).toEqual(['terms', 'units', 'workflows']);
+    // A speech rule or character change reaches the line filter and hints (units) and, through lines, what reads them.
+    expect([...withImplied(['knowledge'])].sort()).toEqual(['knowledge', 'terms', 'units', 'workflows']);
+    // The reading route walks the graph (graph) and answers under units.
+    expect([...withImplied(['graph'])].sort()).toEqual(['graph', 'terms', 'units', 'workflows']);
+    // The line filter reads statuses and tags; the run preflight reads connections.
     expect([...withImplied(['statuses'])].sort()).toEqual(['statuses', 'terms', 'units', 'workflows']);
-    expect([...withImplied(['chat'])]).toEqual(['chat']);
+    expect([...withImplied(['connections'])].sort()).toEqual(['connections', 'terms', 'units', 'workflows']);
+    expect([...withImplied(['calls'])].sort()).toEqual(['calls', 'runs']);
+    // Nothing reads a conversation, a run or a proposal from under another topic.
+    for (const topic of ['chat', 'runs', 'proposals', 'app'] as const) expect([...withImplied([topic])]).toEqual([topic]);
+  });
+});
+
+/**
+ * Where code may still say a topic itself: only for what is not a row. Every table's change is said by the
+ * database (db/topics.ts), so an emit at a write site is refused here.
+ */
+const CHANGED_BY_HAND: Record<string, string> = {
+  'db/index.ts': "topic_changed: the database's triggers saying a table's topic.",
+  'services/chat-turns.ts': 'A turn starting and ending: the turns being answered are held in memory, and GET /chat/:sessionId reads them.',
+};
+
+describe('emits at write sites', () => {
+  it('are only the listed ones: a change that is not a row', () => {
+    const root = path.dirname(fileURLToPath(import.meta.url));
+    const sources = (dir: string): string[] =>
+      fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => (entry.isDirectory() ? sources(path.join(dir, entry.name)) : entry.name.endsWith('.ts') && !entry.name.endsWith('.test.ts') ? [path.join(dir, entry.name)] : []));
+    // Any spelling of the call: events.changed(, deps.events.changed(, a bound alias of it.
+    const emitting = sources(root).filter((file) => /\bevents\s*\.\s*changed\b/.test(fs.readFileSync(file, 'utf8'))).map((file) => path.relative(root, file).split(path.sep).join('/'));
+    expect(emitting.sort()).toEqual(Object.keys(CHANGED_BY_HAND).sort());
   });
 });
 
@@ -82,7 +110,7 @@ describe('changes a request made', () => {
       events.changed('p', 'terms');
       own.changed('p', 'chat');
     });
-    expect([...topics].sort()).toEqual(['chat', 'terms', 'units']);
+    expect([...topics].sort()).toEqual(['chat', 'terms', 'units', 'workflows']);
     // Outside a request nothing is gathered.
     expect(await trackChanges(async () => {})).toEqual({ topics: new Set(), seq: undefined });
   });

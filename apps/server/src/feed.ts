@@ -1,5 +1,6 @@
 import { and, asc, eq, ne } from 'drizzle-orm';
-import { APP_FEED, FEED_UNITS_LIMIT, HELD_COLLECTIONS, type AppCollection, type FeedCollection, type FeedRows, type FeedSnapshot, type SnapshotCollection } from '@tw/shared';
+import type { JSONParsed } from 'hono/utils/types';
+import { APP_FEED, FEED_UNITS_LIMIT, HELD_COLLECTIONS, type AppCollection, type FeedCollection, type FeedRows, type FeedSnapshot, type HeldCollection, type SnapshotCollection } from '@tw/shared';
 import type { Db } from './db/index.ts';
 import { inList } from './db/chunk.ts';
 import { rowChangesOf } from './db/row-changes.ts';
@@ -12,7 +13,10 @@ import { listenerRows, projectListRows, projectRows, speakerRows } from './servi
 import { readAppDefaults } from './services/app-defaults.ts';
 import { connectionRows } from './services/connection-rows.ts';
 import { listViews } from './services/graph-views.ts';
-import { chatSessionRows } from './services/log-rows.ts';
+import { aiCallRows, chatSessionRows } from './services/log-rows.ts';
+import { lineExtras } from './services/line-extras.ts';
+import { proposalRows } from './services/proposal-details.ts';
+import { runItemRows } from './services/run-detail.ts';
 import type { SecretStore } from './services/secrets.ts';
 import { projectEventFlow } from './services/event-routes.ts';
 import { workflowRows } from './services/workflow-rows.ts';
@@ -58,7 +62,14 @@ export interface FeedDeps {
   secrets: SecretStore;
 }
 
-const READERS: Record<FeedCollection, (db: Db, projectId: string, ids: readonly string[] | undefined, deps: FeedDeps) => { id: string }[]> = {
+type Reader = (db: Db, scope: string, ids: readonly string[] | undefined, deps: FeedDeps) => { id: string }[];
+
+/**
+ * How each collection's rows are read: the one definition of a row. The snapshot, the change events and the
+ * held collections' reads by id all go through it, and the browser's row types come from it (FeedRow). What
+ * a reader reads beyond its own table needs a trigger that notes the row (feed-readers.test.ts states which).
+ */
+export const READERS = {
   terms: termRows,
   characters: characterRows,
   relationships: relationshipRows,
@@ -75,31 +86,39 @@ const READERS: Record<FeedCollection, (db: Db, projectId: string, ids: readonly 
   workflows: (db, projectId) => workflowRows(db, projectId),
   statusCounts: statusCountRows,
   tagCounts: tagCountRows,
-  // Lines are sent as ids (feedRows); the browser reads the ones it holds by id.
-  units: (db, projectId, ids) => (ids ? unitRowsByIds(db, projectId, ids) : []),
-  // Named by id; the browser reads the items it shows (POST run-items).
-  runItems: () => [],
-  // Named by id; the browser reads the ones its panels show (POST proposals/by-ids).
-  proposals: () => [],
-  // The app's scope (APP_FEED): the projects list and the home's defaults.
   graphViews: (db, projectId, ids) => listViews(db, projectId, ids),
   chatSessions: (db, projectId, ids) => chatSessionRows(db, projectId, ids),
-  // Named by id; the browser reads the calls a list shows (POST ai-calls/by-ids), a project's or (APP_FEED) the model tests.
-  aiCalls: () => [],
-  // Named by id (run items moving through a run, 0120); the browser reads the open line's (POST units/extras).
-  lineExtras: () => [],
+  // Held collections (HELD_COLLECTIONS): events name their rows by id and the browser reads the ones it shows, so these read only by id.
+  units: (db, projectId, ids) => unitRowsByIds(db, projectId, ids ?? []),
+  lineExtras: (db, projectId, ids) => lineExtras(db, projectId, ids ?? []),
+  runItems: (db, projectId, ids) => runItemRows(db, projectId, ids ?? []),
+  proposals: (db, projectId, ids) => proposalRows(db, projectId, ids ?? []),
+  // A project's calls, or (APP_FEED) those outside any project: the model tests.
+  aiCalls: (db, scope, ids) => aiCallRows(db, scope === APP_FEED ? null : scope, ids ?? []),
+  // The app's scope (APP_FEED): the projects list and the home's defaults.
   projects: (db, _scope, ids) => projectListRows(db, ids),
   appDefaults: (db) => [{ id: 'defaults', ...readAppDefaults(db) }],
   // The home's connections under APP_FEED, a project's under it.
   connections: (db, scope, ids, deps) => connectionRows(db, deps.secrets, scope === APP_FEED ? null : scope, ids),
-};
+} satisfies Record<FeedCollection, Reader>;
+
+/** A collection's row as the browser holds it: what its reader returns, as JSON carries it (a date as text). */
+export type FeedRow = { [C in FeedCollection]: JSONParsed<ReturnType<(typeof READERS)[C]>[number]> };
+
+const reader = (collection: FeedCollection): Reader => READERS[collection];
 
 /** A collection's rows now and the feed's count, for the browser's first load. */
 export function feedSnapshot(db: Db, deps: FeedDeps, projectId: string, collection: SnapshotCollection | AppCollection): FeedSnapshot {
   // Usage counts are filled when first read; the writes are noted like any other and come again as events.
   if (collection === 'terms') fillTermUsage(db, projectId);
-  const rows = READERS[collection](db, projectId, undefined, deps);
+  const rows = reader(collection)(db, projectId, undefined, deps);
   return { seq: rowChangesOf(db.$client).seq, rows };
+}
+
+/** A held collection's rows by id (the ones a screen shows), with the feed's count when read: a change event at or below it is already in them. */
+export function heldRows(db: Db, deps: FeedDeps, scope: string, collection: HeldCollection, ids: readonly string[]): FeedSnapshot {
+  const seq = rowChangesOf(db.$client).seq;
+  return { seq, rows: reader(collection)(db, scope, ids, deps) };
 }
 
 /**
@@ -116,7 +135,7 @@ function derivedChanges(db: Db, deps: FeedDeps, projectId: string, collection: F
   sentRows.set(db.$client, byProject);
   const key = `${projectId}:${collection}`;
   const before = byProject.get(key) ?? new Map<string, string>();
-  const now = new Map(READERS[collection](db, projectId, undefined, deps).map((row) => [row.id, { row, json: JSON.stringify(row) }] as const));
+  const now = new Map(reader(collection)(db, projectId, undefined, deps).map((row) => [row.id, { row, json: JSON.stringify(row) }] as const));
   byProject.set(key, new Map([...now].map(([id, { json }]) => [id, json])));
   return { upsert: [...now.values()].filter(({ row, json }) => before.get(row.id) !== json).map(({ row }) => row), delete: [...before.keys()].filter((id) => !now.has(id)) };
 }
@@ -127,8 +146,8 @@ export function feedRows(db: Db, deps: FeedDeps, projectId: string): { rows: Fee
   if (!changes.size) return null;
   const rows: FeedRows = {};
   for (const [collection, changed] of changes) {
-    const read = READERS[collection as FeedCollection];
-    if (!read) continue;
+    if (!(collection in READERS)) continue;
+    const read = reader(collection as FeedCollection);
     if (DERIVED.has(collection as FeedCollection)) {
       const diff = derivedChanges(db, deps, projectId, collection as FeedCollection);
       if (diff.upsert.length || diff.delete.length) rows[collection as FeedCollection] = diff;

@@ -6,11 +6,8 @@ import { CALL_TIMEOUT_MS, CONNECTION_KIND_INFO, connectionCan, connectionInputSc
 import type { Context } from 'hono';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
-import { events } from '../events.ts';
 import { logged } from '../services/ai-calls.ts';
 import { connectionRows } from '../services/connection-rows.ts';
-import { aiCallRows } from '../services/log-rows.ts';
-import { rowChangesOf } from '../db/row-changes.ts';
 import type { Db } from '../db/index.ts';
 import { choiceLabel, connectionTarget, liveChoice } from '../services/model-target.ts';
 
@@ -61,7 +58,6 @@ export const connectionRoutes = new Hono<Env>()
       .returning()
       .get();
     if (apiKey) secrets.set(row.id, apiKey);
-    events.changed(scopeOf(c) ?? undefined, 'connections');
     return c.json(row, 201);
   })
   .patch('/:id', validate('json', patchOf(connectionInputSchema.omit({ kind: true }))), (c) => {
@@ -69,7 +65,6 @@ export const connectionRoutes = new Hono<Env>()
     const input = c.req.valid('json');
     scoped(c, c.req.param('id'));
     db.update(s.connections).set({ ...input, executable: input.executable === '' ? null : input.executable }).where(eq(s.connections.id, c.req.param('id'))).run();
-    events.changed(scopeOf(c) ?? undefined, 'connections');
     return c.json({ ok: true });
   })
   .delete('/:id', (c) => {
@@ -79,7 +74,6 @@ export const connectionRoutes = new Hono<Env>()
     if (uses.length) badRequest(`이 연결을 쓰는 곳이 있습니다: ${uses.slice(0, 5).join(', ')}${uses.length > 5 ? ` 외 ${uses.length - 5}곳` : ''}. 그곳에서 다른 연결을 고른 뒤 지우세요.`);
     db.delete(s.connections).where(eq(s.connections.id, id)).run();
     secrets.delete(id);
-    events.changed(scopeOf(c) ?? undefined, 'connections');
     return c.json({ ok: true });
   })
   .put('/:id/key', validate('json', z.object({ apiKey: z.string().trim().min(1) })), (c) => {
@@ -89,7 +83,6 @@ export const connectionRoutes = new Hono<Env>()
     db.delete(s.connectionKeyCopies).where(eq(s.connectionKeyCopies.targetId, c.req.param('id'))).run();
     // The key is in the keyring, not the row: say when it changed, so the row feed sends the row again (0118).
     db.update(s.connections).set({ keyUpdatedAt: new Date() }).where(eq(s.connections.id, c.req.param('id'))).run();
-    events.changed(scopeOf(c) ?? undefined, 'connections');
     return c.json({ ok: true });
   })
   .delete('/:id/key', (c) => {
@@ -97,7 +90,6 @@ export const connectionRoutes = new Hono<Env>()
     c.var.deps.secrets.delete(c.req.param('id'));
     c.var.deps.db.delete(s.connectionKeyCopies).where(eq(s.connectionKeyCopies.targetId, c.req.param('id'))).run();
     c.var.deps.db.update(s.connections).set({ keyUpdatedAt: new Date() }).where(eq(s.connections.id, c.req.param('id'))).run();
-    events.changed(scopeOf(c) ?? undefined, 'connections');
     return c.json({ ok: true });
   })
   .post('/:id/probe', async (c) => {
@@ -122,7 +114,6 @@ export const connectionRoutes = new Hono<Env>()
         for (const [model, limits] of Object.entries(listed)) if (current[model]?.by !== 'human') next[model] = { ...limits, by: 'api' as const };
         if (JSON.stringify(next) !== JSON.stringify(current)) {
           db.update(s.connections).set({ modelLimits: next }).where(eq(s.connections.id, id)).run();
-          events.changed(scopeOf(c) ?? undefined, 'connections');
         }
       }
       return c.json({ ok: true as const, models });
@@ -161,11 +152,6 @@ export const modelTestRoutes = new Hono<Env>()
   .get('/connections/:id/tests/ids', (c) =>
     c.json({ ids: c.var.deps.db.select({ id: s.aiCalls.id }).from(s.aiCalls).where(and(eq(s.aiCalls.kind, 'test'), eq(s.aiCalls.refId, c.req.param('id')))).orderBy(desc(s.aiCalls.startedAt)).limit(5).all().map((row) => row.id) }),
   )
-  /** Model requests outside any project (model tests) by id, with the feed's count when read. */
-  .post('/app/ai-calls/by-ids', validate('json', z.object({ ids: z.array(z.string()).max(500) })), (c) => {
-    const seq = rowChangesOf(c.var.deps.db.$client).seq;
-    return c.json({ rows: aiCallRows(c.var.deps.db, null, c.req.valid('json').ids), seq });
-  })
   .post('/connections/:id/test', validate('json', z.object({ model: z.string().trim().min(1), effort: z.string().optional(), source: z.string().min(1), targetLanguage: z.string().default('ko') })), async (c) => {
     const { db, secrets } = c.var.deps;
     const { model, effort, source, targetLanguage } = c.req.valid('json');

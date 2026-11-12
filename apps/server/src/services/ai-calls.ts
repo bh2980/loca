@@ -2,7 +2,6 @@ import type * as ai from '@tw/ai';
 import { eq } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { events } from '../events.ts';
 
 export interface CallMeta {
   projectId: string | null;
@@ -31,7 +30,6 @@ export function learnLimits(db: Db, connectionId: string | undefined, model: str
   const entry = { ...current[model], ...(learned.contextWindow && { contextWindow: learned.contextWindow }), ...(learned.maxOutput && { maxOutput: learned.maxOutput }), by: 'api' as const };
   if (JSON.stringify(entry) === JSON.stringify(current[model])) return;
   db.update(s.connections).set({ modelLimits: { ...current, [model]: entry } }).where(eq(s.connections.id, connectionId)).run();
-  events.changed(undefined, 'connections');
 }
 
 /** Whether the model takes images, as the connection said (an agent CLI's initialize); kept for the composer's chip warning. A person's limits stay untouched. */
@@ -40,7 +38,6 @@ export function learnImages(db: Db, connectionId: string | undefined, model: str
   const current = db.select({ limits: s.connections.modelLimits }).from(s.connections).where(eq(s.connections.id, connectionId)).get()?.limits;
   if (!current || current[model]?.images === images) return;
   db.update(s.connections).set({ modelLimits: { ...current, [model]: { ...current[model], by: current[model]?.by ?? ('api' as const), images } } }).where(eq(s.connections.id, connectionId)).run();
-  events.changed(undefined, 'connections');
 }
 
 /** Starts a log row for a request going out to `target`; finish it with the returned function. */
@@ -49,9 +46,6 @@ export function startCall(db: Db, meta: CallMeta, target: Pick<ai.ModelTarget, '
   db.insert(s.aiCalls)
     .values({ id, projectId: meta.projectId, kind: meta.kind, refId: meta.refId ?? null, label: meta.label, connectionId: target.connectionId ?? null, connectionKind: target.kind, model: target.model, request: meta.request ?? null, startedAt: new Date() })
     .run();
-  // A chat's panel shows its turn's current step (see GET /chat/:sessionId).
-  const topics = meta.kind === 'chat' ? (['calls', 'chat'] as const) : (['calls'] as const);
-  events.changed(meta.projectId ?? undefined, ...topics);
   let done = false;
   // Idempotent: a stream can report an error and then an abort for the same request.
   return (outcome: { usage?: ai.Usage; error?: unknown }) => {
@@ -62,7 +56,6 @@ export function startCall(db: Db, meta: CallMeta, target: Pick<ai.ModelTarget, '
       .set({ status: error === null ? 'ok' : 'failed', error, response: (outcome.error as { output?: string } | undefined)?.output ?? null, ...usageOf(outcome.usage ?? (outcome.error as { usage?: ai.Usage } | undefined)?.usage), finishedAt: new Date() })
       .where(eq(s.aiCalls.id, id))
       .run();
-    events.changed(meta.projectId ?? undefined, ...topics);
     learnLimits(db, target.connectionId, target.model, outcome.usage?.limits);
   };
 }

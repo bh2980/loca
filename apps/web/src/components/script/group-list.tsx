@@ -3,19 +3,11 @@ import type { LineMark } from '@tw/shared';
 import { Link } from '@tanstack/react-router';
 import { AppWindow, Check, FileText, Inbox, MessageSquareText, Plus, type LucideIcon } from 'lucide-react';
 import { Box, Button, ExpandableRow, ContextMenu, ContextMenuTrigger, Icon, Inline, ListRow, Stack, Count, SearchField, Meter, Text, Tooltip, TooltipContent, TooltipTrigger, type StatusLike, ContextMenuContent } from '@loca/ui';
+import type { Group } from '@/lib/groups';
 import { GROUP_KIND, SCRIPT_VIEW, SOURCE_GROUP_LABEL } from '@/lib/labels';
 
-export interface GroupRow {
-  id: string;
-  kind: keyof typeof GROUP_KIND;
-  title: string;
-  key: string;
-  section: string | null;
-  sort: number;
-  total: number;
-  statuses: Record<string, number>;
-  unknownListeners: number;
-}
+/** What the list reads of a group's row. */
+export type GroupRow = Pick<Group, 'id' | 'kind' | 'title' | 'key' | 'section' | 'sort' | 'total' | 'statuses' | 'unknownListeners'>;
 
 /** Sections start closed by default; explicit unfolds are a per-tab convenience, like the graph viewport. */
 const storageKey = (projectId: string) => `tw.script.expanded.${projectId}`;

@@ -16,7 +16,6 @@ import {
 } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { events } from '../events.ts';
 import { issueTagIds, seedIssueTags } from './issue-tags.ts';
 import type { SecretStore } from './secrets.ts';
 
@@ -46,7 +45,6 @@ export function writeAppDefaults(db: Tx, patch: Partial<AppDefaults>): AppDefaul
     .values({ id: APP, defaults: next })
     .onConflictDoUpdate({ target: s.appSettings.id, set: { defaults: next, updatedAt: new Date() } })
     .run();
-  events.changed(undefined, 'app');
   return next;
 }
 
@@ -236,13 +234,6 @@ export function pullDefaults(db: Db, projectId: string, sections: AppDefaultSect
     }
   });
   copyKeys(db, secrets, keys);
-  const topics = [
-    'projects',
-    ...(sections.includes('connections') ? (['connections'] as const) : []),
-    ...(sections.some((section) => section === 'statuses' || section === 'tags') ? (['statuses'] as const) : []),
-    ...(sections.includes('workflows') ? (['workflows'] as const) : []),
-  ] as const;
-  events.changed(projectId, ...topics);
   return report;
 }
 
@@ -322,6 +313,5 @@ export function pushDefaults(db: Db, projectId: string, sections: AppDefaultSect
     writeAppDefaults(tx, patch);
   });
   copyKeys(db, secrets, keys);
-  if (sections.includes('connections')) events.changed(undefined, 'connections');
   return report;
 }

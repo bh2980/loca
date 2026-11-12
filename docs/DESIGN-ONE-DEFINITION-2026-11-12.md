@@ -99,7 +99,7 @@ batchOf(db, definition, node, unitId) → unitId[]
 
 ### 3.5 행 타입과 쿼리 키
 
-- 컬렉션의 행 타입은 **피드의 리더에서** 나온다. `feed.ts`의 `READERS`를 컬렉션별로 타입을 살려 두고 `FeedRow<'terms'>`를 내보낸다. 웹의 `projectCollection(name)`이 그 타입을 받는다. 부분 보유 컬렉션(줄, 실행 항목, 제안, AI 기록)은 각자의 by-ids 리더에서 받는다.
+- 컬렉션의 행 타입은 **피드의 리더에서** 나온다. `feed.ts`의 `READERS`를 컬렉션별로 타입을 살려 두고 `FeedRow['terms']`를 내보낸다. 웹의 `projectCollection(name)`이 그 타입을 받는다. 부분 보유 컬렉션(줄, 실행 항목, 제안, AI 기록)은 각자의 by-ids 리더에서 받는다.
 - 타입만 빌려 주던 목록 GET 라우트(`/characters`, `/statuses`, `/terms` …, 브라우저·CLI 호출 없음)와 웹의 `Omit<…>` 보정, 손으로 쓴 행 인터페이스를 지운다.
 - 쿼리 키는 팩토리 하나로 만든다: `key(topic: Topic, …)`. 키 리터럴(`queryKey: [`)은 팩토리 밖에서 금지한다(`ui-rules`에 규칙 추가). `['line-context']`, `['run-start']`처럼 토픽으로 시작하지 않는 키가 없어지고, 화면 쪽 `invalidateQueries` 호출도 필요 없어진다.
 - 줄 행을 컬렉션 밖에 복사해 둔 곳(`q.graphNode`, `line-bulk.tsx`의 `known`, `sample-search`)은 id로 답하고 행은 `useLines`로 읽는다.

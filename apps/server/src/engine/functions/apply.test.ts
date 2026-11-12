@@ -7,7 +7,8 @@ import { importProject } from '../../services/importer.ts';
 import { issueTagIds } from '../../services/issue-tags.ts';
 import { snapshotWorkflowModels } from '../../services/model-target.ts';
 import { createRun } from '../run-create.ts';
-import { APPLY_TOPICS, applyFunctions, applyItems } from './apply.ts';
+import { events } from '../../events.ts';
+import { applyFunctions, applyItems } from './apply.ts';
 import { HUMAN_OWNED_NOTE, FUNCTION_IMPLEMENTATIONS, runInstantFunction, type FunctionInput } from './index.ts';
 
 const at = { x: 0, y: 0 };
@@ -201,10 +202,22 @@ describe('apply nodes', () => {
     expect(apply(ctx, 'setListener', params, { value: 'unknown', confidence: 0.95 }, 'a2').output).toMatchObject({ recorded: false, reason: '청자 미상' });
   });
 
-  it('is registered as instant functions and names the topics it writes', () => {
-    expect(Object.keys(FUNCTION_IMPLEMENTATIONS)).toEqual(expect.arrayContaining(Object.keys(APPLY_TOPICS)));
-    expect(APPLY_TOPICS.saveTerms).toEqual(['terms']);
-    expect(APPLY_TOPICS.saveEvents).toContain('knowledge');
+  it('is registered as instant functions, and what it writes says its own topic (no list of them here)', () => {
+    expect(Object.keys(FUNCTION_IMPLEMENTATIONS)).toEqual(expect.arrayContaining(Object.keys(applyFunctions)));
+    const ctx = setup();
+    events.flush();
+    const topics = new Set<string>();
+    const listen = (event: { topics: string[] }) => event.topics.forEach((topic) => topics.add(topic));
+    events.on('change', listen);
+    apply(ctx, 'saveTerms', { list: 'terms', map: { source: 'source', target: 'target' } }, { terms: [{ source: 'sail', target: '돛' }], batchLeader: true });
+    events.flush();
+    expect([...topics]).toContain('terms');
+    expect([...topics]).not.toContain('knowledge');
+    topics.clear();
+    apply(ctx, 'saveCharacters', { list: 'people', map: { name: 'name' } }, { people: [{ name: 'Carol' }], batchLeader: true });
+    events.flush();
+    events.off('change', listen);
+    expect([...topics]).toContain('knowledge');
   });
 });
 

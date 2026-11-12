@@ -3,7 +3,6 @@ import { get } from 'es-toolkit/compat';
 import { AGE_BANDS, APPLY_FUNCTION_NAMES, APPLY_TARGETS, DOCUMENT_KINDS, INPUT_TYPES, aiStatus, sameTranslation, TERM_KIND_LABELS, TERM_KINDS, UNKNOWN_LISTENER, withMainTarget, withSourceWhitespace, withTargetCandidate, type ApplyField, type ApplyFunctionName, type ApplyParams, type Subject } from '@tw/shared';
 import type { Db } from '../../db/index.ts';
 import * as s from '../../db/schema.ts';
-import type { Topic } from '../../events.ts';
 import { aiSaveCharacters, aiSaveDocument, aiSaveEvents, aiSaveRelationships, relationshipRows, aiSaveSpeechRules, aiSaveTerms, aiSaveUnresolvedPairs, aiSetLineListeners, type AiWrite } from '../../services/ai-knowledge.ts';
 import { addCandidate } from '../../services/candidates.ts';
 import { aiAutoConfirmOf } from '../../services/status-by.ts';
@@ -168,18 +167,6 @@ const HANDLERS: Record<Exclude<ApplyFunctionName, ItemWriterName>, Handler> = {
   saveDocument: {
     write: (items, { tx, write }) => ({ document: items[0] ? aiSaveDocument(tx, write, items[0] as never) : 'none' }),
   },
-};
-
-/** Topics an apply node's writes reach besides the run's own `units`, for the runner to notify. */
-export const APPLY_TOPICS: Record<ApplyFunctionName, Topic[]> = {
-  saveCandidate: ['terms'],
-  setListener: [],
-  saveTerms: ['terms'],
-  saveCharacters: ['knowledge'],
-  saveRelationships: ['knowledge'],
-  saveSpeechRules: ['knowledge'],
-  saveEvents: ['knowledge'],
-  saveDocument: ['knowledge'],
 };
 
 function run(fn: ApplyFunctionName, tx: Tx, params: ApplyParams, input: FunctionInput): FunctionResult {

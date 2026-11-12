@@ -1,7 +1,6 @@
 import { and, count, eq, inArray, sql } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { events } from '../events.ts';
 import { patchOf, TAG_SCOPES, TAG_SCOPE_LABELS } from '@tw/shared';
 import { projectTags, tagUseIn } from './tag-scope.ts';
 import { deleteItems } from './item-delete.ts';
@@ -21,7 +20,6 @@ export function createStatus(db: Db, projectId: string, input: unknown) {
   const data = statusInput.parse(input);
   const sort = db.select({ max: sql<number>`coalesce(max(${s.statuses.sort}), -1)` }).from(s.statuses).where(eq(s.statuses.projectId, projectId)).get()!.max + 1;
   const row = db.insert(s.statuses).values({ ...data, projectId, sort }).returning().get();
-  events.changed(projectId, 'statuses');
   return row;
 }
 
@@ -35,7 +33,6 @@ export function updateStatus(db: Db, projectId: string, id: string, input: unkno
   }
   if (patch.kind === 'final' && current.kind !== 'final') requireFilledTranslations(db, projectId, id);
   const row = db.update(s.statuses).set(patch).where(and(eq(s.statuses.id, id), eq(s.statuses.projectId, projectId))).returning().get();
-  events.changed(projectId, 'statuses', 'units');
   return row!;
 }
 
@@ -56,7 +53,6 @@ export function deleteStatuses(db: Db, projectId: string, ids: string[], moveTo:
     tx.update(s.units).set({ statusId: moveTo }).where(and(eq(s.units.projectId, projectId), inArray(s.units.statusId, ids))).run();
     tx.delete(s.statuses).where(and(eq(s.statuses.projectId, projectId), inArray(s.statuses.id, ids))).run();
   });
-  events.changed(projectId, 'statuses', 'units', 'workflows');
   return { ok: true as const, deleted: doomed.length };
 }
 
@@ -65,7 +61,6 @@ export function orderTags(db: Db, projectId: string, ids: string[]) {
   db.transaction((tx) => {
     ids.forEach((id, sort) => tx.update(s.tags).set({ sort }).where(and(eq(s.tags.id, id), eq(s.tags.projectId, projectId))).run());
   });
-  events.changed(projectId, 'statuses');
   return { ok: true as const };
 }
 
@@ -74,14 +69,12 @@ export function orderStatuses(db: Db, projectId: string, ids: string[]) {
   db.transaction((tx) => {
     ids.forEach((id, sort) => tx.update(s.statuses).set({ sort }).where(and(eq(s.statuses.id, id), eq(s.statuses.projectId, projectId))).run());
   });
-  events.changed(projectId, 'statuses');
   return { ok: true as const };
 }
 
 export function createTag(db: Db, projectId: string, input: unknown) {
   const sort = db.select({ max: sql<number>`coalesce(max(${s.tags.sort}), -1)` }).from(s.tags).where(eq(s.tags.projectId, projectId)).get()!.max + 1;
   const row = db.insert(s.tags).values({ ...tagInput.parse(input), projectId, sort }).returning().get();
-  events.changed(projectId, 'statuses');
   return row;
 }
 
@@ -94,7 +87,6 @@ export function updateTag(db: Db, projectId: string, id: string, input: unknown)
     if (used) throw new TaxonomyMutationError(`‘${TAG_SCOPE_LABELS[place]}’에서 빼려면 먼저 이 태그가 붙은 ${TAG_SCOPE_LABELS[place]} ${used.toLocaleString('ko-KR')}개에서 떼어 주세요.`);
   }
   const row = db.update(s.tags).set(patch).where(and(eq(s.tags.id, id), eq(s.tags.projectId, projectId))).returning().get();
-  events.changed(projectId, 'statuses', 'units');
   return row!;
 }
 

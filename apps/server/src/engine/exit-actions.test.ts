@@ -3,6 +3,7 @@ import { eq, sql } from 'drizzle-orm';
 import { importFileSchema, ISSUE_KINDS, workflowDefinitionSchema, type ExitAction } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
+import { events } from '../events.ts';
 import { importProject } from '../services/importer.ts';
 import { issueTagIds } from '../services/issue-tags.ts';
 import { snapshotWorkflowModels } from '../services/model-target.ts';
@@ -191,8 +192,16 @@ describe('exit actions in a run', () => {
     const runId = start(ctx, flow({ c: cond(always, { true: [tag([urgent.id])] }) }, ['entry -> c', 'c.true -> end']));
     expect(ctx.db.select().from(s.runs).where(eq(s.runs.id, runId)).get()!.tags).toEqual([expect.objectContaining({ id: urgent.id, name: '긴급', color: '#ff0000' })]);
     ctx.db.delete(s.tags).where(eq(s.tags.id, urgent.id)).run();
+    events.flush();
+    const topics = new Set<string>();
+    const listen = (event: { topics: string[] }) => event.topics.forEach((topic) => topics.add(topic));
+    events.on('change', listen);
     const { items } = await drain(ctx, runId);
+    events.flush();
+    events.off('change', listen);
     expect(items.map((item) => item.state)).toEqual(['done', 'done']);
+    // The tag list changed in the middle of a run: the tags table says so itself (no write site names 'statuses').
+    expect([...topics]).toEqual(expect.arrayContaining(['statuses', 'runs', 'units']));
     // The same tag (id, name, colour), once, on both lines.
     expect(ctx.db.select().from(s.tags).where(eq(s.tags.id, urgent.id)).all()).toEqual([expect.objectContaining({ name: '긴급', color: '#ff0000' })]);
     expect([tagNamesOf(ctx, 'a1'), tagNamesOf(ctx, 'a2')]).toEqual([['긴급'], ['긴급']]);

@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
+import { and, count, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
 import { CONNECTION_KIND_INFO, nodeRetries, type WorkflowDefinition, type Subject } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import { inChunks } from '../db/chunk.ts';

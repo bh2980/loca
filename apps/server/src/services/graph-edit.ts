@@ -5,7 +5,6 @@ import type { Db } from '../db/index.ts';
 import { inChunks } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { badRequest, found } from '../http-errors.ts';
-import { events } from '../events.ts';
 import { changed, initialStatus, invalidate, refreshNodeGroups, refuseBusy, resequence, restoreEvidence, stripEvidence, type EvidenceBefore, type Tx } from './source-mutations.ts';
 import { namedListener } from './listeners.ts';
 import { PERSON, type Saver } from './status-by.ts';
@@ -229,7 +228,6 @@ export function deleteNodes(db: Db, projectId: string, ids: string[], bridge = t
     record.evidence(stripEvidence(tx, projectId, keys));
     return { deleted: nodes.length, lines: unitIds.length };
   });
-  events.changed(projectId, 'runs', 'knowledge');
   return result;
 }
 
@@ -258,7 +256,6 @@ export function deleteLines(db: Db, projectId: string, unitIds: string[], bridge
     record.evidence(stripEvidence(tx, projectId, new Set(units.map((unit) => unit.key))));
     return { deleted: ids.length, nodes: emptied.length };
   });
-  events.changed(projectId, 'runs', 'knowledge');
   return result;
 }
 
@@ -393,7 +390,6 @@ export function undoGraphEdit(db: Db, projectId: string, token: string) {
     invalidate(tx, projectId);
   });
   changed(db, projectId);
-  events.changed(projectId, 'runs', ...(entry.put.evidence.length ? ['knowledge' as const] : []));
   return true;
 }
 

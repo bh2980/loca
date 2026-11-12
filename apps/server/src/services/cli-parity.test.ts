@@ -152,9 +152,9 @@ describe('one line filter on every surface', () => {
 
   it('has a case for every field of lineFilterSchema, and the cases reach every field of the resolved filter', async () => {
     expect(Object.keys(FILTER_CASES).sort()).toEqual([...fields].sort());
-    for (const field of fields) expect(FILTER_CASES[field as keyof UnpagedLineFilter].every((make) => field in make(filterFixture()).filter), field).toBe(true);
-    // What lineConditions reads is what resolveLineFilter writes: a resolved field no case produces is one nothing checks.
     const fixture = filterFixture();
+    for (const field of fields) expect(FILTER_CASES[field as keyof UnpagedLineFilter].every((make) => field in make(fixture).filter), field).toBe(true);
+    // What lineConditions reads is what resolveLineFilter writes: a resolved field no case produces is one nothing checks.
     const produced = new Set<string>();
     for (const cases of Object.values(FILTER_CASES)) for (const make of cases) for (const key of Object.keys(resolveLineFilter(fixture.db, fixture.projectId, make(fixture).filter).filter)) produced.add(key);
     for (const key of Object.keys(resolveLineFilter(fixture.db, fixture.projectId, { view: 'Nothing' }).filter)) produced.add(key);

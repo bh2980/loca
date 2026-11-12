@@ -2,7 +2,6 @@ import { and, desc, eq, gte, sql } from 'drizzle-orm';
 import { estimateTokens, type ModelErrorCode, type RunCaps, type RunLimits } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { events, type Topic } from '../events.ts';
 import { recordRunEnd } from '../services/chat-run-end.ts';
 import { overheadOf } from '../services/preflight.ts';
 import { subjectOf } from './subjects.ts';
@@ -20,12 +19,6 @@ import { subjectOf } from './subjects.ts';
  */
 const STOPPING_CODES: Partial<Record<ModelErrorCode, string>> = { auth: '인증 오류', config: '연결 설정 오류' };
 
-/** Run progress always changes lines (or terms); nodes that write terms or story data add their topic. */
-export function notifyRun(db: Db, runId: string, ...topics: Topic[]) {
-  const run = db.select({ projectId: s.runs.projectId, subject: s.runs.subject }).from(s.runs).where(eq(s.runs.id, runId)).get();
-  events.changed(run?.projectId, 'runs', ...(run ? [subjectOf(run.subject).topic] : []), ...topics);
-}
-
 /** Pauses a run on the runner's own decision, saying why. Calls already sent finish and are recorded. */
 export function haltRun(db: Db, runId: string, notice: string, cap?: 'calls' | 'input') {
   const run = db.select({ limits: s.runs.limits }).from(s.runs).where(eq(s.runs.id, runId)).get();
@@ -33,7 +26,6 @@ export function haltRun(db: Db, runId: string, notice: string, cap?: 'calls' | '
   const limits = cap && run?.limits ? { ...run.limits, hit: cap } : undefined;
   const paused = db.update(s.runs).set({ status: 'paused', notice, ...(limits ? { limits } : {}) }).where(and(eq(s.runs.id, runId), eq(s.runs.status, 'running'))).run();
   if (paused.changes) recordRunEnd(db, runId);
-  notifyRun(db, runId);
 }
 
 /** A run's caps with `caps` replacing them (null clears one; a cap not named stays), without the mark of the cap that stopped it. */

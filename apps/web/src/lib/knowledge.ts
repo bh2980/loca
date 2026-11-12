@@ -1,37 +1,34 @@
 import { useMemo } from 'react';
 import { createOptimisticAction, useLiveQuery, type Collection } from '@tanstack/react-db';
-import type { InferRequestType, InferResponseType } from 'hono/client';
+import type { InferRequestType } from 'hono/client';
 import { client } from './api';
-import { loaded, projectCollection, sent } from './collections';
+import { loaded, projectCollection, sent, type FeedRow } from './collections';
 import { termsCollection } from './terms';
 
 /**
  * The project's people, relationships, speech rules and notes, and its statuses and tags: one
  * collection each, kept current by the server's row feed, that every screen reads. A row stays the
- * same object while it does not change. Rejected knowledge is not listed. Story events are still a
- * query (their flow is computed on the server).
+ * same object while it does not change. Rejected knowledge is not listed.
  */
 type Api = (typeof client.projects)[':projectId'];
-type People = InferResponseType<Api['characters']['$get']>;
-type Taxonomy = InferResponseType<Api['statuses']['$get']>;
-export type Character = People['characters'][number];
-export type Relationship = People['relationships'][number];
-export type SpeechRule = InferResponseType<Api['speech-rules']['$get']>[number];
-export type KnowledgeDocument = InferResponseType<Api['documents']['$get']>[number];
+export type Character = FeedRow['characters'];
+export type Relationship = FeedRow['relationships'];
+export type SpeechRule = FeedRow['speechRules'];
+export type KnowledgeDocument = FeedRow['documents'];
 /** A status; how many lines it has is useTaxonomyCounts. */
-export type Status = Omit<Taxonomy['statuses'][number], 'units'>;
+export type Status = FeedRow['statuses'];
 /** A tag; how many lines and items carry it is useTaxonomyCounts. */
-export type Tag = Omit<Taxonomy['tags'][number], 'units' | 'items'> & { sort: number };
+export type Tag = FeedRow['tags'];
 
 type Options = { enabled?: boolean };
 type DraftKind = InferRequestType<Api['drafts']['$post']>['json']['kind'];
 
-export const charactersCollection = (projectId: string) => projectCollection<Character>('characters', projectId);
-export const relationshipsCollection = (projectId: string) => projectCollection<Relationship>('relationships', projectId);
-export const speechRulesCollection = (projectId: string) => projectCollection<SpeechRule>('speechRules', projectId);
-export const documentsCollection = (projectId: string) => projectCollection<KnowledgeDocument>('documents', projectId);
-export const statusesCollection = (projectId: string) => projectCollection<Status>('statuses', projectId);
-export const tagsCollection = (projectId: string) => projectCollection<Tag>('tags', projectId);
+export const charactersCollection = (projectId: string) => projectCollection('characters', projectId);
+export const relationshipsCollection = (projectId: string) => projectCollection('relationships', projectId);
+export const speechRulesCollection = (projectId: string) => projectCollection('speechRules', projectId);
+export const documentsCollection = (projectId: string) => projectCollection('documents', projectId);
+export const statusesCollection = (projectId: string) => projectCollection('statuses', projectId);
+export const tagsCollection = (projectId: string) => projectCollection('tags', projectId);
 
 /** People by name. */
 export function useCharacters(projectId: string, { enabled = true }: Options = {}) {
@@ -110,22 +107,19 @@ export function reorderTaxonomy(projectId: string, kind: 'statuses' | 'tags', id
  * computes again when an event, its links or tags, its evidence lines' place or the dialogue graph
  * changes, sending only the events whose row differs.
  */
-export type StoryEvent = InferResponseType<Api['events']['$get']>[number];
-export const storyEventsCollection = (projectId: string) => projectCollection<StoryEvent>('events', projectId);
+export type StoryEvent = FeedRow['events'];
+export const storyEventsCollection = (projectId: string) => projectCollection('events', projectId);
 
 export function useStoryEvents(projectId: string, { enabled = true }: Options = {}) {
   return loaded<StoryEvent>(useLiveQuery((q) => (enabled ? q.from({ row: storyEventsCollection(projectId) }) : undefined)), enabled);
 }
-
-type StatusCount = { id: string; units: number };
-type TagCount = { id: string; units: number; items: number };
 
 /**
  * How many lines each status has and how many lines and items each tag is on: two collections the
  * feed keeps current count by count (a line that changes status sends the two statuses it left and joined).
  */
 export function useTaxonomyCounts(projectId: string) {
-  const statuses = loaded<StatusCount>(useLiveQuery((q) => q.from({ row: projectCollection<StatusCount>('statusCounts', projectId) })));
-  const tags = loaded<TagCount>(useLiveQuery((q) => q.from({ row: projectCollection<TagCount>('tagCounts', projectId) })));
+  const statuses = loaded<FeedRow['statusCounts']>(useLiveQuery((q) => q.from({ row: projectCollection('statusCounts', projectId) })));
+  const tags = loaded<FeedRow['tagCounts']>(useLiveQuery((q) => q.from({ row: projectCollection('tagCounts', projectId) })));
   return useMemo(() => ({ statuses: new Map((statuses.data ?? []).map((row) => [row.id, row.units])), tags: new Map((tags.data ?? []).map((row) => [row.id, { units: row.units, items: row.items }])) }), [statuses.data, tags.data]);
 }

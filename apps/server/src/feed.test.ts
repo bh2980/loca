@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
-import { APP_FEED, FEED_UNITS_LIMIT, importFileSchema, type FeedSnapshot } from '@tw/shared';
+import { APP_FEED, FEED_UNITS_LIMIT, importFileSchema, type ChangeEvent, type FeedSnapshot } from '@tw/shared';
 import type { Env } from './context.ts';
 import { openDatabase } from './db/index.ts';
 import { rowChangesOf } from './db/row-changes.ts';
 import * as s from './db/schema.ts';
-import { Events, trackChanges, type ChangeEvent } from './events.ts';
-import { feedRows, feedSnapshot } from './feed.ts';
+import { Events, trackChanges } from './events.ts';
+import { feedRows, feedSnapshot, heldRows } from './feed.ts';
 import { knowledgeRoutes } from './routes/knowledge.ts';
 import { deleteItems } from './services/item-delete.ts';
 import { setKnowledgeTag } from './services/knowledge-tags.ts';
@@ -71,6 +71,11 @@ describe('views, conversations and the AI log in the row feed', () => {
     expect(sent.aiCalls).toEqual({ upsert: [], delete: [], changed: [call.id] });
     const test = db.insert(s.aiCalls).values({ kind: 'test', refId: 'connection', label: '시험', startedAt: new Date() }).returning().get();
     expect(feedRows(db, NO_KEYS, APP_FEED)!.rows.aiCalls).toEqual({ upsert: [], delete: [], changed: [test.id] });
+    // Read by id in the scope they are named in; a call names its connection by id and kind (the name is the connections collection's).
+    expect(heldRows(db, NO_KEYS, APP_FEED, 'aiCalls', [test.id, call.id]).rows).toEqual([expect.objectContaining({ id: test.id, connectionId: null, hasRequest: false })]);
+    const read = heldRows(db, NO_KEYS, projectId, 'aiCalls', [test.id, call.id]).rows;
+    expect(read).toEqual([expect.objectContaining({ id: call.id, status: 'ok' })]);
+    expect(read[0]).not.toHaveProperty('connectionName');
     db.delete(s.graphViews).where(eq(s.graphViews.id, view.id)).run();
     expect(feedRows(db, NO_KEYS, projectId)!.rows.graphViews).toEqual({ upsert: [], delete: [view.id] });
   });
@@ -169,9 +174,9 @@ describe('lines in the row feed', () => {
     db.update(s.units).set({ translation: '관문이 열린다' }).where(eq(s.units.id, unit.id)).run();
     const tag = db.insert(s.tags).values({ projectId, name: '확인', color: '#888888', scope: ['lines'] }).returning().get();
     db.insert(s.unitTags).values({ unitId: unit.id, tagId: tag.id }).run();
-    // Lines go out as ids; the browser reads the ones it holds (units/by-ids, unitRowsByIds).
+    // Lines go out as ids; the browser reads the ones it holds (POST sync/units, unitRowsByIds).
     expect(feedRows(db, NO_KEYS, projectId)!.rows.units).toEqual({ upsert: [], delete: [], changed: [unit.id] });
-    expect(unitRowsByIds(db, projectId, [unit.id, 'nope'])).toEqual([expect.objectContaining({ id: unit.id, translation: '관문이 열린다', tagIds: [tag.id], groupTitle: 'G', suggested: false, lastRun: null })]);
+    expect(unitRowsByIds(db, projectId, [unit.id, 'nope'])).toEqual([expect.objectContaining({ id: unit.id, translation: '관문이 열린다', tagIds: [tag.id], groupId: unit.groupId, suggested: false, lastRun: null })]);
     db.insert(s.candidates).values({ unitId: unit.id, text: '문이 열린다', origin: 'ai', state: 'pending' }).run();
     expect(feedRows(db, NO_KEYS, projectId)!.rows.units?.changed).toEqual([unit.id]);
     expect(unitRowsByIds(db, projectId, [unit.id])[0]?.suggested).toBe(true);
@@ -194,6 +199,12 @@ describe('lines in the row feed', () => {
     const { db, projectId } = setup();
     const app = new Hono<Env>().use(async (c, next) => (c.set('deps', { db } as never), next())).route('/projects/:projectId', knowledgeRoutes);
     expect((await app.request(`/projects/${projectId}/sync/units`)).status).toBe(400);
+    // ...read by id through the same readers as every collection, with the feed's count when read.
+    const unit = db.select().from(s.units).where(eq(s.units.projectId, projectId)).get()!;
+    const held = await app.request(`/projects/${projectId}/sync/units`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ids: [unit.id, 'nope'] }) });
+    expect(await held.json()).toEqual({ seq: rowChangesOf(db.$client).seq, rows: [expect.objectContaining({ id: unit.id, key: unit.key })] });
+    // A collection loaded whole is not read by id.
+    expect((await app.request(`/projects/${projectId}/sync/terms`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ids: [] }) })).status).toBe(400);
   });
 });
 

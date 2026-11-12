@@ -3,7 +3,6 @@ import { z } from 'zod';
 import { agentSettingsSchema, editorAiSchema, exclusionRulesSchema, formatRulesSchema, markStylesSchema, type AgentSettings } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { events } from '../events.ts';
 
 /**
  * The project's settings a person or the agent may change: name, description, format rules, AI
@@ -23,9 +22,7 @@ export const projectSettingsInput = z.object({
 
 /** Null when there is no such project. */
 export function updateProjectSettings(db: Db, projectId: string, patch: z.infer<typeof projectSettingsInput> & { agentSettings?: AgentSettings }) {
-  const row = db.update(s.projects).set(patch).where(eq(s.projects.id, projectId)).returning().get();
-  if (row) events.changed(projectId, 'projects');
-  return row ?? null;
+  return db.update(s.projects).set(patch).where(eq(s.projects.id, projectId)).returning().get() ?? null;
 }
 
 export function readProjectSettings(db: Db, projectId: string) {

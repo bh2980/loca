@@ -5,7 +5,6 @@ import { estimateTokens, limitsFor, runCardOf, runEndOf } from '@tw/shared';
 import * as ai from '@tw/ai';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { events } from '../events.ts';
 import { logged } from './ai-calls.ts';
 import { runCardLine, runEndLine, transcript } from './chat-context.ts';
 
@@ -111,7 +110,6 @@ export async function fitRecord(input: { db: Db; chat: typeof s.chatSessions.$in
   const summary = await summarize(db, chat, target, window, stored?.summary ?? null, record.slice(from, cut), input.signal);
   const compaction = { upTo: cut, summary, at: Date.now() };
   db.update(s.chatSessions).set({ compaction }).where(eq(s.chatSessions.id, chat.id)).run();
-  events.changed(chat.projectId, 'chat');
   return withCompaction(record, compaction);
 }
 
@@ -141,7 +139,6 @@ export function compactNow(input: { db: Db; sessionId: string; target: ai.ModelT
     const compaction = { upTo: record.length, summary, at: Date.now() };
     db.update(s.chatSessions).set({ compaction, agentSession: null }).where(eq(s.chatSessions.id, sessionId)).run();
     if (chat.agentSession) void ai.closeSession(chat.agentSession.id);
-    events.changed(chat.projectId, 'chat');
     return compaction;
   })();
   compacting.set(sessionId, work);

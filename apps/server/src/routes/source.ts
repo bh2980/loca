@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { readingRouteQuery } from '../services/reading-route-query.ts';
 import { projectReadingRoute } from '../services/reading-route.ts';
-import { and, asc, count, eq, inArray, ne, notLike, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, ne, notLike, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { createGroupSchema, updateGroupSchema, createUnitSchema, updateUnitSchema, lineFilterSchema, LINE_TRANSLATE, unpagedLineFilterSchema, viaWith, viewRouteSchema, type NodeType } from '@tw/shared';
 import { createGroup, updateGroup, deleteGroup, createUnit, updateUnit, deleteUnits } from '../services/source-mutations.ts';
@@ -15,22 +15,18 @@ import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
 import { eachChunk, inChunks, inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
-import { events } from '../events.ts';
 import { computeLayouts, LAYOUT_VERSION } from '../services/layout.ts';
 import type { LayoutDirection } from '../services/layout-types.ts';
 import { deleteView, listViews, missingNodes, readView, routeNodes, saveView, sectionWithMost, updateView, viewSection } from '../services/graph-views.ts';
 import { lineMatches } from '../services/line-matches.ts';
 import { lineMatchRows, linePage } from '../services/line-filter.ts';
-import { sameSource, unknownListenerSql } from '../services/line-marks.ts';
+import { sameSource } from '../services/line-marks.ts';
 import { CompleteRefused, completeLine } from '../services/editor-complete.ts';
 import { assistLine } from '../services/editor-assist.ts';
-import { describeRule, knownListener as knownListenerOf, speechRuleIndex } from '../services/speech.ts';
+import { knownListener as knownListenerOf, speechRuleIndex } from '../services/speech.ts';
 import { lineContexts } from '../services/line-context.ts';
-import { unitColumns, unitRowsByIds } from '../services/unit-rows.ts';
+import { unitColumns } from '../services/unit-rows.ts';
 import { groupRows } from '../services/group-rows.ts';
-import { lineExtras } from '../services/line-extras.ts';
-import { listenerRows } from '../services/project-rows.ts';
-import { rowChangesOf } from '../db/row-changes.ts';
 
 /** A line's text, candidate and status: one save (services/line-save.ts). */
 /** What a 내 수정 유지 save kept the person's text over: the run that changed the line, or a change made meanwhile. */
@@ -100,17 +96,6 @@ export const sourceRoutes = new Hono<Env>()
   .post('/projects/:projectId/units', validate('json', createUnitSchema), (c) => c.json(createUnit(c.var.deps.db, c.req.param('projectId'), c.req.valid('json')), 201))
   .patch('/projects/:projectId/units/:unitId/source', validate('json', updateUnitSchema), (c) => c.json(updateUnit(c.var.deps.db, c.req.param('projectId'), c.req.param('unitId'), c.req.valid('json'))))
   .delete('/projects/:projectId/units/:unitId', (c) => c.json(deleteUnits(c.var.deps.db, c.req.param('projectId'), [c.req.param('unitId')])))
-  .get('/projects/:projectId/listeners', (c) => {
-    const { db } = c.var.deps;
-    const projectId = c.req.param('projectId');
-    const listeners = listenerRows(db, projectId).map(({ id: _id, ...row }) => row);
-    const unknownCount = db
-      .select({ count: count() })
-      .from(s.units)
-      .where(and(eq(s.units.projectId, projectId), unknownListenerSql(projectId)))
-      .get()!.count;
-    return c.json({ listeners, unknownCount });
-  })
   .get('/projects/:projectId/groups', validate('query', z.object({ kind: z.enum(['scene', 'document', 'ui']).optional(), q: z.string().trim().optional() })), (c) => {
     const { kind, q } = c.req.valid('query');
     const needle = q?.toLowerCase();
@@ -143,17 +128,6 @@ export const sourceRoutes = new Hono<Env>()
     const tags = Map.groupBy(inChunks(ids, (slice) => db.select().from(s.unitTags).where(inArray(s.unitTags.unitId, slice)).all()), (row) => row.unitId);
     return c.json({ rows: rows.map((row) => ({ ...row, tagIds: (tags.get(row.id) ?? []).map((tag) => tag.tagId) })) });
   })
-  /** The open lines' candidates and run history, by id, with the feed's count (the browser's line extras collection). */
-  .post('/projects/:projectId/units/extras', validate('json', z.object({ ids: z.array(z.string()).max(200) })), (c) => {
-    const seq = rowChangesOf(c.var.deps.db.$client).seq;
-    return c.json({ rows: lineExtras(c.var.deps.db, c.req.param('projectId'), c.req.valid('json').ids), seq });
-  })
-  /** Lines by id, in the order asked, as the line lists show them: the rows the browser's units collection holds. */
-  .post('/projects/:projectId/units/by-ids', validate('json', z.object({ ids: z.array(z.string()).max(200) })), (c) => {
-    // The feed's count when read: a change event at or below it is already in these rows.
-    const seq = rowChangesOf(c.var.deps.db.$client).seq;
-    return c.json({ rows: unitRowsByIds(c.var.deps.db, c.req.param('projectId'), c.req.valid('json').ids), seq });
-  })
   .patch(
     '/projects/:projectId/units',
     validate(
@@ -183,7 +157,6 @@ export const sourceRoutes = new Hono<Env>()
       if (body.listener !== undefined) setHumanListener(tx, body.unitIds, body.listener);
       if (body.translate !== undefined) eachChunk(body.unitIds, (ids) => tx.update(s.units).set({ translate: body.translate }).where(and(eq(s.units.projectId, projectId), inArray(s.units.id, ids))).run());
     });
-    events.changed(projectId, 'units');
     return c.json({ ok: true });
     },
   )
@@ -241,7 +214,6 @@ export const sourceRoutes = new Hono<Env>()
       .where(and(eq(s.units.projectId, unit.projectId), ne(s.units.id, unit.id), inArray(s.units.id, [...bases.keys()]), sql`${sameSource(sql`${s.units.source}`)} = ${sameSource(sql`${unit.source}`)}`))
       .all();
     const result = db.transaction((tx) => saveSameText(tx, rows.map((row) => ({ unit: row, base: bases.get(row.id) ?? null })), text));
-    events.changed(unit.projectId, 'units');
     return c.json({ ok: true, ...result, skipped: result.skipped + (lines.length - rows.length) });
   })
   /** Already translated lines of the project with the same or a similar source (the editor's suggestions). */
@@ -265,7 +237,6 @@ export const sourceRoutes = new Hono<Env>()
       if (error instanceof LineConflict) return c.json({ error: error.message }, 409);
       throw error;
     }
-    events.changed(unit.projectId, 'units');
     const saved = db.select({ translation: s.units.translation, statusId: s.units.statusId, candidateId: s.units.candidateId }).from(s.units).where(eq(s.units.id, unitId)).get()!;
     return c.json({ ok: true, ...saved });
   })
@@ -274,7 +245,6 @@ export const sourceRoutes = new Hono<Env>()
     const { db } = c.var.deps;
     const unit = found(db.select({ id: s.units.id, projectId: s.units.projectId }).from(s.units).where(eq(s.units.id, c.req.param('unitId'))).get(), '대사');
     if (!declineSuggestion(db, unit.id, c.req.param('candidateId'))) return c.json({ error: '기다리는 AI 제안이 아닙니다.' }, 409);
-    events.changed(unit.projectId, 'units');
     return c.json({ ok: true });
   })
   .patch('/units/:unitId', validate('json', unitPatch), (c) => {
@@ -293,7 +263,6 @@ export const sourceRoutes = new Hono<Env>()
         attachUnitTags(tx, unit.projectId, [unitId], { add: body.tagIds, remove: current.filter((id) => !body.tagIds!.includes(id)) }, { onMisplaced: 'refuse' });
       }
     });
-    events.changed(unit.projectId, 'units');
     return c.json({ ok: true });
   })
 

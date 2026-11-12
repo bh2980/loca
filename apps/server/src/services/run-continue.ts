@@ -3,7 +3,7 @@ import { choiceKey, isWholeScriptWorkflow, linesById, someOf, withRunModels, typ
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { refuseSecondWholeScript, WHOLE_SCRIPT_BUSY } from '../engine/run-create.ts';
-import { notifyRun, withCaps } from '../engine/run-guards.ts';
+import { withCaps } from '../engine/run-guards.ts';
 import { wakeRun } from '../engine/run-wake.ts';
 import { workflowIssues } from './workflow-issues.ts';
 import { preflight } from './preflight.ts';
@@ -129,7 +129,6 @@ export function continueRun(db: Db, runId: string, input: ContinueInput = {}) {
   if (run.status === 'paused' && !retryFailed && !switched.changes.length) {
     db.update(s.runs).set({ status: 'running', notice: null, limits, ...session }).where(eq(s.runs.id, run.id)).run();
     wakeRun(run.id);
-    notifyRun(db, run.id);
     return { ok: true as const, resumed: true, retried: 0, changes: switched.changes };
   }
 
@@ -165,9 +164,6 @@ export function continueRun(db: Db, runId: string, input: ContinueInput = {}) {
       .run();
     return { ok: true as const, resumed: false, retried, changes: switched.changes };
   });
-  if (result.ok) {
-    wakeRun(run.id);
-    notifyRun(db, run.id);
-  }
+  if (result.ok) wakeRun(run.id);
   return result;
 }

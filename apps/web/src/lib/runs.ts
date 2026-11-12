@@ -1,15 +1,13 @@
 import { useLiveQuery } from '@tanstack/react-db';
-import type { InferResponseType } from 'hono/client';
-import type { client } from './api';
-import { loaded, projectCollection } from './collections';
+import { loaded, projectCollection, type FeedRow } from './collections';
 
 /**
  * The project's latest workflow runs with how many of their lines are in each state: one collection
  * the row feed keeps current, so a running run sends only its own row as its lines move.
  */
-export type Run = InferResponseType<(typeof client.projects)[':projectId']['runs']['$get']>[number];
+export type Run = FeedRow['runs'];
 
-export const runsCollection = (projectId: string) => projectCollection<Run>('runs', projectId);
+export const runsCollection = (projectId: string) => projectCollection('runs', projectId);
 
 /** Runs, newest first. */
 export function useRuns(projectId: string, { enabled = true }: { enabled?: boolean } = {}) {

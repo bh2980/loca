@@ -4,7 +4,6 @@ import { runCardMessage, runCardOf, type ChatChip, type RunCard, type RunCardPla
 import { badRequest, found, notFound } from '../context.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { events } from '../events.ts';
 import { chatRunScope } from './chat-run-scope.ts';
 import { preflight } from './preflight.ts';
 import { planOf } from './run-plan.ts';
@@ -47,7 +46,6 @@ export async function createRunCard(db: Db, sessionId: string, input: { workflow
   // Read and written with no await in between: a reply that is saving its own messages cannot lose it (chat-stream keeps cards a reply did not know).
   const latest = record(db, sessionId);
   db.update(s.chatSessions).set({ messages: [...(latest.messages as UIMessage[]), runCardMessage(card) as unknown as UIMessage] }).where(eq(s.chatSessions.id, sessionId)).run();
-  events.changed(session.projectId, 'chat');
   return card;
 }
 
@@ -61,7 +59,6 @@ const replaceCard = (db: Db, sessionId: string, card: RunCard) => {
   const latest = record(db, sessionId);
   const messages = (latest.messages as UIMessage[]).map((message) => (message.id === card.id && runCardOf(message) ? (runCardMessage(card) as unknown as UIMessage) : message));
   db.update(s.chatSessions).set({ messages }).where(eq(s.chatSessions.id, sessionId)).run();
-  events.changed(latest.projectId, 'chat');
 };
 
 /**

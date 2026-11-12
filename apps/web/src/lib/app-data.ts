@@ -1,8 +1,9 @@
+import { useCallback } from 'react';
 import { createOptimisticAction, useLiveQuery } from '@tanstack/react-db';
-import type { InferRequestType, InferResponseType } from 'hono/client';
-import { APP_FEED } from '@tw/shared';
+import type { InferRequestType } from 'hono/client';
+import { APP_FEED, CONNECTION_KIND_INFO } from '@tw/shared';
 import { client } from './api';
-import { appCollection, loaded, projectCollection, sent } from './collections';
+import { appCollection, loaded, projectCollection, sent, type FeedRow } from './collections';
 import { targetScope, type ConnectionRow, type SettingsTarget } from './settings-target';
 
 /**
@@ -10,12 +11,12 @@ import { targetScope, type ConnectionRow, type SettingsTarget } from './settings
  * app scope (0118): the projects list, the home's defaults (one row) and connections (the home's, or a
  * project's own in that project's scope).
  */
-export type ProjectListRow = InferResponseType<typeof client.projects.$get>[number];
-export type AppDefaults = InferResponseType<typeof client.app.defaults.$get> & { id: string };
+export type ProjectListRow = FeedRow['projects'];
+export type AppDefaults = FeedRow['appDefaults'];
 export type AppDefaultsPatch = InferRequestType<typeof client.app.defaults.$patch>['json'];
 
-const projectsList = () => appCollection<ProjectListRow>('projects');
-const defaultsRow = () => appCollection<AppDefaults>('appDefaults');
+const projectsList = () => appCollection('projects');
+const defaultsRow = () => appCollection('appDefaults');
 
 /** The projects, last changed first. */
 export function useProjects() {
@@ -52,8 +53,14 @@ export function saveAppDefaults(patch: AppDefaultsPatch) {
 /** The connections of a project or of the home, by name. */
 export function useConnections(target: SettingsTarget) {
   const scope = targetScope(target);
-  const rows = scope === APP_FEED ? appCollection<ConnectionRow>('connections') : projectCollection<ConnectionRow>('connections', scope);
+  const rows = scope === APP_FEED ? appCollection('connections') : projectCollection('connections', scope);
   return loaded<ConnectionRow>(useLiveQuery((query) => query.from({ connection: rows }).orderBy(({ connection }) => connection.name)));
+}
+
+/** A connection's name for rows that name it by id and kind (the AI log): a deleted one reads as its kind, null when neither is known. */
+export function useConnectionName(target: SettingsTarget) {
+  const { data } = useConnections(target);
+  return useCallback((id: string | null, kind: string | null) => (id && data?.find((row) => row.id === id)?.name) || (kind ? (CONNECTION_KIND_INFO[kind as keyof typeof CONNECTION_KIND_INFO]?.label ?? kind) : null), [data]);
 }
 
 /** A request that changes a connection: done once the feed has brought its row (in the target's scope). */

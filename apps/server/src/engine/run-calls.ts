@@ -12,7 +12,7 @@ import { judgmentOutcome, judgmentQuestions } from './judgment.ts';
 import type { ModelPort } from './model-port.ts';
 import { isBatchScope } from './prompts.ts';
 import { buildRequest, type RequestItem } from './request.ts';
-import { haltRun, notifyRun, type RunGuards } from './run-guards.ts';
+import { haltRun, type RunGuards } from './run-guards.ts';
 import { previousOf, record, route, takenBack, type Item, type Run } from './run-state.ts';
 import { subjectOf } from './subjects.ts';
 
@@ -58,7 +58,6 @@ export class RunCalls {
         if (signal.aborted) return;
         failure = this.failBatch(run, batch, step, error);
       }
-      notifyRun(this.db, run.id);
       this.guards.afterCall(run.id, failure);
     } catch (error) {
       this.giveUp(run, batch, error);

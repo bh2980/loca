@@ -2,28 +2,7 @@ import { freeName, useGraphHistory, type DeleteItem } from './graph-history';
 import { pairKey } from '@tw/shared';
 import type { Pair } from './pairs';
 import { sent } from '@/lib/collections';
-
-interface Character {
-  id: string;
-  name: string;
-  aliases: string[];
-  profile: string;
-  speech: string;
-  style: Record<string, unknown>;
-  gender: string;
-  ageBand: string;
-  role: string;
-  player: boolean;
-}
-interface Relationship {
-  id: string;
-  fromId: string;
-  toId: string;
-  kind: string;
-  description: string;
-  mutual: boolean;
-  changes: unknown[];
-}
+import type { Character, Relationship } from '@/lib/knowledge';
 
 /**
  * What the relationship graph does, as the page's actions: draw a line (a relationship), add a

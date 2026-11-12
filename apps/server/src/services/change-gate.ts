@@ -2,7 +2,6 @@ import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { itemCount, PERMISSION_MODE_INFO, toolClass, toolRoute, toolSpec, type PermissionMode } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { events } from '../events.ts';
 import { agentCatalog, prepareProposal } from './agent-catalog.ts';
 import { checkAgentPermission, projectAgentSettings } from './agent-permission-check.ts';
 import { reportText, type BatchCheck } from './proposal-check.ts';
@@ -66,7 +65,6 @@ export async function proposeChange(db: Db, request: { projectId: string; sessio
     const row = await decideProposal(db, proposal.id, true, mode === 'bypass' ? 'bypass' : 'auto');
     // The agent gets the result in this tool call; it is not told again on the next turn.
     db.update(s.proposals).set({ reportedAt: new Date() }).where(eq(s.proposals.id, proposal.id)).run();
-    events.changed(request.projectId, 'proposals');
     const how = PERMISSION_MODE_INFO[mode].label;
     const done = toolSpec(request.tool)?.candidateOnly ? 'AI 제안으로 올렸습니다(현재 번역은 그대로, 사람이 적용·거절)' : '바로 반영했습니다';
     const text = row.status === 'accepted' ? `${how} 모드로 ${done} (proposal ${proposal.id}). 결과: ${fitText(row.result, 4_000)}` : `${how} 모드로 반영하려 했지만 실패했습니다 (proposal ${proposal.id}): ${fitText(row.result, 2_000)}`;
@@ -170,7 +168,6 @@ export async function undoChanges(db: Db, owner: string | { terminal: string; by
       }
       db.update(s.proposals).set({ undoneAt: new Date(), reportedAt: null })
         .where(eq(s.proposals.id, original.id)).run();
-      events.changed(original.projectId, 'proposals');
       results.push({ id: original.id, ok: true, ...(skipped.length && { skipped }) });
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);

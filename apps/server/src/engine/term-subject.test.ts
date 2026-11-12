@@ -133,7 +133,6 @@ describe('a workflow whose input is terms', () => {
     expect(subjectOf('terms').scopeOf([])).toEqual({ terms: { nothing: true } });
     expect(subjectOf('lines').scopeOf(['u1'])).toMatchObject({ filter: { lineIds: ['u1'] } });
     expect(subjectOf('lines').scopeOf([])).toMatchObject({ filter: { nothing: true } });
-    expect([subjectOf('lines').topic, subjectOf('terms').topic]).toEqual(['units', 'terms']);
     expect([subjectOf('lines').tagScope, subjectOf('terms').tagScope]).toEqual(['lines', 'terms']);
   });
 

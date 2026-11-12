@@ -2,11 +2,12 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:f
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
-import { DEFAULT_RETRY_RULES, exclusionRulesSchema, formatRulesSchema, lineExclusion, mentions, needsListener, retryRuleSchema, type LineTranslate } from '@tw/shared';
+import { APP_FEED, DEFAULT_RETRY_RULES, exclusionRulesSchema, formatRulesSchema, lineExclusion, mentions, needsListener, retryRuleSchema, type LineTranslate, type Topic } from '@tw/shared';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import * as schema from './schema.ts';
 import { exitActionsFromNodes } from './exit-actions-migrate.ts';
+import { events } from '../events.ts';
 import { rowChangesOf } from './row-changes.ts';
 
 const migrationsFolder = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../drizzle');
@@ -45,6 +46,12 @@ export function registerMigrationFunctions(sqlite: Database.Database) {
   // row_changed(collection, row id, op, project id): the row feed's triggers (0106) note a changed row (db/row-changes.ts).
   sqlite.function('row_changed', (collection: unknown, rowId: unknown, op: unknown, projectId: unknown) => {
     rowChangesOf(sqlite).note(String(collection), String(rowId), op === 'delete' ? 'delete' : 'upsert', typeof projectId === 'string' ? projectId : null);
+    return null;
+  });
+  // topic_changed(topic, project id): the topic triggers (db/topics.ts) say which questions a changed row belongs to.
+  // The project is APP_FEED for the app's own rows and null for a row whose parent is already gone (its delete said it).
+  sqlite.function('topic_changed', (topic: unknown, projectId: unknown) => {
+    if (typeof projectId === 'string') events.changed(projectId === APP_FEED ? undefined : projectId, topic as Topic);
     return null;
   });
   // issue_tag_nodes(definition json, role → tag id json): a workflow's 태그 붙이기 nodes once tags have no roles (0102):

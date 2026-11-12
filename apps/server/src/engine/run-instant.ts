@@ -3,8 +3,6 @@ import jsonLogic from 'json-logic-js';
 import { INPUT_TYPES, byNodeType, functionTakes, pickPaths, previousStepId, runNodeName, type ConditionData, type WorkflowNode } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import type { Topic } from '../events.ts';
-import { APPLY_TOPICS } from './functions/apply.ts';
 import { runInstantFunction, type FunctionInput } from './functions/index.ts';
 import { nodeOf, record, route, type Item, type Run, type Tx } from './run-state.ts';
 import { subjectOf } from './subjects.ts';
@@ -16,21 +14,12 @@ export type GatherNode = Extract<WorkflowNode, { type: 'gather' }>;
  * wait for anything, and a gather closing. The scheduler hands them items; they record and route.
  */
 
-/** Functions that write beyond the line itself, and the change topic they touch. */
-const FUNCTION_TOPICS: Record<string, Topic[]> = { ...APPLY_TOPICS };
-
 /** Why a node of the other input sends an item out through "error" (validation keeps such nodes out; a safety net). */
 const unsupported = (run: Run, node: WorkflowNode) => `'${runNodeName(run.definition, node)}' 노드는 ${INPUT_TYPES[run.subject].label}에 쓸 수 없어 오류 출구로 보냈습니다.`;
 
-/** Runs instant nodes for `items` until `deadline` (the rest stay queued for the next tick); returns the extra topics their functions wrote to. */
-export function settle(db: Db, run: Run, items: Item[], deadline: number): Set<Topic> {
+/** Runs instant nodes for `items` until `deadline` (the rest stay queued for the next tick). */
+export function settle(db: Db, run: Run, items: Item[], deadline: number) {
   const subject = subjectOf(run.subject);
-  const topics = new Set<Topic>();
-  for (const item of items) {
-    const node = nodeOf(run, item.nodeId);
-    for (const topic of node?.type === 'function' ? (FUNCTION_TOPICS[node.config.fn] ?? []) : []) topics.add(topic);
-    if (Object.keys(node?.exits ?? {}).length) for (const topic of subject.exitTopics) topics.add(topic);
-  }
   db.transaction((tx) => {
     const inputOf = subject.inputs(tx, run, items);
     for (const item of items) {
@@ -44,7 +33,6 @@ export function settle(db: Db, run: Run, items: Item[], deadline: number): Set<T
       if (performance.now() >= deadline) return;
     }
   });
-  return topics;
 }
 
 /** What each kind of node does with an item that reaches it inside the instant pass. A node that calls out never gets here: the scheduler dispatches it. */

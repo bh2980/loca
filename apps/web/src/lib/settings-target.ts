@@ -1,5 +1,6 @@
-import type { InferRequestType, InferResponseType } from 'hono/client';
+import type { InferRequestType } from 'hono/client';
 import { client } from '@/lib/api';
+import type { FeedRow } from '@/lib/collections';
 
 /** Whose settings a screen edits: one project's, or the home's defaults that a new project copies. */
 export type SettingsTarget = { kind: 'project'; projectId: string } | { kind: 'app' };
@@ -8,7 +9,7 @@ export type SettingsTarget = { kind: 'project'; projectId: string } | { kind: 'a
 export const targetScope = (target: SettingsTarget) => (target.kind === 'project' ? target.projectId : 'app');
 
 const projectConnections = client.projects[':projectId'].connections;
-export type ConnectionRow = InferResponseType<typeof projectConnections.$get>[number];
+export type ConnectionRow = FeedRow['connections'];
 export type ConnectionCreate = InferRequestType<typeof projectConnections.$post>['json'];
 export type ConnectionPatch = InferRequestType<(typeof projectConnections)[':id']['$patch']>['json'];
 

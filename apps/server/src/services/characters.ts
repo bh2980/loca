@@ -1,7 +1,6 @@
 import { and, eq } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { events } from '../events.ts';
 import { bySaver, PERSON, type Saver } from './status-by.ts';
 import { addNameTerms } from './terms.ts';
 
@@ -27,6 +26,5 @@ export function saveCharacter(db: Db, projectId: string, values: Partial<Charact
     return { row, terms: names ? addNameTerms(tx, projectId, row) : 0 };
   });
   if (!saved) return undefined;
-  events.changed(projectId, 'knowledge', ...(saved.terms ? (['terms'] as const) : []));
   return saved.row;
 }

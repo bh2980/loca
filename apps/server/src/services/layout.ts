@@ -4,7 +4,6 @@ import { and, asc, eq, inArray, ne, notInArray, notLike, sql } from 'drizzle-orm
 import type { Db } from '../db/index.ts';
 import { graphEdges, graphLayouts, graphNodes, groups, projects, units, type LayoutData, type OmittedFacts } from '../db/schema.ts';
 import { contractEdges, isControlNode } from '@tw/shared';
-import { events } from '../events.ts';
 import { foldChoices } from './choices.ts';
 import { scriptRanks } from './script-rank.ts';
 import type { LayoutDirection, LayoutJob, SceneSource, SectionLayouts, WorkerJob } from './layout-worker.ts';
@@ -190,7 +189,6 @@ async function computeNodeSetLayout(db: Db, projectId: string, key: string, node
   const existing = db.select({ status: graphLayouts.status, version: sql<number>`coalesce(json_extract(${graphLayouts.data}, '$.version'), 0)` }).from(graphLayouts).where(and(eq(graphLayouts.projectId, projectId), eq(graphLayouts.scope, 'dialogue'), eq(graphLayouts.section, key), eq(graphLayouts.direction, direction))).get();
   if (existing?.status === 'ready' && existing.version >= LAYOUT_VERSION) return;
   save(db, projectId, 'dialogue', { status: 'pending', data: null, error: null }, key, direction);
-  events.changed(projectId, 'graph');
   const chosen = new Set(nodeIds);
   const titleOf = new Map(db.select({ id: groups.id, title: groups.title }).from(groups).where(eq(groups.projectId, projectId)).all().map((group) => [group.id, group.title]));
   const nodes = db.select({ id: graphNodes.id, kind: graphNodes.kind, groupId: graphNodes.groupId, unitIds: graphNodes.unitIds }).from(graphNodes).where(eq(graphNodes.projectId, projectId)).all();
@@ -218,7 +216,6 @@ async function computeNodeSetLayout(db: Db, projectId: string, key: string, node
   } catch (error) {
     if (job.cancelled || !projectExists(db, projectId)) return;
     save(db, projectId, 'dialogue', { status: 'failed', error: error instanceof Error ? error.message : String(error) }, key, direction);
-    events.changed(projectId, 'graph');
     return;
   }
   if (job.cancelled || !projectExists(db, projectId)) return;
@@ -229,7 +226,6 @@ async function computeNodeSetLayout(db: Db, projectId: string, key: string, node
     return groupId ? { ...portal, section: titleOf.get(groupId) ?? groupId, groupId } : portal;
   });
   save(db, projectId, 'dialogue', { status: 'ready', data: { ...data, view: { label, nodes: chosen.size } }, error: null }, key, direction);
-  events.changed(projectId, 'graph');
 }
 
 const BYPASS = 'bypass:';
@@ -324,7 +320,6 @@ export async function computeLayouts(db: Db, projectId: string, options: { secti
     if (!options.sectionsOnly && !running.rerun.has(direction)) {
       save(db, projectId, 'scene', { status: 'pending', error: null }, '', direction);
       save(db, projectId, 'dialogue', { status: 'pending', error: null }, '', direction);
-      events.changed(projectId, 'graph');
     }
     running.rerun.add(direction);
     return;
@@ -357,7 +352,6 @@ async function computeOnce(db: Db, projectId: string, state: { worker: Worker | 
   for (const [scope, build] of sectionsOnly ? [] : jobs) {
     // A stored layout stays while the new one is made: the graph keeps showing it (status pending).
     guarded(() => save(db, projectId, scope, { status: 'pending', error: null }, '', direction));
-    events.changed(projectId, 'graph');
     try {
       const work = build();
       const empty = work.kind === 'scenes' ? !work.source.scenes.length : work.kind === 'layout' ? !work.job.nodes.length : !work.nodes.length;
@@ -369,7 +363,6 @@ async function computeOnce(db: Db, projectId: string, state: { worker: Worker | 
       if (error instanceof Cancelled) throw error;
       guarded(() => save(db, projectId, scope, { status: 'failed', error: error instanceof Error ? error.message : String(error) }, '', direction));
     }
-    events.changed(projectId, 'graph');
   }
 
   // Each section's own dialogue layout, when the script has more than one section with lines in the graph.
@@ -393,5 +386,4 @@ async function computeOnce(db: Db, projectId: string, state: { worker: Worker | 
     if (error instanceof Cancelled) throw error;
     console.error('section layouts failed', error);
   }
-  events.changed(projectId, 'graph');
 }

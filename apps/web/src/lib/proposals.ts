@@ -1,25 +1,27 @@
 import { createOptimisticAction } from '@tanstack/react-db';
 import { keepPreviousData, queryOptions, useQuery } from '@tanstack/react-query';
-import type { InferResponseType } from 'hono/client';
 import type { FeedRows } from '@tw/shared';
 import { client, unwrap } from './api';
-import { sent } from './collections';
-import { heldCollection, useHeld, type Held } from './units';
+import { sent, type FeedRow } from './collections';
+import { heldFeed, useHeld, type Held } from './units';
 
 /**
  * Proposals as their cards show them: which ones a panel lists is a question (GET proposals/ids, one
  * chat's or those sent from the CLI), the proposals themselves come from a collection that holds the
  * ones shown and reads one again when the feed names it (0117). A card not yet accepted says what each
- * field has now, so it is read again too when an item, status, tag, workflow or scene it names changes.
+ * field has now, so it is read again too when an item, status, tag, workflow, scene, term or connection it
+ * names changes. That one is followed here and not by a trigger: a proposal names those rows inside its input,
+ * so the database would have to read every undecided proposal for each changed line, while the browser looks
+ * only at the cards it shows.
  */
-export type Proposal = InferResponseType<(typeof client.projects)[':projectId']['proposals']['by-ids']['$post']>['rows'][number];
+export type Proposal = FeedRow['proposals'];
 
 const held = new Map<string, Held<Proposal>>();
 
 /** The ids an event changed among what proposal cards name. */
 function namedIds(rows: FeedRows) {
   const ids = new Set<string>();
-  for (const name of ['characters', 'relationships', 'speechRules', 'events', 'documents', 'statuses', 'tags', 'workflows', 'groups'] as const) {
+  for (const name of ['characters', 'relationships', 'speechRules', 'events', 'documents', 'statuses', 'tags', 'workflows', 'groups', 'terms', 'connections'] as const) {
     const part = rows[name];
     if (!part) continue;
     for (const row of part.upsert as { id: string }[]) ids.add(row.id);
@@ -32,11 +34,7 @@ function namedIds(rows: FeedRows) {
 function proposalsOf(projectId: string) {
   let rows = held.get(projectId);
   if (!rows) {
-    rows = heldCollection<Proposal>({
-      id: `proposals:${projectId}`,
-      projectId,
-      read: (ids) => unwrap(client.projects[':projectId'].proposals['by-ids'].$post({ param: { projectId }, json: { ids } })),
-      signal: (rows) => rows.proposals,
+    rows = heldFeed('proposals', projectId, {
       staleBy: (rows) => {
         const ids = namedIds(rows);
         if (!ids.size) return undefined;

@@ -3,7 +3,8 @@ import { keepPreviousData, queryOptions, useQuery, useQueryClient } from '@tanst
 import type { InferResponseType } from 'hono/client';
 import type { Subject } from '@tw/shared';
 import { client, unwrap } from './api';
-import { heldCollection, useHeld, useLines, type Held } from './units';
+import type { FeedRow } from './collections';
+import { heldCollection, heldFeed, useHeld, useLines, type Held } from './units';
 import { useTaxonomy } from './knowledge';
 
 /**
@@ -13,7 +14,7 @@ import { useTaxonomy } from './knowledge';
  * changes), and what it started with (definition, models), fetched once and again only when the run
  * itself changes (continued, paused, finished).
  */
-export type RunItem = InferResponseType<(typeof client.projects)[':projectId']['run-items']['$post']>['rows'][number];
+export type RunItem = FeedRow['runItems'];
 /** A run item as the run page lists it: with its line's (or term's) words and the line's status. */
 export type RunItemRow = RunItem & { key: string; speaker: string | null; source: string; target: string | null; statusName: string | null; statusColor: string | null };
 export type RunProgress = InferResponseType<(typeof client.projects)[':projectId']['run-progress']['$post']>['rows'][number];
@@ -27,17 +28,8 @@ const steps = new Map<string, Held<RunStep>>();
 function itemsOf(projectId: string) {
   let held = items.get(projectId);
   if (!held) {
-    held = heldCollection<RunItem>({
-      id: `run-items:${projectId}`,
-      projectId,
-      read: (ids) => unwrap(client.projects[':projectId']['run-items'].$post({ param: { projectId }, json: { ids } })),
-      signal: (rows) => rows.runItems,
-      // A term's item carries the term's words (the glossary leaves out rejected terms); a line's reads its line from the units collection.
-      staleBy: (rows) => {
-        const changed = new Set(((rows.terms?.upsert ?? []) as { id: string }[]).map((term) => term.id));
-        return changed.size ? (item) => item.term !== null && changed.has(item.unitId) : undefined;
-      },
-    });
+    // A term's item carries the term's words (the glossary leaves out rejected terms); a line's reads its line from the units collection.
+    held = heldFeed('runItems', projectId);
     items.set(projectId, held);
   }
   return held;

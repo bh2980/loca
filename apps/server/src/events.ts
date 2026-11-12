@@ -1,77 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { EventEmitter } from 'node:events';
-import type { FeedRows } from '@tw/shared';
-
-/** Query families the web client caches. A change event tells it which ones to refetch. */
-export type Topic =
-  | 'projects'
-  | 'units'
-  | 'graph'
-  | 'statuses'
-  | 'terms'
-  | 'knowledge'
-  | 'connections'
-  | 'workflows'
-  | 'runs'
-  | 'chat'
-  | 'proposals'
-  | 'calls'
-  /** 홈 설정 (app_settings): read by no project query. */
-  | 'app';
-
-/**
- * Queries that read beyond their own topic's tables, so a change also refreshes them. Kept here,
- * in one place, instead of at every write site (where they were missed):
- * - knowledge → units: a line's speech hint and the rule's line list read speech rules and
- *   characters (aliases decide who a speaker is); the AI context preview reads all knowledge.
- * - terms, workflows → units: the AI context preview and run preflight read the glossary and the workflow.
- * - projects → units: the project query (name, format rules, agent settings) lives under units with its status counts.
- * - units → statuses: statuses and tags carry line counts.
- * - statuses, connections → workflows: a workflow's error count checks its statuses, tags and HTTP connections.
- * - calls → runs: the jobs list (keyed 'runs') shows call counts read from ai_calls.
- */
-const IMPLIES: Partial<Record<Topic, Topic[]>> = {
-  // Reading routes read source connections and unit text, under the units query family.
-  graph: ['units'],
-  knowledge: ['units'],
-  terms: ['units'],
-  workflows: ['units'],
-  projects: ['units'],
-  // Term usage counts read lines. Status and tag counts are keyed under units themselves (q.statusCounts), so a
-  // line change no longer reaches 'statuses' and, through it, the workflow checks that read status definitions.
-  units: ['terms'],
-  statuses: ['workflows'],
-  connections: ['workflows'],
-  calls: ['runs'],
-};
-
-/** A topic with everything it implies, transitively. */
-export function withImplied(topics: Iterable<Topic>) {
-  const all = new Set<Topic>();
-  const visit = (topic: Topic) => {
-    if (all.has(topic)) return;
-    all.add(topic);
-    for (const next of IMPLIES[topic] ?? []) visit(next);
-  };
-  for (const topic of topics) visit(topic);
-  return all;
-}
-
-export interface ChangeEvent {
-  projectId?: string;
-  topics: Topic[];
-  /**
-   * The one browser tab (its x-client id) whose requests made every change in this event, each
-   * while it was still running, so each answer already named its topics (x-changed). That tab has
-   * refetched them and skips the event; every other tab refetches as usual (#20). Absent when any
-   * change came from elsewhere: background work, another tab, or a request without an id.
-   */
-  origin?: string;
-  /** The row feed: rows of the browser's collections changed in this event, read again as it was sent (feed.ts). */
-  rows?: FeedRows;
-  /** The feed's change count when it was sent: the browser drops an event older than its snapshot, and a write waits for its own. */
-  seq?: number;
-}
+import { withImplied, type ChangeEvent, type FeedRows, type Topic } from '@tw/shared';
 
 /** Topics for one project merge over this quiet window (trailing emit)... */
 export const COALESCE_MS = 300;
@@ -100,14 +29,19 @@ export class Events extends EventEmitter<{ change: [ChangeEvent]; shutdown: [] }
     super();
   }
 
-  /** Coalesced per project: callers keep calling this as often as they like. */
+  /**
+   * These topics changed in the project (none: the app's own). The database says so itself for every table
+   * (topic_changed, db/topics.ts); code calls this only for what is not a row (CHANGED_BY_HAND, events.test.ts).
+   * Coalesced per project: it may be called as often as rows change.
+   */
   changed(projectId: string | undefined, ...topics: Topic[]) {
     // The request making the change also answers with its topics (see trackChanges). Work it
     // started that goes on after the answer (a run, a chat stream) is reported only as an event.
     const scope = requestScope.getStore();
     const reporting = scope?.open ? scope : undefined;
-    if (reporting) for (const topic of withImplied(topics)) reporting.topics.add(topic);
-    this.schedule(projectId, withImplied(topics), reporting);
+    const all = withImplied(topics);
+    if (reporting) for (const topic of all) reporting.topics.add(topic);
+    this.schedule(projectId, all, reporting);
   }
 
   /** A row the feed keeps changed (db/row-changes.ts): an event goes out like for a topic, carrying the rows. */

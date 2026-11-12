@@ -9,8 +9,8 @@ import { Check, Play, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Inspector, InspectorHeader, InspectorList, InspectorTabs, TagListEditor, DirtyBar, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Inline, Input, ListRow, Text, Textarea, Section, Field, Box, Checkbox, Label, Stack, Switch } from '@loca/ui';
 import { RunDialog } from '@/components/workflow/run-dialog';
-import { AiNamed, confirmLabel, SourceBadge, StateCell, type ItemTag } from '@/components/knowledge/table';
-import { ALL_TERM_KINDS, isSettled, TAG_SCOPES, TERM_LINE_KIND_LABELS, TERM_LINE_KINDS, type KnowledgeOrigin, type KnowledgeStatus, type StatusBy, type TermScope } from '@tw/shared';
+import { AiNamed, confirmLabel, SourceBadge, StateCell } from '@/components/knowledge/table';
+import { ALL_TERM_KINDS, isSettled, TAG_SCOPES, TERM_LINE_KIND_LABELS, TERM_LINE_KINDS, type TermScope } from '@tw/shared';
 import { client } from '@/lib/api';
 import { changedFields, useFormFrom } from '@/lib/use-form-from';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
@@ -18,25 +18,9 @@ import { q, tagsIn } from '@/lib/queries';
 import { sent } from '@/lib/collections';
 import { useTaxonomy } from '@/lib/knowledge';
 import { useLines } from '@/lib/units';
+import { useGroupsById } from '@/lib/groups';
+import type { Term } from '@/lib/terms';
 
-export interface Term {
-  id: string;
-  source: string;
-  target: string;
-  note: string;
-  status: KnowledgeStatus;
-  origin: KnowledgeOrigin;
-  statusBy: StatusBy;
-  evidence?: string[];
-  lines: number | null;
-  examples: string[];
-  scope: TermScope;
-  matchCase: boolean;
-  /** Other Korean forms (a former main one, an AI's), newest first. */
-  targetCandidates: string[];
-  duplicateTarget?: boolean;
-  tags?: ItemTag[];
-}
 /** `?term=new` opens the pane for a term that does not exist yet. */
 export const NEW_TERM = 'new';
 
@@ -141,6 +125,7 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
   // Which lines use the term is the question; the first of them come from the units collection.
   const useIds = useMemo(() => usage.data?.unitIds.slice(0, 100), [usage.data]);
   const uses = useLines(projectId, useIds).rows ?? [];
+  const groupOf = useGroupsById(projectId);
   const taxonomy = useTaxonomy(projectId);
   const termTags = tagsIn(taxonomy.tags, 'terms');
   const attachedTags = (term.tags ?? [])
@@ -258,7 +243,7 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
             <Text as="p" variant="body" tone="muted">이 용어가 나오는 대사가 없습니다.</Text>
           ) : (
             <InspectorList>
-              {(allUses ? uses : uses.slice(0, USES_SHOWN)).map((row) => <li key={row.id}><ListRow as="link" variant="line" inset><Link to="/p/$projectId/script" params={{ projectId }} search={{ group: row.groupId, line: row.id }}><Text variant="caption" tone="muted">{row.groupTitle} · </Text>{row.speaker && <Text weight="medium">{row.speaker}: </Text>}{row.source}{row.translation && <Text display="block" tone="muted">{row.translation}</Text>}</Link></ListRow></li>)}
+              {(allUses ? uses : uses.slice(0, USES_SHOWN)).map((row) => <li key={row.id}><ListRow as="link" variant="line" inset><Link to="/p/$projectId/script" params={{ projectId }} search={{ group: row.groupId, line: row.id }}><Text variant="caption" tone="muted">{groupOf.get(row.groupId)?.title} · </Text>{row.speaker && <Text weight="medium">{row.speaker}: </Text>}{row.source}{row.translation && <Text display="block" tone="muted">{row.translation}</Text>}</Link></ListRow></li>)}
             </InspectorList>
           )}
           {uses.length > USES_SHOWN && (

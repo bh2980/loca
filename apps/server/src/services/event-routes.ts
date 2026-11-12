@@ -6,7 +6,6 @@ import * as s from '../db/schema.ts';
 import type { GraphOrder } from './graph-order.ts';
 import { graphOrder } from './speech.ts';
 import { withTags } from './knowledge-tags.ts';
-import { events } from '../events.ts';
 
 /** The nearest choice or condition upstream of a line, which of its ways leads to the line, its label, and whether it is a player's choice (not a condition). */
 export type Fork = { point: string; arm: string; label: string | null; choice: boolean } | null;
@@ -142,7 +141,6 @@ export function saveEventLink(db: Db, projectId: string, link: { fromId: string;
     .onConflictDoUpdate({ target: [s.eventLinks.fromId, s.eventLinks.toId], set: { kind: link.kind, origin: link.origin, updatedAt: new Date() } })
     .returning()
     .get();
-  events.changed(projectId, 'knowledge');
   return row;
 }
 
@@ -155,7 +153,6 @@ const pairLink = (db: Db, projectId: string, fromId: string, toId: string) =>
 export function setEventLink(db: Db, projectId: string, link: { fromId: string; toId: string; kind: PairLink; origin: (typeof KNOWLEDGE_ORIGINS)[number] }) {
   if (link.kind) return Boolean(saveEventLink(db, projectId, { ...link, kind: link.kind }));
   db.delete(s.eventLinks).where(and(eq(s.eventLinks.projectId, projectId), eq(s.eventLinks.fromId, link.fromId), eq(s.eventLinks.toId, link.toId))).run();
-  events.changed(projectId, 'knowledge');
   return true;
 }
 

@@ -1,28 +1,24 @@
 import { Hono } from 'hono';
 import { startRun } from '../services/start-run.ts';
 import { askedScope } from '../services/run-plan.ts';
-import { and, asc, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
-import { AI_OUTPUT_IDS, type AiOutput, choiceKey, httpParams, FUNCTIONS, type FunctionName, workflowInput, scriptParams, workflowDefinitionSchema, type WorkflowDefinition, runCapsSchema, runModelsSchema, withRunModels, WORKFLOW_TEMPLATES, EMPTY_MODEL_CHOICE, runScopeInputSchema, type RunScopeInput, nodeCallsOut, nodeConcurrency } from '@tw/shared';
+import { httpParams, workflowInput, scriptParams, workflowDefinitionSchema, type WorkflowDefinition, runCapsSchema, runModelsSchema, withRunModels, WORKFLOW_TEMPLATES, EMPTY_MODEL_CHOICE, runScopeInputSchema, type RunScopeInput, nodeCallsOut, nodeConcurrency } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
 import { inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { workflowIssues } from '../services/workflow-issues.ts';
-import { events } from '../events.ts';
 import { callHttp, httpOutput, lineView, validateScriptData } from '../engine/functions/index.ts';
 import { runScript } from '../engine/functions/sandbox.ts';
 import { subjectOf } from '../engine/subjects.ts';
 import { listBatches, preflight } from '../services/preflight.ts';
-import { choiceLabel } from '../services/model-target.ts';
 import { previewRequest } from '../services/request-preview.ts';
 import { continuePreflight, continueRun } from '../services/run-continue.ts';
 import { deleteWorkflow, saveWorkflow, workflowCallers, WorkflowMutationError } from '../services/workflow-mutations.ts';
 import { issueTagIds } from '../services/issue-tags.ts';
-import { runRows } from '../services/run-rows.ts';
 import { workflowRows } from '../services/workflow-rows.ts';
-import { connectionName, connectionNames, runItemIds, runNodeExits, runItemRows, runProgress } from '../services/run-detail.ts';
-import { aiCallRows } from '../services/log-rows.ts';
+import { runItemIds, runNodeExits, runProgress } from '../services/run-detail.ts';
 import { rowChangesOf } from '../db/row-changes.ts';
 import { tokensSql } from '../db/tokens.ts';
 
@@ -208,31 +204,6 @@ export const workflowRoutes = new Hono<Env>()
   })
 
   // ── runs ───────────────────────────────────────────────────────────
-  /** The project's AI log: every model request, newest first (see ai-calls.ts), with totals. */
-  .get('/projects/:projectId/ai-calls', validate('query', z.object({ kind: z.enum(s.AI_CALL_KINDS).optional(), status: z.enum(['running', 'ok', 'failed']).optional(), ref: z.string().optional(), limit: z.coerce.number().int().min(1).max(500).default(200) })), (c) => {
-    const { db } = c.var.deps;
-    const projectId = c.req.param('projectId');
-    const { kind, status, ref, limit } = c.req.valid('query');
-    const where = and(eq(s.aiCalls.projectId, projectId), kind ? eq(s.aiCalls.kind, kind) : undefined, status ? eq(s.aiCalls.status, status) : undefined, ref ? eq(s.aiCalls.refId, ref) : undefined);
-    // What was sent can be a whole script; it is fetched one call at a time (below), not listed.
-    const { request: _request, response: _response, ...listed } = getTableColumns(s.aiCalls);
-    const calls = db.select({ ...listed, hasRequest: sql<boolean>`${s.aiCalls.request} is not null`, hasResponse: sql<boolean>`${s.aiCalls.response} is not null` }).from(s.aiCalls).where(where).orderBy(desc(s.aiCalls.startedAt)).limit(limit).all();
-    const names = connectionNames(db);
-    const totals = db
-      .select({
-        kind: s.aiCalls.kind,
-        calls: sql<number>`count(*)`,
-        running: sql<number>`sum(${s.aiCalls.status} = 'running')`,
-        failed: sql<number>`sum(${s.aiCalls.status} = 'failed')`,
-        inputTokens: sql<number>`coalesce(sum(${s.aiCalls.inputTokens}), 0)`,
-        outputTokens: sql<number>`coalesce(sum(${s.aiCalls.outputTokens}), 0)`,
-      })
-      .from(s.aiCalls)
-      .where(eq(s.aiCalls.projectId, projectId))
-      .groupBy(s.aiCalls.kind)
-      .all();
-    return c.json({ calls: calls.map((call) => ({ ...call, hasRequest: Boolean(call.hasRequest), hasResponse: Boolean(call.hasResponse), connectionName: connectionName(names, call.connectionId, call.connectionKind) })), totals });
-  })
   /** Which of the project's model requests a list shows, newest first, as ids (calls topic: one is logged or finishes). */
   .get('/projects/:projectId/ai-calls/ids', validate('query', z.object({ kind: z.enum(s.AI_CALL_KINDS).optional(), ref: z.string().optional(), limit: z.coerce.number().int().min(1).max(500).default(200) })), (c) => {
     const { db } = c.var.deps;
@@ -240,17 +211,11 @@ export const workflowRoutes = new Hono<Env>()
     const where = and(eq(s.aiCalls.projectId, c.req.param('projectId')), kind ? eq(s.aiCalls.kind, kind) : undefined, ref ? eq(s.aiCalls.refId, ref) : undefined);
     return c.json({ ids: db.select({ id: s.aiCalls.id }).from(s.aiCalls).where(where).orderBy(desc(s.aiCalls.startedAt)).limit(limit).all().map((row) => row.id) });
   })
-  /** The project's model requests by id, with the feed's count when read (the browser's AI log collection). */
-  .post('/projects/:projectId/ai-calls/by-ids', validate('json', z.object({ ids: z.array(z.string()).max(500) })), (c) => {
-    const seq = rowChangesOf(c.var.deps.db.$client).seq;
-    return c.json({ rows: aiCallRows(c.var.deps.db, c.req.param('projectId'), c.req.valid('json').ids), seq });
-  })
   /** What one model request sent (system prompt, then the prompt) and, for a failed one, what it printed before failing; each when kept. */
   .get('/projects/:projectId/ai-calls/:id/request', (c) => {
     const row = found(c.var.deps.db.select({ request: s.aiCalls.request, response: s.aiCalls.response }).from(s.aiCalls).where(and(eq(s.aiCalls.id, c.req.param('id')), eq(s.aiCalls.projectId, c.req.param('projectId')))).get(), 'AI 호출');
     return c.json({ request: row.request, response: row.response });
   })
-  .get('/projects/:projectId/runs', (c) => c.json(runRows(c.var.deps.db, c.req.param('projectId'))))
   /** The batches this run was planned in (stored per line when it started), as the run dialog lists them. */
   .get('/runs/:id/plan', (c) => {
     const { db } = c.var.deps;
@@ -277,21 +242,10 @@ export const workflowRoutes = new Hono<Env>()
     // What each model choice resolved to when the run started.
     return c.json({ ...rest, ...progress, models: Object.values(models).map((model) => ({ label: model.label, connectionId: model.target.connectionId, name: model.target.name, model: model.target.model })), callLimits });
   })
-  .get('/runs/:id/items', validate('query', runItemQuery), (c) => {
-    const { db } = c.var.deps;
-    const run = found(db.select({ projectId: s.runs.projectId }).from(s.runs).where(eq(s.runs.id, c.req.param('id'))).get(), '실행');
-    const { total, subject, ids } = runItemIds(db, c.req.param('id'), c.req.valid('query'));
-    return c.json({ total, subject, rows: runItemRows(db, run.projectId, ids) });
-  })
   /** One page of a run's items as ids: the run page reads the items from the browser's run items collection. */
   .get('/runs/:id/items/ids', validate('query', runItemQuery), (c) => c.json(runItemIds(c.var.deps.db, c.req.param('id'), c.req.valid('query'))))
   /** What a node did with its items: the run graph's node pane. */
   .get('/runs/:id/node-exits', validate('query', z.object({ nodeId: z.string() })), (c) => c.json(runNodeExits(c.var.deps.db, c.req.param('id'), c.req.valid('query').nodeId)))
-  /** Run items by id, with the feed's count when read (the browser's run items collection). */
-  .post('/projects/:projectId/run-items', validate('json', z.object({ ids: z.array(z.string()).max(500) })), (c) => {
-    const seq = rowChangesOf(c.var.deps.db.$client).seq;
-    return c.json({ rows: runItemRows(c.var.deps.db, c.req.param('projectId'), c.req.valid('json').ids), seq });
-  })
   /** How runs are doing now, by id, with the feed's count when read (the browser's run progress collection). */
   .post('/projects/:projectId/run-progress', validate('json', z.object({ ids: z.array(z.string()).max(50) })), (c) => {
     const seq = rowChangesOf(c.var.deps.db.$client).seq;

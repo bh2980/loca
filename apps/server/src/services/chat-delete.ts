@@ -2,7 +2,6 @@ import { eq } from 'drizzle-orm';
 import { closeSession } from '@tw/ai';
 import type { Db } from '../db/index.ts';
 import { chatSessions } from '../db/schema.ts';
-import { events } from '../events.ts';
 import { deletingChats, stopTurn, turnEnded } from './chat-turns.ts';
 import { disposeChatServer } from './cli-chat.ts';
 
@@ -19,7 +18,6 @@ export async function deleteChat(db: Db, sessionId: string) {
     if (current?.agentSession) await closeSession(current.agentSession.id);
     await disposeChatServer(sessionId);
     db.delete(chatSessions).where(eq(chatSessions.id, sessionId)).run();
-    events.changed(chat.projectId, 'chat');
   } finally {
     deletingChats.delete(sessionId);
   }

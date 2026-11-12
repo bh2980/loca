@@ -2,7 +2,6 @@ import { and, eq, inArray, or } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
 import { inChunks } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
-import { events } from '../events.ts';
 import { aliasNote } from './terms.ts';
 
 /**
@@ -11,14 +10,14 @@ import { aliasNote } from './terms.ts';
  * relationships, a tag's links) go with it through the database's cascades.
  */
 export const DELETABLE = {
-  characters: { table: s.characters, what: '인물', topic: 'knowledge' },
-  relationships: { table: s.relationships, what: '관계', topic: 'knowledge' },
-  speechRules: { table: s.speechRules, what: '말투 규칙', topic: 'knowledge' },
-  events: { table: s.storyEvents, what: '사건', topic: 'knowledge' },
-  eventLinks: { table: s.eventLinks, what: '사건 연결', topic: 'knowledge' },
-  documents: { table: s.documents, what: '노트', topic: 'knowledge' },
-  terms: { table: s.terms, what: '용어', topic: 'terms' },
-  tags: { table: s.tags, what: '태그', topic: 'statuses' },
+  characters: { table: s.characters, what: '인물' },
+  relationships: { table: s.relationships, what: '관계' },
+  speechRules: { table: s.speechRules, what: '말투 규칙' },
+  events: { table: s.storyEvents, what: '사건' },
+  eventLinks: { table: s.eventLinks, what: '사건 연결' },
+  documents: { table: s.documents, what: '노트' },
+  terms: { table: s.terms, what: '용어' },
+  tags: { table: s.tags, what: '태그' },
 } as const;
 export type DeletableKind = keyof typeof DELETABLE;
 export const DELETABLE_KINDS = Object.keys(DELETABLE) as [DeletableKind, ...DeletableKind[]];
@@ -115,12 +114,11 @@ export function restoreItems(db: DeleteDb, projectId: string, token: string): bo
     for (const row of entry.unitTags) tx.insert(s.unitTags).values(row).onConflictDoNothing().run();
   });
   removed.delete(token);
-  for (const topic of new Set(entry.parts.map((part) => DELETABLE[part.kind].topic))) events.changed(projectId, topic);
   return true;
 }
 
 export function deleteItems(db: DeleteDb, projectId: string, kind: DeletableKind, ids: string[]) {
-  const { table, topic } = DELETABLE[kind];
+  const { table } = DELETABLE[kind];
   const { ids: gone, missing } = deletable(db, projectId, kind, ids);
   // A deleted character's untouched name candidates go with it (untouchedNameTerms).
   const nameTerms = kind === 'characters' ? untouchedNameTerms(db, projectId, gone).map((term) => term.id) : [];
@@ -133,7 +131,6 @@ export function deleteItems(db: DeleteDb, projectId: string, kind: DeletableKind
         tx.delete(table).where(and(eq(table.projectId, projectId), inArray(table.id, slice))).run();
       }
     });
-    events.changed(projectId, topic, ...(kind === 'tags' ? (['units', 'workflows'] as const) : []));
   }
   return { ok: true as const, deleted: gone.length, missing };
 }

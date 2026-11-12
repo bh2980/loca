@@ -6,7 +6,6 @@ import * as s from '../db/schema.ts';
 import { inChunks, inList } from '../db/chunk.ts';
 import { nodeSetLayout, cancelViewLayouts } from './layout.ts';
 import type { LayoutDirection } from './layout-types.ts';
-import { events } from '../events.ts';
 import { allLines } from './script-query.ts';
 import { projectReadingRoute } from './reading-route.ts';
 
@@ -165,7 +164,6 @@ export function saveView(db: Db, projectId: string, nodeIds: string[], label: st
   const reasons = Object.fromEntries(Object.entries(made.reasons ?? {}).filter(([nodeId, reason]) => ids.includes(nodeId) && reason.trim()));
   const route = made.route ? { start: made.route.start, end: made.route.end, ...(made.route.via && { via: made.route.via }) } : null;
   db.insert(s.graphViews).values({ id, projectId, label, nodeIds: ids, origin: made.origin, request: made.request ?? null, reasons, route }).run();
-  events.changed(projectId, 'graph');
   return id;
 }
 
@@ -196,7 +194,6 @@ export function updateView(db: Db, projectId: string, id: string, change: { labe
     if (changed) cancelViewLayouts(projectId, `view:${id}`);
     if (changed) tx.delete(s.graphLayouts).where(and(eq(s.graphLayouts.projectId, projectId), eq(s.graphLayouts.section, `view:${id}`))).run();
   });
-  events.changed(projectId, 'graph');
   return readView(db, projectId, id)!;
 }
 
@@ -206,7 +203,6 @@ export function deleteView(db: Db, projectId: string, id: string) {
     tx.delete(s.graphLayouts).where(and(eq(s.graphLayouts.projectId, projectId), eq(s.graphLayouts.section, `view:${id}`))).run();
     tx.delete(s.graphViews).where(and(eq(s.graphViews.id, id), eq(s.graphViews.projectId, projectId))).run();
   });
-  events.changed(projectId, 'graph');
 }
 
 /** The project's views, newest change first. */

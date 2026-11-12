@@ -5,7 +5,6 @@ import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { promptLineId } from '../engine/prompts.ts';
 import { buildRequest } from '../engine/request.ts';
-import { events } from '../events.ts';
 import { logged } from './ai-calls.ts';
 import { CompleteRefused } from './editor-complete.ts';
 import { liveChoice } from './model-target.ts';
@@ -61,6 +60,5 @@ export async function assistLine(db: Db, secrets: SecretStore, unitId: string, r
   const note = refine ? ['다듬기', ...reasons].join(' — ') : 'AI 번역';
   // `suggest` (the line's pane): it waits as the line's AI 제안 (적용 · 거절) instead of going into an open box.
   const candidateId = addCandidate(db, { unitId, text, origin: 'ai', model: target.model, note, ...(request.suggest && { state: 'pending' as const }) });
-  events.changed(unit.projectId, 'units');
   return { candidateId, text, reasons };
 }

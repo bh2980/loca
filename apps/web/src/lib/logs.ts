@@ -1,28 +1,27 @@
 import { keepPreviousData, queryOptions, useQuery } from '@tanstack/react-query';
 import { createOptimisticAction, useLiveQuery } from '@tanstack/react-db';
-import type { InferResponseType } from 'hono/client';
 import { APP_FEED } from '@tw/shared';
 import { client, unwrap } from './api';
-import { loaded, projectCollection, sent } from './collections';
-import { heldCollection, useHeld, type Held } from './units';
+import { loaded, projectCollection, sent, type FeedRow } from './collections';
+import { heldFeed, useHeld, type Held } from './units';
 
 /**
  * A project's saved graph views (their list; what one holds is the graph's own question), its
  * conversations with their model use, and the AI log. The log is long, so the browser holds the calls a
  * list shows: which ones is a question (calls topic), the calls come from a collection read again when
- * the feed names them (0119) or their connection is renamed. Model tests have no project: they are held
- * under the app's scope.
+ * the feed names them (0119). A call names its connection by id: the name is the connections collection's.
+ * Model tests have no project: they are held under the app's scope.
  */
-export type GraphViewRow = InferResponseType<(typeof client.projects)[':projectId']['graph']['views']['$get']>[number];
-export type ChatSessionRow = InferResponseType<(typeof client.projects)[':projectId']['chat']['$get']>[number];
-export type AiCall = InferResponseType<(typeof client.projects)[':projectId']['ai-calls']['by-ids']['$post']>['rows'][number];
+export type GraphViewRow = FeedRow['graphViews'];
+export type ChatSessionRow = FeedRow['chatSessions'];
+export type AiCall = FeedRow['aiCalls'];
 
 /** Saved views, last changed first. */
 export function useGraphViews(projectId: string, { enabled = true }: { enabled?: boolean } = {}) {
-  return loaded<GraphViewRow>(useLiveQuery((query) => (enabled ? query.from({ view: projectCollection<GraphViewRow>('graphViews', projectId) }).orderBy(({ view }) => view.updatedAt, 'desc') : undefined)), enabled);
+  return loaded<GraphViewRow>(useLiveQuery((query) => (enabled ? query.from({ view: projectCollection('graphViews', projectId) }).orderBy(({ view }) => view.updatedAt, 'desc') : undefined)), enabled);
 }
 
-export const chatSessionsCollection = (projectId: string) => projectCollection<ChatSessionRow>('chatSessions', projectId);
+export const chatSessionsCollection = (projectId: string) => projectCollection('chatSessions', projectId);
 
 /** Conversations, last changed first. */
 export function useChatSessions(projectId: string) {
@@ -34,20 +33,7 @@ const logs = new Map<string, Held<AiCall>>();
 function callsOf(scope: string) {
   let held = logs.get(scope);
   if (!held) {
-    held = heldCollection<AiCall>({
-      id: `ai-calls:${scope}`,
-      projectId: scope,
-      read: (ids) =>
-        scope === APP_FEED
-          ? unwrap(client.app['ai-calls']['by-ids'].$post({ json: { ids } }))
-          : unwrap(client.projects[':projectId']['ai-calls']['by-ids'].$post({ param: { projectId: scope }, json: { ids } })),
-      signal: (rows) => rows.aiCalls,
-      // A call shows its connection's name.
-      staleBy: (rows) => {
-        const renamed = new Set(((rows.connections?.upsert ?? []) as { id: string }[]).map((row) => row.id));
-        return renamed.size ? (call) => call.connectionId !== null && renamed.has(call.connectionId) : undefined;
-      },
-    });
+    held = heldFeed('aiCalls', scope);
     logs.set(scope, held);
   }
   return held;

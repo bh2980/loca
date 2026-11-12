@@ -9,6 +9,7 @@ import { RunDialog } from '@/components/workflow/run-dialog';
 import { AiMark, Box, Chip, Field, Group, Input, InspectorList, InspectorResult, Button, Inline, ListRow, Text, TextLink, Section, SectionHeading, Timeline, TimelineFields, TimelineNote, TimelinePoint, TimelineQuotes } from '@loca/ui';
 import { client } from '@/lib/api';
 import { sent } from '@/lib/collections';
+import { useGroupsById } from '@/lib/groups';
 import { q } from '@/lib/queries';
 import { PersonName } from '@/lib/person-colors';
 import { useLinePage, useLines, useLinesByKeys } from '@/lib/units';
@@ -36,11 +37,11 @@ const Empty = ({ children }: { children: ReactNode }) => (
 );
 
 /** One line of a list, opening in the script: where it is, who says it, the source, its translation, then why it is listed. */
-function LineLink({ projectId, line, translation, chips }: { projectId: string; line: LineRow; translation?: boolean; chips?: ReactNode }) {
+function LineLink({ projectId, line, scene, translation, chips }: { projectId: string; line: LineRow; /** The line's scene, from the groups collection (the list looks it up once for all its lines). */ scene: string | undefined; translation?: boolean; chips?: ReactNode }) {
   return (
     <ListRow as="link" variant="line">
       <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.groupId, line: line.id }}>
-        <Text display="block" variant="caption" tone="muted">{line.groupTitle}</Text>
+        <Text display="block" variant="caption" tone="muted">{scene}</Text>
         {line.speaker && <Text weight="medium"><PersonName projectId={projectId} name={line.speaker} />: </Text>}
         {line.source}
         {translation && line.translation && <Text display="block" tone="muted">{line.translation}</Text>}
@@ -54,6 +55,7 @@ function LineLink({ projectId, line, translation, chips }: { projectId: string; 
 export function Evidence({ projectId, keys }: { projectId: string; keys: string[] }) {
   const cited = useMemo(() => keys.slice(0, 50), [keys]);
   const lines = useLinesByKeys(projectId, cited);
+  const groupOf = useGroupsById(projectId);
   return (
     <Part title={`근거 대사 ${keys.length}`}>
       {!keys.length ? (
@@ -62,7 +64,7 @@ export function Evidence({ projectId, keys }: { projectId: string; keys: string[
         <InspectorList>
           {lines.data?.map((line) => (
             <li key={line.id}>
-              <LineLink projectId={projectId} line={line} />
+              <LineLink projectId={projectId} line={line} scene={groupOf.get(line.groupId)?.title} />
             </li>
           ))}
         </InspectorList>
@@ -99,6 +101,7 @@ export function RuleLines({ projectId, ruleId, candidate, embedded }: { projectI
   const shownIds = useMemo(() => (embedded ? undefined : rule.data?.unitIds.slice(0, 100)), [rule.data, embedded]);
   const shown = useLines(projectId, shownIds).rows ?? [];
   const levels = Object.entries(rule.data?.levels ?? {}).sort((a, b) => b[1] - a[1]);
+  const groupOf = useGroupsById(projectId);
   return (
     <Part
       title={`${candidate ? '확정하면 적용될' : '적용되는'} 대사 ${rule.data?.count ?? '…'}개`}
@@ -119,7 +122,7 @@ export function RuleLines({ projectId, ruleId, candidate, embedded }: { projectI
         <InspectorList>
           {shown.map((line) => (
             <li key={line.id}>
-              <LineLink projectId={projectId} line={line} translation />
+              <LineLink projectId={projectId} line={line} scene={groupOf.get(line.groupId)?.title} translation />
             </li>
           ))}
         </InspectorList>
@@ -129,10 +132,11 @@ export function RuleLines({ projectId, ruleId, candidate, embedded }: { projectI
   );
 }
 
-/** Where a timeline point is in the story, in its header: the chapter (the scene's 구역), else the scene; the scene stands by the quoted line. */
-export const placeOf = (line: { groupSection?: string | null; groupTitle?: string | null } | undefined) => (line ? line.groupSection || line.groupTitle || undefined : undefined);
+type Scene = { section: string | null; title: string } | undefined;
+/** Where a timeline point is in the story, in its header: its line's scene's chapter (구역), else the scene; the scene stands by the quoted line. */
+export const placeOf = (scene: Scene) => (scene ? scene.section || scene.title || undefined : undefined);
 /** A quoted line's label: its key and, under a chapter header, its scene. */
-export const quoteLabel = (line: { key: string; groupSection?: string | null; groupTitle?: string | null }) => (line.groupSection && line.groupTitle ? `${line.key} · ${line.groupTitle}` : line.key);
+export const quoteLabel = (line: { key: string }, scene: Scene) => (scene?.section && scene.title ? `${line.key} · ${scene.title}` : line.key);
 
 type Change = RelationshipChange;
 
@@ -146,6 +150,7 @@ export function RelationshipChanges({ projectId, relationship, embedded, actions
   const atKeys = useMemo(() => changes.map((change) => change.at), [changes]);
   const lines = useLinesByKeys(projectId, atKeys);
   const byKey = new Map(lines.data?.map((line) => [line.key, line]));
+  const groupOf = useGroupsById(projectId);
   // In story order (the keys come back in script order), the same timeline as a pair's speech changes.
   const order = new Map(lines.data?.map((line, index) => [line.key, index]));
   const sorted = [...changes].sort((a, b) => (order.get(a.at) ?? 1e9) - (order.get(b.at) ?? 1e9));
@@ -176,7 +181,7 @@ export function RelationshipChanges({ projectId, relationship, embedded, actions
                 key={`${change.at}-${change.kind}-${index}`}
                 mark={state.status}
                 title={<Inline as="span" inline gap="tight">{state.status === 'confirmed' && <AiMark by={state.statusBy} />}{change.at}부터</Inline>}
-                meta={placeOf(line)}
+                meta={placeOf(line && groupOf.get(line.groupId))}
                 status={state.status === 'candidate' ? <Chip variant="outline" tone="warning">후보</Chip> : <Chip variant="quiet">확정</Chip>}
                 active={editing === at}
                 actions={editable && <>
@@ -198,7 +203,7 @@ export function RelationshipChanges({ projectId, relationship, embedded, actions
                   {line && (
                     <TextLink asChild block tone="muted" underline="hover">
                       <Link to="/p/$projectId/script" params={{ projectId }} search={{ group: line.groupId, line: line.id }}>
-                        <TimelineQuotes items={[{ id: line.id, label: quoteLabel(line), text: `${line.speaker ? `${line.speaker}: ` : ''}${line.source}`, sub: line.translation || undefined }]} />
+                        <TimelineQuotes items={[{ id: line.id, label: quoteLabel(line, groupOf.get(line.groupId)), text: `${line.speaker ? `${line.speaker}: ` : ''}${line.source}`, sub: line.translation || undefined }]} />
                       </Link>
                     </TextLink>
                   )}
@@ -259,6 +264,7 @@ export function usePairLines(projectId: string, rules: readonly { id: string; le
 }
 
 export function PairLines({ projectId, lines }: { projectId: string; lines: ReturnType<typeof usePairLines> }) {
+  const groupOf = useGroupsById(projectId);
   return (
     <Part title={`근거 대사 ${lines.count ?? '…'}`} actions={lines.translatedIds.length ? <FixSpeech projectId={projectId} unitIds={lines.translatedIds} /> : undefined}>
       <Empty>적용되는 대사와 근거 대사를 합쳐 한 번만 보여 줍니다.</Empty>
@@ -271,6 +277,7 @@ export function PairLines({ projectId, lines }: { projectId: string; lines: Retu
               <LineLink
                 projectId={projectId}
                 line={line}
+                scene={groupOf.get(line.groupId)?.title}
                 translation
                 chips={
                   <>
@@ -291,6 +298,7 @@ export function PairLines({ projectId, lines }: { projectId: string; lines: Retu
 /** This pair's lines (by listener), to pick the one where the speech changes or starts. */
 export function StretchPicker({ projectId, from, to, taken, onPick, onCancel }: { projectId: string; from: string; to: string; taken: Set<string>; onPick: (key: string) => void; onCancel: () => void }) {
   const lines = useLinePage(projectId, { speakers: [from], listeners: [to], limit: 300 });
+  const groupOf = useGroupsById(projectId);
   return (
     <Box spaceY="tight">
       <Inline gap="condensed" minHeight="control-sm">
@@ -309,7 +317,7 @@ export function StretchPicker({ projectId, from, to, taken, onPick, onCancel }: 
             <li key={line.id}>
               <ListRow as="button" variant="pick" disabled={taken.has(line.key)} onClick={() => onPick(line.key)}>
                 <Text minWidth={0}>
-                  <Text variant="caption" tone="muted">{line.groupTitle} · </Text>
+                  <Text variant="caption" tone="muted">{groupOf.get(line.groupId)?.title} · </Text>
                   {line.source}
                 </Text>
               </ListRow>

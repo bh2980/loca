@@ -2,7 +2,6 @@ import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { events } from '../events.ts';
 import { characterInput, documentInput, eventInput, relationshipInput, speechRuleInput } from '../schemas/knowledge.ts';
 import { saveCharacter } from './characters.ts';
 import { bySaver, PERSON, type Saver } from './status-by.ts';
@@ -57,7 +56,6 @@ export function saveRelationshipItem(db: Db, projectId: string, { id, from, to, 
     if (!fresh.ok) return fresh;
     id = db.insert(s.relationships).values({ ...fresh.data, projectId, origin: saver.origin, statusBy: saver.statusBy }).returning().get().id;
   }
-  events.changed(projectId, 'knowledge');
   return { ok: true, id };
 }
 
@@ -81,6 +79,5 @@ export function saveKnowledgeItem(db: Db, projectId: string, kind: keyof typeof 
     if (!fresh.ok) return fresh;
     id = db.insert(t).values({ ...fresh.data, projectId, origin: saver.origin, statusBy: saver.statusBy } as never).returning().get().id;
   }
-  events.changed(projectId, 'knowledge');
   return { ok: true, id };
 }

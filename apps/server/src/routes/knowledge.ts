@@ -1,16 +1,15 @@
 import { Hono } from 'hono';
-import { and, asc, eq, inArray, ne, or } from 'drizzle-orm';
+import { and, eq, inArray, or } from 'drizzle-orm';
 import { z } from 'zod';
-import { EVENT_LINK_KINDS, relationshipChangeSchema, SNAPSHOT_COLLECTIONS, KNOWLEDGE_TAG_KINDS, modelChoiceSchema, patchOf, withDuplicateTargets } from '@tw/shared';
+import { EVENT_LINK_KINDS, HELD_COLLECTIONS, HELD_READ_MAX, relationshipChangeSchema, SNAPSHOT_COLLECTIONS, KNOWLEDGE_TAG_KINDS, patchOf } from '@tw/shared';
 import { badRequest, found, notFound, validate, type Env } from '../context.ts';
-import { eachChunk, inChunks } from '../db/chunk.ts';
+import { eachChunk } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { deleteItems, deleteItemsKept, restoreItems } from '../services/item-delete.ts';
-import { events } from '../events.ts';
-import { characterRows, documentRows, feedSnapshot, relationshipRows, speechRuleRows } from '../feed.ts';
-import { graphOrder, ruleLines } from '../services/speech.ts';
-import { linkEvents, projectEventFlow, setEventLink } from '../services/event-routes.ts';
-import { fillTermUsage, termUsage } from '../services/term-usage.ts';
+import { feedSnapshot, heldRows } from '../feed.ts';
+import { ruleLines } from '../services/speech.ts';
+import { linkEvents, setEventLink } from '../services/event-routes.ts';
+import { termUsage } from '../services/term-usage.ts';
 import { saveCharacter } from '../services/characters.ts';
 import { discoverAndSave, saveTerm } from '../services/terms.ts';
 import { byPerson } from '../services/status-by.ts';
@@ -22,19 +21,15 @@ const DRAFT_TABLES = { documents: s.documents, characters: s.characters, relatio
 export const draftKinds = Object.keys(DRAFT_TABLES) as (keyof typeof DRAFT_TABLES)[];
 
 type ProjectTable = typeof s.terms | (typeof DRAFT_TABLES)[keyof typeof DRAFT_TABLES];
-/** A project's rows a person sees: rejected ones stay stored (so an analysis does not propose them again) but are not listed. */
-const visible = <T extends ProjectTable>(table: T, projectId: string) => and(eq(table.projectId, projectId), ne(table.status, 'rejected'));
 const byProject = <T extends ProjectTable>(table: T, id: string, projectId: string) => and(eq(table.id, id), eq(table.projectId, projectId));
 
 export const knowledgeRoutes = new Hono<Env>()
   /** A browser collection's rows and the feed's count: its first load, kept current by the change events' rows. */
   .get('/sync/:collection', validate('param', z.object({ collection: z.enum(SNAPSHOT_COLLECTIONS) })), (c) => c.json(feedSnapshot(c.var.deps.db, c.var.deps, c.req.param('projectId')!, c.req.valid('param').collection)))
-  .get('/terms', (c) => {
-    const { db } = c.var.deps;
-    const projectId = c.req.param('projectId')!;
-    fillTermUsage(db, projectId);
-    return c.json(withTags(db, 'terms', withDuplicateTargets(db.select().from(s.terms).where(visible(s.terms, projectId)).orderBy(asc(s.terms.source)).all())));
-  })
+  /** A held collection's rows by id (the lines, run items, proposals or AI calls a screen shows), with the feed's count when read. */
+  .post('/sync/:collection', validate('param', z.object({ collection: z.enum(HELD_COLLECTIONS) })), validate('json', z.object({ ids: z.array(z.string()).max(HELD_READ_MAX) })), (c) =>
+    c.json(heldRows(c.var.deps.db, c.var.deps, c.req.param('projectId')!, c.req.valid('param').collection, c.req.valid('json').ids)),
+  )
   .post('/terms/discover', (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId')!;
@@ -54,7 +49,6 @@ export const knowledgeRoutes = new Hono<Env>()
     const projectId = c.req.param('projectId')!;
     const saved = c.var.deps.db.transaction((tx) => saveTerm(tx, projectId, c.req.valid('json'), {}));
     if (!saved.ok) badRequest(saved.error);
-    events.changed(projectId, 'terms');
     return c.json(saved.row, 201);
   })
   .patch('/terms/:id', validate('json', patchOf(termInput)), (c) => {
@@ -64,7 +58,6 @@ export const knowledgeRoutes = new Hono<Env>()
       if (saved.reason === 'missing') notFound('용어');
       badRequest(saved.error);
     }
-    events.changed(projectId, 'terms');
     return c.json({ ok: true });
   })
   .delete('/terms/:id', (c) => {
@@ -72,7 +65,6 @@ export const knowledgeRoutes = new Hono<Env>()
     return c.json({ ok: true });
   })
 
-  .get('/documents', (c) => c.json(documentRows(c.var.deps.db, c.req.param('projectId')!)))
   .get('/documents/:id', (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId')!;
@@ -82,13 +74,11 @@ export const knowledgeRoutes = new Hono<Env>()
   .post('/documents', validate('json', documentInput), (c) => {
     const projectId = c.req.param('projectId')!;
     const row = c.var.deps.db.insert(s.documents).values({ ...c.req.valid('json'), projectId }).returning().get();
-    events.changed(projectId, 'knowledge');
     return c.json(withTags(c.var.deps.db, 'documents', [row])[0], 201);
   })
   .patch('/documents/:id', validate('json', patchOf(documentInput)), (c) => {
     const projectId = c.req.param('projectId')!;
     const row = found(c.var.deps.db.update(s.documents).set({ ...c.req.valid('json'), ...byPerson(c.var.deps.db, s.documents, projectId, c.req.param('id'), c.req.valid('json')) }).where(byProject(s.documents, c.req.param('id'), projectId)).returning().get(), '문서');
-    events.changed(projectId, 'knowledge');
     return c.json({ ok: true as const, ...withTags(c.var.deps.db, 'documents', [row])[0] });
   })
   .delete('/documents/:id', (c) => {
@@ -96,11 +86,6 @@ export const knowledgeRoutes = new Hono<Env>()
     return c.json({ ok: true });
   })
 
-  .get('/characters', (c) => {
-    const { db } = c.var.deps;
-    const projectId = c.req.param('projectId')!;
-    return c.json({ characters: characterRows(db, projectId), relationships: relationshipRows(db, projectId) });
-  })
   .get('/characters/:id', (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId')!;
@@ -145,27 +130,22 @@ export const knowledgeRoutes = new Hono<Env>()
     const projectId = c.req.param('projectId')!;
     found(db.select({ id: s.relationships.id }).from(s.relationships).where(byProject(s.relationships, c.req.param('id'), projectId)).get(), '관계');
     db.update(s.relationships).set({ changes: c.req.valid('json').changes }).where(byProject(s.relationships, c.req.param('id'), projectId)).run();
-    events.changed(projectId, 'knowledge');
     return c.json({ ok: true });
   })
   .post('/relationships', validate('json', relationshipInput), (c) => {
     const projectId = c.req.param('projectId')!;
     const row = c.var.deps.db.insert(s.relationships).values({ ...c.req.valid('json'), projectId }).returning().get();
-    events.changed(projectId, 'knowledge');
     return c.json(withTags(c.var.deps.db, 'relationships', [row])[0], 201);
   })
   .patch('/relationships/:id', validate('json', patchOf(relationshipInput)), (c) => {
     const projectId = c.req.param('projectId')!;
     const row = found(c.var.deps.db.update(s.relationships).set({ ...c.req.valid('json'), ...byPerson(c.var.deps.db, s.relationships, projectId, c.req.param('id'), c.req.valid('json')) }).where(byProject(s.relationships, c.req.param('id'), projectId)).returning().get(), '관계');
-    events.changed(projectId, 'knowledge');
     return c.json({ ok: true as const, ...withTags(c.var.deps.db, 'relationships', [row])[0] });
   })
   .delete('/relationships/:id', (c) => {
     deleteItems(c.var.deps.db, c.req.param('projectId')!, 'relationships', [c.req.param('id')]);
     return c.json({ ok: true });
   })
-  /** Events with where they happen (the earliest of their evidence lines: script position, section, scene) and which events they lead to, for the flow graph. */
-  .get('/events', (c) => c.json(projectEventFlow(c.var.deps.db, c.req.param('projectId')!)))
   /** Draws a line between two events or takes one away, as link_events does (by a person); says what the pair had before, for ⌘/Ctrl+Z. */
   .post('/event-links', validate('json', z.object({ fromId: z.string().min(1), toId: z.string().min(1), action: z.enum(['link', 'unlink']) })), (c) => {
     try {
@@ -188,13 +168,11 @@ export const knowledgeRoutes = new Hono<Env>()
   .post('/events', validate('json', eventInput), (c) => {
     const projectId = c.req.param('projectId')!;
     const row = c.var.deps.db.insert(s.storyEvents).values({ ...c.req.valid('json'), projectId }).returning().get();
-    events.changed(projectId, 'knowledge');
     return c.json(withTags(c.var.deps.db, 'events', [row])[0], 201);
   })
   .patch('/events/:id', validate('json', patchOf(eventInput)), (c) => {
     const projectId = c.req.param('projectId')!;
     const row = found(c.var.deps.db.update(s.storyEvents).set({ ...c.req.valid('json'), ...byPerson(c.var.deps.db, s.storyEvents, projectId, c.req.param('id'), c.req.valid('json')) }).where(byProject(s.storyEvents, c.req.param('id'), projectId)).returning().get(), '사건');
-    events.changed(projectId, 'knowledge');
     return c.json({ ok: true as const, ...withTags(c.var.deps.db, 'events', [row])[0] });
   })
   .delete('/events/:id', (c) => {
@@ -202,7 +180,6 @@ export const knowledgeRoutes = new Hono<Env>()
     return c.json({ ok: true });
   })
 
-  .get('/speech-rules', (c) => c.json(speechRuleRows(c.var.deps.db, c.req.param('projectId')!)))
   .get('/speech-rules/:id', (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId')!;
@@ -212,13 +189,11 @@ export const knowledgeRoutes = new Hono<Env>()
   .post('/speech-rules', validate('json', speechRuleInput), (c) => {
     const projectId = c.req.param('projectId')!;
     const row = c.var.deps.db.insert(s.speechRules).values({ ...c.req.valid('json'), projectId }).returning().get();
-    events.changed(projectId, 'knowledge');
     return c.json(withTags(c.var.deps.db, 'speechRules', [row])[0], 201);
   })
   .patch('/speech-rules/:id', validate('json', patchOf(speechRuleInput)), (c) => {
     const projectId = c.req.param('projectId')!;
     const row = found(c.var.deps.db.update(s.speechRules).set({ ...c.req.valid('json'), ...byPerson(c.var.deps.db, s.speechRules, projectId, c.req.param('id'), c.req.valid('json')) }).where(byProject(s.speechRules, c.req.param('id'), projectId)).returning().get(), '말투 규칙');
-    events.changed(projectId, 'knowledge');
     return c.json({ ok: true as const, ...withTags(c.var.deps.db, 'speechRules', [row])[0] });
   })
   .delete('/speech-rules/:id', (c) => {
@@ -263,8 +238,6 @@ export const knowledgeRoutes = new Hono<Env>()
         }, 2_000);
         return total;
       });
-      // Terms are cached under their own topic (the glossary), not with the story knowledge.
-      events.changed(projectId, kind === 'terms' ? 'terms' : 'knowledge');
       return c.json({ changed });
     },
   )
@@ -279,7 +252,6 @@ export const knowledgeRoutes = new Hono<Env>()
       found(db.select({ id: s.tags.id }).from(s.tags).where(and(eq(s.tags.id, tagId), eq(s.tags.projectId, projectId))).get(), '태그');
       const refusal = db.transaction((tx) => setKnowledgeTag(tx, projectId, kind, ids, tagId, add));
       if (refusal) badRequest(refusal);
-      events.changed(projectId, kind === 'terms' ? 'terms' : 'knowledge');
       return c.json({ ok: true });
     },
   );

@@ -1,6 +1,6 @@
 import { Chat } from '@ai-sdk/react';
 import { apiFetch, notifyChanged } from './api';
-import { isRunRecord } from '@tw/shared';
+import { isRunRecord, TOPICS } from '@tw/shared';
 import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls, type UIMessage } from 'ai';
 
 /** What is on screen when a message is sent; the panel keeps it current while it is open. */
@@ -16,7 +16,7 @@ export interface ChatView {
  * the server saved, and keeps its messages, status and stream until the session is deleted.
  */
 /** Every topic: an approved chat tool can write almost anywhere (statuses, runs, graph views…), so a finished turn refetches them all rather than keep a list in step with the tools. */
-const CHAT_TOPICS = ['projects', 'units', 'graph', 'statuses', 'terms', 'knowledge', 'workflows', 'runs', 'chat', 'proposals', 'calls'];
+const CHAT_TOPICS = [...TOPICS];
 
 /** A session's chat, and what the next message says is on screen (read when it is sent; set with setView). */
 const chats = new Map<string, { chat: Chat<UIMessage>; setView: (view: ChatView | null) => void }>();

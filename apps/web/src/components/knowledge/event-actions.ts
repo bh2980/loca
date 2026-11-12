@@ -1,15 +1,7 @@
 import { unwrap } from '@/lib/api';
+import type { StoryEvent } from '@/lib/knowledge';
 import { freeName, useGraphHistory } from './graph-history';
 
-interface StoryEvent {
-  id: string;
-  title: string;
-  summary: string;
-  cause: string;
-  outcome: string;
-  participants: string[];
-  evidence: string[];
-}
 /** A line of the 사건 흐름, by its two ends. */
 export type FlowLine = { fromId: string; toId: string };
 type PairLink = 'added' | 'hidden' | null;

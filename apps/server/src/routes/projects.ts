@@ -1,41 +1,21 @@
 import { deleteChat } from '../services/chat-delete.ts';
 import { Hono } from 'hono';
-import { and, asc, count, desc, eq, inArray, notInArray, sql } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { ACTIVE_RUN_STATUSES } from '../engine/run-create.ts';
 import { z } from 'zod';
-import { agentSettingsSchema, detectFormatRules, editorAiSchema, exclusionRulesSchema, formatRulesSchema, importFileSchema, importWarnings, patchOf, summarizeImport } from '@tw/shared';
+import { agentSettingsSchema, detectFormatRules, importFileSchema, importWarnings, patchOf, summarizeImport } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
-import { events } from '../events.ts';
 import { forgetProjectContext } from '../services/context.ts';
-import { excludedSql, lineFactConditions, translatableSql } from '../services/line-marks.ts';
-import { createStatus, createTag, deleteStatuses, deleteTags, orderStatuses, orderTags, projectTags, TaxonomyMutationError, updateStatus, updateTag } from '../services/project-taxonomy.ts';
+import { createStatus, createTag, deleteStatuses, deleteTags, orderStatuses, orderTags, TaxonomyMutationError, updateStatus, updateTag } from '../services/project-taxonomy.ts';
 import { projectSettingsInput, updateProjectSettings } from '../services/project-settings.ts';
 import { importProject } from '../services/importer.ts';
-import type { DecidedTable } from '../services/status-by.ts';
 import { cancelLayout, computeLayouts } from '../services/layout.ts';
 import { REGEX_TARGETS, generateRegex } from '../services/regex-assist.ts';
 import { editorCallsToday } from '../services/editor-complete.ts';
 import { statusInput, tagInput } from '../schemas/projects.ts';
 
 export const projectRoutes = new Hono<Env>()
-  .get('/', (c) => {
-    const { db } = c.var.deps;
-    const rows = db
-      .select({
-        id: s.projects.id,
-        name: s.projects.name,
-        description: s.projects.description,
-        sourceLanguage: s.projects.sourceLanguage,
-        targetLanguage: s.projects.targetLanguage,
-        updatedAt: s.projects.updatedAt,
-        units: sql<number>`(select count(*) from units u where u.project_id = "projects"."id")`,
-      })
-      .from(s.projects)
-      .orderBy(desc(s.projects.updatedAt))
-      .all();
-    return c.json(rows);
-  })
   .post('/validate', validate('json', z.unknown()), (c) => {
     const result = importFileSchema.safeParse(c.req.valid('json'));
     if (!result.success)
@@ -46,43 +26,7 @@ export const projectRoutes = new Hono<Env>()
     const { db } = c.var.deps;
     const summary = importProject(db, c.req.valid('json'), undefined, c.var.deps.secrets);
     void computeLayouts(db, summary.projectId);
-    events.changed(undefined, 'projects');
     return c.json(summary, 201);
-  })
-  .get('/:projectId', (c) => {
-    const { db } = c.var.deps;
-    const projectId = c.req.param('projectId');
-    const project = found(db.select().from(s.projects).where(eq(s.projects.id, projectId)).get(), '프로젝트');
-    // Progress counts lines for translation; 번역 제외 lines are counted apart.
-    const byStatus = db
-      .select({ statusId: s.units.statusId, count: count() })
-      .from(s.units)
-      .where(and(eq(s.units.projectId, projectId), translatableSql(projectId)))
-      .groupBy(s.units.statusId)
-      .all();
-    const groupCount = db.select({ count: count() }).from(s.groups).where(eq(s.groups.projectId, projectId)).get()!.count;
-    // Lines in review-inbox statuses.
-    const reviewCount = db
-      .select({ count: count() })
-      .from(s.units)
-      .innerJoin(s.statuses, eq(s.statuses.id, s.units.statusId))
-      .where(and(eq(s.units.projectId, projectId), eq(s.statuses.inReview, true), translatableSql(projectId)))
-      .get()!.count;
-    const excludedCount = db.select({ count: count() }).from(s.units).where(and(eq(s.units.projectId, projectId), excludedSql(projectId))).get()!.count;
-    // What AI decided and no person has looked at (✦): 정한 쪽 AI of lines, knowledge and terms (shared decidedBy / lineFactConditions), so each count is what its link lists.
-    const aiLines = db.select({ count: count() }).from(s.units).where(and(eq(s.units.projectId, projectId), ...lineFactConditions(projectId, { decidedBy: 'ai' }))).get()!.count;
-    const aiConfirmed = (...tables: DecidedTable[]) =>
-      tables.reduce((sum, table) => {
-        const t = table as typeof s.terms;
-        return sum + db.select({ count: count() }).from(t).where(and(eq(t.projectId, projectId), eq(t.statusBy, 'ai'), notInArray(t.status, ['candidate', 'rejected']))).get()!.count;
-      }, 0);
-    // Knowledge by the tab that lists it (자료 › 인물 / 관계·말투 / 사건 / 노트; the pairs table lists the pairs holding these items), so a count opens the tab it counts.
-    const aiDecided = {
-      lines: aiLines,
-      terms: aiConfirmed(s.terms),
-      knowledge: { documents: aiConfirmed(s.documents), characters: aiConfirmed(s.characters), pairs: aiConfirmed(s.relationships, s.speechRules), events: aiConfirmed(s.storyEvents) },
-    };
-    return c.json({ ...project, exclusionRules: exclusionRulesSchema.parse(project.exclusionRules), editorAi: editorAiSchema.parse(project.editorAi), editorCallsToday: editorCallsToday(db, projectId), byStatus, excludedCount, groupCount, reviewCount, aiDecided });
   })
   /** How many 에디터 AI completions the project made today (its daily cap counts them; ai_calls, calls topic). */
   .get('/:projectId/editor-calls', (c) => c.json({ today: editorCallsToday(c.var.deps.db, c.req.param('projectId')) }))
@@ -106,30 +50,10 @@ export const projectRoutes = new Hono<Env>()
     cancelLayout(projectId);
     db.delete(s.projects).where(eq(s.projects.id, projectId)).run();
     forgetProjectContext(projectId);
-    events.changed(undefined, 'projects');
     return c.json({ ok: true });
   })
 
   // ── statuses & tags ────────────────────────────────────────────────
-  .get('/:projectId/statuses', (c) => {
-    const { db } = c.var.deps;
-    const projectId = c.req.param('projectId');
-    const statuses = db
-      .select({
-        id: s.statuses.id,
-        name: s.statuses.name,
-        color: s.statuses.color,
-        kind: s.statuses.kind,
-        sort: s.statuses.sort,
-        inReview: s.statuses.inReview,
-        units: sql<number>`(select count(*) from units u where u.status_id = "statuses"."id")`,
-      })
-      .from(s.statuses)
-      .where(eq(s.statuses.projectId, projectId))
-      .orderBy(asc(s.statuses.sort))
-      .all();
-    return c.json({ statuses, tags: projectTags(db, projectId) });
-  })
   .post('/:projectId/statuses', validate('json', statusInput), (c) => {
     const projectId = c.req.param('projectId');
     const row = createStatus(c.var.deps.db, projectId, c.req.valid('json'));

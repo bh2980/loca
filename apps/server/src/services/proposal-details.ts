@@ -1,8 +1,10 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import { AGE_BAND_LABELS, CHARACTER_ROLE_LABELS, GENDER_LABELS, KNOWLEDGE_STATUS_LABELS, nodeName, SPEECH_LEVEL_LABELS, type KnowledgeStatus, type WorkflowDefinition } from '@tw/shared';
 import type { Db } from '../db/index.ts';
+import { inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { snapshot } from './proposal-undo.ts';
+import { listedProposal } from './proposals.ts';
 
 /**
  * What a proposal's card says it does, from the project's own data instead of the ids the tool was called with: who or
@@ -182,4 +184,13 @@ export function proposalDetails(db: Db, proposal: Proposal): ProposalDetails | n
   const items = itemsOf(db, proposal);
   const refs = refsOf(db, proposal);
   return items.length || Object.keys(refs).length ? { items, refs } : null;
+}
+
+/** A proposal as its card shows it: the stored row as lists send it, with what it would change. */
+export const proposalRow = (db: Db, proposal: Proposal) => ({ ...listedProposal(proposal), details: proposalDetails(db, proposal) });
+
+/** The project's proposals by id (the rows the browser's proposals collection holds). */
+export function proposalRows(db: Db, projectId: string, ids: readonly string[]) {
+  if (!ids.length) return [];
+  return db.select().from(s.proposals).where(and(eq(s.proposals.projectId, projectId), inList(s.proposals.id, ids))).all().map((row) => proposalRow(db, row));
 }

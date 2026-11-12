@@ -2,7 +2,6 @@ import { and, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { acceptedLabel, toolClass } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { events } from '../events.ts';
 import { agentCatalog } from './agent-catalog.ts';
 import { captureUndo } from './proposal-undo.ts';
 import { proposalSaver } from './status-by.ts';
@@ -10,7 +9,6 @@ import { proposalSaver } from './status-by.ts';
 /** Stores a proposal; the change gate checks it first (change-gate.ts). */
 export function propose(db: Pick<Db, 'insert'>, input: { projectId: string; sessionId: string | null; model?: string | null; source: 'cli' | 'api'; tool: string; input: Record<string, unknown>; report?: s.ProposalReport | null; review?: string | null }) {
   const row = db.insert(s.proposals).values(input).returning().get();
-  events.changed(input.projectId, 'proposals');
   return row;
 }
 
@@ -72,7 +70,6 @@ export async function decideProposal(db: Db, id: string, accept: boolean, by: 'p
     .returning()
     .get();
   if (!claimed) return db.select().from(s.proposals).where(eq(s.proposals.id, id)).get()!;
-  events.changed(proposal.projectId, 'proposals');
   if (!accept) return claimed;
   let status: 'accepted' | 'failed' = 'accepted';
   let result: unknown = null;
@@ -87,7 +84,6 @@ export async function decideProposal(db: Db, id: string, accept: boolean, by: 'p
     result = { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
   const row = db.update(s.proposals).set({ status, result, undo: status === 'accepted' ? undoAfter(result) : null, decidedAt: new Date() }).where(eq(s.proposals.id, id)).returning().get();
-  events.changed(proposal.projectId, 'proposals');
   return row;
 }
 
@@ -103,9 +99,8 @@ export function closeInterruptedProposals(db: Db) {
     .update(s.proposals)
     .set({ status: 'failed', result: { ok: false, error: INTERRUPTED_PROPOSAL }, decidedAt: new Date() })
     .where(eq(s.proposals.status, 'running'))
-    .returning()
+    .returning({ id: s.proposals.id })
     .all();
-  for (const projectId of new Set(rows.map((row) => row.projectId))) events.changed(projectId, 'proposals');
   return rows.length;
 }
 

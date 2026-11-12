@@ -3,7 +3,6 @@ import { checkFormat, exclusionRulesSchema, lineExclusion, lineMarksOf, runNodeN
 import type { Db } from '../db/index.ts';
 import { inChunks, inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
-import { events } from '../events.ts';
 import { attachUnitTags, scopeRefusal } from './tag-scope.ts';
 import { saveLine } from './line-save.ts';
 import { PERSON, type Saver } from './status-by.ts';
@@ -457,6 +456,5 @@ export function applyBatch(db: Db, projectId: string, batch: BatchChange, saver:
       applied.push(change.key);
     }
   });
-  events.changed(projectId, 'units');
   return { ok: true, applied: applied.length, skipped, ...(listenerKept.length && { listenerKept: { keys: listenerKept, note: '이 줄들의 청자는 그대로 두었습니다(사람이 정했거나 가져온 청자가 있거나, 청자가 필요 없는 줄).' } }) };
 }

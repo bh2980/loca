@@ -9,7 +9,6 @@ import type { Db } from '../db/index.ts';
 import { byPerson } from './status-by.ts';
 import { inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
-import { events } from '../events.ts';
 import { linkEvents, projectEventFlow } from './event-routes.ts';
 import { deleteLines, insertLineAfter, linkInOrder, linkNodes, nodeByKey, sceneByRef, unitByKey, unlinkEdges } from './graph-edit.ts';
 import { characterInput, documentInput, eventInput, relationshipInput, speechRuleInput, termInput } from '../schemas/knowledge.ts';
@@ -92,7 +91,6 @@ const RUN_APART_NOTE = '실행은 이 대화와 따로 돌아갑니다. 시작�
 
 export function agentTools(db: Db, projectId: string, author: { model: string | null; saver?: Saver; /** The conversation asking: a run it starts reports its end there. */ sessionId?: string | null } = { model: null }, options: { unrestricted?: boolean } = {}) {
   const saver = author.saver ?? PERSON;
-  const changed = (...topics: Parameters<typeof events.changed>[1][]) => events.changed(projectId, ...topics);
   /**
    * A save tool's input: everything optional and without defaults, so an update (with id) changes
    * only what the model sent. Creating (no id) is checked against the full schema, defaults and all.
@@ -654,7 +652,6 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
             else if (!id) created.push(saved.row.id);
           }
         });
-        changed('terms');
         return { ok: true, count: terms.length - skipped.length, created, ...(skipped.length && { skipped }) };
       },
     }),
@@ -700,7 +697,6 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         const unit = db.select({ id: s.units.id }).from(s.units).where(and(eq(s.units.id, unitId), eq(s.units.projectId, projectId))).get();
         if (!unit) return { ok: false, error: '대사를 찾을 수 없습니다.' };
         const id = addCandidate(db, { unitId, text, note, origin: 'ai', model: author.model, state: 'pending' });
-        changed('units');
         return { ok: true, id };
       },
     }),
@@ -716,7 +712,6 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         if (suggestion?.state !== 'pending') return { ok: false, error: '기다리는 AI 제안이 아닙니다.' };
         if (decision === 'decline') declineSuggestion(db, unitId, candidateId);
         else db.transaction((tx) => saveLine(tx, unit, { candidateId, statusBy: saver.statusBy }));
-        changed('units');
         return { ok: true, decision };
       },
     }),
@@ -730,7 +725,6 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         .refine((input) => input.lines.length > 0, '청자를 하나 이상 넣으세요.'),
       execute: ({ lines }) => {
         const result = db.transaction((tx) => aiSetLineListeners(tx, projectId, lines));
-        changed('units');
         return {
           ok: true,
           lines: result.set,
@@ -948,7 +942,6 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
           if (error instanceof TagRefused) return { ok: false, error: error.message };
           throw error;
         }
-        changed(kind === 'terms' ? 'terms' : 'knowledge');
         return { ok: true, items: ids.length, added: add, removed: remove };
       },
     }),

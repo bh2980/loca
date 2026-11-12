@@ -5,7 +5,6 @@ import * as ai from '@tw/ai';
 import type { Deps } from '../context.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { events } from '../events.ts';
 import { startCall } from './ai-calls.ts';
 import { AGENT_SYSTEM } from './agent-tools.ts';
 import { expandRecord, isRunRecord, lastExchange, mergeIncoming, type AnsweredBy } from './chat-context.ts';
@@ -58,7 +57,6 @@ export async function runChatTurn(deps: Pick<Deps, 'db' | 'secrets'>, given: typ
   const firstText = firstUser?.parts.find((part) => part.type === 'text');
   if (session.title === '새 대화' && firstText && 'text' in firstText) {
     db.update(s.chatSessions).set({ title: chatTitle(firstText.text) }).where(eq(s.chatSessions.id, session.id)).run();
-    events.changed(session.projectId, 'chat');
   }
 
   // Kept before the reply starts: if the turn is cut off (the page closed, the connection dropped),

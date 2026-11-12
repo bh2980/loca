@@ -49,7 +49,7 @@ export function lineContexts(db: Db, projectId: string | undefined, unitIds: rea
       }
     }
     const sceneNames = [...distance].sort((a, b) => a[1] - b[1]).map(([name]) => name);
-    // Its candidates and run history are POST units/extras: the browser holds them apart and reads them again when the feed names the line.
+    // Its candidates and run history are the line extras collection's: the browser holds them apart and reads them again when the feed names them.
     return [{ ...unit, group: groups.get(unit.groupId)!, neighbors, tagIds: (tags.get(unitId) ?? []).map((row) => row.tagId), graphNodes: nodes, speech, sceneNames }];
   });
 }

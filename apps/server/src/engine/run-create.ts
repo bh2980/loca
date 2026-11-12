@@ -3,7 +3,6 @@ import { isWholeScriptWorkflow, workflowInput, type AiNode, type RunLimits, type
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import type { ItemData } from '../db/schema.ts';
-import { events } from '../events.ts';
 import { resolveBudgets } from '../services/budgets.ts';
 import { snapshotWorkflowModels } from '../services/model-target.ts';
 import { expandedDefinition } from './expand-calls.ts';
@@ -80,7 +79,6 @@ export function createRun(db: Db, input: RunInput) {
     tx.insert(s.runs).values(run).run();
     for (let index = 0; index < items.length; index += 400) tx.insert(s.runItems).values(items.slice(index, index + 400)).run();
   });
-  events.changed(input.projectId, 'runs');
   return { runId: run.id, total: run.total };
 }
 
@@ -111,7 +109,6 @@ export async function createRunInSteps(db: Db, input: RunInput) {
   if (isWholeScriptWorkflow(expandedDefinition(db, input.projectId, input.workflow.definition, input.workflow.id))) refuseSecondWholeScript(db, input.projectId);
   const { run, items } = runRows(db, input);
   db.insert(s.runs).values({ ...run, status: 'preparing' }).run();
-  events.changed(input.projectId, 'runs');
   const preparing = and(eq(s.runs.id, run.id), eq(s.runs.status, 'preparing'));
   for (let start = 0; start < items.length; start += FILL_STEP) {
     await new Promise((resolve) => setImmediate(resolve));
@@ -124,7 +121,6 @@ export async function createRunInSteps(db: Db, input: RunInput) {
     if (!stored) break;
   }
   db.update(s.runs).set({ status: 'running' }).where(preparing).run();
-  events.changed(input.projectId, 'runs');
   return { runId: run.id, total: run.total };
 }
 
@@ -141,7 +137,6 @@ export function closeUnpreparedRuns(db: Db) {
       tx.update(s.runs).set({ status: 'cancelled', notice: UNPREPARED, finishedAt: new Date() }).where(eq(s.runs.id, run.id)).run();
       tx.update(s.runItems).set({ state: 'cancelled' }).where(and(eq(s.runItems.runId, run.id), inArray(s.runItems.state, ['queued', 'running']))).run();
     });
-    events.changed(run.projectId, 'runs');
   }
   return left.length;
 }

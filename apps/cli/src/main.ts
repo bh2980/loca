@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { Command, Option } from 'commander';
 import { hc } from 'hono/client';
 import type { AppType, ToolInputs, ToolResults } from '@tw/server/app';
-import { acceptedLabel, AUTO_MARKS, FEED_EVENT, CHECK_KINDS, EXCLUSION_REASON_LABELS, CONTEXT_ITEM_KINDS, importFileJsonSchema, importFileSchema, importWarnings, KNOWLEDGE_MARK_IDS, KNOWLEDGE_STATUS_LABELS, LINE_MARK_IDS, lineChangeSchema, summarizeImport, retryRuleSchema, retrySummary, TERM_MARK_IDS, termScopeLabel, type AutoMark, type KnowledgeStatus, type LineFilterInput, type RunScopeInput, type LineMark, personLabel, DECIDED_BY, type DecidedBy, EXCLUDED_FILTERS, type ExcludedFilter, RESULT_REST, type ResultRest, INPUT_TYPES, bySubject, nodeSummary, nodeDetails, type Subject } from '@tw/shared';
+import { acceptedLabel, AUTO_MARKS, FEED_EVENT, type ChangeEvent, type Topic, CHECK_KINDS, EXCLUSION_REASON_LABELS, CONTEXT_ITEM_KINDS, importFileJsonSchema, importFileSchema, importWarnings, KNOWLEDGE_MARK_IDS, KNOWLEDGE_STATUS_LABELS, LINE_MARK_IDS, lineChangeSchema, summarizeImport, retryRuleSchema, retrySummary, TERM_MARK_IDS, termScopeLabel, type AutoMark, type KnowledgeStatus, type LineFilterInput, type RunScopeInput, type LineMark, personLabel, DECIDED_BY, type DecidedBy, EXCLUDED_FILTERS, type ExcludedFilter, RESULT_REST, type ResultRest, INPUT_TYPES, bySubject, nodeSummary, nodeDetails, type Subject } from '@tw/shared';
 
 /**
  * loca — the workbench from a terminal, for people and for agents with a shell (codex, claude…).
@@ -210,7 +210,7 @@ function readJsonArg(value: string | undefined): unknown {
  * `check` once connected and again after each change to `topic` in this project, until it returns
  * a value. `timeout` is in minutes.
  */
-async function waitFor<T>(topic: string, check: () => Promise<T | undefined>, timeout?: number): Promise<T> {
+async function waitFor<T>(topic: Topic, check: () => Promise<T | undefined>, timeout?: number): Promise<T> {
   const id = await projectId();
   const controller = new AbortController();
   const timer = timeout ? setTimeout(() => controller.abort(new CliError(`${timeout}분 동안 끝나지 않아 기다리기를 멈췄습니다. 하던 일은 앱에서 계속됩니다.`)), timeout * 60_000) : undefined;
@@ -234,7 +234,7 @@ async function waitFor<T>(topic: string, check: () => Promise<T | undefined>, ti
         buffer = buffer.slice(end + 2);
         if (!block.split('\n').includes(`event: ${FEED_EVENT}`)) continue;
         const data = /^data: (.*)$/m.exec(block)?.[1];
-        const event = data ? (JSON.parse(data) as { projectId?: string; topics: string[] }) : null;
+        const event = data ? (JSON.parse(data) as ChangeEvent) : null;
         if (!event || (event.projectId && event.projectId !== id) || !event.topics.includes(topic)) continue;
         const done = await check();
         if (done !== undefined) return done;

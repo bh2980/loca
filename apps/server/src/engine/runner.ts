@@ -3,14 +3,13 @@ import * as ai from '@tw/ai';
 import { batchTokens, choiceKey, lineCostIn, nodeCallsOut, nodeConcurrency, type WorkflowNode } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import type { Topic } from '../events.ts';
 import { recordRunEnd } from '../services/chat-run-end.ts';
 import type { SecretStore } from '../services/secrets.ts';
 import { packGroups, planBatches, scaleBatch, subjectBatch } from './batches.ts';
 import type { ModelPort } from './model-port.ts';
 import { RunCalls } from './run-calls.ts';
 import { closeUnpreparedRuns } from './run-create.ts';
-import { haltRun, notifyRun, RunGuards } from './run-guards.ts';
+import { haltRun, RunGuards } from './run-guards.ts';
 import { closeGathers, settle, type GatherNode } from './run-instant.ts';
 import { nodeOf, type Run } from './run-state.ts';
 import { onRunWake } from './run-wake.ts';
@@ -180,7 +179,6 @@ export class Runner {
 
   pause(runId: string) {
     this.db.update(s.runs).set({ status: 'paused' }).where(and(eq(s.runs.id, runId), eq(s.runs.status, 'running'))).run();
-    notifyRun(this.db, runId);
   }
 
   cancel(runId: string) {
@@ -195,7 +193,6 @@ export class Runner {
         .run();
     });
     if (wasGoing) recordRunEnd(this.db, runId);
-    notifyRun(this.db, runId);
   }
 
   /** Requests in flight per node of a run (only nodes with one). */
@@ -254,16 +251,12 @@ export class Runner {
     const gathers = run.definition.nodes.filter((node): node is GatherNode => node.type === 'gather');
     // Instant nodes settle first, possibly several hops, before slow work is handed out; for at most
     // SETTLE_BUDGET_MS per tick, so a large run never holds the event loop. Items at a gather wait for it.
-    let changed = false;
-    const touched = new Set<Topic>();
     const started = performance.now();
     for (;;) {
       const instant = this.queuedInstant(run, [...slowIds, ...gathers.map((node) => node.id)], SETTLE_CHUNK);
       if (!instant.length) break;
-      for (const topic of settle(this.db, run, instant, started + SETTLE_BUDGET_MS)) touched.add(topic);
-      changed = true;
+      settle(this.db, run, instant, started + SETTLE_BUDGET_MS);
       if (performance.now() - started >= SETTLE_BUDGET_MS) {
-        notifyRun(this.db, run.id, ...touched);
         // The server serves what waited, then this run goes on (not at the next interval: that would slow it).
         if (this.timer && !this.followUp) this.followUp = setTimeout(() => {
           this.followUp = undefined;
@@ -273,20 +266,14 @@ export class Runner {
       }
     }
     // A gather whose upstream is done closes now; its one item moves on with the next tick's instant pass.
-    if (gathers.length && closeGathers(this.db, run, gathers, this.openByNode(run.id), this.upstream(run))) {
-      notifyRun(this.db, run.id, ...touched);
-      return true;
-    }
+    if (gathers.length && closeGathers(this.db, run, gathers, this.openByNode(run.id), this.upstream(run))) return true;
 
     // Slots: an AI node sends up to its own 동시 처리 수 at once (other runs and chats do not count);
     // an HTTP or script node sends up to its own. A full node does not hold up the others.
     const live = this.liveCalls(run.id);
     const busy = this.inflight.get(run.id)?.size ?? 0;
     const canSend = (node: WorkflowNode) => (live[node.id] ?? 0) < (nodeCallsOut(node) ? nodeConcurrency(node) : 1);
-    if (slow.length && !slow.some(canSend)) {
-      if (changed) notifyRun(this.db, run.id, ...touched);
-      return true;
-    }
+    if (slow.length && !slow.some(canSend)) return true;
 
     const waiting = this.waiting(run, slowIds);
     if (!waiting.length) {
@@ -303,7 +290,6 @@ export class Runner {
       if (!open.length) {
         this.db.update(s.runs).set({ status: 'completed', finishedAt: new Date() }).where(eq(s.runs.id, run.id)).run();
         recordRunEnd(this.db, run.id);
-        notifyRun(this.db, run.id);
       } else {
         // Lines held by a retry rule's wait: nothing to do until the first is due.
         const due = this.db
@@ -312,7 +298,6 @@ export class Runner {
           .where(and(eq(s.runItems.runId, run.id), eq(s.runItems.state, 'queued'), gt(s.runItems.notBefore, new Date())))
           .get()?.at;
         if (due) this.sleepUntil(run.id, due);
-        if (changed) notifyRun(this.db, run.id, ...touched);
       }
       return false;
     }
@@ -363,7 +348,6 @@ export class Runner {
     const send = (node: WorkflowNode, lines: Waiting[]) => {
       this.dispatch(run, node, lines);
       live[node.id] = (live[node.id] ?? 0) + 1;
-      changed = true;
     };
     const roundRobin = (queues: Map<string, { node: WorkflowNode; requests: Waiting[][] }>) => {
       const order = [...queues.keys()].sort((a, b) => depth(b) - depth(a));
@@ -388,7 +372,6 @@ export class Runner {
       const first = config ? (packGroups([...Map.groupBy(same, (line) => line.plan ?? -1).values()], config)[0] ?? []) : same.slice(0, 1);
       if (first.length && canSend(node)) send(node, first);
     }
-    if (changed) notifyRun(this.db, run.id, ...touched);
     return true;
   }
 

@@ -2,7 +2,6 @@ import { and, asc, eq, inArray } from 'drizzle-orm';
 import type { WorkflowDefinition } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { events } from '../events.ts';
 
 export class WorkflowMutationError extends Error {
   constructor(message: string, readonly status: 400 | 404 = 400) { super(message); }
@@ -25,11 +24,9 @@ export function saveWorkflow(db: Db, projectId: string, input: { id?: string; na
     if (input.version !== undefined && current.version !== input.version) throw new WorkflowMutationError('다른 곳에서 먼저 저장했습니다. 새로고침 후 다시 저장하세요.');
     requireIdle(db, current.id);
     const row = db.update(s.workflows).set({ name: input.name, description: input.description, definition: input.definition, version: current.version + 1 }).where(and(eq(s.workflows.id, current.id), eq(s.workflows.projectId, projectId))).returning().get();
-    events.changed(projectId, 'workflows');
     return row!;
   }
   const row = db.insert(s.workflows).values({ projectId, name: input.name, description: input.description, definition: input.definition }).returning().get();
-  events.changed(projectId, 'workflows');
   return row;
 }
 
@@ -46,6 +43,5 @@ export function deleteWorkflow(db: Db, projectId: string, id: string) {
   const callers = workflowCallers(db, projectId, current.id);
   if (callers.length) throw new WorkflowMutationError(`이 워크플로를 부르는 곳이 있습니다: ${callers.slice(0, 5).map((caller) => caller.name).join(', ')}${callers.length > 5 ? ` 외 ${callers.length - 5}곳` : ''}. 그곳에서 호출을 지운 뒤 지우세요.`);
   db.delete(s.workflows).where(and(eq(s.workflows.id, current.id), eq(s.workflows.projectId, projectId))).run();
-  events.changed(projectId, 'workflows');
   return { ok: true as const };
 }

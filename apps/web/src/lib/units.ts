@@ -2,22 +2,23 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { keepPreviousData, queryOptions, useQuery } from '@tanstack/react-query';
 import { createCollection, createOptimisticAction, useLiveQuery, type Collection } from '@tanstack/react-db';
 import type { InferResponseType } from 'hono/client';
-import type { FeedChanges, FeedRows, LineFilterInput } from '@tw/shared';
+import { APP_FEED, type FeedChanges, type FeedRows, type HeldCollection, type LineFilterInput } from '@tw/shared';
 import { client, unwrap } from './api';
-import { sent } from './collections';
+import { sent, type FeedRow } from './collections';
 import { feed } from './feed';
+import { useGroupsById } from './groups';
 import { queryClient } from './query-client';
 
 /**
  * The lines the screens show, one collection per project: unlike the other collections it holds only
- * the lines asked for (POST units/by-ids), not all of them, and the row feed keeps those current. A
+ * the lines asked for (POST sync/units), not all of them, and the row feed keeps those current. A
  * list asks the server for its page as ids (POST units/ids) and reads the rows from here, so a changed
  * line comes as its own row and only that line is drawn again. The open lines' candidates and run
- * history (POST units/extras) are held the same way, beside them.
+ * history (line extras) are held the same way, beside them. A line names its scene by id: the scene's
+ * title, section and kind are the groups collection's (useGroupsById).
  */
-type Api = (typeof client.projects)[':projectId'];
-export type Line = InferResponseType<Api['units']['by-ids']['$post']>['rows'][number];
-export type LineExtras = InferResponseType<Api['units']['extras']['$post']>['rows'][number];
+export type Line = FeedRow['units'];
+export type LineExtras = FeedRow['lineExtras'];
 type Row = { id: string };
 type Write<T> = { begin: () => void; write: (change: { type: 'insert' | 'update'; value: T } | { type: 'delete'; key: string }) => void; commit: () => void; truncate: () => void };
 
@@ -36,9 +37,12 @@ export interface HeldOptions<T extends Row> {
   projectId: string;
   /** The rows by id, with the feed's count when read. */
   read: (ids: string[]) => Promise<{ rows: T[]; seq: number }>;
-  /** The part of a change event that names these rows (default: the lines). */
-  signal?: (rows: FeedRows) => FeedChanges | undefined;
-  /** Held rows that also go stale through another part of the event (an item whose line changed). */
+  /** The part of a change event that names these rows. */
+  signal: (rows: FeedRows) => FeedChanges | undefined;
+  /**
+   * Held rows that also go stale through another part of the event. Only for what the database cannot say:
+   * a proposal names rows inside its input (lib/proposals.ts). A table a row is read from notes the row itself.
+   */
   staleBy?: (rows: FeedRows) => ((row: T) => boolean) | undefined;
   /** Hears the ids each event names. */
   named?: (ids: readonly string[]) => void;
@@ -50,7 +54,7 @@ export interface HeldOptions<T extends Row> {
  * a read only replaces a row with a newer one. A bulk change (reload) or a reconnect drops them all,
  * and the screens ask again for what they show.
  */
-export function heldCollection<T extends Row>({ id, projectId, read, signal = (rows) => rows.units, staleBy, named }: HeldOptions<T>): Held<T> {
+export function heldCollection<T extends Row>({ id, projectId, read, signal, staleBy, named }: HeldOptions<T>): Held<T> {
   let sink: Write<T> | null = null;
   const readAt = new Map<string, number>();
   const loading = new Set<string>();
@@ -143,8 +147,28 @@ export function heldCollection<T extends Row>({ id, projectId, read, signal = (r
   return { collection, ensure, idle };
 }
 
-/** A line's context (GET units/:id): read again when the feed names the line or a neighbour; knowledge and graph changes reach it through live.ts. */
-export const lineContext = (unitId: string) => queryOptions({ queryKey: ['line-context', unitId], queryFn: () => unwrap(client.units[':unitId'].$get({ param: { unitId } })) });
+/**
+ * One of the feed's held collections (HELD_COLLECTIONS) in a project, or the app's scope: its rows are read by id
+ * through the server's reader of that collection (POST sync/:name) and read again when an event names them.
+ */
+export function heldFeed<C extends HeldCollection>(name: C, scope: string, options: Pick<HeldOptions<FeedRow[C]>, 'staleBy' | 'named'> = {}): Held<FeedRow[C]> {
+  return heldCollection<FeedRow[C]>({
+    id: `${name}:${scope}`,
+    projectId: scope,
+    // The wire carries rows untyped: they are this collection's, as its reader returns them.
+    read: async (ids) =>
+      (await unwrap(scope === APP_FEED ? client.app.sync.aiCalls.$post({ json: { ids } }) : client.projects[':projectId'].sync[':collection'].$post({ param: { projectId: scope, collection: name }, json: { ids } }))) as { rows: FeedRow[C][]; seq: number },
+    signal: (rows) => rows[name],
+    ...options,
+  });
+}
+
+/**
+ * A line's context (GET units/:id): read again when the feed names the line or a neighbour (refreshContexts), and when
+ * what it reads besides lines changes: speech rules and characters (knowledge) and the graph's nodes.
+ */
+export const lineContext = (unitId: string) =>
+  queryOptions({ queryKey: ['line-context', unitId], queryFn: () => unwrap(client.units[':unitId'].$get({ param: { unitId } })), meta: { follows: ['knowledge', 'graph'] } });
 type Context = InferResponseType<(typeof client.units)[':unitId']['$get']>;
 
 /** The open lines whose context reads one of these lines (itself or a neighbour) are read again. */
@@ -179,7 +203,7 @@ const extras = new Map<string, Held<LineExtras>>();
 export function unitsOf(projectId: string): Held<Line> {
   let held = units.get(projectId);
   if (!held) {
-    held = heldCollection<Line>({ id: `units:${projectId}`, projectId, read: (ids) => unwrap(client.projects[':projectId'].units['by-ids'].$post({ param: { projectId }, json: { ids } })), named: refreshContexts });
+    held = heldFeed('units', projectId, { named: refreshContexts });
     units.set(projectId, held);
   }
   return held;
@@ -189,17 +213,7 @@ export function unitsOf(projectId: string): Held<Line> {
 export function extrasOf(projectId: string): Held<LineExtras> {
   let held = extras.get(projectId);
   if (!held) {
-    // Read again when the line is named (its AI 제안) or its run history is (a run item moving, 0120).
-    held = heldCollection<LineExtras>({
-      id: `line-extras:${projectId}`,
-      projectId,
-      read: (ids) => unwrap(client.projects[':projectId'].units.extras.$post({ param: { projectId }, json: { ids } })),
-      signal: (rows) => {
-        if (!rows.units && !rows.lineExtras) return undefined;
-        const parts = [rows.units, rows.lineExtras].filter((part) => part !== undefined);
-        return { upsert: [], delete: parts.flatMap((part) => part.delete), changed: parts.flatMap((part) => part.changed ?? []), ...(parts.some((part) => part.reload) && { reload: true as const }) };
-      },
-    });
+    held = heldFeed('lineExtras', projectId);
     extras.set(projectId, held);
   }
   return held;
@@ -252,12 +266,13 @@ export function useLineDetail(projectId: string, unitId: string, options: { enab
   const row = useLines(projectId, ids).rows?.[0];
   const more = useHeld(extrasOf(projectId), ids).rows?.[0];
   const partial = options.partial ?? false;
+  const group = useGroupsById(projectId).get(row?.groupId ?? '');
   const data = useMemo<LineDetail | undefined>(() => {
     if (!row || (!partial && (!context.data || !more))) return undefined;
-    // Until the context comes: the row's own fields, its scene from the row, nothing known about its neighbours, rule or nodes.
-    const base = context.data?.id === row.id ? context.data : ({ ...row, seq: undefined, candidateId: null, group: { id: row.groupId, title: row.groupTitle, key: '' }, neighbors: {}, graphNodes: [], speech: null, sceneNames: [] } as unknown as Context);
+    // Until the context comes: the row's own fields, its scene from the groups collection, nothing known about its neighbours, rule or nodes.
+    const base = context.data?.id === row.id ? context.data : ({ ...row, seq: undefined, candidateId: null, group: { id: row.groupId, title: group?.title ?? '', key: group?.key ?? '' }, neighbors: {}, graphNodes: [], speech: null, sceneNames: [] } as unknown as Context);
     return { ...base, ...(Object.fromEntries(SHARED.map((field) => [field, row[field]])) as Partial<Context>), candidates: more?.candidates ?? [], history: more?.history ?? [], events: more?.events ?? [] };
-  }, [context.data, row, more, partial]);
+  }, [context.data, row, more, partial, group]);
   return { ...context, data, isPending: enabled && !data, contextReady: Boolean(context.data && context.data.id === unitId), extrasReady: Boolean(more) };
 }
 
