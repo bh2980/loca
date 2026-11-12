@@ -3,6 +3,7 @@ import { needsListener, type FormatRules } from '@tw/shared';
 import { eachChunk } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
+import type { Saver } from './status-by.ts';
 
 type Tx = Pick<Db, 'update'>;
 
@@ -29,6 +30,13 @@ export function setHumanListener(tx: Tx, unitIds: readonly string[], listener: s
   });
   return changed;
 }
+
+/**
+ * How a listener a save names is recorded: `human` only when a person decided the save (in the app, or by
+ * accepting the proposal). One a permission mode applied is the agent's own: an AI's, as sure as it stated it.
+ */
+export const namedListener = (saver: Saver) =>
+  saver.statusBy === 'human' ? { listenerOrigin: 'human' as const, listenerConfidence: null } : { listenerOrigin: 'ai' as const, listenerConfidence: 1 };
 
 /**
  * An AI guess for this line. Never

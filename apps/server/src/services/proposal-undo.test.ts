@@ -5,7 +5,8 @@ import { importFileSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from './importer.ts';
-import { decideProposal, propose, takeDecisions, undoProposals } from './proposals.ts';
+import { decideProposal, propose, takeDecisions } from './proposals.ts';
+import { undoChanges } from './change-gate.ts';
 import { saveLine } from './line-save.ts';
 
 function setup() {
@@ -44,7 +45,7 @@ describe('proposal undo', () => {
     expect(after.statusId).toBe(statuses[1].id);
     expect(db.select().from(s.unitTags).where(eq(s.unitTags.unitId, original.id)).all()).toHaveLength(2);
 
-    const undone = await undoProposals(db, session.id, [proposal.id]);
+    const undone = await undoChanges(db, session.id, [proposal.id]);
     const restored = db.select().from(s.units).where(eq(s.units.id, original.id)).get()!;
     expect(undone[0]).toMatchObject({ ok: true });
     expect(restored.translation).toBe('');
@@ -59,7 +60,7 @@ describe('proposal undo', () => {
     await decideProposal(db, second.id, true, 'bypass');
     const changed = db.select().from(s.units).where(eq(s.units.key, 'other')).get()!;
     db.transaction((tx) => { saveLine(tx, changed, { text: '사람이 고친 번역' }); });
-    const skippedUndo = await undoProposals(db, session.id, [second.id]);
+    const skippedUndo = await undoChanges(db, session.id, [second.id]);
     expect(skippedUndo[0]).toMatchObject({ ok: true, skipped: ['other'] });
     expect(db.select().from(s.units).where(eq(s.units.key, 'other')).get()?.translation).toBe('사람이 고친 번역');
   });
@@ -72,7 +73,7 @@ describe('proposal undo', () => {
     });
     await decideProposal(db, proposal.id, true, 'bypass');
     expect(db.select().from(s.characters).where(eq(s.characters.projectId, projectId)).all()).toHaveLength(2);
-    await undoProposals(db, session.id, [proposal.id]);
+    await undoChanges(db, session.id, [proposal.id]);
     const remaining = db.select().from(s.characters).where(eq(s.characters.projectId, projectId)).all();
     expect(remaining).toHaveLength(1);
     expect(remaining[0]).toMatchObject({ id: original.id, name: 'Mira', profile: 'Old' });
@@ -88,7 +89,7 @@ describe('proposal undo', () => {
       kind: 'terms', ids: [first.id, second.id], add: ['표시'], remove: [],
     });
     await decideProposal(db, proposal.id, true, 'bypass');
-    await undoProposals(db, session.id, [proposal.id]);
+    await undoChanges(db, session.id, [proposal.id]);
     const links = db.select().from(s.knowledgeTags).where(eq(s.knowledgeTags.tagId, tag.id)).all();
     expect(links.map((link) => link.itemId)).toEqual([first.id]);
   });
@@ -98,7 +99,7 @@ describe('proposal undo', () => {
     const before = db.select().from(s.projects).where(eq(s.projects.id, projectId)).get()!;
     const proposal = add(db, projectId, session.id, 'update_project_settings', { name: 'Renamed' });
     await decideProposal(db, proposal.id, true, 'bypass');
-    await undoProposals(db, session.id, [proposal.id]);
+    await undoChanges(db, session.id, [proposal.id]);
     const after = db.select().from(s.projects).where(eq(s.projects.id, projectId)).get()!;
     expect(after.name).toBe(before.name);
     expect(after.description).toBe(before.description);
@@ -114,7 +115,7 @@ describe('proposal undo', () => {
     const otherSession = db.insert(s.chatSessions).values({ projectId, title: 'Other' }).returning().get();
     const other = add(db, projectId, otherSession.id, 'save_document', { title: 'Doc', body: 'Text' });
     await decideProposal(db, other.id, true, 'bypass');
-    expect(await undoProposals(db, session.id, [other.id])).toEqual([
+    expect(await undoChanges(db, session.id, [other.id])).toEqual([
       { id: other.id, ok: false, error: '제안을 찾을 수 없습니다' },
     ]);
   });
@@ -126,11 +127,11 @@ describe('proposal undo', () => {
     });
     db.update(s.proposals).set({ status: 'accepted', decidedAt: new Date(),
       undo: { none: '후보만 추가했고 현재 번역은 그대로입니다' } }).where(eq(s.proposals.id, candidate.id)).run();
-    const first = await undoProposals(db, session.id, [candidate.id]);
+    const first = await undoChanges(db, session.id, [candidate.id]);
     expect(first[0]).toMatchObject({ ok: false, error: '후보만 추가했고 현재 번역은 그대로입니다' });
     db.update(s.proposals).set({ undo: { calls: [] }, undoneAt: new Date(), reportedAt: null })
       .where(eq(s.proposals.id, candidate.id)).run();
-    expect((await undoProposals(db, session.id, [candidate.id]))[0]).toMatchObject({ ok: false, error: '이미 되돌렸습니다' });
+    expect((await undoChanges(db, session.id, [candidate.id]))[0]).toMatchObject({ ok: false, error: '이미 되돌렸습니다' });
     expect(takeDecisions(db, session.id)).toContain('사용자가 되돌림');
     expect(takeDecisions(db, session.id)).toBeNull();
   });

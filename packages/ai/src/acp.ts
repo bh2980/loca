@@ -8,7 +8,7 @@ import * as acp from '@agentclientprotocol/sdk';
 import type { ConnectionKind } from '@tw/shared';
 import { cliCommand, cliMissing, CODEX_UNUSED_FEATURES } from './cli.ts';
 import { ModelError, SERVER_DOWN, TOO_LONG } from './errors.ts';
-import type { HostedServer } from './mcp-host.ts';
+import { hostedToolNames, type HostedServer } from './mcp-host.ts';
 import { adapterExecutable, cliSpawn, resolveCli, type SpawnDeps } from './spawn.ts';
 import type { Usage } from './types.ts';
 
@@ -161,7 +161,45 @@ function sessionMeta(kind: AcpKind, system: string): Record<string, unknown> | u
   return undefined;
 }
 
-const OUR_TOOL = /(?:^|[^\w-])(?:mcp__)?loca(?:__|\.|\b)|"server":\s*"loca"/;
+/** What a CLI says about a tool call: in a `tool_call` update, and again (or only its id) when it asks permission for it. */
+export interface ToolCallFacts {
+  title?: string | null;
+  /** Not in the protocol; some CLIs put the tool's own name here. */
+  name?: unknown;
+  rawInput?: unknown;
+  _meta?: unknown;
+}
+
+const record = (value: unknown): Record<string, unknown> | null => (value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null);
+
+/** The ways a CLI writes "tool T of MCP server S" as one id: Claude and Grok (mcp__S__T, S__T), Codex's announced calls (mcp.S.T, S.T), opencode (S_T). */
+const idPrefixes = (server: string) => [`mcp__${server}__`, `${server}__`, `mcp.${server}.`, `${server}.`, `${server}_`];
+
+/**
+ * Which tool of ours (an MCP server we gave the session, and a tool it serves) a tool call is, or null.
+ * Read only from the fields where a CLI states an MCP tool's identity as structure, each as a whole value:
+ * - Claude Code: `_meta.claudeCode.toolName`, mcp__<server>__<tool>, which the adapter sets from the tool that runs;
+ * - Codex: `rawInput` = { server, tool, arguments }, which its adapter builds for an MCP call;
+ * - the others: the tool's id as the whole `name` or `title` (see idPrefixes).
+ * Never from text that only mentions a name: a shell command, a file path or a description can say anything
+ * (`{"command":"loca import out.jsonl"}`, a file under a folder called loca-…).
+ */
+export function ourTool(kind: AcpKind, call: ToolCallFacts, servers: readonly { name: string; tools: readonly string[] }[]): { server: string; tool: string } | null {
+  const ids: unknown[] = [];
+  if (kind === 'claude') ids.push(record(record(call._meta)?.claudeCode)?.toolName);
+  // Claude has none of its own tools here (sessionMeta: tools []), so a tool id as the title can only be an MCP tool's.
+  if (kind !== 'codex') ids.push(call.name, call.title);
+  const input = kind === 'codex' ? record(call.rawInput) : null;
+  for (const server of servers) {
+    if (input && input.server === server.name && typeof input.tool === 'string' && server.tools.includes(input.tool)) return { server: server.name, tool: input.tool };
+    for (const id of ids) {
+      if (typeof id !== 'string') continue;
+      const prefix = idPrefixes(server.name).find((candidate) => id.startsWith(candidate) && server.tools.includes(id.slice(candidate.length)));
+      if (prefix) return { server: server.name, tool: id.slice(prefix.length) };
+    }
+  }
+  return null;
+}
 
 /** The read-only mode a CLI has (Claude has no tools of its own here, so it keeps its default). */
 const SAFE_MODE: Partial<Record<AcpKind, string>> = { codex: 'read-only', opencode: 'plan' };
@@ -171,6 +209,10 @@ export class AcpAgent {
   private readonly listeners = new Map<string, SessionListener>();
   /** Sessions this process has open (created, resumed or loaded here), with when each last ran. */
   readonly sessions = new Map<string, number>();
+  /** The MCP servers each open session was given: the only tools it may run. */
+  private readonly servers = new Map<string, HostedServer[]>();
+  /** Tool calls the agent announced, by id: a permission request may name its call only by that id (Codex). */
+  private readonly announced = new Map<string, ToolCallFacts>();
   /** Each open session's config options and the model and effort it was set to. */
   private readonly settings = new Map<string, { options: acp.SessionConfigOption[]; model?: string; effort?: string }>();
   private stderr = '';
@@ -215,6 +257,7 @@ export class AcpAgent {
     const connection = new acp.ClientSideConnection(
       () => ({
         sessionUpdate: async (notification) => {
+          self?.remember(notification.update);
           self?.listeners.get(notification.sessionId)?.update(notification.update);
         },
         // Only our own MCP tools run; the CLI's shell, file and web tools are refused.
@@ -259,10 +302,20 @@ export class AcpAgent {
     return !this.exitError;
   }
 
+  /** Keeps what the agent said about a tool call until it ends, for a permission request that refers to it by id. */
+  private remember(update: acp.SessionUpdate) {
+    if (update.sessionUpdate !== 'tool_call' && update.sessionUpdate !== 'tool_call_update') return;
+    if (update.status === 'completed' || update.status === 'failed') this.announced.delete(update.toolCallId);
+    else this.announced.set(update.toolCallId, { ...this.announced.get(update.toolCallId), ...Object.fromEntries(Object.entries(update).filter(([, value]) => value !== undefined && value !== null)) });
+    // A call whose end never came (a stopped turn) is dropped once many newer ones have been announced.
+    if (this.announced.size > 500) this.announced.delete(this.announced.keys().next().value!);
+  }
+
+  /** Allows a tool call only when it is a tool of an MCP server this session was given (ourTool); everything else a CLI can do is refused. */
   private permit(request: acp.RequestPermissionRequest): acp.RequestPermissionOutcome {
-    const call = request.toolCall;
-    // Each CLI names an MCP tool its own way: mcp__loca__x (Claude), loca__x (Grok), loca.x, "server":"loca".
-    const ours = OUR_TOOL.test(`${call.title ?? ''} ${(call as { name?: string }).name ?? ''} ${JSON.stringify(call.rawInput ?? {})} ${JSON.stringify(call._meta ?? {})}`);
+    const servers = (this.servers.get(request.sessionId) ?? []).map((server) => ({ name: server.name, tools: hostedToolNames(server) }));
+    const announced = this.announced.get(request.toolCall.toolCallId);
+    const ours = Boolean(ourTool(this.kind, request.toolCall, servers) ?? (announced && ourTool(this.kind, announced, servers)));
     const option = request.options.find((candidate) => candidate.kind === (ours ? 'allow_once' : 'reject_once')) ?? request.options.find((candidate) => candidate.kind.startsWith(ours ? 'allow' : 'reject'));
     return option ? { outcome: 'selected', optionId: option.optionId } : { outcome: 'cancelled' };
   }
@@ -294,6 +347,7 @@ export class AcpAgent {
       this.connection.newSession({ cwd: input.cwd, mcpServers: input.mcpServers, ...(field && { systemPrompt: field }), _meta: sessionMeta(this.kind, input.system) ?? null }),
     );
     this.sessions.set(response.sessionId, Date.now());
+    this.servers.set(response.sessionId, input.mcpServers);
     this.settings.set(response.sessionId, { options: response.configOptions ?? [] });
     return { sessionId: response.sessionId, configOptions: response.configOptions ?? [], inMessage };
   }
@@ -306,6 +360,7 @@ export class AcpAgent {
       if (this.capabilities().sessionCapabilities?.resume) {
         const response = await this.withLogin(() => this.connection.resumeSession(common));
         this.sessions.set(input.sessionId, Date.now());
+        this.servers.set(input.sessionId, input.mcpServers);
         this.settings.set(input.sessionId, { options: response.configOptions ?? [] });
         return { configOptions: response.configOptions ?? [] };
       }
@@ -313,6 +368,7 @@ export class AcpAgent {
         // Loading replays the history as updates; nobody listens to them yet.
         const response = await this.withLogin(() => this.connection.loadSession(common));
         this.sessions.set(input.sessionId, Date.now());
+        this.servers.set(input.sessionId, input.mcpServers);
         this.settings.set(input.sessionId, { options: response.configOptions ?? [] });
         return { configOptions: response.configOptions ?? [] };
       }
@@ -431,6 +487,7 @@ export class AcpAgent {
     if (!this.sessions.has(sessionId) || this.listeners.has(sessionId)) return;
     if (!this.capabilities().sessionCapabilities?.close) return;
     this.sessions.delete(sessionId);
+    this.servers.delete(sessionId);
     this.settings.delete(sessionId);
     await this.connection.closeSession({ sessionId }).catch(() => {});
   }

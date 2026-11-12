@@ -1,10 +1,10 @@
-import { AGENT_TOOLS, APP_DEFAULT_SECTION_LABELS, TAG_SCOPES, TAG_SCOPE_LABELS, TERM_LINE_KIND_LABELS, type AppDefaultSection, type AgeBand, type AutoMark, type Gender, personLabel, CHARACTER_ROLE_LABELS, type CharacterRole, type RunCardPlan, type TermLineKind } from '@tw/shared';
+import { TOOL_SPECS, APP_DEFAULT_SECTION_LABELS, TAG_SCOPES, TAG_SCOPE_LABELS, TERM_LINE_KIND_LABELS, type AppDefaultSection, type AgeBand, type AutoMark, type Gender, personLabel, CHARACTER_ROLE_LABELS, type CharacterRole, type RunCardPlan, type TermLineKind } from '@tw/shared';
 import { MarkChip } from '@/components/status';
 import { cardSummary } from '@/lib/chat-run';
 import { startCaps, type CapEdits } from '@/lib/run-limits';
 import { Box, Markdown, Grid, Inline, Text, SectionHeading } from '@loca/ui';
 
-export const LABEL: Record<string, string> = Object.fromEntries(Object.entries(AGENT_TOOLS).map(([name, info]) => [name, info.label]));
+export const LABEL: Record<string, string> = Object.fromEntries(Object.entries(TOOL_SPECS).map(([name, spec]) => [name, spec.label]));
 
 /** What the server knows about a proposal beyond its input (names for ids, old values): see services/proposal-details.ts. */
 export interface ProposalDetails {
@@ -173,12 +173,12 @@ export function ChangePreview({ name, input, pending = true, details, run }: { n
     case 'delete_group':
       return <Box as="dl" spaceY="tight">{field('삭제할 묶음', input.groupId)}{pending && <Text as="p" tone="danger">묶음과 안의 원문을 모두 삭제합니다.</Text>}</Box>;
     case 'create_unit':
-      return <Box as="dl" spaceY="tight">{field('묶음', input.groupId)}{field('키', input.key)}{field('화자', input.speaker)}{field('청자', input.listener)}{field('원문', input.source)}<Text as="p" tone="muted">새 원문 항목이며 번역 후보가 아닙니다.</Text></Box>;
+      return <Box as="dl" spaceY="tight">{field('묶음', input.groupId)}{field('이 대사 뒤에', input.after)}{field('키', input.key)}{field('화자', input.speaker)}{field('청자', input.listener)}{field('원문', input.source)}<Text as="p" tone="muted">{input.after ? '새 원문 항목이며 번역 후보가 아닙니다. 대사 그래프에서 그 대사 뒤에 이어집니다.' : '새 원문 항목이며 번역 후보가 아닙니다.'}</Text></Box>;
     case 'update_unit':
       return <Box as="dl" spaceY="tight">{field('원문 항목', input.unitId)}{field('묶음', input.groupId)}{field('키', input.key)}{field('화자', input.speaker)}{field('청자', input.listener)}{field('원문', input.source)}</Box>;
-    case 'delete_units': {
-      const ids = (input.ids as unknown[] | undefined) ?? [];
-      return <Box as="dl" spaceY="tight">{field('삭제', `원문 대사 ${ids.length}개`)}{field('id', ids.slice(0, 10).join(', ') + (ids.length > 10 ? ` 외 ${ids.length - 10}개` : ''))}{pending && <Text as="p" tone="danger">원문 대사와 번역, 후보가 삭제됩니다. 되돌릴 수 없습니다.</Text>}</Box>;
+    case 'delete_lines': {
+      const keys = (input.keys as unknown[] | undefined) ?? [];
+      return <Box as="dl" spaceY="tight">{field('삭제', `원문 대사 ${keys.length}개`)}{field('키', keys.slice(0, 10).join(', ') + (keys.length > 10 ? ` 외 ${keys.length - 10}개` : ''))}{field('그래프', input.bridge === false ? '지운 자리의 앞뒤를 잇지 않음' : '지운 자리의 앞뒤를 이음')}{pending && <Text as="p" tone="danger">원문 대사와 번역, 후보가 삭제됩니다. 되돌릴 수 없습니다.</Text>}</Box>;
     }
     case 'save_terms': {
       const terms = (input.terms as { source: string; target: string; id?: string }[]) ?? [];
@@ -299,8 +299,6 @@ export function ChangePreview({ name, input, pending = true, details, run }: { n
       return <Box as="dl" spaceY="tight">{field('대사', input.unitId)}{field('번역', input.text)}{field('메모', input.note)}</Box>;
     case 'decide_suggestion':
       return <Box as="dl" spaceY="tight">{field('대사', input.unitId)}{field('결정', input.decision === 'apply' ? '적용 (현재 번역으로)' : '거절 (이력에만 남김)')}</Box>;
-    case 'save_group_summary':
-      return <Box as="dl" spaceY="tight">{field('요약', input.description)}</Box>;
     case 'edit_workflow_node': {
       const value = input.field === 'expression' ? JSON.stringify(input.value, null, 2) : String(input.value ?? '');
       return (

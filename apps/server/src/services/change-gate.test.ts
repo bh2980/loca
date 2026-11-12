@@ -3,7 +3,8 @@ import { eq } from 'drizzle-orm';
 import { importFileSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { AUTO_MAX_ITEMS, autoReview, gatedTools, proposeChange } from './change-gate.ts';
+import { AUTO_MAX_ITEMS, autoReview, proposeChange } from './change-gate.ts';
+import { apiChatTools } from './tool-run.ts';
 import { importProject } from './importer.ts';
 import { decideProposal, hasUnreportedDecisions } from './proposals.ts';
 
@@ -110,7 +111,7 @@ describe('change gate (#45)', () => {
 
   it('the API chat gets change tools without the SDK approval step, through the gate', async () => {
     const { db, projectId, chat } = setup('bypass');
-    const tools = gatedTools(db, projectId, chat.id, { model: null }) as Record<string, { needsApproval?: unknown; execute?: (input: unknown, options: unknown) => Promise<unknown> }>;
+    const tools = apiChatTools(db, projectId, chat.id, { model: null }) as Record<string, { needsApproval?: unknown; execute?: (input: unknown, options: unknown) => Promise<unknown> }>;
     expect(tools.save_character.needsApproval).toBeUndefined();
     expect(tools.edit_workflow_node.execute).toBeUndefined();
     expect(await tools.save_character.execute!({ name: 'Cara' }, { toolCallId: 't', messages: [] })).toMatchObject({ applied: true, status: 'accepted' });

@@ -8,7 +8,6 @@ import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { startCall } from './ai-calls.ts';
 import { AGENT_SYSTEM } from './agent-tools.ts';
-import { gatedTools } from './change-gate.ts';
 import { expandRecord, isRunRecord, lastExchange, mergeIncoming, type AnsweredBy } from './chat-context.ts';
 import { compactNow, compactionSettled, fitRecord } from './chat-compaction.ts';
 import { imageDecision } from '@tw/shared';
@@ -18,9 +17,9 @@ import { hasInterjections, takeInterjections, writeInterjections, type Interject
 import { deletingChats, afterTurn, startTurn, turnEnded, turnStartedAt, type ChatTurn } from './chat-turns.ts';
 import { chatStream, errorText } from './chat-stream.ts';
 import { cliChatResponse } from './cli-chat.ts';
-import { hasDecisionsToAnswer, openProposals, RUN_STARTING_TOOLS, takeDecisions } from './proposals.ts';
+import { hasDecisionsToAnswer, openProposals, startsRun, takeDecisions } from './proposals.ts';
 import { liveChoice } from './routes.ts';
-import { withFittedResults } from './tool-output.ts';
+import { apiChatTools } from './tool-run.ts';
 
 /**
  * One chat turn, whoever starts it: the person sending a message (routes/chat.ts) or the server
@@ -132,7 +131,7 @@ export const toolTokens = (db: Db, projectId: string) => estimateTokens(agentCat
 const MAX_STEPS = 30;
 
 /** A run was started two steps ago: the step after it said so, and the turn is over (the run goes on without it). */
-const afterStartingRun: StopCondition<ToolSet> = ({ steps }) => Boolean(steps.at(-2)?.toolCalls.some((call) => RUN_STARTING_TOOLS.has(call.toolName)));
+const afterStartingRun: StopCondition<ToolSet> = ({ steps }) => Boolean(steps.at(-2)?.toolCalls.some((call) => startsRun(call.toolName)));
 
 /**
  * The API (OpenAI-compatible) chat turn: passes of streamText in one reply. A pass stops early when
@@ -150,7 +149,7 @@ function apiChatResponse(input: {
   turn: ChatTurn;
 }) {
   const { db, session, route, live, messages, answeredBy, turn } = input;
-  const tools = withFittedResults(gatedTools(db, session.projectId, session.id, { model: route.model }));
+  const tools = apiChatTools(db, session.projectId, session.id, { model: route.model });
   // Run cards are not replies: the reply that carries on is the newest message that is not one.
   const last = lastExchange(messages);
   // A reply sent back with the result of a tool the browser carried out (edit_workflow_node) goes on in the same message.

@@ -5,7 +5,7 @@ describe('agent resource permissions', () => {
   it('maps source CRUD and translation proposals to their actual actions', () => {
     expect(requiredAgentPermissions('create_unit', {})).toEqual([{ resource: 'script', action: 'create' }]);
     expect(requiredAgentPermissions('update_unit', {})).toEqual([{ resource: 'script', action: 'update' }]);
-    expect(requiredAgentPermissions('delete_units', {})).toEqual([{ resource: 'script', action: 'delete' }]);
+    expect(requiredAgentPermissions('delete_lines', {})).toEqual([{ resource: 'script', action: 'delete' }]);
     expect(requiredAgentPermissions('create_group', {})).toEqual([{ resource: 'scenes', action: 'create' }]);
     expect(requiredAgentPermissions('update_group', {})).toEqual([{ resource: 'scenes', action: 'update' }]);
     expect(requiredAgentPermissions('delete_group', {})).toEqual([{ resource: 'scenes', action: 'delete' }]);

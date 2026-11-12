@@ -28,6 +28,7 @@ description: Common rules for working on a loca translation project from the ter
 ## 바꾸는 일과 터미널 권한 모드
 - 프로젝트를 바꾸는 명령은 모두 같은 관문을 지납니다: `import`, `call`의 변경 도구, `workflows save`, `runs start/resume/continue`, `terms discover`, `statuses order` 등.
 - 관문은 앱의 설정 › 채팅 › **터미널 권한 모드**를 따릅니다. 사람이 정하고, 에이전트는 바꿀 수 없습니다.
+- 이 모드는 `loca` CLI로 일하는 에이전트와 사람 사이의 약속이지 보안 장치가 아닙니다. 서버는 앱과 터미널을 구분하지 않아서, 앱의 HTTP API를 직접 부르는 프로세스는 막지 못합니다. 그래서 프로젝트를 바꾸는 일은 `loca` 명령으로만 하고, 앱의 API를 직접 불러 제안을 수락하거나 설정·모드를 바꾸지 않습니다("매번 묻기"는 이 전제 위에서만 지켜집니다).
   - **매번 묻기**: 제안으로 기다립니다. 사람이 앱의 채팅 패널 ‘제안’에서 수락해야 반영됩니다.
   - **자동 검토**: 검사를 통과한 작은 변경(20개 이하, 경고 없음)은 바로 반영합니다. 실행(AI 비용), 삭제, 큰 변경, 경고가 있는 변경은 제안으로 기다립니다.
   - **바로 반영**: 허용된 작업을 바로 반영합니다. 실행도 바로 시작합니다.
@@ -41,7 +42,10 @@ description: Common rules for working on a loca translation project from the ter
   - 제안은 `loca proposals wait <id>`로 기다립니다(거절·실패면 종료 코드 1).
   - 실행은 `--wait`으로 기다립니다(`loca-workflows`).
   - 둘 다 앱의 변경 알림을 받아 기다리니 직접 반복 조회하지 않습니다. 오래 걸리면 `--timeout <분>`을 씁니다.
-- 되돌리기: `loca proposals undo <id...>`. 터미널 권한 모드가 반영한 것만 되돌리고, 사람이 수락한 제안은 앱에서 되돌립니다. 모드가 매번 묻기이면 되돌리기도 사람이 앱에서 합니다.
+- 되돌리기: `loca proposals undo <id...>`. 터미널 권한 모드가 반영한 것만 되돌리고, 사람이 수락한 제안은 앱에서 되돌립니다. 되돌리기도 변경이라 같은 모드와 권한을 따릅니다.
+  - 매번 묻기이면 되돌리기도 사람이 앱에서 합니다.
+  - 자동 검토는 삭제가 되는 되돌리기(새로 만든 항목 되돌리기)와 20개가 넘는 되돌리기를 사람에게 넘깁니다(앱에서 되돌림).
+  - 새로 만든 항목을 되돌리는 것은 삭제라서 그 대상의 삭제 권한이 켜져 있어야 합니다.
 - 목록: `loca proposals list --status pending`으로 기다리는 제안을, `loca proposals show <id>`로 결과를 봅니다.
 - 예외: `loca views create/update/delete`는 번역 데이터가 아니라 그래프에 보일 노드만 저장하므로 바로 저장되고, `loca projects import`는 있던 프로젝트를 건드리지 않고 새로 만들므로 바로 됩니다.
 - 실행 일시정지·취소(`loca runs pause/cancel`)는 비용이 들지 않아 모드와 상관없이 바로 됩니다.

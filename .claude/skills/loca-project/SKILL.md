@@ -82,16 +82,16 @@ loca defaults pull statuses workflows            # 이 프로젝트로 가져오
 ```
 loca scenes list                                 # 묶음 목록과 대사 수
 loca call create_group '{"kind":"document","title":"편지","key":"letters"}'
-loca call update_group '{"groupId":"…","title":"…"}'   # 종류는 못 바꿈
-loca call create_unit '{"groupId":"…","key":"letter_01","source":"…","speaker":null}'
+loca call update_group '{"groupId":"…","title":"…"}'   # 제목·키·구역·설명(description). 종류는 못 바꿈
+loca call create_unit '{"groupId":"…","key":"letter_01","source":"…","speaker":null}'   # 묶음 끝에 추가
 loca call update_unit '{"unitId":"…","source":"…"}'   # 원문을 바꾸면 그 줄 상태가 처음으로 돌아감. groupId로 같은 종류의 다른 묶음으로 옮김
 ```
 
 대사 그래프도 프로젝트 데이터라 고칠 수 있습니다(가져온 파일이 원본이 아님). 대사·노드는 키로 부르고, 바꾼 것은 터미널 권한 모드에 따라 바로 반영되거나 제안이 됩니다. 직접 그은 선과 넣은 대사는 "AI가 만듦"으로 남습니다.
 ```
 loca call link_lines '{"from":"<키>","to":"<키>","action":"link"}'      # 선 잇기(label로 선택지 이름), "unlink"면 지우기
-loca call add_line_after '{"after":"<키>","source":"…","speaker":"Mira"}' # 그 대사 바로 뒤: 다음 대사가 하나면 사이에, 갈래면 새 갈래로
-loca call delete_lines '{"keys":["<키>"]}'                              # 지우면서 앞뒤를 이어 줌(bridge:false면 끊음)
+loca call create_unit '{"after":"<키>","source":"…","speaker":"Mira"}'    # groupId 대신 after: 그 대사 바로 뒤. 다음 대사가 하나면 사이에, 갈래면 새 갈래로
+loca call delete_lines '{"keys":["<키>"]}'                              # 그 대사만 지움. 대사가 없어진 노드는 지우면서 앞뒤를 이어 줌(bridge:false면 끊음)
 ```
 - `graph` 없이 가져온 파일(영화 대본 같은)은 장면의 대사마다 이어지지 않은 노드가 하나씩 생깁니다(문서·UI 묶음의 항목은 노드가 없음). 연결은 이렇게 만듭니다.
 - 장면 연결은 저장되지 않고 대사 그래프에서 계산됩니다. 장면끼리 잇거나 끊는 도구는 없습니다: 어느 대사에서 어느 대사로 이어지는지 확인해 `link_lines`로 그 대사들을 직접 잇거나 지웁니다(앱이 연결 지점을 추측해 선을 만들지 않음).
@@ -103,4 +103,5 @@ loca graph order --scene <장면...> --line <키...>   # 대본 순서로 잇기
 ```
 - 파일에 없는 원문만 넣습니다. 흐름이 틀렸는지는 `loca call line_context`·`show_graph`로 먼저 확인합니다.
 - 게임 데이터가 가진 분기(선택지·조건)는 지어내지 않습니다. 게임 데이터에서 다시 가져와야 하면 `loca-import-format`.
-- 장면 설명(AI 번역 노드가 장면 문맥으로 받음)은 `loca-knowledge`의 `save_group_summary`.
+- 대사를 지우는 도구는 `delete_lines` 하나입니다(대본 목록의 줄이든 그래프의 줄이든 키로). 지운 대사는 자료의 근거에서도 빠집니다. 삭제라서 자동 검토 모드에서도 항상 묻습니다.
+- 장면 설명(AI 번역 노드가 장면 문맥으로 받음)은 `update_group`의 `description`으로 씁니다(쓰는 법은 `loca-knowledge`).

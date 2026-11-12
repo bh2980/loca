@@ -7,7 +7,7 @@ import { events } from '../events.ts';
 import { attachUnitTags, scopeRefusal } from './tag-scope.ts';
 import { saveLine } from './line-save.ts';
 import { PERSON, type Saver } from './status-by.ts';
-import { refusesListener, setHumanListener } from './listeners.ts';
+import { refusesListener, setAiListener, setHumanListener } from './listeners.ts';
 import { hiddenMarkConditions, knownListenerSql, lineFactConditions, markConditions, translatableSql, unknownListenerSql } from './line-marks.ts';
 import { lineTextFilter } from './line-text.ts';
 import { describeRule, knowledgeOf, knownListener, speechRuleIndex } from './speech.ts';
@@ -467,6 +467,8 @@ export function applyBatch(db: Db, projectId: string, batch: BatchChange, saver:
   const { statusId, tagId } = lookups(db, projectId);
   const applied: string[] = [];
   const skipped: { key: string; reason: string }[] = [];
+  const listenerKept: string[] = [];
+  const rules = db.select({ rules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, projectId)).get()?.rules;
   db.transaction((tx) => {
     const units = unitsByKey(tx, projectId, batch.changes.map((change) => change.key));
     for (const change of batch.changes) {
@@ -486,7 +488,11 @@ export function applyBatch(db: Db, projectId: string, batch: BatchChange, saver:
       }
       // Who decided it: a person who accepted the proposal, or AI when the terminal's mode applied it.
       saveLine(tx, unit, { text: change.translation, statusId: change.status ? statusId(change.status)! : undefined, origin: batch.origin, model: batch.model ?? null, note: change.note, statusBy: saver.statusBy });
-      if (change.listener !== undefined) setHumanListener(tx, [unit.id], change.listener);
+      // A listener is a person's only when a person decided this batch; otherwise it is the agent's guess, which never replaces a person's.
+      if (change.listener !== undefined) {
+        if (saver.statusBy === 'human') setHumanListener(tx, [unit.id], change.listener);
+        else if (!setAiListener(tx, unit, change.listener, 1, rules)) listenerKept.push(change.key);
+      }
       if (change.translate !== undefined) tx.update(s.units).set({ translate: change.translate }).where(eq(s.units.id, unit.id)).run();
       // Checked in validateBatch; a tag whose place changed since is skipped here, never put where it doesn't belong.
       attachUnitTags(tx, projectId, [unit.id], { add: change.addTags.map((tag) => tagId(tag)).filter((id): id is string => !!id), remove: change.removeTags.map((tag) => tagId(tag)).filter((id): id is string => !!id) }, { onMisplaced: 'skip' });
@@ -494,5 +500,5 @@ export function applyBatch(db: Db, projectId: string, batch: BatchChange, saver:
     }
   });
   events.changed(projectId, 'units');
-  return { ok: true, applied: applied.length, skipped };
+  return { ok: true, applied: applied.length, skipped, ...(listenerKept.length && { listenerKept: { keys: listenerKept, note: '이 줄들의 청자는 그대로 두었습니다(사람이 정했거나 가져온 청자가 있거나, 청자가 필요 없는 줄).' } }) };
 }

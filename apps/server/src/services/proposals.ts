@@ -1,14 +1,13 @@
 import { and, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
-import { acceptedLabel } from '@tw/shared';
+import { acceptedLabel, toolClass } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { agentCatalog } from './agent-catalog.ts';
-import { projectAgentSettings } from './agent-permission-check.ts';
-import { captureUndo, dropConflicts, isRecord, orderedCalls, rebaseLineCall, rememberLineRevisions } from './proposal-undo.ts';
+import { captureUndo } from './proposal-undo.ts';
 import { proposalSaver } from './status-by.ts';
 
-/** Stores a proposal; callers check it first with prepareProposal (proposal-check.ts). */
+/** Stores a proposal; the change gate checks it first (change-gate.ts). */
 export function propose(db: Pick<Db, 'insert'>, input: { projectId: string; sessionId: string | null; model?: string | null; source: 'cli' | 'api'; tool: string; input: Record<string, unknown>; report?: s.ProposalReport | null; review?: string | null }) {
   const row = db.insert(s.proposals).values(input).returning().get();
   events.changed(input.projectId, 'proposals');
@@ -62,8 +61,8 @@ export const proposedText = (id: string) =>
  * of two requests for the same proposal (two windows, a resent click, accept against reject) only one runs
  * the tool; the other gets the row as it stands (running, or already decided) instead of running it again.
  */
-/** `undoing`: the proposal is the inverse of an accepted change, so the agent's tool permissions do not apply to it. */
-export async function decideProposal(db: Db, id: string, accept: boolean, by: 'person' | 'auto' | 'bypass' = 'person', reason: string | null = null, undoing = false) {
+/** `unrestricted`: a person's own act (undoing an accepted change in the app), so the agent's tool permissions do not apply to it. */
+export async function decideProposal(db: Db, id: string, accept: boolean, by: 'person' | 'auto' | 'bypass' = 'person', reason: string | null = null, options: { unrestricted?: boolean } = {}) {
   const proposal = db.select().from(s.proposals).where(eq(s.proposals.id, id)).get();
   if (!proposal) throw new Error('제안을 찾을 수 없습니다.');
   const claimed = db
@@ -77,8 +76,8 @@ export async function decideProposal(db: Db, id: string, accept: boolean, by: 'p
   if (!accept) return claimed;
   let status: 'accepted' | 'failed' = 'accepted';
   let result: unknown = null;
-  const tool = agentCatalog(db, proposal.projectId, { model: proposal.model ?? null, saver: proposalSaver(by), sessionId: proposal.sessionId }, { unrestricted: undoing }).find((candidate) => candidate.name === proposal.tool && candidate.changes);
-  const undoAfter = captureUndo(db, proposal);
+  const tool = agentCatalog(db, proposal.projectId, { model: proposal.model ?? null, saver: proposalSaver(by), sessionId: proposal.sessionId }, options).find((candidate) => candidate.name === proposal.tool && candidate.changes);
+  const undoAfter = captureUndo(db, proposal, tool?.undo);
   try {
     if (!tool) throw new Error(`알 수 없는 도구입니다: ${proposal.tool}`);
     result = await tool.run(proposal.input);
@@ -117,14 +116,14 @@ const unreported = (sessionId: string) => and(eq(s.proposals.sessionId, sessionI
 
 export const hasUnreportedDecisions = (db: Db, sessionId: string) => Boolean(db.select({ id: s.proposals.id }).from(s.proposals).where(unreported(sessionId)).get());
 
-/** Tools that start a run: the run goes on without the conversation, which hears of it when it ends. */
-export const RUN_STARTING_TOOLS: ReadonlySet<string> = new Set(['start_run', 'continue_run']);
+/** Whether the tool starts a run (its spec's class): the run goes on without the conversation, which hears of it when it ends. */
+export const startsRun = (tool: string) => toolClass(tool) === 'run';
 
 /**
  * Whether decisions are waiting that the agent should answer now. A run that was accepted and started is not one: nothing
  * follows from it until it ends, so it is told with the next message instead of starting a reply beside the run.
  */
-export const hasDecisionsToAnswer = (db: Db, sessionId: string) => db.select({ tool: s.proposals.tool, status: s.proposals.status }).from(s.proposals).where(unreported(sessionId)).all().some((decision) => decision.status !== 'accepted' || !RUN_STARTING_TOOLS.has(decision.tool));
+export const hasDecisionsToAnswer = (db: Db, sessionId: string) => db.select({ tool: s.proposals.tool, status: s.proposals.status }).from(s.proposals).where(unreported(sessionId)).all().some((decision) => decision.status !== 'accepted' || !startsRun(decision.tool));
 
 /** Proposals of the conversation still waiting for (or being applied after) a decision. */
 export const openProposals = (db: Db, sessionId: string) => db.select({ id: s.proposals.id }).from(s.proposals).where(and(eq(s.proposals.sessionId, sessionId), inArray(s.proposals.status, ['pending', 'running']))).all().length;
@@ -139,88 +138,4 @@ export function takeDecisions(db: Db, sessionId: string) {
   if (!decided.length) return null;
   db.update(s.proposals).set({ reportedAt: new Date() }).where(inArray(s.proposals.id, decided.map((proposal) => proposal.id))).run();
   return `지난 제안의 결과:\n${decided.map((proposal) => `- ${proposal.tool} (${proposal.id}): ${proposal.undoneAt ? '수락되어 반영된 뒤 사용자가 되돌림' : proposal.status === 'accepted' ? acceptedLabel(proposal.tool).decided : DECISION_WORD[proposal.status]}${proposal.status === 'rejected' && proposal.reason ? ` — 이유: ${proposal.reason}` : ''}${proposal.status === 'failed' ? ` — ${JSON.stringify(proposal.result).slice(0, 300)}` : ''}`).join('\n')}`;
-}
-
-/**
- * Undoes accepted changes of a conversation, newest first: each inverse call (captureUndo) is a
- * proposal the person accepts, so it goes through the same tools and checks (a line edited since is skipped).
- * The terminal (`{ terminal: projectId }`) undoes only what its permission mode applied; a change a
- * person accepted is undone by a person, in the app.
- */
-export async function undoProposals(db: Db, owner: string | { terminal: string }, ids: string[]) {
-  const sessionId = typeof owner === 'string' ? owner : null;
-  const ownedBy = typeof owner === 'string' ? eq(s.proposals.sessionId, owner) : and(isNull(s.proposals.sessionId), eq(s.proposals.projectId, owner.terminal), eq(s.proposals.source, 'cli'));
-  const rows = db.select().from(s.proposals)
-    .where(and(ownedBy, inArray(s.proposals.id, ids))).all()
-    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-  const results: { id: string; ok: boolean; error?: string; skipped?: string[] }[] = [];
-  const rebasedLines = new Map<string, { before: number; now: number }>();
-  // A person who set the terminal back to 매번 묻기 decides its changes again, undoing included.
-  const asking = typeof owner !== 'string' && projectAgentSettings(db, owner.terminal).terminalPermissionMode === 'ask';
-  for (const original of rows) {
-    if (asking) {
-      results.push({ id: original.id, ok: false, error: '터미널 권한 모드가 매번 묻기라 앱에서 되돌립니다' });
-      continue;
-    }
-    if (sessionId === null && original.decidedBy === 'person') {
-      results.push({ id: original.id, ok: false, error: '사람이 수락한 제안이라 앱에서 되돌립니다' });
-      continue;
-    }
-    if (original.status !== 'accepted' || original.undoneAt) {
-      const error = original.undoneAt ? '이미 되돌렸습니다' : '수락된 제안이 아닙니다';
-      results.push({ id: original.id, ok: false, error });
-      continue;
-    }
-    if (!original.undo || 'none' in original.undo) {
-      results.push({ id: original.id, ok: false,
-        error: original.undo && 'none' in original.undo ? original.undo.none : '되돌리기 정보를 찾을 수 없습니다' });
-      continue;
-    }
-    const skipped: string[] = [];
-    let failedTool: string | null = null;
-    let completedCalls = 0;
-    try {
-      const calls = orderedCalls(original.undo.calls);
-      for (const inverseCall of calls) {
-        const rebased = rebaseLineCall(inverseCall, rebasedLines);
-        const filtered = dropConflicts(db, original.projectId, rebased);
-        skipped.push(...filtered.dropped);
-        if (!filtered.call) continue;
-        failedTool = filtered.call.tool;
-        const inverse = propose(db, {
-          projectId: original.projectId, sessionId, source: original.source,
-          tool: filtered.call.tool, input: filtered.call.input,
-          review: `되돌리기 (proposal ${original.id})`,
-        });
-        const applied = await decideProposal(db, inverse.id, true, 'person', null, true);
-        db.update(s.proposals).set({ reportedAt: new Date() }).where(eq(s.proposals.id, inverse.id)).run();
-        if (applied.status !== 'accepted') {
-          const value = isRecord(applied.result) && typeof applied.result.error === 'string'
-            ? applied.result.error : '도구 실행에 실패했습니다';
-          throw new Error(value);
-        }
-        if (isRecord(applied.result) && Array.isArray(applied.result.skipped)) {
-          for (const item of applied.result.skipped) {
-            if (isRecord(item) && typeof item.key === 'string') skipped.push(item.key);
-            else if (isRecord(item) && typeof item.id === 'string') skipped.push(item.id);
-          }
-        }
-        rememberLineRevisions(db, original, filtered.call, applied.result, rebasedLines);
-        completedCalls++;
-      }
-      db.update(s.proposals).set({ undoneAt: new Date(), reportedAt: null })
-        .where(eq(s.proposals.id, original.id)).run();
-      events.changed(original.projectId, 'proposals');
-      results.push({ id: original.id, ok: true, ...(skipped.length && { skipped }) });
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      const partial = completedCalls ? '일부만 되돌렸습니다: ' : '';
-      results.push({ id: original.id, ok: false,
-        error: `${partial}${failedTool ?? '되돌리기'} 실패 — ${detail}` });
-    }
-  }
-  for (const id of ids) {
-    if (!rows.some((row) => row.id === id)) results.push({ id, ok: false, error: '제안을 찾을 수 없습니다' });
-  }
-  return results;
 }

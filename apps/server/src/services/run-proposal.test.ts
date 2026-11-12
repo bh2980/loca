@@ -5,7 +5,7 @@ import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { proposeChange } from './change-gate.ts';
 import { importProject } from './importer.ts';
-import { prepareProposal } from './proposal-check.ts';
+import { prepareProposal } from './agent-catalog.ts';
 import { proposalDetails } from './proposal-details.ts';
 import { decideProposal, listedProposal } from './proposals.ts';
 

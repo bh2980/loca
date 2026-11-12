@@ -54,7 +54,7 @@ loca call save_speech_rule @"$W/rule.json"       # {"fromName":"Alice","toName":
 ```
 loca lines --listener - -g "<장면>"
 ```
-- 사람이 확정한 청자: import 파일 줄에 `{"key":"<키>","rev":<rev>,"listener":"Bob"}`(모르면 `null`).
+- 대본에서 분명한 청자: import 파일 줄에 `{"key":"<키>","rev":<rev>,"listener":"Bob"}`(모르면 `null`). 사람이 제안을 수락하면 사람이 정한 청자로 남습니다. 자동 검토·바로 반영 모드가 반영하면 사람이 본 것이 아니므로 AI가 정한 청자(✦, 확신도 1)로 남고, 사람이 정했거나 가져오기로 들어온 청자는 바꾸지 않습니다(결과의 `listenerKept`에 그 줄이 나옴).
 - 근거로 추정한 AI의 추측: `loca call set_listeners`로 확신도(0–1)와 함께 제안합니다. 줄마다(`lines`) 주고, 사람이 정했거나 가져오기로 들어온 청자는 바꾸지 않습니다. 이런 줄은 AI가 정한 것(✦)으로 남아 사람이 확인합니다. 형식은 `loca tools set_listeners`.
 - 특별한 청자: 여럿(`group`, 무전·통화로 듣는 여럿 포함) · 불특정 다수(`public`) · 혼잣말(`self`, 그 순간의 생각·중얼거림) · 내레이션(`narration`, 화자가 관객에게 이야기를 들려줌. 화자 없는 지문은 청자 없음) · 플레이어(`player`, 이야기 밖의 플레이어에게: 안내·목표·제4의 벽. 극 안에서 주인공에게 하는 말은 주인공 이름) · 그 밖의 인물(`others`). 무전·전화 상대는 화면에 없어도 그 이름(또는 대본이 부르는 엑스트라 이름)입니다.
 
@@ -62,7 +62,7 @@ loca lines --listener - -g "<장면>"
 ```
 loca call save_event @"$W/event.json"            # {"title":"…","summary":"…","outcome":"…","participants":["Alice"],"evidence":["<키>"]}
 loca call save_document @"$W/doc.json"           # {"title":"세계관","kind":"world","body":"…","alwaysInclude":false}
-loca call save_group_summary '{"groupId":"…","description":"…"}'   # 장면을 끝까지 읽은 뒤, 2–5문장 사실만
+loca call update_group '{"groupId":"…","description":"…"}'         # 장면 설명: 장면을 끝까지 읽은 뒤, 2–5문장 사실만
 ```
 - 노트 `kind`: `story` 스토리 · `world` 세계관 · `style` 문체 · `note` 메모. `alwaysInclude`(번역 문맥에 넣기)는 작품 노트 문맥을 켠 AI 노드에 전문이 들어가니 짧고 꼭 필요한 것만 켭니다.
 - 장면 설명은 AI 번역 노드가 장면 문맥으로 받습니다: 누가 있는지, 무슨 일이 있는지, 분위기.

@@ -15,7 +15,7 @@ loca terms usage <원문|id>          # 그 용어가 쓰인 대사 (앱 용어 
 loca lines --q "Guild" --all --jsonl   # 임의 글자 검색
 loca check terms                   # 확정 용어를 어긴 번역
 ```
-읽기 도구를 직접 쓰면 결과가 길 때 `truncated`가 붙으니 `offset`·`limit`으로 넘깁니다: `loca call list_terms '{"marks":["unused"],"limit":50}'`
+읽기 도구를 직접 쓰면 결과를 자르지 않고 그대로 줍니다. 쪽으로 나뉘는 도구(`list_terms`는 한 번에 200개까지)는 `total`에 닿을 때까지 `offset`으로 넘깁니다: `loca call list_terms '{"marks":["unused"],"limit":50}'`
 
 ## 대본에서 후보 찾기
 ```

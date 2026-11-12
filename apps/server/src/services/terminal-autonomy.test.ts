@@ -6,10 +6,10 @@ import * as s from '../db/schema.ts';
 import { Runner, type ModelPort } from '../engine/runner.ts';
 import { createRun } from '../engine/run-create.ts';
 import { agentTools } from './agent-tools.ts';
-import { proposeChange } from './change-gate.ts';
+import { proposeChange, undoChanges } from './change-gate.ts';
 import { importProject } from './importer.ts';
 import { exportLines } from './script-query.ts';
-import { decideProposal, undoProposals } from './proposals.ts';
+import { decideProposal } from './proposals.ts';
 import { runErrors } from './run-errors.ts';
 import { saveView } from './graph-views.ts';
 import { viewFlow } from './view-flow.ts';
@@ -126,10 +126,52 @@ describe('the terminal working on its own', () => {
     db.update(s.projects).set({ agentSettings: { ...project.agentSettings, terminalPermissionMode: 'bypass' } }).where(eq(s.projects.id, projectId)).run();
     const applied = await proposeChange(db, { projectId, sessionId: null, source: 'cli', tool: 'save_character', input: { name: 'Carol' }, terminal: true });
     if (!applied.ok) throw new Error(applied.error);
-    const results = await undoProposals(db, { terminal: projectId }, [asked.proposalId, applied.proposalId]);
-    expect(results.find((result) => result.id === asked.proposalId)).toMatchObject({ ok: false, error: '사람이 수락한 제안이라 앱에서 되돌립니다' });
-    expect(results.find((result) => result.id === applied.proposalId)).toMatchObject({ ok: true });
-    expect(db.select().from(s.characters).where(eq(s.characters.name, 'Carol')).get()).toBeUndefined();
+    const mode = (terminalPermissionMode: 'ask' | 'auto' | 'bypass', permissions = {}) => db.update(s.projects).set({ agentSettings: { ...project.agentSettings, terminalPermissionMode, permissions } }).where(eq(s.projects.id, projectId)).run();
+    const undo = async (id: string) => (await undoChanges(db, { terminal: projectId }, [id]))[0]!;
+    const carol = () => db.select().from(s.characters).where(eq(s.characters.name, 'Carol')).get();
+    expect(await undo(asked.proposalId)).toMatchObject({ ok: false, error: '사람이 수락한 제안이라 앱에서 되돌립니다' });
+    const inApp = async (id: string) => (await undoChanges(db, { terminal: projectId, by: 'person' }, [id]))[0]!;
+    // The undo is a change like any other: taking Carol out again is a delete, which the agent may not do until deleting is switched on,
+    expect(await undo(applied.proposalId)).toMatchObject({ ok: false, error: expect.stringContaining('인물 삭제') });
+    // which 매번 묻기 leaves to the person and 자동 검토 never applies without asking.
+    mode('ask', { characters: { delete: true } });
+    expect(await undo(applied.proposalId)).toMatchObject({ ok: false, error: '터미널 권한 모드가 매번 묻기라 앱에서 되돌립니다' });
+    mode('auto', { characters: { delete: true } });
+    expect(await undo(applied.proposalId)).toMatchObject({ ok: false, error: expect.stringContaining('삭제·병합은 묻습니다') });
+    expect(carol()).toBeDefined();
+    expect(db.select().from(s.proposals).where(eq(s.proposals.tool, 'delete_items')).all()).toEqual([]);
+    mode('bypass', { characters: { delete: true } });
+    expect(await undo(applied.proposalId)).toMatchObject({ ok: true });
+    expect(carol()).toBeUndefined();
     expect(db.select().from(s.characters).where(eq(s.characters.name, 'Bob')).get()).toBeDefined();
+    // Recorded as what it was: the mode applied it, no person decided.
+    expect(db.select().from(s.proposals).where(eq(s.proposals.tool, 'delete_items')).get()).toMatchObject({ status: 'accepted', decidedBy: 'bypass', review: `되돌리기 (proposal ${applied.proposalId})` });
+    // What the terminal leaves to the person, the person undoes in the app: theirs, whatever the mode and the agent's permissions are.
+    mode('ask');
+    expect(await inApp(asked.proposalId)).toMatchObject({ ok: true });
+    expect(db.select().from(s.characters).where(eq(s.characters.name, 'Bob')).get()).toBeUndefined();
+    expect(db.select().from(s.proposals).where(eq(s.proposals.review, `되돌리기 (proposal ${asked.proposalId})`)).get()).toMatchObject({ status: 'accepted', decidedBy: 'person' });
+  });
+
+  it('auto review lets the terminal undo an edit, and a person\'s undo in the app is theirs whatever the mode', async () => {
+    const { db, projectId } = setup();
+    const project = db.select().from(s.projects).where(eq(s.projects.id, projectId)).get()!;
+    db.update(s.projects).set({ agentSettings: { ...project.agentSettings, terminalPermissionMode: 'auto' } }).where(eq(s.projects.id, projectId)).run();
+    const made = db.insert(s.characters).values({ projectId, name: 'Dana', profile: 'before' }).returning().get();
+    const edited = await proposeChange(db, { projectId, sessionId: null, source: 'cli', tool: 'save_character', input: { id: made.id, profile: 'after' }, terminal: true });
+    expect(edited).toMatchObject({ ok: true, applied: true });
+    if (!edited.ok) throw new Error(edited.error);
+    expect(await undoChanges(db, { terminal: projectId }, [edited.proposalId])).toMatchObject([{ ok: true }]);
+    expect(db.select().from(s.characters).where(eq(s.characters.id, made.id)).get()?.profile).toBe('before');
+    expect(db.select().from(s.proposals).where(eq(s.proposals.review, `되돌리기 (proposal ${edited.proposalId})`)).get()).toMatchObject({ decidedBy: 'auto' });
+
+    // In a conversation: the agent may not delete, the chat asks every time, and the person's undo still deletes what the change made.
+    const chat = db.insert(s.chatSessions).values({ projectId, title: 't', permissionMode: 'ask' }).returning().get();
+    const created = await proposeChange(db, { projectId, sessionId: chat.id, source: 'api', tool: 'save_character', input: { name: 'Erin' } });
+    if (!created.ok) throw new Error(created.error);
+    await decideProposal(db, created.proposalId, true);
+    expect(await undoChanges(db, chat.id, [created.proposalId])).toMatchObject([{ ok: true }]);
+    expect(db.select().from(s.characters).where(eq(s.characters.name, 'Erin')).get()).toBeUndefined();
+    expect(db.select().from(s.proposals).where(eq(s.proposals.review, `되돌리기 (proposal ${created.proposalId})`)).get()).toMatchObject({ decidedBy: 'person', tool: 'delete_items' });
   });
 });

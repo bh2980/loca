@@ -5,7 +5,8 @@ import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from './importer.ts';
 import { saveLine } from './line-save.ts';
-import { decideProposal, propose, undoProposals } from './proposals.ts';
+import { decideProposal, propose } from './proposals.ts';
+import { undoChanges } from './change-gate.ts';
 
 const FIXED_TIME = new Date('2026-10-18T10:00:00.000Z');
 
@@ -42,7 +43,7 @@ describe('line revision timestamps', () => {
     const afterHumanEdit = db.select().from(s.units).where(eq(s.units.id, unit.id)).get()!;
     expect(afterHumanEdit.updatedAt.getTime()).toBeGreaterThan(afterProposal.updatedAt.getTime());
 
-    const [result] = await undoProposals(db, session.id, [proposal.id]);
+    const [result] = await undoChanges(db, session.id, [proposal.id]);
     expect(result).toMatchObject({ ok: true, skipped: [unit.key] });
     expect(db.select().from(s.units).where(eq(s.units.id, unit.id)).get()?.translation).toBe('사람이 고친 번역');
   });

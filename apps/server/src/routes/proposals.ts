@@ -1,11 +1,15 @@
 import { Hono } from 'hono';
 import { and, count, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { z } from 'zod';
+import { toolRoute } from '@tw/shared';
 import { badRequest, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { inList } from '../db/chunk.ts';
 import { rowChangesOf } from '../db/row-changes.ts';
-import { decideProposal, listedProposal, undoProposals } from '../services/proposals.ts';
+import { checkAgentPermission } from '../services/agent-permission-check.ts';
+import { agentTools, type ToolDef } from '../services/agent-tools.ts';
+import { undoChanges } from '../services/change-gate.ts';
+import { decideProposal, listedProposal } from '../services/proposals.ts';
 import { proposalDetails } from '../services/proposal-details.ts';
 import { continueAfterDecisions } from '../services/chat-run.ts';
 
@@ -89,6 +93,26 @@ export const proposalRoutes = new Hono<Env>()
       badRequest(error instanceof Error ? error.message : String(error));
     }
   })
+  /**
+   * A tool the open workflow editor carries out (spec `via: 'editor'`) has no server side to check it, so the
+   * browser asks here right before applying the call to its draft: the same check, against the project's agent
+   * permissions as they are now, that every other tool gets when it runs. `denied` is why not, or null.
+   */
+  .post('/projects/:projectId/editor-tools/:name/permission', validate('json', z.record(z.string(), z.unknown())), (c) => {
+    const { db } = c.var.deps;
+    const projectId = c.req.param('projectId');
+    const name = c.req.param('name');
+    const definition = toolRoute(name) === 'editor' ? (agentTools(db, projectId, undefined, { unrestricted: true }) as Record<string, ToolDef>)[name] : undefined;
+    if (!definition) return badRequest(`편집기가 적용하는 도구가 아닙니다: ${name}`);
+    const input = c.req.valid('json');
+    const parsed = definition.inputSchema.safeParse(input);
+    if (!parsed.success) return c.json({ denied: `입력이 맞지 않습니다: ${parsed.error.issues.map((issue) => `${issue.path.join('.')} ${issue.message}`).join('; ')}` });
+    return c.json({ denied: checkAgentPermission(db, projectId, name, input) });
+  })
   .post('/chat/:sessionId/undo', validate('json', z.object({ ids: z.array(z.string()).min(1).max(500) })), async (c) => {
-    return c.json(await undoProposals(c.var.deps.db, c.req.param('sessionId'), c.req.valid('json').ids));
+    return c.json(await undoChanges(c.var.deps.db, c.req.param('sessionId'), c.req.valid('json').ids));
+  })
+  /** The app's 되돌리기 on a change the terminal made: the person's own undo, whatever the terminal permission mode is (`loca proposals undo` is the terminal's, script.ts). */
+  .post('/projects/:projectId/terminal-proposals/undo', validate('json', z.object({ ids: z.array(z.string()).min(1).max(500) })), async (c) => {
+    return c.json(await undoChanges(c.var.deps.db, { terminal: c.req.param('projectId'), by: 'person' }, c.req.valid('json').ids));
   });

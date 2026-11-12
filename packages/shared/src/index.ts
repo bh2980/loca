@@ -20,6 +20,7 @@ export * from './editor-ai.ts';
 export * from './marks.ts';
 
 export * from './agent-permissions.ts';
+export * from './tool-specs.ts';
 export * from './source-mutations.ts';
 export * from './reading-route.ts';
 export * from './graph-contract.ts';

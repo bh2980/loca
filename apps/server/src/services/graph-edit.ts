@@ -6,7 +6,9 @@ import { inChunks } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { badRequest, found } from '../http-errors.ts';
 import { events } from '../events.ts';
-import { changed, initialStatus, invalidate, refreshNodeGroups, refuseBusy, resequence, type Tx } from './source-mutations.ts';
+import { changed, initialStatus, invalidate, refreshNodeGroups, refuseBusy, resequence, restoreEvidence, stripEvidence, type EvidenceBefore, type Tx } from './source-mutations.ts';
+import { namedListener } from './listeners.ts';
+import { PERSON, type Saver } from './status-by.ts';
 
 /**
  * Editing the dialogue graph in the app (and by the AI through proposals): drawing and deleting
@@ -21,7 +23,7 @@ interface Undo {
   projectId: string;
   at: number;
   /** Rows as they were before the edit (changed or removed), put back on undo. */
-  put: { units: Row[]; unitTags: Row[]; nodes: Row[]; edges: Row[] };
+  put: { units: Row[]; unitTags: Row[]; nodes: Row[]; edges: Row[]; evidence: EvidenceBefore[] };
   /** Rows the edit created, removed on undo. */
   drop: { units: string[]; nodes: string[]; edges: string[] };
 }
@@ -31,7 +33,7 @@ const KEEP_MAX = 200;
 
 /** Records what one edit touches, so undo can put it back. */
 function recorder(tx: Tx, projectId: string) {
-  const undo: Undo = { projectId, at: Date.now(), put: { units: [], unitTags: [], nodes: [], edges: [] }, drop: { units: [], nodes: [], edges: [] } };
+  const undo: Undo = { projectId, at: Date.now(), put: { units: [], unitTags: [], nodes: [], edges: [], evidence: [] }, drop: { units: [], nodes: [], edges: [] } };
   const seen = new Set<string>();
   const once = (kind: string, id: string) => (seen.has(`${kind}:${id}`) ? false : (seen.add(`${kind}:${id}`), true));
   return {
@@ -51,6 +53,10 @@ function recorder(tx: Tx, projectId: string) {
       if (!once('edge', id)) return;
       const row = tx.select().from(s.graphEdges).where(eq(s.graphEdges.id, id)).get();
       if (row) undo.put.edges.push(row);
+    },
+    /** Knowledge evidence the edit took deleted lines out of. */
+    evidence(rows: EvidenceBefore[]) {
+      undo.put.evidence.push(...rows);
     },
     created(kind: 'units' | 'nodes' | 'edges', id: string) {
       seen.add(`${kind === 'units' ? 'unit' : kind === 'nodes' ? 'node' : 'edge'}:${id}`);
@@ -89,7 +95,7 @@ export function linkNodes(db: Db, projectId: string, input: { fromId: string; to
   nodeOf(db, projectId, input.fromId);
   nodeOf(db, projectId, input.toId);
   const existing = db.select().from(s.graphEdges).where(and(eq(s.graphEdges.fromId, input.fromId), eq(s.graphEdges.toId, input.toId))).get();
-  if (existing) return { edge: existing, token: keep({ projectId, at: Date.now(), put: { units: [], unitTags: [], nodes: [], edges: [] }, drop: { units: [], nodes: [], edges: [] } }) };
+  if (existing) return { edge: existing, token: keep({ projectId, at: Date.now(), put: { units: [], unitTags: [], nodes: [], edges: [], evidence: [] }, drop: { units: [], nodes: [], edges: [] } }) };
   return edit(db, projectId, (tx, record) => {
     const edge = tx.insert(s.graphEdges).values({ projectId, fromId: input.fromId, toId: input.toId, label: input.label ?? null, origin: input.origin }).returning().get();
     record.created('edges', edge.id);
@@ -115,7 +121,7 @@ export function unlinkEdges(db: Db, projectId: string, ids: string[]) {
  * hubs do not count) the new line goes between them (A → new → B, the way's label stays on A's side); when it has none or
  * several (a branch) the new line is another way out of A.
  */
-export function insertLineAfter(db: Db, projectId: string, nodeId: string, input: { source: string; speaker?: string | null; listener?: string | null; key?: string; origin: GraphOrigin }) {
+export function insertLineAfter(db: Db, projectId: string, nodeId: string, input: { source: string; speaker?: string | null; listener?: string | null; key?: string; origin: GraphOrigin; /** Who names the listener (the app's person unless told). */ saver?: Saver }) {
   const node = nodeOf(db, projectId, nodeId);
   const units = node.unitIds.length ? db.select().from(s.units).where(inArray(s.units.id, node.unitIds)).all() : [];
   const last = units.sort((a, b) => b.sort - a.sort)[0];
@@ -136,7 +142,7 @@ export function insertLineAfter(db: Db, projectId: string, nodeId: string, input
     }
     const unit = tx
       .insert(s.units)
-      .values({ projectId, groupId: group.id, key, source, speaker: input.speaker?.trim() || null, listener: input.listener?.trim() || null, kind: 'dialogue', statusId: initialStatus(tx, projectId), sort, ...(input.listener?.trim() && { listenerOrigin: 'human' as const }) })
+      .values({ projectId, groupId: group.id, key, source, speaker: input.speaker?.trim() || null, listener: input.listener?.trim() || null, kind: 'dialogue', statusId: initialStatus(tx, projectId), sort, ...(input.listener?.trim() ? namedListener(input.saver ?? PERSON) : {}) })
       .returning()
       .get();
     record.created('units', unit.id);
@@ -158,60 +164,109 @@ export function insertLineAfter(db: Db, projectId: string, nodeId: string, input
 }
 
 /**
- * Deletes nodes and their lines. With `bridge`, the way through them is kept: whatever led into
- * the deleted run now leads to whatever it led to (A → B → C, B deleted: A → C), with the label
- * the way in had. A choice deleted without `bridge` takes its option away.
+ * Inside an edit: removes these nodes and their lines. With `bridge`, the way through them is kept:
+ * whatever led into the deleted run now leads to whatever it led to (A → B → C, B deleted: A → C), with
+ * the label the way in had. A choice deleted without `bridge` takes its option away.
  */
+function removeNodes(tx: Tx, record: Recorder, projectId: string, nodes: (typeof s.graphNodes.$inferSelect)[], bridge: boolean) {
+  const gone = new Set(nodes.map((node) => node.id));
+  const unitIds = nodes.flatMap((node) => node.unitIds);
+  const touching = inChunks([...gone], (slice) => tx.select().from(s.graphEdges).where(or(inArray(s.graphEdges.fromId, slice), inArray(s.graphEdges.toId, slice))).all());
+  const unique = [...new Map(touching.map((edge) => [edge.id, edge])).values()];
+  if (bridge) {
+    const outs = new Map<string, typeof unique>();
+    for (const edge of unique) (outs.get(edge.fromId) ?? outs.set(edge.fromId, []).get(edge.fromId)!).push(edge);
+    // From each way into the run, walk through deleted nodes to the nodes it reaches beyond it.
+    const exits = (start: string) => {
+      const found = new Set<string>();
+      const stack = [start];
+      const visited = new Set<string>();
+      while (stack.length) {
+        const at = stack.pop()!;
+        if (visited.has(at)) continue;
+        visited.add(at);
+        for (const edge of outs.get(at) ?? []) (gone.has(edge.toId) ? stack.push(edge.toId) : found.add(edge.toId));
+      }
+      return found;
+    };
+    const made = new Set<string>();
+    for (const way of unique.filter((edge) => !gone.has(edge.fromId) && gone.has(edge.toId))) {
+      for (const target of exits(way.toId)) {
+        const pair = `${way.fromId}>${target}`;
+        if (made.has(pair) || target === way.fromId) continue;
+        made.add(pair);
+        if (tx.select({ id: s.graphEdges.id }).from(s.graphEdges).where(and(eq(s.graphEdges.fromId, way.fromId), eq(s.graphEdges.toId, target))).get()) continue;
+        record.created('edges', tx.insert(s.graphEdges).values({ projectId, fromId: way.fromId, toId: target, label: way.label, origin: 'human' }).returning().get().id);
+      }
+    }
+  }
+  for (const edge of unique) record.edge(edge.id);
+  for (const node of nodes) record.node(node.id);
+  removeLines(tx, record, unitIds);
+  // The nodes' lines go with them (foreign keys).
+  for (const slice of inChunks([...gone], (part) => [part])) tx.delete(s.graphNodes).where(inArray(s.graphNodes.id, slice)).run();
+}
+
+/** Inside an edit: removes lines. Run items name their line without a foreign key, so they go with it. */
+function removeLines(tx: Tx, record: Recorder, unitIds: string[]) {
+  if (!unitIds.length) return;
+  for (const id of unitIds) record.unit(id);
+  for (const slice of inChunks(unitIds, (part) => [part])) tx.delete(s.runItems).where(inArray(s.runItems.subjectId, slice)).run();
+  for (const slice of inChunks(unitIds, (part) => [part])) tx.delete(s.units).where(inArray(s.units.id, slice)).run();
+}
+
+const keysOf = (tx: Pick<Db, 'select'>, unitIds: string[]) => new Set(inChunks(unitIds, (slice) => tx.select({ key: s.units.key }).from(s.units).where(inArray(s.units.id, slice)).all()).map((row) => row.key));
+
+/** Deletes nodes and their lines (see removeNodes for `bridge`); the lines stop being evidence of knowledge items. */
 export function deleteNodes(db: Db, projectId: string, ids: string[], bridge = true) {
   const nodes = inChunks(ids, (slice) => db.select().from(s.graphNodes).where(and(eq(s.graphNodes.projectId, projectId), inArray(s.graphNodes.id, slice))).all());
   if (!nodes.length) badRequest('지울 노드가 없습니다.');
-  const gone = new Set(nodes.map((node) => node.id));
   const unitIds = nodes.flatMap((node) => node.unitIds);
   refuseBusy(db, projectId, unitIds);
   const result = edit(db, projectId, (tx, record) => {
-    const touching = inChunks([...gone], (slice) => tx.select().from(s.graphEdges).where(or(inArray(s.graphEdges.fromId, slice), inArray(s.graphEdges.toId, slice))).all());
-    const unique = [...new Map(touching.map((edge) => [edge.id, edge])).values()];
-    if (bridge) {
-      const outs = new Map<string, typeof unique>();
-      for (const edge of unique) (outs.get(edge.fromId) ?? outs.set(edge.fromId, []).get(edge.fromId)!).push(edge);
-      // From each way into the run, walk through deleted nodes to the nodes it reaches beyond it.
-      const exits = (start: string) => {
-        const found = new Set<string>();
-        const stack = [start];
-        const visited = new Set<string>();
-        while (stack.length) {
-          const at = stack.pop()!;
-          if (visited.has(at)) continue;
-          visited.add(at);
-          for (const edge of outs.get(at) ?? []) (gone.has(edge.toId) ? stack.push(edge.toId) : found.add(edge.toId));
-        }
-        return found;
-      };
-      const made = new Set<string>();
-      for (const way of unique.filter((edge) => !gone.has(edge.fromId) && gone.has(edge.toId))) {
-        for (const target of exits(way.toId)) {
-          const pair = `${way.fromId}>${target}`;
-          if (made.has(pair) || target === way.fromId) continue;
-          made.add(pair);
-          if (tx.select({ id: s.graphEdges.id }).from(s.graphEdges).where(and(eq(s.graphEdges.fromId, way.fromId), eq(s.graphEdges.toId, target))).get()) continue;
-          record.created('edges', tx.insert(s.graphEdges).values({ projectId, fromId: way.fromId, toId: target, label: way.label, origin: 'human' }).returning().get().id);
-        }
-      }
-    }
-    for (const edge of unique) record.edge(edge.id);
-    for (const node of nodes) record.node(node.id);
-    for (const id of unitIds) record.unit(id);
-    // Run items name their line without a foreign key: they go with it (as when a line is deleted elsewhere).
-    if (unitIds.length) {
-      for (const slice of inChunks(unitIds, (part) => [part])) tx.delete(s.runItems).where(inArray(s.runItems.subjectId, slice)).run();
-      for (const slice of inChunks(unitIds, (part) => [part])) tx.delete(s.units).where(inArray(s.units.id, slice)).run();
-    }
-    // The nodes' lines go with them (foreign keys).
-    for (const slice of inChunks([...gone], (part) => [part])) tx.delete(s.graphNodes).where(inArray(s.graphNodes.id, slice)).run();
+    const keys = keysOf(tx, unitIds);
+    removeNodes(tx, record, projectId, nodes, bridge);
+    record.evidence(stripEvidence(tx, projectId, keys));
     return { deleted: nodes.length, lines: unitIds.length };
   });
-  events.changed(projectId, 'runs');
+  events.changed(projectId, 'runs', 'knowledge');
   return result;
+}
+
+/**
+ * Deletes lines, whichever way they are named (the script's list, the graph): only these lines go. A
+ * node that keeps other lines stays with them; a node left without any is removed like deleteNodes does
+ * (with `bridge` the way through it is kept). The lines stop being evidence of knowledge items.
+ */
+export function deleteLines(db: Db, projectId: string, unitIds: string[], bridge = true) {
+  const ids = [...new Set(unitIds)];
+  const units = inChunks(ids, (slice) => db.select({ id: s.units.id, key: s.units.key }).from(s.units).where(and(eq(s.units.projectId, projectId), inArray(s.units.id, slice))).all());
+  if (!units.length || units.length !== ids.length) badRequest('지울 대사를 찾을 수 없습니다.');
+  refuseBusy(db, projectId, ids);
+  const gone = new Set(ids);
+  const holders = db.select().from(s.graphNodes).where(eq(s.graphNodes.projectId, projectId)).all().filter((node) => node.unitIds.some((id) => gone.has(id)));
+  const emptied = holders.filter((node) => node.unitIds.every((id) => gone.has(id)));
+  const withNode = new Set(emptied.flatMap((node) => node.unitIds));
+  const result = edit(db, projectId, (tx, record) => {
+    if (emptied.length) removeNodes(tx, record, projectId, emptied, bridge);
+    for (const node of holders) {
+      if (emptied.includes(node)) continue;
+      record.node(node.id);
+      tx.update(s.graphNodes).set({ unitIds: node.unitIds.filter((id) => !gone.has(id)) }).where(eq(s.graphNodes.id, node.id)).run();
+    }
+    removeLines(tx, record, ids.filter((id) => !withNode.has(id)));
+    record.evidence(stripEvidence(tx, projectId, new Set(units.map((unit) => unit.key))));
+    return { deleted: ids.length, nodes: emptied.length };
+  });
+  events.changed(projectId, 'runs', 'knowledge');
+  return result;
+}
+
+/** A line by its key, for the tools that name lines so. */
+export function unitByKey(db: Db, projectId: string, key: string) {
+  const unit = db.select({ id: s.units.id }).from(s.units).where(and(eq(s.units.projectId, projectId), eq(s.units.key, key))).get();
+  if (!unit) badRequest(`없는 대사 키입니다: ${key}`);
+  return unit!.id;
 }
 
 /**
@@ -332,12 +387,13 @@ export function undoGraphEdit(db: Db, projectId: string, token: string) {
     for (const row of entry.put.unitTags) tx.insert(s.unitTags).values(row as never).onConflictDoNothing().run();
     for (const row of entry.put.nodes) tx.insert(s.graphNodes).values(row as never).onConflictDoUpdate({ target: s.graphNodes.id, set: row as never }).run();
     for (const row of entry.put.edges) tx.insert(s.graphEdges).values(row as never).onConflictDoNothing().run();
+    restoreEvidence(tx, entry.put.evidence);
     refreshNodeGroups(tx, projectId);
     resequence(tx, projectId);
     invalidate(tx, projectId);
   });
   changed(db, projectId);
-  events.changed(projectId, 'runs');
+  events.changed(projectId, 'runs', ...(entry.put.evidence.length ? ['knowledge' as const] : []));
   return true;
 }
 

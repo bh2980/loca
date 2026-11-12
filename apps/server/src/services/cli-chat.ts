@@ -14,7 +14,8 @@ import { catchUp, handover, lastExchange, textOf, transcript, type AnsweredBy } 
 import { fitRecord } from './chat-compaction.ts';
 import { estimateTokens } from '@tw/shared';
 import { takeInterjections, writeInterjections } from './chat-interject.ts';
-import { chatStream, runCatalogTool, turnPrompt } from './chat-stream.ts';
+import { chatStream, turnPrompt } from './chat-stream.ts';
+import { agentText, callTool, describeTool, panelOutput } from './tool-run.ts';
 import type { ChatTurn } from './chat-turns.ts';
 
 /**
@@ -25,7 +26,6 @@ import type { ChatTurn } from './chat-turns.ts';
  * changes become proposals for this chat. The browser receives the AI SDK UI message stream like
  * any other chat, text as it streams.
  */
-const RESULT_LIMIT = 20_000;
 /** What a CLI adds to every request on its own (its system prompt and tools; Grok's is about 21k tokens). */
 const CLI_OVERHEAD = 25_000;
 
@@ -62,7 +62,7 @@ function chatServer(db: Db, chat: { id: string; projectId: string }): Promise<ai
       .hostTools('loca', () => {
         const turn = live.get(chat.id);
         const tools = turn ? [...turn.tools.values()] : agentCatalog(db, chat.projectId);
-        return tools.map((tool) => ({ name: tool.name, description: tool.changes ? `${tool.description}\n(변경: 이 대화의 제안으로 올라감)` : tool.description, inputSchema: jsonSchemaOf(tool.schema), run: (input) => runTool(db, chat, tool.name, input) }));
+        return tools.map((tool) => ({ name: tool.name, description: describeTool(tool, 'acp'), inputSchema: jsonSchemaOf(tool.schema), run: (input) => runTool(db, chat, tool.name, input) }));
       });
     servers.set(chat.id, server);
   }
@@ -81,17 +81,10 @@ async function runTool(db: Db, chat: { id: string; projectId: string }, name: st
   let isError = false;
   try {
     if (!tool) throw new Error(`알 수 없는 도구입니다: ${name}`);
-    // A change's input is checked here, so a malformed one fails like a read would.
-    const result = await runCatalogTool(db, { ...chat, model: turn.model }, 'cli', tool, tool.changes ? (tool.schema.parse(input) as Record<string, unknown>) : input, RESULT_LIMIT);
-    if (result.ok) {
-      turn.writer.write({ type: 'tool-output-available', toolCallId, output: result.output });
-      text = result.text;
-    } else {
-      // The panel shows the plain reason; the agent also gets the ids to fix it with.
-      turn.writer.write({ type: 'tool-output-error', toolCallId, errorText: result.error });
-      text = `제안을 만들지 않았습니다 — ${result.reason}`;
-      isError = true;
-    }
+    const outcome = await callTool(db, { projectId: chat.projectId, surface: 'acp', sessionId: chat.id, model: turn.model }, tool, input);
+    ({ text, isError } = agentText(outcome));
+    if (isError) turn.writer.write({ type: 'tool-output-error', toolCallId, errorText: (panelOutput(outcome) as { error: string }).error });
+    else turn.writer.write({ type: 'tool-output-available', toolCallId, output: panelOutput(outcome) });
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : String(cause);
     turn.writer.write({ type: 'tool-output-error', toolCallId, errorText: message });
@@ -104,9 +97,12 @@ async function runTool(db: Db, chat: { id: string; projectId: string }, name: st
   return { text, isError };
 }
 
-/** Where chat sessions run: an empty folder, the same for every chat (CLIs file sessions by folder). */
+/**
+ * Where chat sessions run: an empty folder, the same for every chat (CLIs file sessions by folder). Its name
+ * says nothing of the MCP server the sessions are given ("loca"), so no path under it reads like one of its tools.
+ */
 function chatFolder() {
-  const dir = path.join(tmpdir(), 'loca-chat');
+  const dir = path.join(tmpdir(), 'workbench-chat-sessions');
   mkdirSync(dir, { recursive: true });
   return dir;
 }

@@ -2,7 +2,7 @@ import { useNavigate, useParams } from '@tanstack/react-router';
 import { useState } from 'react';
 import { Check, CircleAlert, Network, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { acceptedLabel, AGENT_TOOLS, agentPermissionError, findReadingRouteOutputSchema } from '@tw/shared';
+import { acceptedLabel, findReadingRouteOutputSchema, toolRoute, toolSpec } from '@tw/shared';
 import { client, unwrap } from '@/lib/api';
 import { workflowEdits, type WorkflowNodeEdit } from '@/lib/workflow-edits';
 import { ChangePreview, LABEL } from './change-preview';
@@ -33,7 +33,7 @@ export function ToolPart({ part, stale, onOutput, proposal }: {
   const { projectId } = useParams({ strict: false }) as { projectId?: string };
   const [checkingWorkflowPermission, setCheckingWorkflowPermission] = useState(false);
   const label = LABEL[name] ?? name;
-  const isChange = Boolean(AGENT_TOOLS[name] && AGENT_TOOLS[name].action !== 'read');
+  const isChange = Boolean(toolSpec(name)) && toolRoute(name) === 'gate';
   if (proposal) return <ProposalCard proposal={proposal} />;
 
   if (name === 'edit_workflow_node' && part.input && (part.state === 'input-available' || part.state === 'output-available')) {
@@ -60,10 +60,9 @@ export function ToolPart({ part, stale, onOutput, proposal }: {
                 setCheckingWorkflowPermission(true);
                 try {
                   if (!projectId) throw new Error('프로젝트 권한을 확인할 수 없습니다. 프로젝트 화면에서 다시 시도하세요.');
-                  // This browser-carried tool does not execute on the server, so recheck the
-                  // project's current policy immediately before applying its edit to the draft.
-                  const project = await unwrap(client.projects[':projectId'].$get({ param: { projectId } }));
-                  const permissionError = agentPermissionError(project.agentSettings ?? {}, name, part.input!);
+                  // This tool is carried out here, not on the server, so the server is asked right before
+                  // the edit goes into the draft whether the project's agent permissions (as they are now) allow it.
+                  const { denied: permissionError } = await unwrap(client.projects[':projectId']['editor-tools'][':name'].permission.$post({ param: { projectId, name }, json: part.input! }));
                   if (permissionError) {
                     toast.error(permissionError);
                     onOutput(part.toolCallId, { applied: false, reason: permissionError });

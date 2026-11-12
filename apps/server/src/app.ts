@@ -84,3 +84,5 @@ export function createApp(deps: Deps) {
 }
 
 export type AppType = ReturnType<typeof createApp>;
+/** What each agent tool takes and answers over this API (`POST /projects/:projectId/tools/:name`), for the `loca` CLI's typed reads. */
+export type { ToolInputs, ToolResults } from './services/agent-catalog.ts';

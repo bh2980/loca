@@ -3,7 +3,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Command } from 'commander';
 import { expect, it } from 'vitest';
-import { AGENT_TOOLS } from '@tw/shared';
+import { importFileSchema } from '@tw/shared';
+import { openDatabase } from '../../server/src/db/index.ts';
+import { agentCatalog } from '../../server/src/services/agent-catalog.ts';
+import { importProject } from '../../server/src/services/importer.ts';
 import { program } from './main.ts';
 
 const skillsDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../.claude/skills');
@@ -57,11 +60,60 @@ it('skills only use loca commands, subcommands and flags that exist', () => {
   expect(problems).toEqual([]);
 });
 
-it('skills only call agent tools that exist', () => {
+/** The real catalogue, as `loca tools` lists it with every permission on: the tools `loca call` can reach, with their input schemas. */
+function catalogue() {
+  const db = openDatabase(':memory:');
+  const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Skills' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', source: 'Hi' }] }));
+  return new Map(agentCatalog(db, projectId, undefined, { unrestricted: true }).map((tool) => [tool.name as string, tool]));
+}
+
+it('skills only call agent tools the CLI can call', () => {
+  const tools = catalogue();
   const problems: string[] = [];
   for (const { file, text } of invocations()) {
     const match = /^(?:call|tools)\s+([a-z_]+)/.exec(text);
-    if (match && !Object.hasOwn(AGENT_TOOLS, match[1]!)) problems.push(`${file}: loca ${text} — 없는 도구 "${match[1]}"`);
+    if (match && !tools.has(match[1]!)) problems.push(`${file}: loca ${text} — 없는 도구 "${match[1]}"`);
   }
   expect(problems).toEqual([]);
+});
+
+it('a tool named in a skill exists', () => {
+  const tools = catalogue();
+  const problems: string[] = [];
+  for (const file of markdown(skillsDir)) {
+    // A code span that is one snake_case word is how the skills name a tool in prose.
+    for (const match of readFileSync(file, 'utf8').matchAll(/`([a-z]+(?:_[a-z]+)+)`/g)) {
+      const name = match[1]!;
+      if (!tools.has(name)) problems.push(`${path.relative(skillsDir, file)}: \`${name}\` — 없는 도구`);
+    }
+  }
+  expect([...new Set(problems)]).toEqual([]);
+});
+
+it('JSON examples for `loca call` fit the tool\'s input schema', () => {
+  const tools = catalogue();
+  const problems: string[] = [];
+  let checked = 0;
+  for (const file of markdown(skillsDir)) {
+    const where = path.relative(skillsDir, file);
+    // The payload written inline ('{…}'), or shown in the comment after a file argument (@file  # {…}).
+    for (const match of readFileSync(file, 'utf8').matchAll(/loca\s+call\s+([a-z_]+)\s+(?:'(\{[^\n]*\})'|@\S+\s+#\s*(\{[^\n`]*\}))/g)) {
+      const [, name, inline, commented] = match;
+      const tool = tools.get(name!);
+      if (!tool) continue;
+      let payload: unknown;
+      try {
+        payload = JSON.parse((inline ?? commented)!);
+      } catch {
+        problems.push(`${where}: loca call ${name} — 예시가 JSON이 아닙니다: ${inline ?? commented}`);
+        continue;
+      }
+      checked++;
+      const parsed = tool.schema.safeParse(payload);
+      if (!parsed.success) problems.push(`${where}: loca call ${name} ${JSON.stringify(payload)} — ${parsed.error.issues.map((issue) => `${issue.path.join('.')} ${issue.message}`).join('; ')}`);
+    }
+  }
+  expect(problems).toEqual([]);
+  // The pattern still finds the examples (a rewrite of the skills' style would silently check nothing).
+  expect(checked).toBeGreaterThan(10);
 });

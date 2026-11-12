@@ -14,12 +14,12 @@ export type { Proposal };
 const STATUS = { running: '적용 중', rejected: '거절함', failed: '실패' } as const;
 const DECIDED_BY = { auto: '자동 검토로', bypass: '바로 반영 모드로' } as const;
 
-/** One undo request and its shared outcome message for cards and whole replies. */
-export function useUndo(projectId: string, sessionId: string) {
+/** One undo request and its shared outcome message for cards and whole replies. `sessionId` null: changes the terminal made, which belong to no conversation. */
+export function useUndo(projectId: string, sessionId: string | null) {
   return useMutation({
-    mutationFn: (ids: string[]) => changeProposals(projectId, client.chat[':sessionId'].undo.$post({
-      param: { sessionId }, json: { ids },
-    })),
+    mutationFn: (ids: string[]) => changeProposals(projectId, sessionId
+      ? client.chat[':sessionId'].undo.$post({ param: { sessionId }, json: { ids } })
+      : client.projects[':projectId']['terminal-proposals'].undo.$post({ param: { projectId }, json: { ids } })),
     onSuccess: (rows, ids) => {
       const done = rows.filter((row) => row.ok).length;
       const failures = rows.filter((row) => !row.ok);
@@ -36,7 +36,7 @@ export function useUndo(projectId: string, sessionId: string) {
 
 /** A change an agent proposed (a CLI chat or the loca CLI). Accepting runs it now; nothing changes before that. */
 export function ProposalCard({ proposal }: { proposal: Proposal }) {
-  const undo = useUndo(proposal.projectId, proposal.sessionId ?? '');
+  const undo = useUndo(proposal.projectId, proposal.sessionId);
   // Rejecting asks (optionally) why, so the agent can try differently instead of guessing.
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState('');
@@ -100,7 +100,7 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
           </Button>
         </Stack>
       )}
-      {proposal.sessionId && proposal.status === 'accepted' && proposal.undo && 'calls' in proposal.undo && proposal.undo.calls > 0 && !proposal.undoneAt && (
+      {proposal.status === 'accepted' && proposal.undo && 'calls' in proposal.undo && proposal.undo.calls > 0 && !proposal.undoneAt && (
         <Stack direction="row" justify="end" border="top" paddingX="normal" paddingY="condensed"><Button variant="outline" disabled={undo.isPending} onClick={() => undo.mutate([proposal.id])}>{undo.isPending ? <Spinner /> : null} 되돌리기</Button></Stack>
       )}
     </ToolCard>

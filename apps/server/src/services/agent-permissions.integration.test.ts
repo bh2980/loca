@@ -7,7 +7,8 @@ import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { scriptRoutes } from '../routes/script.ts';
 import { importProject } from './importer.ts';
-import { gatedTools, proposeChange } from './change-gate.ts';
+import { proposeChange } from './change-gate.ts';
+import { apiChatTools } from './tool-run.ts';
 import { decideProposal } from './proposals.ts';
 import { agentCatalog } from './agent-catalog.ts';
 
@@ -41,7 +42,7 @@ function cliTool(db: ReturnType<typeof openDatabase>, projectId: string, name: s
 
 type ApiTool = { execute(input: unknown, options: unknown): Promise<unknown> };
 function apiTool(db: ReturnType<typeof openDatabase>, projectId: string, sessionId: string, name: string) {
-  const found = (gatedTools(db, projectId, sessionId, { model: null }) as unknown as Record<string, ApiTool>)[name];
+  const found = (apiChatTools(db, projectId, sessionId, { model: null }) as unknown as Record<string, ApiTool>)[name];
   if (!found) throw new Error(`Missing API tool: ${name}`);
   return found;
 }
@@ -220,14 +221,14 @@ describe('agent resource permissions', () => {
       const onlyDeletes = options.every((option) => option.some((permission) => permission.action === 'delete'));
       expect(agentToolAvailable({}, entry.name), entry.name).toBe(!onlyDeletes);
     }
-    expect(agentToolAvailable({}, 'delete_units')).toBe(false);
-    const withDelete = Object.fromEntries(agentToolPermissionOptions('delete_units').flat().map(({ resource }) => [resource, { delete: true }]));
-    expect(agentToolAvailable({ permissions: withDelete }, 'delete_units')).toBe(true);
+    expect(agentToolAvailable({}, 'delete_lines')).toBe(false);
+    const withDelete = Object.fromEntries(agentToolPermissionOptions('delete_lines').flat().map(({ resource }) => [resource, { delete: true }]));
+    expect(agentToolAvailable({ permissions: withDelete }, 'delete_lines')).toBe(true);
     for (const name of ['create_unit', 'update_unit', 'create_group', 'update_group', 'update_status', 'update_tag']) {
       expect(catalog.some((entry) => entry.name === name && entry.changes), name).toBe(true);
     }
     // Delete tools are listed only once deleting is switched on.
-    for (const name of ['delete_units', 'delete_group', 'delete_status', 'delete_tag', 'delete_workflow']) {
+    for (const name of ['delete_lines', 'delete_group', 'delete_status', 'delete_tag', 'delete_workflow']) {
       expect(catalog.some((entry) => entry.name === name), name).toBe(false);
     }
   });

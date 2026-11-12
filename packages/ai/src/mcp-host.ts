@@ -85,3 +85,9 @@ export async function hostTools(name: string, tools: () => HostedTool[]): Promis
   sets.set(token, tools);
   return { server: { type: 'http', name, url, headers: [{ name: 'Authorization', value: `Bearer ${token}` }] }, dispose: () => sets.delete(token) };
 }
+
+/** The names of the tools a hosted server serves now (empty once disposed), to tell our own tools from anything else an agent asks to run. */
+export function hostedToolNames(server: HostedServer): string[] {
+  const token = /^Bearer (\S+)$/.exec(server.headers.find((header) => header.name === 'Authorization')?.value ?? '')?.[1];
+  return (token ? sets.get(token)?.() : undefined)?.map((tool) => tool.name) ?? [];
+}
