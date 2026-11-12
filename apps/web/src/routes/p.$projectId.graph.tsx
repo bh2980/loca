@@ -808,6 +808,7 @@ function GraphPage() {
             openedLabel={view?.label}
             // Opening another view or section is navigation (a history entry); the pane's selection does not carry over.
             onPick={(value) => void navigate({ search: (previous) => ({ ...previous, section: value, node: undefined, omitted: undefined, viewInfo: undefined }) })}
+            onRename={(renamed) => viewActions.change.mutate(renamed)}
             onDelete={setDeletingView}
             picked={picked.size}
             onNewRoute={() => {

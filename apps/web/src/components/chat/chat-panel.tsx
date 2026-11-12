@@ -14,9 +14,10 @@ import { sentTexts } from '@/lib/chat-input-history';
 import { removeOnce } from '@/lib/chat-queue';
 import { syncCards, withCard } from '@/lib/chat-run';
 import { chatFor, dropChat } from '@/lib/chat-store';
+import type { AppCommand } from '@/lib/chat-triggers';
 import { q } from '@/lib/queries';
 import { ChatComposer, type ComposerHandle, type OutgoingMessage } from './chat-composer';
-import { ChatMessage, SteerBubble } from './chat-message';
+import { ChatMessage, CompactionNotice, SteerBubble } from './chat-message';
 import { ConversationMenu } from './conversation-menu';
 import type { RunCardControls } from './run-card';
 import { useUndo } from './proposal-card';
@@ -95,6 +96,18 @@ export const ChatPanel = memo(function ChatPanel({ projectId, active }: { projec
     onSuccess: (session) => setSessionId(session.id),
   });
 
+  // /new is typed in the box: the new conversation's box takes the focus, so typing goes on.
+  const focusNext = useRef(false);
+  const startFromBox = () => {
+    focusNext.current = true;
+    create.mutate();
+  };
+  const takeFocus = useCallback(() => {
+    const wanted = focusNext.current;
+    focusNext.current = false;
+    return wanted;
+  }, []);
+
   const [deleting, setDeleting] = useState<{ id: string; title: string } | null>(null);
   const remove = useMutation({
     mutationFn: (id: string) => sent(projectId, client.chat[':sessionId'].$delete({ param: { sessionId: id } })),
@@ -150,7 +163,7 @@ export const ChatPanel = memo(function ChatPanel({ projectId, active }: { projec
       </AlertDialog>
       {/* A connection picked without a model yet still counts, so the picker asks for the model. */}
       {current ? (
-        <Conversation key={current.id} active={active} projectId={projectId} sessionId={current.id} mode={current.permissionMode} model={current.connectionId ? { connectionId: current.connectionId, model: current.model ?? '', ...(current.effort && { effort: current.effort }) } : null} />
+        <Conversation key={current.id} active={active} projectId={projectId} sessionId={current.id} onNew={startFromBox} takeFocus={takeFocus} mode={current.permissionMode} model={current.connectionId ? { connectionId: current.connectionId, model: current.model ?? '', ...(current.effort && { effort: current.effort }) } : null} />
       ) : (
         <Stack grow align="center" justify="center" gap="normal" padding="spacious" textAlign="center" variant="body" tone="muted">
           <Button onClick={() => create.mutate()} disabled={create.isPending}>
@@ -162,7 +175,7 @@ export const ChatPanel = memo(function ChatPanel({ projectId, active }: { projec
   );
 });
 
-function Conversation({ active, projectId, sessionId, model, mode }: { active: boolean; projectId: string; sessionId: string; model: ModelValue | null; mode: PermissionMode }) {
+function Conversation({ active, projectId, sessionId, model, mode, onNew, takeFocus }: { active: boolean; projectId: string; sessionId: string; model: ModelValue | null; mode: PermissionMode; onNew: () => void; takeFocus: () => boolean }) {
   const saved = useQuery(q.chatSession(sessionId));
   // A connection picked without a model yet: the picker shows it and asks for the model.
   const [picked, setPicked] = useState<ModelValue | null>(null);
@@ -176,6 +189,8 @@ function Conversation({ active, projectId, sessionId, model, mode }: { active: b
       turn={saved.data?.turn ?? null}
       usage={saved.data?.usage ?? null}
       compaction={saved.data?.compaction ?? null}
+      onNew={onNew}
+      takeFocus={takeFocus}
       pending={saved.data?.pendingSteers ?? []}
       model={picked ?? model}
       mode={mode}
@@ -190,7 +205,7 @@ function Conversation({ active, projectId, sessionId, model, mode }: { active: b
   );
 }
 
-function ChatBody({ active, projectId, sessionId, initial, turn, usage, compaction, pending, model, onModel, mode, onMode }: {
+function ChatBody({ active, projectId, sessionId, initial, turn, usage, compaction, onNew, takeFocus, pending, model, onModel, mode, onMode }: {
   /** The panel is the dock's open tab: only then are the messages drawn. */
   active: boolean;
   projectId: string;
@@ -201,6 +216,10 @@ function ChatBody({ active, projectId, sessionId, initial, turn, usage, compacti
   usage: (ChatUsage & { images: 'yes' | 'no' | 'unknown' }) | null;
   /** Where the conversation's start was summarized, if it was. */
   compaction: { upTo: number; summary: string; at: number } | null;
+  /** /new: starts another conversation and opens it. */
+  onNew: () => void;
+  /** True once, when this conversation was started from the box (/new): its box takes the focus. */
+  takeFocus: () => boolean;
   /** Messages the server still holds for the conversation's agent (sent before a reload or a restart). */
   pending: string[];
   model: ModelValue | null;
@@ -211,6 +230,9 @@ function ChatBody({ active, projectId, sessionId, initial, turn, usage, compacti
   const queryClient = useQueryClient();
   const ready = Boolean(model?.connectionId && model.model);
   const composer = useRef<ComposerHandle>(null);
+  useEffect(() => {
+    if (takeFocus()) composer.current?.focus();
+  }, [takeFocus]);
 
   // The conversation outlives this panel: closing it mid-reply keeps the reply coming in.
   const stored = chatFor(sessionId, initial);
@@ -293,7 +315,7 @@ function ChatBody({ active, projectId, sessionId, initial, turn, usage, compacti
   useEffect(() => {
     const element = scroller.current;
     if (active && element && pinned.current) element.scrollTop = element.scrollHeight;
-  }, [messages, active]);
+  }, [messages, active, compaction?.at]);
   // Only the newest messages are drawn at first; drawing older ones above keeps what is on screen where it is.
   const [extra, setExtra] = useState(0);
   const firstShown = Math.max(0, messages.length - MESSAGES_SHOWN - extra);
@@ -308,6 +330,24 @@ function ChatBody({ active, projectId, sessionId, initial, turn, usage, compacti
     element.scrollTop += element.scrollHeight - scrolledFrom.current;
     scrolledFrom.current = null;
   }, [extra]);
+
+  // /compact: the server answers once the summary is stored; 취소 closes the request, which stops the model call.
+  const compactRequest = useRef<AbortController | null>(null);
+  const compact = useMutation({
+    mutationFn: () => {
+      const controller = new AbortController();
+      compactRequest.current = controller;
+      return unwrap(client.chat[':sessionId'].compact.$post({ param: { sessionId } }, { init: { signal: controller.signal } }));
+    },
+    onError: (cause) => {
+      if (!compactRequest.current?.signal.aborted) toast.error(cause instanceof Error ? cause.message : '대화를 압축하지 못했습니다.');
+    },
+  });
+  const runApp = (id: AppCommand['id']) => {
+    if (id === 'new') return onNew();
+    if (busy || elsewhere) return void toast.info('답변이 끝난 뒤에 압축할 수 있습니다.');
+    if (!compact.isPending) compact.mutate();
+  };
 
   const pin = useCallback(() => void (pinned.current = true), []);
   const send = (message: OutgoingMessage) => void sendMessage(message);
@@ -407,9 +447,16 @@ function ChatBody({ active, projectId, sessionId, initial, turn, usage, compacti
             {queued.map((text, index) => (
               <SteerBubble key={`queued-${index}`} text={text} waiting onEdit={() => void takeBack(text, true)} onCancel={() => void takeBack(text, false)} />
             ))}
+            {marker?.index === messages.length && <CompactionNotice summary={marker.summary} />}
             {busy && (
               <Inline as="p" gap="condensed" variant="body" tone="muted">
                 <Spinner /> {status === 'submitted' ? '생각하는 중…' : '작업 중…'}
+              </Inline>
+            )}
+            {compact.isPending && (
+              <Inline gap="condensed" variant="body" tone="muted">
+                <Spinner /> 대화를 요약하는 중…
+                <Button variant="ghost" size="inline" onClick={() => compactRequest.current?.abort()}>취소</Button>
               </Inline>
             )}
             {!busy && !error && lastMessage?.role === 'user' && <TurnState turn={turn} onStop={halt} onRetry={() => void regenerate()} canRetry={ready} />}
@@ -440,6 +487,7 @@ function ChatBody({ active, projectId, sessionId, initial, turn, usage, compacti
         onPin={pin}
         onStop={halt}
         onCard={putCard}
+        onApp={runApp}
         ready={ready}
         busy={busy}
         elsewhere={elsewhere}

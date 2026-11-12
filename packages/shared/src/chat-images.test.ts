@@ -44,7 +44,9 @@ describe('compaction marker', () => {
   it('points before the first message the summary does not cover', () => {
     expect(compactionMarker({ upTo: 4, summary: '요약', at: 1 }, 7)).toEqual({ index: 4, summary: '요약', at: 1 });
     expect(compactionMarker(null, 7)).toBeNull();
-    expect(compactionMarker({ upTo: 7, summary: '요약', at: 1 }, 7)).toBeNull();
+    // Everything so far is summarized (/compact): the mark sits after the last message.
+    expect(compactionMarker({ upTo: 7, summary: '요약', at: 1 }, 7)).toEqual({ index: 7, summary: '요약', at: 1 });
+    expect(compactionMarker({ upTo: 8, summary: '요약', at: 1 }, 7)).toBeNull();
     expect(compactionMarker({ upTo: 0, summary: '요약', at: 1 }, 7)).toBeNull();
   });
 });

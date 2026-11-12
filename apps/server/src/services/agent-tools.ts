@@ -33,7 +33,8 @@ import { pullDefaults, readAppDefaults } from './app-defaults.ts';
 
 /** 홈 기본값 sections the agent may pull (connections carry keys and chat settings its own permissions: the person's). */
 const PULLABLE = ['editorAi', 'prompts', 'aiAutoConfirm', 'statuses', 'tags', 'workflows'] as const;
-import { pickNodes, routeNodes, saveView, sectionWithMost, viewSection, VIEW_LIMIT, type ViewRoute } from './graph-views.ts';
+import { listViews, pickNodes, routeNodes, saveView, sectionWithMost, updateView, viewSection, VIEW_LIMIT, type ViewRoute } from './graph-views.ts';
+import { findView } from './view-flow.ts';
 import { PERSON, type Saver } from './status-by.ts';
 import { asNew, characterByName as characterByNameOf, saveCharacterItem, saveKnowledgeItem, saveRelationshipItem, sent } from './knowledge-save.ts';
 import { aiSetLineListeners } from './ai-knowledge.ts';
@@ -284,6 +285,27 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         const id = saveView(db, projectId, nodeIds, label, { origin: 'ai', request: request ?? null, reasons, route });
         const search = mode === 'view' ? { scope: 'dialogue', section: await viewSection(db, projectId, id) } : { scope: 'dialogue', mark: id, section: sectionWithMost(db, projectId, nodeIds) ?? undefined };
         return { ok: true, nodes: nodeIds.length, scenes, unknown, label, open: { to: '/p/$projectId/graph', search } };
+      },
+    }),
+    list_views: tool({
+      description:
+        'The saved views of the dialogue graph (보기): a part of the graph kept under a name, made by you with show_graph or by the user from picked nodes or one route. Each with its id, name (label), who made it (ai / human), how many nodes it keeps, whether it is one route (route) and when it last changed. Use a view by id or name in update_view and as find_lines(view).',
+      inputSchema: z.object({}),
+      execute: () => ({ views: listViews(db, projectId).map((view) => ({ id: view.id, label: view.label, origin: view.origin, nodes: view.nodes, route: Boolean(view.route), updatedAt: view.updatedAt })) }),
+    }),
+    update_view: tool({
+      description:
+        'Change a saved view of the dialogue graph: rename it (label) and/or add or leave out nodes by line key (add, remove). view is its id or name (list_views). Adding or leaving out nodes of a view made from one route turns it into a plain view of nodes. Applied at once (a view is a way of looking at the graph, not project data); the layout is made again when it is next opened.',
+      inputSchema: z
+        .object({ view: z.string().min(1), label: z.string().trim().min(1).max(80).optional(), add: z.array(z.string().min(1)).max(5000).default([]), remove: z.array(z.string().min(1)).max(5000).default([]) })
+        .refine((input) => input.label !== undefined || input.add.length + input.remove.length > 0, { message: 'label, add or remove is required' }),
+      execute: ({ view: ref, label, add, remove }) => {
+        const found = findView(db, projectId, ref);
+        const byKey = (keys: string[]) => keys.map((key) => nodeByKey(db, projectId, key));
+        const view = updateView(db, projectId, found.id, { label, add: byKey(add), remove: byKey(remove) });
+        if (!view) return { ok: false, error: '보기를 찾지 못했습니다.' };
+        if ('error' in view) return { ok: false, error: view.error };
+        return { ok: true, id: view.id, label: view.label, nodes: view.nodeIds.length, route: Boolean(view.route) };
       },
     }),
     line_context: tool({

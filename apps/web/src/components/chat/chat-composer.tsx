@@ -13,6 +13,7 @@ import { NO_HISTORY, stepHistory, type HistoryState } from '@/lib/chat-input-his
 import { mergeIntoDraft } from '@/lib/chat-queue';
 import { makeRunCard } from '@/lib/chat-run-api';
 import type { chatFor } from '@/lib/chat-store';
+import type { AppCommand } from '@/lib/chat-triggers';
 import { keyLabel } from '@/lib/keys';
 import { useViewState, type ViewItem } from '@/lib/view-context';
 import { AttachChip } from './attach-chip';
@@ -41,7 +42,7 @@ export interface OutgoingMessage {
  * The box under the conversation: the draft, its attachments, the @ and / lists and the send button. Everything a
  * keystroke changes lives here, so typing draws this and nothing of the conversation above it.
  */
-export function ChatComposer({ handle, projectId, sessionId, stored, onSend, onQueue, onPin, onStop, onCard, ready, busy, elsewhere, sent, waitingCard, cardWaiting, usage, model, onModel, mode, onMode }: {
+export function ChatComposer({ handle, projectId, sessionId, stored, onSend, onQueue, onPin, onStop, onCard, onApp, ready, busy, elsewhere, sent, waitingCard, cardWaiting, usage, model, onModel, mode, onMode }: {
   handle: Ref<ComposerHandle>;
   projectId: string;
   sessionId: string;
@@ -52,6 +53,8 @@ export function ChatComposer({ handle, projectId, sessionId, stored, onSend, onQ
   onPin: () => void;
   onStop: () => void;
   onCard: (card: RunCard) => void;
+  /** /new and /compact, picked from the / list. */
+  onApp: (id: AppCommand['id']) => void;
   ready: boolean;
   /** A reply is coming in here. */
   busy: boolean;
@@ -142,7 +145,7 @@ export function ChatComposer({ handle, projectId, sessionId, stored, onSend, onQ
       setCaret(at);
     });
   };
-  const menu = useComposerMenu({ projectId, input, caret, put: putInput, box, onPage: reported, picked, setPicked, run, setRun, slot, setSlot });
+  const menu = useComposerMenu({ projectId, input, caret, put: putInput, box, onPage: reported, picked, setPicked, run, setRun, slot, setSlot, onApp });
   // The slot is the @ a prompt's {대상} was opened as: it ends when that @ is no longer there (the caret may jump while the text is replaced, so it is not tied to the list being open).
   useEffect(() => {
     if (slot !== null && input[slot] !== '@') setSlot(null);

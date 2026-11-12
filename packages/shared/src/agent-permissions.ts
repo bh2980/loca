@@ -33,7 +33,7 @@ const fixed: Record<string, AgentPermission[]> = {
   project_overview: read('project', 'script', 'statuses', 'scenes', 'characters', 'documents', 'workflows'),
   list_scenes: read('scenes'), read_scene: read('scenes', 'script'),
   read_line: read('script', 'scenes', 'terms', 'characters', 'speechRules'),
-  find_lines: read('script'), scenes_with: read('script', 'scenes'), show_graph: read('script', 'scenes'), line_context: read('script', 'scenes'), find_reading_route: read('script', 'scenes'), list_speakers: read('script'),
+  find_lines: read('script'), scenes_with: read('script', 'scenes'), show_graph: read('script', 'scenes'), list_views: read('script', 'scenes'), update_view: read('script', 'scenes'), line_context: read('script', 'scenes'), find_reading_route: read('script', 'scenes'), list_speakers: read('script'),
   list_characters: read('characters', 'relationships'), list_speech_rules: read('speechRules'), list_events: read('events'), read_documents: read('documents'),
   list_terms: read('terms', 'script'), term_usage: read('terms', 'script'), list_tags: read('tags'), list_statuses: read('statuses'), list_relationships: read('relationships'),
   harness_reference: read('workflows', 'statuses', 'tags'), read_workflow: read('workflows'), read_run: read('workflows'),

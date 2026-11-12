@@ -154,7 +154,7 @@ function SentImages({ parts }: { parts: UIMessage['parts'] }) {
 }
 
 /** Where the server summarized the conversation's start (chat-compaction.ts); the summary is what the model reads in its place. */
-function CompactionNotice({ summary }: { summary: string }) {
+export function CompactionNotice({ summary }: { summary: string }) {
   const [open, setOpen] = useState(false);
   return (
     <CompactionNoticeView title="앞 대화를 요약했습니다" open={open} onToggle={() => setOpen(!open)}>

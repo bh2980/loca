@@ -60,10 +60,11 @@ export function contextMeter(input: { inputTokens: number | null | undefined; wi
 
 /**
  * Where the conversation's start was summarized (chat-compaction.ts stores `upTo`: messages before
- * it are in the summary), as the panel marks it: before the message at `index`. Null when there
- * is none or it no longer points into the record.
+ * it are in the summary), as the panel marks it: before the message at `index`, or after the last
+ * one when everything so far is summarized (/compact). Null when there is none or it covers more
+ * than the record holds.
  */
 export function compactionMarker(compaction: { upTo: number; summary: string; at: number } | null | undefined, messageCount: number) {
-  if (!compaction || compaction.upTo <= 0 || compaction.upTo >= messageCount) return null;
+  if (!compaction || compaction.upTo <= 0 || compaction.upTo > messageCount) return null;
   return { index: compaction.upTo, summary: compaction.summary, at: compaction.at };
 }

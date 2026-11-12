@@ -36,6 +36,8 @@ export const AGENT_TOOLS: Record<string, { target: AgentToolTarget; action: Agen
   line_context: tool('script', 'read', '대사 앞뒤·분기 보기'),
   find_reading_route: tool('script', 'read', '경로 대본 찾기'),
   show_graph: tool('script', 'read', '그래프에서 보여 주기'),
+  list_views: tool('script', 'read', '저장된 보기 목록 조회'),
+  update_view: tool('script', 'read', '보기 이름·노드 바꾸기'),
   check_script: tool('script', 'read', '번역 점검'),
   script_stats: tool('script', 'read', '진행·실행 통계'),
   list_speakers: tool('script', 'read', '화자 목록 조회'),

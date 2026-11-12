@@ -2,7 +2,7 @@ import { useEffect, useState, type KeyboardEvent, type RefObject } from 'react';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ATTACH_KINDS, runKindsLeft, shortLabel, type AttachKind, type ChatChip } from '@tw/shared';
-import { allCommands, filterCommands, findAtTrigger, findSlashTrigger, narrowAtTrigger, openNextTarget, parseAtQuery, removeAtTrigger, replaceAtTrigger, type Command, type WorkflowCommand } from '@/lib/chat-triggers';
+import { allCommands, filterCommands, findAtTrigger, findSlashTrigger, narrowAtTrigger, openNextTarget, parseAtQuery, removeAtTrigger, replaceAtTrigger, type AppCommand, type Command, type WorkflowCommand } from '@/lib/chat-triggers';
 import { chipHref } from '@/lib/chat-links';
 import { keyLabel } from '@/lib/keys';
 import { q } from '@/lib/queries';
@@ -41,8 +41,10 @@ export function useComposerMenu(args: {
   /** Where a saved prompt's `{대상}` was opened as an @: that @ takes the pick's short name instead of vanishing. */
   slot: number | null;
   setSlot: (start: number | null) => void;
+  /** /new, /compact: what the app does to the conversation itself. */
+  onApp: (id: AppCommand['id']) => void;
 }) {
-  const { projectId, input, caret, put, onPage, picked, setPicked, run, setRun, slot, setSlot } = args;
+  const { projectId, input, caret, put, onPage, picked, setPicked, run, setRun, slot, setSlot, onApp } = args;
   const [dismissed, setDismissed] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | undefined>();
 
@@ -95,11 +97,13 @@ export function useComposerMenu(args: {
       }
     }
   } else if (menuShown && slash) {
-    const rowOf = (command: Command): ComposerRow => ({ id: `command:${command.id}`, type: 'command', label: `/${command.name}`, detail: command.kind === 'workflow' ? command.blocked ?? command.description : command.description });
+    const rowOf = (command: Command): ComposerRow => ({ id: `command:${command.kind}:${command.id}`, type: 'command', label: `/${command.name}`, detail: command.kind === 'workflow' ? command.blocked ?? command.description : command.description });
     const flows = shownCommands.filter((command) => command.kind === 'workflow');
     const saved = shownCommands.filter((command) => command.kind === 'prompt');
+    const own = shownCommands.filter((command) => command.kind === 'app');
     if (flows.length) groups.push({ key: 'workflows', heading: '워크플로', rows: flows.map(rowOf) });
     if (saved.length) groups.push({ key: 'prompts', heading: '저장한 지시', rows: saved.map(rowOf) });
+    if (own.length) groups.push({ key: 'app', heading: '대화', rows: own.map(rowOf) });
   }
 
   const rows = groups.flatMap((group) => group.rows);
@@ -138,6 +142,10 @@ export function useComposerMenu(args: {
     put(next.value, next.caret);
   };
   const pickCommand = (command: Command) => {
+    if (command.kind === 'app') {
+      put('', 0);
+      return onApp(command.id);
+    }
     if (command.kind === 'workflow') {
       if (command.blocked) return void toast.error(command.blocked);
       // The target comes next: the @ list, limited to what the workflow can run on.
@@ -151,7 +159,7 @@ export function useComposerMenu(args: {
   };
   const pickRow = (row: ComposerRow) => {
     if (row.type === 'command') {
-      const command = shownCommands.find((candidate) => `command:${candidate.id}` === row.id);
+      const command = shownCommands.find((candidate) => `command:${candidate.kind}:${candidate.id}` === row.id);
       if (command) pickCommand(command);
     } else if (row.type === 'kind') narrow(row.label as AttachKind);
     else if (row.type === 'header') narrow(row.label as AttachKind);

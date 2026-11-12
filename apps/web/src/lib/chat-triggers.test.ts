@@ -102,9 +102,9 @@ describe('/ commands', () => {
     expect(findSlashTrigger('hi /mo', 6)).toBeNull();
     expect(findSlashTrigger('/a\nb', 4)).toBeNull();
   });
-  it('lists the project workflows, then saved prompts; the app adds none of its own', () => {
-    expect(commands.map((command) => `${command.kind}:${command.name}`)).toEqual(['workflow:번역', 'workflow:청자 추정', 'workflow:용어 추출', 'prompt:요약', 'prompt:번역투']);
-    expect(allCommands([], []).length).toBe(0);
+  it('lists the project workflows, then saved prompts, then the app\'s own commands for the conversation', () => {
+    expect(commands.map((command) => `${command.kind}:${command.name}`)).toEqual(['workflow:번역', 'workflow:청자 추정', 'workflow:용어 추출', 'prompt:요약', 'prompt:번역투', 'app:new', 'app:compact']);
+    expect(allCommands([], []).map((command) => command.name)).toEqual(['new', 'compact']);
   });
   it('a workflow with errors is listed but says why it cannot run', () => {
     const blocked = commands.find((command) => command.name === '용어 추출');
@@ -112,7 +112,9 @@ describe('/ commands', () => {
     expect(commands.find((command) => command.name === '번역')).not.toHaveProperty('blocked');
   });
   it('filters by prefix first, then by containing text, workflows above prompts', () => {
-    expect(filterCommands(commands, '').length).toBe(5);
+    expect(filterCommands(commands, '').length).toBe(7);
+    expect(filterCommands(commands, 'comp').map((command) => command.name)).toEqual(['compact']);
+    expect(filterCommands(commands, 'ne').map((command) => command.name)).toEqual(['new']);
     expect(filterCommands(commands, '번역').map((command) => command.name)).toEqual(['번역', '번역투']);
     expect(filterCommands(commands, '추').map((command) => command.name)).toEqual(['청자 추정', '용어 추출']);
     expect(filterCommands(commands, '청자 추').map((command) => command.name)).toEqual(['청자 추정']);

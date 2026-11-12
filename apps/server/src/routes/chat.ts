@@ -9,7 +9,7 @@ import * as s from '../db/schema.ts';
 import { events } from '../events.ts';
 import { attachTurn, steerable, turnStartedAt } from '../services/chat-turns.ts';
 import { dequeueSteer, enqueueSteer, stopWithQueued } from '../services/chat-interject.ts';
-import { runChatTurn } from '../services/chat-run.ts';
+import { compactChat, runChatTurn } from '../services/chat-run.ts';
 import { searchAttach } from '../services/attach-search.ts';
 import { answerRunCard, createRunCard } from '../services/chat-run-cards.ts';
 import { chatUsage } from '../services/chat-usage.ts';
@@ -213,6 +213,14 @@ export const chatRoutes = new Hono<Env>()
     const body = c.req.valid('json');
     try {
       return await runChatTurn(c.var.deps, session, { incoming: body.message as UIMessage | undefined, trigger: body.trigger, view: body.view ? describeView(body.view) : null });
+    } catch (error) {
+      badRequest(error instanceof Error ? error.message : String(error));
+    }
+  })
+  // /compact: answers once the summary is stored; closing the request (취소) stops the model call and stores nothing.
+  .post('/chat/:sessionId/compact', async (c) => {
+    try {
+      return c.json(await compactChat(c.var.deps, c.req.param('sessionId'), c.req.raw.signal));
     } catch (error) {
       badRequest(error instanceof Error ? error.message : String(error));
     }

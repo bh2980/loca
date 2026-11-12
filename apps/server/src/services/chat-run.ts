@@ -10,7 +10,7 @@ import { startCall } from './ai-calls.ts';
 import { AGENT_SYSTEM } from './agent-tools.ts';
 import { gatedTools } from './change-gate.ts';
 import { expandRecord, isRunRecord, lastExchange, mergeIncoming, type AnsweredBy } from './chat-context.ts';
-import { fitRecord } from './chat-compaction.ts';
+import { compactNow, compactionSettled, fitRecord } from './chat-compaction.ts';
 import { imageDecision } from '@tw/shared';
 import { incomingImageProblem, withoutImages } from './chat-images.ts';
 import { agentCatalog, jsonSchemaOf } from './agent-catalog.ts';
@@ -41,6 +41,8 @@ export async function runChatTurn(deps: Pick<Deps, 'db' | 'secrets'>, given: typ
   if (turnStartedAt(session.id) !== null && (await turnEnded(session.id, PREVIOUS_TURN_WAIT_MS))) {
     session = db.select().from(s.chatSessions).where(eq(s.chatSessions.id, session.id)).get() ?? session;
   }
+  // A /compact still writing its summary: this turn starts from it.
+  await compactionSettled(session.id);
   const current = db.select().from(s.chatSessions).where(eq(s.chatSessions.id, session.id)).get();
   if (!current || deletingChats.has(session.id)) throw new Error('삭제되었거나 삭제 중인 대화입니다.');
   session = current;
@@ -75,6 +77,17 @@ export async function runChatTurn(deps: Pick<Deps, 'db' | 'secrets'>, given: typ
   if (ai.isAcpKind(route.kind))
     return cliChatResponse({ db, chat: session, route, system: [AGENT_SYSTEM, NO_EDITOR_NOTE].join('\n\n'), view, messages, answeredBy, idleMs: CALL_TIMEOUT_MS.chatIdle, turn });
   return apiChatResponse({ db, session, route, live, view, messages, answeredBy, turn });
+}
+
+/** /compact: the conversation so far becomes its summary now, written by the conversation's own model (chat-compaction.ts). */
+export async function compactChat(deps: Pick<Deps, 'db' | 'secrets'>, sessionId: string, signal?: AbortSignal) {
+  const { db, secrets } = deps;
+  const session = db.select().from(s.chatSessions).where(eq(s.chatSessions.id, sessionId)).get();
+  if (!session || deletingChats.has(sessionId)) throw new Error('삭제되었거나 삭제 중인 대화입니다.');
+  if (turnStartedAt(sessionId) !== null) throw new Error('답변이 끝난 뒤에 압축할 수 있습니다.');
+  if (!session.connectionId || !session.model) throw new Error('입력창 아래에서 채팅할 AI 연결과 모델을 고르세요.');
+  const { route } = liveChoice(db, { connectionId: session.connectionId, model: session.model, ...(session.effort && { effort: session.effort }) }, secrets, 'chat');
+  return compactNow({ db, sessionId, route, signal });
 }
 
 /**
