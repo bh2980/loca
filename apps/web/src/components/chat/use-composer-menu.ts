@@ -1,12 +1,12 @@
 import { useEffect, useState, type KeyboardEvent, type RefObject } from 'react';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ATTACH_KINDS, runKindsLeft, shortLabel, type AttachKind, type ChatChip } from '@tw/shared';
+import { ATTACH_KINDS, runKindsLeft, shortLabel, type AttachKind, type ChatChip } from '@loca/shared';
 import { allCommands, filterCommands, findAtTrigger, findSlashTrigger, narrowAtTrigger, openNextTarget, parseAtQuery, removeAtTrigger, replaceAtTrigger, type AppCommand, type Command, type WorkflowCommand } from '@/lib/chat-triggers';
 import { chipHref } from '@/lib/chat-links';
 import { keyLabel } from '@/lib/keys';
 import { q } from '@/lib/queries';
-import type { ViewItem } from '@/lib/view-context';
+import type { ViewItem } from '@/lib/reported-view';
 import { useDebounced } from './conversation-menu';
 import type { ComposerGroup, ComposerRow } from '@loca/ui';
 import { useWorkflows } from '@/lib/workflows';

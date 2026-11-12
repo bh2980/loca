@@ -1,5 +1,5 @@
 import { getTableName } from 'drizzle-orm';
-import type { Topic } from '@tw/shared';
+import type { Topic } from '@loca/shared';
 import type { Db } from './index.ts';
 import * as s from './schema.ts';
 import type { TableName } from './topics.ts';

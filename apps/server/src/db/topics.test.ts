@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { TOPICS, withImplied, type ChangeEvent } from '@tw/shared';
-import { events } from '../events.ts';
-import { openDatabase } from './index.ts';
+import { TOPICS, withImplied, type ChangeEvent } from '@loca/shared';
+import { eventsOf } from '../events.ts';
+import { openDatabase, type Db } from './index.ts';
 import * as s from './schema.ts';
 import { rows } from './test-rows.ts';
 import { TABLE_TOPICS, schemaTables, topicTriggerSql } from './topics.ts';
@@ -23,7 +23,8 @@ describe('topics from the database', () => {
 });
 
 /** Runs a write and returns the topics that went out for each scope (a project id, or 'app' for the app's own). */
-function topicsOf(write: () => void) {
+function topicsOf(db: Db, write: () => void) {
+  const events = eventsOf(db);
   events.flush();
   const seen: ChangeEvent[] = [];
   const listen = (event: ChangeEvent) => seen.push(event);
@@ -45,19 +46,19 @@ describe('a row written with a plain statement', () => {
       for (const [scope, topics] of Object.entries(said(row))) expect(got[scope] ?? [], `${op} ${row.table}`).toEqual(expect.arrayContaining(topics));
       if (!row.topics.length) expect(got, `${op} ${row.table}`).toEqual({});
     };
-    for (const row of written) expectSaid(row, 'insert', topicsOf(row.insert));
+    for (const row of written) expectSaid(row, 'insert', topicsOf(db, row.insert));
     // The last row written of each table, updated in place and then deleted, children before their parents.
     const last = new Map(written.map((row) => [row.table, row] as const));
-    for (const row of last.values()) expectSaid(row, 'update', topicsOf(() => db.$client.prepare(`update \`${row.table}\` set rowid = rowid where rowid = (select max(rowid) from \`${row.table}\`)`).run()));
-    for (const row of [...last.values()].reverse()) expectSaid(row, 'delete', topicsOf(() => db.$client.prepare(`delete from \`${row.table}\` where rowid = (select max(rowid) from \`${row.table}\`)`).run()));
+    for (const row of last.values()) expectSaid(row, 'update', topicsOf(db, () => db.$client.prepare(`update \`${row.table}\` set rowid = rowid where rowid = (select max(rowid) from \`${row.table}\`)`).run()));
+    for (const row of [...last.values()].reverse()) expectSaid(row, 'delete', topicsOf(db, () => db.$client.prepare(`delete from \`${row.table}\` where rowid = (select max(rowid) from \`${row.table}\`)`).run()));
   });
 
   it('says nothing for a row whose parent went first, and the parent says it', () => {
     const db = openDatabase(':memory:');
     for (const row of rows(db)) row.insert();
     // The line's tags, history and candidates go with it (cascade): their triggers find no line any more.
-    expect(topicsOf(() => db.delete(s.units).run())).toEqual({ p1: [...withImplied(['units'])].sort() });
+    expect(topicsOf(db, () => db.delete(s.units).run())).toEqual({ p1: [...withImplied(['units'])].sort() });
     // A tag's rows on knowledge go after it; the items they were on are still there and say their topic.
-    expect(topicsOf(() => db.delete(s.tags).run()).p1).toEqual([...withImplied(['statuses', 'terms', 'knowledge'])].sort());
+    expect(topicsOf(db, () => db.delete(s.tags).run()).p1).toEqual([...withImplied(['statuses', 'terms', 'knowledge'])].sort());
   });
 });

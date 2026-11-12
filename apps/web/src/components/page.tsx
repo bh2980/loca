@@ -1,4 +1,4 @@
-import { usePageTitle } from "@/lib/view-context"
+import { usePageTitle } from "@/lib/reported-view"
 import {
   Page as BasePage,
   HeaderActions,

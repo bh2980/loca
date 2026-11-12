@@ -1,10 +1,10 @@
-import type { Topic } from '@tw/shared';
+import type { Topic } from '@loca/shared';
 
 /**
  * The one place a query key is made (`pnpm ui-rules` refuses a `queryKey: [` literal anywhere else).
  *
  * A question's key starts with the topic whose change asks it again: the server names the changed topics
- * (its triggers and IMPLIES in @tw/shared) and refetchTopics (lib/live.ts) refetches every key that starts
+ * (its triggers and IMPLIES in @loca/shared) and refetchTopics (lib/live.ts) refetches every key that starts
  * with one. `name` says which question of the topic it is; the rest is what the question was asked with.
  */
 export const key = <const A extends readonly unknown[]>(topic: Topic, name: string, ...args: A) => [topic, name, ...args] as const;

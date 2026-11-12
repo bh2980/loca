@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useGraphNodes } from '@/lib/graph';
 import { lineSurroundings, useLineDetail } from '@/lib/units';
-import { useReportView } from '@/lib/view-context';
+import { useReportView } from '@/lib/reported-view';
 import { nextWithLines, stopText } from './flow-model';
 import type { GraphCanvasHandle } from './graph-canvas';
 import { graphSearch } from './graph-search';

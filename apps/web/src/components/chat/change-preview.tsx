@@ -1,10 +1,10 @@
-import { TOOL_SPECS, type ProposalDetail } from '@tw/shared';
+import { TOOL_SPECS, type ProposalDetail } from '@loca/shared';
 import { MarkChip } from '@/components/status';
 import { Box, Markdown, Grid, Inline, Text, SectionHeading } from '@loca/ui';
 
 export const LABEL: Record<string, string> = Object.fromEntries(Object.entries(TOOL_SPECS).map(([name, spec]) => [name, spec.label]));
 
-/** One detail, drawn by its kind (ProposalDetail, @tw/shared): the server's tool definition said what the change does. */
+/** One detail, drawn by its kind (ProposalDetail, @loca/shared): the server's tool definition said what the change does. */
 function Detail({ detail, pending }: { detail: ProposalDetail; pending: boolean }) {
   switch (detail.kind) {
     case 'fields':

@@ -1,4 +1,4 @@
-import { CHAT_IMAGE_MAX_BYTES, CHAT_IMAGE_MAX_SIDE, CHAT_IMAGE_TYPES, dataUrlBytes } from '@tw/shared';
+import { CHAT_IMAGE_MAX_BYTES, CHAT_IMAGE_MAX_SIDE, CHAT_IMAGE_TYPES, dataUrlBytes } from '@loca/shared';
 
 /** An image waiting in the composer for the next message. */
 export interface PendingImage {

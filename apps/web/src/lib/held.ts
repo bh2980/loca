@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createCollection, useLiveQuery, type Collection } from '@tanstack/react-db';
-import { APP_FEED, type FeedChanges, type FeedRows, type HeldCollection } from '@tw/shared';
+import { APP_FEED, type FeedChanges, type FeedRows, type HeldCollection } from '@loca/shared';
 import { client, unwrap } from './api';
 import type { FeedRow } from './collections';
 import { feed } from './feed';
@@ -8,7 +8,7 @@ import { feed } from './feed';
 /**
  * Collections the browser holds only part of: lines, a line's extras, run items, proposals and the AI log are
  * too many to load whole, so a screen asks for the rows it shows by id and the row feed names the ones that
- * changed (HELD_COLLECTIONS in @tw/shared). Which rows a screen shows is its own question, answered with ids.
+ * changed (HELD_COLLECTIONS in @loca/shared). Which rows a screen shows is its own question, answered with ids.
  */
 type Row = { id: string };
 type Write<T> = { begin: () => void; write: (change: { type: 'insert' | 'update'; value: T } | { type: 'delete'; key: string }) => void; commit: () => void; truncate: () => void };

@@ -1,6 +1,6 @@
 import type { EditableFlowActions } from './editable-flow';
 import { freeName, useGraphHistory, type DeleteItem } from './graph-history';
-import { pairKey } from '@tw/shared';
+import { pairKey } from '@loca/shared';
 import type { Pair } from './pairs';
 import type { Character, Relationship } from '@/lib/knowledge';
 

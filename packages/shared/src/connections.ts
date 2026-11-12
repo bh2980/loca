@@ -18,7 +18,7 @@ export const isConnectionKind = (kind: string): kind is ConnectionKind => (CONNE
  * complete: plain text fast enough to follow typing (the editor's autocomplete); a CLI takes seconds per call
  * tool:     an API key (credential) for the workflow "HTTP 호출" function; the address lives in the node
  *
- * What a kind can do is listed here; how it does it is its provider in @tw/ai (PROVIDERS), and a test there
+ * What a kind can do is listed here; how it does it is its provider in @loca/ai (PROVIDERS), and a test there
  * keeps the two from disagreeing.
  */
 export const CAPABILITIES = ['generate', 'judge', 'chat', 'complete', 'tool'] as const;

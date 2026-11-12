@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
-import { ATTACH_KINDS, ATTACH_PAGE, ATTACH_PER_KIND, importFileSchema, type AttachSearchResult } from '@tw/shared';
-import { onError, type Env } from '../context.ts';
+import { ATTACH_KINDS, ATTACH_PAGE, ATTACH_PER_KIND, importFileSchema, type AttachSearchResult } from '@loca/shared';
+import { onError, type Env } from '../http.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { chatRoutes } from '../routes/chat.ts';

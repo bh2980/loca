@@ -1,16 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { importFileSchema, translationTemplate, workflowDefinitionSchema } from '@tw/shared';
+import { importFileSchema, translationTemplate, workflowDefinitionSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
-import { snapshotWorkflowModels } from '../services/model-target.ts';
-import { memoryStore } from '../services/secrets.ts';
+import { snapshotWorkflowModels } from '../domain/model-target.ts';
+import { memoryStore } from '../domain/secrets.ts';
 import { promptEntries } from './prompts.ts';
 import { Runner, type ModelPort } from './runner.ts';
 import { withoutTerms } from './test-workflows.ts';
 import { createRun } from './run-create.ts';
-import { issueTagIds } from '../services/issue-tags.ts';
+import { issueTagIds } from '../domain/issue-tags.ts';
 
 /** The tags every project starts with for findings. */
 const STARTERS = ['AI 실패', '기타 지적', '말투 어긋남', '문체 어색', '용어 위반', '의미 오류', '형식 오류'];

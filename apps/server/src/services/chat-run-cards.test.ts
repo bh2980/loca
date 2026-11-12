@@ -2,12 +2,12 @@ import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import type { UIMessage } from 'ai';
-import { importFileSchema, linesById, runCardMessage, runCardOf, type RunCard } from '@tw/shared';
-import { onError, type Env } from '../context.ts';
+import { importFileSchema, linesById, runCardMessage, runCardOf, type RunCard } from '@loca/shared';
+import { onError, type Env } from '../http.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { chatRoutes } from '../routes/chat.ts';
-import { expandRecord, mergeIncoming, runCardLine, transcript, withStoredCards } from './chat-context.ts';
+import { expandRecord, mergeIncoming, runCardLine, transcript, withStoredCards } from './chat-record.ts';
 import { partsTokens } from './chat-compaction.ts';
 import { importProject } from './importer.ts';
 

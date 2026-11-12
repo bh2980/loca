@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { queryOptions } from '@tanstack/react-query';
 import { createOptimisticAction, useLiveQuery } from '@tanstack/react-db';
 import type { InferRequestType } from 'hono/client';
-import { agentSettingsSchema, APP_FEED, type AppDefaultSection, type DetectedCustomFormatRule, type DetectedFormatPreset, type FormatPreset, type SavedPrompt } from '@tw/shared';
+import { agentSettingsSchema, APP_FEED, type AppDefaultSection, type DetectedCustomFormatRule, type DetectedFormatPreset, type FormatPreset, type SavedPrompt } from '@loca/shared';
 import { ApiError, client, unwrap } from './api';
 import { liveRows, projectCollection, sent, type FeedRow } from './collections';
 import { key } from './query-keys';

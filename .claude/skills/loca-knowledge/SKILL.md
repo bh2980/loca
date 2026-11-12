@@ -27,7 +27,7 @@ loca call list_speech_rules '{"speaker":"Alice"}'
 loca views create --label "미라와 요나스" -s MIRA JONAS   # 고른 노드만 남긴 보기를 저장하고 앱 링크 출력 (제안 없이 저장)
 loca views list
 ```
-고르는 조건은 `-g <장면>`, `-s <화자>`, `--line <키>`, `-q <글자>`, `--between <시작> <끝>`, `--around <n>`, `--mode view|mark`입니다. 두 대사 사이의 실제 경로는 `loca call find_reading_route`로 찾습니다(시작·끝 키는 `find_lines`·`line_context`로 먼저 확인, 반환된 링크로 앱에서 엶).
+고르는 조건은 `-g <장면>`, `-s <화자>`, `--line <키>`, `-q <글자>`, `--between <시작> <끝>`, `--around <n>`, `--mode view|mark`입니다. 두 대사 사이의 실제 경로는 `loca call find_reading_route`로 찾습니다(시작·끝 키는 `find_lines`·`line_around`로 먼저 확인, 반환된 링크로 앱에서 엶).
 
 항목의 `source`는 내용을 만든 쪽입니다: workflow(AI) · script(대본에서 찾음) · import(가져오기) · human(사람).
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { importFileSchema, workflowDefinitionSchema } from '@tw/shared';
+import { importFileSchema, workflowDefinitionSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { Runner, type ModelPort } from '../engine/runner.ts';
@@ -12,9 +12,9 @@ import { exportLines } from './script-query.ts';
 import { decideProposal } from './proposals.ts';
 import { runErrors } from './run-errors.ts';
 import { saveView } from './graph-views.ts';
-import { viewFlow } from './view-flow.ts';
-import { snapshotWorkflowModels } from './model-target.ts';
-import { memoryStore } from './secrets.ts';
+import { viewFlow } from '../domain/view-flow.ts';
+import { snapshotWorkflowModels } from '../domain/model-target.ts';
+import { memoryStore } from '../domain/secrets.ts';
 
 /** A scene that splits on a choice and joins again: a → (b1 | b2) → c. */
 function setup() {

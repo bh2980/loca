@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
-import { importFileSchema } from '@tw/shared';
+import { importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { agentCatalog } from './agent-catalog.ts';
@@ -61,7 +61,7 @@ describe('chat save tools', () => {
   });
 
   it('saves and lists character roles, defaulting new characters to unknown', async () => {
-    const { db, projectId, run } = setup();
+    const { db, run } = setup();
     const made = await run('save_character', { name: 'Lead', role: 'main' });
     expect(db.select().from(s.characters).where(eq(s.characters.id, made.id!)).get()).toMatchObject({ role: 'main' });
     const defaulted = await run('save_character', { name: 'Extra' });

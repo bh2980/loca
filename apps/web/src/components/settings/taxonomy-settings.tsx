@@ -3,7 +3,7 @@ import { useState, type ReactNode } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
-import { AUTO_MARK_IDS, TAG_SCOPES } from '@tw/shared';
+import { AUTO_MARK_IDS, TAG_SCOPES } from '@loca/shared';
 import { Box, Button, PageBody, Section, SplitPane, Text } from '@loca/ui';
 import { Page } from '@/components/page';
 import { StatusPane } from '@/components/settings/status-pane';

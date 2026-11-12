@@ -3,7 +3,7 @@
  * functions are pre-filled configs of the two node kinds; the flow kinds are added as they are; an exit action is not
  * a node at all (it goes on the exit of the line it is dropped on, or picked and then clicked).
  */
-import { AI_PRESETS, FUNCTIONS, INPUT_TYPES, NODE_TYPES, functionTakes, isFunctionName, paletteFunctions, presetTakes, workflowInput, type BatchConfig, type ExitAction, type Subject, type WorkflowDefinition, type WorkflowNode, type WorkflowNodeType } from '@tw/shared';
+import { AI_PRESETS, FUNCTIONS, INPUT_TYPES, NODE_TYPES, functionTakes, isFunctionName, paletteFunctions, presetTakes, workflowInput, type BatchConfig, type ExitAction, type Subject, type WorkflowDefinition, type WorkflowNode, type WorkflowNodeType } from '@loca/shared';
 import type { NodeLibraryGroup } from '@loca/ui';
 
 /**

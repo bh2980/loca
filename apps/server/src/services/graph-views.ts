@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { and, eq, inArray, sql } from 'drizzle-orm';
-import { lineFilterSchema, nodesBetween, viaWith } from '@tw/shared';
+import { lineFilterSchema, nodesBetween, viaWith } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { inChunks, inList } from '../db/chunk.ts';
@@ -193,7 +193,7 @@ export function updateView(db: Db, projectId: string, id: string, change: { labe
   const reasons = Object.fromEntries(Object.entries(view.reasons).filter(([nodeId]) => nodeIds.includes(nodeId)));
   db.transaction((tx) => {
     tx.update(s.graphViews).set({ label: change.label?.trim() || view.label, nodeIds, reasons, route, updatedAt: new Date() }).where(eq(s.graphViews.id, id)).run();
-    if (changed) cancelViewLayouts(projectId, `view:${id}`);
+    if (changed) cancelViewLayouts(db, projectId, `view:${id}`);
     if (changed) tx.delete(s.graphLayouts).where(and(eq(s.graphLayouts.projectId, projectId), eq(s.graphLayouts.section, `view:${id}`))).run();
   });
   return readView(db, projectId, id)!;
@@ -224,7 +224,7 @@ export function changeView(db: Db, projectId: string, id: string, change: { labe
 }
 
 export function deleteView(db: Db, projectId: string, id: string) {
-  cancelViewLayouts(projectId, `view:${id}`);
+  cancelViewLayouts(db, projectId, `view:${id}`);
   db.transaction((tx) => {
     tx.delete(s.graphLayouts).where(and(eq(s.graphLayouts.projectId, projectId), eq(s.graphLayouts.section, `view:${id}`))).run();
     tx.delete(s.graphViews).where(and(eq(s.graphViews.id, id), eq(s.graphViews.projectId, projectId))).run();

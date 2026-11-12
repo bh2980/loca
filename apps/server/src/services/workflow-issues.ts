@@ -1,5 +1,5 @@
 import { and, eq } from 'drizzle-orm';
-import { connectionCan, runNodeName, validateWorkflow, workflowRefOf, type WorkflowDefinition, type WorkflowIssue } from '@tw/shared';
+import { connectionCan, runNodeName, validateWorkflow, workflowRefOf, type WorkflowDefinition, type WorkflowIssue } from '@loca/shared';
 import { expandedDefinition } from '../engine/expand-calls.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';

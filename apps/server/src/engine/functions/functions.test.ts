@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FUNCTIONS, FUNCTION_NAMES } from '@tw/shared';
+import { FUNCTIONS, FUNCTION_NAMES } from '@loca/shared';
 import { FUNCTION_IMPLEMENTATIONS } from './index.ts';
 
 describe('function implementations', () => {

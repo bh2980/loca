@@ -1,8 +1,8 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
-import { importFileSchema, type LineFilterInput } from '@tw/shared';
-import { onError, type Env } from '../context.ts';
+import { importFileSchema, type LineFilterInput } from '@loca/shared';
+import { onError, type Env } from '../http.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';

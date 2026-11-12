@@ -4,7 +4,7 @@ import { useMutation } from '@tanstack/react-query';
 import { Check, Plus } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { toast } from 'sonner';
-import { isSpecialListener, listenerLabel, OTHERS_LISTENER, pairKey, pairMarks, pairSummary, SPEECH_LEVEL_LABELS, UNRESOLVED_RELATIONSHIP_KIND, type Pair as PairOf } from '@tw/shared';
+import { isSpecialListener, listenerLabel, OTHERS_LISTENER, pairKey, pairMarks, pairSummary, SPEECH_LEVEL_LABELS, UNRESOLVED_RELATIONSHIP_KIND, type Pair as PairOf } from '@loca/shared';
 import { EmptyState, DataTable, type ColumnDef, Inspector, InspectorHeader, InspectorResult, InspectorTabs, TagListEditor, Chip, Box, Button, Inline, Text, Section, Field } from '@loca/ui';
 import { DraftEditor, draftKeyOf, savedOf } from '@/components/knowledge/editor';
 import { PairLines, usePairLines } from '@/components/knowledge/evidence';
@@ -17,7 +17,7 @@ import { useLinesByKeys } from '@/lib/units';
 import { useDirtyDrafts } from '@/lib/drafts';
 import { useInspectorTab } from '@/lib/inspector-tab';
 
-/** One speaker → listener direction (buildPairs, @tw/shared) with the rows these screens read. */
+/** One speaker → listener direction (buildPairs, @loca/shared) with the rows these screens read. */
 export type Pair = PairOf<RelationshipRow, SpeechRuleRow>;
 
 /**

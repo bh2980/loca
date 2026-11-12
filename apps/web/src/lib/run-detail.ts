@@ -1,7 +1,7 @@
 import { useMemo, useRef } from 'react';
 import { keepPreviousData, queryOptions, useQuery } from '@tanstack/react-query';
 import type { InferResponseType } from 'hono/client';
-import type { Subject } from '@tw/shared';
+import type { Subject } from '@loca/shared';
 import { client, unwrap } from './api';
 import type { FeedRow } from './collections';
 import { heldCollection, heldFeed, useHeld, type Held } from './held';

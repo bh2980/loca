@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { BookmarkPlus } from 'lucide-react';
-import { viaWith } from '@tw/shared';
+import { viaWith } from '@loca/shared';
 import { HeaderActions, Page } from '@/components/page';
 import { ReadingRouteGraph } from '@/components/graph/reading-route-graph';
 import { RouteList } from '@/components/graph/route-list';
@@ -10,7 +10,7 @@ import { RunDialog } from '@/components/workflow/run-dialog';
 import { Box, Button, CanvasDirectionControl, GraphEndpointBar, GraphScriptSplit, Icon, Inline, Input, Popover, PopoverContent, PopoverTrigger, Spinner, Stack, Text } from '@loca/ui';
 import type { GraphEndpointStep } from '@loca/ui';
 import { q } from '@/lib/queries';
-import { useReportView } from '@/lib/view-context';
+import { useReportView } from '@/lib/reported-view';
 import { useRouteEndpoints } from './use-route-endpoints';
 import { STORED, useStored } from '@/lib/storage';
 

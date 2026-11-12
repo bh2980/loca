@@ -1,5 +1,5 @@
 import { keepPreviousData, queryOptions, useQuery } from '@tanstack/react-query';
-import { APP_FEED } from '@tw/shared';
+import { APP_FEED } from '@loca/shared';
 import { client, unwrap } from './api';
 import type { FeedRow } from './collections';
 import { heldFeed, useHeld, type Held } from './held';

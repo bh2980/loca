@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { WorkflowNode } from '@tw/shared';
+import type { WorkflowNode } from '@loca/shared';
 import { issueRows } from './issue-bar';
 
 const node = (id: string, label: string) => ({ id, label, type: 'ai', config: {}, position: { x: 0, y: 0 } }) as unknown as WorkflowNode;

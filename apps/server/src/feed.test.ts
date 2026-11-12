@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
-import { APP_FEED, FEED_UNITS_LIMIT, importFileSchema, type ChangeEvent, type FeedSnapshot } from '@tw/shared';
-import { onError, type Env } from './context.ts';
+import { APP_FEED, FEED_UNITS_LIMIT, importFileSchema, type ChangeEvent, type FeedSnapshot } from '@loca/shared';
+import { onError, type Env } from './http.ts';
 import { openDatabase } from './db/index.ts';
 import { rowChangesOf } from './db/row-changes.ts';
 import * as s from './db/schema.ts';
@@ -10,13 +10,13 @@ import { Events, trackChanges } from './events.ts';
 import { feedRows, feedSnapshot, heldRows } from './feed.ts';
 import { knowledgeRoutes } from './routes/knowledge.ts';
 import { deleteItems } from './services/item-delete.ts';
-import { setKnowledgeTag } from './services/knowledge-tags.ts';
+import { setKnowledgeTag } from './domain/knowledge-tags.ts';
 import { importProject } from './services/importer.ts';
-import { saveTerm } from './services/terms.ts';
+import { saveTerm } from './domain/terms.ts';
 import { unitRowsByIds } from './services/unit-rows.ts';
 import { runItemRows } from './services/run-detail.ts';
-import { writeAppDefaults } from './services/app-defaults.ts';
-import { memoryStore } from './services/secrets.ts';
+import { writeAppDefaults } from './domain/app-defaults.ts';
+import { memoryStore } from './domain/secrets.ts';
 
 const NO_KEYS = { secrets: memoryStore() };
 

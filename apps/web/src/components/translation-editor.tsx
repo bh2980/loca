@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, Check, CircleAlert, ClipboardPaste, Languages, MoreHorizontal, Save, Sparkles, Undo2, WandSparkles } from 'lucide-react';
 import { toast } from 'sonner';
-import { checkFormat, listenerLabel, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatIssue, type FormatRules, withSourceWhitespace } from '@tw/shared';
+import { checkFormat, listenerLabel, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatIssue, type FormatRules, withSourceWhitespace } from '@loca/shared';
 import { TokenChip, TokenText } from '@/components/editor/source-text';
 import { AiSuggestion } from '@/components/ai-suggestion';
 import { focusEndOfLine, insertUnitIntoLine, proposeInLine, replaceLineText, TranslationInput } from '@/components/editor/translation-input';

@@ -2,12 +2,13 @@ import type { UIMessage } from 'ai';
 import { badRequest } from '../refusal.ts';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { estimateTokens, limitsFor, runCardOf, runEndOf } from '@tw/shared';
-import * as ai from '@tw/ai';
+import { estimateTokens, limitsFor, runCardOf, runEndOf } from '@loca/shared';
+import * as ai from '@loca/ai';
 import type { Db } from '../db/index.ts';
+import { perDatabase } from '../db/per-database.ts';
 import * as s from '../db/schema.ts';
-import { logged } from './ai-calls.ts';
-import { runCardLine, runEndLine, transcript } from './chat-context.ts';
+import { logged } from '../domain/ai-calls.ts';
+import { runCardLine, runEndLine, transcript } from './chat-record.ts';
 
 /**
  * A conversation is sent whole until it would not fit the model's window; then, as pi does, the
@@ -115,10 +116,10 @@ export async function fitRecord(input: { db: Db; chat: typeof s.chatSessions.$in
 }
 
 /** Conversations being compacted on request (/compact), each with the work a new turn waits for. */
-const compacting = new Map<string, Promise<unknown>>();
+const compacting = perDatabase(() => new Map<string, Promise<unknown>>());
 
 /** Resolves once no /compact of the conversation is running: a turn started meanwhile reads the summary it stored. */
-export const compactionSettled = (sessionId: string): Promise<void> => compacting.get(sessionId)?.then(() => undefined, () => undefined) ?? Promise.resolve();
+export const compactionSettled = (db: Db, sessionId: string): Promise<void> => compacting(db).get(sessionId)?.then(() => undefined, () => undefined) ?? Promise.resolve();
 
 /**
  * /compact: everything said so far becomes the summary now, whether or not it would still fit the
@@ -127,7 +128,8 @@ export const compactionSettled = (sessionId: string): Promise<void> => compactin
  */
 export function compactNow(input: { db: Db; sessionId: string; target: ai.ModelTarget; signal?: AbortSignal }): Promise<Compaction> {
   const { db, sessionId, target } = input;
-  if (compacting.has(sessionId)) badRequest('이 대화는 이미 압축하는 중입니다.');
+  const running = compacting(db);
+  if (running.has(sessionId)) badRequest('이 대화는 이미 압축하는 중입니다.');
   const work = (async () => {
     const chat = db.select().from(s.chatSessions).where(eq(s.chatSessions.id, sessionId)).get();
     if (!chat) badRequest('대화가 없습니다.');
@@ -142,6 +144,6 @@ export function compactNow(input: { db: Db; sessionId: string; target: ai.ModelT
     if (chat.agentSession) void ai.closeSession(chat.agentSession.id);
     return compaction;
   })();
-  compacting.set(sessionId, work);
-  return work.finally(() => compacting.delete(sessionId));
+  running.set(sessionId, work);
+  return work.finally(() => running.delete(sessionId));
 }

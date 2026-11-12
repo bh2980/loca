@@ -1,10 +1,8 @@
-import { createAndAttachTag } from '@/lib/create-tag';
 /** One row of the line list, with the hints and links that open under the picked line. */
 import { useMemo, useState, type ComponentProps, type ReactNode, type RefObject } from 'react';
-import { useMutation } from '@tanstack/react-query';
 import { Check, CircleAlert, Ellipsis, PanelRight } from 'lucide-react';
 import { toast } from 'sonner';
-import { markName, compileFormatRules, isUnknownListener, lineExclusion, listenerLabel, needsListener, SPECIAL_LISTENERS, type FormatRules, type LineMark, type ListenerOrigin, glossaryMatcher, SPEECH_LEVEL_LABELS, speechLevelOf, TAG_SCOPES } from '@tw/shared';
+import { markName, compileFormatRules, isUnknownListener, lineExclusion, listenerLabel, needsListener, SPECIAL_LISTENERS, type FormatRules, type LineMark, type ListenerOrigin, glossaryMatcher, SPEECH_LEVEL_LABELS, speechLevelOf } from '@loca/shared';
 import { MarkChip } from '@/components/status';
 import { TranslationEditor } from '@/components/translation-editor';
 import { LineSourceText, MarkedSourceText, TokenText } from '@/components/editor/source-text';
@@ -13,11 +11,10 @@ import { LineNote } from '@/components/script/line-note';
 import { withoutTokens } from '@/lib/source-parts';
 import { Button, Checkbox, AiMark, TagChip, Tooltip, TooltipContent, TooltipTrigger, DropdownMenu, DropdownMenuTrigger, SpeakerIdentity, Chip, Box, Inline, Stack, Text, Icon, StatusIcon, ListRow, PointAnchor, ScriptReviewIssue, ScriptSceneRow, ScriptSourceStyle, ScriptTranslationRow, type StatusLike, DropdownMenuContent } from '@loca/ui';
 import { useMarkStyles } from '@/lib/queries';
-import { SOURCE_GROUP_LABEL, SOURCE_UNIT_LABEL } from '@/lib/labels';
+import { SOURCE_GROUP_LABEL } from '@/lib/labels';
 import { SpeakerCard } from '@/components/script/speaker-card';
 import { type Line, useLineDetail } from '@/lib/units';
 import { useDraft } from '@/lib/drafts';
-import { useSaveLine, patchLine } from '@/lib/line-writes';
 import { usePersonColors } from '@/lib/person-colors';
 import { LineMenuItems } from '@/components/script/line-menu';
 import { useTerms } from '@/lib/terms';
@@ -233,25 +230,6 @@ export function LineRow({
   const marks: LineMark[] = line.suggested ? ['aiSuggestion'] : [];
   const attachedTags = tags.filter((tag) => line.tagIds.includes(tag.id));
 
-  const patch = useMutation({
-    mutationFn: (json: { tagIds?: string[]; translate?: 'include' | 'exclude' }) => patchLine(projectId, line.id, json),
-    onError: (error) => toast.error(error.message),
-  });
-
-  const handleToggleTag = (tagId: string, add: boolean) => {
-    const nextTagIds = add ? [...line.tagIds, tagId] : line.tagIds.filter((id) => id !== tagId);
-    patch.mutate({ tagIds: nextTagIds });
-  };
-
-  const handleCreateTag = async (name: string) => {
-    try {
-      await createAndAttachTag(projectId, name, tags.length, [...TAG_SCOPES], (tagId) => patch.mutateAsync({ tagIds: [...line.tagIds, tagId] }));
-      toast.success(`'${name}' 태그를 만들고 줄에 붙였습니다.`);
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : '태그를 만들지 못했습니다.');
-    }
-  };
-
   const tagRow = marks.length || attachedTags.length ? (
     <Stack direction="row" wrap gap="tight" marginTop="tight" role="group" aria-label="이 줄의 태그" onClick={(event) => event.stopPropagation()}>
       {marks.map((mark) => (
@@ -280,7 +258,6 @@ export function LineRow({
   );
   const checkbox = <Checkbox aria-label={`${line.key} 선택`} checked={isPicked} onClick={(event) => event.stopPropagation()} onCheckedChange={(checked) => onPick(Boolean(checked))} />;
   const colorOf = usePersonColors(projectId);
-  const addLineLabel = `이 ${SOURCE_GROUP_LABEL[sceneKind]}에 ${SOURCE_UNIT_LABEL[sceneKind]} 추가`;
   // Lines without a speaker (UI strings, documents) show their key in its place, level with the status opposite.
   const speaker = line.kind === 'ui' || line.kind === 'document' ? (
     <Text truncate mono variant="caption" tone="muted" title={line.key}>{line.key}</Text>
@@ -384,7 +361,6 @@ export function LineRow({
       flagged={marked}
     />
   );
-  const saveLine = useSaveLine(projectId);
 
   return (
     <>

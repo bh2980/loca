@@ -3,7 +3,7 @@ import { useMemo } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { AUTO_MARK_IDS, AUTO_MARKS, markColor, markName, TAG_SCOPE_LABELS, TAG_SCOPES, type AutoMark, type MarkStyles, type TagScope } from '@tw/shared';
+import { AUTO_MARK_IDS, AUTO_MARKS, markColor, markName, TAG_SCOPE_LABELS, TAG_SCOPES, type AutoMark, type MarkStyles, type TagScope } from '@loca/shared';
 import { Button, ContextMenuItem, ContextMenuSeparator, DataTable, EmptyState, TagChip, type ColumnDef } from '@loca/ui';
 import { HeaderFilter } from '@/components/header-filter';
 import { MarkPane } from '@/components/settings/mark-pane';

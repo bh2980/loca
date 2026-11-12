@@ -1,6 +1,6 @@
 import { and, eq } from 'drizzle-orm';
 import { badRequest } from '../refusal.ts';
-import { expandCalls, type WorkflowDefinition } from '@tw/shared';
+import { expandCalls, type WorkflowDefinition } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { expandCalls, workflowDefinitionSchema, type WorkflowDefinition } from '@tw/shared';
+import { expandCalls, workflowDefinitionSchema, type WorkflowDefinition } from '@loca/shared';
 import { callMembers, callOf, collapseCalls, liveCounts, topCallIds } from './run-calls';
 
 const at = { x: 40, y: 80 };

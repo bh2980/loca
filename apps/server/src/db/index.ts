@@ -2,12 +2,12 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:f
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
-import { APP_FEED, DEFAULT_RETRY_RULES, exclusionRulesSchema, formatRulesSchema, lineExclusion, mentions, needsListener, retryRuleSchema, type LineTranslate, type Topic } from '@tw/shared';
+import { APP_FEED, DEFAULT_RETRY_RULES, exclusionRulesSchema, formatRulesSchema, lineExclusion, mentions, needsListener, retryRuleSchema, type LineTranslate, type Topic } from '@loca/shared';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import * as schema from './schema.ts';
 import { exitActionsFromNodes } from './exit-actions-migrate.ts';
-import { events } from '../events.ts';
+import { eventsOf } from '../events.ts';
 import { rowChangesOf } from './row-changes.ts';
 
 const migrationsFolder = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../drizzle');
@@ -51,7 +51,7 @@ export function registerMigrationFunctions(sqlite: Database.Database) {
   // topic_changed(topic, project id): the topic triggers (db/topics.ts) say which questions a changed row belongs to.
   // The project is APP_FEED for the app's own rows and null for a row whose parent is already gone (its delete said it).
   sqlite.function('topic_changed', (topic: unknown, projectId: unknown) => {
-    if (typeof projectId === 'string') events.changed(projectId === APP_FEED ? undefined : projectId, topic as Topic);
+    if (typeof projectId === 'string') eventsOf(sqlite).changed(projectId === APP_FEED ? undefined : projectId, topic as Topic);
     return null;
   });
   // issue_tag_nodes(definition json, role → tag id json): a workflow's 태그 붙이기 nodes once tags have no roles (0102):
@@ -183,7 +183,7 @@ export function openDatabase(file: string, folder = migrationsFolder) {
       return lineExclusion({ source: String(source ?? ''), translate: (translate as LineTranslate | null) ?? null }, rulesOf.get(formatKey), exclusionsOf.get(rulesKey), typeof language === 'string' ? language : null);
     });
     // mentions_any(source, names json): the source mentions one of the names as a whole word or as a {NAME} placeholder
-    // (mentions in shared itself), so a line filter's mentions are a condition like the others (services/line-filter.ts).
+    // (mentions in shared itself), so a line filter's mentions are a condition like the others (domain/line-filter.ts).
     let named: { json: string; names: string[] } | undefined;
     sqlite.function('mentions_any', { deterministic: true }, (source: unknown, names: unknown) => {
       const json = typeof names === 'string' ? names : '[]';

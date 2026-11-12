@@ -1,6 +1,6 @@
 # 홈 설정 (새 프로젝트 기본값) 설계 — 2026-10-27
 
-구현이 끝났다. 아래는 규칙과 그 근거만 남긴 것이다. 데이터 모양·서버 API·화면 구성은 코드가 정본이다(`app_settings`와 `appDefaultsSchema`, `services/app-defaults.ts`, `routes/app.ts`, `components/settings/`). 절 번호는 코드 주석이 가리키므로 그대로 둔다.
+구현이 끝났다. 아래는 규칙과 그 근거만 남긴 것이다. 데이터 모양·서버 API·화면 구성은 코드가 정본이다(`app_settings`와 `appDefaultsSchema`, `domain/app-defaults.ts`, `routes/app-settings.ts`, `components/settings/`). 절 번호는 코드 주석이 가리키므로 그대로 둔다.
 
 ## 1. 문제
 

@@ -5,7 +5,7 @@ import { Link } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { CircleAlert, CircleCheck, Network, Pencil, Sparkles } from 'lucide-react';
 import { CopyButton } from '@/components/copy-button';
-import { CHARACTER_ROLE_LABELS, sameTranslation, checkFormat, exclusionReason, isUnknownListener, type LineTranslate, listenerLabel, needsListener, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatRules, type SpeechLevel, TAG_SCOPES } from '@tw/shared';
+import { CHARACTER_ROLE_LABELS, sameTranslation, checkFormat, exclusionReason, type LineTranslate, listenerLabel, needsListener, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatRules, type SpeechLevel, TAG_SCOPES } from '@loca/shared';
 import { AiMark, Chip, TagChip, Box, Button, CandidateCard, DetailIssue, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, EditorChangedWord, EditorDiffWord, Group, HistoryDay, HistoryEntry, HistoryFolded, HistoryFoldedRow, type HistoryActor, Icon, Inline, InspectorHeader, Inspector, InspectorList, InspectorTabs, SegmentedControl, SpeakerIdentity, Spinner, StatusIcon, Switch, TagListEditor, Text, ListItem, Section, KeyValue, KeyValueRow } from '@loca/ui';
 import { useLineDetail } from '@/lib/units';
 import { AiContextPanel } from '@/components/ai-context';
@@ -22,7 +22,7 @@ import { SpeakerCard } from '@/components/script/speaker-card';
 import { SourceEditor } from '@/components/script/source-editor';
 import { useDraft } from '@/lib/drafts';
 import { lineTags, q } from '@/lib/queries';
-import { useReportView } from '@/lib/view-context';
+import { useReportView } from '@/lib/reported-view';
 import { editorChecks, tokenPatternOf } from '@/lib/source-parts';
 import { byDay, dayLabel, hourMinute } from '@/lib/datetime';
 import { useInspectorTab } from '@/lib/inspector-tab';
@@ -85,7 +85,6 @@ export function LineDetail({
   const taxonomy = useTaxonomy(projectId);
   const project = useProject(projectId);
   const people = useCharacters(projectId);
-  const colorOf = usePersonColors(projectId);
   const group = useGroup(projectId, unit.data?.group.id);
   const [draft, setDraft] = useDraft(`line:${unitId}`, unit.data?.translation ?? '');
   const [noting, setNoting] = useState(false);
@@ -114,7 +113,6 @@ export function LineDetail({
   const status = taxonomy.statuses?.find((item) => item.id === statusId);
   const tags = lineTags(taxonomy.tags);
   const lastRun = line?.history[0];
-  const unknown = line ? isUnknownListener(line, project.data?.formatRules ?? undefined) : true;
   const cast = (people.data ?? []).filter((person) => person.status === 'confirmed').map((person) => ({ name: person.name, player: person.player }));
   const hasDialogueContext = line?.kind === 'dialogue' && Boolean(line.speaker?.trim());
   // 번역 제외: what the project's rules say about this source, and what a person's choice does.

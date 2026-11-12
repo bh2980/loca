@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { DEFAULT_TAG_COLOR, HEX_COLOR, orderedTagScopes, STATUS_COLORS, TAG_SCOPES } from '@tw/shared';
+import { DEFAULT_TAG_COLOR, HEX_COLOR, orderedTagScopes, STATUS_COLORS, TAG_SCOPES } from '@loca/shared';
 
 // Request bodies for statuses and tags, shared by the routes and the agent tools.
 export const statusInput = z.object({ name: z.string().trim().min(1).max(40), color: z.string().regex(HEX_COLOR).default(STATUS_COLORS[0]), kind: z.enum(['initial', 'normal', 'final']).default('normal'), inReview: z.boolean().default(false) });

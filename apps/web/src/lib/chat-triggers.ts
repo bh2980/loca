@@ -1,4 +1,4 @@
-import { ATTACH_KIND_ALIASES, ATTACH_KINDS, PROMPT_TARGET, type AttachKind, type SavedPrompt, type Subject } from '@tw/shared';
+import { ATTACH_KIND_ALIASES, ATTACH_KINDS, PROMPT_TARGET, type AttachKind, type SavedPrompt, type Subject } from '@loca/shared';
 
 /** An `@query` being typed: where it starts in the box and everything between the @ and the caret. */
 export interface AtTrigger {

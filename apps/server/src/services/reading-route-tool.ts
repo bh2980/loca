@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { findReadingRouteOutputSchema, type FindReadingRouteInput, type FindReadingRouteOutput } from '@tw/shared';
+import { findReadingRouteOutputSchema, type FindReadingRouteInput, type FindReadingRouteOutput } from '@loca/shared';
 import { isRefusal } from '../refusal.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -62,7 +62,7 @@ export function findReadingRoute(db: Db, projectId: string, input: FindReadingRo
       );
 
       if (subUnits.length === 0 && subNodes.length === 0) {
-        return { error: `프로젝트에서 “${reference}”에 해당하는 대사 노드를 찾지 못했습니다. find_lines 또는 line_context로 먼저 확인하세요.` };
+        return { error: `프로젝트에서 “${reference}”에 해당하는 대사 노드를 찾지 못했습니다. find_lines 또는 line_around로 먼저 확인하세요.` };
       }
 
       type MatchCandidate = { nodeId: string; seq: number; unit?: UnitRef };
@@ -81,7 +81,7 @@ export function findReadingRoute(db: Db, projectId: string, input: FindReadingRo
       }
 
       if (candidates.length === 0) {
-        return { error: `프로젝트에서 “${reference}”에 해당하는 대사 노드를 찾지 못했습니다. find_lines 또는 line_context로 먼저 확인하세요.` };
+        return { error: `프로젝트에서 “${reference}”에 해당하는 대사 노드를 찾지 못했습니다. find_lines 또는 line_around로 먼저 확인하세요.` };
       }
 
       candidates.sort((a, b) => a.seq - b.seq);
@@ -100,10 +100,10 @@ export function findReadingRoute(db: Db, projectId: string, input: FindReadingRo
     }
 
     if (nodeIds.size > 1 || matchedUnits.length > 1) {
-      return { error: `“${reference}”가 여러 대사 노드에 해당합니다. find_lines 또는 line_context로 대사 키를 확인하세요.` };
+      return { error: `“${reference}”가 여러 대사 노드에 해당합니다. find_lines 또는 line_around로 대사 키를 확인하세요.` };
     }
     const nodeId = [...nodeIds][0];
-    if (!nodeId) return { error: `프로젝트에서 “${reference}”에 해당하는 대사 노드를 찾지 못했습니다. find_lines 또는 line_context로 먼저 확인하세요.` };
+    if (!nodeId) return { error: `프로젝트에서 “${reference}”에 해당하는 대사 노드를 찾지 못했습니다. find_lines 또는 line_around로 먼저 확인하세요.` };
 
     const node = nodesById.get(nodeId)!;
     const nodeUnits = node.unitIds.map((id) => unitsById.get(id)).filter((unit): unit is UnitRef => Boolean(unit));

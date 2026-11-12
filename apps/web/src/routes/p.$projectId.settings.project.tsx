@@ -9,7 +9,7 @@ import { changedFields, useFormFrom } from '@/lib/use-form-from';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
 import { AiAutoConfirmSetting } from '@/components/settings/ai-confirm';
 import { HomeDefaultsSection } from '@/components/settings/home-defaults';
-import type { FormatRules } from '@tw/shared';
+import type { FormatRules } from '@loca/shared';
 import { exportDialog } from '@/lib/export-dialog';
 import { useProject, saveProject, deleteProject } from '@/lib/project';
 

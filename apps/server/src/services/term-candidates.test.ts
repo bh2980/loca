@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { importFileSchema, withMainTarget, withTargetCandidate } from '@tw/shared';
+import { importFileSchema, withMainTarget, withTargetCandidate } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from './importer.ts';
-import { saveTerm, upsertAiTerm } from './terms.ts';
+import { saveTerm, upsertAiTerm } from '../domain/terms.ts';
 
 // A term keeps every Korean form it had or was offered; `target` is the one used.
 function setup() {

@@ -9,7 +9,7 @@
 import { memo, type ReactNode } from 'react';
 import { NodeResizer, type Node, type NodeProps } from '@xyflow/react';
 import { FRAME_HEADER, FRAME_PAD, WorkflowFrame, WorkflowFrameTint } from '@loca/ui';
-import type { WorkflowDefinition, WorkflowGroup } from '@tw/shared';
+import type { WorkflowDefinition, WorkflowGroup } from '@loca/shared';
 import { shiftRoute } from './route-shift';
 
 export const FRAME_PREFIX = 'frame:';
@@ -54,7 +54,7 @@ export const FrameNodeView = memo(function FrameNodeView({ data }: NodeProps<Fra
           onResizeEnd={(_event, box) => data.onResize?.({ x: Math.round(box.x), y: Math.round(box.y), width: Math.round(box.width), height: Math.round(box.height) })}
         />
       )}
-      <WorkflowFrame label={data.label} meta={data.meta} live={data.live} over={data.over} selected={data.picked} renaming={data.renaming} onRename={data.onRename} onRenamed={data.onRenamed} onUngroup={data.onUngroup} onDelete={data.onDelete} ungroupKey={data.ungroupKey} />
+      <WorkflowFrame label={data.label} meta={data.meta} live={data.live} selected={data.picked} renaming={data.renaming} onRename={data.onRename} onRenamed={data.onRenamed} onUngroup={data.onUngroup} onDelete={data.onDelete} ungroupKey={data.ungroupKey} />
     </>
   );
 });

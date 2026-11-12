@@ -1,6 +1,6 @@
 import { Chat } from '@ai-sdk/react';
 import { apiFetch } from './api';
-import { isRunRecord } from '@tw/shared';
+import { isRunRecord } from '@loca/shared';
 import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls, type UIMessage } from 'ai';
 
 /** What is on screen when a message is sent; the panel keeps it current while it is open. */

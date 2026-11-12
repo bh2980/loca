@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EMPTY_MODEL_CHOICE, translationTemplate, workflowDefinitionSchema, workflowNodeSchema, type WorkflowDefinition, type WorkflowEdge } from '@tw/shared';
+import { EMPTY_MODEL_CHOICE, translationTemplate, workflowDefinitionSchema, workflowNodeSchema, type WorkflowDefinition, type WorkflowEdge } from '@loca/shared';
 import {
   allFoldsOpen, computeFolds, foldContaining, foldedDefinition, foldIssues, foldLiveText, foldPlacements, foldText, isFoldOpen, NO_OPEN_FOLDS,
   openFoldContaining, setAllFolds, toggleFold, type Fold,

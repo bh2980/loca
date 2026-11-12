@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EMPTY_MODEL_CHOICE, nodePorts, translationTemplate, WORKFLOW_TEMPLATES, type WorkflowDefinition, type WorkflowEdge, type WorkflowNode } from '@tw/shared';
+import { EMPTY_MODEL_CHOICE, nodePorts, translationTemplate, WORKFLOW_TEMPLATES, type WorkflowDefinition, type WorkflowEdge, type WorkflowNode } from '@loca/shared';
 import { workflowPortTone } from './node-view.tsx';
 import { autoLayout } from './auto-layout';
 

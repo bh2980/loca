@@ -1,12 +1,12 @@
 import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
-import { importFileSchema, messageChips } from '@tw/shared';
+import { importFileSchema, messageChips } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from './importer.ts';
 import { selectRunUnits } from '../engine/subjects.ts';
 import { chatRunScope } from './chat-run-scope.ts';
-import { mergeIncoming } from './chat-context.ts';
+import { mergeIncoming } from './chat-record.ts';
 
 const setup = () => {
   const db = openDatabase(':memory:');

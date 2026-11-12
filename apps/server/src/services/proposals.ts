@@ -1,11 +1,11 @@
-import { and, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
-import { acceptedLabel, toolClass } from '@tw/shared';
+import { and, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
+import { acceptedLabel, toolClass } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { agentCatalog } from './agent-catalog.ts';
 import { captureUndo } from './proposal-undo.ts';
 import { found } from '../refusal.ts';
-import { proposalSaver } from './status-by.ts';
+import { proposalSaver } from '../domain/saver.ts';
 
 /** Stores a proposal; the change gate checks it first (change-gate.ts). */
 export function propose(db: Pick<Db, 'insert'>, input: { projectId: string; sessionId: string | null; model?: string | null; source: 'cli' | 'api'; tool: string; input: Record<string, unknown>; report?: s.ProposalReport | null; review?: string | null }) {

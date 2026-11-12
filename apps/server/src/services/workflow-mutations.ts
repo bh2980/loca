@@ -1,5 +1,5 @@
 import { and, asc, eq, inArray } from 'drizzle-orm';
-import type { WorkflowDefinition } from '@tw/shared';
+import type { WorkflowDefinition } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { badRequest, conflict, found } from '../refusal.ts';

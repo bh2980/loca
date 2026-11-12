@@ -4,7 +4,7 @@ import { Check, X } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { Box, Button, Inline, Input, Spinner, Stack, Text, ToolCard, ToolCardHeader } from '@loca/ui';
-import { acceptedLabel } from '@tw/shared';
+import { acceptedLabel } from '@loca/shared';
 import { decideProposal, type Proposal, undoProposals } from '@/lib/proposals';
 import { ChangePreview, LABEL } from './change-preview';
 

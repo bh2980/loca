@@ -3,7 +3,7 @@ import { useMutation } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { EXCLUSION_REASON_LABELS, exclusionReason, formatPatternError, type ExclusionRules, type FormatRules } from '@tw/shared';
+import { EXCLUSION_REASON_LABELS, exclusionReason, formatPatternError, type ExclusionRules, type FormatRules } from '@loca/shared';
 import { Box, Button, Field, Inline, Stack, Switch, Text, Input, TextLink, Section, SectionHeading } from '@loca/ui';
 import { useFormFrom } from '@/lib/use-form-from';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';

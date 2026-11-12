@@ -1,11 +1,11 @@
 import { Hono } from 'hono';
 import { describe, expect, it } from 'vitest';
-import { importFileSchema } from '@tw/shared';
-import { onError, type Env } from '../context.ts';
+import { importFileSchema } from '@loca/shared';
+import { onError, type Env } from '../http.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
-import { memoryStore } from '../services/secrets.ts';
+import { memoryStore } from '../domain/secrets.ts';
 import { chatRoutes } from './chat.ts';
 import { workflowRoutes } from './workflows.ts';
 

@@ -1,12 +1,12 @@
-import { AGENT_RESOURCES } from '@tw/shared';
+import { AGENT_RESOURCES } from '@loca/shared';
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { importFileSchema } from '@tw/shared';
+import { importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import { importProject } from './importer.ts';
 import * as s from '../db/schema.ts';
 import { agentTools } from './agent-tools.ts';
-import { itemCount } from '@tw/shared';
+import { itemCount } from '@loca/shared';
 import { autoReview } from './change-gate.ts';
 import { prepareProposal } from './agent-catalog.ts';
 

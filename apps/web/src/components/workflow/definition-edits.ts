@@ -5,7 +5,7 @@
  * never deleted or copied, and its lines to the starting nodes are kept in step after every edit (syncEntryEdges).
  */
 import { addEdge } from '@xyflow/react';
-import { syncEntryEdges, workflowNodeSchema, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+import { syncEntryEdges, workflowNodeSchema, type WorkflowDefinition, type WorkflowNode } from '@loca/shared';
 import { pruneGroups } from './frames';
 import { shiftRoute } from './route-shift';
 

@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { onError } from './context.ts';
+import { onError } from './http.ts';
 import { badRequest, conflict, notFound, refuse, Refusal, valid } from './refusal.ts';
 import { catalogOf } from './services/agent-catalog.ts';
 

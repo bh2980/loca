@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { InferResponseType } from 'hono/client';
-import { AI_OUTPUTS, CONTEXT_ITEM_KINDS, CONTEXT_PRIORITY, INPUT_TYPES, JSON_FIELD_TYPE_LABELS, type AiNode, type Subject, bySubject } from '@tw/shared';
+import { AI_OUTPUTS, CONTEXT_ITEM_KINDS, CONTEXT_PRIORITY, INPUT_TYPES, JSON_FIELD_TYPE_LABELS, type AiNode, type Subject, bySubject } from '@loca/shared';
 import { Box, Button, Dialog, DialogContent, DialogHeader, DialogTitle, Inline, RequestDetails, RequestPart as Part, Combobox, Skeleton, Text, Section } from '@loca/ui';
 import { client } from '@/lib/api';
 import { useTerms } from '@/lib/terms';

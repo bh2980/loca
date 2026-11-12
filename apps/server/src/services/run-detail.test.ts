@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
-import { importFileSchema } from '@tw/shared';
+import { importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { createRun } from '../engine/run-create.ts';
@@ -8,9 +8,9 @@ import { Runner, type ModelPort } from '../engine/runner.ts';
 import { promptEntries } from '../engine/prompts.ts';
 import { translateOnlyWorkflow } from '../engine/test-workflows.ts';
 import { importProject } from './importer.ts';
-import { snapshotWorkflowModels } from './model-target.ts';
+import { snapshotWorkflowModels } from '../domain/model-target.ts';
 import { runItemIds, runNodeExits, runProgress } from './run-detail.ts';
-import { memoryStore } from './secrets.ts';
+import { memoryStore } from '../domain/secrets.ts';
 
 const model: ModelPort = {
   ask: async () => {

@@ -1,9 +1,9 @@
 import { and, asc, desc, eq, gt, inArray, lt, sql } from 'drizzle-orm';
-import { isSpecialListener } from '@tw/shared';
+import { isSpecialListener } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import { inChunks } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
-import { describeRule, speechRuleIndex } from './speech.ts';
+import { describeRule, speechRuleIndex } from '../domain/speech.ts';
 
 /**
  * A line's surroundings: what its detail shows that is not on its own row and is worked out from other rows. The lines
@@ -12,7 +12,7 @@ import { describeRule, speechRuleIndex } from './speech.ts';
  * Nothing of the line's own row is repeated here, so the browser's row is the only copy of it.
  * One line (GET units/:id/surroundings) or a page of them at once (the list asks for its page before a line is picked),
  * in the order asked; ids of another project or gone are left out. The speech rules and each scene's lines are read
- * once per call. (Not the "context" of an AI request: that is what a node sends to a model, services/requests.)
+ * once per call. (Not the "context" of an AI request: that is what a node sends to a model, engine/ai-context.ts.)
  */
 export function lineSurroundings(db: Db, projectId: string | undefined, unitIds: readonly string[]) {
   const units = inChunks(unitIds, (slice) => db.select().from(s.units).where(and(inArray(s.units.id, slice), ...(projectId ? [eq(s.units.projectId, projectId)] : []))).all());

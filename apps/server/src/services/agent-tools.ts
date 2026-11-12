@@ -1,31 +1,29 @@
-import { agentToolAvailable, effectiveAgentPermissions, APP_DEFAULT_SECTION_LABELS, SOURCE_GROUP_LABELS, TAG_SCOPE_LABELS, type ProposalDetail, glossaryMatcher, LISTENER_MIN_CONFIDENCE, CHECK_KINDS, RESTORABLE_KINDS, runCapsSchema, runScopeInputSchema, TERM_MARK_IDS, type CheckKind, type ToolName, SUBJECTS, FUNCTION_NAMES } from '@tw/shared';
+import { agentToolAvailable, effectiveAgentPermissions, APP_DEFAULT_SECTION_LABELS, SOURCE_GROUP_LABELS, TAG_SCOPE_LABELS, type ProposalDetail, glossaryMatcher, LISTENER_MIN_CONFIDENCE, CHECK_KINDS, RESTORABLE_KINDS, runCapsSchema, runScopeInputSchema, TERM_MARK_IDS, type CheckKind, type ToolName, SUBJECTS, FUNCTION_NAMES } from '@loca/shared';
 import { projectAgentSettings, specPermissionError } from './agent-permission-check.ts';
-import { and, asc, count, desc, eq, inArray, isNull, like, ne, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, isNull, like, ne, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { APPLY_TARGETS, INPUT_TYPES, nodeName, workflowInput, AI_OUTPUTS, DEFAULT_TAG_COLOR, AI_PRESETS, AI_PRESET_IDS, type AiPresetId, aiNodeConfigSchema, KNOWLEDGE_TAG_KINDS, patchOf, TAG_SCOPES, withRunModels, AUTO_MARKS, batchChangeSchema, CONDITION_MARK_IDS, CONNECTION_KIND_INFO, ITEM_ERROR_KIND_IDS, createGroupSchema, createUnitSchema, findReadingRouteInputSchema, FUNCTIONS, LINE_MARK_IDS, lineFilterSchema, lineMarksSchema, NODE_TYPES, sourceOf, updateGroupSchema, updateUnitSchema, workflowDefinitionSchema, functionTakes } from '@tw/shared';
+import { APPLY_TARGETS, INPUT_TYPES, nodeName, AI_OUTPUTS, DEFAULT_TAG_COLOR, AI_PRESETS, AI_PRESET_IDS, aiNodeConfigSchema, KNOWLEDGE_TAG_KINDS, patchOf, TAG_SCOPES, batchChangeSchema, CONDITION_MARK_IDS, CONNECTION_KIND_INFO, ITEM_ERROR_KIND_IDS, createGroupSchema, createUnitSchema, findReadingRouteInputSchema, FUNCTIONS, LINE_MARK_IDS, lineFilterSchema, NODE_TYPES, sourceOf, updateGroupSchema, updateUnitSchema, workflowDefinitionSchema, functionTakes } from '@loca/shared';
 import { z as zod } from 'zod';
 import type { Db } from '../db/index.ts';
-import { byPerson } from './status-by.ts';
 import { inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
-import { linkEvents, projectEventFlow } from './event-routes.ts';
+import { linkEvents, projectEventFlow } from './event-flow.ts';
 import { createLine, deleteGroup, deleteLines, linkInOrder, linkNodes, nodeByKey, sceneByRef, unitByKey, unlinkEdges } from './graph-edit.ts';
 import { characterInput, documentInput, eventInput, relationshipInput, speechRuleInput, termInput } from '../schemas/knowledge.ts';
-import { describeRule, knownListener, speechRuleIndex } from './speech.ts';
-import { calledWorkflowErrors, workflowIssues } from './workflow-issues.ts';
+import { describeRule, knownListener, speechRuleIndex } from '../domain/speech.ts';
+import { workflowIssues } from './workflow-issues.ts';
 import { statusInput, tagInput } from '../schemas/projects.ts';
 import { createStatus, createTag, deleteStatuses, deleteTags, orderStatuses, orderTags, updateStatus, updateTag } from './project-taxonomy.ts';
 import { deleteWorkflow, duplicateWorkflow, saveWorkflow } from './workflow-mutations.ts';
 import { createGroup, updateGroup, updateUnit } from './source-mutations.ts';
 import { undoRecorded } from './undo-records.ts';
-import { mentions } from './context.ts';
 import { startRun } from './start-run.ts';
 import { continueRun } from './run-continue.ts';
 import { groupRunErrors, runErrors } from './run-errors.ts';
-import { readWebPage, webSearch } from './web.ts';
+import { readWebPage, webSearch } from './web-access.ts';
 import { deleteItems, DELETABLE_KINDS } from './item-delete.ts';
 import { projectSettingsInput, readProjectSettings, updateProjectSettings } from './project-settings.ts';
-import { pullDefaults, readAppDefaults } from './app-defaults.ts';
+import { pullDefaults, readAppDefaults } from '../domain/app-defaults.ts';
 
 /** What each project setting is called on a proposal's card. */
 const SETTING_LABELS: Record<string, string> = { name: '이름', description: '설명', formatRules: '서식 규칙', exclusionRules: '번역 제외 규칙', aiAutoConfirm: 'AI 문맥', editorAi: '편집기 AI', markStyles: '자동 태그 표시' };
@@ -33,19 +31,19 @@ const SETTING_LABELS: Record<string, string> = { name: '이름', description: '�
 /** 홈 기본값 sections the agent may pull (connections carry keys and chat settings its own permissions: the person's). */
 const PULLABLE = ['editorAi', 'prompts', 'aiAutoConfirm', 'statuses', 'tags', 'workflows'] as const;
 import { changeView, listViews, pickNodes, routeNodes, saveView, sectionWithMost, viewSection, VIEW_LIMIT, type ViewRoute } from './graph-views.ts';
-import { findView } from './view-flow.ts';
-import { PERSON, type Saver } from './status-by.ts';
-import { asNew, characterByName as characterByNameOf, saveCharacterItem, saveKnowledgeItem, saveRelationshipItem, sent } from './knowledge-save.ts';
-import { aiSetLineListeners } from './ai-knowledge.ts';
-import { discoverAndSave, listTerms, saveTerm, termFilterInput } from './terms.ts';
-import { annotateKnowledge, knowledgeFilterInput } from './knowledge-list.ts';
-import { findTerm, termUsage } from './term-usage.ts';
+import { findView } from '../domain/view-flow.ts';
+import { PERSON, type Saver } from '../domain/saver.ts';
+import { asNew, characterByName as characterByNameOf, saveCharacterItem, saveKnowledgeItem, saveRelationshipItem, sent } from '../domain/knowledge-save.ts';
+import { aiSetLineListeners } from '../domain/ai-knowledge.ts';
+import { discoverAndSave, listTerms, saveTerm, termFilterInput } from '../domain/terms.ts';
+import { annotateKnowledge, knowledgeFilterInput } from '../domain/knowledge-list.ts';
+import { findTerm, termUsage } from '../domain/term-usage.ts';
 import { tagOverview } from './tag-overview.ts';
-import { setKnowledgeTag } from './knowledge-tags.ts';
+import { setKnowledgeTag } from '../domain/knowledge-tags.ts';
 import { planRun, runModelInput } from './run-plan.ts';
-import { applyBatch, checkScript, findLines, lineContext, normalizeBatch, runStats, sceneStats, scenesWith, validateBatch } from './script-query.ts';
-import { addCandidate, declineSuggestion } from './candidates.ts';
-import { revOf, saveLine } from './line-save.ts';
+import { applyBatch, checkScript, findLines, lineAround, normalizeBatch, runStats, sceneStats, scenesWith, validateBatch } from './script-query.ts';
+import { addCandidate, declineSuggestion } from '../domain/candidates.ts';
+import { revOf, saveLine } from '../domain/line-save.ts';
 import { badRequest } from '../refusal.ts';
 import { findReadingRoute } from './reading-route-tool.ts';
 import { checkDeleteItems, checkLineBatch, checkSaveTerms, checkStartRun, checkTagItems, needsRow, unchecked, type Prepared, type ToolCheck } from './proposal-check.ts';
@@ -60,7 +58,7 @@ const page = { offset: z.number().int().min(0).default(0), limit: z.number().int
 /**
  * One tool of the project agent's catalogue: what the model is told, the input it takes and what it does.
  * Everything else about a tool (its label, the permissions it needs, its risk class, whether it goes
- * through the change gate and how many items a call touches) is its spec of the same name in @tw/shared
+ * through the change gate and how many items a call touches) is its spec of the same name in @loca/shared
  * (TOOL_SPECS); nothing here says whether a tool changes the project.
  */
 export interface ToolDef<S extends z.ZodType = z.ZodType, R = unknown> {
@@ -279,7 +277,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
     }),
     show_graph: tool({
       description:
-        'Show the user part of the dialogue graph (the whole graph is too large to read): pick nodes by scenes (ids, keys or titles), speakers (lines they speak), lines (line keys), q (text in lines) and/or between (every node on any path from start to end — all branches of an event, unlike find_reading_route which finds one route; start/end are exact line keys/ids or node keys/ids, verify them with find_lines or line_context first); they add up. around adds the nodes that many steps before and after; exclude leaves lines/nodes out. keep names nodes one by one (exact line keys/ids or node keys/ids) with a short Korean reason each. mode "mark" highlights them in the graph (shown in the section holding most of them); mode "view" saves them as a view (a simplified graph of only these nodes, which the user can reopen, rename and edit): nodes left out between two kept nodes are joined by dashed derived edges the app computes from the real graph, however far apart — keep only the nodes needed to understand what the user asked about, and never invent connections. Put the user\'s request in "request". route instead saves one reading route from start to end as a view (the same route find_reading_route finds, with its default branch at each fork; exact line keys/ids or node keys/ids): the user opens it with its lines in reading order beside the graph and can take other branches there; it cannot be combined with the other picks. Use list_scenes, scenes_with, find_lines, line_context or find_reading_route first. Returns a link the user clicks; tell them what you kept and why.',
+        'Show the user part of the dialogue graph (the whole graph is too large to read): pick nodes by scenes (ids, keys or titles), speakers (lines they speak), lines (line keys), q (text in lines) and/or between (every node on any path from start to end — all branches of an event, unlike find_reading_route which finds one route; start/end are exact line keys/ids or node keys/ids, verify them with find_lines or line_around first); they add up. around adds the nodes that many steps before and after; exclude leaves lines/nodes out. keep names nodes one by one (exact line keys/ids or node keys/ids) with a short Korean reason each. mode "mark" highlights them in the graph (shown in the section holding most of them); mode "view" saves them as a view (a simplified graph of only these nodes, which the user can reopen, rename and edit): nodes left out between two kept nodes are joined by dashed derived edges the app computes from the real graph, however far apart — keep only the nodes needed to understand what the user asked about, and never invent connections. Put the user\'s request in "request". route instead saves one reading route from start to end as a view (the same route find_reading_route finds, with its default branch at each fork; exact line keys/ids or node keys/ids): the user opens it with its lines in reading order beside the graph and can take other branches there; it cannot be combined with the other picks. Use list_scenes, scenes_with, find_lines, line_around or find_reading_route first. Returns a link the user clicks; tell them what you kept and why.',
       inputSchema: z.object({
         scenes: z.array(z.string().min(1)).max(500).default([]),
         speakers: z.array(z.string().min(1)).default([]),
@@ -330,13 +328,13 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         return { ok: true, id: view.id, label: view.label, nodes: view.nodeIds.length, route: Boolean(view.route) };
       },
     }),
-    line_context: tool({
+    line_around: tool({
       description: 'One line (by key) with the lines around it and its neighbours in the dialogue graph: which nodes lead to it and where it leads (choices, conditions, waits).',
       inputSchema: z.object({ key: z.string(), around: z.number().int().min(0).max(30).default(5) }),
-      execute: ({ key, around }) => lineContext(db, projectId, key, around) ?? { error: '대사를 찾을 수 없습니다.' },
+      execute: ({ key, around }) => lineAround(db, projectId, key, around) ?? { error: '대사를 찾을 수 없습니다.' },
     }),
     find_reading_route: tool({
-      description: 'Find one actual dialogue path between two verified content-node boundaries. start/end must be exact project line keys, unit IDs or content-node IDs; first use find_lines or line_context to verify the endpoints and never guess IDs. A line key selects its whole graph node: for a multi-line start node the route begins at its first line, and for a multi-line end node it includes through the last line. Parallel stages keep every mandatory arm; conditions use one reachable branch. Returns endpoint evidence, counts and an app link; the app loads the route itself.',
+      description: 'Find one actual dialogue path between two verified content-node boundaries. start/end must be exact project line keys, unit IDs or content-node IDs; first use find_lines or line_around to verify the endpoints and never guess IDs. A line key selects its whole graph node: for a multi-line start node the route begins at its first line, and for a multi-line end node it includes through the last line. Parallel stages keep every mandatory arm; conditions use one reachable branch. Returns endpoint evidence, counts and an app link; the app loads the route itself.',
       inputSchema: findReadingRouteInputSchema,
       execute: (input) => findReadingRoute(db, projectId, input),
     }),
@@ -448,7 +446,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
           table: Object.fromEntries(SUBJECTS.map((input) => [input, { batchModes: INPUT_TYPES[input].batchModes, contextFields: INPUT_TYPES[input].contextFields, conditionRows: INPUT_TYPES[input].conditionRows, nodes: FUNCTION_NAMES.filter((name) => functionTakes(name, input) && !SUBJECTS.every((other) => functionTakes(name, other))) }])),
           rules: 'A node of the other input, or a batch mode the input does not have, is a validation error (the table above is the only source). Conditions read unit.* for lines and term.* for terms.',
           scope: 'start_run / plan_run: a lines workflow takes filter (the line filter of find_lines); a terms workflow takes terms { terms (ids or sources), statuses, marks, tags, decidedBy, emptyTarget }. A scope of the other kind is refused.',
-          usage: 'Typical terms workflow: entry input terms → AI node (json: target, note) → 용어 표기 저장.',
+          usage: 'Typical terms workflow: entry input terms → AI node (json: target, note) → 번역 저장 (saveCandidate).',
         },
         definitionShape: 'nodes: [{id, type: entry|ai|function|condition|gather|call, position:{x,y}, label?, config, exits? (exit id → exit actions: tags and statuses, see exitActions)}], edges: [{id, source, sourceHandle (exit id), target}], settings: {maxVisitsPerNode, maxConsecutiveFailures, retries (the retry rules of every AI node whose config.retries is null)}, groups?: [{id, label, nodeIds, box?: {x,y,width,height}}] (frames drawn around steps in reading order, display only: the runner ignores them; a node in at most one; keep them when editing, and put a new node in the frame of the step it belongs to; box is where the app stands the frame: keep it as it is, the app grows a frame to hold a node outside it; a frame may be empty, drawn by a person to put nodes in: keep it)',
         aiNode: {
@@ -596,7 +594,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       execute: (input) => linkEvents(db, projectId, { ...input, origin: 'ai' }),
     }),
     link_lines: tool({
-      description: 'Draw or delete a line of the dialogue graph between two lines (or nodes), by key: link adds from → to (with the choice label if given), unlink removes it. Use when the flow is wrong or missing (find_lines / line_context / show_graph first). Lines drawn this way are marked as made by the AI. Answers with undoId when it changed the graph: restore_deleted (kind script) puts the graph back as it was.',
+      description: 'Draw or delete a line of the dialogue graph between two lines (or nodes), by key: link adds from → to (with the choice label if given), unlink removes it. Use when the flow is wrong or missing (find_lines / line_around / show_graph first). Lines drawn this way are marked as made by the AI. Answers with undoId when it changed the graph: restore_deleted (kind script) puts the graph back as it was.',
       inputSchema: z.object({ from: z.string().min(1), to: z.string().min(1), action: z.enum(['link', 'unlink']), label: z.string().optional() }),
       undo: undoesRecord(() => 'script'),
       execute: ({ from, to, action, label }) => {
@@ -1084,7 +1082,7 @@ export const AGENT_SYSTEM = `당신은 게임 번역 작업실 loca의 프로젝
 일하는 방식:
 - 먼저 조회 도구로 실제 데이터를 읽고, 읽은 내용에 근거해 답합니다. 추측한 사실을 사실처럼 쓰지 않습니다.
 - 대본 전체를 읽어야 하면 list_scenes와 read_scene을 offset으로 끝까지 넘기며 읽습니다. 대사는 find_lines 하나로 필터를 조합해 찾습니다(화자·언급 인물·장면·구역·상태·태그·번역 여부). total에 닿을 때까지 offset을 넘기고, 작은 호출을 여러 번 하기보다 넓게 한 번에 읽습니다. 여러 줄을 바꿀 때는 propose_changes 하나로 묶고 rev를 함께 넘깁니다. 문제 찾기는 check_script, 진행 상황은 script_stats를 씁니다.
-- 사용자가 두 대사 사이의 실제 경로를 요청하면 find_lines 또는 line_context로 양 끝 키를 확인한 뒤 find_reading_route를 씁니다. 이 도구의 끝점은 대사 노드 전체이며, 여러 줄이 한 노드에 있으면 시작은 첫 줄부터, 끝은 마지막 줄까지 포함합니다. 반환된 앱 링크에서 해당 경로의 전체 대본을 확인할 수 있습니다.
+- 사용자가 두 대사 사이의 실제 경로를 요청하면 find_lines 또는 line_around로 양 끝 키를 확인한 뒤 find_reading_route를 씁니다. 이 도구의 끝점은 대사 노드 전체이며, 여러 줄이 한 노드에 있으면 시작은 첫 줄부터, 끝은 마지막 줄까지 포함합니다. 반환된 앱 링크에서 해당 경로의 전체 대본을 확인할 수 있습니다.
 - 도구를 쓴 뒤에는 반드시 사용자에게 결과나 다음 단계를 글로 알립니다. 아무 말 없이 차례를 끝내지 않습니다.
 - 프로젝트를 바꾸는 도구(save_*, propose_*, tag_items, start_run 등)는 대화의 권한 모드를 따릅니다. 바로 반영되면 도구 결과에 '바로 반영했습니다'(제안만 더하는 propose_translation은 'AI 제안으로 올렸습니다')와 결과가 오고, 사용자 결정이 필요하면 '제안을 올렸습니다'가 옵니다. 제안을 올렸다면 무엇을 왜 제안했는지 한두 문장으로 설명하고 이번 답을 마치세요. 대화의 제안이 모두 결정되면 결과가 와서 이어서 진행합니다. 한 번에 검토할 수 있는 크기로 바꿉니다.
 - 워크플로를 만들기 전에는 harness_reference를 읽습니다(AI 노드의 model은 거기 나온 연결 id와 그 연결의 모델).

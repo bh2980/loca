@@ -3,7 +3,7 @@
  * `${call}/${inner}`, all at the call's position). The run graph shows each top-level call as ONE card
  * again; these helpers fold the definition, the edges and the live counts, and list what is inside.
  */
-import { callTrail, nodeName, type WorkflowDefinition, type WorkflowEdge, type WorkflowNode } from '@tw/shared';
+import { callTrail, nodeName, type WorkflowDefinition, type WorkflowEdge, type WorkflowNode } from '@loca/shared';
 
 /** The top-level calls of a run's definition that have nodes inside (a call to a workflow with nothing in it left none). */
 export const topCallIds = (definition: Pick<WorkflowDefinition, 'nodes' | 'calls'>): string[] =>

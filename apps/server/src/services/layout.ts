@@ -2,9 +2,10 @@ import { Worker } from 'node:worker_threads';
 import { z } from 'zod';
 import { and, asc, eq, inArray, ne, notInArray, notLike, sql } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
+import { perDatabase, type DatabaseHandle } from '../db/per-database.ts';
 import { graphEdges, graphLayouts, graphNodes, groups, projects, units, type LayoutData, type OmittedFacts } from '../db/schema.ts';
-import { contractEdges, isControlNode } from '@tw/shared';
-import { foldChoices } from './choices.ts';
+import { contractEdges, isControlNode } from '@loca/shared';
+import { foldChoices } from './graph-choices.ts';
 import { scriptRanks } from './script-rank.ts';
 import type { LayoutDirection, LayoutJob, SceneSource, SectionLayouts, WorkerJob } from './layout-worker.ts';
 
@@ -26,7 +27,7 @@ const LAYOUT_TIMEOUT_MS = 5 * 60_000;
 class Cancelled extends Error {}
 
 /** Projects whose layout is being computed: the live worker, and whether another run was asked for meanwhile. */
-const active = new Map<string, { worker: Worker | null; rerun: Set<LayoutDirection>; cancelled: boolean }>();
+const active = perDatabase(() => new Map<string, { worker: Worker | null; rerun: Set<LayoutDirection>; cancelled: boolean }>());
 
 const workerResultSchema = z.discriminatedUnion('ok', [
   z.object({ ok: z.literal(true), data: z.record(z.string(), z.unknown()) }),
@@ -154,15 +155,17 @@ const projectExists = (db: Db, projectId: string) => !!db.select({ id: projects.
 
 const VIEW = '보기';
 interface ViewJob { promise: Promise<void>; worker?: Worker; cancelled: boolean }
-const viewJobs = new Map<string, ViewJob>();
+/** View layouts being computed, by project, view key and direction. */
+const viewJobs = perDatabase(() => new Map<string, ViewJob>());
 
 /** Invalidate in-flight results together with the stored layouts. */
-export function cancelViewLayouts(projectId: string, key?: string) {
+export function cancelViewLayouts(db: DatabaseHandle, projectId: string, key?: string) {
   const prefix = `${projectId}:${key ? `${key}:` : ''}`;
-  for (const [id, job] of viewJobs) if (id.startsWith(prefix)) {
+  const jobs = viewJobs(db);
+  for (const [id, job] of jobs) if (id.startsWith(prefix)) {
     job.cancelled = true;
     void job.worker?.terminate().catch(() => {});
-    viewJobs.delete(id);
+    jobs.delete(id);
   }
 }
 
@@ -175,12 +178,13 @@ export function cancelViewLayouts(projectId: string, key?: string) {
  */
 export function nodeSetLayout(db: Db, projectId: string, key: string, nodeIds: string[], label = '', direction: LayoutDirection = 'vertical', derived = true): Promise<void> {
   const jobKey = `${projectId}:${key}:${direction}`;
-  const running = viewJobs.get(jobKey);
+  const jobs = viewJobs(db);
+  const running = jobs.get(jobKey);
   if (running) return running.promise;
   const job: ViewJob = { promise: Promise.resolve(), cancelled: false };
-  viewJobs.set(jobKey, job);
+  jobs.set(jobKey, job);
   job.promise = computeNodeSetLayout(db, projectId, key, nodeIds, label, direction, job, derived).finally(() => {
-    if (viewJobs.get(jobKey) === job) viewJobs.delete(jobKey);
+    if (jobs.get(jobKey) === job) jobs.delete(jobKey);
   });
   return job.promise;
 }
@@ -297,9 +301,9 @@ export function projectsWithoutLayouts(db: Db) {
 }
 
 /** Stops the layout of a project that is being deleted; its result would have nowhere to go. */
-export function cancelLayout(projectId: string) {
-  cancelViewLayouts(projectId);
-  const state = active.get(projectId);
+export function cancelLayout(db: Db, projectId: string) {
+  cancelViewLayouts(db, projectId);
+  const state = active(db).get(projectId);
   if (!state) return;
   state.cancelled = true;
   state.rerun.clear();
@@ -307,13 +311,14 @@ export function cancelLayout(projectId: string) {
 }
 
 /**
- * Layout is computed once per import (the source graph never changes) and stored. Never rejects:
+ * Layout is computed when the graph is imported or edited, and stored. Never rejects:
  * a failure ends up as a failed layout, and a project deleted meanwhile is dropped quietly. One
  * computation per project at a time; a request that arrives meanwhile reruns once afterwards.
  */
 export async function computeLayouts(db: Db, projectId: string, options: { sectionsOnly?: boolean; direction?: LayoutDirection } = {}): Promise<void> {
   const direction = options.direction ?? 'vertical';
-  const running = active.get(projectId);
+  const jobs = active(db);
+  const running = jobs.get(projectId);
   if (running) {
     // A second orientation may be requested while the first is laying out. Publish pending rows
     // now so the route can render a loading state and repeated section reads won't queue reruns.
@@ -325,7 +330,7 @@ export async function computeLayouts(db: Db, projectId: string, options: { secti
     return;
   }
   const state = { worker: null as Worker | null, rerun: new Set<LayoutDirection>(), cancelled: false };
-  active.set(projectId, state);
+  jobs.set(projectId, state);
   try {
     let next: LayoutDirection | undefined = direction;
     while (next && !state.cancelled) {
@@ -336,7 +341,7 @@ export async function computeLayouts(db: Db, projectId: string, options: { secti
   } catch (error) {
     if (!(error instanceof Cancelled)) console.error('layout failed', error);
   } finally {
-    active.delete(projectId);
+    jobs.delete(projectId);
   }
 }
 

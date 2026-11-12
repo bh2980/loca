@@ -1,9 +1,9 @@
 import { eq } from 'drizzle-orm';
 import type { z } from 'zod';
-import type { AiNode, Subject } from '@tw/shared';
+import type { AiNode, Subject } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { resolveChoiceOptions } from '../services/choice-options.ts';
+import { resolveChoiceOptions } from './choice-options.ts';
 import { isBatchScope, outputSchema } from './prompts.ts';
 import { subjectOf, type RequestItem, type RequestParts } from './subjects.ts';
 

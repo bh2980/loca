@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_RETRY_RULES, workflowDefinitionSchema } from '@tw/shared';
+import { DEFAULT_RETRY_RULES, workflowDefinitionSchema } from '@loca/shared';
 import { openDatabase } from './index.ts';
 
 const node = (id: string, type: string, config: object = {}) => ({ id, type, position: { x: 0, y: 0 }, config });

@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
-import * as ai from '@tw/ai';
-import { importFileSchema, workflowDefinitionSchema } from '@tw/shared';
+import * as ai from '@loca/ai';
+import { importFileSchema, workflowDefinitionSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
-import { snapshotWorkflowModels } from '../services/model-target.ts';
+import { snapshotWorkflowModels } from '../domain/model-target.ts';
 import { continueRun } from '../services/run-continue.ts';
-import { memoryStore, storeFailure, type SecretStore } from '../services/secrets.ts';
+import { memoryStore, storeFailure, type SecretStore } from '../domain/secrets.ts';
 import { promptEntries } from './prompts.ts';
 import * as request from './request.ts';
 import { createRun, createRunInSteps, UNPREPARED } from './run-create.ts';

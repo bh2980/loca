@@ -1,5 +1,5 @@
 import { and, eq } from 'drizzle-orm';
-import { AGE_BAND_LABELS, bySubject, cardSummary, CHARACTER_ROLE_LABELS, GENDER_LABELS, GROUP_KIND_LABELS, KNOWLEDGE_STATUS_LABELS, nodeName, SPEECH_LEVEL_LABELS, startCaps, TERM_LINE_KIND_LABELS, type AutoMark, type ProposalDetail, type RunCaps, type WorkflowDefinition } from '@tw/shared';
+import { AGE_BAND_LABELS, bySubject, cardSummary, CHARACTER_ROLE_LABELS, GENDER_LABELS, GROUP_KIND_LABELS, KNOWLEDGE_STATUS_LABELS, nodeName, SPEECH_LEVEL_LABELS, startCaps, TERM_LINE_KIND_LABELS, type AutoMark, type ProposalDetail, type RunCaps, type WorkflowDefinition } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { DELETABLE } from './item-delete.ts';
@@ -7,7 +7,7 @@ import { snapshot } from './proposal-undo.ts';
 
 /**
  * What a tool's `preview` (agent-tools.ts) is built from: the few shapes a proposal's card draws (ProposalDetail,
- * @tw/shared), with the project's own names for the ids a change names and, for a save, what each field holds now
+ * @loca/shared), with the project's own names for the ids a change names and, for a save, what each field holds now
  * (or held, once accepted) beside what it gets. A tool says its own change here; nothing looks a tool up by name.
  */
 type Proposal = typeof s.proposals.$inferSelect;

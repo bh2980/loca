@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import type * as acp from '@agentclientprotocol/sdk';
-import type { CliKind } from '@tw/shared';
+import type { CliKind } from '@loca/shared';
 import { AcpAgent } from './acp.ts';
 import { fakeAgent } from './fake-acp.ts';
 

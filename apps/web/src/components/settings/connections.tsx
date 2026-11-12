@@ -14,7 +14,7 @@ import {
   connectionInputSchema,
   type Capability,
   type ConnectionKind,
-} from '@tw/shared';
+} from '@loca/shared';
 import {
   Chip,
   Box,

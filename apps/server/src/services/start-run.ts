@@ -1,13 +1,13 @@
 import { and, eq } from 'drizzle-orm';
-import { runScopeInputSchema, withRunModels, workflowInput, type RunCaps, type RunLimits, type RunModels, type RunScope, type WorkflowDefinition } from '@tw/shared';
+import { runScopeInputSchema, withRunModels, workflowInput, type RunCaps, type RunLimits, type RunModels, type RunScope, type WorkflowDefinition } from '@loca/shared';
 import { badRequest } from '../refusal.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { createRunInSteps } from '../engine/run-create.ts';
 import { subjectOf } from '../engine/subjects.ts';
-import { preflight } from './preflight.ts';
+import { preflight } from '../engine/preflight.ts';
 import { askedScope, resolveRunModels, scopeMismatch, type RunModelInput } from './run-plan.ts';
-import { snapshotWorkflowModels } from './model-target.ts';
+import { snapshotWorkflowModels } from '../domain/model-target.ts';
 import { calledWorkflowErrors, workflowIssues } from './workflow-issues.ts';
 
 /** A scope that does not fit the workflow's input (line scenes for terms, the other input's marks…) is refused. */

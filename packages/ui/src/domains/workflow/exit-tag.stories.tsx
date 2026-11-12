@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useId, type ReactNode } from "react"
 import { Braces, GitFork, ScanSearch } from "lucide-react"
-import { STATUS_COLORS } from "@tw/shared"
+import { STATUS_COLORS } from "@loca/shared"
 import { ExitTag, ExitTagAdd, ExitTagList, type ExitTagItem } from "./exit-tag"
 import { NodeCard } from "./node-card"
 import { WorkflowFrame, WorkflowFrameTint } from "./workflow-frame"

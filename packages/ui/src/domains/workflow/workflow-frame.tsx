@@ -15,13 +15,12 @@ export const FRAME_HEADER = 32
  *
  * In the editor it also takes `onRename` (the pencil shown on the header, the menu, or a double-click on the name; the
  * page can open it with `renaming`, and hears `onRenamed` once the field closes), `onUngroup` (프레임만 삭제: the nodes stay)
- * and `onDelete` (삭제: the frame and the nodes in it, as Figma deletes a section with its contents); `selected` rings it as a picked node is, and `over` while nodes dragged onto it would join it.
+ * and `onDelete` (삭제: the frame and the nodes in it, as Figma deletes a section with its contents); `selected` rings it as a picked node is (a drop target is marked by its tint, WorkflowFrameTint `over`).
  */
-export function WorkflowFrame({ label, meta, live, over, selected, renaming, onRename, onRenamed, onUngroup, onDelete, ungroupKey }: {
+export function WorkflowFrame({ label, meta, live, selected, renaming, onRename, onRenamed, onUngroup, onDelete, ungroupKey }: {
   label: string
   meta?: string
   live?: ReactNode
-  over?: boolean
   selected?: boolean
   /** Opens the name field (a frame just made, or 이름 바꾸기 from elsewhere). */
   renaming?: boolean

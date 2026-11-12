@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { ReactFlowProvider } from '@xyflow/react';
 import { ChevronRight, Frame, Pencil, Plus } from 'lucide-react';
-import { nodeName, exitActions } from '@tw/shared';
+import { nodeName, exitActions } from '@loca/shared';
 import { Page, StatusBarItem } from '@/components/page';
 import { EditorPane } from '@/components/workflow/editor-pane';
 import { exitKey } from '@/components/workflow/exit-marks';
@@ -19,7 +19,7 @@ import { useWorkflowSelection } from '@/components/workflow/use-workflow-selecti
 import { useWorkflowView } from '@/components/workflow/use-workflow-view';
 import { WorkflowCanvasView } from '@/components/workflow/workflow-canvas';
 import { SplitPane, PageHeading, HeaderActions, NodeLibrary, type CanvasDirection, Box, Button, Icon, Inline, Stack, Text, Input, Skeleton, Popover, PopoverContent, PopoverTrigger } from '@loca/ui';
-import { useReportView } from '@/lib/view-context';
+import { useReportView } from '@/lib/reported-view';
 import { param, searchParams } from '@/lib/search';
 import { dateTime } from '@/lib/datetime';
 import { useWorkflows } from '@/lib/workflows';

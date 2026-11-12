@@ -1,13 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { importFileSchema, ISSUE_KINDS, workflowDefinitionSchema, type ApplyFunctionName, applyParams, functionConfigSchema } from '@tw/shared';
+import { importFileSchema, ISSUE_KINDS, workflowDefinitionSchema, type ApplyFunctionName, applyParams, functionConfigSchema } from '@loca/shared';
 import { openDatabase } from '../../db/index.ts';
 import * as s from '../../db/schema.ts';
 import { importProject } from '../../services/importer.ts';
-import { issueTagIds } from '../../services/issue-tags.ts';
-import { snapshotWorkflowModels } from '../../services/model-target.ts';
+import { snapshotWorkflowModels } from '../../domain/model-target.ts';
 import { createRun } from '../run-create.ts';
-import { events } from '../../events.ts';
+import { eventsOf } from '../../events.ts';
 import { applyFunctions, applyItems } from './apply.ts';
 import { HUMAN_OWNED_NOTE, FUNCTION_IMPLEMENTATIONS, runInstantFunction, type FunctionInput } from './index.ts';
 
@@ -205,6 +204,7 @@ describe('apply nodes', () => {
   it('is registered as instant functions, and what it writes says its own topic (no list of them here)', () => {
     expect(Object.keys(FUNCTION_IMPLEMENTATIONS)).toEqual(expect.arrayContaining(Object.keys(applyFunctions)));
     const ctx = setup();
+    const events = eventsOf(ctx.db);
     events.flush();
     const topics = new Set<string>();
     const listen = (event: { topics: string[] }) => event.topics.forEach((topic) => topics.add(topic));

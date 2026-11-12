@@ -1,10 +1,10 @@
 import { and, count, eq, inArray, sql } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { patchOf, TAG_SCOPES, TAG_SCOPE_LABELS } from '@tw/shared';
-import { projectTags, tagUseIn } from './tag-scope.ts';
+import { patchOf, TAG_SCOPES, TAG_SCOPE_LABELS } from '@loca/shared';
+import { projectTags, tagUseIn } from '../domain/tag-scope.ts';
 import { deleteItems } from './item-delete.ts';
-import { blankLinesIn, setLineStatus, type StatusSetter } from './line-save.ts';
+import { blankLinesIn, setLineStatus, type StatusSetter } from '../domain/line-save.ts';
 import { statusInput, tagInput } from '../schemas/projects.ts';
 import { badRequest, notFound, valid } from '../refusal.ts';
 

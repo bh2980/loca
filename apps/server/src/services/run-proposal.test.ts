@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
-import { importFileSchema, workflowDefinitionSchema, type ProposalDetail } from '@tw/shared';
+import { importFileSchema, workflowDefinitionSchema, type ProposalDetail } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { proposeChange } from './change-gate.ts';

@@ -2,7 +2,7 @@ import { useNavigate, useParams } from '@tanstack/react-router';
 import { useState } from 'react';
 import { Check, CircleAlert, Network, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { acceptedLabel, findReadingRouteOutputSchema, toolRoute, toolSpec } from '@tw/shared';
+import { acceptedLabel, findReadingRouteOutputSchema, toolRoute, toolSpec } from '@loca/shared';
 import { workflowEdits, type WorkflowNodeEdit } from '@/lib/workflow-edits';
 import { LABEL } from './change-preview';
 import { ProposalCard, type Proposal } from './proposal-card';

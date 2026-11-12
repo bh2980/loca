@@ -1,9 +1,9 @@
 import { and, asc, desc, eq, inArray, ne, or, sql, type AnyColumn, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
-import { ATTACH_KINDS, ATTACH_PAGE, ATTACH_PER_KIND, CHARACTER_ROLE_LABELS, listenerLabel, SPEECH_LEVEL_LABELS, type AttachItem, type AttachKind, type AttachSearchResult } from '@tw/shared';
+import { ATTACH_KINDS, ATTACH_PAGE, ATTACH_PER_KIND, CHARACTER_ROLE_LABELS, listenerLabel, SPEECH_LEVEL_LABELS, type AttachItem, type AttachKind, type AttachSearchResult } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { lineTextFilter } from './line-text.ts';
+import { lineTextFilter } from '../domain/line-text.ts';
 
 /**
  * The chat's @ search (docs/CHAT-INPUT-DESIGN.md 2): one query per kind, each limited in SQL (lines go

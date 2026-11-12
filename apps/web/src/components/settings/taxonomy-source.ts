@@ -3,7 +3,7 @@
  * (rows of its own, each write an API call) or the home's defaults a new project starts with (two lists saved whole).
  */
 import { useMemo } from 'react';
-import type { TemplateStatus, TemplateTag } from '@tw/shared';
+import type { TemplateStatus, TemplateTag } from '@loca/shared';
 import type { StatusForm, StatusRowData, TagForm, TagRowData, WithoutUnits } from '@/components/settings/status-types';
 import { saveAppDefaults, useAppDefaults } from '@/lib/app-data';
 import { reorderTaxonomy, taxonomyWrites, useTaxonomy, useTaxonomyCounts } from '@/lib/knowledge';

@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useLiveQuery } from '@tanstack/react-db';
-import { duplicateTargets } from '@tw/shared';
+import { duplicateTargets } from '@loca/shared';
 import type { InferRequestType } from 'hono/client';
 import { client } from './api';
 import { liveRows, projectCollection, sent, type FeedRow } from './collections';

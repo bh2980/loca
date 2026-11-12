@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
-import { listenerLabel, personLabel, SPEECH_LEVEL_LABELS, SPECIAL_LISTENERS, styleNames } from '@tw/shared';
+import { listenerLabel, personLabel, SPEECH_LEVEL_LABELS, styleNames } from '@loca/shared';
 import { Box, HoverCard, HoverCardContent, HoverCardTrigger, Inline, Stack, Text } from '@loca/ui';
 import { useCharacters, useSpeechRules } from '@/lib/knowledge';
 

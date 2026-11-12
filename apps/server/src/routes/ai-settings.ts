@@ -1,15 +1,15 @@
 import { Hono } from 'hono';
 import { and, desc, eq, isNull, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
-import * as ai from '@tw/ai';
-import { CALL_TIMEOUT_MS, CONNECTION_KIND_INFO, connectionCan, connectionInputSchema, isConnectionKind, patchOf } from '@tw/shared';
+import * as ai from '@loca/ai';
+import { CALL_TIMEOUT_MS, CONNECTION_KIND_INFO, connectionCan, connectionInputSchema, isConnectionKind, patchOf } from '@loca/shared';
 import type { Context } from 'hono';
-import { badRequest, found, validate, type Env } from '../context.ts';
+import { badRequest, found, validate, type Env } from '../http.ts';
 import * as s from '../db/schema.ts';
-import { logged } from '../services/ai-calls.ts';
+import { logged } from '../domain/ai-calls.ts';
 import { connectionRows } from '../services/connection-rows.ts';
 import type { Db } from '../db/index.ts';
-import { choiceLabel, connectionTarget, liveChoice } from '../services/model-target.ts';
+import { choiceLabel, connectionTarget, liveChoice } from '../domain/model-target.ts';
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 

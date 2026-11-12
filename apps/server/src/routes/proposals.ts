@@ -1,15 +1,15 @@
 import { Hono } from 'hono';
 import { and, count, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { z } from 'zod';
-import { toolRoute } from '@tw/shared';
-import { badRequest, validate, type Env } from '../context.ts';
+import { toolRoute } from '@loca/shared';
+import { badRequest, validate, type Env } from '../http.ts';
 import * as s from '../db/schema.ts';
 import { checkAgentPermission } from '../services/agent-catalog.ts';
 import { agentTools, type ToolDef } from '../services/agent-tools.ts';
 import { undoChanges } from '../services/change-gate.ts';
 import { decideProposal } from '../services/proposals.ts';
 import { proposalRow } from '../services/proposal-details.ts';
-import { continueAfterDecisions } from '../services/chat-run.ts';
+import { continueAfterDecisions } from '../services/chat-turn.ts';
 
 /** Changes proposed by CLI chats and the loca CLI, decided in the chat panel. */
 export const proposalRoutes = new Hono<Env>()

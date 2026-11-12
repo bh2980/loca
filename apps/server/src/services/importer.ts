@@ -1,9 +1,9 @@
 import { and, eq } from 'drizzle-orm';
-import { detectFormatRules, templateStatusIds, type DraftModelChoice, type ImportFile } from '@tw/shared';
+import { detectFormatRules, templateStatusIds, type DraftModelChoice, type ImportFile } from '@loca/shared';
 import type { Db } from '../db/index.ts';
-import { copyKeys, seedProject, type KeyCopy } from './app-defaults.ts';
-import type { SecretStore } from './secrets.ts';
-import { attachUnitTags } from './tag-scope.ts';
+import { copyKeys, seedProject, type KeyCopy } from '../domain/app-defaults.ts';
+import type { SecretStore } from '../domain/secrets.ts';
+import { attachUnitTags } from '../domain/tag-scope.ts';
 
 /** Colors for tags that came with the file, in turn. */
 const TAG_COLORS = ['#0091ad', '#009589', '#6d8e1c', '#8f68cb', '#bc5694', '#6076de'];

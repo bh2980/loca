@@ -1,6 +1,6 @@
 /** AI node settings, grouped by the user's task: model, instruction, output, advanced. */
 import { useEffect, useState } from 'react';
-import { AI_OUTPUTS, AI_SCOPES, CONTEXT_FIELDS, CHOICE_SOURCES, CONNECTION_KIND_INFO, BATCH_MODE_LABELS, autoBudgets, contextConfigSchema, DEFAULT_RETRY_RULES, INPUT_TYPES, limitsFor, nodeName, previousSteps, retrySummary, type Subject, type AiOutput, type AiScope, type BatchConfig, type Capability, type ChoiceSource, type WorkflowNode, bySubject, type ContextConfig } from '@tw/shared';
+import { AI_OUTPUTS, AI_SCOPES, CONTEXT_FIELDS, CHOICE_SOURCES, CONNECTION_KIND_INFO, BATCH_MODE_LABELS, autoBudgets, contextConfigSchema, DEFAULT_RETRY_RULES, INPUT_TYPES, limitsFor, nodeName, previousSteps, retrySummary, type Subject, type AiOutput, type AiScope, type BatchConfig, type Capability, type ChoiceSource, type WorkflowNode, bySubject, type ContextConfig } from '@loca/shared';
 import { Box, Button, Dialog, DialogContent, DialogHeader, DialogTitle, HelpTip, Inline, Input, NumberInput, SelectField, SelectItem, Stack, Text, Textarea, Section, Group, Field } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
 import { ModelPicker } from '@/components/model-picker';

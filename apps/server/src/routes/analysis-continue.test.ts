@@ -1,13 +1,13 @@
 import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
-import { analysisTemplate, importFileSchema } from '@tw/shared';
-import { onError, type Env } from '../context.ts';
+import { analysisTemplate, importFileSchema } from '@loca/shared';
+import { onError, type Env } from '../http.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { createRun } from '../engine/run-create.ts';
 import { importProject } from '../services/importer.ts';
-import { snapshotWorkflowModels } from '../services/model-target.ts';
+import { snapshotWorkflowModels } from '../domain/model-target.ts';
 import { workflowRoutes } from './workflows.ts';
 
 function setup() {

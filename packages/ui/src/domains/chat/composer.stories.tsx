@@ -7,7 +7,7 @@ import { Button } from "../../controls/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuSeparator, DropdownMenuTrigger } from "../../controls/dropdown-menu"
 import { AttachmentChip } from "./attachment-chip"
 import { ComposerInput, ComposerMenu, type ComposerGroup } from "./composer"
-import { ContextMeterView } from "./context-meter"
+import { WindowMeterView } from "./window-meter"
 import { MenuRowAction, MenuRowMeta } from "../../patterns/menu-row"
 import { ModeSelect } from "./select"
 import { ListRow } from "../../patterns/list-row"
@@ -87,7 +87,7 @@ export const ComposerFooter: Story = {
         <Box minWidth={0} grow><Text variant="caption" tone="muted">모델 선택</Text></Box>
         <ModeSelect value="auto" icon={ShieldCheck} compact label="변경 권한 모드" onValueChange={() => {}} options={MODES} />
         <Inline marginLeft="auto" gap="tight">
-          <ContextMeterView percent={42} level="ok"><p>마지막 답의 입력 54,000 / 문맥 창 128,000 토큰</p></ContextMeterView>
+          <WindowMeterView percent={42} level="ok"><p>마지막 답의 입력 54,000 / 문맥 창 128,000 토큰</p></WindowMeterView>
           <Button type="button" size="icon" variant="ghost" aria-label="첨부 (@)"><Paperclip /></Button>
         </Inline>
       </Inline>
@@ -95,12 +95,12 @@ export const ComposerFooter: Story = {
   ),
 }
 
-export const ContextMeterLevels: Story = {
+export const WindowMeterLevels: Story = {
   render: () => (
     <Inline gap="normal">
-      <ContextMeterView percent={42} level="ok"><p>마지막 답의 입력 54,000 / 문맥 창 128,000 토큰</p></ContextMeterView>
-      <ContextMeterView percent={86} level="high"><p>가득 차면 앞 대화를 요약해 이어갑니다.</p></ContextMeterView>
-      <ContextMeterView percent={97} level="full"><p>가득 차면 앞 대화를 요약해 이어갑니다.</p></ContextMeterView>
+      <WindowMeterView percent={42} level="ok"><p>마지막 답의 입력 54,000 / 문맥 창 128,000 토큰</p></WindowMeterView>
+      <WindowMeterView percent={86} level="high"><p>가득 차면 앞 대화를 요약해 이어갑니다.</p></WindowMeterView>
+      <WindowMeterView percent={97} level="full"><p>가득 차면 앞 대화를 요약해 이어갑니다.</p></WindowMeterView>
     </Inline>
   ),
 }

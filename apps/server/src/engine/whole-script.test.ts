@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { ModelError } from '@tw/ai';
-import { importFileSchema, workflowDefinitionSchema } from '@tw/shared';
+import { ModelError } from '@loca/ai';
+import { importFileSchema, workflowDefinitionSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
-import { snapshotWorkflowModels } from '../services/model-target.ts';
-import { memoryStore } from '../services/secrets.ts';
+import { snapshotWorkflowModels } from '../domain/model-target.ts';
+import { memoryStore } from '../domain/secrets.ts';
 import { INPUT_SCRIPT } from './format-sentences.ts';
 import { Runner, type ModelPort } from './runner.ts';
 import { createRun, createRunInSteps } from './run-create.ts';

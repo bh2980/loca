@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createLiveQueryCollection } from '@tanstack/react-db';
-import type { FeedSnapshot } from '@tw/shared';
+import type { FeedSnapshot } from '@loca/shared';
 import { feedCollection } from './collections';
 import { createFeed, feed } from './feed';
 

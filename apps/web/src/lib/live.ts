@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import type { QueryClient } from '@tanstack/react-query';
 import { useRouterState } from '@tanstack/react-router';
-import { APP_FEED, FEED_EVENT, type ChangeEvent, type Topic } from '@tw/shared';
+import { APP_FEED, FEED_EVENT, type ChangeEvent, type Topic } from '@loca/shared';
 import { CLIENT_ID } from './api';
 import { feed as appFeed, type Feed } from './feed';
 
@@ -18,7 +18,7 @@ const follows = (changed: Set<unknown>) => (query: { queryKey: readonly unknown[
 /**
  * Refetches the questions of the changed topics: the queries whose key starts with one, and those keyed
  * otherwise that say which topics they follow (`meta.follows`, lib/query-keys.ts). What a topic implies is
- * already in the list (IMPLIES in @tw/shared; the server adds it). Used for events and for a write's own x-changed.
+ * already in the list (IMPLIES in @loca/shared; the server adds it). Used for events and for a write's own x-changed.
  */
 export function refetchTopics(queryClient: QueryClient, topics: Iterable<Topic>) {
   void queryClient.invalidateQueries({ predicate: follows(new Set<unknown>(topics)) });

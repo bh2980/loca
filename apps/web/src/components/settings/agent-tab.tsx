@@ -1,5 +1,5 @@
 import { toast } from 'sonner';
-import { AGENT_ACTIONS, AGENT_RESOURCES, effectiveAgentPermissions, PERMISSION_MODE_INFO, type AgentAction, type AgentPermissions, type AgentResource, type AgentSettings, type PermissionMode } from '@tw/shared';
+import { AGENT_ACTIONS, AGENT_RESOURCES, effectiveAgentPermissions, PERMISSION_MODE_INFO, type AgentAction, type AgentPermissions, type AgentResource, type AgentSettings, type PermissionMode } from '@loca/shared';
 import { PermissionModePicker } from '@/components/chat/permission-mode';
 import { Box, Button, PermissionMatrix, Text, Section, Inline } from '@loca/ui';
 import { ModelPicker } from '@/components/model-picker';

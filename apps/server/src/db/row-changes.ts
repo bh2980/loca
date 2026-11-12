@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import { perDatabase } from './per-database.ts';
 
 type Op = 'upsert' | 'delete';
 
@@ -34,14 +34,5 @@ export class RowChanges {
   }
 }
 
-const recorders = new WeakMap<Database.Database, RowChanges>();
-
 /** The connection's recorder (one per database file opened). */
-export function rowChangesOf(sqlite: Database.Database) {
-  let recorder = recorders.get(sqlite);
-  if (!recorder) {
-    recorder = new RowChanges();
-    recorders.set(sqlite, recorder);
-  }
-  return recorder;
-}
+export const rowChangesOf = perDatabase(() => new RowChanges());

@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { acpError, agentCommand, AcpAgent as Agent, agentFor, agentWith, checkCliLogin, closeSession, ourTool, readUsage, setAgentStarter, stopIdleAgents, type AcpAgent } from './acp.ts';
-import type { CliKind } from '@tw/shared';
+import type { CliKind } from '@loca/shared';
 import { ModelError } from './errors.ts';
 import { inProcessStarter } from './fake-acp-starter.ts';
 import { hostTools } from './mcp-host.ts';

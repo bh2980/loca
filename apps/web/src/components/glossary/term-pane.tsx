@@ -10,7 +10,7 @@ import { toast } from 'sonner';
 import { Inspector, InspectorHeader, InspectorList, InspectorTabs, TagListEditor, DirtyBar, Button, Inline, Input, ListRow, Text, Textarea, Section, Field, Box, Checkbox, Label, Stack, Switch, ConfirmDialog } from '@loca/ui';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { AiNamed, confirmLabel, SourceBadge, StateCell } from '@/components/knowledge/table';
-import { ALL_TERM_KINDS, isSettled, TAG_SCOPES, TERM_LINE_KIND_LABELS, TERM_LINE_KINDS, type TermScope } from '@tw/shared';
+import { ALL_TERM_KINDS, isSettled, TAG_SCOPES, TERM_LINE_KIND_LABELS, TERM_LINE_KINDS, type TermScope } from '@loca/shared';
 import { changedFields, useFormFrom } from '@/lib/use-form-from';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
 import { q, tagsIn } from '@/lib/queries';

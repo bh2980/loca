@@ -1,6 +1,6 @@
 import { and, asc, count, eq, inArray, sql } from 'drizzle-orm';
 import jsonLogic from 'json-logic-js';
-import { INPUT_TYPES, byNodeType, functionTakes, pickPaths, previousStepId, runNodeName, type ConditionData, type WorkflowNode } from '@tw/shared';
+import { INPUT_TYPES, byNodeType, functionTakes, pickPaths, previousStepId, runNodeName, type ConditionData, type WorkflowNode } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { runInstantFunction, type FunctionInput } from './functions/index.ts';

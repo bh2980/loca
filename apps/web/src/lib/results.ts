@@ -1,5 +1,5 @@
 import { keepPreviousData, queryOptions } from '@tanstack/react-query';
-import type { ResultRequest } from '@tw/shared';
+import type { ResultRequest } from '@loca/shared';
 import { client, unwrap } from './api';
 import { key } from './query-keys';
 import { stored, STORED } from './storage';

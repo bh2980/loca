@@ -1,14 +1,11 @@
 import { and, eq } from 'drizzle-orm';
 import { get } from 'es-toolkit/compat';
-import { AGE_BANDS, APPLY_FUNCTION_NAMES, APPLY_TARGETS, DOCUMENT_KINDS, INPUT_TYPES, aiStatus, sameTranslation, TERM_KIND_LABELS, TERM_KINDS, UNKNOWN_LISTENER, withMainTarget, withSourceWhitespace, withTargetCandidate, type ApplyField, type ApplyFunctionName, type ApplyParams, type Subject } from '@tw/shared';
+import { APPLY_FUNCTION_NAMES, APPLY_TARGETS, INPUT_TYPES, aiStatus, sameTranslation, UNKNOWN_LISTENER, withMainTarget, withSourceWhitespace, withTargetCandidate, type ApplyField, type ApplyFunctionName, type ApplyParams, type Subject } from '@loca/shared';
 import type { Db } from '../../db/index.ts';
 import * as s from '../../db/schema.ts';
-import { aiSaveCharacters, aiSaveDocument, aiSaveEvents, aiSaveRelationships, relationshipRows, aiSaveSpeechRules, aiSaveTerms, aiSaveUnresolvedPairs, aiSetLineListeners, type AiWrite } from '../../services/ai-knowledge.ts';
-import { addCandidate } from '../../services/candidates.ts';
-import { aiAutoConfirmOf } from '../../services/status-by.ts';
-import { setKnowledgeTag } from '../../services/knowledge-tags.ts';
-import { attachUnitTags } from '../../services/tag-scope.ts';
-import { knowledgeOf } from '../../services/speech.ts';
+import { aiSaveCharacters, aiSaveDocument, aiSaveEvents, aiSaveRelationships, relationshipRows, aiSaveSpeechRules, aiSaveTerms, aiSaveUnresolvedPairs, aiSetLineListeners, type AiWrite } from '../../domain/ai-knowledge.ts';
+import { addCandidate } from '../../domain/candidates.ts';
+import { aiAutoConfirmOf } from '../../domain/saver.ts';
 import { applyRunCandidate, HUMAN_OWNED_NOTE } from '../apply-candidate.ts';
 import { lineOf, termOf, type FunctionInput, type FunctionResult } from './types.ts';
 
@@ -16,7 +13,7 @@ type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 type Item = Record<string, unknown>;
 
 /**
- * 반영 노드: put a node's output into the project now, through services/ai-knowledge.ts (AI origin;
+ * 반영 노드: put a node's output into the project now, through domain/ai-knowledge.ts (AI origin;
  * nothing a person set is changed). Knowledge and terms land confirmed or as candidates as the
  * project's AI 문맥 switch says (aiAutoConfirm).
  */
@@ -95,7 +92,6 @@ export function applyItems(fn: ApplyFunctionName, params: ApplyParams, output: I
 }
 
 const first = (value: unknown) => (Array.isArray(value) ? (value[0] as string | undefined) : (value as string | undefined));
-const lower = (value: unknown) => String(value ?? '').trim().toLowerCase();
 
 interface Context {
   tx: Tx;

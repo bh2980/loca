@@ -26,7 +26,7 @@ export const param = {
   ids: optional((raw) => (Array.isArray(raw) && raw.length > 0 && raw.every(isText) ? (raw as string[]) : undefined)),
   /** A list of ids where the empty list means something (none), unlike an absent one. */
   list: optional((raw) => (Array.isArray(raw) ? raw.filter(isText) : undefined)),
-  /** A param with its own reader (a filter the CLI and the app share in `@tw/shared`). */
+  /** A param with its own reader (a filter the CLI and the app share in `@loca/shared`). */
   read: optional,
 };
 

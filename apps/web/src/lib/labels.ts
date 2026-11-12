@@ -1,4 +1,4 @@
-import { GROUP_KIND_LABELS, SOURCE_GROUP_LABELS } from '@tw/shared';
+import { GROUP_KIND_LABELS, SOURCE_GROUP_LABELS } from '@loca/shared';
 
 export const ITEM_STATE = { queued: '대기', running: '실행 중', done: '완료', failed: '실패', cancelled: '취소됨' } as const;
 export const GROUP_KIND = GROUP_KIND_LABELS;

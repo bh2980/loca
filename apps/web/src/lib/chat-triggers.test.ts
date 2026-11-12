@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ATTACH_KINDS } from '@tw/shared';
+import { ATTACH_KINDS } from '@loca/shared';
 import { allCommands, filterCommands, findAtTrigger, findSlashTrigger, narrowAtTrigger, openNextTarget, parseAtQuery, removeAtTrigger, replaceAtTrigger } from './chat-triggers';
 
 describe('@ trigger', () => {

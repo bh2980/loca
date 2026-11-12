@@ -1,15 +1,15 @@
 import { useEffect, useMemo } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import type { RunCard, RunEnd } from '@tw/shared';
+import type { RunCard, RunEnd } from '@loca/shared';
 import { Box, Button, Inline, Progress, RunStatusBadge, Spinner, Stack, Text } from '@loca/ui';
-import { cardSummary } from '@/lib/chat-run';
+import { cardSummary } from '@/lib/chat-run-records';
 import { startCaps } from '@/lib/run-limits';
 import { answerRunCard } from '@/lib/chat-sessions';
 import { keyLabel } from '@/lib/keys';
 import { AttachChip } from './attach-chip';
 import { useRuns } from '@/lib/runs';
-import { INPUT_TYPES } from '@tw/shared';
+import { INPUT_TYPES } from '@loca/shared';
 
 const STATUS = { preparing: '준비 중', running: '진행 중', paused: '일시중지', cancelled: '취소됨', completed: '완료' } as const;
 

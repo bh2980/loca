@@ -1,6 +1,6 @@
 /** What the editor and a run's graph share: a node's one-line summary and the edges as React Flow draws them. */
 import { MarkerType } from '@xyflow/react';
-import { nodePorts, nodeSummary as sharedNodeSummary, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+import { nodePorts, nodeSummary as sharedNodeSummary, type WorkflowDefinition, type WorkflowNode } from '@loca/shared';
 import type { CanvasDirection } from '@loca/ui';
 import type { FlowEdge } from '@/components/workflow/workflow-edge';
 import { exitKey, exitTagItems, type MarkNames } from '@/components/workflow/exit-marks';

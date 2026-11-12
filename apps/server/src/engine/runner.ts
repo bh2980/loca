@@ -1,10 +1,10 @@
 import { and, eq, gt, inArray, notInArray, sql } from 'drizzle-orm';
-import * as ai from '@tw/ai';
-import { batchTokens, choiceKey, lineCostIn, nodeCallsOut, nodeConcurrency, type WorkflowNode } from '@tw/shared';
+import * as ai from '@loca/ai';
+import { batchTokens, choiceKey, lineCostIn, nodeCallsOut, nodeConcurrency, type WorkflowNode } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { recordRunEnd } from '../services/chat-run-end.ts';
-import type { SecretStore } from '../services/secrets.ts';
+import { recordRunEnd } from './run-end.ts';
+import type { SecretStore } from '../domain/secrets.ts';
 import { packGroups, planBatches, scaleBatch, subjectBatch } from './batches.ts';
 import type { ModelPort } from './model-port.ts';
 import { RunCalls } from './run-calls.ts';
@@ -165,7 +165,7 @@ export class Runner {
     timer.unref?.();
     this.sleeping.set(runId, { until, timer });
     // While a run sleeps the runner hears runs set going outside it (continueRun): that run is taken up now, not when its wait ends.
-    this.stopHearing ??= onRunWake((woken) => this.wake(woken));
+    this.stopHearing ??= onRunWake(this.db, (woken) => this.wake(woken));
   }
 
   private wake(runId: string) {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FUNCTION_NAMES } from '@tw/shared';
+import { FUNCTION_NAMES } from '@loca/shared';
 import { FUNCTION_ICON } from '../node-view';
 import { FUNCTION_FORMS } from './function';
 

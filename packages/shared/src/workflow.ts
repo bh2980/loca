@@ -1,8 +1,8 @@
 import { z } from 'zod';
 import Graph from 'graphology';
-import { APPLY_TARGETS, FUNCTION_CONCURRENCY, FUNCTIONS, customRuleIssue, functionConfigSchema, functionInfo, functionPorts, functionTakes, jsonFieldIssues, jsonFieldSchema, type ApplyFunctionName, type ApplyParams, type FunctionGroup, type FunctionName, type FunctionParams, type JsonField, type Port } from './functions.ts';
+import { APPLY_TARGETS, FUNCTIONS, customRuleIssue, functionConfigSchema, functionInfo, functionPorts, functionTakes, jsonFieldIssues, jsonFieldSchema, type ApplyFunctionName, type ApplyParams, type FunctionGroup, type FunctionName, type FunctionParams, type JsonField, type Port } from './functions.ts';
 import { stronglyConnectedComponents } from 'graphology-components';
-import { choiceKey, draftModelChoiceSchema, EMPTY_MODEL_CHOICE, modelChoiceSchema, type ModelChoice } from './model-choice.ts';
+import { draftModelChoiceSchema, EMPTY_MODEL_CHOICE, modelChoiceSchema, type ModelChoice } from './model-choice.ts';
 import { KNOWLEDGE_STATUSES } from './knowledge.ts';
 import { connectionCan, type ConnectionKind } from './connections.ts';
 import { SUBJECTS, type Subject } from './subject.ts';
@@ -359,7 +359,7 @@ export type ItemErrorKind = keyof typeof ITEM_ERROR_KINDS;
 export const ITEM_ERROR_KIND_IDS = Object.keys(ITEM_ERROR_KINDS) as ItemErrorKind[];
 
 /**
- * What a failed model call was, as the connection layer (@tw/ai) names it where the provider or the CLI says
+ * What a failed model call was, as the connection layer (@loca/ai) names it where the provider or the CLI says
  * so: a stop reason, a finish reason, an HTTP status. `cut-off`: the answer hit the model's output limit;
  * `refused`: the model or its content filter declined to answer.
  */

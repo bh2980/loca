@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Command } from 'commander';
 import { expect, it } from 'vitest';
-import { importFileSchema } from '@tw/shared';
+import { importFileSchema } from '@loca/shared';
 import { openDatabase } from '../../server/src/db/index.ts';
 import { agentCatalog } from '../../server/src/services/agent-catalog.ts';
 import { importProject } from '../../server/src/services/importer.ts';

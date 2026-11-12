@@ -1,6 +1,6 @@
 import { hc, type InferResponseType } from 'hono/client';
-import type { AppType } from '@tw/server/app';
-import type { Topic } from '@tw/shared';
+import type { AppType } from '@loca/server/app';
+import type { Topic } from '@loca/shared';
 import { useSyncExternalStore } from 'react';
 
 /**

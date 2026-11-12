@@ -1,7 +1,7 @@
 import { memo, useEffect } from 'react';
 import { Handle, Position, useStore, useUpdateNodeInternals, type Node, type NodeProps } from '@xyflow/react';
 import { BookPlus, Braces, CircleDot, Code, Combine, GitFork, Globe, ListChecks, MessageCircleQuestion, NotebookPen, Save, ScanSearch, Workflow, Sparkles, SpellCheck, UserCheck } from 'lucide-react';
-import { byNodeType, nodeGroup, nodeName, nodePorts, type AiOutput, type FunctionName, type WorkflowNode } from '@tw/shared';
+import { byNodeType, nodeGroup, nodeName, nodePorts, type AiOutput, type FunctionName, type WorkflowNode } from '@loca/shared';
 import { FlowHandle, NodeCard, type CanvasDirection, type ExitTagItem, type FoldChipProps } from '@loca/ui';
 
 type Icon = typeof Sparkles;

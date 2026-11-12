@@ -1,6 +1,6 @@
 /** Pieces shared by the node-kind configs: shared field primitives and the node/ref types. */
 import { Box, Button, Checkbox, HelpTip, Inline, NodeKindIcon, NumberInput, InspectorToggle, Switch, Text } from '@loca/ui';
-import { CONNECTION_KIND_INFO, nodeGroup, leavesResult, nodeName, nodeOutputFields, workflowInput, type ModelLimits, type RetryRule, type WorkflowEdge, type WorkflowNode, type Subject } from '@tw/shared';
+import { CONNECTION_KIND_INFO, nodeGroup, leavesResult, nodeName, nodeOutputFields, workflowInput, type ModelLimits, type RetryRule, type WorkflowEdge, type WorkflowNode, type Subject } from '@loca/shared';
 import { nodeIcon } from '@/components/workflow/node-view';
 
 export type AiNode = Extract<WorkflowNode, { type: 'ai' }>;

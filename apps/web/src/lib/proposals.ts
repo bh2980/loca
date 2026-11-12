@@ -1,6 +1,6 @@
 import { createOptimisticAction } from '@tanstack/react-db';
 import { keepPreviousData, queryOptions, useQuery } from '@tanstack/react-query';
-import type { FeedRows } from '@tw/shared';
+import type { FeedRows } from '@loca/shared';
 import { client, unwrap } from './api';
 import { sent, type FeedRow } from './collections';
 import { heldFeed, useHeld, type Held } from './held';

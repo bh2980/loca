@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { agentPermissionError, agentSettingsSchema } from '@tw/shared';
+import { agentPermissionError, agentSettingsSchema } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 

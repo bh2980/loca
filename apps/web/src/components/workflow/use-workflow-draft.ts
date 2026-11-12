@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { workflowDefinitionSchema, type WorkflowDefinition, type WorkflowIssue } from '@tw/shared';
+import { workflowDefinitionSchema, type WorkflowDefinition, type WorkflowIssue } from '@loca/shared';
 import { draftText } from '@/lib/drafts';
 import { useRuns } from '@/lib/runs';
 import { normalizeWorkflowDraft, reconcileSavedDraft, sameWorkflowDraft } from '@/lib/workflow-draft';

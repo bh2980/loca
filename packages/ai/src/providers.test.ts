@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { CAPABILITIES, CLI_KINDS, CONNECTION_KIND_INFO, CONNECTION_KINDS, type Capability } from '@tw/shared';
+import { CAPABILITIES, CLI_KINDS, CONNECTION_KIND_INFO, CONNECTION_KINDS, type Capability } from '@loca/shared';
 import { ask, chatModel, complete, generate, ModelError, PROVIDERS, type Provider } from './index.ts';
 
 /** The member of a provider that does each capability. `tool` is an API key for the HTTP function: no model call, so no member. */

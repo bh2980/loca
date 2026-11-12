@@ -1,13 +1,13 @@
-import { AGENT_RESOURCES } from '@tw/shared';
+import { AGENT_RESOURCES } from '@loca/shared';
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { importFileSchema } from '@tw/shared';
+import { importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from './importer.ts';
 import { decideProposal, propose, takeDecisions } from './proposals.ts';
 import { undoChanges } from './change-gate.ts';
-import { saveLine } from './line-save.ts';
+import { saveLine } from '../domain/line-save.ts';
 
 function setup() {
   const db = openDatabase(':memory:');

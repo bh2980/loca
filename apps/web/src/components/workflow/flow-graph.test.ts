@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EMPTY_MODEL_CHOICE, translationTemplate, workflowNodeSchema, type WorkflowDefinition } from '@tw/shared';
+import { EMPTY_MODEL_CHOICE, translationTemplate, workflowNodeSchema, type WorkflowDefinition } from '@loca/shared';
 import { exitEdges, flowEdges, flowNames, flowNodeCard, nodeSummary, openPorts, type SummaryNames } from './flow-graph';
 
 const names: SummaryNames = { status: new Map(), connection: new Map([['key-1', '맞춤법 API 키']]), connectionsLoaded: true };

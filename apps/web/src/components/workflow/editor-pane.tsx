@@ -1,4 +1,4 @@
-import { workflowInput, type WorkflowDefinition, type WorkflowIssue } from '@tw/shared';
+import { workflowInput, type WorkflowDefinition, type WorkflowIssue } from '@loca/shared';
 import { Box } from '@loca/ui';
 import { tagsIn } from '@/lib/queries';
 import { exitKey } from './exit-marks';

@@ -1,6 +1,6 @@
 /** The workflow's own settings: shown in the editor's right-hand pane while no node is selected. */
 import { Box, Inspector, InspectorHeader, NumberInput, Section, Field, Text } from '@loca/ui';
-import type { WorkflowDefinition } from '@tw/shared';
+import type { WorkflowDefinition } from '@loca/shared';
 import { RetryRules } from '@/components/workflow/node-config/retry';
 
 type Settings = WorkflowDefinition['settings'];

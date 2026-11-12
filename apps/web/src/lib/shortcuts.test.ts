@@ -1,9 +1,9 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { pickShortcut, shortcutActs, shortcutSections, SHORTCUT_SECTIONS, SHORTCUTS, type KeyContext, type ShortcutId } from './shortcuts';
+import { pickShortcut, shortcutActs, shortcutSections, SHORTCUT_SECTIONS, SHORTCUTS, type KeyOrigin, type ShortcutId } from './shortcuts';
 
-const page: KeyContext = { typing: false, overlay: false, own: false, control: false };
+const page: KeyOrigin = { typing: false, overlay: false, own: false, control: false };
 const ids = Object.keys(SHORTCUTS) as ShortcutId[];
 
 describe('where a shortcut acts', () => {

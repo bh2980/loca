@@ -1,4 +1,4 @@
-import type { FeedRows } from '@tw/shared';
+import type { FeedRows } from '@loca/shared';
 
 type Listener = (rows: FeedRows, seq: number) => void;
 

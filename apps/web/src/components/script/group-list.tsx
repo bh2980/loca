@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState, type ReactNode } from 'react';
-import type { LineMark } from '@tw/shared';
+import type { LineMark } from '@loca/shared';
 import { Link } from '@tanstack/react-router';
 import { AppWindow, Check, FileText, Inbox, MessageSquareText, Plus, type LucideIcon } from 'lucide-react';
 import { Box, Button, ExpandableRow, ContextMenu, ContextMenuTrigger, Icon, Inline, ListRow, Stack, Count, SearchField, Meter, Text, Tooltip, TooltipContent, TooltipTrigger, type StatusLike, ContextMenuContent } from '@loca/ui';
@@ -101,7 +101,7 @@ export function GroupList({ projectId, groups, finalIds, initialIds, scope, revi
         {sections.map((section) => {
           // A scene search shows its matches wherever they are; otherwise sections default to closed unless opened or active.
           const open = Boolean(gq) || !section.name || expanded.has(section.name);
-          const items = section.groups.map((group) => <GroupItem key={group.id} menu={menu?.(group)} projectId={projectId} group={group} progress={progressOf(group)} statuses={statuses} active={group.id === scope.group} indent={Boolean(section.name)} marks={marks} />);
+          const items = section.groups.map((group) => <GroupItem key={group.id} menu={menu?.(group)} projectId={projectId} group={group} progress={progressOf(group)} statuses={statuses} active={group.id === scope.group} marks={marks} />);
           if (!section.name) return <Fragment key={section.key}>{items}</Fragment>;
           const count = section.groups.reduce((sum, group) => sum + group.total, 0);
           const active = scope.section === section.name;
@@ -182,7 +182,7 @@ function ScopeLink({ projectId, scope, active, icon, label, count, highlight, cl
   );
 }
 
-function GroupItem({ projectId, group, progress, statuses, active, indent, marks, menu }: { menu?: ReactNode; projectId: string; group: GroupRow; progress: { translated: number; final: number }; statuses?: StatusLike[]; active: boolean; indent: boolean; marks?: Map<string, number> }) {
+function GroupItem({ projectId, group, progress, statuses, active, marks, menu }: { menu?: ReactNode; projectId: string; group: GroupRow; progress: { translated: number; final: number }; statuses?: StatusLike[]; active: boolean; marks?: Map<string, number> }) {
   const complete = group.total > 0 && progress.final === group.total;
   const marked = marks?.get(group.id) ?? 0;
   const link = (

@@ -9,7 +9,7 @@ import { tokenPatternOf } from '@/lib/source-parts';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { exportDialog, type ExportView } from '@/lib/export-dialog';
 import { lineTags, q, useMarkStyles } from '@/lib/queries';
-import { markColor, type LineMark } from '@tw/shared';
+import { markColor, type LineMark } from '@loca/shared';
 import { exportFilterOf, hasLineFilter, lineFilterCount, lineFilterOf, LineFilters, filterChips, speakerChoices, type LinesSearch } from '@/components/script/line-filters';
 import { LineHeadRow, useLineBulk } from '@/components/script/line-bulk';
 import { LineRow } from '@/components/script/line-row';

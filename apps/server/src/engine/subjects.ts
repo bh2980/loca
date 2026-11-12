@@ -20,17 +20,18 @@ import {
   type Subject,
   type TagScope,
   type WorkflowDefinition,
-} from '@tw/shared';
+} from '@loca/shared';
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { tokensSql } from '../db/tokens.ts';
-import { buildContext, runPairLines, type BatchContext } from '../services/context.ts';
-import { tagsOf } from '../services/knowledge-tags.ts';
-import { lineConditions } from '../services/line-filter.ts';
-import { excludedSql, translatableSql } from '../services/line-marks.ts';
-import { knowledgeOf, speechRuleIndex } from '../services/speech.ts';
-import { fillTermUsage } from '../services/term-usage.ts';
+import { buildContext, runPairLines, type BatchContext } from './ai-context.ts';
+import { tagsOf } from '../domain/knowledge-tags.ts';
+import { lineConditions } from '../domain/line-filter.ts';
+import { excludedSql, translatableSql } from '../domain/line-marks.ts';
+import { speechRuleIndex } from '../domain/speech.ts';
+import { knowledgeOf } from '../domain/knowledge-cache.ts';
+import { fillTermUsage } from '../domain/term-usage.ts';
 import { packGroups, planBatches } from './batches.ts';
 import { lineExitActions, termExitActions, type ExitApplier } from './exit-actions.ts';
 import { lineOf, termOf, type FunctionInput } from './functions/types.ts';
@@ -46,7 +47,6 @@ import { wholeScriptRequest } from './whole-script.ts';
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 type Item = typeof s.runItems.$inferSelect;
 type Unit = typeof s.units.$inferSelect;
-type Term = typeof s.terms.$inferSelect;
 type RunRef = { id: string; projectId: string };
 
 /** A queued item waiting at a node that calls out, with its position for batching. */

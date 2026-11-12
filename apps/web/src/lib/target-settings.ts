@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { editorCalls, saveProject, saveProjectPrompts, useProject } from '@/lib/project';
 import { toast } from 'sonner';
-import { agentSettingsSchema, DEFAULT_EDITOR_AI, type AgentSettings, type EditorAi, type SavedPrompt } from '@tw/shared';
+import { agentSettingsSchema, DEFAULT_EDITOR_AI, type AgentSettings, type EditorAi, type SavedPrompt } from '@loca/shared';
 import type { SettingsTarget } from '@/lib/settings-target';
 import { saveAppDefaults, useAppDefaults } from '@/lib/app-data';
 

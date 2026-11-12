@@ -18,7 +18,7 @@ import { useProgress } from '@/lib/use-progress';
 import { shownAfterClear, useRecentRunsCleared } from '@/lib/recent-runs';
 import { loadProject } from '@/lib/project';
 import { useProposals } from '@/lib/proposals';
-import { INPUT_TYPES } from '@tw/shared';
+import { INPUT_TYPES } from '@loca/shared';
 
 export const Route = createFileRoute('/p/$projectId')({
   // The project row, or the not-found page.

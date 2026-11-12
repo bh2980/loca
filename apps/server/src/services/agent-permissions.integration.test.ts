@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
 import { describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
-import { agentSettingsSchema, agentToolAvailable, agentToolPermissionOptions, importFileSchema } from '@tw/shared';
-import { onError, type Env } from '../context.ts';
+import { agentSettingsSchema, agentToolAvailable, agentToolPermissionOptions, importFileSchema } from '@loca/shared';
+import { onError, type Env } from '../http.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { scriptRoutes } from '../routes/script.ts';

@@ -1,7 +1,7 @@
 import { queryOptions } from '@tanstack/react-query';
 import { createOptimisticAction, useLiveQuery } from '@tanstack/react-db';
 import type { InferRequestType } from 'hono/client';
-import type { ChatChip, RunCard } from '@tw/shared';
+import type { ChatChip, RunCard } from '@loca/shared';
 import { client, unwrap } from './api';
 import { liveRows, projectCollection, sent, type FeedRow } from './collections';
 import { isCurrent, queryClient } from './query-client';

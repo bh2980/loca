@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { choiceKey, exitActions, nodeRetries, pickPaths, previousStepId, retryModel, retryRuleIndex, runNodeName, type AiNode, type ItemErrorKind, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+import { choiceKey, exitActions, nodeRetries, pickPaths, previousStepId, retryModel, retryRuleIndex, runNodeName, type AiNode, type ItemErrorKind, type WorkflowDefinition, type WorkflowNode } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import type { ItemData, ItemState } from '../db/schema.ts';

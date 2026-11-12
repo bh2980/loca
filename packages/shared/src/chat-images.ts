@@ -1,6 +1,6 @@
 /**
- * Images in the project chat: what a message may carry, whether the chosen model takes them, and
- * the "문맥 N%" meter. Shared so the composer, the server and the tests decide the same way.
+ * Images in the project chat: what a message may carry and whether the chosen model takes them.
+ * Shared so the composer, the server and the tests decide the same way.
  */
 
 /** Most bytes one attached image may have (after the browser shrinks it). */
@@ -43,28 +43,4 @@ export function imageProblem(file: { mediaType: string; url: string }): string |
 export function imageDecision(known: boolean | undefined, count: number) {
   const support = known === undefined ? ('unknown' as const) : known ? ('yes' as const) : ('no' as const);
   return { support, send: count > 0 && known !== false, dropped: known === false ? count : 0 };
-}
-
-/**
- * The share of the model's window the last answer's input used, as the "문맥 N%" meter shows it.
- * Null (the meter hides) when the window or the input is unknown.
- */
-export function contextMeter(input: { inputTokens: number | null | undefined; window: number | null | undefined }) {
-  if (!input.window || input.window <= 0 || input.inputTokens === null || input.inputTokens === undefined) return null;
-  // More than the window: one request cannot be, so it is a turn's sum over the agent's own steps (ACP agents report a
-  // turn), each reading the conversation again. It says nothing about how full the window is: no percent, no warning.
-  if (input.inputTokens > input.window) return { percent: null, tokens: input.inputTokens, window: input.window, level: 'ok' as const };
-  const percent = Math.max(0, Math.round((input.inputTokens / input.window) * 100));
-  return { percent, tokens: input.inputTokens, window: input.window, level: percent >= 95 ? ('full' as const) : percent >= 80 ? ('high' as const) : ('ok' as const) };
-}
-
-/**
- * Where the conversation's start was summarized (chat-compaction.ts stores `upTo`: messages before
- * it are in the summary), as the panel marks it: before the message at `index`, or after the last
- * one when everything so far is summarized (/compact). Null when there is none or it covers more
- * than the record holds.
- */
-export function compactionMarker(compaction: { upTo: number; summary: string; at: number } | null | undefined, messageCount: number) {
-  if (!compaction || compaction.upTo <= 0 || compaction.upTo > messageCount) return null;
-  return { index: compaction.upTo, summary: compaction.summary, at: compaction.at };
 }

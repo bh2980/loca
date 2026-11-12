@@ -2,7 +2,7 @@
 import { act, createElement, type ComponentProps } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ProposalDetail } from '@tw/shared';
+import type { ProposalDetail } from '@loca/shared';
 import { ChangePreview } from './change-preview';
 
 // The chip reads the project's mark colours through the router and a query; here only which marks are shown matters.

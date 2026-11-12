@@ -1,24 +1,26 @@
 import { and, asc, eq, ne } from 'drizzle-orm';
 import type { JSONParsed } from 'hono/utils/types';
-import { APP_FEED, FEED_UNITS_LIMIT, HELD_COLLECTIONS, type AppCollection, type FeedCollection, type FeedRows, type FeedSnapshot, type HeldCollection, type SnapshotCollection } from '@tw/shared';
+import { APP_FEED, FEED_UNITS_LIMIT, HELD_COLLECTIONS, type AppCollection, type FeedCollection, type FeedRows, type FeedSnapshot, type HeldCollection, type SnapshotCollection } from '@loca/shared';
 import type { Db } from './db/index.ts';
 import { inList } from './db/chunk.ts';
+import { perDatabase } from './db/per-database.ts';
 import { rowChangesOf } from './db/row-changes.ts';
 import * as s from './db/schema.ts';
-import { withTags } from './services/knowledge-tags.ts';
-import { fillTermUsage } from './services/term-usage.ts';
+import { withTags } from './domain/knowledge-tags.ts';
+import { fillTermUsage } from './domain/term-usage.ts';
 import { groupRows } from './services/group-rows.ts';
-import { runRows } from './services/run-rows.ts';
+import { runRows } from './engine/run-rows.ts';
 import { listenerRows, projectListRows, projectRows, speakerRows } from './services/project-rows.ts';
-import { readAppDefaults } from './services/app-defaults.ts';
+import { readAppDefaults } from './domain/app-defaults.ts';
 import { connectionRows } from './services/connection-rows.ts';
 import { listViews } from './services/graph-views.ts';
-import { aiCallRows, chatSessionRows } from './services/log-rows.ts';
+import { aiCallRows } from './services/ai-call-rows.ts';
+import { chatSessionRows } from './services/chat-session-rows.ts';
 import { lineExtras } from './services/line-extras.ts';
 import { proposalRows } from './services/proposal-details.ts';
 import { runItemRows } from './services/run-detail.ts';
-import type { SecretStore } from './services/secrets.ts';
-import { projectEventFlow } from './services/event-routes.ts';
+import type { SecretStore } from './domain/secrets.ts';
+import { projectEventFlow } from './services/event-flow.ts';
 import { workflowRows } from './services/workflow-rows.ts';
 import { statusCountRows, tagCountRows } from './services/count-rows.ts';
 import { unitRowsByIds } from './services/unit-rows.ts';
@@ -128,15 +130,16 @@ export function heldRows(db: Db, deps: FeedDeps, scope: string, collection: Held
  * not move that baseline: another tab may still be waiting for the rows of changes made before it.
  */
 const DERIVED = new Set<FeedCollection>(['events', 'workflows']);
-const sentRows = new WeakMap<Db['$client'], Map<string, Map<string, string>>>();
+const sentRows = perDatabase(() => new Map<string, Map<string, string>>());
 
 function derivedChanges(db: Db, deps: FeedDeps, projectId: string, collection: FeedCollection) {
-  const byProject = sentRows.get(db.$client) ?? new Map<string, Map<string, string>>();
-  sentRows.set(db.$client, byProject);
+  const byProject = sentRows(db);
   const key = `${projectId}:${collection}`;
   const before = byProject.get(key) ?? new Map<string, string>();
   const now = new Map(reader(collection)(db, projectId, undefined, deps).map((row) => [row.id, { row, json: JSON.stringify(row) }] as const));
-  byProject.set(key, new Map([...now].map(([id, { json }]) => [id, json])));
+  // Nothing left (the project was deleted, or its last row was): nothing is kept for it either.
+  if (now.size) byProject.set(key, new Map([...now].map(([id, { json }]) => [id, json])));
+  else byProject.delete(key);
   return { upsert: [...now.values()].filter(({ row, json }) => before.get(row.id) !== json).map(({ row }) => row), delete: [...before.keys()].filter((id) => !now.has(id)) };
 }
 

@@ -1,17 +1,17 @@
 import { eq } from 'drizzle-orm';
-import * as ai from '@tw/ai';
-import { editorAiSchema, editorNodeConfig } from '@tw/shared';
+import * as ai from '@loca/ai';
+import { editorAiSchema, editorNodeConfig } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { promptLineId } from '../engine/prompts.ts';
 import { buildRequest } from '../engine/request.ts';
-import { logged } from './ai-calls.ts';
+import { logged } from '../domain/ai-calls.ts';
 import { limited } from './editor-complete.ts';
 import { badRequest } from '../refusal.ts';
-import { liveChoice } from './model-target.ts';
-import type { SecretStore } from './secrets.ts';
-import { addCandidate } from './candidates.ts';
-import { resolvedNode } from './budgets.ts';
+import { liveChoice } from '../domain/model-target.ts';
+import type { SecretStore } from '../domain/secrets.ts';
+import { addCandidate } from '../domain/candidates.ts';
+import { resolvedNode } from '../engine/node-budgets.ts';
 
 export type AssistMode = 'translate' | 'refine';
 

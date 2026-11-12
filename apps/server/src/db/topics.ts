@@ -1,13 +1,13 @@
 import { getTableName, is } from 'drizzle-orm';
 import { SQLiteTable } from 'drizzle-orm/sqlite-core';
-import { APP_FEED, type Topic } from '@tw/shared';
+import { APP_FEED, type Topic } from '@loca/shared';
 import * as schema from './schema.ts';
 
 /**
  * Which topic a change to each table belongs to. The database says it: from this table come the triggers that
  * call topic_changed(topic, project) on every insert, update and delete (topicTriggerSql; the migration that
  * holds them is checked against it in topics.test.ts), so no write path names its topics and none can forget.
- * What else reads a table (a question keyed under another topic) is IMPLIES in @tw/shared, not here.
+ * What else reads a table (a question keyed under another topic) is IMPLIES in @loca/shared, not here.
  * A new table is a compile error until it is listed; a changed line needs a migration that makes its triggers again.
  */
 

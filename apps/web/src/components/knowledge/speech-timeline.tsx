@@ -2,7 +2,7 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Check, Plus } from 'lucide-react';
-import { listenerLabel, markName, SPEECH_LEVEL_LABELS, type SpeechLevel } from '@tw/shared';
+import { listenerLabel, markName, SPEECH_LEVEL_LABELS, type SpeechLevel } from '@loca/shared';
 import { Box, Button, Chip, Field, Inline, InspectorList, InspectorResult, Input, ListRow, Section, Text, Timeline, TimelineFields, TimelineNote, TimelinePoint, TimelineQuotes, TimelineStart } from '@loca/ui';
 import { DraftEditor, FieldInput } from '@/components/knowledge/editor';
 import { placeOf, quoteLabel } from '@/components/knowledge/evidence';

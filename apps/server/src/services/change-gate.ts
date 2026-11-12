@@ -1,5 +1,5 @@
 import { and, eq, inArray, isNull } from 'drizzle-orm';
-import { itemCount, PERMISSION_MODE_INFO, toolClass, toolRoute, toolSpec, type PermissionMode } from '@tw/shared';
+import { itemCount, PERMISSION_MODE_INFO, toolClass, toolRoute, toolSpec, type PermissionMode } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { agentCatalog, checkAgentPermission, prepareProposal } from './agent-catalog.ts';

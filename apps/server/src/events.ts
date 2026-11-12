@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { EventEmitter } from 'node:events';
-import { withImplied, type ChangeEvent, type FeedRows, type Topic } from '@tw/shared';
+import { withImplied, type ChangeEvent, type FeedRows, type Topic } from '@loca/shared';
+import { perDatabase } from './db/per-database.ts';
 
 /** Topics for one project merge over this quiet window (trailing emit)... */
 export const COALESCE_MS = 300;
@@ -112,5 +113,12 @@ export async function trackChanges(run: () => Promise<void>, client?: string) {
   return { topics: scope.topics, seq: scope.seq };
 }
 
-export const events = new Events();
-events.setMaxListeners(100);
+/**
+ * A database's change events: what its triggers and the code working on it report, and what the app's event stream
+ * sends. One per open database, so an app only hears (and only carries the rows of) its own.
+ */
+export const eventsOf = perDatabase(() => {
+  const events = new Events();
+  events.setMaxListeners(100);
+  return events;
+});

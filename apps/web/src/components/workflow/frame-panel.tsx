@@ -4,7 +4,7 @@
  */
 import { Trash2, Ungroup } from 'lucide-react';
 import { Box, Button, Field, Input, Inspector, InspectorHeader, Section, Stack, Text } from '@loca/ui';
-import { nodeName, type WorkflowGroup, type WorkflowNode } from '@tw/shared';
+import { nodeName, type WorkflowGroup, type WorkflowNode } from '@loca/shared';
 
 export function FramePanel({ group, nodes, onRename, onUngroup, onDelete, onOpenNode, onClose }: {
   group: WorkflowGroup;

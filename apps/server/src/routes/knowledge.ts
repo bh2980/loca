@@ -1,18 +1,18 @@
 import { Hono } from 'hono';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { EVENT_LINK_KINDS, HELD_COLLECTIONS, HELD_READ_MAX, relationshipChangeSchema, SNAPSHOT_COLLECTIONS, KNOWLEDGE_TAG_KINDS, patchOf, type KnowledgeTagKind } from '@tw/shared';
-import { badRequest, found, notFound, validate, type Env } from '../context.ts';
+import { EVENT_LINK_KINDS, HELD_COLLECTIONS, HELD_READ_MAX, relationshipChangeSchema, SNAPSHOT_COLLECTIONS, KNOWLEDGE_TAG_KINDS, patchOf, type KnowledgeTagKind } from '@loca/shared';
+import { badRequest, found, notFound, validate, type Env } from '../http.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { deleteItemGroups, deleteItems } from '../services/item-delete.ts';
 import { feedSnapshot, heldRows } from '../feed.ts';
-import { ruleLines } from '../services/speech.ts';
-import { linkEvents, setEventLink } from '../services/event-routes.ts';
-import { termUsage } from '../services/term-usage.ts';
-import { decideDrafts, DRAFT_KINDS, saveCharacterItem, saveKnowledgeItem, saveRelationshipItem, setRelationshipChanges, type SaveResult } from '../services/knowledge-save.ts';
-import { discoverAndSave, saveTerm } from '../services/terms.ts';
-import { setKnowledgeTag, withTags } from '../services/knowledge-tags.ts';
+import { ruleLines } from '../domain/speech.ts';
+import { linkEvents, setEventLink } from '../services/event-flow.ts';
+import { termUsage } from '../domain/term-usage.ts';
+import { decideDrafts, DRAFT_KINDS, saveCharacterItem, saveKnowledgeItem, saveRelationshipItem, setRelationshipChanges, type SaveResult } from '../domain/knowledge-save.ts';
+import { discoverAndSave, saveTerm } from '../domain/terms.ts';
+import { setKnowledgeTag, withTags } from '../domain/knowledge-tags.ts';
 import { characterInput, documentInput, eventInput, relationshipInput, speechRuleInput, termInput } from '../schemas/knowledge.ts';
 
 /** The knowledge tables a person edits one item at a time, by the kind their tags name them with. */
@@ -79,7 +79,7 @@ export const knowledgeRoutes = new Hono<Env>()
   .delete('/terms/:id', (c) => c.json(deleteItems(c.var.deps.db, c.req.param('projectId')!, 'terms', [c.req.param('id')])))
 
   // People, relationships, events, notes and speech rules: the app saves them as a person, through the same services
-  // as the agent's save_* tools (services/knowledge-save.ts), so both are held to the same rules.
+  // as the agent's save_* tools (domain/knowledge-save.ts), so both are held to the same rules.
   .get('/documents/:id', (c) => c.json(item(c.var.deps.db, c.req.param('projectId')!, 'documents', c.req.param('id'))))
   .post('/documents', validate('json', documentInput), (c) => c.json(saved(c.var.deps.db, c.req.param('projectId')!, 'documents', saveKnowledgeItem(c.var.deps.db, c.req.param('projectId')!, 'documents', c.req.valid('json'))), 201))
   .patch('/documents/:id', validate('json', patchOf(documentInput)), (c) =>
@@ -133,7 +133,7 @@ export const knowledgeRoutes = new Hono<Env>()
   .delete('/speech-rules/:id', (c) => c.json(deleteItems(c.var.deps.db, c.req.param('projectId')!, 'speechRules', [c.req.param('id')])))
   /** The lines a speech rule governs (its pair, its stretch), with the speech levels their translations end in. */
   .get('/speech-rules/:id/lines', (c) => c.json(found(ruleLines(c.var.deps.db, c.req.param('projectId')!, c.req.param('id')) ?? undefined, '말투 규칙')))
-  /** A person decides several items: confirm or discard (services/knowledge-save.ts decideDrafts). */
+  /** A person decides several items: confirm or discard (domain/knowledge-save.ts decideDrafts). */
   .post('/drafts', validate('json', z.object({ kind: z.enum(DRAFT_KINDS), ids: z.array(z.string()).min(1), action: z.enum(['confirm', 'discard']) })), (c) => {
     const { kind, ids, action } = c.req.valid('json');
     return c.json({ changed: decideDrafts(c.var.deps.db, c.req.param('projectId')!, kind, ids, action) });

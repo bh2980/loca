@@ -4,10 +4,10 @@ import { compress } from 'hono/compress';
 import { streamSSE } from 'hono/streaming';
 import type { JSONParsed } from 'hono/utils/types';
 import type { z } from 'zod';
-import { FEED_EVENT, type ChangeEvent } from '@tw/shared';
-import { onError, type Deps, type Env } from './context.ts';
+import { FEED_EVENT, type ChangeEvent } from '@loca/shared';
+import { onError, type Deps, type Env } from './http.ts';
 import { rowChangesOf } from './db/row-changes.ts';
-import { events, trackChanges } from './events.ts';
+import { eventsOf, trackChanges } from './events.ts';
 import { feedRows } from './feed.ts';
 import { refuse } from './refusal.ts';
 import { connectionRoutes, modelTestRoutes } from './routes/ai-settings.ts';
@@ -26,7 +26,8 @@ const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 export function createApp(deps: Deps) {
   // The row feed: the database notes each changed row of the browser's collections, and the change
   // event that follows carries them (feed.ts).
-  rowChangesOf(deps.db.$client).listener = (projectId, seq) => events.rowsChanged(projectId, seq);
+  const events = eventsOf(deps.db);
+  rowChangesOf(deps.db).listener = (projectId, seq) => events.rowsChanged(projectId, seq);
   events.rowSource = (projectId) => feedRows(deps.db, deps, projectId);
   const api = new Hono<Env>()
     .use(async (c, next) => {

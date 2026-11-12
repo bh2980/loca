@@ -1,13 +1,13 @@
 import { and, eq, inArray, ne } from 'drizzle-orm';
-import { KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, nodeName, someOf, withRunModels, workflowInput, type RunCardPlan, type RunModels, type RunScope, type RunScopeInput, type RunTerms, type RunTermsInput, type WorkflowDefinition, type Subject, SUBJECTS, INPUT_TYPES } from '@tw/shared';
+import { KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, nodeName, someOf, withRunModels, workflowInput, type RunCardPlan, type RunModels, type RunScope, type RunScopeInput, type RunTerms, type RunTermsInput, type WorkflowDefinition, type Subject, SUBJECTS, INPUT_TYPES } from '@loca/shared';
 import { z } from 'zod';
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { tagIdsOf } from './knowledge-list.ts';
-import { preflight } from './preflight.ts';
-import { findTerm } from './term-usage.ts';
-import { resolveLineFilter, unknownMessage } from './line-filter.ts';
+import { tagIdsOf } from '../domain/knowledge-list.ts';
+import { preflight } from '../engine/preflight.ts';
+import { findTerm } from '../domain/term-usage.ts';
+import { resolveLineFilter, unknownMessage } from '../domain/line-filter.ts';
 
 /** What plan_run is given: a workflow by id or name, the scope as asked (names), and this run's models. */
 export interface PlanInput extends Omit<RunScopeInput, 'changeHuman'> {

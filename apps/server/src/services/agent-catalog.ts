@@ -1,11 +1,11 @@
 import { z } from 'zod';
-import { toolRoute, type ToolName } from '@tw/shared';
+import { toolRoute, type ToolName } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import { specPermissionError } from './agent-permission-check.ts';
 import { agentTools, type AgentTools, type ToolDef } from './agent-tools.ts';
 import { unchecked, type Prepared } from './proposal-check.ts';
 import type { Inverse } from './proposal-undo.ts';
-import type { Saver } from './status-by.ts';
+import type { Saver } from '../domain/saver.ts';
 import { Refusal } from '../refusal.ts';
 
 /**

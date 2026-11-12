@@ -4,20 +4,21 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { UIMessage, UIMessageStreamWriter } from 'ai';
 import { eq } from 'drizzle-orm';
-import * as ai from '@tw/ai';
+import * as ai from '@loca/ai';
 import type { Db } from '../db/index.ts';
+import { perDatabase } from '../db/per-database.ts';
 import * as s from '../db/schema.ts';
-import { learnImages, logged } from './ai-calls.ts';
+import { learnImages, logged } from '../domain/ai-calls.ts';
 import { acpImages } from './chat-images.ts';
-import { imageDecision, IMAGE_UNSUPPORTED_NOTE } from '@tw/shared';
+import { imageDecision, IMAGE_UNSUPPORTED_NOTE } from '@loca/shared';
 import { agentCatalog, jsonSchemaOf, type CatalogTool } from './agent-catalog.ts';
-import { catchUp, handover, lastExchange, textOf, transcript, type AnsweredBy } from './chat-context.ts';
+import { catchUp, handover, lastExchange, textOf, transcript, type AnsweredBy } from './chat-record.ts';
 import { fitRecord } from './chat-compaction.ts';
-import { estimateTokens } from '@tw/shared';
+import { estimateTokens } from '@loca/shared';
 import { takeInterjections, writeInterjections } from './chat-interject.ts';
 import { chatStream, turnPrompt } from './chat-stream.ts';
 import { agentText, callTool, describeTool, panelOutput } from './tool-run.ts';
-import type { ChatTurn } from './chat-turns.ts';
+import type { ChatTurn } from './chat-turn-registry.ts';
 
 /**
  * Project chat through an agent CLI over ACP (packages/ai acp.ts). The CLI keeps the conversation
@@ -43,35 +44,35 @@ interface LiveTurn {
    */
   toolRan: boolean;
 }
-const live = new Map<string, LiveTurn>();
+const live = perDatabase(() => new Map<string, LiveTurn>());
 
 /** Each chat's MCP server, for this server run (its token lives in the CLI's session; a reopened session gets the current one). */
-const servers = new Map<string, ReturnType<typeof ai.hostTools>>();
+const servers = perDatabase(() => new Map<string, ReturnType<typeof ai.hostTools>>());
 
-export async function disposeChatServer(sessionId: string) {
-  const pending = servers.get(sessionId);
-  servers.delete(sessionId);
+export async function disposeChatServer(db: Db, sessionId: string) {
+  const pending = servers(db).get(sessionId);
+  servers(db).delete(sessionId);
   const hosted = await pending?.catch(() => undefined);
   hosted?.dispose();
-  live.delete(sessionId);
+  live(db).delete(sessionId);
 }
 
 function chatServer(db: Db, chat: { id: string; projectId: string }): Promise<ai.HostedServer> {
-  let server = servers.get(chat.id);
+  let server = servers(db).get(chat.id);
   if (!server) {
     server = ai
       .hostTools('loca', () => {
-        const turn = live.get(chat.id);
+        const turn = live(db).get(chat.id);
         const tools = turn ? [...turn.tools.values()] : agentCatalog(db, chat.projectId);
         return tools.map((tool) => ({ name: tool.name, description: describeTool(tool, 'acp'), inputSchema: jsonSchemaOf(tool.schema), run: (input) => runTool(db, chat, tool.name, input) }));
       });
-    servers.set(chat.id, server);
+    servers(db).set(chat.id, server);
   }
   return server.then((hosted) => hosted.server);
 }
 
 async function runTool(db: Db, chat: { id: string; projectId: string }, name: string, input: Record<string, unknown>) {
-  const turn = live.get(chat.id);
+  const turn = live(db).get(chat.id);
   if (!turn) return { isError: true, text: '이 대화의 차례가 끝나 도구를 부를 수 없습니다.' };
   const tool = turn.tools.get(name);
   const toolCallId = crypto.randomUUID();
@@ -119,7 +120,7 @@ export async function cliChatResponse(input: {
   answeredBy: AnsweredBy;
   /** A turn has no overall limit (tool calls can run long): it is stopped when the CLI reports nothing for this long. */
   idleMs: number;
-  /** The conversation's running turn (chat-turns startTurn): its signal, end and closing mark. */
+  /** The conversation's running turn (chat-turn-registry.ts startTurn): its signal, end and closing mark. */
   turn: Pick<ChatTurn, 'signal' | 'end' | 'record' | 'markClosing'>;
 }): Promise<Response> {
   const { db, chat, target, messages } = input;
@@ -190,7 +191,7 @@ export async function cliChatResponse(input: {
         writer.write({ type: 'start-step' });
         current.toolRan = false;
       };
-      live.set(chat.id, current);
+      live(db).set(chat.id, current);
       try {
         for (let pass = 0; ; pass++) {
           writer.write({ type: 'start-step' });
@@ -226,7 +227,7 @@ export async function cliChatResponse(input: {
         }
       } finally {
         breakText();
-        live.delete(chat.id);
+        live(db).delete(chat.id);
       }
     },
     alsoSave: (final) => {

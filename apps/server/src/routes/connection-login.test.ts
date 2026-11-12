@@ -1,10 +1,10 @@
 import { Hono } from 'hono';
 import { afterEach, describe, expect, it } from 'vitest';
-import { setAgentStarter } from '@tw/ai';
-import { inProcessStarter } from '@tw/ai/fake-acp';
-import { onError, type Env } from '../context.ts';
+import { setAgentStarter } from '@loca/ai';
+import { inProcessStarter } from '@loca/ai/fake-acp';
+import { onError, type Env } from '../http.ts';
 import { openDatabase } from '../db/index.ts';
-import { memoryStore } from '../services/secrets.ts';
+import { memoryStore } from '../domain/secrets.ts';
 import { connectionRoutes } from './ai-settings.ts';
 
 function setup() {

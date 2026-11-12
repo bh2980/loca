@@ -5,8 +5,7 @@ import { GettingStarted } from '@/components/getting-started';
 import { RunStatusBadge, Box, Button, Heading, Icon, Inline, ListRow, Stack, StatusChipLink, StatusIcon, Meter, Text, TodoIcon, Skeleton } from '@loca/ui';
 import { Elapsed, JobProgress } from '@/components/job-progress';
 import { Page } from '@/components/page';
-import { aiDecided } from '@tw/shared';
-import { useMarkStyles } from '@/lib/queries';
+import { aiDecided } from '@loca/shared';
 import { dateTime } from '@/lib/datetime';
 import { useProgress } from '@/lib/use-progress';
 import { SCRIPT_VIEW } from '@/lib/labels';
@@ -43,7 +42,6 @@ interface Todo {
 function Home() {
   const { projectId } = Route.useParams();
   const projectProgress = useProjectProgress(projectId);
-  const markStyles = useMarkStyles(projectId);
   const progress = useProgress(projectId);
   const groups = useGroups(projectId);
   // What AI decided and no person has looked at (✦), each counted as the list its link opens shows it.

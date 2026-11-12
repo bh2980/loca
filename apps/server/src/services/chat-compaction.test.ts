@@ -3,14 +3,14 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { UIMessage } from 'ai';
 import { eq } from 'drizzle-orm';
-import { compactionMarker, estimateTokens, importFileSchema } from '@tw/shared';
+import { compactionMarker, estimateTokens, importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { compactNow, compactionSettled, cutPoint, fitRecord, KEEP_RECENT_TOKENS, withCompaction } from './chat-compaction.ts';
-import { compactChat } from './chat-run.ts';
-import { startTurn } from './chat-turns.ts';
+import { compactChat } from './chat-turn.ts';
+import { startTurn } from './chat-turn-registry.ts';
 import { importProject } from './importer.ts';
-import { memoryStore } from './secrets.ts';
+import { memoryStore } from '../domain/secrets.ts';
 
 // Summaries go through the fake Grok CLI (scripts/fake-cli): no model is called.
 const FAKE_GROK = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../scripts/fake-cli/grok');
@@ -82,7 +82,7 @@ describe('/compact', () => {
     // A second /compact while the first runs is refused; a turn waits for the first.
     expect(() => compactNow({ db, sessionId: chat.id, target })).toThrow(/이미 압축/);
     let settled = false;
-    void compactionSettled(chat.id).then(() => (settled = true));
+    void compactionSettled(db, chat.id).then(() => (settled = true));
     const compaction = await work;
     await Promise.resolve();
     expect(settled).toBe(true);
@@ -121,7 +121,7 @@ describe('/compact', () => {
     await expect(compactChat(deps, chat.id)).rejects.toThrow(/연결과 모델/);
 
     db.update(s.chatSessions).set({ connectionId: target.connectionId, model: target.model }).where(eq(s.chatSessions.id, chat.id)).run();
-    const turn = startTurn(chat.projectId, chat.id);
+    const turn = startTurn(db, chat.projectId, chat.id);
     await expect(compactChat(deps, chat.id)).rejects.toThrow(/답변이 끝난 뒤/);
     turn.end();
     expect(await compactChat(deps, chat.id)).toMatchObject({ upTo: 2 });

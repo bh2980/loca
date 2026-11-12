@@ -1,7 +1,7 @@
 /** Right-hand pane to add, edit or delete a project tag. */
 import { useState } from 'react';
 import { Trash2 } from 'lucide-react';
-import { DEFAULT_TAG_COLOR, TAG_SCOPES, TAG_SCOPE_LABELS } from '@tw/shared';
+import { DEFAULT_TAG_COLOR, TAG_SCOPES, TAG_SCOPE_LABELS } from '@loca/shared';
 import { InspectorHeader, Inspector, Button, Checkbox, Input, Inline, Label, Stack, Textarea, Section, Field, Box } from '@loca/ui';
 import { type TagForm, type TagRowData, type WithoutUnits } from '@/components/settings/status-types';
 import { Swatches } from '@/components/settings/swatches';

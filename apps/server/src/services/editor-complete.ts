@@ -1,12 +1,12 @@
 import { and, desc, eq, gte, lt, sql } from 'drizzle-orm';
-import * as ai from '@tw/ai';
-import { compileFormatRules, editorAiSchema, glossaryMatcher, SPEECH_LEVEL_LABELS, listenerLabel } from '@tw/shared';
+import * as ai from '@loca/ai';
+import { compileFormatRules, editorAiSchema, glossaryMatcher, SPEECH_LEVEL_LABELS, listenerLabel } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { logged } from './ai-calls.ts';
-import { liveChoice } from './model-target.ts';
-import type { SecretStore } from './secrets.ts';
-import { speechRuleIndex } from './speech.ts';
+import { logged } from '../domain/ai-calls.ts';
+import { liveChoice } from '../domain/model-target.ts';
+import type { SecretStore } from '../domain/secrets.ts';
+import { speechRuleIndex } from '../domain/speech.ts';
 import { badRequest, refuse } from '../refusal.ts';
 
 /** Over a quota (the project's daily cap, the model's own rate limit): the editor says when to try again. */

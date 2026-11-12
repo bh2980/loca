@@ -18,7 +18,7 @@
  *
  * Data colours are the one exception: --hue-1 ... --hue-12 (the status colours the user picks) and
  * --token-1 ... --token-6 (format token chips) stay per theme under these names, and code may
- * reference them directly (`var(--hue-${n})` in tokens/status.tsx, the settings swatches, index.css).
+ * reference them directly (`var(--hue-${n})` in patterns/palette.ts, the settings swatches, index.css).
  */
 :root {
   /* Light neutrals: 1 lowest surface ... 12 body text. */
@@ -97,7 +97,7 @@
   --violet-320: oklch(0.32 0.06 300);
   --rose-380: oklch(0.38 0.055 345);
 
-  /* Status colours the user picks (the stored colour is the light hex in @tw/shared STATUS_COLORS; tokens/palette.ts maps it to the hue). */
+  /* Status colours the user picks (the stored colour is the light hex in @loca/shared STATUS_COLORS; patterns/palette.ts maps it to the hue). */
   --hue-1: oklch(0.6 0.02 258);
   --hue-2: oklch(0.6 0.17 25);
   --hue-3: oklch(0.6 0.15 50);

@@ -4,7 +4,7 @@ import { Link } from '@tanstack/react-router';
 import { Download, TriangleAlert } from 'lucide-react';
 import { toast } from 'sonner';
 import { Bleed, Box, Button, Checkbox, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, ExpandableRow, Heading, Icon, Inline, Label, Notice, RadioGroup, RadioGroupItem, ScopeRow, Spinner, Stack, StatusIcon, Text } from '@loca/ui';
-import type { ResultRequest, ResultRest } from '@tw/shared';
+import type { ResultRequest, ResultRest } from '@loca/shared';
 import { lineScopeSections, ScopePicker } from '@/components/scope-picker';
 import { exportDialog, useExportDialog, type ExportStart } from '@/lib/export-dialog';
 import { useGroups } from '@/lib/groups';

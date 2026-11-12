@@ -1,6 +1,6 @@
 import { createCollection, type Collection } from '@tanstack/react-db';
-import type { FeedRow } from '@tw/server/app';
-import { APP_FEED, type AppCollection, type FeedChanges, type FeedCollection, type FeedSnapshot, type SnapshotCollection } from '@tw/shared';
+import type { FeedRow } from '@loca/server/app';
+import { APP_FEED, type AppCollection, type FeedChanges, type FeedCollection, type FeedSnapshot, type SnapshotCollection } from '@loca/shared';
 import { client, unwrap, unwrapSeq } from './api';
 import { feed, type Feed } from './feed';
 

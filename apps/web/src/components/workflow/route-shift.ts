@@ -4,7 +4,7 @@
  * port) moves with it and meets the rest of the line by a short step at the middle of the run after it, so the line stays
  * square and keeps its mark where it was (or moves it with the end it sat by).
  */
-import type { WorkflowEdge } from '@tw/shared';
+import type { WorkflowEdge } from '@loca/shared';
 
 type Point = { x: number; y: number };
 type Layout = NonNullable<WorkflowEdge['layout']>;

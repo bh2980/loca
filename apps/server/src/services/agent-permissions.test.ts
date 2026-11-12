@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { agentToolPermissionOptions, CHECK_KINDS, effectiveAgentPermissions, requiredAgentPermissions } from '@tw/shared';
+import { agentToolPermissionOptions, CHECK_KINDS, effectiveAgentPermissions, requiredAgentPermissions } from '@loca/shared';
 
 describe('agent resource permissions', () => {
   it('maps source CRUD and translation proposals to their actual actions', () => {

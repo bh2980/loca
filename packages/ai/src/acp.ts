@@ -5,7 +5,7 @@ import path from 'node:path';
 import { Readable, Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import * as acp from '@agentclientprotocol/sdk';
-import type { CliKind } from '@tw/shared';
+import type { CliKind } from '@loca/shared';
 import { cliCommand, cliMissing, CODEX_UNUSED_FEATURES } from './cli.ts';
 import { failureInText, ModelError } from './errors.ts';
 import { hostedToolNames, type HostedServer } from './mcp-host.ts';

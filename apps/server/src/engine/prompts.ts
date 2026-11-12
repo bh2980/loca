@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { ISSUE_CATEGORY_GUIDE, ISSUE_KIND_IDS, type IssueKind, lineKindOf, type AiNode, type JsonField } from '@tw/shared';
-import type { BatchContext, LineContext } from '../services/context.ts';
+import { ISSUE_CATEGORY_GUIDE, ISSUE_KIND_IDS, type IssueKind, lineKindOf, type AiNode, type JsonField } from '@loca/shared';
+import type { BatchContext, PrecedingLine } from './ai-context.ts';
 import { choiceOptionsSentence, FORMAT_CHOICE, FORMAT_JSON_BATCH, FORMAT_JSON_LINE, FORMAT_TEXT, FORMAT_VERDICT } from './format-sentences.ts';
 
 const hasBranches = (context: BatchContext) => Object.values(context.preceding).some((preceding) => preceding.branches.length > 0);
@@ -201,7 +201,7 @@ export function buildPrompt(
   // Bodies only: a line's leading and trailing whitespace is the source's, put back when an answer is saved, and a model
   // shown "GRAPHICS\n" copies the escape into what it writes (a term that matches nothing).
   const body = (text: string | null | undefined) => (text == null ? undefined : text.trim());
-  const show = (list: LineContext[]) => list.map(({ speaker, source, translation }) => ({ speaker: speaker ?? undefined, source: body(source), translation: body(translation) }));
+  const show = (list: PrecedingLine[]) => list.map(({ speaker, source, translation }) => ({ speaker: speaker ?? undefined, source: body(source), translation: body(translation) }));
   const promptLine = (line: PromptLine) => {
     // Context only lists lines outside the batch, each once (the batch itself is visible in order).
     const before = context.preceding[line.unitId];

@@ -1,5 +1,5 @@
-import type * as ai from '@tw/ai';
-import type { AiNode } from '@tw/shared';
+import type * as ai from '@loca/ai';
+import type { AiNode } from '@loca/shared';
 import type { Outcome } from './ai-output.ts';
 
 /** The choice key for "none of these" (a choice that allows none). */

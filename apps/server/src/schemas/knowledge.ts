@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AGE_BANDS, CHARACTER_ROLES, characterStyleSchema, DOCUMENT_KINDS, GENDERS, KNOWLEDGE_STATUSES, relationshipChangeSchema, SPEECH_LEVELS, ALL_TERM_KINDS, termScopeSchema } from '@tw/shared';
+import { AGE_BANDS, CHARACTER_ROLES, characterStyleSchema, DOCUMENT_KINDS, GENDERS, KNOWLEDGE_STATUSES, relationshipChangeSchema, SPEECH_LEVELS, ALL_TERM_KINDS, termScopeSchema } from '@loca/shared';
 
 // Request bodies for knowledge items, shared by the routes and the agent tools (services must not import routes).
 export const termInput = z.object({

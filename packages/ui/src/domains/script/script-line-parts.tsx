@@ -1,6 +1,6 @@
 import { Slot } from "@radix-ui/react-slot"
 import { CircleAlert, StickyNote, X } from "lucide-react"
-import type { ComponentProps, ReactNode } from "react"
+import type { ReactNode } from "react"
 import { cn } from "../../lib/utils"
 import { Button } from "../../controls/button"
 import { Icon } from "../../primitives/icon"

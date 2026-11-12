@@ -2,7 +2,7 @@ import { Fragment, memo, useState, type RefObject } from 'react';
 import type { UIMessage } from 'ai';
 import { Check, Pencil, Square, X } from 'lucide-react';
 import { AssistantMessage, Button, CompactionNotice as CompactionNoticeView, Icon, Inline, Markdown, MessageActionBar, SentImage, Stack, SteerBubble as SteerBubbleView, Tooltip, TooltipContent, TooltipTrigger, UserMessage } from '@loca/ui';
-import { messageChips, runCardOf, runEndOf, type ChatChip } from '@tw/shared';
+import { messageChips, runCardOf, runEndOf, type ChatChip } from '@loca/shared';
 import { CopyButton } from '@/components/copy-button';
 import { AttachChip } from './attach-chip';
 import { RunCardView, RunEndView, type RunCardControls } from './run-card';

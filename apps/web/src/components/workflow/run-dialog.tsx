@@ -5,7 +5,7 @@ import { Link, useNavigate } from '@tanstack/react-router';
 import { Play } from 'lucide-react';
 import { Box, ExpandableRow, Heading, Inline, ReadinessDot, Button, Checkbox, Label, RadioGroup, RadioGroupItem, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Skeleton, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue, Spinner, StatusIcon, Text, Bleed, KeyValue, KeyValueRow } from '@loca/ui';
 import { client } from '@/lib/api';
-import { INPUT_TYPES, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, TERM_MARK_IDS, SUBJECTS, LINE_MARK_IDS, type AutoMark, type LineMark, type RunScopeInput, AUTO_MARK_IDS, type Subject, bySubject, type TagScope } from '@tw/shared';
+import { INPUT_TYPES, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, TERM_MARK_IDS, SUBJECTS, LINE_MARK_IDS, type AutoMark, type LineMark, type RunScopeInput, AUTO_MARK_IDS, type Subject, bySubject, type TagScope } from '@loca/shared';
 import { MarkChip } from '@/components/status';
 import { lineScopeSections, ScopePicker, toggled, type PickSection } from '@/components/scope-picker';
 import type { ModelValue } from '@/components/model-picker';

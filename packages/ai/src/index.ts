@@ -1,5 +1,5 @@
 import type { LanguageModel } from 'ai';
-import { CONNECTION_KIND_INFO, type Capability, type ConnectionKind } from '@tw/shared';
+import { CONNECTION_KIND_INFO, type Capability, type ConnectionKind } from '@loca/shared';
 import { ModelError, toModelError } from './errors.ts';
 import { PROVIDERS, type ModelCatalog, type Provider } from './providers.ts';
 import type { AskRequest, AskResult, CompleteRequest, CompleteResult, ConnectionTarget, GenerateRequest, GenerateResult, ModelTarget } from './types.ts';

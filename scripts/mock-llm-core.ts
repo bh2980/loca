@@ -1,4 +1,4 @@
-import { FORMAT_CHOICE, FORMAT_JSON_BATCH, FORMAT_JSON_LINE, FORMAT_TEXT, FORMAT_VERDICT_HEAD, INPUT_SCRIPT } from '../apps/server/src/engine/format-sentences.ts';
+import { FORMAT_CHOICE, FORMAT_JSON_BATCH, FORMAT_JSON_LINE, FORMAT_VERDICT_HEAD, INPUT_SCRIPT } from '../apps/server/src/engine/format-sentences.ts';
 
 /**
  * The mock LLM's brain, free of HTTP: (system, user text, options) → response body + usage.

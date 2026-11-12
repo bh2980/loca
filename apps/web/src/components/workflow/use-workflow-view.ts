@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { WorkflowDefinition, WorkflowGroup } from '@tw/shared';
+import type { WorkflowDefinition, WorkflowGroup } from '@loca/shared';
 import type { CanvasDirection } from '@loca/ui';
 import { useMeasuredSizes } from './flow-canvas';
 import { computeFolds, foldedDefinition, foldPlacements, isFoldOpen, openFoldContaining, toggleFold, type Fold } from './fold';

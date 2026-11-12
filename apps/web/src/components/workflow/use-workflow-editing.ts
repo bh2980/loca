@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useReactFlow } from '@xyflow/react';
 import { toast } from 'sonner';
-import { exitActions, syncEntryEdges, withExitActions, workflowNodeSchema, type WorkflowDefinition, type WorkflowGroup, type WorkflowNode } from '@tw/shared';
+import { exitActions, syncEntryEdges, withExitActions, workflowNodeSchema, type WorkflowDefinition, type WorkflowGroup, type WorkflowNode } from '@loca/shared';
 import type { CanvasDirection } from '@loca/ui';
 import { graphClipboard } from '@/lib/graph-clipboard';
 import { useGraphShortcuts } from '@/lib/graph-shortcuts';

@@ -61,7 +61,7 @@ export const TOOL_SPECS = {
   read_line: { label: '대사 읽기', needs: read('script', 'scenes', 'terms', 'characters', 'speechRules') },
   find_lines: { label: '대사 찾기', needs: read('script') },
   scenes_with: { label: '같이 나오는 장면 찾기', needs: read('script', 'scenes') },
-  line_context: { label: '대사 앞뒤·분기 보기', needs: read('script', 'scenes') },
+  line_around: { label: '대사 앞뒤·분기 보기', needs: read('script', 'scenes') },
   find_reading_route: { label: '경로 대본 찾기', needs: read('script', 'scenes') },
   show_graph: { label: '그래프에서 보여 주기', needs: read('script', 'scenes'), via: 'direct' },
   list_views: { label: '저장된 보기 목록 조회', needs: read('script', 'scenes') },

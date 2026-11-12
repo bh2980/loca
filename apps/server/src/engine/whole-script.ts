@@ -1,8 +1,8 @@
-import type { AiNode } from '@tw/shared';
+import type { AiNode } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import type * as s from '../db/schema.ts';
-import { buildContext } from '../services/context.ts';
-import { scriptText } from '../services/script-text.ts';
+import { buildContext } from './ai-context.ts';
+import { scriptText } from './script-text.ts';
 import { INPUT_SCRIPT } from './format-sentences.ts';
 import { formatSentences, projectParts } from './prompts.ts';
 

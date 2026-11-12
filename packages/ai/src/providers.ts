@@ -1,5 +1,5 @@
 import type { LanguageModel } from 'ai';
-import { CLI_KINDS, type CliKind, type ConnectionKind } from '@tw/shared';
+import { CLI_KINDS, type CliKind, type ConnectionKind } from '@loca/shared';
 import { agentFor, agentWith, checkCliLogin, type AcpAgent } from './acp.ts';
 import { cliGenerate, cliModelList, cliVersion, describeCli, LOGIN_COMMANDS, openLoginTerminal } from './cli.ts';
 import { ModelError } from './errors.ts';

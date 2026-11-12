@@ -1,5 +1,5 @@
 /** The color palette (and a free picker) used by status, tag and mark panes. */
-import { PALETTE, paletteIndex } from '@tw/shared';
+import { PALETTE, paletteIndex } from '@loca/shared';
 import { Inline, Swatch, SwatchPicker, paletteColor } from '@loca/ui';
 
 /** The free picker's swatch while a palette colour is chosen: the palette's hues around a circle. */

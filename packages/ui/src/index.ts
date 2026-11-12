@@ -116,7 +116,7 @@ export * from "./domains/app/sidebar"
 // Domains (tier 5): chat (apps/web/src/components/chat)
 export * from "./domains/chat/attachment-chip"
 export * from "./domains/chat/composer"
-export * from "./domains/chat/context-meter"
+export * from "./domains/chat/window-meter"
 export * from "./domains/chat/message"
 export * from "./domains/chat/select"
 export * from "./domains/chat/tool-card"

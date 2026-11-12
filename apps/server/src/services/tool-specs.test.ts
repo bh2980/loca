@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import type { z } from 'zod';
-import { agentToolPermissionOptions, importFileSchema, itemCount, requiredAgentPermissions, TOOL_NAMES, TOOL_SPECS, toolClass, toolRoute, type ToolClass, type ToolName, type ToolRoute, type ToolSpec } from '@tw/shared';
+import { agentToolPermissionOptions, importFileSchema, itemCount, requiredAgentPermissions, TOOL_NAMES, TOOL_SPECS, toolClass, toolRoute, type ToolClass, type ToolName, type ToolRoute, type ToolSpec } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { agentCatalog } from './agent-catalog.ts';
@@ -66,7 +66,7 @@ const DERIVED: Record<ToolName, [ToolClass, ToolRoute]> = {
   read_line: ['read', 'now'],
   find_lines: ['read', 'now'],
   scenes_with: ['read', 'now'],
-  line_context: ['read', 'now'],
+  line_around: ['read', 'now'],
   find_reading_route: ['read', 'now'],
   show_graph: ['read', 'now'],
   list_views: ['read', 'now'],

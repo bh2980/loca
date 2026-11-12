@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { PALETTE } from "@tw/shared"
+import { PALETTE } from "@loca/shared"
 import { Box } from "../primitives/box"
 import { Inline, Stack } from "../primitives/stack"
 import { Text } from "../primitives/text"

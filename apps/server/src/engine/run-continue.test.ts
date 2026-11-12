@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { importFileSchema, type AiNode } from '@tw/shared';
+import { importFileSchema, type AiNode } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
-import { snapshotWorkflowModels } from '../services/model-target.ts';
+import { snapshotWorkflowModels } from '../domain/model-target.ts';
 import { continuePreflight, continueRun, switchedRun } from '../services/run-continue.ts';
-import { memoryStore } from '../services/secrets.ts';
+import { memoryStore } from '../domain/secrets.ts';
 import { promptEntries } from './prompts.ts';
 import { Runner, type ModelPort } from './runner.ts';
 import { withoutTerms } from './test-workflows.ts';

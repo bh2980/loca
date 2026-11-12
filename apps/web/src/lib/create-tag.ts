@@ -1,4 +1,4 @@
-import { PALETTE, type TagScope } from '@tw/shared';
+import { PALETTE, type TagScope } from '@loca/shared';
 import { taxonomyWrites } from './knowledge';
 
 /** Creation and attachment share one policy; attachment errors must not claim creation failed. */

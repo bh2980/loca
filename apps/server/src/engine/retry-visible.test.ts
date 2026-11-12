@@ -1,18 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
-import * as ai from '@tw/ai';
-import { importFileSchema, translationTemplate, DEFAULT_RETRY_RULES, type BatchConfig, type RetryRule } from '@tw/shared';
+import * as ai from '@loca/ai';
+import { importFileSchema, translationTemplate, DEFAULT_RETRY_RULES, type BatchConfig, type RetryRule } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
-import { snapshotWorkflowModels } from '../services/model-target.ts';
-import { memoryStore } from '../services/secrets.ts';
+import { snapshotWorkflowModels } from '../domain/model-target.ts';
+import { memoryStore } from '../domain/secrets.ts';
 import { promptEntries } from './prompts.ts';
 import { Runner, type ModelPort } from './runner.ts';
 import { continueRun } from '../services/run-continue.ts';
 import { withoutTerms } from './test-workflows.ts';
 import { createRun } from './run-create.ts';
-import { issueTagIds } from '../services/issue-tags.ts';
+import { issueTagIds } from '../domain/issue-tags.ts';
 
 /**
  * What a failure does is visible in the workflow: the AI node's retry rules (settings.retries, or its own)

@@ -3,7 +3,7 @@ import type { LineTab } from '@/components/line-detail';
 import { Fragment, useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { ChevronDown } from 'lucide-react';
-import { DECIDED_BY, DECIDED_BY_LABELS, type DecidedBy, type LineFilterInput, markName, type AutoMark, type MarkStyles, LINE_MARK_IDS, type LineMark, parseMarks } from '@tw/shared';
+import { DECIDED_BY, DECIDED_BY_LABELS, type LineFilterInput, markName, type AutoMark, type MarkStyles, LINE_MARK_IDS, type LineMark, parseMarks } from '@loca/shared';
 import { FilterModeSwitch, markTagGroups, pickOf, PickIcon, togglePick, type FilterPick } from '@/components/header-filter';
 
 import { Box, Button, DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuTrigger, Inline, Input, StatusIcon, Text, DropdownMenuContent, DropdownMenuSubContent, MenuLabel } from '@loca/ui';
@@ -186,7 +186,7 @@ export function LineFilters({ projectId, statuses, tags, speakers, listeners, un
   };
   // 최종 아님 in the menu's mode: shown = the work left, hidden = only final lines.
   const unfinishedState: FilterPick | undefined = search.unfinished === true ? 'show' : search.unfinished === false ? 'hide' : undefined;
-  const groups = markTagGroups({ marks: LINE_MARK_IDS, picked: search.marks, hidden: search.hideMarks, onMark: (mark, mode) => pickMark(mark as LineMark, mode), tags, pickedTags: search.tags, hiddenTags: search.hideTags, onTag: pickTag, projectId });
+  const groups = markTagGroups({ marks: LINE_MARK_IDS, picked: search.marks, hidden: search.hideMarks, onMark: (mark, mode) => pickMark(mark as LineMark, mode), tags, pickedTags: search.tags, hiddenTags: search.hideTags, onTag: pickTag });
   return (
     <Inline minWidth={0} gap="hair">
       <DropdownMenu onOpenChange={(open) => open && setStatusMode('show')}>

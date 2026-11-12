@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { importFileSchema, withRunModels, type AiNode } from '@tw/shared';
+import { importFileSchema, withRunModels, type AiNode } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { agentCatalog } from './agent-catalog.ts';

@@ -1,13 +1,13 @@
 import { asc, eq } from 'drizzle-orm';
 import { z } from 'zod';
-import * as ai from '@tw/ai';
-import { editorAiSchema, formatPatternError } from '@tw/shared';
+import * as ai from '@loca/ai';
+import { editorAiSchema, formatPatternError } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { badRequest } from '../refusal.ts';
-import { logged } from './ai-calls.ts';
-import { liveChoice } from './model-target.ts';
-import type { SecretStore } from './secrets.ts';
+import { logged } from '../domain/ai-calls.ts';
+import { liveChoice } from '../domain/model-target.ts';
+import type { SecretStore } from '../domain/secrets.ts';
 
 export const REGEX_TARGETS = ['token', 'check'] as const;
 export type RegexTarget = (typeof REGEX_TARGETS)[number];

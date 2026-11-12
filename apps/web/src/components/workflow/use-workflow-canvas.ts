@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import { applyNodeChanges, type Connection, type EdgeChange, type NodeChange } from '@xyflow/react';
-import { type WorkflowGroup, type WorkflowIssue } from '@tw/shared';
+import { type WorkflowGroup, type WorkflowIssue } from '@loca/shared';
 import type { CanvasDirection } from '@loca/ui';
 import { GRAPH_KEYS } from '@/lib/graph-shortcuts';
 import { keyLabel } from '@/lib/keys';

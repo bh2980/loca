@@ -1,5 +1,5 @@
 import { and, eq, isNotNull, ne, sql } from 'drizzle-orm';
-import { compileFormatRules, type FormatRules } from '@tw/shared';
+import { compileFormatRules, type FormatRules } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 

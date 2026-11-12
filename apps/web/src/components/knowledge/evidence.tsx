@@ -4,7 +4,7 @@ import { Link } from '@tanstack/react-router';
 import { useMutation, useQueries, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Check, Play, Plus } from 'lucide-react';
-import { changeState, listenerLabel, SPEECH_LEVEL_LABELS, type RelationshipChange, type SpeechLevel } from '@tw/shared';
+import { changeState, listenerLabel, SPEECH_LEVEL_LABELS, type RelationshipChange, type SpeechLevel } from '@loca/shared';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { AiMark, Box, Chip, Field, Group, Input, InspectorList, InspectorResult, Button, Inline, ListRow, Text, TextLink, Section, SectionHeading, Timeline, TimelineFields, TimelineNote, TimelinePoint, TimelineQuotes } from '@loca/ui';
 import { useGroupsById } from '@/lib/groups';

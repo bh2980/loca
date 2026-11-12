@@ -1,11 +1,11 @@
 import { Hono } from 'hono';
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { importFileSchema } from '@tw/shared';
+import { importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import { importProject } from '../services/importer.ts';
 import * as s from '../db/schema.ts';
-import { onError, type Env } from '../context.ts';
+import { onError, type Env } from '../http.ts';
 import { sourceRoutes } from './source.ts';
 
 describe('the translations of a graph\'s cards', () => {

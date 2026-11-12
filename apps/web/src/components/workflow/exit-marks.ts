@@ -3,7 +3,7 @@
  * room (exitTagSize), or under the exit when no line leaves it; and as words in the panes. One place for the editor and
  * a run's graph.
  */
-import { exitActions, exitResultSteps, nodeName, nodePorts, type ExitAction, type WorkflowDefinition, type WorkflowEdge, type WorkflowNode } from '@tw/shared';
+import { exitActions, exitResultSteps, nodeName, nodePorts, type ExitAction, type WorkflowDefinition, type WorkflowEdge, type WorkflowNode } from '@loca/shared';
 import { exitTagSize, type ExitTagItem } from '@loca/ui';
 
 /** An exit's key, in the URL (?exit=) and on its tags: `node id:exit`. */

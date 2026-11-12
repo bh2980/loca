@@ -4,7 +4,7 @@ import { useMutation } from '@tanstack/react-query';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ChevronDown, ChevronUp, GitFork } from 'lucide-react';
 import { toast } from 'sonner';
-import { isUnknownListener, listenerLabel, needsListener, SPECIAL_LISTENERS, type ReadingRouteFork, TAG_SCOPES } from '@tw/shared';
+import { isUnknownListener, listenerLabel, needsListener, SPECIAL_LISTENERS, type ReadingRouteFork, TAG_SCOPES } from '@loca/shared';
 import { TranslationEditor } from '@/components/translation-editor';
 import { LineSourceText, MarkedSourceText, TokenText } from '@/components/editor/source-text';
 import { LineHints } from '@/components/script/line-row';

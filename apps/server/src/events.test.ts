@@ -2,8 +2,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { withImplied, type ChangeEvent } from '@tw/shared';
-import { Events, events, trackChanges } from './events.ts';
+import { withImplied, type ChangeEvent } from '@loca/shared';
+import { openDatabase } from './db/index.ts';
+import { Events, eventsOf, trackChanges } from './events.ts';
 
 describe('Events coalescing', () => {
   beforeEach(() => void vi.useFakeTimers());
@@ -88,7 +89,7 @@ describe('implied topics', () => {
  */
 const CHANGED_BY_HAND: Record<string, string> = {
   'db/index.ts': "topic_changed: the database's triggers saying a table's topic.",
-  'services/chat-turns.ts': 'A turn starting and ending: the turns being answered are held in memory, and GET /chat/:sessionId reads them.',
+  'services/chat-turn-registry.ts': 'A turn starting and ending: the turns being answered are held in memory, and GET /chat/:sessionId reads them.',
 };
 
 describe('emits at write sites', () => {
@@ -96,8 +97,8 @@ describe('emits at write sites', () => {
     const root = path.dirname(fileURLToPath(import.meta.url));
     const sources = (dir: string): string[] =>
       fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => (entry.isDirectory() ? sources(path.join(dir, entry.name)) : entry.name.endsWith('.ts') && !entry.name.endsWith('.test.ts') ? [path.join(dir, entry.name)] : []));
-    // Any spelling of the call: events.changed(, deps.events.changed(, a bound alias of it.
-    const emitting = sources(root).filter((file) => /\bevents\s*\.\s*changed\b/.test(fs.readFileSync(file, 'utf8'))).map((file) => path.relative(root, file).split(path.sep).join('/'));
+    // Any spelling of the call: events.changed(, eventsOf(db).changed(, a bound alias of it.
+    const emitting = sources(root).filter((file) => /\bevents(?:Of\([^)]*\))?\s*\.\s*changed\b/.test(fs.readFileSync(file, 'utf8'))).map((file) => path.relative(root, file).split(path.sep).join('/'));
     expect(emitting.sort()).toEqual(Object.keys(CHANGED_BY_HAND).sort());
   });
 });
@@ -107,7 +108,7 @@ describe('changes a request made', () => {
     const own = new Events(0, 0);
     const { topics } = await trackChanges(async () => {
       await Promise.resolve();
-      events.changed('p', 'terms');
+      eventsOf(openDatabase(':memory:')).changed('p', 'terms');
       own.changed('p', 'chat');
     });
     expect([...topics].sort()).toEqual(['chat', 'terms', 'units', 'workflows']);

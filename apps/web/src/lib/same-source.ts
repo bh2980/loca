@@ -1,6 +1,6 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { listenerLabel } from '@tw/shared';
+import { listenerLabel } from '@loca/shared';
 import { applySameSource } from './line-writes';
 import { q } from './queries';
 

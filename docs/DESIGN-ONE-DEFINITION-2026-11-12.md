@@ -12,7 +12,7 @@
 | 도구의 분류·권한·크기 | `agent-tools.ts`, `shared/agent.ts`, `shared/agent-permissions.ts`, `change-gate.ts` `itemCount` | 자동 모드에서 `delete_lines`와 5,000줄 `set_listeners`가 묻지 않고 적용된다 |
 | AI 노드가 보내는 요청 | `runner.ts`, `preflight.ts`, `context-preview.ts`, `request-preview.ts`, `editor-assist.ts` | 문맥 미리보기의 배치가 실행의 배치와 다르다 |
 | 무엇이 바뀌었나 | DB 트리거(행) + 쓰기 지점의 `events.changed` 100여 곳(토픽) | 토픽을 빠뜨리면 행은 맞고 질문 쿼리는 낡는다. 잡아 주는 장치가 없다 |
-| 오류 종류 | `@tw/ai`의 `ModelError.code`, 서버의 메시지 정규식 | CLI 연결의 길이 초과가 `cut-off`가 아니라 `invalid-output`이 된다 |
+| 오류 종류 | `@loca/ai`의 `ModelError.code`, 서버의 메시지 정규식 | CLI 연결의 길이 초과가 `cut-off`가 아니라 `invalid-output`이 된다 |
 
 ## 2. 원칙
 
@@ -25,12 +25,12 @@
 
 ### 3.1 대사 필터는 `LineFilter` 하나
 
-`@tw/shared`의 `lineFilterSchema`가 이미 가장 넓다. 이것을 유일한 필터 모양으로 삼고, SQL로 가는 길을 하나로 만든다.
+`@loca/shared`의 `lineFilterSchema`가 이미 가장 넓다. 이것을 유일한 필터 모양으로 삼고, SQL로 가는 길을 하나로 만든다.
 
 ```
-LineFilter                    이름·id가 섞인, 사람·CLI·URL이 쓰는 모양 (@tw/shared)
+LineFilter                    이름·id가 섞인, 사람·CLI·URL이 쓰는 모양 (@loca/shared)
   └ resolveLineFilter(db, projectId, filter) → { filter: ResolvedLineFilter, unknown: string[] }
-      └ lineConditions(projectId, resolved) → SQL[]        services/line-filter.ts
+      └ lineConditions(projectId, resolved) → SQL[]        domain/line-filter.ts
 ```
 
 - `resolveLineFilter`가 이름을 id로 바꾸는 유일한 곳이다(상태·태그·장면·화자 별칭·보기). 못 찾은 이름은 `unknown`으로 돌려주고, **모든 표면이 오류로 답한다.** 빈 목록을 "조건 없음"으로 읽는 일이 생기지 않도록 `ResolvedLineFilter`의 목록 필드는 비어 있을 수 없다(없거나, 하나 이상).
@@ -44,7 +44,7 @@ LineFilter                    이름·id가 섞인, 사람·CLI·URL이 쓰는 �
 
 ### 3.2 도구는 `ToolSpec` 하나에서 파생
 
-분류·권한·크기를 도구 이름 옆 한 줄에 둔다. `shared/agent.ts`의 `AGENT_TOOLS`와 `agent-permissions.ts`의 `fixed`·이름별 분기를 대체한다(웹이 라벨과 권한표를 읽으므로 `@tw/shared`에 둔다).
+분류·권한·크기를 도구 이름 옆 한 줄에 둔다. `shared/agent.ts`의 `AGENT_TOOLS`와 `agent-permissions.ts`의 `fixed`·이름별 분기를 대체한다(웹이 라벨과 권한표를 읽으므로 `@loca/shared`에 둔다).
 
 ```ts
 export const TOOL_SPECS = {
@@ -87,7 +87,7 @@ batchOf(db, definition, node, unitId) → unitId[]
 
 지금 트리거는 행(컬렉션)만 적고 토픽은 쓰기 지점이 적는다. 스키마의 거의 모든 테이블에 이미 피드 트리거가 있으므로, 토픽도 같은 곳에서 나오게 한다.
 
-- `Topic`과 `IMPLIES`를 `@tw/shared`(`sync.ts`)로 옮긴다. 서버·웹·CLI가 같은 타입을 쓴다.
+- `Topic`과 `IMPLIES`를 `@loca/shared`(`sync.ts`)로 옮긴다. 서버·웹·CLI가 같은 타입을 쓴다.
 - 테이블 → 토픽 표를 코드에 하나 둔다(`TABLE_TOPICS`). 이 표에서 `AFTER INSERT/UPDATE/DELETE` 트리거를 만들어 `topic_changed(topic, project_id)`를 부른다(마이그레이션 하나로 생성). 행 트리거(`row_changed`)는 그대로 둔다. 컬럼 목록과 파생 규칙이 거기에 있다.
 - `Events`는 `topic_changed`를 받아 지금의 `changed()`와 똑같이 처리한다(`IMPLIES`, 요청의 `x-changed`, 묶어 보내기).
 - 손으로 부르는 `events.changed`는 **DB에 없는 변화**만 남긴다: 레이아웃 진행, 채팅 스트림 상태 같은 것. 남는 호출부는 목록으로 고정한다.
@@ -119,7 +119,7 @@ batchOf(db, definition, node, unitId) → unitId[]
 ### 3.7 실행기: 끝나지 않는 상태를 없앤다
 
 - `dispatch`가 띄운 작업은 어떻게 끝나든 기록된다: 던지면 `failBatch`(그 줄들의 실패) 또는 `halt`(실행 멈춤과 안내). 지금은 `try` 밖에서 던지면 줄이 `running`으로 남는다.
-- 오류 종류는 코드로만 정한다. `ModelErrorCode`에 `cut-off`와 `refused`를 넣고 멈춤 사유를 아는 곳(`@tw/ai`)에서 붙인다. `ItemErrorKind`는 코드에서 전사 함수로 얻는다. 서버의 메시지 정규식(`outputCutOff`, `/거절|refus/`)을 지운다.
+- 오류 종류는 코드로만 정한다. `ModelErrorCode`에 `cut-off`와 `refused`를 넣고 멈춤 사유를 아는 곳(`@loca/ai`)에서 붙인다. `ItemErrorKind`는 코드에서 전사 함수로 얻는다. 서버의 메시지 정규식(`outputCutOff`, `/거절|refus/`)을 지운다.
 - "넣는 중"은 `notice` 문자열 비교가 아니라 실행 상태값으로 둔다. 서버를 켤 때 그 상태로 남은 실행은 실패로 닫는다.
 - 재시도로 되돌린 스텝 표시(`retriedSteps`)를 `run_steps`에 저장한다. 재시작 뒤 연속 실패 수가 달라지지 않는다.
 
@@ -140,7 +140,7 @@ batchOf(db, definition, node, unitId) → unitId[]
 
 - `packages/ui/domains` 재배치와 일회용 부품 정리
 - `services/`와 `engine/`의 계층, "route" 이름 정리, `@tw/*`·`@loca/ui`·저장소 키 접두사 통일
-- `@tw/ai`의 연결 종류별 provider 객체
+- `@loca/ai`의 연결 종류별 provider 객체
 
 ## 5. 순서
 

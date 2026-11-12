@@ -1,5 +1,5 @@
 import { infiniteQueryOptions, keepPreviousData, queryOptions } from '@tanstack/react-query';
-import { ATTACH_PAGE, type AttachKind, type LineFilterInput, type MarkStyles, type TagScope } from '@tw/shared';
+import { ATTACH_PAGE, type AttachKind, type LineFilterInput, type MarkStyles, type TagScope } from '@loca/shared';
 import { aiCallRequest } from './ai-calls';
 import { client, unwrap } from './api';
 import { chatSearch, chatSession } from './chat-sessions';

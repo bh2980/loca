@@ -1,4 +1,4 @@
-import type { RunCaps } from '@tw/shared';
+import type { RunCaps } from '@loca/shared';
 
 /** A run's caps as the run dialog and the run page's "상한 늘려 재개" form edit them. */
 export interface Caps {
@@ -25,4 +25,4 @@ export function resumeLimits(current: Caps | undefined, next: { maxCalls?: numbe
   };
 }
 
-export { startCaps } from '@tw/shared';
+export { startCaps } from '@loca/shared';

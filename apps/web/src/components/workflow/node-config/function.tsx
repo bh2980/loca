@@ -2,7 +2,7 @@
 import { useState, type ReactNode } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Play, Plus, Trash2 } from 'lucide-react';
-import { APPLY_FUNCTION_NAMES, APPLY_TARGETS, FUNCTION_CONCURRENCY, FUNCTIONS, INPUT_TYPES, JSON_FIELD_TYPE_LABELS, DEFAULT_PARTICLE_PATTERN, applyIssues, connectionCan, customRuleIssue, fieldsFromSample, functionConfigSchema, functionTakes, nodeOutputFields, paletteFunctions, previousSteps, type ApplyField, type ApplyFunctionName, type FunctionConfig as FunctionConfigOf, type FunctionName, type FunctionParams, type JsonFieldType, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+import { APPLY_FUNCTION_NAMES, APPLY_TARGETS, FUNCTION_CONCURRENCY, FUNCTIONS, INPUT_TYPES, JSON_FIELD_TYPE_LABELS, DEFAULT_PARTICLE_PATTERN, applyIssues, connectionCan, customRuleIssue, fieldsFromSample, functionConfigSchema, functionTakes, nodeOutputFields, paletteFunctions, previousSteps, type ApplyField, type ApplyFunctionName, type FunctionConfig as FunctionConfigOf, type FunctionName, type FunctionParams, type JsonFieldType, type WorkflowDefinition, type WorkflowNode } from '@loca/shared';
 import { Box, Button, Inline, Input, NumberInput, InspectorActionRow, InspectorList, InspectorResult, InspectorToggle, Select, SelectContent, SelectField, SelectItem, SelectTrigger, SelectValue, Textarea, Text, ListItem, Field } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
 import { AiConfirmNote } from '@/components/settings/ai-confirm';

@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { UIMessage } from 'ai';
-import { importFileSchema } from '@tw/shared';
+import { importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { expandRecord, transcript } from './chat-context.ts';
-import { startTurn, steerable } from './chat-turns.ts';
+import { expandRecord, transcript } from './chat-record.ts';
+import { startTurn, steerable } from './chat-turn-registry.ts';
 import { dequeueSteer, enqueueSteer, hasSteers, stopWithQueued, takeSteers } from './chat-interject.ts';
 import { eq } from 'drizzle-orm';
 import { importProject } from './importer.ts';
@@ -30,8 +30,8 @@ describe('steering (#44)', () => {
     const db = openDatabase(':memory:');
     const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', source: 'Hi' }] }));
     const id = db.insert(s.chatSessions).values({ projectId, title: '새 대화' }).returning().get().id;
-    const turn = startTurn('p', id);
-    expect(steerable(id)).toBe(true);
+    const turn = startTurn(db, 'p', id);
+    expect(steerable(db, id)).toBe(true);
     enqueueSteer(db, id, 'a');
     enqueueSteer(db, id, 'b');
     expect(hasSteers(db, id)).toBe(true);
@@ -44,13 +44,13 @@ describe('steering (#44)', () => {
     expect(dequeueSteer(db, id, 'b')).toBe(false);
     expect(takeSteers(db, id)).toEqual([]);
     turn.markClosing();
-    expect(steerable(id)).toBe(false);
+    expect(steerable(db, id)).toBe(false);
     turn.end();
-    expect(steerable(id)).toBe(false);
-    const second = startTurn('p', id);
+    expect(steerable(db, id)).toBe(false);
+    const second = startTurn(db, 'p', id);
     enqueueSteer(db, id, 'c');
     expect(stopWithQueued(db, id)).toEqual({ stopped: true, queued: ['c'] });
-    expect(steerable(id)).toBe(false);
+    expect(steerable(db, id)).toBe(false);
     second.end();
     // No turn (after a restart): stopping still hands back what waited.
     enqueueSteer(db, id, 'd');

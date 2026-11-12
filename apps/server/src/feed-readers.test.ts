@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { APP_COLLECTIONS, APP_FEED, FEED_COLLECTIONS, type FeedCollection } from '@tw/shared';
+import { APP_COLLECTIONS, APP_FEED, FEED_COLLECTIONS, type FeedCollection } from '@loca/shared';
 import { openDatabase } from './db/index.ts';
 import { rowChangesOf } from './db/row-changes.ts';
 import * as s from './db/schema.ts';
@@ -8,7 +8,7 @@ import { tablesRead } from './db/test-tables-read.ts';
 import { rows } from './db/test-rows.ts';
 import { schemaTables, type TableName } from './db/topics.ts';
 import { READERS } from './feed.ts';
-import { memoryStore } from './services/secrets.ts';
+import { memoryStore } from './domain/secrets.ts';
 
 type Op = 'insert' | 'update' | 'delete';
 const OPS: readonly Op[] = ['insert', 'update', 'delete'];

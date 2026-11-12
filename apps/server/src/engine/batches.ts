@@ -1,4 +1,4 @@
-import { batchTokens, INPUT_TYPES, lineCost, lineCostIn, type AiNode, type BatchConfig, type Subject } from '@tw/shared';
+import { batchTokens, INPUT_TYPES, lineCost, lineCostIn, type AiNode, type BatchConfig, type Subject } from '@loca/shared';
 
 /**
  * How an AI node batches the items of a `subject`, within the batch modes that input has: terms have no

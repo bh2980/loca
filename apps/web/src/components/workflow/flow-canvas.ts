@@ -5,7 +5,7 @@
  */
 import { useCallback, useMemo, useState } from 'react';
 import type { Edge, Node, NodeChange, ReactFlowInstance } from '@xyflow/react';
-import type { WorkflowDefinition } from '@tw/shared';
+import type { WorkflowDefinition } from '@loca/shared';
 import type { CanvasDirection } from '@loca/ui';
 import { useConnections } from '@/lib/app-data';
 import { useTaxonomy } from '@/lib/knowledge';

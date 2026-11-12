@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient } from '@tanstack/react-query';
-import { FEED_EVENT, type ChangeEvent } from '@tw/shared';
+import { FEED_EVENT, type ChangeEvent } from '@loca/shared';
 import { createFeed } from './feed';
 import { startLive, type LiveSource } from './live';
 import { key, ownKey } from './query-keys';

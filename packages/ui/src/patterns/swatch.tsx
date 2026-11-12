@@ -1,4 +1,3 @@
-import type * as React from "react"
 import { cn } from "../lib/utils"
 import { Button, type ButtonProps } from "../controls/button"
 import { Input } from "../controls/input"

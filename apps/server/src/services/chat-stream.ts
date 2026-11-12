@@ -2,9 +2,9 @@ import { createUIMessageStream, createUIMessageStreamResponse, type UIMessage, t
 import { eq } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { withStoredCards } from './chat-context.ts';
+import { withStoredCards } from './chat-record.ts';
 import { interjectionPrompt, type Interjection } from './chat-interject.ts';
-import { markStopped, readToEnd, type ChatTurn } from './chat-turns.ts';
+import { markStopped, readToEnd, type ChatTurn } from './chat-turn-registry.ts';
 
 /**
  * What the chat backends (API, CLI; #49) share around their own model loop: the UI

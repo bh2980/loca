@@ -10,10 +10,10 @@ import { termMarksOf, withDuplicateTargets } from './marks.ts';
 import { ANALYSIS_WORKFLOW, analysisTemplate, defaultWorkflows, eventExtractionTemplate, listenerTemplate, peopleRelationsTemplate, termExtractionTemplate, termTranslationTemplate, translationTemplate, WORKFLOW_TEMPLATES } from './defaults.ts';
 import { APPLY_TARGETS } from './functions.ts';
 import { AI_PRESETS, AI_PROMPTS, presetConfig } from './presets.ts';
-import { CONTEXT_FIELDS } from './context.ts';
+import { CONTEXT_FIELDS } from './ai-context.ts';
 import { nodeDetails, nodeSummary } from './workflow-summary.ts';
 import { fieldsFromSample, FUNCTION_NAMES, FUNCTIONS, functionConfigSchema, paletteFunctions } from './functions.ts';
-import { applyIssues, contextConfigSchema, functionIssues, nodeCallsOut, nodeOutputFields, nodePorts, pickPaths, previousStepId, previousSteps, readinessUses, retryAction, retrySummary, retryWhen, retryModel, retryRuleIndex, retryScaleText, resendsOf, nodeRetries, DEFAULT_RETRY_RULES, definitionModels, ITEM_ERROR_KINDS, validateWorkflow, workflowDefinitionSchema, workflowNodeSchema, type RetryRule, type WorkflowDefinition, type WorkflowNode } from './workflow.ts';
+import { contextConfigSchema, functionIssues, nodeCallsOut, nodeOutputFields, nodePorts, pickPaths, previousStepId, previousSteps, readinessUses, retryAction, retrySummary, retryWhen, retryModel, retryRuleIndex, retryScaleText, resendsOf, nodeRetries, DEFAULT_RETRY_RULES, definitionModels, ITEM_ERROR_KINDS, validateWorkflow, workflowDefinitionSchema, workflowNodeSchema, type RetryRule, type WorkflowDefinition, type WorkflowNode } from './workflow.ts';
 
 const model = { connectionId: 'c', model: 'm' };
 /** The project's tag for each kind checks and reviews name (a new project has one of each). */

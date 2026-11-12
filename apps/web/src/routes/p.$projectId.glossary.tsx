@@ -10,8 +10,8 @@ import { NEW_TERM, NewTermPane, TermEditor } from '@/components/glossary/term-pa
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { HeaderActions, Page } from '@/components/page';
 import { AiNamed, BulkDecide, itemFilterParams, StateFilter, SourceBadge, StateCell, TagCell } from '@/components/knowledge/table';
-import { param, searchParams, type SearchOf } from '@/lib/search';
-import { markColor, markName, type AutoMark, isSettled, parseMarks, TERM_MARK_IDS, termMarksOf, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, type KnowledgeSource, aiDecided, DECIDED_BY_LABELS, type DecidedBy, termMatches, type TermFilter } from '@tw/shared';
+import { param, searchParams } from '@/lib/search';
+import { markColor, markName, type AutoMark, isSettled, TERM_MARK_IDS, termMarksOf, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, type KnowledgeSource, aiDecided, DECIDED_BY_LABELS, termMatches, type TermFilter } from '@loca/shared';
 import { tagsIn, useMarkStyles } from '@/lib/queries';
 import { useListScreen } from '@/lib/list-screen';
 import { useTerms, withDuplicate, type Term, discoverTerms, deleteTerm, tagTerms } from '@/lib/terms';
@@ -26,7 +26,6 @@ const glossarySearchParams = {
   /** 번역 비어 있음 (true) or 있음 (false). */
   emptyTarget: param.bool,
 };
-type GlossarySearch = SearchOf<typeof glossarySearchParams>;
 
 export const Route = createFileRoute('/p/$projectId/glossary')({
   validateSearch: searchParams(glossarySearchParams),

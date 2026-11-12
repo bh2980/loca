@@ -1,6 +1,6 @@
 import { APICallError, NoObjectGeneratedError, type LanguageModelUsage } from 'ai';
 import { APIConnectionError, APIError } from '@typesafe-ai/sdk';
-import type { ModelErrorCode } from '@tw/shared';
+import type { ModelErrorCode } from '@loca/shared';
 import type { Usage } from './types.ts';
 
 export type { ModelErrorCode };

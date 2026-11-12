@@ -1,11 +1,10 @@
 import { and, eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
-import { agentToolAvailable, importFileSchema } from '@tw/shared';
+import { agentToolAvailable, importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from './importer.ts';
 import { agentCatalog } from './agent-catalog.ts';
-import { agentTools } from './agent-tools.ts';
 import { projectReadingRoute } from './reading-route.ts';
 
 const fixture = importFileSchema.parse({

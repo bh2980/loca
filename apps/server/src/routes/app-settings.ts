@@ -1,11 +1,11 @@
 import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { APP_COLLECTIONS, APP_DEFAULT_SECTIONS, APP_FEED, HELD_READ_MAX, appDefaultsPatchSchema } from '@tw/shared';
-import { found, validate, type Env } from '../context.ts';
+import { APP_COLLECTIONS, APP_DEFAULT_SECTIONS, APP_FEED, HELD_READ_MAX, appDefaultsPatchSchema } from '@loca/shared';
+import { found, validate, type Env } from '../http.ts';
 import * as s from '../db/schema.ts';
 import { feedSnapshot, heldRows } from '../feed.ts';
-import { pullDefaults, pushDefaults, writeAppDefaults } from '../services/app-defaults.ts';
+import { pullDefaults, pushDefaults, writeAppDefaults } from '../domain/app-defaults.ts';
 
 const sections = z.array(z.enum(APP_DEFAULT_SECTIONS)).min(1);
 

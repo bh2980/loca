@@ -1,18 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import * as ai from '@tw/ai';
-import { errorKindOfCode, importFileSchema, MODEL_ERROR_CODES, MODEL_ERROR_KINDS, translationTemplate } from '@tw/shared';
+import * as ai from '@loca/ai';
+import { errorKindOfCode, importFileSchema, MODEL_ERROR_CODES, MODEL_ERROR_KINDS, translationTemplate } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
-import { snapshotWorkflowModels } from '../services/model-target.ts';
-import { memoryStore } from '../services/secrets.ts';
+import { snapshotWorkflowModels } from '../domain/model-target.ts';
+import { memoryStore } from '../domain/secrets.ts';
 import { promptEntries } from './prompts.ts';
 import { Runner, type ModelPort } from './runner.ts';
 import { continueRun } from '../services/run-continue.ts';
 import { createRun } from './run-create.ts';
 import { withoutTerms } from './test-workflows.ts';
-import { issueTagIds } from '../services/issue-tags.ts';
+import { issueTagIds } from '../domain/issue-tags.ts';
 
 /** The template without retry rules (a failure that needs a smaller request then ends the line, and without the 검토 필요 end), unless `keep`. */
 function withoutResend(full: ReturnType<typeof translationTemplate>, keep: boolean) {

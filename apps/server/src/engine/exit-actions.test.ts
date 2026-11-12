@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { eq, sql } from 'drizzle-orm';
-import { importFileSchema, ISSUE_KINDS, workflowDefinitionSchema, type ExitAction } from '@tw/shared';
+import { importFileSchema, ISSUE_KINDS, workflowDefinitionSchema, type ExitAction } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { events } from '../events.ts';
+import { eventsOf } from '../events.ts';
 import { importProject } from '../services/importer.ts';
-import { issueTagIds } from '../services/issue-tags.ts';
-import { snapshotWorkflowModels } from '../services/model-target.ts';
+import { issueTagIds } from '../domain/issue-tags.ts';
+import { snapshotWorkflowModels } from '../domain/model-target.ts';
 import { runProgress } from '../services/run-detail.ts';
-import { memoryStore } from '../services/secrets.ts';
+import { memoryStore } from '../domain/secrets.ts';
 import { HUMAN_OWNED_NOTE } from './apply-candidate.ts';
 import { applyExitActions, HUMAN_STATUS_NOTE } from './exit-actions.ts';
 import { subjectOf } from './subjects.ts';
@@ -193,6 +193,7 @@ describe('exit actions in a run', () => {
     const runId = start(ctx, flow({ c: cond(always, { true: [tag([urgent.id])] }) }, ['entry -> c', 'c.true -> end']));
     expect(ctx.db.select().from(s.runs).where(eq(s.runs.id, runId)).get()!.tags).toEqual([expect.objectContaining({ id: urgent.id, name: '긴급', color: '#ff0000' })]);
     ctx.db.delete(s.tags).where(eq(s.tags.id, urgent.id)).run();
+    const events = eventsOf(ctx.db);
     events.flush();
     const topics = new Set<string>();
     const listen = (event: { topics: string[] }) => event.topics.forEach((topic) => topics.add(topic));

@@ -4,20 +4,20 @@ import path from 'node:path';
 import { Hono } from 'hono';
 import { and, eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
-import { importFileSchema, lineChangeSchema, workflowDefinitionSchema, type ExitAction } from '@tw/shared';
-import { onError, type Env } from '../context.ts';
+import { importFileSchema, lineChangeSchema, workflowDefinitionSchema, type ExitAction } from '@loca/shared';
+import { onError, type Env } from '../http.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { createRun } from '../engine/run-create.ts';
 import { Runner, type ModelPort } from '../engine/runner.ts';
-import { addCandidate } from '../services/candidates.ts';
+import { addCandidate } from '../domain/candidates.ts';
 import { proposeChange, undoChanges } from '../services/change-gate.ts';
 import { deleteLines } from '../services/graph-edit.ts';
 import { importProject } from '../services/importer.ts';
-import { FINAL_NEEDS_TEXT, LINE_CHANGED } from '../services/line-save.ts';
-import { snapshotWorkflowModels } from '../services/model-target.ts';
+import { FINAL_NEEDS_TEXT, LINE_CHANGED } from '../domain/line-save.ts';
+import { snapshotWorkflowModels } from '../domain/model-target.ts';
 import { decideProposal } from '../services/proposals.ts';
-import { memoryStore } from '../services/secrets.ts';
+import { memoryStore } from '../domain/secrets.ts';
 import { undoRecorded } from '../services/undo-records.ts';
 import { knowledgeRoutes } from './knowledge.ts';
 import { sourceRoutes } from './source.ts';
@@ -52,7 +52,7 @@ function setup(mode: 'ask' | 'bypass' = 'bypass', db = openDatabase(':memory:'))
   const request = async (method: string, url: string, body?: unknown) => {
     const response = await app.request(url, { method, headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
     const text = await response.text();
-    // A refusal answers `{ error }` (context.ts, onError): `text` is what it says.
+    // A refusal answers `{ error }` (http.ts, onError): `text` is what it says.
     return { status: response.status, text: response.ok ? text : String((JSON.parse(text) as { error?: unknown }).error ?? text), body: (response.ok ? JSON.parse(text) : {}) as Record<string, any> };
   };
   /** The app: a request to one of the project's routes. */

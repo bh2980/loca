@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import { usePicked } from '@/lib/use-picked';
-import { useReportView, type ViewItem } from '@/lib/view-context';
+import { useReportView, type ViewItem } from '@/lib/reported-view';
 
 /**
  * What a search becomes when a row of a list is clicked: the row's pane opens, and a click on the row whose pane is

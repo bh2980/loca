@@ -2,20 +2,20 @@ import { readFileSync } from 'node:fs';
 import { Hono } from 'hono';
 import { describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
-import { importFileSchema, lineFilterSchema, linesById, resolvedLineFilterSchema, runScopeSchema, type UnpagedLineFilter } from '@tw/shared';
-import { onError, type Env } from '../context.ts';
+import { importFileSchema, lineFilterSchema, linesById, resolvedLineFilterSchema, runScopeSchema, type UnpagedLineFilter } from '@loca/shared';
+import { onError, type Env } from '../http.ts';
 import { openDatabase } from '../db/index.ts';
 import { sourceRoutes } from '../routes/source.ts';
 import * as s from '../db/schema.ts';
 import { agentCatalog, prepareProposal } from './agent-catalog.ts';
 import { importProject } from './importer.ts';
 import { excludedInScope, selectRunUnits } from '../engine/subjects.ts';
-import { resolveLineFilter } from './line-filter.ts';
+import { resolveLineFilter } from '../domain/line-filter.ts';
 import { askedScope, resolveRunScope } from './run-plan.ts';
 import { findLines } from './script-query.ts';
 import { tagOverview } from './tag-overview.ts';
-import { findTerm, termUsage } from './term-usage.ts';
-import { listTerms } from './terms.ts';
+import { findTerm, termUsage } from '../domain/term-usage.ts';
+import { listTerms } from '../domain/terms.ts';
 
 function setup() {
   const db = openDatabase(':memory:');

@@ -1,5 +1,5 @@
 import { and, eq } from 'drizzle-orm';
-import type { ProposalDetail } from '@tw/shared';
+import type { ProposalDetail } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import { inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';

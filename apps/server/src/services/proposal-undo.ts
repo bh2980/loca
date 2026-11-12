@@ -2,7 +2,7 @@ import { and, eq, inArray, or } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import type { KnowledgeKind } from '../db/schema.ts';
-import { revOf } from './line-save.ts';
+import { revOf } from '../domain/line-save.ts';
 
 type Proposal = typeof s.proposals.$inferSelect;
 type Call = s.UndoCall;

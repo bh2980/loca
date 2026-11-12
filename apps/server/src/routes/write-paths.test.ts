@@ -1,14 +1,14 @@
 import { Hono } from 'hono';
 import { and, eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
-import { batchChangeSchema, importFileSchema } from '@tw/shared';
-import { onError, type Env } from '../context.ts';
+import { batchChangeSchema, importFileSchema } from '@loca/shared';
+import { onError, type Env } from '../http.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
 import { applyBatch, validateBatch } from '../services/script-query.ts';
-import { attachUnitTags } from '../services/tag-scope.ts';
-import { saveTerm } from '../services/terms.ts';
+import { attachUnitTags } from '../domain/tag-scope.ts';
+import { saveTerm } from '../domain/terms.ts';
 import { knowledgeRoutes } from './knowledge.ts';
 import { sourceRoutes } from './source.ts';
 import { scriptRoutes } from './script.ts';

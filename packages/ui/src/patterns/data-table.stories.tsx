@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { PALETTE } from "@tw/shared"
+import { PALETTE } from "@loca/shared"
 import { useState } from "react"
 import { Button } from "../controls/button"
 import { Box } from "../primitives/box"

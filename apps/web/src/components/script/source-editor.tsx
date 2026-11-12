@@ -104,7 +104,6 @@ export function SourceEditor({ projectId, kind, groupId, unitId, mode, onClose, 
     : `${SOURCE_UNIT_LABEL[form.kind]} ${editingUnit ? '편집' : '추가'}`;
   const isGroup = mode.endsWith('group');
   const canSave = !loading && !loadError && dirty && Boolean(form.title.trim() || !isGroup) && Boolean(form.source.trim() || isGroup) && (isGroup || Boolean(groups.data?.some((item) => item.id === form.groupId))) && !save.isPending;
-  const groupTitle = groups.data?.find((item) => item.id === form.groupId)?.title;
   const groupDeleteCopy = count === undefined ? '삭제할 원문 수를 확인하고 있습니다.' : count === 0 ? '비어 있는 묶음이 삭제됩니다.' : `이 묶음과 원문 ${count!.toLocaleString()}개, 번역·후보와 실행 기록의 해당 항목이 함께 삭제됩니다.`;
 
   const creating = mode === 'create-group' || mode === 'create-unit';

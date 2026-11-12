@@ -2,7 +2,7 @@
  * A condition node's JSON Logic as rows people can read and edit: one clause per row, joined by
  * "all" or "any". Expressions these rows cannot say stay JSON (parseCondition returns null).
  */
-import { nodeOutputFields, type ItemErrorKind, type JsonField, type WorkflowNode } from '@tw/shared';
+import { nodeOutputFields, type ItemErrorKind, type JsonField, type WorkflowNode } from '@loca/shared';
 
 export type FieldOperator = '>=' | '<=' | '==' | '!=' | 'filled';
 /** `not` turns a line property around: 상태가 … 아님, 태그 … 없음, 청자 없음. */

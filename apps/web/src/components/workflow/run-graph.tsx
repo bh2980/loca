@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Background, Panel, ReactFlow, ReactFlowProvider, useNodesInitialized, useReactFlow, useViewport, type NodeChange } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import type { WorkflowDefinition } from '@tw/shared';
+import type { WorkflowDefinition } from '@loca/shared';
 import { Box, Button, CanvasToolbar, EdgeLegend, Inline, Text, type CanvasDirection, useCanvasDismiss } from '@loca/ui';
 import { X } from 'lucide-react';
 import { ITEM_STATE } from '@/lib/labels';

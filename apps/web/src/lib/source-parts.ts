@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { compileFormatRules, glossaryMatcher } from '@tw/shared';
+import { compileFormatRules, glossaryMatcher } from '@loca/shared';
 import { numberTokens, tokenUnits, type TokenKind } from '@/lib/tokens';
 import { useTerms } from './terms';
 import { useProject } from './project';

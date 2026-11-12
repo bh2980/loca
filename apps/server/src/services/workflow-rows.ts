@@ -1,5 +1,5 @@
 import { asc, eq } from 'drizzle-orm';
-import { nodeName, workflowInput } from '@tw/shared';
+import { nodeName, workflowInput } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { workflowIssues } from './workflow-issues.ts';

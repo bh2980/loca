@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { agentSettingsSchema, editorAiSchema, exclusionRulesSchema, formatRulesSchema, markStylesSchema, type AgentSettings } from '@tw/shared';
+import { agentSettingsSchema, editorAiSchema, exclusionRulesSchema, formatRulesSchema, markStylesSchema, type AgentSettings } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 

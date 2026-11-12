@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { importFileSchema } from '@tw/shared';
-import type * as ai from '@tw/ai';
+import { importFileSchema } from '@loca/shared';
+import type * as ai from '@loca/ai';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { Refusal } from '../refusal.ts';
 import { assistLine } from './editor-assist.ts';
 import { importProject } from './importer.ts';
-import { memoryStore } from './secrets.ts';
+import { memoryStore } from '../domain/secrets.ts';
 
 function setup(assistModel = true) {
   const db = openDatabase(':memory:');

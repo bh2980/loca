@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
 import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
-import { batchChangeSchema, lineFilterSchema, resultRequestSchema } from '@tw/shared';
-import { badRequest, found, validate, type Env } from '../context.ts';
+import { batchChangeSchema, lineFilterSchema, resultRequestSchema } from '@loca/shared';
+import { badRequest, found, validate, type Env } from '../http.ts';
 import * as s from '../db/schema.ts';
 import { proposeChange, undoChanges } from '../services/change-gate.ts';
 import { resultCheck, resultFile, resultPlan } from '../services/results.ts';
@@ -11,11 +11,11 @@ import { agentCatalog, jsonSchemaOf } from '../services/agent-catalog.ts';
 import { previewContext } from '../services/request-preview.ts';
 import { checkBatch, refusalText } from '../services/proposal-check.ts';
 import { callTool, describeTool } from '../services/tool-run.ts';
-import { viewFlow } from '../services/view-flow.ts';
+import { viewFlow } from '../domain/view-flow.ts';
 import { projectReadingRoute } from '../services/reading-route.ts';
 import { inChunks } from '../db/chunk.ts';
 import { speakerRows } from '../services/project-rows.ts';
-import { checkScript, exportLines, findLines, firstAppearance, lineContext, runStats, sceneStats, scenesWith } from '../services/script-query.ts';
+import { checkScript, exportLines, findLines, firstAppearance, lineAround, runStats, sceneStats, scenesWith } from '../services/script-query.ts';
 
 /**
  * The script API behind the `loca` CLI. Reading answers directly; writing (import, change tools)
@@ -32,8 +32,8 @@ export const scriptRoutes = new Hono<Env>()
   .post('/projects/:projectId/scenes/with', validate('json', z.object({ speakers: z.array(z.string().min(1)).min(1) })), (c) =>
     c.json(scenesWith(c.var.deps.db, c.req.param('projectId'), c.req.valid('json').speakers)),
   )
-  .get('/projects/:projectId/lines/:key/context', validate('query', z.object({ around: z.coerce.number().int().min(0).max(50).default(5) })), (c) =>
-    c.json(found(lineContext(c.var.deps.db, c.req.param('projectId'), c.req.param('key'), c.req.valid('query').around), '대사')),
+  .get('/projects/:projectId/lines/:key/around', validate('query', z.object({ around: z.coerce.number().int().min(0).max(50).default(5) })), (c) =>
+    c.json(found(lineAround(c.var.deps.db, c.req.param('projectId'), c.req.param('key'), c.req.valid('query').around), '대사')),
   )
   /** What an AI node would send for this line (no model call). */
   .get('/projects/:projectId/lines/:key/ai-context', validate('query', z.object({ workflowId: z.string().optional(), nodeId: z.string().optional() })), (c) =>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { TOPICS, withImplied, type Topic } from '@tw/shared';
+import { TOPICS, withImplied, type Topic } from '@loca/shared';
 import { idsFingerprint, key, OWN_FAMILIES, ownKey } from './query-keys';
 
 describe('query keys', () => {

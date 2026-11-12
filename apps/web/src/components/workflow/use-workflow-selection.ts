@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { getRouteApi } from '@tanstack/react-router';
-import { nodePorts, type WorkflowDefinition } from '@tw/shared';
+import { nodePorts, type WorkflowDefinition } from '@loca/shared';
 import { useGraphSelection } from '@/lib/graph-selection';
 import { parseExitKey } from './exit-marks';
 

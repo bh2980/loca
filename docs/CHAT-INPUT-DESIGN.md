@@ -9,9 +9,9 @@
 
 | # | 이런 질문 | 가리킬 대상 (`@`) | 에이전트가 쓸 도구|
 |---|---|---|---|
-| 1 | 이 대사 무슨 뜻이야? 말장난이야? | 대사 | `read_line`, `line_context`|
+| 1 | 이 대사 무슨 뜻이야? 말장난이야? | 대사 | `read_line`, `line_around`|
 | 2 | 이 장면 앞에서 무슨 일이 있었지? | 장면 | `read_scene`, `list_events`|
-| 3 | 지금 누구한테 하는 말이야? | 대사 | `read_line` (청자), `line_context`|
+| 3 | 지금 누구한테 하는 말이야? | 대사 | `read_line` (청자), `line_around`|
 | 4 | Gentleman이 Lookout한테 앞에서 존댓말 썼어? | 인물 2명, 또는 관계 | `find_lines` (speakers + listeners), `list_speech_rules`|
 | 5 | 'The Rat'을 지금까지 어떻게 번역했어? | 용어, 또는 검색어 | `term_usage`, `find_lines` (q)|
 | 6 | 이 인물 말버릇 예시 몇 개 보여 줘 | 인물 | `find_lines` (speakers), `list_characters`|

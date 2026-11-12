@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import { Check, Play, X } from 'lucide-react';
-import { connectionCan } from '@tw/shared';
+import { connectionCan } from '@loca/shared';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { Box, Button, Icon, Inline, SectionHeading, Stack, StepMarker, Text } from '@loca/ui';
 import { HeaderActions } from '@/components/page';

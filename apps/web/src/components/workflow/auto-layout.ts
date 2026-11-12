@@ -1,5 +1,5 @@
 import ELK, { type ElkNode } from 'elkjs/lib/elk.bundled.js';
-import { nodePorts, type WorkflowDefinition } from '@tw/shared';
+import { nodePorts, type WorkflowDefinition } from '@loca/shared';
 import { FRAME_HEADER, FRAME_PAD, type CanvasDirection } from '@loca/ui';
 
 const elk = new ELK();

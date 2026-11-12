@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { keepPreviousData, queryOptions, useQuery } from '@tanstack/react-query';
 import type { InferResponseType } from 'hono/client';
-import type { LineFilterInput } from '@tw/shared';
+import type { LineFilterInput } from '@loca/shared';
 import { client, unwrap } from './api';
 import type { FeedRow } from './collections';
 import { useGroupsById } from './groups';

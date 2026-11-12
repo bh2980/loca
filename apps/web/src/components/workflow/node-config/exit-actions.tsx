@@ -4,7 +4,7 @@
  */
 import { ArrowDown, ArrowUp, Plus, Trash2, Unlink } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
-import { ISSUE_KIND_LABELS, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, exitActionIssues, exitActions, exitResultSteps, nodeName, nodeOutputFields, nodePorts, withExitActions, type ExitAction, type TagExitAction, type WorkflowDefinition, type WorkflowNode, INPUT_TYPES } from '@tw/shared';
+import { ISSUE_KIND_LABELS, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, exitActionIssues, exitActions, exitResultSteps, nodeName, nodeOutputFields, nodePorts, withExitActions, type ExitAction, type TagExitAction, type WorkflowDefinition, type WorkflowNode, INPUT_TYPES } from '@loca/shared';
 import { Box, Button, ExpandableRow, Field, Grid, Inline, Input, Inspector, InspectorHeader, InspectorResult, PickedTags, Section, SelectField, SelectItem, Stack, StatusIcon, Text } from '@loca/ui';
 import { exitActionText, resultStepNames, type MarkNames } from '@/components/workflow/exit-marks';
 import { refsInput, type NodeRefs } from '@/components/workflow/node-config/shared';

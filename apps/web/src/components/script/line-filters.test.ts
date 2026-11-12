@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { lineFilterSchema } from '@tw/shared';
+import { lineFilterSchema } from '@loca/shared';
 import { exportFilterOf, filterChips, hasLineFilter, lineFilterCount, lineFilterOf, linesSearchSchema, speakerChoices } from './line-filters';
 
 describe('line filters for what a row shows', () => {

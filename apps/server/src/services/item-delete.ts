@@ -2,7 +2,7 @@ import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
 import { eachChunk, inChunks } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
-import { aliasNote } from './terms.ts';
+import { aliasNote } from '../domain/terms.ts';
 import { recorder, type UndoRecorder, type UndoTable } from './undo-records.ts';
 
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];

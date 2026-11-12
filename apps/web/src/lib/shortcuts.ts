@@ -98,7 +98,7 @@ export function shortcutSections(mac?: boolean): { title: ShortcutPlace; rows: {
 }
 
 /** Where a key press comes from, as far as a shortcut's rules read it. */
-export interface KeyContext {
+export interface KeyOrigin {
   /** The caret is in a field. */
   typing: boolean;
   /** A dialog, menu or list has the keys: the press comes from inside one, or one is open and no field has the caret. */
@@ -111,20 +111,20 @@ export interface KeyContext {
 
 const hasModifier = (combo: string) => /(?:^|\+)(?:Mod|Ctrl|Alt)\+/.test(combo);
 
-/** Whether a shortcut acts on a press of `combo` that comes from `context`. */
-export function shortcutActs(shortcut: ShortcutSpec, combo: string, context: KeyContext): boolean {
-  if (context.typing && !(shortcut.typing ?? hasModifier(combo))) return false;
-  if ((context.overlay || context.own) && !shortcut.global) return false;
-  if (context.control && (combo === 'Enter' || combo === 'Space')) return false;
+/** Whether a shortcut acts on a press of `combo` that comes from `origin`. */
+export function shortcutActs(shortcut: ShortcutSpec, combo: string, origin: KeyOrigin): boolean {
+  if (origin.typing && !(shortcut.typing ?? hasModifier(combo))) return false;
+  if ((origin.overlay || origin.own) && !shortcut.global) return false;
+  if (origin.control && (combo === 'Enter' || combo === 'Space')) return false;
   return true;
 }
 
 /** The shortcut among `ids` (in their order) that the key press is and that acts where it comes from. */
-export function pickShortcut(event: KeyPress, ids: readonly ShortcutId[], context: KeyContext): { id: ShortcutId; combo: string } | undefined {
+export function pickShortcut(event: KeyPress, ids: readonly ShortcutId[], origin: KeyOrigin): { id: ShortcutId; combo: string } | undefined {
   for (const id of ids) {
     const shortcut: ShortcutSpec = SHORTCUTS[id];
     const combo = matchedKey(event, shortcut.keys);
-    if (combo && shortcutActs(shortcut, combo, context)) return { id, combo };
+    if (combo && shortcutActs(shortcut, combo, origin)) return { id, combo };
   }
   return undefined;
 }
@@ -133,7 +133,7 @@ export function pickShortcut(event: KeyPress, ids: readonly ShortcutId[], contex
 export type ShortcutHandler = (event: KeyboardEvent, combo: string) => unknown;
 export type ShortcutHandlers = { [id in ShortcutId]?: ShortcutHandler | false | undefined };
 
-const contextOf = (event: KeyboardEvent): KeyContext => {
+const originOf = (event: KeyboardEvent): KeyOrigin => {
   const typing = isTyping(event.target);
   return { typing, overlay: inOverlay(event.target) || (!typing && overlayOpen()), own: ownsKeys(event.target), control: onControl(event.target) };
 };
@@ -152,10 +152,10 @@ export function useShortcuts(handlers: ShortcutHandlers, { enabled = true, when 
       if (event.defaultPrevented) return;
       const { handlers, when } = latest.current;
       if (when && !when(event)) return;
-      const context = contextOf(event);
+      const origin = originOf(event);
       for (const id of Object.keys(handlers) as ShortcutId[]) {
         const run = handlers[id];
-        if (!run || !pickShortcut(event, [id], context)) continue;
+        if (!run || !pickShortcut(event, [id], origin)) continue;
         if (run(event, matchedKey(event, SHORTCUTS[id].keys)!) === false) continue;
         event.preventDefault();
         return;

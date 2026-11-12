@@ -1,7 +1,7 @@
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Button, EditorAiSuggestion, EditorDiffWord, Section } from '@loca/ui';
-import { sameTranslation } from '@tw/shared';
+import { sameTranslation } from '@loca/shared';
 import { TokenText } from '@/components/editor/source-text';
 import { replaceLineText } from '@/components/editor/translation-input';
 import { wordDiff } from '@/lib/diff';

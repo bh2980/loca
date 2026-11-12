@@ -1,5 +1,5 @@
 import { Box, CanvasToolbar, GraphCanvasElement, GraphMinimap, SelectionRect, CanvasFloat } from '@loca/ui';
-import { paletteIndex } from '@tw/shared';
+import { paletteIndex } from '@loca/shared';
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode, type Ref } from 'react';
 import { select } from 'd3-selection';
 import 'd3-transition';

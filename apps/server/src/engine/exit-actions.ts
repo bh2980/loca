@@ -9,12 +9,12 @@
  */
 import { and, desc, eq, or } from 'drizzle-orm';
 import { get } from 'es-toolkit/compat';
-import { filtersByStatus, KNOWLEDGE_STATUSES, previousStepId, type ExitAction, type KnowledgeStatus, type TagExitAction, type TagScope, type WorkflowDefinition } from '@tw/shared';
+import { filtersByStatus, KNOWLEDGE_STATUSES, previousStepId, type ExitAction, type KnowledgeStatus, type TagExitAction, type TagScope, type WorkflowDefinition } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { setKnowledgeTag } from '../services/knowledge-tags.ts';
-import { attachUnitTags } from '../services/tag-scope.ts';
-import { setLineStatus } from '../services/line-save.ts';
+import { setKnowledgeTag } from '../domain/knowledge-tags.ts';
+import { attachUnitTags } from '../domain/tag-scope.ts';
+import { setLineStatus } from '../domain/line-save.ts';
 import { HUMAN_OWNED_NOTE, personOwns } from './apply-candidate.ts';
 
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];

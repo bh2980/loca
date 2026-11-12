@@ -1,16 +1,16 @@
 import { Hono } from 'hono';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { editorAiSchema, importFileSchema } from '@tw/shared';
-import { onError, type Env } from '../context.ts';
+import { editorAiSchema, importFileSchema } from '@loca/shared';
+import { onError, type Env } from '../http.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
-import { memoryStore } from '../services/secrets.ts';
+import { memoryStore } from '../domain/secrets.ts';
 import { projectRoutes } from './projects.ts';
 
 const generate = vi.hoisted(() => vi.fn());
-vi.mock('@tw/ai', async (original) => ({ ...(await original<typeof import('@tw/ai')>()), generate }));
+vi.mock('@loca/ai', async (original) => ({ ...(await original<typeof import('@loca/ai')>()), generate }));
 
 function setup(withModel = true) {
   const db = openDatabase(':memory:');

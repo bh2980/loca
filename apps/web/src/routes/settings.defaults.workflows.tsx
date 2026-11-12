@@ -2,7 +2,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Trash2 } from 'lucide-react';
-import { WORKFLOW_TEMPLATES, type SavedWorkflow } from '@tw/shared';
+import { WORKFLOW_TEMPLATES, type SavedWorkflow } from '@loca/shared';
 import { Box, Button, Checkbox, ConfirmDialog, DataTable, EmptyState, Field, Input, Inspector, InspectorHeader, PageBody, Section, SplitPane, Stack, Text, Textarea, type ColumnDef } from '@loca/ui';
 import { Page } from '@/components/page';
 import { AiAutoConfirmSetting } from '@/components/settings/ai-confirm';

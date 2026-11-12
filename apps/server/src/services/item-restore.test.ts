@@ -1,12 +1,12 @@
 import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
-import { importFileSchema } from '@tw/shared';
+import { importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from './importer.ts';
 import { deleteItemGroups } from './item-delete.ts';
 import { undoRecorded } from './undo-records.ts';
-import { saveCharacter } from './characters.ts';
+import { saveCharacter } from '../domain/characters.ts';
 
 describe('graph deletes that ⌘Z puts back', () => {
   it('deletes people with the relationships the cascade takes, and restores both with the same ids, once', () => {

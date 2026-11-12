@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { agentSettingsSchema, savedPromptsSchema, type SavedPrompt } from '@tw/shared';
+import { agentSettingsSchema, savedPromptsSchema, type SavedPrompt } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 

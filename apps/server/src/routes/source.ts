@@ -3,28 +3,28 @@ import { readingRouteQuery } from '../services/reading-route-query.ts';
 import { projectReadingRoute } from '../services/reading-route.ts';
 import { and, asc, eq, inArray, ne, notLike, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { createGroupSchema, updateGroupSchema, createUnitSchema, updateUnitSchema, lineFilterSchema, LINE_TRANSLATE, unpagedLineFilterSchema, viewRouteSchema, type NodeType } from '@tw/shared';
+import { createGroupSchema, updateGroupSchema, createUnitSchema, updateUnitSchema, lineFilterSchema, LINE_TRANSLATE, unpagedLineFilterSchema, viewRouteSchema, type NodeType } from '@loca/shared';
 import { createGroup, updateGroup, updateUnit } from '../services/source-mutations.ts';
 import { createLine, deleteGroup, deleteLines, deleteNodes, duplicateNodes, edgeDetail, linkInOrder, linkNodes, unlinkEdges } from '../services/graph-edit.ts';
 import { undoRecorded } from '../services/undo-records.ts';
-import { patchLineById, patchLines, pickedLines, sameSourceLines, saveLineById, saveSameSource } from '../services/line-save.ts';
-import { declineSuggestion } from '../services/candidates.ts';
-import { found, validate, type Env } from '../context.ts';
+import { patchLineById, patchLines, pickedLines, sameSourceLines, saveLineById, saveSameSource } from '../domain/line-save.ts';
+import { declineSuggestion } from '../domain/candidates.ts';
+import { found, validate, type Env } from '../http.ts';
 import type { Db } from '../db/index.ts';
-import { inChunks, inList } from '../db/chunk.ts';
+import { inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { computeLayouts, LAYOUT_VERSION } from '../services/layout.ts';
 import type { LayoutDirection } from '../services/layout-types.ts';
 import { changeView, createView, deleteView, listViews, missingNodes, readView, sectionWithMost, viewSection } from '../services/graph-views.ts';
 import { lineMatches } from '../services/line-matches.ts';
-import { lineMatchRows, linePage } from '../services/line-filter.ts';
+import { lineMatchRows, linePage } from '../domain/line-filter.ts';
 import { completeLine } from '../services/editor-complete.ts';
 import { assistLine } from '../services/editor-assist.ts';
-import { speechRuleIndex } from '../services/speech.ts';
+import { speechRuleIndex } from '../domain/speech.ts';
 import { lineSurroundings } from '../services/line-surroundings.ts';
 import { groupRows } from '../services/group-rows.ts';
 
-/** A line's text, candidate and status: one save (services/line-save.ts). */
+/** A line's text, candidate and status: one save (domain/line-save.ts). */
 const lineSave = z.object({
   /** New text from a person: selected as the line's text (an existing candidate with the same text is reused). */
   text: z.string().optional(),
@@ -92,9 +92,9 @@ export const sourceRoutes = new Hono<Env>()
     const { db } = c.var.deps;
     return c.json(found(db.select().from(s.groups).where(eq(s.groups.id, c.req.param('groupId'))).get(), '장면'));
   })
-  /** Every line a filter matches, in script order (services/line-filter.ts lineMatchRows). The filter is the one LineFilter, as JSON. */
+  /** Every line a filter matches, in script order (domain/line-filter.ts lineMatchRows). The filter is the one LineFilter, as JSON. */
   .post('/projects/:projectId/units/matches', validate('json', z.object({ filter: unpagedLineFilterSchema })), (c) => c.json({ rows: lineMatchRows(c.var.deps.db, c.req.param('projectId'), c.req.valid('json').filter) }))
-  /** One page of a filter as ids, with its total and the lines per scene on the page (services/line-filter.ts linePage). */
+  /** One page of a filter as ids, with its total and the lines per scene on the page (domain/line-filter.ts linePage). */
   .post('/projects/:projectId/units/ids', validate('json', z.object({ filter: lineFilterSchema.extend({ limit: z.number().int().min(1).max(500).default(100) }), focus: z.string().optional() })), (c) => {
     const { filter, focus } = c.req.valid('json');
     return c.json(linePage(c.var.deps.db, c.req.param('projectId'), filter, focus));
@@ -106,7 +106,7 @@ export const sourceRoutes = new Hono<Env>()
     const ids = keys.length ? c.var.deps.db.select({ id: s.units.id }).from(s.units).where(and(eq(s.units.projectId, c.req.param('projectId')), inArray(s.units.key, keys))).orderBy(asc(s.units.seq)).all().map((row) => row.id) : [];
     return c.json({ ids });
   })
-  /** What the bulk bar says about picked lines the browser does not hold (services/line-save.ts pickedLines): ids and counts, no rows. */
+  /** What the bulk bar says about picked lines the browser does not hold (domain/line-save.ts pickedLines): ids and counts, no rows. */
   .post('/projects/:projectId/units/picked', validate('json', z.object({ ids: z.array(z.string()).max(20_000) })), (c) => c.json(pickedLines(c.var.deps.db, c.req.param('projectId'), c.req.valid('json').ids)))
   .patch(
     '/projects/:projectId/units',
@@ -164,7 +164,7 @@ export const sourceRoutes = new Hono<Env>()
     const rules = db.select({ rules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, unit.projectId)).get()?.rules;
     return c.json(lineMatches(db, unit, rules));
   })
-  /** A line's text, candidate and status, written together (services/line-save.ts). */
+  /** A line's text, candidate and status, written together (domain/line-save.ts). */
   .post('/units/:unitId/save', validate('json', lineSave), (c) => c.json({ ok: true, ...saveLineById(c.var.deps.db, c.req.param('unitId'), c.req.valid('json')) }))
   /** 거절: a person turns down a waiting AI 제안; it stays in the line's history. Taking one is a save with its candidateId. */
   .post('/units/:unitId/candidates/:candidateId/decline', (c) => {

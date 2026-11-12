@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { importFileSchema } from '@tw/shared';
+import { importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from './importer.ts';
 import { deleteItemGroups } from './item-delete.ts';
 import { undoRecorded } from './undo-records.ts';
-import { linkEvents, projectEventFlow, withLinks } from './event-routes.ts';
+import { linkEvents, projectEventFlow, withLinks } from './event-flow.ts';
 
 describe('사건 흐름 corrections', () => {
   it('drops hidden derived lines and adds drawn ones once, beside the derived', () => {

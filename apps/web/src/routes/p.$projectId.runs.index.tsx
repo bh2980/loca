@@ -11,7 +11,7 @@ import { dateTime, clock } from '@/lib/datetime';
 import { useRuns } from '@/lib/runs';
 import { useConnectionName } from '@/lib/app-data';
 import { useJobCalls } from '@/lib/ai-calls';
-import { INPUT_TYPES } from '@tw/shared';
+import { INPUT_TYPES } from '@loca/shared';
 import { param, searchParams } from '@/lib/search';
 
 const runsSearchParams = {

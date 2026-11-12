@@ -6,7 +6,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation } from '@tanstack/react-query';
 import { ArrowLeftRight, GanttChart, Network, Plus, Table2, Users } from 'lucide-react';
 import { toast } from 'sonner';
-import { CHARACTER_ROLE_LABELS, OTHERS_LISTENER, parseMarks, type AutoMark, styleNames, isSettled, aiDecided, KNOWLEDGE_SOURCES, listenerLabel, SPEECH_LEVEL_LABELS, type KnowledgeSource, type TagScope, personLabel, type DecidedBy, buildPairs, knowledgeMatches, pairKey, pairMatches, pairSummary, type KnowledgeFilter } from '@tw/shared';
+import { CHARACTER_ROLE_LABELS, OTHERS_LISTENER, styleNames, isSettled, aiDecided, listenerLabel, SPEECH_LEVEL_LABELS, type TagScope, personLabel, buildPairs, knowledgeMatches, pairKey, pairMatches, pairSummary, type KnowledgeFilter } from '@loca/shared';
 import { EmptyState, Inline, TagMenu, Box, Text, FilterChips, FilterBar, ViewSwitch, Chip, Button, DataTable, type ColumnDef, ContextMenuItem, ContextMenuSeparator, useRevealDock, Skeleton, SplitPane, ConfirmDialog } from '@loca/ui';
 import { HeaderActions, HeaderViews, Page } from '@/components/page';
 import { RelationshipGraph } from '@/components/relationship-graph';
@@ -27,7 +27,7 @@ import { decideItems, useCharacters, useDocuments, useRelationships, useSpeechRu
 import { DOCUMENT_KIND } from '@/lib/labels';
 import { tagsIn, useMarkStyles } from '@/lib/queries';
 import { useListScreen } from '@/lib/list-screen';
-import { param, searchParams, type SearchOf } from '@/lib/search';
+import { param, searchParams } from '@/lib/search';
 
 /** Tabs (the top bar's section tabs link to them). Relationships and speech rules share 인물·관계 because both describe speaker → listener pairs. */
 const TABS = { people: '인물·관계', events: '사건', documents: '노트' } as const;
@@ -44,7 +44,6 @@ const knowledgeSearchParams = {
   display: param.oneOf(['table', 'characters']),
   direction: param.oneOf(['vertical', 'horizontal']),
 };
-type KnowledgeSearch = SearchOf<typeof knowledgeSearchParams>;
 
 export const Route = createFileRoute('/p/$projectId/knowledge')({
   validateSearch: searchParams(knowledgeSearchParams),

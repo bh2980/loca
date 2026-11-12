@@ -2,8 +2,8 @@ import { parentPort, workerData } from 'node:worker_threads';
 import ELK, { type ElkNode } from 'elkjs/lib/elk.bundled.js';
 import type { LayoutData } from '../db/schema.ts';
 import type { LayoutDirection, LayoutJob } from './layout-types.ts';
-import { deriveSceneGraph, depthBlocks, reduceSceneEdges } from './scene-graph.ts';
-import { foldChains, isChain } from './chains.ts';
+import { deriveSceneGraph, depthBlocks, reduceSceneEdges } from '../domain/scene-graph.ts';
+import { foldChains, isChain } from './graph-chains.ts';
 import { sectionJobs, type SectionNode } from './section-graph.ts';
 import { byRank } from './script-rank.ts';
 

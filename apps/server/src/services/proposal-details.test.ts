@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { importFileSchema, toolRoute, TOOL_NAMES, type ProposalDetail, type ProposalDetailKind } from '@tw/shared';
+import { importFileSchema, toolRoute, TOOL_NAMES, type ProposalDetail, type ProposalDetailKind } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { agentTools, type ToolDef } from './agent-tools.ts';

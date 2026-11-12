@@ -11,7 +11,7 @@ import { usePendingAgentRequest } from '@/lib/agent';
 import { chatDock, rememberedChatSession, rememberChatSession } from '@/lib/chat-dock';
 import { sentTexts } from '@/lib/chat-input-history';
 import { removeOnce } from '@/lib/chat-queue';
-import { syncCards } from '@/lib/chat-run';
+import { syncCards } from '@/lib/chat-run-records';
 import { chatFor, dropChat } from '@/lib/chat-store';
 import type { AppCommand } from '@/lib/chat-triggers';
 import { q } from '@/lib/queries';
@@ -20,11 +20,10 @@ import { ChatMessage, CompactionNotice, SteerBubble } from './chat-message';
 import { ConversationMenu } from './conversation-menu';
 import type { RunCardControls } from './run-card';
 import { useUndo } from './proposal-card';
-import { compactionMarker, isRunRecord, runCardOf, type ChatChip, type PermissionMode } from '@tw/shared';
-import type { ChatUsage } from './context-meter';
+import { compactionMarker, isRunRecord, runCardOf, type ChatChip, type PermissionMode } from '@loca/shared';
+import type { ChatUsage } from './window-meter';
 import { useProposals } from '@/lib/proposals';
 import { useChatSessions, createChat, deleteChat, changeChat, chatTurn } from '@/lib/chat-sessions';
-import { sent } from '@/lib/collections';
 
 
 /** How many of a conversation's newest messages are drawn at first; 이전 메시지 더 보기 draws as many again. */
@@ -199,7 +198,6 @@ function ChatBody({ active, projectId, sessionId, initial, turn, usage, compacti
   onMode: (mode: PermissionMode) => void;
   onModel: (next: ModelValue) => Promise<void>;
 }) {
-  const queryClient = useQueryClient();
   const ready = Boolean(model?.connectionId && model.model);
   const composer = useRef<ComposerHandle>(null);
   useEffect(() => {
@@ -213,7 +211,7 @@ function ChatBody({ active, projectId, sessionId, initial, turn, usage, compacti
   // The turn runs on the server, not in this request: stopping ends both.
   const halt = () => {
     void stop();
-    // Said at once here; the server saves the same mark on the conversation (chat-turns markStopped).
+    // Said at once here; the server saves the same mark on the conversation (chat-turn-registry.ts markStopped).
     setMessages((current) => {
       const last = current.at(-1);
       return last ? [...current.slice(0, -1), { ...last, metadata: { ...((last.metadata as object | undefined) ?? {}), stopped: true } }] : current;

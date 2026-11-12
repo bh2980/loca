@@ -2,7 +2,7 @@
 import { RequestPreview } from './request-preview';
 import type { ReactNode } from 'react';
 import { Trash2 } from 'lucide-react';
-import { INPUT_TYPES, NODE_TYPES, byNodeType, exitActions, nodeName, nodePorts, SUBJECTS, type Subject, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
+import { INPUT_TYPES, NODE_TYPES, byNodeType, exitActions, nodeName, nodePorts, SUBJECTS, type Subject, type WorkflowIssue, type WorkflowNode } from '@loca/shared';
 import { Button, Icon as GlyphIcon, SelectField, SelectItem, Inspector, Text, InspectorHeader, Input, Section, Group, Field, KeyValue, KeyValueRow, Notice } from '@loca/ui';
 import { nodeIcon } from '../node-view';
 import { AiConfig } from '@/components/workflow/node-config/ai';

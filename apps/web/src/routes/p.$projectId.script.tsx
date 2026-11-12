@@ -11,11 +11,11 @@ import { SourceEditor, type SourceEditorMode, type SourceSaved } from '@/compone
 import { Button, ContextMenuItem, ContextMenuSeparator, EditorToolbarProvider, EditorToolbarSlot, Icon, Inline, PageHeading, ScriptWorkspace, Text, Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
 import { GROUP_KIND, SCRIPT_VIEW, SOURCE_GROUP_LABEL, SOURCE_UNIT_LABEL } from '@/lib/labels';
 import { q, useMarkStyles } from '@/lib/queries';
-import { useReportView } from '@/lib/view-context';
+import { useReportView } from '@/lib/reported-view';
 import { keyLabel } from '@/lib/keys';
 import { useTaxonomy } from '@/lib/knowledge';
 import { useGroups } from '@/lib/groups';
-import { useProject, useProjectProgress } from '@/lib/project';
+import { useProjectProgress } from '@/lib/project';
 import { stored, STORED } from '@/lib/storage';
 import { SHORTCUTS, useShortcuts } from '@/lib/shortcuts';
 
@@ -60,7 +60,6 @@ function Script() {
   const { projectId } = Route.useParams();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
-  const project = useProject(projectId);
   const progress = useProjectProgress(projectId);
   const allGroups = useGroups(projectId);
   const searched = useGroups(projectId, { q: search.gq, enabled: Boolean(search.gq) });

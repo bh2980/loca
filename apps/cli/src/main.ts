@@ -3,8 +3,8 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Command, Option } from 'commander';
 import { hc } from 'hono/client';
-import type { AppType, ToolInputs, ToolResults } from '@tw/server/app';
-import { acceptedLabel, AUTO_MARKS, FEED_EVENT, type ChangeEvent, type Topic, CHECK_KINDS, EXCLUSION_REASON_LABELS, CONTEXT_ITEM_KINDS, importFileJsonSchema, importFileSchema, importWarnings, KNOWLEDGE_MARK_IDS, KNOWLEDGE_STATUS_LABELS, LINE_MARK_IDS, lineChangeSchema, summarizeImport, retryRuleSchema, retrySummary, TERM_MARK_IDS, termScopeLabel, type AutoMark, type KnowledgeStatus, type LineFilterInput, type RunScopeInput, type LineMark, personLabel, DECIDED_BY, type DecidedBy, EXCLUDED_FILTERS, type ExcludedFilter, RESULT_REST, type ResultRest, INPUT_TYPES, bySubject, nodeSummary, nodeDetails, type Subject } from '@tw/shared';
+import type { AppType, ToolInputs, ToolResults } from '@loca/server/app';
+import { acceptedLabel, AUTO_MARKS, FEED_EVENT, type ChangeEvent, type Topic, CHECK_KINDS, EXCLUSION_REASON_LABELS, CONTEXT_ITEM_KINDS, importFileJsonSchema, importFileSchema, importWarnings, KNOWLEDGE_MARK_IDS, KNOWLEDGE_STATUS_LABELS, LINE_MARK_IDS, lineChangeSchema, summarizeImport, retryRuleSchema, retrySummary, TERM_MARK_IDS, termScopeLabel, type AutoMark, type KnowledgeStatus, type LineFilterInput, type RunScopeInput, type LineMark, personLabel, DECIDED_BY, type DecidedBy, EXCLUDED_FILTERS, type ExcludedFilter, RESULT_REST, type ResultRest, INPUT_TYPES, bySubject, nodeSummary, nodeDetails, type Subject } from '@loca/shared';
 
 /**
  * loca — the workbench from a terminal, for people and for agents with a shell (codex, claude…).
@@ -468,7 +468,7 @@ program
   .description('대사 하나와 앞뒤 대사, 대사 그래프의 분기')
   .option('-a, --around <n>', '앞뒤로 볼 대사 수', '5')
   .action(async (key: string, options: { around: string }) => {
-    const context = await unwrap(api().projects[':projectId'].lines[':key'].context.$get({ param: { projectId: await projectId(), key }, query: { around: options.around } }));
+    const context = await unwrap(api().projects[':projectId'].lines[':key'].around.$get({ param: { projectId: await projectId(), key }, query: { around: options.around } }));
     if (!context) throw new CliError(`대사를 찾을 수 없습니다: ${key}`);
     if (globals().json) return print(context);
     for (const row of context.before) console.log(`  ${row.speaker ?? '—'}: ${short(row.source)}`);
@@ -795,7 +795,6 @@ defaults
   .command('show', { isDefault: true })
   .description('홈 기본값 보기 (연결 이름·종류, 에디터 AI, 채팅 설정, 저장한 지시, 상태, 태그, 워크플로). 고치기는 앱의 홈 › 설정에서 사람이 합니다')
   .action(async () => {
-    type Defaults = { connections: { name: string; kind: string }[]; aiAutoConfirm: boolean; statuses: { name: string; kind: string; inReview: boolean }[]; tags: { name: string }[]; workflows: { templates: string[]; saved: { name: string }[] }; agentSettings: { prompts: { name: string }[] } };
     const data = await readTool('read_app_defaults');
     if (globals().json) return print(data);
     const kind: Record<string, string> = { initial: '시작', normal: '중간', final: '최종' };
@@ -830,7 +829,6 @@ const statusesCommand = program
   .command('statuses')
   .description('번역 상태: 종류(시작·중간·최종), 순서, 검토함 표시')
   .action(async () => {
-    type Status = { id: string; name: string; kind: string; sort: number; inReview: boolean; color: string };
     const rows = await readTool('list_statuses');
     if (globals().json) return printList(rows.length, rows);
     const kind: Record<string, string> = { initial: '시작', normal: '중간', final: '최종' };

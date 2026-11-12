@@ -1,4 +1,4 @@
-import { paletteIndex } from "@tw/shared"
+import { paletteIndex } from "@loca/shared"
 
 /**
  * A stored colour as the theme shows it: a palette colour (or one of the old Tailwind colours) becomes its

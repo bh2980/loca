@@ -1,5 +1,5 @@
 import { and, eq, inArray } from 'drizzle-orm';
-import { FUNCTIONS, nodeName, type FunctionName, type WorkflowNode, nodeCallsOut } from '@tw/shared';
+import { nodeName, nodeCallsOut } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { subjectOf } from '../engine/subjects.ts';

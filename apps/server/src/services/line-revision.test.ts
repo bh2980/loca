@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { importFileSchema } from '@tw/shared';
+import { importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from './importer.ts';
-import { saveLine } from './line-save.ts';
+import { saveLine } from '../domain/line-save.ts';
 import { decideProposal, propose } from './proposals.ts';
 import { undoChanges } from './change-gate.ts';
 

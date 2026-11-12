@@ -1,5 +1,5 @@
 import type { z } from 'zod';
-import type { ConnectionKind } from '@tw/shared';
+import type { ConnectionKind } from '@loca/shared';
 
 /** Where a model call goes: a connection + model with secrets already resolved by the caller. */
 export interface ModelTarget {

@@ -7,14 +7,14 @@
     "node": ">=22.12"
   },
   "scripts": {
-    "dev": "pnpm --parallel --filter @tw/server --filter @tw/web dev",
-    "build": "pnpm --filter @tw/web build",
-    "start": "pnpm --filter @tw/server start",
+    "dev": "pnpm --parallel --filter @loca/server --filter @loca/web dev",
+    "build": "pnpm --filter @loca/web build",
+    "start": "pnpm --filter @loca/server start",
     "typecheck": "pnpm -r typecheck",
     "test": "vitest run",
     "budget": "tsx scripts/budget.ts",
     "verify": "pnpm -r exec tsc --noEmit -p . && pnpm ui-rules && vitest run && pnpm budget",
-    "db:generate": "pnpm --filter @tw/server db:generate",
+    "db:generate": "pnpm --filter @loca/server db:generate",
     "samples": "tsx scripts/make-samples.ts",
     "samples:showcase": "tsx scripts/showcase-sample.ts",
     "mock-llm": "tsx scripts/mock-llm.ts",

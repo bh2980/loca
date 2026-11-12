@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import type { ReadingRouteFork, ReadingRouteForkOption } from '@tw/shared';
+import type { ReadingRouteFork, ReadingRouteForkOption } from '@loca/shared';
 export type { ReadingRouteFork, ReadingRouteForkOption };
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';

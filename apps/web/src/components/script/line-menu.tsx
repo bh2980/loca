@@ -1,6 +1,6 @@
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { lineExclusion, type LineTranslate, TAG_SCOPES } from '@tw/shared';
+import { lineExclusion, type LineTranslate, TAG_SCOPES } from '@loca/shared';
 import {
   DropdownMenuCheckboxItem,
   DropdownMenuItem,

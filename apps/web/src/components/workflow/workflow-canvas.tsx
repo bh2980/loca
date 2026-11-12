@@ -2,7 +2,7 @@ import { useState, type ReactNode, type RefObject } from 'react';
 import { Background, MiniMap, NodeToolbar, Panel, Position, ReactFlow, SelectionMode, useReactFlow, useViewport } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { Copy, Frame, Group, Pencil, Tag, Trash2, Ungroup } from 'lucide-react';
-import type { WorkflowDefinition } from '@tw/shared';
+import type { WorkflowDefinition } from '@loca/shared';
 import { CanvasDrawLayer, CanvasSurface, CanvasToolbar, EdgeLegend, Icon, Inline, SelectionToolbox, type CanvasDirection, type NodeLibraryGroup } from '@loca/ui';
 import { useIsDark } from '@/lib/theme';
 import { useStoredViewport, viewportScope } from '@/lib/viewport';

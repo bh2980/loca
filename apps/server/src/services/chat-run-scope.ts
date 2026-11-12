@@ -1,9 +1,9 @@
 import { and, eq } from 'drizzle-orm';
-import { runKindsLeft, workflowInput, type RunScope, type Subject } from '@tw/shared';
+import { runKindsLeft, workflowInput, type RunScope, type Subject } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import { inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
-import { lineConditions, resolveLineFilter } from './line-filter.ts';
+import { lineConditions, resolveLineFilter } from '../domain/line-filter.ts';
 import { askedScope } from './run-plan.ts';
 
 export interface ScopePick {

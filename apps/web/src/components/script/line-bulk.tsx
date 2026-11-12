@@ -3,7 +3,7 @@ import { useMemo, useState, type ComponentProps } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Check } from 'lucide-react';
 import { toast } from 'sonner';
-import { listenerLabel, SPECIAL_LISTENERS } from '@tw/shared';
+import { listenerLabel, SPECIAL_LISTENERS } from '@loca/shared';
 import { TagMenu, Checkbox, EditorAction, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue, StatusIcon, Text, TranslationColumnHeader, Input, SelectionBar } from '@loca/ui';
 import { usePicked } from '@/lib/use-picked';
 import { useCharacters } from '@/lib/knowledge';

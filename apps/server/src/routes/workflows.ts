@@ -3,8 +3,8 @@ import { startRun } from '../services/start-run.ts';
 import { askedScope } from '../services/run-plan.ts';
 import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
-import { httpParams, workflowInput, scriptParams, workflowDefinitionSchema, type WorkflowDefinition, runCapsSchema, runModelsSchema, withRunModels, WORKFLOW_TEMPLATES, EMPTY_MODEL_CHOICE, runScopeInputSchema, type RunScopeInput, nodeCallsOut, nodeConcurrency } from '@tw/shared';
-import { badRequest, found, validate, type Env } from '../context.ts';
+import { httpParams, workflowInput, scriptParams, workflowDefinitionSchema, type WorkflowDefinition, runCapsSchema, runModelsSchema, withRunModels, WORKFLOW_TEMPLATES, EMPTY_MODEL_CHOICE, runScopeInputSchema, type RunScopeInput, nodeCallsOut, nodeConcurrency } from '@loca/shared';
+import { badRequest, found, validate, type Env } from '../http.ts';
 import type { Db } from '../db/index.ts';
 import { inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
@@ -12,11 +12,11 @@ import { workflowIssues } from '../services/workflow-issues.ts';
 import { callHttp, httpOutput, lineView, validateScriptData } from '../engine/functions/index.ts';
 import { runScript } from '../engine/functions/sandbox.ts';
 import { subjectOf } from '../engine/subjects.ts';
-import { listBatches, preflight } from '../services/preflight.ts';
+import { listBatches, preflight } from '../engine/preflight.ts';
 import { previewRequest } from '../services/request-preview.ts';
 import { continuePreflight, continueRun } from '../services/run-continue.ts';
 import { deleteWorkflow, duplicateWorkflow, freeWorkflowName, saveWorkflow, workflowCallers } from '../services/workflow-mutations.ts';
-import { issueTagIds } from '../services/issue-tags.ts';
+import { issueTagIds } from '../domain/issue-tags.ts';
 import { workflowRows } from '../services/workflow-rows.ts';
 import { runItemIds, runNodeExits, runProgress } from '../services/run-detail.ts';
 import { rowChangesOf } from '../db/row-changes.ts';
@@ -125,7 +125,7 @@ export const workflowRoutes = new Hono<Env>()
     const workflow = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
     return c.json({ count: subjectOf(workflowInput(workflow.definition)).select(db, workflow.projectId, scopeOf(db, workflow, c.req.valid('json'))).length });
   })
-  /** The run plan and its cost estimate, computed without calling a model (see services/preflight.ts). */
+  /** The run plan and its cost estimate, computed without calling a model (see engine/preflight.ts). */
   .post('/workflows/:id/preflight', validate('json', runSchema), async (c) => {
     const { db } = c.var.deps;
     const workflow = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');

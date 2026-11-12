@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { BaseEdge, EdgeLabelRenderer, Handle, MarkerType, Position, useInternalNode, type Edge, type EdgeProps, type InternalNode, type Node, type NodeProps } from '@xyflow/react';
 import { Button, Inline, PersonNodeFrame, RelationLabelFrame, Text, FlowHandle } from '@loca/ui';
 import ELK from 'elkjs/lib/elk.bundled.js';
-import type { CharacterRole } from '@tw/shared';
+import type { CharacterRole } from '@loca/shared';
 import { EditableFlow, type EditableFlowActions } from '@/components/knowledge/editable-flow';
 import { personStyle } from '@/lib/person-colors';
 import { relationLabel, relationRow } from '@/lib/relation-label';

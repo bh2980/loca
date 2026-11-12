@@ -1,10 +1,10 @@
 import { and, eq, inArray, ne } from 'drizzle-orm';
-import { batchChangeSchema, type BatchChange, type RunCardPlan, INPUT_TYPES } from '@tw/shared';
+import { batchChangeSchema, type BatchChange, type RunCardPlan, INPUT_TYPES } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { DELETABLE, deletable, type DeletableKind } from './item-delete.ts';
 import { inChunks } from '../db/chunk.ts';
-import { preflight } from './preflight.ts';
+import { preflight } from '../engine/preflight.ts';
 import { planOf, type RunModelInput } from './run-plan.ts';
 import { resolveRunStart } from './start-run.ts';
 import { normalizeBatch, validateBatch, type BatchReport } from './script-query.ts';

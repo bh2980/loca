@@ -1,21 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import * as ai from '@tw/ai';
-import { importFileSchema, translationTemplate, type BatchConfig } from '@tw/shared';
+import * as ai from '@loca/ai';
+import { importFileSchema, translationTemplate, type BatchConfig } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
-import { snapshotWorkflowModels } from '../services/model-target.ts';
+import { snapshotWorkflowModels } from '../domain/model-target.ts';
 import { runItemRows } from '../services/run-detail.ts';
-import { memoryStore } from '../services/secrets.ts';
+import { memoryStore } from '../domain/secrets.ts';
 import { promptEntries } from './prompts.ts';
 import { Runner, type ModelPort } from './runner.ts';
 import { withoutTerms } from './test-workflows.ts';
 import { createRun } from './run-create.ts';
 import { Hono } from 'hono';
-import { onError, type Env } from '../context.ts';
+import { onError, type Env } from '../http.ts';
 import { workflowRoutes } from '../routes/workflows.ts';
-import { issueTagIds } from '../services/issue-tags.ts';
+import { issueTagIds } from '../domain/issue-tags.ts';
 
 const CUT_OFF = () => new ai.ModelError('cut-off', '응답이 길이 제한에 걸려 잘렸습니다.', false);
 

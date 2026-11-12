@@ -12,7 +12,7 @@
  * open (the editor and the run graph keep that for the tab, per workflow / run).
  */
 import { retryLiveText } from '../../lib/retry-info';
-import { nodeName, nodePorts, type WorkflowDefinition, type WorkflowEdge, type WorkflowNode } from '@tw/shared';
+import { nodeName, nodePorts, type WorkflowDefinition, type WorkflowEdge, type WorkflowNode } from '@loca/shared';
 
 /** A branch of more nodes than this is not a side detail any more. */
 export const MAX_FOLDED_NODES = 4;

@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { importFileSchema, peopleRelationsTemplate, UNRESOLVED_RELATIONSHIP_KIND, validateWorkflow, workflowDefinitionSchema } from '@tw/shared';
+import { importFileSchema, peopleRelationsTemplate, UNRESOLVED_RELATIONSHIP_KIND, validateWorkflow, workflowDefinitionSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
-import { snapshotWorkflowModels } from '../services/model-target.ts';
-import { memoryStore } from '../services/secrets.ts';
+import { snapshotWorkflowModels } from '../domain/model-target.ts';
+import { memoryStore } from '../domain/secrets.ts';
 import { Runner, type ModelPort } from './runner.ts';
 import { createRun } from './run-create.ts';
-import { issueTagIds } from '../services/issue-tags.ts';
+import { issueTagIds } from '../domain/issue-tags.ts';
 
 const person = (name: string, extra: Record<string, unknown> = {}) => ({ name, aliases: [], newFacts: [], newSpeech: [], player: false, gender: 'unknown', ageBand: 'unknown', role: 'unknown', evidence: [], ...extra });
 

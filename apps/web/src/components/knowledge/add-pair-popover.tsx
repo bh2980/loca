@@ -2,9 +2,9 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
-import { SPECIAL_LISTENERS, SPEECH_LEVELS, SPEECH_LEVEL_LABELS, type SpeechLevel } from '@tw/shared';
+import { SPECIAL_LISTENERS, SPEECH_LEVELS, SPEECH_LEVEL_LABELS, type SpeechLevel } from '@loca/shared';
 import { Button, Grid, Input, Popover, PopoverTrigger, Combobox, Select, SelectContent, SelectItem, SelectValue, type ComboboxOption, SelectTrigger, PopoverContent, Box, KeyValue, KeyValueRow } from '@loca/ui';
-import { pairKey } from '@tw/shared';
+import { pairKey } from '@loca/shared';
 import type { Pair } from './pairs';
 import { knowledgeWrites } from '@/lib/knowledge';
 

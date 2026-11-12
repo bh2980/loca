@@ -1,4 +1,4 @@
-import { ITEM_ERROR_KINDS, nodeRetries, retrySummary, retryWaitText, type ItemErrorKind, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+import { ITEM_ERROR_KINDS, nodeRetries, retrySummary, retryWaitText, type ItemErrorKind, type WorkflowDefinition, type WorkflowNode } from '@loca/shared';
 
 /** The state of a line a retry rule sent back: "다시 보냄 2/3" (resends so far / the rule's limit). */
 export const retryState = (times: number, max: number) => `다시 보냄 ${times}/${max}`;

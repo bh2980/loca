@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { glossaryMatcher, type TermScope } from '@tw/shared';
+import { glossaryMatcher, type TermScope } from '@loca/shared';
 import { Text, EditorTermMark, EditorTokenChip, EditorTokenText, EditorTokenTip, Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
 import { splitTokens, useSourceParts, type SourcePart } from '@/lib/source-parts';
 import { chipHue, chipLabel, type TokenUnit } from '@/lib/tokens';

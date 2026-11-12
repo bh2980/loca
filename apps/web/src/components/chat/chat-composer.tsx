@@ -4,7 +4,7 @@ import { Link, useRouterState } from '@tanstack/react-router';
 import { ArrowUp, ImageOff, Plus, Square, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Box, Button, ComposerInput, ComposerMenu, FilePickButton, Icon, ImageChip, Inline, Stack, Text, Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
-import { CHAT_IMAGES_MAX, imageDecision, IMAGE_UNSUPPORTED_NOTE, type ChatChip, type PermissionMode } from '@tw/shared';
+import { CHAT_IMAGES_MAX, imageDecision, IMAGE_UNSUPPORTED_NOTE, type ChatChip, type PermissionMode } from '@loca/shared';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
 import { agentRequests, usePendingAgentRequest } from '@/lib/agent';
 import { chatDock } from '@/lib/chat-dock';
@@ -15,9 +15,9 @@ import { makeRunCard } from '@/lib/chat-sessions';
 import type { chatFor } from '@/lib/chat-store';
 import type { AppCommand } from '@/lib/chat-triggers';
 import { keyLabel } from '@/lib/keys';
-import { useViewState, type ViewItem } from '@/lib/view-context';
+import { useViewState, type ViewItem } from '@/lib/reported-view';
 import { AttachChip } from './attach-chip';
-import { ContextMeter, type ChatUsage } from './context-meter';
+import { WindowMeter, type ChatUsage } from './window-meter';
 import { PermissionModePicker } from './permission-mode';
 import type { RunCardControls } from './run-card';
 import { useComposerMenu, type RunMode } from './use-composer-menu';
@@ -364,7 +364,7 @@ export function ChatComposer({ handle, projectId, sessionId, stored, onSend, onQ
         </Box>
         <PermissionModePicker compact value={mode} onChange={onMode} />
         <Inline marginLeft="auto" gap="tight">
-          <ContextMeter usage={usage} />
+          <WindowMeter usage={usage} />
           {(busy || elsewhere) && (
             <Tooltip>
               <TooltipTrigger asChild>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EMPTY_MODEL_CHOICE, translationTemplate, workflowDefinitionSchema, type WorkflowDefinition } from '@tw/shared';
+import { EMPTY_MODEL_CHOICE, translationTemplate, workflowDefinitionSchema, type WorkflowDefinition } from '@loca/shared';
 import { copyNodes, freeNodeId, withConnection, withCopies, withNodesMoved, withoutEdges, withoutFrame, withoutNodes } from './definition-edits';
 
 const template = translationTemplate({ model: EMPTY_MODEL_CHOICE, untranslated: 'u', translated: 't', needsReview: 'needs-review', confirmed: 'c', issueTags: { format: 'format-tag', term: 'term-tag', speech: 'speech-tag', meaning: 'meaning-tag', style: 'style-tag', other: 'other-tag', aiFailed: 'ai-failed' } });

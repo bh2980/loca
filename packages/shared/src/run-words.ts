@@ -1,4 +1,4 @@
-import type { RunCardPlan } from './chat-run.ts';
+import type { RunCardPlan } from './chat-run-records.ts';
 import type { RunCaps } from './run-scope.ts';
 import type { Subject } from './subject.ts';
 import { INPUT_TYPES } from './workflow.ts';

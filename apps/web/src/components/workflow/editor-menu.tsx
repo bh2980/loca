@@ -1,7 +1,7 @@
 import { Fragment } from 'react';
 import { useReactFlow } from '@xyflow/react';
 import { ArrowLeftRight, ArrowUpDown, Copy, Focus, Frame, Group, LayoutGrid, LogOut, Maximize, Plus, SlidersHorizontal, Trash2, Unlink } from 'lucide-react';
-import type { WorkflowDefinition, WorkflowNode } from '@tw/shared';
+import type { WorkflowDefinition, WorkflowNode } from '@loca/shared';
 import { Box, ContextMenuContent, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator, ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger, Icon, PointMenu, Text, type CanvasDirection, type NodeLibraryGroup } from '@loca/ui';
 import { fitWhole } from './flow-canvas';
 import { groupOf } from './frames';

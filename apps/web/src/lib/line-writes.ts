@@ -1,7 +1,7 @@
 import { createOptimisticAction } from '@tanstack/react-db';
 import { useMutation } from '@tanstack/react-query';
 import type { InferRequestType } from 'hono/client';
-import type { LineTranslate } from '@tw/shared';
+import type { LineTranslate } from '@loca/shared';
 import { client } from './api';
 import { sent } from './collections';
 import { pickedNow } from './line-picks';
@@ -95,7 +95,7 @@ export function patchLine(projectId: string, unitId: string, json: LinePatch) {
   });
 }
 
-/** One save of a line's text and/or status (server: POST /units/:unitId/save, services/line-save.ts). */
+/** One save of a line's text and/or status (server: POST /units/:unitId/save, domain/line-save.ts). */
 export interface LineSaveInput {
   unitId: string;
   text?: string;

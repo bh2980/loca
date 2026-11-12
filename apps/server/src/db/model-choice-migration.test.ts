@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
-import { workflowDefinitionSchema } from '@tw/shared';
+import { workflowDefinitionSchema } from '@loca/shared';
 import { openDatabase } from './index.ts';
 import * as s from './schema.ts';
 

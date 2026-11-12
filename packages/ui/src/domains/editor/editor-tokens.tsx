@@ -1,6 +1,5 @@
 import type * as React from "react"
 import { TooltipContent } from "../../controls/tooltip"
-import { Text } from "../../primitives/text"
 import { cn } from "../../lib/utils"
 
 /**

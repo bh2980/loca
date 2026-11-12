@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { APP_DEFAULT_SECTION_LABELS, APP_DEFAULT_SECTIONS, type AppDefaultSection } from '@tw/shared';
+import { APP_DEFAULT_SECTION_LABELS, APP_DEFAULT_SECTIONS, type AppDefaultSection } from '@loca/shared';
 import { Box, Button, Checkbox, Field, Inline, Section, Spinner, Stack, Text, ConfirmDialog } from '@loca/ui';
 import { useWorkflows } from '@/lib/workflows';
 import { pullDefaults, pushDefaults } from '@/lib/project';

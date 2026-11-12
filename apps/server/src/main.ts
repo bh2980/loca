@@ -3,18 +3,18 @@ import { existsSync, readdirSync, statSync } from 'node:fs';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { and, eq, notLike } from 'drizzle-orm';
-import * as ai from '@tw/ai';
+import * as ai from '@loca/ai';
 import { createApp } from './app.ts';
 import { config } from './config.ts';
 import { openDatabase } from './db/index.ts';
 import * as s from './db/schema.ts';
 import { Runner } from './engine/runner.ts';
-import { events } from './events.ts';
-import { closeStaleCalls } from './services/ai-calls.ts';
+import { eventsOf } from './events.ts';
+import { closeStaleCalls } from './domain/ai-calls.ts';
 import { closeInterruptedProposals } from './services/proposals.ts';
 import { computeLayouts, projectsMissingSections, projectsWithOldLayouts, projectsWithoutLayouts } from './services/layout.ts';
-import { keyringStore, memoryStore } from './services/secrets.ts';
-import { copyKeys } from './services/app-defaults.ts';
+import { keyringStore, memoryStore } from './domain/secrets.ts';
+import { copyKeys } from './domain/app-defaults.ts';
 
 // A stray rejected promise (a client that vanished, a failed background job) must not take the server down.
 process.on('unhandledRejection', (reason) => console.error('unhandled rejection', reason));
@@ -67,7 +67,7 @@ const server = serve({ fetch: app.fetch, hostname: '127.0.0.1', port: config.por
 
 const shutdown = async () => {
   try {
-    events.emit('shutdown');
+    eventsOf(db).emit('shutdown');
     await runner.stop();
     server.close();
     await ai.stopIdleAgents(true);

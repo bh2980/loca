@@ -35,10 +35,10 @@ importers:
 
   apps/cli:
     dependencies:
-      '@tw/server':
+      '@loca/server':
         specifier: workspace:*
         version: link:../server
-      '@tw/shared':
+      '@loca/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       commander:
@@ -59,15 +59,15 @@ importers:
       '@hono/zod-validator':
         specifier: ^0.9.1
         version: 0.9.1(hono@4.13.13)(zod@4.6.5)
+      '@loca/ai':
+        specifier: workspace:*
+        version: link:../../packages/ai
+      '@loca/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       '@napi-rs/keyring':
         specifier: ^2.1.0
         version: 2.1.0
-      '@tw/ai':
-        specifier: workspace:*
-        version: link:../../packages/ai
-      '@tw/shared':
-        specifier: workspace:*
-        version: link:../../packages/shared
       ai:
         specifier: ^7.0.134
         version: 7.0.134(zod@4.6.5)
@@ -135,6 +135,12 @@ importers:
       '@hookform/resolvers':
         specifier: ^5.9.1
         version: 5.9.1(@standard-schema/spec@1.1.0)(ajv@8.20.0)(react-hook-form@7.89.0(@types/react@19.3.0)(react@19.3.0))(zod@4.6.5)
+      '@loca/server':
+        specifier: workspace:*
+        version: link:../server
+      '@loca/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       '@loca/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -150,12 +156,6 @@ importers:
       '@tanstack/react-virtual':
         specifier: ^3.14.13
         version: 3.14.13(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      '@tw/server':
-        specifier: workspace:*
-        version: link:../server
-      '@tw/shared':
-        specifier: workspace:*
-        version: link:../../packages/shared
       '@xyflow/react':
         specifier: ^12.12.0
         version: 12.12.0(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -259,15 +259,15 @@ importers:
       '@ai-sdk/openai-compatible':
         specifier: ^3.0.66
         version: 3.0.66(zod@4.6.5)
+      '@loca/shared':
+        specifier: workspace:*
+        version: link:../shared
       '@modelcontextprotocol/sdk':
         specifier: 1.32.1
         version: 1.32.1(zod@4.6.5)
       '@simonepri/refined-antigravity-acp':
         specifier: 1.6.1
         version: 1.6.1
-      '@tw/shared':
-        specifier: workspace:*
-        version: link:../shared
       '@typesafe-ai/sdk':
         specifier: ^0.6.0
         version: 0.6.0
@@ -315,6 +315,9 @@ importers:
       '@dnd-kit/utilities':
         specifier: ^3.2.2
         version: 3.2.2(react@19.3.0)
+      '@loca/shared':
+        specifier: workspace:*
+        version: link:../shared
       '@radix-ui/react-alert-dialog':
         specifier: ^1.1.6
         version: 1.1.24(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -381,9 +384,6 @@ importers:
       '@tanstack/react-virtual':
         specifier: ^3.14.13
         version: 3.14.13(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      '@tw/shared':
-        specifier: workspace:*
-        version: link:../shared
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1

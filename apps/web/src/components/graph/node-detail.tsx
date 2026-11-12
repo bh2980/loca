@@ -5,7 +5,7 @@ import { useGraphShow } from '@/lib/graph-show';
 import { Box, ColumnResizeHandle, FlowDisclosure, FlowLine, FlowRow, Icon, Inline, Inspector, InspectorHeader, Button, SegmentedControl, Skeleton, Text, Chip, Section } from '@loca/ui';
 import { LineDetail } from '@/components/line-detail';
 import { CopyButton } from '@/components/copy-button';
-import { useReportView } from '@/lib/view-context';
+import { useReportView } from '@/lib/reported-view';
 import { KIND_LABEL } from './shapes';
 import { TokenText } from '@/components/editor/source-text';
 import { tokenPatternOf } from '@/lib/source-parts';

@@ -1,8 +1,7 @@
 import { sql, type SQL } from 'drizzle-orm';
 import { customType, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex, type SQLiteColumn } from 'drizzle-orm/sqlite-core';
-import type { AppDefaults, RunCardPlan, RunLimits, RunScope } from '@tw/shared';
-import { type DecidedBy, AGE_BANDS, CONNECTION_KINDS, CHARACTER_ROLES, GENDERS, KNOWLEDGE_TAG_KINDS, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, EVENT_LINK_KINDS, GRAPH_ORIGINS, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, type MarkStyles, PERMISSION_MODES, type CharacterStyle, type EditorAi, type ExclusionRules, type ModelLimits, LINE_TRANSLATE, type AutoMark, type ContextItem, type FormatRules, type ItemErrorKind, type NodeType, type RelationshipChange, type WorkflowDefinition, workflowDefinitionSchema, SUBJECTS, type Subject, ALL_TERM_KINDS, type TermScope } from '@tw/shared';
-import type { Usage } from '@tw/ai';
+import type { AppDefaults, RunCardPlan, RunLimits, RunScope } from '@loca/shared';
+import { AGE_BANDS, CONNECTION_KINDS, CHARACTER_ROLES, GENDERS, KNOWLEDGE_TAG_KINDS, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, EVENT_LINK_KINDS, GRAPH_ORIGINS, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, type MarkStyles, PERMISSION_MODES, type CharacterStyle, type EditorAi, type ExclusionRules, type ModelLimits, LINE_TRANSLATE, type ContextItem, type FormatRules, type ItemErrorKind, type NodeType, type RelationshipChange, type WorkflowDefinition, workflowDefinitionSchema, SUBJECTS, type Subject, ALL_TERM_KINDS, type TermScope } from '@loca/shared';
 
 const id = () => text('id').primaryKey().$defaultFn(() => crypto.randomUUID());
 const createdAt = () => integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date());
@@ -310,7 +309,7 @@ export interface LayoutData {
   portals?: { id: string; section: string; direction: 'in' | 'out'; /** In a view of chosen scenes: the scene the lines continue in. */ groupId?: string }[];
   /** A view an agent made (section "view:<id>", see graph-views.ts): what it shows, for the header. */
   view?: { label: string; nodes: number };
-  /** Dialogue graph: straight runs folded into one block ("chain:<first node>"), with their nodes in order (see chains.ts). */
+  /** Dialogue graph: straight runs folded into one block ("chain:<first node>"), with their nodes in order (see graph-chains.ts). */
   chains?: { id: string; nodeIds: string[] }[];
   /** How the layout was made (LAYOUT_VERSION); older stored layouts are recomputed at startup. */
   version?: number;
@@ -408,7 +407,7 @@ export const terms = sqliteTable(
     /** Candidates (extracted by a workflow or the work analysis) are not used as context until a person confirms them; rejected ones are not proposed again. */
     status: text('status', { enum: KNOWLEDGE_STATUSES }).notNull().default('confirmed'),
     origin: text('origin', { enum: KNOWLEDGE_ORIGINS }).notNull().default('human'),
-    /** Script lines whose source uses it (services/term-usage.ts); null until counted, again after its source changes. */
+    /** Script lines whose source uses it (domain/term-usage.ts); null until counted, again after its source changes. */
     lines: integer('lines'),
     /** Keys of the first lines that contain it, in script order. */
     examples: json<string[]>('examples').notNull().default(sql`'[]'`),
@@ -617,7 +616,7 @@ export const runs = sqliteTable(
     tags: json<RunTag[]>('tags').notNull().default(sql`'[]'`),
     /** Each time a person continued the run with other models or re-queued its failed lines (#41), oldest first. */
     continuations: json<RunContinuation[]>('continuations').notNull().default(sql`'[]'`),
-    /** The conversation that started (or last continued) it: its end is recorded there (chat-run-end.ts). */
+    /** The conversation that started (or last continued) it: its end is recorded there (engine/run-end.ts). */
     sessionId: text('session_id'),
     createdAt: createdAt(),
     finishedAt: integer('finished_at', { mode: 'timestamp_ms' }),

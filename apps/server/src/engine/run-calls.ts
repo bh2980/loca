@@ -1,11 +1,11 @@
 import { and, eq, inArray } from 'drizzle-orm';
-import * as ai from '@tw/ai';
-import { INPUT_TYPES, connectionCan, errorKindOfCode, judgmentProblem, previousStepId, runNodeName, type AiNode, type FunctionNode } from '@tw/shared';
+import * as ai from '@loca/ai';
+import { INPUT_TYPES, connectionCan, errorKindOfCode, judgmentProblem, previousStepId, runNodeName, type AiNode, type FunctionNode } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { logged } from '../services/ai-calls.ts';
-import { resolveTarget } from '../services/model-target.ts';
-import type { SecretStore } from '../services/secrets.ts';
+import { logged } from '../domain/ai-calls.ts';
+import { resolveTarget } from '../domain/model-target.ts';
+import type { SecretStore } from '../domain/secrets.ts';
 import { readAiOutput, type Outcome } from './ai-output.ts';
 import { runAsyncFunction, type FunctionInput } from './functions/index.ts';
 import { judgmentOutcome, judgmentQuestions } from './judgment.ts';

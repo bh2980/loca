@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { aiNodeConfigSchema, contextFor, importFileSchema, runScopeInputSchema, SUBJECTS, validateWorkflow, workflowDefinitionSchema } from '@tw/shared';
+import { aiNodeConfigSchema, contextFor, importFileSchema, runScopeInputSchema, SUBJECTS, validateWorkflow, workflowDefinitionSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
-import { snapshotWorkflowModels } from '../services/model-target.ts';
-import { memoryStore } from '../services/secrets.ts';
+import { snapshotWorkflowModels } from '../domain/model-target.ts';
+import { memoryStore } from '../domain/secrets.ts';
 import { promptEntries } from './prompts.ts';
 import { Runner, type ModelPort } from './runner.ts';
 import { createRun } from './run-create.ts';
@@ -39,7 +39,7 @@ function setup() {
 }
 
 const at = { x: 0, y: 0 };
-/** 용어 번역 as a workflow (input terms): one AI answer per term, then 용어 표기 저장. */
+/** 용어 번역 as a workflow (input terms): one AI answer per term, then 번역 저장. */
 function termWorkflow(choice: unknown) {
   return workflowDefinitionSchema.parse({
     nodes: [

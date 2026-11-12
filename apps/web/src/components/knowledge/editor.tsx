@@ -4,7 +4,7 @@ import { cloneElement, isValidElement, useMemo, useState, type ReactNode } from 
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Check, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { DOCUMENT_KINDS, STYLE_AXES, type StyleAxis, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, isSettled, AGE_BAND_LABELS, CHARACTER_ROLE_LABELS, GENDER_LABELS, knowledgeKindScope, type TagScope, type KnowledgeTagKind } from '@tw/shared';
+import { DOCUMENT_KINDS, STYLE_AXES, type StyleAxis, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, isSettled, AGE_BAND_LABELS, CHARACTER_ROLE_LABELS, GENDER_LABELS, knowledgeKindScope, type TagScope, type KnowledgeTagKind } from '@loca/shared';
 import { TagInput, Inspector, InspectorHeader, InspectorTabs, InspectorToggle, useControlId, TagListEditor, DirtyBar, Box, Inline, Button, Input, Select, SelectContent, SelectItem, SelectValue, AiMark, SelectTrigger, Textarea, Section, Field, ConfirmDialog } from '@loca/ui';
 import { joinList, splitList } from '@/lib/list-value';
 import { Swatches } from '@/components/settings/swatches';
@@ -16,7 +16,6 @@ import { confirmLabel, fail, KINDS, SourceBadge, text, type Kind, type KindSpec,
 import { q, tagsIn } from '@/lib/queries';
 import { useInspectorTab } from '@/lib/inspector-tab';
 import { useTaxonomy, knowledgeWrites } from '@/lib/knowledge';
-import { sent } from '@/lib/collections';
 import { useLinesByKeys } from '@/lib/units';
 import { particle } from '@/lib/josa';
 

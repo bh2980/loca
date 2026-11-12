@@ -1,5 +1,5 @@
 /** Right-hand pane for an automatic tag: its name and colour are the project's to change; what it means is the app's. */
-import { AUTO_MARKS, type AutoMark } from '@tw/shared';
+import { AUTO_MARKS, type AutoMark } from '@loca/shared';
 import { InspectorHeader, Inspector, Button, Box, Chip, Input, Section, Field, KeyValue, KeyValueRow } from '@loca/ui';
 import { scopeLabel } from '@/components/settings/status-types';
 import { Swatches } from '@/components/settings/swatches';

@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import { createOptimisticAction, useLiveQuery } from '@tanstack/react-db';
 import type { InferRequestType } from 'hono/client';
-import { APP_FEED, CONNECTION_KIND_INFO } from '@tw/shared';
+import { APP_FEED, CONNECTION_KIND_INFO } from '@loca/shared';
 import { client } from './api';
 import { appCollection, liveRows, projectCollection, sent, type FeedRow } from './collections';
 import { targetScope, type SettingsTarget } from './settings-target';

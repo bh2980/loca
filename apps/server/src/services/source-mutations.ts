@@ -1,15 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { and, asc, eq, like, sql } from 'drizzle-orm';
-import { createGroupSchema, updateGroupSchema, updateUnitSchema } from '@tw/shared';
+import { createGroupSchema, updateGroupSchema, updateUnitSchema } from '@loca/shared';
 import type { z } from 'zod';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { badRequest, found } from '../refusal.ts';
 import { computeLayouts, cancelViewLayouts } from './layout.ts';
-import { forgetProjectContext } from './context.ts';
-import { namedListener } from './listeners.ts';
-import { setLineStatus } from './line-save.ts';
-import { PERSON, type Saver } from './status-by.ts';
+import { namedListener } from '../domain/line-listener.ts';
+import { setLineStatus } from '../domain/line-save.ts';
+import { PERSON, type Saver } from '../domain/saver.ts';
 
 export type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 type Reader = Pick<Db, 'select' | 'get'>;
@@ -52,13 +51,11 @@ export function refreshNodeGroups(tx: Tx, projectId: string) {
  * being laid out again) until computeLayouts replaces them. Views are laid out on demand, so theirs go.
  */
 export function invalidate(tx: Tx, projectId: string) {
-  cancelViewLayouts(projectId);
+  cancelViewLayouts(tx, projectId);
   tx.delete(s.graphLayouts).where(and(eq(s.graphLayouts.projectId, projectId), like(s.graphLayouts.section, 'view:%'))).run();
   tx.update(s.graphLayouts).set({ status: 'pending', error: null }).where(eq(s.graphLayouts.projectId, projectId)).run();
 }
 export function changed(db: Db, projectId: string) {
-  // The dialogue graph the AI context and exports walk back along is cached per project.
-  forgetProjectContext(projectId);
   // Every orientation that has a stored layout is laid out again (one after another, see computeLayouts).
   const directions = db.selectDistinct({ direction: s.graphLayouts.direction }).from(s.graphLayouts).where(eq(s.graphLayouts.projectId, projectId)).all().map((row) => row.direction);
   for (const direction of directions.length ? directions : ['vertical' as const]) void computeLayouts(db, projectId, { direction });

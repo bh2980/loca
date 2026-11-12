@@ -4,7 +4,7 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { ChevronLeft, CircleStop, Hourglass, OctagonAlert, Pause, Play } from 'lucide-react';
-import { nodePorts, runNodeName, type WorkflowNode, INPUT_TYPES, bySubject, type Subject } from '@tw/shared';
+import { nodePorts, runNodeName, type WorkflowNode, INPUT_TYPES, bySubject, type Subject } from '@loca/shared';
 import { parseExitKey } from '@/components/workflow/exit-marks';
 import { ContextItemList } from '@/components/ai-context';
 import { LineDetail } from '@/components/line-detail';
@@ -26,7 +26,7 @@ import { useTerms } from '@/lib/terms';
 import { runNodeExits, useRunDetail, useRunItems, useRunSteps, type RunItemRow } from '@/lib/run-detail';
 import { controlRun } from '@/lib/runs';
 import { decideItems } from '@/lib/knowledge';
-import { param, searchParams, type SearchOf } from '@/lib/search';
+import { param, searchParams } from '@/lib/search';
 
 type State = keyof typeof ITEM_STATE | 'retrying';
 const runSearchParams = {
@@ -43,7 +43,6 @@ const runSearchParams = {
   tab: param.oneOf(['steps', 'plan', 'graph']),
   aiNode: param.read((raw) => (typeof raw === 'string' && raw.includes(':') ? raw : undefined)),
 };
-type RunSearch = SearchOf<typeof runSearchParams>;
 
 export const Route = createFileRoute('/p/$projectId/runs/$runId')({
   validateSearch: searchParams(runSearchParams),

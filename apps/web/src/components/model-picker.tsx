@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useParams } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, ChevronsUpDown } from 'lucide-react';
-import { CONNECTION_KIND_INFO, connectionCan, isFreeModel, type Capability } from '@tw/shared';
+import { CONNECTION_KIND_INFO, connectionCan, isFreeModel, type Capability } from '@loca/shared';
 import { Chip, Box, Button, Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, Field, Icon, Inline, Popover, PopoverContent, PopoverTrigger, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Stack, Text } from '@loca/ui';
 import { type SettingsTarget, connectionModels } from '@/lib/settings-target';
 import { useConnections } from '@/lib/app-data';

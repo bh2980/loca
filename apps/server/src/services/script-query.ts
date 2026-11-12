@@ -1,17 +1,18 @@
 import { and, asc, count, desc, eq, gte, inArray, or, sql } from 'drizzle-orm';
-import { checkFormat, exclusionRulesSchema, lineChangeEmpty, lineExclusion, lineMarksOf, runNodeName, type BatchChange, type CheckKind, type LineChange, type LineFilter, type LineMark, type ResolvedLineFilter, withSourceWhitespace } from '@tw/shared';
+import { checkFormat, exclusionRulesSchema, lineChangeEmpty, lineExclusion, lineMarksOf, runNodeName, type BatchChange, type CheckKind, type LineChange, type LineFilter, type LineMark, type ResolvedLineFilter, withSourceWhitespace } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import { inChunks, inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
-import { attachUnitTags, scopeRefusal } from './tag-scope.ts';
-import { isStale, LINE_CHANGED, revOf, saveLine, setLineMemo, setLineTranslate, statusRefusal } from './line-save.ts';
-import { PERSON, type Saver } from './status-by.ts';
-import { refusesListener, setAiListener, setHumanListener } from './listeners.ts';
-import { markConditions, translatableSql } from './line-marks.ts';
-import { lineConditions, personNames, requireLineFilter } from './line-filter.ts';
-import { describeRule, knowledgeOf, knownListener, speechRuleIndex } from './speech.ts';
-import { precedingLines } from './context.ts';
-import { viewUnitIds } from './view-flow.ts';
+import { attachUnitTags, scopeRefusal } from '../domain/tag-scope.ts';
+import { isStale, LINE_CHANGED, revOf, saveLine, setLineMemo, setLineTranslate, statusRefusal } from '../domain/line-save.ts';
+import { PERSON, type Saver } from '../domain/saver.ts';
+import { refusesListener, setAiListener, setHumanListener } from '../domain/line-listener.ts';
+import { markConditions, translatableSql } from '../domain/line-marks.ts';
+import { lineConditions, personNames, requireLineFilter } from '../domain/line-filter.ts';
+import { describeRule, knownListener, speechRuleIndex } from '../domain/speech.ts';
+import { knowledgeOf } from '../domain/knowledge-cache.ts';
+import { precedingLines } from '../engine/ai-context.ts';
+import { viewUnitIds } from '../domain/view-flow.ts';
 
 /**
  * Reading and batch-changing the script, shared by the CLI routes and the chat's tools so both
@@ -87,7 +88,6 @@ function findResolved(db: Db, projectId: string, filter: ResolvedLineFilter, opt
   const tagsByUnit = new Map<string, string[]>();
   for (const row of tagRows) tagsByUnit.set(row.unitId, [...(tagsByUnit.get(row.unitId) ?? []), tagName.get(row.tagId) ?? row.tagId]);
   const statusName = new Map(statuses.map((status) => [status.id, status.name]));
-  const finalStatus = new Set(statuses.filter((status) => status.kind === 'final').map((status) => status.id));
   const project = db.select({ rules: s.projects.formatRules, exclusion: s.projects.exclusionRules, language: s.projects.sourceLanguage }).from(s.projects).where(eq(s.projects.id, projectId)).get();
   const rules = project?.rules;
   const exclusion = exclusionRulesSchema.parse(project?.exclusion ?? {});
@@ -166,7 +166,7 @@ export function scenesWith(db: Db, projectId: string, speakers: string[]) {
 }
 
 /** A line with the lines around it in its group, and its neighbours in the dialogue graph (choices, conditions). */
-export function lineContext(db: Db, projectId: string, key: string, around: number) {
+export function lineAround(db: Db, projectId: string, key: string, around: number) {
   const unit = db.select().from(s.units).where(and(eq(s.units.projectId, projectId), eq(s.units.key, key))).get();
   if (!unit) return null;
   const siblings = db.select({ id: s.units.id, key: s.units.key, speaker: s.units.speaker, source: s.units.source, translation: s.units.translation }).from(s.units).where(eq(s.units.groupId, unit.groupId)).orderBy(asc(s.units.seq)).all();

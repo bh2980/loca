@@ -3,7 +3,7 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { execa, ExecaError, type Options } from 'execa';
 import { z } from 'zod';
-import type { CliKind } from '@tw/shared';
+import type { CliKind } from '@loca/shared';
 import { cliSpawn, resolveCli } from './spawn.ts';
 import { failureInText, keepOutput, ModelError, withOutput } from './errors.ts';
 import { addUsage, readUsage, type GenerateRequest, type GenerateResult, type ModelLimitsInfo, type ModelTarget, type Usage } from './types.ts';

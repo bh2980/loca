@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { importFileSchema, validateWorkflow, workflowDefinitionSchema } from '@tw/shared';
+import { importFileSchema, validateWorkflow, workflowDefinitionSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
-import { snapshotWorkflowModels } from '../services/model-target.ts';
-import { memoryStore } from '../services/secrets.ts';
+import { snapshotWorkflowModels } from '../domain/model-target.ts';
+import { memoryStore } from '../domain/secrets.ts';
 import { promptEntries } from './prompts.ts';
 import { Runner, type ModelPort } from './runner.ts';
 import { createRun } from './run-create.ts';
@@ -372,7 +372,7 @@ describe('function nodes', () => {
   });
 
   it('stops a runaway script and reports it as an error', async () => {
-    const { db, projectId, choice } = setup(1);
+    const { db, projectId } = setup(1);
     const definition = workflowDefinitionSchema.parse({
       nodes: [
         { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: {} },
@@ -417,7 +417,7 @@ describe('who set the status', () => {
   });
 
   it('protects a person\'s translation only in runs that pick lines by status', async () => {
-    const { filtersByStatus } = await import('@tw/shared');
+    const { filtersByStatus } = await import('@loca/shared');
     expect(filtersByStatus({ filter: { statusIds: ['untranslated'] } })).toBe(true);
     // Every way of picking by status counts: statuses hidden, 최종 아님, the review inbox's statuses.
     expect(filtersByStatus({ filter: { hideStatusIds: ['done'] } })).toBe(true);

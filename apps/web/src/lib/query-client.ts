@@ -1,5 +1,5 @@
 import { QueryClient, type QueryKey } from '@tanstack/react-query';
-import type { Topic } from '@tw/shared';
+import type { Topic } from '@loca/shared';
 import { toast } from 'sonner';
 import { isServerDown } from './api';
 

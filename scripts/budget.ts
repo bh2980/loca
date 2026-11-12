@@ -17,8 +17,8 @@ import { ANALYSIS_WORKFLOW, WORKFLOW_TEMPLATES, analysisTemplate, importFileSche
 import { openDatabase } from '../apps/server/src/db/index.ts';
 import * as s from '../apps/server/src/db/schema.ts';
 import { importProject } from '../apps/server/src/services/importer.ts';
-import { snapshotWorkflowModels } from '../apps/server/src/services/model-target.ts';
-import { memoryStore } from '../apps/server/src/services/secrets.ts';
+import { snapshotWorkflowModels } from '../apps/server/src/domain/model-target.ts';
+import { memoryStore } from '../apps/server/src/domain/secrets.ts';
 import { Runner, type ModelPort } from '../apps/server/src/engine/runner.ts';
 import { createRun } from '../apps/server/src/engine/run-create.ts';
 import { DEFAULT_OPTIONS, PROFILES, makeRand, respond, type MockOptions } from './mock-llm-core.ts';

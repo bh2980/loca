@@ -1,13 +1,13 @@
 import type { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import { get } from 'es-toolkit/compat';
-import { checkFormat, type FunctionConfig, type FunctionName, type FunctionParams, type httpParams, type JsonField } from '@tw/shared';
+import { checkFormat, type FunctionConfig, type FunctionName, type FunctionParams, type httpParams, type JsonField } from '@loca/shared';
 import type { Db } from '../../db/index.ts';
 import * as s from '../../db/schema.ts';
-import { connectionKey } from '../../services/app-defaults.ts';
-import type { SecretStore } from '../../services/secrets.ts';
+import { connectionKey } from '../../domain/app-defaults.ts';
+import type { SecretStore } from '../../domain/secrets.ts';
 import { runScript } from './sandbox.ts';
-import { knowledgeOf } from '../../services/speech.ts';
+import { knowledgeOf } from '../../domain/knowledge-cache.ts';
 import { HUMAN_OWNED_NOTE } from '../apply-candidate.ts';
 import { applyFunctions } from './apply.ts';
 import { byInput, type FunctionInput, type FunctionResult } from './types.ts';

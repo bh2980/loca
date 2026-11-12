@@ -1,4 +1,4 @@
-import type * as ai from '@tw/ai';
+import type * as ai from '@loca/ai';
 
 export interface ModelPort {
   generate: typeof ai.generate;
