@@ -1,15 +1,7 @@
 import type { UIMessage } from 'ai';
-import { isRunRecord, runCardMessage, type RunCard } from '@tw/shared';
+import { isRunRecord } from '@tw/shared';
 
 export { cardSummary } from '@tw/shared';
-
-/** A card put into a stored conversation: replaces its message when it is there, else goes to the end. */
-export function withCard<T extends { messages: unknown[] }>(session: T, card: RunCard): T {
-  const message = runCardMessage(card);
-  const messages = session.messages as UIMessage[];
-  const at = messages.findIndex((item) => item.id === card.id);
-  return { ...session, messages: at >= 0 ? messages.map((item, index) => (index === at ? message : item)) : [...messages, message] };
-}
 
 /**
  * The conversation on screen with the run cards and run ends of the stored one: one this window does not have

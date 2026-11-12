@@ -3,8 +3,8 @@ import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { APP_DEFAULT_SECTION_LABELS, APP_DEFAULT_SECTIONS, type AppDefaultSection } from '@tw/shared';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Box, Button, Checkbox, Field, Inline, Section, Spinner, Stack, Text } from '@loca/ui';
-import { client, unwrap } from '@/lib/api';
 import { useWorkflows } from '@/lib/workflows';
+import { pullDefaults, pushDefaults } from '@/lib/project';
 
 type Direction = 'pull' | 'push';
 
@@ -53,8 +53,8 @@ export function HomeDefaultsSection({ projectId }: { projectId: string }) {
   const run = useMutation({
     mutationFn: (direction: Direction) =>
       direction === 'pull'
-        ? unwrap(client.projects[':projectId'].defaults.pull.$post({ param: { projectId }, json: { sections: checked } }))
-        : unwrap(client.projects[':projectId'].defaults.push.$post({ param: { projectId }, json: { sections: checked, workflowIds: needsWorkflows ? pickedWorkflows.map((workflow) => workflow.id) : [] } })),
+        ? pullDefaults(projectId, checked)
+        : pushDefaults(projectId, checked, needsWorkflows ? pickedWorkflows.map((workflow) => workflow.id) : []),
     onSuccess: (result, direction) => {
       const done = result as Partial<Record<AppDefaultSection, string>>;
       setReport({ direction, lines: checked.filter((section) => done[section] !== undefined).map((section) => [section, done[section]!]) });
@@ -108,7 +108,7 @@ export function HomeDefaultsSection({ projectId }: { projectId: string }) {
                 ))}
               </Stack>
             ) : (
-              <Text as="p" variant="caption" tone="muted">{workflows.isPending ? '불러오는 중…' : '이 프로젝트에 워크플로가 없습니다.'}</Text>
+              <Text as="p" variant="caption" tone="muted">{workflows.isLoading ? '불러오는 중…' : '이 프로젝트에 워크플로가 없습니다.'}</Text>
             )}
             <Text as="p" variant="caption" tone="muted">가져오기에는 고르지 않아도 됩니다. 홈에 저장할 때만 쓰입니다.</Text>
           </Box>

@@ -206,16 +206,19 @@ export const workflowRoutes = new Hono<Env>()
     const batches = [...Map.groupBy(lines, (line) => line.plan!).entries()].sort((x, y) => x[0] - y[0]).map(([, list]) => list);
     return c.json(listBatches(db, batches));
   })
-  /** A run as it started (definition, models, limits) and how it is doing now (runProgress). */
-  .get('/runs/:id', (c) => {
-    const { db, runner } = c.var.deps;
+  /**
+   * What a run started with (its workflow as it was, scope, caps, the models its choices resolved to). How it is doing
+   * now (status, notice, counts) is its progress row's, which the browser holds apart (POST run-progress): nothing of
+   * that is repeated here, so there is one copy of it.
+   */
+  .get('/runs/:id/start', (c) => {
+    const { db } = c.var.deps;
     const run = found(db.select().from(s.runs).where(eq(s.runs.id, c.req.param('id'))).get(), '실행');
-    const { models, ...rest } = run;
+    const { models, status: _status, notice: _notice, total: _total, finishedAt: _finishedAt, ...rest } = run;
     // Requests a node can have at once: an AI node's 동시 처리 수, an HTTP or script node's own.
     const callLimits = Object.fromEntries(run.definition.nodes.filter(nodeCallsOut).map((node) => [node.id, nodeConcurrency(node)]));
-    const { id: _id, ...progress } = runProgress(db, runner, run.projectId, [run.id])[0]!;
     // What each model choice resolved to when the run started.
-    return c.json({ ...rest, ...progress, models: Object.values(models).map((model) => ({ label: model.label, connectionId: model.target.connectionId, name: model.target.name, model: model.target.model })), callLimits });
+    return c.json({ ...rest, models: Object.values(models).map((model) => ({ label: model.label, connectionId: model.target.connectionId, name: model.target.name, model: model.target.model })), callLimits });
   })
   /** One page of a run's items as ids: the run page reads the items from the browser's run items collection. */
   .get('/runs/:id/items/ids', validate('query', runItemQuery), (c) => c.json(runItemIds(c.var.deps.db, c.req.param('id'), c.req.valid('query'))))

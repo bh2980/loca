@@ -4,8 +4,10 @@ import { pickTab } from './inspector-tab';
 const tabs = ['line', 'history', 'prompt'] as const;
 
 describe('pickTab', () => {
-  it('takes the URL first', () => expect(pickTab(tabs, 'prompt', 'history')).toBe('prompt'));
-  it('falls back to the remembered tab', () => expect(pickTab(tabs, undefined, 'history')).toBe('history'));
-  it('falls back to the first tab', () => expect(pickTab(tabs, undefined, null)).toBe('line'));
-  it('skips unknown values', () => expect(pickTab(tabs, 'nope', 'gone')).toBe('line'));
+  it('takes the tab the URL names', () => expect(pickTab(tabs, 'prompt')).toBe('prompt'));
+  it('falls back to the first tab', () => expect(pickTab(tabs, undefined)).toBe('line'));
+  it('skips a value that is not one of its tabs (another inspector\'s tab, a hand-edited URL)', () => {
+    expect(pickTab(tabs, 'usage')).toBe('line');
+    expect(pickTab(tabs, 3)).toBe('line');
+  });
 });

@@ -3,7 +3,8 @@ import { keepPreviousData, queryOptions, useQuery } from '@tanstack/react-query'
 import type { FeedRows } from '@tw/shared';
 import { client, unwrap } from './api';
 import { sent, type FeedRow } from './collections';
-import { heldFeed, useHeld, type Held } from './units';
+import { heldFeed, useHeld, type Held } from './held';
+import { key } from './query-keys';
 
 /**
  * Proposals as their cards show them: which ones a panel lists is a question (GET proposals/ids, one
@@ -57,7 +58,7 @@ export type ProposalQuery = { session?: string; status?: 'pending' };
 /** Which proposals a panel lists (proposals topic: one is filed or decided). */
 const proposalIds = (projectId: string, query: ProposalQuery) =>
   queryOptions({
-    queryKey: ['proposals', 'ids', projectId, query.session ?? 'external', query.status ?? ''],
+    queryKey: key('proposals', 'ids', projectId, query.session ?? 'external', query.status ?? ''),
     queryFn: () => unwrap(client.projects[':projectId'].proposals.ids.$get({ param: { projectId }, query })),
     placeholderData: keepPreviousData,
   });
@@ -84,9 +85,20 @@ export function decideProposal(projectId: string, id: string, action: 'accept' |
   return run().when('settled');
 }
 
-/** A request that decides or undoes proposals: done once the feed has brought their rows. */
-export async function changeProposals<T extends Response & { json(): Promise<unknown> }>(projectId: string, request: Promise<T>): Promise<Awaited<ReturnType<T['json']>>> {
-  const body = await sent(projectId, request);
+/** Accepts or rejects several proposals at once; answers with what became of each. Done once the feed has brought their rows. */
+export async function decideProposals(projectId: string, ids: string[], action: 'accept' | 'reject') {
+  const body = await sent(projectId, client.projects[':projectId'].proposals.decide.$post({ param: { projectId }, json: { ids, action } }));
   await proposalsOf(projectId).idle();
   return body;
 }
+
+/** Takes back accepted proposals: a conversation's, or (no session) those sent from the terminal. */
+export async function undoProposals(projectId: string, sessionId: string | undefined, ids: string[]) {
+  const body = await sent(projectId, sessionId ? client.chat[':sessionId'].undo.$post({ param: { sessionId }, json: { ids } }) : client.projects[':projectId']['terminal-proposals'].undo.$post({ param: { projectId }, json: { ids } }));
+  await proposalsOf(projectId).idle();
+  return body;
+}
+
+/** Whether the project's permissions let the chat use an editor tool with this input (a question: nothing changes). */
+export const toolPermission = (projectId: string, name: string, input: Record<string, unknown>) =>
+  unwrap(client.projects[':projectId']['editor-tools'][':name'].permission.$post({ param: { projectId, name }, json: input }));

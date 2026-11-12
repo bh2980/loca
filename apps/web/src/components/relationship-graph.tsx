@@ -12,6 +12,7 @@ import type { CharacterRole } from '@tw/shared';
 import { personStyle } from '@/lib/person-colors';
 import { relationLabel, relationRow } from '@/lib/relation-label';
 import { useIsDark } from '@/lib/theme';
+import { stored, STORED, useStored } from '@/lib/storage';
 
 export interface GraphCharacter {
   id: string;
@@ -47,24 +48,15 @@ const LAYOUTS_KEPT = 20;
 function knownLayout(storageKey: string, key: string): Layout | null {
   const hit = layouts.get(key);
   if (hit) return hit;
-  try {
-    const stored = JSON.parse(localStorage.getItem(`${storageKey}.layout`) ?? 'null') as Layout | null;
-    if (stored?.key === key) return keepLayout(storageKey, stored, false);
-  } catch {
-    // A convenience: without storage the graph is laid out again.
-  }
-  return null;
+  // A convenience: without what was kept the graph is laid out again.
+  const kept = stored(STORED.relationshipLayout, storageKey).read();
+  return kept?.key === key ? keepLayout(storageKey, kept, false) : null;
 }
 function keepLayout(storageKey: string, layout: Layout, store = true) {
   layouts.delete(layout.key);
   layouts.set(layout.key, layout);
   if (layouts.size > LAYOUTS_KEPT) layouts.delete(layouts.keys().next().value!);
-  if (store)
-    try {
-      localStorage.setItem(`${storageKey}.layout`, JSON.stringify(layout));
-    } catch {
-      // As above.
-    }
+  if (store) stored(STORED.relationshipLayout, storageKey).write(layout);
   return layout;
 }
 
@@ -224,25 +216,11 @@ export function RelationshipGraph({ storageKey, characters, relationships, selec
   const drawable = useMemo(() => relationships.filter((relationship) => known.has(relationship.fromId) && known.has(relationship.toId)), [relationships, known]);
   const layoutKey = useMemo(() => JSON.stringify([characters.map((c) => c.id), drawable.map((r) => [r.fromId, r.toId])]), [characters, drawable]);
   const [positions, setPositions] = useState<Layout | null>(() => knownLayout(storageKey, layoutKey));
-  const [placed, setPlaced] = useState<Record<string, { x: number; y: number }>>(() => {
-    try {
-      return JSON.parse(localStorage.getItem(storageKey) ?? '{}') as Record<string, { x: number; y: number }>;
-    } catch {
-      return {};
-    }
-  });
+  const [placed, place] = useStored(STORED.relationshipPositions, storageKey);
   const placedRef = useRef(placed);
   placedRef.current = placed;
   const positionsRef = useRef(positions);
   positionsRef.current = positions;
-  const place = (next: Record<string, { x: number; y: number }>) => {
-    setPlaced(next);
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(next));
-    } catch {
-      // Positions are a convenience; without storage they last until reload.
-    }
-  };
   const [hovered, setHovered] = useState<string | null>(null);
   // A new layout (other people shown) refits the view by remounting it; one that follows an edit keeps the view.
   const viewKey = useRef(positions?.key);

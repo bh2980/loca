@@ -5,7 +5,7 @@ import { history, historyKeymap, standardKeymap } from '@codemirror/commands';
 import { acceptCompletion, autocompletion, completionStatus, type CompletionContext } from '@codemirror/autocomplete';
 import { chipHue, chipLabel, numberTokens, type TokenKind, type TokenUnit } from '@/lib/tokens';
 import type { TagInsert } from '@/lib/tag-placement';
-import { splitTokens, type SourcePart } from '@/lib/line-context';
+import { splitTokens, type SourcePart } from '@/lib/source-parts';
 import { EditorInputBox } from '@loca/ui';
 
 /** Marks a replacement that came from the value prop, so it is not echoed back as typing. */

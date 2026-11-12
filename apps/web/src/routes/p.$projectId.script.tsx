@@ -15,6 +15,7 @@ import { keyLabel } from '@/lib/keys';
 import { useTaxonomy } from '@/lib/knowledge';
 import { useGroups } from '@/lib/groups';
 import { useProject, useProjectProgress } from '@/lib/project';
+import { stored, STORED } from '@/lib/storage';
 
 type Kind = GroupRow['kind'];
 const VIEW_ORDER: Kind[] = ['scene', 'ui', 'document'];
@@ -37,22 +38,9 @@ interface ScriptSearch extends LinesSearch {
   sourceKind?: Kind;
 }
 
-/** Whether the group list is shown is a per-tab convenience (sessionStorage), like folded sections. */
-const LIST_KEY = 'tw.script.list';
-const readListOpen = () => {
-  try {
-    return sessionStorage.getItem(LIST_KEY) !== '0';
-  } catch {
-    return true;
-  }
-};
-const rememberListOpen = (open: boolean) => {
-  try {
-    sessionStorage.setItem(LIST_KEY, open ? '1' : '0');
-  } catch {
-    /* private mode */
-  }
-};
+/** Whether the group list is shown is a per-tab convenience, like folded sections. */
+const readListOpen = () => stored(STORED.scriptListOpen).read();
+const rememberListOpen = (open: boolean) => stored(STORED.scriptListOpen).write(open);
 
 export const Route = createFileRoute('/p/$projectId/script')({
   validateSearch: (raw: Record<string, unknown>): ScriptSearch => ({

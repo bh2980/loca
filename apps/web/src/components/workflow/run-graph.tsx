@@ -25,6 +25,7 @@ import { useConnections } from '@/lib/app-data';
 import { autoLayout } from '@/components/workflow/auto-layout';
 import { shiftRoute } from '@/components/workflow/route-shift';
 import { toast } from 'sonner';
+import { stored, STORED } from '@/lib/storage';
 
 const nodeTypes = { workflow: WorkflowNodeView, frame: FrameNodeView, frameTint: FrameTintView };
 /** The whole graph, never larger than 100%. */
@@ -41,37 +42,14 @@ export interface RunGraphData {
   retrying?: Record<string, { count: number; kinds: Record<string, number> }>;
 }
 
-const viewportKey = (runId: string) => `loca.run.viewport.${runId}`;
 /**
  * Where this browser put a run's nodes: dragged or arranged here, for looking only. The run's definition (a copy of the
  * workflow as it started) and the workflow itself keep theirs. `routes`: the arranged lines; null after a drag (straight lines).
  */
 type RunLayout = { positions: Record<string, { x: number; y: number }>; routes: Record<string, unknown> | null };
-const layoutKey = (runId: string) => `loca.run.layout.${runId}`;
-function readLayout(runId: string): RunLayout | undefined {
-  try {
-    const raw = localStorage.getItem(layoutKey(runId));
-    return raw ? (JSON.parse(raw) as RunLayout) : undefined;
-  } catch {
-    return undefined;
-  }
-}
-function writeLayout(runId: string, layout: RunLayout) {
-  try {
-    localStorage.setItem(layoutKey(runId), JSON.stringify(layout));
-  } catch {
-    // Not remembered: the next look shows the run's own placement.
-  }
-}
-
-function readViewport(runId: string): Viewport | undefined {
-  try {
-    const value = JSON.parse(sessionStorage.getItem(viewportKey(runId)) ?? 'null');
-    return value && [value.x, value.y, value.zoom].every(Number.isFinite) && value.zoom > 0 ? value : undefined;
-  } catch {
-    return undefined;
-  }
-}
+const readLayout = (runId: string): RunLayout | undefined => stored(STORED.runGraphLayout, runId).read() ?? undefined;
+const writeLayout = (runId: string, layout: RunLayout) => stored(STORED.runGraphLayout, runId).write(layout);
+const readViewport = (runId: string): Viewport | undefined => stored(STORED.runViewport, runId).read() ?? undefined;
 
 export function RunGraph(props: { projectId: string; run: RunGraphData; selected?: string; onOpenNode: (nodeId: string) => void }) {
   return (
@@ -152,7 +130,7 @@ function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; ru
   };
   // 접기, as in the editor: side nodes are chips (with their lines' counts) until opened.
   const folds = useMemo(() => computeFolds(definition), [definition]);
-  const [foldState, setFoldState] = useFoldState(`loca.run.folds.${run.id}`);
+  const [foldState, setFoldState] = useFoldState(`run.${run.id}`);
   const openFolds = useMemo(() => new Set(foldState.open), [foldState]);
   const view = useMemo(() => foldedDefinition(definition, folds, openFolds), [definition, folds, openFolds]);
   const placements = useMemo(() => foldPlacements(definition, folds, openFolds, new Map(Object.entries(sizes)), direction), [definition, folds, openFolds, sizes, direction]);
@@ -236,13 +214,7 @@ function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; ru
       edgesFocusable={false}
       minZoom={0.05}
       onNodeClick={(_event, node) => isFrameId(node.id) ? undefined : (topCallIds(run.definition).includes(node.id) ? setOpenCall((open) => (open === node.id ? undefined : node.id)) : onOpenNode(node.id))}
-      onMoveEnd={(_event, viewport) => {
-        try {
-          sessionStorage.setItem(viewportKey(run.id), JSON.stringify(viewport));
-        } catch {
-          // A view that is not remembered only fits again next time.
-        }
-      }}
+      onMoveEnd={(_event, viewport) => stored(STORED.runViewport, run.id).write(viewport)}
       proOptions={{ hideAttribution: true }}
     >
       <Background gap={20} size={1} />

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { useQueries, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { BookmarkPlus } from 'lucide-react';
 import { viaWith } from '@tw/shared';
 import { HeaderActions, Page } from '@/components/page';
@@ -11,6 +11,8 @@ import { Box, Button, CanvasDirectionControl, GraphEndpointBar, GraphScriptSplit
 import type { GraphEndpointStep } from '@loca/ui';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
+import { useGraphNodes } from '@/lib/graph';
+import { STORED, useStored } from '@/lib/storage';
 
 /** 보기로 저장: names the route shown and stores it as a route view (its nodes, start, end and branches). */
 function SaveRouteButton({ projectId, route, onSaved }: { projectId: string; route: { start: string; end: string; via?: string }; onSaved: (id: string) => void }) {
@@ -73,7 +75,7 @@ export function PathMode({ projectId, toggle, viewMenu, layoutToggle, view, star
   onSaved?: (id: string) => void;
 }) {
   const selectedIds = [...new Set([start, end].filter((id): id is string => Boolean(id)))];
-  const selectedDetails = useQueries({ queries: selectedIds.map((id) => q.graphNode(id, projectId)) });
+  const selectedDetails = useGraphNodes(projectId, selectedIds);
   const detailById = useMemo(() => new Map(selectedIds.map((id, index) => {
     const detail = selectedDetails[index]?.data;
     return [id, detail?.projectId === projectId ? detail : undefined] as const;
@@ -100,16 +102,10 @@ export function PathMode({ projectId, toggle, viewMenu, layoutToggle, view, star
     value && ({ kind: role === 'start' ? '경로 시작' : '경로 끝', id: value.id, label: value.label, detail: JSON.stringify({ nodeId: value.id }) });
   useReportView('reading-route', [reportEndpoint(startValue, 'start'), reportEndpoint(endValue, 'end')]);
 
-  const viaStorageKey = start && end ? `tw.route.via.${projectId}.${start}:${end}` : null;
-  const [internalVia, setInternalVia] = useState<string>(() => (viaStorageKey ? sessionStorage.getItem(viaStorageKey) ?? '' : ''));
-
-  useEffect(() => {
-    if (viaStorageKey) {
-      setInternalVia(sessionStorage.getItem(viaStorageKey) ?? '');
-    } else {
-      setInternalVia('');
-    }
-  }, [viaStorageKey]);
+  // The branch taken at each fork of a route between two picked ends, kept for the tab; nothing is kept until both ends are picked.
+  const viaKey = start && end ? `${projectId}.${start}:${end}` : '';
+  const [storedVia, setStoredVia] = useStored(STORED.routeVia, viaKey);
+  const internalVia = viaKey ? storedVia : '';
 
   // A saved view's branch taken at a fork shows at once, before the changed view comes back.
   const [pendingVia, setPendingVia] = useState<string>();
@@ -123,26 +119,12 @@ export function PathMode({ projectId, toggle, viewMenu, layoutToggle, view, star
       void Promise.resolve(onViaChange?.(nextVia)).catch(() => setPendingVia(undefined));
       return;
     }
-    if (viaStorageKey) {
-      try {
-        sessionStorage.setItem(viaStorageKey, nextVia);
-      } catch {
-        // ignore unavailable storage
-      }
-    }
-    setInternalVia(nextVia);
+    if (viaKey) setStoredVia(nextVia);
     onViaChange?.(nextVia);
   };
 
   const handleClear = () => {
-    if (viaStorageKey) {
-      try {
-        sessionStorage.removeItem(viaStorageKey);
-      } catch {
-        // ignore unavailable storage
-      }
-    }
-    setInternalVia('');
+    if (viaKey) setStoredVia('');
     onClear?.();
   };
 

@@ -73,10 +73,10 @@ export function CommandSearch({ projectId, compact = false, listen = true }: { p
 
   const isFetching =
     ((scope === 'all' || scope === 'lines') && lines.isPlaceholderData) ||
-    ((scope === 'all' || scope === 'scenes') && scenes.isFetching) ||
-    ((scope === 'all' || scope === 'terms') && termList.isFetching) ||
-    ((scope === 'all' || scope === 'people') && characterList.isFetching) ||
-    ((scope === 'all' || scope === 'docs') && documentList.isFetching) ||
+    ((scope === 'all' || scope === 'scenes') && scenes.isLoading) ||
+    ((scope === 'all' || scope === 'terms') && termList.isLoading) ||
+    ((scope === 'all' || scope === 'people') && characterList.isLoading) ||
+    ((scope === 'all' || scope === 'docs') && documentList.isLoading) ||
     ((scope === 'all' || scope === 'chat') && chatSearch.isFetching);
 
   useEffect(() => {

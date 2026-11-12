@@ -30,9 +30,6 @@ export const setChangeListener = (listener: (topics: Topic[]) => void) => {
   onChanged = listener;
 };
 
-/** Refetch these topics now, for changes whose response could not say so (a streamed chat turn). */
-export const notifyChanged = (topics: Topic[]) => onChanged(topics);
-
 /**
  * This tab's id, sent with every call (x-client): the server names it on an event made only by this
  * tab's own writes, whose answers already refetched those topics, so the tab skips it (#20, lib/live.ts).

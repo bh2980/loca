@@ -5,7 +5,7 @@ import type { RunCard, RunEnd } from '@tw/shared';
 import { Box, Button, Inline, Progress, RunStatusBadge, Spinner, Stack, Text } from '@loca/ui';
 import { cardSummary } from '@/lib/chat-run';
 import { startCaps } from '@/lib/run-limits';
-import { answerRunCard } from '@/lib/chat-run-api';
+import { answerRunCard } from '@/lib/chat-sessions';
 import { keyLabel } from '@/lib/keys';
 import { AttachChip } from './attach-chip';
 import { useRuns } from '@/lib/runs';
@@ -25,12 +25,10 @@ export interface RunCardControls {
  * answer it once (the server starts the run and records its id on the card). After 실행 the same card
  * follows the run and links to its page. The target is not editable here: cancel and start again to change it.
  */
-export function RunCardView({ projectId, sessionId, card, onChange, onAnswered, controls }: {
+export function RunCardView({ projectId, sessionId, card, onAnswered, controls }: {
   projectId: string;
   sessionId: string;
   card: RunCard;
-  /** The card as the server now has it (after 실행 or 취소). */
-  onChange: (card: RunCard) => void;
   /** After 실행 or 취소: focus goes back to the box, never stays on a button. */
   onAnswered: () => void;
   /** Set on the newest waiting card, so the box can answer it by key. */
@@ -38,11 +36,9 @@ export function RunCardView({ projectId, sessionId, card, onChange, onAnswered, 
 }) {
   const waiting = card.state === 'pending';
   const answer = useMutation({
-    mutationFn: (kind: 'start' | 'cancel') => answerRunCard(sessionId, card.id, kind),
-    onSuccess: (next) => {
-      onChange(next);
-      onAnswered();
-    },
+    mutationFn: (kind: 'start' | 'cancel') => answerRunCard(projectId, sessionId, card.id, kind),
+    // The answered card comes with the conversation, which the answer changed (chatSession is asked again).
+    onSuccess: onAnswered,
   });
   const summary = cardSummary(card.input, card.plan);
   const canStart = waiting && !summary.empty && !answer.isPending;

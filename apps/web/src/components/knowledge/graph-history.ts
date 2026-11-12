@@ -1,13 +1,10 @@
-import { useRef } from 'react';
+import { useMemo, useRef } from 'react';
 import { toast } from 'sonner';
-import { client, unwrap } from '@/lib/api';
+import { knowledgeWrites, type KnowledgeDelete } from '@/lib/knowledge';
+import { serverUndoHistory, undoChange } from '@/lib/undo';
+import { createdStep, type UndoStep } from '@/lib/undo-history';
 
-/** One undoable change: both directions go through the server (a delete answers with the token of its undo record). */
-export interface Step {
-  undo: () => Promise<unknown>;
-  redo: () => Promise<unknown>;
-}
-export type DeleteItem = { kind: 'characters' | 'relationships' | 'speechRules' | 'events' | 'eventLinks'; ids: string[] };
+export type DeleteItem = KnowledgeDelete;
 
 /** A name nothing has yet: "새 인물", "새 인물 2"… (compared without case). */
 export const freeName = (base: string, taken: Set<string>) => {
@@ -17,56 +14,29 @@ export const freeName = (base: string, taken: Set<string>) => {
 
 /**
  * The undo history a knowledge graph keeps (the relationship graph, the 사건 흐름): each action
- * records a step, ⌘/Ctrl+Z and ⌘/Ctrl+Shift+Z replay it through the server. `refresh` runs after
- * every action, whether it worked or not.
+ * records a step, ⌘/Ctrl+Z and ⌘/Ctrl+Shift+Z replay it through the server (lib/undo-history.ts).
  */
-export function useGraphHistory(projectId: string, refresh?: () => void) {
-  const api = client.projects[':projectId'];
-  const param = { projectId };
-  const history = useRef<{ past: Step[]; future: Step[] }>({ past: [], future: [] });
-  const remove = async (items: DeleteItem[]) => (await unwrap(api['knowledge-delete'].$post({ param, json: { items } }))).token;
+export function useGraphHistory(projectId: string) {
+  const writes = useMemo(() => knowledgeWrites(projectId), [projectId]);
+  const history = useRef(serverUndoHistory()).current;
   /** Puts back what a delete removed, by its token (null: it removed nothing). */
-  const restore = async (token: string | null) => void (token && (await unwrap(api.undo.$post({ param, json: { token } }))));
-  const run = async (work: () => Promise<void>) => {
+  const restore = async (token: string | null) => void (token && (await undoChange(projectId, token)));
+  const run = async (work: () => Promise<unknown>) => {
     try {
       await work();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error));
-    } finally {
-      refresh?.();
     }
   };
-  const record = (step: Step) => {
-    history.current.past.push(step);
-    if (history.current.past.length > 100) history.current.past.shift();
-    history.current.future = [];
-  };
-  /** Something just created: undo deletes it (keeping it), redo puts it back. */
-  const created = (items: DeleteItem[]): Step => {
-    let token: string | null = null;
-    return { undo: async () => (token = await remove(items)), redo: () => restore(token) };
-  };
   return {
-    api,
-    param,
-    remove,
+    writes,
+    remove: writes.remove,
     restore,
     run,
-    record,
-    created,
-    undo: () =>
-      run(async () => {
-        const step = history.current.past.pop();
-        if (!step) return;
-        await step.undo();
-        history.current.future.push(step);
-      }),
-    redo: () =>
-      run(async () => {
-        const step = history.current.future.pop();
-        if (!step) return;
-        await step.redo();
-        history.current.past.push(step);
-      }),
+    record: (step: UndoStep) => history.record(step),
+    /** Something just created: undo deletes it (keeping it), redo puts it back. */
+    created: (items: DeleteItem[]): UndoStep => createdStep(() => writes.remove(items), (token) => undoChange(projectId, token)),
+    undo: () => run(() => history.undo()),
+    redo: () => run(() => history.redo()),
   };
 }

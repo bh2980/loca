@@ -1,7 +1,6 @@
 import { freeName, useGraphHistory, type DeleteItem } from './graph-history';
 import { pairKey } from '@tw/shared';
 import type { Pair } from './pairs';
-import { sent } from '@/lib/collections';
 import type { Character, Relationship } from '@/lib/knowledge';
 
 /**
@@ -11,7 +10,7 @@ import type { Character, Relationship } from '@/lib/knowledge';
  */
 export function useRelationshipGraphActions({ projectId, characters, relationships, pairs, open }: { projectId: string; characters: Character[]; relationships: Relationship[]; pairs: { current: Pair[] }; open: (item: string) => void }) {
   // People, relationships and rules are collections the row feed keeps current: nothing to refetch.
-  const { api, param, remove, restore, run, record, created, undo, redo } = useGraphHistory(projectId);
+  const { writes, remove, restore, run, record, created, undo, redo } = useGraphHistory(projectId);
   /** Every name and alias in use: a new person takes one nobody has (the server refuses a second of the same). */
   const taken = () => new Set(characters.flatMap((character) => [character.name, ...character.aliases]).map((name) => name.toLowerCase()));
 
@@ -37,7 +36,7 @@ export function useRelationshipGraphActions({ projectId, characters, relationshi
         if (!from || !to || fromId === toId) return;
         const key = pairKey(from.name, to.name);
         if (pairs.current.find((pair) => pair.key === key)?.relationship) return open(key);
-        const row = await sent(projectId, api.relationships.$post({ param, json: { fromId, toId, kind: '관계' } }));
+        const row = await writes.relationships.create({ fromId, toId, kind: '관계' });
         record(created([{ kind: 'relationships', ids: [row.id] }]));
         open(key);
       }),
@@ -45,7 +44,7 @@ export function useRelationshipGraphActions({ projectId, characters, relationshi
     addPerson: async () => {
       let id: string | undefined;
       await run(async () => {
-        const row = await sent(projectId, api.characters.$post({ param, json: { name: freeName('새 인물', taken()) } }));
+        const row = await writes.characters.create({ name: freeName('새 인물', taken()) });
         id = row.id;
         record(created([{ kind: 'characters', ids: [row.id] }]));
         open(row.id);
@@ -61,12 +60,12 @@ export function useRelationshipGraphActions({ projectId, characters, relationshi
           const name = freeName(`${original.name} (복사)`, names);
           names.add(name.toLowerCase());
           const { id: _id, name: _name, ...rest } = original;
-          const row = await sent(projectId, api.characters.$post({ param, json: { ...rest, name, aliases: [] } as never }));
+          const row = await writes.characters.create({ ...rest, name, aliases: [] } as never);
           made.set(original.id, row.id);
         }
         const lines: string[] = [];
         for (const relationship of relationships.filter((candidate) => made.has(candidate.fromId) && made.has(candidate.toId))) {
-          const row = await sent(projectId, api.relationships.$post({ param, json: { fromId: made.get(relationship.fromId)!, toId: made.get(relationship.toId)!, kind: relationship.kind, description: relationship.description, mutual: relationship.mutual, changes: relationship.changes as never } }));
+          const row = await writes.relationships.create({ fromId: made.get(relationship.fromId)!, toId: made.get(relationship.toId)!, kind: relationship.kind, description: relationship.description, mutual: relationship.mutual, changes: relationship.changes as never });
           lines.push(row.id);
         }
         // Deleting the copied people takes their relationships with them (and brings them back).

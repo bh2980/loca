@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Pencil, Plus, Trash2 } from 'lucide-react';
-import { PROMPT_TARGET, savedPromptSchema, savedPromptsSchema, type SavedPrompt } from '@tw/shared';
+import { PROMPT_TARGET, savedPromptSchema, savedPromptsSchema } from '@tw/shared';
 import { Box, Button, Inline, Stack, Text, Input, Textarea, Section } from '@loca/ui';
 import type { SettingsTarget } from '@/lib/settings-target';
 import { useTargetPrompts } from '@/lib/target-settings';

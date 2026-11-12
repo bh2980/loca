@@ -7,7 +7,6 @@ import { badRequest, isRefusal } from '../refusal.ts';
 import { hiddenMarkConditions, knownListenerSql, lineFactConditions, markConditions, translatableSql, unknownListenerSql } from './line-marks.ts';
 import { lineTextFilter } from './line-text.ts';
 import { viewUnitIds } from './view-flow.ts';
-import { revOf } from './line-save.ts';
 
 /**
  * The line filter, from what is asked to SQL, for every surface: the script list, `loca lines` / export / check, the
@@ -205,13 +204,10 @@ export function linePage(db: Db, projectId: string, filter: LineFilter, focus?: 
 }
 
 /**
- * Every line a filter matches, in script order, with its scene, who decided it, its tags and its rev: the translation
- * screen walks them one by one inside their scenes (찾아가기), and a scene's checkbox picks its whole filtered result
- * (a bulk change made from those picks sends the revs back).
+ * Every line a filter matches, in script order, as its id and its scene: the translation screen walks them one by
+ * one inside their scenes (찾아가기), and a scene's checkbox picks its whole filtered result. The lines themselves
+ * are the browser's rows; what the bulk bar needs of picks it does not hold is its own question (pickedLines).
  */
 export function lineMatchRows(db: Db, projectId: string, filter: UnpagedLineFilter) {
-  const rows = db.select({ id: s.units.id, groupId: s.units.groupId, statusBy: s.units.statusBy, updatedAt: s.units.updatedAt }).from(s.units).where(and(...lineConditions(projectId, requireLineFilter(db, projectId, filter)))).orderBy(asc(s.units.seq)).all();
-  const tagsByUnit = new Map<string, string[]>();
-  for (const tag of inChunks(rows.map((row) => row.id), (ids) => db.select({ unitId: s.unitTags.unitId, tagId: s.unitTags.tagId }).from(s.unitTags).where(inArray(s.unitTags.unitId, ids)).all())) tagsByUnit.set(tag.unitId, [...(tagsByUnit.get(tag.unitId) ?? []), tag.tagId]);
-  return rows.map(({ updatedAt, ...row }) => ({ ...row, rev: revOf({ updatedAt }), tagIds: tagsByUnit.get(row.id) ?? [] }));
+  return db.select({ id: s.units.id, groupId: s.units.groupId }).from(s.units).where(and(...lineConditions(projectId, requireLineFilter(db, projectId, filter)))).orderBy(asc(s.units.seq)).all();
 }

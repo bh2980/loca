@@ -5,7 +5,7 @@ import { GettingStarted } from '@/components/getting-started';
 import { RunStatusBadge, Box, Button, Heading, Icon, Inline, ListRow, Stack, StatusChipLink, StatusIcon, Meter, Text, TodoIcon, Skeleton } from '@loca/ui';
 import { Elapsed, JobProgress } from '@/components/job-progress';
 import { Page } from '@/components/page';
-import { aiDecided, AUTO_MARKS, markName } from '@tw/shared';
+import { aiDecided } from '@tw/shared';
 import { useMarkStyles } from '@/lib/queries';
 import { dateTime } from '@/lib/datetime';
 import { useProgress } from '@/lib/use-progress';

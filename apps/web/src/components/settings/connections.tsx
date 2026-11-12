@@ -47,13 +47,11 @@ import { ModelPicker, type ModelValue } from '@/components/model-picker';
 import { DeleteButton } from '@/components/settings/delete-button';
 import { KeyPane, type KeyRow } from '@/components/settings/key-pane';
 import { ExecutableField } from '@/components/settings/executable-field';
-import { unwrap } from '@/lib/api';
-import { client } from '@/lib/api';
-import { connectionsApi, type ConnectionRow, type SettingsTarget } from '@/lib/settings-target';
+import { type ConnectionRow, type SettingsTarget, connectionWrites, testConnection } from '@/lib/settings-target';
 import { useReportView } from '@/lib/view-context';
 import { dateTime } from '@/lib/datetime';
-import { changeConnection, useConnections } from '@/lib/app-data';
-import { useConnectionTests } from '@/lib/logs';
+import { useConnections } from '@/lib/app-data';
+import { useConnectionTests } from '@/lib/ai-calls';
 
 const CAPABILITY_LABEL: Record<Capability, string> = { generate: '생성', judge: '판정', chat: '채팅', complete: '자동완성', tool: '도구' };
 const LOGIN_LABEL: Record<string, string> = {
@@ -192,16 +190,13 @@ function NewConnection({ target, onClose, onCreated }: { target: SettingsTarget;
   const create = useMutation({
     // Done once the feed has brought the new row, so the list and the pane it opens have it.
     mutationFn: (values: ConnectionFormOutput) =>
-      changeConnection(
-        target,
-        connectionsApi(target).create({
+      connectionWrites(target).create({
           kind: values.kind,
           name: values.name,
           baseUrl: info.transport === 'http' ? values.baseUrl : undefined,
           executable: info.transport === 'cli' ? values.executable || undefined : undefined,
           apiKey: info.transport === 'http' && values.apiKey ? values.apiKey : undefined,
         }),
-      ),
     onSuccess: (row) => {
       toast.success('연결을 추가했습니다.');
       onCreated?.(row.id);
@@ -270,7 +265,7 @@ function NewConnection({ target, onClose, onCreated }: { target: SettingsTarget;
 }
 
 function ConnectionPane({ target, connection, onClose }: { target: SettingsTarget; connection: ConnectionRow; onClose: () => void }) {
-  const api = connectionsApi(target);
+  const api = connectionWrites(target);
   const info = CONNECTION_KIND_INFO[connection.kind];
   const isHttp = info.transport === 'http';
   const isTool = connectionCan(connection.kind, 'tool');
@@ -293,17 +288,14 @@ function ConnectionPane({ target, connection, onClose }: { target: SettingsTarge
 
   const save = useMutation({
     mutationFn: (values: z.output<typeof editSchema>) =>
-      changeConnection(
-        target,
-        api.patch(
-          connection.id,
-          onlyDirty({
-            name: values.name,
-            baseUrl: isHttp ? values.baseUrl : undefined,
-            executable: isHttp ? undefined : (values.executable ?? ''),
-            headerTemplate: isTool ? (values.headerTemplate ?? '') : undefined,
-          }),
-        ),
+      api.patch(
+        connection.id,
+        onlyDirty({
+          name: values.name,
+          baseUrl: isHttp ? values.baseUrl : undefined,
+          executable: isHttp ? undefined : (values.executable ?? ''),
+          headerTemplate: isTool ? (values.headerTemplate ?? '') : undefined,
+        }),
       ),
     onSuccess: () => {
       toast.success('저장했습니다.');
@@ -311,7 +303,7 @@ function ConnectionPane({ target, connection, onClose }: { target: SettingsTarge
     onError: (error) => toast.error(errorMessage(error)),
   });
   const saveKey = useMutation({
-    mutationFn: () => changeConnection(target, api.putKey(connection.id, apiKey)),
+    mutationFn: () => api.putKey(connection.id, apiKey),
     onSuccess: () => {
       setApiKey('');
       toast.success('키를 저장했습니다.');
@@ -319,29 +311,29 @@ function ConnectionPane({ target, connection, onClose }: { target: SettingsTarge
     onError: (error) => toast.error(errorMessage(error)),
   });
   const deleteKey = useMutation({
-    mutationFn: () => changeConnection(target, api.deleteKey(connection.id)),
+    mutationFn: () => api.deleteKey(connection.id),
     onSuccess: () => {
       toast.success('키를 삭제했습니다.');
     },
     onError: (error) => toast.error(errorMessage(error)),
   });
   const remove = useMutation({
-    mutationFn: () => changeConnection(target, api.remove(connection.id)),
+    mutationFn: () => api.remove(connection.id),
     onSuccess: onClose,
     onError: (error) => toast.error(errorMessage(error)),
   });
   const probe = useMutation({
-    mutationFn: () => unwrap(api.probe(connection.id)),
+    mutationFn: () => api.probe(connection.id),
     onSuccess: setProbeResult,
     onError: (error) => setProbeResult({ ok: false, detail: errorMessage(error) }),
   });
   const loginStatus = useMutation({
-    mutationFn: () => unwrap(api.loginStatus(connection.id)),
+    mutationFn: () => api.loginStatus(connection.id),
     onSuccess: (result) => setLogin(result.status === 'error' ? result.detail : result.status),
     onError: (error) => toast.error(errorMessage(error)),
   });
   const openLogin = useMutation({
-    mutationFn: () => unwrap(api.openLogin(connection.id)),
+    mutationFn: () => api.openLogin(connection.id),
     onSuccess: (result) => (result.ok ? toast.success(`${connection.kind === 'antigravity' ? 'agy를 열었습니다' : '로그인 창을 열었습니다'}: ${result.command}`) : toast.error(result.detail)),
     onError: (error) => toast.error(errorMessage(error)),
   });
@@ -444,7 +436,7 @@ function ModelTest({ target, connectionId, need }: { target: SettingsTarget; con
   const choice = picked ?? { connectionId, model: '' };
   const [source, setSource] = useState('');
   const test = useMutation({
-    mutationFn: () => unwrap(client.connections[':id'].test.$post({ param: { id: connectionId }, json: { model: choice.model, effort: choice.effort, source, targetLanguage: 'ko' } })),
+    mutationFn: () => testConnection(connectionId, { model: choice.model, effort: choice.effort, source, targetLanguage: 'ko' }),
     onError: (error) => toast.error(errorMessage(error)),
   });
   const tests = useConnectionTests(connectionId);

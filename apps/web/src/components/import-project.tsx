@@ -3,10 +3,10 @@ import { useMutation } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { FileUp } from 'lucide-react';
 import { Box, Button, Dialog, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, FileDropZone, Inline, Spinner, Text, DialogContent, KeyValue, KeyValueRow } from '@loca/ui';
-import { client, unwrap } from '@/lib/api';
+import { validateProjectFile, importProjectFile } from '@/lib/project';
 
 type Validation = Awaited<ReturnType<typeof validate>>;
-const validate = (body: unknown) => unwrap(client.projects.validate.$post({ json: body }));
+const validate = validateProjectFile;
 
 /** Pick a standard-format file → see what it contains or exactly where it is invalid → create. */
 export function ImportProjectDialog({ trigger }: { trigger?: React.ReactNode }) {
@@ -17,7 +17,7 @@ export function ImportProjectDialog({ trigger }: { trigger?: React.ReactNode }) 
   const [checking, setChecking] = useState(false);
 
   const create = useMutation({
-    mutationFn: (data: unknown) => unwrap(client.projects.$post({ json: data as never })),
+    mutationFn: (data: unknown) => importProjectFile(data),
     onSuccess: (summary) => {
       setOpen(false);
       void navigate({ to: '/p/$projectId', params: { projectId: summary.projectId } });

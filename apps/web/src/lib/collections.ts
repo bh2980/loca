@@ -2,7 +2,7 @@ import { createCollection, type Collection } from '@tanstack/react-db';
 import type { FeedRow } from '@tw/server/app';
 import { APP_FEED, type AppCollection, type FeedChanges, type FeedCollection, type FeedSnapshot, type SnapshotCollection } from '@tw/shared';
 import { client, unwrap, unwrapSeq } from './api';
-import { feed } from './feed';
+import { feed, type Feed } from './feed';
 
 /**
  * A collection's row type: what the server's reader of that collection returns (READERS, apps/server/src/feed.ts).
@@ -18,20 +18,27 @@ export interface FeedCollectionOptions<C extends FeedCollection> {
   name: C;
   /** The collection's rows now and the feed's count (GET /projects/:id/sync/:name). */
   load: () => Promise<FeedSnapshot>;
+  /** The feed it listens to (the app's one, unless a test brings its own). */
+  feed?: Feed;
 }
 
 /**
  * A collection of one project's rows that the server's row feed keeps current: the snapshot first,
  * then each change event's rows for it. Events that arrive while the snapshot loads wait and are
- * applied after it; one older than the snapshot is dropped (its rows are already in it). A reconnect
- * loads the snapshot again (feed.resync). A snapshot that cannot be loaded (the server is not up or is
- * restarting) is tried again, waiting longer each time up to RETRY_MAX_MS: a collection does not fail
+ * applied after it; one older than the snapshot is dropped (its rows are already in it).
+ *
+ * The snapshot is asked for once the event stream is open, so no event falls between the two; when the stream
+ * does not open in time (the server is away) it is asked for anyway and read again when the stream opens. A
+ * reconnect reads it again too (events were missed). A snapshot that cannot be loaded (the server is not up or
+ * is restarting) is tried again, waiting longer each time up to RETRY_MAX_MS: a collection does not fail
  * for good, so screens show it loading rather than an error with a retry button.
  */
 const RETRY_MIN_MS = 1_000;
 const RETRY_MAX_MS = 30_000;
+/** How long a snapshot waits for the event stream to open before it is read without it. */
+const LIVE_WAIT_MS = 1_000;
 
-export function feedCollection<C extends FeedCollection>({ projectId, name, load }: FeedCollectionOptions<C>): Collection<FeedRow[C], string> {
+export function feedCollection<C extends FeedCollection>({ projectId, name, load, feed: source = feed }: FeedCollectionOptions<C>): Collection<FeedRow[C], string> {
   const collection = createCollection<Row, string>({
     id: `${name}:${projectId}`,
     getKey: (row) => row.id,
@@ -43,31 +50,44 @@ export function feedCollection<C extends FeedCollection>({ projectId, name, load
         let ready = false;
         let retry: ReturnType<typeof setTimeout> | undefined;
         let delay = RETRY_MIN_MS;
+        /** Each load's number: an answer that a later load has overtaken is thrown away. */
+        let loads = 0;
+        /** Whether the snapshot held was asked for with the stream open (every event since has come). */
+        let followed = false;
+        let stopped = false;
         const synced = new Set<string>();
+        const progress = source.track(projectId);
         const apply = (changes: FeedChanges | undefined, seq: number) => {
           if (seq <= seen) return;
           seen = seq;
-          if (!changes) return;
-          begin();
-          for (const value of changes.upsert as Row[]) {
-            write({ type: synced.has(value.id) ? 'update' : 'insert', value });
-            synced.add(value.id);
+          if (changes) {
+            begin();
+            for (const value of changes.upsert as Row[]) {
+              write({ type: synced.has(value.id) ? 'update' : 'insert', value });
+              synced.add(value.id);
+            }
+            for (const key of changes.delete) {
+              if (!synced.delete(key)) continue;
+              write({ type: 'delete', key });
+            }
+            commit();
           }
-          for (const key of changes.delete) {
-            if (!synced.delete(key)) continue;
-            write({ type: 'delete', key });
-          }
-          commit();
+          progress.seen(seen);
         };
-        const unsubscribe = feed.subscribe(projectId, (rows, seq) => {
+        const unsubscribe = source.subscribe(projectId, (rows, seq) => {
           if (waiting) waiting.push([rows[name], seq]);
           else apply(rows[name], seq);
         });
         const loadSnapshot = async () => {
           clearTimeout(retry);
           waiting ??= [];
+          progress.loading();
+          const turn = ++loads;
+          const live = await source.whenLive(LIVE_WAIT_MS);
+          if (turn !== loads || stopped) return;
           try {
             const snapshot = await load();
+            if (turn !== loads || stopped) return;
             begin({ snapshot: true });
             synced.clear();
             for (const value of snapshot.rows as Row[]) {
@@ -76,25 +96,33 @@ export function feedCollection<C extends FeedCollection>({ projectId, name, load
             }
             commit();
             seen = snapshot.seq;
-            feed.markSeen(projectId, snapshot.seq, ready);
+            followed = live;
             if (!ready) markReady();
             ready = true;
             delay = RETRY_MIN_MS;
-            const queued = waiting;
+            const queued = waiting ?? [];
             waiting = null;
             for (const [changes, seq] of queued) apply(changes, seq);
+            progress.seen(seen);
           } catch {
+            if (turn !== loads || stopped) return;
+            progress.failed();
             // Events keep waiting for the snapshot that will hold them.
             retry = setTimeout(() => void loadSnapshot(), delay);
             delay = Math.min(delay * 2, RETRY_MAX_MS);
           }
         };
         void loadSnapshot();
-        const stopResync = feed.onResync(() => void loadSnapshot());
+        // The stream opened: after a reconnect events were missed; and a snapshot read without the stream may have missed some.
+        const stopOpen = source.onOpen((missed) => {
+          if (missed || !followed) void loadSnapshot();
+        });
         return () => {
+          stopped = true;
           clearTimeout(retry);
           unsubscribe();
-          stopResync();
+          stopOpen();
+          progress.stop();
         };
       },
     },
@@ -132,11 +160,13 @@ function scopeCollection<C extends SnapshotCollection | AppCollection>(name: C, 
   return collection as unknown as Collection<FeedRow[C], string>;
 }
 
-/** A live query's rows as the old queries gave them: `data` undefined until loaded (and while not `enabled`). */
-export function loaded<T>(query: { isReady: boolean; data: unknown }, enabled = true) {
-  const data = enabled && query.isReady ? (query.data as T[]) : undefined;
-  const loading = enabled && !query.isReady;
-  return { data, isPending: loading, isLoading: loading, isFetching: loading, isSuccess: Boolean(data) };
+/**
+ * A live query's rows by the collection's own readiness: TanStack hands an empty list until the first sync, which a
+ * screen cannot tell from "no rows", so `data` is there only once the query `isReady` (and never while it is not
+ * `enabled`); `isLoading` is the time before that.
+ */
+export function liveRows<T>(query: { isReady: boolean; data: T | undefined }, enabled = true): { data: T | undefined; isLoading: boolean } {
+  return { data: enabled && query.isReady ? query.data : undefined, isLoading: enabled && !query.isReady };
 }
 
 /** Waits for the row feed to bring a write's rows back (its x-seq), so the screen shows the saved row. */

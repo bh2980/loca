@@ -1,44 +1,31 @@
-import { useCallback, useState } from 'react';
-
-const key = (kind: string) => `tw.inspector.${kind}.tab`;
+import { useCallback } from 'react';
+import { useNavigate, useRouterState } from '@tanstack/react-router';
 
 /**
- * Which tab an inspector opens on: the one the URL names (a shared link), else the one last used on this kind of
- * inspector, else the first. Anything that is not one of `tabs` is skipped.
+ * Which tab an inspector opens on: the one the URL names (a shared link, Back/Forward), else the first.
+ * Anything that is not one of `tabs` is skipped (the URL may name a tab of another kind of inspector).
  */
-export function pickTab<T extends string>(tabs: readonly [T, ...T[]], url: unknown, stored: unknown): T {
-  const known = (value: unknown): value is T => typeof value === 'string' && (tabs as readonly string[]).includes(value);
-  if (known(url)) return url;
-  if (known(stored)) return stored;
-  return tabs[0];
+export function pickTab<T extends string>(tabs: readonly [T, ...T[]], url: unknown): T {
+  return typeof url === 'string' && (tabs as readonly string[]).includes(url) ? (url as T) : tabs[0];
 }
 
-const readStored = (kind: string) => {
-  try {
-    return window.localStorage.getItem(key(kind));
-  } catch {
-    return null;
-  }
-};
-
 /**
- * An inspector's tab, remembered per kind (`tw.inspector.<kind>.tab`) so the next item opens where the last one was
- * left. When the URL carries the tab (`url` + `onUrl`), changing it writes the URL too.
+ * An inspector's tab, kept in the URL like the rest of the page's state: the page's `pane` search param (every
+ * page with an inspector takes it), or the page's own param when it gives one (`url` + `onUrl`: the script's
+ * `tab`). Picking another item keeps the param, so the next item opens where the last one was left. A tab
+ * change replaces the history entry: Back leaves the page, it does not walk the tabs.
  */
-export function useInspectorTab<T extends string>(kind: string, tabs: readonly [T, ...T[]], url?: T, onUrl?: (tab: T) => void): [T, (tab: T) => void] {
-  const [local, setLocal] = useState<T>(() => pickTab(tabs, undefined, readStored(kind)));
-  const tab = pickTab(tabs, url, local);
+export function useInspectorTab<T extends string>(tabs: readonly [T, ...T[]], url?: T, onUrl?: (tab: T) => void): [T, (tab: T) => void] {
+  const pane = useRouterState({ select: (state) => (state.location.search as { pane?: unknown }).pane });
+  const navigate = useNavigate();
+  const first = tabs[0];
   const setTab = useCallback(
     (next: T) => {
-      setLocal(next);
-      try {
-        window.localStorage.setItem(key(kind), next);
-      } catch {
-        // Storage off: the tab still changes, it just is not remembered.
-      }
-      onUrl?.(next);
+      if (onUrl) return onUrl(next);
+      // The first tab is the default: it is not written, so the URL stays as short as the page's state.
+      void navigate({ to: '.', search: ((previous: Record<string, unknown>) => ({ ...previous, pane: next === first ? undefined : next })) as never, replace: true });
     },
-    [kind, onUrl],
+    [navigate, onUrl, first],
   );
-  return [tab, setTab];
+  return [pickTab(tabs, onUrl ? url : pane), setTab];
 }

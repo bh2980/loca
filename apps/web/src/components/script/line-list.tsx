@@ -5,7 +5,7 @@ import { Download, Play } from 'lucide-react';
 import { LineDetail } from '@/components/line-detail';
 import { useRevealDock, EditorToolbar, FilterChips, Pager, FilterBar, ActionBar, Button, Box, Text, SearchField, Skeleton, EmptyState, SplitPane } from '@loca/ui';
 import { HeaderActions } from '@/components/page';
-import { tokenPatternOf } from '@/lib/line-context';
+import { tokenPatternOf } from '@/lib/source-parts';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { exportDialog, type ExportView } from '@/lib/export-dialog';
 import { lineTags, q, useMarkStyles } from '@/lib/queries';
@@ -197,12 +197,11 @@ export function LineList({
   const setEditing = (edit: boolean) => setFocusTick((tick) => (edit ? tick + 1 : 0));
 
   // Lines picked by their checkboxes; the head row above the lines acts on them.
-  const bulk = useLineBulk({ projectId, pickKey: review ? 'review' : (groupId ?? (kind ? `all.${kind}` : 'all')), rows, tagName: (tagId) => tagById.get(tagId)?.name, aiOnly: search.decidedBy === 'ai' });
+  const bulk = useLineBulk({ projectId, pickKey: review ? 'review' : (groupId ?? (kind ? `all.${kind}` : 'all')), tagName: (tagId) => tagById.get(tagId)?.name, aiOnly: search.decidedBy === 'ai' });
   const { picked, pick } = bulk;
   const pickScene = async (scene: string, on: boolean) => {
     try {
       const { rows: matching } = await queryClient.fetchQuery({ ...q.unitMatches(projectId, sceneFilter(scene)), staleTime: 0 });
-      bulk.remember(matching);
       setSceneIds((now) => new Map(now).set(scene, matching.map((row) => row.id)));
       pick(matching.map((row) => row.id), on);
     } catch (error) {
@@ -339,7 +338,6 @@ export function LineList({
   // Everything on this page picked: the rest of the list (every line the filter keeps) is one click away.
   const pickAllMatching = async () => {
     const { rows: all } = await queryClient.fetchQuery({ ...q.unitMatches(projectId, sceneFilter(groupId)), staleTime: 0 });
-    bulk.remember(all);
     pick(all.map((row) => row.id), true);
   };
   const clearFilters = () => onSearch(Object.assign({ page: undefined }, ...chips.map((chip) => chip.clear)));
@@ -384,7 +382,7 @@ export function LineList({
           speakers={speakerChoices(speakers.data ?? [])}
           listeners={listeners.data?.listeners ?? []}
           unknownListenerCount={listeners.data?.unknownCount ?? 0}
-          listenersPending={listeners.isPending}
+          listenersPending={listeners.isLoading}
             withSpeakers={withSpeakers}
           search={search}
           onSearch={(next) => onSearch({ ...next, page: undefined })}

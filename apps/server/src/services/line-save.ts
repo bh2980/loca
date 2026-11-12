@@ -150,11 +150,15 @@ export function saveLine(tx: Tx, unit: Unit, save: LineSave): void {
   }
 }
 
-/** A line of any project by id, saved in its own transaction (the app's editor); answers with what the line holds now. */
+/**
+ * A line of any project by id, saved in its own transaction (the app's editor); answers with what the line holds now
+ * and its rev after the save, which the next write made from the same view sends back.
+ */
 export function saveLineById(db: Db, unitId: string, save: LineSave) {
   const unit = found(db.select().from(s.units).where(eq(s.units.id, unitId)).get(), '대사');
   db.transaction((tx) => saveLine(tx, unit, save));
-  return db.select({ translation: s.units.translation, statusId: s.units.statusId, candidateId: s.units.candidateId }).from(s.units).where(eq(s.units.id, unitId)).get()!;
+  const { updatedAt, ...now } = db.select({ translation: s.units.translation, statusId: s.units.statusId, candidateId: s.units.candidateId, updatedAt: s.units.updatedAt }).from(s.units).where(eq(s.units.id, unitId)).get()!;
+  return { ...now, rev: revOf({ updatedAt }) };
 }
 
 /**
@@ -252,13 +256,23 @@ export interface LinePatch {
  * A person's change to lines of one project, all of it or none: status (setLineStatus), 확인함, tags (only where
  * their scope allows), listener, memo and 번역 제외. Every id it takes must be the project's.
  *
- * `revs`: each line's rev as the person's view of it had it (line id → rev). A change picked over many lines is made
- * from a view of them all, most not on screen: a line changed since (a run finished it, another window edited it) is
- * left as it is and counted in `skipped`, the rest change. A line without a rev is changed as it is.
+ * `seen`: the person's view of the picked lines. A change picked over many lines is made from a view of them all,
+ * most not on screen: a line changed since (a run finished it, another window edited it) is left as it is and
+ * counted in `skipped`, the rest change.
+ * - `revs`: each line's rev as the browser holds it (line id → rev), for the lines it holds.
+ * - `asOf`: for the picked lines it does not hold, the newest rev among them when it last asked about them
+ *   (pickedLines): one of those with a later rev changed since.
+ * A line with neither is changed as it is.
  */
-export function patchLines(db: Db, projectId: string, picked: readonly string[], patch: LinePatch, revs?: Readonly<Record<string, number>>): { changed: number; skipped: number } {
+export interface LinesSeen {
+  revs?: Readonly<Record<string, number>>;
+  asOf?: number;
+}
+export function patchLines(db: Db, projectId: string, picked: readonly string[], patch: LinePatch, seen: LinesSeen = {}): { changed: number; skipped: number } {
   assertProjectRefs(db, projectId, { unitIds: picked, statusId: patch.statusId, tagIds: [...(patch.addTagIds ?? []), ...(patch.removeTagIds ?? []), ...(patch.tagIds ?? [])] });
-  const stale = new Set(revs ? inChunks(picked, (slice) => db.select({ id: s.units.id, updatedAt: s.units.updatedAt }).from(s.units).where(and(eq(s.units.projectId, projectId), inArray(s.units.id, slice))).all()).filter((line) => isStale(line, revs[line.id])).map((line) => line.id) : []);
+  const { revs, asOf } = seen;
+  const changedSince = (line: { id: string; updatedAt: Date }) => (revs?.[line.id] !== undefined ? isStale(line, revs[line.id]) : asOf !== undefined && revOf(line) > asOf);
+  const stale = new Set(revs || asOf !== undefined ? inChunks(picked, (slice) => db.select({ id: s.units.id, updatedAt: s.units.updatedAt }).from(s.units).where(and(eq(s.units.projectId, projectId), inArray(s.units.id, slice))).all()).filter(changedSince).map((line) => line.id) : []);
   const unitIds = stale.size ? picked.filter((id) => !stale.has(id)) : picked;
   if (!unitIds.length) return { changed: 0, skipped: stale.size };
   // Only dialogue has a listener: naming one where no picked line can take it is a mistake, not a no-op.
@@ -281,8 +295,21 @@ export function patchLines(db: Db, projectId: string, picked: readonly string[],
   return { changed: unitIds.length, skipped: stale.size };
 }
 
-/** patchLines for one line of any project, by id (a line's pane and menu). */
+/** patchLines for one line of any project, by id (a line's pane and menu); answers with the line's rev after it. */
 export function patchLineById(db: Db, unitId: string, patch: LinePatch) {
   const unit = found(db.select({ projectId: s.units.projectId }).from(s.units).where(eq(s.units.id, unitId)).get(), '대사');
   patchLines(db, unit.projectId, [unitId], patch);
+  return { rev: revOf(db.select({ updatedAt: s.units.updatedAt }).from(s.units).where(eq(s.units.id, unitId)).get()!) };
+}
+
+/**
+ * What the bulk bar says about picked lines the browser does not hold (picks outlive the page they were made on, and a
+ * filter picked whole is thousands of lines): which of them an AI decided (확인함 acts on those), how many carry each
+ * tag, and `asOf`, the newest rev among them, which a bulk change made from this answer sends back (patchLines).
+ */
+export function pickedLines(db: Db, projectId: string, ids: readonly string[]) {
+  const rows = inChunks(ids, (slice) => db.select({ id: s.units.id, statusBy: s.units.statusBy, updatedAt: s.units.updatedAt }).from(s.units).where(and(eq(s.units.projectId, projectId), inArray(s.units.id, slice))).all());
+  const tags: Record<string, number> = {};
+  for (const row of inChunks(rows.map((line) => line.id), (slice) => db.select({ tagId: s.unitTags.tagId }).from(s.unitTags).where(inArray(s.unitTags.unitId, slice)).all())) tags[row.tagId] = (tags[row.tagId] ?? 0) + 1;
+  return { total: rows.length, byAi: rows.filter((line) => line.statusBy === 'ai').map((line) => line.id), tags, asOf: rows.reduce((newest, line) => Math.max(newest, revOf(line)), 0) };
 }

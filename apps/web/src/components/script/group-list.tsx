@@ -1,23 +1,17 @@
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Fragment, useMemo, useState, type ReactNode } from 'react';
 import type { LineMark } from '@tw/shared';
 import { Link } from '@tanstack/react-router';
 import { AppWindow, Check, FileText, Inbox, MessageSquareText, Plus, type LucideIcon } from 'lucide-react';
 import { Box, Button, ExpandableRow, ContextMenu, ContextMenuTrigger, Icon, Inline, ListRow, Stack, Count, SearchField, Meter, Text, Tooltip, TooltipContent, TooltipTrigger, type StatusLike, ContextMenuContent } from '@loca/ui';
 import type { Group } from '@/lib/groups';
-import { GROUP_KIND, SCRIPT_VIEW, SOURCE_GROUP_LABEL } from '@/lib/labels';
+import { SCRIPT_VIEW, SOURCE_GROUP_LABEL } from '@/lib/labels';
+import { stored, STORED } from '@/lib/storage';
 
 /** What the list reads of a group's row. */
 export type GroupRow = Pick<Group, 'id' | 'kind' | 'title' | 'key' | 'section' | 'sort' | 'total' | 'statuses' | 'unknownListeners'>;
 
 /** Sections start closed by default; explicit unfolds are a per-tab convenience, like the graph viewport. */
-const storageKey = (projectId: string) => `tw.script.expanded.${projectId}`;
-const readExpanded = (projectId: string): string[] => {
-  try {
-    return JSON.parse(sessionStorage.getItem(storageKey(projectId)) ?? '[]');
-  } catch {
-    return [];
-  }
-};
+const expandedOf = (projectId: string) => stored(STORED.groupsExpanded, projectId);
 
 /** Consecutive groups of the same section, in script order. */
 function sectionsOf(groups: GroupRow[]) {
@@ -61,18 +55,14 @@ export function GroupList({ projectId, groups, finalIds, initialIds, scope, revi
   menu?: (group: GroupRow) => ReactNode;
 }) {
   const sections = useMemo(() => sectionsOf(groups ?? []), [groups]);
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(readExpanded(projectId)));
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(expandedOf(projectId).read()));
   const toggle = (name: string, open: boolean) =>
     setExpanded((previous) => {
       if (previous.has(name) === open) return previous;
       const next = new Set(previous);
       if (open) next.add(name);
       else next.delete(name);
-      try {
-        sessionStorage.setItem(storageKey(projectId), JSON.stringify([...next]));
-      } catch {
-        /* private mode */
-      }
+      expandedOf(projectId).write([...next]);
       return next;
     });
   // A scene's count is its progress: lines translated (past 미번역), with 확정 named in the hint; the check means all 확정.

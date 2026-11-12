@@ -5,8 +5,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { Box, Button, Inline, Input, Spinner, Stack, Text, ToolCard, ToolCardHeader } from '@loca/ui';
 import { acceptedLabel } from '@tw/shared';
-import { client } from '@/lib/api';
-import { changeProposals, decideProposal, type Proposal } from '@/lib/proposals';
+import { decideProposal, type Proposal, undoProposals } from '@/lib/proposals';
 import { ChangePreview, LABEL } from './change-preview';
 
 export type { Proposal };
@@ -17,9 +16,7 @@ const DECIDED_BY = { auto: '자동 검토로', bypass: '바로 반영 모드로'
 /** One undo request and its shared outcome message for cards and whole replies. `sessionId` null: changes the terminal made, which belong to no conversation. */
 export function useUndo(projectId: string, sessionId: string | null) {
   return useMutation({
-    mutationFn: (ids: string[]) => changeProposals(projectId, sessionId
-      ? client.chat[':sessionId'].undo.$post({ param: { sessionId }, json: { ids } })
-      : client.projects[':projectId']['terminal-proposals'].undo.$post({ param: { projectId }, json: { ids } })),
+    mutationFn: (ids: string[]) => undoProposals(projectId, sessionId ?? undefined, ids),
     onSuccess: (rows, ids) => {
       const done = rows.filter((row) => row.ok).length;
       const failures = rows.filter((row) => !row.ok);

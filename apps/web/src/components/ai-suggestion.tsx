@@ -4,9 +4,8 @@ import { Button, EditorAiSuggestion, EditorDiffWord, Section } from '@loca/ui';
 import { sameTranslation } from '@tw/shared';
 import { TokenText } from '@/components/editor/source-text';
 import { replaceLineText } from '@/components/editor/translation-input';
-import { client, unwrap } from '@/lib/api';
 import { wordDiff } from '@/lib/diff';
-import { useSaveLine } from '@/lib/line-save';
+import { useSaveLine, declineSuggestion } from '@/lib/line-writes';
 
 interface Candidate {
   id: string;
@@ -43,7 +42,7 @@ export function AiSuggestion({ projectId, unit, draft, dirty, onDraft, framed }:
 }) {
   const save = useSaveLine(projectId);
   const decline = useMutation({
-    mutationFn: (candidateId: string) => unwrap(client.units[':unitId'].candidates[':candidateId'].decline.$post({ param: { unitId: unit.id, candidateId } })),
+    mutationFn: (candidateId: string) => declineSuggestion(projectId, unit.id, candidateId),
     onError: (error) => toast.error(error.message),
   });
   const waiting = unit.candidates.filter((candidate) => candidate.state === 'pending' && !sameTranslation(candidate.text, draft) && !sameTranslation(candidate.text, unit.translation));

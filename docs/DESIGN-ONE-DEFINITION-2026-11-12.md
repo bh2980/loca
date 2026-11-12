@@ -103,6 +103,7 @@ batchOf(db, definition, node, unitId) → unitId[]
 - 타입만 빌려 주던 목록 GET 라우트(`/characters`, `/statuses`, `/terms` …, 브라우저·CLI 호출 없음)와 웹의 `Omit<…>` 보정, 손으로 쓴 행 인터페이스를 지운다.
 - 쿼리 키는 팩토리 하나로 만든다: `key(topic: Topic, …)`. 키 리터럴(`queryKey: [`)은 팩토리 밖에서 금지한다(`ui-rules`에 규칙 추가). `['line-context']`, `['run-start']`처럼 토픽으로 시작하지 않는 키가 없어지고, 화면 쪽 `invalidateQueries` 호출도 필요 없어진다.
 - 줄 행을 컬렉션 밖에 복사해 둔 곳(`q.graphNode`, `line-bulk.tsx`의 `known`, `sample-search`)은 id로 답하고 행은 `useLines`로 읽는다.
+- 토픽 밖에 키를 두는 질문은 `lib/query-keys.ts`의 `OWN_FAMILIES`에만 있다(`line-surroundings`, `run-start`). 각자 따르는 토픽을 `meta.follows`로 밝히고, 토픽 대신 무엇이 다시 묻게 하는지 그 표에 적는다.
 
 ### 3.6 쓰기 경로
 

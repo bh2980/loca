@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { glossaryMatcher, type TermScope } from '@tw/shared';
 import { EditorSourceParagraph, EditorTermMark, EditorTokenChip, EditorTokenText, EditorTokenTip, Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
-import { splitTokens, useLineContext, type SourcePart } from '@/lib/line-context';
+import { splitTokens, useSourceParts, type SourcePart } from '@/lib/source-parts';
 import { chipHue, chipLabel, type TokenUnit } from '@/lib/tokens';
 import { useDraft } from '@/lib/drafts';
 import { placeTags } from '@/lib/tag-placement';
@@ -67,7 +67,7 @@ export function SourceText({ parts, units = [], unitId, missing = [] }: { parts:
 
 /** The source of the line being edited, with its tokens and terms (see SourceText); tokens the draft still lacks are ringed. */
 export function LineSourceText({ projectId, unitId, source, translation }: { projectId: string; unitId: string; source: string; translation?: string | null }) {
-  const line = useLineContext(projectId, source);
+  const line = useSourceParts(projectId, source);
   const [draft] = useDraft(`line:${unitId}`, translation ?? '');
   const missing = useMemo(() => {
     if (!draft.trim()) return [];

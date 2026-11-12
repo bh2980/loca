@@ -10,9 +10,8 @@ import { ContextItemList } from '@/components/ai-context';
 import { LineDetail } from '@/components/line-detail';
 import { TermEditor } from '@/components/glossary/term-pane';
 import { HeaderActions, HeaderViews, Page } from '@/components/page';
-import { Inspector, InspectorHeader, Group, KeyValue, KeyValueRow, Section, EmptyState, SectionHeading, DataTable, type ColumnDef, Pager, FilterBar, ActionBar, Separator, SplitPane, RunStatusBadge, StatusBarItem, Notice, NoticeDescription, NoticeRow, Chip, Box, Button, Inline, Text, ExpandableRow, Progress, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Tabs, TabsList, TabsTrigger, Skeleton } from '@loca/ui';
+import { Inspector, InspectorHeader, Group, KeyValue, KeyValueRow, Section, EmptyState, SectionHeading, DataTable, type ColumnDef, Pager, FilterBar, ActionBar, SplitPane, RunStatusBadge, StatusBarItem, Notice, NoticeDescription, NoticeRow, Chip, Box, Button, Inline, Text, ExpandableRow, Progress, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Tabs, TabsList, TabsTrigger, Skeleton } from '@loca/ui';
 import { HeaderFilter } from '@/components/header-filter';
-import { client, unwrap } from '@/lib/api';
 import { ITEM_STATE } from '@/lib/labels';
 import { errorKindLabel, retryReason, retryState } from '@/lib/retry-info';
 import { q } from '@/lib/queries';
@@ -25,9 +24,13 @@ import { topCallIds } from '@/components/workflow/run-calls';
 import { dateTime } from '@/lib/datetime';
 import { useTerms } from '@/lib/terms';
 import { runNodeExits, useRunDetail, useRunItems, useRunSteps, type RunItemRow } from '@/lib/run-detail';
+import { controlRun } from '@/lib/runs';
+import { decideItems } from '@/lib/knowledge';
 
 type State = keyof typeof ITEM_STATE | 'retrying';
 interface RunSearch {
+  /** The open inspector's tab (lib/inspector-tab.ts). */
+  pane?: string;
   state?: State;
   /** Where the lines are now (the 위치 column's filter). */
   node?: string;
@@ -42,6 +45,7 @@ interface RunSearch {
 
 export const Route = createFileRoute('/p/$projectId/runs/$runId')({
   validateSearch: (raw: Record<string, unknown>): RunSearch => ({
+    pane: typeof raw.pane === 'string' && raw.pane ? raw.pane : undefined,
     state: typeof raw.state === 'string' && (raw.state in ITEM_STATE || raw.state === 'retrying') ? (raw.state as State) : undefined,
     node: typeof raw.node === 'string' ? raw.node : undefined,
     through: typeof raw.through === 'string' ? raw.through : undefined,
@@ -86,19 +90,19 @@ function RunDetail() {
   const termList = useTerms(projectId, { enabled: terms && Boolean(search.line) });
   const selectedTerm = terms ? termList.data?.find((term) => term.id === search.line) : undefined;
   const decide = useMutation({
-    mutationFn: (accept: boolean) => unwrap(client.projects[':projectId'].drafts.$post({ param: { projectId }, json: { kind: 'terms', ids: [search.line!], action: accept ? 'confirm' : 'discard' } })),
+    mutationFn: (accept: boolean) => decideItems(projectId, [{ kind: 'terms', ids: [search.line!] }], accept ? 'confirm' : 'discard'),
     onError: (error) => toast.error(error.message),
   });
   const steps = useRunSteps(projectId, runId, search.tab === 'steps');
   const plan = useQuery({ ...q.runPlan(runId), enabled: search.tab === 'plan' });
-  const control = useMutation({ mutationFn: (action: 'pause' | 'resume' | 'cancel') => unwrap(client.runs[':id'][':action{pause|resume|cancel}'].$post({ param: { id: runId, action } })) });
+  const control = useMutation({ mutationFn: (action: 'pause' | 'resume' | 'cancel') => controlRun(projectId, runId, action) });
   const setSearch = (next: Partial<RunSearch>, replace = false) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace });
   useReportView('run', [run.data && { kind: '실행', id: run.data.id, label: run.data.workflowName }]);
 
   if (!run.data)
     return (
       <Page title="실행" flush>
-        {run.isError ? <ReadFailed title="실행을 불러오지 못했습니다" message={run.error.message} onRetry={() => void run.refetch()} /> : (
+        {run.isError ? <ReadFailed title="실행을 불러오지 못했습니다" message={run.error?.message ?? ""} onRetry={() => void run.refetch()} /> : (
           <Box spaceY="normal" padding="comfortable">
             <Skeleton height="control" width="1/2" />
             <Skeleton height="placeholder-sm" />
@@ -334,7 +338,7 @@ function RunDetail() {
             selectedTerm ? (
               <TermEditor key={selectedTerm.id} projectId={projectId} term={selectedTerm} onClose={() => setSearch({ line: undefined }, true)} onDecide={(accept) => decide.mutate(accept)} deciding={decide.isPending} />
             ) : (
-              <Text as="p" padding="comfortable" variant="body" tone="muted">{termList.isSuccess ? '용어집에서 사라진 용어입니다.' : '용어를 불러오는 중…'}</Text>
+              <Text as="p" padding="comfortable" variant="body" tone="muted">{Boolean(termList.data) ? '용어집에서 사라진 용어입니다.' : '용어를 불러오는 중…'}</Text>
             )
           ) : (
             <LineDetail
@@ -403,7 +407,7 @@ function RunDetail() {
           <Box shrink={false} border="bottom" paddingX="comfortable" paddingY="normal">
             <Notice tone="danger" icon={<OctagonAlert />} title="실행이 멈췄습니다">
               <NoticeDescription>{data.notice}</NoticeDescription>
-              {data.limits?.hit && <RaiseCaps key={`${data.limits.maxCalls}-${data.limits.maxInputTokens}`} runId={runId} limits={data.limits} />}
+              {data.limits?.hit && <RaiseCaps key={`${data.limits.maxCalls}-${data.limits.maxInputTokens}`} projectId={projectId} runId={runId} limits={data.limits} />}
             </Notice>
           </Box>
         )}

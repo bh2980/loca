@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState, useLayoutEffect } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
-import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeftRight, ClipboardPaste, CopyPlus, ListOrdered, MousePointerClick, Trash2, FilePlus2, FolderPlus, MinusCircle, ArrowUpDown, Copy, ExternalLink, Flag, Focus, Network, Play, SlidersHorizontal } from 'lucide-react';
+import { CopyPlus, ListOrdered, MousePointerClick, Trash2 } from 'lucide-react';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { GraphCanvas, type GraphCanvasHandle, type LayoutEdge, type NodeInfo, type Viewport } from '@/components/graph/graph-canvas';
 import { LINE_CARD_WIDTH, LineCard } from '@/components/graph/line-card';
@@ -17,19 +17,20 @@ import { LineMenuFor } from '@/components/script/line-menu';
 import { GRAPH_KEYS, useGraphShortcuts } from '@/lib/graph-shortcuts';
 import { keyLabel } from '@/lib/keys';
 
-import { SearchField, SegmentedControl, SplitPane, PaneHeader, Button, CanvasOverlay, CanvasSurface, EmptyDescription, EmptyHeader, EmptyTitle, ScrollArea, Input, Popover, PopoverContent, PopoverTrigger, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, Spinner, Switch, ViewSwitch, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuShortcut, SelectionToolbox, useRevealDock, GraphEndpointBar, Box, Stack, Text, Icon, Inline, Chip, Notice, FloatingZoomBar, FoundNodeList, Overlay, EmptyState } from '@loca/ui';
+import { SearchField, SegmentedControl, SplitPane, PaneHeader, Button, CanvasOverlay, CanvasSurface, EmptyDescription, EmptyHeader, EmptyTitle, Input, Popover, PopoverContent, PopoverTrigger, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, Spinner, Switch, ViewSwitch, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuShortcut, SelectionToolbox, useRevealDock, GraphEndpointBar, Box, Stack, Text, Icon, Inline, Chip, Notice, FloatingZoomBar, FoundNodeList, Overlay, EmptyState } from '@loca/ui';
 import { useSize } from '@/hooks/use-size';
 import { q } from '@/lib/queries';
-import { lineContext, useLineDetail } from '@/lib/units';
+import { lineSurroundings, useLineDetail } from '@/lib/units';
 import { useReportView } from '@/lib/view-context';
 import { DeleteViewDialog, OmittedPane, ViewInspector, ViewReason, useViewActions } from '@/components/graph/view-inspector';
 import { GraphViewMenu, ScriptToggle, ViewMenu } from '@/components/graph/view-menu';
 import { PathMode } from '@/components/graph/path-mode';
 import { GRAPH_SHOW_ITEMS, shownText as shownTextOf, useGraphPaneView, useGraphShow, type GraphShow } from '@/lib/graph-show';
 import { AUTO_OPEN_NODES, nodeAfterToggle, pickedAfterToggle, unfoldChains } from '@/components/graph/unfold-chains';
-import { cn } from '@/lib/utils';
-import { useGraphViews } from '@/lib/logs';
+import { useGraphViews } from '@/lib/graph-views';
 import { useLines } from '@/lib/units';
+import { useGraphNodes } from '@/lib/graph';
+import { stored, STORED } from '@/lib/storage';
 /** Dialogue-graph nodes copied with ⌘/Ctrl+C or 복사, pasted as copies. */
 /** Copied nodes, shared by every graph page of this tab (read and set through these, not reassigned in a component). */
 let nodeClipboard: string[] = [];
@@ -39,6 +40,8 @@ const copiedNodes = () => nodeClipboard;
 type Scope = 'scene' | 'dialogue';
 type GraphDirection = 'vertical' | 'horizontal';
 interface GraphSearch {
+  /** The open inspector's tab (lib/inspector-tab.ts). */
+  pane?: string;
   scope: Scope;
   direction?: GraphDirection;
   /** Reading route endpoints belong to this URL, independent of persisted legacy graph slices. */
@@ -80,6 +83,7 @@ interface GraphSearch {
 
 export const Route = createFileRoute('/p/$projectId/graph')({
   validateSearch: (raw: Record<string, unknown>): GraphSearch => ({
+    pane: typeof raw.pane === 'string' && raw.pane ? raw.pane : undefined,
     scope: raw.scope === 'scene' ? 'scene' : 'dialogue',
     direction: raw.direction === 'horizontal' ? 'horizontal' : raw.direction === 'vertical' ? 'vertical' : undefined,
     routeStart: typeof raw.routeStart === 'string' && raw.routeStart ? raw.routeStart : undefined,
@@ -106,15 +110,9 @@ export const Route = createFileRoute('/p/$projectId/graph')({
   component: GraphRoute,
 });
 
-/** Viewport is a per-tab preference: kept in sessionStorage, never in history, so panning adds no entries. */
-const viewportKey = (projectId: string, scope: Scope, scene?: string, section?: string, direction: GraphDirection = 'vertical') => `tw.graph.view.${projectId}.${scope}.${direction}.${section ?? ''}.${scene ?? ''}`;
-const readViewport = (key: string): Viewport | undefined => {
-  try {
-    return JSON.parse(sessionStorage.getItem(key) ?? 'null') ?? undefined;
-  } catch {
-    return undefined;
-  }
-};
+/** Viewport is a per-tab preference: kept for the tab (lib/storage.ts), never in history, so panning adds no entries. */
+const viewportKey = (projectId: string, scope: Scope, scene?: string, section?: string, direction: GraphDirection = 'vertical') => `${projectId}.${scope}.${direction}.${section ?? ''}.${scene ?? ''}`;
+const readViewport = (key: string): Viewport | undefined => stored(STORED.graphViewport, key).read() ?? undefined;
 
 const GRAPH_MODES = ['dialogue', 'scene'] as const;
 /** The graph's modes in one segment control: the dialogue graph (the default, where links are made) and the scene graph read off it. */
@@ -495,9 +493,9 @@ function GraphPage() {
   // ── translating in the graph: the card beside the node ──────────
   // The selection's lines in order (choices included: their text is translated too).
   const flowIds = dialogue && search.node && layout ? flowOf(search.node) : [];
-  const flowNodes = useQueries({ queries: flowIds.map((id) => q.graphNode(id)) });
+  const flowNodes = useGraphNodes(projectId, flowIds);
   const flowReady = flowIds.length > 0 && flowNodes.every((result) => result.data);
-  const flowLines = flowNodes.flatMap((result) => (result.data ? result.data.units.map((unit) => ({ unitId: unit.id, nodeId: result.data.id, choice: result.data.kind === 'choice' })) : []));
+  const flowLines = flowNodes.flatMap((result) => (result.data ? result.data.units.map((unit) => ({ unitId: unit.id, nodeId: result.data!.id, choice: result.data!.kind === 'choice' })) : []));
   const editAt = flowLines.findIndex((line) => line.unitId === search.edit);
   // Where the card stands: the node's box (a folded run's block); a choice has no box of its own, so it stands by what it leads to.
   const anchorOf = (nodeId: string) => shown(layout?.edges.find((edge) => edge.via === nodeId)?.to ?? nodeId);
@@ -614,7 +612,7 @@ function GraphPage() {
   // The lines either side are loaded ahead, so stepping shows them at once.
   const queryClient = useQueryClient();
   useEffect(() => {
-    for (const line of [flowLines[editAt - 1], flowLines[editAt + 1]]) if (line && editAt >= 0) void queryClient.prefetchQuery(lineContext(line.unitId));
+    for (const line of [flowLines[editAt - 1], flowLines[editAt + 1]]) if (line && editAt >= 0) void queryClient.prefetchQuery(lineSurroundings(line.unitId));
   }, [search.edit, flowReady]); // eslint-disable-line react-hooks/exhaustive-deps
   // The card opens beside its node with room for itself; the graph pans only when it has to.
   useEffect(() => {
@@ -647,8 +645,8 @@ function GraphPage() {
   /** The lines of the picked nodes (a folded run's nodes; portals hold none), for a workflow run. */
   const runPicked = async (ids: Iterable<string>) => {
     const nodeIds = [...ids].flatMap((id) => (portals.has(id) ? [] : (layout?.chains?.find((chain) => chain.id === id)?.nodeIds ?? [id])));
-    const details = await Promise.all(nodeIds.map((id) => queryClient.fetchQuery(q.graphNode(id))));
-    const unitIds = [...new Set(details.flatMap((detail) => detail.units.map((unit) => unit.id)))];
+    const details = await Promise.all(nodeIds.map((id) => queryClient.fetchQuery(q.graphNode(projectId, id))));
+    const unitIds = [...new Set(details.flatMap((detail) => detail.lines.map((line) => line.id)))];
     if (unitIds.length) setRunUnits(unitIds);
     else toast('고른 노드에 대사가 없습니다.');
   };
@@ -697,7 +695,7 @@ function GraphPage() {
   const endpointIds = useMemo(() => [
     ...new Set([search.pickStart ?? search.routeStart, search.pickEnd ?? search.routeEnd].filter((id): id is string => Boolean(id)))
   ], [search.pickStart, search.routeStart, search.pickEnd, search.routeEnd]);
-  const endpointDetails = useQueries({ queries: endpointIds.map((id) => q.graphNode(id, projectId)) });
+  const endpointDetails = useGraphNodes(projectId, endpointIds);
   const endpointDetailById = useMemo(() => new Map(endpointIds.map((id, index) => {
     const detail = endpointDetails[index]?.data;
     return [id, detail?.projectId === projectId ? detail : undefined] as const;
@@ -1007,7 +1005,7 @@ function GraphPage() {
               endpointMarkers={endpointMarkers}
               initialViewport={search.jump ? undefined : readViewport(key)}
               initialFocus={search.jump && search.node ? shown(layout.edges.find((edge) => edge.via === search.node)?.to ?? search.node) : undefined}
-              onViewportChange={(viewport) => sessionStorage.setItem(key, JSON.stringify(viewport))}
+              onViewportChange={(viewport) => stored(STORED.graphViewport, key).write(viewport)}
               onSelect={(id) => {
                 setContextMenu(null);
                 if (collecting) {

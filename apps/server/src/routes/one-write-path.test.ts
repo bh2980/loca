@@ -403,12 +403,11 @@ describe('a write made from a view of a line carries its rev', () => {
     const { db, send, line, unit, projectId } = setup();
     const status = (kind: 'normal' | 'final') => db.select().from(s.statuses).where(and(eq(s.statuses.projectId, projectId), eq(s.statuses.kind, kind))).all()[0]!;
     for (const key of ['a', 'b', 'c']) await line('POST', `${unit(key).id}/save`, { text: `${key} 번역` });
-    // The picks, as the bulk bar holds them: lines past the page come with their rev (the bar's own question, and a scene picked whole).
-    const meta = (await send('POST', '/units/meta', { ids: ['a', 'b', 'c'].map((key) => unit(key).id) })).body.rows as { id: string; rev: number }[];
-    const revs = Object.fromEntries(meta.map((row) => [row.id, row.rev]));
-    expect(revs).toEqual(Object.fromEntries(['a', 'b', 'c'].map((key) => [unit(key).id, unit(key).updatedAt.getTime()])));
-    const matched = (await send('POST', '/units/matches', { filter: { keys: ['a'] } })).body.rows as { id: string; rev: number }[];
-    expect(matched).toMatchObject([{ id: unit('a').id, rev: revs[unit('a').id] }]);
+    // The picks the browser holds, each with its row's rev.
+    const revs = Object.fromEntries(['a', 'b', 'c'].map((key) => [unit(key).id, unit(key).updatedAt.getTime()]));
+    // A filter's matches are ids and scenes only: nothing of the rows.
+    const matched = (await send('POST', '/units/matches', { filter: { keys: ['a'] } })).body.rows as Record<string, unknown>[];
+    expect(matched).toEqual([{ id: unit('a').id, groupId: unit('a').groupId }]);
 
     // Meanwhile line b changes (a run finished it, another window saved it).
     await new Promise((resolve) => setTimeout(resolve, 2));
@@ -425,6 +424,43 @@ describe('a write made from a view of a line carries its rev', () => {
     expect(checked.body).toEqual({ ok: true, changed: 0, skipped: 3 });
     // Without revs (not made from a view of the lines) every line changes, as before.
     expect((await send('PATCH', '/units', { unitIds: Object.keys(revs), statusId: status('normal').id })).body).toEqual({ ok: true, changed: 3, skipped: 0 });
+  });
+
+  it('picks the browser does not hold are described by counts and one asOf, which a bulk change sends back', async () => {
+    const { db, send, line, unit, projectId } = setup();
+    const status = (kind: 'normal' | 'final') => db.select().from(s.statuses).where(and(eq(s.statuses.projectId, projectId), eq(s.statuses.kind, kind))).all()[0]!;
+    const tag = db.insert(s.tags).values({ projectId, name: '확인', color: '#111111' }).returning().get();
+    for (const key of ['a', 'b', 'c']) await line('POST', `${unit(key).id}/save`, { text: `${key} 번역` });
+    await line('PATCH', unit('a').id, { tagIds: [tag.id] });
+    db.update(s.units).set({ statusBy: 'ai' }).where(eq(s.units.id, unit('c').id)).run();
+    const ids = ['a', 'b', 'c'].map((key) => unit(key).id);
+
+    // Ids and numbers, no rows: which an AI decided, how many carry each tag, the newest rev among them.
+    const picked = (await send('POST', '/units/picked', { ids: [...ids, 'gone'] })).body as { total: number; byAi: string[]; tags: Record<string, number>; asOf: number };
+    expect(picked).toEqual({ total: 3, byAi: [unit('c').id], tags: { [tag.id]: 1 }, asOf: Math.max(...ids.map((id) => db.select().from(s.units).where(eq(s.units.id, id)).get()!.updatedAt.getTime())) });
+
+    // Line b changes after the answer; a is held by the browser (its own rev), b and c are not.
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    await line('POST', `${unit('b').id}/save`, { text: '그사이 바뀐 번역' });
+    const before = unit('b');
+    const bulk = await send('PATCH', '/units', { unitIds: ids, statusId: status('final').id, revs: { [unit('a').id]: unit('a').updatedAt.getTime() }, asOf: picked.asOf });
+    expect(bulk.body).toEqual({ ok: true, changed: 2, skipped: 1 });
+    expect(unit('b')).toMatchObject({ statusId: before.statusId, updatedAt: before.updatedAt });
+    // Asked again, the answer is as of now: the same change takes b too.
+    const again = (await send('POST', '/units/picked', { ids })).body as { asOf: number };
+    expect((await send('PATCH', '/units', { unitIds: ids, statusId: status('final').id, asOf: again.asOf })).body).toEqual({ ok: true, changed: 3, skipped: 0 });
+  });
+
+  it('a write to one line answers with its rev after it, which the next write from the same view carries', async () => {
+    const { line, unit } = setup();
+    const id = unit('a').id;
+    const memo = await line('PATCH', id, { note: '메모' });
+    expect(memo.body).toEqual({ ok: true, rev: unit('a').updatedAt.getTime() });
+    // The save that follows carries the memo's rev: not stale, although the row the browser held is older.
+    const saved = await line('POST', `${id}/save`, { text: '번역', rev: memo.body.rev });
+    expect([saved.status, saved.body.rev]).toEqual([200, unit('a').updatedAt.getTime()]);
+    // The rev from before the memo is refused.
+    expect((await line('POST', `${id}/save`, { text: '다른 번역', rev: memo.body.rev })).status).toBe(409);
   });
 });
 

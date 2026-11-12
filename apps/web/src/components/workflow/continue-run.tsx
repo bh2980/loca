@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { useParams } from '@tanstack/react-router';
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { Play, RotateCcw } from 'lucide-react';
 import { Box, Button, Checkbox, Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Inline, Skeleton, Text } from '@loca/ui';
 import type { ModelValue } from '@/components/model-picker';
-import { client, unwrap } from '@/lib/api';
 import { startLimits, type CapEdits, type Caps } from '@/lib/run-limits';
 import { Pace, RunCaps, RunModels, UntestedModels } from './run-estimate';
+import { continuePreflight, continueRun } from '@/lib/runs';
 
 /**
  * Continue a paused or finished run (#41): pick another model for any AI step, send the failed
@@ -21,23 +21,16 @@ export function ContinueRun({ runId, failed, paused, limits, open: controlledOpe
   const [retryFailed, setRetryFailed] = useState(failed > 0);
   // Only the caps the person changed are sent (a number sets one, null clears it); one left alone stays as the run has it.
   const [capEdits, setCapEdits] = useState<CapEdits>({});
-  const queryClient = useQueryClient();
   const { projectId } = useParams({ strict: false }) as { projectId?: string };
   const models = Object.fromEntries(Object.entries(picked).filter(([, value]) => value.connectionId && value.model)) as Record<string, { connectionId: string; model: string; effort?: string }>;
   const request = { ...(Object.keys(models).length ? { models } : {}), retryFailed };
-  const plan = useQuery({
-    queryKey: ['runs', 'continue-preflight', runId, request],
-    queryFn: () => unwrap(client.runs[':id'].continue.preflight.$post({ param: { id: runId }, json: request })),
-    enabled: open,
-    placeholderData: keepPreviousData,
-  });
+  const plan = useQuery({ ...continuePreflight(runId, request), enabled: open });
   const go = useMutation({
-    mutationFn: () => unwrap(client.runs[':id'].continue.$post({ param: { id: runId }, json: { ...request, ...(Object.keys(startLimits(capEdits)).length && { limits: startLimits(capEdits) }) } })),
+    mutationFn: () => continueRun(projectId!, runId, { ...request, ...(Object.keys(startLimits(capEdits)).length && { limits: startLimits(capEdits) }) }),
     onSuccess: () => {
       setOpen(false);
       setPicked({});
       setCapEdits({});
-      void queryClient.invalidateQueries({ queryKey: ['runs'] });
     },
   });
   const data = plan.data;

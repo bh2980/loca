@@ -1,13 +1,15 @@
 import { keepPreviousData, queryOptions } from '@tanstack/react-query';
 import type { ResultRequest } from '@tw/shared';
 import { client, unwrap } from './api';
+import { key } from './query-keys';
+import { stored, STORED } from './storage';
 
 type Project = (typeof client.projects)[':projectId'];
 
 /** What a file would hold (units topic: its lines may change while the dialog is open). */
 export const resultPlan = (projectId: string, json: ResultRequest) =>
   queryOptions({
-    queryKey: ['units', 'result-plan', projectId, json],
+    queryKey: key('units', 'result-plan', projectId, json),
     queryFn: () => unwrap((client.projects[':projectId'] as Project).results.plan.$post({ param: { projectId }, json })),
     placeholderData: keepPreviousData,
   });
@@ -15,7 +17,7 @@ export const resultPlan = (projectId: string, json: ResultRequest) =>
 /** The lines in it whose translation would break the source's format. */
 export const resultCheck = (projectId: string, json: ResultRequest) =>
   queryOptions({
-    queryKey: ['units', 'result-check', projectId, json],
+    queryKey: key('units', 'result-check', projectId, json),
     queryFn: () => unwrap((client.projects[':projectId'] as Project).results.check.$post({ param: { projectId }, json })),
     placeholderData: keepPreviousData,
   });
@@ -52,21 +54,6 @@ export function restParts(rest: { excluded: number; empty: number; statuses: Rec
   ].join(' · ');
 }
 
-const REST_KEY = (projectId: string) => `tw.export.rest.${projectId}`;
-
 /** What became of the rest the last time (this browser only): the source stands in until someone says otherwise. */
-export function rememberedRest(projectId: string): 'source' | 'omit' {
-  try {
-    return localStorage.getItem(REST_KEY(projectId)) === 'omit' ? 'omit' : 'source';
-  } catch {
-    return 'source';
-  }
-}
-
-export function rememberRest(projectId: string, rest: 'source' | 'omit') {
-  try {
-    localStorage.setItem(REST_KEY(projectId), rest);
-  } catch {
-    // Not remembered: the next export starts from the default.
-  }
-}
+export const rememberedRest = (projectId: string) => stored(STORED.exportRest, projectId).read();
+export const rememberRest = (projectId: string, rest: 'source' | 'omit') => stored(STORED.exportRest, projectId).write(rest);

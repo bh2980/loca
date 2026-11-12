@@ -9,18 +9,17 @@ import { HeaderFilter, MarkFilter, markTagGroups, togglePick, type FilterPick } 
 import { NEW_TERM, NewTermPane, TermEditor } from '@/components/glossary/term-pane';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { HeaderActions, Page } from '@/components/page';
-import { AiNamed, BulkDecide, parseStatusFilter, parseDecidedBy, StateFilter, SourceBadge, StateCell, statusOptions, type StatusFilter, TagCell } from '@/components/knowledge/table';
-import { AUTO_MARKS, markColor, markName, type AutoMark, isSettled, parseMarks, TERM_MARK_IDS, termMarksOf, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, type KnowledgeSource, aiDecided, DECIDED_BY_LABELS, type DecidedBy, termMatches, type TermFilter } from '@tw/shared';
-import { client, unwrap } from '@/lib/api';
+import { AiNamed, BulkDecide, parseStatusFilter, parseDecidedBy, StateFilter, SourceBadge, StateCell, type StatusFilter, TagCell } from '@/components/knowledge/table';
+import { markColor, markName, type AutoMark, isSettled, parseMarks, TERM_MARK_IDS, termMarksOf, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, type KnowledgeSource, aiDecided, DECIDED_BY_LABELS, type DecidedBy, termMatches, type TermFilter } from '@tw/shared';
 import { tagsIn, useMarkStyles } from '@/lib/queries';
 import { usePicked } from '@/lib/use-picked';
 import { useReportView } from '@/lib/view-context';
-import { sent } from '@/lib/collections';
-import { useTerms, withDuplicate, type Term } from '@/lib/terms';
+import { useTerms, withDuplicate, type Term, discoverTerms, deleteTerm, tagTerms } from '@/lib/terms';
 import { decideItems, useTaxonomy } from '@/lib/knowledge';
 
 export const Route = createFileRoute('/p/$projectId/glossary')({
   validateSearch: (raw: Record<string, unknown>): GlossarySearch => ({
+    pane: typeof raw.pane === 'string' && raw.pane ? raw.pane : undefined,
     q: typeof raw.q === 'string' && raw.q ? raw.q : undefined,
     source: typeof raw.source === 'string' && (KNOWLEDGE_SOURCES as readonly string[]).includes(raw.source) ? (raw.source as KnowledgeSource) : undefined,
     status: parseStatusFilter(raw.status),
@@ -37,6 +36,8 @@ export const Route = createFileRoute('/p/$projectId/glossary')({
 });
 
 interface GlossarySearch {
+  /** The open inspector's tab (lib/inspector-tab.ts). */
+  pane?: string;
   q?: string;
   term?: string;
   source?: KnowledgeSource;
@@ -65,7 +66,7 @@ function Glossary() {
   const { picked, pick, clear: clearPicked } = usePicked(`glossary.${projectId}`);
   const [runOpen, setRunOpen] = useState(false);
   const discover = useMutation({
-    mutationFn: () => unwrap(client.projects[':projectId'].terms.discover.$post({ param: { projectId } })),
+    mutationFn: () => discoverTerms(projectId),
     // The found terms come with the row feed.
     onSuccess: ({ found, added, updated }) => {
       toast.success(`대본에서 용어 후보 ${found.toLocaleString()}개를 찾았습니다 (추가 ${added}개, 갱신 ${updated}개).`);
@@ -95,7 +96,7 @@ function Glossary() {
   const remove = useMutation({
     mutationFn: async (ids: string[]) => {
       for (const id of ids) {
-        await sent(projectId, client.projects[':projectId'].terms[':id'].$delete({ param: { projectId, id } }));
+        await deleteTerm(projectId, id);
       }
     },
     onSuccess: () => {
@@ -121,7 +122,7 @@ function Glossary() {
     setFilter({ tags: next.show, hideTags: next.hide });
   };
   const tag = useMutation({
-    mutationFn: ({ ids, tagId, add }: { ids: string[]; tagId: string; add: boolean }) => sent(projectId, client.projects[':projectId']['knowledge-tags'].$post({ param: { projectId }, json: { kind: 'terms', ids, tagId, add } })),
+    mutationFn: ({ ids, tagId, add }: { ids: string[]; tagId: string; add: boolean }) => tagTerms(projectId, ids, tagId, add),
     onError: (error) => toast.error(error.message),
   });
 

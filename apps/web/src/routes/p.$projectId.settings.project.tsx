@@ -5,14 +5,13 @@ import { Download, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Page } from '@/components/page';
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Box, Button, Input, Field, Textarea, Skeleton, Section, PageBody } from '@loca/ui';
-import { client, unwrap } from '@/lib/api';
 import { changedFields, useFormFrom } from '@/lib/use-form-from';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
 import { AiAutoConfirmSetting } from '@/components/settings/ai-confirm';
 import { HomeDefaultsSection } from '@/components/settings/home-defaults';
 import type { FormatRules } from '@tw/shared';
 import { exportDialog } from '@/lib/export-dialog';
-import { useProject, saveProject } from '@/lib/project';
+import { useProject, saveProject, deleteProject } from '@/lib/project';
 
 export const Route = createFileRoute('/p/$projectId/settings/project')({
   component: ProjectSettings,
@@ -49,7 +48,7 @@ function ProjectForm({ projectId, project }: { projectId: string; project: { nam
     onError: (error) => toast.error(error.message),
   });
   const remove = useMutation({
-    mutationFn: () => unwrap(client.projects[':projectId'].$delete({ param: { projectId } })),
+    mutationFn: () => deleteProject(projectId),
     onSuccess: () => {
       toast.success('프로젝트를 삭제했습니다.');
       void navigate({ to: '/' });

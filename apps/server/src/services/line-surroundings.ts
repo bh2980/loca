@@ -6,17 +6,17 @@ import * as s from '../db/schema.ts';
 import { describeRule, speechRuleIndex } from './speech.ts';
 
 /**
- * What a line's detail shows beyond its row: its scene, the lines before and after it, its graph nodes, the speech rule it
+ * A line's surroundings: what its detail shows that is not on its own row and is worked out from other rows. The lines
+ * before and after it in its scene (by id: the browser reads them from its lines), its graph nodes, the speech rule it
  * falls under and the names it may address (the scene's speakers and the listeners people typed there, nearest first).
- * One line (GET units/:id) or a page of them at once (the list asks for its page before a line is picked), in the order
- * asked; ids of another project or gone are left out. The speech rules and each scene's lines are read once per call.
+ * Nothing of the line's own row is repeated here, so the browser's row is the only copy of it.
+ * One line (GET units/:id/surroundings) or a page of them at once (the list asks for its page before a line is picked),
+ * in the order asked; ids of another project or gone are left out. The speech rules and each scene's lines are read
+ * once per call. (Not the "context" of an AI request: that is what a node sends to a model, services/requests.)
  */
-export function lineContexts(db: Db, projectId: string | undefined, unitIds: readonly string[]) {
+export function lineSurroundings(db: Db, projectId: string | undefined, unitIds: readonly string[]) {
   const units = inChunks(unitIds, (slice) => db.select().from(s.units).where(and(inArray(s.units.id, slice), ...(projectId ? [eq(s.units.projectId, projectId)] : []))).all());
   const byId = new Map(units.map((unit) => [unit.id, unit]));
-  const groupIds = [...new Set(units.map((unit) => unit.groupId))];
-  const groups = new Map(inChunks(groupIds, (slice) => db.select({ id: s.groups.id, title: s.groups.title, key: s.groups.key }).from(s.groups).where(inArray(s.groups.id, slice)).all()).map((group) => [group.id, group]));
-  const tags = Map.groupBy(inChunks(unitIds, (slice) => db.select({ unitId: s.unitTags.unitId, tagId: s.unitTags.tagId }).from(s.unitTags).where(inArray(s.unitTags.unitId, slice)).all()), (row) => row.unitId);
   const sceneLines = new Map<string, { seq: number; speaker: string | null; listener: string | null; origin: string | null }[]>();
   const sceneOf = (groupId: string) => {
     let lines = sceneLines.get(groupId);
@@ -29,13 +29,12 @@ export function lineContexts(db: Db, projectId: string | undefined, unitIds: rea
     if (!index) rules.set(id, (index = speechRuleIndex(db, id)));
     return index;
   };
-  const neighborFields = { id: s.units.id, speaker: s.units.speaker, source: s.units.source, translation: s.units.translation };
   return unitIds.flatMap((unitId) => {
     const unit = byId.get(unitId);
     if (!unit) return [];
     const neighbors = {
-      previous: db.select(neighborFields).from(s.units).where(and(eq(s.units.groupId, unit.groupId), lt(s.units.seq, unit.seq))).orderBy(desc(s.units.seq)).limit(1).get(),
-      next: db.select(neighborFields).from(s.units).where(and(eq(s.units.groupId, unit.groupId), gt(s.units.seq, unit.seq))).orderBy(asc(s.units.seq)).limit(1).get(),
+      previous: db.select({ id: s.units.id }).from(s.units).where(and(eq(s.units.groupId, unit.groupId), lt(s.units.seq, unit.seq))).orderBy(desc(s.units.seq)).limit(1).get()?.id ?? null,
+      next: db.select({ id: s.units.id }).from(s.units).where(and(eq(s.units.groupId, unit.groupId), gt(s.units.seq, unit.seq))).orderBy(asc(s.units.seq)).limit(1).get()?.id ?? null,
     };
     const nodes = db.select({ id: s.graphNodes.id, key: s.graphNodes.key }).from(s.graphNodes).where(sql`exists (select 1 from json_each(${s.graphNodes.unitIds}) where value = ${unitId})`).all();
     const resolved = rulesOf(unit.projectId).resolve([unit]).get(unit.key);
@@ -49,7 +48,6 @@ export function lineContexts(db: Db, projectId: string | undefined, unitIds: rea
       }
     }
     const sceneNames = [...distance].sort((a, b) => a[1] - b[1]).map(([name]) => name);
-    // Its candidates and run history are the line extras collection's: the browser holds them apart and reads them again when the feed names them.
-    return [{ ...unit, group: groups.get(unit.groupId)!, neighbors, tagIds: (tags.get(unitId) ?? []).map((row) => row.tagId), graphNodes: nodes, speech, sceneNames }];
+    return [{ id: unit.id, neighbors, graphNodes: nodes, speech, sceneNames }];
   });
 }

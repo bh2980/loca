@@ -2,9 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { History, Pencil, Plus, Trash2 } from 'lucide-react';
 import { Button, ListRow, MenuRenameRow, MenuRowAction, DropdownMenu, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, Icon, Text, MenuSearchField, DropdownMenuContent, MenuLabel } from '@loca/ui';
-import { client } from '@/lib/api';
 import { q } from '@/lib/queries';
-import { changeChatSession } from '@/lib/logs';
+import { changeChat } from '@/lib/chat-sessions';
 
 export type SessionRow = { id: string; title: string; calls: number; tokens: number };
 
@@ -43,7 +42,7 @@ export function ConversationMenu({ projectId, sessions, sessionId, currentTitle,
   const [renaming, setRenaming] = useState<{ id: string; title: string } | null>(null);
   const rename = useMutation({
     // Shown at once, put back on failure.
-    mutationFn: ({ id, title }: { id: string; title: string }) => changeChatSession(projectId, id, { title }, () => client.chat[':sessionId'].$patch({ param: { sessionId: id }, json: { title } })),
+    mutationFn: ({ id, title }: { id: string; title: string }) => changeChat(projectId, id, { title }),
   });
   const commitRename = () => {
     if (!renaming) return;

@@ -12,7 +12,7 @@ const db = openDatabase(':memory:');
 afterEach(() => db.$client.close());
 
 type UnitListResponse = { total: number; ids: string[]; offset: number };
-type UnitMatchesResponse = { rows: Array<{ id: string; groupId: string; statusBy: string; tagIds: string[] }> };
+type UnitMatchesResponse = { rows: Array<{ id: string; groupId: string }> };
 type GroupResponse = { id: string };
 type UnitResponse = { id: string };
 async function responseJson<T>(response: Response): Promise<T> {
@@ -36,7 +36,10 @@ it('supports source document CRUD from an empty kind and applies chapter scope t
   db.insert(s.unitTags).values({ unitId: scoped.ids[0], tagId: 'filter-tag' }).run();
   const matches = await responseJson<UnitMatchesResponse>(await send('POST', `${base}/units/matches`, { filter: { sections: ['Chapter 2'] } }));
   expect(matches.rows.map((row) => row.id)).toEqual([scoped.ids[0]]);
-  expect(matches.rows[0]).toMatchObject({ groupId: expect.any(String), statusBy: expect.any(String), tagIds: ['filter-tag'] });
+  // Ids and scenes only; what the bulk bar says of the picks is its own answer, in counts.
+  expect(matches.rows[0]).toEqual({ id: scoped.ids[0], groupId: expect.any(String) });
+  const picked = await responseJson<{ total: number; byAi: string[]; tags: Record<string, number>; asOf: number }>(await send('POST', `${base}/units/picked`, { ids: matches.rows.map((row) => row.id) }));
+  expect(picked).toMatchObject({ total: 1, byAi: [], tags: { 'filter-tag': 1 } });
   expect((await ids({ groupKind: 'document' })).total).toBe(0);
   const groupResponse = await send('POST', `${base}/groups`, { kind: 'document', title: 'Letter' });
   expect(groupResponse.status).toBe(201);

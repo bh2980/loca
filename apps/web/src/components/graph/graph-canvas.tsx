@@ -14,6 +14,7 @@ import { drawShape } from './shapes';
 import { getCanvasColors } from './canvas-colors';
 import { useTheme } from '@/lib/theme';
 import { wrapTextLines } from './canvas-text-wrap';
+import { STORED, useStored } from '@/lib/storage';
 
 /** Below this zoom node labels are unreadable, so they are not drawn. */
 const DETAIL_K = 0.22;
@@ -224,20 +225,9 @@ export function GraphCanvas({ onToggleFold, nodes, regions = [], edges: laidOut,
   const previousSize = useRef<{ width: number; height: number } | null>(null);
   const anchorBox = useRef<HTMLDivElement>(null);
   const toolbarBox = useRef<HTMLDivElement>(null);
-  const [minimapOpen, setMinimapOpen] = useState(() => {
-    try {
-      return localStorage.getItem('tw.graph.minimap') !== '0';
-    } catch {
-      return true;
-    }
-  });
+  const [minimapOpen, setMinimapOpen] = useStored(STORED.graphMinimap);
   const toggleMinimap = (open: boolean) => {
     setMinimapOpen(open);
-    try {
-      localStorage.setItem('tw.graph.minimap', open ? '1' : '0');
-    } catch {
-      /* ignore */
-    }
   };
   // The toolbar's zoom reading, updated when a zoom or pan settles.
   const [zoomK, setZoomK] = useState(1);

@@ -3,8 +3,8 @@ import { createOptimisticAction, useLiveQuery } from '@tanstack/react-db';
 import type { InferRequestType } from 'hono/client';
 import { APP_FEED, CONNECTION_KIND_INFO } from '@tw/shared';
 import { client } from './api';
-import { appCollection, loaded, projectCollection, sent, type FeedRow } from './collections';
-import { targetScope, type ConnectionRow, type SettingsTarget } from './settings-target';
+import { appCollection, liveRows, projectCollection, sent, type FeedRow } from './collections';
+import { targetScope, type SettingsTarget } from './settings-target';
 
 /**
  * What belongs to the app rather than one project, from collections the row feed keeps current under its
@@ -20,12 +20,12 @@ const defaultsRow = () => appCollection('appDefaults');
 
 /** The projects, last changed first. */
 export function useProjects() {
-  return loaded<ProjectListRow>(useLiveQuery((query) => query.from({ project: projectsList() }).orderBy(({ project }) => project.updatedAt, 'desc')));
+  return liveRows(useLiveQuery((query) => query.from({ project: projectsList() }).orderBy(({ project }) => project.updatedAt, 'desc')));
 }
 
 /** The home's defaults (undefined until loaded, or while not `enabled`). */
 export function useAppDefaults({ enabled = true }: { enabled?: boolean } = {}) {
-  const rows = loaded<AppDefaults>(useLiveQuery((query) => (enabled ? query.from({ defaults: defaultsRow() }) : undefined)), enabled);
+  const rows = liveRows(useLiveQuery((query) => (enabled ? query.from({ defaults: defaultsRow() }) : undefined)), enabled);
   return { ...rows, data: rows.data?.[0] };
 }
 
@@ -54,16 +54,11 @@ export function saveAppDefaults(patch: AppDefaultsPatch) {
 export function useConnections(target: SettingsTarget) {
   const scope = targetScope(target);
   const rows = scope === APP_FEED ? appCollection('connections') : projectCollection('connections', scope);
-  return loaded<ConnectionRow>(useLiveQuery((query) => query.from({ connection: rows }).orderBy(({ connection }) => connection.name)));
+  return liveRows(useLiveQuery((query) => query.from({ connection: rows }).orderBy(({ connection }) => connection.name)));
 }
 
 /** A connection's name for rows that name it by id and kind (the AI log): a deleted one reads as its kind, null when neither is known. */
 export function useConnectionName(target: SettingsTarget) {
   const { data } = useConnections(target);
   return useCallback((id: string | null, kind: string | null) => (id && data?.find((row) => row.id === id)?.name) || (kind ? (CONNECTION_KIND_INFO[kind as keyof typeof CONNECTION_KIND_INFO]?.label ?? kind) : null), [data]);
-}
-
-/** A request that changes a connection: done once the feed has brought its row (in the target's scope). */
-export function changeConnection<T extends Response & { json(): Promise<unknown> }>(target: SettingsTarget, request: Promise<T>) {
-  return sent(targetScope(target), request);
 }

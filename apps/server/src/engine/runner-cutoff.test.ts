@@ -218,7 +218,9 @@ describe('lines being resent, as the run page reads them', () => {
     expect((await page('?state=retrying')).total).toBe(8);
     expect((await page('?state=failed')).total).toBe(0);
 
-    const detail = (await (await app.request(`/runs/${runId}`)).json()) as { retrying: Record<string, { count: number; kinds: Record<string, number> }> };
+    // How the run is doing is its progress row (the run page holds it apart from what the run started with).
+    const progress = async () => ((await (await app.request(`/projects/${run.projectId}/run-progress`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ids: [runId] }) })).json()) as { rows: { retrying: Record<string, { count: number; kinds: Record<string, number> }> }[] }).rows[0]!;
+    const detail = await progress();
     expect(detail.retrying).toEqual({ translate: { count: 8, kinds: { 'cut-off': 8 } } });
     // The run page lists its model calls by id and reads each one once.
     const { ids } = (await (await app.request(`/runs/${runId}/steps/ids`)).json()) as { ids: string[] };
@@ -244,6 +246,7 @@ describe('lines being resent, as the run page reads them', () => {
     expect(rows).toHaveLength(8);
     expect(rows.every((row) => row.retry === null)).toBe(true);
     expect((await page('?state=retrying')).total).toBe(0);
-    expect(((await (await app.request(`/runs/${runId}`)).json()) as { retrying: object }).retrying).toEqual({});
+    const progress = (await (await app.request(`/projects/${runOf(db, runId).projectId}/run-progress`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ids: [runId] }) })).json()) as { rows: { retrying: object }[] };
+    expect(progress.rows[0]!.retrying).toEqual({});
   });
 });

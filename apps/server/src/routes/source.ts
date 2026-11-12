@@ -7,7 +7,7 @@ import { createGroupSchema, updateGroupSchema, createUnitSchema, updateUnitSchem
 import { createGroup, updateGroup, updateUnit } from '../services/source-mutations.ts';
 import { createLine, deleteGroup, deleteLines, deleteNodes, duplicateNodes, edgeDetail, linkInOrder, linkNodes, unlinkEdges } from '../services/graph-edit.ts';
 import { undoRecorded } from '../services/undo-records.ts';
-import { patchLineById, patchLines, revOf, sameSourceLines, saveLineById, saveSameSource } from '../services/line-save.ts';
+import { patchLineById, patchLines, pickedLines, sameSourceLines, saveLineById, saveSameSource } from '../services/line-save.ts';
 import { declineSuggestion } from '../services/candidates.ts';
 import { found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
@@ -20,9 +20,8 @@ import { lineMatches } from '../services/line-matches.ts';
 import { lineMatchRows, linePage } from '../services/line-filter.ts';
 import { completeLine } from '../services/editor-complete.ts';
 import { assistLine } from '../services/editor-assist.ts';
-import { knownListener as knownListenerOf, speechRuleIndex } from '../services/speech.ts';
-import { lineContexts } from '../services/line-context.ts';
-import { unitColumns } from '../services/unit-rows.ts';
+import { speechRuleIndex } from '../services/speech.ts';
+import { lineSurroundings } from '../services/line-surroundings.ts';
 import { groupRows } from '../services/group-rows.ts';
 
 /** A line's text, candidate and status: one save (services/line-save.ts). */
@@ -107,16 +106,8 @@ export const sourceRoutes = new Hono<Env>()
     const ids = keys.length ? c.var.deps.db.select({ id: s.units.id }).from(s.units).where(and(eq(s.units.projectId, c.req.param('projectId')), inArray(s.units.key, keys))).orderBy(asc(s.units.seq)).all().map((row) => row.id) : [];
     return c.json({ ids });
   })
-  /** What the bulk bar holds of picked lines (their tags, who decided them, their rev), by id: picks outlive the page they were made on. */
-  .post('/projects/:projectId/units/meta', validate('json', z.object({ ids: z.array(z.string()).max(20_000) })), (c) => {
-    const { db } = c.var.deps;
-    const projectId = c.req.param('projectId');
-    const ids = c.req.valid('json').ids;
-    const rows = inChunks(ids, (slice) => db.select({ id: s.units.id, statusBy: s.units.statusBy, updatedAt: s.units.updatedAt }).from(s.units).where(and(eq(s.units.projectId, projectId), inArray(s.units.id, slice))).all());
-    const tags = Map.groupBy(inChunks(ids, (slice) => db.select().from(s.unitTags).where(inArray(s.unitTags.unitId, slice)).all()), (row) => row.unitId);
-    // rev: the line as it is now, which a bulk change made from these picks sends back.
-    return c.json({ rows: rows.map(({ updatedAt, ...row }) => ({ ...row, rev: revOf({ updatedAt }), tagIds: (tags.get(row.id) ?? []).map((tag) => tag.tagId) })) });
-  })
+  /** What the bulk bar says about picked lines the browser does not hold (services/line-save.ts pickedLines): ids and counts, no rows. */
+  .post('/projects/:projectId/units/picked', validate('json', z.object({ ids: z.array(z.string()).max(20_000) })), (c) => c.json(pickedLines(c.var.deps.db, c.req.param('projectId'), c.req.valid('json').ids)))
   .patch(
     '/projects/:projectId/units',
     validate(
@@ -128,20 +119,23 @@ export const sourceRoutes = new Hono<Env>()
         checked: z.literal(true).optional(),
         addTagIds: z.array(z.string()).default([]),
         removeTagIds: z.array(z.string()).default([]),
-        /** Each picked line's rev as the browser last saw it (line id → rev): a line changed since is skipped and counted, not written over. */
+        /** Each picked line's rev as the browser holds it (line id → rev): a line changed since is skipped and counted, not written over. */
         revs: z.record(z.string(), z.number().int()).optional(),
+        /** For the picked lines the browser does not hold: the newest rev among them when it last asked (units/picked). */
+        asOf: z.number().int().optional(),
         ...linePatch,
       }),
     ),
     (c) => {
-      const { unitIds, revs, ...patch } = c.req.valid('json');
+      const { unitIds, revs, asOf, ...patch } = c.req.valid('json');
       // changed / skipped: how many lines took the change, and how many had changed since they were seen.
-      return c.json({ ok: true, ...patchLines(c.var.deps.db, c.req.param('projectId'), unitIds, patch, revs) });
+      return c.json({ ok: true, ...patchLines(c.var.deps.db, c.req.param('projectId'), unitIds, patch, { revs, asOf }) });
     },
   )
-  .get('/units/:unitId', (c) => c.json(found(lineContexts(c.var.deps.db, undefined, [c.req.param('unitId')])[0], '대사')))
+  /** A line's surroundings (services/line-surroundings.ts): its neighbours by id, graph nodes, speech rule and the names around it. */
+  .get('/units/:unitId/surroundings', (c) => c.json(found(lineSurroundings(c.var.deps.db, undefined, [c.req.param('unitId')])[0], '대사')))
   /** The same for a page of lines: the list asks before a line is picked, so the detail draws whole at once. */
-  .post('/projects/:projectId/units/contexts', validate('json', z.object({ ids: z.array(z.string()).max(200) })), (c) => c.json({ rows: lineContexts(c.var.deps.db, c.req.param('projectId'), c.req.valid('json').ids) }))
+  .post('/projects/:projectId/units/surroundings', validate('json', z.object({ ids: z.array(z.string()).max(200) })), (c) => c.json({ rows: lineSurroundings(c.var.deps.db, c.req.param('projectId'), c.req.valid('json').ids) }))
   /** The editor's AI continuation of a line: the whole line, starting with `prefix`. Cancelled with the request. */
   .post('/units/:unitId/complete', validate('json', z.object({ prefix: z.string().max(4000).default('') })), async (c) => {
     const { db, secrets } = c.var.deps;
@@ -179,8 +173,8 @@ export const sourceRoutes = new Hono<Env>()
   })
   /** One line's tags (whole), listener, memo and 번역 제외. A text or status sent here is refused: they have the one save path above. */
   .patch('/units/:unitId', validate('json', z.object({ tagIds: z.array(z.string()).optional(), note: z.string().max(2000).optional(), ...linePatch }).strict()), (c) => {
-    patchLineById(c.var.deps.db, c.req.param('unitId'), c.req.valid('json'));
-    return c.json({ ok: true });
+    // rev: the line after this write, which the next write made from the same view sends back.
+    return c.json({ ok: true, ...patchLineById(c.var.deps.db, c.req.param('unitId'), c.req.valid('json')) });
   })
 
   // ── graphs ─────────────────────────────────────────────────────────
@@ -341,7 +335,7 @@ export const sourceRoutes = new Hono<Env>()
       ? and(eq(s.graphNodes.id, c.req.param('nodeId')), eq(s.graphNodes.projectId, projectId))
       : eq(s.graphNodes.id, c.req.param('nodeId'));
     const node = found(db.select().from(s.graphNodes).where(nodeWhere).get(), '노드');
-    const lines = node.unitIds.length ? db.select(unitColumns).from(s.units).where(inArray(s.units.id, node.unitIds)).all() : [];
+    const lines = node.unitIds.length ? db.select({ id: s.units.id, key: s.units.key, speaker: s.units.speaker, listener: s.units.listener, listenerOrigin: s.units.listenerOrigin, listenerConfidence: s.units.listenerConfidence }).from(s.units).where(inArray(s.units.id, node.unitIds)).all() : [];
     const order = new Map(node.unitIds.map((id, index) => [id, index]));
     const neighbour = (direction: 'in' | 'out') =>
       db
@@ -357,12 +351,12 @@ export const sourceRoutes = new Hono<Env>()
       ...node,
       typeInfo,
       group,
-      // Each line with whom it addresses and the speech level its rule asks for (the pane shows them small).
-      units: (() => {
+      // The node's lines in order, by id (the lines themselves are the browser's rows), each with the speech level its rule asks for.
+      lines: (() => {
         const resolved = speechRuleIndex(db, node.projectId).resolve(lines);
         return lines
           .sort((a, b) => order.get(a.id)! - order.get(b.id)!)
-          .map((line) => ({ ...line, heard: knownListenerOf(line), level: resolved.get(line.key)?.rule.level ?? null }));
+          .map((line) => ({ id: line.id, level: resolved.get(line.key)?.rule.level ?? null }));
       })(),
       incoming: neighbour('in'),
       outgoing: neighbour('out'),

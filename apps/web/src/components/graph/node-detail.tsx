@@ -1,19 +1,19 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { useQueries } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { CornerDownRight, FileText, Network, Pencil } from 'lucide-react';
 import { useGraphShow } from '@/lib/graph-show';
-import { Box, ColumnResizeHandle, FlowDisclosure, FlowLine, FlowRow, type FlowShow, Icon, Inline, Inspector, InspectorHeader, Button, SegmentedControl, Skeleton, Text, Chip, Section } from '@loca/ui';
+import { Box, ColumnResizeHandle, FlowDisclosure, FlowLine, FlowRow, Icon, Inline, Inspector, InspectorHeader, Button, SegmentedControl, Skeleton, Text, Chip, Section } from '@loca/ui';
 import { LineDetail } from '@/components/line-detail';
 import { CopyButton } from '@/components/copy-button';
-import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { KIND_LABEL } from './shapes';
 import { TokenText } from '@/components/editor/source-text';
-import { tokenPatternOf } from '@/lib/line-context';
+import { tokenPatternOf } from '@/lib/source-parts';
 import { personStyle, usePersonColors } from '@/lib/person-colors';
 import { useGroup } from '@/lib/groups';
 import { useProject } from '@/lib/project';
+import { useGraphNodes } from '@/lib/graph';
+import { STORED, useStored } from '@/lib/storage';
 
 /** Scene-graph node. Scene links are derived from the dialogue graph, which the panel says plainly. */
 export function SceneNodeDetail({ projectId, groupId, onClose }: { projectId: string; groupId: string; onClose: () => void }) {
@@ -45,25 +45,10 @@ export function SceneNodeDetail({ projectId, groupId, onClose }: { projectId: st
   );
 }
 
-/** The flow pane's speaker column width, once dragged (localStorage, per browser); undefined = fit the names. */
+/** The flow pane's speaker column width, once dragged (kept per browser); undefined = fit the names. */
 function useSpeakerWidth() {
-  const [width, setWidth] = useState<number | undefined>(() => {
-    try {
-      return Number(localStorage.getItem('tw.graph.speakerWidth')) || undefined;
-    } catch {
-      return undefined;
-    }
-  });
-  const set = (next: number | undefined) => {
-    setWidth(next);
-    try {
-      if (next) localStorage.setItem('tw.graph.speakerWidth', String(Math.round(next)));
-      else localStorage.removeItem('tw.graph.speakerWidth');
-    } catch {
-      /* private mode */
-    }
-  };
-  return [width, set] as const;
+  const [width, setWidth] = useStored(STORED.graphSpeakerWidth);
+  return [width ?? undefined, (next: number | undefined) => setWidth(next ? Math.round(next) : null)] as const;
 }
 
 /** A way into or out of the selected node: the node it joins, and the choice written on the way. */
@@ -118,7 +103,7 @@ export function FlowPane({ projectId, nodeIds, ownIds = nodeIds, title, way, ext
   const project = useProject(projectId);
   const tokens = tokenPatternOf(project.data?.formatRules ?? undefined);
   const list = useRef<HTMLDivElement>(null);
-  const results = useQueries({ queries: nodeIds.map((id) => q.graphNode(id)) });
+  const results = useGraphNodes(projectId, nodeIds);
   const nodes = results.flatMap((result) => (result.data ? [result.data] : []));
   const loading = results.some((result) => result.isPending);
   const own = new Set(ownIds);

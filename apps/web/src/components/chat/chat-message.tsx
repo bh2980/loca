@@ -2,7 +2,7 @@ import { Fragment, memo, useState, type RefObject } from 'react';
 import type { UIMessage } from 'ai';
 import { Check, Pencil, Square, X } from 'lucide-react';
 import { AssistantMessage, Button, CompactionNotice as CompactionNoticeView, Icon, Inline, Markdown, MessageActionBar, SentImage, Stack, SteerBubble as SteerBubbleView, Tooltip, TooltipContent, TooltipTrigger, UserMessage } from '@loca/ui';
-import { messageChips, runCardOf, runEndOf, type ChatChip, type RunCard } from '@tw/shared';
+import { messageChips, runCardOf, runEndOf, type ChatChip } from '@tw/shared';
 import { CopyButton } from '@/components/copy-button';
 import { AttachChip } from './attach-chip';
 import { RunCardView, RunEndView, type RunCardControls } from './run-card';
@@ -27,7 +27,6 @@ export interface ChatMessageProps {
   onToolOutput: (tool: string, toolCallId: string, output: unknown) => void;
   onReuse: (text: string, chips: ChatChip[]) => void;
   onUndo: (proposalIds: string[]) => void;
-  onCard: (card: RunCard) => void;
   onCardAnswered: () => void;
 }
 
@@ -36,9 +35,9 @@ export interface ChatMessageProps {
  * progress or the reply growing in the newest message leave every other message alone, and a long conversation
  * costs nothing while they happen. Every prop must therefore keep its identity between draws (ChatBody).
  */
-export const ChatMessage = memo(function ChatMessage({ message, projectId, sessionId, latest, streaming, waitingCard, proposalById, summary, onToolOutput, onReuse, onUndo, onCard, onCardAnswered }: ChatMessageProps) {
+export const ChatMessage = memo(function ChatMessage({ message, projectId, sessionId, latest, streaming, waitingCard, proposalById, summary, onToolOutput, onReuse, onUndo, onCardAnswered }: ChatMessageProps) {
   const card = runCardOf(message);
-  if (card) return <RunCardView projectId={projectId} sessionId={sessionId} card={card} controls={waitingCard} onChange={onCard} onAnswered={onCardAnswered} />;
+  if (card) return <RunCardView projectId={projectId} sessionId={sessionId} card={card} controls={waitingCard} onAnswered={onCardAnswered} />;
   const ended = runEndOf(message);
   if (ended) return <RunEndView projectId={projectId} end={ended} />;
   const { stopped, interrupted } = (message.metadata as { stopped?: boolean; interrupted?: boolean } | undefined) ?? {};

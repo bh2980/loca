@@ -8,6 +8,8 @@ export const unitColumns = {
   key: s.units.key,
   groupId: s.units.groupId,
   sort: s.units.sort,
+  /** Its place in the whole script (shown as the line's number). */
+  seq: s.units.seq,
   kind: s.units.kind,
   speaker: s.units.speaker,
   listener: s.units.listener,
@@ -15,6 +17,8 @@ export const unitColumns = {
   listenerConfidence: s.units.listenerConfidence,
   source: s.units.source,
   translation: s.units.translation,
+  /** The candidate its translation is (a line's history marks it). */
+  candidateId: s.units.candidateId,
   statusId: s.units.statusId,
   statusBy: s.units.statusBy,
   note: s.units.note,

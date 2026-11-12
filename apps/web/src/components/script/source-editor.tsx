@@ -3,12 +3,13 @@ import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Trash2 } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Box, Button, DirtyBar, Inspector, InspectorHeader, InspectorResult, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Text, Textarea, Section, Field, KeyValue, KeyValueRow } from '@loca/ui';
-import { client, unwrap } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
 import { useLineDetail } from '@/lib/units';
 import { SOURCE_GROUP_LABEL, SOURCE_UNIT_LABEL } from '@/lib/labels';
-import { useGroup, useGroups } from '@/lib/groups';
+import { useGroup, useGroups, createGroup, saveGroup, deleteGroup } from '@/lib/groups';
 import type { LineDetail } from '@/lib/units';
+import { createLine, editLineSource, deleteLine } from '@/lib/line-writes';
+import { undoChange } from '@/lib/undo';
 
 export type SourceGroupKind = 'scene' | 'document' | 'ui';
 export type SourceEditorMode = 'create-group' | 'edit-group' | 'create-unit' | 'edit-unit';
@@ -67,17 +68,17 @@ export function SourceEditor({ projectId, kind, groupId, unitId, mode, onClose, 
     mutationFn: async (sent: string) => {
       const values = JSON.parse(sent) as Form;
       if (mode === 'create-group') {
-        const result = await unwrap(client.projects[':projectId'].groups.$post({ param: { projectId }, json: { kind: values.kind, title: values.title, ...(values.key.trim() && { key: values.key }), description: values.description, section: values.section.trim() || null } }));
+        const result = await createGroup(projectId, { kind: values.kind, title: values.title, ...(values.key.trim() && { key: values.key }), description: values.description, section: values.section.trim() || null });
         return { entity: 'group', id: result.id, groupId: result.id, kind: result.kind };
       }
       if (mode === 'edit-group') {
-        const result = await unwrap(client.projects[':projectId'].groups[':groupId'].$patch({ param: { projectId, groupId: groupId! }, json: { key: values.key.trim() || undefined, title: values.title, description: values.description, section: values.section.trim() || null } }));
+        const result = await saveGroup(projectId, groupId!, { key: values.key.trim() || undefined, title: values.title, description: values.description, section: values.section.trim() || null });
         return { entity: 'group', id: result.id, groupId: result.id, kind: result.kind };
       }
       const json = { groupId: values.groupId, ...(values.key.trim() && { key: values.key }), source: values.source, ...(values.kind === 'scene' && { speaker: values.speaker.trim() || null, listener: values.listener.trim() || null }) };
       const result = mode === 'create-unit'
-        ? await unwrap(client.projects[':projectId'].units.$post({ param: { projectId }, json }))
-        : await unwrap(client.projects[':projectId'].units[':unitId'].source.$patch({ param: { projectId, unitId: unitId! }, json }));
+        ? await createLine(projectId, json)
+        : await editLineSource(projectId, unitId!, json);
       return { entity: 'unit', id: result.id, groupId: result.groupId, kind: sourceKind(result.kind) };
     },
     onSuccess: async (result, sent) => {
@@ -90,18 +91,18 @@ export function SourceEditor({ projectId, kind, groupId, unitId, mode, onClose, 
   });
   const remove = useMutation({
     mutationFn: () => editingGroup
-      ? unwrap(client.projects[':projectId'].groups[':groupId'].$delete({ param: { projectId, groupId: groupId! } }))
-      : unwrap(client.projects[':projectId'].units[':unitId'].$delete({ param: { projectId, unitId: unitId! } })),
+      ? deleteGroup(projectId, groupId!)
+      : deleteLine(projectId, unitId!),
     onSuccess: async ({ token }) => {
       // The delete answers with its undo record: 되돌리기 puts the lines back with their translations, tags and history.
-      const undo = () => void unwrap(client.projects[':projectId'].undo.$post({ param: { projectId }, json: { token: token! } })).then(() => toast.success('삭제한 것을 되살렸습니다.'), (error: Error) => toast.error(error.message));
+      const undo = () => void undoChange(projectId, token!).then(() => toast.success('삭제한 것을 되살렸습니다.'), (error: Error) => toast.error(error.message));
       toast.success(editingGroup ? '묶음을 삭제했습니다.' : '원문을 삭제했습니다.', token ? { action: { label: '되돌리기', onClick: undo }, duration: 10000 } : undefined);
       (onDeleted ?? onClose)?.();
     },
     onError: (error) => toast.error(error.message),
   });
 
-  const loading = (editingGroup && group.isPending) || (editingUnit && unit.isPending);
+  const loading = (editingGroup && group.isLoading) || (editingUnit && unit.isPending);
   const invalidTarget = (editingGroup && !groupId) || (editingUnit && !unitId);
   // A group comes from the groups collection, which keeps trying until it loads; only a line's detail can fail.
   const loadError = invalidTarget || (editingUnit && unit.isError);
@@ -170,7 +171,7 @@ export function SourceEditor({ projectId, kind, groupId, unitId, mode, onClose, 
         <Section title="원문">
             <Box spaceY="normal">
               <Field label={SOURCE_GROUP_LABEL[form.kind]}>
-                {groups.isPending ? <Text variant="caption" tone="muted">불러오는 중…</Text> : groups.data?.length ? (
+                {groups.isLoading ? <Text variant="caption" tone="muted">불러오는 중…</Text> : groups.data?.length ? (
                   <Select value={form.groupId} onValueChange={(value) => update('groupId', value)}><SelectTrigger width="full"><SelectValue placeholder={`${SOURCE_GROUP_LABEL[form.kind]} 선택`} /></SelectTrigger><SelectContent>{groups.data.map((item) => <SelectItem key={item.id} value={item.id}>{item.title}</SelectItem>)}</SelectContent></Select>
                 ) : (
                   <Box spaceY="condensed"><Text as="p" variant="body" tone="muted">이 종류의 묶음이 없습니다.</Text>{onCreateGroup && <Button type="button" variant="outline" onClick={onCreateGroup}>{SOURCE_GROUP_LABEL[form.kind]} 추가</Button>}</Box>

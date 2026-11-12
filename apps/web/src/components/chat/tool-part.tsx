@@ -3,11 +3,11 @@ import { useState } from 'react';
 import { Check, CircleAlert, Network, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { acceptedLabel, findReadingRouteOutputSchema, toolRoute, toolSpec } from '@tw/shared';
-import { client, unwrap } from '@/lib/api';
 import { workflowEdits, type WorkflowNodeEdit } from '@/lib/workflow-edits';
 import { LABEL } from './change-preview';
 import { ProposalCard, type Proposal } from './proposal-card';
 import { Box, Button, Grid, Icon, Inline, SourceExcerpt, Stack, Text, ToolCallRow, ToolCard, ToolCardHeader, ToolErrorCard } from '@loca/ui';
+import { toolPermission } from '@/lib/proposals';
 
 type State = 'input-streaming' | 'input-available' | 'output-available' | 'output-error';
 
@@ -62,7 +62,7 @@ export function ToolPart({ part, stale, onOutput, proposal }: {
                   if (!projectId) throw new Error('프로젝트 권한을 확인할 수 없습니다. 프로젝트 화면에서 다시 시도하세요.');
                   // This tool is carried out here, not on the server, so the server is asked right before
                   // the edit goes into the draft whether the project's agent permissions (as they are now) allow it.
-                  const { denied: permissionError } = await unwrap(client.projects[':projectId']['editor-tools'][':name'].permission.$post({ param: { projectId, name }, json: part.input! }));
+                  const { denied: permissionError } = await toolPermission(projectId, name, part.input!);
                   if (permissionError) {
                     toast.error(permissionError);
                     onOutput(part.toolCallId, { applied: false, reason: permissionError });

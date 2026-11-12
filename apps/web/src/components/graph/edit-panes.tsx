@@ -2,15 +2,15 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Trash2 } from 'lucide-react';
 import { Box, Button, Inspector, InspectorHeader, Input, Skeleton, Stack, Text, Textarea, Section, Field } from '@loca/ui';
-import { client, unwrap } from '@/lib/api';
 import { PersonName } from '@/lib/person-colors';
+import { q } from '@/lib/queries';
 
 const ORIGIN_LABELS = { import: '가져온 파일', human: '사람이 이음', ai: 'AI가 이음' } as const;
 
 /** A line of the dialogue graph in the pane: its two ends, where it comes from, 삭제. */
 export function EdgePane({ projectId, edgeId, onOpenNode, onRemove, onClose }: { projectId: string; edgeId: string; onOpenNode: (id: string) => void; onRemove?: () => void; onClose: () => void }) {
   const stored = edgeId.replace(/:(out|in)$/, '');
-  const edge = useQuery({ queryKey: ['graph', projectId, 'edge', stored], queryFn: () => unwrap(client.projects[':projectId'].graph.edges[':edgeId'].$get({ param: { projectId, edgeId: stored } })) });
+  const edge = useQuery(q.graphEdge(projectId, stored));
   const end = (side: 'from' | 'to') => {
     const node = edge.data![side];
     return (

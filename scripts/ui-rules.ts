@@ -88,12 +88,45 @@ const sources = /\.(?:tsx?|css)$/;
 
 let failures = 0;
 const report = (where: string, line: number, what: string) => { failures++; console.log(`${where}:${line}  ${what}`); };
+
+/**
+ * The web app's data layer has one way to do each thing, and it lives in apps/web/src/lib (AGENTS.md "Data flow",
+ * "Page state"). These keep the screens from growing a second way.
+ */
+const DATA_RULES: { name: string; pattern: RegExp; applies: (file: string) => boolean }[] = [
+  {
+    // A write is a function of its entity in lib/ (through the collection and `sent`: done when its x-seq comes back).
+    name: 'API write in a screen (call the entity\'s function in lib/: every write goes through `sent`)',
+    pattern: /\.\$(?:post|put|patch|delete)\(|\b(?:apiFetch|fetch)\(/,
+    applies: (file) => /^(?:routes|components)\//.test(file) && !API_WRITE_ALLOWED.has(file),
+  },
+  {
+    // Every key comes from the factory, so it starts with the topic that refetches it (or declares what it follows).
+    name: 'query key literal (make it with key() / ownKey() from lib/query-keys.ts)',
+    pattern: /\bqueryKey:\s*\[/,
+    applies: (file) => file !== 'lib/query-keys.ts',
+  },
+  {
+    // Every stored value is a key of the registry, read through its schema; storage that throws is handled once.
+    name: 'localStorage / sessionStorage (declare a key in lib/storage.ts and use stored() / useStored())',
+    pattern: /\b(?:localStorage|sessionStorage)\b/,
+    applies: (file) => file !== 'lib/storage.ts',
+  },
+];
+/**
+ * Screens that may call the API client's write methods themselves: only where a call is not a write of an entity's
+ * rows and cannot be a function in lib/. Each entry says why. (The streamed chat turn, the one request that is
+ * neither a question nor an entity write, is already in lib/: lib/chat-store.ts hands it to the AI SDK's transport.)
+ */
+const API_WRITE_ALLOWED = new Set<string>([]);
 const BASE_STEP = TOKEN_RULES[TOKEN_RULES.length - 1];
 for (const file of files(root, sources))
   readFileSync(file, 'utf8').split('\n').forEach((line, i) => {
     const where = `apps/web/src/${path.relative(root, file)}`;
     for (const rule of [...(file.endsWith('.css') ? [] : LEGACY_RULES), ...TOKEN_RULES, ...(file.endsWith('.css') ? [] : [CLASS_RULE])]) if (rule.pattern.test(line)) report(where, i + 1, rule.name);
     for (const problem of colorClassProblems(line)) report(where, i + 1, problem);
+    const relative = path.relative(root, file).split(path.sep).join('/');
+    for (const rule of DATA_RULES) if (rule.applies(relative) && rule.pattern.test(line)) report(where, i + 1, rule.name);
   });
 for (const file of [...files(ui, sources), ...files(path.join(ui, '../.storybook'), sources)]) {
   const inTokens = file.startsWith(tokens + path.sep);

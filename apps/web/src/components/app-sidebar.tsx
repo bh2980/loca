@@ -6,11 +6,9 @@ import { holds, NAV_GROUPS, useCurrentNav, type NavGroup, type NavItem } from '@
 import { setTheme, useTheme, type ThemeChoice } from '@/lib/theme';
 import { useProjectProgress } from '@/lib/project';
 import { useProfile, useProjects } from '@/lib/app-data';
+import { stored, STORED } from '@/lib/storage';
 
-const lastKey = (projectId: string, itemId: string) => `tw.nav.${projectId}.${itemId}`;
-const readLast = (projectId: string, itemId: string): { pathname: string; search: Record<string, unknown> } | null => {
-  try { return JSON.parse(sessionStorage.getItem(lastKey(projectId, itemId)) ?? 'null'); } catch { return null; }
-};
+const readLast = (projectId: string, itemId: string) => stored(STORED.sidebarLast, projectId, itemId).read();
 
 /** 검토 대기 on 대사: its own reader of the project's counts, so a count that moves redraws only this number. */
 function ReviewBadge({ projectId }: { projectId: string }) {
@@ -25,7 +23,7 @@ function ReviewBadge({ projectId }: { projectId: string }) {
 function RememberScreen({ projectId, itemId }: { projectId: string; itemId: string }) {
   const remembered = useRouterState({ select: (state) => JSON.stringify({ pathname: state.location.pathname, search: state.location.search }) });
   useEffect(() => {
-    try { sessionStorage.setItem(lastKey(projectId, itemId), remembered); } catch { /* private mode */ }
+    stored(STORED.sidebarLast, projectId, itemId).write(JSON.parse(remembered) as { pathname: string; search: Record<string, unknown> });
   }, [projectId, itemId, remembered]);
   return null;
 }

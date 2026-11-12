@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Button, InspectorResult, Text, Input, Field } from '@loca/ui';
-import { unwrap } from '@/lib/api';
-import { connectionsApi, targetScope, type SettingsTarget } from '@/lib/settings-target';
+import { type SettingsTarget, locatedExecutable } from '@/lib/settings-target';
 
 /**
  * A CLI connection's executable: by default the app finds it (PATH and the usual install dirs) and
@@ -16,11 +15,7 @@ export function ExecutableField({ target, kind, value, onChange }: { target: Set
     const timer = setTimeout(() => setChecked(value.trim()), 400);
     return () => clearTimeout(timer);
   }, [value]);
-  const located = useQuery({
-    queryKey: ['connections', targetScope(target), 'locate', kind, checked],
-    queryFn: () => unwrap(connectionsApi(target).locate({ kind, executable: checked || undefined })),
-    staleTime: 30_000,
-  });
+  const located = useQuery(locatedExecutable(target, kind, checked));
   const found = located.data;
   return (
     <Field

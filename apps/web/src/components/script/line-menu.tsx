@@ -1,6 +1,6 @@
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { lineExclusion, PALETTE, TAG_SCOPES, type LineTranslate } from '@tw/shared';
+import { lineExclusion, type LineTranslate, TAG_SCOPES } from '@tw/shared';
 import {
   DropdownMenuCheckboxItem,
   DropdownMenuItem,
@@ -14,13 +14,12 @@ import {
   Text,
   DropdownMenuSubContent,
 } from '@loca/ui';
-import { client } from '@/lib/api';
 import { SOURCE_GROUP_LABEL, SOURCE_UNIT_LABEL } from '@/lib/labels';
-import { changeLines, patchedLine, useLineDetail } from '@/lib/units';
-import { useSaveLine } from '@/lib/line-save';
+import { useLineDetail } from '@/lib/units';
+import { useSaveLine, patchLine } from '@/lib/line-writes';
 import { useTaxonomy } from '@/lib/knowledge';
-import { sent } from '@/lib/collections';
 import { useProject } from '@/lib/project';
+import { createAndAttachTag } from '@/lib/create-tag';
 
 /** What the line menu needs of a line. */
 export interface MenuLine {
@@ -56,15 +55,13 @@ export function LineMenuItems({ projectId, line, onEdit, editLabel = '번역 편
   const excluded = lineExclusion(line, project?.formatRules ?? undefined, project?.exclusionRules, project?.sourceLanguage) !== null;
   const saveLine = useSaveLine(projectId);
   const patch = useMutation({
-    mutationFn: (json: { tagIds?: string[]; translate?: 'include' | 'exclude' }) => changeLines(projectId, [line.id], patchedLine(json), () => client.units[':unitId'].$patch({ param: { unitId: line.id }, json })),
+    mutationFn: (json: { tagIds?: string[]; translate?: 'include' | 'exclude' }) => patchLine(projectId, line.id, json),
     onError: (error) => toast.error(error.message),
   });
   const toggleTag = (tagId: string, add: boolean) => patch.mutate({ tagIds: add ? [...line.tagIds, tagId] : line.tagIds.filter((id) => id !== tagId) });
   const createTag = async (name: string) => {
     try {
-      const color = PALETTE[tags.length % PALETTE.length].hex;
-      const created = await sent(projectId, client.projects[':projectId'].tags.$post({ param: { projectId }, json: { name, color, scope: [...TAG_SCOPES] } }));
-      await patch.mutateAsync({ tagIds: [...line.tagIds, created.id] });
+      await createAndAttachTag(projectId, name, tags.length, [...TAG_SCOPES], (tagId) => patch.mutateAsync({ tagIds: [...line.tagIds, tagId] }));
       toast.success(`'${name}' 태그를 만들고 줄에 붙였습니다.`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '태그를 만들지 못했습니다.');

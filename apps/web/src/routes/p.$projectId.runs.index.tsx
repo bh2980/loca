@@ -10,7 +10,7 @@ import { useReportView } from '@/lib/view-context';
 import { dateTime, clock } from '@/lib/datetime';
 import { useRuns } from '@/lib/runs';
 import { useConnectionName } from '@/lib/app-data';
-import { useJobCalls } from '@/lib/logs';
+import { useJobCalls } from '@/lib/ai-calls';
 import { INPUT_TYPES } from '@tw/shared';
 
 interface RunsSearch {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { UIMessage } from 'ai';
 import { runCardMessage, runCardOf, type RunCard, type RunCardPlan } from '@tw/shared';
-import { cardSummary, syncCards, withCard } from './chat-run';
+import { cardSummary, syncCards } from './chat-run';
 import { chipHref } from './chat-links';
 
 const plan = (over: Partial<RunCardPlan> = {}): RunCardPlan => ({
@@ -27,14 +27,6 @@ describe('the run confirm card', () => {
     expect(runCardOf(message(card('c1', { state: 'started', runId: 'run-1' })))).toEqual(card('c1', { state: 'started', runId: 'run-1' }));
     expect(runCardOf(text('u1'))).toBeNull();
     expect(runCardOf({ parts: [{ type: 'data-run', data: { id: 'x' } } as never] })).toBeNull();
-  });
-
-  it('a card the server answered replaces its message in the stored conversation, a new one goes to the end', () => {
-    const session = { messages: [text('u1'), message(card('c1'))] as unknown[] };
-    const started = withCard(session, card('c1', { state: 'started', runId: 'run-1' }));
-    expect(started.messages.map((item) => (item as UIMessage).id)).toEqual(['u1', 'c1']);
-    expect(runCardOf(started.messages[1] as UIMessage)?.runId).toBe('run-1');
-    expect(withCard(started, card('c2')).messages.map((item) => (item as UIMessage).id)).toEqual(['u1', 'c1', 'c2']);
   });
 
   it('joins the screen\'s conversation where the stored one has it, and takes the stored state of one it has', () => {

@@ -4,8 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, ChevronsUpDown } from 'lucide-react';
 import { CONNECTION_KIND_INFO, connectionCan, isFreeModel, type Capability } from '@tw/shared';
 import { Chip, Box, Button, Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, Field, Icon, Inline, Popover, PopoverContent, PopoverTrigger, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Stack, Text } from '@loca/ui';
-import { unwrap } from '@/lib/api';
-import { connectionsApi, targetScope, type SettingsTarget } from '@/lib/settings-target';
+import { type SettingsTarget, connectionModels } from '@/lib/settings-target';
 import { useConnections } from '@/lib/app-data';
 
 /** Which AI a place of use calls. Empty strings: nothing picked yet. */
@@ -17,14 +16,9 @@ export interface ModelValue {
 
 const DEFAULT_EFFORT = '__default';
 
-/** A connection's models, as it lists them (APIs can list hundreds; CLIs may list none). */
-const modelsQuery = (target: SettingsTarget, connectionId: string) => ({
-  queryKey: ['connections', targetScope(target), connectionId, 'models'],
-  queryFn: () => unwrap(connectionsApi(target).models(connectionId)),
-});
 function useModels(target: SettingsTarget, connectionId: string | undefined) {
   return useQuery({
-    ...modelsQuery(target, connectionId ?? ''),
+    ...connectionModels(target, connectionId ?? ''),
     enabled: !!connectionId,
     staleTime: 60_000,
     retry: false,
@@ -102,7 +96,7 @@ export function ModelPicker({
     const keep = value?.model;
     onChange({ connectionId, model: '' });
     if (!keep) return;
-    void queryClient.fetchQuery({ ...modelsQuery(target, connectionId), staleTime: 60_000, retry: false })
+    void queryClient.fetchQuery({ ...connectionModels(target, connectionId), staleTime: 60_000, retry: false })
       .then((listed) => { if (listed.models?.includes(keep)) onChange({ connectionId, model: keep }); })
       .catch(() => {});
   };
@@ -221,8 +215,8 @@ export function ModelPicker({
           </Stack>
         ) : (
           <Text as="p" padding="normal" variant="body" tone="muted">
-            {connections.isPending ? '연결을 불러오는 중…' : '여기에 쓸 수 있는 AI 연결이 없습니다. '}
-            {!connections.isPending && (
+            {connections.isLoading ? '연결을 불러오는 중…' : '여기에 쓸 수 있는 AI 연결이 없습니다. '}
+            {!connections.isLoading && (
               <Text asChild underline>
                 {target.kind === 'project' ? (
                   <Link to="/p/$projectId/settings/connections" params={{ projectId: target.projectId }} onClick={() => setOpen(false)}>

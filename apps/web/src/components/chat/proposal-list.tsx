@@ -4,10 +4,9 @@ import { useMutation } from '@tanstack/react-query';
 import { Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { Box, Button, Checkbox, Inline, Spinner, Text, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@loca/ui';
-import { client } from '@/lib/api';
 import type { Proposal } from './proposal-card';
 import { ChangePreview, LABEL } from './change-preview';
-import { changeProposals } from '@/lib/proposals';
+import { decideProposals } from '@/lib/proposals';
 
 /**
  * Each waiting proposal readable as it is (what it changes, ChangePreview), with its own 거절 · 수락; picking several and
@@ -29,7 +28,7 @@ export function ProposalList({ projectId, proposals }: { projectId: string; prop
   // One request for the lot: the server decides them oldest first (characters before the relationships that name them).
   const decide = useMutation({
     mutationFn: ({ ids, action }: { ids: string[]; action: 'accept' | 'reject' }) =>
-      changeProposals(projectId, client.projects[':projectId'].proposals.decide.$post({ param: { projectId }, json: { ids, action } })).then(({ results }) => ({
+      decideProposals(projectId, ids, action).then(({ results }) => ({
         ok: results.filter((result) => result.status === (action === 'accept' ? 'accepted' : 'rejected')).length,
         total: ids.length,
         action,

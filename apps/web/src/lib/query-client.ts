@@ -1,4 +1,4 @@
-import { QueryClient } from '@tanstack/react-query';
+import { QueryClient, type QueryKey } from '@tanstack/react-query';
 import type { Topic } from '@tw/shared';
 import { toast } from 'sonner';
 import { isServerDown } from './api';
@@ -18,3 +18,14 @@ export const queryClient = new QueryClient({
     mutations: { onError: (error) => toast.error(error.message) },
   },
 });
+
+/**
+ * Whether a question's cached answer is as of now: there is one, no change has marked it since and it is not being
+ * asked again. A write that must send what a question says (or is done only when a question shows its result)
+ * takes the cached answer when it is current and waits for the fresh one otherwise:
+ * `queryClient.fetchQuery({ ...options, staleTime: isCurrent(options.queryKey) ? Infinity : 0 })`.
+ */
+export function isCurrent(queryKey: QueryKey) {
+  const state = queryClient.getQueryState(queryKey);
+  return state?.data !== undefined && !state.isInvalidated && state.fetchStatus === 'idle';
+}

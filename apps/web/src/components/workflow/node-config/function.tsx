@@ -3,13 +3,13 @@ import { useState, type ReactNode } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Play, Plus, Trash2 } from 'lucide-react';
 import { APPLY_FUNCTION_NAMES, APPLY_TARGETS, FUNCTION_CONCURRENCY, FUNCTIONS, INPUT_TYPES, JSON_FIELD_TYPE_LABELS, DEFAULT_PARTICLE_PATTERN, applyIssues, connectionCan, customRuleIssue, fieldsFromSample, functionConfigSchema, functionTakes, nodeOutputFields, paletteFunctions, previousSteps, type ApplyField, type ApplyFunctionName, type FunctionConfig as FunctionConfigOf, type FunctionName, type FunctionParams, type JsonFieldType, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
-import { Box, Button, Inline, Input, NumberInput, InspectorActionRow, InspectorList, InspectorResult, InspectorToggle, Select, SelectContent, SelectField, SelectItem, SelectTrigger, SelectValue, Stack, Textarea, Text, ListItem, Field } from '@loca/ui';
+import { Box, Button, Inline, Input, NumberInput, InspectorActionRow, InspectorList, InspectorResult, InspectorToggle, Select, SelectContent, SelectField, SelectItem, SelectTrigger, SelectValue, Textarea, Text, ListItem, Field } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
 import { AiConfirmNote } from '@/components/settings/ai-confirm';
 import { AiRegexInput } from '@/components/ai-regex-input';
-import { client, unwrap } from '@/lib/api';
 import { JsonFieldsEditor } from '@/components/workflow/node-config/json-fields-editor';
-import { StepChips, ToggleRow, refsInput, type FunctionNode, type NodeRefs } from '@/components/workflow/node-config/shared';
+import { StepChips, refsInput, type FunctionNode, type NodeRefs } from '@/components/workflow/node-config/shared';
+import { testHttpNode, testScriptNode } from '@/lib/workflows';
 
 // ── function node ─────────────────────────────────────────────────────
 
@@ -216,7 +216,7 @@ function HttpConfig({ params, refs, set }: FormProps<'http'>) {
 function HttpFields({ params, projectId, set }: Pick<FormProps<'http'>, 'params' | 'set'> & { projectId: string }) {
   const { fields, paths } = params;
   const test = useMutation({
-    mutationFn: () => unwrap(client.projects[':projectId']['http-test'].$post({ param: { projectId }, json: { params } })),
+    mutationFn: () => testHttpNode(projectId, params),
   });
   const sampled = test.data?.ok ? fieldsFromSample(test.data.raw) : [];
   return (
@@ -261,7 +261,7 @@ function ScriptConfig({ params, refs: { projectId }, readOnly, set }: FormProps<
   const { ports, fields } = params;
   const [portsText, setPortsText] = useState(ports.join(', '));
   const test = useMutation({
-    mutationFn: () => unwrap(client.projects[':projectId']['script-test'].$post({ param: { projectId }, json: { code: params.code, ports, fields } })),
+    mutationFn: () => testScriptNode(projectId, { code: params.code, ports, fields }),
   });
   const sampledScript = test.data?.ok ? fieldsFromSample(test.data.raw) : [];
   return (

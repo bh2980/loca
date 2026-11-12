@@ -11,7 +11,7 @@ import { subjectOf } from '../engine/subjects.ts';
  * the browser holds for the page it shows (runItemRows), named by the row feed when one changes. Its
  * progress (counts by node, usage, retries, requests in flight) is one row per run (runProgress), read
  * again when the run's row changes. What stays the same while it runs (definition, models, limits) is
- * GET /runs/:id.
+ * GET /runs/:id/start, which repeats nothing of the progress row.
  */
 
 /** A line waiting to go through an AI node again: it was last sent back by the node's retry rule (the node has not answered since). */

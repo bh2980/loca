@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Box, Inline, Text, Input } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
-import { client, unwrap } from '@/lib/api';
+import { generateRegex } from '@/lib/project';
 
 export type GeneratedRule =
   | { label: string; kind: 'placeholder' | 'tag'; pattern: string; example: string }
@@ -16,7 +16,7 @@ export type GeneratedRule =
 export function AiRegexInput({ projectId, target, onRule }: { projectId: string; target: 'token' | 'check'; onRule: (rule: GeneratedRule) => void }) {
   const [prompt, setPrompt] = useState('');
   const make = useMutation({
-    mutationFn: () => unwrap(client.projects[':projectId']['generate-regex'].$post({ param: { projectId }, json: { prompt: prompt.trim(), target } })),
+    mutationFn: () => generateRegex(projectId, prompt.trim(), target),
     onSuccess: (rule) => {
       onRule(rule);
       setPrompt('');

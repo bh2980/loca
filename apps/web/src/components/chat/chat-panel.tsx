@@ -7,12 +7,11 @@ import { toast } from 'sonner';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Box, Button, DockHeaderSlot, Inline, Notice, SectionHeading, Spinner, Stack, Text } from '@loca/ui';
 import { Elapsed } from '@/components/job-progress';
 import type { ModelValue } from '@/components/model-picker';
-import { client, unwrap } from '@/lib/api';
 import { usePendingAgentRequest } from '@/lib/agent';
-import { chatDock } from '@/lib/chat-dock';
+import { chatDock, rememberedChatSession, rememberChatSession } from '@/lib/chat-dock';
 import { sentTexts } from '@/lib/chat-input-history';
 import { removeOnce } from '@/lib/chat-queue';
-import { syncCards, withCard } from '@/lib/chat-run';
+import { syncCards } from '@/lib/chat-run';
 import { chatFor, dropChat } from '@/lib/chat-store';
 import type { AppCommand } from '@/lib/chat-triggers';
 import { q } from '@/lib/queries';
@@ -21,20 +20,12 @@ import { ChatMessage, CompactionNotice, SteerBubble } from './chat-message';
 import { ConversationMenu } from './conversation-menu';
 import type { RunCardControls } from './run-card';
 import { useUndo } from './proposal-card';
-import { compactionMarker, isRunRecord, runCardOf, type ChatChip, type PermissionMode, type RunCard } from '@tw/shared';
+import { compactionMarker, isRunRecord, runCardOf, type ChatChip, type PermissionMode } from '@tw/shared';
 import type { ChatUsage } from './context-meter';
 import { useProposals } from '@/lib/proposals';
-import { changeChatSession, useChatSessions } from '@/lib/logs';
+import { useChatSessions, createChat, deleteChat, changeChat, chatTurn } from '@/lib/chat-sessions';
 import { sent } from '@/lib/collections';
 
-const SESSION_KEY = (projectId: string) => `tw.chat.session.${projectId}`;
-const readSession = (projectId: string) => {
-  try {
-    return sessionStorage.getItem(SESSION_KEY(projectId)) ?? localStorage.getItem(SESSION_KEY(projectId));
-  } catch {
-    return null;
-  }
-};
 
 /** How many of a conversation's newest messages are drawn at first; 이전 메시지 더 보기 draws as many again. */
 const MESSAGES_SHOWN = 100;
@@ -47,7 +38,7 @@ const MESSAGES_SHOWN = 100;
 export const ChatPanel = memo(function ChatPanel({ projectId, active }: { projectId: string; active: boolean }) {
   const queryClient = useQueryClient();
   const sessions = useChatSessions(projectId);
-  const [sessionId, setSessionId] = useState<string | null>(() => readSession(projectId));
+  const [sessionId, setSessionId] = useState<string | null>(() => rememberedChatSession(projectId));
 
   // Fetch the conversation as soon as its id is known (from storage), not only after the
   // sessions list resolves: waiting for the list made the panel flash its spinner on every open.
@@ -67,32 +58,20 @@ export const ChatPanel = memo(function ChatPanel({ projectId, active }: { projec
   useEffect(() => {
     if (sessions.data && sessionId && !sessions.data.some((session) => session.id === sessionId)) {
       // Deleted (here or elsewhere): forget it too, or every load asks for it again.
-      try {
-        sessionStorage.removeItem(SESSION_KEY(projectId));
-        localStorage.removeItem(SESSION_KEY(projectId));
-      } catch {
-        /* ignore */
-      }
+      rememberChatSession(projectId, null);
       setSessionId(null);
     }
     if (sessions.data && !sessionId && sessions.data[0]) setSessionId(sessions.data[0].id);
   }, [sessions.data, sessionId, projectId]);
   useEffect(() => {
-    try {
-      if (sessionId) {
-        sessionStorage.setItem(SESSION_KEY(projectId), sessionId);
-        localStorage.setItem(SESSION_KEY(projectId), sessionId);
-      }
-    } catch {
-      /* ignore */
-    }
+    if (sessionId) rememberChatSession(projectId, sessionId);
   }, [projectId, sessionId]);
 
   const create = useMutation({
     // The server starts it with the AI the latest conversation picked.
     // Done once the feed has brought the new conversation: picked before it is listed, the list would
     // unpick it, and a waiting AI-button request would start yet another one, again and again.
-    mutationFn: () => sent(projectId, client.projects[':projectId'].chat.$post({ param: { projectId }, json: {} })),
+    mutationFn: () => createChat(projectId),
     onSuccess: (session) => setSessionId(session.id),
   });
 
@@ -110,7 +89,7 @@ export const ChatPanel = memo(function ChatPanel({ projectId, active }: { projec
 
   const [deleting, setDeleting] = useState<{ id: string; title: string } | null>(null);
   const remove = useMutation({
-    mutationFn: (id: string) => sent(projectId, client.chat[':sessionId'].$delete({ param: { sessionId: id } })),
+    mutationFn: (id: string) => deleteChat(projectId, id),
     onSuccess: (_data, id) => {
       dropChat(id);
       if (id === sessionId) setSessionId(null);
@@ -194,12 +173,12 @@ function Conversation({ active, projectId, sessionId, model, mode, onNew, takeFo
       pending={saved.data?.pendingSteers ?? []}
       model={picked ?? model}
       mode={mode}
-      onMode={(next) => void changeChatSession(projectId, sessionId, { permissionMode: next }, () => client.chat[':sessionId'].$patch({ param: { sessionId }, json: { permissionMode: next } })).catch(() => undefined)}
+      onMode={(next) => void changeChat(projectId, sessionId, { permissionMode: next }).catch(() => undefined)}
       onModel={async (next) => {
         // A connection chosen without a model yet waits here for one; a whole choice is saved (shown at once).
         if (!next.model) return setPicked(next);
         setPicked(null);
-        await changeChatSession(projectId, sessionId, { connectionId: next.connectionId, model: next.model, effort: next.effort ?? null }, () => client.chat[':sessionId'].$patch({ param: { sessionId }, json: { model: next } }));
+        await changeChat(projectId, sessionId, { model: next });
       }}
     />
   );
@@ -246,7 +225,7 @@ function ChatBody({ active, projectId, sessionId, initial, turn, usage, compacti
       const last = current.at(-1);
       return last ? [...current.slice(0, -1), { ...last, metadata: { ...((last.metadata as object | undefined) ?? {}), stopped: true } }] : current;
     });
-    void unwrap(client.chat[':sessionId'].stop.$post({ param: { sessionId } })).then(({ queued: back }) => {
+    void chatTurn(sessionId).stop().then(({ queued: back }) => {
       // Messages the turn had not taken yet go back to the input box.
       setQueued([]);
       if (back.length) composer.current?.mergeDraft(back);
@@ -288,8 +267,6 @@ function ChatBody({ active, projectId, sessionId, initial, turn, usage, compacti
   // Sent while the reply was running (#44): waiting for the turn to take them at its next step.
   // Those still on the server (sent before a reload, or a turn a restart cut off) go with the next one.
   const [queued, setQueued] = useState<string[]>(pending);
-  // A card the server made or answered joins the stored conversation at once; the sync above puts it on screen.
-  const putCard = useCallback((card: RunCard) => queryClient.setQueryData(q.chatSession(sessionId).queryKey, (session) => (session ? withCard(session, card) : session)), [queryClient, sessionId]);
   const waitingCard = useRef<RunCardControls | null>(null);
   const sentHere = useMemo(() => sentTexts(messages), [messages]);
   const busy = status === 'submitted' || status === 'streaming';
@@ -337,7 +314,7 @@ function ChatBody({ active, projectId, sessionId, initial, turn, usage, compacti
     mutationFn: () => {
       const controller = new AbortController();
       compactRequest.current = controller;
-      return unwrap(client.chat[':sessionId'].compact.$post({ param: { sessionId } }, { init: { signal: controller.signal } }));
+      return chatTurn(sessionId).compact(controller.signal);
     },
     onError: (cause) => {
       if (!compactRequest.current?.signal.aborted) toast.error(cause instanceof Error ? cause.message : '대화를 압축하지 못했습니다.');
@@ -359,11 +336,11 @@ function ChatBody({ active, projectId, sessionId, initial, turn, usage, compacti
       toast.info('답이 막 끝나 전달하지 못했습니다. 입력창에 되돌려 두었습니다.');
     };
     // The turn may be ending: it refuses (409) and the text goes back to the box instead of being sent on its own.
-    client.chat[':sessionId'].steer.$post({ param: { sessionId }, json: { text } }).then((response) => response.ok || giveBack(), giveBack);
+    void chatTurn(sessionId).steer(text).then((taken) => taken || giveBack());
   };
   // A queued message the turn has not taken yet: cancel it, or take it back into the box to edit.
   const takeBack = async (text: string, edit: boolean) => {
-    const { removed } = await unwrap(client.chat[':sessionId'].unsteer.$post({ param: { sessionId }, json: { text } })).catch(() => ({ removed: false }));
+    const { removed } = await chatTurn(sessionId).unsteer(text);
     if (!removed) return void toast.info('이미 에이전트에게 전달됐습니다.');
     setQueued((list) => removeOnce(list, text));
     if (edit) {
@@ -440,7 +417,6 @@ function ChatBody({ active, projectId, sessionId, initial, turn, usage, compacti
                 onToolOutput={toolOutput}
                 onReuse={reuse}
                 onUndo={undo}
-                onCard={putCard}
                 onCardAnswered={focusBox}
               />
             ))}
@@ -486,7 +462,6 @@ function ChatBody({ active, projectId, sessionId, initial, turn, usage, compacti
         onQueue={queue}
         onPin={pin}
         onStop={halt}
-        onCard={putCard}
         onApp={runApp}
         ready={ready}
         busy={busy}

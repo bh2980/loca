@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { InferResponseType } from 'hono/client';
 import { Link } from '@tanstack/react-router';
-import { Box, Button, Grid, Inline, NumberInput, SectionHeading, Stack, Text, Field } from '@loca/ui';
+import { Box, Button, Grid, Inline, NumberInput, SectionHeading, Text, Field } from '@loca/ui';
 import type { CapEdits, Caps } from '@/lib/run-limits';
 import { splitBasis, splitTitle } from '@/lib/split-text';
 import { paceParts } from '@/lib/run-summary';

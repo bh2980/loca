@@ -1,11 +1,9 @@
-import { useRef } from 'react';
+import { useMemo, useRef } from 'react';
 import { toast } from 'sonner';
-import { client, unwrap } from '@/lib/api';
+import { graphEdits } from '@/lib/graph';
+import { serverUndoHistory, undoChange } from '@/lib/undo';
+import { tokenStep } from '@/lib/undo-history';
 
-interface Step {
-  undo: () => Promise<unknown>;
-  redo: () => Promise<unknown>;
-}
 /** The layout's ids for what is drawn: a folded run is "chain:<first node>" with its nodes in order. */
 export interface DrawnGraph {
   chains?: { id: string; nodeIds: string[] }[];
@@ -18,16 +16,14 @@ export interface DrawnGraph {
  * the drawn ones: a folded run stands for its nodes (lines go from its last node, into its first).
  */
 export function useDialogueGraphEdits(projectId: string, drawn: { current: DrawnGraph | null | undefined }) {
-  const graph = client.projects[':projectId'].graph;
-  const param = { projectId };
-  const history = useRef<{ past: Step[]; future: Step[] }>({ past: [], future: [] });
+  const edits = useMemo(() => graphEdits(projectId), [projectId]);
+  const history = useRef(serverUndoHistory()).current;
   const chain = (id: string) => drawn.current?.chains?.find((item) => item.id === id)?.nodeIds;
   const nodesOf = (id: string) => (id.startsWith('chain:') ? (chain(id) ?? []) : [id]);
   const lastOf = (id: string) => nodesOf(id).at(-1);
   const firstOf = (id: string) => nodesOf(id)[0];
   /** A drawn line's stored id (a section's split edge is "<id>:out" / "<id>:in"); a choice folded into a line is its node. */
   const edgeOf = (id: string) => (id.startsWith('via:') ? { choice: id.slice('via:'.length) } : id.startsWith('bypass:') || id.startsWith('portal:') ? null : { edge: id.replace(/:(out|in)$/, '') });
-  const undoToken = (token: string) => unwrap(client.projects[':projectId'].undo.$post({ param, json: { token } }));
   const run = async <T>(work: () => Promise<T>) => {
     try {
       return await work();
@@ -39,11 +35,8 @@ export function useDialogueGraphEdits(projectId: string, drawn: { current: Drawn
   /** Does an edit and records it: undo with its token, redo by doing it again (a new token). An edit that changed nothing has no token and is not recorded. */
   const step = async <T extends { token: string | null }>(call: () => Promise<T>) => {
     const first = await call();
-    let token = first.token;
-    if (!token) return first;
-    history.current.past.push({ undo: () => undoToken(token!), redo: async () => (token = (await call()).token) });
-    if (history.current.past.length > 100) history.current.past.shift();
-    history.current.future = [];
+    const recorded = tokenStep(first, call, (token) => undoChange(projectId, token));
+    if (recorded) history.record(recorded);
     return first;
   };
 
@@ -54,22 +47,22 @@ export function useDialogueGraphEdits(projectId: string, drawn: { current: Drawn
       run(async () => {
         const from = lastOf(fromId), to = firstOf(toId);
         if (!from || !to || from === to) return;
-        await step(() => unwrap(graph.edges.$post({ param, json: { fromId: from, toId: to } })));
+        await step(() => edits.connect(from, to));
       }),
     /** Deletes nodes (drawn ids) and a line at once: a choice's line takes the choice away, nodes keep the way through them. */
     remove: (target: { nodeIds: string[]; edgeId?: string }) =>
       run(async () => {
         const line = target.edgeId ? edgeOf(target.edgeId) : null;
         const nodeIds = target.nodeIds.flatMap(nodesOf);
-        if (line?.edge) await step(() => unwrap(graph.edges.delete.$post({ param, json: { ids: [line.edge] } })));
-        if (line?.choice) await step(() => unwrap(graph.nodes.delete.$post({ param, json: { ids: [line.choice], bridge: false } })));
-        if (nodeIds.length) await step(() => unwrap(graph.nodes.delete.$post({ param, json: { ids: nodeIds, bridge: true } })));
+        if (line?.edge) await step(() => edits.deleteEdges([line.edge]));
+        if (line?.choice) await step(() => edits.deleteNodes([line.choice], false));
+        if (nodeIds.length) await step(() => edits.deleteNodes(nodeIds, true));
       }),
     /** "대본 순서로 잇기" for scenes (ids) and/or dialogue nodes (drawn ids); says how many were linked. */
     linkInOrder: (target: { groupIds?: string[]; nodeIds?: string[] }) =>
       run(async () => {
         const nodeIds = target.nodeIds?.flatMap(nodesOf);
-        const result = await step(() => unwrap(graph['link-in-order'].$post({ param, json: { ...(target.groupIds?.length && { groupIds: target.groupIds }), ...(nodeIds?.length && { nodeIds }) } })));
+        const result = await step(() => edits.linkInOrder({ ...(target.groupIds?.length && { groupIds: target.groupIds }), ...(nodeIds?.length && { nodeIds }) }));
         const kept = result.skipped ? ` (이미 이어진 ${result.skipped.toLocaleString()}곳은 그대로)` : '';
         if (result.linked) toast.success(`${result.linked.toLocaleString()}곳을 이었습니다${kept}`);
         else toast.info(`새로 이을 곳이 없습니다${kept}`);
@@ -79,25 +72,13 @@ export function useDialogueGraphEdits(projectId: string, drawn: { current: Drawn
       run(async () => {
         const after = lastOf(nodeId);
         if (!after) return undefined;
-        return (await step(() => unwrap(graph.nodes[':nodeId'].after.$post({ param: { projectId, nodeId: after }, json: line })))).nodeId;
+        return (await step(() => edits.insertAfter(after, line))).nodeId;
       }),
     /** Copies of nodes (drawn ids) with the lines between them; returns old node id → new. */
     duplicate: (ids: string[]) =>
-      run(async () => (await step(() => unwrap(graph.nodes.duplicate.$post({ param, json: { ids: ids.flatMap(nodesOf) } })))).made),
-    undo: () =>
-      run(async () => {
-        const last = history.current.past.pop();
-        if (!last) return;
-        await last.undo();
-        history.current.future.push(last);
-      }),
-    redo: () =>
-      run(async () => {
-        const next = history.current.future.pop();
-        if (!next) return;
-        await next.redo();
-        history.current.past.push(next);
-      }),
+      run(async () => (await step(() => edits.duplicate(ids.flatMap(nodesOf)))).made),
+    undo: () => run(() => history.undo()),
+    redo: () => run(() => history.redo()),
   };
 }
 

@@ -1,31 +1,11 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useMutation } from '@tanstack/react-query';
-import {
-  addEdge,
-  Background,
-  Panel,
-  MiniMap,
-  NodeToolbar,
-  Position,
-  SelectionMode,
-  useViewport,
-  MarkerType,
-  ReactFlow,
-  ReactFlowProvider,
-  useReactFlow,
-  type Connection,
-  type Edge,
-  type EdgeChange,
-  type Node,
-  type NodeChange,
-  type ReactFlowInstance,
-  applyNodeChanges,
-} from '@xyflow/react';
+import { addEdge, Background, Panel, MiniMap, NodeToolbar, Position, SelectionMode, useViewport, ReactFlow, ReactFlowProvider, useReactFlow, type Connection, type Edge, type EdgeChange, type Node, type NodeChange, type ReactFlowInstance, applyNodeChanges } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { ArrowLeftRight, ArrowUpDown, ChevronRight, Copy, Focus, Frame, Group, LayoutGrid, LogOut, Maximize, Pencil, Plus, SlidersHorizontal, Tag, Trash2, Ungroup, Unlink } from 'lucide-react';
 import { toast } from 'sonner';
-import { AI_PRESETS, INPUT_TYPES, NODE_TYPES, type BatchConfig, APPLY_TARGETS, FUNCTIONS, functionTakes, isFunctionName, paletteFunctions, presetTakes, workflowInput, nodeName, nodePorts, syncEntryEdges, workflowDefinitionSchema, workflowNodeSchema, exitActions, withExitActions, type ExitAction, type Subject, type WorkflowDefinition, type WorkflowGroup, type WorkflowIssue, type WorkflowNode, type WorkflowNodeType } from '@tw/shared';
+import { AI_PRESETS, INPUT_TYPES, NODE_TYPES, type BatchConfig, FUNCTIONS, functionTakes, isFunctionName, paletteFunctions, presetTakes, workflowInput, nodeName, nodePorts, syncEntryEdges, workflowDefinitionSchema, workflowNodeSchema, exitActions, withExitActions, type ExitAction, type Subject, type WorkflowDefinition, type WorkflowGroup, type WorkflowIssue, type WorkflowNode, type WorkflowNodeType } from '@tw/shared';
 import { Page, StatusBarItem } from '@/components/page';
 import { autoLayout } from '@/components/workflow/auto-layout';
 import { shiftRoute } from '@/components/workflow/route-shift';
@@ -36,7 +16,7 @@ import { WorkflowEdgeView, type FlowEdge } from '@/components/workflow/workflow-
 import { entryStarts, flowEdges, nodeBadge, nodeSummary, openPorts } from '@/components/workflow/flow-graph';
 import { exitKey, exitTagItems, parseExitKey, tagRoomOf } from '@/components/workflow/exit-marks';
 import { ExitPanel } from '@/components/workflow/node-config/exit-actions';
-import { allFoldsOpen, computeFolds, foldContaining, foldedDefinition, foldIssues, foldPlacements, foldText, isFoldOpen, openFoldContaining, setAllFolds, toggleFold, type Fold } from '@/components/workflow/fold';
+import { allFoldsOpen, computeFolds, foldedDefinition, foldIssues, foldPlacements, foldText, isFoldOpen, openFoldContaining, setAllFolds, toggleFold, type Fold } from '@/components/workflow/fold';
 import { useFoldState } from '@/components/workflow/use-fold-state';
 import { WorkflowIssueBar } from '@/components/workflow/issue-bar';
 import { FrameNodeView, FrameTintView, frameTints, addFrame, fitFrames, frameAt, frameId, frameNodes, groupIdOf, groupNodes, groupOf, isFrameId, moveFrame, moveIntoGroup, pruneGroups, renameGroup, resizeFrame, ungroup, type FrameNode } from '@/components/workflow/frames';
@@ -44,7 +24,6 @@ import { FramePanel } from '@/components/workflow/frame-panel';
 import { retryBadge } from '@/lib/retry-info';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { SplitPane, PageHeading, HeaderActions, NodeLibrary, CanvasToolbar, EdgeLegend, CanvasSurface, CanvasDrawLayer, SelectionToolbox, type CanvasDirection, type NodeLibraryGroup, Box, Button, Icon, Inline, Stack, Text, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent, DropdownMenuLabel, Input, Skeleton, Popover, PopoverContent, PopoverTrigger } from '@loca/ui';
-import { client, unwrap } from '@/lib/api';
 import { tagsIn } from '@/lib/queries';
 import { useReportView } from '@/lib/view-context';
 import { workflowEdits } from '@/lib/workflow-edits';
@@ -55,9 +34,10 @@ import { GRAPH_KEYS, useGraphShortcuts, type GraphShortcuts } from '@/lib/graph-
 import { keyLabel } from '@/lib/keys';
 import { useTaxonomy } from '@/lib/knowledge';
 import { useRuns } from '@/lib/runs';
-import { useWorkflow, useWorkflows } from '@/lib/workflows';
-import { sent as sentToFeed } from '@/lib/collections';
+import { useWorkflow, useWorkflows, validateWorkflow, saveWorkflow } from '@/lib/workflows';
 import { useConnections } from '@/lib/app-data';
+import { draftText } from '@/lib/drafts';
+import { stored, STORED } from '@/lib/storage';
 
 /** When the workflow was last saved: 10. 13. 오전 06:16. Runs keep their own copy of what they ran. */
 const savedAt = (at: string) => dateTime(at);
@@ -142,17 +122,19 @@ interface Draft {
   definition: WorkflowDefinition;
 }
 
-const draftKey = (id: string) => `tw.workflow.draft.${id}`;
-/** The draft kept in this browser, read through the definition's schema: one that no longer fits it (an older shape) is dropped. */
+/** The workflow's unsaved edit, kept like every draft (lib/drafts.ts) as JSON text. */
+const draftOf = (id: string) => draftText(`workflow.${id}`);
+/** The draft kept for this tab, read through the definition's schema: one that no longer fits it is dropped. */
 const readDraft = (id: string): Draft | null => {
   try {
-    const stored = JSON.parse(sessionStorage.getItem(draftKey(id)) ?? 'null') as Draft | null;
-    const definition = stored && workflowDefinitionSchema.safeParse(stored.definition);
-    return stored && definition?.success ? { ...stored, definition: definition.data } : null;
+    const kept = JSON.parse(draftOf(id).read() ?? 'null') as Draft | null;
+    const definition = kept && workflowDefinitionSchema.safeParse(kept.definition);
+    return kept && definition?.success ? { ...kept, definition: definition.data } : null;
   } catch {
     return null;
   }
 };
+const writeDraft = (id: string, draft: Draft | null) => draftOf(id).write(draft && JSON.stringify(draft));
 
 const nodeTypes = { workflow: WorkflowNodeView, frame: FrameNodeView, frameTint: FrameTintView };
 
@@ -163,13 +145,7 @@ const EXIT_ACTION_ITEMS: { id: string; label: string; kind: 'apply' | 'status'; 
   { id: 'exit:status', label: '상태 바꾸기', kind: 'status', make: () => ({ type: 'status', statusId: '' }) },
 ];
 const edgeTypes = { workflow: WorkflowEdgeView };
-const viewportKey = (id: string, direction: CanvasDirection) => `loca.workflow.viewport.${id}.${direction}`;
-function readViewport(id: string, direction: CanvasDirection): { x: number; y: number; zoom: number } | undefined {
-  try {
-    const value = JSON.parse(sessionStorage.getItem(viewportKey(id, direction)) ?? 'null');
-    return value && [value.x, value.y, value.zoom].every(Number.isFinite) && value.zoom > 0 ? value : undefined;
-  } catch { return undefined; }
-}
+const readViewport = (id: string, direction: CanvasDirection) => stored(STORED.workflowViewport, id, direction).read() ?? undefined;
 
 function WorkflowEditor() {
   const dark = useIsDark();
@@ -200,17 +176,17 @@ function WorkflowEditor() {
         // version (or to the current draft) is not a change and must not mark the workflow dirty.
         const saved = workflow.data && { baseVersion: workflow.data.version, name: workflow.data.name, definition: workflow.data.definition };
         if (!normalizeWorkflowDraft(next, saved, inFlight.current)) {
-          sessionStorage.removeItem(draftKey(workflowId));
+          writeDraft(workflowId, null);
           return null;
         }
         if (sameWorkflowDraft(next, base)) return current;
-        sessionStorage.setItem(draftKey(workflowId), JSON.stringify(next));
+        writeDraft(workflowId, next);
         return next;
       }),
     [workflow.data, workflowId],
   );
   const discard = () => {
-    sessionStorage.removeItem(draftKey(workflowId));
+    writeDraft(workflowId, null);
     setDraftState(null);
   };
 
@@ -241,7 +217,7 @@ function WorkflowEditor() {
     if (!draft) return setIssues(workflow.data?.issues ?? []);
     let cancelled = false;
     const timer = setTimeout(() => {
-      void unwrap(client.workflows[':id'].validate.$post({ param: { id: workflowId }, json: { definition: current.definition } }))
+      void validateWorkflow(workflowId, current.definition)
         .then((result) => { if (!cancelled) setIssues(result); })
         .catch(() => undefined);
     }, 300);
@@ -252,14 +228,13 @@ function WorkflowEditor() {
     mutationFn: (sent: Draft) => {
       inFlight.current = sent;
       // Done once the feed has brought the saved row, so its version is the one the draft now builds on.
-      return sentToFeed(projectId, client.workflows[':id'].$put({ param: { id: workflowId }, json: { name: sent.name, description: workflow.data!.description, definition: sent.definition, version: sent.baseVersion } }));
+      return saveWorkflow(projectId, workflowId, { name: sent.name, description: workflow.data!.description, definition: sent.definition, version: sent.baseVersion });
     },
     onSettled: () => { inFlight.current = null; },
     onSuccess: (row, sent) => {
       setDraftState((latest) => {
         const next = reconcileSavedDraft(latest, sent, row.version);
-        if (next) sessionStorage.setItem(draftKey(workflowId), JSON.stringify(next));
-        else sessionStorage.removeItem(draftKey(workflowId));
+        writeDraft(workflowId, next);
         return next;
       });
       setIssues(row.issues);
@@ -293,7 +268,7 @@ function WorkflowEditor() {
   );
   // 접기: nodes that only hang off another node are chips until opened (display only; the definition is whole).
   const folds = useMemo(() => (current ? computeFolds(current.definition) : []), [current?.definition]); // eslint-disable-line react-hooks/exhaustive-deps
-  const [foldState, setFoldState] = useFoldState(`loca.workflow.folds.${workflowId}`);
+  const [foldState, setFoldState] = useFoldState(`workflow.${workflowId}`);
   const openFolds = useMemo(() => new Set(foldState.open), [foldState]);
   const view = useMemo(() => (current ? foldedDefinition(current.definition, folds, openFolds) : undefined), [current?.definition, folds, openFolds]); // eslint-disable-line react-hooks/exhaustive-deps
   const shown = useMemo(() => (view?.definition.nodes ?? []).filter((node) => node.type !== 'entry'), [view]);
@@ -1210,7 +1185,7 @@ function WorkflowEditor() {
               });
             }}
             onInit={(instance) => { const held = readViewport(workflowId, direction); if (held) void instance.setViewport(held); else focusWorkflowNode(instance, search.node ?? definitions[0]?.id, direction, canvasRef.current); }}
-            onMoveEnd={(_event, viewport) => sessionStorage.setItem(viewportKey(workflowId, direction), JSON.stringify(viewport))}
+            onMoveEnd={(_event, viewport) => stored(STORED.workflowViewport, workflowId, direction).write(viewport)}
             // Same as the dialogue graph: left or middle drag pans, Shift+drag draws a selection box, ⌘/Ctrl+click adds a node.
             panOnDrag={[0, 1]}
             // Dragging a node moves it; it does not pick it (picking is a click, ⌘/Ctrl+click or Shift+drag).

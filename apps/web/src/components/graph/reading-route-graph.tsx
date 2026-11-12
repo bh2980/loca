@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { Button, CanvasOverlay, CanvasSurface, EmptyDescription, EmptyHeader, EmptyTitle, Inline, SegmentedControl, Spinner, Overlay, EmptyState } from '@loca/ui';
 import { useSize } from '@/hooks/use-size';
 import { q } from '@/lib/queries';
@@ -7,22 +7,12 @@ import { GRAPH_SHOW_ITEMS, shownText, useGraphShow, type GraphShow } from '@/lib
 import { useLines } from '@/lib/units';
 import { readingStageLayout } from './reading-stage-layout';
 import { GraphCanvas, type GraphCanvasHandle, type NodeInfo, type Viewport } from './graph-canvas';
+import { stored, STORED } from '@/lib/storage';
 
 type RouteNode = { id: string; firstUnitId: string; unitIds: string[]; info: NodeInfo };
 type RouteStage = { id: string; nodeIds: string[]; unitIds: string[]; parallel: boolean };
 
-function readViewport(key: string): Viewport | undefined {
-  try {
-    const value: unknown = JSON.parse(sessionStorage.getItem(key) ?? 'null');
-    if (!value || typeof value !== 'object') return undefined;
-    const viewport = value as Partial<Viewport>;
-    return Number.isFinite(viewport.x) && Number.isFinite(viewport.y) && Number.isFinite(viewport.k) && viewport.k! > 0
-      ? { x: viewport.x!, y: viewport.y!, k: viewport.k! }
-      : undefined;
-  } catch {
-    return undefined;
-  }
-}
+const readViewport = (key: string): Viewport | undefined => stored(STORED.graphViewport, key).read() ?? undefined;
 
 /** The selected single route, grouped into source nodes and simultaneous stages. */
 export function ReadingRouteGraph({ projectId, stages, routeKey, direction, onDirectionChange, edit, onEdit }: {
@@ -37,7 +27,7 @@ export function ReadingRouteGraph({ projectId, stages, routeKey, direction, onDi
   const graph = useQuery(q.graph(projectId, 'dialogue'));
   const [container, size] = useSize<HTMLDivElement>();
   const canvas = useRef<GraphCanvasHandle>(null);
-  const viewportKey = `tw.graph.reading-route.v6.${projectId}.${routeKey}.${direction}`;
+  const viewportKey = `route.${projectId}.${routeKey}.${direction}`;
   const initialViewport = readViewport(viewportKey);
   const previousEdit = useRef({ routeKey, edit });
   // What the cards show of each line, the same setting as the main graph's cards.
@@ -141,9 +131,7 @@ export function ReadingRouteGraph({ projectId, stages, routeKey, direction, onDi
             initialViewport={initialViewport}
             initialFocusAlign={selectedNodeId ? 'center' : direction === 'horizontal' ? 'left' : 'top'}
             initialFocus={initialViewport ? undefined : selectedNodeId ?? routeNodes[0]?.id}
-            onViewportChange={(viewport) => {
-              try { sessionStorage.setItem(viewportKey, JSON.stringify(viewport)); } catch { /* ignore unavailable storage */ }
-            }}
+            onViewportChange={(viewport) => stored(STORED.graphViewport, viewportKey).write(viewport)}
             onSelect={(id) => onEdit(routeNodes.find((node) => node.id === id)?.firstUnitId || undefined)}
           />
           <CanvasOverlay tools={<SegmentedControl ariaLabel="카드에 보여 줄 것" value={show} onChange={(next) => setShow(next as GraphShow)} items={GRAPH_SHOW_ITEMS} />} />

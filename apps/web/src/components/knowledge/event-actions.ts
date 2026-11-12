@@ -1,10 +1,9 @@
-import { unwrap } from '@/lib/api';
-import type { StoryEvent } from '@/lib/knowledge';
+import type { EventLine, EventLinkKind, StoryEvent } from '@/lib/knowledge';
 import { freeName, useGraphHistory } from './graph-history';
 
 /** A line of the 사건 흐름, by its two ends. */
-export type FlowLine = { fromId: string; toId: string };
-type PairLink = 'added' | 'hidden' | null;
+export type FlowLine = EventLine;
+type PairLink = EventLinkKind;
 
 /** A line's item key in the page's search (`item`), so a line opens in the pane like an event. */
 export const lineKey = (line: FlowLine) => `line:${line.fromId}>${line.toId}`;
@@ -20,9 +19,8 @@ export const parseLineKey = (key: string | undefined): FlowLine | null => {
  * the other graphs.
  */
 export function useEventFlowActions({ projectId, events, open }: { projectId: string; events: StoryEvent[]; open: (item: string) => void }) {
-  const { api, param, remove, restore, run, record, created, undo, redo } = useGraphHistory(projectId);
-  const link = (line: FlowLine, action: 'link' | 'unlink') => unwrap(api['event-links'].$post({ param, json: { ...line, action } }));
-  const setLink = (line: FlowLine, kind: PairLink) => unwrap(api['event-links'].$put({ param, json: { ...line, kind } }));
+  const { writes, remove, restore, run, record, created, undo, redo } = useGraphHistory(projectId);
+  const { link, setLink } = writes.events;
   /** Takes the lines away, then the events (whose own lines go with them); returns how to put it all back. */
   const removeAll = async (eventIds: string[], lines: FlowLine[]) => {
     const before: { line: FlowLine; kind: PairLink }[] = [];
@@ -58,7 +56,7 @@ export function useEventFlowActions({ projectId, events, open }: { projectId: st
     addEvent: async () => {
       let id: string | undefined;
       await run(async () => {
-        const row = await unwrap(api.events.$post({ param, json: { title: freeName('새 사건', new Set(events.map((event) => event.title.toLowerCase()))) } }));
+        const row = await writes.events.create({ title: freeName('새 사건', new Set(events.map((event) => event.title.toLowerCase()))) });
         id = row.id;
         record(created([{ kind: 'events', ids: [row.id] }]));
         open(row.id);
@@ -74,7 +72,7 @@ export function useEventFlowActions({ projectId, events, open }: { projectId: st
           const title = freeName(`${original.title} (복사)`, taken);
           taken.add(title.toLowerCase());
           const { summary, cause, outcome, participants, evidence } = original;
-          const row = await unwrap(api.events.$post({ param, json: { title, summary, cause, outcome, participants, evidence } }));
+          const row = await writes.events.create({ title, summary, cause, outcome, participants, evidence });
           made.set(original.id, row.id);
         }
         if (made.size) record(created([{ kind: 'events', ids: [...made.values()] }]));

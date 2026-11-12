@@ -43,11 +43,12 @@ const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const wordPattern = (name: string) => new RegExp(`(?<![\\p{L}\\p{N}])${escape(name)}(?![\\p{L}\\p{N}])`, 'giu');
 
 /**
- * What the editor knows about a line's source: its format tokens (in order) and the confirmed
- * terms it mentions, plus the source cut into parts for display. One pattern matches any token.
+ * A line's source as the editor reads it: its format tokens (in order) and the confirmed terms it mentions, plus
+ * the source cut into parts for display. One pattern matches any token. (Not a line's surroundings, lib/units.ts,
+ * nor the context an AI request carries.)
+ * `kind`: the line's kind, so a term limited to UI lines (or to the rest) is only found where it applies.
  */
-/** `kind`: the line's kind, so a term limited to UI lines (or to the rest) is only found where it applies. */
-export function useLineContext(projectId: string, source: string, kind?: string | null) {
+export function useSourceParts(projectId: string, source: string, kind?: string | null) {
   const project = useProject(projectId);
   const terms = useTerms(projectId);
 

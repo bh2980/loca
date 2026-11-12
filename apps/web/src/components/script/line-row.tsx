@@ -4,56 +4,20 @@ import { useMemo, useState, type ComponentProps, type ReactNode, type RefObject 
 import { useMutation } from '@tanstack/react-query';
 import { Check, CircleAlert, Ellipsis, PanelRight } from 'lucide-react';
 import { toast } from 'sonner';
-import { AUTO_MARKS, markName, compileFormatRules, isUnknownListener, lineExclusion, listenerLabel, needsListener, SPECIAL_LISTENERS, TAG_SCOPES, type FormatRules, type LineMark, type ListenerOrigin, glossaryMatcher, SPEECH_LEVEL_LABELS, speechLevelOf } from '@tw/shared';
+import { markName, compileFormatRules, isUnknownListener, lineExclusion, listenerLabel, needsListener, SPECIAL_LISTENERS, type FormatRules, type LineMark, type ListenerOrigin, glossaryMatcher, SPEECH_LEVEL_LABELS, speechLevelOf, TAG_SCOPES } from '@tw/shared';
 import { MarkChip } from '@/components/status';
 import { TranslationEditor } from '@/components/translation-editor';
 import { LineSourceText, MarkedSourceText, TokenText } from '@/components/editor/source-text';
 import { insertIntoLine } from '@/components/editor/translation-input';
 import { LineNote } from '@/components/script/line-note';
-import { withoutTokens } from '@/lib/line-context';
-import {
-  Button,
-  Checkbox,
-  AiMark,
-  TagChip,
-  TagSubMenu,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuItem,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  SpeakerIdentity,
-  Chip,
-  Box,
-  Inline,
-  Stack,
-  Text,
-  Icon,
-  StatusIcon,
-  ListRow,
-  ScriptMenuAnchor,
-  ScriptReviewIssue,
-  ScriptSceneRow,
-  ScriptSourceStyle,
-  ScriptTranslationRow,
-  DropdownMenuCheckboxItem,
-  DropdownMenuSub,
-  DropdownMenuSubTrigger,
-  DropdownMenuSubContent,
-  type StatusLike,
-  DropdownMenuContent,
-} from '@loca/ui';
-import { client } from '@/lib/api';
+import { withoutTokens } from '@/lib/source-parts';
+import { Button, Checkbox, AiMark, TagChip, Tooltip, TooltipContent, TooltipTrigger, DropdownMenu, DropdownMenuTrigger, SpeakerIdentity, Chip, Box, Inline, Stack, Text, Icon, StatusIcon, ListRow, ScriptMenuAnchor, ScriptReviewIssue, ScriptSceneRow, ScriptSourceStyle, ScriptTranslationRow, type StatusLike, DropdownMenuContent } from '@loca/ui';
 import { useMarkStyles } from '@/lib/queries';
 import { SOURCE_GROUP_LABEL, SOURCE_UNIT_LABEL } from '@/lib/labels';
 import { SpeakerCard } from '@/components/script/speaker-card';
-import { changeLines, patchedLine, type Line, useLineDetail } from '@/lib/units';
+import { type Line, useLineDetail } from '@/lib/units';
 import { useDraft } from '@/lib/drafts';
-import { useSaveLine } from '@/lib/line-save';
+import { useSaveLine, patchLine } from '@/lib/line-writes';
 import { usePersonColors } from '@/lib/person-colors';
 import { LineMenuItems } from '@/components/script/line-menu';
 import { useTerms } from '@/lib/terms';
@@ -270,7 +234,7 @@ export function LineRow({
   const attachedTags = tags.filter((tag) => line.tagIds.includes(tag.id));
 
   const patch = useMutation({
-    mutationFn: (json: { tagIds?: string[]; translate?: 'include' | 'exclude' }) => changeLines(projectId, [line.id], patchedLine(json), () => client.units[':unitId'].$patch({ param: { unitId: line.id }, json })),
+    mutationFn: (json: { tagIds?: string[]; translate?: 'include' | 'exclude' }) => patchLine(projectId, line.id, json),
     onError: (error) => toast.error(error.message),
   });
 

@@ -9,7 +9,7 @@
  *
  * Everything here is pure: `computeFolds` finds the folds, `foldText` words the chip, `foldedDefinition`
  * draws the definition with the closed folds left out, and the `FoldState` helpers keep which folds are
- * open (the editor and the run graph keep that in sessionStorage, per workflow / run).
+ * open (the editor and the run graph keep that for the tab, per workflow / run).
  */
 import { retryLiveText } from '../../lib/retry-info';
 import { nodeName, nodePorts, type WorkflowDefinition, type WorkflowEdge, type WorkflowNode } from '@tw/shared';
@@ -150,7 +150,7 @@ export function foldLiveText(fold: Fold, live: ReadonlyMap<string, { queued: num
 
 /* ---- which folds are open ---- */
 
-/** Open folds by id. View state: kept in sessionStorage per workflow (or run), never in the URL or the definition. */
+/** Open folds by id. View state: kept for the tab per workflow (or run) (use-fold-state.ts), never in the URL or the definition. */
 export interface FoldState {
   open: string[];
 }
@@ -165,23 +165,6 @@ export const allFoldsOpen = (folds: readonly Fold[], state: FoldState) => folds.
 export function openFoldContaining(state: FoldState, folds: readonly Fold[], nodeId: string | undefined): FoldState {
   const fold = nodeId ? foldContaining(folds, nodeId) : undefined;
   return fold && !isFoldOpen(state, fold.id) ? { open: [...state.open, fold.id] } : state;
-}
-
-export function readFoldState(key: string): FoldState {
-  try {
-    const value = JSON.parse(sessionStorage.getItem(key) ?? 'null');
-    return value && Array.isArray(value.open) ? { open: value.open.filter((id: unknown): id is string => typeof id === 'string') } : NO_OPEN_FOLDS;
-  } catch {
-    return NO_OPEN_FOLDS;
-  }
-}
-export function writeFoldState(key: string, state: FoldState) {
-  try {
-    if (state.open.length) sessionStorage.setItem(key, JSON.stringify(state));
-    else sessionStorage.removeItem(key);
-  } catch {
-    // Folds that are not remembered just start closed again.
-  }
 }
 
 /* ---- where an opened fold's nodes sit ---- */

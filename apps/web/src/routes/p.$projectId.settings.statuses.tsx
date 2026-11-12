@@ -12,9 +12,7 @@ import { Box, EmptyState, Text, type ColumnDef, AlertDialog, AlertDialogCancel, 
 import { Page } from '@/components/page';
 import { MarkChip } from '@/components/status';
 import { MarkPane } from '@/components/settings/mark-pane';
-import { client } from '@/lib/api';
-import { sent } from '@/lib/collections';
-import { reorderTaxonomy, useTaxonomy, useTaxonomyCounts } from '@/lib/knowledge';
+import { reorderTaxonomy, useTaxonomy, useTaxonomyCounts, taxonomyWrites } from '@/lib/knowledge';
 import { STATUS_KIND } from '@/lib/labels';
 import { useReportView } from '@/lib/view-context';
 import { usePicked } from '@/lib/use-picked';
@@ -62,13 +60,14 @@ function StatusSettings() {
     selectedTag && { kind: '태그', id: selectedTag.id, label: selectedTag.name },
   ]);
   const fail = (error: Error) => toast.error(error.message);
+  const writes = useMemo(() => taxonomyWrites(projectId), [projectId]);
   // The row moves at once; a failure moves it back (reorderTaxonomy).
   const reorder = useMutation({
     mutationFn: (ids: string[]) => reorderTaxonomy(projectId, 'statuses', ids),
     onError: fail,
   });
   const create = useMutation({
-    mutationFn: (json: StatusForm) => sent(projectId, client.projects[':projectId'].statuses.$post({ param: { projectId }, json })),
+    mutationFn: (json: StatusForm) => writes.createStatus(json),
     onSuccess: () => {
       close();
       toast.success('상태를 추가했습니다.');
@@ -77,13 +76,13 @@ function StatusSettings() {
   });
   const update = useMutation({
     mutationFn: (variables: { id: string; json: Partial<StatusForm> }) =>
-      sent(projectId, client.projects[':projectId'].statuses[':id'].$patch({ param: { projectId, id: variables.id }, json: variables.json })),
+      writes.saveStatus(variables.id, variables.json),
     onSuccess: () => toast.success('저장했습니다.'),
     onError: fail,
   });
   const remove = useMutation({
     mutationFn: (variables: { ids: string[]; moveTo: string }) =>
-      sent(projectId, client.projects[':projectId'].statuses.delete.$post({ param: { projectId }, json: variables })),
+      writes.deleteStatuses(variables.ids, variables.moveTo),
     onSuccess: (_result, variables) => {
       setRemoving(null);
       statusPicks.clear();
@@ -93,7 +92,7 @@ function StatusSettings() {
     onError: fail,
   });
   const createTag = useMutation({
-    mutationFn: (json: TagForm) => sent(projectId, client.projects[':projectId'].tags.$post({ param: { projectId }, json })),
+    mutationFn: (json: TagForm) => writes.createTag(json),
     onSuccess: () => {
       close();
       toast.success('태그를 추가했습니다.');
@@ -115,12 +114,12 @@ function StatusSettings() {
   });
   const updateTag = useMutation({
     mutationFn: (variables: { id: string; json: Partial<TagForm> }) =>
-      sent(projectId, client.projects[':projectId'].tags[':id'].$patch({ param: { projectId, id: variables.id }, json: variables.json })),
+      writes.saveTag(variables.id, variables.json),
     onSuccess: () => toast.success('저장했습니다.'),
     onError: fail,
   });
   const removeTags = useMutation({
-    mutationFn: (ids: string[]) => sent(projectId, client.projects[':projectId'].tags.delete.$post({ param: { projectId }, json: { ids } })),
+    mutationFn: (ids: string[]) => writes.deleteTags(ids),
     onSuccess: (_result, ids) => {
       tagPicks.clear();
       if (search.tag && ids.includes(search.tag)) close();

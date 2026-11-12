@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { exitActionSchema, nodePorts, workflowNodeSchema, withExitActions, type ExitAction, type WorkflowNode } from '@tw/shared';
+import { exitActionSchema, workflowNodeSchema, withExitActions, type ExitAction, type WorkflowNode } from '@tw/shared';
 import { exitActionText, exitKey, exitTagItems, parseExitKey, type MarkNames } from './exit-marks';
 
 const names: MarkNames = {

@@ -2,9 +2,10 @@ import { useMemo } from 'react';
 import { queryOptions } from '@tanstack/react-query';
 import { createOptimisticAction, useLiveQuery } from '@tanstack/react-db';
 import type { InferRequestType } from 'hono/client';
-import { agentSettingsSchema, type SavedPrompt } from '@tw/shared';
+import { agentSettingsSchema, APP_FEED, type AppDefaultSection, type DetectedCustomFormatRule, type DetectedFormatPreset, type FormatPreset, type SavedPrompt } from '@tw/shared';
 import { ApiError, client, unwrap } from './api';
-import { loaded, projectCollection, sent, type FeedRow } from './collections';
+import { liveRows, projectCollection, sent, type FeedRow } from './collections';
+import { key } from './query-keys';
 import { useGroups } from './groups';
 import { useTaxonomy } from './knowledge';
 
@@ -23,7 +24,7 @@ export const projectRow = (projectId: string) => projectCollection('project', pr
 /** The project's settings (undefined until loaded). */
 export function useProject(projectId: string | undefined) {
   const enabled = Boolean(projectId);
-  const rows = loaded<Project>(useLiveQuery((query) => (enabled ? query.from({ project: projectRow(projectId!) }) : undefined)), enabled);
+  const rows = liveRows(useLiveQuery((query) => (enabled ? query.from({ project: projectRow(projectId!) }) : undefined)), enabled);
   return { ...rows, data: rows.data?.[0] };
 }
 
@@ -96,17 +97,50 @@ export function useProjectProgress(projectId: string) {
 
 /** How many 에디터 AI completions the project made today (calls topic: each one is a call). */
 export const editorCalls = (projectId: string) =>
-  queryOptions({ queryKey: ['calls', 'editor-today', projectId], queryFn: () => unwrap(client.projects[':projectId']['editor-calls'].$get({ param: { projectId } })) });
+  queryOptions({ queryKey: key('calls', 'editor-today', projectId), queryFn: () => unwrap(client.projects[':projectId']['editor-calls'].$get({ param: { projectId } })) });
 
 /** Each speaker key with its lines and the character it names, most lines first ('' = lines with no speaker). */
 export function useSpeakers(projectId: string) {
-  return loaded<FeedRow['speakers']>(useLiveQuery((query) => query.from({ speaker: projectCollection('speakers', projectId) }).orderBy(({ speaker }) => speaker.lines, 'desc')));
+  return liveRows(useLiveQuery((query) => query.from({ speaker: projectCollection('speakers', projectId) }).orderBy(({ speaker }) => speaker.lines, 'desc')));
 }
 
 /** The known listeners, most lines first, and how many lines' listener is unknown (청자 모름, summed from the scene rows). */
 export function useListeners(projectId: string) {
-  const rows = loaded<FeedRow['listeners']>(useLiveQuery((query) => query.from({ listener: projectCollection('listeners', projectId) }).orderBy(({ listener }) => listener.lines, 'desc')));
+  const rows = liveRows(useLiveQuery((query) => query.from({ listener: projectCollection('listeners', projectId) }).orderBy(({ listener }) => listener.lines, 'desc')));
   const progress = useProjectProgress(projectId);
   const data = useMemo(() => (rows.data && progress ? { listeners: rows.data.map(({ name, lines }) => ({ name, lines })), unknownCount: progress.unknownListeners } : undefined), [rows.data, progress]);
-  return { data, isPending: !data };
+  return { data, isLoading: !data };
 }
+
+/** The format tokens the project's source seems to use, for the format rules' suggestions (units topic). */
+export const detectedFormatRules = (projectId: string) =>
+  queryOptions({
+    queryKey: key('units', 'detect-format-rules', projectId),
+    queryFn: () =>
+      unwrap(client.projects[':projectId']['detect-format-rules'].$get({ param: { projectId } })) as Promise<{
+        presets: DetectedFormatPreset[];
+        customCandidates: DetectedCustomFormatRule[];
+        recommendedPresets: FormatPreset[];
+      }>,
+  });
+
+// ── writes on the project as a whole ───────────────────────────────────────────
+
+/** Deletes the project: done once the projects list (the app's scope) has lost it. */
+export const deleteProject = (projectId: string) => sent(APP_FEED, client.projects[':projectId'].$delete({ param: { projectId } }));
+
+/** Checks a project file without importing it: what it holds and what is wrong with it. */
+export const validateProjectFile = (body: unknown) => unwrap(client.projects.validate.$post({ json: body }));
+
+/** A new project from a file: done once the projects list has it. */
+export const importProjectFile = (data: unknown) => sent(APP_FEED, client.projects.$post({ json: data as never }));
+
+/** 홈 기본값 가져오기: the checked sections of the home's defaults come into this project; answers with what each did. */
+export const pullDefaults = (projectId: string, sections: AppDefaultSection[]) => sent(projectId, client.projects[':projectId'].defaults.pull.$post({ param: { projectId }, json: { sections } }));
+
+/** 홈 기본값 올리기: this project's sections go up to the home's defaults (the app's scope). */
+export const pushDefaults = (projectId: string, sections: AppDefaultSection[], workflowIds: string[]) => sent(APP_FEED, client.projects[':projectId'].defaults.push.$post({ param: { projectId }, json: { sections, workflowIds } }));
+
+/** A regular expression written by the AI from a description: a question asked of the model (the call is logged; no row a screen edits changes). */
+export const generateRegex = (projectId: string, prompt: string, target: InferRequestType<Api['generate-regex']['$post']>['json']['target']) =>
+  unwrap(client.projects[':projectId']['generate-regex'].$post({ param: { projectId }, json: { prompt, target } }));

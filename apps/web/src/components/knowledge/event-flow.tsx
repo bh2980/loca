@@ -9,6 +9,7 @@ import { GRAPH_KEYS, useGraphShortcuts } from '@/lib/graph-shortcuts';
 import { keyLabel } from '@/lib/keys';
 import { EVENT_CARD as CARD, layoutSection, type EventFlowDirection } from './event-flow-layout.ts';
 import { lineKey, parseLineKey, type EventFlowActions, type FlowLine } from './event-actions';
+import { STORED, useStored } from '@/lib/storage';
 
 /** Space between one section's flow and the next, and for its title. */
 const SECTION_GAP = 96;
@@ -111,24 +112,9 @@ export function EventFlow({ projectId, events, selected, onOpen, filtered, direc
   const selectedEvent = selectedLine ? undefined : selected;
 
   // Dragged positions: a per-browser convenience, like the relationship graph.
-  const storageKey = `tw.events.layout.${projectId}${direction === 'horizontal' ? '.horizontal' : ''}`;
-  const [moved, setMoved] = useState<Record<string, { x: number; y: number }>>(() => {
-    try {
-      return JSON.parse(localStorage.getItem(storageKey) ?? '{}');
-    } catch {
-      return {};
-    }
-  });
+  const [moved, remember] = useStored(STORED.eventFlowPositions, projectId, direction);
   const movedRef = useRef(moved);
   movedRef.current = moved;
-  const remember = (next: Record<string, { x: number; y: number }>) => {
-    setMoved(next);
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(next));
-    } catch {
-      // Without storage the positions last until reload.
-    }
-  };
 
   const [layout, setLayout] = useState<{ key: string; positions: Record<string, { x: number; y: number }>; titles: { id: string; title: string; x: number; y: number; ids: string[] }[] }>();
   const layoutRef = useRef(layout);

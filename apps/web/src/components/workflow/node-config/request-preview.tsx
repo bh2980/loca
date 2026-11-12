@@ -1,10 +1,12 @@
-import { useState, type ReactNode } from 'react';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { useState, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import type { InferResponseType } from 'hono/client';
-import { AI_OUTPUTS, CONTEXT_ITEM_KINDS, CONTEXT_PRIORITY, INPUT_TYPES, JSON_FIELD_TYPE_LABELS, type AiNode, type AiOutput, type BatchConfig, type Subject, bySubject } from '@tw/shared';
+import { AI_OUTPUTS, CONTEXT_ITEM_KINDS, CONTEXT_PRIORITY, INPUT_TYPES, JSON_FIELD_TYPE_LABELS, type AiNode, type Subject, bySubject } from '@tw/shared';
 import { Box, Button, Dialog, DialogContent, DialogHeader, DialogTitle, Inline, RequestDetails, RequestPart as Part, Combobox, Skeleton, Text, Section } from '@loca/ui';
-import { client, unwrap } from '@/lib/api';
+import { client } from '@/lib/api';
 import { useTerms } from '@/lib/terms';
+import { requestPreview } from '@/lib/workflows';
+import { useLinePage } from '@/lib/units';
 
 type Request = InferResponseType<(typeof client.workflows)[':id']['nodes'][':nodeId']['request']['$get'], 200>;
 
@@ -84,12 +86,7 @@ export function PromptView({ request, title }: { request: Request; title: string
 
 /** The request of one saved AI node that holds `sample` (a line key, or a term id; none = the first item). */
 export function useRequestPreview(workflowId: string | undefined, nodeId: string | undefined, sample: string | undefined) {
-  return useQuery({
-    queryKey: ['workflows', 'request-preview', workflowId, nodeId, sample ?? ''],
-    queryFn: () => unwrap(client.workflows[':id'].nodes[':nodeId'].request.$get({ param: { id: workflowId!, nodeId: nodeId! }, query: sample ? { sample } : {} })),
-    enabled: Boolean(workflowId && nodeId),
-    placeholderData: keepPreviousData,
-  });
+  return useQuery({ ...requestPreview(workflowId ?? '', nodeId ?? '', sample), enabled: Boolean(workflowId && nodeId) });
 }
 
 /** Which item the preview is built for: lines searched by source, translation or key on the server, terms from the glossary. */
@@ -97,12 +94,9 @@ function SamplePicker({ projectId, subject, value, label, onPick }: { projectId:
   const [query, setQuery] = useState('');
   // Each input's items come from their own place: lines searched on the server (by source, translation or key), terms from the glossary this browser holds.
   const source = bySubject(subject, { lines: { search: true, placeholder: '대사 고르기' }, terms: { search: false, placeholder: '용어 고르기' } });
-  const lines = useQuery({
-    queryKey: ['units', 'sample-search', projectId, query],
-    queryFn: () => unwrap(client.projects[':projectId'].lines.find.$post({ param: { projectId }, json: { offset: 0, limit: 30, ...(query.trim() && { q: query.trim() }) } })),
-    enabled: source.search,
-    placeholderData: keepPreviousData,
-  });
+  // Which lines match is the line list's own question (ids); the lines themselves are the browser's rows.
+  const sampleFilter = useMemo(() => ({ limit: 30, ...(query.trim() && { q: query.trim() }) }), [query]);
+  const lines = useLinePage(projectId, sampleFilter, { enabled: source.search });
   const terms = useTerms(projectId, { enabled: !source.search });
   const options = bySubject<() => { value: string; label: string; searchText?: string }[]>(subject, {
     lines: () => (lines.data?.rows ?? []).map((row) => ({ value: row.key, label: `${row.key} · ${row.speaker ? `${row.speaker}: ` : ''}${row.translation || row.source}` })),

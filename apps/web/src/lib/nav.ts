@@ -1,5 +1,5 @@
 import { useRouterState } from '@tanstack/react-router';
-import { BookMarked, Bot, FileText, GitBranch, History, Home, Languages, Milestone, PenLine, Plug, Settings2, Sparkles, Tags, UsersRound, Workflow, type LucideIcon } from 'lucide-react';
+import { BookMarked, Bot, FileText, GitBranch, History, Home, Languages, Milestone, PenLine, Plug, Settings2, Tags, UsersRound, Workflow, type LucideIcon } from 'lucide-react';
 
 export interface NavItem {
   id: string;

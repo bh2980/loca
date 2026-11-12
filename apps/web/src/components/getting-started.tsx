@@ -10,6 +10,7 @@ import { useCharacters, useSpeechRules } from '@/lib/knowledge';
 import { useRuns } from '@/lib/runs';
 import { useProject } from '@/lib/project';
 import { useConnections } from '@/lib/app-data';
+import { stored, STORED } from '@/lib/storage';
 
 interface Step {
   key: string;
@@ -172,21 +173,5 @@ export function GettingStarted({ projectId }: { projectId: string }) {
   );
 }
 
-const hiddenKey = (projectId: string) => `getting-started-hidden:${projectId}`;
-
-function readHidden(projectId: string) {
-  try {
-    return localStorage.getItem(hiddenKey(projectId)) === '1';
-  } catch {
-    return false;
-  }
-}
-
-function writeHidden(projectId: string, hidden: boolean) {
-  try {
-    if (hidden) localStorage.setItem(hiddenKey(projectId), '1');
-    else localStorage.removeItem(hiddenKey(projectId));
-  } catch {
-    // Storage unavailable: closed until the page reloads.
-  }
-}
+const readHidden = (projectId: string) => stored(STORED.gettingStartedHidden, projectId).read();
+const writeHidden = (projectId: string, hidden: boolean) => stored(STORED.gettingStartedHidden, projectId).write(hidden);

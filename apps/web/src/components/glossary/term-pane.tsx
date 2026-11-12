@@ -11,15 +11,14 @@ import { Inspector, InspectorHeader, InspectorList, InspectorTabs, TagListEditor
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { AiNamed, confirmLabel, SourceBadge, StateCell } from '@/components/knowledge/table';
 import { ALL_TERM_KINDS, isSettled, TAG_SCOPES, TERM_LINE_KIND_LABELS, TERM_LINE_KINDS, type TermScope } from '@tw/shared';
-import { client } from '@/lib/api';
 import { changedFields, useFormFrom } from '@/lib/use-form-from';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
 import { q, tagsIn } from '@/lib/queries';
-import { sent } from '@/lib/collections';
 import { useTaxonomy } from '@/lib/knowledge';
 import { useLines } from '@/lib/units';
 import { useGroupsById } from '@/lib/groups';
 import type { Term } from '@/lib/terms';
+import { createTerm, saveTerm, deleteTerm, tagTerms } from '@/lib/terms';
 
 /** `?term=new` opens the pane for a term that does not exist yet. */
 export const NEW_TERM = 'new';
@@ -66,7 +65,7 @@ function TermFields({ form, onChange }: { form: TermForm; onChange: (form: TermF
 export function NewTermPane({ projectId, onClose, onCreated }: { projectId: string; onClose: () => void; onCreated: (id: string) => void }) {
   const [form, setForm] = useState<TermForm>({ source: '', target: '', note: '', scope: ALL_TERM_KINDS, matchCase: false });
   const create = useMutation({
-    mutationFn: () => sent(projectId, client.projects[':projectId'].terms.$post({ param: { projectId }, json: form })),
+    mutationFn: () => createTerm(projectId, form),
     onSuccess: (created) => {
       toast.success('용어를 추가했습니다.');
       if (created && typeof created === 'object' && 'id' in created && typeof created.id === 'string') onCreated(created.id);
@@ -100,18 +99,18 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
   const { draft: form, setDraft: setForm, dirty, conflicts, keepMine, takeSaved } = useFormFrom(saved, `term.${projectId}.${term.id}`);
   const candidate = !isSettled(term);
   const save = useMutation({
-    mutationFn: () => sent(projectId, client.projects[':projectId'].terms[':id'].$patch({ param: { projectId, id: term.id }, json: changedFields(form, saved) })),
+    mutationFn: () => saveTerm(projectId, term.id, changedFields(form, saved)),
     onSuccess: () => toast.success('저장했습니다.'),
     onError: (error) => toast.error(error.message),
   });
   // 메인으로: the candidate becomes the form used; the former main one stays a candidate (server side).
   const makeMain = useMutation({
-    mutationFn: (target: string) => sent(projectId, client.projects[':projectId'].terms[':id'].$patch({ param: { projectId, id: term.id }, json: { target } })),
+    mutationFn: (target: string) => saveTerm(projectId, term.id, { target }),
     onSuccess: (_, target) => toast.success(`'${target}'을(를) 메인 번역어로 바꿨습니다.`),
     onError: (error) => toast.error(error.message),
   });
   const remove = useMutation({
-    mutationFn: () => sent(projectId, client.projects[':projectId'].terms[':id'].$delete({ param: { projectId, id: term.id } })),
+    mutationFn: () => deleteTerm(projectId, term.id),
     onSuccess: () => {
       toast.success('용어를 삭제했습니다.');
       onClose();
@@ -120,7 +119,7 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
   });
 
   const usage = useQuery(q.termUsage(projectId, term.id));
-  const [tab, setTab] = useInspectorTab<TermTab>('term', TERM_TABS);
+  const [tab, setTab] = useInspectorTab<TermTab>(TERM_TABS);
   const [allUses, setAllUses] = useState(false);
   // Which lines use the term is the question; the first of them come from the units collection.
   const useIds = useMemo(() => usage.data?.unitIds.slice(0, 100), [usage.data]);
@@ -134,10 +133,7 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
 
   const tagMutation = useMutation({
     mutationFn: async ({ tagId, add }: { tagId: string; add: boolean }) => {
-      await sent(projectId, client.projects[':projectId']['knowledge-tags'].$post({
-        param: { projectId },
-        json: { kind: 'terms', ids: [term.id], tagId, add },
-      }));
+      await tagTerms(projectId, [term.id], tagId, add);
     },
     onError: (error) => toast.error(error.message),
   });

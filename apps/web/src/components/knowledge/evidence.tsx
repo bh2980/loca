@@ -7,13 +7,12 @@ import { Check, Play, Plus } from 'lucide-react';
 import { changeState, listenerLabel, SPEECH_LEVEL_LABELS, type RelationshipChange, type SpeechLevel } from '@tw/shared';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { AiMark, Box, Chip, Field, Group, Input, InspectorList, InspectorResult, Button, Inline, ListRow, Text, TextLink, Section, SectionHeading, Timeline, TimelineFields, TimelineNote, TimelinePoint, TimelineQuotes } from '@loca/ui';
-import { client } from '@/lib/api';
-import { sent } from '@/lib/collections';
 import { useGroupsById } from '@/lib/groups';
 import { q } from '@/lib/queries';
 import { PersonName } from '@/lib/person-colors';
 import { useLinePage, useLines, useLinesByKeys } from '@/lib/units';
 import { mergeLines, type LineReason } from '@/lib/merge-lines';
+import { knowledgeWrites } from '@/lib/knowledge';
 
 type LineRow = NonNullable<ReturnType<typeof useLines>['rows']>[number];
 
@@ -156,7 +155,7 @@ export function RelationshipChanges({ projectId, relationship, embedded, actions
   const sorted = [...changes].sort((a, b) => (order.get(a.at) ?? 1e9) - (order.get(b.at) ?? 1e9));
   const [editing, setEditing] = useState<number | 'new' | null>(null);
   const save = useMutation({
-    mutationFn: (next: Change[]) => sent(projectId, client.projects[':projectId'].relationships[':id'].changes.$patch({ param: { projectId, id: relationship.id! }, json: { changes: next } })),
+    mutationFn: (next: Change[]) => knowledgeWrites(projectId).relationships.saveChanges(relationship.id!, next),
     onSuccess: () => setEditing(null),
     onError: (error) => toast.error(error.message),
   });

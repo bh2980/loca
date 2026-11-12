@@ -7,11 +7,9 @@ import { WORKFLOW_TEMPLATES } from '@tw/shared';
 import { EmptyState, DataTable, type ColumnDef, RunStatusBadge, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Chip, Box, Button, Inline, Skeleton, Stack, Text, ContextMenuItem, ContextMenuSeparator, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@loca/ui';
 import { HeaderActions, Page } from '@/components/page';
 import { RunDialog } from '@/components/workflow/run-dialog';
-import { client } from '@/lib/api';
 import { dateTime } from '@/lib/datetime';
 import { useRuns } from '@/lib/runs';
-import { useWorkflows } from '@/lib/workflows';
-import { sent } from '@/lib/collections';
+import { useWorkflows, deleteWorkflow, createWorkflow, duplicateWorkflow } from '@/lib/workflows';
 
 export const Route = createFileRoute('/p/$projectId/workflows/')({ component: Workflows });
 
@@ -21,7 +19,7 @@ function Workflows() {
   const workflows = useWorkflows(projectId);
   const runs = useRuns(projectId);
   const remove = useMutation({
-    mutationFn: (id: string) => sent(projectId, client.workflows[':id'].$delete({ param: { id } })),
+    mutationFn: (id: string) => deleteWorkflow(projectId, id),
     onSuccess: () => {
       toast.success('워크플로를 삭제했습니다.');
     },
@@ -30,14 +28,14 @@ function Workflows() {
   const [deleteTarget, setDeleteTarget] = useState<Workflow | null>(null);
   type Workflow = NonNullable<typeof workflows.data>[number];
   const create = useMutation({
-    mutationFn: (template?: string) => sent(projectId, client.projects[':projectId'].workflows.$post({ param: { projectId }, json: template ? { template } : {} })),
+    mutationFn: (template?: string) => createWorkflow(projectId, template),
     onSuccess: (workflow) => {
       void navigate({ to: '/p/$projectId/workflows/$workflowId', params: { projectId, workflowId: workflow.id } });
     },
     onError: (error) => toast.error(error.message),
   });
   const duplicate = useMutation({
-    mutationFn: (workflow: Workflow) => sent(projectId, client.workflows[':id'].duplicate.$post({ param: { id: workflow.id }, json: {} })),
+    mutationFn: (workflow: Workflow) => duplicateWorkflow(projectId, workflow.id),
     onSuccess: () => {
       toast.success('워크플로를 복제했습니다.');
     },

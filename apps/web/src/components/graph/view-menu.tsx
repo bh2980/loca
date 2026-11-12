@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { q } from '@/lib/queries';
-import { useGraphViews } from '@/lib/logs';
+import { useGraphViews } from '@/lib/graph-views';
 import { DeleteViewDialog, useViewActions } from './view-inspector';
 import { ChevronDown, MousePointerClick, Pencil, Route as RouteIcon, Trash2 } from 'lucide-react';
 import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, Icon, Inline, ListRow, MenuLabel, MenuRenameRow, MenuRowAction, MenuRowMeta, MenuSearchField, Stack, Text, ViewSwitch } from '@loca/ui';

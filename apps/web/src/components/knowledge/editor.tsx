@@ -4,7 +4,7 @@ import { cloneElement, isValidElement, useMemo, useState, type ReactNode } from 
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Check, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { DOCUMENT_KINDS, STYLE_AXES, type StyleAxis, type CharacterRole, type Gender, type AgeBand, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, isSettled, AGE_BAND_LABELS, CHARACTER_ROLE_LABELS, GENDER_LABELS, knowledgeKindScope, type TagScope, type KnowledgeTagKind } from '@tw/shared';
+import { DOCUMENT_KINDS, STYLE_AXES, type StyleAxis, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, isSettled, AGE_BAND_LABELS, CHARACTER_ROLE_LABELS, GENDER_LABELS, knowledgeKindScope, type TagScope, type KnowledgeTagKind } from '@tw/shared';
 import { TagInput, Inspector, InspectorHeader, InspectorTabs, InspectorToggle, useControlId, TagListEditor, DirtyBar, Box, Inline, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Select, SelectContent, SelectItem, SelectValue, AiMark, SelectTrigger, Textarea, Section, Field } from '@loca/ui';
 import { joinList, splitList } from '@/lib/list-value';
 import { Swatches } from '@/components/settings/swatches';
@@ -13,15 +13,14 @@ import { ChangedElsewhere } from '@/components/changed-elsewhere';
 import { DOCUMENT_KIND } from '@/lib/labels';
 import { Evidence, StretchPicker } from '@/components/knowledge/evidence';
 import { confirmLabel, fail, KINDS, SourceBadge, text, type Kind, type KindSpec, type RelationshipRow, type Row, type Field as KnowledgeField } from '@/components/knowledge/table';
-import { client } from '@/lib/api';
 import { q, tagsIn } from '@/lib/queries';
 import { useInspectorTab } from '@/lib/inspector-tab';
-import { useTaxonomy } from '@/lib/knowledge';
+import { useTaxonomy, knowledgeWrites } from '@/lib/knowledge';
 import { sent } from '@/lib/collections';
 import { useLinesByKeys } from '@/lib/units';
 import { particle } from '@/lib/josa';
 
-/** A field's value in the draft (the form is kept as JSON in sessionStorage). */
+/** A field's value in the draft (the form is kept as JSON text, a draft: lib/drafts.ts). */
 type Value = string | boolean | string[] | Record<string, string> | null;
 
 type EditorTab = 'basic' | 'content' | 'extra' | 'evidence';
@@ -102,10 +101,7 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
 
   const tagMutation = useMutation({
     mutationFn: async ({ tagId, add }: { tagId: string; add: boolean }) => {
-      await sent(projectId, client.projects[':projectId']['knowledge-tags'].$post({
-        param: { projectId },
-        json: { kind, ids: [row.id], tagId, add },
-      }));
+      await knowledgeWrites(projectId).tag(kind, [row.id], tagId, add);
     },
     onError: fail,
   });
@@ -128,7 +124,7 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
   const contentFields = spec.fields.filter((field) => inContent(field) && field.type !== 'style');
   const styleFields = spec.fields.filter((field) => inContent(field) && field.type === 'style');
   const changed = (field: KnowledgeField) => JSON.stringify(form[field.name] ?? null) !== JSON.stringify(savedForm[field.name] ?? null);
-  const [tab, setTab] = useInspectorTab<EditorTab>(`knowledge.${kind}`, (tabIds.length ? tabIds : ['basic']) as [EditorTab, ...EditorTab[]]);
+  const [tab, setTab] = useInspectorTab<EditorTab>((tabIds.length ? tabIds : ['basic']) as [EditorTab, ...EditorTab[]]);
   // A rule's line count for its tab, from the same query its 적용 대사 tab reads.
   const ruleLines = useQuery({ ...q.ruleLines(projectId, row.id), enabled: tabbed && kind === 'speechRules' });
   const extraCount = kind === 'relationships' ? (row as RelationshipRow).changes.length : kind === 'speechRules' ? (ruleLines.data?.count ?? null) : undefined;

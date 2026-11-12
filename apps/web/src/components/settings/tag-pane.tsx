@@ -2,8 +2,8 @@
 import { useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import { DEFAULT_TAG_COLOR, TAG_SCOPES, TAG_SCOPE_LABELS } from '@tw/shared';
-import { InspectorHeader, Inspector, Button, Checkbox, Input, Inline, Label, Stack, Text, Textarea, Section, Field, Box } from '@loca/ui';
-import { scopeLabel, type TagForm, type TagRowData, type WithoutUnits } from '@/components/settings/status-types';
+import { InspectorHeader, Inspector, Button, Checkbox, Input, Inline, Label, Stack, Textarea, Section, Field, Box } from '@loca/ui';
+import { type TagForm, type TagRowData, type WithoutUnits } from '@/components/settings/status-types';
 import { Swatches } from '@/components/settings/swatches';
 import { TagDeleteDialog } from '@/components/settings/tag-delete-dialog';
 import { changedFields, useFormFrom } from '@/lib/use-form-from';
