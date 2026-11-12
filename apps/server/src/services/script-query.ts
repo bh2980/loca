@@ -1,10 +1,10 @@
 import { and, asc, count, desc, eq, gte, inArray, or, sql } from 'drizzle-orm';
-import { checkFormat, exclusionRulesSchema, lineExclusion, lineMarksOf, runNodeName, type BatchChange, type CheckKind, type LineFilter, type LineMark, type ResolvedLineFilter, withSourceWhitespace } from '@tw/shared';
+import { checkFormat, exclusionRulesSchema, lineChangeEmpty, lineExclusion, lineMarksOf, runNodeName, type BatchChange, type CheckKind, type LineChange, type LineFilter, type LineMark, type ResolvedLineFilter, withSourceWhitespace } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import { inChunks, inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { attachUnitTags, scopeRefusal } from './tag-scope.ts';
-import { saveLine } from './line-save.ts';
+import { isStale, LINE_CHANGED, revOf, saveLine, setLineMemo, setLineTranslate, statusRefusal } from './line-save.ts';
 import { PERSON, type Saver } from './status-by.ts';
 import { refusesListener, setAiListener, setHumanListener } from './listeners.ts';
 import { markConditions, translatableSql } from './line-marks.ts';
@@ -100,7 +100,7 @@ function findResolved(db: Db, projectId: string, filter: ResolvedLineFilter, opt
     rows: page.map(({ unit, group }) => ({
       id: unit.id,
       key: unit.key,
-      rev: unit.updatedAt.getTime(),
+      rev: revOf(unit),
       group,
       kind: unit.kind,
       speaker: unit.speaker,
@@ -355,20 +355,30 @@ export function normalizeBatch(db: Db, projectId: string, batch: BatchChange, op
     const unit = units.get(change.key);
     if (!unit) return [change];
     const next = { ...change };
-    if (options.fillRev && next.rev === undefined) next.rev = unit.updatedAt.getTime();
+    if (options.fillRev && next.rev === undefined) next.rev = revOf(unit);
     // Compared as saveLine will store it: the source's leading and trailing whitespace.
     if (next.translation !== undefined) next.translation = withSourceWhitespace(unit.source, next.translation);
     if (next.translation !== undefined && next.translation === (unit.translation ?? '')) delete next.translation;
     if (next.status && statusId(next.status) === unit.statusId) delete next.status;
     if (next.listener !== undefined && next.listener === unit.listener) delete next.listener;
     if (next.translate !== undefined && next.translate === unit.translate) delete next.translate;
-    if (next.translation === undefined && next.listener === undefined && next.translate === undefined && !next.status && !next.addTags.length && !next.removeTags.length) {
+    if (next.memo !== undefined && next.memo.trim() === unit.note) delete next.memo;
+    if (lineChangeEmpty(next)) {
       unchanged.push(change.key);
       return [];
     }
     return [next];
   });
   return { batch: { ...batch, changes }, unchanged };
+}
+
+/**
+ * Why the line may not be in the status the change gives it (or, when the change only empties its text, in the status
+ * it keeps), by the rule of statuses (statusRefusal) against the text the change leaves it with. Null when it holds.
+ */
+function statusProblem(db: Pick<Db, 'select'>, projectId: string, unit: Unit, change: LineChange, statusId: (name: string) => string | undefined) {
+  const status = change.status ? statusId(change.status) : change.translation !== undefined && !change.translation.trim() ? unit.statusId : undefined;
+  return status ? statusRefusal(db, projectId, status, change.translation ?? unit.translation) : null;
 }
 
 export interface BatchReport {
@@ -382,7 +392,7 @@ export interface BatchReport {
   warnings: { key: string; issues: string[] }[];
 }
 
-/** Validate a batch without writing: unknown keys, stale revs, unknown statuses/tags, and format/glossary problems in new translations. */
+/** Validate a batch without writing: unknown keys, stale revs, unknown statuses/tags, a status its line may not be in, and format/glossary problems in new translations. */
 export function validateBatch(db: Db, projectId: string, batch: BatchChange): BatchReport {
   const { statusId, tagId } = lookups(db, projectId);
   const units = unitsByKey(db, projectId, batch.changes.map((change) => change.key));
@@ -393,14 +403,16 @@ export function validateBatch(db: Db, projectId: string, batch: BatchChange): Ba
   for (const change of batch.changes) {
     const unit = units.get(change.key);
     let tagRefusal: string | null = null;
+    let statusRefused: string | null = null;
     if (!unit) report.errors.push({ key: change.key, reason: '없는 대사 키입니다.' });
     else if (refusesListener(unit, change.listener)) report.errors.push({ key: change.key, reason: '나레이션에는 청자가 없습니다.' });
     else if (seen.has(change.key)) report.errors.push({ key: change.key, reason: '같은 키가 두 번 나옵니다.' });
-    else if (change.rev !== undefined && change.rev !== unit.updatedAt.getTime()) report.conflicts.push({ key: change.key, reason: '읽은 뒤에 다른 곳에서 바뀌었습니다.' });
+    else if (isStale(unit, change.rev)) report.conflicts.push({ key: change.key, reason: LINE_CHANGED });
     else if (change.status && !statusId(change.status)) report.errors.push({ key: change.key, reason: `없는 상태입니다: ${change.status}` });
     else if ([...change.addTags, ...change.removeTags].some((tag) => !tagId(tag))) report.errors.push({ key: change.key, reason: `이 프로젝트에 없는 태그입니다: ${[...change.addTags, ...change.removeTags].filter((tag) => !tagId(tag)).join(', ')}` });
     else if ((tagRefusal = scopeRefusal(db, projectId, change.addTags.map((tag) => tagId(tag)!), 'lines'))) report.errors.push({ key: change.key, reason: tagRefusal });
-    else if (change.translation === undefined && change.listener === undefined && change.translate === undefined && !change.status && !change.addTags.length && !change.removeTags.length) report.errors.push({ key: change.key, reason: '바꿀 내용이 없습니다.' });
+    else if (lineChangeEmpty(change)) report.errors.push({ key: change.key, reason: '바꿀 내용이 없습니다.' });
+    else if ((statusRefused = statusProblem(db, projectId, unit, change, statusId))) report.errors.push({ key: change.key, reason: statusRefused });
     else {
       report.changes++;
       if (change.translation !== undefined) {
@@ -434,23 +446,32 @@ export function applyBatch(db: Db, projectId: string, batch: BatchChange, saver:
         skipped.push({ key: change.key, reason: '없는 대사 키' });
         continue;
       }
-      if (change.rev !== undefined && change.rev !== unit.updatedAt.getTime()) {
-        skipped.push({ key: change.key, reason: '그사이 바뀜' });
+      if (isStale(unit, change.rev)) {
+        skipped.push({ key: change.key, reason: LINE_CHANGED });
         continue;
       }
       // Only dialogue has a listener (validateBatch reports the same).
       if (refusesListener(unit, change.listener)) {
-        skipped.push({ key: change.key, reason: '나레이션에는 청자가 없음' });
+        skipped.push({ key: change.key, reason: '나레이션에는 청자가 없습니다.' });
         continue;
       }
-      // Who decided it: a person who accepted the proposal, or AI when the terminal's mode applied it.
-      saveLine(tx, unit, { text: change.translation, statusId: change.status ? statusId(change.status)! : undefined, origin: batch.origin, model: batch.model ?? null, note: change.note, statusBy: saver.statusBy });
+      // The status's rule, asked before anything of the line is written (validateBatch reports the same): the line is skipped, the rest go on.
+      const status = change.status ? statusId(change.status)! : undefined;
+      const refused = statusProblem(tx, projectId, unit, change, statusId);
+      if (refused) {
+        skipped.push({ key: change.key, reason: refused });
+        continue;
+      }
+      // Who decided it: a person who accepted the proposal, or AI when the terminal's mode applied it. The rev was checked above
+      // (the line's other fields below raise it again).
+      saveLine(tx, unit, { text: change.translation, statusId: status, origin: batch.origin, model: batch.model ?? null, note: change.note, statusBy: saver.statusBy });
       // A listener is a person's only when a person decided this batch; otherwise it is the agent's guess, which never replaces a person's.
       if (change.listener !== undefined) {
         if (saver.statusBy === 'human') setHumanListener(tx, [unit.id], change.listener);
         else if (!setAiListener(tx, unit, change.listener, 1, rules)) listenerKept.push(change.key);
       }
-      if (change.translate !== undefined) tx.update(s.units).set({ translate: change.translate }).where(eq(s.units.id, unit.id)).run();
+      if (change.translate !== undefined) setLineTranslate(tx, projectId, [unit.id], change.translate);
+      if (change.memo !== undefined) setLineMemo(tx, projectId, [unit.id], change.memo);
       // Checked in validateBatch; a tag whose place changed since is skipped here, never put where it doesn't belong.
       attachUnitTags(tx, projectId, [unit.id], { add: change.addTags.map((tag) => tagId(tag)).filter((id): id is string => !!id), remove: change.removeTags.map((tag) => tagId(tag)).filter((id): id is string => !!id) }, { onMisplaced: 'skip' });
       applied.push(change.key);

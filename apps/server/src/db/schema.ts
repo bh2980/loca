@@ -818,6 +818,35 @@ export const proposals = sqliteTable(
   (t) => [index('proposals_project').on(t.projectId, t.status)],
 );
 
+/** A table whose rows an undo record can hold (services/undo-records.ts lists them in the order they go back). */
+export type UndoRow = Record<string, unknown>;
+/**
+ * What one change removed, rewrote and made, as the database stored it (column → raw value), so it can be put back:
+ * `removed` rows are inserted again, `rewritten` columns get their former values, `made` rows are deleted.
+ */
+export interface UndoData {
+  removed: { table: string; rows: UndoRow[] }[];
+  rewritten: { table: string; id: string; values: UndoRow }[];
+  made: { table: string; ids: string[] }[];
+}
+/**
+ * One undoable structural change (deleting lines, scenes or knowledge items with everything that hangs from them, an
+ * edit of the dialogue graph): kept here, not in memory, so ⌘/Ctrl+Z in the app and an accepted proposal's 되돌리기
+ * work after a restart. Used once, then deleted; old ones are pruned (services/undo-records.ts).
+ */
+export const undoRecords = sqliteTable(
+  'undo_records',
+  {
+    id: id(),
+    projectId: projectId(),
+    /** What it changed, as the agent permissions name it (script, scenes, characters…): who may put it back through the gate. */
+    kind: text('kind').notNull(),
+    data: json<UndoData>('data').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index('undo_records_project').on(t.projectId, t.createdAt)],
+);
+
 export const chatSessions = sqliteTable('chat_sessions', {
   id: id(),
   projectId: projectId(),

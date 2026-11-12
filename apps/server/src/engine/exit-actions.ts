@@ -14,6 +14,7 @@ import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { setKnowledgeTag } from '../services/knowledge-tags.ts';
 import { attachUnitTags } from '../services/tag-scope.ts';
+import { setLineStatus } from '../services/line-save.ts';
 import { HUMAN_OWNED_NOTE, personOwns } from './apply-candidate.ts';
 
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
@@ -67,7 +68,8 @@ export type ExitApplier = (tx: Tx, run: Run, item: Item, actions: readonly ExitA
 /**
  * Applies an exit's actions to the item, as `apply` does for the run's kind of item; returns the notes for the run's
  * detail (a person's status kept, a tag not found…). The line's history knows the tags it changed came from this run
- * (event_actor, read by the line_events triggers).
+ * (event_actor, read by the line_events triggers). An action the project's rules refuse throws: the caller ends the
+ * item failed with that reason, and none of the exit's actions stay.
  */
 export function applyExitActions(tx: Tx, run: Run, item: Item, nodeId: string, port: string, actions: readonly ExitAction[], apply: ExitApplier): string[] {
   if (!actions.length) return [];
@@ -76,7 +78,9 @@ export function applyExitActions(tx: Tx, run: Run, item: Item, nodeId: string, p
   const result = step ? (item.data.outputs?.[step] as Record<string, unknown> | undefined) : undefined;
   tx.insert(s.eventActor).values({ one: 1, runId: run.id }).onConflictDoUpdate({ target: s.eventActor.one, set: { runId: run.id } }).run();
   try {
-    return apply(tx, run, item, actions, result);
+    // All of the exit's actions or none (a savepoint): when one is refused, the tags an earlier one put on do not stay on a
+    // line that then fails here.
+    return tx.transaction((step) => apply(step, run, item, actions, result));
   } finally {
     tx.delete(s.eventActor).run();
   }
@@ -125,7 +129,9 @@ export const lineExitActions: ExitApplier = (tx, run, item, actions, result) => 
         notes.push(HUMAN_STATUS_NOTE);
         continue;
       }
-      tx.update(s.units).set({ statusId: action.statusId, statusBy: 'ai', statusRunId: run.id }).where(eq(s.units.id, item.subjectId)).run();
+      // The one writer of a line's status: a status the line may not be in (a final one without a translation) is refused
+      // here as it is for a person, and the line fails at this exit with that reason (applyExitActions).
+      setLineStatus(tx, run.projectId, [item.subjectId], action.statusId, { statusBy: 'ai', runId: run.id });
       continue;
     }
     const { ids, unmatched } = tagsOf(tx, run, 'lines', action, result);

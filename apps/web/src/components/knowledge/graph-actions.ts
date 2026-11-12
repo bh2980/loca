@@ -12,6 +12,8 @@ import type { Character, Relationship } from '@/lib/knowledge';
 export function useRelationshipGraphActions({ projectId, characters, relationships, pairs, open }: { projectId: string; characters: Character[]; relationships: Relationship[]; pairs: { current: Pair[] }; open: (item: string) => void }) {
   // People, relationships and rules are collections the row feed keeps current: nothing to refetch.
   const { api, param, remove, restore, run, record, created, undo, redo } = useGraphHistory(projectId);
+  /** Every name and alias in use: a new person takes one nobody has (the server refuses a second of the same). */
+  const taken = () => new Set(characters.flatMap((character) => [character.name, ...character.aliases]).map((name) => name.toLowerCase()));
 
   return {
     /** Deletes people and lines (pair keys) at once. */
@@ -43,7 +45,7 @@ export function useRelationshipGraphActions({ projectId, characters, relationshi
     addPerson: async () => {
       let id: string | undefined;
       await run(async () => {
-        const row = await sent(projectId, api.characters.$post({ param, json: { name: freeName('새 인물', new Set(characters.map((character) => character.name.toLowerCase()))) } }));
+        const row = await sent(projectId, api.characters.$post({ param, json: { name: freeName('새 인물', taken()) } }));
         id = row.id;
         record(created([{ kind: 'characters', ids: [row.id] }]));
         open(row.id);
@@ -54,10 +56,10 @@ export function useRelationshipGraphActions({ projectId, characters, relationshi
     duplicate: async (ids: string[]) => {
       const made = new Map<string, string>();
       await run(async () => {
-        const taken = new Set(characters.map((character) => character.name.toLowerCase()));
+        const names = taken();
         for (const original of characters.filter((character) => ids.includes(character.id))) {
-          const name = freeName(`${original.name} (복사)`, taken);
-          taken.add(name.toLowerCase());
+          const name = freeName(`${original.name} (복사)`, names);
+          names.add(name.toLowerCase());
           const { id: _id, name: _name, ...rest } = original;
           const row = await sent(projectId, api.characters.$post({ param, json: { ...rest, name, aliases: [] } as never }));
           made.set(original.id, row.id);

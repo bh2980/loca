@@ -55,7 +55,7 @@ export function EdgePane({ projectId, edgeId, onOpenNode, onRemove, onClose }: {
   );
 }
 
-/** 이 대사 뒤에 대사 추가: the new line's text, speaker and listener; it goes in after the node (see insertLineAfter). */
+/** 이 대사 뒤에 대사 추가: the new line's text, speaker and listener; it goes in after the node (see createLine). */
 export function InsertLinePane({ after, onAdd, onClose }: { after: { speaker: string | null; text: string | null }; onAdd: (line: { source: string; speaker: string | null; listener: string | null }) => Promise<unknown>; onClose: () => void }) {
   const [source, setSource] = useState('');
   const [speaker, setSpeaker] = useState('');

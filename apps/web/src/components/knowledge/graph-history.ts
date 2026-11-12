@@ -2,7 +2,7 @@ import { useRef } from 'react';
 import { toast } from 'sonner';
 import { client, unwrap } from '@/lib/api';
 
-/** One undoable change: both directions go through the server (a delete keeps what it removed under a token). */
+/** One undoable change: both directions go through the server (a delete answers with the token of its undo record). */
 export interface Step {
   undo: () => Promise<unknown>;
   redo: () => Promise<unknown>;
@@ -25,7 +25,8 @@ export function useGraphHistory(projectId: string, refresh?: () => void) {
   const param = { projectId };
   const history = useRef<{ past: Step[]; future: Step[] }>({ past: [], future: [] });
   const remove = async (items: DeleteItem[]) => (await unwrap(api['knowledge-delete'].$post({ param, json: { items } }))).token;
-  const restore = (token: string) => unwrap(api['knowledge-restore'].$post({ param, json: { token } }));
+  /** Puts back what a delete removed, by its token (null: it removed nothing). */
+  const restore = async (token: string | null) => void (token && (await unwrap(api.undo.$post({ param, json: { token } }))));
   const run = async (work: () => Promise<void>) => {
     try {
       await work();
@@ -42,7 +43,7 @@ export function useGraphHistory(projectId: string, refresh?: () => void) {
   };
   /** Something just created: undo deletes it (keeping it), redo puts it back. */
   const created = (items: DeleteItem[]): Step => {
-    let token = '';
+    let token: string | null = null;
     return { undo: async () => (token = await remove(items)), redo: () => restore(token) };
   };
   return {

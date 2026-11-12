@@ -3,7 +3,8 @@ import { importFileSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from './importer.ts';
-import { deleteItemsKept, restoreItems } from './item-delete.ts';
+import { deleteItemGroups } from './item-delete.ts';
+import { undoRecorded } from './undo-records.ts';
 import { linkEvents, projectEventFlow, withLinks } from './event-routes.ts';
 
 describe('사건 흐름 corrections', () => {
@@ -33,9 +34,9 @@ describe('사건 흐름 corrections', () => {
     expect(nextOf(first!.id)).toEqual([{ id: second!.id, label: null, source: 'added', origin: 'ai' }]);
     expect(linkEvents(db, projectId, { fromId: first!.id, toId: second!.id, action: 'link', origin: 'ai' }).result).toBe('이미 이어져 있습니다.');
 
-    const { token } = deleteItemsKept(db, projectId, [{ kind: 'events', ids: [second!.id] }]);
+    const { token } = deleteItemGroups(db, projectId, [{ kind: 'events', ids: [second!.id] }]);
     expect(db.select().from(s.eventLinks).all()).toEqual([]);
-    expect(restoreItems(db, projectId, token)).toBe(true);
+    expect(undoRecorded(db, projectId, token!)).toMatchObject({ ok: true });
     expect(nextOf(first!.id)).toHaveLength(1);
 
     linkEvents(db, projectId, { fromId: first!.id, toId: second!.id, action: 'unlink', origin: 'ai' });

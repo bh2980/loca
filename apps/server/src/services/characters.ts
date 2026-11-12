@@ -8,11 +8,10 @@ type Character = typeof s.characters.$inferSelect;
 type CharacterValues = Omit<typeof s.characters.$inferInsert, 'id' | 'projectId'>;
 
 /**
- * A person's save of a character — the app's form and an accepted chat/CLI proposal alike: created,
- * or with `id` changed (undefined when there is no such character). The character and the glossary
- * candidates for its names (addNameTerms) are written in one transaction, so a failure leaves
- * neither; the change is announced only once committed. Whether a second character may share a
- * name is the caller's rule: the app allows it (a person chose to), the chat refuses it.
+ * Writes a character: created, or with `id` changed (undefined when there is no such character). The
+ * character and the glossary candidates for its names (addNameTerms) are written in one transaction, so
+ * a failure leaves neither. Every surface saves a character through saveCharacterItem (knowledge-save.ts),
+ * which holds the rules of a save (a name in use is refused) and ends here.
  */
 export function saveCharacter(db: Db, projectId: string, values: CharacterValues, id?: undefined, saver?: Saver): Character;
 export function saveCharacter(db: Db, projectId: string, values: Partial<CharacterValues>, id: string, saver?: Saver): Character | undefined;

@@ -27,7 +27,8 @@ function setup(lines = 2) {
   const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Test' }, groups: [{ key: 'g1', title: 'Harbor' }], units }), choice);
   const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).all();
   const initial = statuses.find((status) => status.kind === 'initial')!;
-  const confirmed = statuses.find((status) => status.kind === 'final')!;
+  // The status the test flows set. Not a final one: nothing here saves a translation, and a final status needs one.
+  const confirmed = statuses.find((status) => status.kind === 'normal' && !status.inReview)!;
   const review = db.insert(s.statuses).values({ projectId, name: '사람 확인 필요', color: '#b26f00', kind: 'normal', inReview: true, sort: 10 }).returning().get();
   const urgent = db.insert(s.tags).values({ projectId, name: '긴급', color: '#ff0000', scope: ['lines'] }).returning().get();
   return { db, projectId, choice, initial, confirmed, review, urgent, issues: issueTagIds(db, projectId) };

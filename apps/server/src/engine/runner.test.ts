@@ -30,7 +30,8 @@ function setup(lines = 30) {
     sort: 10,
   }).returning().get();
   const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).all();
-  const confirmed = statuses.find((s) => s.kind === 'final')!;
+  // The status the test flows end in. Not a final one: these flows have no 번역 저장 node, and a final status needs a translation.
+  const confirmed = statuses.find((s) => s.kind === 'normal' && !s.inReview)!;
   return { db, projectId, choice, needsReview, confirmed };
 }
 

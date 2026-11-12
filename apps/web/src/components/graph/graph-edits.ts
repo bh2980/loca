@@ -14,7 +14,7 @@ export interface DrawnGraph {
 /**
  * Editing the dialogue graph from the page (services/graph-edit.ts on the server): draw and delete
  * lines, add a line after a node, delete nodes (keeping the way through them), copy nodes. Each
- * edit is a step ⌘/Ctrl+Z undoes with the server's token and ⌘/Ctrl+Shift+Z does again. Ids are
+ * edit is a step ⌘/Ctrl+Z undoes with the server's token (the edit's undo record) and ⌘/Ctrl+Shift+Z does again. Ids are
  * the drawn ones: a folded run stands for its nodes (lines go from its last node, into its first).
  */
 export function useDialogueGraphEdits(projectId: string, drawn: { current: DrawnGraph | null | undefined }) {
@@ -27,7 +27,7 @@ export function useDialogueGraphEdits(projectId: string, drawn: { current: Drawn
   const firstOf = (id: string) => nodesOf(id)[0];
   /** A drawn line's stored id (a section's split edge is "<id>:out" / "<id>:in"); a choice folded into a line is its node. */
   const edgeOf = (id: string) => (id.startsWith('via:') ? { choice: id.slice('via:'.length) } : id.startsWith('bypass:') || id.startsWith('portal:') ? null : { edge: id.replace(/:(out|in)$/, '') });
-  const undoToken = (token: string) => unwrap(graph.undo.$post({ param, json: { token } }));
+  const undoToken = (token: string) => unwrap(client.projects[':projectId'].undo.$post({ param, json: { token } }));
   const run = async <T>(work: () => Promise<T>) => {
     try {
       return await work();

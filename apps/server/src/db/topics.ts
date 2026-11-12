@@ -87,6 +87,7 @@ export const TABLE_TOPICS: Record<TableName, TableTopics> = {
   run_items: { topics: ['runs'], project: through('runs', 'run_id') },
   run_steps: { topics: ['runs'], project: through('runs', 'run_id') },
   proposals: { topics: ['proposals'] },
+  undo_records: { none: 'What a change removed, kept to put it back; no screen lists it (the change that made it answers with its id).' },
   chat_sessions: { topics: ['chat'] },
   app_settings: { topics: ['app'], project: `'${APP_FEED}'` },
 };

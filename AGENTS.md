@@ -25,6 +25,13 @@
 - Filters a screen and the CLI share live in `@tw/shared`. Lines have one filter, `lineFilterSchema`: the script list (as JSON), the CLI, the chat tools and a run's scope all send it, `services/line-filter.ts` alone resolves its names (`resolveLineFilter`; an unknown name is an error, never a dropped condition) and turns it into SQL (`lineConditions`), and `cli-parity.test.ts` checks every field on every surface.
 - A screen's own question, answered anew each time it is asked (a filter's page of ids, a search or suggestions, a preview or preflight, the graph and route views), is a query whose key starts with its topic, refetched when the topic changes; `IMPLIES` covers one that reads another topic's tables. A question answers with ids (and its own numbers) and the rows come from collections (`useLinePage`, `useLinesByKeys`, `useLines`); only an answer computed per line carries line text (the editor's similar translations with their scores; same-source lines read once before a write). Never add a question or a query cache that copies rows. Topics also stay for the CLI's waits.
 
+## Write paths (server)
+
+- One service function per kind of change, with its rules inside; the app's routes, the agent's tools (through the change gate) and the run engine all call it. A route is parse → call a service → answer: no insert/update, cross-row check or multi-step write in `routes/`.
+- Lines: structure (add, delete lines / nodes / scenes) is `services/graph-edit.ts` (`createLine`, `deleteLines`, `deleteNodes`, `deleteGroup`); text and status are `services/line-save.ts` (`saveLine`; `setLineStatus` is the only writer of a line's status, a run's exit actions included; `patchLines` for tags, listener, memo, 번역 제외). Knowledge saves are `services/knowledge-save.ts`, deletes of project items `services/item-delete.ts`.
+- A write made from a view of a line carries the line's `rev` (`revOf`: its `updatedAt` in ms) and is refused with `LINE_CHANGED` when the line changed since; no other concurrency convention (no `base` text).
+- Structural changes are undone by one persisted record (`services/undo-records.ts`): the change records what it removes (with its dependents), rewrites and makes; ⌘/Ctrl+Z (`POST /projects/:id/undo`) and an accepted proposal's undo (`restore_deleted` via `undoChanges`) put it back. Never keep undo state in memory.
+
 ## UI
 
 Enforced by `pnpm ui-rules` unless marked "review". Details, token tiers and the type scale are in `packages/ui/README.md` (`pnpm storybook` shows the parts).

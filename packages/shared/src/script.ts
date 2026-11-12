@@ -142,11 +142,17 @@ export const lineChangeSchema = z.object({
   status: z.string().optional(),
   /** 번역 제외, a person's call: include / exclude whatever the rules say; null hands it back to the rules. */
   translate: z.enum(LINE_TRANSLATE).nullable().optional(),
+  /** The line's memo (a note on the line itself, shown beside it); empty clears it. */
+  memo: z.string().max(2000).optional(),
   addTags: z.array(z.string()).default([]),
   removeTags: z.array(z.string()).default([]),
+  /** A note on the new translation (kept with it in the line's history), not the line's memo. */
   note: z.string().default(''),
 });
 export type LineChange = z.infer<typeof lineChangeSchema>;
+/** Whether a change says nothing to change (after what equals the line as it is was dropped). */
+export const lineChangeEmpty = (change: LineChange) =>
+  change.translation === undefined && change.listener === undefined && change.translate === undefined && change.memo === undefined && !change.status && !change.addTags.length && !change.removeTags.length;
 
 export const batchChangeSchema = z.object({
   // A whole game: `loca import` sends one file as one proposal.

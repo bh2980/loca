@@ -205,7 +205,7 @@ describe('one save for a line (text, candidate and status together)', () => {
   it('the typed text is the line, its selected candidate and its status in one write', async () => {
     const { db, mine, send } = setup();
     const unitId = mine.unit('a').id;
-    const response = await send('POST', `/units/${unitId}/save`, { text: '적어 둬.', base: '' });
+    const response = await send('POST', `/units/${unitId}/save`, { text: '적어 둬.', rev: mine.unit('a').updatedAt.getTime() });
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ translation: '적어 둬.' });
     const after = read(db, unitId);
@@ -217,14 +217,15 @@ describe('one save for a line (text, candidate and status together)', () => {
   it('a rapid double save of the same text is one candidate; a late save from the old text cannot empty the line', async () => {
     const { db, mine, send } = setup();
     const unitId = mine.unit('a').id;
-    // Two clicks before the first answer: both start from the empty line.
-    const [first, second] = await Promise.all([send('POST', `/units/${unitId}/save`, { text: '적어 둬.', base: '' }), send('POST', `/units/${unitId}/save`, { text: '적어 둬.', base: '' })]);
+    // Two clicks before the first answer: both were made from the empty line (its rev then).
+    const rev = mine.unit('a').updatedAt.getTime();
+    const [first, second] = await Promise.all([send('POST', `/units/${unitId}/save`, { text: '적어 둬.', rev }), send('POST', `/units/${unitId}/save`, { text: '적어 둬.', rev })]);
     expect([first.status, second.status]).toEqual([200, 200]);
     expect(read(db, unitId).candidates.map((candidate) => candidate.text)).toEqual(['적어 둬.']);
     // An echo of the old (empty) text from a stale editor is refused, not saved over what was typed.
-    expect((await send('POST', `/units/${unitId}/save`, { text: '', base: '' })).status).toBe(409);
-    // Saving the current text again changes nothing.
-    expect((await send('POST', `/units/${unitId}/save`, { text: '적어 둬.', base: '' })).status).toBe(200);
+    expect((await send('POST', `/units/${unitId}/save`, { text: '', rev })).status).toBe(409);
+    // Saving the current text again changes nothing, so there is nothing to refuse.
+    expect((await send('POST', `/units/${unitId}/save`, { text: '적어 둬.', rev })).status).toBe(200);
     const after = read(db, unitId);
     expect(after.line.translation).toBe('적어 둬.');
     expect(after.candidates).toHaveLength(1);

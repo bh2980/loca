@@ -96,6 +96,7 @@ const DERIVED: Record<ToolName, [ToolClass, ToolRoute]> = {
   link_events: ['change', 'gate'],
   save_knowledge: ['change', 'gate'],
   delete_items: ['delete', 'gate'],
+  restore_deleted: ['change', 'gate'],
   list_terms: ['read', 'now'],
   term_usage: ['read', 'now'],
   save_terms: ['change', 'gate'],

@@ -29,7 +29,7 @@ describe('same-source apply in one request (#49)', () => {
   it('writes every same-source line in one go, as a person’s save', async () => {
     const { db, units, post, text } = setup();
     const [first, second, third] = units;
-    const response = await post(`/units/${first!.id}/same-source`, { text: '달려!', lines: [{ unitId: second!.id, base: '' }, { unitId: third!.id, base: '' }] });
+    const response = await post(`/units/${first!.id}/same-source`, { text: '달려!', lines: [second!, third!].map((line) => ({ unitId: line.id, rev: line.updatedAt.getTime() })) });
     expect(await response.json()).toMatchObject({ ok: true, applied: 2, skipped: 0 });
     expect([text(second!.id), text(third!.id)]).toEqual(['달려!', '달려!']);
     const row = db.select({ statusBy: s.units.statusBy }).from(s.units).where(eq(s.units.id, second!.id)).get();
@@ -40,7 +40,7 @@ describe('same-source apply in one request (#49)', () => {
     const { units, post, text } = setup();
     const [first, second, third, other] = units;
     await post(`/units/${second!.id}/save`, { text: '뛰어' });
-    const response = await post(`/units/${first!.id}/same-source`, { text: '달려!', lines: [{ unitId: second!.id, base: '' }, { unitId: third!.id, base: '' }, { unitId: other!.id, base: '' }] });
+    const response = await post(`/units/${first!.id}/same-source`, { text: '달려!', lines: [second!, third!, other!].map((line) => ({ unitId: line.id, rev: line.updatedAt.getTime() })) });
     expect(await response.json()).toMatchObject({ applied: 1, skipped: 2 });
     expect([text(second!.id), text(third!.id), text(other!.id)]).toEqual(['뛰어', '달려!', null]);
   });

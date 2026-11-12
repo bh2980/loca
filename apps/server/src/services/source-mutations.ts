@@ -1,14 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { and, asc, eq, like, sql } from 'drizzle-orm';
-import { createGroupSchema, updateGroupSchema, createUnitSchema, updateUnitSchema, deleteUnitsSchema, type GraphOrigin } from '@tw/shared';
+import { createGroupSchema, updateGroupSchema, updateUnitSchema } from '@tw/shared';
 import type { z } from 'zod';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { inList } from '../db/chunk.ts';
 import { badRequest, found } from '../http-errors.ts';
 import { computeLayouts, cancelViewLayouts } from './layout.ts';
 import { forgetProjectContext } from './context.ts';
 import { namedListener } from './listeners.ts';
+import { setLineStatus } from './line-save.ts';
 import { PERSON, type Saver } from './status-by.ts';
 
 export type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
@@ -93,26 +93,6 @@ export function updateGroup(db: Db, projectId: string, groupId: string, raw: z.i
   return row;
 }
 
-/** `by`: who adds the line (the app's person unless told): the origin of its graph node and of a listener it names. */
-export function createUnit(db: Db, projectId: string, raw: z.input<typeof createUnitSchema>, by: { origin: GraphOrigin; saver: Saver } = { origin: 'human', saver: PERSON }) {
-  const input = createUnitSchema.parse(raw);
-  const group = groupOf(db, projectId, input.groupId);
-  if (group.kind !== 'scene' && (input.speaker || input.listener)) badRequest('문서와 UI 항목에는 화자·청자를 지정하지 않습니다.');
-  const key = input.key ?? `entry-${randomUUID()}`;
-  uniqueKey(db, projectId, s.units, key);
-  const row = db.transaction((tx) => {
-    const sort = tx.get<{ n: number }>(sql`select coalesce(max(sort), -1) + 1 n from ${s.units} where group_id = ${group.id}`)!.n;
-    const result = tx.insert(s.units).values({ ...input, key, projectId, kind: group.kind === 'scene' ? 'dialogue' : group.kind, statusId: initialStatus(tx, projectId), sort, ...(input.listener ? namedListener(by.saver) : {}) }).returning().get();
-    // An isolated node records the new source without inventing a connection to its neighbours.
-    tx.insert(s.graphNodes).values({ projectId, key: `entry-${result.id}`, kind: 'script', groupId: group.id, unitIds: [result.id], meta: { manualSourceEntry: true }, origin: by.origin }).run();
-    resequence(tx, projectId);
-    invalidate(tx, projectId);
-    return unitOf(tx, projectId, result.id);
-  });
-  changed(db, projectId);
-  return row;
-}
-
 export function updateUnit(db: Db, projectId: string, unitId: string, raw: z.input<typeof updateUnitSchema>, saver: Saver = PERSON) {
   const input = updateUnitSchema.parse(raw);
   const unit = unitOf(db, projectId, unitId);
@@ -127,10 +107,9 @@ export function updateUnit(db: Db, projectId: string, unitId: string, raw: z.inp
     const moved = group.id !== unit.groupId;
     const sort = moved ? tx.get<{ n: number }>(sql`select coalesce(max(sort), -1) + 1 n from ${s.units} where group_id = ${group.id}`)!.n : unit.sort;
     const sourceChanged = input.source !== undefined && input.source !== unit.source;
-    if (Object.keys(input).length) tx.update(s.units).set({ ...input, sort,
-      ...(input.listener !== undefined && namedListener(saver)),
-      ...(sourceChanged && { statusId: initialStatus(tx, projectId), statusBy: 'human', statusRunId: null }),
-    }).where(eq(s.units.id, unitId)).run();
+    if (Object.keys(input).length) tx.update(s.units).set({ ...input, sort, ...(input.listener !== undefined && namedListener(saver)) }).where(eq(s.units.id, unitId)).run();
+    // A changed source is not translated yet: the line starts over, set so by whoever changed it.
+    if (sourceChanged) setLineStatus(tx, projectId, [unitId], initialStatus(tx, projectId), { statusBy: saver.statusBy });
     if (input.key && input.key !== unit.key) {
       for (const table of [s.characters, s.relationships, s.documents, s.storyEvents, s.speechRules]) {
         for (const item of tx.select({ id: table.id, evidence: table.evidence }).from(table).where(eq(table.projectId, projectId)).all()) {
@@ -145,76 +124,4 @@ export function updateUnit(db: Db, projectId: string, unitId: string, raw: z.inp
   });
   changed(db, projectId);
   return row;
-}
-
-const EVIDENCE_TABLES = [s.characters, s.relationships, s.documents, s.storyEvents, s.speechRules] as const;
-/** A knowledge item's evidence as it was, by its table's place in EVIDENCE_TABLES. */
-export type EvidenceBefore = { table: number; id: string; evidence: string[] };
-
-/** Deleted lines are evidence of nothing: their keys come off every knowledge item. Returns the changed items as they were. */
-export function stripEvidence(tx: Tx, projectId: string, keys: Set<string>): EvidenceBefore[] {
-  const before: EvidenceBefore[] = [];
-  if (!keys.size) return before;
-  EVIDENCE_TABLES.forEach((table, index) => {
-    for (const item of tx.select({ id: table.id, evidence: table.evidence }).from(table).where(eq(table.projectId, projectId)).all()) {
-      const evidence = item.evidence.filter((key) => !keys.has(key));
-      if (evidence.length === item.evidence.length) continue;
-      before.push({ table: index, id: item.id, evidence: item.evidence });
-      tx.update(table).set({ evidence }).where(eq(table.id, item.id)).run();
-    }
-  });
-  return before;
-}
-
-/** Puts back the evidence stripEvidence took off (undoing the delete). */
-export function restoreEvidence(tx: Tx, rows: EvidenceBefore[]) {
-  for (const row of rows) {
-    const table = EVIDENCE_TABLES[row.table]!;
-    tx.update(table).set({ evidence: row.evidence }).where(eq(table.id, row.id)).run();
-  }
-}
-
-function removeUnits(tx: Tx, projectId: string, ids: string[]) {
-  if (!ids.length) return;
-  const removed = new Set(ids);
-  stripEvidence(tx, projectId, new Set(tx.select({ key: s.units.key }).from(s.units).where(and(eq(s.units.projectId, projectId), inList(s.units.id, ids))).all().map((row) => row.key)));
-  for (const node of tx.select().from(s.graphNodes).where(eq(s.graphNodes.projectId, projectId)).all()) {
-    const unitIds = node.unitIds.filter((id) => !removed.has(id));
-    if (unitIds.length !== node.unitIds.length) {
-      if (!unitIds.length && node.meta?.manualSourceEntry === true) {
-        const linked = tx.get<{ n: number }>(sql`select count(*) n from ${s.graphEdges} where from_id = ${node.id} or to_id = ${node.id}`)!.n;
-        if (!linked) { tx.delete(s.graphNodes).where(eq(s.graphNodes.id, node.id)).run(); continue; }
-      }
-      tx.update(s.graphNodes).set({ unitIds, ...(unitIds.length ? {} : { groupId: null }) }).where(eq(s.graphNodes.id, node.id)).run();
-    }
-  }
-  // Run items name their line without a foreign key (a run's items can be terms too): they go with it.
-  tx.delete(s.runItems).where(inList(s.runItems.subjectId, ids)).run();
-  tx.delete(s.units).where(and(eq(s.units.projectId, projectId), inList(s.units.id, ids))).run();
-  refreshNodeGroups(tx, projectId);
-  resequence(tx, projectId);
-  invalidate(tx, projectId);
-}
-
-export function deleteUnits(db: Db, projectId: string, unitIds: string[]) {
-  const ids = [...new Set(deleteUnitsSchema.parse({ unitIds }).unitIds)];
-  for (const id of ids) unitOf(db, projectId, id);
-  refuseBusy(db, projectId, ids);
-  db.transaction((tx) => removeUnits(tx, projectId, ids));
-  changed(db, projectId);
-  return { deleted: ids.length };
-}
-
-export function deleteGroup(db: Db, projectId: string, groupId: string) {
-  groupOf(db, projectId, groupId);
-  const ids = db.select({ id: s.units.id }).from(s.units).where(eq(s.units.groupId, groupId)).all().map((row) => row.id);
-  refuseBusy(db, projectId, ids);
-  db.transaction((tx) => {
-    removeUnits(tx, projectId, ids);
-    tx.update(s.graphNodes).set({ groupId: null }).where(and(eq(s.graphNodes.projectId, projectId), eq(s.graphNodes.groupId, groupId))).run();
-    tx.delete(s.groups).where(eq(s.groups.id, groupId)).run();
-    invalidate(tx, projectId);
-  });
-  changed(db, projectId);
-  return { deleted: ids.length };
 }

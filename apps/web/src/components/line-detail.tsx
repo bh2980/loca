@@ -87,7 +87,7 @@ export function LineDetail({
   const people = useCharacters(projectId);
   const colorOf = usePersonColors(projectId);
   const group = useGroup(projectId, unit.data?.group.id);
-  const [draft, setDraft, , base] = useDraft(`line:${unitId}`, unit.data?.translation ?? '');
+  const [draft, setDraft] = useDraft(`line:${unitId}`, unit.data?.translation ?? '');
   const [noting, setNoting] = useState(false);
   const [editingSource, setEditingSource] = useState(false);
   const [tab, setTab] = useInspectorTab('line', LINE_TABS, urlTab, onTab);
@@ -236,7 +236,7 @@ export function LineDetail({
     <>
       {editor && <Section><TranslationEditor projectId={projectId} unit={{ id: line.id, source: line.source, translation: line.translation, statusId: line.statusId, statusBy: line.statusBy }} statuses={taxonomy.statuses ?? []} /></Section>}
       {/* The editor in this pane shows the AI 제안 and TM itself. */}
-      {!editor && <AiSuggestion framed projectId={projectId} unit={line} draft={draft} dirty={!sameTranslation(draft, line.translation)} base={base} onDraft={useText} />}
+      {!editor && <AiSuggestion framed projectId={projectId} unit={line} draft={draft} dirty={!sameTranslation(draft, line.translation)} onDraft={useText} />}
       {!editor && <SimilarSection projectId={projectId} unit={line} draft={draft} onUse={useText} tokenPattern={tokenPattern} />}
       {(line.speaker || line.speech) && <PeopleSection projectId={projectId} line={line} speakerPerson={speakerPerson} listening={listening} listenerPicker={listenerPicker} people={people.data ?? []} />}
       <Section title="검증" collapsible persistKey="line.checks">
@@ -491,7 +491,7 @@ function HistoryTab({ projectId, unit, tokenPattern, ready }: { projectId: strin
   const kept = texts.filter((candidate) => candidate.state === 'history');
   const before = (candidate: Version) => kept.find((older) => time(older.createdAt) < time(candidate.createdAt) && !sameTranslation(older.text, candidate.text));
   const restore = (candidate: Version) =>
-    save.mutate({ unitId: unit.id, candidateId: candidate.id, candidateText: candidate.text, base: unit.translation }, {
+    save.mutate({ unitId: unit.id, candidateId: candidate.id, candidateText: candidate.text }, {
       onSuccess: () => toast.success(candidate.state === 'declined' ? 'AI 제안을 적용했습니다.' : '이 번역으로 되돌렸습니다.'),
       onError: (error) => toast.error(error.message),
     });

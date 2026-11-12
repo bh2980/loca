@@ -52,6 +52,7 @@ export function rows(db: Db): { table: TableName; scope: string; topics: Topic[]
     put(s.runItems, p, ['runs'], { id: 'item', runId: 'run', subjectId: 'u', nodeId: 'n', state: 'done', visits: {}, data: {} as never }),
     put(s.runSteps, p, ['runs'], { id: 'step', runId: 'run', nodeId: 'n', subjectIds: ['u'], ok: true, startedAt: at, finishedAt: at }),
     put(s.proposals, p, ['proposals'], { id: 'prop', projectId: p, source: 'cli', tool: 't', input: {} }),
+    put(s.undoRecords, p, [], { id: 'undo', projectId: p, kind: 'script', data: { removed: [], rewritten: [], made: [] } }),
     put(s.chatSessions, p, ['chat'], { id: 'chat', projectId: p, title: 'C' }),
     put(s.appSettings, 'app', ['app'], { id: 'app' }),
   ];

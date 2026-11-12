@@ -3,6 +3,7 @@ import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import type { KnowledgeKind } from '../db/schema.ts';
 import { toolClass } from '@tw/shared';
+import { revOf } from './line-save.ts';
 
 type Proposal = typeof s.proposals.$inferSelect;
 type Call = s.UndoCall;
@@ -195,7 +196,7 @@ export const knowledgeBatchUndo: Inverse = {
 
 type PreviousLine = {
   key: string; missing?: true; rev?: number; translation?: string; status?: string;
-  tags?: string[]; listener?: string | null; touched?: string[];
+  tags?: string[]; listener?: string | null; translate?: string | null; memo?: string; touched?: string[];
 };
 
 function readLineTags(db: Db, unitId: string) {
@@ -214,10 +215,10 @@ function captureLines(db: Db, proposal: Proposal): Capture {
     const status = db.select({ name: s.statuses.name }).from(s.statuses)
       .where(eq(s.statuses.id, unit.statusId)).get()?.name;
     return {
-      key, rev: unit.updatedAt.getTime(), translation: unit.translation ?? '', status, tags: readLineTags(db, unit.id),
-      listener: unit.listener,
+      key, rev: revOf(unit), translation: unit.translation ?? '', status, tags: readLineTags(db, unit.id),
+      listener: unit.listener, translate: unit.translate, memo: unit.note,
       touched: Object.keys(change).filter((field) =>
-        ['translation', 'status', 'addTags', 'removeTags', 'listener'].includes(field)),
+        ['translation', 'status', 'addTags', 'removeTags', 'listener', 'translate', 'memo'].includes(field)),
     };
   });
   return { previous, lineRevs: Object.fromEntries(previous.flatMap((line) =>
@@ -236,11 +237,13 @@ function inverseLineChange(
   const nowTags = readLineTags(db, current.id);
   const addTags = beforeTags.filter((tag) => !nowTags.includes(tag));
   const removeTags = nowTags.filter((tag) => !beforeTags.includes(tag));
-  const undo: Record<string, unknown> = { key: prior.key, rev: current.updatedAt.getTime() };
+  const undo: Record<string, unknown> = { key: prior.key, rev: revOf(current) };
   if (touched.has('translation')) undo.translation = prior.translation ?? '';
   if (touched.has('status') && prior.status) undo.status = prior.status;
   // A listener the change left as it was (an AI's never replaces a person's) is not written back.
   if (touched.has('listener') && (current.listener ?? null) !== (prior.listener ?? null)) undo.listener = prior.listener ?? '';
+  if (touched.has('translate')) undo.translate = prior.translate ?? null;
+  if (touched.has('memo')) undo.memo = prior.memo ?? '';
   if (touched.has('addTags') || touched.has('removeTags')) {
     if (addTags.length) undo.addTags = addTags;
     if (removeTags.length) undo.removeTags = removeTags;
@@ -342,7 +345,7 @@ function afterTags(_db: Db, proposal: Proposal, before: Capture): s.ProposalUndo
   return { calls: inverse };
 }
 
-/** A batch of line changes: the lines it changed get their former text, status, tags and listener back. */
+/** A batch of line changes: the lines it changed get their former text, status, tags, listener, memo and 번역 제외 back. */
 export const lineChangesUndo: Inverse = { before: captureLines, after: undoLines };
 
 /** Saved terms: edited ones get their sent fields back, new ones are deleted. */
@@ -358,26 +361,32 @@ export const termsUndo: Inverse = {
 /** Tags put on or taken off items: only the links the change made or removed are turned back. */
 export const tagItemsUndo: Inverse = { before: beforeTags, after: afterTags };
 
-/** Deleted items stay deleted. Called to undo a creation, it leaves what a person changed since and characters a kept relationship points to. */
-export const deleteItemsUndo: Inverse = {
-  after: () => none('삭제된 항목은 되살릴 수 없습니다'),
-  trim: (db, projectId, input, conflicts) => {
-    const ids = Array.isArray(input.ids) ? input.ids.filter((id): id is string => typeof id === 'string' && !conflicts.has(id)) : [];
-    const dropped = [...conflicts];
-    // Relationship deletes run first (orderedCalls), so any relationship still here is one being kept
-    // (a person's, or one whose delete was skipped): deleting its character would cascade into it.
-    if (input.kind === 'characters') {
-      for (const id of [...ids]) {
-        const linked = db.select({ id: s.relationships.id }).from(s.relationships)
-          .where(and(eq(s.relationships.projectId, projectId), or(eq(s.relationships.fromId, id), eq(s.relationships.toId, id)))).get();
-        if (linked) {
-          ids.splice(ids.indexOf(id), 1);
-          dropped.push(id);
-        }
+/**
+ * A delete is put back whole by its undo record (undo-records.ts): the tool answered with the record's id (undoId),
+ * and restore_deleted takes it. `kind`: what the delete removed, as restore_deleted names it.
+ */
+export const restoresDeleted = (kind: (input: Record<string, unknown>) => string): Inverse => ({
+  after: (_db, proposal, _before, result) =>
+    isRecord(result) && typeof result.undoId === 'string' ? { calls: [undoCall('restore_deleted', { kind: kind(proposal.input), id: result.undoId })] } : none('지워진 것이 없어 되살릴 것이 없습니다'),
+});
+
+/** delete_items called to undo a creation leaves what a person changed since, and characters a kept relationship points to. */
+export const deleteItemsTrim: NonNullable<Inverse['trim']> = (db, projectId, input, conflicts) => {
+  const ids = Array.isArray(input.ids) ? input.ids.filter((id): id is string => typeof id === 'string' && !conflicts.has(id)) : [];
+  const dropped = [...conflicts];
+  // Relationship deletes run first (orderedCalls), so any relationship still here is one being kept
+  // (a person's, or one whose delete was skipped): deleting its character would cascade into it.
+  if (input.kind === 'characters') {
+    for (const id of [...ids]) {
+      const linked = db.select({ id: s.relationships.id }).from(s.relationships)
+        .where(and(eq(s.relationships.projectId, projectId), or(eq(s.relationships.fromId, id), eq(s.relationships.toId, id)))).get();
+      if (linked) {
+        ids.splice(ids.indexOf(id), 1);
+        dropped.push(id);
       }
     }
-    return { input: ids.length ? { ...input, ids } : null, dropped };
-  },
+  }
+  return { input: ids.length ? { ...input, ids } : null, dropped };
 };
 
 /** Captures an inverse before the write, then builds it after; capture failures never block the write. */
@@ -464,6 +473,6 @@ export function rememberLineRevisions(
         typeof before[value.key] !== 'number') continue;
     const unit = db.select().from(s.units).where(and(eq(s.units.projectId, original.projectId),
       eq(s.units.key, value.key))).get();
-    if (unit) rebased.set(value.key, { before: before[value.key], now: unit.updatedAt.getTime() });
+    if (unit) rebased.set(value.key, { before: before[value.key], now: revOf(unit) });
   }
 }

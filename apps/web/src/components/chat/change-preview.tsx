@@ -124,7 +124,7 @@ export function ChangePreview({ name, input, pending = true, details, run }: { n
           {field('삭제', `${kinds[input.kind as string] ?? String(input.kind)} ${ids.length}개`)}
           {field('이유', input.reason)}
           {field('id', ids.slice(0, 10).join(', ') + (ids.length > 10 ? ` 외 ${ids.length - 10}개` : ''))}
-          {pending && <Text as="p" tone="danger">수락하면 바로 지워지고 되돌릴 수 없습니다. 이 항목에 걸린 관계·태그 연결도 함께 지워집니다.</Text>}
+          {pending && <Text as="p" tone="danger">수락하면 바로 지워집니다. 이 항목에 걸린 관계·태그 연결도 함께 지워지고, 되돌리기로 함께 되살릴 수 있습니다.</Text>}
         </Box>
       );
     }
@@ -170,14 +170,18 @@ export function ChangePreview({ name, input, pending = true, details, run }: { n
     case 'update_group':
       return <Box as="dl" spaceY="tight">{field('묶음', input.groupId)}{field('제목', input.title)}{field('키', input.key)}{field('설명', input.description)}{field('구역', input.section)}</Box>;
     case 'delete_group':
-      return <Box as="dl" spaceY="tight">{field('삭제할 묶음', input.groupId)}{pending && <Text as="p" tone="danger">묶음과 안의 원문을 모두 삭제합니다.</Text>}</Box>;
+      return <Box as="dl" spaceY="tight">{field('삭제할 묶음', input.groupId)}{pending && <Text as="p" tone="danger">묶음과 안의 원문을 모두 삭제합니다. 되돌리기로 함께 되살릴 수 있습니다.</Text>}</Box>;
     case 'create_unit':
       return <Box as="dl" spaceY="tight">{field('묶음', input.groupId)}{field('이 대사 뒤에', input.after)}{field('키', input.key)}{field('화자', input.speaker)}{field('청자', input.listener)}{field('원문', input.source)}<Text as="p" tone="muted">{input.after ? '새 원문 항목이며 번역 후보가 아닙니다. 대사 그래프에서 그 대사 뒤에 이어집니다.' : '새 원문 항목이며 번역 후보가 아닙니다.'}</Text></Box>;
     case 'update_unit':
       return <Box as="dl" spaceY="tight">{field('원문 항목', input.unitId)}{field('묶음', input.groupId)}{field('키', input.key)}{field('화자', input.speaker)}{field('청자', input.listener)}{field('원문', input.source)}</Box>;
+    case 'restore_deleted': {
+      const kinds: Record<string, string> = { script: '대사', scenes: '묶음', terms: '용어', characters: '인물', relationships: '관계', speechRules: '말투 규칙', events: '사건', documents: '노트', tags: '태그' };
+      return <Box as="dl" spaceY="tight">{field('되살리기', `지운 ${kinds[input.kind as string] ?? String(input.kind)}와 함께 지워진 것`)}</Box>;
+    }
     case 'delete_lines': {
       const keys = (input.keys as unknown[] | undefined) ?? [];
-      return <Box as="dl" spaceY="tight">{field('삭제', `원문 대사 ${keys.length}개`)}{field('키', keys.slice(0, 10).join(', ') + (keys.length > 10 ? ` 외 ${keys.length - 10}개` : ''))}{field('그래프', input.bridge === false ? '지운 자리의 앞뒤를 잇지 않음' : '지운 자리의 앞뒤를 이음')}{pending && <Text as="p" tone="danger">원문 대사와 번역, 후보가 삭제됩니다. 되돌릴 수 없습니다.</Text>}</Box>;
+      return <Box as="dl" spaceY="tight">{field('삭제', `원문 대사 ${keys.length}개`)}{field('키', keys.slice(0, 10).join(', ') + (keys.length > 10 ? ` 외 ${keys.length - 10}개` : ''))}{field('그래프', input.bridge === false ? '지운 자리의 앞뒤를 잇지 않음' : '지운 자리의 앞뒤를 이음')}{pending && <Text as="p" tone="danger">원문 대사와 번역, 후보가 삭제됩니다. 되돌리기로 함께 되살릴 수 있습니다.</Text>}</Box>;
     }
     case 'save_terms': {
       const terms = (input.terms as { source: string; target: string; id?: string }[]) ?? [];

@@ -22,7 +22,7 @@ export async function offerSameSource(queryClient: QueryClient, unitId: string, 
       label: '모두 이 번역으로',
       onClick: async () => {
         try {
-          const lines = others.map((line) => ({ unitId: line.id, base: line.translation ?? '' }));
+          const lines = others.map((line) => ({ unitId: line.id, rev: line.rev }));
           const result = await unwrap(client.units[':unitId']['same-source'].$post({ param: { unitId }, json: { text, lines } }));
           if (result.skipped) toast.success(`같은 원문 ${result.applied}줄에 적용했습니다. ${result.skipped}줄은 그사이 바뀌어 건너뛰었습니다.`);
           else toast.success(`같은 원문 ${result.applied}줄에 적용했습니다.`);

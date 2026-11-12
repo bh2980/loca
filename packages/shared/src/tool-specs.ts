@@ -46,6 +46,8 @@ const byKind = (kinds: readonly AgentResource[], action: AgentAction): NeedsByIn
 const KNOWLEDGE_KEYS = ['characters', 'relationships', 'speechRules', 'events', 'documents'] as const;
 const DELETABLE = [...KNOWLEDGE_KEYS, 'terms', 'tags'] as const;
 const TAGGABLE = [...KNOWLEDGE_KEYS, 'terms'] as const;
+/** What a delete can be put back for (restore_deleted): lines, a group, or a kind delete_items takes. */
+export const RESTORABLE_KINDS = ['script', 'scenes', ...DELETABLE] as const;
 const taxonomy = (action: AgentAction): NeedsByInput => ({
   of: (input) => (input.type === 'status' || input.type === 'tag' ? [p(input.type === 'status' ? 'statuses' : 'tags', action)] : null),
   options: [[p('statuses', action)], [p('tags', action)]],
@@ -106,6 +108,7 @@ export const TOOL_SPECS = {
     batch: KNOWLEDGE_KEYS,
   },
   delete_items: { label: '항목 삭제', needs: byKind(DELETABLE, 'delete'), batch: ['ids'] },
+  restore_deleted: { label: '지운 것 되살리기', needs: byKind(RESTORABLE_KINDS, 'create') },
   // ── glossary ──
   list_terms: { label: '용어집 조회', needs: read('terms', 'script') },
   term_usage: { label: '용어 사용 위치 조회', needs: read('terms', 'script') },

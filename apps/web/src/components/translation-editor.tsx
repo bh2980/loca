@@ -172,7 +172,7 @@ export function TranslationEditor({
     const statusId = advance && next ? next.id : undefined;
     if (!changed && !statusId) return onDone?.(advance);
     save.mutate(
-      { unitId: unit.id, ...(changed && { text: sent, base, ...(keptMine === unit.id && { keepMine: true }) }), statusId },
+      { unitId: unit.id, ...(changed && { text: sent, ...(keptMine === unit.id && { keepMine: true }) }), statusId },
       {
         onSuccess: () => {
           setKeptMine(null);
@@ -295,7 +295,7 @@ export function TranslationEditor({
         {ai.loading && <Waiting label="자동완성 받는 중…" onCancel={() => (pending.current?.abort(), setAi({ dismissed: true }))} />}
         {ai.message && <span role="alert">{ai.message}</span>}
       </Inline>}
-      {detail.data && <AiSuggestion projectId={projectId} unit={detail.data} draft={draft} dirty={dirty} base={base} onDraft={setDraft} />}
+      {detail.data && <AiSuggestion projectId={projectId} unit={detail.data} draft={draft} dirty={dirty} onDraft={setDraft} />}
       {suggestions.length > 0 && (
         <SuggestionList
           suggestions={suggestions}

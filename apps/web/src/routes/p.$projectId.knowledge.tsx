@@ -48,6 +48,7 @@ import { PairDetail, pairItems, PairTable, useStablePairs, type Pair, type Speec
 import { AddPairPopover } from '@/components/knowledge/add-pair-popover';
 import { EventFlow } from '@/components/knowledge/event-flow';
 import { lineKey, parseLineKey, useEventFlowActions } from '@/components/knowledge/event-actions';
+import { freeName } from '@/components/knowledge/graph-history';
 import { LineDetail } from '@/components/knowledge/line-detail';
 import { personStyle, usePersonColors } from '@/lib/person-colors';
 import { splitList } from '@/lib/list-value';
@@ -191,7 +192,8 @@ function Knowledge() {
       ],
       label: (row) => row.name,
       save: patchTo(api.characters[':id'].$patch),
-      create: () => sent(projectId, api.characters.$post({ param: { projectId }, json: { name: '새 인물' } })),
+      // A name nobody has yet: a second person of the same name (or alias) is refused, by the app and the agent alike.
+      create: () => sent(projectId, api.characters.$post({ param: { projectId }, json: { name: freeName('새 인물', new Set((people.data ?? []).flatMap((person) => [person.name, ...person.aliases]).map((name) => name.toLowerCase()))) } })),
       remove: (id) => sent(projectId, api.characters[':id'].$delete(param(id))),
     }),
     relationships: defineKind({

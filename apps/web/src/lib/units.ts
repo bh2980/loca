@@ -220,6 +220,15 @@ export function extrasOf(projectId: string): Held<LineExtras> {
 }
 
 /**
+ * A line's rev as the browser holds it (its updatedAt in ms): what a save made from this view of the line sends, so the
+ * server refuses to write over a change that has not reached this browser. Undefined for a line it does not hold.
+ */
+export function lineRev(projectId: string, unitId: string): number | undefined {
+  const row = unitsOf(projectId).collection.get(unitId);
+  return row ? new Date(row.updatedAt).getTime() : undefined;
+}
+
+/**
  * These rows from a held collection, in this order, loading the ones not held. `rows` stays the last
  * complete list while new ones load (a page change), and is undefined only before the first; `byId`
  * has every row held so far (a long list drawing what it has).

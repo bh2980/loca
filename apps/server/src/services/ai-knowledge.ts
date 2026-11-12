@@ -3,6 +3,7 @@ import { AGE_BANDS, aiStatus, CHARACTER_ROLES, DOCUMENT_KINDS, GENDERS, isSpecia
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { markForReview } from './knowledge-tags.ts';
+import { confirmEnds } from './knowledge-save.ts';
 import { clampConfidence, cleanListener, setAiListener } from './listeners.ts';
 import { knownListener } from './speech.ts';
 import { upsertAiTerm } from './terms.ts';
@@ -326,7 +327,10 @@ export function aiSaveRelationships(tx: Tx, write: AiWrite, items: AiRelationshi
     }
     const pair = rels.filter((rel) => rel.fromId === fromId && rel.toId === toId);
     if (!pair.length) {
-      rels.push(tx.insert(s.relationships).values({ projectId: write.projectId, fromId, toId, kind: item.kind.trim(), description: item.description ?? '', mutual: item.mutual === true, changes, evidence, ...draft(write) }).returning().get());
+      const made = tx.insert(s.relationships).values({ projectId: write.projectId, fromId, toId, kind: item.kind.trim(), description: item.description ?? '', mutual: item.mutual === true, changes, evidence, ...draft(write) }).returning().get();
+      rels.push(made);
+      // The rule of every relationship save: one that lands confirmed confirms its people (an AI's, decided by AI).
+      confirmEnds(tx, write.projectId, [made.id], { origin: 'ai', statusBy: 'ai' });
       counts.added++;
       continue;
     }

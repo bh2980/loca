@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { and, eq, inArray, sql } from 'drizzle-orm';
-import { lineFilterSchema, nodesBetween } from '@tw/shared';
+import { lineFilterSchema, nodesBetween, viaWith } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { inChunks, inList } from '../db/chunk.ts';
@@ -8,6 +8,8 @@ import { nodeSetLayout, cancelViewLayouts } from './layout.ts';
 import type { LayoutDirection } from './layout-types.ts';
 import { allLines } from './script-query.ts';
 import { projectReadingRoute } from './reading-route.ts';
+import { badRequest, found } from '../http-errors.ts';
+import { nodeByKey } from './graph-edit.ts';
 
 /** What an agent can pick graph nodes by; every part is optional and they add up. */
 export interface NodePick {
@@ -195,6 +197,30 @@ export function updateView(db: Db, projectId: string, id: string, change: { labe
     if (changed) tx.delete(s.graphLayouts).where(and(eq(s.graphLayouts.projectId, projectId), eq(s.graphLayouts.section, `view:${id}`))).run();
   });
   return readView(db, projectId, id)!;
+}
+
+/** A view made by a person: from nodes picked in the graph, or from one reading route (it holds that route's nodes). */
+export function createView(db: Db, projectId: string, input: { label: string; nodeIds: string[]; route?: ViewRoute }) {
+  if (!input.route) return saveView(db, projectId, input.nodeIds, input.label, { origin: 'manual' });
+  const routed = routeNodes(db, projectId, input.route);
+  if ('error' in routed) badRequest(routed.error);
+  return saveView(db, projectId, routed.nodeIds, input.label, { origin: 'manual', route: input.route });
+}
+
+/**
+ * updateView for a surface that names nodes by line or node key (the CLI, the agent): keys become the nodes holding
+ * them, and `branches` take another branch at forks named by key (on top of `via`, or of the view's own).
+ */
+export function changeView(db: Db, projectId: string, id: string, change: { label?: string; add?: string[]; remove?: string[]; addKeys?: string[]; removeKeys?: string[]; via?: string; branches?: { at: string; to: string }[] }) {
+  const byKey = (keys: string[] = []) => keys.map((key) => nodeByKey(db, projectId, key));
+  let via = change.via;
+  if (change.branches?.length) {
+    via ??= found(readView(db, projectId, id), '보기').route?.via ?? '';
+    for (const branch of change.branches) via = viaWith(via, nodeByKey(db, projectId, branch.at), nodeByKey(db, projectId, branch.to));
+  }
+  const view = found(updateView(db, projectId, id, { label: change.label, via, add: [...(change.add ?? []), ...byKey(change.addKeys)], remove: [...(change.remove ?? []), ...byKey(change.removeKeys)] }) ?? undefined, '보기');
+  if ('error' in view) badRequest(view.error);
+  return view;
 }
 
 export function deleteView(db: Db, projectId: string, id: string) {

@@ -4,7 +4,8 @@ import { importFileSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from './importer.ts';
-import { deleteItemsKept, restoreItems } from './item-delete.ts';
+import { deleteItemGroups } from './item-delete.ts';
+import { undoRecorded } from './undo-records.ts';
 import { saveCharacter } from './characters.ts';
 
 describe('graph deletes that ⌘Z puts back', () => {
@@ -15,17 +16,17 @@ describe('graph deletes that ⌘Z puts back', () => {
     const relation = db.insert(s.relationships).values({ projectId, fromId: mira!.id, toId: kai!.id, kind: '동료' }).returning().get();
     const rule = db.insert(s.speechRules).values({ projectId, fromName: 'Mira', toName: 'Kai', level: 'hae' }).returning().get();
 
-    const { token, deleted } = deleteItemsKept(db, projectId, [{ kind: 'characters', ids: [mira!.id] }, { kind: 'speechRules', ids: [rule.id] }]);
+    const { token, deleted } = deleteItemGroups(db, projectId, [{ kind: 'characters', ids: [mira!.id] }, { kind: 'speechRules', ids: [rule.id] }]);
     expect(deleted).toBe(3);
     expect(db.select().from(s.relationships).all()).toEqual([]);
 
-    expect(restoreItems(db, projectId, token)).toBe(true);
+    expect(undoRecorded(db, projectId, token!)).toMatchObject({ ok: true });
     expect(db.select().from(s.characters).all().map((row) => row.id).sort()).toEqual([mira!.id, kai!.id].sort());
     expect(db.select().from(s.relationships).all().map((row) => row.id)).toEqual([relation.id]);
     expect(db.select().from(s.speechRules).all().map((row) => row.id)).toEqual([rule.id]);
     // A token works once, and only in its project.
-    expect(restoreItems(db, projectId, token)).toBe(false);
-    expect(restoreItems(db, 'other', deleteItemsKept(db, projectId, [{ kind: 'speechRules', ids: [rule.id] }]).token)).toBe(false);
+    expect(() => undoRecorded(db, projectId, token!)).toThrow('되돌릴 수 없습니다');
+    expect(() => undoRecorded(db, 'other', deleteItemGroups(db, projectId, [{ kind: 'speechRules', ids: [rule.id] }]).token!)).toThrow('되돌릴 수 없습니다');
   });
 
   it('takes a deleted person\'s untouched name candidates with it, keeps a touched one, and ⌘Z brings them back', () => {
@@ -38,9 +39,9 @@ describe('graph deletes that ⌘Z puts back', () => {
     // A person gave "Captain Pell" a translation: it stays.
     db.update(s.terms).set({ target: '펠 선장' }).where(eq(s.terms.source, 'Captain Pell')).run();
 
-    const { token } = deleteItemsKept(db, projectId, [{ kind: 'characters', ids: [pell.id] }]);
+    const { token } = deleteItemGroups(db, projectId, [{ kind: 'characters', ids: [pell.id] }]);
     expect(sources()).toEqual(['Captain Pell', 'Mira']);
-    expect(restoreItems(db, projectId, token)).toBe(true);
+    expect(undoRecorded(db, projectId, token!)).toMatchObject({ ok: true });
     expect(sources()).toEqual(['Captain Pell', 'Mira', 'Pell']);
   });
 });
@@ -54,16 +55,16 @@ it('restores tags (including notes) on deleted people, cascaded relationships, a
     const tag = db.insert(s.tags).values({ projectId, name: 'Keep', color: '#123456' }).returning().get();
     const links = [{ kind: 'characters' as const, itemId: a.id, tagId: tag.id, note: 'reason' }, { kind: 'relationships' as const, itemId: relation.id, tagId: tag.id, note: null }];
     db.insert(s.knowledgeTags).values(links).run();
-    const deleted = deleteItemsKept(db, projectId, [{ kind: 'characters', ids: [a.id] }]);
+    const deleted = deleteItemGroups(db, projectId, [{ kind: 'characters', ids: [a.id] }]);
     expect(db.select().from(s.knowledgeTags).all()).toEqual([]);
-    expect(restoreItems(db, projectId, deleted.token)).toBe(true);
+    expect(undoRecorded(db, projectId, deleted.token!)).toMatchObject({ ok: true });
     expect(db.select().from(s.knowledgeTags).all()).toEqual(links);
     const unitId = db.select().from(s.units).get()!.id;
     db.insert(s.unitTags).values({ unitId, tagId: tag.id }).run();
-    const removed = deleteItemsKept(db, projectId, [{ kind: 'tags', ids: [tag.id] }]);
+    const removed = deleteItemGroups(db, projectId, [{ kind: 'tags', ids: [tag.id] }]);
     expect(db.select().from(s.knowledgeTags).all()).toEqual([]);
     expect(db.select().from(s.unitTags).all()).toEqual([]);
-    expect(restoreItems(db, projectId, removed.token)).toBe(true);
+    expect(undoRecorded(db, projectId, removed.token!)).toMatchObject({ ok: true });
     expect(db.select().from(s.knowledgeTags).all()).toEqual(links);
     expect(db.select().from(s.unitTags).all()).toEqual([{ unitId, tagId: tag.id }]);
   } finally { db.$client.close(); }

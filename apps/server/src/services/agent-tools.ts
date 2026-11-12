@@ -1,4 +1,4 @@
-import { agentToolAvailable, glossaryMatcher, LISTENER_MIN_CONFIDENCE, CHECK_KINDS, runCapsSchema, runScopeInputSchema, TERM_MARK_IDS, type CheckKind, type ToolName, SUBJECTS, FUNCTION_NAMES } from '@tw/shared';
+import { agentToolAvailable, glossaryMatcher, LISTENER_MIN_CONFIDENCE, CHECK_KINDS, RESTORABLE_KINDS, runCapsSchema, runScopeInputSchema, TERM_MARK_IDS, type CheckKind, type ToolName, SUBJECTS, FUNCTION_NAMES } from '@tw/shared';
 import { checkAgentPermission, projectAgentSettings } from './agent-permission-check.ts';
 import { HTTPException } from 'hono/http-exception';
 import { and, asc, count, desc, eq, inArray, isNull, like, ne, or, sql } from 'drizzle-orm';
@@ -10,14 +10,15 @@ import { byPerson } from './status-by.ts';
 import { inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { linkEvents, projectEventFlow } from './event-routes.ts';
-import { deleteLines, insertLineAfter, linkInOrder, linkNodes, nodeByKey, sceneByRef, unitByKey, unlinkEdges } from './graph-edit.ts';
+import { createLine, deleteGroup, deleteLines, linkInOrder, linkNodes, nodeByKey, sceneByRef, unitByKey, unlinkEdges } from './graph-edit.ts';
 import { characterInput, documentInput, eventInput, relationshipInput, speechRuleInput, termInput } from '../schemas/knowledge.ts';
 import { describeRule, knownListener, speechRuleIndex } from './speech.ts';
 import { calledWorkflowErrors, workflowIssues } from './workflow-issues.ts';
 import { statusInput, tagInput } from '../schemas/projects.ts';
 import { createStatus, createTag, deleteStatuses, deleteTags, orderStatuses, orderTags, TaxonomyMutationError, updateStatus, updateTag } from './project-taxonomy.ts';
 import { deleteWorkflow, saveWorkflow, WorkflowMutationError } from './workflow-mutations.ts';
-import { createGroup, createUnit, deleteGroup, updateGroup, updateUnit } from './source-mutations.ts';
+import { createGroup, updateGroup, updateUnit } from './source-mutations.ts';
+import { undoRecorded } from './undo-records.ts';
 import { mentions } from './context.ts';
 import { startRun } from './start-run.ts';
 import { continueRun } from './run-continue.ts';
@@ -29,7 +30,7 @@ import { pullDefaults, readAppDefaults } from './app-defaults.ts';
 
 /** 홈 기본값 sections the agent may pull (connections carry keys and chat settings its own permissions: the person's). */
 const PULLABLE = ['editorAi', 'prompts', 'aiAutoConfirm', 'statuses', 'tags', 'workflows'] as const;
-import { listViews, pickNodes, routeNodes, saveView, sectionWithMost, updateView, viewSection, VIEW_LIMIT, type ViewRoute } from './graph-views.ts';
+import { changeView, listViews, pickNodes, routeNodes, saveView, sectionWithMost, viewSection, VIEW_LIMIT, type ViewRoute } from './graph-views.ts';
 import { findView } from './view-flow.ts';
 import { PERSON, type Saver } from './status-by.ts';
 import { asNew, characterByName as characterByNameOf, saveCharacterItem, saveKnowledgeItem, saveRelationshipItem, sent } from './knowledge-save.ts';
@@ -42,10 +43,10 @@ import { setKnowledgeTag } from './knowledge-tags.ts';
 import { planRun, runModelInput } from './run-plan.ts';
 import { applyBatch, checkScript, findLines, lineContext, normalizeBatch, runStats, sceneStats, scenesWith, validateBatch } from './script-query.ts';
 import { addCandidate, declineSuggestion } from './candidates.ts';
-import { saveLine } from './line-save.ts';
+import { LineConflict, revOf, saveLine } from './line-save.ts';
 import { findReadingRoute } from './reading-route-tool.ts';
 import { checkDeleteItems, checkLineBatch, checkSaveTerms, checkStartRun, checkTagItems, needsRow, unchecked, type Prepared, type ToolCheck } from './proposal-check.ts';
-import { deleteItemsUndo, isRecord, knowledgeBatchUndo, knowledgeUndo, lineChangesUndo, noUndo, sentValues, tagItemsUndo, termsUndo, undoCall, type Inverse } from './proposal-undo.ts';
+import { deleteItemsTrim, isRecord, knowledgeBatchUndo, knowledgeUndo, lineChangesUndo, noUndo, restoresDeleted, sentValues, tagItemsUndo, termsUndo, undoCall, type Inverse } from './proposal-undo.ts';
 import { subjectOf } from '../engine/subjects.ts';
 
 /** Lines of a batch proposal checked and applied per step when it is accepted. */
@@ -180,11 +181,14 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       },
     }),
     delete_group: tool({
-      description: 'Delete a scene, document group or UI group and all of its source lines. Groups used by active or paused workflow runs cannot be deleted.',
+      description: 'Delete a scene, document group or UI group and all of its source lines (each as delete_lines removes it: a dialogue-graph node left without lines goes, the way through it is kept). Groups used by active or paused workflow runs cannot be deleted. Answers with undoId: restore_deleted (kind scenes) puts the group and its lines back.',
       inputSchema: z.object({ groupId: z.string().min(1) }),
+      check: needsRow(db, projectId, s.groups, 'groupId', '장면'),
+      undo: restoresDeleted(() => 'scenes'),
       execute: ({ groupId }) => {
         try {
-          return deleteGroup(db, projectId, groupId);
+          const { token, ...result } = deleteGroup(db, projectId, groupId);
+          return { ok: true, ...result, undoId: token };
         } catch (error) {
           if (error instanceof HTTPException) return { ok: false, error: error.message };
           throw error;
@@ -200,10 +204,8 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         .refine((input) => Boolean(input.groupId) !== Boolean(input.after), { message: 'groupId 또는 after 가운데 하나를 넣으세요.' }),
       execute: ({ groupId, after, ...line }) => {
         try {
-          const id = after
-            ? insertLineAfter(db, projectId, nodeByKey(db, projectId, after), { ...line, origin: saver.origin, saver }).unitId
-            : createUnit(db, projectId, { groupId: groupId!, ...line }, { origin: saver.origin, saver }).id;
-          return { ok: true, id, key: db.select({ key: s.units.key }).from(s.units).where(eq(s.units.id, id)).get()!.key };
+          const { unit } = createLine(db, projectId, after ? { afterNodeId: nodeByKey(db, projectId, after) } : { groupId: groupId! }, line, { origin: saver.origin, saver });
+          return { ok: true, id: unit.id, key: unit.key };
         } catch (error) {
           if (error instanceof HTTPException) return { ok: false, error: error.message };
           throw error;
@@ -225,7 +227,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
     }),
     delete_lines: tool({
       description:
-        'Delete source lines by key (only when the user asks). Only these lines go: a dialogue-graph node that keeps other lines stays, one left without lines is removed. bridge (default true) keeps the way through a removed node: what led into it leads to what it led to; false cuts it. The lines are also taken out of the evidence of knowledge items. Lines used by active or paused workflow runs cannot be deleted.',
+        'Delete source lines by key (only when the user asks). Only these lines go, with their translations, tags and history: a dialogue-graph node that keeps other lines stays, one left without lines is removed. bridge (default true) keeps the way through a removed node: what led into it leads to what it led to; false cuts it. The lines are also taken out of the evidence of knowledge items. Lines used by active or paused workflow runs cannot be deleted. Answers with undoId: restore_deleted (kind script) puts them back.',
       inputSchema: z.object({ keys: z.array(z.string().min(1)).min(1).max(10_000), bridge: z.boolean().default(true) }),
       check: (input) => {
         const keys = (input.keys as string[] | undefined) ?? [];
@@ -233,11 +235,11 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         const missing = keys.filter((key) => !known.has(key));
         return missing.length ? { ok: false, error: `없는 대사 키가 ${missing.length}개 있습니다.`, hint: `없는 키: ${missing.slice(0, 5).join(', ')}. find_lines로 키를 확인하세요.` } : unchecked(input);
       },
-      undo: noUndo('삭제된 대사는 되살릴 수 없습니다'),
+      undo: restoresDeleted(() => 'script'),
       execute: ({ keys, bridge }) => {
         try {
-          const { token: _token, ...result } = deleteLines(db, projectId, keys.map((key) => unitByKey(db, projectId, key)), bridge);
-          return { ok: true, ...result };
+          const { token, ...result } = deleteLines(db, projectId, keys.map((key) => unitByKey(db, projectId, key)), bridge);
+          return { ok: true, ...result, undoId: token };
         } catch (error) {
           if (error instanceof HTTPException) return { ok: false, error: error.message };
           throw error;
@@ -245,7 +247,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       },
     }),
     read_line: tool({
-      description: 'One line by id or key with what a translator needs: its group, the 6 lines before and 3 after, its AI 제안 waiting for a decision (suggestions) and the texts it had before (history), confirmed glossary terms it mentions, the speaker\'s character profile, and its listener with the confirmed speech rule for that pair.',
+      description: 'One line by id or key with what a translator needs: its rev (pass it back when you change the line) and memo (note), its group, the 6 lines before and 3 after, its AI 제안 waiting for a decision (suggestions) and the texts it had before (history), confirmed glossary terms it mentions, the speaker\'s character profile, and its listener with the confirmed speech rule for that pair.',
       inputSchema: z.object({ unitId: z.string().optional(), key: z.string().optional() }),
       execute: ({ unitId, key }) => {
         const unit = db
@@ -260,7 +262,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         const terms = db.select({ source: s.terms.source, target: s.terms.target, note: s.terms.note, scope: s.terms.scope, matchCase: s.terms.matchCase }).from(s.terms).where(and(eq(s.terms.projectId, projectId), eq(s.terms.status, 'confirmed'))).all();
         const rule = speechRuleIndex(db, projectId).resolve([unit]).get(unit.key);
         return {
-          line: { id: unit.id, key: unit.key, kind: unit.kind, speaker: unit.speaker, listener: knownListener(unit), source: unit.source, translation: unit.translation },
+          line: { id: unit.id, key: unit.key, rev: revOf(unit), kind: unit.kind, speaker: unit.speaker, listener: knownListener(unit), source: unit.source, translation: unit.translation, note: unit.note },
           speechRule: rule ? { rule: describeRule(rule.rule), note: rule.rule.note, byScriptOrder: rule.byOrder, ...(rule.routeDependent && { routeDependent: true }) } : null,
           group,
           before: around.slice(Math.max(0, index - 6), index),
@@ -333,12 +335,13 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         .object({ view: z.string().min(1), label: z.string().trim().min(1).max(80).optional(), add: z.array(z.string().min(1)).max(5000).default([]), remove: z.array(z.string().min(1)).max(5000).default([]) })
         .refine((input) => input.label !== undefined || input.add.length + input.remove.length > 0, { message: 'label, add or remove is required' }),
       execute: ({ view: ref, label, add, remove }) => {
-        const found = findView(db, projectId, ref);
-        const byKey = (keys: string[]) => keys.map((key) => nodeByKey(db, projectId, key));
-        const view = updateView(db, projectId, found.id, { label, add: byKey(add), remove: byKey(remove) });
-        if (!view) return { ok: false, error: '보기를 찾지 못했습니다.' };
-        if ('error' in view) return { ok: false, error: view.error };
-        return { ok: true, id: view.id, label: view.label, nodes: view.nodeIds.length, route: Boolean(view.route) };
+        try {
+          const view = changeView(db, projectId, findView(db, projectId, ref).id, { label, addKeys: add, removeKeys: remove });
+          return { ok: true, id: view.id, label: view.label, nodes: view.nodeIds.length, route: Boolean(view.route) };
+        } catch (error) {
+          if (error instanceof HTTPException) return { ok: false, error: error.message };
+          throw error;
+        }
       },
     }),
     line_context: tool({
@@ -701,17 +704,29 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       },
     }),
     decide_suggestion: tool({
-      description: 'Decide an AI 제안 waiting on a line (read_line lists them as suggestions, by id): apply makes it the line\'s translation (the old one stays in its history), decline keeps it only in the history.',
-      inputSchema: z.object({ unitId: z.string(), candidateId: z.string(), decision: z.enum(['apply', 'decline']) }),
-      check: needsRow(db, projectId, s.units, 'unitId', '대사'),
+      description: 'Decide an AI 제안 waiting on a line (read_line lists them as suggestions, by id): apply makes it the line\'s translation (the old one stays in its history), decline keeps it only in the history. rev is the line\'s rev as read_line or find_lines gave it (left out: its rev when this is proposed): applying over a line changed since is refused, as for every change of a translation.',
+      inputSchema: z.object({ unitId: z.string(), candidateId: z.string(), decision: z.enum(['apply', 'decline']), rev: z.number().int().optional() }),
+      // The line as it is when the change is proposed: one a person edits before accepting is not written over.
+      check: (input) => {
+        const unit = typeof input.unitId === 'string' ? db.select({ updatedAt: s.units.updatedAt }).from(s.units).where(and(eq(s.units.id, input.unitId), eq(s.units.projectId, projectId))).get() : undefined;
+        if (!unit) return { ok: false, error: '없는 대사입니다.', hint: `(unitId=${String(input.unitId)}) 목록 도구로 id를 확인하세요.` };
+        return unchecked(input.decision === 'apply' && input.rev === undefined ? { ...input, rev: revOf(unit) } : input);
+      },
       undo: noUndo('줄의 이력에서 이전 번역으로 되돌립니다'),
-      execute: ({ unitId, candidateId, decision }) => {
+      execute: ({ unitId, candidateId, decision, rev }) => {
         const unit = db.select().from(s.units).where(and(eq(s.units.id, unitId), eq(s.units.projectId, projectId))).get();
         if (!unit) return { ok: false, error: '대사를 찾을 수 없습니다.' };
         const suggestion = db.select({ state: s.candidates.state }).from(s.candidates).where(and(eq(s.candidates.id, candidateId), eq(s.candidates.unitId, unitId))).get();
         if (suggestion?.state !== 'pending') return { ok: false, error: '기다리는 AI 제안이 아닙니다.' };
         if (decision === 'decline') declineSuggestion(db, unitId, candidateId);
-        else db.transaction((tx) => saveLine(tx, unit, { candidateId, statusBy: saver.statusBy }));
+        else {
+          try {
+            db.transaction((tx) => saveLine(tx, unit, { candidateId, rev, statusBy: saver.statusBy }));
+          } catch (error) {
+            if (error instanceof LineConflict || error instanceof HTTPException) return { ok: false, error: error.message };
+            throw error;
+          }
+        }
         return { ok: true, decision };
       },
     }),
@@ -791,7 +806,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
     }),
     propose_changes: tool({
       description:
-        'Change many lines in one proposal: new translations (added as candidates and made current), statuses, tags. Pass each line\'s rev from find_lines so lines changed meanwhile are skipped, not overwritten. Use this instead of many propose_translation calls.',
+        'Change many lines in one proposal, per line: translation (added as a candidate and made current), status, addTags / removeTags, listener, memo (the line\'s memo, shown beside it; "" clears it) and translate (번역 제외: "exclude" leaves the line out of translation, "include" translates it whatever the rules say, null hands it back to the rules). note is a remark on the new translation, kept in its history. Pass each line\'s rev from find_lines so lines changed meanwhile are skipped, not overwritten. A status the line may not be in (a final status without a translation) is reported for that line and the rest go on. Use this instead of many propose_translation calls.',
       inputSchema: batchChangeSchema,
       check: (input) => checkLineBatch(db, projectId, input),
       undo: lineChangesUndo,
@@ -1014,11 +1029,28 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       },
     }),
     delete_items: tool({
-      description: `Delete project items of one kind by id (${DELETABLE_KINDS.join(', ')}). Relationships and tag links of a deleted item go with it. Statuses cannot be deleted here (they need a status to move lines to: ask the person). The app's own tags cannot be deleted. Always asks the person unless the conversation is in bypass mode.`,
+      description: `Delete project items of one kind by id (${DELETABLE_KINDS.join(', ')}). Relationships and tag links of a deleted item go with it. Statuses cannot be deleted here (they need a status to move lines to: ask the person). The app's own tags cannot be deleted. Always asks the person unless the conversation is in bypass mode. Answers with undoId: restore_deleted (the same kind) puts the items back with what went with them.`,
       inputSchema: z.object({ kind: z.enum(DELETABLE_KINDS), ids: z.array(z.string()).min(1).max(200), reason: z.string().optional() }),
       check: (input) => checkDeleteItems(db, projectId, input),
-      undo: deleteItemsUndo,
-      execute: ({ kind, ids }) => deleteItems(db, projectId, kind, ids),
+      undo: { ...restoresDeleted((input) => String(input.kind)), trim: deleteItemsTrim },
+      execute: ({ kind, ids }) => {
+        const { token, ...result } = deleteItems(db, projectId, kind, ids);
+        return { ...result, undoId: token };
+      },
+    }),
+    restore_deleted: tool({
+      description:
+        'Put back what one delete removed (delete_lines, delete_group, delete_items), by the undoId that delete answered with: the items with the same ids and everything that went with them (a line\'s translations, tags, history, run items and graph node with its connections; a character\'s relationships; an event\'s lines; the tags on them). kind is what was deleted: script (lines), scenes (a group), or the kind given to delete_items. Works once, for 30 days. Refused whole when the project changed so that it cannot come back as it was (its scene or status deleted, its key taken).',
+      inputSchema: z.object({ kind: z.enum(RESTORABLE_KINDS), id: z.string().min(1) }),
+      undo: noUndo('되살린 것은 다시 지워서 되돌립니다'),
+      execute: ({ kind, id }) => {
+        try {
+          return undoRecorded(db, projectId, id, kind);
+        } catch (error) {
+          if (error instanceof HTTPException) return { ok: false, error: error.message };
+          throw error;
+        }
+      },
     }),
     read_project_settings: tool({
       description: "The project's settings: name, description, format rules (placeholder presets and custom patterns the format check keeps), exclusion rules (번역 제외: which sources are not for translation — blank, format tokens only, no letters, no letter of the source language, patterns), AI 문맥 (aiAutoConfirm: true = AI results that are knowledge or terms are confirmed right away and so used as AI context; false = they are candidates a person confirms; lines are never affected), editor AI, mark colours, and the agent settings (switched-off tools, default permission mode, terminalPermissionMode — how changes from the terminal `loca` are decided; read-only for you).",
@@ -1083,14 +1115,14 @@ export const AGENT_SYSTEM = `당신은 게임 번역 작업실 loca의 프로젝
 - 도구를 쓴 뒤에는 반드시 사용자에게 결과나 다음 단계를 글로 알립니다. 아무 말 없이 차례를 끝내지 않습니다.
 - 프로젝트를 바꾸는 도구(save_*, propose_*, tag_items, start_run 등)는 대화의 권한 모드를 따릅니다. 바로 반영되면 도구 결과에 '바로 반영했습니다'(제안만 더하는 propose_translation은 'AI 제안으로 올렸습니다')와 결과가 오고, 사용자 결정이 필요하면 '제안을 올렸습니다'가 옵니다. 제안을 올렸다면 무엇을 왜 제안했는지 한두 문장으로 설명하고 이번 답을 마치세요. 대화의 제안이 모두 결정되면 결과가 와서 이어서 진행합니다. 한 번에 검토할 수 있는 크기로 바꿉니다.
 - 워크플로를 만들기 전에는 harness_reference를 읽습니다(AI 노드의 model은 거기 나온 연결 id와 그 연결의 모델).
-- 새 원문 항목은 create_group/create_unit으로 만들고(대사 사이에 넣을 때는 create_unit의 after), 원문 대사를 지울 때는 delete_lines를 씁니다. 기존 원문의 번역 제안은 propose_translation으로 올립니다. 원문을 바꾸면 번역 상태가 초기화됩니다.
+- 새 원문 항목은 create_group/create_unit으로 만들고(대사 사이에 넣을 때는 create_unit의 after), 원문 대사를 지울 때는 delete_lines를 씁니다. 지운 대사·묶음·항목은 그 결과의 undoId로 restore_deleted가 딸린 것까지 되살립니다(사용자가 제안 카드에서 되돌려도 같습니다). 기존 원문의 번역 제안은 propose_translation으로 올립니다. 원문을 바꾸면 번역 상태가 초기화됩니다.
 - 대사 번역을 제안할 때는 read_line으로 앞뒤 대사·용어·화자 프로필을 읽고 propose_translation으로 AI 제안을 올립니다(사람이 그 줄에서 적용·거절). 확정 용어는 반드시 지킵니다. 사용자가 기다리는 제안을 적용하거나 거절하라고 하면 decide_suggestion을 씁니다.
 - 편집기에 열린 워크플로의 노드(지시문·조건식·스크립트 코드)를 바꿀 때는 save_workflow가 아니라 edit_workflow_node를 씁니다. 화면 정보의 노드 설정이 저장 전 최신 상태입니다.
 - 워크플로 실행은 사용자가 요청할 때만 start_run으로 제안합니다. 실행 전에 대상 대사 수와 범위를 알려 줍니다. 실행은 이 대화와 따로 돌아갑니다: 시작을 한 문장으로 알리고 답을 마치세요. 수락되어도 대화가 이어지지 않으며, 끝나면 대화에 결과가 기록되어 사용자의 다음 메시지와 함께 읽습니다. 기다리거나 read_run으로 진행을 반복해서 확인하지 않습니다. read_run은 사용자가 묻거나 기록된 결과의 자세한 내용이 필요할 때 씁니다.
 - 장면 요약은 사용자가 요청할 때만 read_scene으로 끝까지 읽은 뒤 update_group의 description으로 제안합니다.
 - 번역이 빈 용어 후보를 채울 때는 find_lines(q)로 원문 용례를 읽고 save_terms로 번역·메모만 채웁니다(상태는 후보 그대로).
 - 이미 있는 항목을 고치는 제안(save_* 에 id)에는 바꿀 필드만 넣습니다. 넣지 않은 필드는 그대로 남습니다.
-- 상태·태그는 save_status로 만들고 update_status/update_tag로 고칩니다. 상태를 지울 때는 대사를 옮길 상태(moveTo)를 지정합니다. 번역이 빈 대사를 완료 상태로 옮기거나 바꿀 수 없습니다. 태그는 용어·자료에 tag_items, 대사에는 propose_changes(addTags/removeTags)로 붙이거나 뗍니다. 새 태그의 scope는 붙는 곳(lines 대사 · knowledge 자료 · terms 용어집)에 맞게 정합니다.
+- 상태·태그는 save_status로 만들고 update_status/update_tag로 고칩니다. 상태를 지울 때는 대사를 옮길 상태(moveTo)를 지정합니다. 번역이 빈 대사를 완료 상태로 옮기거나 바꿀 수 없습니다. 태그는 용어·자료에 tag_items, 대사에는 propose_changes(addTags/removeTags)로 붙이거나 뗍니다. 대사의 메모(memo)와 번역 제외(translate)도 propose_changes로 바꿉니다. 새 태그의 scope는 붙는 곳(lines 대사 · knowledge 자료 · terms 용어집)에 맞게 정합니다.
 - 워크플로는 save_workflow로 만들거나 고치고 delete_workflow로 지웁니다. 실행 중이거나 일시 정지된 워크플로는 고치거나 지울 수 없습니다.
 - 권한은 도구 이름이 아니라 대상과 생성·조회·변경·삭제·실행에 적용됩니다. 단건과 일괄은 같은 정책이며, 일괄 요청의 일부가 허용되지 않으면 전체를 반영하지 않습니다. 복합 조회는 포함된 대상의 조회 권한이 모두 필요합니다.
 - 인물·관계·말투 규칙·사건·노트를 여러 개 만들거나 고칠 때는 save_knowledge 하나로 묶습니다. 지우기는 delete_items(종류 하나, id 목록)이며 사람이 묻는 경우에만 씁니다. 프로젝트 설정은 read_project_settings로 읽고 update_project_settings로 바꿉니다(에이전트 설정은 바꿀 수 없습니다). 홈 설정(새 프로젝트가 처음에 복사해 가는 기본값)은 read_app_defaults로 읽고, 사람이 원할 때 pull_app_defaults로 이 프로젝트에 가져옵니다. 홈 설정 자체는 사람만 앱에서 고칩니다.

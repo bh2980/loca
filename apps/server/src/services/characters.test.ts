@@ -53,15 +53,19 @@ describe('saving a character (one service for the app and the chat)', () => {
     expect(terms().map((row) => row.source)).toEqual(['Kept']);
   });
 
-  it('lets a person create a second character of the same name, while the chat is told to update the first', async () => {
+  it('refuses a second character of a name or alias in use, for the app and the chat alike', async () => {
     const { send, characters, tool } = setup();
-    expect((await send('POST', '/characters', { name: 'Guard' })).status).toBe(201);
-    expect((await send('POST', '/characters', { name: 'guard' })).status).toBe(201);
-    expect(tool({ name: 'GUARD' })).toMatchObject({ ok: false, error: expect.stringContaining('같은 이름') });
+    expect((await send('POST', '/characters', { name: 'Guard', aliases: ['Watchman'] })).status).toBe(201);
+    // The app's form and the agent's tool end in the same save, so both are told the same thing.
+    for (const name of ['guard', 'WATCHMAN']) {
+      const refused = await send('POST', '/characters', { name });
+      expect([refused.status, await refused.text()]).toEqual([400, expect.stringContaining('같은 이름')]);
+      expect(tool({ name })).toMatchObject({ ok: false, error: expect.stringContaining('같은 이름') });
+    }
     const created = tool({ name: 'Mira', aliases: ['mira'] });
     expect(created.ok).toBe(true);
     expect(tool({ id: created.id, name: 'Mira', aliases: ['mira', 'Miri'] })).toEqual({ ok: true, id: created.id });
     expect(tool({ id: 'nope', name: 'X' })).toMatchObject({ ok: false, error: '없는 인물입니다.' });
-    expect(characters().map((row) => row.name)).toEqual(['Guard', 'guard', 'Mira']);
+    expect(characters().map((row) => row.name)).toEqual(['Guard', 'Mira']);
   });
 });

@@ -4,7 +4,8 @@ import { importFileSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from './importer.ts';
-import { createGroup, updateGroup, deleteGroup, createUnit, updateUnit, deleteUnits } from './source-mutations.ts';
+import { createGroup, updateGroup, updateUnit } from './source-mutations.ts';
+import { createLine, deleteGroup, deleteLines } from './graph-edit.ts';
 vi.mock('./layout.ts', () => ({ computeLayouts: vi.fn(async () => {}), cancelViewLayouts: vi.fn() }));
 
 const databases: ReturnType<typeof openDatabase>[] = [];
@@ -27,7 +28,7 @@ describe('source resource CRUD', () => {
     const { db, projectId } = setup();
     const group = createGroup(db, projectId, { kind, title: 'New source', section: 'Chapter 2' });
     expect(db.select().from(s.units).where(eq(s.units.groupId, group.id)).all()).toHaveLength(0);
-    const unit = createUnit(db, projectId, { groupId: group.id, source: 'New entry' });
+    const { unit } = createLine(db, projectId, { groupId: group.id }, { source: 'New entry' });
     expect(unit.kind).toBe(kind === 'scene' ? 'dialogue' : kind);
     expect(unit.seq).toBe(2);
     expect(unit.translation).toBeNull();
@@ -35,7 +36,7 @@ describe('source resource CRUD', () => {
     expect(db.select().from(s.graphNodes).where(eq(s.graphNodes.groupId, group.id)).get()?.unitIds).toEqual([unit.id]);
     db.insert(s.candidates).values({ unitId: unit.id, text: '후보', origin: 'human' }).run();
     updateGroup(db, projectId, group.id, { title: 'Renamed', section: 'Chapter 3' });
-    expect(deleteGroup(db, projectId, group.id)).toEqual({ deleted: 1 });
+    expect(deleteGroup(db, projectId, group.id)).toMatchObject({ deleted: 1 });
     expect(db.select().from(s.candidates).where(eq(s.candidates.unitId, unit.id)).all()).toEqual([]);
     expect(db.select().from(s.graphNodes).all().flatMap((node) => node.unitIds)).not.toContain(unit.id);
     expect(db.select().from(s.graphNodes).all().some((node) => node.groupId === group.id)).toBe(false);
@@ -57,7 +58,7 @@ describe('source resource CRUD', () => {
     expect(changed.statusId).not.toBe(final.id);
     expect(db.select().from(s.characters).get()?.evidence).toEqual(['new-key']);
     expect(db.select().from(s.graphNodes).where(eq(s.graphNodes.id, n1.id)).get()?.groupId).toBe(target.id);
-    deleteUnits(db, projectId, [first.id]);
+    deleteLines(db, projectId, [first.id]);
     expect(db.select().from(s.graphNodes).where(eq(s.graphNodes.id, n1.id)).get()?.unitIds).toEqual([units[1]!.id]);
     expect(db.select().from(s.graphNodes).where(eq(s.graphNodes.id, n1.id)).get()?.groupId).toBe(group.id);
     expect(db.select().from(s.graphEdges).all()).toHaveLength(1);
@@ -68,12 +69,12 @@ describe('source resource CRUD', () => {
   it('rejects cross-project references, duplicate keys, and cross-kind moves without partial changes', () => {
     const { db, projectId, group, units } = setup();
     const other = db.insert(s.projects).values({ name: 'Other', sourceLanguage: 'en', targetLanguage: 'ko' }).returning().get();
-    expect(() => createUnit(db, other.id, { groupId: group.id, source: 'Wrong' })).toThrow();
-    expect(() => deleteUnits(db, other.id, [units[0]!.id])).toThrow();
-    expect(() => createUnit(db, projectId, { groupId: group.id, source: 'Duplicate', key: 'a' })).toThrow('이미 사용');
+    expect(() => createLine(db, other.id, { groupId: group.id }, { source: 'Wrong' })).toThrow();
+    expect(() => deleteLines(db, other.id, [units[0]!.id])).toThrow();
+    expect(() => createLine(db, projectId, { groupId: group.id }, { source: 'Duplicate', key: 'a' })).toThrow('이미 사용');
     const document = createGroup(db, projectId, { kind: 'document', title: 'Document' });
     expect(() => updateUnit(db, projectId, units[0]!.id, { groupId: document.id })).toThrow('같은 종류');
-    expect(() => createUnit(db, projectId, { groupId: document.id, source: 'Doc', listener: 'Person' })).toThrow('화자·청자');
+    expect(() => createLine(db, projectId, { groupId: document.id }, { source: 'Doc', listener: 'Person' })).toThrow('화자·청자');
     expect(db.select().from(s.units).all()).toHaveLength(2);
   });
 
@@ -82,7 +83,7 @@ describe('source resource CRUD', () => {
     const group = createGroup(db, projectId, { kind: 'document', title: 'Append only' });
     // Every UPDATE runs the FTS maintenance trigger, even if seq stays the same.
     db.$client.exec('create temp table source_writes (id text); create temp trigger record_source_writes after update on units begin insert into source_writes values (new.id); end;');
-    const unit = createUnit(db, projectId, { groupId: group.id, source: 'Appended' });
+    const { unit } = createLine(db, projectId, { groupId: group.id }, { source: 'Appended' });
     expect(db.$client.prepare('select distinct id from source_writes').all()).toEqual([{ id: unit.id }]);
   });
 

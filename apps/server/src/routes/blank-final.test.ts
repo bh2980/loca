@@ -77,7 +77,7 @@ describe('final statuses require a translation', () => {
     await send('POST', `/units/${unit.id}/save`, { text: '번역문', statusId: finalStatus.id });
     const before = line(unit.id);
 
-    const response = await send('POST', `/units/${unit.id}/save`, { text: '  ', base: '번역문' });
+    const response = await send('POST', `/units/${unit.id}/save`, { text: '  ' });
 
     expect(response.status).toBe(400);
     expect(line(unit.id)).toEqual(before);

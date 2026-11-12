@@ -92,8 +92,10 @@ export function SourceEditor({ projectId, kind, groupId, unitId, mode, onClose, 
     mutationFn: () => editingGroup
       ? unwrap(client.projects[':projectId'].groups[':groupId'].$delete({ param: { projectId, groupId: groupId! } }))
       : unwrap(client.projects[':projectId'].units[':unitId'].$delete({ param: { projectId, unitId: unitId! } })),
-    onSuccess: async () => {
-      toast.success(editingGroup ? '묶음을 삭제했습니다.' : '원문을 삭제했습니다.');
+    onSuccess: async ({ token }) => {
+      // The delete answers with its undo record: 되돌리기 puts the lines back with their translations, tags and history.
+      const undo = () => void unwrap(client.projects[':projectId'].undo.$post({ param: { projectId }, json: { token: token! } })).then(() => toast.success('삭제한 것을 되살렸습니다.'), (error: Error) => toast.error(error.message));
+      toast.success(editingGroup ? '묶음을 삭제했습니다.' : '원문을 삭제했습니다.', token ? { action: { label: '되돌리기', onClick: undo }, duration: 10000 } : undefined);
       (onDeleted ?? onClose)?.();
     },
     onError: (error) => toast.error(error.message),
@@ -120,7 +122,7 @@ export function SourceEditor({ projectId, kind, groupId, unitId, mode, onClose, 
             <AlertDialogContent>
               <AlertDialogHeader>
                 <AlertDialogTitle>{editingGroup ? '묶음과 원문을 삭제할까요?' : '원문을 삭제할까요?'}</AlertDialogTitle>
-                <AlertDialogDescription>{editingGroup ? groupDeleteCopy : '이 원문과 대표 번역, 번역 후보 및 실행 기록의 해당 항목이 영구 삭제됩니다. 이 작업은 되돌릴 수 없습니다.'}</AlertDialogDescription>
+                <AlertDialogDescription>{editingGroup ? groupDeleteCopy : '이 원문과 대표 번역, 번역 후보 및 실행 기록의 해당 항목이 삭제됩니다. 삭제한 뒤 알림의 되돌리기로 되살릴 수 있습니다.'}</AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>취소</AlertDialogCancel>
