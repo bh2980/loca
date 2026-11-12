@@ -255,22 +255,6 @@ export const workflowRoutes = new Hono<Env>()
     const row = found(c.var.deps.db.select({ request: s.aiCalls.request, response: s.aiCalls.response }).from(s.aiCalls).where(and(eq(s.aiCalls.id, c.req.param('id')), eq(s.aiCalls.projectId, c.req.param('projectId')))).get(), 'AI 호출');
     return c.json({ request: row.request, response: row.response });
   })
-  /**
-   * How fast a model has answered before, for "보통 약 N분": the median seconds per 1,000 input tokens
-   * over finished requests of this kind with this model, across every project.
-   */
-  .get('/ai-calls/pace', validate('query', z.object({ model: z.string().min(1), kind: z.enum(s.AI_CALL_KINDS) })), (c) => {
-    const { model, kind } = c.req.valid('query');
-    const rows = c.var.deps.db
-      .select({ input: s.aiCalls.inputTokens, started: s.aiCalls.startedAt, finished: s.aiCalls.finishedAt })
-      .from(s.aiCalls)
-      .where(and(eq(s.aiCalls.model, model), eq(s.aiCalls.kind, kind), eq(s.aiCalls.status, 'ok'), sql`${s.aiCalls.inputTokens} > 0`, sql`${s.aiCalls.finishedAt} is not null`))
-      .orderBy(desc(s.aiCalls.startedAt))
-      .limit(50)
-      .all();
-    const rates = rows.map((row) => (row.finished!.getTime() - row.started.getTime()) / 1000 / (row.input! / 1000)).sort((a, b) => a - b);
-    return c.json({ samples: rates.length, secondsPer1k: rates.length ? rates[Math.floor(rates.length / 2)] : null });
-  })
   .get('/projects/:projectId/runs', (c) => c.json(runRows(c.var.deps.db, c.req.param('projectId'))))
   /** The batches this run was planned in (stored per line when it started), as the run dialog lists them. */
   .get('/runs/:id/plan', (c) => {

@@ -48,7 +48,7 @@ export const projects = sqliteTable('projects', {
   nodeTypes: json<Record<string, NodeType>>('node_types').notNull().default(sql`'{}'`),
   /** Which placeholder / tag families the format check looks for (see FORMAT_PRESETS). */
   /** Which agent tools this project's chat (and the CLI) may use. */
-  agentSettings: json<AgentSettings>('agent_settings').notNull().default(sql`'{"disabledTools":[]}'`),
+  agentSettings: json<AgentSettings>('agent_settings').notNull().default(sql`'{}'`),
   formatRules: json<FormatRules>('format_rules').notNull().default(sql`'{"presets":["brace","printf","angleTag"],"custom":[]}'`),
   /** 설정 › 프로젝트 › AI 문맥: AI results that are knowledge or terms are confirmed right away (on) or candidates (off); see aiStatus. */
   aiAutoConfirm: integer('ai_auto_confirm', { mode: 'boolean' }).notNull().default(true),
@@ -58,13 +58,6 @@ export const projects = sqliteTable('projects', {
   editorAi: json<Partial<EditorAi>>('editor_ai').notNull().default(sql`'{}'`),
   /** The project's own name and colour for automatic tags (markStylesSchema). */
   markStyles: json<MarkStyles>('mark_styles').notNull().default(sql`'{}'`),
-  /** Colors the project picked for automatic marks (AUTO_MARKS); others keep their default. */
-  /** The arms a person picked for the main route (본 줄기): graph node id of a fork → the node it goes on to. */
-  routePicks: json<Record<string, string>>('route_picks').notNull().default(sql`'{}'`),
-  /** 합류 점검: join block id of the route slice → when a person checked it and the signature of the lines they read (services/join-check.ts). */
-  joinChecks: json<Record<string, { at: string; sig: string }>>('join_checks').notNull().default(sql`'{}'`),
-  /** 길 N (다음 길): the round of the route being translated and the picks of the earlier rounds, to step back (services/next-route.ts). */
-  routeState: json<{ round: number; history: Record<string, string>[] }>('route_state').notNull().default(sql`'{"round":1,"history":[]}'`),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
@@ -354,8 +347,8 @@ export const graphViews = sqliteTable('graph_views', {
   updatedAt: updatedAt(),
 });
 
-/** Where a model request came from: a workflow run (whole: one reading the whole script), a glossary fill, a model test, a chat turn or the editor. */
-export const AI_CALL_KINDS = ['run', 'whole', 'terms', 'test', 'chat', 'editor'] as const;
+/** Where a model request came from: a workflow run (whole: one reading the whole script), a model test, a chat turn or the editor. */
+export const AI_CALL_KINDS = ['run', 'whole', 'test', 'chat', 'editor'] as const;
 
 /**
  * Every request sent to a model, one row per attempt, written when it
@@ -757,8 +750,8 @@ export const runSteps = sqliteTable(
 );
 
 /**
- * A change an agent asked for outside the AI SDK approval flow (a CLI chat, the loca CLI). Nothing is
- * applied until a person accepts it in the chat panel; then the same tool runs with this input.
+ * A change an agent asked for (a chat, the loca CLI), as the change gate keeps it (change-gate.ts). Nothing is
+ * applied until it is accepted, by a person or by the permission mode; then the same tool runs with this input.
  */
 /** Lines a batch proposal left out (errors, conflicts) and warnings about the ones it kept. */
 export interface ProposalReport {
@@ -839,7 +832,5 @@ export const chatSessions = sqliteTable('chat_sessions', {
 export const appSettings = sqliteTable('app_settings', {
   id: text('id').primaryKey().default('app'),
   defaults: json<Partial<AppDefaults>>('defaults').notNull().default(sql`'{}'`),
-  /** One-time steps done on this data (e.g. 'connections-per-project'). */
-  done: json<string[]>('done').notNull().default(sql`'[]'`),
   updatedAt: updatedAt(),
 });

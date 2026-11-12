@@ -793,8 +793,6 @@ export class Runner {
     switch (node.type) {
       case 'entry':
         return this.route(tx, run, item, 'out');
-      case 'end':
-        return tx.update(s.runItems).set({ state: 'done' }).where(eq(s.runItems.id, item.id)).run();
       case 'condition': {
         const common = { visits: item.visits, outputs: item.data.outputs ?? {}, issues: item.data.issues ?? [], error: item.data.error ?? null };
         let data: ConditionData;

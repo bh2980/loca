@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { agentToolPermissionOptions, effectiveAgentPermissions, requiredAgentPermissions } from '@tw/shared';
+import { agentToolPermissionOptions, CHECK_KINDS, effectiveAgentPermissions, requiredAgentPermissions } from '@tw/shared';
 
 describe('agent resource permissions', () => {
   it('maps source CRUD and translation proposals to their actual actions', () => {
@@ -35,8 +35,17 @@ describe('agent resource permissions', () => {
     ]);
   });
 
-  it('treats old candidate-only tool switches as script update restrictions', () => {
-    const permissions = effectiveAgentPermissions({ disabledTools: ['propose_translation'] });
-    expect(permissions.script).toMatchObject({ create: true, read: true, update: false, delete: false });
+  it('check_script reads the script, and the glossary for the terms check; there is no speech check', () => {
+    expect(agentToolPermissionOptions('check_script')).toEqual([
+      [{ resource: 'script', action: 'read' }],
+      [{ resource: 'script', action: 'read' }, { resource: 'terms', action: 'read' }],
+    ]);
+    expect(requiredAgentPermissions('check_script', { kind: 'terms' })).toEqual([{ resource: 'script', action: 'read' }, { resource: 'terms', action: 'read' }]);
+    expect(Object.keys(CHECK_KINDS)).toEqual(['terms', 'consistency', 'format', 'length']);
+  });
+
+  it('allows everything but deleting until a person says otherwise', () => {
+    expect(effectiveAgentPermissions({}).script).toEqual({ create: true, read: true, update: true, delete: false });
+    expect(effectiveAgentPermissions({ permissions: { script: { update: false, delete: true } } }).script).toEqual({ create: true, read: true, update: false, delete: true });
   });
 });

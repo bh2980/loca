@@ -189,13 +189,24 @@ describe('node exits', () => {
     expect(definition.settings).toEqual({ maxVisitsPerNode: 4, maxConsecutiveFailures: 7, retries: DEFAULT_RETRY_RULES });
   });
 
+  it('has no end node: a line ends at an exit with nothing after it, and an exit that must go somewhere says so', () => {
+    const at = { x: 0, y: 0 };
+    expect(workflowNodeSchema.safeParse({ id: 'end', type: 'end', position: at, config: {} }).success).toBe(false);
+    const definition = workflowDefinitionSchema.parse({
+      nodes: [{ id: 'entry', type: 'entry', position: at, config: {} }, { id: 'check', type: 'function', position: at, config: { fn: 'formatCheck' } }, { id: 'save', type: 'function', position: at, config: { fn: 'saveCandidate' } }],
+      edges: [{ id: '1', source: 'entry', sourceHandle: 'out', target: 'check' }, { id: '2', source: 'check', sourceHandle: 'fail', target: 'save' }],
+    });
+    const unconnected = validateWorkflow(definition, refs).filter((issue) => issue.message.includes('출구가 연결되지')).map((issue) => `${issue.nodeId}: ${issue.message}`);
+    // 통과 has no line and no status: an error. 저장's 완료 and 오류 may end the line.
+    expect(unconnected).toEqual(["check: '통과' 출구가 연결되지 않았습니다."]);
+  });
+
   it('flags an http node without a connection and an unknown function', () => {
     const definition = workflowDefinitionSchema.parse({
       nodes: [
         { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: {} },
         { id: 'h', type: 'function', position: { x: 0, y: 0 }, config: { fn: 'http' } },
         { id: 'x', type: 'function', position: { x: 0, y: 0 }, config: { fn: 'nope' } },
-        { id: 'end', type: 'end', position: { x: 0, y: 0 } },
       ],
       edges: [
         { id: '1', source: 'entry', sourceHandle: 'out', target: 'h' },
@@ -437,15 +448,6 @@ describe('styleInstruction', () => {
   });
 });
 
-import { isIdentifierLabel } from './labels.ts';
-describe('isIdentifierLabel', () => {
-  it('flags identifiers and keeps human text', () => {
-    for (const id of ['tps-01-game-intro', 'tps-01-game-rules1-hub0', 'rules-whotaughtyou=0', 'a_b', 'x.y']) expect(isIdentifierLabel(id)).toBe(true);
-    expect(isIdentifierLabel('intro', new Set(['intro']))).toBe(true);
-    for (const text of ['Half-goblin. Thief. Ok.', 'Late', 'Sibling 0']) expect(isIdentifierLabel(text)).toBe(false);
-  });
-});
-
 describe('run readiness', () => {
   it('follows the context the AI nodes send, whatever they output', () => {
     expect(readinessUses(translationTemplate(ids))).toEqual({ speech: true, glossary: true });
@@ -462,7 +464,7 @@ describe('retry rules', () => {
   const edge = (source: string, sourceHandle: string, target: string) => ({ id: `${source}-${sourceHandle}-${target}`, source, sourceHandle, target });
   const rule = (config: object = {}): RetryRule => workflowDefinitionSchema.parse({ nodes: [], edges: [], settings: { retries: [config] } }).settings.retries[0]!;
   const workflow = (nodes: WorkflowNode[], settings: object = {}) =>
-    workflowDefinitionSchema.parse({ nodes: [entry, ...nodes, { id: 'end', type: 'end', position: { x: 0, y: 0 }, config: {} }], edges: [edge('entry', 'out', nodes[0]!.id), ...nodes.map((node) => edge(node.id, 'out', 'end'))], settings });
+    workflowDefinitionSchema.parse({ nodes: [entry, ...nodes], edges: [edge('entry', 'out', nodes[0]!.id)], settings });
   const errorsOf = (definition: WorkflowDefinition) => validateWorkflow(definition, refs).filter((issue) => issue.level === 'error');
 
   it('fills a rule\'s defaults and keeps its limits', () => {
@@ -835,5 +837,19 @@ describe('termMatches (the glossary page and list_terms)', () => {
     expect(termMatches(term, { marks: ['duplicateTarget'] }, true)).toBe(true);
     expect(termMatches({ ...term, status: 'rejected' }, {})).toBe(false);
     expect(termMatches(term, { ids: ['other'] })).toBe(false);
+  });
+});
+
+import { PALETTE, paletteIndex } from './defaults.ts';
+import { orderedTagScopes, TAG_SCOPES } from './marks.ts';
+describe('palette and tag places', () => {
+  it('a stored colour is a palette slot only when it is one of the twelve', () => {
+    expect(paletteIndex(PALETTE[3].hex.toUpperCase())).toBe(3);
+    expect(paletteIndex('#ef4444')).toBe(-1);
+  });
+
+  it('tag places are the five kinds, once each in their fixed order', () => {
+    expect(TAG_SCOPES).toEqual(['lines', 'terms', 'people', 'documents', 'events']);
+    expect(orderedTagScopes(['events', 'lines', 'events'])).toEqual(['lines', 'events']);
   });
 });

@@ -95,7 +95,7 @@ describe('the run card is stored in the conversation', () => {
     const c = runCardMessage(card()) as unknown as UIMessage;
     const reply: UIMessage = { id: 'a1', role: 'assistant', parts: [{ type: 'text', text: '네' }] };
     expect(mergeIncoming([user('u', 'q'), reply, c], undefined, 'regenerate-message').map((message) => message.id)).toEqual(['u', 'c1']);
-    // An answered approval revises the newest reply even with a card after it.
+    // A tool result the browser added revises the newest reply even with a card after it.
     const revised = { ...reply, parts: [{ type: 'text' as const, text: '수정' }] };
     expect(mergeIncoming([user('u', 'q'), reply, c], revised).map((message) => message.id)).toEqual(['u', 'a1', 'c1']);
     expect((mergeIncoming([user('u', 'q'), reply, c], revised)[1] as UIMessage).parts).toEqual(revised.parts);

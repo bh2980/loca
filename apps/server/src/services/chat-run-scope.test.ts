@@ -71,7 +71,7 @@ describe('chips on a sent message', () => {
     const incoming = { id: 'm1', role: 'user' as const, metadata: { chips }, parts: [{ type: 'text' as const, text: '이 장면 봐 줘' }] };
     const stored = mergeIncoming([], incoming as never);
     expect(messageChips(stored[0])).toEqual(chips);
-    // a later turn that resends the newest message (an answered approval) keeps them too
+    // a later turn that resends the newest message (a tool result the browser added) keeps them too
     expect(messageChips(mergeIncoming(stored, { ...incoming } as never)[0])).toEqual(chips);
   });
   it('older messages and malformed metadata have none', () => {

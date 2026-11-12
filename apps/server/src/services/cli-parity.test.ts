@@ -165,4 +165,17 @@ describe('CLI parity with the app', () => {
     expect(all.every((event) => Array.isArray(event.marks))).toBe(true);
     expect(unreviewed.every((event) => event.status === 'candidate' || event.marks.includes('ai'))).toBe(true);
   });
+
+  it('reads the relationships and events named by id (what the chat is told to do with an attached one)', async () => {
+    const { db, projectId } = setup();
+    const person = (name: string) => db.insert(s.characters).values({ projectId, name }).returning().get();
+    const [a, b, c] = [person('가'), person('나'), person('다')];
+    const relations = [[a, b], [b, c]].map(([from, to]) => db.insert(s.relationships).values({ projectId, fromId: from!.id, toId: to!.id, kind: '동료' }).returning().get());
+    const events = ['첫째', '둘째'].map((title) => db.insert(s.storyEvents).values({ projectId, title }).returning().get());
+    const run = (name: string, input: object) => agentCatalog(db, projectId).find((tool) => tool.name === name)!.run(input) as Promise<{ id: string }[]>;
+    expect((await run('list_relationships', { ids: [relations[1]!.id] })).map((row) => row.id)).toEqual([relations[1]!.id]);
+    expect((await run('list_relationships', {})).map((row) => row.id).sort()).toEqual(expect.arrayContaining(relations.map((row) => row.id)));
+    expect((await run('list_events', { ids: [events[0]!.id] })).map((row) => row.id)).toEqual([events[0]!.id]);
+    expect((await run('list_events', {})).map((row) => row.id)).toEqual(expect.arrayContaining(events.map((row) => row.id)));
+  });
 });

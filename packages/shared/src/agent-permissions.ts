@@ -23,7 +23,7 @@ const resources = Object.keys(AGENT_RESOURCES) as [AgentResource, ...AgentResour
 const actions = Object.keys(AGENT_ACTIONS) as [AgentAction, ...AgentAction[]];
 export const agentPermissionsSchema = z.partialRecord(z.enum(resources), z.partialRecord(z.enum(actions), z.boolean()));
 export type AgentPermissions = z.infer<typeof agentPermissionsSchema>;
-type Policy = { disabledTools?: string[]; permissions?: AgentPermissions };
+type Policy = { permissions?: AgentPermissions };
 const p = (resource: AgentResource, action: AgentAction): AgentPermission => ({ resource, action });
 const read = (...targets: AgentResource[]) => targets.map((target) => p(target, 'read'));
 const saves: Record<string, AgentResource> = { save_character: 'characters', save_relationship: 'relationships', save_speech_rule: 'speechRules', save_event: 'events', save_document: 'documents' };
@@ -63,12 +63,12 @@ export function requiredAgentPermissions(name: string, input: Record<string, unk
   if (name === 'save_status') return input.type === 'status' || input.type === 'tag' ? [p(input.type === 'status' ? 'statuses' : 'tags', 'create')] : null;
   if (name === 'order_settings') return input.type === 'status' || input.type === 'tag' ? [p(input.type === 'status' ? 'statuses' : 'tags', 'update')] : null;
   if (name === 'save_workflow') return [p('workflows', typeof input.id === 'string' && input.id ? 'update' : 'create')];
-  if (name === 'check_script') return read('script', ...(input.kind === 'terms' ? ['terms' as const] : input.kind === 'speech' ? ['speechRules' as const] : []));
+  if (name === 'check_script') return read('script', ...(input.kind === 'terms' ? ['terms' as const] : []));
   if (name === 'script_stats') return input.of === 'runs' ? read('workflows') : read('script', 'scenes', 'statuses');
   return fixed[name] ?? null;
 }
 
-/** Alternative valid calls, for discovery and conservative migration of old tool switches. */
+/** Alternative valid calls, for discovery: a tool is offered when the settings allow one of them. */
 export function agentToolPermissionOptions(name: string): AgentPermission[][] {
   if (saves[name]) return [[p(saves[name], 'create')], [p(saves[name], 'update')]];
   if (name === 'create_unit') return [[p('script', 'create')]];
@@ -84,7 +84,7 @@ export function agentToolPermissionOptions(name: string): AgentPermission[][] {
   if (name === 'save_status') return [[p('statuses', 'create')], [p('tags', 'create')]];
   if (name === 'order_settings') return [[p('statuses', 'update')], [p('tags', 'update')]];
   if (name === 'save_workflow') return [[p('workflows', 'create')], [p('workflows', 'update')]];
-  if (name === 'check_script') return [read('script'), read('script', 'terms'), read('script', 'speechRules')];
+  if (name === 'check_script') return [read('script'), read('script', 'terms')];
   if (name === 'script_stats') return [read('workflows'), read('script', 'scenes', 'statuses')];
   return fixed[name] ? [fixed[name]] : [];
 }
@@ -93,17 +93,14 @@ export function effectiveAgentPermissions(settings: Policy): AgentPermissions {
   const result: AgentPermissions = {};
   // Everything is allowed until a person says otherwise, except deleting: that is switched on by hand.
   for (const resource of resources) result[resource] = Object.fromEntries(AGENT_RESOURCES[resource].actions.map((action) => [action, action !== 'delete']));
-  for (const tool of settings.disabledTools ?? []) for (const permission of agentToolPermissionOptions(tool).flat()) result[permission.resource]![permission.action] = false;
   for (const resource of resources) Object.assign(result[resource]!, settings.permissions?.[resource]);
   return result;
 }
 export function agentToolAvailable(settings: Policy, name: string): boolean {
-  if (settings.disabledTools?.includes(name)) return false;
   const permissions = effectiveAgentPermissions(settings);
   return agentToolPermissionOptions(name).some((option) => option.every(({ resource, action }) => permissions[resource]?.[action] === true));
 }
 export function agentPermissionError(settings: Policy, name: string, input: Record<string, unknown>): string | null {
-  if (settings.disabledTools?.includes(name)) return '이 도구는 프로젝트 설정에서 꺼져 있습니다.';
   const required = requiredAgentPermissions(name, input);
   if (!required) return '허용되지 않은 도구 또는 대상입니다.';
   const permissions = effectiveAgentPermissions(settings);

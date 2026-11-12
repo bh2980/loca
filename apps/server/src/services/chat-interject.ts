@@ -18,7 +18,7 @@ export interface Interjection {
 /**
  * Messages sent while a turn is running (#44). The running turn hands them to its model at the next
  * step boundary (after a tool result, or when it would otherwise stop); what a turn could not take
- * (it stopped for a tool approval) waits for the next turn. Stored on the conversation, so neither
+ * (it had ended, or was stopped) waits for the next turn. Stored on the conversation, so neither
  * the gap between two turns nor a server restart loses them.
  */
 const pendingOf = (db: Db, sessionId: string) => db.select({ pending: s.chatSessions.pendingSteers }).from(s.chatSessions).where(eq(s.chatSessions.id, sessionId)).get()?.pending ?? [];

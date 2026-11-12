@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { agentSettingsSchema } from './agent.ts';
 import { DEFAULT_STATUSES, DEFAULT_TAG_COLOR, HEX_COLOR, STATUS_COLORS, WORKFLOW_TEMPLATES, type StatusKind, type TemplateIds } from './defaults.ts';
 import { editorAiSchema } from './editor-ai.ts';
-import { normalizeTagScopes, TAG_SCOPES } from './marks.ts';
+import { orderedTagScopes, TAG_SCOPES } from './marks.ts';
 import { workflowDefinitionSchema } from './workflow.ts';
 
 /**
@@ -30,7 +30,7 @@ export const templateTagSchema = z.object({
   scope: z
     .array(z.enum(TAG_SCOPES))
     .min(1)
-    .transform((scope) => normalizeTagScopes(scope))
+    .transform(orderedTagScopes)
     .default(['lines', 'terms', 'people', 'documents', 'events']),
 });
 export type TemplateTag = z.infer<typeof templateTagSchema>;

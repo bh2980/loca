@@ -31,7 +31,8 @@ const program = new Command('loca')
   그래프    loca views create --label "미라와 요나스" -s MIRA JONAS  (링크 출력)
   그 밖     loca tools · loca tools <이름> · loca call <이름> '{...}'
 
-바꾸는 명령(import, workflows save, runs start, 변경 도구)은 모두 제안이 되고, 앱에서 수락해야 반영됩니다.
+바꾸는 명령(import, workflows save, runs start, 변경 도구)은 프로젝트의 터미널 권한 모드(앱의 설정 › 채팅)를 따릅니다:
+매번 묻기면 제안이 되어 앱에서 수락해야 반영되고, 자동 검토·바로 반영이면 바로 반영됩니다(자동 검토가 넘긴 것은 제안으로 남음).
 loca proposals list --status pending 으로 대기 중인 제안을 봅니다.`,
   );
 
@@ -584,7 +585,7 @@ withFilters(program.command('results').description('번역 결과 파일 만들�
 
 program
   .command('import <파일>')
-  .description('JSONL(줄마다 key·rev와 바꿀 translation/status/addTags/removeTags)을 검사하고 제안 하나로 올리기. 앱에서 수락해야 반영됩니다')
+  .description('JSONL(줄마다 key·rev와 바꿀 translation/status/addTags/removeTags)을 검사하고 변경 하나로 올리기. 터미널 권한 모드에 따라 바로 반영되거나 제안으로 기다립니다')
   .option('--dry-run', '검사만 하고 제안은 올리지 않기')
   .addOption(new Option('--origin <누가>', '번역한 쪽').choices(['ai', 'human']).default('ai'))
   .option('--model <이름>', '번역한 모델 이름 (후보에 기록)')

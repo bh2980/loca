@@ -1,6 +1,6 @@
 import { and, eq } from 'drizzle-orm';
 import { get } from 'es-toolkit/compat';
-import { AGE_BANDS, APPLY_FUNCTION_NAMES, APPLY_TARGETS, applyParams, DOCUMENT_KINDS, normalizeTagScopes, aiStatus, sameTranslation, TERM_KIND_LABELS, TERM_KINDS, UNKNOWN_LISTENER, withMainTarget, withSourceWhitespace, withTargetCandidate, type ApplyField, type ApplyFunctionName, type ApplyParams } from '@tw/shared';
+import { AGE_BANDS, APPLY_FUNCTION_NAMES, APPLY_TARGETS, applyParams, DOCUMENT_KINDS, aiStatus, sameTranslation, TERM_KIND_LABELS, TERM_KINDS, UNKNOWN_LISTENER, withMainTarget, withSourceWhitespace, withTargetCandidate, type ApplyField, type ApplyFunctionName, type ApplyParams } from '@tw/shared';
 import type { Db } from '../../db/index.ts';
 import * as s from '../../db/schema.ts';
 import type { Topic } from '../../events.ts';

@@ -1,7 +1,7 @@
 import { Chat } from '@ai-sdk/react';
 import { apiFetch, notifyChanged } from './api';
 import { isRunRecord } from '@tw/shared';
-import { DefaultChatTransport, lastAssistantMessageIsCompleteWithApprovalResponses, lastAssistantMessageIsCompleteWithToolCalls, type UIMessage } from 'ai';
+import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls, type UIMessage } from 'ai';
 
 /** What is on screen when a message is sent; the panel keeps it current while it is open. */
 export interface ChatView {
@@ -33,14 +33,14 @@ export function chatFor(sessionId: string, saved: UIMessage[]) {
     transport: new DefaultChatTransport({
       api: `/api/chat/${sessionId}/stream`,
       fetch: apiFetch,
-      // The server owns the conversation (#46): only the newest message goes (run cards, kept by the server, are not messages to send) (a reply whose tool
-      // approval was just answered goes again, by id). The view is read at send time.
+      // The server owns the conversation (#46): only the newest message goes (run cards, kept by the server, are not messages to send) (a reply with the
+      // result of a tool the browser carried out goes again, by id). The view is read at send time.
       prepareSendMessagesRequest: ({ messages, trigger }) => ({ body: { message: messages.findLast((message) => !isRunRecord(message)), trigger, view: view.current ?? undefined } }),
       // A turn this window did not start (a reload, another window, the server carrying on after
       // proposals were decided) is attached to from its start.
       prepareReconnectToStreamRequest: () => ({ api: `/api/chat/${sessionId}/stream` }),
     }),
-    sendAutomaticallyWhen: (options) => lastAssistantMessageIsCompleteWithApprovalResponses(options) || lastAssistantMessageIsCompleteWithToolCalls(options),
+    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
   });
   const entry = { chat, setView: (next: ChatView | null) => void (view.current = next) };
   chats.set(sessionId, entry);

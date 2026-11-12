@@ -38,11 +38,11 @@ const at = { x: 0, y: 0 };
 /** An AI node's config with the model chosen. */
 const ai = (choice: unknown, config: Record<string, unknown>) => ({ type: 'ai', position: at, config: { model: choice, ...config } });
 const fn = (name: string, params: Record<string, unknown> = {}) => ({ type: 'function', position: at, config: { fn: name, params } });
-/** Nodes by id with edges "from.port -> to". */
+/** Nodes by id with edges "from.port -> to"; "-> end" is an exit with nothing after it. */
 const flow = (nodes: Record<string, object>, edges: string[]) =>
   workflowDefinitionSchema.parse({
-    nodes: [{ id: 'entry', type: 'entry', position: at, config: {} }, ...Object.entries(nodes).map(([id, node]) => ({ id, ...node })), { id: 'end', type: 'end', position: at }],
-    edges: edges.map((edge, index) => {
+    nodes: [{ id: 'entry', type: 'entry', position: at, config: {} }, ...Object.entries(nodes).map(([id, node]) => ({ id, ...node }))],
+    edges: edges.filter((edge) => !edge.endsWith(' -> end')).map((edge, index) => {
       const [from, to] = edge.split(' -> ');
       const [source, sourceHandle = 'out'] = from.split('.');
       return { id: String(index), source, sourceHandle, target: to };
@@ -376,12 +376,8 @@ describe('function nodes', () => {
       nodes: [
         { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: {} },
         { id: 'loop', type: 'function', position: { x: 0, y: 0 }, config: { fn: 'script', params: { code: 'function run() { while (true) {} }' } } },
-        { id: 'end', type: 'end', position: { x: 0, y: 0 } },
       ],
-      edges: [
-        { id: '1', source: 'entry', sourceHandle: 'out', target: 'loop' },
-        { id: '2', source: 'loop', sourceHandle: 'out', target: 'end' },
-      ],
+      edges: [{ id: '1', source: 'entry', sourceHandle: 'out', target: 'loop' }],
     });
     const workflow = db.insert(s.workflows).values({ projectId, name: 'loop', definition }).returning().get();
     const { runId } = createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: {} });

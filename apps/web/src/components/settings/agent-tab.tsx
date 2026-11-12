@@ -26,7 +26,7 @@ export function AgentTab({ target }: { target: SettingsTarget }) {
   const defaultMode: PermissionMode = settings.defaultPermissionMode;
 
   const saveSettings = (next: AgentSettings, nextPermissions: AgentPermissions = effectiveAgentPermissions(settings)) => {
-    save.mutate({ ...next, disabledTools: [], permissions: nextPermissions });
+    save.mutate({ ...next, permissions: nextPermissions });
   };
   const setPermission = (resource: AgentResource, action: AgentAction, allowed: boolean) => {
     const nextPermissions: AgentPermissions = {

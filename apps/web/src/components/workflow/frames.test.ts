@@ -78,7 +78,7 @@ describe('resizeFrame', () => {
     ...template,
     nodes: template.nodes.map((node, index) => ({ ...node, position: { x: index * 300, y: 0 } })),
   } as WorkflowDefinition;
-  const [a, b, c] = definition.nodes.filter((node) => node.type !== 'entry' && node.type !== 'end');
+  const [a, b, c] = definition.nodes.filter((node) => node.type !== 'entry');
   const framed = { ...definition, groups: [{ id: 'one', label: '1', nodeIds: [a!.id, b!.id] }, { id: 'two', label: '2', nodeIds: [] as string[] }] };
   it('takes in a free node it now covers and lets go of one it no longer does', () => {
     const free = { ...framed, groups: [framed.groups[0]!] };
@@ -98,7 +98,7 @@ describe('resizeFrame', () => {
 
 describe('addFrame', () => {
   const nodes = template.nodes.map((node, index) => ({ ...node, position: { x: index * 300, y: 0 } }));
-  const drawn = nodes.filter((node) => node.type !== 'entry' && node.type !== 'end');
+  const drawn = nodes.filter((node) => node.type !== 'entry');
   const shown = new Set(drawn.map((node) => node.id));
   it('stands where drawn, takes in the free nodes it covers, and leaves framed ones', () => {
     const [free, framed] = drawn;

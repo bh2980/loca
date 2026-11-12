@@ -72,9 +72,7 @@ function setup() {
 describe('find_reading_route chat tool', () => {
   it('resolves exact line keys to node boundaries and matches the shared route service', async () => {
     const { db, first, nodeId, unit, routeTool } = setup();
-    db.update(s.projects).set({ routePicks: { oldStart: 'keep' } }).where(eq(s.projects.id, first)).run();
     db.update(s.units).set({ translation: '기존 번역' }).where(and(eq(s.units.projectId, first), eq(s.units.key, 'A1'))).run();
-    const picksBefore = db.select({ routePicks: s.projects.routePicks }).from(s.projects).where(eq(s.projects.id, first)).get()!.routePicks;
     const translationsBefore = db.select({ id: s.units.id, translation: s.units.translation }).from(s.units).where(eq(s.units.projectId, first)).all();
     const result = await routeTool.run({ start: 'A2', end: 'E1' }) as {
       ok: boolean;
@@ -101,7 +99,6 @@ describe('find_reading_route chat tool', () => {
       unit(first, 'E1').id, unit(first, 'E2').id,
     ]);
     expect(expected.stages.filter((stage) => stage.parallel)).toHaveLength(0);
-    expect(db.select({ routePicks: s.projects.routePicks }).from(s.projects).where(eq(s.projects.id, first)).get()!.routePicks).toEqual(picksBefore);
     expect(db.select({ id: s.units.id, translation: s.units.translation }).from(s.units).where(eq(s.units.projectId, first)).all()).toEqual(translationsBefore);
   });
 

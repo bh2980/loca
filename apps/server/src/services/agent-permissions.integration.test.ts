@@ -107,12 +107,12 @@ describe('agent resource permissions', () => {
     expect(character(db, projectId, 'Eve')).toBeUndefined();
   });
 
-  it('keeps mixed batches all-or-nothing and conservatively maps legacy disabled save_character to bulk', async () => {
+  it('keeps mixed batches all-or-nothing, and leaves out a tool none of whose calls is allowed', async () => {
     const { db, projectId } = setup();
     const alice = character(db, projectId, 'Alice')!;
     const cachedBulk = cliTool(db, projectId, 'save_knowledge') as RuntimeTool;
 
-    settings(db, projectId, { disabledTools: ['save_character'] });
+    settings(db, projectId, { permissions: { characters: { create: false, update: false } } });
     const mixed = await cachedBulk.run({ characters: [{ id: alice.id, name: 'Alice edited' }, { name: 'Cara' }] }) as { ok: boolean; error: string };
     expect(mixed).toMatchObject({ ok: false, error: expect.stringContaining('인물') });
     expect(character(db, projectId, 'Alice')?.id).toBe(alice.id);
@@ -127,7 +127,7 @@ describe('agent resource permissions', () => {
     expect(proposed).toMatchObject({ ok: true, status: 'pending' });
     if (!proposed.ok) throw new Error(proposed.error);
 
-    settings(db, projectId, { permissions: { characters: { create: false } } });
+    settings(db, projectId, { permissions: { characters: { create: false, update: false } } });
     const decided = await decideProposal(db, proposed.proposalId, true);
     expect(decided.status).toBe('failed');
     expect(decided.result).toMatchObject({ ok: false });

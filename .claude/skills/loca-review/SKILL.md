@@ -1,6 +1,6 @@
 ---
 name: loca-review
-description: Review translations in a loca project for glossary violations, inconsistent translations of the same source, broken placeholders/tags, overlong UI strings and speech levels that break the speech rules, see what context an AI node sent for a line, and propose fixes in one batch. Use when asked to check, QA, proofread or find problems in loca translations.
+description: Review translations in a loca project for glossary violations, inconsistent translations of the same source, broken placeholders/tags and overlong UI strings, see what context an AI node sent for a line, and propose fixes in one batch. Use when asked to check, QA, proofread or find problems in loca translations.
 ---
 
 # loca로 번역 점검하기

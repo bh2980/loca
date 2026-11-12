@@ -1,4 +1,4 @@
-import { agentToolAvailable, glossaryMatcher, LISTENER_MIN_CONFIDENCE , DECIDED_BY } from '@tw/shared';
+import { agentToolAvailable, glossaryMatcher, LISTENER_MIN_CONFIDENCE , DECIDED_BY, CHECK_KINDS, type CheckKind } from '@tw/shared';
 import { checkAgentPermission, projectAgentSettings } from './agent-permission-check.ts';
 import { tool } from 'ai';
 import { HTTPException } from 'hono/http-exception';
@@ -54,7 +54,8 @@ const page = { offset: z.number().int().min(0).default(0), limit: z.number().int
 
 /**
  * The project agent's harness. Read tools run immediately; every tool that changes the
- * project has `needsApproval`, so the user accepts or rejects it in the chat (Cursor-style).
+ * project is marked `needsApproval`, which sends it through the change gate (change-gate.ts)
+ * where the permission mode decides it. The SDK's own approval step is not used.
  */
 /** How a run picks other models than its nodes' own (start_run, plan_run). */
 const MODELS_HELP = 'Optional: this run only, other models than the AI nodes\' own. Key = AI node id or name, or "*" for every AI node; value = { connection (id or name, see harness_reference), model, effort? }. The workflow is not changed.';
@@ -297,8 +298,8 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
     }),
     check_script: tool({
       description:
-        'Find problems across many lines at once. kind: terms (confirmed glossary term not used in the translation), consistency (same source, different translations), format (placeholders/tags/line breaks per the project format rules), length (translation longer than ratio × source; good for UI strings), speech (translation ending does not match the confirmed speech rule of the speaker → listener pair; a guess from the ending). filter narrows the lines.',
-      inputSchema: z.object({ kind: z.enum(['terms', 'consistency', 'format', 'length']), filter: lineFilterSchema.default({ offset: 0, limit: 200 }), ratio: z.number().min(1).max(5).optional(), limit: z.number().int().min(1).max(500).default(100) }),
+        'Find problems across many lines at once. kind: terms (confirmed glossary term not used in the translation), consistency (same source, different translations), format (placeholders/tags/line breaks per the project format rules), length (translation longer than ratio × source; good for UI strings). filter narrows the lines.',
+      inputSchema: z.object({ kind: z.enum(Object.keys(CHECK_KINDS) as [CheckKind, ...CheckKind[]]), filter: lineFilterSchema.default({ offset: 0, limit: 200 }), ratio: z.number().min(1).max(5).optional(), limit: z.number().int().min(1).max(500).default(100) }),
       execute: async ({ kind, filter, ratio, limit }) => {
         const found = await checkScript(db, projectId, kind, filter, { ratio });
         return { total: found.length, items: found.slice(0, limit) };
@@ -330,9 +331,10 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       },
     }),
     list_relationships: tool({
-      description: 'Stored relationships, including their endpoint IDs and evidence.',
-      inputSchema: z.object(knowledgeFilterInput),
-      execute: (filter) => annotateKnowledge(db, projectId, 'relationships', db.select().from(s.relationships).where(and(eq(s.relationships.projectId, projectId), ne(s.relationships.status, 'rejected'))).all(), filter),
+      description: 'Stored relationships, including their endpoint IDs and evidence. Filter with ids / status / marks / unreviewed / tags.',
+      inputSchema: z.object({ ids: z.array(z.string()).optional(), ...knowledgeFilterInput }),
+      execute: ({ ids, ...filter }) =>
+        annotateKnowledge(db, projectId, 'relationships', db.select().from(s.relationships).where(and(eq(s.relationships.projectId, projectId), ne(s.relationships.status, 'rejected'), ids?.length ? inList(s.relationships.id, ids) : undefined)).all(), filter),
     }),
     list_statuses: tool({
       description: 'Translation statuses with kind, ordering and review settings.',
@@ -349,11 +351,11 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
           .map(({ id, fromName, toName, level, address, note, startKey, status, origin, statusBy, evidence, marks, tags }) => ({ id, from: fromName, to: toName, level, address, note, startKey, status, statusBy, source: sourceOf({ origin }), evidence, marks, tags })),
     }),
     list_events: tool({
-      description: 'Stored story events: summary, cause, outcome, participants and the lines that show them, with status, statusBy, source, marks (ai, noEvidence) and tags, and next: the events it leads to in the 사건 흐름 (source "graph" = derived from the dialogue graph, "added" = drawn by hand or by link_events). Filter with status / marks / unreviewed / tags.',
-      inputSchema: z.object(knowledgeFilterInput),
-      execute: (filter) => {
+      description: 'Stored story events: summary, cause, outcome, participants and the lines that show them, with status, statusBy, source, marks (ai, noEvidence) and tags, and next: the events it leads to in the 사건 흐름 (source "graph" = derived from the dialogue graph, "added" = drawn by hand or by link_events). Filter with ids / status / marks / unreviewed / tags.',
+      inputSchema: z.object({ ids: z.array(z.string()).optional(), ...knowledgeFilterInput }),
+      execute: ({ ids, ...filter }) => {
         const next = new Map(projectEventFlow(db, projectId).map((event) => [event.id, event.next]));
-        return annotateKnowledge(db, projectId, 'events', db.select().from(s.storyEvents).where(and(eq(s.storyEvents.projectId, projectId), ne(s.storyEvents.status, 'rejected'))).all(), filter).map(
+        return annotateKnowledge(db, projectId, 'events', db.select().from(s.storyEvents).where(and(eq(s.storyEvents.projectId, projectId), ne(s.storyEvents.status, 'rejected'), ids?.length ? inList(s.storyEvents.id, ids) : undefined)).all(), filter).map(
           ({ id, title, summary, cause, outcome, participants, evidence, status, origin, statusBy, marks, tags }) => ({ id, title, summary, cause, outcome, participants, evidence, status, statusBy, source: sourceOf({ origin }), marks, tags, next: next.get(id) ?? [] }),
         );
       },
@@ -404,7 +406,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
           scope: 'start_run / plan_run: a lines workflow takes groups/lines/tags/marks; a terms workflow takes terms (ids or sources), term statuses and term marks. A scope of the other kind is refused.',
           usage: 'Typical terms workflow: entry input terms → AI node (json: target, note) → 용어 표기 저장.',
         },
-        definitionShape: 'nodes: [{id, type: entry|ai|function|condition|gather|call|end, position:{x,y}, label?, config, exits? (exit id → exit actions: tags and statuses, see exitActions)}], edges: [{id, source, sourceHandle (exit id), target}], settings: {maxVisitsPerNode, maxConsecutiveFailures, retries (the retry rules of every AI node whose config.retries is null)}, groups?: [{id, label, nodeIds, box?: {x,y,width,height}}] (frames drawn around steps in reading order, display only: the runner ignores them; a node in at most one; keep them when editing, and put a new node in the frame of the step it belongs to; box is where the app stands the frame: keep it as it is, the app grows a frame to hold a node outside it; a frame may be empty, drawn by a person to put nodes in: keep it)',
+        definitionShape: 'nodes: [{id, type: entry|ai|function|condition|gather|call, position:{x,y}, label?, config, exits? (exit id → exit actions: tags and statuses, see exitActions)}], edges: [{id, source, sourceHandle (exit id), target}], settings: {maxVisitsPerNode, maxConsecutiveFailures, retries (the retry rules of every AI node whose config.retries is null)}, groups?: [{id, label, nodeIds, box?: {x,y,width,height}}] (frames drawn around steps in reading order, display only: the runner ignores them; a node in at most one; keep them when editing, and put a new node in the frame of the step it belongs to; box is where the app stands the frame: keep it as it is, the app grows a frame to hold a node outside it; a frame may be empty, drawn by a person to put nodes in: keep it)',
         aiNode: {
           // From the schema itself, so new fields reach the agent without editing this text.
           config: zod.toJSONSchema(aiNodeConfigSchema, { io: 'input' }),
@@ -451,8 +453,8 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         failures: 'Beyond an AI node\'s retry rules the engine never splits, waits for, re-sends or switches connection for a request (every failed request, a rate limit or dropped connection and a cut-off one included, leaves through the node\'s "error" exit and counts toward settings.maxConsecutiveFailures: the run pauses after that many in a row; a failure the node\'s retry rules send back does not count). Lines an answer left out, a malformed answer, a timeout (the AI node\'s timeoutMinutes, default 10) or a request too large for the model leave through the node\'s "error" exit with error.kind; an exit with no edge ends the line as failed with its reason (re-run failed lines with the run continue). Resending (smaller, after a wait, on another model) is the AI node\'s retry rules (retryRules), never drawn; the error exit carries what they could not send back: route it to a status change or tags to mark lines for a person (several AI nodes may share one such node), or to another AI node to try a different model.',
         rules: [
           'Exactly one entry node.',
-          'Every exit except "error" must be connected; an unconnected "out" only warns (the line stops there).',
-          'Parallel branches: draw several edges from ONE exit. Each line then goes down every branch (a copy per branch), e.g. confirm → [end] and confirm → [term extraction] at the same time. Branches from one exit must not meet again, at most one branch may change the line\'s status, and a line counts as done when all its branches finish. There is no separate parallel node.',
+          'There is no end node: a line ends at an exit with no edge, done, or failed while it carries a failure (an unconnected "error" exit). "out" and "error" may stay unconnected; any other exit (pass, a condition\'s, a script\'s ports) must be connected or set a status with an exit action, except "fail" when "pass" is connected and a condition with one of its two exits connected.',
+          'Parallel branches: draw several edges from ONE exit. Each line then goes down every branch (a copy per branch), e.g. confirm → [save] and confirm → [term extraction] at the same time. Branches from one exit must not meet again, at most one branch may change the line\'s status, and a line counts as done when all its branches finish. There is no separate parallel node.',
           'Never two edges from the same exit to the same node.',
           'A loop needs a node with two or more exits inside it.',
         ],
@@ -832,7 +834,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
     }),
     save_status: tool({
       description:
-        'Create a translation status (initial / normal / final) or a tag. A tag\'s scope says where it can be put: lines (대사), knowledge (자료: characters, relationships, speech rules, events, documents), terms (용어집); default all three. Ask or infer from the request (a glossary-only tag is ["terms"]).',
+        'Create a translation status (initial / normal / final) or a tag. A tag\'s scope says where it can be put: lines (대사), terms (용어집), people (인물·관계: characters, relationships, speech rules), documents (노트), events (사건); default everywhere. Ask or infer from the request (a glossary-only tag is ["terms"]).',
       inputSchema: z.object({ type: z.enum(['status', 'tag']), name: z.string().min(1), color: z.string().default(DEFAULT_TAG_COLOR), kind: z.enum(['initial', 'normal', 'final']).default('normal'), description: z.string().max(300).default('').describe('A tag\'s 설명: what it is for, in a sentence (tags only).'), scope: z.array(z.enum(TAG_SCOPES)).min(1).optional() }),
       needsApproval: true,
       execute: ({ type, name, color, kind, scope, description }) => {

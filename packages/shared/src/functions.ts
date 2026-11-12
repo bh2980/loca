@@ -356,7 +356,6 @@ export const FUNCTIONS = {
   ...(Object.fromEntries(
     Object.entries(APPLY_TARGETS).map(([name, target]) => [name, { label: target.label, description: target.description, params: applyParams, ports: () => out, async: false, inputs: target.inputs }]),
   ) as unknown as Record<ApplyFunctionName, FunctionInfo<typeof applyParams>>),
-  saveCharacters: { label: APPLY_TARGETS.saveCharacters.label, description: APPLY_TARGETS.saveCharacters.description, params: applyParams, ports: () => out, async: false, inputs: APPLY_TARGETS.saveCharacters.inputs },
   http: {
     label: 'HTTP 호출',
     description: '외부 API(맞춤법·사전 등)를 주소로 호출하고, 응답에서 고른 값을 선언한 결과 칸으로 돌려줍니다. text 칸은 대사의 지금 번역이 됩니다. 키가 필요하면 설정의 API 키를 고릅니다.',

@@ -141,9 +141,7 @@ export const savedPromptsSchema = z.array(savedPromptSchema).max(100).superRefin
 });
 
 export const agentSettingsSchema = z.object({
-  /** Tool names switched off for this project's agent (chat and CLI). */
-  disabledTools: z.array(z.string()).default([]),
-  /** Per-resource operations; old tool switches are conservatively interpreted until saved. */
+  /** Per-resource operations the agent may do (chat and CLI); what is not set is allowed, except deleting. */
   permissions: agentPermissionsSchema.optional(),
   /** The model a new conversation talks to; unset, it takes the one the latest conversation picked. */
   chatModel: modelChoiceSchema.nullable().default(null),

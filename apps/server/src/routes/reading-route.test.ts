@@ -182,14 +182,12 @@ describe('reading route API', () => {
     }
   });
 
-  it('returns the selected directed interval and leaves translations and route picks unchanged', async () => {
+  it('returns the selected directed interval and leaves translations unchanged', async () => {
     const { db, first, id, get } = setup();
     const start = id(first, 'node', 'n.start');
     const end = id(first, 'node', 'n.end');
     const startUnit = id(first, 'unit', 'u.start');
-    db.update(s.projects).set({ routePicks: { preserved: 'value' } }).where(eq(s.projects.id, first)).run();
     db.update(s.units).set({ translation: '기존 번역' }).where(eq(s.units.id, startUnit)).run();
-    const routePicksBefore = db.select({ routePicks: s.projects.routePicks }).from(s.projects).where(eq(s.projects.id, first)).get()!.routePicks;
     const translationsBefore = db.select({ id: s.units.id, translation: s.units.translation }).from(s.units).where(eq(s.units.projectId, first)).all();
 
     const response = await get(first, start, end);
@@ -200,7 +198,6 @@ describe('reading route API', () => {
       id(first, 'unit', 'u.start'), id(first, 'unit', 'u.middle'), id(first, 'unit', 'u.end'),
     ]);
     expect(result.nodeIds).toEqual([start, id(first, 'node', 'n.control'), id(first, 'node', 'n.middle'), end]);
-    expect(db.select({ routePicks: s.projects.routePicks }).from(s.projects).where(eq(s.projects.id, first)).get()!.routePicks).toEqual(routePicksBefore);
     expect(db.select({ id: s.units.id, translation: s.units.translation }).from(s.units).where(eq(s.units.projectId, first)).all()).toEqual(translationsBefore);
   });
 

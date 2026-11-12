@@ -36,11 +36,11 @@ const tag = (tagIds: string[], extra: Partial<Extract<ExitAction, { type: 'tag' 
 const untag = (tagIds: string[]): ExitAction => tag(tagIds, { action: 'remove' });
 const status = (statusId: string): ExitAction => ({ type: 'status', statusId });
 
-/** Nodes by id with edges "from.port -> to"; every flow has an entry and an end. */
+/** Nodes by id with edges "from.port -> to"; every flow has an entry, and "-> end" is an exit with nothing after it. */
 const flow = (nodes: Record<string, object>, edges: string[]) =>
   workflowDefinitionSchema.parse({
-    nodes: [{ id: 'entry', type: 'entry', position: at, config: {} }, ...Object.entries(nodes).map(([id, node]) => ({ id, ...node })), { id: 'end', type: 'end', position: at }],
-    edges: edges.map((edge, index) => {
+    nodes: [{ id: 'entry', type: 'entry', position: at, config: {} }, ...Object.entries(nodes).map(([id, node]) => ({ id, ...node }))],
+    edges: edges.filter((edge) => !edge.endsWith(' -> end')).map((edge, index) => {
       const [from, to] = edge.split(' -> ');
       const [source, sourceHandle = 'out'] = from!.split('.');
       return { id: String(index), source: source!, sourceHandle, target: to! };
@@ -124,7 +124,7 @@ describe('exit actions in a run', () => {
     expect(writes('a1')).toBe(2);
     expect(items[0]!.visits.c).toBe(3);
     // Only nodes are visited: the actions on the exit left no count of their own.
-    expect(Object.keys(items[0]!.visits).sort()).toEqual(['c', 'end', 'entry']);
+    expect(Object.keys(items[0]!.visits).sort()).toEqual(['c', 'entry']);
   });
 
   it('keep a person\'s status and translation in a status-filtered run, and report it; a run without the filter changes it', async () => {

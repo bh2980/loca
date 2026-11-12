@@ -59,12 +59,14 @@ describe('tag scope (붙는 곳)', () => {
     expect(created.scope).toEqual(['lines', 'terms', 'people', 'documents', 'events']);
     expect((await send('POST', `/projects/${projectId}/tags`, { name: '빈 곳', scope: [] })).status).toBe(400);
 
-    // Attached on a line: 대사 can't be taken away, 자료 can.
+    // Attached on a line: 대사 can't be taken away, the other places can.
     expect((await send('PATCH', `/projects/${projectId}/units`, { unitIds: [unit.id], addTagIds: [created.id] })).status).toBe(200);
-    expect((await send('PATCH', `/projects/${projectId}/tags/${created.id}`, { scope: ['knowledge', 'terms'] })).status).toBe(400);
+    expect((await send('PATCH', `/projects/${projectId}/tags/${created.id}`, { scope: ['documents', 'terms'] })).status).toBe(400);
+    // 'knowledge' is not a place (people, documents and events are).
+    expect((await send('PATCH', `/projects/${projectId}/tags/${created.id}`, { scope: ['lines', 'knowledge'] })).status).toBe(400);
     expect((await send('PATCH', `/projects/${projectId}/tags/${created.id}`, { scope: ['lines', 'terms'] })).status).toBe(200);
 
-    // Out of scope: 자료 is no longer a place.
+    // Out of scope: 노트 is no longer a place.
     expect((await send('POST', `/projects/${projectId}/knowledge-tags`, { kind: 'documents', ids: ['d1'], tagId: created.id, add: true })).status).toBe(400);
     expect((await send('POST', `/projects/${projectId}/knowledge-tags`, { kind: 'terms', ids: ['t1'], tagId: created.id, add: true })).status).toBe(200);
     expect((await send('PATCH', `/projects/${projectId}/tags/${created.id}`, { scope: ['lines'] })).status).toBe(400);

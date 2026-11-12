@@ -24,12 +24,11 @@ interface Expanded {
  *   id `${C.id}/${id}` (nested: `c1/c2/n`) and keeps its label.
  * - Every edge into C goes to each target of W's entry `out` edges (W with nothing after its entry:
  *   to C's `out` targets, the call being a no-op).
- * - Where W's lines would end, they leave C: an edge into one of W's `end` nodes goes to C's `out`
- *   targets; an exit of W's nodes that is not connected would end the line (failed while it carries a
- *   failure: that is what an unconnected `error` exit does, any other unconnected exit ends it done),
- *   so an unconnected `error` exit is connected to C's `error` targets and any other unconnected exit
- *   to C's `out` targets. Where C's exit has no targets, the inner exit stays as it is (unconnected,
- *   ending the line exactly as it would after C), and an edge into an `end` node is dropped.
+ * - Where W's lines would end, they leave C: an exit of W's nodes that is not connected would end the
+ *   line (failed while it carries a failure: that is what an unconnected `error` exit does, any other
+ *   unconnected exit ends it done), so an unconnected `error` exit is connected to C's `error` targets
+ *   and any other unconnected exit to C's `out` targets. Where C's exit has no targets, the inner exit
+ *   stays as it is (unconnected, ending the line exactly as it would after C).
  * - Edges of W that were connected stay as they were (a connected `error` exit is W handling it).
  * - Inner nodes take C's position (they are not shown in the editor).
  * - `calls` on the result names every expanded call by its prefix, so "호출 이름 › 노드 이름" can be
@@ -74,10 +73,7 @@ function expand(definition: Pick<WorkflowDefinition, 'nodes' | 'edges' | 'calls'
     const outTargets = edges.filter((edge) => edge.source === call.id && edge.sourceHandle === 'out').map((edge) => edge.target);
     const errorTargets = edges.filter((edge) => edge.source === call.id && edge.sourceHandle === 'error').map((edge) => edge.target);
     const entry = inner.nodes.find((node) => node.type === 'entry');
-    const ends = new Set(inner.nodes.filter((node) => node.type === 'end').map((node) => node.id));
-    const work = inner.nodes.filter((node) => node.type !== 'entry' && node.type !== 'end');
-    // Where a line that reaches `target` inside W goes: an end leaves the call, anything else is a copy.
-    const into = (target: string) => (ends.has(target) ? outTargets : [prefix(target)]);
+    const work = inner.nodes.filter((node) => node.type !== 'entry');
 
     const added: WorkflowEdge[] = [];
     const connect = (source: string, sourceHandle: string, targets: string[]) => {
@@ -93,10 +89,7 @@ function expand(definition: Pick<WorkflowDefinition, 'nodes' | 'edges' | 'calls'
     for (const node of work) {
       for (const port of nodePorts(node)) {
         const own = inner.edges.filter((edge) => edge.source === node.id && edge.sourceHandle === port.id);
-        if (own.length) for (const edge of own) {
-          connect(prefix(node.id), port.id, into(edge.target));
-          if (ends.has(edge.target)) leaves(node.id, port.id, 'out');
-        }
+        if (own.length) connect(prefix(node.id), port.id, own.map((edge) => prefix(edge.target)));
         else {
           connect(prefix(node.id), port.id, port.id === 'error' ? errorTargets : outTargets);
           leaves(node.id, port.id, port.id === 'error' ? 'error' : 'out');
@@ -108,7 +101,7 @@ function expand(definition: Pick<WorkflowDefinition, 'nodes' | 'edges' | 'calls'
       if (!extra) return node;
       return { ...node, exits: { ...node.exits, ...Object.fromEntries(Object.entries(extra).map(([port, actions]) => [port, [...exitActions(node, port), ...actions]])) } };
     };
-    const entryTargets = entry ? inner.edges.filter((edge) => edge.source === entry.id && edge.sourceHandle === 'out').flatMap((edge) => into(edge.target)) : [];
+    const entryTargets = entry ? inner.edges.filter((edge) => edge.source === entry.id && edge.sourceHandle === 'out').map((edge) => prefix(edge.target)) : [];
     // W with nothing after its entry does nothing: lines go straight on out of the call.
     const enter = (entryTargets.length ? entryTargets : outTargets).filter((target) => target !== call.id);
 

@@ -1,5 +1,5 @@
 import { and, asc, eq, ne } from 'drizzle-orm';
-import { APP_FEED, FEED_UNITS_LIMIT, HELD_COLLECTIONS, normalizeTagScopes, type AppCollection, type FeedCollection, type FeedRows, type FeedSnapshot, type SnapshotCollection } from '@tw/shared';
+import { APP_FEED, FEED_UNITS_LIMIT, HELD_COLLECTIONS, type AppCollection, type FeedCollection, type FeedRows, type FeedSnapshot, type SnapshotCollection } from '@tw/shared';
 import type { Db } from './db/index.ts';
 import { inList } from './db/chunk.ts';
 import { rowChangesOf } from './db/row-changes.ts';
@@ -51,8 +51,7 @@ export const tagRows = (db: Db, projectId: string, ids?: readonly string[]) =>
     .from(s.tags)
     .where(and(eq(s.tags.projectId, projectId), ids ? inList(s.tags.id, ids) : undefined))
     .orderBy(asc(s.tags.sort), asc(s.tags.name))
-    .all()
-    .map((tag) => ({ ...tag, scope: normalizeTagScopes(tag.scope) }));
+    .all();
 
 /** What a reader may need besides the database: the key store (whether a connection has a key). */
 export interface FeedDeps {

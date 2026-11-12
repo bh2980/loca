@@ -119,9 +119,9 @@ export const openPorts = (node: WorkflowNode, definition: WorkflowDefinition) =>
   nodePorts(node).map((port) => port.id).filter((port) => !definition.edges.some((edge) => edge.source === node.id && edge.sourceHandle === port));
 
 
-/** The definition's edges as drawn (entry and end hidden), coloured by exit; `selected`/`hovered` are drawn thicker. */
+/** The definition's edges as drawn (the entry hidden), coloured by exit; `selected`/`hovered` are drawn thicker. */
 export function flowEdges(definition: WorkflowDefinition, { selected, hovered }: { selected?: string; hovered?: string } = {}): FlowEdge[] {
-  const hiddenNodeIds = new Set(definition.nodes.filter((node) => node.type === 'entry' || node.type === 'end').map((node) => node.id));
+  const hiddenNodeIds = new Set(definition.nodes.filter((node) => node.type === 'entry').map((node) => node.id));
   const all = definition.edges.filter((edge) => !hiddenNodeIds.has(edge.source) && !hiddenNodeIds.has(edge.target));
   // A line back to an earlier step (an earlier frame, or up the flow within one) is the loop: one dashed line in the accent.
   const frameOf = new Map((definition.groups ?? []).flatMap((group, index) => group.nodeIds.map((id) => [id, index] as const)));

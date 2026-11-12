@@ -1,5 +1,5 @@
 import { infiniteQueryOptions, keepPreviousData, queryOptions } from '@tanstack/react-query';
-import { ATTACH_PAGE, normalizeTagScopes, type AttachKind, type DetectedCustomFormatRule, type DetectedFormatPreset, type FormatPreset, type MarkStyles, type TagScope } from '@tw/shared';
+import { ATTACH_PAGE, type AttachKind, type DetectedCustomFormatRule, type DetectedFormatPreset, type FormatPreset, type MarkStyles, type TagScope } from '@tw/shared';
 import { client, unwrap } from './api';
 import { useProject } from './project';
 
@@ -89,6 +89,6 @@ export function useMarkStyles(projectId: string | undefined): MarkStyles | undef
 
 /** The tags that can be put in a place (the server sends each tag's effective scope). */
 export const tagsIn = <T extends { scope: readonly string[] }>(tags: T[] | undefined, scope: TagScope) =>
-  (tags ?? []).filter((tag) => normalizeTagScopes(tag.scope).includes(scope));
+  (tags ?? []).filter((tag) => tag.scope.includes(scope));
 /** The tags that can be on lines. */
 export const lineTags = <T extends { scope: readonly string[] }>(tags: T[] | undefined) => tagsIn(tags, 'lines');

@@ -258,8 +258,6 @@ export const INPUT_TYPES = {
     conditionRows: ['termStatus', 'hasTarget', 'uses'],
   },
 } as const satisfies Record<WorkflowSubject, { label: string; unit: string; batchModes: readonly BatchConfig['mode'][]; contextFields: readonly (keyof ContextConfig)[]; conditionRows: readonly string[] }>;
-/** Context settings that belong to one input (shown and used only there); the rest is core. */
-export const INPUT_CONTEXT_FIELDS = new Set<string>([...INPUT_TYPES.lines.contextFields, ...INPUT_TYPES.terms.contextFields]);
 
 /** The entry node: what the workflow takes in. Which items a run takes is the run's scope (the run dialog), not the workflow's. */
 export const entryConfigSchema = z
@@ -440,7 +438,6 @@ export const workflowNodeSchema = z.discriminatedUnion('type', [
     // JSON Logic expression evaluated against the line's data (see ConditionData).
     config: z.object({ expression: z.unknown(), description: z.string().default('') }),
   }),
-  z.object({ ...base, type: z.literal('end'), config: z.object({}).default({}) }),
   z.object({ ...base, type: z.literal('gather'), config: gatherConfigSchema }),
   z.object({ ...base, type: z.literal('call'), config: callConfigSchema }),
 ]);
@@ -560,7 +557,6 @@ export const NODE_TYPES: Record<WorkflowNodeType, NodeTypeInfo> = {
   ai: { label: 'AI', description: '고른 모델·지시문·문맥으로 AI를 호출해 후보·판정·용어·데이터를 받습니다.', hasInput: true },
   function: { label: '함수', description: '형식 검사·상태 변경·HTTP 호출·스크립트 등 정해진 동작을 실행합니다.', hasInput: true },
   condition: { label: '조건', description: '방문 횟수·앞 노드의 출력·대사 속성 등으로 분기합니다.', hasInput: true },
-  end: { label: '종료', description: '대사의 흐름을 마칩니다.', hasInput: true },
   call: { label: '워크플로 호출', description: '다른 워크플로를 이 대사들에 실행합니다. 끝까지 가면 완료로, 실패로 끝나게 되면 오류로 나옵니다.', hasInput: true },
   gather: { label: '모으기', description: '앞 노드의 결과를 모든 요청이 끝날 때까지 모았다가, 합친 결과 하나를 다음 노드로 넘깁니다.', hasInput: true },
 };
@@ -579,8 +575,6 @@ export function nodePorts(node: WorkflowNode): Port[] {
       return functionPorts(node.config.fn, node.config.params);
     case 'condition':
       return [{ id: 'true', label: '예' }, { id: 'false', label: '아니요' }];
-    case 'end':
-      return [];
     case 'gather':
       return [{ id: 'out', label: '다음' }];
     case 'call':
@@ -729,8 +723,7 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
     const source = definition.nodes.find((node) => node.id === port.slice(0, port.indexOf(':')));
     const where = source ? `'${nodeName(source)}'의 갈래` : '갈래';
     const branches = targets.map((target) => reach(target));
-    const isEnd = (id: string) => definition.nodes.find((node) => node.id === id)?.type === 'end';
-    const met = branches.flatMap((branch, index) => branches.slice(index + 1).flatMap((other) => [...branch].filter((id) => other.has(id) && !isEnd(id))));
+    const met = branches.flatMap((branch, index) => branches.slice(index + 1).flatMap((other) => [...branch].filter((id) => other.has(id))));
     if (met.length) {
       const node = definition.nodes.find((candidate) => candidate.id === met[0]);
       error(`${where}가 '${node ? nodeName(node) : met[0]}'에서 다시 만납니다. 한 출구에서 나간 갈래는 따로 끝나야 합니다.`, { nodeId: source?.id });
@@ -958,14 +951,13 @@ export const filtersByStatus = (scope: { statusIds?: string[]; unfinished?: bool
 
 /**
  * Keeps the entry node and its connections to the root work node(s) in sync:
- * - Removes any end nodes and their incident edges.
  * - Ensures an entry node exists.
  * - Connects entry to root work node(s) (nodes with 0 incoming edges from other work nodes,
  *   or the first work node if all are in a cycle) when none of the existing entry edges point to a valid root.
  * - Removes redundant entry -> node edges when a work node receives an incoming edge from another work node (unless no other root exists).
  */
 export function syncEntryEdges(definition: WorkflowDefinition): WorkflowDefinition {
-  let nodes = definition.nodes.filter((node) => node.type !== 'end');
+  let nodes = definition.nodes;
 
   let entry = nodes.find((node) => node.type === 'entry');
   if (!entry) {

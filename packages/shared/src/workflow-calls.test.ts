@@ -9,7 +9,6 @@ const cond = (id: string, label?: string) => ({ id, type: 'condition', position:
 const act = (id: string, label?: string) => ({ id, type: 'function', position: at, label, config: { fn: 'saveCandidate', params: {} } });
 const call = (id: string, workflowId: string) => ({ id, type: 'call', position: at, config: { workflowId } });
 const entry = (input: 'lines' | 'terms' = 'lines') => ({ id: 'entry', type: 'entry', position: at, config: { input } });
-const end = (id = 'end') => ({ id, type: 'end', position: at, config: {} });
 /** Edges as "from.port -> to" ("out" when no port). */
 function flow(nodes: object[], edges: string[], input: 'lines' | 'terms' = 'lines') {
   return workflowDefinitionSchema.parse({
@@ -51,12 +50,11 @@ describe('expandCalls', () => {
     expect(expanded.nodes.find((node) => node.id === 'c/w1')?.label).toBe('추출');
   });
 
-  it('turns edges into W\'s end nodes into the call\'s 완료 targets and keeps W\'s connected exits', () => {
-    const w = flow([act('w1'), act('w2'), end()], ['entry -> w1', 'w1 -> w2', 'w1.error -> w2', 'w2 -> end', 'w2.error -> end']);
+  it('keeps W\'s connected exits: an error exit W handles does not leave by the call\'s 오류', () => {
+    const w = flow([act('w1'), act('w2')], ['entry -> w1', 'w1 -> w2', 'w1.error -> w2']);
     const outer = flow([call('c', 'W'), act('z'), act('f')], ['entry -> c', 'c -> z', 'c.error -> f']);
     const expanded = expandCalls(outer, library({ W: { definition: w } }));
-    expect(expanded.nodes.some((node) => node.type === 'end')).toBe(false);
-    expect(edgesOf(expanded)).toEqual(['c/w1.error -> c/w2', 'c/w1.out -> c/w2', 'c/w2.error -> z', 'c/w2.out -> z', 'entry.out -> c/w1'].sort());
+    expect(edgesOf(expanded)).toEqual(['c/w1.error -> c/w2', 'c/w1.out -> c/w2', 'c/w2.error -> f', 'c/w2.out -> z', 'entry.out -> c/w1'].sort());
   });
 
   it('leaves inner exits unconnected where the call\'s exit is unconnected (the line ends as it would after the call)', () => {
@@ -76,7 +74,7 @@ describe('expandCalls', () => {
   });
 
   it('goes straight on out of a call whose workflow does nothing', () => {
-    const w = flow([end()], ['entry -> end']);
+    const w = flow([], []);
     const outer = flow([act('a'), call('c', 'W'), act('z')], ['entry -> a', 'a -> c', 'c -> z']);
     expect(edgesOf(expandCalls(outer, library({ W: { definition: w } })))).toEqual(['a.out -> z', 'entry.out -> a']);
   });

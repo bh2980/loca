@@ -25,11 +25,11 @@ export interface Fold {
   owner: string;
   /** The owner's exit. */
   port: string;
-  /** The folded nodes in reading order. May include the hidden 끝 node. */
+  /** The folded nodes in reading order. */
   nodeIds: string[];
 }
 
-const isMark = (node: WorkflowNode) => node.type === 'entry' || node.type === 'end';
+const isMark = (node: WorkflowNode) => node.type === 'entry';
 
 export function computeFolds(definition: WorkflowDefinition): Fold[] {
   const byId = new Map(definition.nodes.map((node) => [node.id, node]));
@@ -79,8 +79,7 @@ export function computeFolds(definition: WorkflowDefinition): Fold[] {
       order.push(id);
       for (const edge of outOf(id)) queue.push(edge.target);
     }
-    const shown = order.filter((id) => byId.get(id)?.type !== 'end').length;
-    return shown >= 1 && shown <= MAX_FOLDED_NODES ? order : undefined;
+    return order.length >= 1 && order.length <= MAX_FOLDED_NODES ? order : undefined;
   };
 
   // Rule 1. The first exit is the node's main way on (완료, 통과, 다음, 참): a tail of the workflow is not a side detail.
@@ -94,28 +93,24 @@ export function computeFolds(definition: WorkflowDefinition): Fold[] {
   }
   // A branch inside another branch stays folded in it.
   branches = branches.filter((fold) => !branches.some((other) => other !== fold && other.nodeIds.includes(fold.owner)));
-  // Rule 3. A node that leads nowhere (or only to the hidden end) and that several side exits lead to: a chip on each of them.
+  // Rule 3. A node that leads nowhere and that several side exits lead to: a chip on each of them.
   for (const node of definition.nodes) {
     if (isMark(node) || branches.some((fold) => fold.nodeIds.includes(node.id))) continue;
     const into = inTo(node.id);
-    const ends = outOf(node.id).map((edge) => edge.target);
-    if (into.length < 2 || ends.some((id) => byId.get(id)?.type !== 'end')) continue;
+    if (into.length < 2 || outOf(node.id).length) continue;
     const sideExit = (edge: WorkflowEdge) => {
       const source = byId.get(edge.source);
       return Boolean(source && !isMark(source) && nodePorts(source).findIndex((port) => port.id === edge.sourceHandle) > 0 && !branches.some((fold) => fold.nodeIds.includes(source.id)));
     };
     if (!into.every(sideExit)) continue;
-    for (const edge of into) branches.push({ id: `end:${node.id}`, kind: 'branch', owner: edge.source, port: edge.sourceHandle, nodeIds: [node.id, ...new Set(ends)] });
+    for (const edge of into) branches.push({ id: `end:${node.id}`, kind: 'branch', owner: edge.source, port: edge.sourceHandle, nodeIds: [node.id] });
   }
   return branches;
 }
 
-/** A node as a chip names it: the hidden end as 끝, else its name. */
-const brief = (node: WorkflowNode) => (node.type === 'end' ? '끝' : nodeName(node));
-
-/** The chip's text: the folded nodes' names joined ("AI 수정 → 끝"). */
+/** The chip's text: the folded nodes' names joined ("AI 수정 → 후보 저장"). */
 export function foldText(definition: WorkflowDefinition, fold: Fold): string {
-  return fold.nodeIds.flatMap((id) => definition.nodes.find((node) => node.id === id) ?? []).map(brief).join(' → ');
+  return fold.nodeIds.flatMap((id) => definition.nodes.find((node) => node.id === id) ?? []).map(nodeName).join(' → ');
 }
 
 export const foldContaining = (folds: readonly Fold[], nodeId: string) => folds.find((fold) => fold.nodeIds.includes(nodeId));

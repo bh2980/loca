@@ -1,5 +1,5 @@
 import { and, asc, count, eq, inArray, ne, sql } from 'drizzle-orm';
-import { normalizeTagScopes, TAG_SCOPE_LABELS, type TagScope } from '@tw/shared';
+import { TAG_SCOPE_LABELS, type TagScope } from '@tw/shared';
 import { badRequest } from '../http-errors.ts';
 import { eachChunk } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
@@ -9,13 +9,13 @@ import * as s from '../db/schema.ts';
 export function outOfScopeTags(db: Pick<Db, 'select'>, projectId: string, tagIds: string[], scope: TagScope) {
   if (!tagIds.length) return [];
   const rows = db.select({ id: s.tags.id, name: s.tags.name, scope: s.tags.scope }).from(s.tags).where(and(eq(s.tags.projectId, projectId), inArray(s.tags.id, tagIds))).all();
-  return rows.filter((tag) => !normalizeTagScopes(tag.scope).includes(scope));
+  return rows.filter((tag) => !tag.scope.includes(scope));
 }
 
 /** The refusal text for tags put where they don't belong, or null when all fit. */
 export function scopeRefusal(db: Pick<Db, 'select'>, projectId: string, tagIds: string[], scope: TagScope) {
   const bad = outOfScopeTags(db, projectId, tagIds, scope);
-  return bad.length ? `${bad.map((tag) => `‘${tag.name}’`).join(', ')} 태그는 ${TAG_SCOPE_LABELS[scope]}에 붙일 수 없습니다(붙는 곳: ${normalizeTagScopes(bad[0]!.scope).map((place) => TAG_SCOPE_LABELS[place]).join(' · ')}).` : null;
+  return bad.length ? `${bad.map((tag) => `‘${tag.name}’`).join(', ')} 태그는 ${TAG_SCOPE_LABELS[scope]}에 붙일 수 없습니다(붙는 곳: ${bad[0]!.scope.map((place) => TAG_SCOPE_LABELS[place]).join(' · ')}).` : null;
 }
 
 /** How many items carry the tag in `scope`: lines, glossary terms, or the other knowledge kinds. */
@@ -25,7 +25,6 @@ export function tagUseIn(db: Pick<Db, 'select'>, tagId: string, scope: TagScope)
   if (scope === 'documents') return db.select({ n: count() }).from(s.knowledgeTags).where(and(eq(s.knowledgeTags.tagId, tagId), eq(s.knowledgeTags.kind, 'documents'))).get()!.n;
   if (scope === 'events') return db.select({ n: count() }).from(s.knowledgeTags).where(and(eq(s.knowledgeTags.tagId, tagId), eq(s.knowledgeTags.kind, 'events'))).get()!.n;
   if (scope === 'people') return db.select({ n: count() }).from(s.knowledgeTags).where(and(eq(s.knowledgeTags.tagId, tagId), inArray(s.knowledgeTags.kind, ['characters', 'relationships', 'speechRules']))).get()!.n;
-  if ((scope as string) === 'knowledge') return db.select({ n: count() }).from(s.knowledgeTags).where(and(eq(s.knowledgeTags.tagId, tagId), inArray(s.knowledgeTags.kind, ['characters', 'relationships', 'speechRules', 'documents', 'events']))).get()!.n;
   return 0;
 }
 
@@ -47,7 +46,7 @@ export function attachUnitTags(
   if (add.length) {
     const tags = new Map(tx.select({ id: s.tags.id, name: s.tags.name, scope: s.tags.scope }).from(s.tags).where(and(eq(s.tags.projectId, projectId), inArray(s.tags.id, add))).all().map((tag) => [tag.id, tag]));
     const unknown = add.filter((id) => !tags.has(id));
-    const misplaced = [...tags.values()].filter((tag) => !normalizeTagScopes(tag.scope).includes('lines'));
+    const misplaced = [...tags.values()].filter((tag) => !tag.scope.includes('lines'));
     if (options.onMisplaced === 'refuse') {
       if (unknown.length) badRequest('이 프로젝트에 없는 태그입니다.');
       if (misplaced.length) badRequest(scopeRefusal(tx, projectId, add, 'lines')!);
@@ -79,6 +78,5 @@ export function projectTags(db: Pick<Db, 'select'>, projectId: string) {
     .from(s.tags)
     .where(eq(s.tags.projectId, projectId))
     .orderBy(asc(s.tags.sort), asc(s.tags.name))
-    .all()
-    .map((tag) => ({ ...tag, scope: normalizeTagScopes(tag.scope) }));
+    .all();
 }

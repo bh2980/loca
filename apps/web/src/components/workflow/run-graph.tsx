@@ -163,7 +163,7 @@ function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; ru
     const markNames = { tags: new Map(taxonomy.tags?.map((tag) => [tag.id, tag])), statuses: new Map(taxonomy.statuses?.map((status) => [status.id, status])) };
     const chip = (fold: Fold) => ({ text: foldText(definition, fold), open: isFoldOpen(foldState, fold.id), live: foldLiveText(fold, live), onToggle: () => setFoldState((state) => toggleFold(state, fold.id)) });
     return view.definition.nodes
-      .filter((node) => node.type !== 'entry' && node.type !== 'end')
+      .filter((node) => node.type !== 'entry')
       .map((node) => ({
         id: node.id,
         type: 'workflow',

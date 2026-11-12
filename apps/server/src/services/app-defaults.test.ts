@@ -1,4 +1,4 @@
-import { eq, isNull } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { describe, expect, it } from 'vitest';
 import type { Env } from '../context.ts';
@@ -7,7 +7,6 @@ import { DEFAULT_STATUSES, importFileSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { pullDefaults, pushDefaults, readAppDefaults, writeAppDefaults } from './app-defaults.ts';
-import { splitConnections } from './connection-split.ts';
 import { importProject } from './importer.ts';
 import { memoryStore } from './secrets.ts';
 import { workflowIssues } from './workflow-issues.ts';
@@ -137,34 +136,6 @@ describe('홈 기본값 가져오기 and 홈 기본값으로 저장', () => {
   });
 });
 
-describe('splitting the connections of data from before', () => {
-  it('gives every project its own copies and moves what it picked to them, once', () => {
-    const db = openDatabase(':memory:');
-    const secrets = memoryStore();
-    const { projectId } = importProject(db, file());
-    // Data from before: a shared connection the project's workflow and chat use.
-    const shared = db.insert(s.connections).values({ kind: 'openai', name: 'API', baseUrl: 'http://localhost:1/v1' }).returning().get();
-    secrets.set(shared.id, 'sk');
-    const workflow = db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).all()[0];
-    const definition = { ...workflow.definition, nodes: workflow.definition.nodes.map((node) => (node.type === 'ai' ? { ...node, config: { ...node.config, model: { connectionId: shared.id, model: 'gpt' } } } : node)) };
-    db.update(s.workflows).set({ definition }).where(eq(s.workflows.id, workflow.id)).run();
-    db.insert(s.chatSessions).values({ projectId, title: '대화', connectionId: shared.id, model: 'gpt' }).run();
-
-    expect(splitConnections(db, secrets)).toBe(1);
-    const [own] = connectionsOf(db, projectId);
-    expect(own.name).toBe('API');
-    expect(secrets.get(own.id)).toBe('sk');
-    expect(db.select().from(s.chatSessions).get()!.connectionId).toBe(own.id);
-    const moved = db.select().from(s.workflows).where(eq(s.workflows.id, workflow.id)).get()!;
-    expect(JSON.stringify(moved.definition)).toContain(own.id);
-    expect(JSON.stringify(moved.definition)).not.toContain(shared.id);
-    expect(db.select().from(s.connections).where(isNull(s.connections.projectId)).all().map((row) => row.id)).toEqual([shared.id]);
-
-    expect(splitConnections(db, secrets)).toBe(0);
-    expect(connectionsOf(db, projectId)).toHaveLength(1);
-  });
-});
-
 describe('credential copies', () => {
   it.each([true, false])('replaces or clears a previous target key on pull and push (source key: %s)', (hasKey) => {
     const { db, secrets, home } = setup();
@@ -194,24 +165,6 @@ describe('credential copies', () => {
     expect(() => connectionRoute(db, copy.id, broken)).toThrow('keyring locked');
     expect(connectionRoute(db, copy.id, secrets)).toMatchObject({ baseUrl: 'https://new.invalid/v1', apiKey: undefined });
     expect(db.select().from(s.connectionKeyCopies).all()).toEqual([]);
-    db.$client.close();
-  });
-
-  it('retries a partially failed migration without duplicating connections or marking it done early', () => {
-    const { db, secrets } = setup();
-    const first = importProject(db, file('A')).projectId;
-    const second = importProject(db, file('B')).projectId;
-    // Clear seed copies to model a database from before project-owned connections.
-    db.delete(s.connections).where(eq(s.connections.projectId, first)).run();
-    db.delete(s.connections).where(eq(s.connections.projectId, second)).run();
-    let calls = 0;
-    expect(() => splitConnections(db, { ...secrets, set: (id, key) => { if (++calls === 2) throw new Error('keyring locked'); secrets.set(id, key); } })).toThrow('keyring locked');
-    const ids = [...connectionsOf(db, first), ...connectionsOf(db, second)].map((row) => row.id);
-    expect(db.select().from(s.appSettings).get()?.done ?? []).not.toContain('connections-per-project');
-    expect(splitConnections(db, secrets)).toBe(2);
-    expect([...connectionsOf(db, first), ...connectionsOf(db, second)].map((row) => row.id)).toEqual(ids);
-    expect(ids.map((id) => secrets.get(id))).toEqual(['sk-home', 'sk-home']);
-    expect(splitConnections(db, secrets)).toBe(0);
     db.$client.close();
   });
 });

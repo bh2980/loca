@@ -7,9 +7,9 @@ import { client, unwrap } from '@/lib/api';
 import { workflowEdits, type WorkflowNodeEdit } from '@/lib/workflow-edits';
 import { ChangePreview, LABEL } from './change-preview';
 import { ProposalCard, type Proposal } from './proposal-card';
-import { Box, Button, Grid, Icon, Inline, SourceExcerpt, Spinner, Stack, Text, ToolCallRow, ToolCard, ToolCardHeader, ToolErrorCard } from '@loca/ui';
+import { Box, Button, Grid, Icon, Inline, SourceExcerpt, Stack, Text, ToolCallRow, ToolCard, ToolCardHeader, ToolErrorCard } from '@loca/ui';
 
-type State = 'input-streaming' | 'input-available' | 'approval-requested' | 'approval-responded' | 'output-available' | 'output-error' | 'output-denied';
+type State = 'input-streaming' | 'input-available' | 'output-available' | 'output-error';
 
 interface Part {
   type: string;
@@ -18,16 +18,14 @@ interface Part {
   input?: Record<string, unknown>;
   output?: unknown;
   errorText?: string;
-  approval?: { id: string; approved?: boolean };
 }
 
-export function ToolPart({ part, stale, onDecide, onOutput, proposal }: {
+export function ToolPart({ part, stale, onOutput, proposal }: {
   part: Part;
   /** For CLI chats: the stored proposal a change tool produced (decided with its own buttons). */
   proposal?: Proposal;
   /** Not in the latest reply: an unanswered proposal can no longer be applied. */
   stale?: boolean;
-  onDecide: (approvalId: string, approved: boolean) => void;
   /** Result for a tool the browser carries out (edit_workflow_node). */
   onOutput: (toolCallId: string, output: unknown) => void;
 }) {
@@ -95,22 +93,19 @@ export function ToolPart({ part, stale, onDecide, onOutput, proposal }: {
     );
   }
 
-  if (isChange && (part.state === 'approval-requested' || part.state === 'approval-responded' || part.state === 'output-available' || part.state === 'output-denied')) {
-    const decided = part.state !== 'approval-requested';
+  if (isChange && part.state === 'output-available') {
     // A gated change answers with its proposal's status (#45): a change that was tried and failed is not 적용됨.
     const output = part.output as { ok?: boolean; status?: string; error?: string; note?: string } | undefined;
-    const failed = part.state === 'output-available' && (output?.ok === false || output?.status === 'failed' || output?.status === 'rejected');
-    const waiting = part.state === 'output-available' && (output?.status === 'pending' || output?.status === 'running');
+    const failed = output?.ok === false || output?.status === 'failed' || output?.status === 'rejected';
+    const waiting = output?.status === 'pending' || output?.status === 'running';
     // Refused before it became a proposal ('제안하지 못했습니다: …'): there is nothing to accept.
-    const refused = part.state === 'output-available' && output?.ok === false && !output?.status;
+    const refused = output?.ok === false && !output?.status;
     return (
       <ToolCard>
         <ToolCardHeader title={label}>
-          {part.state === 'output-denied' && <Text tone="muted">거절함</Text>}
-          {part.state === 'output-available' && !failed && !waiting && <Text tone="success">{acceptedLabel(name).short}</Text>}
+          {!failed && !waiting && <Text tone="success">{acceptedLabel(name).short}</Text>}
           {waiting && <Text tone="muted">결정 기다리는 중</Text>}
           {failed && <Text tone="danger">{output?.status === 'rejected' ? '거절함' : String(output?.error ?? '실패')}</Text>}
-          {part.state === 'approval-responded' && <Spinner size="xs" />}
         </ToolCardHeader>
         <Box paddingX="normal" paddingY="condensed" variant="body">
           {part.input &&
@@ -123,19 +118,9 @@ export function ToolPart({ part, stale, onDecide, onOutput, proposal }: {
                 </Box>
               </details>
             ) : (
-              <ChangePreview name={name} input={part.input} pending={!decided} />
+              <ChangePreview name={name} input={part.input} pending={false} />
             ))}
         </Box>
-        {!decided && part.approval && (
-          <Stack direction="row" justify="end" gap="condensed" border="top" paddingX="normal" paddingY="condensed">
-            <Button variant="outline" onClick={() => onDecide(part.approval!.id, false)}>
-              <X /> 거절
-            </Button>
-            <Button onClick={() => onDecide(part.approval!.id, true)}>
-              <Check /> 수락
-            </Button>
-          </Stack>
-        )}
       </ToolCard>
     );
   }
@@ -148,7 +133,8 @@ export function ToolPart({ part, stale, onDecide, onOutput, proposal }: {
 
   return (
     <ToolCallRow
-      status={part.state === 'output-error' ? 'error' : part.state === 'output-available' ? 'done' : 'running'}
+      // Only a call still taking its input is running: any other state (one a stored conversation has that this page does not know) is a finished call.
+      status={part.state === 'output-error' ? 'error' : part.state === 'input-streaming' || part.state === 'input-available' ? 'running' : 'done'}
       label={label}
       detail={part.input && 'sceneId' in part.input && part.input.offset ? <span>· {String(part.input.offset)}번째부터</span> : null}
       output={part.state === 'output-error' ? part.errorText : JSON.stringify(part.output ?? part.input, null, 1)?.slice(0, 4000)}

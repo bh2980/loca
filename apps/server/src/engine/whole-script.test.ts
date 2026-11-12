@@ -39,12 +39,8 @@ const wholeFlow = (choice: unknown, config: Record<string, unknown>) =>
     nodes: [
       { id: 'entry', type: 'entry', position: at, config: {} },
       { id: 'read', type: 'ai', position: at, config: { model: choice, instructions: 'Read the script.', batch: { mode: 'whole', size: 1, maxTokens: 300_000 }, ...config } },
-      { id: 'end', type: 'end', position: at },
     ],
-    edges: [
-      { id: '1', source: 'entry', sourceHandle: 'out', target: 'read' },
-      { id: '2', source: 'read', sourceHandle: 'out', target: 'end' },
-    ],
+    edges: [{ id: '1', source: 'entry', sourceHandle: 'out', target: 'read' }],
   });
 const peopleNode = { output: 'json', scope: 'batch', fields: [{ name: 'people', type: 'list', fields: [{ name: 'name', type: 'string' }, { name: 'evidence', type: 'lines' }] }] };
 const answer = { people: [{ name: 'Alice', evidence: ['L1', 'L3', 'L99'] }, { name: 'Bob', evidence: ['L2'] }] };
@@ -133,7 +129,7 @@ describe('a node reading the script whole', () => {
       ...base,
       settings: { ...base.settings, retries: [] },
       nodes: [...base.nodes, { id: 'scenes', type: 'ai', position: at, config: { model: choice, instructions: 'Read the script.', batch: { mode: 'group', size: 1, maxTokens: 500 }, ...peopleNode } }],
-      edges: [...base.edges, { id: '3', source: 'read', sourceHandle: 'error', target: 'scenes' }, { id: '4', source: 'scenes', sourceHandle: 'out', target: 'end' }],
+      edges: [...base.edges, { id: '3', source: 'read', sourceHandle: 'error', target: 'scenes' }],
     });
     const { runId } = run(db, projectId, definition);
     await runner.drain();

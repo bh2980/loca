@@ -1,6 +1,6 @@
 ---
 name: loca-workflows
-description: Build, change, run and debug loca workflows — the user-defined automation between translation statuses (entry → AI / function / condition / apply nodes → end). Use when asked to create or edit a workflow, add an AI step with JSON output fields, branch on conditions, save AI results into the project, preview or start a run, choose models for a run, or find out why a run failed.
+description: Build, change, run and debug loca workflows — the user-defined automation between translation statuses (entry → AI / function / condition / apply nodes). Use when asked to create or edit a workflow, add an AI step with JSON output fields, branch on conditions, save AI results into the project, preview or start a run, choose models for a run, or find out why a run failed.
 ---
 
 # loca 워크플로 만들고 돌리기
@@ -8,7 +8,7 @@ description: Build, change, run and debug loca workflows — the user-defined au
 공통 규칙(연결, 제안, 권한, 터미널 권한 모드)은 `loca` 스킬을 따릅니다.
 
 ## 워크플로가 하는 일
-번역 상태 사이에 놓인 자동화입니다. 진입 노드가 고른 상태의 대사를 받아 노드를 따라 흘려보내고, 대사마다 끝에 닿으면 마칩니다. 노드는 특정 게임이나 이름에 묶이지 않은 일반 노드입니다.
+번역 상태 사이에 놓인 자동화입니다. 진입 노드가 고른 상태의 대사를 받아 노드를 따라 흘려보내고, 대사는 선이 없는 출구로 나가면 거기서 끝납니다(종료 노드는 없습니다; 오류를 가진 채 나가면 실패, 아니면 끝남). 노드는 특정 게임이나 이름에 묶이지 않은 일반 노드입니다.
 
 | 노드 | 하는 일 | 출구 |
 |---|---|---|
@@ -19,7 +19,6 @@ description: Build, change, run and debug loca workflows — the user-defined au
 | 흐름: 조건(condition) | 대사의 데이터로 갈래를 나눔 | 조건식에 따라 |
 | 흐름: 모으기(gather) | 실행 전체의 앞 단계 결과를 다 기다렸다가 하나로 넘김 | `out` |
 | 흐름: 워크플로 호출(call) | 같은 입력 타입의 다른 저장된 워크플로를 이 자리에서 돌림. 설정 `{workflowId}`. 끝까지 가면 `out`(완료), 실패로 끝나게 되면 `error`(오류, 오류 종류와 메시지를 가짐) | `out`/`error` |
-| 종료(end) | 흐름을 마침 | — |
 
 **워크플로 호출(`call`)**: 실행을 시작할 때 호출 노드가 부른 워크플로의 노드로 펼쳐집니다(그 순간의 내용으로 돌고, 도중에 그 워크플로를 고쳐도 이미 시작한 실행은 그대로). 부른 워크플로의 진입 노드와 `settings`는 쓰이지 않고 **부르는 쪽의 설정**(연속 실패·노드 방문 상한)이 적용됩니다. 부른 워크플로가 이 워크플로로 되돌아오는 순환은 저장할 때와 실행을 시작할 때 모두 거부됩니다(자기 자신, 여러 단계를 거친 경우 포함). 다른 워크플로가 부르고 있는 워크플로는 지울 수 없습니다(부르는 곳 이름이 오류로 나오니 호출을 먼저 지움). "앞 단계 결과"는 대사가 실제로 거쳐 온 노드의 결과입니다: 호출 안의 첫 노드는 호출 앞 노드의 결과를, 호출 뒤의 노드는 그 대사가 호출 안에서 마지막으로 거친 노드의 결과를 받습니다. 실행 기록에서는 안쪽 노드가 `호출 이름 › 노드 이름`으로 보이고 그래프에는 호출 하나가 카드 하나로 나옵니다.
 
@@ -53,7 +52,7 @@ loca workflows reference <프리셋 id>       # 그 프리셋의 지시문·출�
 1. 비슷한 워크플로를 `show --json`으로 받아 고치는 게 가장 안전합니다. 새로 만들면 `id`를 빼고 `name`, `definition`만 씁니다.
 2. `definition` = `nodes`(`id`, `type`, `position`, `label?`, `config`) + `edges`(`source`, `sourceHandle`=출구 id, `target`) + `settings`(`maxVisitsPerNode` 노드 방문 상한 기본 5, `maxConsecutiveFailures` 연속 실패 기본 3; 앱에서는 노드를 고르지 않았을 때 오른쪽 "워크플로 설정"에 보임).
 3. 규칙 (reference의 `rules`가 기준):
-   - 진입은 정확히 하나. `error`를 뺀 모든 출구를 잇습니다(이어지지 않은 `out`은 경고, 대사가 거기서 멈춤).
+   - 진입은 정확히 하나. `out`과 `error`는 잇지 않아도 됩니다(대사가 거기서 끝남: 잇지 않은 `error`로 나가면 실패). 그 밖의 출구(`pass`, 조건의 출구, 스크립트의 출구)는 잇거나 출구 동작으로 상태를 정해야 합니다. 다만 `pass`를 이은 노드의 `fail`, 두 출구 중 하나를 이은 조건은 그대로 둘 수 있습니다.
    - 화살표는 단계 순서입니다. AI 노드는 `concurrency`(동시 처리 수, 기본 1, 1–16)만큼 요청을 동시에 보내고, HTTP·스크립트 함수 노드는 자기 `config.concurrency`(기본 2, 1–8)만큼 호출을 동시에 보냅니다(`settings`에는 동시 처리 수가 없습니다). CLI 연결이면 그만큼 모델 프로세스가 뜹니다. 연결에는 동시 한도가 없고 실행마다 따로 셉니다. 다른 실행이 돌고 있으면 `loca runs plan`이 알려 줍니다. 실행 중 상황은 `loca runs show <id>` 또는 앱의 실행 기록 › 그래프에서 봅니다.
    - 병렬 갈래는 **한 출구에서 여러 간선**으로. 갈래끼리 다시 만나면 안 되고, 상태를 바꾸는 갈래는 하나까지.
    - 같은 출구에서 같은 노드로 간선 두 개 금지. 되돌아가는 고리에는 출구가 둘 이상인 노드가 있어야 합니다.

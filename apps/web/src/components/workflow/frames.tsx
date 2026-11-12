@@ -173,7 +173,7 @@ export function resizeFrame(definition: WorkflowDefinition, groupId: string, box
     return x >= box.x && x <= box.x + box.width && y >= box.y && y <= box.y + box.height;
   };
   const framed = new Set((definition.groups ?? []).flatMap((group) => group.nodeIds));
-  const drawn = definition.nodes.filter((node) => shown.has(node.id) && node.type !== 'entry' && node.type !== 'end');
+  const drawn = definition.nodes.filter((node) => shown.has(node.id) && node.type !== 'entry');
   return {
     ...definition,
     groups: definition.groups?.map((group) => group.id !== groupId ? group : {

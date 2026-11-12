@@ -18,7 +18,7 @@ type Point = { x: number; y: number };
 
 /** The short line an exit no line leaves draws before its mark (the canvas's ExitMarks draws the same, or longer). */
 const END_STEM = 28;
-/** How far the hidden entry and end nodes sit from the node they lead to or end: off the drawing, on a straight line. */
+/** How far the hidden entry node sits from the node it leads to: off the drawing, on a straight line. */
 const MARK_GAP = 72;
 
 /**
@@ -86,11 +86,11 @@ function lineSpot(points: Point[], room: { width: number; height: number } | und
  * each on a track of its own (edge–edge spacing: no two lines share a run). Nodes read top to bottom (or left to right),
  * in the workflow's order, loops routed back around. An exit's mark goes on its first line, clear of the nodes and the
  * other marks; an exit no line leaves keeps the room for its mark right after it (its port's label). An empty frame is a
- * box of its own size. The hidden entry and end nodes sit off the drawing, next to the node they lead to or end.
+ * box of its own size. The hidden entry node sits off the drawing, next to the node it leads to.
  */
 export async function autoLayout(definition: WorkflowDefinition, sizes: Map<string, { width: number; height: number }>, direction: CanvasDirection = 'vertical', tagRoom?: TagRoom): Promise<WorkflowDefinition> {
   const vertical = direction === 'vertical';
-  const drawn = definition.nodes.filter((node) => node.type !== 'entry' && node.type !== 'end');
+  const drawn = definition.nodes.filter((node) => node.type !== 'entry');
   const drawnIds = new Set(drawn.map((node) => node.id));
   const groups = (definition.groups ?? []).map((group) => ({ ...group, nodeIds: group.nodeIds.filter((id) => drawnIds.has(id)) }));
   // A frame whose nodes are all folded away is left out; one drawn empty (to put nodes in) keeps its size.
@@ -250,27 +250,21 @@ export async function autoLayout(definition: WorkflowDefinition, sizes: Map<stri
     const child = byId.get(node.id);
     return child ? [[node.id, { x: Math.round(child.x ?? 0), y: Math.round(child.y ?? 0) }] as const] : [];
   }));
-  // The entry and the end nodes are not drawn (the canvas shows a 시작 / 끝 mark instead) and take no room: each sits
-  // just before the node it leads to, or just after the exit it ends, on a straight line.
-  for (const mark of definition.nodes.filter((node) => node.type === 'entry' || node.type === 'end')) {
-    const line = definition.edges.find((edge) => (mark.type === 'entry' ? edge.source === mark.id : edge.target === mark.id));
-    const other = line && definition.nodes.find((node) => node.id === (mark.type === 'entry' ? line.target : line.source));
+  // The entry node is not drawn (the canvas shows a 시작 mark instead) and takes no room: it sits just before the
+  // node it leads to, on a straight line.
+  for (const mark of definition.nodes.filter((node) => node.type === 'entry')) {
+    const line = definition.edges.find((edge) => edge.source === mark.id);
+    const other = line && definition.nodes.find((node) => node.id === line.target);
     const at = other && positions.get(other.id);
     if (!line || !other || !at) continue;
     const own = sizes.get(mark.id) ?? { width: 224, height: 66 };
     const near = sizes.get(other.id) ?? { width: 224, height: 66 };
-    const ports = nodePorts(other);
-    const exit = Math.max(0, ports.findIndex((port) => port.id === line.sourceHandle));
-    // Where the line meets the other node: its input (the middle of its near side), or its exit.
-    const meet = mark.type === 'entry'
-      ? (vertical ? { x: at.x + near.width / 2, y: at.y } : { x: at.x, y: at.y + near.height / 2 })
-      : (vertical ? { x: at.x + ((exit + 0.5) / ports.length) * near.width, y: at.y + near.height } : { x: at.x + near.width, y: at.y + ((exit + 0.5) / ports.length) * near.height });
-    const position = mark.type === 'entry'
-      ? (vertical ? { x: meet.x - own.width / 2, y: meet.y - MARK_GAP - own.height } : { x: meet.x - MARK_GAP - own.width, y: meet.y - own.height / 2 })
-      : (vertical ? { x: meet.x - own.width / 2, y: meet.y + MARK_GAP } : { x: meet.x + MARK_GAP, y: meet.y - own.height / 2 });
+    // Where the line meets the other node: its input (the middle of its near side).
+    const meet = vertical ? { x: at.x + near.width / 2, y: at.y } : { x: at.x, y: at.y + near.height / 2 };
+    const position = vertical ? { x: meet.x - own.width / 2, y: meet.y - MARK_GAP - own.height } : { x: meet.x - MARK_GAP - own.width, y: meet.y - own.height / 2 };
     positions.set(mark.id, position);
-    const markPort = vertical ? { x: position.x + own.width / 2, y: mark.type === 'entry' ? position.y + own.height : position.y } : { x: mark.type === 'entry' ? position.x + own.width : position.x, y: position.y + own.height / 2 };
-    routes.set(line.id, { points: mark.type === 'entry' ? [markPort, meet] : [meet, markPort], labelPosition: { x: (markPort.x + meet.x) / 2, y: (markPort.y + meet.y) / 2 } });
+    const markPort = vertical ? { x: position.x + own.width / 2, y: position.y + own.height } : { x: position.x + own.width, y: position.y + own.height / 2 };
+    routes.set(line.id, { points: [markPort, meet], labelPosition: { x: (markPort.x + meet.x) / 2, y: (markPort.y + meet.y) / 2 } });
   }
   return {
     ...definition,

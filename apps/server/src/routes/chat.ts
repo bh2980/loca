@@ -117,34 +117,12 @@ export const chatRoutes = new Hono<Env>()
 
     const hits: Hit[] = [];
 
-    const extractMessageText = (msg: Record<string, unknown>): string => {
-      const parts: string[] = [];
-      if (Array.isArray(msg.parts)) {
-        for (const part of msg.parts) {
-          if (part && typeof part === 'object') {
-            const p = part as Record<string, unknown>;
-            if (p.type === 'text' && typeof p.text === 'string') {
-              parts.push(p.text);
-            }
-          }
-        }
-      }
-      if (typeof msg.content === 'string') {
-        parts.push(msg.content);
-      } else if (Array.isArray(msg.content)) {
-        for (const part of msg.content) {
-          if (typeof part === 'string') {
-            parts.push(part);
-          } else if (part && typeof part === 'object') {
-            const p = part as Record<string, unknown>;
-            if (p.type === 'text' && typeof p.text === 'string') {
-              parts.push(p.text);
-            }
-          }
-        }
-      }
-      return parts.join('\n');
-    };
+    // A stored message is a UIMessage: its text is its text parts.
+    const extractMessageText = (msg: Record<string, unknown>): string =>
+      (Array.isArray(msg.parts) ? msg.parts : []).flatMap((part: unknown) => {
+        const text = part && typeof part === 'object' && (part as { type?: unknown }).type === 'text' ? (part as { text?: unknown }).text : undefined;
+        return typeof text === 'string' ? [text] : [];
+      }).join('\n');
 
     const makeSnippet = (text: string, queryNeedle: string, maxLength = 80): string => {
       const normalized = text.replace(/\s+/g, ' ').trim();
@@ -165,16 +143,7 @@ export const chatRoutes = new Hono<Env>()
     for (const session of sessions) {
       if (hits.length >= 30) break;
       const sessionUpdatedAt = session.updatedAt instanceof Date ? session.updatedAt.getTime() : Number(session.updatedAt);
-      let rawMessages: unknown[] = [];
-      if (Array.isArray(session.messages)) {
-        rawMessages = session.messages;
-      } else if (typeof session.messages === 'string') {
-        try {
-          rawMessages = JSON.parse(session.messages);
-        } catch {
-          rawMessages = [];
-        }
-      }
+      const rawMessages = session.messages;
 
       let sessionMatched = false;
       for (let i = 0; i < rawMessages.length; i++) {
@@ -236,14 +205,14 @@ export const chatRoutes = new Hono<Env>()
     await deleteChat(c.var.deps.db, c.req.param('sessionId'));
     return c.json({ ok: true });
   })
-  // The server owns the conversation record (#46): the browser sends the new message only (an
-  // answered approval resends the reply it belongs to), and the turn reads everything else from here.
-  .post('/chat/:sessionId/stream', validate('json', z.object({ message: z.any().optional(), messages: z.array(z.any()).optional(), trigger: z.enum(['submit-message', 'regenerate-message']).optional(), view: viewSchema.optional() })), async (c) => {
+  // The server owns the conversation record (#46): the browser sends the new message only (a tool
+  // the browser carried out resends the reply it belongs to), and the turn reads everything else from here.
+  .post('/chat/:sessionId/stream', validate('json', z.object({ message: z.any().optional(), trigger: z.enum(['submit-message', 'regenerate-message']).optional(), view: viewSchema.optional() })), async (c) => {
     const { db } = c.var.deps;
     const session = found(db.select().from(s.chatSessions).where(eq(s.chatSessions.id, c.req.param('sessionId'))).get(), '대화');
     const body = c.req.valid('json');
     try {
-      return await runChatTurn(c.var.deps, session, { incoming: (body.message ?? body.messages?.at(-1)) as UIMessage | undefined, trigger: body.trigger, view: body.view ? describeView(body.view) : null });
+      return await runChatTurn(c.var.deps, session, { incoming: body.message as UIMessage | undefined, trigger: body.trigger, view: body.view ? describeView(body.view) : null });
     } catch (error) {
       badRequest(error instanceof Error ? error.message : String(error));
     }

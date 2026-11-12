@@ -9,7 +9,7 @@
  */
 import { and, desc, eq, or } from 'drizzle-orm';
 import { get } from 'es-toolkit/compat';
-import { filtersByStatus, KNOWLEDGE_STATUSES, normalizeTagScopes, previousStepId, type ExitAction, type KnowledgeStatus, type TagExitAction, type WorkflowDefinition } from '@tw/shared';
+import { filtersByStatus, KNOWLEDGE_STATUSES, previousStepId, type ExitAction, type KnowledgeStatus, type TagExitAction, type WorkflowDefinition } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { setKnowledgeTag } from '../services/knowledge-tags.ts';
@@ -36,7 +36,7 @@ function tagsOf(tx: Tx, run: Run, action: TagExitAction, result: Record<string, 
   if (action.fromField)
     for (const name of namesIn(get(result, action.fromField))) {
       const connected = action.categoryTags[name] ?? action.categoryTags[lower(name)];
-      const tag = tags.find((candidate) => candidate.id === connected) ?? tags.find((candidate) => lower(candidate.name) === lower(name) && normalizeTagScopes(candidate.scope).includes(scope));
+      const tag = tags.find((candidate) => candidate.id === connected) ?? tags.find((candidate) => lower(candidate.name) === lower(name) && candidate.scope.includes(scope));
       if (tag) ids.add(tag.id);
       else unmatched.push(name);
     }

@@ -6,7 +6,6 @@ import { z } from 'zod';
  */
 export const ATTACH_KINDS = ['대사', '장면', '인물', '관계', '말투 규칙', '사건', '노트', '용어', '태그', '상태', '워크플로', '실행 기록'] as const;
 export type AttachKind = (typeof ATTACH_KINDS)[number];
-export const isAttachKind = (value: string): value is AttachKind => (ATTACH_KINDS as readonly string[]).includes(value);
 
 /** Short words that also narrow to a kind when typed after the @ (the list still shows the full name). */
 export const ATTACH_KIND_ALIASES: Record<string, AttachKind> = { 말투: '말투 규칙', 실행: '실행 기록', 문서: '노트', 규칙: '말투 규칙' };

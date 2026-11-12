@@ -7,7 +7,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { AUTO_MARK_IDS, AUTO_MARKS, markColor, markName, normalizeTagScopes, type MarkStyles, TAG_SCOPE_LABELS, TAG_SCOPES, type AutoMark } from '@tw/shared';
+import { AUTO_MARK_IDS, AUTO_MARKS, markColor, markName, type MarkStyles, TAG_SCOPE_LABELS, TAG_SCOPES, type AutoMark } from '@tw/shared';
 import { Box, EmptyState, Text, type ColumnDef, AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Button, Select, SelectContent, SelectItem, SelectValue, StatusIcon, TagChip, ContextMenuItem, ContextMenuSeparator, SelectTrigger, Section, PageBody, SplitPane, DataTable, Inline } from '@loca/ui';
 import { Page } from '@/components/page';
 import { MarkChip } from '@/components/status';
@@ -22,8 +22,8 @@ import { HeaderFilter } from '@/components/header-filter';
 import { useProject, saveProject } from '@/lib/project';
 
 type StatusSearch = { status?: string; tag?: string; mark?: AutoMark; on?: TagFilterPlace };
-/** 붙는 곳 filter of the tag table ('knowledge' is not a place of its own). */
-const TAG_FILTER_PLACES = TAG_SCOPES.filter((place) => place !== 'knowledge');
+/** 붙는 곳 filter of the tag table. */
+const TAG_FILTER_PLACES = TAG_SCOPES;
 type TagFilterPlace = (typeof TAG_FILTER_PLACES)[number];
 const param = (value: unknown) => (typeof value === 'string' && value ? value : undefined);
 
@@ -160,7 +160,7 @@ function StatusSettings() {
   ];
   // The project's tags, all of them a person's to change. The automatic tags (#AI 제안 대기…) have their own section below.
   type AnyTag = { id: string; tag: TagRowData };
-  const placesOf = (row: AnyTag) => normalizeTagScopes(row.tag.scope);
+  const placesOf = (row: AnyTag) => row.tag.scope;
   const allTags: AnyTag[] | undefined = tags?.map((tag) => ({ id: tag.id, tag }));
   const shownTags = allTags && search.on ? allTags.filter((row) => placesOf(row).includes(search.on!)) : allTags;
   const pickedTags = (shownTags ?? []).filter((row) => tagPicks.picked.has(row.id)).map((row) => row.tag);
@@ -202,7 +202,7 @@ function StatusSettings() {
     { id: 'on', header: '붙는 곳', meta: { width: 140, tone: 'muted' }, cell: ({ row }) => scopeLabel(AUTO_MARKS[row.original.id].on) },
     { id: 'description', header: '설명', meta: { tone: 'muted' }, cell: ({ row }) => AUTO_MARKS[row.original.id].description },
   ];
-  const autoRows = (search.on ? AUTO_MARK_IDS.filter((id) => normalizeTagScopes(AUTO_MARKS[id].on).includes(search.on!)) : AUTO_MARK_IDS).map((id) => ({ id }));
+  const autoRows = (search.on ? AUTO_MARK_IDS.filter((id) => (AUTO_MARKS[id].on as readonly string[]).includes(search.on!)) : AUTO_MARK_IDS).map((id) => ({ id }));
 
   const pane =
     selectedMark ? (

@@ -80,7 +80,7 @@ export const scriptRoutes = new Hono<Env>()
     if (!batch.changes.length && !checked.errors.length) return c.json({ total: raw.changes.length, unchanged: unchanged.length, changes: 0, conflicts: [], errors: [], warnings: [], proposalId: null });
     const report = { ...checked, total: raw.changes.length, unchanged: unchanged.length };
     if (dryRun) return c.json({ ...report, proposalId: null });
-    if (!agentCatalog(db, projectId).some((tool) => tool.name === 'propose_changes')) badRequest('에이전트 설정에서 ‘여러 대사 한꺼번에 변경’이 꺼져 있습니다.');
+    if (!agentCatalog(db, projectId).some((tool) => tool.name === 'propose_changes')) badRequest('에이전트 권한 설정에서 ‘대사 변경’이 꺼져 있습니다.');
     if (batch.changes.length === report.errors.length + report.conflicts.length) return c.json({ ...report, proposalId: null });
     // Through the same gate as every change tool, so the terminal permission mode decides it. The gate checks the
     // batch again and leaves out the same rows, which it records: auto review asks when any were left out.

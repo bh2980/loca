@@ -155,7 +155,7 @@ export const lastExchange = (messages: UIMessage[]) => messages.findLast((messag
 
 /**
  * Puts a message the browser sent into the stored record. The server owns the record: a new message
- * is appended, a message it already has (an assistant message with a tool approval answered) replaces
+ * is appended, a message it already has (the reply in progress, with the result of a tool the browser carried out) replaces
  * the stored one by id, and a regenerate drops the answers after the last user message (run cards stay).
  */
 export function mergeIncoming(stored: UIMessage[], incoming: UIMessage | undefined, trigger: 'submit-message' | 'regenerate-message' = 'submit-message'): UIMessage[] {
@@ -168,7 +168,7 @@ export function mergeIncoming(stored: UIMessage[], incoming: UIMessage | undefin
   if (!incoming) return messages;
   const at = messages.findIndex((message) => message.id === incoming.id);
   if (at >= 0) {
-    // Only the newest message may be revised (an approval answered on the reply in progress).
+    // Only the newest message may be revised (a tool result added to the reply in progress).
     if (messages[at] !== lastExchange(messages)) return messages;
     messages[at] = incoming;
   } else messages = [...messages, incoming];

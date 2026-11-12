@@ -50,14 +50,6 @@ export function writeAppDefaults(db: Tx, patch: Partial<AppDefaults>): AppDefaul
   return next;
 }
 
-/** One-time steps done on this data (see connection-split.ts). */
-export function stepDone(db: Pick<Db, 'select'>, step: string) {
-  return (db.select({ done: s.appSettings.done }).from(s.appSettings).where(eq(s.appSettings.id, APP)).get()?.done ?? []).includes(step);
-}
-export function markStepDone(db: Tx, step: string) {
-  const done = [...new Set([...(db.select({ done: s.appSettings.done }).from(s.appSettings).where(eq(s.appSettings.id, APP)).get()?.done ?? []), step])];
-  db.insert(s.appSettings).values({ id: APP, done }).onConflictDoUpdate({ target: s.appSettings.id, set: { done } }).run();
-}
 
 /** Retries committed copies before allowing a connection to use any key left in the keyring. */
 export function connectionKey(db: Tx, secrets: SecretStore, id: string, visiting = new Set<string>()): string | null {

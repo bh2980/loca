@@ -2,10 +2,11 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:f
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
-import { exitActionsFromNodes, DEFAULT_RETRY_RULES, exclusionRulesSchema, formatRulesSchema, lineExclusion, needsListener, retryRuleSchema, type LineTranslate } from '@tw/shared';
+import { DEFAULT_RETRY_RULES, exclusionRulesSchema, formatRulesSchema, lineExclusion, needsListener, retryRuleSchema, type LineTranslate } from '@tw/shared';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import * as schema from './schema.ts';
+import { exitActionsFromNodes } from './exit-actions-migrate.ts';
 import { rowChangesOf } from './row-changes.ts';
 
 const migrationsFolder = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../drizzle');
@@ -122,7 +123,7 @@ export function registerMigrationFunctions(sqlite: Database.Database) {
     return retryChains(JSON.parse(definition) as Raw).find((entry) => entry.chain.includes(nodeId))?.ai.id ?? nodeId;
   });
   // exit_actions(definition json): 태그 붙이기·떼기 and 상태 변경 nodes became exit actions (0122,
-  // the conversion is @tw/shared's, which a browser's unsaved draft goes through too).
+  // the conversion is exit-actions-migrate.ts).
   // exit_action_next(definition json, node id): where a line waiting at such a node goes instead (the first other node
   // along its 다음 exit), '' when it would end there; any other node id as it is.
   type ExitRaw = { nodes?: { id: string; type?: string; config?: { fn?: string } }[]; edges?: { source: string; sourceHandle: string; target: string }[] };

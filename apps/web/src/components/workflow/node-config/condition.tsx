@@ -56,7 +56,7 @@ export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { nod
   const json = asJson || !parsed;
   const statuses = refs?.statuses ?? [];
   const tags = refs?.tags ?? [];
-  const others = nodes.filter((other) => other.id !== node.id && other.type !== 'entry' && other.type !== 'end');
+  const others = nodes.filter((other) => other.id !== node.id && other.type !== 'entry');
   const outputs = others.map((other) => ({ node: other, fields: comparableFields(other) })).filter((entry) => entry.fields.length > 0);
   const fieldsOf = (id: string) => outputs.find((entry) => entry.node.id === id)?.fields ?? [];
   // AI nodes that pick one option: their choice can be compared with the line's speech rule.

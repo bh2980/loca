@@ -16,7 +16,6 @@ export type EventLinkKind = (typeof EVENT_LINK_KINDS)[number];
 export type KnowledgeStatus = (typeof KNOWLEDGE_STATUSES)[number];
 export type KnowledgeOrigin = (typeof KNOWLEDGE_ORIGINS)[number];
 export const KNOWLEDGE_STATUS_LABELS: Record<KnowledgeStatus, string> = { candidate: '후보', confirmed: '확정', rejected: '버림' };
-export const KNOWLEDGE_ORIGIN_LABELS: Record<KnowledgeOrigin, string> = { human: '사람', ai: 'AI', import: '가져오기', script: '대본에서 찾음' };
 
 /**
  * Who put something in its current status — a line's (user-defined) status, a knowledge item's or a
@@ -25,7 +24,6 @@ export const KNOWLEDGE_ORIGIN_LABELS: Record<KnowledgeOrigin, string> = { human:
  */
 export const STATUS_BY = ['ai', 'human'] as const;
 export type StatusBy = (typeof STATUS_BY)[number];
-export const STATUS_BY_LABELS: Record<StatusBy, string> = { ai: 'AI', human: '사람' };
 /** AI set it and no person has looked since: shown with the ✦ mark, and what 확인함 is for. */
 export const aiDecided = (item: { status?: string; statusBy: StatusBy }) => item.statusBy === 'ai' && item.status !== 'candidate' && item.status !== 'rejected';
 

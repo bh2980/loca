@@ -272,7 +272,7 @@ function WorkflowEditor() {
   // Another workflow reuses node ids ("entry", "translate") with other sizes.
   useEffect(() => setMeasured({}), [workflowId]);
   const definitions = useMemo(
-    () => (current?.definition.nodes ?? []).filter((node) => node.type !== 'entry' && node.type !== 'end'),
+    () => (current?.definition.nodes ?? []).filter((node) => node.type !== 'entry'),
     [current?.definition.nodes],
   );
   // 접기: nodes that only hang off another node are chips until opened (display only; the definition is whole).
@@ -280,7 +280,7 @@ function WorkflowEditor() {
   const [foldState, setFoldState] = useFoldState(`loca.workflow.folds.${workflowId}`);
   const openFolds = useMemo(() => new Set(foldState.open), [foldState]);
   const view = useMemo(() => (current ? foldedDefinition(current.definition, folds, openFolds) : undefined), [current?.definition, folds, openFolds]); // eslint-disable-line react-hooks/exhaustive-deps
-  const shown = useMemo(() => (view?.definition.nodes ?? []).filter((node) => node.type !== 'entry' && node.type !== 'end'), [view]);
+  const shown = useMemo(() => (view?.definition.nodes ?? []).filter((node) => node.type !== 'entry'), [view]);
   // A fold that just opened gets places that clear the visible nodes, written to the draft once: from
   // then on its nodes sit where they are stored, so dragging them (or their owner) never snaps back.
   // Folds already open when the editor loads were placed when they were opened: opening the editor is no edit.
@@ -876,7 +876,7 @@ function WorkflowEditor() {
     }
     else if (FUNCTION_NAMES.includes(id as FunctionName)) addNode({ type: 'function', config: { fn: id, params: {}, concurrency: 2 } }, id, position);
     else if (id === 'ai') addNode({ type: 'ai', config: { model: newNodeModel(), output: 'json', scope: 'line', batch: batchFor(), fields: [{ name: 'note', type: 'string', description: '' }] } } as never, id, position);
-    else if (id === 'gather') addNode({ type: 'gather', config: { from: '', fields: [] } }, id, position);
+    else if (id === 'gather') addNode({ type: 'gather', config: { fields: [] } }, id, position);
     else if (id === 'call') addNode({ type: 'call', config: { workflowId: '' } }, id, position);
     else if (id === 'condition') addNode({ type: 'condition', config: { expression: true, description: '' } }, id, position);
   };

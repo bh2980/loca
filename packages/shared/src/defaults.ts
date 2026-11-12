@@ -27,20 +27,9 @@ export const PALETTE = [
   { name: '분홍', hex: '#bc5694' },
 ] as const;
 export const STATUS_COLORS: string[] = PALETTE.map((color) => color.hex);
-/**
- * The 20 Tailwind colours offered before the palette had twelve, each to the nearest palette hue.
- * Projects keep their stored hex; the app shows it as that palette slot (see paletteIndex).
- */
-const LEGACY_COLORS: Record<string, number> = {
-  '#a1a1aa': 0, '#64748b': 0, '#ef4444': 1, '#f43f5e': 1, '#f97316': 2, '#f59e0b': 3, '#eab308': 3, '#a16207': 3,
-  '#84cc16': 4, '#22c55e': 5, '#10b981': 5, '#14b8a6': 6, '#06b6d4': 7, '#0ea5e9': 8, '#3b82f6': 8,
-  '#6366f1': 9, '#8b5cf6': 10, '#a855f7': 10, '#d946ef': 11, '#ec4899': 11,
-};
 /** The palette slot (0–11) a stored colour is shown as, or -1 for a custom hex. */
 export function paletteIndex(hex: string): number {
-  const key = hex.toLowerCase();
-  const index = STATUS_COLORS.indexOf(key);
-  return index >= 0 ? index : (LEGACY_COLORS[key] ?? -1);
+  return STATUS_COLORS.indexOf(hex.toLowerCase());
 }
 export const DEFAULT_STATUS_COLOR = PALETTE[8].hex;
 export const DEFAULT_TAG_COLOR = PALETTE[6].hex;

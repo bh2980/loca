@@ -140,7 +140,7 @@ function apiChatResponse(input: {
   const tools = withFittedResults(gatedTools(db, session.projectId, session.id, { model: route.model }));
   // Run cards are not replies: the reply that carries on is the newest message that is not one.
   const last = lastExchange(messages);
-  // A reply whose tool approval was just answered goes on in the same message.
+  // A reply sent back with the result of a tool the browser carried out (edit_workflow_node) goes on in the same message.
   const messageId = last?.role === 'assistant' ? last.id : crypto.randomUUID();
   return chatStream({
     db,
@@ -159,7 +159,7 @@ function apiChatResponse(input: {
       const known = db.select({ modelLimits: s.connections.modelLimits }).from(s.connections).where(eq(s.connections.id, session.connectionId!)).get()?.modelLimits[route.model]?.images;
       const sendable = imageDecision(known, 1).send ? fitted : withoutImages(fitted);
       let modelMessages: ModelMessage[] = await convertToModelMessages(expandRecord(sendable), { ignoreIncompleteToolCalls: true });
-      // Messages a previous turn could not take (it stopped for an approval) come first.
+      // Messages no turn has taken yet (sent as the last one was ending, decisions made since) come first.
       const leftover = takeInterjections(db, session.id);
       if (leftover.length) modelMessages = [...modelMessages, interject(leftover)];
       let steps = 0;
@@ -194,8 +194,6 @@ function apiChatResponse(input: {
         const passSteps = await Promise.resolve(result.steps).finally(() => clearTimeout(quiet));
         steps += Math.max(1, passSteps.length);
         finishReason = await result.finishReason;
-        // Waiting for the person to approve a tool: the turn ends; a queued message waits for the next one.
-        if (passSteps.at(-1)?.content.some((part) => part.type === 'tool-approval-request')) break;
         const items = takeInterjections(db, session.id);
         if (!items.length) {
           turn.markClosing();

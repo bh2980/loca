@@ -470,7 +470,8 @@ describe('slots per node', () => {
 describe('sharing and branching', () => {
   it('sends a line down every branch of an exit and counts it done once all of them are', async () => {
     const { db, workflow } = setup(2, () => 3);
-    const end = { id: 'side-end', type: 'end' as const, position: { x: 0, y: 0 }, config: {} };
+    // A branch that ends at once: a condition with nothing after either exit.
+    const end = { id: 'side-end', type: 'condition' as const, position: { x: 0, y: 0 }, config: { expression: true, description: '' } };
     const entry = workflow.definition.nodes.find((node) => node.type === 'entry')!;
     const firstEdge = workflow.definition.edges.find((edge) => edge.source === entry.id)!;
     const definition = { ...workflow.definition, nodes: [...workflow.definition.nodes, end], edges: [...workflow.definition.edges, { id: 'side', source: entry.id, sourceHandle: firstEdge.sourceHandle, target: 'side-end' }] };

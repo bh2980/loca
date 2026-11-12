@@ -25,8 +25,8 @@ function setup() {
   });
   const { projectId } = importProject(db, file);
   const definition = workflowDefinitionSchema.parse({
-    nodes: [{ id: 'entry', type: 'entry', position: at, config: {} }, { id: 'apply', type: 'function', position: at, config: { fn: 'saveTerms', params: {} } }, { id: 'end', type: 'end', position: at }],
-    edges: [{ id: '1', source: 'entry', sourceHandle: 'out', target: 'apply' }, { id: '2', source: 'apply', sourceHandle: 'out', target: 'end' }],
+    nodes: [{ id: 'entry', type: 'entry', position: at, config: {} }, { id: 'apply', type: 'function', position: at, config: { fn: 'saveTerms', params: {} } }],
+    edges: [{ id: '1', source: 'entry', sourceHandle: 'out', target: 'apply' }],
   });
   const workflow = db.insert(s.workflows).values({ projectId, name: 'wf', definition }).returning().get();
   const run = createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: {} });

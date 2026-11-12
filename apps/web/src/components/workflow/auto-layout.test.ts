@@ -15,9 +15,7 @@ const definition = translationTemplate({
 function sizesFor(direction: 'vertical' | 'horizontal') {
   return new Map(definition.nodes.map((node) => [node.id, node.type === 'entry'
     ? { width: direction === 'vertical' ? 224 : 288, height: 88 }
-    : node.type === 'end'
-      ? { width: direction === 'vertical' ? 224 : 288, height: 80 }
-      : { width: direction === 'vertical' ? 224 : 288, height: direction === 'vertical' ? 148 : 164 }])) as Map<string, { width: number; height: number }>;
+    : { width: direction === 'vertical' ? 224 : 288, height: direction === 'vertical' ? 148 : 164 }])) as Map<string, { width: number; height: number }>;
 }
 
 const nodeSize = (node: WorkflowNode, direction: 'vertical' | 'horizontal') => sizesFor(direction).get(node.id)!;

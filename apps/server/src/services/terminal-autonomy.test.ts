@@ -38,20 +38,16 @@ function setup() {
 const tool = (db: ReturnType<typeof setup>['db'], projectId: string, name: string, input: object) =>
   (agentTools(db, projectId) as Record<string, { execute?: (input: never, options: never) => unknown }>)[name]!.execute!(input as never, { toolCallId: 't', messages: [] } as never) as Promise<Record<string, unknown>>;
 
-/** An AI step whose error exit goes straight to the end: the run finishes every line as done. */
+/** An AI step whose error exit sets a status (as the default workflows' 검토 필요로 does): the run finishes every line as done. */
 function translateRun(db: ReturnType<typeof setup>['db'], projectId: string, choice: { connectionId: string; model: string }) {
   const at = { x: 0, y: 0 };
+  const review = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).all().find((status) => status.inReview)!;
   const definition = workflowDefinitionSchema.parse({
     nodes: [
       { id: 'entry', type: 'entry', position: at, config: {} },
-      { id: 'translate', type: 'ai', position: at, config: { model: choice, instructions: 'Translate.', output: 'text' } },
-      { id: 'end', type: 'end', position: at, config: {} },
+      { id: 'translate', type: 'ai', position: at, config: { model: choice, instructions: 'Translate.', output: 'text' }, exits: { error: [{ type: 'status', statusId: review.id }] } },
     ],
-    edges: [
-      { id: '1', source: 'entry', sourceHandle: 'out', target: 'translate' },
-      { id: '2', source: 'translate', sourceHandle: 'out', target: 'end' },
-      { id: '3', source: 'translate', sourceHandle: 'error', target: 'end' },
-    ],
+    edges: [{ id: '1', source: 'entry', sourceHandle: 'out', target: 'translate' }],
   });
   const workflow = db.insert(s.workflows).values({ projectId, name: 'w', definition }).returning().get();
   return createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, definition), scope: {} });

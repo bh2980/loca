@@ -36,12 +36,6 @@ describe('computeFolds on small definitions', () => {
     expect(folds).toEqual([{ id: 'a:error', kind: 'branch', owner: 'a', port: 'error', nodeIds: ['h', 'm'] }]);
     expect(foldContaining(folds, 'm')?.id).toBe('a:error');
   });
-  it('folds a chain ending at the hidden 끝 node and words it by names', () => {
-    const d = definition([fn('a', 'http'), fn('h', 'http'), node('done', 'end')], [edge('a', 'error', 'h'), edge('h', 'out', 'done')]);
-    const [fold] = computeFolds(d);
-    expect(fold?.nodeIds).toEqual(['h', 'done']);
-    expect(foldText(d, fold!)).toBe('HTTP 호출 → 끝');
-  });
   it('does not fold a branch that joins the main path again', () => {
     const d = definition([fn('a', 'http'), fn('b', 'script'), fn('side', 'script'), fn('main', 'script')], [
       edge('a', 'out', 'main'), edge('a', 'error', 'side'), edge('side', 'out', 'main'), edge('main', 'out', 'b'),
@@ -80,9 +74,9 @@ describe('computeFolds on small definitions', () => {
 });
 
 describe('foldText', () => {
-  it('joins the folded nodes\' names, the hidden end as 끝', () => {
-    const d = definition([fn('a', 'http'), fn('h', 'saveCandidate', {}, '후보 저장'), fn('x', 'script'), node('done', 'end')], [edge('a', 'out', 'x'), edge('a', 'error', 'h'), edge('h', 'out', 'done')]);
-    expect(foldText(d, find(computeFolds(d), 'a:error')!)).toBe('후보 저장 → 끝');
+  it('joins the folded nodes\' names', () => {
+    const d = definition([fn('a', 'http'), fn('h', 'http'), fn('m', 'saveCandidate', {}, '후보 저장'), fn('x', 'script')], [edge('a', 'out', 'x'), edge('a', 'error', 'h'), edge('h', 'out', 'm')]);
+    expect(foldText(d, find(computeFolds(d), 'a:error')!)).toBe('HTTP 호출 → 후보 저장');
   });
   it('words a lone node by its name', () => {
     expect(foldText(sideDefinition, find(computeFolds(sideDefinition), 'end:side')!)).toBe('스크립트');

@@ -215,7 +215,7 @@ function ChatBody({ active, projectId, sessionId, initial, turn, usage, compacti
   // The conversation outlives this panel: closing it mid-reply keeps the reply coming in.
   const stored = chatFor(sessionId, initial);
   // A reply's chunks arrive far faster than anyone reads: the conversation is drawn at most this often.
-  const { messages, sendMessage, setMessages, regenerate, status, stop, error, addToolApprovalResponse, addToolOutput } = useChat({ chat: stored.chat, throttle: 50 });
+  const { messages, sendMessage, setMessages, regenerate, status, stop, error, addToolOutput } = useChat({ chat: stored.chat, throttle: 50 });
   // The turn runs on the server, not in this request: stopping ends both.
   const halt = () => {
     void stop();
@@ -338,7 +338,6 @@ function ChatBody({ active, projectId, sessionId, initial, turn, usage, compacti
     setReplyUndoIds(ids);
     setUndoingReply(true);
   }, []);
-  const decideTool = useCallback((id: string, approved: boolean) => void addToolApprovalResponse({ id, approved }), [addToolApprovalResponse]);
   const toolOutput = useCallback((tool: string, toolCallId: string, output: unknown) => void addToolOutput({ tool: tool as never, toolCallId, output: output as never }), [addToolOutput]);
   // A queued message shows in the reply once the turn has handed it to the model.
   useEffect(() => {
@@ -398,7 +397,6 @@ function ChatBody({ active, projectId, sessionId, initial, turn, usage, compacti
                 waitingCard={message.id === lastWaiting ? waitingCard : undefined}
                 proposalById={proposalById}
                 summary={marker?.index === firstShown + offset ? marker.summary : null}
-                onDecide={decideTool}
                 onToolOutput={toolOutput}
                 onReuse={reuse}
                 onUndo={undo}

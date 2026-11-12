@@ -29,7 +29,7 @@ function setup() {
     const { projectId } = importProject(db, file, null as never);
     const unit = (key: string) => db.select().from(s.units).where(and(eq(s.units.projectId, projectId), eq(s.units.key, key))).get()!;
     const status = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).get()!;
-    const tag = (name: string, scope: ('lines' | 'knowledge' | 'terms')[] = ['lines']) => db.insert(s.tags).values({ projectId, name, color: '#112233', scope }).returning().get();
+    const tag = (name: string, scope: ('lines' | 'terms')[] = ['lines']) => db.insert(s.tags).values({ projectId, name, color: '#112233', scope }).returning().get();
     return { projectId, unit, status, tag };
   };
   const mine = project('Mine');

@@ -24,7 +24,6 @@ export interface ChatMessageProps {
   proposalById: ReadonlyMap<string, Proposal>;
   /** Where the conversation's start was summarized, when that is just before this message. */
   summary: string | null;
-  onDecide: (approvalId: string, approved: boolean) => void;
   onToolOutput: (tool: string, toolCallId: string, output: unknown) => void;
   onReuse: (text: string, chips: ChatChip[]) => void;
   onUndo: (proposalIds: string[]) => void;
@@ -37,7 +36,7 @@ export interface ChatMessageProps {
  * progress or the reply growing in the newest message leave every other message alone, and a long conversation
  * costs nothing while they happen. Every prop must therefore keep its identity between draws (ChatBody).
  */
-export const ChatMessage = memo(function ChatMessage({ message, projectId, sessionId, latest, streaming, waitingCard, proposalById, summary, onDecide, onToolOutput, onReuse, onUndo, onCard, onCardAnswered }: ChatMessageProps) {
+export const ChatMessage = memo(function ChatMessage({ message, projectId, sessionId, latest, streaming, waitingCard, proposalById, summary, onToolOutput, onReuse, onUndo, onCard, onCardAnswered }: ChatMessageProps) {
   const card = runCardOf(message);
   if (card) return <RunCardView projectId={projectId} sessionId={sessionId} card={card} controls={waitingCard} onChange={onCard} onAnswered={onCardAnswered} />;
   const ended = runEndOf(message);
@@ -65,7 +64,7 @@ export const ChatMessage = memo(function ChatMessage({ message, projectId, sessi
             const data = (part as { data: { text: string; kind?: string } }).data;
             return data.kind === 'decisions' ? <DecisionNotice key={index} text={data.text} /> : <SteerBubble key={index} text={data.text} />;
           }
-          if (part.type.startsWith('tool-')) return <ToolPart key={index} part={part as never} proposal={proposalById.get(((part as { output?: { proposalId?: string } }).output ?? {}).proposalId ?? '')} stale={!latest} onDecide={onDecide} onOutput={(toolCallId, output) => onToolOutput(part.type.slice(5), toolCallId, output)} />;
+          if (part.type.startsWith('tool-')) return <ToolPart key={index} part={part as never} proposal={proposalById.get(((part as { output?: { proposalId?: string } }).output ?? {}).proposalId ?? '')} stale={!latest} onOutput={(toolCallId, output) => onToolOutput(part.type.slice(5), toolCallId, output)} />;
           return null;
         })}
         {!streaming && <MessageActions text={messageText(message)} />}
