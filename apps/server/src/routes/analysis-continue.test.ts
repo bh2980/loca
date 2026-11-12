@@ -21,21 +21,21 @@ function setup() {
     return createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: {} }).runId;
   };
   const setStatus = (id: string, status: 'running' | 'paused' | 'completed') => db.update(s.runs).set({ status, notice: null }).where(eq(s.runs.id, id)).run();
-  const calls: string[] = [];
-  const runner = { continue: (id: string) => (calls.push(`continue ${id}`), { ok: true, retried: 0 }), resume: (id: string, limits?: unknown) => calls.push(limits ? `resume ${id} ${JSON.stringify(limits)}` : `resume ${id}`) };
+  const runOf = (id: string) => db.select().from(s.runs).where(eq(s.runs.id, id)).get()!;
+  // The routes go on with a run through the service (services/run-continue.ts); the runner only pauses and cancels.
   const app = new Hono<Env>()
     .use(async (c, next) => {
-      c.set('deps', { db, runner } as never);
+      c.set('deps', { db, runner: {} } as never);
       await next();
     })
     .route('/', workflowRoutes);
   const post = (url: string, body: unknown = {}) => app.request(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-  return { analysis, setStatus, post, calls };
+  return { db, analysis, setStatus, runOf, post };
 }
 
 describe('continuing or resuming a work analysis while another runs', () => {
   it('is refused, as starting a second one is', async () => {
-    const { analysis, setStatus, post, calls } = setup();
+    const { analysis, setStatus, runOf, post } = setup();
     // A failed analysis is a finished (or paused) run with failed lines.
     const failed = analysis('분석 1');
     setStatus(failed, 'completed');
@@ -45,34 +45,54 @@ describe('continuing or resuming a work analysis while another runs', () => {
     const refused = await post(`/runs/${failed}/continue`);
     expect(refused.status).toBe(400);
     expect(await refused.text()).toContain('이미 진행 중');
+    expect(runOf(failed).status).toBe('completed');
 
     setStatus(running, 'paused');
     setStatus(failed, 'running');
     const resumed = await post(`/runs/${running}/resume`);
     expect(resumed.status).toBe(400);
-    expect(calls).toEqual([]);
+    expect(await resumed.text()).toContain('이미 진행 중');
+    expect(runOf(running).status).toBe('paused');
   });
 
   it('goes on when no other analysis runs (the run itself does not count)', async () => {
-    const { analysis, setStatus, post, calls } = setup();
+    const { analysis, setStatus, runOf, post } = setup();
     const paused = analysis('분석 1');
     setStatus(paused, 'paused');
     expect((await post(`/runs/${paused}/resume`)).status).toBe(200);
+    expect(runOf(paused).status).toBe('running');
     setStatus(paused, 'completed');
     const response = await post(`/runs/${paused}/continue`);
     expect((await response.text())).not.toContain('이미 진행 중');
-    expect(calls[0]).toBe(`resume ${paused}`);
   });
 });
 
-describe('resuming with new caps', () => {
-  it('passes the body\'s limits on (null clears one) and refuses a bad one', async () => {
-    const { analysis, setStatus, post, calls } = setup();
+describe('going on with new caps', () => {
+  it('resume takes the body\'s limits (null clears one) and refuses a bad one', async () => {
+    const { db, analysis, setStatus, runOf, post } = setup();
     const paused = analysis('분석 1');
     setStatus(paused, 'paused');
+    db.update(s.runs).set({ limits: { maxCalls: 4, maxInputTokens: 1_000, hit: 'calls' } }).where(eq(s.runs.id, paused)).run();
     expect((await post(`/runs/${paused}/resume`, { limits: { maxCalls: 50, maxInputTokens: null } })).status).toBe(200);
-    expect(calls).toEqual([`resume ${paused} {"maxCalls":50,"maxInputTokens":null}`]);
+    expect(runOf(paused)).toMatchObject({ status: 'running', limits: { maxCalls: 50 } });
+    setStatus(paused, 'paused');
     expect((await post(`/runs/${paused}/resume`, { limits: { maxCalls: 0 } })).status).toBe(400);
-    expect(calls).toHaveLength(1);
+    expect(runOf(paused)).toMatchObject({ status: 'paused', limits: { maxCalls: 50 } });
+  });
+
+  it('continue takes them too, like the continue_run tool: the same service answers both', async () => {
+    const { db, analysis, setStatus, runOf, post } = setup();
+    const paused = analysis('분석 1');
+    setStatus(paused, 'paused');
+    db.update(s.runs).set({ limits: { maxCalls: 4, hit: 'calls' } }).where(eq(s.runs.id, paused)).run();
+    const response = await post(`/runs/${paused}/continue`, { retryFailed: true, limits: { maxCalls: 40 } });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ ok: true, retried: 0, changes: [] });
+    expect(runOf(paused)).toMatchObject({ status: 'running', limits: { maxCalls: 40 } });
+    expect(runOf(paused).continuations).toHaveLength(1);
+    // A run that is going is not continued again.
+    const again = await post(`/runs/${paused}/continue`, {});
+    expect(again.status).toBe(400);
+    expect(await again.text()).toContain('일시정지');
   });
 });

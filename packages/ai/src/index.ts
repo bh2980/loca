@@ -96,27 +96,15 @@ export async function locateCli(kind: Parameters<typeof cliVersion>[0], executab
   return { command, resolved, version };
 }
 
-export interface Attempt {
-  model: string;
-  ok: boolean;
-  error?: string;
-  code?: string;
-  /** What this attempt used, when the connection reported it (also for failed attempts). */
-  usage?: Usage;
-}
-
 /**
- * One call on one route: no retry, no other route. A failure is thrown as a ModelError carrying the
- * attempt (with what the call used before it failed); what happens next is the workflow's business
- * (a 재요청 node), or the person's, where there is no workflow.
+ * One call: no retry, no other connection. A failure is thrown as a ModelError (with what the call used
+ * before it failed); what happens next is the workflow's business (an AI node's retry rules), or the
+ * person's, where there is no workflow.
  */
-export async function callOnce<R>(route: ResolvedRoute, call: (route: ResolvedRoute) => Promise<R>, signal?: AbortSignal): Promise<{ result: R; route: ResolvedRoute; attempts: Attempt[] }> {
+export async function callOnce<R>(call: () => Promise<R>, signal?: AbortSignal): Promise<R> {
   try {
-    const result = await call(route);
-    const usage = (result as { usage?: Usage } | null)?.usage;
-    return { result, route, attempts: [{ model: route.model, ok: true, ...(usage ? { usage } : {}) }] };
+    return await call();
   } catch (error) {
-    const failure = toModelError(error, signal);
-    throw Object.assign(failure, { attempts: [{ model: route.model, ok: false, error: failure.message, code: failure.code, ...(failure.usage ? { usage: failure.usage } : {}) } satisfies Attempt] });
+    throw toModelError(error, signal);
   }
 }

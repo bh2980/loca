@@ -11,9 +11,10 @@ export function useProgress(projectId: string) {
   const total = Object.values(counts).reduce((sum, value) => sum + value, 0);
   const finalIds = new Set((statuses ?? []).filter((status) => status.kind === 'final').map((status) => status.id));
   const done = Object.entries(counts).reduce((sum, [id, value]) => sum + (finalIds.has(id) ? value : 0), 0);
-  const runningRuns = runs.data?.filter((run) => run.status === 'running').length ?? 0;
+  // A run whose lines are still being stored (preparing) is on its way to running.
+  const runningRuns = runs.data?.filter((run) => run.status === 'running' || run.status === 'preparing').length ?? 0;
   const allRuns = runs.data ?? [];
-  const activeRuns = allRuns.filter((run) => run.status === 'running' || run.status === 'paused');
+  const activeRuns = allRuns.filter((run) => run.status === 'preparing' || run.status === 'running' || run.status === 'paused');
   const recentRuns = allRuns.slice(0, 5);
   const reviewCount = progress?.reviewCount ?? 0;
   return { counts, total, done, statuses: statuses ?? [], runningRuns, activeRuns, recentRuns, reviewCount };

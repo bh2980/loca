@@ -3,7 +3,7 @@ import { CopyButton } from '@/components/copy-button';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { ChevronLeft, OctagonAlert, Pause, Play, CircleStop } from 'lucide-react';
+import { ChevronLeft, CircleStop, Hourglass, OctagonAlert, Pause, Play } from 'lucide-react';
 import { nodePorts, runNodeName, type WorkflowNode } from '@tw/shared';
 import { parseExitKey } from '@/components/workflow/exit-marks';
 import { ContextItemList } from '@/components/ai-context';
@@ -127,7 +127,8 @@ function RunDetail() {
       { value: node.id, label: nodeName(node.id), hint: nodeTotals[node.id] },
     ];
   });
-  const active = data.status === 'running' || data.status === 'paused';
+  // A run whose lines are still being stored (preparing) can only be cancelled; it starts by itself once they are in.
+  const active = data.status === 'preparing' || data.status === 'running' || data.status === 'paused';
   const total = items.data?.total ?? 0;
   const filtered = Boolean(search.state || search.node || search.through);
   const noun = terms ? '용어' : '대사';
@@ -364,13 +365,13 @@ function RunDetail() {
         <HeaderActions>
           {data.status === 'running' && <Button onClick={() => control.mutate('pause')}><Pause /> 일시정지</Button>}
           {data.status === 'paused' && <Button variant={data.limits?.hit ? 'outline' : 'default'} onClick={() => control.mutate('resume')}><Play /> 재개</Button>}
-          {data.status === 'completed' && (totals.failed ?? 0) > 0 && !data.filling && <ContinueRun runId={runId} failed={totals.failed ?? 0} paused={false} />}
+          {data.status === 'completed' && (totals.failed ?? 0) > 0 && <ContinueRun runId={runId} failed={totals.failed ?? 0} paused={false} />}
           {(active || data.status === 'paused') && <ActionBar aria-label="실행 동작" items={[
             ...(active ? [{ id: 'cancel', label: '실행 취소', icon: <CircleStop />, destructive: true, onSelect: () => setCancelOpen(true) }] : []),
-            ...(data.status === 'paused' && !data.filling ? [{ id: 'continue', label: '모델 바꿔 재개', icon: <Play />, onSelect: () => setContinueOpen(true) }] : []),
+            ...(data.status === 'paused' ? [{ id: 'continue', label: '모델 바꿔 재개', icon: <Play />, onSelect: () => setContinueOpen(true) }] : []),
           ]} />}
         </HeaderActions>
-        {data.status === 'paused' && !data.filling && <ContinueRun runId={runId} failed={totals.failed ?? 0} paused hideTrigger open={continueOpen} onOpenChange={setContinueOpen} />}
+        {data.status === 'paused' && <ContinueRun runId={runId} failed={totals.failed ?? 0} paused hideTrigger open={continueOpen} onOpenChange={setContinueOpen} />}
         {active && stop}
         <StatusBarItem><RunStatusBadge status={data.status} /></StatusBarItem>
         {/* Only a filter (a state or node picked elsewhere) earns a bar: it says how many it left and takes it off. The run's count is on the tab. */}
@@ -381,11 +382,25 @@ function RunDetail() {
           </Button>
         </FilterBar>}
 
+        {data.status === 'preparing' && (
+          <Box shrink={false} border="bottom" paddingX="comfortable" paddingY="normal">
+            <Notice icon={<Hourglass />} title="실행을 준비하는 중입니다">
+              <NoticeDescription>{noun}를 넣고 있습니다. 다 넣으면 바로 시작합니다.</NoticeDescription>
+            </Notice>
+          </Box>
+        )}
+        {data.status === 'cancelled' && data.notice && (
+          <Box shrink={false} border="bottom" paddingX="comfortable" paddingY="normal">
+            <Notice tone="danger" icon={<OctagonAlert />} title="실행이 시작되지 못했습니다">
+              <NoticeDescription>{data.notice}</NoticeDescription>
+            </Notice>
+          </Box>
+        )}
         {data.status === 'paused' && data.notice && (
           <Box shrink={false} border="bottom" paddingX="comfortable" paddingY="normal">
             <Notice tone="danger" icon={<OctagonAlert />} title="실행이 멈췄습니다">
               <NoticeDescription>{data.notice}</NoticeDescription>
-              {data.limits?.hit && !data.filling && <RaiseCaps key={`${data.limits.maxCalls}-${data.limits.maxInputTokens}`} runId={runId} limits={data.limits} />}
+              {data.limits?.hit && <RaiseCaps key={`${data.limits.maxCalls}-${data.limits.maxInputTokens}`} runId={runId} limits={data.limits} />}
             </Notice>
           </Box>
         )}

@@ -1,15 +1,13 @@
 import { and, eq, inArray, ne } from 'drizzle-orm';
-import { KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, nodeName, runScopeInputSchema, someOf, withRunModels, workflowInput, type RunCardPlan, type RunModels, type RunScope, type RunScopeInput, type RunTerms, type RunTermsInput, type WorkflowDefinition, type WorkflowSubject } from '@tw/shared';
+import { KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, nodeName, someOf, withRunModels, workflowInput, type RunCardPlan, type RunModels, type RunScope, type RunScopeInput, type RunTerms, type RunTermsInput, type WorkflowDefinition, type WorkflowSubject } from '@tw/shared';
 import { z } from 'zod';
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { tagIdsOf } from './knowledge-list.ts';
-import { selectRunTerms, selectRunUnits } from '../engine/run-create.ts';
 import { preflight } from './preflight.ts';
 import { findTerm } from './term-usage.ts';
 import { resolveLineFilter, unknownMessage } from './line-filter.ts';
-import { calledWorkflowErrors, workflowIssues } from './workflow-issues.ts';
 
 /** What plan_run is given: a workflow by id or name, the scope as asked (names), and this run's models. */
 export interface PlanInput extends Omit<RunScopeInput, 'changeHuman'> {
@@ -103,45 +101,6 @@ export function askedScope(db: Db, projectId: string, subject: WorkflowSubject, 
 
 /** The part of a preflight a person decides on: a run card and the card of a proposed run keep it, so they say what they said when they were made. */
 export const planOf = (full: RunCardPlan): RunCardPlan => ({ lines: { total: full.lines.total, excluded: full.lines.excluded }, totals: { calls: full.totals.calls }, pace: full.pace, ...(full.suggestedLimits && { suggestedLimits: { maxCalls: full.suggestedLimits.maxCalls, maxInputTokens: full.suggestedLimits.maxInputTokens } }) });
-
-/** What start_run is given: a saved workflow and the scope as plan_run takes it (names). */
-export interface StartRunInput extends RunScopeInput {
-  workflowId: string;
-  models?: RunModelInput;
-  /** The run's caps (start-run.ts runLimits); not part of what it runs on. */
-  limits?: { maxCalls?: number | null; maxInputTokens?: number | null };
-}
-
-/**
- * What a start_run means, or why it cannot run: the workflow with this run's models and the scope, with something in it.
- * The proposal asks when it is made (the card then says what accepting starts) and the tool again when it runs.
- */
-export function resolveStartRun(db: Db, projectId: string, { workflowId, models, limits: _limits, ...asked }: StartRunInput) {
-  const refuse = (error: string) => ({ ok: false as const, error });
-  const stored = db.select().from(s.workflows).where(and(eq(s.workflows.id, workflowId), eq(s.workflows.projectId, projectId))).get();
-  if (!stored) return refuse('워크플로를 찾을 수 없습니다.');
-  const picked = resolveRunModels(db, projectId, stored.definition, models);
-  if (picked.unknown.length) return refuse(`찾지 못함: ${picked.unknown.join(', ')}`);
-  const workflow = { ...stored, definition: withRunModels(stored.definition, picked.models) };
-  const errors = workflowIssues(db, projectId, workflow.definition, workflow.id).filter((issue) => issue.level === 'error');
-  if (errors.length) return refuse(`워크플로에 오류가 있습니다: ${errors[0].message}`);
-  try {
-    const called = calledWorkflowErrors(db, projectId, workflow.definition, workflow.id);
-    if (called.length) return refuse(`부르는 워크플로에 오류가 있습니다: ${called[0]}`);
-  } catch (error) {
-    return refuse(error instanceof Error ? error.message : String(error));
-  }
-  // Read strictly whoever calls (a tool call is checked already; a stored proposal may be older than the schema): a
-  // condition this does not know is refused, never dropped.
-  const scopeInput = runScopeInputSchema.safeParse(asked);
-  if (!scopeInput.success) return refuse(`범위가 맞지 않습니다: ${scopeInput.error.issues.map((issue) => `${issue.path.join('.')} ${issue.message}`.trim()).join('; ')}`);
-  const subject = workflowInput(workflow.definition);
-  const resolved = askedScope(db, projectId, subject, scopeInput.data);
-  if (!resolved.ok) return resolved;
-  const { scope } = resolved;
-  if (subject === 'terms' ? !selectRunTerms(db, projectId, scope).length : !selectRunUnits(db, projectId, scope).length) return refuse(subject === 'terms' ? '조건에 맞는 용어가 없습니다.' : '조건에 맞는 대사가 없습니다.');
-  return { ok: true as const, workflow, subject, scope };
-}
 
 /**
  * The run dialog's preflight for a scope, read-only (no run is made, no model called): lines,

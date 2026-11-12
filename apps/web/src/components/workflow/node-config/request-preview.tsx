@@ -8,12 +8,14 @@ import { useTerms } from '@/lib/terms';
 
 type Request = InferResponseType<(typeof client.workflows)[':id']['nodes'][':nodeId']['request']['$get'], 200>;
 
-/** The request one AI node sends (no model call): the prompt itself first, then what it is made of. */
+/** The request one AI node sends in a run of the whole script (no model call; the server builds it as the run does): the prompt itself first, then what it is made of. */
 export function PromptView({ request, title }: { request: Request; title: string }) {
   const [large, setLarge] = useState(false);
   const unit = INPUT_TYPES[request.subject].unit;
   const text = `${request.system}\n\n${request.prompt}`;
   const byKind = CONTEXT_PRIORITY.map((kind) => ({ kind, items: request.context.filter((item) => item.kind === kind && item.included) })).filter((group) => group.items.length);
+  // What cannot be shown outside a run is said, not approximated: a node that reads an earlier node's result, an item no run takes.
+  if (request.unavailable) return <Text as="p" variant="body" tone="muted">{request.unavailable}</Text>;
   if (!request.sample) return <Text as="p" variant="body" tone="muted">보낼 항목이 없습니다.</Text>;
   return (
     <Box spaceY="condensed">

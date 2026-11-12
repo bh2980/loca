@@ -1,6 +1,6 @@
-import { sql } from 'drizzle-orm';
-import { customType, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import type { AppDefaults, RunCardPlan, RunScope } from '@tw/shared';
+import { sql, type SQL } from 'drizzle-orm';
+import { customType, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex, type SQLiteColumn } from 'drizzle-orm/sqlite-core';
+import type { AppDefaults, RunCardPlan, RunLimits, RunScope } from '@tw/shared';
 import { type DecidedBy, AGE_BANDS, CHARACTER_ROLES, GENDERS, KNOWLEDGE_TAG_KINDS, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, EVENT_LINK_KINDS, GRAPH_ORIGINS, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, type MarkStyles, PERMISSION_MODES, type CharacterStyle, type EditorAi, type ExclusionRules, type ModelLimits, LINE_TRANSLATE, type AutoMark, type ContextItem, type FormatRules, type ItemErrorKind, type NodeType, type RelationshipChange, type WorkflowDefinition, workflowDefinitionSchema, WORKFLOW_SUBJECT_IDS, type WorkflowSubject, ALL_TERM_KINDS, type TermScope } from '@tw/shared';
 import type { Usage } from '@tw/ai';
 
@@ -9,20 +9,32 @@ const createdAt = () => integer('created_at', { mode: 'timestamp_ms' }).notNull(
 const updatedAt = () =>
   integer('updated_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()).$onUpdateFn(() => new Date());
 const json = <T>(name: string) => text(name, { mode: 'json' }).$type<T>();
+const INVALID_DEFINITION = Symbol('invalid definition');
 /**
- * A workflow definition, read with the schema's defaults filled in (a setting added later, such as an
- * AI node's 동시 처리 수, reads as its default in a definition saved before it). One the schema no
- * longer accepts is read as stored.
+ * A workflow definition, read through its schema: defaults are filled in, so readers take every setting as
+ * the type says. One the schema refuses is not handed on as stored: an empty definition is read in its
+ * place, carrying why (definitionProblem). The row still lists; whatever would run or edit it asks first
+ * (workflowIssues, the runner) and says so by the workflow's name.
  */
 const definitionJson = customType<{ data: WorkflowDefinition; driverData: string }>({
   dataType: () => 'text',
   toDriver: (value) => JSON.stringify(value),
   fromDriver: (value) => {
-    const raw = JSON.parse(value);
-    const parsed = workflowDefinitionSchema.safeParse(raw);
-    return parsed.success ? parsed.data : raw;
+    let raw: unknown;
+    let problem: string;
+    try {
+      raw = JSON.parse(value);
+      const parsed = workflowDefinitionSchema.safeParse(raw);
+      if (parsed.success) return parsed.data;
+      problem = parsed.error.issues.slice(0, 3).map((issue) => `${issue.path.join('.')} ${issue.message}`.trim()).join('; ');
+    } catch (error) {
+      problem = error instanceof Error ? error.message : String(error);
+    }
+    return Object.defineProperty(workflowDefinitionSchema.parse({ nodes: [], edges: [] }), INVALID_DEFINITION, { value: problem, enumerable: false });
   },
 });
+/** Why a stored definition could not be read (the schema refused it), or null for one that was. */
+export const definitionProblem = (definition: WorkflowDefinition): string | null => (definition as { [INVALID_DEFINITION]?: string })[INVALID_DEFINITION] ?? null;
 const projectId = () => text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' });
 /**
  * Shared by every knowledge table. AI drafts land as candidates and are not used as context until
@@ -553,8 +565,13 @@ export const workflows = sqliteTable('workflows', {
   updatedAt: updatedAt(),
 });
 
-export type RunStatus = 'running' | 'paused' | 'cancelled' | 'completed';
-export type { RunScope };
+/**
+ * `preparing`: the run exists but its lines are still being stored (createRunInSteps); nothing runs, resumes or
+ * continues it until they are all in. One left so by a server that stopped is closed at startup (closeUnpreparedRuns).
+ */
+export const RUN_STATUSES = ['preparing', 'running', 'paused', 'cancelled', 'completed'] as const;
+export type RunStatus = (typeof RUN_STATUSES)[number];
+export type { RunScope, RunLimits };
 /** The connection + model a call goes to, frozen with the connection's details. */
 export interface RouteSnapshot {
   connectionId: string;
@@ -590,7 +607,7 @@ export const runs = sqliteTable(
     subject: text('subject', { enum: WORKFLOW_SUBJECT_IDS as [WorkflowSubject, ...WorkflowSubject[]] }).notNull().default('lines'),
     /** What it runs on, resolved when it started (runScopeSchema in shared). */
     scope: json<RunScope>('scope').notNull(),
-    status: text('status', { enum: ['running', 'paused', 'cancelled', 'completed'] }).notNull(),
+    status: text('status', { enum: RUN_STATUSES }).notNull(),
     total: integer('total').notNull(),
     /** Caps the person set when starting; the run pauses when one is reached. */
     limits: json<RunLimits>('limits'),
@@ -614,14 +631,6 @@ export interface RunContinuation {
   changes: { nodeId: string; from: string; to: string }[];
   /** Failed lines sent back to the queue. */
   retried: number;
-}
-
-export interface RunLimits {
-  maxCalls?: number;
-  /** All input tokens, cached included, as the connections reported them. */
-  maxInputTokens?: number;
-  /** Set while the run is paused by a cap, naming it; cleared on resume. */
-  hit?: 'calls' | 'input';
 }
 
 export type ItemState = 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
@@ -683,6 +692,37 @@ export const runItems = sqliteTable(
   (t) => [index('run_items_run').on(t.runId, t.state, t.nodeId), index('run_items_subject').on(t.subjectId)],
 );
 
+/**
+ * ItemData as SQL reads it: every path a query takes into run_items.data, by name, so the shape above and
+ * its paths change together. `…Each` are table-valued (json_each) and take the item's data column, which a
+ * raw query aliases.
+ */
+const dataAt = <T>(path: string) => sql<T>`json_extract(${runItems.data}, ${sql.raw(`'${path}'`)})`;
+export const itemData = {
+  /** `path`, as JSON text. */
+  path: dataAt<string>('$.path'),
+  /** The exit the item took last (`path`'s last port). */
+  lastPort: dataAt<string | null>('$.path[#-1].port'),
+  /** `retry.last`, as JSON text. */
+  retryLast: dataAt<string | null>('$.retry.last'),
+  retryLastKind: dataAt<ItemErrorKind | null>('$.retry.last.kind'),
+  retryLastNodeId: dataAt<string | null>('$.retry.last.nodeId'),
+  retryFactor: dataAt<number | null>('$.retry.factor'),
+  retryModelNodeId: dataAt<string | null>('$.retry.model.nodeId'),
+  retryModelKey: dataAt<string | null>('$.retry.model.key'),
+  /** `error` and `lastError`, as JSON text. */
+  error: dataAt<string | null>('$.error'),
+  lastError: dataAt<string | null>('$.lastError'),
+  /** One row per step of `path`: `nodeId` and `port` of the row named `step`. */
+  pathEach: (data: SQL | SQLiteColumn = runItems.data) => sql`json_each(${data}, '$.path') step`,
+  stepNodeId: sql<string>`json_extract(step.value, '$.nodeId')`,
+  stepPort: sql<string>`json_extract(step.value, '$.port')`,
+  /** One row per entry of `exitNotes`: `at` and `note` of the row named `entry`. */
+  exitNotesEach: (data: SQL | SQLiteColumn = runItems.data) => sql`json_each(${data}, '$.exitNotes') entry`,
+  noteAt: sql<string>`json_extract(entry.value, '$.at')`,
+  noteText: sql<string>`json_extract(entry.value, '$.note')`,
+};
+
 export const runSteps = sqliteTable(
   'run_steps',
   {
@@ -692,7 +732,7 @@ export const runSteps = sqliteTable(
     /** The items the call was for (lines or terms, as the run's subject says). */
     subjectIds: json<string[]>('subject_ids').notNull(),
     ok: integer('ok', { mode: 'boolean' }).notNull(),
-    /** The connection the call went out through: a node can share its work over several, and a retry rule can send lines on another model. */
+    /** The connection the call went out through: a retry rule can send lines on another model than the node's own. */
     connectionId: text('connection_id'),
     model: text('model'),
     prompt: text('prompt'),
@@ -700,10 +740,11 @@ export const runSteps = sqliteTable(
     context: json<ContextItem[]>('context'),
     output: json<unknown>('output'),
     error: text('error'),
-    /** The kind of a failed call (errorKindOf); null for calls that worked and for earlier runs. */
+    /** The kind of a failed call (errorKindOfCode); null for calls that worked. */
     errorKind: text('error_kind').$type<ItemErrorKind>(),
-    attempts: json<unknown[]>('attempts'),
-    /** Usage of every attempt of this call (failed ones included), as the connections reported it. */
+    /** A failed call whose lines the node's retry rules all sent back: neither a failure nor a success for the 연속 실패 guard. */
+    retried: integer('retried', { mode: 'boolean' }).notNull().default(false),
+    /** What the call used (a failed one too), as the connection reported it. */
     inputTokens: integer('input_tokens'),
     /** The part of `inputTokens` read from the provider's prompt cache. */
     cachedInputTokens: integer('cached_input_tokens'),
@@ -714,8 +755,6 @@ export const runSteps = sqliteTable(
     costUsd: real('cost_usd'),
     /** Items a per-item answer covered (non-empty); the request is `subjectIds`. */
     returnedItems: integer('returned_items'),
-    /** 0 for a batch's first request, n for the n-th request for the lines it left out. */
-    round: integer('round').notNull().default(0),
     startedAt: integer('started_at', { mode: 'timestamp_ms' }).notNull(),
     finishedAt: integer('finished_at', { mode: 'timestamp_ms' }).notNull(),
   },

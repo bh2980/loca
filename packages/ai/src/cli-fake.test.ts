@@ -103,12 +103,14 @@ describe.each(KINDS)('fake $kind CLI', ({ kind, bin, anthropicStyle, reportsCost
     expect(large.usage.inputTokens! - small.usage.inputTokens!).toBe(7000);
   });
 
-  it('bad JSON, truncation and a schema mismatch are invalid-output errors that keep usage', async () => {
-    for (const [variable, value] of [['MOCK_BAD_JSON_RATE', '1'], ['MOCK_TRUNCATE_RATE', '1'], ['MOCK_DROP_RATE', '1']] as const) {
+  it('bad JSON and a schema mismatch are invalid-output errors and a truncated answer is cut-off where the CLI gives a stop reason; all keep usage', async () => {
+    // codex and opencode give no stop reason: their truncated answer is only JSON that does not parse.
+    const truncated = kind === 'codex' || kind === 'opencode' ? 'invalid-output' : 'cut-off';
+    for (const [variable, value, code] of [['MOCK_BAD_JSON_RATE', '1', 'invalid-output'], ['MOCK_TRUNCATE_RATE', '1', truncated], ['MOCK_DROP_RATE', '1', 'invalid-output']] as const) {
       process.env[variable] = value;
       const error = await failure(cliGenerate(route(kind, bin), request()));
       delete process.env[variable];
-      expect(error.code, variable).toBe('invalid-output');
+      expect(error.code, variable).toBe(code);
       expect(error.transient).toBe(false);
       expect(error.usage?.inputTokens, variable).toBeGreaterThan(FIXED);
       expect(error.usage?.cachedInputTokens, variable).toBe(CACHED);

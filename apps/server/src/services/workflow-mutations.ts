@@ -15,7 +15,7 @@ function workflowFor(db: Db, projectId: string, id: string) {
 }
 
 function requireIdle(db: Db, workflowId: string) {
-  const active = db.select({ id: s.runs.id }).from(s.runs).where(and(eq(s.runs.workflowId, workflowId), inArray(s.runs.status, ['running', 'paused']))).limit(1).get();
+  const active = db.select({ id: s.runs.id }).from(s.runs).where(and(eq(s.runs.workflowId, workflowId), inArray(s.runs.status, ['preparing', 'running', 'paused']))).limit(1).get();
   if (active) throw new WorkflowMutationError('실행 중인 워크플로는 바꿀 수 없습니다. 실행이 끝나거나 멈춘 뒤 다시 시도하세요.');
 }
 

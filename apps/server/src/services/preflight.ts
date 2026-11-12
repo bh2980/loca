@@ -1,18 +1,17 @@
 import { and, desc, eq, inArray, isNotNull, ne, sql } from 'drizzle-orm';
-import { autoBudgets, nodeOutputFields, batchConfigSchema, INPUT_TYPES, workflowInput, readinessUses, CONNECTION_KIND_INFO, estimateTokens, limitsWithSource, isFreeModel, isUnknownListener, needsListener, nodeRetries, runNodeName, termMatcher, type AiNode, type WorkflowDefinition } from '@tw/shared';
+import { nodeOutputFields, workflowInput, readinessUses, CONNECTION_KIND_INFO, estimateTokens, limitsWithSource, isFreeModel, isUnknownListener, needsListener, nodeRetries, runNodeName, termMatcher, type AiNode, type WorkflowDefinition, type WorkflowSubject } from '@tw/shared';
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
+import { tokensSql } from '../db/tokens.ts';
 import { requestSeconds } from './request-speed.ts';
 import * as s from '../db/schema.ts';
-import { packGroups } from '../engine/batches.ts';
-import { buildPrompt, promptLineId } from '../engine/prompts.ts';
-import { wholeScriptRequest } from '../engine/whole-script.ts';
-import { resolveChoiceOptions } from './choice-options.ts';
-import { excludedInScope, planRun, sceneLinks, selectRunTerms, selectRunUnits } from '../engine/run-create.ts';
-import { loadTerms, TERM_GROUP, termPrompt } from '../engine/subjects.ts';
+import { packGroups, subjectBatch } from '../engine/batches.ts';
+import { promptLineId } from '../engine/prompts.ts';
+import { buildRequest } from '../engine/request.ts';
+import { excludedInScope, planGroups, planRun, sceneLinks, selectRunTerms, selectRunUnits } from '../engine/run-create.ts';
+import { loadTerms, TERM_GROUP, termTokens } from '../engine/subjects.ts';
 import { autoBudgetsOf, withBudgets } from './budgets.ts';
 import { expandedDefinition } from '../engine/expand-calls.ts';
-import { buildContext } from './context.ts';
 import { choiceLabel } from './routes.ts';
 import { speechRuleIndex } from './speech.ts';
 
@@ -28,7 +27,6 @@ export interface NodeEstimate {
   model: string | null;
   /** The same model as a choice: the node's own, or the run's pick (the run dialog's picker starts from it). */
   choice: { connectionId: string; model: string; effort?: string };
-  /** Other models sharing this node's requests (their accounts take whatever is free). */
   /** Requests the node sends at once (its 동시 처리 수). */
   concurrency: number;
   connection: { id: string; name: string; kind: string; cli: boolean } | null;
@@ -71,11 +69,55 @@ export interface NodeSplit {
 }
 
 /** `node` is the resolved node (budgets filled), `own` the definition's, whose maxTokens null means "auto". */
-function splitOf(node: AiNode, own: AiNode | undefined, requests: number, connection: typeof s.connections.$inferSelect | undefined, auto: ReturnType<typeof autoBudgets>): NodeSplit {
-  const batch = batchConfigSchema.parse(node.config.batch ?? {});
-  const set = own ? batchConfigSchema.parse(own.config.batch ?? {}).maxTokens !== null : false;
+function splitOf(node: AiNode, own: AiNode | undefined, requests: number, connection: typeof s.connections.$inferSelect | undefined): NodeSplit {
+  const { batch } = node.config;
   const { input, output } = limitsWithSource(connection, node.config.model.model);
-  return { nodeId: node.id, requests, mode: batch.mode, linesTokens: batch.mode === 'group' || batch.mode === 'whole' ? batch.maxTokens : null, budgetBy: set ? 'node' : 'auto', input, output, connectionName: connection?.name ?? '', model: node.config.model.model };
+  return { nodeId: node.id, requests, mode: batch.mode, linesTokens: batch.mode === 'group' || batch.mode === 'whole' ? batch.maxTokens : null, budgetBy: own && own.config.batch.maxTokens !== null ? 'node' : 'auto', input, output, connectionName: connection?.name ?? '', model: node.config.model.model };
+}
+
+/** What packing reads of an item in scope: its id and size. */
+type Packed = { id: string; tokens: number; kind?: string };
+
+/**
+ * One AI node's estimate: its requests are the plan's `groups` packed by the node as the runner packs
+ * them (a node that reads only an earlier node's result, after a gather, makes one request), and its
+ * prompt size is measured on a few of those requests built as a run builds them (buildRequest).
+ */
+function estimateNode(db: Db, workflow: { id: string | null; projectId: string; definition: WorkflowDefinition }, definition: WorkflowDefinition, subject: WorkflowSubject, node: AiNode, groups: Packed[][], items: number, everyLine: Set<string>): NodeEstimate {
+  const requests = node.config.input.lines ? packGroups(groups, subjectBatch(subject, node)) : groups.length ? [groups.flat().slice(0, 1)] : [];
+  const connection = node.config.model.connectionId ? db.select().from(s.connections).where(eq(s.connections.id, node.config.model.connectionId)).get() : undefined;
+  const historyRate = workflow.id ? rateFromHistory(db, workflow.id, node.id) : null;
+  const all = everyLine.has(node.id);
+  const max = requests.length * (all ? 1 : definition.settings.maxVisitsPerNode);
+  return {
+    nodeId: node.id,
+    name: runNodeName(definition, node),
+    model: connection && node.config.model.model ? choiceLabel(connection.name, node.config.model) : null,
+    choice: node.config.model,
+    concurrency: node.config.concurrency,
+    connection: connection ? { id: connection.id, name: connection.name, kind: connection.kind, cli: CONNECTION_KIND_INFO[connection.kind].transport === 'cli' } : null,
+    full: requests.length,
+    requests: { min: all ? requests.length : 0, expected: all ? requests.length : fromHistory(historyRate, items, max), max },
+    everyLine: all,
+    promptTokens: samplePrompt(db, workflow.projectId, node, subject, requests),
+    overheadTokens: connection ? overheadOf(db, connection.id) : null,
+    historyRate,
+    answerTokens: answerTokens(node, requests),
+    split: splitOf(node, workflow.definition.nodes.find((candidate): candidate is AiNode => candidate.id === node.id && candidate.type === 'ai'), requests.length, connection),
+  };
+}
+
+/** Totals over the nodes: a known expectation where every node has one, otherwise the range; and the caps they suggest. */
+function totalsOf(definition: WorkflowDefinition, estimates: NodeEstimate[]) {
+  const sum = (pick: (estimate: NodeEstimate) => number | null) => estimates.reduce<number | null>((total, estimate) => (total === null || pick(estimate) === null ? null : total + pick(estimate)!), 0);
+  const perRequest = (estimate: NodeEstimate) => estimate.promptTokens + (estimate.overheadTokens ?? 0);
+  const calls = { min: sum((e) => e.requests.min)!, expected: sum((e) => e.requests.expected), max: sum((e) => e.requests.max)! };
+  const inputTokens = {
+    min: sum((e) => e.requests.min * perRequest(e))!,
+    expected: sum((e) => (e.requests.expected === null ? null : e.requests.expected * perRequest(e))),
+    max: sum((e) => e.requests.max * perRequest(e))!,
+  };
+  return { totals: { calls, inputTokens }, suggestedLimits: suggestLimits(definition, estimates, calls, inputTokens) };
 }
 
 /**
@@ -86,80 +128,36 @@ function splitOf(node: AiNode, own: AiNode | undefined, requests: number, connec
 export async function preflight(db: Db, requested: Pick<typeof s.workflows.$inferSelect, 'projectId' | 'definition'> & { id: string | null }, scope: s.RunScope) {
   // Called workflows are counted as the run will run them: their AI nodes are listed too (throws like a run start when a call cannot be expanded).
   const workflow = { ...requested, definition: expandedDefinition(db, requested.projectId, requested.definition, requested.id) };
-  const autos = autoBudgetsOf(db, workflow.definition);
-  const definition: WorkflowDefinition = withBudgets(workflow.definition, autos);
+  const definition: WorkflowDefinition = withBudgets(workflow.definition, autoBudgetsOf(db, workflow.definition));
   const projectId = workflow.projectId;
-  if (workflowInput(definition) === 'terms') return termPreflight(db, workflow, definition, autos, scope);
+  if (workflowInput(definition) === 'terms') return termPreflight(db, workflow, definition, scope);
   const unitIds = selectRunUnits(db, projectId, scope);
-  const columns = { id: s.units.id, key: s.units.key, groupId: s.units.groupId, seq: s.units.seq, kind: s.units.kind, speaker: s.units.speaker, source: s.units.source, translation: s.units.translation, listener: s.units.listener, listenerOrigin: s.units.listenerOrigin, listenerConfidence: s.units.listenerConfidence, tokens: sql<number>`(length(cast(${s.units.source} as blob)) + 3) / 4` };
+  const columns = { id: s.units.id, key: s.units.key, groupId: s.units.groupId, seq: s.units.seq, kind: s.units.kind, speaker: s.units.speaker, source: s.units.source, translation: s.units.translation, listener: s.units.listener, listenerOrigin: s.units.listenerOrigin, listenerConfidence: s.units.listenerConfidence, tokens: tokensSql(s.units.source) };
   // Most of a project: one scan kept by id is faster than ids in chunks (see planLines).
   const wanted = new Set(unitIds);
   const units = (unitIds.length < 2_000 ? inChunks(unitIds, (ids) => db.select(columns).from(s.units).where(inArray(s.units.id, ids)).all()) : db.select(columns).from(s.units).where(eq(s.units.projectId, projectId)).all().filter((unit) => wanted.has(unit.id))).sort((a, b) => a.seq - b.seq);
   await new Promise((resolve) => setImmediate(resolve));
 
-  // The run plan, exactly as a run would store it.
-  const plan = planRun(db, definition, unitIds);
+  // The run plan, exactly as a run would store it, in the groups every node packs.
+  const plan = planRun(db, definition, unitIds, units);
   await new Promise((resolve) => setImmediate(resolve));
-  const groups = [...Map.groupBy(units.filter((unit) => plan.has(unit.id)), (unit) => plan.get(unit.id)!).values()];
+  const groups = planGroups(units, plan);
   const sizes = groups.map((group) => group.length).sort((a, b) => a - b);
   const batchList = listBatches(db, groups);
 
   const everyLine = linesThrough(definition);
-  const nodes = definition.nodes.filter((node): node is AiNode => node.type === 'ai');
-  const project = db.select().from(s.projects).where(eq(s.projects.id, projectId)).get()!;
   // Each node's estimate (packing, sample prompts, history) takes tens of milliseconds on a 50k-line
   // run; the event loop is handed back between nodes so other requests are not held up.
   const estimates: NodeEstimate[] = [];
-  for (const node of nodes) {
+  for (const node of definition.nodes) {
+    if (node.type !== 'ai') continue;
     await new Promise((resolve) => setImmediate(resolve));
-    estimates.push(estimateNode(node));
+    estimates.push(estimateNode(db, workflow, definition, 'lines', node, groups, units.length, everyLine));
   }
-  function estimateNode(node: AiNode): NodeEstimate {
-    const config = batchConfigSchema.parse(node.config.batch ?? {});
-    // A node that reads only an earlier node's result (after a gather) makes one request, not one per batch.
-    const requests = node.config.input.lines ? packGroups(groups, config) : groups.length ? [groups.flat().slice(0, 1)] : [];
-    const label = (choice: { connectionId: string; model: string; effort?: string }) => {
-      const row = choice.connectionId && choice.model ? db.select({ name: s.connections.name }).from(s.connections).where(eq(s.connections.id, choice.connectionId)).get() : undefined;
-      return row ? choiceLabel(row.name, choice) : null;
-    };
-    const connection = node.config.model.connectionId ? db.select().from(s.connections).where(eq(s.connections.id, node.config.model.connectionId)).get() : undefined;
-    const historyRate = workflow.id ? rateFromHistory(db, workflow.id, node.id) : null;
-    const all = everyLine.has(node.id);
-    const max = requests.length * (all ? 1 : definition.settings.maxVisitsPerNode);
-    return {
-      nodeId: node.id,
-      name: runNodeName(definition, node),
-      model: label(node.config.model),
-      choice: node.config.model,
-      concurrency: node.config.concurrency,
-      connection: connection ? { id: connection.id, name: connection.name, kind: connection.kind, cli: CONNECTION_KIND_INFO[connection.kind].transport === 'cli' } : null,
-      full: requests.length,
-      requests: { min: all ? requests.length : 0, expected: all ? requests.length : fromHistory(historyRate, units.length, max), max },
-      everyLine: all,
-      promptTokens: samplePrompt(db, projectId, node, { source: project.sourceLanguage, target: project.targetLanguage }, requests),
-      overheadTokens: connection ? overheadOf(db, connection.id) : null,
-      historyRate,
-      answerTokens: answerTokens(node, requests),
-      split: splitOf(node, workflow.definition.nodes.find((candidate): candidate is AiNode => candidate.id === node.id && candidate.type === 'ai'), requests.length, connection, autos.get(node.id)!),
-    };
-  }
-
-  // Totals: a known expectation where every node has one, otherwise the range.
-  const sum = (pick: (estimate: NodeEstimate) => number | null) => estimates.reduce<number | null>((total, estimate) => (total === null || pick(estimate) === null ? null : total + pick(estimate)!), 0);
-  const perRequest = (estimate: NodeEstimate) => estimate.promptTokens + (estimate.overheadTokens ?? 0);
-  const calls = { min: sum((e) => e.requests.min)!, expected: sum((e) => e.requests.expected), max: sum((e) => e.requests.max)! };
-  const inputTokens = {
-    min: sum((e) => e.requests.min * perRequest(e))!,
-    expected: sum((e) => (e.requests.expected === null ? null : e.requests.expected * perRequest(e))),
-    max: sum((e) => e.requests.max * perRequest(e))!,
-  };
-
-  const readiness = { ...readinessOf(db, projectId, units, speechRuleIndex(db, projectId)), applies: readinessUses(definition) };
-  const pace = paceOf(db, estimates);
 
   return {
-    readiness,
-    pace,
+    readiness: { ...readinessOf(db, projectId, units, speechRuleIndex(db, projectId)), applies: readinessUses(definition) },
+    pace: paceOf(db, estimates),
     load: aiLoad(db, definition),
     lines: { total: units.length, excluded: excludedInScope(db, projectId, scope), translated: units.filter((unit) => unit.translation).length, untranslated: units.filter((unit) => !unit.translation).length },
     plan: {
@@ -168,16 +166,10 @@ export async function preflight(db: Db, requested: Pick<typeof s.workflows.$infe
       list: batchList,
     },
     nodes: estimates,
-    totals: { calls, inputTokens },
-    suggestedLimits: suggestLimits(definition, estimates, calls, inputTokens),
+    ...totalsOf(definition, estimates),
   };
 }
 
-/**
- * preflight for a term run: the terms in scope, packed as the runner would (one by one or in
- * fixed counts, no scenes), with each AI node's requests and a sampled prompt size. Line readiness
- * (listeners, speech rules) does not apply.
- */
 /**
  * Room the caps keep for an AI node's retry rules (each after the last), at their worst: every request fails each
  * time, so round k resends all `full` requests' lines in requests (the rules' scales so far)^k as large. Each round
@@ -213,53 +205,20 @@ function suggestLimits(definition: WorkflowDefinition, estimates: NodeEstimate[]
   };
 }
 
-/** A terms run's batching (as the runner does it, within the input's batch modes). */
-function termBatch(node: AiNode) {
-  const config = batchConfigSchema.parse(node.config.batch ?? {});
-  return (INPUT_TYPES.terms.batchModes as readonly string[]).includes(config.mode) ? config : { ...config, mode: 'count' as const };
-}
-
-async function termPreflight(db: Db, workflow: { id: string | null; projectId: string; definition: WorkflowDefinition }, definition: WorkflowDefinition, autos: ReturnType<typeof autoBudgetsOf>, scope: s.RunScope) {
-  const projectId = workflow.projectId;
-  const ids = selectRunTerms(db, projectId, scope);
+/**
+ * preflight for a term run: the terms in scope, packed as the runner packs them (one by one or in
+ * fixed counts, no scenes), with each AI node's requests and a sampled prompt size. Line readiness
+ * (listeners, speech rules) does not apply.
+ */
+async function termPreflight(db: Db, workflow: { id: string | null; projectId: string; definition: WorkflowDefinition }, definition: WorkflowDefinition, scope: s.RunScope) {
+  const ids = selectRunTerms(db, workflow.projectId, scope);
   const { terms } = loadTerms(db, ids);
   const rows = ids.flatMap((id, seq) => {
     const term = terms.get(id);
-    return term ? [{ id, groupId: TERM_GROUP, seq, kind: 'term', tokens: estimateTokens(term.source) + 40, target: term.target }] : [];
+    return term ? [{ id, groupId: TERM_GROUP, seq, kind: 'term', tokens: termTokens(term.source), target: term.target }] : [];
   });
-  const project = db.select().from(s.projects).where(eq(s.projects.id, projectId)).get()!;
-  const languages = { source: project.sourceLanguage, target: project.targetLanguage };
   const everyLine = linesThrough(definition);
-  const estimates: NodeEstimate[] = definition.nodes
-    .filter((node): node is AiNode => node.type === 'ai')
-    .map((node) => {
-      const requests = !node.config.input.lines ? (rows.length ? [rows.slice(0, 1)] : []) : packGroups(rows.length ? [rows] : [], termBatch(node));
-      const connection = node.config.model.connectionId ? db.select().from(s.connections).where(eq(s.connections.id, node.config.model.connectionId)).get() : undefined;
-      const all = everyLine.has(node.id);
-      const historyRate = workflow.id ? rateFromHistory(db, workflow.id, node.id) : null;
-      const sample = requests[0] ?? [];
-      const prompt = sample.length ? termPrompt(db, projectId, sample.map((row) => ({ subjectId: row.id, data: { path: [], outputs: {} } }) as never), node) : null;
-      return {
-        nodeId: node.id,
-        name: runNodeName(definition, node),
-        model: connection && node.config.model.model ? choiceLabel(connection.name, node.config.model) : null,
-        choice: node.config.model,
-        concurrency: node.config.concurrency,
-        connection: connection ? { id: connection.id, name: connection.name, kind: connection.kind, cli: CONNECTION_KIND_INFO[connection.kind].transport === 'cli' } : null,
-        full: requests.length,
-        requests: { min: all ? requests.length : 0, expected: all ? requests.length : fromHistory(historyRate, rows.length, requests.length * definition.settings.maxVisitsPerNode), max: requests.length * (all ? 1 : definition.settings.maxVisitsPerNode) },
-        everyLine: all,
-        promptTokens: prompt ? estimateTokens(Object.values(buildPrompt(node, languages, prompt.context, prompt.lines)).join('\n\n')) : 0,
-        overheadTokens: connection ? overheadOf(db, connection.id) : null,
-        historyRate,
-        answerTokens: answerTokens(node, requests),
-        split: splitOf(node, workflow.definition.nodes.find((candidate): candidate is AiNode => candidate.id === node.id && candidate.type === 'ai'), requests.length, connection, autos.get(node.id)!),
-      };
-    });
-  const sum = (pick: (estimate: NodeEstimate) => number | null) => estimates.reduce<number | null>((total, estimate) => (total === null || pick(estimate) === null ? null : total + pick(estimate)!), 0);
-  const perRequest = (estimate: NodeEstimate) => estimate.promptTokens + (estimate.overheadTokens ?? 0);
-  const calls = { min: sum((e) => e.requests.min)!, expected: sum((e) => e.requests.expected), max: sum((e) => e.requests.max)! };
-  const inputTokens = { min: sum((e) => e.requests.min * perRequest(e))!, expected: sum((e) => (e.requests.expected === null ? null : e.requests.expected * perRequest(e))), max: sum((e) => e.requests.max * perRequest(e))! };
+  const estimates = definition.nodes.filter((node): node is AiNode => node.type === 'ai').map((node) => estimateNode(db, workflow, definition, 'terms', node, rows.length ? [rows] : [], rows.length, everyLine));
   const none = { count: 0, examples: [] as string[], ids: [] as string[], more: false };
   return {
     readiness: { dialogueLines: 0, unknownListenerLines: 0, candidateRules: none, candidateTerms: none, pairsWithoutRule: { count: 0, examples: [] as string[] }, applies: readinessUses(definition) },
@@ -268,8 +227,7 @@ async function termPreflight(db: Db, workflow: { id: string | null; projectId: s
     lines: { total: rows.length, excluded: 0, translated: rows.filter((row) => row.target).length, untranslated: rows.filter((row) => !row.target).length },
     plan: { batches: 0, linesPerBatch: null, list: listBatches(db, []) },
     nodes: estimates,
-    totals: { calls, inputTokens },
-    suggestedLimits: suggestLimits(definition, estimates, calls, inputTokens),
+    ...totalsOf(definition, estimates),
   };
 }
 
@@ -439,25 +397,13 @@ function answerTokens(node: AiNode, requests: { tokens: number }[][]) {
   return Math.round(total / requests.length);
 }
 
-/** The prompt a node sends for these lines, as a run builds it (`lines` are its prompt ids, for the answer's schema). */
-export function requestPrompt(db: Db, projectId: string, node: AiNode, languages: { source: string; target: string }, unitIds: string[]) {
-  const rows = db.select().from(s.units).where(inArray(s.units.id, unitIds)).all().sort((a, b) => a.seq - b.seq);
-  const choiceOptions = node.config.output === 'choice' ? resolveChoiceOptions(db, projectId, node.config.choice) : undefined;
-  const ids = rows.map((_, index) => promptLineId(index));
-  // A node reading the script whole sends the script text, not the per-line context.
-  if (node.config.batch.mode === 'whole') return { ...wholeScriptRequest(db, projectId, node, languages, rows, choiceOptions), lines: ids };
-  const context = buildContext(db, projectId, rows, node.config.context);
-  const lines = rows.map((row, index) => ({ id: ids[index], unitId: row.id, groupId: row.groupId, key: row.key, kind: row.kind, speaker: row.speaker, source: row.source, candidate: row.translation ?? undefined }));
-  return { ...buildPrompt(node, languages, context, lines, choiceOptions), lines: ids };
-}
-
-/** Average estimated tokens of the prompt a node would send, built for a few of its real requests. */
-function samplePrompt(db: Db, projectId: string, node: AiNode, languages: { source: string; target: string }, requests: { id: string }[][]): number {
+/** Average estimated tokens of the request a node would send, built (buildRequest) for a few of its real requests. */
+function samplePrompt(db: Db, projectId: string, node: AiNode, subject: WorkflowSubject, requests: { id: string }[][]): number {
   if (!requests.length) return 0;
   const step = Math.max(1, Math.floor(requests.length / SAMPLE));
   const picked = requests.filter((_, index) => index % step === 0).slice(0, SAMPLE);
   const sizes = picked.map((request) => {
-    const { system, prompt } = requestPrompt(db, projectId, node, languages, request.map((line) => line.id));
+    const { system, prompt } = buildRequest(db, projectId, node, subject, request.map((item) => ({ id: item.id })));
     return estimateTokens(`${system}\n\n${prompt}`);
   });
   return Math.round(sizes.reduce((total, size) => total + size, 0) / sizes.length);

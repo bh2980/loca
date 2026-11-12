@@ -1,5 +1,5 @@
 import { eq, inArray } from 'drizzle-orm';
-import { autoBudgets, batchConfigSchema, contextConfigSchema, limitsFor, type AiNode, type ModelChoice, type ModelLimits, type WorkflowDefinition } from '@tw/shared';
+import { autoBudgets, limitsFor, type AiNode, type ModelChoice, type ModelLimits, type WorkflowDefinition } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 
@@ -11,22 +11,18 @@ export function modelLimitsOf(db: Db, choice: ModelChoice | undefined): ModelLim
   return limitsFor(db.select(connectionLimits).from(s.connections).where(eq(s.connections.id, choice.connectionId)).get(), choice.model);
 }
 
-/** What sizing reads of an AI node: enough to size one that is only being edited. */
-export type SizedNode = Pick<AiNode, 'id'> & { config: Pick<AiNode['config'], 'model' | 'output'> & { batch?: unknown } };
-
 /** The "auto" budgets of an AI node from its model's limits. */
-export function autoOf(node: SizedNode, limits: ModelLimits | undefined) {
-  const batch = batchConfigSchema.parse(node.config.batch ?? {});
-  return autoBudgets(limits, node.config.output, batch.mode);
-}
+export const autoOf = (node: AiNode, limits: ModelLimits | undefined) => autoBudgets(limits, node.config.output, node.config.batch.mode);
 
 /** An AI node with its "auto" budgets (null) filled from `auto` (autoOf); numbers a person set stay. */
 export function resolveNodeBudgets(node: AiNode, auto: Pick<ReturnType<typeof autoBudgets>, 'lines' | 'context'>): AiNode {
-  const batch = batchConfigSchema.parse(node.config.batch ?? {});
-  const context = contextConfigSchema.parse(node.config.context ?? {});
+  const { batch, context } = node.config;
   if (batch.maxTokens !== null && context.maxTokens !== null) return node;
   return { ...node, config: { ...node.config, batch: { ...batch, maxTokens: batch.maxTokens ?? auto.lines }, context: { ...context, maxTokens: context.maxTokens ?? auto.context } } };
 }
+
+/** An AI node outside a run (the editor's AI buttons) with its "auto" budgets fixed for its own model, as a run fixes them for its nodes. */
+export const resolvedNode = (db: Db, node: AiNode): AiNode => resolveNodeBudgets(node, autoOf(node, modelLimitsOf(db, node.config.model)));
 
 /**
  * Every AI node's "auto" budgets for the models it will call (run models already applied), by node

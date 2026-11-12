@@ -41,7 +41,7 @@ const path = (projectId: string, page: string, search: Record<string, string | b
 const json = (ids: string[]) => JSON.stringify(ids);
 
 const DOCUMENT_KIND_LABELS = { story: '스토리', world: '세계관', style: '문체', note: '메모' } as const;
-const RUN_STATUS_LABELS = { running: '진행 중', paused: '일시중지', cancelled: '취소됨', completed: '완료' } as const;
+const RUN_STATUS_LABELS: Record<s.RunStatus, string> = { preparing: '준비 중', running: '진행 중', paused: '일시중지', cancelled: '취소됨', completed: '완료' };
 const two = (value: number) => String(value).padStart(2, '0');
 /** "10/23 11:02": when a run started, in the server's (the person's) local time. */
 export const runStamp = (at: Date) => `${two(at.getMonth() + 1)}/${two(at.getDate())} ${two(at.getHours())}:${two(at.getMinutes())}`;

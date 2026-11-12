@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray, lt } from 'drizzle-orm';
-import { changeState, CONTEXT_PRIORITY, contextConfigSchema, contextTokens, estimateTokens, isSpecialListener, listenerLabel, mentions, personNote, styleInstruction, talkingPairs, termMatcher, type AgeBand, type PairLine, type TalkingPair, type ContextConfig, type ContextItem, type ContextItemKind, type Gender, type RelationshipChange } from '@tw/shared';
+import { changeState, CONTEXT_PRIORITY, contextTokens, estimateTokens, isSpecialListener, listenerLabel, mentions, personNote, styleInstruction, talkingPairs, termMatcher, type AgeBand, type PairLine, type TalkingPair, type ContextConfig, type ContextItem, type ContextItemKind, type Gender, type RelationshipChange } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import { inChunks } from '../db/chunk.ts';
 import { documents as documentsTable, graphEdges, graphNodes, groups, runItems, units } from '../db/schema.ts';
@@ -275,13 +275,11 @@ export function buildContext(
   db: Db,
   projectId: string,
   batch: { id: string; key: string; groupId: string; sort: number; speaker: string | null; source: string; kind?: string }[],
-  stored: Partial<ContextConfig>,
+  config: ContextConfig,
   parts?: string,
   /** The lines a run read, for a request that reads earlier results (a merge): its 대화 쌍 are counted over these instead of the batch. */
   runLines?: PairLine[],
 ): BatchContext {
-  // Saved workflows may predate a setting; the schema fills its default.
-  const config = contextConfigSchema.parse(stored ?? {});
   const index = graphIndex(db, projectId);
   const knowledge = knowledgeOf(db, projectId);
   const text = parts ?? batch.map((unit) => `${unit.speaker ?? ''}\n${unit.source}`).join('\n');

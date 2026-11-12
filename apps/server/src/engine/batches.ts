@@ -1,4 +1,12 @@
-import { batchTokens, lineCost, lineCostIn, type BatchConfig } from '@tw/shared';
+import { batchTokens, INPUT_TYPES, lineCost, lineCostIn, type AiNode, type BatchConfig, type WorkflowSubject } from '@tw/shared';
+
+/**
+ * How an AI node batches the items of a `subject`, within the batch modes that input has: terms have no
+ * scenes, so a mode that packs by them counts instead (validation keeps such nodes out; a safety net).
+ * A run, its preflight and the previews all batch by this.
+ */
+export const subjectBatch = (subject: WorkflowSubject, node: AiNode): BatchConfig =>
+  (INPUT_TYPES[subject].batchModes as readonly string[]).includes(node.config.batch.mode) ? node.config.batch : { ...node.config.batch, mode: 'count' };
 
 /** A line to batch, in script position. `tokens` is the estimated size of its text. */
 export interface BatchLine {

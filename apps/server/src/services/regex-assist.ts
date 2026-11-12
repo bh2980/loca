@@ -41,8 +41,8 @@ export async function generateRegex(db: Db, secrets: SecretStore, projectId: str
   const prompt = [TASK[request.target], `사용자 요청: ${request.prompt}`, samples.length ? `대본 샘플:\n${samples.map((row) => `- ${row.source}`).join('\n')}` : ''].filter(Boolean).join('\n\n');
   const system = '당신은 JavaScript 정규식 전문가입니다. 요청한 필드만 채워 돌려주세요.';
   const call = { projectId, kind: 'editor' as const, label: '자연어로 정규식 만들기', request: `${system}\n\n---\n\n${prompt}` };
-  const result = await ai.callOnce(route, (route) => logged(db, call, route, () => generate(route, { system, prompt, schema, maxOutputTokens: snapshot.maxOutputTokens, timeoutMs: editorAi.timeoutSeconds * 1000, signal })), signal);
-  const rule = schema.parse(result.result.object);
+  const result = await ai.callOnce(() => logged(db, call, route, () => generate(route, { system, prompt, schema, maxOutputTokens: snapshot.maxOutputTokens, timeoutMs: editorAi.timeoutSeconds * 1000, signal })), signal);
+  const rule = schema.parse(result.object);
   const error = formatPatternError(rule.pattern);
   if (error) badRequest(`생성된 정규식을 쓸 수 없습니다. 설명을 바꿔 다시 해 보세요. (${error})`);
   return rule;

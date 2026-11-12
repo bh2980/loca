@@ -1,6 +1,7 @@
 import { deleteChat } from '../services/chat-delete.ts';
 import { Hono } from 'hono';
-import { and, asc, count, desc, eq, notInArray, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, notInArray, sql } from 'drizzle-orm';
+import { ACTIVE_RUN_STATUSES } from '../engine/run-create.ts';
 import { z } from 'zod';
 import { agentSettingsSchema, detectFormatRules, editorAiSchema, exclusionRulesSchema, formatRulesSchema, importFileSchema, importWarnings, patchOf, summarizeImport } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
@@ -99,7 +100,7 @@ export const projectRoutes = new Hono<Env>()
   .delete('/:projectId', async (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
-    const active = db.select({ id: s.runs.id }).from(s.runs).where(and(eq(s.runs.projectId, projectId), eq(s.runs.status, 'running'))).all();
+    const active = db.select({ id: s.runs.id }).from(s.runs).where(and(eq(s.runs.projectId, projectId), inArray(s.runs.status, ACTIVE_RUN_STATUSES))).all();
     for (const run of active) c.var.deps.runner.cancel(run.id);
     for (const chat of db.select({ id: s.chatSessions.id }).from(s.chatSessions).where(eq(s.chatSessions.projectId, projectId)).all()) await deleteChat(db, chat.id);
     cancelLayout(projectId);

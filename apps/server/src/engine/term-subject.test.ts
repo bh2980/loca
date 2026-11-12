@@ -9,7 +9,7 @@ import { memoryStore } from '../services/secrets.ts';
 import { promptEntries } from './prompts.ts';
 import { Runner, type ModelPort } from './runner.ts';
 import { createRun, selectRunTerms } from './run-create.ts';
-import { termPrompt } from './subjects.ts';
+import { buildRequest } from './request.ts';
 import { askedScope, scopeMismatch } from '../services/run-plan.ts';
 
 /** A project whose script mentions Varn Gate (twice) and Hesk (once), with both as candidate terms without a Korean form, and one confirmed term. */
@@ -97,10 +97,10 @@ describe('a workflow whose input is terms', () => {
     const { db, projectId, gate } = setup();
     db.insert(s.terms).values({ projectId, source: 'Varn', target: '바른', status: 'confirmed', statusBy: 'human', origin: 'human', examples: [] }).run();
     const node = { id: 'translate', type: 'ai', position: at, config: aiNodeConfigSchema.parse({ model: { connectionId: 'c', model: 'm' }, instructions: '', output: 'json', scope: 'line', fields: [{ name: 'target', type: 'string' }], context: { glossary: true, examples: 0 } }) } as never;
-    const { context } = termPrompt(db, projectId, [{ subjectId: gate.id, data: {} }] as never, node);
+    const { context } = buildRequest(db, projectId, node, 'terms', [{ id: gate.id }]);
     expect(context.terms.map((term) => term.source)).toEqual(['Varn']);
     const varn = db.select().from(s.terms).where(eq(s.terms.source, 'Varn')).get()!;
-    expect(termPrompt(db, projectId, [{ subjectId: varn.id, data: {} }] as never, node).context.terms).toEqual([]);
+    expect(buildRequest(db, projectId, node, 'terms', [{ id: varn.id }]).context.terms).toEqual([]);
   });
 
   it('sends each term with its example lines, saves the Korean form of each candidate and confirms it', async () => {

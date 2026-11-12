@@ -1,9 +1,9 @@
 import { Hono } from 'hono';
-import { startWorkflowRun } from '../services/start-run.ts';
+import { startRun } from '../services/start-run.ts';
 import { askedScope } from '../services/run-plan.ts';
 import { and, asc, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { AI_OUTPUT_IDS, type AiOutput, choiceKey, httpParams, FUNCTIONS, type FunctionName, isWholeScriptWorkflow, workflowInput, scriptParams, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels, WORKFLOW_TEMPLATES, EMPTY_MODEL_CHOICE, runScopeInputSchema, type RunScopeInput } from '@tw/shared';
+import { AI_OUTPUT_IDS, type AiOutput, choiceKey, httpParams, FUNCTIONS, type FunctionName, workflowInput, scriptParams, workflowDefinitionSchema, type WorkflowDefinition, runCapsSchema, runModelsSchema, withRunModels, WORKFLOW_TEMPLATES, EMPTY_MODEL_CHOICE, runScopeInputSchema, type RunScopeInput } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
 import { inList } from '../db/chunk.ts';
@@ -12,11 +12,11 @@ import { workflowIssues } from '../services/workflow-issues.ts';
 import { events } from '../events.ts';
 import { callHttp, httpOutput, lineView, validateScriptData } from '../engine/functions/index.ts';
 import { runScript } from '../engine/functions/sandbox.ts';
-import { WHOLE_SCRIPT_BUSY, refuseSecondWholeScript, selectRunTerms, selectRunUnits } from '../engine/run-create.ts';
+import { selectRunTerms, selectRunUnits } from '../engine/run-create.ts';
 import { listBatches, preflight } from '../services/preflight.ts';
 import { choiceLabel } from '../services/routes.ts';
 import { previewRequest } from '../services/request-preview.ts';
-import { continuePreflight, switchedRun } from '../services/run-continue.ts';
+import { continuePreflight, continueRun } from '../services/run-continue.ts';
 import { deleteWorkflow, saveWorkflow, workflowCallers, WorkflowMutationError } from '../services/workflow-mutations.ts';
 import { issueTagIds } from '../services/issue-tags.ts';
 import { runRows } from '../services/run-rows.ts';
@@ -24,6 +24,7 @@ import { workflowRows } from '../services/workflow-rows.ts';
 import { connectionName, connectionNames, runItemIds, runNodeExits, runItemRows, runProgress } from '../services/run-detail.ts';
 import { aiCallRows } from '../services/log-rows.ts';
 import { rowChangesOf } from '../db/row-changes.ts';
+import { tokensSql } from '../db/tokens.ts';
 
 /** A run's scope as asked (the line filter or the terms, by name or id) and, optionally, the models it uses instead of its nodes' own (by AI node id). */
 const runSchema = runScopeInputSchema.extend({ models: runModelsSchema.optional() });
@@ -32,23 +33,11 @@ function scopeOf(db: Db, workflow: Pick<typeof s.workflows.$inferSelect, 'projec
   const resolved = askedScope(db, workflow.projectId, workflowInput(workflow.definition), asked);
   return resolved.ok ? resolved.scope : badRequest(resolved.error);
 }
-/** A new run's caps: a number sets one, null runs without it, left out takes the suggested cap (services/start-run.ts runLimits). */
-const runLimitsSchema = z.object({ maxCalls: z.number().int().min(1).nullable().optional(), maxInputTokens: z.number().int().min(1).nullable().optional() });
 const runItemQuery = z.object({ state: z.string().optional(), nodeId: z.string().optional(), through: z.string().optional(), exit: z.string().optional(), offset: z.coerce.number().default(0), limit: z.coerce.number().max(500).default(100) });
-const continueSchema = z.object({ models: runModelsSchema.optional(), retryFailed: z.boolean().default(false) });
-
-/** A whole-script run continued or resumed while another one runs: refused like a second start. */
+/** How a run goes on (services/run-continue.ts): other models for some AI steps, its failed lines again, new caps. */
+const continueSchema = z.object({ models: runModelsSchema.optional(), retryFailed: z.boolean().default(false), limits: runCapsSchema.optional() });
 /** What POST /runs/:id/resume may carry: new caps (null removes one). */
-export const resumeSchema = z.object({ limits: z.object({ maxCalls: z.number().int().min(1).nullable().optional(), maxInputTokens: z.number().int().min(1).nullable().optional() }).optional() });
-
-function refuseWhileAnotherWholeScript(db: Db, run: typeof s.runs.$inferSelect) {
-  if (!isWholeScriptWorkflow(run.definition)) return;
-  try {
-    refuseSecondWholeScript(db, run.projectId, run.id);
-  } catch {
-    badRequest(`${WHOLE_SCRIPT_BUSY} 그 실행이 끝나거나 멈춘 뒤에 이어서 하세요.`);
-  }
-}
+export const resumeSchema = z.object({ limits: runCapsSchema.optional() });
 
 function blankWorkflow(): WorkflowDefinition {
   return workflowDefinitionSchema.parse({
@@ -174,11 +163,12 @@ export const workflowRoutes = new Hono<Env>()
       badRequest(error instanceof Error ? error.message : String(error));
     }
   })
-  .post('/workflows/:id/runs', validate('json', runSchema.extend({ limits: runLimitsSchema.optional() })), async (c) => {
-    const { db } = c.var.deps;
+  /** Starts a run (services/start-run.ts): the caps are the suggested ones unless given (a number sets one, null runs without it). */
+  .post('/workflows/:id/runs', validate('json', runSchema.extend({ limits: runCapsSchema.optional() })), async (c) => {
     const { limits, models, ...asked } = c.req.valid('json');
-    const workflow = found(db.select({ projectId: s.workflows.projectId, definition: s.workflows.definition }).from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
-    return c.json(await startWorkflowRun(db, c.req.param('id'), { scope: scopeOf(db, workflow, asked), models, limits }), 201);
+    const started = await startRun(c.var.deps.db, { workflowId: c.req.param('id'), scope: { asked }, models, limits });
+    if (!started.ok) badRequest(started.error);
+    return c.json({ runId: started.runId, total: started.total }, 201);
   })
 
   /** Try a script node on one real line. Read-only: nothing is stored. */
@@ -267,7 +257,7 @@ export const workflowRoutes = new Hono<Env>()
     const { db } = c.var.deps;
     const run = found(db.select({ id: s.runs.id }).from(s.runs).where(eq(s.runs.id, c.req.param('id'))).get(), '실행');
     const lines = db
-      .selectDistinct({ plan: s.runItems.plan, groupId: s.units.groupId, speaker: s.units.speaker, seq: s.units.seq, tokens: sql<number>`(length(cast(${s.units.source} as blob)) + 3) / 4` })
+      .selectDistinct({ plan: s.runItems.plan, groupId: s.units.groupId, speaker: s.units.speaker, seq: s.units.seq, tokens: tokensSql(s.units.source) })
       .from(s.runItems)
       .innerJoin(s.units, eq(s.units.id, s.runItems.subjectId))
       .where(eq(s.runItems.runId, run.id))
@@ -334,25 +324,17 @@ export const workflowRoutes = new Hono<Env>()
     if (!result.ok) badRequest(result.error);
     return c.json({ workflowId: result.workflowId, lines: result.lines, plan: result.plan });
   })
-  /** Continue a paused or finished run, on other models for some AI steps and/or with its failed lines again. */
+  /** Continue a paused or finished run, on other models for some AI steps and/or with its failed lines again, with new caps if given. */
   .post('/runs/:id/continue', validate('json', continueSchema), (c) => {
-    const { db, runner } = c.var.deps;
-    const run = found(db.select().from(s.runs).where(eq(s.runs.id, c.req.param('id'))).get(), '실행');
-    const { models, retryFailed } = c.req.valid('json');
-    refuseWhileAnotherWholeScript(db, run);
-    const switched = switchedRun(db, run, models);
-    if (!switched.ok) badRequest(switched.error);
-    const result = runner.continue(run.id, { definition: switched.definition, models: switched.models, changes: switched.changes, retryFailed });
+    const result = continueRun(c.var.deps.db, c.req.param('id'), c.req.valid('json'));
     if (!result.ok) badRequest(result.error);
-    return c.json({ ok: true, retried: result.retried, changes: switched.changes });
+    return c.json({ ok: true, retried: result.retried, changes: result.changes });
   })
   .post('/runs/:id/:action{pause|resume|cancel}', async (c) => {
-    const { runner } = c.var.deps;
+    const { runner, db } = c.var.deps;
     const id = c.req.param('id');
     const action = c.req.param('action') as 'pause' | 'resume' | 'cancel';
     if (action === 'resume') {
-      const run = found(c.var.deps.db.select().from(s.runs).where(eq(s.runs.id, id)).get(), '실행');
-      refuseWhileAnotherWholeScript(c.var.deps.db, run);
       // An optional body raises (or clears, with null) the caps before the run goes on.
       const text = await c.req.text();
       let raw: unknown = {};
@@ -363,7 +345,8 @@ export const workflowRoutes = new Hono<Env>()
       }
       const body = resumeSchema.safeParse(raw);
       if (!body.success) badRequest('상한이 올바르지 않습니다.');
-      runner.resume(id, body.data.limits);
+      const result = continueRun(db, id, { limits: body.data.limits });
+      if (!result.ok) badRequest(result.error);
       return c.json({ ok: true });
     }
     runner[action](id);

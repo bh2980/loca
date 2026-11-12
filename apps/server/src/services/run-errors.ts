@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { FUNCTIONS, nodeName, type FunctionName, type WorkflowNode } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -22,10 +22,10 @@ export function runErrors(db: Db, run: Run): RunError[] {
       key: run.subject === 'terms' ? s.terms.source : s.units.key,
       state: s.runItems.state,
       itemError: s.runItems.error,
-      path: sql<string>`json_extract(${s.runItems.data}, '$.path')`,
-      last: sql<string | null>`json_extract(${s.runItems.data}, '$.retry.last')`,
-      error: sql<string | null>`json_extract(${s.runItems.data}, '$.error')`,
-      lastError: sql<string | null>`json_extract(${s.runItems.data}, '$.lastError')`,
+      path: s.itemData.path,
+      last: s.itemData.retryLast,
+      error: s.itemData.error,
+      lastError: s.itemData.lastError,
     })
     .from(s.runItems)
     .leftJoin(s.units, eq(s.units.id, s.runItems.subjectId))

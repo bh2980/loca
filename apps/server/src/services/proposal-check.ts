@@ -5,7 +5,8 @@ import * as s from '../db/schema.ts';
 import { DELETABLE, deletable, type DeletableKind } from './item-delete.ts';
 import { inChunks } from '../db/chunk.ts';
 import { preflight } from './preflight.ts';
-import { planOf, resolveStartRun, type StartRunInput } from './run-plan.ts';
+import { planOf, type RunModelInput } from './run-plan.ts';
+import { resolveRunStart } from './start-run.ts';
 import { normalizeBatch, validateBatch, type BatchReport } from './script-query.ts';
 
 /** Lines checked per step; the event loop is handed back in between (a 50k-line check takes about a second). */
@@ -72,7 +73,9 @@ export async function checkStartRun(db: Db, projectId: string, input: Record<str
   const known = needsRow(db, projectId, s.workflows, 'workflowId', '워크플로')(input) as Prepared;
   if (!known.ok) return known;
   try {
-    const resolved = resolveStartRun(db, projectId, input as unknown as StartRunInput);
+    // The tool's input as start_run takes it: the workflow, this run's models by name and its caps apart from the scope as asked.
+    const { workflowId, models, limits: _limits, ...asked } = input as { workflowId: string; models?: RunModelInput; limits?: unknown };
+    const resolved = resolveRunStart(db, { workflowId, projectId, scope: { asked }, namedModels: models });
     if (!resolved.ok) return { ok: false, error: resolved.error };
     const plan = planOf((await preflight(db, resolved.workflow, resolved.scope)) as unknown as RunCardPlan);
     return { ok: true, input, report: { dropped: [], warnings: [], run: { input: resolved.subject, plan } } };

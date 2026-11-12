@@ -316,6 +316,7 @@ describe('what a failed agent says', () => {
     expect(failed.message).toContain('500 Internal Server Error');
     expect(acpError(new Error('upstream returned HTTP 503')).code).toBe('network');
     expect(acpError(new Error('line 500 of the prompt is invalid')).code).toBe('cli');
+    expect(acpError(new Error('connect ECONNREFUSED 127.0.0.1:8080')).code).toBe('network');
   });
 
   it('reports the exit code, the last stderr lines and the command when the stream closes at once', async () => {

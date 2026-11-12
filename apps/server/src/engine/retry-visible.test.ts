@@ -9,6 +9,7 @@ import { snapshotWorkflowModels } from '../services/routes.ts';
 import { memoryStore } from '../services/secrets.ts';
 import { promptEntries } from './prompts.ts';
 import { Runner, type ModelPort } from './runner.ts';
+import { continueRun } from '../services/run-continue.ts';
 import { withoutTerms } from './test-workflows.ts';
 import { createRun } from './run-create.ts';
 import { issueTagIds } from '../services/issue-tags.ts';
@@ -19,7 +20,7 @@ import { issueTagIds } from '../services/issue-tags.ts';
  * another connection or requeued by the runner on its own.
  */
 
-const CUT_OFF = () => new ai.ModelError('cli', 'Your previous response was cut off because it exceeded the output token limit', false);
+const CUT_OFF = () => new ai.ModelError('cut-off', '응답이 길이 제한에 걸려 잘렸습니다.', false);
 const RATE_LIMIT = () => new ai.ModelError('rate-limit', 'slow down');
 const NETWORK = () => new ai.ModelError('network', 'connection reset');
 
@@ -186,7 +187,7 @@ describe('a retry rule that waits', () => {
     expect(fake.sizes()).toEqual([4]);
     expect(runOf(db, runId).status).toBe('paused');
 
-    runner.resume(runId);
+    expect(continueRun(db, runId)).toMatchObject({ ok: true, resumed: true });
     await runner.drain();
     expect(fake.sizes()).toEqual([4, 4]);
     expect(runOf(db, runId).status).toBe('completed');
@@ -211,9 +212,7 @@ describe('a retry rule that waits', () => {
     const runner = new Runner(db, memoryStore(), fake.port);
     await runner.drain();
     runner.pause(runId);
-    const run = runOf(db, runId);
-    const result = runner.continue(runId, { definition: run.definition, models: run.models, changes: [], retryFailed: false });
-    expect(result.ok).toBe(true);
+    expect(continueRun(db, runId).ok).toBe(true);
     vi.setSystemTime(Date.now() + 61_000);
     await runner.drain();
     expect(runOf(db, runId).status).toBe('completed');

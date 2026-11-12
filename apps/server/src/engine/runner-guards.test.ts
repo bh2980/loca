@@ -1,15 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import * as ai from '@tw/ai';
-import { importFileSchema, translationTemplate } from '@tw/shared';
+import { errorKindOfCode, importFileSchema, MODEL_ERROR_CODES, MODEL_ERROR_KINDS, translationTemplate } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
 import { snapshotWorkflowModels } from '../services/routes.ts';
 import { memoryStore } from '../services/secrets.ts';
 import { promptEntries } from './prompts.ts';
-import { errorKindOf, Runner, type ModelPort } from './runner.ts';
-import { createRun, createRunInSteps } from './run-create.ts';
+import { Runner, type ModelPort } from './runner.ts';
+import { continueRun } from '../services/run-continue.ts';
+import { createRun } from './run-create.ts';
 import { withoutTerms } from './test-workflows.ts';
 import { issueTagIds } from '../services/issue-tags.ts';
 
@@ -152,7 +153,7 @@ describe('runner guards', () => {
     await runner.drain();
     expect(runOf(db, runId).status).toBe('paused');
     expect(runOf(db, runId).notice).toContain('호출 상한');
-    runner.resume(runId);
+    continueRun(db, runId);
     expect(runOf(db, runId)).toMatchObject({ status: 'running', notice: null });
   });
 
@@ -165,13 +166,13 @@ describe('runner guards', () => {
     const calls = () => db.select().from(s.runSteps).where(eq(s.runSteps.runId, runId)).all().length;
     const first = calls();
 
-    runner.resume(runId);
+    continueRun(db, runId);
     expect(runOf(db, runId).limits).toEqual({ maxCalls: 4 });
     await runner.drain();
     expect(runOf(db, runId)).toMatchObject({ status: 'paused', limits: { maxCalls: 4, hit: 'calls' } });
     expect(calls()).toBeGreaterThan(first);
 
-    runner.resume(runId, { maxCalls: 1000 });
+    continueRun(db, runId, { limits: { maxCalls: 1000 } });
     expect(runOf(db, runId).limits).toEqual({ maxCalls: 1000 });
     await runner.drain();
     expect(runOf(db, runId).status).toBe('completed');
@@ -180,7 +181,7 @@ describe('runner guards', () => {
     const id = cleared.start({ maxCalls: 4, maxInputTokens: 10_000_000 });
     const other = new Runner(cleared.db, memoryStore(), model());
     await other.drain();
-    other.resume(id, { maxCalls: null });
+    continueRun(cleared.db, id, { limits: { maxCalls: null } });
     expect(runOf(cleared.db, id).limits).toEqual({ maxInputTokens: 10_000_000 });
     await other.drain();
     expect(runOf(cleared.db, id).status).toBe('completed');
@@ -192,7 +193,7 @@ describe('runner guards', () => {
     const runner = new Runner(db, memoryStore(), model());
     await runner.drain();
     expect(runOf(db, runId).limits).toEqual({ maxInputTokens: 1, hit: 'input' });
-    runner.resume(runId, { maxInputTokens: null });
+    continueRun(db, runId, { limits: { maxInputTokens: null } });
     await runner.drain();
     expect(runOf(db, runId)).toMatchObject({ status: 'completed', limits: null });
   });
@@ -235,21 +236,39 @@ describe('runner guards', () => {
     const { db, start } = setup(2, () => 2);
     const broken = start();
     const healthy = start();
-    // A definition the runner cannot read stands in for any error inside one run's tick.
-    db.update(s.runs).set({ definition: {} as never }).where(eq(s.runs.id, broken)).run();
+    // A line's stored state that cannot be read stands in for any error inside one run's tick.
+    db.$client.prepare("update run_items set visits = 'not json' where run_id = ?").run(broken);
     await new Runner(db, memoryStore(), model()).drain();
     expect(runOf(db, broken)).toMatchObject({ status: 'paused' });
     expect(runOf(db, broken).notice).toContain('실행기 오류');
     expect(runOf(db, healthy).status).toBe('completed');
   });
+
+  it('pauses a run whose stored definition the schema refuses, saying so, instead of running it as stored', async () => {
+    const { db, start } = setup(2, () => 2);
+    const broken = start();
+    const healthy = start();
+    db.$client.prepare('update runs set definition = ? where id = ?').run(JSON.stringify({ nodes: [{ id: 'x', type: 'no such node' }], edges: [] }), broken);
+    const fake = model();
+    await new Runner(db, memoryStore(), fake).drain();
+    expect(runOf(db, broken)).toMatchObject({ status: 'paused' });
+    expect(runOf(db, broken).notice).toContain('정의를 읽을 수 없어');
+    expect(db.select().from(s.runItems).where(eq(s.runItems.runId, broken)).all().every((item) => item.state === 'queued')).toBe(true);
+    expect(runOf(db, healthy).status).toBe('completed');
+  });
 });
 
 describe('incomplete answers', () => {
-  it('names a failure by what went wrong', () => {
-    expect(errorKindOf(new ai.ModelError('invalid-output', 'bad JSON', false))).toBe('invalid-output');
-    expect(errorKindOf(new ai.ModelError('cli', 'Your previous response was cut off because it exceeded the output token limit', false))).toBe('cut-off');
-    expect(errorKindOf(new ai.ModelError('cli', '모델이 응답을 거절했습니다.', false))).toBe('refused');
-    expect(errorKindOf(new Error('boom'))).toBe('other');
+  it('names a failure by what the connection says went wrong, never by the words of its message', () => {
+    expect(errorKindOfCode(new ai.ModelError('invalid-output', 'bad JSON', false).code)).toBe('invalid-output');
+    expect(errorKindOfCode(new ai.ModelError('cut-off', '응답이 길이 제한에 걸려 잘렸습니다.', false).code)).toBe('cut-off');
+    expect(errorKindOfCode(new ai.ModelError('refused', '모델이 응답을 거절했습니다.', false).code)).toBe('refused');
+    // A CLI failure that merely mentions a refusal or a cut-off is neither.
+    expect(errorKindOfCode(new ai.ModelError('cli', 'CLI가 실패했습니다: connection refused', false).code)).toBe('other');
+    expect(errorKindOfCode(new ai.ModelError('invalid-output', '응답이 길이 제한(max_tokens)에 걸렸다고 적힌 형식 오류', false).code)).toBe('invalid-output');
+    expect(errorKindOfCode((new Error('boom') as { code?: string }).code)).toBe('other');
+    // Every code has a kind: none falls through by accident.
+    expect(Object.keys(MODEL_ERROR_KINDS).sort()).toEqual([...MODEL_ERROR_CODES].sort());
   });
 
   it('sends lines an answer left out through "error" (missing); the template asks again for just those', async () => {
@@ -484,21 +503,5 @@ describe('sharing and branching', () => {
     expect(items).toHaveLength(12);
     expect(items.filter((item) => item.nodeId === 'side-end' && item.state === 'done')).toHaveLength(6);
     expect(runOf(db, runId).status).toBe('completed');
-  });
-});
-
-describe('creating a large run', () => {
-  it('stores the lines in steps, waits paused meanwhile, and starts once all are in', async () => {
-    const { db, workflow } = setup(5, () => 1_000);
-    const pending = createRunInSteps(db, { projectId: workflow.projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: {} });
-    // Before the first step yields, the run exists paused and cannot be resumed early.
-    const early = db.select().from(s.runs).all()[0];
-    expect(early).toMatchObject({ status: 'paused', notice: expect.stringContaining('넣는 중') });
-    new Runner(db, memoryStore(), model()).resume(early.id);
-    expect(runOf(db, early.id).status).toBe('paused');
-    const { runId, total } = await pending;
-    expect(total).toBe(5_000);
-    expect(db.select().from(s.runItems).where(eq(s.runItems.runId, runId)).all()).toHaveLength(5_000);
-    expect(runOf(db, runId)).toMatchObject({ status: 'running', notice: null });
   });
 });

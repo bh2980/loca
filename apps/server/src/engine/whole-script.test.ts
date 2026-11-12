@@ -147,7 +147,7 @@ describe('a node reading the script whole', () => {
     const runner = new Runner(db, memoryStore(), {
       ...port(() => answer),
       generate: async () => {
-        throw new ModelError('cli', 'CLI가 실패를 반환했습니다: Your previous response was cut off because it exceeded the output token limit', false);
+        throw new ModelError('cut-off', '응답이 모델의 출력 한도에 걸려 잘렸습니다.', false);
       },
     });
     const { runId } = run(db, projectId, wholeFlow(choice, peopleNode));

@@ -16,7 +16,7 @@ import type { Env } from '../context.ts';
 import { workflowRoutes } from '../routes/workflows.ts';
 import { issueTagIds } from '../services/issue-tags.ts';
 
-const CUT_OFF = () => new ai.ModelError('cli', 'Your previous response was cut off because it exceeded the output token limit', false);
+const CUT_OFF = () => new ai.ModelError('cut-off', '응답이 길이 제한에 걸려 잘렸습니다.', false);
 
 /**
  * One scene of `lines` lines run through the translate/review template (whose AI nodes follow the workflow's

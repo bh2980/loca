@@ -33,7 +33,7 @@ export async function openaiGenerate<T>(route: ResolvedRoute, request: GenerateR
       maxOutputTokens: request.maxOutputTokens,
       temperature: request.temperature,
       providerOptions: openaiProviderOptions(route),
-      maxRetries: 0, // retries are the workflow's business (a 재요청 node)
+      maxRetries: 0, // retries are the workflow's business (an AI node's retry rules)
       abortSignal: request.signal ? AbortSignal.any([request.signal, AbortSignal.timeout(request.timeoutMs)]) : AbortSignal.timeout(request.timeoutMs),
     });
     return {

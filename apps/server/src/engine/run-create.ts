@@ -1,19 +1,21 @@
 import { and, count, eq, inArray, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
-import { batchConfigSchema, decidedBy, isWholeScriptWorkflow, matchesMarks, termMarksOf, withDuplicateTargets, workflowInput, type AiNode, type RunScope, type WorkflowDefinition } from '@tw/shared';
+import { decidedBy, isWholeScriptWorkflow, matchesMarks, termMarksOf, withDuplicateTargets, workflowInput, type AiNode, type RunLimits, type RunScope, type WorkflowDefinition } from '@tw/shared';
 import { tagsOf } from '../services/knowledge-tags.ts';
 import { fillTermUsage } from '../services/term-usage.ts';
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import type { ItemData } from '../db/schema.ts';
+import { tokensSql } from '../db/tokens.ts';
 import { events } from '../events.ts';
 import { lineConditions } from '../services/line-filter.ts';
 import { excludedSql, translatableSql } from '../services/line-marks.ts';
 import { resolveBudgets } from '../services/budgets.ts';
 import { snapshotWorkflowModels } from '../services/routes.ts';
 import { expandedDefinition } from './expand-calls.ts';
-import { planBatches } from './batches.ts';
+import { packGroups, planBatches, subjectBatch } from './batches.ts';
+import { TERM_GROUP, TERM_ORDER, termTokens } from './subjects.ts';
 
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 
@@ -85,12 +87,28 @@ export function sceneLinks(db: Db | Tx, lines: { groupId: string }[]) {
  * the wanted ones (ids in chunks of 5,000 took 140 ms for 50k lines); a small run reads by id.
  */
 export function planLines(db: Db | Tx, unitIds: string[]) {
-  const columns = { id: s.units.id, groupId: s.units.groupId, seq: s.units.seq, kind: s.units.kind, speaker: s.units.speaker, tokens: sql<number>`(length(cast(${s.units.source} as blob)) + 3) / 4` };
+  const columns = { id: s.units.id, groupId: s.units.groupId, seq: s.units.seq, kind: s.units.kind, speaker: s.units.speaker, tokens: tokensSql(s.units.source) };
   if (unitIds.length < 2_000) return inChunks(unitIds, (ids) => db.select(columns).from(s.units).where(inArray(s.units.id, ids)).all());
   const projectId = db.select({ projectId: s.units.projectId }).from(s.units).where(eq(s.units.id, unitIds[0])).get()?.projectId;
   if (!projectId) return [];
   const wanted = new Set(unitIds);
   return db.select(columns).from(s.units).where(eq(s.units.projectId, projectId)).all().filter((line) => wanted.has(line.id));
+}
+
+/** The first AI node a line reaches from the entry: the run plan is made with its batch settings. */
+function firstAiNode(definition: WorkflowDefinition): AiNode | undefined {
+  const entry = definition.nodes.find((node) => node.type === 'entry');
+  const seen = new Set<string>();
+  const queue = entry ? [entry.id] : [];
+  while (queue.length) {
+    const id = queue.shift()!;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const node = definition.nodes.find((candidate) => candidate.id === id);
+    if (node?.type === 'ai') return node;
+    for (const edge of definition.edges) if (edge.source === id) queue.push(edge.target);
+  }
+  return undefined;
 }
 
 /**
@@ -99,27 +117,50 @@ export function planLines(db: Db | Tx, unitIds: string[]) {
  * order, scenes kept whole, dialogue apart from documents and UI, unrelated scenes not mixed.
  * Every node then moves lines by these batches, so a scene that was translated together is
  * reviewed together. Returns unit id → batch number; empty when the workflow has no AI node.
+ * `lines`: the units as planLines reads them, when the caller has them already.
  */
-export function planRun(db: Db | Tx, definition: WorkflowDefinition, unitIds: string[]) {
-  const entry = definition.nodes.find((node) => node.type === 'entry');
-  const seen = new Set<string>();
-  const queue = entry ? [entry.id] : [];
-  let first: AiNode | undefined;
-  while (queue.length && !first) {
-    const id = queue.shift()!;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    const node = definition.nodes.find((candidate) => candidate.id === id);
-    if (node?.type === 'ai') first = node;
-    else for (const edge of definition.edges) if (edge.source === id) queue.push(edge.target);
-  }
+export function planRun(db: Db | Tx, definition: WorkflowDefinition, unitIds: string[], lines = planLines(db, unitIds)) {
+  const first = firstAiNode(definition);
   if (!first) return new Map<string, number>();
-  const lines = planLines(db, unitIds);
-  const batches = planBatches(lines, batchConfigSchema.parse(first.config.batch ?? {}), sceneLinks(db, lines));
+  const batches = planBatches(lines, first.config.batch, sceneLinks(db, lines));
   return new Map(batches.flatMap((batch, index) => batch.map((line) => [line.id, index] as const)));
 }
 
-type RunInput = { projectId: string; workflow: typeof s.workflows.$inferSelect; models: Record<string, s.AiSnapshot>; scope: RunScope; limits?: s.RunLimits; /** The conversation it starts from: hears its end. */ sessionId?: string | null };
+/**
+ * A plan's batches as every node meets them: the lines in script order, grouped by their plan batch.
+ * The runner groups the lines waiting at a node the same way before it packs them (packGroups).
+ */
+export const planGroups = <T extends { id: string; seq: number }>(lines: T[], plan: Map<string, number>): T[][] => [
+  ...Map.groupBy(lines.filter((line) => plan.has(line.id)).sort((a, b) => a.seq - b.seq), (line) => plan.get(line.id)!).values(),
+];
+
+/**
+ * The request a run of the whole script would put `subjectId` (a line, or a term) in at `node`: the ids of
+ * that request's items, in request order. The run's own steps, not a copy of them: the lines such a run
+ * takes (번역 제외 left out), its plan (planRun: the first AI node's batch settings, scenes linked in the
+ * dialogue graph kept together) and the node's packing of that plan (packGroups). Terms have no plan; the
+ * runner batches them as they wait, most used first. `definition` is a run's: calls expanded, budgets fixed.
+ * Null when such a run would not take the item. A run with a narrower scope, or one whose lines reach the
+ * node at different times, can pack differently.
+ */
+export function batchOf(db: Db, projectId: string, definition: WorkflowDefinition, node: AiNode, subjectId: string): string[] | null {
+  const subject = workflowInput(definition);
+  const config = subjectBatch(subject, node);
+  if (subject === 'terms') {
+    const taken = new Set(selectRunTerms(db, projectId, {}));
+    if (!taken.has(subjectId)) return null;
+    const waiting = db.select({ id: s.terms.id, source: s.terms.source }).from(s.terms).where(eq(s.terms.projectId, projectId)).orderBy(...TERM_ORDER).all().filter((term) => taken.has(term.id)).map((term, seq) => ({ id: term.id, groupId: TERM_GROUP, seq, kind: 'term', tokens: termTokens(term.source) }));
+    return planBatches(waiting, config).find((request) => request.some((term) => term.id === subjectId))?.map((term) => term.id) ?? null;
+  }
+  const unitIds = selectRunUnits(db, projectId, {});
+  if (!unitIds.includes(subjectId)) return null;
+  const lines = planLines(db, unitIds);
+  const plan = planRun(db, definition, unitIds, lines);
+  const requests = packGroups(planGroups(lines, plan), config);
+  return requests.find((request) => request.some((line) => line.id === subjectId))?.map((line) => line.id) ?? [subjectId];
+}
+
+type RunInput = { projectId: string; workflow: typeof s.workflows.$inferSelect; models: Record<string, s.AiSnapshot>; scope: RunScope; limits?: RunLimits; /** The conversation it starts from: hears its end. */ sessionId?: string | null };
 
 /** The project's tags that the definition's exit actions name. */
 function exitTags(db: Db, projectId: string, definition: WorkflowDefinition): s.RunTag[] {
@@ -176,41 +217,62 @@ export function createRun(db: Db, input: RunInput) {
 
 export const WHOLE_SCRIPT_BUSY = '대본 전체를 읽는 실행이 이미 진행 중입니다.';
 
-/** A run still filling its lines counts as running. */
-export const runActive = (run: { status: string; notice: string | null }) => run.status === 'running' || (run.status === 'paused' && run.notice === FILLING);
+/** The statuses of a run that is going: one still being stored (preparing) counts like one that runs. */
+export const ACTIVE_RUN_STATUSES = ['preparing', 'running'] as const satisfies readonly s.RunStatus[];
 
 /**
  * One whole-script run at a time per project, whoever starts it (run dialog, chat). `exceptRunId`:
  * the run being continued or resumed, which may go on itself.
  */
 export function refuseSecondWholeScript(db: Db, projectId: string, exceptRunId?: string) {
-  const runs = db.select({ id: s.runs.id, status: s.runs.status, notice: s.runs.notice, definition: s.runs.definition }).from(s.runs).where(and(eq(s.runs.projectId, projectId), inArray(s.runs.status, ['running', 'paused']))).all();
-  if (runs.some((run) => run.id !== exceptRunId && runActive(run) && isWholeScriptWorkflow(run.definition))) throw new Error(WHOLE_SCRIPT_BUSY);
+  const runs = db.select({ id: s.runs.id, definition: s.runs.definition }).from(s.runs).where(and(eq(s.runs.projectId, projectId), inArray(s.runs.status, ACTIVE_RUN_STATUSES))).all();
+  if (runs.some((run) => run.id !== exceptRunId && isWholeScriptWorkflow(run.definition))) throw new Error(WHOLE_SCRIPT_BUSY);
 }
 
 /** Lines stored per step when a run is created from the app or a chat. */
 const FILL_STEP = 2_000;
-export const FILLING = '대사를 넣는 중입니다.';
 
 /**
  * createRun for the app and chats: a 50k-line run is stored FILL_STEP lines at a time with the
  * event loop handed back in between (one transaction took about a second, holding up every
- * request). The run waits paused, saying so, until all its lines are in.
+ * request). The run is `preparing` until all its lines are in; cancelled meanwhile, it stops storing.
  */
 export async function createRunInSteps(db: Db, input: RunInput) {
   // Checked and inserted with no await in between, so two starts at once cannot both pass.
   if (isWholeScriptWorkflow(expandedDefinition(db, input.projectId, input.workflow.definition, input.workflow.id))) refuseSecondWholeScript(db, input.projectId);
   const { run, items } = runRows(db, input);
-  db.insert(s.runs).values({ ...run, status: 'paused', notice: FILLING }).run();
+  db.insert(s.runs).values({ ...run, status: 'preparing' }).run();
   events.changed(input.projectId, 'runs');
+  const preparing = and(eq(s.runs.id, run.id), eq(s.runs.status, 'preparing'));
   for (let start = 0; start < items.length; start += FILL_STEP) {
     await new Promise((resolve) => setImmediate(resolve));
-    db.transaction((tx) => {
+    const stored = db.transaction((tx) => {
+      if (!tx.select({ id: s.runs.id }).from(s.runs).where(preparing).get()) return false;
       const part = items.slice(start, start + FILL_STEP);
       for (let index = 0; index < part.length; index += 400) tx.insert(s.runItems).values(part.slice(index, index + 400)).run();
+      return true;
     });
+    if (!stored) break;
   }
-  db.update(s.runs).set({ status: 'running', notice: null }).where(and(eq(s.runs.id, run.id), eq(s.runs.status, 'paused'), eq(s.runs.notice, FILLING))).run();
+  db.update(s.runs).set({ status: 'running' }).where(preparing).run();
   events.changed(input.projectId, 'runs');
   return { runId: run.id, total: run.total };
+}
+
+export const UNPREPARED = '서버가 멈춰서 실행을 준비하다 말았습니다(대사를 다 넣지 못함). 새로 실행하세요.';
+
+/**
+ * Runs a server left `preparing` when it stopped: nothing will store the rest of their lines, so they can
+ * never start. At startup they are closed (cancelled, with their lines), saying what happened.
+ */
+export function closeUnpreparedRuns(db: Db) {
+  const left = db.select({ id: s.runs.id, projectId: s.runs.projectId }).from(s.runs).where(eq(s.runs.status, 'preparing')).all();
+  for (const run of left) {
+    db.transaction((tx) => {
+      tx.update(s.runs).set({ status: 'cancelled', notice: UNPREPARED, finishedAt: new Date() }).where(eq(s.runs.id, run.id)).run();
+      tx.update(s.runItems).set({ state: 'cancelled' }).where(and(eq(s.runItems.runId, run.id), inArray(s.runItems.state, ['queued', 'running']))).run();
+    });
+    events.changed(run.projectId, 'runs');
+  }
+  return left.length;
 }

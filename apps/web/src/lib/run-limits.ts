@@ -1,11 +1,13 @@
+import type { RunCaps } from '@tw/shared';
+
 /** A run's caps as the run dialog and the run page's "상한 늘려 재개" form edit them. */
 export interface Caps {
   maxCalls?: number;
   maxInputTokens?: number;
 }
 
-/** What a field edited so far holds: absent = follow `suggested`, null = cleared by the person. */
-export type CapEdits = { maxCalls?: number | null; maxInputTokens?: number | null };
+/** What a field edited so far holds: absent = follow `suggested`, null = cleared by the person. The caps as the server takes them (runCapsSchema). */
+export type CapEdits = RunCaps;
 
 /**
  * What a new run asks for: only the fields the person changed (null = cleared). The server fills in the suggestion for the

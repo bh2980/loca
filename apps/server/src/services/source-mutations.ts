@@ -7,7 +7,6 @@ import * as s from '../db/schema.ts';
 import { inList } from '../db/chunk.ts';
 import { badRequest, found } from '../http-errors.ts';
 import { events } from '../events.ts';
-import { FILLING } from '../engine/run-create.ts';
 import { computeLayouts, cancelViewLayouts } from './layout.ts';
 import { forgetProjectContext } from './context.ts';
 import { namedListener } from './listeners.ts';
@@ -24,13 +23,12 @@ function uniqueKey(db: Reader, projectId: string, table: typeof s.units | typeof
   if (row && row.id !== except) badRequest(`이미 사용 중인 키입니다: ${key}`);
 }
 
-/** Active and paused jobs must keep their input stable, including analysis plans not yet filled. */
+/** Active and paused jobs must keep their input stable; a run still storing its lines (preparing) may yet take any of them. */
 export function refuseBusy(db: Reader, projectId: string, ids: string[]) {
   if (!ids.length) return;
   const busy = db.get<{ n: number }>(sql`select count(*) n from ${s.runs} r where r.project_id = ${projectId}
-    and r.status in ('running', 'paused') and (
-      exists (select 1 from ${s.runItems} i where i.run_id = r.id and i.subject_id in (select value from json_each(${JSON.stringify(ids)})))
-      or r.notice = ${FILLING})`);
+    and (r.status = 'preparing' or (r.status in ('running', 'paused')
+      and exists (select 1 from ${s.runItems} i where i.run_id = r.id and i.subject_id in (select value from json_each(${JSON.stringify(ids)})))))`);
   if (busy?.n) badRequest('실행 중이거나 일시 정지된 워크플로에서 사용하는 원문입니다. 실행을 종료한 뒤 변경하거나 삭제하세요.');
 }
 

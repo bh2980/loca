@@ -1,9 +1,9 @@
-import { agentToolAvailable, glossaryMatcher, LISTENER_MIN_CONFIDENCE, CHECK_KINDS, runScopeInputSchema, TERM_MARK_IDS, type CheckKind, type ToolName } from '@tw/shared';
+import { agentToolAvailable, glossaryMatcher, LISTENER_MIN_CONFIDENCE, CHECK_KINDS, runCapsSchema, runScopeInputSchema, TERM_MARK_IDS, type CheckKind, type ToolName } from '@tw/shared';
 import { checkAgentPermission, projectAgentSettings } from './agent-permission-check.ts';
 import { HTTPException } from 'hono/http-exception';
 import { and, asc, count, desc, eq, inArray, isNull, like, ne, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { APPLY_TARGETS, INPUT_TYPES, isWholeScriptWorkflow, nodeName, workflowInput, AI_OUTPUTS, DEFAULT_TAG_COLOR, AI_PRESETS, AI_PRESET_IDS, type AiPresetId, aiNodeConfigSchema, KNOWLEDGE_TAG_KINDS, patchOf, TAG_SCOPES, withRunModels, AUTO_MARKS, batchChangeSchema, CONDITION_MARK_IDS, CONNECTION_KIND_INFO, ITEM_ERROR_KIND_IDS, createGroupSchema, createUnitSchema, findReadingRouteInputSchema, FUNCTIONS, LINE_MARK_IDS, lineFilterSchema, lineMarksSchema, NODE_TYPES, sourceOf, updateGroupSchema, updateUnitSchema, workflowDefinitionSchema, functionTakes } from '@tw/shared';
+import { APPLY_TARGETS, INPUT_TYPES, nodeName, workflowInput, AI_OUTPUTS, DEFAULT_TAG_COLOR, AI_PRESETS, AI_PRESET_IDS, type AiPresetId, aiNodeConfigSchema, KNOWLEDGE_TAG_KINDS, patchOf, TAG_SCOPES, withRunModels, AUTO_MARKS, batchChangeSchema, CONDITION_MARK_IDS, CONNECTION_KIND_INFO, ITEM_ERROR_KIND_IDS, createGroupSchema, createUnitSchema, findReadingRouteInputSchema, FUNCTIONS, LINE_MARK_IDS, lineFilterSchema, lineMarksSchema, NODE_TYPES, sourceOf, updateGroupSchema, updateUnitSchema, workflowDefinitionSchema, functionTakes } from '@tw/shared';
 import { z as zod } from 'zod';
 import type { Db } from '../db/index.ts';
 import { byPerson } from './status-by.ts';
@@ -20,10 +20,8 @@ import { createStatus, createTag, deleteStatuses, deleteTags, orderStatuses, ord
 import { deleteWorkflow, saveWorkflow, WorkflowMutationError } from './workflow-mutations.ts';
 import { createGroup, createUnit, deleteGroup, updateGroup, updateUnit } from './source-mutations.ts';
 import { mentions } from './context.ts';
-import { FILLING, refuseSecondWholeScript } from '../engine/run-create.ts';
-import { startCheckedRun } from './start-run.ts';
-import { continueRun, resumeRun } from '../engine/runner.ts';
-import { switchedRun } from './run-continue.ts';
+import { startRun } from './start-run.ts';
+import { continueRun } from './run-continue.ts';
 import { groupRunErrors, runErrors } from './run-errors.ts';
 import { readWebPage, webSearch } from './web.ts';
 import { deleteItems, DELETABLE_KINDS } from './item-delete.ts';
@@ -42,7 +40,7 @@ import { annotateKnowledge, knowledgeFilterInput } from './knowledge-list.ts';
 import { findTerm, termUsage } from './term-usage.ts';
 import { tagOverview } from './tag-overview.ts';
 import { setKnowledgeTag } from './knowledge-tags.ts';
-import { planRun, resolveRunModels, resolveStartRun, runModelInput } from './run-plan.ts';
+import { planRun, runModelInput } from './run-plan.ts';
 import { applyBatch, checkScript, findLines, lineContext, normalizeBatch, runStats, sceneStats, scenesWith, validateBatch } from './script-query.ts';
 import { addCandidate, declineSuggestion } from './candidates.ts';
 import { saveLine } from './line-save.ts';
@@ -550,7 +548,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         const from = (nodeId: string) => [...new Set(run.definition.edges.filter((edge) => edge.target === nodeId).map((edge) => label(edge.source)))].join('·');
         const ends = endRows.map((row) => (named.indexOf(row.node) !== named.lastIndexOf(row.node) && from(row.nodeId) ? { ...row, node: `${row.node} (${from(row.nodeId)} 다음)` } : row));
         // Reading every item's path is work: a running run (polled while an agent waits) gets it once it stops.
-        const failedOrErrored = run.status === 'running' && !errored ? [] : runErrors(db, run);
+        const failedOrErrored = (run.status === 'running' || run.status === 'preparing') && !errored ? [] : runErrors(db, run);
         const errors = groupRunErrors(failedOrErrored);
         const erroredItems = errored ? failedOrErrored.map(({ unitId, key }) => ({ unitId, key })) : undefined;
         const { definition: _definition, ...shown } = run;
@@ -560,7 +558,6 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
           : db.select({ unitId: s.runItems.subjectId, key: s.units.key, nodeId: s.runItems.nodeId, error: s.runItems.error }).from(s.runItems).leftJoin(s.units, eq(s.units.id, s.runItems.subjectId)).where(failed).orderBy(asc(s.units.seq)).limit(20).all();
         return {
           ...shown,
-          filling: run.notice === FILLING,
           ends,
           errors,
           ...(erroredItems && { errored: erroredItems }),
@@ -761,24 +758,15 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         workflowId: z.string(),
         changeHuman: z.boolean().optional().describe('Also change a status a person set and take off tags a person put on. Without it the run leaves what a person decided and notes it in the run detail.'),
         models: runModelInput.optional().describe(MODELS_HELP),
-        limits: z
-          .object({ maxCalls: z.number().int().min(1).nullable().optional(), maxInputTokens: z.number().int().min(1).nullable().optional() })
+        limits: runCapsSchema
           .optional()
           .describe('Caps past which the run pauses, as in the run dialog. Left out: the suggested caps plan_run reports (expected requests and input ×1.3 plus room for retries). A number sets one; null runs without it. Change them only when the user asks.'),
       }),
       check: (input) => checkStartRun(db, projectId, input),
       undo: noUndo('실행 기록은 되돌릴 수 없습니다'),
-      execute: async ({ limits, ...input }) => {
-        const resolved = resolveStartRun(db, projectId, input);
-        if (!resolved.ok) return resolved;
-        const { workflow, scope } = resolved;
-        try {
-          const run = await startCheckedRun(db, workflow, { scope, limits, sessionId: author.sessionId });
-          return { ok: true, ...run, workflow: workflow.name, ...(author.sessionId && { note: RUN_APART_NOTE }) };
-        } catch (error) {
-          // e.g. a whole-script run is already running (the same guard as the run dialog).
-          return { ok: false, error: error instanceof Error ? error.message : String(error) };
-        }
+      execute: async ({ workflowId, models, limits, ...asked }) => {
+        const started = await startRun(db, { workflowId, projectId, scope: { asked }, namedModels: models, limits, sessionId: author.sessionId });
+        return started.ok ? { ...started, ...(author.sessionId && { note: RUN_APART_NOTE }) } : started;
       },
     }),
     discover_terms: tool({
@@ -794,37 +782,16 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         runId: z.string(),
         retryFailed: z.boolean().default(false),
         models: runModelInput.optional().describe(MODELS_HELP),
-        limits: z.object({ maxCalls: z.number().int().min(1).nullable().optional(), maxInputTokens: z.number().int().min(1).nullable().optional() }).optional(),
+        limits: runCapsSchema.optional(),
       }),
       check: needsRow(db, projectId, s.runs, 'runId', '실행'),
       undo: noUndo('실행 기록은 되돌릴 수 없습니다'),
-      execute: async ({ runId, retryFailed, models, limits }) => {
-        const run = db.select().from(s.runs).where(and(eq(s.runs.id, runId), eq(s.runs.projectId, projectId))).get();
-        if (!run) return { ok: false, error: '실행을 찾을 수 없습니다.' };
-        try {
-          if (isWholeScriptWorkflow(run.definition)) refuseSecondWholeScript(db, projectId, run.id);
-        } catch (error) {
-          return { ok: false, error: error instanceof Error ? error.message : String(error) };
-        }
-        // Node ids of the run's own definition (calls already expanded), as the run page's 다른 모델로 takes them.
-        const picked = resolveRunModels(db, projectId, run.definition, models);
-        if (picked.unknown.length) return { ok: false, error: `찾지 못함: ${picked.unknown.join(', ')}` };
+      execute: ({ runId, retryFailed, models, limits }) => {
         // From here on its end is reported to the conversation that went on with it.
-        const note = author.sessionId ? { note: RUN_APART_NOTE } : {};
-        const adopt = () => void (author.sessionId && db.update(s.runs).set({ sessionId: author.sessionId }).where(eq(s.runs.id, run.id)).run());
-        if (run.status === 'paused' && !retryFailed && !Object.keys(picked.models).length) {
-          if (!resumeRun(db, run.id, limits)) return { ok: false, error: '이어서 할 수 없는 실행입니다 (대사를 넣는 중이거나 이미 진행 중).' };
-          adopt();
-          events.changed(projectId, 'runs');
-          return { ok: true, runId: run.id, resumed: true, ...note };
-        }
-        const switched = switchedRun(db, run, picked.models);
-        if (!switched.ok) return switched;
-        const result = continueRun(db, run.id, { definition: switched.definition, models: switched.models, changes: switched.changes, retryFailed }, limits);
+        const result = continueRun(db, runId, { projectId, namedModels: models, retryFailed, limits, sessionId: author.sessionId });
         if (!result.ok) return result;
-        adopt();
-        events.changed(projectId, 'runs');
-        return { ok: true, runId: run.id, retried: result.retried, changes: switched.changes, ...note };
+        const note = author.sessionId ? { note: RUN_APART_NOTE } : {};
+        return result.resumed ? { ok: true, runId, resumed: true, ...note } : { ok: true, runId, retried: result.retried, changes: result.changes, ...note };
       },
     }),
     propose_changes: tool({

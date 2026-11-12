@@ -176,7 +176,8 @@ export const modelTestRoutes = new Hono<Env>()
       const judge = connection.kind === 'systemone';
       const live = liveChoice(db, choice, secrets, judge ? 'judge' : 'generate');
       const call = { projectId: null, kind: 'test' as const, refId: connection.id, label: `모델 시험 · ${choiceLabel(connection.name, choice)}` };
-      const { result, route } = await ai.callOnce(live.route, (route) =>
+      const { route } = live;
+      const result = await ai.callOnce(() =>
         logged(db, call, route, () => route.kind === 'systemone'
           ? ai.judge(route, { state: { source }, instructions: 'Is this text well-formed?', timeoutMs: CALL_TIMEOUT_MS.connectionTest }).then((judged) => ({ text: judged.passed ? 'pass' : 'fail', usage: judged.usage }))
           : ai

@@ -5,7 +5,6 @@ import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from './importer.ts';
 import { createGroup, updateGroup, deleteGroup, createUnit, updateUnit, deleteUnits } from './source-mutations.ts';
-import { FILLING } from '../engine/run-create.ts';
 vi.mock('./layout.ts', () => ({ computeLayouts: vi.fn(async () => {}), cancelViewLayouts: vi.fn() }));
 
 const databases: ReturnType<typeof openDatabase>[] = [];
@@ -89,7 +88,7 @@ describe('source resource CRUD', () => {
 
   it('refuses mutations while a run is still filling its source scope', () => {
     const { db, projectId, group, units } = setup();
-    db.insert(s.runs).values({ projectId, workflowName: 'Preparing', workflowVersion: 1, total: 2, definition: { nodes: [], edges: [] } as never, scope: {} as never, status: 'paused', notice: FILLING }).run();
+    db.insert(s.runs).values({ projectId, workflowName: 'Preparing', workflowVersion: 1, total: 2, definition: { nodes: [], edges: [] } as never, scope: {} as never, status: 'preparing' }).run();
     expect(() => updateUnit(db, projectId, units[0]!.id, { source: 'Race' })).toThrow('실행 중');
     expect(() => deleteGroup(db, projectId, group.id)).toThrow('실행 중');
     expect(db.select().from(s.units).all()).toHaveLength(2);

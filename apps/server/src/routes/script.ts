@@ -8,7 +8,7 @@ import { proposeChange, undoChanges } from '../services/change-gate.ts';
 import { resultCheck, resultFile, resultPlan } from '../services/results.ts';
 import { runErrors } from '../services/run-errors.ts';
 import { agentCatalog, jsonSchemaOf } from '../services/agent-catalog.ts';
-import { previewContext } from '../services/context-preview.ts';
+import { previewContext } from '../services/request-preview.ts';
 import { checkBatch, refusalText } from '../services/proposal-check.ts';
 import { callTool, describeTool } from '../services/tool-run.ts';
 import { viewFlow } from '../services/view-flow.ts';

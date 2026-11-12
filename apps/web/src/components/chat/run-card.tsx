@@ -10,7 +10,7 @@ import { keyLabel } from '@/lib/keys';
 import { AttachChip } from './attach-chip';
 import { useRuns } from '@/lib/runs';
 
-const STATUS = { running: '진행 중', paused: '일시중지', cancelled: '취소됨', completed: '완료' } as const;
+const STATUS = { preparing: '준비 중', running: '진행 중', paused: '일시중지', cancelled: '취소됨', completed: '완료' } as const;
 
 /** What the keyboard does to the card that waits for an answer (Enter in the empty box runs it, Esc cancels). */
 export interface RunCardControls {

@@ -609,8 +609,8 @@ program
 
 program
   .command('context <키>')
-  .description('AI 노드가 이 대사를 번역할 때 보낼 문맥: 앞 대사(갈래별), 넣은 것과 이유, 상한 때문에 뺀 것. 모델은 부르지 않습니다')
-  .option('-n, --node <id>', 'AI 노드 id (없으면 번역 후보를 만드는 첫 노드)')
+  .description('AI 노드가 이 대사를 번역할 때 보낼 문맥: 앞 대사(갈래별), 넣은 것과 이유, 상한 때문에 뺀 것. 대본 전체 실행에서 이 대사가 들어갈 요청을 실행과 같은 코드로 만듭니다(모델은 부르지 않음). 앞 노드 결과를 읽는 노드는 실행 기록에서만 볼 수 있습니다')
+  .option('-n, --node <id>', '대사 워크플로의 AI 노드 id (없으면 번역 후보를 만드는 첫 노드)')
   .option('-w, --workflow <id>', '같은 노드 id가 여러 워크플로에 있을 때 워크플로 id')
   .option('--prompt', '실제 프롬프트 전체도 출력')
   .action(async (key: string, options: { workflow?: string; node?: string; prompt?: boolean }) => {
@@ -618,7 +618,9 @@ program
       api().projects[':projectId'].lines[':key']['ai-context'].$get({ param: { projectId: await projectId(), key }, query: { workflowId: options.workflow, nodeId: options.node } }),
     );
     if (globals().json) return print(data);
-    if (!data || !('batch' in data) || !data.picked) throw new CliError('AI 노드가 있는 워크플로가 없습니다.');
+    if (!data || !data.picked) throw new CliError('AI 노드가 있는 대사 워크플로가 없습니다.');
+    // What cannot be shown outside a run is said, not approximated (a node that reads an earlier node's result, a line no run takes).
+    if (!('batch' in data)) throw new CliError('unavailable' in data ? data.unavailable : '이 노드가 보낼 내용을 만들지 못했습니다.');
     const { workflowId, nodeId } = data.picked;
     const picked = data.choices.find((choice) => choice.workflowId === workflowId && choice.nodeId === nodeId)!;
     const others = data.choices.filter((choice) => choice !== picked);
@@ -948,11 +950,11 @@ runs
     if (data.failingNodes.length) console.log(`\n실패가 많은 노드:\n${data.failingNodes.map((node) => `  ${node.workflow} › ${node.node}: ${node.failedLines}줄`).join('\n')}`);
   });
 
-type RunView = { id: string; workflow: string; status: 'running' | 'paused' | 'cancelled' | 'completed'; notice: string | null; filling?: boolean; subject?: 'lines' | 'terms'; total: number; states: Partial<Record<'queued' | 'running' | 'done' | 'failed' | 'cancelled', number>>; nodes: { nodeId: string; state: string; count: number }[]; ends: { nodeId: string; node: string; count: number }[]; errors: { kind: string; nodeId: string; node: string; message: string; count: number }[]; failures: { key?: string | null; unitId?: string; nodeId?: string; error?: string | null }[]; errored?: { unitId: string; key: string | null }[] };
-const RUN_STATUS: Record<RunView['status'], string> = { running: '진행 중', paused: '일시정지', cancelled: '취소됨', completed: '끝남' };
+type RunView = { id: string; workflow: string; status: 'preparing' | 'running' | 'paused' | 'cancelled' | 'completed'; notice: string | null; subject?: 'lines' | 'terms'; total: number; states: Partial<Record<'queued' | 'running' | 'done' | 'failed' | 'cancelled', number>>; nodes: { nodeId: string; state: string; count: number }[]; ends: { nodeId: string; node: string; count: number }[]; errors: { kind: string; nodeId: string; node: string; message: string; count: number }[]; failures: { key?: string | null; unitId?: string; nodeId?: string; error?: string | null }[]; errored?: { unitId: string; key: string | null }[] };
+const RUN_STATUS: Record<RunView['status'], string> = { preparing: '준비 중', running: '진행 중', paused: '일시정지', cancelled: '취소됨', completed: '끝남' };
 const readRun = (id: string) => readTool('read_run', { runId: id });
-/** A run that stopped by itself or was finished; a run paused by a cap or failures counts as stopped too, one still being filled with lines does not. */
-const runSettled = (run: RunView) => run.status !== 'running' && !run.filling;
+/** A run that stopped by itself or was finished; a run paused by a cap or failures counts as stopped too, one whose lines are still being stored (preparing) does not. */
+const runSettled = (run: RunView) => run.status !== 'running' && run.status !== 'preparing';
 
 /** Where a run stands and what to do next. A run that did not finish cleanly fails the command. */
 async function printRun(run: RunView, options: { nodes?: boolean } = {}) {
@@ -970,9 +972,9 @@ async function printRun(run: RunView, options: { nodes?: boolean } = {}) {
   if (run.failures.length) console.log(`\n실패${(run.states.failed ?? 0) > run.failures.length ? ` (${run.failures.length}개만)` : ''}:\n${run.failures.map((failure) => `  ${failure.key ?? failure.unitId ?? ''} ${failure.nodeId ? `[${failure.nodeId}] ` : ''}${short(failure.error ?? '', 120)}`).join('\n')}`);
   const next = [
     run.states.failed && run.status !== 'cancelled' && `실패한 ${run.subject === 'terms' ? '용어' : '줄'} 다시: loca runs continue ${run.id} --retry-failed --wait`,
-    errored && run.status !== 'running' && `실패했거나 오류로 빠진 것만 새로 실행: loca runs start "${run.workflow}" --rerun-errors ${run.id} --wait (모델을 바꾸려면 --model)`,
+    errored && runSettled(run) && `실패했거나 오류로 빠진 것만 새로 실행: loca runs start "${run.workflow}" --rerun-errors ${run.id} --wait (모델을 바꾸려면 --model)`,
     run.status === 'paused' && `이어서: loca runs resume ${run.id} --wait`,
-    run.status === 'running' && `끝날 때까지: loca runs wait ${run.id}`,
+    !runSettled(run) && `끝날 때까지: loca runs wait ${run.id}`,
     run.status === 'completed' && run.subject !== 'terms' && '결과 점검: loca check terms · loca check format (범위는 -g/--key로)',
   ].filter(Boolean);
   if (next.length) console.log(`\n다음:\n${next.map((line) => `  ${line}`).join('\n')}`);

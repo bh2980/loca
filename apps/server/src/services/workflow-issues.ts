@@ -1,11 +1,14 @@
 import { and, eq } from 'drizzle-orm';
-import { runNodeName, validateWorkflow, workflowRefOf, type WorkflowDefinition } from '@tw/shared';
+import { runNodeName, validateWorkflow, workflowRefOf, type WorkflowDefinition, type WorkflowIssue } from '@tw/shared';
 import { expandedDefinition } from '../engine/expand-calls.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 
 /** A workflow's problems against this project's connections, statuses and tags (shown in the editor, refused at run start). */
 export function workflowIssues(db: Db, projectId: string, definition: WorkflowDefinition, workflowId?: string) {
+  // A stored definition the schema refused is read empty (schema.ts): its one problem is that, not what an empty workflow lacks.
+  const unreadable = s.definitionProblem(definition);
+  if (unreadable) return [{ level: 'error', message: `저장된 정의를 읽을 수 없습니다 (빈 워크플로로 열립니다): ${unreadable}` }] satisfies WorkflowIssue[];
   const ids = (rows: { id: string }[]) => new Set(rows.map((row) => row.id));
   return validateWorkflow(definition, {
     workflows: workflowRefsOf(db, projectId),

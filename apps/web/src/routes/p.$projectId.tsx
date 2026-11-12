@@ -225,10 +225,12 @@ function ProjectLayout() {
                                 <Text truncate>{run.workflowName}</Text>
                                 <Chip
                                   size="tight"
-                                  variant={run.status === 'running' || run.status === 'paused' || hasFail ? 'solid' : 'quiet'}
-                                  tone={run.status !== 'running' && (run.status === 'paused' || hasFail) ? 'danger' : undefined}
+                                  variant={run.status === 'preparing' || run.status === 'running' || run.status === 'paused' || hasFail ? 'solid' : 'quiet'}
+                                  tone={run.status !== 'running' && run.status !== 'preparing' && (run.status === 'paused' || hasFail) ? 'danger' : undefined}
                                 >
-                                  {run.status === 'running'
+                                  {run.status === 'preparing'
+                                    ? '준비 중'
+                                    : run.status === 'running'
                                     ? '실행 중'
                                     : run.status === 'paused'
                                       ? '일시정지'

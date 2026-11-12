@@ -71,7 +71,7 @@ function Home() {
   ]
     .sort((a, b) => b.at.getTime() - a.at.getTime())
     .slice(0, 5);
-  const active = recent.filter((item) => item.status === 'running');
+  const active = recent.filter((item) => item.status === 'running' || item.status === 'preparing');
 
   const todos: Todo[] = [
     {

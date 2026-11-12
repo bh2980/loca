@@ -5,7 +5,7 @@ import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
 import { snapshotWorkflowModels } from '../services/routes.ts';
-import { continuePreflight, switchedRun } from '../services/run-continue.ts';
+import { continuePreflight, continueRun, switchedRun } from '../services/run-continue.ts';
 import { memoryStore } from '../services/secrets.ts';
 import { promptEntries } from './prompts.ts';
 import { Runner, type ModelPort } from './runner.ts';
@@ -60,8 +60,8 @@ describe('continuing a run on other models (#41)', () => {
     const switched = switchedRun(db, run(), models);
     if (!switched.ok) throw new Error(switched.error);
     expect(switched.changes[0]).toMatchObject({ from: expect.stringContaining('bad'), to: expect.stringContaining('good') });
-    const result = runner.continue(runId, { ...switched, retryFailed: true });
-    expect(result).toMatchObject({ ok: true });
+    const result = continueRun(db, runId, { models, retryFailed: true });
+    expect(result).toMatchObject({ ok: true, resumed: false });
     await runner.drain();
 
     expect(run().status).toBe('completed');
@@ -76,13 +76,11 @@ describe('continuing a run on other models (#41)', () => {
   it('refuses a running or cancelled run and a connection that is gone', () => {
     const { db, a, runId, run } = setup();
     const runner = new Runner(db, memoryStore(), port);
-    const same = switchedRun(db, run(), {});
-    if (!same.ok) throw new Error(same.error);
-    expect(runner.continue(runId, { ...same, retryFailed: false })).toMatchObject({ ok: false, error: expect.stringContaining('일시정지') });
+    expect(continueRun(db, runId)).toMatchObject({ ok: false, error: expect.stringContaining('일시정지') });
     const ai = run().definition.nodes.find((node) => node.type === 'ai')!;
     expect(switchedRun(db, run(), { [ai.id]: { connectionId: 'gone', model: 'x' } })).toMatchObject({ ok: false });
     runner.cancel(runId);
-    expect(runner.continue(runId, { ...same, retryFailed: true })).toMatchObject({ ok: false, error: expect.stringContaining('취소') });
+    expect(continueRun(db, runId, { retryFailed: true })).toMatchObject({ ok: false, error: expect.stringContaining('취소') });
     expect(a).toBeTruthy();
   });
 });

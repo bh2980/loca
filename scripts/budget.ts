@@ -85,7 +85,7 @@ function mockPort(options: MockOptions): ModelPort {
         cachedInputTokens: out.usage.prompt_tokens_details?.cached_tokens ?? 0,
         outputTokens: out.usage.completion_tokens,
       };
-      if (out.finishReason === 'length') throw new ai.ModelError('invalid-output', 'mock output cut off', false, usage);
+      if (out.finishReason === 'length') throw new ai.ModelError('cut-off', 'mock output cut off', false, usage);
       let parsed: unknown;
       try {
         parsed = JSON.parse(out.content);

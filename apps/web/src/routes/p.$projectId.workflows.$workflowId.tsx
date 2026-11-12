@@ -169,7 +169,7 @@ function WorkflowEditor() {
   const connections = useConnections({ kind: 'project', projectId });
   const runs = useRuns(projectId);
   const workflows = useWorkflows(projectId);
-  const activeRun = runs.data?.find((run) => run.workflowId === workflowId && (run.status === 'running' || run.status === 'paused'));
+  const activeRun = runs.data?.find((run) => run.workflowId === workflowId && (run.status === 'preparing' || run.status === 'running' || run.status === 'paused'));
 
   // The draft survives navigation and reloads; it is dropped only on save or explicit discard.
   const [draft, setDraftState] = useState<Draft | null>(() => readDraft(workflowId));

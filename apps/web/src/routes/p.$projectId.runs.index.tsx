@@ -122,7 +122,8 @@ function Runs() {
             title: run.workflowName,
             sub: '',
             status: run.status,
-            error: run.status === 'paused' ? run.notice : null,
+            // Why it paused, or why it was closed before it could start.
+            error: run.status === 'paused' || run.status === 'cancelled' ? run.notice : null,
             progress: { done: (run.states.done ?? 0) + (run.states.failed ?? 0) + (run.states.cancelled ?? 0), total: run.total, unit: run.subject === 'terms' ? '개' : '줄' },
             stats: run.calls,
             at: new Date(run.createdAt),

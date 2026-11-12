@@ -316,6 +316,31 @@ export type ItemErrorKind = keyof typeof ITEM_ERROR_KINDS;
 export const ITEM_ERROR_KIND_IDS = Object.keys(ITEM_ERROR_KINDS) as ItemErrorKind[];
 
 /**
+ * What a failed model call was, as the connection layer (@tw/ai) names it where the provider or the CLI says
+ * so: a stop reason, a finish reason, an HTTP status. `cut-off`: the answer hit the model's output limit;
+ * `refused`: the model or its content filter declined to answer.
+ */
+export const MODEL_ERROR_CODES = ['auth', 'config', 'rate-limit', 'network', 'timeout', 'cancelled', 'invalid-output', 'too-long', 'cut-off', 'refused', 'cli', 'unknown'] as const;
+export type ModelErrorCode = (typeof MODEL_ERROR_CODES)[number];
+/** The kind each code gives the lines of the failed request (what conditions and retry rules read). */
+export const MODEL_ERROR_KINDS: Record<ModelErrorCode, ItemErrorKind> = {
+  auth: 'other',
+  config: 'other',
+  'rate-limit': 'rate-limit',
+  network: 'network',
+  timeout: 'timeout',
+  cancelled: 'other',
+  'invalid-output': 'invalid-output',
+  'too-long': 'too-long',
+  'cut-off': 'cut-off',
+  refused: 'refused',
+  cli: 'other',
+  unknown: 'other',
+};
+/** The kind of a failure by its code; a failure that is not a model call's (no code, or not one of ours) is `other`. */
+export const errorKindOfCode = (code: unknown): ItemErrorKind => (typeof code === 'string' && Object.hasOwn(MODEL_ERROR_KINDS, code) ? MODEL_ERROR_KINDS[code as ModelErrorCode] : 'other');
+
+/**
  * A 재시도 규칙 of an AI node: a line whose failure is one of `kinds` and that this rule has sent back fewer
  * than `maxTimes` times goes to the same AI node again (its size factor times `scale`, which the node
  * batches by; held for `wait` seconds first; sent with `model` instead of the node's own when one is set).

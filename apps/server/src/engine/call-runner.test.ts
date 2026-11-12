@@ -13,7 +13,7 @@ import { Runner, type ModelPort } from './runner.ts';
 import { createRun } from './run-create.ts';
 import { translateOnlyWorkflow } from './test-workflows.ts';
 
-const CUT_OFF = () => new ai.ModelError('cli', 'Your previous response was cut off because it exceeded the output token limit', false);
+const CUT_OFF = () => new ai.ModelError('cut-off', '응답이 길이 제한에 걸려 잘렸습니다.', false);
 const at = { x: 0, y: 0 };
 
 /**

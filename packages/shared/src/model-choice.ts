@@ -18,5 +18,5 @@ export const draftModelChoiceSchema = z.object({ connectionId: z.string().defaul
 export type DraftModelChoice = z.output<typeof draftModelChoiceSchema>;
 export const EMPTY_MODEL_CHOICE = { connectionId: '', model: '' } as const;
 
-/** One key per distinct choice: run snapshots and the runner's account bookkeeping are keyed by it. */
+/** One key per distinct choice: a run's model snapshots (run.models) are keyed by it. */
 export const choiceKey = (choice: { connectionId: string; model: string; effort?: string | null }) => [choice.connectionId, choice.model, choice.effort ?? ''].join('|');

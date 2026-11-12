@@ -67,6 +67,23 @@ export const runScopeSchema = z
   .strict();
 export type RunScope = z.infer<typeof runScopeSchema>;
 
+/**
+ * A run's caps as they are asked for, wherever a run is started, resumed or continued (the app, the chat, the
+ * CLI): a number sets one, null runs without it, left out keeps what there is (for a new run: the suggested cap).
+ */
+export const runCapsSchema = z.object({ maxCalls: z.number().int().min(1).nullable().optional(), maxInputTokens: z.number().int().min(1).nullable().optional() });
+export type RunCaps = z.infer<typeof runCapsSchema>;
+
+/** A run's caps as it keeps them (runs.limits); the run pauses when one is reached. */
+export const runLimitsSchema = z.object({
+  maxCalls: z.number().int().min(1).optional(),
+  /** All input tokens, cached included, as the connections reported them. */
+  maxInputTokens: z.number().int().min(1).optional(),
+  /** Set while the run is paused by a cap, naming it; cleared on resume. */
+  hit: z.enum(['calls', 'input']).optional(),
+});
+export type RunLimits = z.infer<typeof runLimitsSchema>;
+
 /** The part of a preflight the run card shows (and starts with): kept on the card, so the card says what it said when it was made. */
 export const runCardPlanSchema = z.object({
   lines: z.object({ total: z.number(), excluded: z.number() }),

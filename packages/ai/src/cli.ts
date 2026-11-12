@@ -5,7 +5,7 @@ import { execa, ExecaError, type Options } from 'execa';
 import { z } from 'zod';
 import type { ConnectionKind } from '@tw/shared';
 import { cliSpawn, resolveCli } from './spawn.ts';
-import { keepOutput, ModelError, SERVER_DOWN, TOO_LONG, withOutput } from './errors.ts';
+import { failureInText, keepOutput, ModelError, withOutput } from './errors.ts';
 import { addUsage, readUsage, type GenerateRequest, type GenerateResult, type ModelLimitsInfo, type ResolvedRoute, type Usage } from './types.ts';
 
 type CliKind = Extract<ConnectionKind, 'codex' | 'claude' | 'grok' | 'antigravity' | 'opencode'>;
@@ -120,16 +120,8 @@ function parseJson(text: string, usage?: Usage): unknown {
   }
 }
 
-/** CLIs report an exhausted plan or rate limit only in their text; treat it like HTTP 429 so it gets the same 'rate-limit' kind. */
-const QUOTA = /quota|RESOURCE_EXHAUSTED|rate.?limit|usage limit|too many requests|\b429\b/i;
-const cliFailure = (detail: string, usage?: Usage) =>
-  QUOTA.test(detail)
-    ? new ModelError('rate-limit', `CLI 사용량 한도에 도달했습니다. ${detail}`, undefined, usage)
-    : SERVER_DOWN.test(detail)
-      ? new ModelError('network', `AI 서비스 서버 오류입니다. ${detail}`, undefined, usage)
-    : TOO_LONG.test(detail)
-      ? new ModelError('too-long', `요청이 모델의 문맥 창보다 깁니다. ${detail}`.slice(0, 400), false, usage)
-      : new ModelError('cli', `CLI가 실패를 반환했습니다: ${detail}`, false, usage);
+/** A failure a CLI printed in its own envelope: what its text names (failureInText), else the text as it is. */
+const cliFailure = (detail: string, usage?: Usage) => failureInText(detail, detail, { usage }) ?? new ModelError('cli', `CLI가 실패를 반환했습니다: ${detail}`, false, usage);
 
 /** JSON somewhere in a model's text answer: a fenced block, else the outermost braces. */
 function parseLooseJson(text: string, usage?: Usage): unknown {
@@ -203,7 +195,8 @@ export function unwrap(kind: CliKind, stdout: string): { data: unknown; usage: U
   if (envelope.is_error === true || envelope.type === 'error' || envelope.status === 'ERROR' || String(envelope.subtype ?? '').startsWith('error'))
     throw cliFailure(String(envelope.result ?? envelope.error ?? '').slice(0, 300), usage);
   const stop = String(envelope.stopReason ?? envelope.stop_reason ?? '').toLowerCase();
-  if (/max_?tokens|length|truncat/.test(stop)) throw new ModelError('invalid-output', '응답이 길이 제한에 걸려 잘렸습니다.', false, usage);
+  if (/max_?tokens|length|truncat/.test(stop)) throw new ModelError('cut-off', '응답이 길이 제한에 걸려 잘렸습니다.', false, usage);
+  if (/refus|content_?filter/.test(stop)) throw new ModelError('refused', '모델이 응답을 거절했습니다.', false, usage);
   const data =
     envelope.structured_output ??
     envelope.structuredOutput ??
@@ -329,9 +322,8 @@ export async function cliGenerate<T>(route: ResolvedRoute, request: GenerateRequ
       const output = `${stderr}\n${stdout}`;
       const detail = (error.stderr || stdout || '').toString().trim().split('\n').slice(-3).join(' ').slice(0, 400);
       // The whole output is searched: a pretty-printed envelope can push the reason far from the last lines.
-      if (QUOTA.test(output)) throw new ModelError('rate-limit', `CLI 사용량 한도에 도달했습니다. ${detail}`, undefined, usage, kept);
-      if (SERVER_DOWN.test(output)) throw new ModelError('network', `AI 서비스 서버 오류입니다. ${detail}`, undefined, usage, kept);
-      if (TOO_LONG.test(output)) throw new ModelError('too-long', `요청이 모델의 문맥 창보다 깁니다. ${detail}`.slice(0, 400), false, usage, kept);
+      const named = failureInText(output, detail, { usage, output: kept });
+      if (named) throw named;
       throw new ModelError('cli', `CLI가 실패했습니다 (exit ${error.exitCode}). ${detail}`, false, usage, kept);
     }
     throw new ModelError('unknown', error instanceof Error ? error.message : String(error), false);

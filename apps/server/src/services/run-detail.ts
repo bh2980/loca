@@ -4,7 +4,6 @@ import type { Db } from '../db/index.ts';
 import { inChunks } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import type { Runner } from '../engine/runner.ts';
-import { FILLING } from '../engine/run-create.ts';
 
 /**
  * A run's detail in two parts. Its items (lines or terms, each where it is in the workflow) are rows
@@ -15,7 +14,7 @@ import { FILLING } from '../engine/run-create.ts';
  */
 
 /** A line waiting to go through an AI node again: it was last sent back by the node's retry rule (the node has not answered since). */
-export const RETRYING = sql`(${s.runItems.state} in ('queued', 'running') and json_extract(${s.runItems.data}, '$.path[#-1].port') = 'retry' and json_extract(${s.runItems.data}, '$.retry.last.kind') is not null)`;
+export const RETRYING = sql`(${s.runItems.state} in ('queued', 'running') and ${s.itemData.lastPort} = 'retry' and ${s.itemData.retryLastKind} is not null)`;
 
 /**
  * Why a line is being sent again: the resend count of the retry rule that sent it (of that rule's limit), the failure that
@@ -58,7 +57,7 @@ function itemsWhere(runId: string, { state, nodeId, through, exit }: Pick<RunIte
   if (nodeId) conditions.push(or(eq(s.runItems.nodeId, nodeId), sql`substr(${s.runItems.nodeId}, 1, ${nodeId.length + 1}) = ${`${nodeId}/`}`)!);
   // `visits` has every node an item reached, including the one it is waiting at.
   if (through) conditions.push(sql`exists (select 1 from json_each(${s.runItems.visits}) visit where visit.key = ${through} or substr(visit.key, 1, ${through.length + 1}) = ${`${through}/`})`);
-  if (through && exit) conditions.push(sql`exists (select 1 from json_each(${s.runItems.data}, '$.path') step where json_extract(step.value, '$.nodeId') = ${through} and json_extract(step.value, '$.port') = ${exit})`);
+  if (through && exit) conditions.push(sql`exists (select 1 from ${s.itemData.pathEach()} where ${s.itemData.stepNodeId} = ${through} and ${s.itemData.stepPort} = ${exit})`);
   return and(...conditions)!;
 }
 
@@ -66,7 +65,7 @@ function itemsWhere(runId: string, { state, nodeId, through, exit }: Pick<RunIte
 export function runNodeExits(db: Db, runId: string, nodeId: string) {
   const arrived = db.select({ count: count() }).from(s.runItems).where(itemsWhere(runId, { through: nodeId })).get()!.count;
   const here = db.select({ count: count() }).from(s.runItems).where(and(eq(s.runItems.runId, runId), eq(s.runItems.nodeId, nodeId), inArray(s.runItems.state, ['queued', 'running']))).get()!.count;
-  const exits = db.all<{ port: string; count: number }>(sql`select json_extract(step.value, '$.port') as port, count(distinct item.id) as count from ${s.runItems} item, json_each(item.data, '$.path') step where item.run_id = ${runId} and json_extract(step.value, '$.nodeId') = ${nodeId} group by port order by count desc`);
+  const exits = db.all<{ port: string; count: number }>(sql`select ${s.itemData.stepPort} as port, count(distinct item.id) as count from ${s.runItems} item, ${s.itemData.pathEach(sql`item.data`)} where item.run_id = ${runId} and ${s.itemData.stepNodeId} = ${nodeId} group by port order by count desc`);
   return { arrived, here, exits };
 }
 
@@ -153,16 +152,16 @@ export function runProgress(db: Db, runner: Runner, projectId: string, ids: read
     );
     // What the exits' actions could not do (node id:exit → note → lines): a person's status kept, a tag name no tag has.
     const exits: Record<string, { notes: Record<string, number> }> = {};
-    for (const row of db.all<{ at: string; note: string; count: number }>(sql`select json_extract(entry.value, '$.at') as at, json_extract(entry.value, '$.note') as note, count(distinct item.id) as count from ${s.runItems} item, json_each(item.data, '$.exitNotes') entry where item.run_id = ${run.id} group by at, note`))
+    for (const row of db.all<{ at: string; note: string; count: number }>(sql`select ${s.itemData.noteAt} as at, ${s.itemData.noteText} as note, count(distinct item.id) as count from ${s.runItems} item, ${s.itemData.exitNotesEach(sql`item.data`)} where item.run_id = ${run.id} group by at, note`))
       (exits[row.at] ??= { notes: {} }).notes[row.note] = row.count;
     // Lines waiting to go through an AI node again, by that node: how many, and the failure kinds that sent them back.
     const retrying: Record<string, { count: number; kinds: Record<string, number> }> = {};
-    for (const row of db.all<{ nodeId: string; kind: string; count: number }>(sql`select json_extract(data, '$.retry.last.nodeId') as nodeId, json_extract(data, '$.retry.last.kind') as kind, count(*) as count from ${s.runItems} where run_id = ${run.id} and ${RETRYING} group by nodeId, kind`)) {
+    for (const row of db.all<{ nodeId: string; kind: string; count: number }>(sql`select ${s.itemData.retryLastNodeId} as nodeId, ${s.itemData.retryLastKind} as kind, count(*) as count from ${s.runItems} where run_id = ${run.id} and ${RETRYING} group by nodeId, kind`)) {
       const entry = (retrying[row.nodeId] ??= { count: 0, kinds: {} });
       entry.count += row.count;
       entry.kinds[row.kind] = row.count;
     }
-    return { id: run.id, status: run.status, notice: run.notice, total: run.total, finishedAt: run.finishedAt, nodes, calls: runner.liveCalls(run.id), usage, byModel, passed, exits, retrying, filling: run.notice === FILLING };
+    return { id: run.id, status: run.status, notice: run.notice, total: run.total, finishedAt: run.finishedAt, nodes, calls: runner.liveCalls(run.id), usage, byModel, passed, exits, retrying };
   });
 }
 

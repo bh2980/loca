@@ -8,7 +8,7 @@ import { events } from '../events.ts';
 import { chatRunScope } from './chat-run-scope.ts';
 import { preflight } from './preflight.ts';
 import { planOf } from './run-plan.ts';
-import { fitScope, startWorkflowRun } from './start-run.ts';
+import { fitScope, startRun } from './start-run.ts';
 
 /**
  * The 실행 확인 cards of the project chat (docs/CHAT-INPUT-DESIGN.md 3-2), kept in the conversation
@@ -81,8 +81,9 @@ export async function answerRunCard(db: Db, sessionId: string, cardId: string, a
   }
   starting.add(card.id);
   try {
-    const { runId } = await startWorkflowRun(db, card.workflowId, { scope: card.scope, limits: startLimits(card.plan.suggestedLimits), sessionId });
-    const next: RunCard = { ...card, state: 'started', runId };
+    const started = await startRun(db, { workflowId: card.workflowId, scope: { resolved: card.scope }, limits: startLimits(card.plan.suggestedLimits), sessionId });
+    if (!started.ok) badRequest(started.error);
+    const next: RunCard = { ...card, state: 'started', runId: started.runId };
     replaceCard(db, sessionId, next);
     return next;
   } finally {
