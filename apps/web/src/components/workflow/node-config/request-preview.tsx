@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import type { InferResponseType } from 'hono/client';
-import { AI_OUTPUTS, CONTEXT_ITEM_KINDS, CONTEXT_PRIORITY, INPUT_TYPES, JSON_FIELD_TYPE_LABELS, type AiNode, type AiOutput, type BatchConfig } from '@tw/shared';
+import { AI_OUTPUTS, CONTEXT_ITEM_KINDS, CONTEXT_PRIORITY, INPUT_TYPES, JSON_FIELD_TYPE_LABELS, type AiNode, type AiOutput, type BatchConfig, type Subject, bySubject } from '@tw/shared';
 import { Box, Button, Dialog, DialogContent, DialogHeader, DialogTitle, Inline, RequestDetails, RequestPart as Part, Combobox, Skeleton, Text, Section } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
 import { useTerms } from '@/lib/terms';
@@ -93,19 +93,21 @@ export function useRequestPreview(workflowId: string | undefined, nodeId: string
 }
 
 /** Which item the preview is built for: lines searched by source, translation or key on the server, terms from the glossary. */
-function SamplePicker({ projectId, subject, value, label, onPick }: { projectId: string; subject: 'lines' | 'terms'; value?: string; label?: string; onPick: (value: string) => void }) {
+function SamplePicker({ projectId, subject, value, label, onPick }: { projectId: string; subject: Subject; value?: string; label?: string; onPick: (value: string) => void }) {
   const [query, setQuery] = useState('');
+  // Each input's items come from their own place: lines searched on the server (by source, translation or key), terms from the glossary this browser holds.
+  const source = bySubject(subject, { lines: { search: true, placeholder: '대사 고르기' }, terms: { search: false, placeholder: '용어 고르기' } });
   const lines = useQuery({
     queryKey: ['units', 'sample-search', projectId, query],
     queryFn: () => unwrap(client.projects[':projectId'].lines.find.$post({ param: { projectId }, json: { offset: 0, limit: 30, ...(query.trim() && { q: query.trim() }) } })),
-    enabled: subject === 'lines',
+    enabled: source.search,
     placeholderData: keepPreviousData,
   });
-  const terms = useTerms(projectId, { enabled: subject === 'terms' });
-  const options =
-    subject === 'lines'
-      ? (lines.data?.rows ?? []).map((row) => ({ value: row.key, label: `${row.key} · ${row.speaker ? `${row.speaker}: ` : ''}${row.translation || row.source}` }))
-      : (terms.data ?? []).filter((term) => term.status !== 'rejected').map((term) => ({ value: term.id, label: term.target ? `${term.source} → ${term.target}` : term.source, searchText: `${term.source} ${term.target}` }));
+  const terms = useTerms(projectId, { enabled: !source.search });
+  const options = bySubject<() => { value: string; label: string; searchText?: string }[]>(subject, {
+    lines: () => (lines.data?.rows ?? []).map((row) => ({ value: row.key, label: `${row.key} · ${row.speaker ? `${row.speaker}: ` : ''}${row.translation || row.source}` })),
+    terms: () => (terms.data ?? []).filter((term) => term.status !== 'rejected').map((term) => ({ value: term.id, label: term.target ? `${term.source} → ${term.target}` : term.source, searchText: `${term.source} ${term.target}` })),
+  })();
   return (
     <Combobox
       ariaLabel="샘플"
@@ -113,9 +115,9 @@ function SamplePicker({ projectId, subject, value, label, onPick }: { projectId:
       selectedLabel={label}
       onValueChange={onPick}
       options={options}
-      placeholder={subject === 'lines' ? '대사 고르기' : '용어 고르기'}
-      searchPlaceholder={subject === 'lines' ? '원문·번역으로 찾기' : '원문·번역으로 찾기'}
-      {...(subject === 'lines' && { onSearch: setQuery })}
+      placeholder={source.placeholder}
+      searchPlaceholder="원문·번역으로 찾기"
+      {...(source.search && { onSearch: setQuery })}
     />
   );
 }

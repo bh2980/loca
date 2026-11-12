@@ -1,7 +1,6 @@
 /** What the editor and a run's graph share: a node's one-line summary and the edges as React Flow draws them. */
 import { MarkerType } from '@xyflow/react';
-import { z } from 'zod';
-import { AI_OUTPUTS, APPLY_TARGETS, BATCH_MODE_LABELS, FUNCTIONS, WORKFLOW_SUBJECTS, formatCheckParams, httpParams, scriptParams, nodeName, nodePorts, previousSteps, callSummary, workflowInput, type FunctionName, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+import { nodePorts, nodeSummary as sharedNodeSummary, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
 import type { FlowEdge } from '@/components/workflow/workflow-edge';
 
 export interface SummaryNames {
@@ -13,90 +12,8 @@ export interface SummaryNames {
   workflows?: { id: string; name: string }[];
 }
 
-/** Where a save node writes, in the words of the screens that show it. */
-const SAVES_TO: Record<string, string> = { setListener: '대사 청자', saveTerms: '용어집', saveCharacters: '인물', saveRelationships: '관계', saveSpeechRules: '말투 규칙', saveEvents: '사건', saveDocument: '노트' };
-
-/**
- * A save node's line: where it writes ("→ 대사 번역"), and whose result only when that is not the node drawn right before
- * it (a check or a condition in between passes the result on).
- */
-function savesTo(node: WorkflowNode & { type: 'function' }, definition: WorkflowDefinition) {
-  const where = node.config.fn === 'saveCandidate' ? (workflowInput(definition) === 'terms' ? '용어 번역어' : '대사 번역') : SAVES_TO[node.config.fn] ?? APPLY_TARGETS[node.config.fn as keyof typeof APPLY_TARGETS]?.label;
-  const steps = previousSteps(definition, node.id);
-  const drawnBefore = new Set(definition.edges.filter((edge) => edge.target === node.id).map((edge) => edge.source));
-  const from = steps.length && !steps.every((step) => drawnBefore.has(step.id)) ? ` · ${steps.map(nodeName).join(', ')}의 결과` : steps.length ? '' : ' · 앞 단계 결과 없음';
-  return `→ ${where}${from}`;
-}
-
-/** An address as a card's line: without the scheme, its query left out ("?…" says there is one), cut at `max`. */
-function shortAddress(url: string, max = 48) {
-  const [, bare = '', rest = ''] = /^(?:https?:\/\/)?([^?#]*)(.*)$/i.exec(url.trim()) ?? [];
-  const address = rest.startsWith('?') ? `${bare}?…` : bare;
-  return address.length > max ? `${address.slice(0, max - 1)}…` : address;
-}
-
-/**
- * The format check's settings as the summary reads them: its own schema and defaults, with the custom rules only counted
- * (a rule being typed has no pattern yet and does not fit the schema; the other checks still read as they are set).
- */
-const formatCheckSummaryParams = formatCheckParams.extend({ customRules: z.array(z.unknown()).default([]) });
-
-/** "← 앞 단계" for a node that takes the previous step's result (a gather). */
-const stepsLabel = (definition: WorkflowDefinition, nodeId: string) => {
-  const steps = previousSteps(definition, nodeId);
-  return steps.length ? `← ${steps.map(nodeName).join(', ')}` : '앞 단계 결과 없음';
-};
-
-/** The line under a node's title: its model, target status, checks, condition or source node. */
-export function nodeSummary(node: WorkflowNode, definition: WorkflowDefinition, names: SummaryNames): string {
-  switch (node.type) {
-    case 'entry':
-      return `${WORKFLOW_SUBJECTS[node.config.input]} 입력`;
-    case 'ai':
-      // What it makes and how it reads; the model is the card's badge (nodeBadge).
-      return `${AI_OUTPUTS[node.config.output].label} · ${BATCH_MODE_LABELS[node.config.batch.mode]}`;
-    case 'function': {
-      const fn = node.config.fn;
-      if (fn in APPLY_TARGETS) return savesTo(node, definition);
-      const label = FUNCTIONS[fn as FunctionName]?.label ?? fn;
-      if (fn === 'http') {
-        const params = httpParams.safeParse(node.config.params ?? {});
-        return params.success ? `${params.data.method} ${shortAddress(params.data.url) || '주소 없음'}` : label;
-      }
-      if (fn === 'script') {
-        const params = scriptParams.safeParse(node.config.params ?? {});
-        return params.success ? `출구: ${params.data.ports.join(', ')}` : label;
-      }
-      if (fn === 'formatCheck') {
-        const parsed = formatCheckSummaryParams.safeParse(node.config.params ?? {});
-        if (!parsed.success) return label;
-        const params = parsed.data;
-        const checks = [
-          params.placeholders && '자리표시자',
-          params.tags && '서식 태그',
-          params.newlines && '줄바꿈',
-          params.emptyText && '빈 번역',
-          params.numbers && '숫자',
-          params.spaces && '공백',
-          params.particles && '조사',
-          (params.maxChars || params.maxBytes || params.maxLineChars || params.maxLines || params.maxLengthRatio) && '길이',
-          params.forbiddenWords.split(',').some((word) => word.trim()) && '금지어',
-          params.customRules.length > 0 && `규칙 ${params.customRules.length}개`,
-        ].filter(Boolean);
-        return checks.length ? `검사: ${checks.join('·')}` : '켠 검사 항목 없음 (항상 통과)';
-      }
-      return label;
-    }
-    case 'condition':
-      return node.config.description || '조건식';
-    case 'gather':
-      return stepsLabel(definition, node.id);
-    case 'call':
-      return callSummary(node.config, names.workflows);
-    default:
-      return '';
-  }
-}
+/** The line under a node's title (the shared summary every surface shows), with the names this screen knows. */
+export const nodeSummary = (node: WorkflowNode, definition: WorkflowDefinition, names: SummaryNames): string => sharedNodeSummary(node, definition, { workflows: names.workflows });
 
 /** An AI node's model as its card's chip ("grok-4.7"), or "모델 없음"; nothing for any other node. */
 export function nodeBadge(node: WorkflowNode, names: SummaryNames): string | undefined {

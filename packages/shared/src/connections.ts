@@ -1,17 +1,28 @@
 import { z } from 'zod';
 import { modelLimitsSchema } from './budgets.ts';
 
-export const CONNECTION_KINDS = ['openai', 'systemone', 'codex', 'claude', 'grok', 'antigravity', 'opencode', 'http'] as const;
+/** The agent CLIs a connection can run: the kinds whose transport is `cli` (CONNECTION_KIND_INFO is typed by this list). */
+export const CLI_KINDS = ['codex', 'claude', 'grok', 'antigravity', 'opencode'] as const;
+export type CliKind = (typeof CLI_KINDS)[number];
+export const isCliKind = (kind: string): kind is CliKind => (CLI_KINDS as readonly string[]).includes(kind);
+
+export const CONNECTION_KINDS = ['openai', 'systemone', ...CLI_KINDS, 'http'] as const;
 export type ConnectionKind = (typeof CONNECTION_KINDS)[number];
+export const isConnectionKind = (kind: string): kind is ConnectionKind => (CONNECTION_KINDS as readonly string[]).includes(kind);
 
 /**
  * generate: structured generation (translate / revise / review nodes)
  * judge:    typed decision only (review nodes)
  * chat:     multi-turn conversation with the workbench tools (project chat agent). API connections call the
  *           tools natively; agent CLIs resume their own session each turn and request tools in their answer
+ * complete: plain text fast enough to follow typing (the editor's autocomplete); a CLI takes seconds per call
  * tool:     an API key (credential) for the workflow "HTTP 호출" function; the address lives in the node
+ *
+ * What a kind can do is listed here; how it does it is its provider in @tw/ai (PROVIDERS), and a test there
+ * keeps the two from disagreeing.
  */
-export type Capability = 'generate' | 'judge' | 'chat' | 'tool';
+export const CAPABILITIES = ['generate', 'judge', 'chat', 'complete', 'tool'] as const;
+export type Capability = (typeof CAPABILITIES)[number];
 
 export interface ConnectionKindInfo {
   label: string;
@@ -20,16 +31,19 @@ export interface ConnectionKindInfo {
   defaultBaseUrl?: string;
   needsKey: boolean;
   efforts: string[];
+  /** Its generation takes a sampling temperature (an AI node's 온도); a CLI and a judgment model have no such setting. */
+  temperature?: boolean;
 }
 
-export const CONNECTION_KIND_INFO: Record<ConnectionKind, ConnectionKindInfo> = {
+export const CONNECTION_KIND_INFO: { [K in ConnectionKind]: ConnectionKindInfo & { transport: K extends CliKind ? 'cli' : 'http' } } = {
   openai: {
     label: 'OpenAI 호환 API',
     transport: 'http',
-    capabilities: ['generate', 'chat'],
+    capabilities: ['generate', 'chat', 'complete'],
     defaultBaseUrl: 'https://api.openai.com/v1',
     needsKey: true,
     efforts: ['minimal', 'low', 'medium', 'high'],
+    temperature: true,
   },
   systemone: {
     label: 'System One (TypeSafe)',
@@ -49,6 +63,9 @@ export const CONNECTION_KIND_INFO: Record<ConnectionKind, ConnectionKindInfo> = 
   opencode: { label: 'opencode CLI', transport: 'cli', capabilities: ['generate', 'chat'], needsKey: false, efforts: [] },
   http: { label: 'API 키', transport: 'http', capabilities: ['tool'], needsKey: true, efforts: [] },
 };
+
+/** Whether connections of this kind can do `capability`: the question callers ask instead of naming a kind. */
+export const connectionCan = (kind: ConnectionKind, capability: Capability) => CONNECTION_KIND_INFO[kind].capabilities.includes(capability);
 
 /** opencode's own free models without the "-free" suffix (`opencode models --verbose` lists their cost as 0). */
 const OPENCODE_FREE_MODELS = new Set(['opencode/big-pickle']);

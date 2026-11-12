@@ -1,100 +1,68 @@
 import type { LanguageModel } from 'ai';
-import { CONNECTION_KIND_INFO } from '@tw/shared';
-import { cliGenerate, cliModelList, cliModels, cliVersion, describeCli } from './cli.ts';
+import { CONNECTION_KIND_INFO, type Capability, type ConnectionKind } from '@tw/shared';
 import { ModelError, toModelError } from './errors.ts';
-import { openaiChatModel, openaiComplete, openaiGenerate, openaiModelList, openaiModels } from './openai.ts';
-import { systemOneAsk, systemOneJudge, systemOneModels } from './systemone.ts';
-import type { AskRequest, AskResult, CompleteRequest, CompleteResult, GenerateRequest, GenerateResult, JudgeRequest, JudgeResult, ModelLimitsInfo, ResolvedRoute, Usage } from './types.ts';
+import { PROVIDERS, type ModelCatalog, type Provider } from './providers.ts';
+import type { AskRequest, AskResult, CompleteRequest, CompleteResult, ConnectionTarget, GenerateRequest, GenerateResult, ModelTarget } from './types.ts';
 
 export * from './types.ts';
 export { ModelError, type ModelErrorCode } from './errors.ts';
-export { cliVersion, openLoginTerminal, LOGIN_COMMANDS } from './cli.ts';
-export { ACP_KINDS, AcpAgent, acpError, agentFor, agentWith, checkCliLogin, closeSession, isAcpKind, setAgentStarter, stopIdleAgents, type AcpKind, type SessionListener } from './acp.ts';
+export { AcpAgent, acpError, closeSession, setAgentStarter, stopIdleAgents, type SessionListener } from './acp.ts';
 export { hostTools, type HostedServer, type HostedTool } from './mcp-host.ts';
-export { limitsOf, openaiProviderOptions } from './openai.ts';
+export { limitsOf } from './openai.ts';
+export { PROVIDERS, type ChatTransport, type ModelCatalog, type Provider } from './providers.ts';
 
-export function generate<T>(route: ResolvedRoute, request: GenerateRequest<T>): Promise<GenerateResult<T>> {
-  if (route.kind === 'openai') return openaiGenerate(route, request);
-  if (route.kind === 'systemone') throw new ModelError('config', 'System One은 판정(검수)에만 사용할 수 있습니다.', false);
-  if (route.kind === 'http') throw new ModelError('config', 'HTTP 도구 연결은 AI 노드에 쓸 수 없습니다.', false);
-  return cliGenerate(route, request);
+/** The provider of a connection kind: what it can do, and how (providers.ts). */
+export const providerOf = (kind: ConnectionKind): Provider => PROVIDERS[kind];
+
+/** What to tell a person whose connection cannot do what was asked of it. */
+const cannot = (kind: ConnectionKind, capability: Capability) => {
+  const label = CONNECTION_KIND_INFO[kind].label;
+  const what: Record<Capability, string> = {
+    generate: `${label} 연결은 글을 쓰지 못합니다. AI 노드·편집기에는 생성 연결을 고르세요.`,
+    judge: `${label} 연결은 판정 전용 연결이 아닙니다.`,
+    chat: `${label} 연결은 채팅(도구 호출)을 지원하지 않습니다.`,
+    complete: `편집기 자동완성은 API 연결(OpenAI 호환)만 쓸 수 있습니다.`,
+    tool: `${label} 연결은 HTTP 호출의 API 키로 쓸 수 없습니다.`,
+  };
+  return new ModelError('config', what[capability], false);
+};
+
+/** Structured generation. Throws a config error for a kind that does not write (a judgment connection, an API key). */
+export function generate<T>(target: ModelTarget, request: GenerateRequest<T>): Promise<GenerateResult<T>> {
+  const run = PROVIDERS[target.kind].generate;
+  if (!run) throw cannot(target.kind, 'generate');
+  return run(target, request);
 }
 
-/** Plain text for the editor (API connections only: a CLI takes seconds per call). */
-export function complete(route: ResolvedRoute, request: CompleteRequest): Promise<CompleteResult> {
-  if (route.kind !== 'openai') throw new ModelError('config', '편집기 자동완성은 API 연결(OpenAI 호환)만 쓸 수 있습니다.', false);
-  return openaiComplete(route, request);
+/** Plain text for the editor. */
+export function complete(target: ModelTarget, request: CompleteRequest): Promise<CompleteResult> {
+  const run = PROVIDERS[target.kind].complete;
+  if (!run) throw cannot(target.kind, 'complete');
+  return run(target, request);
 }
 
-export function judge(route: ResolvedRoute, request: JudgeRequest): Promise<JudgeResult> {
-  if (route.kind !== 'systemone') throw new ModelError('config', '판정 전용 연결이 아닙니다.', false);
-  return systemOneJudge(route, request);
+/** Typed questions (yes/no, choice, score) for a judgment model. */
+export function ask(target: ModelTarget, request: AskRequest): Promise<AskResult> {
+  const run = PROVIDERS[target.kind].ask;
+  if (!run) throw cannot(target.kind, 'judge');
+  return run(target, request);
 }
 
-/** Typed questions (yes/no, choice, score) for a judgment model; System One only. */
-export function ask(route: ResolvedRoute, request: AskRequest): Promise<AskResult> {
-  if (route.kind !== 'systemone') throw new ModelError('config', '판정 전용 연결이 아닙니다.', false);
-  return systemOneAsk(route, request);
-}
-
-export function chatModel(route: ResolvedRoute): LanguageModel {
-  if (!CONNECTION_KIND_INFO[route.kind].capabilities.includes('chat'))
-    throw new ModelError('config', '이 연결은 채팅(도구 호출)을 지원하지 않습니다.', false);
-  return openaiChatModel(route);
-}
-
-/** Model ids the connection can serve. CLIs do not expose a reliable list, so the user types the id. */
-export async function listModels(route: Omit<ResolvedRoute, 'model'>): Promise<string[] | null> {
-  if (route.kind === 'http') return null;
-  if (route.kind === 'openai') return openaiModels(route);
-  if (route.kind === 'systemone') return systemOneModels(route);
-  if (route.kind === 'grok' || route.kind === 'antigravity' || route.kind === 'opencode' || route.kind === 'codex' || route.kind === 'claude') return cliModels(route.kind, route.executable);
-  return null;
+/** The AI SDK model of a connection that chats through the API, with its call options. An agent CLI chats through its own agent (providerOf(kind).chat). */
+export function chatModel(target: ModelTarget): { model: LanguageModel; providerOptions: ReturnType<Extract<NonNullable<Provider['chat']>, { via: 'api' }>['options']> } {
+  const chat = PROVIDERS[target.kind].chat;
+  if (chat?.via !== 'api') throw cannot(target.kind, 'chat');
+  return { model: chat.model(target), providerOptions: chat.options(target) };
 }
 
 /**
  * The model list with what it says about each model's limits: an API's model list, or a CLI's own
  * list and cache files (codex, grok, opencode; claude and antigravity say nothing). One request or run.
  */
-export async function listModelCatalog(route: Omit<ResolvedRoute, 'model'>): Promise<{ models: string[] | null; limits: Record<string, ModelLimitsInfo> }> {
-  if (route.kind === 'openai') {
-    const list = await openaiModelList(route);
-    return { models: list.ids, limits: list.limits };
-  }
-  if (route.kind === 'codex' || route.kind === 'grok' || route.kind === 'antigravity' || route.kind === 'opencode' || route.kind === 'claude') {
-    const list = await cliModelList(route.kind, route.executable);
-    return { models: list?.models ?? null, limits: list?.limits ?? {} };
-  }
-  return { models: await listModels(route), limits: {} };
-}
+export const listModelCatalog = (target: ConnectionTarget): Promise<ModelCatalog> => PROVIDERS[target.kind].models(target);
 
-/** Cheap reachability check: API → model list, CLI → `--version`. */
-export async function probe(route: Omit<ResolvedRoute, 'model'>): Promise<string> {
-  if (route.kind === 'http') {
-    const response = await fetch(route.baseUrl ?? '', { signal: AbortSignal.timeout(10_000) }).catch(() => {
-      throw new ModelError('network', '주소에 연결하지 못했습니다.');
-    });
-    return `서버가 응답했습니다 (HTTP ${response.status}).`;
-  }
-  if (route.kind === 'openai' || route.kind === 'systemone') {
-    const models = await listModels(route);
-    return `모델 ${models?.length ?? 0}개를 확인했습니다.`;
-  }
-  const kind = route.kind as Parameters<typeof cliVersion>[0];
-  const version = await cliVersion(kind, route.executable);
-  const { resolved } = describeCli(kind, route.executable);
-  return resolved ? `CLI ${version} · ${resolved}` : `CLI ${version}`;
-}
-
-/**
- * Where a CLI connection's executable is: the command it runs (the field, or the kind's default), the
- * file that resolves to on PATH and the usual install dirs (null when none), and its --version line.
- */
-export async function locateCli(kind: Parameters<typeof cliVersion>[0], executable?: string): Promise<{ command: string; resolved: string | null; version: string | null }> {
-  const { command, resolved } = describeCli(kind, executable);
-  const version = resolved ? await cliVersion(kind, executable).catch(() => null) : null;
-  return { command, resolved, version };
-}
+/** Cheap reachability check: API → model list, CLI → `--version`, an API key's address → any response. */
+export const probe = (target: ConnectionTarget): Promise<string> => PROVIDERS[target.kind].probe(target);
 
 /**
  * One call: no retry, no other connection. A failure is thrown as a ModelError (with what the call used

@@ -8,7 +8,8 @@ import { wakeRun } from '../engine/run-wake.ts';
 import { workflowIssues } from './workflow-issues.ts';
 import { preflight } from './preflight.ts';
 import { resolveRunModels, type RunModelInput } from './run-plan.ts';
-import { snapshotChoices } from './routes.ts';
+import { snapshotChoices } from './model-target.ts';
+import { subjectOf } from '../engine/subjects.ts';
 
 type Run = typeof s.runs.$inferSelect;
 
@@ -51,9 +52,8 @@ export async function continuePreflight(db: Db, run: Run, models: RunModels | un
   const switched = switchedRun(db, run, models);
   if (!switched.ok) return switched;
   const unitIds = remainingLines(db, run.id, retryFailed);
-  // The run's items as they are: lines by id regardless of status, or terms by id.
-  const ids = someOf(unitIds);
-  const scope: RunScope = run.subject === 'terms' ? { terms: ids ? { ids } : { nothing: true } } : { filter: linesById(unitIds) };
+  // The run's items as they are: by id, regardless of status.
+  const scope: RunScope = subjectOf(run.subject).scopeOf(unitIds);
   const plan = await preflight(db, { id: run.workflowId, projectId: run.projectId, definition: switched.definition }, scope);
   // On the same models, this run's own record says how long a line takes better than recent calls do.
   const own = switched.changes.length ? null : ownPace(db, run, switched.definition, unitIds.length);

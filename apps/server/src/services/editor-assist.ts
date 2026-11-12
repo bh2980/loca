@@ -8,7 +8,7 @@ import { buildRequest } from '../engine/request.ts';
 import { events } from '../events.ts';
 import { logged } from './ai-calls.ts';
 import { CompleteRefused } from './editor-complete.ts';
-import { liveChoice } from './routes.ts';
+import { liveChoice } from './model-target.ts';
 import type { SecretStore } from './secrets.ts';
 import { addCandidate } from './candidates.ts';
 import { resolvedNode } from './budgets.ts';
@@ -35,7 +35,7 @@ export async function assistLine(db: Db, secrets: SecretStore, unitId: string, r
   const config = editorNodeConfig(settings, request.mode);
   if (!config.model.model) throw new CompleteRefused('설정 › 에디터에서 AI 번역·다듬기 모델을 고르세요.', 400);
   if (refine && !request.draft.trim()) throw new CompleteRefused('다듬을 번역이 없습니다.', 400);
-  const { snapshot, route } = liveChoice(db, config.model, secrets, 'generate');
+  const { snapshot, target } = liveChoice(db, config.model, secrets, 'generate');
 
   // The context cap follows the button's model window (auto), like an AI node's. The draft in the editor is the line's working text.
   const node = resolvedNode(db, { id: 'editor', type: 'ai', position: { x: 0, y: 0 }, config });
@@ -43,7 +43,7 @@ export async function assistLine(db: Db, secrets: SecretStore, unitId: string, r
   const label = `편집기 ${refine ? '다듬기' : 'AI 번역'}`;
   const call = { projectId: unit.projectId, kind: 'editor' as const, refId: unitId, label, request: `${system}\n\n---\n\n${prompt}` };
   const result = await ai
-    .callOnce(() => logged(db, call, route, () => generate(route, { system, prompt, schema, maxOutputTokens: snapshot.maxOutputTokens, timeoutMs: settings.timeoutSeconds * 1000, signal })), signal)
+    .callOnce(() => logged(db, call, target, () => generate(target, { system, prompt, schema, maxOutputTokens: snapshot.maxOutputTokens, timeoutMs: settings.timeoutSeconds * 1000, signal })), signal)
     .catch((error: unknown) => {
       if (error instanceof ai.ModelError && error.code === 'rate-limit') throw new CompleteRefused('모델 요청 한도에 걸렸습니다. 잠시 뒤 다시.', 429, 60);
       throw error;
@@ -60,7 +60,7 @@ export async function assistLine(db: Db, secrets: SecretStore, unitId: string, r
   const reasons = changes.flatMap((change) => (typeof change.why === 'string' && change.why.trim() ? [`${KIND_LABELS[String(change.kind)] ?? '표현'} · ${change.why.trim()}`] : []));
   const note = refine ? ['다듬기', ...reasons].join(' — ') : 'AI 번역';
   // `suggest` (the line's pane): it waits as the line's AI 제안 (적용 · 거절) instead of going into an open box.
-  const candidateId = addCandidate(db, { unitId, text, origin: 'ai', model: route.model, note, ...(request.suggest && { state: 'pending' as const }) });
+  const candidateId = addCandidate(db, { unitId, text, origin: 'ai', model: target.model, note, ...(request.suggest && { state: 'pending' as const }) });
   events.changed(unit.projectId, 'units');
   return { candidateId, text, reasons };
 }

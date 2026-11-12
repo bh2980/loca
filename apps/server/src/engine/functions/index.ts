@@ -1,38 +1,36 @@
 import type { z } from 'zod';
-import { and, asc, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { get } from 'es-toolkit/compat';
-import { checkFormat, formatCheckParams, FUNCTIONS, httpParams, KNOWLEDGE_STATUSES, type KnowledgeStatus, scriptParams, type FunctionName, type JsonField } from '@tw/shared';
+import { checkFormat, type FunctionConfig, type FunctionName, type FunctionParams, type httpParams, type JsonField } from '@tw/shared';
 import type { Db } from '../../db/index.ts';
 import * as s from '../../db/schema.ts';
 import { connectionKey } from '../../services/app-defaults.ts';
 import type { SecretStore } from '../../services/secrets.ts';
-import { setKnowledgeTag } from '../../services/knowledge-tags.ts';
-import { attachUnitTags } from '../../services/tag-scope.ts';
 import { runScript } from './sandbox.ts';
 import { knowledgeOf } from '../../services/speech.ts';
-import { HUMAN_OWNED_NOTE, personOwns } from '../apply-candidate.ts';
+import { HUMAN_OWNED_NOTE } from '../apply-candidate.ts';
 import { applyFunctions } from './apply.ts';
-import { lineOf, type FunctionInput, type FunctionResult } from './types.ts';
+import { byInput, type FunctionInput, type FunctionResult } from './types.ts';
 
 export type { FunctionInput, FunctionResult };
 
 export { HUMAN_OWNED_NOTE };
 
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
-type Unit = typeof s.units.$inferSelect;
-type Item = typeof s.runItems.$inferSelect;
 
 const NEEDS_CANDIDATE = '검사할 번역 후보가 없습니다.';
 /** The item's source text: a line's, or a term's. */
-const sourceOf = (input: FunctionInput) => (input.subject === 'lines' ? input.unit.source : input.term.source);
-const candidateOf = (input: FunctionInput) => input.item.data.candidateText ?? (input.subject === 'lines' ? input.unit.translation : input.term.target || null) ?? null;
+const sourceOf = (input: FunctionInput) => byInput(input, { lines: ({ unit }) => unit.source, terms: ({ term }) => term.source });
+/** The text a check reads: the run's working text, else what the item has stored. */
+const candidateOf = (input: FunctionInput) => input.item.data.candidateText ?? byInput(input, { lines: ({ unit }) => unit.translation, terms: ({ term }) => term.target || null }) ?? null;
 
 /** What a script or HTTP template can see about an item: `unit` for a line, `term` for a term. */
 export function lineView(input: FunctionInput) {
   return {
-    ...(input.subject === 'lines'
-      ? { unit: { key: input.unit.key, kind: input.unit.kind, speaker: input.unit.speaker, source: input.unit.source, translation: input.unit.translation } }
-      : { term: { source: input.term.source, target: input.term.target, note: input.term.note, status: input.term.status, lines: input.term.lines } }),
+    ...byInput<{ unit: object } | { term: object }>(input, {
+      lines: ({ unit }) => ({ unit: { key: unit.key, kind: unit.kind, speaker: unit.speaker, source: unit.source, translation: unit.translation } }),
+      terms: ({ term }) => ({ term: { source: term.source, target: term.target, note: term.note, status: term.status, lines: term.lines } }),
+    }),
     candidate: candidateOf(input),
     previous: input.previous ?? null,
     issues: input.item.data.issues ?? [],
@@ -41,33 +39,6 @@ export function lineView(input: FunctionInput) {
     error: input.item.data.error ?? null,
   };
 }
-
-// ── instant functions (run inside the runner's transaction) ──────────
-
-/** Whether a run picks its lines by the entry node's statuses (rather than lines named regardless of status). */
-export const syncFunctions: Partial<Record<FunctionName, (tx: Tx, params: unknown, input: FunctionInput) => FunctionResult>> = {
-  formatCheck(tx, raw, input) {
-    const params = formatCheckParams.parse(raw);
-    const text = candidateOf(input);
-    const rules = knowledgeOf(tx as unknown as Db, input.projectId).settings()?.formatRules;
-    const issues = text === null ? [NEEDS_CANDIDATE] : checkFormat(sourceOf(input), text, params, rules).map((issue) => issue.message);
-    return { port: issues.length ? 'fail' : 'pass', issues, output: { text, passed: !issues.length, issues, kind: 'format' } };
-  },
-
-  glossaryCheck(tx, _raw, input) {
-    const text = candidateOf(input);
-    if (text === null) return { port: 'fail', issues: [NEEDS_CANDIDATE], output: { text, passed: false, issues: [NEEDS_CANDIDATE], kind: 'term' } };
-    const issues = knowledgeOf(tx as unknown as Db, input.projectId)
-      .glossary()
-      .matcher.find(sourceOf(input), input.subject === 'lines' ? input.unit.kind : undefined)
-      .filter((term) => !text.toLowerCase().includes(term.target.toLowerCase()))
-      .map((term) => `용어 "${term.source}"은(는) "${term.target}"(으)로 옮겨야 합니다.`);
-    return { port: issues.length ? 'fail' : 'pass', issues, output: { text, passed: !issues.length, issues, kind: 'term' } };
-  },
-
-
-  ...applyFunctions,
-};
 
 /**
  * A script's `data` held to the fields its node declares: a missing field gets its type's empty
@@ -96,7 +67,7 @@ export function validateScriptData(raw: Record<string, unknown> | undefined, fie
   return data;
 }
 
-// ── slow functions (dispatched like AI calls) ────────────────────────
+// ── what the functions that call out are made of ────────────────────
 
 /** Fill "{{path}}" placeholders; inside JSON strings the value is escaped so the body stays valid JSON. */
 function render(template: string, view: unknown, json: boolean): string {
@@ -144,23 +115,61 @@ export async function callHttp(params: z.infer<typeof httpParams>, view: unknown
 export const httpOutput = (params: z.infer<typeof httpParams>, payload: unknown) =>
   validateScriptData(Object.fromEntries(params.fields.map((field) => [field.name, get(payload, params.paths[field.name]?.trim() || field.name)])), params.fields);
 
-export async function runAsyncFunction(
-  fn: FunctionName,
-  raw: unknown,
-  input: FunctionInput,
-  deps: { db: Db; secrets: SecretStore; signal: AbortSignal },
-): Promise<FunctionResult> {
-  if (fn === 'script') {
-    const params = scriptParams.parse(raw);
-    const result = await runScript(params.code, lineView(input));
-    const port = result.port ?? params.ports[0];
-    if (!params.ports.includes(port)) throw new Error(`스크립트가 선언하지 않은 출구를 반환했습니다: ${port}`);
-    return { port, candidate: result.candidate, output: validateScriptData(result.data, params.fields), issues: result.issues };
-  }
+type Deps = { db: Db; secrets: SecretStore; signal: AbortSignal };
+/** A function that finishes at once, inside the runner's transaction. */
+type Instant<F extends FunctionName> = (tx: Tx, params: FunctionParams<F>, input: FunctionInput) => FunctionResult;
+/** A function that calls out (network, sandbox): dispatched like an AI call. */
+type CallOut<F extends FunctionName> = (params: FunctionParams<F>, input: FunctionInput, deps: Deps) => Promise<FunctionResult>;
 
-  if (fn === 'http') {
-    const params = httpParams.parse(raw);
-    return { port: 'out', output: httpOutput(params, await callHttp(params, lineView(input), deps)) };
-  }
-  throw new Error(`실행할 수 없는 함수입니다: ${fn}`);
+/**
+ * Every function's implementation, by the name it has in FUNCTIONS and with that function's own settings: one that
+ * is missing does not compile. `instant` or `callsOut` must be what FUNCTIONS[fn].callsOut says (functions.test.ts).
+ */
+export const FUNCTION_IMPLEMENTATIONS: { [F in FunctionName]: { instant: Instant<F> } | { callsOut: CallOut<F> } } = {
+  formatCheck: {
+    instant(tx, params, input) {
+      const text = candidateOf(input);
+      const rules = knowledgeOf(tx as unknown as Db, input.projectId).settings()?.formatRules;
+      const issues = text === null ? [NEEDS_CANDIDATE] : checkFormat(sourceOf(input), text, params, rules).map((issue) => issue.message);
+      return { port: issues.length ? 'fail' : 'pass', issues, output: { text, passed: !issues.length, issues, kind: 'format' } };
+    },
+  },
+  glossaryCheck: {
+    instant(tx, _params, input) {
+      const text = candidateOf(input);
+      if (text === null) return { port: 'fail', issues: [NEEDS_CANDIDATE], output: { text, passed: false, issues: [NEEDS_CANDIDATE], kind: 'term' } };
+      const issues = knowledgeOf(tx as unknown as Db, input.projectId)
+        .glossary()
+        .matcher.find(sourceOf(input), byInput(input, { lines: ({ unit }) => unit.kind, terms: () => undefined }))
+        .filter((term) => !text.toLowerCase().includes(term.target.toLowerCase()))
+        .map((term) => `용어 "${term.source}"은(는) "${term.target}"(으)로 옮겨야 합니다.`);
+      return { port: issues.length ? 'fail' : 'pass', issues, output: { text, passed: !issues.length, issues, kind: 'term' } };
+    },
+  },
+  script: {
+    async callsOut(params, input) {
+      const result = await runScript(params.code, lineView(input));
+      const port = result.port ?? params.ports[0];
+      if (!port || !params.ports.includes(port)) throw new Error(`스크립트가 선언하지 않은 출구를 반환했습니다: ${port}`);
+      return { port, candidate: result.candidate, output: validateScriptData(result.data, params.fields), issues: result.issues };
+    },
+  },
+  http: {
+    callsOut: async (params, input, deps) => ({ port: 'out', output: httpOutput(params, await callHttp(params, lineView(input), deps)) }),
+  },
+  ...applyFunctions,
+};
+
+/** Runs an instant function node for one item, inside the runner's transaction. */
+export function runInstantFunction(tx: Tx, config: FunctionConfig, input: FunctionInput): FunctionResult {
+  const implementation = FUNCTION_IMPLEMENTATIONS[config.fn];
+  if (!('instant' in implementation)) throw new Error(`즉시 실행할 수 없는 함수입니다: ${config.fn}`);
+  return (implementation.instant as Instant<FunctionName>)(tx, config.params, input);
+}
+
+/** Runs a function node that calls out for one item. */
+export function runAsyncFunction(config: FunctionConfig, input: FunctionInput, deps: Deps): Promise<FunctionResult> {
+  const implementation = FUNCTION_IMPLEMENTATIONS[config.fn];
+  if (!('callsOut' in implementation)) throw new Error(`실행할 수 없는 함수입니다: ${config.fn}`);
+  return (implementation.callsOut as CallOut<FunctionName>)(config.params, input, deps);
 }

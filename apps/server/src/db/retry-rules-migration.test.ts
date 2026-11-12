@@ -14,7 +14,7 @@ describe('0121: 재요청 nodes become retry rules', () => {
         node('translate', 'ai'),
         node('translate-resend', 'retry', { kinds: ['cut-off', 'too-long', 'missing', 'invalid-output', 'timeout'], scale: 0.5, maxTimes: 2 }),
         node('translate-wait', 'retry', { kinds: ['rate-limit', 'network'], scale: 1, wait: 60, maxTimes: 3 }),
-        node('failed', 'function', { fn: 'setStatus', params: {} }),
+        node('failed', 'function', { fn: 'saveCandidate', params: {} }),
         node('review', 'ai'),
         node('review-resend', 'retry', { kinds: ['cut-off'], scale: 0.25, maxTimes: 1 }),
         node('plain', 'ai'),

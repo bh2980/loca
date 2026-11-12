@@ -18,7 +18,7 @@ import { deletingChats, afterTurn, startTurn, turnEnded, turnStartedAt, type Cha
 import { chatStream, errorText } from './chat-stream.ts';
 import { cliChatResponse } from './cli-chat.ts';
 import { hasDecisionsToAnswer, openProposals, startsRun, takeDecisions } from './proposals.ts';
-import { liveChoice } from './routes.ts';
+import { liveChoice } from './model-target.ts';
 import { apiChatTools } from './tool-run.ts';
 
 /**
@@ -49,10 +49,10 @@ export async function runChatTurn(deps: Pick<Deps, 'db' | 'secrets'>, given: typ
   const imageProblem = incomingImageProblem(request.incoming);
   if (imageProblem) throw new Error(imageProblem);
   const live = liveChoice(db, { connectionId: session.connectionId, model: session.model, ...(session.effort && { effort: session.effort }) }, secrets, 'chat');
-  const route = live.route;
+  const target = live.target;
   const messages = mergeIncoming(session.messages as UIMessage[], request.incoming, request.trigger);
   if (!messages.length) throw new Error('보낼 메시지가 없습니다.');
-  const answeredBy: AnsweredBy = { kind: route.kind, connectionId: session.connectionId, model: route.model };
+  const answeredBy: AnsweredBy = { kind: target.kind, connectionId: session.connectionId, model: target.model };
 
   const firstUser = messages.find((message) => message.role === 'user' && !isRunRecord(message));
   const firstText = firstUser?.parts.find((part) => part.type === 'text');
@@ -72,10 +72,11 @@ export async function runChatTurn(deps: Pick<Deps, 'db' | 'secrets'>, given: typ
   // back on the same CLI and model after API turns, the CLI's saved session is reopened; after
   // another CLI's turns, a new session gets the record.
   const previous = session.agentSession;
-  if (previous && (previous.kind !== route.kind || previous.model !== route.model)) void ai.closeSession(previous.id);
-  if (ai.isAcpKind(route.kind))
-    return cliChatResponse({ db, chat: session, route, system: [AGENT_SYSTEM, NO_EDITOR_NOTE].join('\n\n'), view, messages, answeredBy, idleMs: CALL_TIMEOUT_MS.chatIdle, turn });
-  return apiChatResponse({ db, session, route, live, view, messages, answeredBy, turn });
+  if (previous && (previous.kind !== target.kind || previous.model !== target.model)) void ai.closeSession(previous.id);
+  // An agent CLI answers through its own agent session; an API connection through the AI SDK with native tool calls.
+  if (ai.providerOf(target.kind).chat?.via === 'agent')
+    return cliChatResponse({ db, chat: session, target, system: [AGENT_SYSTEM, NO_EDITOR_NOTE].join('\n\n'), view, messages, answeredBy, idleMs: CALL_TIMEOUT_MS.chatIdle, turn });
+  return apiChatResponse({ db, session, target, live, view, messages, answeredBy, turn });
 }
 
 /** /compact: the conversation so far becomes its summary now, written by the conversation's own model (chat-compaction.ts). */
@@ -85,8 +86,8 @@ export async function compactChat(deps: Pick<Deps, 'db' | 'secrets'>, sessionId:
   if (!session || deletingChats.has(sessionId)) throw new Error('삭제되었거나 삭제 중인 대화입니다.');
   if (turnStartedAt(sessionId) !== null) throw new Error('답변이 끝난 뒤에 압축할 수 있습니다.');
   if (!session.connectionId || !session.model) throw new Error('입력창 아래에서 채팅할 AI 연결과 모델을 고르세요.');
-  const { route } = liveChoice(db, { connectionId: session.connectionId, model: session.model, ...(session.effort && { effort: session.effort }) }, secrets, 'chat');
-  return compactNow({ db, sessionId, route, signal });
+  const { target } = liveChoice(db, { connectionId: session.connectionId, model: session.model, ...(session.effort && { effort: session.effort }) }, secrets, 'chat');
+  return compactNow({ db, sessionId, target, signal });
 }
 
 /**
@@ -141,15 +142,15 @@ const afterStartingRun: StopCondition<ToolSet> = ({ steps }) => Boolean(steps.at
 function apiChatResponse(input: {
   db: Db;
   session: typeof s.chatSessions.$inferSelect;
-  route: ai.ResolvedRoute;
+  target: ai.ModelTarget;
   live: ReturnType<typeof liveChoice>;
   view: string | null;
   messages: UIMessage[];
   answeredBy: AnsweredBy;
   turn: ChatTurn;
 }) {
-  const { db, session, route, live, messages, answeredBy, turn } = input;
-  const tools = apiChatTools(db, session.projectId, session.id, { model: route.model });
+  const { db, session, target, live, messages, answeredBy, turn } = input;
+  const tools = apiChatTools(db, session.projectId, session.id, { model: target.model });
   // Run cards are not replies: the reply that carries on is the newest message that is not one.
   const last = lastExchange(messages);
   // A reply sent back with the result of a tool the browser carried out (edit_workflow_node) goes on in the same message.
@@ -166,9 +167,9 @@ function apiChatResponse(input: {
       // The whole record, its start summarized only when it would not fit the model (chat-compaction.ts).
       const system = [AGENT_SYSTEM, input.view].filter(Boolean).join('\n\n');
       const overhead = estimateTokens(system) + toolTokens(db, session.projectId);
-      const fitted = await fitRecord({ db, chat: session, route, record: messages, overhead, signal: turn.signal });
+      const fitted = await fitRecord({ db, chat: session, target, record: messages, overhead, signal: turn.signal });
       // A model whose list says it takes no images gets the text only (the composer's chip said so).
-      const known = db.select({ modelLimits: s.connections.modelLimits }).from(s.connections).where(eq(s.connections.id, session.connectionId!)).get()?.modelLimits[route.model]?.images;
+      const known = db.select({ modelLimits: s.connections.modelLimits }).from(s.connections).where(eq(s.connections.id, session.connectionId!)).get()?.modelLimits[target.model]?.images;
       const sendable = imageDecision(known, 1).send ? fitted : withoutImages(fitted);
       let modelMessages: ModelMessage[] = await convertToModelMessages(expandRecord(sendable), { ignoreIncompleteToolCalls: true });
       // Messages no turn has taken yet (sent as the last one was ending, decisions made since) come first.
@@ -178,7 +179,7 @@ function apiChatResponse(input: {
       let finishReason: string | undefined;
       for (let pass = 0; steps < MAX_STEPS; pass++) {
         // One log row per pass (its tool steps included); usage comes with the finish.
-        const finish = startCall(db, { projectId: session.projectId, kind: 'chat', refId: session.id, label: pass ? '채팅 · 끼어든 메시지 후' : '채팅' }, route);
+        const finish = startCall(db, { projectId: session.projectId, kind: 'chat', refId: session.id, label: pass ? '채팅 · 끼어든 메시지 후' : '채팅' }, target);
         // No overall limit (a turn with tool calls can run long): the pass stops when the model sends nothing for chatIdle.
         const idle = new AbortController();
         let quiet: NodeJS.Timeout | undefined;
@@ -187,8 +188,9 @@ function apiChatResponse(input: {
           quiet = setTimeout(() => idle.abort(), CALL_TIMEOUT_MS.chatIdle);
         };
         arm();
+        const sdk = ai.chatModel(target);
         const result = streamText({
-          model: ai.chatModel(route),
+          model: sdk.model,
           onFinish: ({ totalUsage }) => finish({ usage: { inputTokens: totalUsage.inputTokens, cachedInputTokens: totalUsage.inputTokenDetails?.cacheReadTokens, outputTokens: totalUsage.outputTokens } }),
           onError: ({ error }) => finish({ error }),
           onAbort: () => finish({ error: idle.signal.aborted ? `모델이 ${CALL_TIMEOUT_MS.chatIdle / 1000}초 동안 아무것도 보내지 않아 멈춤` : '중단함' }),
@@ -199,7 +201,7 @@ function apiChatResponse(input: {
           // A waiting steering message ends the pass after the current step (its tool results are in).
           stopWhen: [stepCountIs(MAX_STEPS - steps), () => hasInterjections(db, session.id), afterStartingRun],
           maxOutputTokens: live.snapshot.maxOutputTokens,
-          providerOptions: ai.openaiProviderOptions(route),
+          providerOptions: sdk.providerOptions,
           abortSignal: AbortSignal.any([turn.signal, idle.signal]),
         });
         writer.merge(result.toUIMessageStream({ sendStart: false, sendFinish: false, onError: errorText }));

@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray, isNotNull, ne, sql } from 'drizzle-orm';
-import { nodeOutputFields, workflowInput, readinessUses, CONNECTION_KIND_INFO, estimateTokens, limitsWithSource, isFreeModel, isUnknownListener, needsListener, nodeRetries, runNodeName, termMatcher, type AiNode, type WorkflowDefinition, type WorkflowSubject } from '@tw/shared';
+import { nodeOutputFields, workflowInput, readinessUses, CONNECTION_KIND_INFO, estimateTokens, limitsWithSource, isFreeModel, isUnknownListener, needsListener, nodeRetries, runNodeName, termMatcher, type AiNode, type WorkflowDefinition, type Subject, bySubject } from '@tw/shared';
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import { tokensSql } from '../db/tokens.ts';
@@ -8,11 +8,10 @@ import * as s from '../db/schema.ts';
 import { packGroups, subjectBatch } from '../engine/batches.ts';
 import { promptLineId } from '../engine/prompts.ts';
 import { buildRequest } from '../engine/request.ts';
-import { excludedInScope, planGroups, planRun, sceneLinks, selectRunTerms, selectRunUnits } from '../engine/run-create.ts';
-import { loadTerms, TERM_GROUP, termTokens } from '../engine/subjects.ts';
+import { excludedInScope, loadTerms, planGroups, planRun, sceneLinks, selectRunTerms, selectRunUnits, TERM_GROUP, termTokens } from '../engine/subjects.ts';
 import { autoBudgetsOf, withBudgets } from './budgets.ts';
 import { expandedDefinition } from '../engine/expand-calls.ts';
-import { choiceLabel } from './routes.ts';
+import { choiceLabel } from './model-target.ts';
 import { speechRuleIndex } from './speech.ts';
 
 /** Prompts built per node to estimate request size; more would only slow the preview down. */
@@ -83,7 +82,7 @@ type Packed = { id: string; tokens: number; kind?: string };
  * them (a node that reads only an earlier node's result, after a gather, makes one request), and its
  * prompt size is measured on a few of those requests built as a run builds them (buildRequest).
  */
-function estimateNode(db: Db, workflow: { id: string | null; projectId: string; definition: WorkflowDefinition }, definition: WorkflowDefinition, subject: WorkflowSubject, node: AiNode, groups: Packed[][], items: number, everyLine: Set<string>): NodeEstimate {
+function estimateNode(db: Db, workflow: { id: string | null; projectId: string; definition: WorkflowDefinition }, definition: WorkflowDefinition, subject: Subject, node: AiNode, groups: Packed[][], items: number, everyLine: Set<string>): NodeEstimate {
   const requests = node.config.input.lines ? packGroups(groups, subjectBatch(subject, node)) : groups.length ? [groups.flat().slice(0, 1)] : [];
   const connection = node.config.model.connectionId ? db.select().from(s.connections).where(eq(s.connections.id, node.config.model.connectionId)).get() : undefined;
   const historyRate = workflow.id ? rateFromHistory(db, workflow.id, node.id) : null;
@@ -129,8 +128,14 @@ export async function preflight(db: Db, requested: Pick<typeof s.workflows.$infe
   // Called workflows are counted as the run will run them: their AI nodes are listed too (throws like a run start when a call cannot be expanded).
   const workflow = { ...requested, definition: expandedDefinition(db, requested.projectId, requested.definition, requested.id) };
   const definition: WorkflowDefinition = withBudgets(workflow.definition, autoBudgetsOf(db, workflow.definition));
+  // The estimate has the same shape for every input; how its items are read, planned and judged ready differs.
+  return bySubject(workflowInput(definition), { lines: linePreflight, terms: termPreflight })(db, workflow, definition, scope);
+}
+
+type Requested = { id: string | null; projectId: string; definition: WorkflowDefinition };
+
+async function linePreflight(db: Db, workflow: Requested, definition: WorkflowDefinition, scope: s.RunScope) {
   const projectId = workflow.projectId;
-  if (workflowInput(definition) === 'terms') return termPreflight(db, workflow, definition, scope);
   const unitIds = selectRunUnits(db, projectId, scope);
   const columns = { id: s.units.id, key: s.units.key, groupId: s.units.groupId, seq: s.units.seq, kind: s.units.kind, speaker: s.units.speaker, source: s.units.source, translation: s.units.translation, listener: s.units.listener, listenerOrigin: s.units.listenerOrigin, listenerConfidence: s.units.listenerConfidence, tokens: tokensSql(s.units.source) };
   // Most of a project: one scan kept by id is faster than ids in chunks (see planLines).
@@ -210,7 +215,7 @@ function suggestLimits(definition: WorkflowDefinition, estimates: NodeEstimate[]
  * fixed counts, no scenes), with each AI node's requests and a sampled prompt size. Line readiness
  * (listeners, speech rules) does not apply.
  */
-async function termPreflight(db: Db, workflow: { id: string | null; projectId: string; definition: WorkflowDefinition }, definition: WorkflowDefinition, scope: s.RunScope) {
+async function termPreflight(db: Db, workflow: Requested, definition: WorkflowDefinition, scope: s.RunScope): ReturnType<typeof linePreflight> {
   const ids = selectRunTerms(db, workflow.projectId, scope);
   const { terms } = loadTerms(db, ids);
   const rows = ids.flatMap((id, seq) => {
@@ -398,7 +403,7 @@ function answerTokens(node: AiNode, requests: { tokens: number }[][]) {
 }
 
 /** Average estimated tokens of the request a node would send, built (buildRequest) for a few of its real requests. */
-function samplePrompt(db: Db, projectId: string, node: AiNode, subject: WorkflowSubject, requests: { id: string }[][]): number {
+function samplePrompt(db: Db, projectId: string, node: AiNode, subject: Subject, requests: { id: string }[][]): number {
   if (!requests.length) return 0;
   const step = Math.max(1, Math.floor(requests.length / SAMPLE));
   const picked = requests.filter((_, index) => index % step === 0).slice(0, SAMPLE);

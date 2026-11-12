@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, ChevronRight, MoreHorizontal, Plus, Trash2 } from 'lucide-react';
 import { z } from 'zod';
-import { JSON_FIELD_TYPES, JSON_FIELD_TYPE_LABELS, jsonFieldSchema, type JsonField, type JsonFieldType } from '@tw/shared';
+import { JSON_FIELD_TYPES, JSON_FIELD_TYPE_LABELS, jsonFieldIssues, jsonFieldSchema, type JsonField, type JsonFieldType } from '@tw/shared';
 import { Box, Button, ControlIdContext, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, FieldChildren, FieldReadRow, Icon, Inline, Input, NumberInput, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Switch, Text, Textarea, Bleed } from '@loca/ui';
 
 const fieldsSchema = z.array(jsonFieldSchema);
@@ -188,7 +188,8 @@ export function JsonFieldsEditor({ label, fields, descriptionPlaceholder, onChan
       setError(`${issue?.path.join('.') || '필드'}: ${issue?.message ?? '올바르지 않습니다.'}`);
       return;
     }
-    setError(null);
+    // A name that cannot be used is kept (it is a draft like any other) and said here, as validation says it on the node.
+    setError(jsonFieldIssues(result.data)[0] ?? null);
     onChange(result.data);
   };
   return (

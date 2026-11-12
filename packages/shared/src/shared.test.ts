@@ -11,8 +11,9 @@ import { ANALYSIS_WORKFLOW, analysisTemplate, defaultWorkflows, eventExtractionT
 import { APPLY_TARGETS } from './functions.ts';
 import { AI_PRESETS, AI_PROMPTS, presetConfig } from './presets.ts';
 import { CONTEXT_FIELDS } from './context.ts';
-import { APPLY_PALETTE_ORDER, fieldsFromSample, FUNCTION_NAMES, functionGroup } from './functions.ts';
-import { applyIssues, contextConfigSchema, nodeOutputFields, nodePorts, pickPaths, previousStepId, previousSteps, readinessUses, retryAction, retrySummary, retryWhen, retryModel, retryRuleIndex, retryScaleText, resendsOf, nodeRetries, DEFAULT_RETRY_RULES, definitionModels, ITEM_ERROR_KINDS, validateWorkflow, workflowDefinitionSchema, workflowNodeSchema, type RetryRule, type WorkflowDefinition, type WorkflowNode } from './workflow.ts';
+import { nodeDetails, nodeSummary } from './workflow-summary.ts';
+import { fieldsFromSample, FUNCTION_NAMES, FUNCTIONS, functionConfigSchema, paletteFunctions } from './functions.ts';
+import { applyIssues, contextConfigSchema, functionIssues, nodeCallsOut, nodeOutputFields, nodePorts, pickPaths, previousStepId, previousSteps, readinessUses, retryAction, retrySummary, retryWhen, retryModel, retryRuleIndex, retryScaleText, resendsOf, nodeRetries, DEFAULT_RETRY_RULES, definitionModels, ITEM_ERROR_KINDS, validateWorkflow, workflowDefinitionSchema, workflowNodeSchema, type RetryRule, type WorkflowDefinition, type WorkflowNode } from './workflow.ts';
 
 const model = { connectionId: 'c', model: 'm' };
 /** The project's tag for each kind checks and reviews name (a new project has one of each). */
@@ -154,8 +155,8 @@ describe('workflow validation', () => {
     const definition = workflowDefinitionSchema.parse({
       nodes: [
         { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: {} },
-        { id: 'a', type: 'function', position: { x: 0, y: 0 }, config: { fn: 'setStatus' } },
-        { id: 'b', type: 'function', position: { x: 0, y: 0 }, config: { fn: 'setStatus' } },
+        { id: 'a', type: 'function', position: { x: 0, y: 0 }, config: { fn: 'saveCandidate' } },
+        { id: 'b', type: 'function', position: { x: 0, y: 0 }, config: { fn: 'saveCandidate' } },
       ],
       edges: [
         { id: '1', source: 'entry', sourceHandle: 'out', target: 'a' },
@@ -201,21 +202,75 @@ describe('node exits', () => {
     expect(unconnected).toEqual(["check: '통과' 출구가 연결되지 않았습니다."]);
   });
 
-  it('flags an http node without a connection and an unknown function', () => {
+  it('flags an http node without an address; a function that does not exist never gets as far as validation', () => {
+    const node = (config: object) => ({ id: 'h', type: 'function', position: { x: 0, y: 0 }, config });
     const definition = workflowDefinitionSchema.parse({
+      nodes: [{ id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: {} }, node({ fn: 'http' })],
+      edges: [{ id: '1', source: 'entry', sourceHandle: 'out', target: 'h' }],
+    });
+    expect(validateWorkflow(definition, refs)).toContainEqual(expect.objectContaining({ nodeId: 'h', message: expect.stringContaining('HTTP') }));
+    expect(workflowNodeSchema.safeParse(node({ fn: 'nope' })).success).toBe(false);
+  });
+
+  it('types a function node by its function: wrong settings fail the schema, a draft still being typed does not', () => {
+    const config = (value: object) => functionConfigSchema.safeParse(value);
+    // Defaults fill what a node leaves out, per function.
+    expect(config({ fn: 'http' }).data).toMatchObject({ fn: 'http', params: { method: 'POST', timeoutSeconds: 30 }, concurrency: 2 });
+    expect(config({ fn: 'saveTerms' }).data).toMatchObject({ params: { list: '', map: {} } });
+    // Settings of the wrong shape are refused once, here.
+    expect(config({ fn: 'http', params: { method: 'DELETE' } }).success).toBe(false);
+    expect(config({ fn: 'formatCheck', params: { maxChars: 'many' } }).success).toBe(false);
+    expect(config({ fn: 'formatCheck', params: { customRules: [{ kind: 'nope', pattern: 'x' }] } }).success).toBe(false);
+    // A rule with no pattern yet, or one that is not a regex yet, and a field still without a name are drafts: they are
+    // stored, and validation (not the schema) says they are not ready.
+    const draft = workflowDefinitionSchema.parse({
       nodes: [
         { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: {} },
-        { id: 'h', type: 'function', position: { x: 0, y: 0 }, config: { fn: 'http' } },
-        { id: 'x', type: 'function', position: { x: 0, y: 0 }, config: { fn: 'nope' } },
+        { id: 'check', type: 'function', position: { x: 0, y: 0 }, config: { fn: 'formatCheck', params: { customRules: [{ label: '영어', pattern: '' }, { pattern: '[A-' }, { pattern: '[A-Z]+' }] } } },
+        { id: 'script', type: 'function', position: { x: 0, y: 0 }, config: { fn: 'script', params: { fields: [{ name: '' }, { name: '1st' }, { name: 'ok' }] } } },
       ],
-      edges: [
-        { id: '1', source: 'entry', sourceHandle: 'out', target: 'h' },
-        { id: '2', source: 'h', sourceHandle: 'out', target: 'x' },
-      ],
+      edges: [{ id: '1', source: 'entry', sourceHandle: 'out', target: 'check' }, { id: '2', source: 'check', sourceHandle: 'pass', target: 'script' }],
     });
-    const issues = validateWorkflow(definition, refs);
-    expect(issues).toContainEqual(expect.objectContaining({ nodeId: 'h', message: expect.stringContaining('HTTP') }));
-    expect(issues).toContainEqual(expect.objectContaining({ nodeId: 'x', message: expect.stringContaining('알 수 없는 함수') }));
+    const messages = validateWorkflow(draft, refs).filter((issue) => issue.level === 'error').map((issue) => `${issue.nodeId}: ${issue.message}`);
+    expect(messages).toContain('check: 정규식 규칙 1 (영어): 패턴을 입력하세요.');
+    expect(messages.filter((message) => message.startsWith('check: 정규식 규칙'))).toHaveLength(2);
+    expect(messages).toContain('script: 이름이 없는 필드가 있습니다.');
+    expect(messages.some((message) => message.startsWith("script: 필드 이름 '1st'"))).toBe(true);
+    // The summary reads the draft as it is: every rule counted, the other checks as they are set.
+    expect(nodeSummary(draft.nodes[1]!, draft)).toBe('검사: 자리표시자·서식 태그·줄바꿈·빈 번역·규칙 3개');
+  });
+
+  it('summarises a node once for every surface: the card line, and beside it what a terminal reader needs', () => {
+    const definition = workflowDefinitionSchema.parse(translationTemplate(ids));
+    const line = (id: string) => {
+      const node = definition.nodes.find((candidate) => candidate.id === id)!;
+      return [nodeSummary(node, definition), ...nodeDetails(node, definition)].join(' · ');
+    };
+    expect(line('entry')).toBe('대사 입력 · 실행 범위로 고름');
+    expect(line('translate')).toBe('문장 · 장면별 · text·line · 프리셋 translate · m · 동시 1 · 재시도 워크플로 기본');
+    expect(line('check')).toBe('검사: 자리표시자·서식 태그·줄바꿈·빈 번역 · formatCheck');
+    // A save node says where it writes; for the item's own translation that depends on the workflow's input.
+    expect(line('save')).toBe('→ 대사 번역 · saveCandidate');
+    const terms = workflowDefinitionSchema.parse(termTranslationTemplate(ids));
+    const save = terms.nodes.find((node) => node.type === 'function' && node.config.fn === 'saveCandidate')!;
+    expect(nodeSummary(save, terms)).toBe('→ 용어 번역어');
+    // A node that calls out says how many calls it makes at once; a call names its workflow when the names are known.
+    const http = workflowNodeSchema.parse({ id: 'h', type: 'function', position: { x: 0, y: 0 }, config: { fn: 'http', params: { url: 'https://api.example.com/spell?lang=ko' }, concurrency: 4 } });
+    expect([nodeSummary(http, definition), ...nodeDetails(http, definition)].join(' · ')).toBe('POST api.example.com/spell?… · http · 동시 4');
+    const call = workflowNodeSchema.parse({ id: 'c', type: 'call', position: { x: 0, y: 0 }, config: { workflowId: 'w1' } });
+    expect(nodeSummary(call, definition, { workflows: [{ id: 'w1', name: '검수' }] })).toBe('검수');
+    expect(nodeSummary(call, definition)).toBe('워크플로를 고르세요');
+  });
+
+  it('derives what a function is from its definition: whether it calls out, what it writes, where the library lists it', () => {
+    const fn = (name: string) => workflowNodeSchema.parse({ id: name, type: 'function', position: { x: 0, y: 0 }, config: { fn: name } });
+    expect(FUNCTION_NAMES.filter((name) => nodeCallsOut(fn(name)))).toEqual(['script', 'http']);
+    expect(nodeCallsOut(workflowNodeSchema.parse({ id: 'a', type: 'ai', position: { x: 0, y: 0 }, config: {} }))).toBe(true);
+    expect(nodeCallsOut(workflowNodeSchema.parse({ id: 'c', type: 'condition', position: { x: 0, y: 0 }, config: { expression: true } }))).toBe(false);
+    // The item itself is what an apply target of shape `line` writes; the others write the project's knowledge.
+    expect(FUNCTION_NAMES.filter((name) => FUNCTIONS[name].changes === 'item')).toEqual(Object.keys(APPLY_TARGETS).filter((name) => APPLY_TARGETS[name as keyof typeof APPLY_TARGETS].shape === 'line'));
+    expect(paletteFunctions('function')).toEqual(['formatCheck', 'glossaryCheck', 'script', 'http']);
+    expect(paletteFunctions('apply')).toEqual(Object.keys(APPLY_TARGETS));
   });
 });
 
@@ -356,7 +411,7 @@ describe('templates', () => {
     ];
     for (const definition of all) {
       expect(errors(definition)).toEqual([]);
-      for (const node of definition.nodes) if (node.type === 'function' && node.config.fn in APPLY_TARGETS) expect(applyIssues(definition, node.id, node.config.fn as keyof typeof APPLY_TARGETS, node.config.params as never)).toEqual([]);
+      for (const node of definition.nodes) if (node.type === 'function') expect(functionIssues(node, definition, refs)).toEqual([]);
     }
     expect(WORKFLOW_TEMPLATES.map((template) => template.name)).toEqual(['번역', '검수', '청자 추정', '인물·관계 추출', '사건 추출', '용어 추출', '용어 번역']);
   });
@@ -364,11 +419,12 @@ describe('templates', () => {
   it('maps every field an analysis list produces that its save node accepts', () => {
     const analysis = analysisTemplate(ids);
     for (const node of analysis.nodes) {
-      if (node.type !== 'function' || !(node.config.fn in APPLY_TARGETS) || !node.config.params.list) continue;
+      if (node.type !== 'function' || !('list' in node.config.params) || !node.config.params.list) continue;
+      const { list, map } = node.config.params;
       const fields = AI_PROMPTS.analysis.fields;
-      const items = fields.find((field) => field.name === node.config.params.list)?.fields?.map((field) => field.name) ?? [];
+      const items = fields.find((field) => field.name === list)?.fields?.map((field) => field.name) ?? [];
       const accepted = APPLY_TARGETS[node.config.fn as keyof typeof APPLY_TARGETS].fields.map((field) => field.name).filter((name) => items.includes(name));
-      expect(Object.keys(node.config.params.map as object)).toEqual(expect.arrayContaining(accepted));
+      expect(Object.keys(map)).toEqual(expect.arrayContaining(accepted));
     }
   });
 
@@ -638,8 +694,6 @@ describe('analysis workflow and presets', () => {
 
   it('built-in prompts match their output forms; only reusable ones are presets', () => {
     expect(Object.keys(AI_PRESETS)).toEqual(['translate', 'review', 'terms']);
-    // Every node of the 반영 group is placed in its order once.
-    expect([...APPLY_PALETTE_ORDER].sort()).toEqual(FUNCTION_NAMES.filter((fn) => functionGroup(fn) === 'apply').sort());
     expect(AI_PROMPTS.listener).toMatchObject({ output: 'json', scope: 'line' });
     expect(AI_PROMPTS.listener.fields.map((field) => field.name)).toEqual(['value', 'confidence']);
     for (const id of ['terms', 'knowledge', 'events'] as const) expect(AI_PROMPTS[id]).toMatchObject({ output: 'json', scope: 'batch' });
@@ -650,9 +704,9 @@ describe('analysis workflow and presets', () => {
 describe('node outputs', () => {
   it('lets every node that returns something declare it, and the next step read it', () => {
     const at = { x: 0, y: 0 };
-    const check = { id: 'check', type: 'function', position: at, config: { fn: 'formatCheck', params: {} } } as WorkflowNode;
-    const http = { id: 'http', type: 'function', position: at, config: { fn: 'http', params: { fields: [{ name: 'suggestion', type: 'string', description: '' }] }, concurrency: 2 } } as WorkflowNode;
-    const status = { id: 'status', type: 'function', position: at, config: { fn: 'setStatus', params: {} } } as WorkflowNode;
+    const check = workflowNodeSchema.parse({ id: 'check', type: 'function', position: at, config: { fn: 'formatCheck' } });
+    const http = workflowNodeSchema.parse({ id: 'http', type: 'function', position: at, config: { fn: 'http', params: { fields: [{ name: 'suggestion', type: 'string', description: '' }] } } });
+    const status = workflowNodeSchema.parse({ id: 'status', type: 'function', position: at, config: { fn: 'saveCandidate' } });
     expect(nodeOutputFields(check)?.map((field) => field.name)).toEqual(['text', 'passed', 'issues', 'kind']);
     expect(nodeOutputFields(http)?.map((field) => field.name)).toEqual(['suggestion']);
     expect(nodeOutputFields(status)).toBeNull();
@@ -727,7 +781,7 @@ describe('AI node input', () => {
         { id: 'entry', type: 'entry', position: at, config: {} },
         { id: 'who', type: 'ai', position: at, config: { model: { connectionId: 'c', model: 'm' }, instructions: 'x' } },
         { id: 'sure', type: 'condition', position: at, config: { expression: true } },
-        { id: 'save', type: 'function', position: at, config: { fn: 'setStatus', params: {} } },
+        { id: 'save', type: 'function', position: at, config: { fn: 'saveCandidate' } },
         { id: 'tr', type: 'ai', position: at, config: { model: { connectionId: 'c', model: 'm' }, instructions: 'x' } },
         { id: 'again', type: 'condition', position: at, config: { expression: true } },
       ],

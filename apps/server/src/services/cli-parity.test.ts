@@ -9,7 +9,7 @@ import { sourceRoutes } from '../routes/source.ts';
 import * as s from '../db/schema.ts';
 import { agentCatalog, prepareProposal } from './agent-catalog.ts';
 import { importProject } from './importer.ts';
-import { excludedInScope, selectRunUnits } from '../engine/run-create.ts';
+import { excludedInScope, selectRunUnits } from '../engine/subjects.ts';
 import { resolveLineFilter } from './line-filter.ts';
 import { askedScope, resolveRunScope } from './run-plan.ts';
 import { findLines } from './script-query.ts';

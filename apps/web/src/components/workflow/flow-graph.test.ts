@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import type { WorkflowDefinition, WorkflowNode } from '@tw/shared';
+import { workflowNodeSchema, type WorkflowDefinition } from '@tw/shared';
 import { nodeSummary, type SummaryNames } from './flow-graph';
 
 const names: SummaryNames = { status: new Map(), connection: new Map([['key-1', '맞춤법 API 키']]), connectionsLoaded: true };
 const definition = { nodes: [], edges: [] } as unknown as WorkflowDefinition;
-const fn = (name: string, params: Record<string, unknown>) => ({ id: 'n1', label: '', type: 'function', config: { fn: name, params }, position: { x: 0, y: 0 } }) as unknown as WorkflowNode;
+// A node as the editor holds it: read through the schema, so its settings are its function's own, defaults filled.
+const fn = (name: string, params: Record<string, unknown>) => workflowNodeSchema.parse({ id: 'n1', type: 'function', config: { fn: name, params }, position: { x: 0, y: 0 } });
 const summary = (name: string, params: Record<string, unknown>) => nodeSummary(fn(name, params), definition, names);
 
 describe('nodeSummary: HTTP 호출', () => {
@@ -28,8 +29,8 @@ describe('nodeSummary: HTTP 호출', () => {
     expect(long.endsWith('…')).toBe(true);
   });
 
-  it("falls back to the function's name when the settings do not fit its schema", () => {
-    expect(summary('http', { method: 'DELETE', url: 'https://api.example.com' })).toBe('HTTP 호출');
+  it('never meets settings that do not fit the schema: such a node is not a node', () => {
+    expect(() => fn('http', { method: 'DELETE', url: 'https://api.example.com' })).toThrow();
   });
 });
 

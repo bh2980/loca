@@ -44,6 +44,3 @@ export interface ContextItem {
   tokens: number;
   included: boolean;
 }
-
-/** Rough token count: about 4 bytes of UTF-8 per token. Only for budgets and display; label it as an estimate. */
-export const estimateTokens = (value: unknown) => Math.ceil(new TextEncoder().encode(typeof value === 'string' ? value : JSON.stringify(value)).length / 4);

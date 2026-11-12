@@ -1,4 +1,5 @@
 import { EMPTY_MODEL_CHOICE } from './model-choice.ts';
+import type { Subject } from './subject.ts';
 import { UNRESOLVED_PAIR_KINDS } from './talking-pairs.ts';
 import { AGE_BANDS, CHARACTER_ROLES, GENDERS, SPEECH_LEVEL_GUIDE, SPEECH_LEVELS, TERM_KINDS } from './knowledge.ts';
 import type { DraftModelChoice } from './model-choice.ts';
@@ -27,7 +28,7 @@ export interface AiPreset {
   /** The node's call time limit when it is not the default (DEFAULT_CALL_MINUTES). */
   timeoutMinutes?: number;
   /** The workflow inputs it works on (default both: it reads an item's source and translation); the palette offers it there. */
-  inputs?: readonly ('lines' | 'terms')[];
+  inputs?: readonly Subject[];
   /** What the node reads from the step before it (input.previous and which of its fields). */
   input?: { previous: boolean; fields: string[] };
 }

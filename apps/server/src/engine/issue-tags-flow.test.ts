@@ -4,7 +4,7 @@ import { importFileSchema, translationTemplate, workflowDefinitionSchema } from 
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
-import { snapshotWorkflowModels } from '../services/routes.ts';
+import { snapshotWorkflowModels } from '../services/model-target.ts';
 import { memoryStore } from '../services/secrets.ts';
 import { promptEntries } from './prompts.ts';
 import { Runner, type ModelPort } from './runner.ts';
@@ -38,7 +38,7 @@ describe('the default 번역 workflow tags through its 태그 붙이기 nodes', 
       ask: async () => {
         throw new Error('unused');
       },
-      generate: async (_route, request) => {
+      generate: async (_target, request) => {
         const lines = promptEntries(request.prompt) as { id: string; source: string }[];
         if (request.system.includes('Review each')) {
           reviews++;

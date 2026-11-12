@@ -1,7 +1,7 @@
 import { sql, type SQL } from 'drizzle-orm';
 import { customType, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex, type SQLiteColumn } from 'drizzle-orm/sqlite-core';
 import type { AppDefaults, RunCardPlan, RunLimits, RunScope } from '@tw/shared';
-import { type DecidedBy, AGE_BANDS, CHARACTER_ROLES, GENDERS, KNOWLEDGE_TAG_KINDS, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, EVENT_LINK_KINDS, GRAPH_ORIGINS, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, type MarkStyles, PERMISSION_MODES, type CharacterStyle, type EditorAi, type ExclusionRules, type ModelLimits, LINE_TRANSLATE, type AutoMark, type ContextItem, type FormatRules, type ItemErrorKind, type NodeType, type RelationshipChange, type WorkflowDefinition, workflowDefinitionSchema, WORKFLOW_SUBJECT_IDS, type WorkflowSubject, ALL_TERM_KINDS, type TermScope } from '@tw/shared';
+import { type DecidedBy, AGE_BANDS, CONNECTION_KINDS, CHARACTER_ROLES, GENDERS, KNOWLEDGE_TAG_KINDS, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, EVENT_LINK_KINDS, GRAPH_ORIGINS, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, type MarkStyles, PERMISSION_MODES, type CharacterStyle, type EditorAi, type ExclusionRules, type ModelLimits, LINE_TRANSLATE, type AutoMark, type ContextItem, type FormatRules, type ItemErrorKind, type NodeType, type RelationshipChange, type WorkflowDefinition, workflowDefinitionSchema, SUBJECTS, type Subject, ALL_TERM_KINDS, type TermScope } from '@tw/shared';
 import type { Usage } from '@tw/ai';
 
 const id = () => text('id').primaryKey().$defaultFn(() => crypto.randomUUID());
@@ -537,7 +537,7 @@ export const speechRules = sqliteTable(
 export const connections = sqliteTable('connections', {
   id: id(),
   projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }),
-  kind: text('kind', { enum: ['openai', 'systemone', 'codex', 'claude', 'grok', 'antigravity', 'opencode', 'http'] }).notNull(),
+  kind: text('kind', { enum: CONNECTION_KINDS }).notNull(),
   name: text('name').notNull(),
   baseUrl: text('base_url'),
   executable: text('executable'),
@@ -573,7 +573,7 @@ export const RUN_STATUSES = ['preparing', 'running', 'paused', 'cancelled', 'com
 export type RunStatus = (typeof RUN_STATUSES)[number];
 export type { RunScope, RunLimits };
 /** The connection + model a call goes to, frozen with the connection's details. */
-export interface RouteSnapshot {
+export interface TargetSnapshot {
   connectionId: string;
   /** The connection's name when it was used, for display. */
   name: string;
@@ -583,13 +583,13 @@ export interface RouteSnapshot {
   model: string;
   effort: string | null;
 }
-/** A model choice as it was resolved when work started: the route a call goes to, with the connection's call settings. */
+/** A model choice as it was resolved when work started: where a call goes, with the connection's call settings. */
 export interface AiSnapshot {
   /** "connection · model · effort", as people read it. */
   label: string;
   /** The model's known output limit (its modelLimits), sent as each call's cap; unset = none sent. */
   maxOutputTokens?: number;
-  route: RouteSnapshot;
+  target: TargetSnapshot;
 }
 
 export const runs = sqliteTable(
@@ -603,8 +603,8 @@ export const runs = sqliteTable(
     definition: definitionJson('definition').notNull(),
     /** Every model the run's AI nodes picked, resolved, keyed by choiceKey. */
     models: json<Record<string, AiSnapshot>>('models').notNull().default(sql`'{}'`),
-    /** What the run's items are (WORKFLOW_SUBJECTS): lines or terms. */
-    subject: text('subject', { enum: WORKFLOW_SUBJECT_IDS as [WorkflowSubject, ...WorkflowSubject[]] }).notNull().default('lines'),
+    /** What the run's items are (SUBJECTS): lines or terms. */
+    subject: text('subject', { enum: SUBJECTS }).notNull().default('lines'),
     /** What it runs on, resolved when it started (runScopeSchema in shared). */
     scope: json<RunScope>('scope').notNull(),
     status: text('status', { enum: RUN_STATUSES }).notNull(),
@@ -771,7 +771,7 @@ export interface ProposalReport {
   warnings: { key: string; issues: string[] }[];
   counts?: { dropped: number; warnings: number };
   /** A proposed run: what it would take in and cost, as it stood when it was proposed. */
-  run?: { input: WorkflowSubject; plan: RunCardPlan };
+  run?: { input: Subject; plan: RunCardPlan };
 }
 
 export type ProposalStatus = 'pending' | 'running' | 'accepted' | 'rejected' | 'failed';

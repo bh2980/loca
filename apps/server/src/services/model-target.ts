@@ -1,8 +1,8 @@
 import { eq, inArray } from 'drizzle-orm';
-import type { ResolvedRoute } from '@tw/ai';
-import { choiceKey, CONNECTION_KIND_INFO, definitionModels, type Capability, type ConnectionKind, type ModelChoice, type WorkflowDefinition } from '@tw/shared';
+import type { ConnectionTarget, ModelTarget } from '@tw/ai';
+import { choiceKey, CONNECTION_KIND_INFO, connectionCan, definitionModels, type Capability, type ConnectionKind, type ModelChoice, type WorkflowDefinition } from '@tw/shared';
 import type { Db } from '../db/index.ts';
-import { connections, type AiSnapshot, type RouteSnapshot } from '../db/schema.ts';
+import { connections, type AiSnapshot, type TargetSnapshot } from '../db/schema.ts';
 import { connectionKey } from './app-defaults.ts';
 import type { SecretStore } from './secrets.ts';
 
@@ -18,7 +18,7 @@ export function snapshotChoice(db: Db, choice: ModelChoice, byId = new Map<strin
   }
   const connection = byId.get(choice.connectionId);
   if (!connection) return undefined;
-  const route: RouteSnapshot = {
+  const target: TargetSnapshot = {
     connectionId: connection.id,
     name: connection.name,
     kind: connection.kind,
@@ -27,7 +27,7 @@ export function snapshotChoice(db: Db, choice: ModelChoice, byId = new Map<strin
     model: choice.model,
     effort: choice.effort || null,
   };
-  return { label: choiceLabel(connection.name, choice), maxOutputTokens: connection.modelLimits[choice.model]?.maxOutput, route };
+  return { label: choiceLabel(connection.name, choice), maxOutputTokens: connection.modelLimits[choice.model]?.maxOutput, target };
 }
 
 /** Snapshots of several choices, keyed by choiceKey (a run's AI nodes). Choices whose connection is gone are left out. */
@@ -43,18 +43,28 @@ export function snapshotChoices(db: Db, choices: ModelChoice[]): Record<string, 
 /** Every model a workflow may call (its AI nodes' and what their retry rules send lines back on), frozen for a run. */
 export const snapshotWorkflowModels = (db: Db, definition: WorkflowDefinition) => snapshotChoices(db, definitionModels(definition));
 
-export function resolveRoute(db: Db, snapshot: AiSnapshot, secrets: SecretStore): ResolvedRoute {
-  const { route } = snapshot;
+/** Where a frozen choice's calls go: its connection as it was, with the key read now. */
+export function resolveTarget(db: Db, snapshot: AiSnapshot, secrets: SecretStore): ModelTarget {
+  const { target } = snapshot;
   return {
-    connectionId: route.connectionId,
-    kind: route.kind as ConnectionKind,
-    baseUrl: route.baseUrl ?? undefined,
-    executable: route.executable ?? undefined,
-    model: route.model,
-    effort: route.effort ?? undefined,
-    apiKey: connectionKey(db, secrets, route.connectionId) ?? undefined,
+    connectionId: target.connectionId,
+    kind: target.kind as ConnectionKind,
+    baseUrl: target.baseUrl ?? undefined,
+    executable: target.executable ?? undefined,
+    model: target.model,
+    effort: target.effort ?? undefined,
+    apiKey: connectionKey(db, secrets, target.connectionId) ?? undefined,
   };
 }
+
+/** What a person is told when the connection they picked cannot do what it was picked for. */
+const CANNOT: Record<Capability, (label: string) => string> = {
+  generate: (label) => `${label} 연결은 글을 쓰지 못해 여기에 쓸 수 없습니다.`,
+  judge: (label) => `${label} 연결은 판정 연결이 아닙니다.`,
+  chat: (label) => `${label} 연결은 채팅에 쓸 수 없습니다.`,
+  complete: () => '편집기 자동완성은 API 연결(OpenAI 호환)만 쓸 수 있습니다.',
+  tool: (label) => `${label} 연결은 HTTP 호출의 API 키가 아닙니다.`,
+};
 
 /**
  * A choice made now (chat, analysis, glossary fill, a test), resolved for use; throws a message
@@ -63,13 +73,13 @@ export function resolveRoute(db: Db, snapshot: AiSnapshot, secrets: SecretStore)
 export function liveChoice(db: Db, choice: ModelChoice, secrets: SecretStore, need: Capability) {
   const snapshot = snapshotChoice(db, choice);
   if (!snapshot) throw new Error('고른 AI 연결이 없습니다. 다시 고르세요.');
-  const kind = snapshot.route.kind as ConnectionKind;
-  if (!CONNECTION_KIND_INFO[kind].capabilities.includes(need))
-    throw new Error(need === 'chat' ? `${CONNECTION_KIND_INFO[kind].label} 연결은 채팅에 쓸 수 없습니다.` : `${CONNECTION_KIND_INFO[kind].label} 연결은 판정 전용이라 여기에 쓸 수 없습니다.`);
-  return { snapshot, route: resolveRoute(db, snapshot, secrets) };
+  const kind = snapshot.target.kind as ConnectionKind;
+  if (!connectionCan(kind, need)) throw new Error(CANNOT[need](CONNECTION_KIND_INFO[kind].label));
+  return { snapshot, target: resolveTarget(db, snapshot, secrets) };
 }
 
-export function connectionRoute(db: Db, connectionId: string, secrets: SecretStore) {
+/** A stored connection as a target with no model picked (its model list, a reachability check, its login). */
+export function connectionTarget(db: Db, connectionId: string, secrets: SecretStore): ConnectionTarget | undefined {
   const connection = db.select().from(connections).where(eq(connections.id, connectionId)).get();
   if (!connection) return undefined;
   return {

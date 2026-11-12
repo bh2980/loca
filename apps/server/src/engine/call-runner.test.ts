@@ -73,7 +73,7 @@ function model(terms: (size: number, n: number) => Error | null = () => null) {
     ask: async () => {
       throw new Error('unused');
     },
-    generate: async (_route, request) => {
+    generate: async (_target, request) => {
       const lines = promptEntries(request.prompt) as { id: string; source: string }[];
       if (request.system.includes('Find proper nouns')) {
         termRequests.push(lines.length);

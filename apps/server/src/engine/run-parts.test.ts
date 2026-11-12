@@ -4,7 +4,7 @@ import { importFileSchema, workflowDefinitionSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
-import { snapshotWorkflowModels } from '../services/routes.ts';
+import { snapshotWorkflowModels } from '../services/model-target.ts';
 import { createRun } from './run-create.ts';
 import { RunGuards, withCaps } from './run-guards.ts';
 import { record, retryRule, route, takenBack } from './run-state.ts';

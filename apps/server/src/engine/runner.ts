@@ -1,9 +1,8 @@
-import { and, asc, eq, gt, inArray, isNull, lte, notInArray, or, sql } from 'drizzle-orm';
+import { and, eq, gt, inArray, notInArray, sql } from 'drizzle-orm';
 import * as ai from '@tw/ai';
-import { batchTokens, choiceKey, FUNCTIONS, lineCostIn, type FunctionName, type WorkflowNode } from '@tw/shared';
+import { batchTokens, choiceKey, lineCostIn, nodeCallsOut, nodeConcurrency, type WorkflowNode } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { tokensSql } from '../db/tokens.ts';
 import type { Topic } from '../events.ts';
 import { recordRunEnd } from '../services/chat-run-end.ts';
 import type { SecretStore } from '../services/secrets.ts';
@@ -15,11 +14,8 @@ import { haltRun, notifyRun, RunGuards } from './run-guards.ts';
 import { closeGathers, settle, type GatherNode } from './run-instant.ts';
 import { nodeOf, type Run } from './run-state.ts';
 import { onRunWake } from './run-wake.ts';
-import { RETRY_FACTOR, RETRY_MODEL, waitingTerms } from './subjects.ts';
+import { subjectOf, type Waiting } from './subjects.ts';
 export type { ModelPort } from './model-port.ts';
-
-/** A queued line waiting at a slow node, with its script position for batching. */
-type Waiting = { id: string; unitId: string; nodeId: string; groupId: string; seq: number; kind: string; tokens: number; since: Date; plan: number | null; factor: number; /** The model a retry rule sends it to this node on (a run.models key); null: the node's own. */ model: string | null };
 
 /** A partial batch waits this long for more lines from upstream before it is sent anyway. */
 const GATHER_MS = 5_000;
@@ -32,10 +28,6 @@ const SETTLE_CHUNK = 100;
 const SETTLE_BUDGET_MS = 25;
 /** The pause before that next tick: a request takes several event-loop turns, and back-to-back ticks would hold up each of them. */
 const SETTLE_GAP_MS = 10;
-
-/** AI calls and slow functions leave the instant pass; everything else settles immediately. */
-const isAsync = (node: WorkflowNode) =>
-  node.type === 'ai' || (node.type === 'function' && Boolean(FUNCTIONS[node.config.fn as FunctionName]?.async));
 
 /** For each node, every node that can reach it through the run's frozen edges. */
 function upstreamOf(run: Run) {
@@ -250,34 +242,14 @@ export class Runner {
     return this.db.select().from(s.runItems).where(and(...conditions)).limit(limit).all();
   }
 
-  /** Queued lines at slow nodes, light rows in script order (scene order, then line order). */
+  /** Queued items at slow nodes that are due, light rows in the subject's order (lines: script order; terms: most used first). */
   private waiting(run: Run, slowIds: string[]): Waiting[] {
-    if (!slowIds.length) return [];
-    const now = new Date();
-    if (run.subject === 'terms') return waitingTerms(this.db, run.id, slowIds, now);
-    return this.db
-      .select({
-        id: s.runItems.id,
-        unitId: s.runItems.subjectId,
-        nodeId: s.runItems.nodeId,
-        groupId: s.units.groupId,
-        seq: s.units.seq,
-        kind: s.units.kind,
-        tokens: tokensSql(s.units.source),
-        since: s.runItems.updatedAt,
-        plan: s.runItems.plan,
-        factor: RETRY_FACTOR,
-        model: RETRY_MODEL,
-      })
-      .from(s.runItems)
-      .innerJoin(s.units, eq(s.units.id, s.runItems.subjectId))
-      .where(and(eq(s.runItems.runId, run.id), eq(s.runItems.state, 'queued'), inArray(s.runItems.nodeId, slowIds), or(isNull(s.runItems.notBefore), lte(s.runItems.notBefore, now))))
-      .orderBy(asc(s.units.seq))
-      .all();
+    return slowIds.length ? subjectOf(run.subject).waiting(this.db, run.id, slowIds, new Date()) : [];
   }
 
   private advance(run: Run): boolean {
-    const slow = run.definition.nodes.filter(isAsync);
+    // Nodes that call out leave the instant pass; everything else settles immediately.
+    const slow = run.definition.nodes.filter(nodeCallsOut);
     const slowIds = slow.map((node) => node.id);
     const gathers = run.definition.nodes.filter((node): node is GatherNode => node.type === 'gather');
     // Instant nodes settle first, possibly several hops, before slow work is handed out; for at most
@@ -310,10 +282,7 @@ export class Runner {
     // an HTTP or script node sends up to its own. A full node does not hold up the others.
     const live = this.liveCalls(run.id);
     const busy = this.inflight.get(run.id)?.size ?? 0;
-    const canSend = (node: WorkflowNode) => {
-      const limit = node.type === 'ai' ? node.config.concurrency : node.type === 'function' ? node.config.concurrency : 1;
-      return (live[node.id] ?? 0) < limit;
-    };
+    const canSend = (node: WorkflowNode) => (live[node.id] ?? 0) < (nodeCallsOut(node) ? nodeConcurrency(node) : 1);
     if (slow.length && !slow.some(canSend)) {
       if (changed) notifyRun(this.db, run.id, ...touched);
       return true;
@@ -425,7 +394,7 @@ export class Runner {
 
   /** Hands one request to run-calls.ts: its lines are marked running and the request counts as in flight until its outcome is recorded. */
   private dispatch(run: Run, node: WorkflowNode, lines: Waiting[]) {
-    if (node.type !== 'ai' && node.type !== 'function') return;
+    if (!nodeCallsOut(node)) return;
     const ids = lines.map((line) => line.id);
     const byId = new Map(this.db.select().from(s.runItems).where(inArray(s.runItems.id, ids)).all().map((item) => [item.id, item]));
     const batch = ids.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : []));

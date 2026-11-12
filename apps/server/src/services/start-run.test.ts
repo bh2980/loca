@@ -89,8 +89,8 @@ describe('starting a run', () => {
     expect(first!.total).toBe(1);
     expect(second!.total).toBe(1);
     expect(first!.limits).toEqual(second!.limits);
-    expect(Object.values(first!.models).map((model) => model.route.model)).toEqual(['other']);
-    expect(Object.values(second!.models).map((model) => model.route.model)).toEqual(['other']);
+    expect(Object.values(first!.models).map((model) => model.target.model)).toEqual(['other']);
+    expect(Object.values(second!.models).map((model) => model.target.model)).toEqual(['other']);
   });
 });
 

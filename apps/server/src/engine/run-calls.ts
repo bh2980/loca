@@ -1,10 +1,10 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import * as ai from '@tw/ai';
-import { CONNECTION_KIND_INFO, errorKindOfCode, judgmentProblem, previousStepId, runNodeName, type AiNode, type FunctionName, type FunctionNode } from '@tw/shared';
+import { INPUT_TYPES, connectionCan, errorKindOfCode, judgmentProblem, previousStepId, runNodeName, type AiNode, type FunctionNode } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { logged } from '../services/ai-calls.ts';
-import { resolveRoute } from '../services/routes.ts';
+import { resolveTarget } from '../services/model-target.ts';
 import type { SecretStore } from '../services/secrets.ts';
 import { readAiOutput, type Outcome } from './ai-output.ts';
 import { runAsyncFunction, type FunctionInput } from './functions/index.ts';
@@ -14,7 +14,7 @@ import { isBatchScope } from './prompts.ts';
 import { buildRequest, type RequestItem } from './request.ts';
 import { haltRun, notifyRun, type RunGuards } from './run-guards.ts';
 import { previousOf, record, route, takenBack, type Item, type Run } from './run-state.ts';
-import { loadTerms, termInput } from './subjects.ts';
+import { subjectOf } from './subjects.ts';
 
 type StepRecord = Omit<typeof s.runSteps.$inferInsert, 'ok' | 'finishedAt'>;
 
@@ -83,24 +83,15 @@ export class RunCalls {
 
   /** The item a function sees: the line or term with its tags, and the result of the step before it on the item's way here. */
   private functionInput(run: Run, item: Item): FunctionInput {
-    let input: FunctionInput;
-    if (run.subject === 'terms') {
-      const { terms, tagsOf } = loadTerms(this.db, [item.subjectId]);
-      const term = terms.get(item.subjectId);
-      if (!term) throw new Error('용어가 없습니다.');
-      input = termInput(run, item, term, tagsOf(term.id));
-    } else {
-      const unit = this.db.select().from(s.units).where(eq(s.units.id, item.subjectId)).get();
-      if (!unit) throw new Error('원문이 없습니다.');
-      const tagIds = this.db.select({ tagId: s.unitTags.tagId }).from(s.unitTags).where(eq(s.unitTags.unitId, unit.id)).all().map((row) => row.tagId);
-      input = { subject: 'lines', unit, item, tagIds, projectId: run.projectId, runId: run.id };
-    }
+    const subject = subjectOf(run.subject);
+    const input = subject.inputs(this.db, run, [item])(item);
+    if (!input) throw new Error(subject.gone);
     const previousStep = previousStepId(run.definition, item.data.path);
     return previousStep ? { ...input, previous: item.data.outputs?.[previousStep] as Record<string, unknown> | undefined } : input;
   }
 
   private async callFunction(run: Run, node: FunctionNode, item: Item, step: StepRecord, signal: AbortSignal) {
-    const outcome = await runAsyncFunction(node.config.fn as FunctionName, node.config.params, this.functionInput(run, item), { db: this.db, secrets: this.secrets, signal });
+    const outcome = await runAsyncFunction(node.config, this.functionInput(run, item), { db: this.db, secrets: this.secrets, signal });
     this.db.transaction((tx) => {
       record(tx, run, item, outcome);
       tx.insert(s.runSteps).values({ ...step, ok: true, output: outcome, finishedAt: new Date() }).run();
@@ -111,9 +102,9 @@ export class RunCalls {
   private async callAi(run: Run, node: AiNode, modelKey: string, batch: Item[], step: StepRecord, signal: AbortSignal) {
     const model = run.models[modelKey];
     if (!model) throw new Error('이 노드의 AI 연결이 실행을 시작할 때 없었습니다. 노드에서 연결과 모델을 다시 고르고 새로 실행하세요.');
-    let connection: ai.ResolvedRoute;
+    let connection: ai.ModelTarget;
     try {
-      connection = resolveRoute(this.db, model, this.secrets);
+      connection = resolveTarget(this.db, model, this.secrets);
     } catch (error) {
       // The key store would refuse the next request too (a locked or denied keychain): the run stops here, like a wrong key.
       throw new ai.ModelError('auth', messageOf(error), false);
@@ -121,8 +112,8 @@ export class RunCalls {
     step.connectionId = connection.connectionId ?? null;
     step.model = connection.model;
     // A connection that judges instead of writing answers typed questions, one line at a time.
-    if (!CONNECTION_KIND_INFO[connection.kind].capabilities.includes('generate')) {
-      if (run.subject !== 'lines') throw new Error('판정 연결은 대사 워크플로에서만 쓸 수 있습니다.');
+    if (!connectionCan(connection.kind, 'generate')) {
+      if (!INPUT_TYPES[run.subject].judgment) throw new Error('판정 연결은 대사 워크플로에서만 쓸 수 있습니다.');
       return this.askLines(run, node, batch, connection, step, signal);
     }
     return this.generate(run, node, model, connection, batch, step, signal);
@@ -138,7 +129,7 @@ export class RunCalls {
    * a per-line answer left out (or answered empty) leaves through "error" with kind "missing". False
    * when the request was not sent: it would have broken the run's input cap, which paused the run.
    */
-  private async generate(run: Run, node: AiNode, model: s.AiSnapshot, connection: ai.ResolvedRoute, items: Item[], step: StepRecord, signal: AbortSignal) {
+  private async generate(run: Run, node: AiNode, model: s.AiSnapshot, connection: ai.ModelTarget, items: Item[], step: StepRecord, signal: AbortSignal) {
     const built = buildRequest(this.db, run.projectId, node, run.subject, this.requestItems(run, node, items), run.id);
     step.context = built.context.items;
     step.prompt = `${built.system}\n\n${built.prompt}`;
@@ -171,7 +162,7 @@ export class RunCalls {
    * included), and the node's output becomes typed questions (judgmentQuestions). Outputs it cannot
    * fill are refused by the workflow check (judgmentProblem) and again here.
    */
-  private async askLines(run: Run, node: AiNode, batch: Item[], connection: ai.ResolvedRoute, step: StepRecord, signal: AbortSignal) {
+  private async askLines(run: Run, node: AiNode, batch: Item[], connection: ai.ModelTarget, step: StepRecord, signal: AbortSignal) {
     const problem = judgmentProblem(node.config);
     if (problem) throw new Error(problem);
     const { lines, context, choiceOptions } = buildRequest(this.db, run.projectId, node, run.subject, this.requestItems(run, node, batch), run.id);

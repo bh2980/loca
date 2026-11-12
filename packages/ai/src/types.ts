@@ -1,9 +1,9 @@
 import type { z } from 'zod';
 import type { ConnectionKind } from '@tw/shared';
 
-/** A connection + model with secrets already resolved by the caller. */
-export interface ResolvedRoute {
-  /** The stored connection it came from, for logs; absent for routes built outside the app (tests, scripts). */
+/** Where a model call goes: a connection + model with secrets already resolved by the caller. */
+export interface ModelTarget {
+  /** The stored connection it came from, for logs; absent for targets built outside the app (tests, scripts). */
   connectionId?: string;
   kind: ConnectionKind;
   baseUrl?: string;
@@ -13,7 +13,9 @@ export interface ResolvedRoute {
   effort?: string;
 }
 
-/** What a call used, as the connection reported it. Absent fields were not reported. */
+/** A connection with no model picked: what listing its models or checking that it answers needs. */
+export type ConnectionTarget = Omit<ModelTarget, 'model' | 'effort'>;
+
 /** What a model takes (input and output together) and gives in one call, as a provider's model list says. */
 export interface ModelLimitsInfo {
   contextWindow?: number;
@@ -22,6 +24,7 @@ export interface ModelLimitsInfo {
   images?: boolean;
 }
 
+/** What a call used, as the connection reported it. Absent fields were not reported. */
 export interface Usage {
   /** All input the model read, the cached part included. */
   inputTokens?: number;
@@ -113,20 +116,6 @@ export interface CompleteResult {
 
 export interface GenerateResult<T> {
   object: T;
-  usage: Usage;
-}
-
-export interface JudgeRequest {
-  /** What is being judged (source, candidate, context…). */
-  state: Record<string, unknown>;
-  instructions: string;
-  timeoutMs: number;
-  signal?: AbortSignal;
-}
-
-export interface JudgeResult {
-  passed: boolean;
-  confidence: number;
   usage: Usage;
 }
 

@@ -4,7 +4,7 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { ChevronLeft, CircleStop, Hourglass, OctagonAlert, Pause, Play } from 'lucide-react';
-import { nodePorts, runNodeName, type WorkflowNode } from '@tw/shared';
+import { nodePorts, runNodeName, type WorkflowNode, INPUT_TYPES, bySubject, type Subject } from '@tw/shared';
 import { parseExitKey } from '@/components/workflow/exit-marks';
 import { ContextItemList } from '@/components/ai-context';
 import { LineDetail } from '@/components/line-detail';
@@ -79,7 +79,10 @@ function RunDetail() {
   const run = useRunDetail(projectId, runId);
   const items = useRunItems(projectId, runId, { state: search.state, nodeId: search.node, through: search.through, exit: search.through ? search.exit : undefined, offset: (search.page ?? 0) * PAGE });
   const nodeExits = useQuery({ ...runNodeExits(runId, search.through ?? ''), enabled: Boolean(search.through) });
-  const terms = items.data?.subject === 'terms';
+  const subject: Subject = items.data?.subject ?? 'lines';
+  const input = INPUT_TYPES[subject];
+  // The page has two forms: a run on lines (items are script lines, with a translation plan) and one on glossary terms (the detail is the term).
+  const terms = bySubject(subject, { lines: false, terms: true });
   const termList = useTerms(projectId, { enabled: terms && Boolean(search.line) });
   const selectedTerm = terms ? termList.data?.find((term) => term.id === search.line) : undefined;
   const decide = useMutation({
@@ -131,7 +134,7 @@ function RunDetail() {
   const active = data.status === 'preparing' || data.status === 'running' || data.status === 'paused';
   const total = items.data?.total ?? 0;
   const filtered = Boolean(search.state || search.node || search.through);
-  const noun = terms ? '용어' : '대사';
+  const noun = input.label;
   const exitLabel = (port: string) => {
     const node = search.through ? nodeById.get(search.through) : undefined;
     return (node && nodePorts(node).find((item) => item.id === port)?.label) ?? (port === 'retry' ? '다시 보냄' : port);
@@ -214,7 +217,7 @@ function RunDetail() {
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>실행을 취소할까요?</AlertDialogTitle>
-          <AlertDialogDescription>아직 처리하지 않은 {data.subject === 'terms' ? '용어' : '대사'}는 이 실행에서 빠집니다. 이미 반영된 번역·상태는 그대로입니다.</AlertDialogDescription>
+          <AlertDialogDescription>아직 처리하지 않은 {INPUT_TYPES[data.subject].label}는 이 실행에서 빠집니다. 이미 반영된 번역·상태는 그대로입니다.</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>계속 실행</AlertDialogCancel>
@@ -237,7 +240,7 @@ function RunDetail() {
         <Box spaceY="condensed">
           <Text as="p" variant="body" tabular>
             <Text as="b">{finished.toLocaleString()}</Text>
-            <Text tone="muted"> / {data.total.toLocaleString()} {terms ? '용어' : '대사'} 처리 · {percent}%</Text>
+            <Text tone="muted"> / {data.total.toLocaleString()} {input.label} 처리 · {percent}%</Text>
           </Text>
           <Progress value={percent} />
         </Box>
@@ -261,7 +264,7 @@ function RunDetail() {
           <KeyValue>
             {exitNotes.map((entry) => (
               <KeyValueRow key={`${entry.at}:${entry.note}`} label={entry.where}>
-                <Text breakWords>{entry.note} <Text tone="muted" tabular>{entry.count.toLocaleString()}{terms ? '개' : '줄'}</Text></Text>
+                <Text breakWords>{entry.note} <Text tone="muted" tabular>{entry.count.toLocaleString()}{input.unit}</Text></Text>
               </KeyValueRow>
             ))}
           </KeyValue>
@@ -299,8 +302,8 @@ function RunDetail() {
       <Section title={`이 노드를 거친 ${noun}`}>
         {nodeExits.isError ? <Text as="p" variant="caption" tone="danger">{nodeExits.error.message}</Text> : (
           <KeyValue>
-            <KeyValueRow label="도착"><Text tabular>{nodeExits.data ? `${nodeExits.data.arrived.toLocaleString()}${terms ? '개' : '줄'}` : '…'}</Text></KeyValueRow>
-            {(nodeExits.data?.here ?? 0) > 0 && <KeyValueRow label="지금 여기"><Text tabular>{nodeExits.data!.here.toLocaleString()}{terms ? '개' : '줄'}</Text></KeyValueRow>}
+            <KeyValueRow label="도착"><Text tabular>{nodeExits.data ? `${nodeExits.data.arrived.toLocaleString()}${input.unit}` : '…'}</Text></KeyValueRow>
+            {(nodeExits.data?.here ?? 0) > 0 && <KeyValueRow label="지금 여기"><Text tabular>{nodeExits.data!.here.toLocaleString()}{input.unit}</Text></KeyValueRow>}
           </KeyValue>
         )}
       </Section>
@@ -352,11 +355,11 @@ function RunDetail() {
           <Tabs value={view} onValueChange={(value) => setSearch({ tab: value === 'steps' || value === 'plan' || value === 'graph' ? value : undefined }, true)}>
             <Box asChild height="full" border="noBottom">
             <TabsList variant="line" aria-label="보기">
-              <TabsTrigger value="items">{terms ? '용어별' : '대사별'} <Text tone="muted" tabular>{data.total.toLocaleString()}</Text></TabsTrigger>
+              <TabsTrigger value="items">{input.label}별 <Text tone="muted" tabular>{data.total.toLocaleString()}</Text></TabsTrigger>
               <TabsTrigger value="graph">그래프</TabsTrigger>
               <TabsTrigger value="steps">AI 호출</TabsTrigger>
               {/* Terms are not planned in scene batches: there is no plan to show. */}
-              {data.subject !== 'terms' && <TabsTrigger value="plan">번역 계획</TabsTrigger>}
+              {!terms && <TabsTrigger value="plan">번역 계획</TabsTrigger>}
             </TabsList>
             </Box>
           </Tabs>
@@ -375,7 +378,7 @@ function RunDetail() {
         {active && stop}
         <StatusBarItem><RunStatusBadge status={data.status} /></StatusBarItem>
         {/* Only a filter (a state or node picked elsewhere) earns a bar: it says how many it left and takes it off. The run's count is on the tab. */}
-        {view === 'items' && filtered && <FilterBar end={items.data ? <Text variant="micro" tabular>{total.toLocaleString()}{terms ? '개' : '줄'}</Text> : undefined}>
+        {view === 'items' && filtered && <FilterBar end={items.data ? <Text variant="micro" tabular>{total.toLocaleString()}{input.unit}</Text> : undefined}>
           {search.through && <Text minWidth={0} truncate variant="caption">‘{nodeName(search.through)}’ 노드를 거친 {noun}{search.exit ? ` · 출구 ${exitLabel(search.exit)}` : ''}</Text>}
           <Button variant="ghost" onClick={() => setSearch({ state: undefined, node: undefined, through: undefined, exit: undefined, page: undefined, line: undefined }, true)}>
             필터 지우기
@@ -456,7 +459,7 @@ function RunDetail() {
                           <Text width="field" truncate align="start" weight="medium">{nodeName(step.nodeId)}</Text>{' '}
                           <Chip variant={step.ok ? 'outline' : 'solid'} tone={step.ok ? undefined : 'danger'}>{step.ok ? '성공' : '실패'}</Chip>{' '}
                           {!step.ok && errorKindLabel(step.errorKind) && <Chip variant="outline">{errorKindLabel(step.errorKind)}</Chip>}{' '}
-                          <Text tone="muted">{terms ? `용어 ${step.subjectIds.length}개` : `대사 ${step.subjectIds.length}줄`}</Text>{' '}
+                          <Text tone="muted">{`${input.label} ${step.subjectIds.length}${input.unit}`}</Text>{' '}
                           <Text minWidth={0} truncate tone="muted">{[data.models.find((model) => model.connectionId === step.connectionId)?.name, step.model].filter(Boolean).join(' · ')}</Text>
                           {' '}
                       </>}

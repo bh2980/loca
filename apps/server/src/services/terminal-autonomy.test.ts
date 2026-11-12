@@ -13,7 +13,7 @@ import { decideProposal } from './proposals.ts';
 import { runErrors } from './run-errors.ts';
 import { saveView } from './graph-views.ts';
 import { viewFlow } from './view-flow.ts';
-import { snapshotWorkflowModels } from './routes.ts';
+import { snapshotWorkflowModels } from './model-target.ts';
 import { memoryStore } from './secrets.ts';
 
 /** A scene that splits on a choice and joins again: a → (b1 | b2) → c. */
@@ -61,7 +61,7 @@ describe('the terminal working on its own', () => {
       ask: async () => {
         throw new Error('unused');
       },
-      generate: async (_route, request) => {
+      generate: async (_target, request) => {
         if (request.prompt.includes('Line b2')) throw new Error('connection refused');
         return { object: { lines: [] }, usage: {} } as never;
       },

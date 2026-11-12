@@ -1,14 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { aiNodeConfigSchema, importFileSchema, runScopeInputSchema, validateWorkflow, workflowDefinitionSchema } from '@tw/shared';
+import { aiNodeConfigSchema, contextFor, importFileSchema, runScopeInputSchema, SUBJECTS, validateWorkflow, workflowDefinitionSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
-import { snapshotWorkflowModels } from '../services/routes.ts';
+import { snapshotWorkflowModels } from '../services/model-target.ts';
 import { memoryStore } from '../services/secrets.ts';
 import { promptEntries } from './prompts.ts';
 import { Runner, type ModelPort } from './runner.ts';
-import { createRun, selectRunTerms } from './run-create.ts';
+import { createRun } from './run-create.ts';
+import { selectRunTerms, subjectOf } from './subjects.ts';
 import { buildRequest } from './request.ts';
 import { askedScope, scopeMismatch } from '../services/run-plan.ts';
 
@@ -103,6 +104,39 @@ describe('a workflow whose input is terms', () => {
     expect(buildRequest(db, projectId, node, 'terms', [{ id: varn.id }]).context.terms).toEqual([]);
   });
 
+  it('builds a term request without the context only lines have, whatever the node kept from before', () => {
+    const { db, projectId, choice, gate } = setup();
+    // A node switched from a lines workflow still carries its line settings; talking pairs used to stay on for terms.
+    db.update(s.units).set({ listener: 'KAI', listenerOrigin: 'human' }).where(eq(s.units.projectId, projectId)).run();
+    const node = workflowDefinitionSchema.parse({
+      nodes: [{ id: 'ai', type: 'ai', position: at, config: { model: choice, output: 'json', fields: [{ name: 'target', type: 'string' }], context: { pairs: true, pairMinTurns: 1, speech: true, precedingLines: 8, previousScenes: 2, examples: 2 } } }],
+      edges: [],
+    }).nodes[0]!;
+    if (node.type !== 'ai') throw new Error('not an AI node');
+    const kinds = new Set(buildRequest(db, projectId, node, 'terms', [{ id: gate.id }]).context.items.map((item) => item.kind));
+    for (const kind of ['pair', 'speech', 'preceding', 'previousScene'] as const) expect(kinds.has(kind), kind).toBe(false);
+    // The same settings on a lines request do send talking pairs: it is the input that turns them off.
+    const line = db.select().from(s.units).where(eq(s.units.key, 'a1')).get()!;
+    expect(contextFor('lines', node.config.context).pairs).toBe(true);
+    expect(contextFor('terms', node.config.context)).toMatchObject({ pairs: false, speech: false, precedingLines: 0, previousScenes: 0, examples: 2 });
+    expect(contextFor('lines', node.config.context)).toMatchObject({ examples: 0, precedingLines: 8 });
+    expect(buildRequest(db, projectId, node, 'lines', [{ id: line.id }]).lines).toHaveLength(1);
+  });
+
+  it('answers everything a run asks about its items through the subject adapter, for every subject', () => {
+    const { db, projectId, gate, hesk } = setup();
+    expect(SUBJECTS.map((subject) => subjectOf(subject).subject)).toEqual([...SUBJECTS]);
+    // The same questions, each subject's own answers.
+    expect(subjectOf('terms').select(db, projectId, { terms: { ids: [hesk.id] } })).toEqual([hesk.id]);
+    expect(subjectOf('lines').select(db, projectId, {})).toHaveLength(3);
+    expect(subjectOf('terms').scopeOf([gate.id])).toEqual({ terms: { ids: [gate.id] } });
+    expect(subjectOf('terms').scopeOf([])).toEqual({ terms: { nothing: true } });
+    expect(subjectOf('lines').scopeOf(['u1'])).toMatchObject({ filter: { lineIds: ['u1'] } });
+    expect(subjectOf('lines').scopeOf([])).toMatchObject({ filter: { nothing: true } });
+    expect([subjectOf('lines').topic, subjectOf('terms').topic]).toEqual(['units', 'terms']);
+    expect([subjectOf('lines').tagScope, subjectOf('terms').tagScope]).toEqual(['lines', 'terms']);
+  });
+
   it('sends each term with its example lines, saves the Korean form of each candidate and confirms it', async () => {
     const { db, projectId, choice, gate, hesk } = setup();
     const definition = termWorkflow(choice);
@@ -115,7 +149,7 @@ describe('a workflow whose input is terms', () => {
       ask: async () => {
         throw new Error('unused');
       },
-      generate: async (_route, request) => {
+      generate: async (_target, request) => {
         seen.push(request);
         const items = promptEntries(request.prompt) as { id: string; source: string }[];
         return { object: { results: items.map((item) => (item.source === 'Varn Gate' ? { id: item.id, target: '바른 게이트', note: '지명' } : { id: item.id, target: '헤스크', note: '' })) }, usage: {} } as never;
@@ -145,7 +179,7 @@ describe('a workflow whose input is terms', () => {
       ask: async () => {
         throw new Error('unused');
       },
-      generate: async (_route, request) => ({ object: { results: (promptEntries(request.prompt) as { id: string }[]).map((item) => ({ id: item.id, target: '바른 게이트', note: '' })) }, usage: {} }) as never,
+      generate: async (_target, request) => ({ object: { results: (promptEntries(request.prompt) as { id: string }[]).map((item) => ({ id: item.id, target: '바른 게이트', note: '' })) }, usage: {} }) as never,
     };
     await new Runner(db, memoryStore(), port).drain();
     expect(db.select().from(s.terms).where(eq(s.terms.id, gate.id)).get()).toMatchObject({ target: '바른 게이트', status: 'candidate' });

@@ -17,7 +17,7 @@ import { ANALYSIS_WORKFLOW, WORKFLOW_TEMPLATES, analysisTemplate, importFileSche
 import { openDatabase } from '../apps/server/src/db/index.ts';
 import * as s from '../apps/server/src/db/schema.ts';
 import { importProject } from '../apps/server/src/services/importer.ts';
-import { snapshotWorkflowModels } from '../apps/server/src/services/routes.ts';
+import { snapshotWorkflowModels } from '../apps/server/src/services/model-target.ts';
 import { memoryStore } from '../apps/server/src/services/secrets.ts';
 import { Runner, type ModelPort } from '../apps/server/src/engine/runner.ts';
 import { createRun } from '../apps/server/src/engine/run-create.ts';
@@ -77,7 +77,7 @@ function mockPort(options: MockOptions): ModelPort {
     ask: async () => {
       throw new Error('the budget harness has no judgment model');
     },
-    generate: (async (_route: unknown, request: ai.GenerateRequest<unknown>) => {
+    generate: (async (_target: unknown, request: ai.GenerateRequest<unknown>) => {
       const out = respond({ system: request.system, user: request.prompt, schema: z.toJSONSchema(request.schema as z.ZodType) }, options, rand);
       if (out.status === 429) throw new ai.ModelError('rate-limit', 'mock rate limit', true);
       const usage: ai.Usage = {

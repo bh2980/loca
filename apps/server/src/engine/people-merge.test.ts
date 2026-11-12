@@ -4,7 +4,7 @@ import { importFileSchema, peopleRelationsTemplate, UNRESOLVED_RELATIONSHIP_KIND
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
-import { snapshotWorkflowModels } from '../services/routes.ts';
+import { snapshotWorkflowModels } from '../services/model-target.ts';
 import { memoryStore } from '../services/secrets.ts';
 import { Runner, type ModelPort } from './runner.ts';
 import { createRun } from './run-create.ts';
@@ -42,7 +42,7 @@ describe('인물·관계 추출 template, end to end', () => {
       ask: async () => {
         throw new Error('unused');
       },
-      generate: async (_route, request) => {
+      generate: async (_target, request) => {
         seen.push(request);
         stored.push({ nova: db.select().from(s.characters).where(eq(s.characters.name, 'NOVA')).all().length, relationships: db.select().from(s.relationships).all().length, speechRules: db.select().from(s.speechRules).all().length });
         if (merging(request)) return { object: { notPeople: [], characters: [person('MIRA', { aliases: ['Captain', 'KAI'], newFacts: [{ text: '선장, 부하를 아낀다', evidence: ['g1-0'] }, { text: '가져온 자리표시자', evidence: [] }], newSpeech: [{ text: '짧게 말한다', evidence: ['g3-0'] }], role: 'main', gender: 'female' }), person('KAI', { aliases: ['Kay'], newFacts: [{ text: '새 AI 사실', evidence: [] }], role: 'supporting' }), person('NOVA', { newFacts: [{ text: '정비사', evidence: ['g3-1'] }, { text: '말수가 적다', evidence: [] }] })], unresolvedPairs: [], relationships: [{ between: ['MIRA', 'NOVA'], views: [{ from: 'NOVA', to: 'MIRA', kind: '선장', description: '선장을 따른다', changes: [{ at: ['g1-0'], kind: '은인', cause: '구조' }, { at: ['g3-1'], kind: '믿는 선장', cause: '수리' }], evidence: ['L1', 'g3-0'] }, { from: 'MIRA', to: 'NOVA', kind: '정비사', description: '', changes: [], evidence: [] }, ] }], speechRules: [{ fromName: 'MIRA', toName: 'NOVA', level: 'hae', address: '', note: '상관', startKey: [], evidence: ['g1-0'] }, { fromName: 'MIRA', toName: 'group', level: 'hae', address: '', note: '', startKey: [], evidence: [] }] }, usage: {} } as never;
@@ -122,7 +122,7 @@ describe('인물·관계 추출 template, end to end', () => {
       ask: async () => {
         throw new Error('unused');
       },
-      generate: async (_route, request) => {
+      generate: async (_target, request) => {
         seen.push(request);
         if (request.system.includes('An earlier node read the script'))
           return { object: { notPeople: [], characters: [], relationships: [], speechRules: [], unresolvedPairs: [{ between: ['KAI', 'MIRA'], kind: 'noEvidence', reason: '대사에 근거 없음' }, { between: ['MIRA', 'Door'], kind: 'noEvidence', reason: '대사에 근거 없음' }, { between: ['MIRA', 'OBJECTIVE'], kind: 'notPerson', reason: '사람이 아님' }] }, usage: {} } as never;

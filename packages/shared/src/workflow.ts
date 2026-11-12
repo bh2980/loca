@@ -1,10 +1,11 @@
 import { z } from 'zod';
 import Graph from 'graphology';
-import { APPLY_TARGETS, FUNCTIONS, TAG_ACTIONS, functionPorts, functionTakes, jsonFieldSchema, type ApplyFunctionName, type ApplyParams, type FunctionName, type JsonField, type Port } from './functions.ts';
+import { APPLY_TARGETS, FUNCTION_CONCURRENCY, FUNCTIONS, customRuleIssue, functionConfigSchema, functionInfo, functionPorts, functionTakes, jsonFieldIssues, jsonFieldSchema, type ApplyFunctionName, type ApplyParams, type FunctionGroup, type FunctionName, type FunctionParams, type JsonField, type Port } from './functions.ts';
 import { stronglyConnectedComponents } from 'graphology-components';
 import { choiceKey, draftModelChoiceSchema, EMPTY_MODEL_CHOICE, modelChoiceSchema, type ModelChoice } from './model-choice.ts';
 import { KNOWLEDGE_STATUSES } from './knowledge.ts';
-import { CONNECTION_KIND_INFO, type ConnectionKind } from './connections.ts';
+import { connectionCan, type ConnectionKind } from './connections.ts';
+import { SUBJECTS, type Subject } from './subject.ts';
 
 /**
  * What an AI node pulls into its prompt. Every field maps to stored project data.
@@ -126,6 +127,13 @@ export function judgmentProblem(config: { output: AiOutput; scope: 'line' | 'bat
   return null;
 }
 export const AI_OUTPUT_IDS = Object.keys(AI_OUTPUTS) as AiOutput[];
+/** The fields each output form leaves for the next steps. */
+const AI_OUTPUT_FIELDS: Record<AiOutput, (config: { fields: JsonField[] }) => JsonField[]> = {
+  text: () => [{ name: 'text', type: 'string', description: '' }],
+  verdict: () => [{ name: 'passed', type: 'boolean', description: '통과 여부' }, { name: 'issues', type: 'strings', description: '찾은 문제' }, { name: 'categories', type: 'strings', description: '찾은 문제의 종류' }],
+  choice: () => [{ name: 'value', type: 'string', description: '' }, { name: 'confidence', type: 'number', description: '' }, { name: 'reason', type: 'string', description: '' }],
+  json: (config) => config.fields,
+};
 
 /** `line`: one answer per line. `batch`: one answer per request (lists that belong to no single line). Only `json` can be `batch`. */
 export const AI_SCOPES = { line: '대사마다', batch: '묶음 전체' } as const;
@@ -167,17 +175,19 @@ export const aiInputSchema = z
  */
 export function nodeOutputFields(node: WorkflowNode | undefined): JsonField[] | null {
   if (!node) return null;
-  if (node.type === 'ai') {
-    if (node.config.output === 'json') return node.config.fields;
-    if (node.config.output === 'verdict') return [{ name: 'passed', type: 'boolean', description: '통과 여부' }, { name: 'issues', type: 'strings', description: '찾은 문제' }, { name: 'categories', type: 'strings', description: '찾은 문제의 종류' }];
-    if (node.config.output === 'choice') return [{ name: 'value', type: 'string', description: '' }, { name: 'confidence', type: 'number', description: '' }, { name: 'reason', type: 'string', description: '' }];
-    return [{ name: 'text', type: 'string', description: '' }];
-  }
-  if (node.type === 'gather') return [{ name: 'parts', type: 'list', description: '' }];
-  if (node.type !== 'function') return null;
-  const outputs = (FUNCTIONS[node.config.fn as FunctionName] as { outputs?: readonly JsonField[] | 'declared' } | undefined)?.outputs;
-  if (!outputs) return null;
-  return outputs === 'declared' ? ((node.config.params as { fields?: JsonField[] }).fields ?? []) : [...outputs];
+  return byNodeType<JsonField[] | null>(node, {
+    entry: () => null,
+    ai: ({ config }) => AI_OUTPUT_FIELDS[config.output](config),
+    function: ({ config }) => {
+      const outputs = functionInfo(config.fn).outputs;
+      if (!outputs) return null;
+      // Declared by the node: a script's or an HTTP call's `fields`.
+      return outputs === 'declared' ? ('fields' in config.params ? config.params.fields : []) : [...outputs];
+    },
+    condition: () => null,
+    gather: () => [{ name: 'parts', type: 'list', description: '' }],
+    call: () => null,
+  });
 }
 
 /** Nodes whose result the next step reads (an AI node's "previous", an apply node, a gather): those that declare outputs. Others pass the line on. */
@@ -229,26 +239,43 @@ export function pickPaths(value: unknown, paths: string[]): unknown {
   );
 }
 
-/** What a workflow takes in: script lines, or glossary terms. Its entry node declares it (`input`). */
-export const WORKFLOW_SUBJECTS = { lines: '대사', terms: '용어' } as const;
-export type WorkflowSubject = keyof typeof WORKFLOW_SUBJECTS;
-export const WORKFLOW_SUBJECT_IDS = Object.keys(WORKFLOW_SUBJECTS) as WorkflowSubject[];
+/** What differs between the workflow inputs, for the editor, validation and the CLI (a run's side of it: the server's subject adapters). */
+export interface InputType {
+  label: string;
+  /** How its items are counted: "9,000줄", "120개". */
+  unit: string;
+  /** AI batch modes: the core (count, unit) and scenes / the whole script. */
+  batchModes: readonly BatchConfig['mode'][];
+  /** AI context settings only this input has (the rest every input has). The editor shows them, and a request of another input is built with them off (contextFor). */
+  contextFields: readonly (keyof ContextConfig)[];
+  /** Condition rows only this input has (the core: node result, visits, failure, translation). */
+  conditionRows: readonly string[];
+  /** The part of a run's scope that picks its items (runScopeInputSchema): the line filter, or the terms pick. */
+  scope: 'filter' | 'terms';
+  /** The statuses an exit's 상태 바꾸기 sets: the project's own translation statuses, or the fixed 후보·확정·버림 of knowledge. */
+  statuses: 'project' | 'knowledge';
+  /** The item is project knowledge: what AI writes into it lands as the project's AI 확정 setting says. */
+  aiConfirm: boolean;
+  /** A judgment connection (one that answers typed questions instead of writing) can be asked about its items. */
+  judgment: boolean;
+}
 
 /**
- * How the two inputs differ, in one place: the editor, validation, the runner and the CLI read this
- * instead of asking "is it terms?" themselves. A node is core plus the extension of its workflow's
- * input; values of the other input's extension are kept but unused.
+ * How the inputs differ, in one place: the editor, validation and the CLI read this instead of asking
+ * "is it terms?" themselves. A node is core plus the extension of its workflow's input; values of the
+ * other input's extension are kept but unused.
  */
 export const INPUT_TYPES = {
   lines: {
     label: '대사',
     unit: '줄',
-    /** AI batch modes: the core (count, unit) and scenes / the whole script. */
     batchModes: ['group', 'count', 'unit', 'whole'],
-    /** AI context settings that only lines have. */
     contextFields: ['precedingLines', 'precedingTranslations', 'previousScenes', 'speech', 'pairs', 'pairMinTurns'],
-    /** Condition rows that only lines have (the core: node result, visits, failure, translation). */
     conditionRows: ['status', 'final', 'decidedBy', 'lineKind', 'tag', 'mark', 'listener', 'listenerUnknown', 'noted', 'speechRule', 'speechMatch'],
+    scope: 'filter',
+    statuses: 'project',
+    aiConfirm: false,
+    judgment: true,
   },
   terms: {
     label: '용어',
@@ -256,23 +283,42 @@ export const INPUT_TYPES = {
     batchModes: ['count', 'unit'],
     contextFields: ['examples'],
     conditionRows: ['termStatus', 'hasTarget', 'uses'],
+    scope: 'terms',
+    statuses: 'knowledge',
+    aiConfirm: true,
+    judgment: false,
   },
-} as const satisfies Record<WorkflowSubject, { label: string; unit: string; batchModes: readonly BatchConfig['mode'][]; contextFields: readonly (keyof ContextConfig)[]; conditionRows: readonly string[] }>;
+} as const satisfies Record<Subject, InputType>;
+
+/** One value per input, picked for `subject`: for copy and options that differ and are nobody else's business. An input left out does not compile. */
+export const bySubject = <R>(subject: Subject, cases: Record<Subject, R>): R => cases[subject];
+
+/** What each context setting is when it is off (a count: none; a switch: off), for the settings an input does not have. */
+const CONTEXT_OFF = { precedingLines: 0, precedingTranslations: false, previousScenes: 0, speech: false, pairs: false, examples: 0 } as const satisfies Partial<ContextConfig>;
+/**
+ * An AI node's context as a request of `subject` uses it: the settings only another input has are off (a terms
+ * request has no preceding lines, scenes, listeners or talking pairs, whatever the node kept from before).
+ */
+export function contextFor(subject: Subject, context: ContextConfig): ContextConfig {
+  const own = new Set<keyof ContextConfig>(INPUT_TYPES[subject].contextFields);
+  const foreign = SUBJECTS.flatMap((other) => (other === subject ? [] : INPUT_TYPES[other].contextFields.filter((field) => !own.has(field))));
+  return { ...context, ...Object.fromEntries(foreign.flatMap((field) => (field in CONTEXT_OFF ? [[field, CONTEXT_OFF[field as keyof typeof CONTEXT_OFF]]] : []))) };
+}
 
 /** The entry node: what the workflow takes in. Which items a run takes is the run's scope (the run dialog), not the workflow's. */
 export const entryConfigSchema = z
-  .object({ input: z.enum(WORKFLOW_SUBJECT_IDS as [WorkflowSubject, ...WorkflowSubject[]]).default('lines') })
+  .object({ input: z.enum(SUBJECTS).default('lines') })
   .prefault({});
 export type EntryConfig = z.infer<typeof entryConfigSchema>;
 /** How the editor names batch modes. */
 export const BATCH_MODE_LABELS: Record<BatchConfig['mode'], string> = { group: '장면별', count: '개수별', unit: '하나씩', whole: '대본 전체' };
 /** A workflow's input: what its entry node declares. */
-export const workflowInput = (definition: Pick<WorkflowDefinition, 'nodes'>): WorkflowSubject => {
+export const workflowInput = (definition: Pick<WorkflowDefinition, 'nodes'>): Subject => {
   const entry = definition.nodes.find((node) => node.type === 'entry');
-  return entry?.type === 'entry' ? entryConfigSchema.parse(entry.config ?? {}).input : 'lines';
+  return entry?.type === 'entry' ? entry.config.input : 'lines';
 };
 /** Whether an AI preset is written for this input (presets are for lines unless they say terms). */
-export const presetTakes = (preset: { inputs?: readonly WorkflowSubject[] }, input: WorkflowSubject) => (preset.inputs ?? WORKFLOW_SUBJECT_IDS).includes(input);
+export const presetTakes = (preset: { inputs?: readonly Subject[] }, input: Subject) => (preset.inputs ?? SUBJECTS).includes(input);
 
 /**
  * 모으기: waits until no item of the run is still open before it (every request of the nodes upstream
@@ -284,9 +330,6 @@ export const presetTakes = (preset: { inputs?: readonly WorkflowSubject[] }, inp
  */
 export const gatherConfigSchema = z.object({ fields: z.array(z.string().trim().min(1)).default([]) }).prefault({});
 export type GatherConfig = z.infer<typeof gatherConfigSchema>;
-
-/** Functions that write the item itself (its translation, listener, a term's form). Exit actions write it too (tags, status). */
-export const ITEM_CHANGING_FUNCTIONS = new Set(['saveCandidate', 'setListener']);
 
 /** An AI node's call time limit when it does not set one, in minutes. */
 export const DEFAULT_CALL_MINUTES = 10;
@@ -450,13 +493,7 @@ export const aiNodeConfigSchema = z.object({
 export const workflowNodeSchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('entry'), config: entryConfigSchema }),
   z.object({ ...base, type: z.literal('ai'), config: aiNodeConfigSchema }),
-  z.object({ ...base, type: z.literal('function'), config: z.object({
-      fn: z.string(),
-      params: z.record(z.string(), z.unknown()).default({}),
-      /** HTTP and script nodes only: how many of this node's calls a run makes at once. */
-      concurrency: z.number().int().min(1).max(8).default(2),
-    }),
-  }),
+  z.object({ ...base, type: z.literal('function'), config: functionConfigSchema }),
   z.object({
     ...base,
     type: z.literal('condition'),
@@ -569,14 +606,16 @@ export const definitionModels = (definition: Pick<WorkflowDefinition, 'nodes' | 
 /** How many times an AI node's retry rules can send one line back (the sum of their limits). */
 export const resendsOf = (definition: Pick<WorkflowDefinition, 'settings'>, node: AiNode): number => nodeRetries(definition, node).reduce((sum, rule) => sum + rule.maxTimes, 0);
 
-/** Functions that change the line itself (its status, tags or representative translation). */
-
 export interface NodeTypeInfo {
   label: string;
   description: string;
   hasInput: boolean;
 }
 
+/**
+ * The node kinds. Whatever differs by kind is asked through this record or `byNodeType`, both keyed by every kind:
+ * a new kind does not compile until each of them has its answer (its exits, results, checks, how it runs, its card).
+ */
 export const NODE_TYPES: Record<WorkflowNodeType, NodeTypeInfo> = {
   entry: { label: '진입', description: '선택한 상태의 대사가 흐름에 들어옵니다.', hasInput: false },
   ai: { label: 'AI', description: '고른 모델·지시문·문맥으로 AI를 호출해 후보·판정·용어·데이터를 받습니다.', hasInput: true },
@@ -585,34 +624,52 @@ export const NODE_TYPES: Record<WorkflowNodeType, NodeTypeInfo> = {
   call: { label: '워크플로 호출', description: '다른 워크플로를 이 대사들에 실행합니다. 끝까지 가면 완료로, 실패로 끝나게 되면 오류로 나옵니다.', hasInput: true },
   gather: { label: '모으기', description: '앞 노드의 결과를 모든 요청이 끝날 때까지 모았다가, 합친 결과 하나를 다음 노드로 넘깁니다.', hasInput: true },
 };
+export const NODE_TYPE_IDS = Object.keys(NODE_TYPES) as WorkflowNodeType[];
+
+/** A node of one kind. */
+export type NodeOf<T extends WorkflowNodeType> = Extract<WorkflowNode, { type: T }>;
+/** One answer per node kind, each given its own kind of node. A kind left out does not compile. */
+export function byNodeType<R>(node: WorkflowNode, cases: { [T in WorkflowNodeType]: (node: NodeOf<T>) => R }): R {
+  return (cases[node.type] as (node: WorkflowNode) => R)(node);
+}
+
+/**
+ * Whether a node's work leaves the server (an AI request, an HTTP call, a script's sandbox): the runner dispatches
+ * it instead of settling it at once, counts its failures, and sends up to the node's own 동시 처리 수 at a time.
+ */
+export const nodeCallsOut = (node: WorkflowNode | undefined): node is AiNode | FunctionNode =>
+  node !== undefined && byNodeType(node, { entry: () => false, ai: () => true, function: ({ config }) => FUNCTIONS[config.fn].callsOut, condition: () => false, gather: () => false, call: () => false });
+/** The editor's kind of a node, which gives its card its colour: its type, a function by its group (함수 or 반영). */
+export const nodeGroup = (node: WorkflowNode): Exclude<WorkflowNodeType, 'function'> | FunctionGroup => (node.type === 'function' ? FUNCTIONS[node.config.fn].group : node.type);
+/** How many requests of a node a run sends at once (its 동시 처리 수), for a node that calls out. */
+export const nodeConcurrency = (node: AiNode | FunctionNode): number => node.config.concurrency;
 
 const OUT: Port[] = [{ id: 'out', label: '완료' }];
 const ERROR: Port = { id: 'error', label: '오류' };
 
 /** The exits of a node, derived from its type and config. */
 export function nodePorts(node: WorkflowNode): Port[] {
-  switch (node.type) {
-    case 'entry':
-      return [{ id: 'out', label: '다음' }];
-    case 'ai':
-      return node.config.output === 'verdict' ? [{ id: 'pass', label: '통과' }, { id: 'fail', label: '실패' }, ERROR] : [...OUT, ERROR];
-    case 'function':
-      return functionPorts(node.config.fn, node.config.params);
-    case 'condition':
-      return [{ id: 'true', label: '예' }, { id: 'false', label: '아니요' }];
-    case 'gather':
-      return [{ id: 'out', label: '다음' }];
-    case 'call':
-      return [...OUT, ERROR];
-  }
+  return byNodeType<Port[]>(node, {
+    entry: () => [{ id: 'out', label: '다음' }],
+    ai: ({ config }) => (config.output === 'verdict' ? [{ id: 'pass', label: '통과' }, { id: 'fail', label: '실패' }, ERROR] : [...OUT, ERROR]),
+    function: ({ config }) => functionPorts(config),
+    condition: () => [{ id: 'true', label: '예' }, { id: 'false', label: '아니요' }],
+    gather: () => [{ id: 'out', label: '다음' }],
+    call: () => [...OUT, ERROR],
+  });
 }
 
 /** A short name for a node: its label, else its function / output kind. */
 export function nodeName(node: WorkflowNode): string {
   if (node.label) return node.label;
-  if (node.type === 'function') return FUNCTIONS[node.config.fn as FunctionName]?.label ?? node.config.fn;
-  if (node.type === 'ai') return `AI ${AI_OUTPUTS[node.config.output].label}`;
-  return NODE_TYPES[node.type].label;
+  return byNodeType(node, {
+    entry: () => NODE_TYPES.entry.label,
+    ai: ({ config }) => `AI ${AI_OUTPUTS[config.output].label}`,
+    function: ({ config }) => FUNCTIONS[config.fn].label,
+    condition: () => NODE_TYPES.condition.label,
+    gather: () => NODE_TYPES.gather.label,
+    call: () => NODE_TYPES.call.label,
+  });
 }
 
 /** Data a condition expression can read, e.g. {"<": [{"var": "visits.review"}, 3]}. */
@@ -658,7 +715,7 @@ export interface WorkflowIssue {
 export interface WorkflowRef {
   id: string;
   name: string;
-  input: WorkflowSubject;
+  input: Subject;
   /** The ids of the workflows its call nodes name. */
   calls: string[];
 }
@@ -771,74 +828,64 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
       ) continue;
       error(`'${port.label}' 출구가 연결되지 않았습니다.`, { nodeId: node.id });
     }
-    if (node.type === 'ai') {
-      const { model } = node.config;
-      if (!(inputType.batchModes as readonly string[]).includes(node.config.batch.mode)) error(`${inputType.label} 입력에서는 묶음을 ${inputType.batchModes.map((mode) => BATCH_MODE_LABELS[mode]).join('·')}(으)로 정합니다.`, { nodeId: node.id });
-      if (!model.connectionId || !model.model) error('AI 연결과 모델을 고르세요.', { nodeId: node.id });
-      else if (!refs.connections.has(model.connectionId)) error('고른 AI 연결이 삭제되었습니다. 다시 고르세요.', { nodeId: node.id });
-      else {
-        // A connection that only judges answers some outputs; the rest need a model that writes.
-        const kind = (refs.connections instanceof Map ? refs.connections.get(model.connectionId) : undefined) as ConnectionKind | undefined;
-        const info = kind ? CONNECTION_KIND_INFO[kind] : undefined;
-        const problem = info && !(info.capabilities as readonly string[]).includes('generate') ? judgmentProblem(node.config) : null;
-        if (problem) error(problem, { nodeId: node.id });
-      }
-      if (node.config.output === 'json' && !node.config.fields.length) error('JSON 출력에는 필드가 하나 이상 필요합니다.', { nodeId: node.id });
-      if (node.config.output === 'json' && node.config.fields.some((field) => field.type === 'list' && !field.fields?.length)) error('목록 필드에는 항목 필드가 하나 이상 필요합니다.', { nodeId: node.id });
-      if (node.config.output === 'choice' && node.config.choice.source === 'custom' && !node.config.choice.values.length) error('선택지를 하나 이상 적으세요.', { nodeId: node.id });
-      if (node.config.scope === 'batch' && node.config.output !== 'json') error("'묶음 전체' 출력은 JSON에서만 쓸 수 있습니다.", { nodeId: node.id });
-      const input = aiInputSchema.parse(node.config.input ?? {});
-      if (input.previous) {
-        if (!previousSteps(definition, node.id).length) error('앞 단계에 결과를 내는 노드(AI·스크립트·모으기)가 없습니다.', { nodeId: node.id });
-        if (node.config.batch.mode === 'whole') error('대본 전체로 읽는 노드에는 앞 단계 결과를 넣을 수 없습니다.', { nodeId: node.id });
-      }
-      if (!input.lines && !(input.previous && node.config.output === 'json' && node.config.scope === 'batch')) error('대사 없이 보내려면 앞 단계 결과를 넣고, 출력을 JSON · 묶음 전체로 하세요.', { nodeId: node.id });
-    }
-    if (node.type === 'ai' && node.config.retries) retryRuleProblems(node.config.retries, refs).forEach((message) => error(message, { nodeId: node.id }));
-    if (node.type === 'call') {
-      const picked = node.config.workflowId;
-      const called = refs.workflows.find((workflow) => workflow.id === picked);
-      if (!picked) error('부를 워크플로를 고르세요.', { nodeId: node.id });
-      else if (!called) error('부르는 워크플로가 없습니다.', { nodeId: node.id });
-      else if (called.input !== input) error(`'${called.name}'은(는) ${INPUT_TYPES[called.input].label}를 받는 워크플로라 여기서 부를 수 없습니다.`, { nodeId: node.id });
-      else if (callsBack(called.id, refs)) error(`'${called.name}'을(를) 부르면 다시 이 워크플로로 돌아옵니다.`, { nodeId: node.id });
-    }
-    if (node.type === 'gather') {
-      const steps = previousSteps(definition, node.id);
-      if (!steps.length) error('모으기 앞 단계에 결과를 내는 AI·스크립트 노드가 없습니다.', { nodeId: node.id });
-      else if (steps.some((step) => step.type === 'gather')) error('모으기 바로 앞 단계가 또 모으기일 수는 없습니다.', { nodeId: node.id });
-      const after = [...reach(node.id)].filter((id) => id !== node.id);
-      // A gather inside a loop would close more than once per pass and never know when it is done.
-      if ((graph.outNeighbors(node.id) as string[]).some((next) => reach(next).has(node.id))) error('모으기는 되돌아가는 고리 안에 둘 수 없습니다.', { nodeId: node.id });
-      for (const id of after) {
-        const next = definition.nodes.find((other) => other.id === id)!;
-        // After a gather one item carries the combined result: nothing may change "the item".
-        if (next.type === 'function' && ITEM_CHANGING_FUNCTIONS.has(next.config.fn)) error(`'${nodeName(next)}'는 모으기 뒤에 둘 수 없습니다. 모은 뒤에는 대사·용어가 아니라 합친 결과 하나가 흐릅니다.`, { nodeId: next.id });
-        if (Object.keys(next.exits ?? {}).length) error(`'${nodeName(next)}'의 출구 동작(태그·상태)은 모으기 뒤에 둘 수 없습니다. 모은 뒤에는 대사·용어가 아니라 합친 결과 하나가 흐릅니다.`, { nodeId: next.id });
-        if (next.type === 'ai' && next.config.input.lines) error('모으기 뒤의 AI 노드는 입력에서 대사를 빼고(대사도 넣기 끔) 모은 결과를 읽어야 합니다.', { nodeId: next.id });
-      }
-    }
-    if (node.type === 'function' && !functionTakes(node.config.fn, input)) error(`'${nodeName(node)}'는 ${inputType.label} 입력 워크플로에 쓸 수 없는 노드입니다.`, { nodeId: node.id });
-    if (node.type === 'function') {
-      const info = FUNCTIONS[node.config.fn as FunctionName];
-      if (!info) {
-        error(`알 수 없는 함수입니다: ${node.config.fn}`, { nodeId: node.id });
-        continue;
-      }
-      const parsed = info.params.safeParse(node.config.params);
-      if (!parsed.success) {
-        error(`설정 오류: ${parsed.error.issues[0]?.path.join('.')} ${parsed.error.issues[0]?.message}`, { nodeId: node.id });
-        continue;
-      }
-      const params = parsed.data as Record<string, unknown>;
-      if (node.config.fn === 'http') {
-        if (!/^https?:\/\//.test(String(params.url).trim())) error('HTTP 호출할 주소(https://…)를 입력하세요.', { nodeId: node.id });
-        if (params.connectionId && !refs.toolConnectionIds.has(params.connectionId as string)) error('삭제된 API 키입니다.', { nodeId: node.id });
-      }
-      if (node.config.fn in APPLY_TARGETS) for (const message of applyIssues(definition, node.id, node.config.fn as ApplyFunctionName, params as ApplyParams)) error(message, { nodeId: node.id });
-    }
-    if (node.type === 'condition' && (node.config.expression === undefined || node.config.expression === null))
-      error('조건식을 입력하세요.', { nodeId: node.id });
+    // What each kind of node needs to be ready to run. A kind without an answer here does not compile.
+    byNodeType<void>(node, {
+      entry: () => {},
+      ai: (node) => {
+        const { model } = node.config;
+        if (!(inputType.batchModes as readonly string[]).includes(node.config.batch.mode)) error(`${inputType.label} 입력에서는 묶음을 ${inputType.batchModes.map((mode) => BATCH_MODE_LABELS[mode]).join('·')}(으)로 정합니다.`, { nodeId: node.id });
+        if (!model.connectionId || !model.model) error('AI 연결과 모델을 고르세요.', { nodeId: node.id });
+        else if (!refs.connections.has(model.connectionId)) error('고른 AI 연결이 삭제되었습니다. 다시 고르세요.', { nodeId: node.id });
+        else {
+          // A connection that only judges answers some outputs; the rest need a model that writes.
+          const kind = (refs.connections instanceof Map ? refs.connections.get(model.connectionId) : undefined) as ConnectionKind | undefined;
+          const problem = kind && !connectionCan(kind, 'generate') ? judgmentProblem(node.config) : null;
+          if (problem) error(problem, { nodeId: node.id });
+        }
+        if (node.config.output === 'json' && !node.config.fields.length) error('JSON 출력에는 필드가 하나 이상 필요합니다.', { nodeId: node.id });
+        if (node.config.output === 'json' && node.config.fields.some((field) => field.type === 'list' && !field.fields?.length)) error('목록 필드에는 항목 필드가 하나 이상 필요합니다.', { nodeId: node.id });
+        if (node.config.output === 'json') for (const message of jsonFieldIssues(node.config.fields)) error(message, { nodeId: node.id });
+        if (node.config.output === 'choice' && node.config.choice.source === 'custom' && !node.config.choice.values.length) error('선택지를 하나 이상 적으세요.', { nodeId: node.id });
+        if (node.config.scope === 'batch' && node.config.output !== 'json') error("'묶음 전체' 출력은 JSON에서만 쓸 수 있습니다.", { nodeId: node.id });
+        const input = node.config.input;
+        if (input.previous) {
+          if (!previousSteps(definition, node.id).length) error('앞 단계에 결과를 내는 노드(AI·스크립트·모으기)가 없습니다.', { nodeId: node.id });
+          if (node.config.batch.mode === 'whole') error('대본 전체로 읽는 노드에는 앞 단계 결과를 넣을 수 없습니다.', { nodeId: node.id });
+        }
+        if (!input.lines && !(input.previous && node.config.output === 'json' && node.config.scope === 'batch')) error('대사 없이 보내려면 앞 단계 결과를 넣고, 출력을 JSON · 묶음 전체로 하세요.', { nodeId: node.id });
+        if (node.config.retries) retryRuleProblems(node.config.retries, refs).forEach((message) => error(message, { nodeId: node.id }));
+      },
+      call: (node) => {
+        const picked = node.config.workflowId;
+        const called = refs.workflows.find((workflow) => workflow.id === picked);
+        if (!picked) error('부를 워크플로를 고르세요.', { nodeId: node.id });
+        else if (!called) error('부르는 워크플로가 없습니다.', { nodeId: node.id });
+        else if (called.input !== input) error(`'${called.name}'은(는) ${INPUT_TYPES[called.input].label}를 받는 워크플로라 여기서 부를 수 없습니다.`, { nodeId: node.id });
+        else if (callsBack(called.id, refs)) error(`'${called.name}'을(를) 부르면 다시 이 워크플로로 돌아옵니다.`, { nodeId: node.id });
+      },
+      gather: (node) => {
+        const steps = previousSteps(definition, node.id);
+        if (!steps.length) error('모으기 앞 단계에 결과를 내는 AI·스크립트 노드가 없습니다.', { nodeId: node.id });
+        else if (steps.some((step) => step.type === 'gather')) error('모으기 바로 앞 단계가 또 모으기일 수는 없습니다.', { nodeId: node.id });
+        const after = [...reach(node.id)].filter((id) => id !== node.id);
+        // A gather inside a loop would close more than once per pass and never know when it is done.
+        if ((graph.outNeighbors(node.id) as string[]).some((next) => reach(next).has(node.id))) error('모으기는 되돌아가는 고리 안에 둘 수 없습니다.', { nodeId: node.id });
+        for (const id of after) {
+          const next = definition.nodes.find((other) => other.id === id)!;
+          // After a gather one item carries the combined result: nothing may change "the item".
+          if (next.type === 'function' && FUNCTIONS[next.config.fn].changes === 'item') error(`'${nodeName(next)}'는 모으기 뒤에 둘 수 없습니다. 모은 뒤에는 대사·용어가 아니라 합친 결과 하나가 흐릅니다.`, { nodeId: next.id });
+          if (Object.keys(next.exits ?? {}).length) error(`'${nodeName(next)}'의 출구 동작(태그·상태)은 모으기 뒤에 둘 수 없습니다. 모은 뒤에는 대사·용어가 아니라 합친 결과 하나가 흐릅니다.`, { nodeId: next.id });
+          if (next.type === 'ai' && next.config.input.lines) error('모으기 뒤의 AI 노드는 입력에서 대사를 빼고(대사도 넣기 끔) 모은 결과를 읽어야 합니다.', { nodeId: next.id });
+        }
+      },
+      function: (node) => {
+        if (!functionTakes(node.config.fn, input)) error(`'${nodeName(node)}'는 ${inputType.label} 입력 워크플로에 쓸 수 없는 노드입니다.`, { nodeId: node.id });
+        for (const message of functionIssues(node, definition, refs)) error(message, { nodeId: node.id });
+      },
+      condition: (node) => {
+        if (node.config.expression === undefined || node.config.expression === null) error('조건식을 입력하세요.', { nodeId: node.id });
+      },
+    });
     for (const message of exitActionIssues(definition, node, input, refs)) (message.level === 'error' ? error : warn)(message.message, { nodeId: node.id });
   }
 
@@ -880,6 +927,40 @@ export function validateWorkflow(definition: WorkflowDefinition, refs: WorkflowR
   return issues;
 }
 
+/**
+ * What in a function node's settings is not ready to run, per function: the settings parse (the schema did that once,
+ * when the definition was read), so these are the things a draft may still lack. Keyed by every function: a new one
+ * does not compile until it says what it needs (nothing: `() => []`).
+ */
+type FunctionIssues = { [F in FunctionName]: (params: FunctionParams<F>, at: { node: FunctionNode; definition: Pick<WorkflowDefinition, 'nodes' | 'edges'>; refs: Pick<WorkflowRefs, 'toolConnectionIds'> }) => string[] };
+const applyNodeIssues = (fn: ApplyFunctionName) => (params: ApplyParams, at: { node: FunctionNode; definition: Pick<WorkflowDefinition, 'nodes' | 'edges'> }) => applyIssues(at.definition, at.node.id, fn, params);
+const FUNCTION_ISSUES: FunctionIssues = {
+  formatCheck: (params) => params.customRules.flatMap((rule, index) => {
+    const problem = customRuleIssue(rule);
+    return problem ? [`정규식 규칙 ${index + 1}${rule.label ? ` (${rule.label})` : ''}: ${problem}`] : [];
+  }),
+  glossaryCheck: () => [],
+  script: (params) => [...(params.ports.some((port) => port.trim()) ? [] : ['스크립트의 출구를 하나 이상 적으세요.']), ...jsonFieldIssues(params.fields)],
+  http: (params, { refs }) => [
+    ...(/^https?:\/\//.test(params.url.trim()) ? [] : ['HTTP 호출할 주소(https://…)를 입력하세요.']),
+    ...(params.connectionId && !refs.toolConnectionIds.has(params.connectionId) ? ['삭제된 API 키입니다.'] : []),
+    ...jsonFieldIssues(params.fields),
+  ],
+  saveCandidate: applyNodeIssues('saveCandidate'),
+  setListener: applyNodeIssues('setListener'),
+  saveTerms: applyNodeIssues('saveTerms'),
+  saveCharacters: applyNodeIssues('saveCharacters'),
+  saveRelationships: applyNodeIssues('saveRelationships'),
+  saveSpeechRules: applyNodeIssues('saveSpeechRules'),
+  saveEvents: applyNodeIssues('saveEvents'),
+  saveDocument: applyNodeIssues('saveDocument'),
+};
+/** What keeps a function node from running as it is set. */
+export function functionIssues(node: FunctionNode, definition: Pick<WorkflowDefinition, 'nodes' | 'edges'>, refs: Pick<WorkflowRefs, 'toolConnectionIds'>): string[] {
+  const check = FUNCTION_ISSUES[node.config.fn] as (params: FunctionParams, at: { node: FunctionNode; definition: Pick<WorkflowDefinition, 'nodes' | 'edges'>; refs: Pick<WorkflowRefs, 'toolConnectionIds'> }) => string[];
+  return check(node.config.params, { node, definition, refs });
+}
+
 /** Whether calling `calledId` leads back to the workflow being checked: it is that workflow, or its calls (any depth) reach it. */
 function callsBack(calledId: string, refs: WorkflowRefs): boolean {
   if (!refs.workflowId) return false;
@@ -896,12 +977,18 @@ function callsBack(calledId: string, refs: WorkflowRefs): boolean {
   return false;
 }
 
+/** The statuses an exit can set, by where they come from (InputType.statuses): whether one is known, and what to say when it is not. */
+const EXIT_STATUSES: Record<InputType['statuses'], { known: (statusId: string, refs: Pick<WorkflowRefs, 'statusIds'>) => boolean; unknown: (label: string) => string }> = {
+  project: { known: (statusId, refs) => refs.statusIds.has(statusId), unknown: () => '삭제된 상태입니다. 다시 고르세요.' },
+  knowledge: { known: (statusId) => (KNOWLEDGE_STATUSES as readonly string[]).includes(statusId), unknown: (label) => `${label}의 상태는 후보·확정·버림 중 하나입니다.` },
+};
+
 /**
  * What is wrong with a node's exit actions: an exit it does not have, a status or tag that is gone or not of this
  * workflow's input, a tag action with nothing to put on, a `fromField` with no result before it; and, as warnings, two
  * statuses on one exit (the last one stays) or one tag both put on and taken off there.
  */
-export function exitActionIssues(definition: Pick<WorkflowDefinition, 'nodes' | 'edges'>, node: WorkflowNode, input: 'lines' | 'terms', refs: Pick<WorkflowRefs, 'statusIds' | 'tagIds'>): { level: 'error' | 'warning'; message: string }[] {
+export function exitActionIssues(definition: Pick<WorkflowDefinition, 'nodes' | 'edges'>, node: WorkflowNode, input: Subject, refs: Pick<WorkflowRefs, 'statusIds' | 'tagIds'>): { level: 'error' | 'warning'; message: string }[] {
   const issues: { level: 'error' | 'warning'; message: string }[] = [];
   const ports = new Map(nodePorts(node).map((port) => [port.id, port.label]));
   for (const [port, actions] of Object.entries(node.exits ?? {})) {
@@ -918,8 +1005,8 @@ export function exitActionIssues(definition: Pick<WorkflowDefinition, 'nodes' | 
         issues.push({ level: 'error', message: `${where}: 바꿀 상태를 고르세요.` });
         continue;
       }
-      const known = input === 'terms' ? (KNOWLEDGE_STATUSES as readonly string[]).includes(action.statusId) : refs.statusIds.has(action.statusId);
-      if (!known) issues.push({ level: 'error', message: input === 'terms' ? `${where}: 용어의 상태는 후보·확정·버림 중 하나입니다.` : `${where}: 삭제된 상태입니다. 다시 고르세요.` });
+      const statuses = EXIT_STATUSES[INPUT_TYPES[input].statuses];
+      if (!statuses.known(action.statusId, refs)) issues.push({ level: 'error', message: `${where}: ${statuses.unknown(INPUT_TYPES[input].label)}` });
     }
     if (statuses.length > 1) issues.push({ level: 'warning', message: `${where}에 상태 바꾸기가 ${statuses.length}개 있습니다. 마지막 것만 남습니다.` });
     const tags = actions.filter((action): action is TagExitAction => action.type === 'tag');
@@ -964,7 +1051,7 @@ export const isWholeScriptWorkflow = (definition: WorkflowDefinition) => wholeSc
  * entries there would reach the model as if they were settled.
  */
 export function readinessUses(definition: WorkflowDefinition) {
-  const contexts = definition.nodes.filter((node): node is AiNode => node.type === 'ai').map((node) => ({ context: contextConfigSchema.parse(node.config.context ?? {}), whole: node.config.batch?.mode === 'whole' }));
+  const contexts = definition.nodes.filter((node): node is AiNode => node.type === 'ai').map((node) => ({ context: node.config.context, whole: node.config.batch.mode === 'whole' }));
   return {
     speech: contexts.some(({ context, whole }) => context.speech && !whole),
     glossary: contexts.some(({ context }) => context.glossary) || definition.nodes.some((node) => node.type === 'function' && node.config.fn === 'glossaryCheck'),

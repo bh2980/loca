@@ -1,7 +1,8 @@
 /** Edits one workflow node's config; the node kinds live beside this file. */
 import { RequestPreview } from './request-preview';
+import type { ReactNode } from 'react';
 import { Trash2 } from 'lucide-react';
-import { INPUT_TYPES, NODE_TYPES, exitActions, nodeName, nodePorts, WORKFLOW_SUBJECT_IDS, type WorkflowSubject, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
+import { INPUT_TYPES, NODE_TYPES, byNodeType, exitActions, nodeName, nodePorts, SUBJECTS, type Subject, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
 import { Button, Icon as GlyphIcon, SelectField, SelectItem, Inspector, Text, InspectorHeader, Input, Section, Group, Field, KeyValue, KeyValueRow, Notice } from '@loca/ui';
 import { nodeIcon } from '../node-view';
 import { AiConfig } from '@/components/workflow/node-config/ai';
@@ -56,24 +57,23 @@ export function NodeConfig({ node, issues, refs, readOnly, onChange, onDelete, o
             {node.type === 'entry' && (
               <>
                 <Field label="입력" help="이 워크플로가 다루는 것입니다. 노드마다 이 입력에 맞는 칸과 노드만 보입니다. 어떤 대사·용어를 넣을지는 실행할 때 고릅니다.">
-                  <SelectField value={node.config.input} onValueChange={(input) => onChange({ ...node, config: { ...node.config, input: input as WorkflowSubject } })}>
-                    {WORKFLOW_SUBJECT_IDS.map((id) => <SelectItem key={id} value={id}>{INPUT_TYPES[id].label}</SelectItem>)}
+                  <SelectField value={node.config.input} onValueChange={(input) => onChange({ ...node, config: { ...node.config, input: input as Subject } })}>
+                    {SUBJECTS.map((id) => <SelectItem key={id} value={id}>{INPUT_TYPES[id].label}</SelectItem>)}
                   </SelectField>
                 </Field>
               </>
             )}
           </Section>
 
-          {node.type === 'ai' ? (
-            <AiConfig part="rest" node={node} refs={refs} onChange={onChange} />
-          ) : node.type === 'function' || node.type === 'condition' || node.type === 'gather' || node.type === 'call' ? (
-            <Section title={NODE_TYPES[node.type].label}>
-              {node.type === 'function' && <FunctionConfig node={node} refs={refs} readOnly={readOnly} onChange={onChange} />}
-              {node.type === 'gather' && <GatherConfig node={node} refs={refs} onChange={onChange} />}
-              {node.type === 'call' && <CallConfig node={node} refs={refs} onChange={onChange} />}
-              {node.type === 'condition' && <ConditionEditor node={node} nodes={refs.nodes} refs={refs} readOnly={readOnly} onChange={onChange} />}
-            </Section>
-          ) : null}
+          {/* Each kind's own settings: a kind without an answer here does not compile. */}
+          {byNodeType<ReactNode>(node, {
+            entry: () => null,
+            ai: (ai) => <AiConfig part="rest" node={ai} refs={refs} onChange={onChange} />,
+            function: (fn) => <Section title={NODE_TYPES.function.label}><FunctionConfig node={fn} refs={refs} readOnly={readOnly} onChange={onChange} /></Section>,
+            condition: (condition) => <Section title={NODE_TYPES.condition.label}><ConditionEditor node={condition} nodes={refs.nodes} refs={refs} readOnly={readOnly} onChange={onChange} /></Section>,
+            gather: (gather) => <Section title={NODE_TYPES.gather.label}><GatherConfig node={gather} refs={refs} onChange={onChange} /></Section>,
+            call: (call) => <Section title={NODE_TYPES.call.label}><CallConfig node={call} refs={refs} onChange={onChange} /></Section>,
+          })}
       </Field.Set>
 
       {node.type === 'ai' && <RequestPreview projectId={refs.projectId} workflowId={refs.workflowId} node={node} />}

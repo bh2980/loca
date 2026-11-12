@@ -1,5 +1,5 @@
 import { and, eq, inArray, ne } from 'drizzle-orm';
-import { KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, nodeName, someOf, withRunModels, workflowInput, type RunCardPlan, type RunModels, type RunScope, type RunScopeInput, type RunTerms, type RunTermsInput, type WorkflowDefinition, type WorkflowSubject } from '@tw/shared';
+import { KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, nodeName, someOf, withRunModels, workflowInput, type RunCardPlan, type RunModels, type RunScope, type RunScopeInput, type RunTerms, type RunTermsInput, type WorkflowDefinition, type Subject, SUBJECTS, INPUT_TYPES } from '@tw/shared';
 import { z } from 'zod';
 import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
@@ -41,11 +41,16 @@ export function resolveRunModels(db: Db, projectId: string, definition: Workflow
   return { models, unknown };
 }
 
+const SCOPE_MISMATCH: Record<Subject, string> = {
+  terms: '용어 입력 워크플로에는 대사 필터(filter)를 쓸 수 없습니다. 용어·상태·정한 쪽·번역 비어 있음·표시·태그로 범위를 정하세요(terms).',
+  lines: '대사 입력 워크플로에는 용어 범위(terms)를 쓸 수 없습니다. 대사 필터(filter)로 범위를 정하세요.',
+};
+
 /** Why a scope does not fit the workflow's input (a line filter for a terms workflow, terms for a lines workflow), or null. Asked or resolved: both name their parts alike. */
-export function scopeMismatch(input: WorkflowSubject, scope: { filter?: object; terms?: object }): string | null {
-  if (input === 'terms' && Object.keys(scope.filter ?? {}).length) return '용어 입력 워크플로에는 대사 필터(filter)를 쓸 수 없습니다. 용어·상태·정한 쪽·번역 비어 있음·표시·태그로 범위를 정하세요(terms).';
-  if (input === 'lines' && Object.keys(scope.terms ?? {}).length) return '대사 입력 워크플로에는 용어 범위(terms)를 쓸 수 없습니다. 대사 필터(filter)로 범위를 정하세요.';
-  return null;
+export function scopeMismatch(input: Subject, scope: { filter?: object; terms?: object }): string | null {
+  // The part of a scope each input picks by (InputType.scope); naming another input's part is the mismatch.
+  const foreign = SUBJECTS.find((other) => other !== input && Object.keys(scope[INPUT_TYPES[other].scope] ?? {}).length);
+  return foreign ? SCOPE_MISMATCH[input] : null;
 }
 
 /** The terms of a scope from what was asked: terms by id or source, statuses by label or id, tags by name or id. */
@@ -91,7 +96,7 @@ export function resolveRunScope(db: Db, projectId: string, input: RunScopeInput)
 }
 
 /** The scope asked of a workflow, resolved, or why it cannot be: it does not fit the workflow's input, or it names what the project does not have. The same answer wherever a run is planned or started. */
-export function askedScope(db: Db, projectId: string, subject: WorkflowSubject, input: RunScopeInput): { ok: true; scope: RunScope } | { ok: false; error: string } {
+export function askedScope(db: Db, projectId: string, subject: Subject, input: RunScopeInput): { ok: true; scope: RunScope } | { ok: false; error: string } {
   const mismatch = scopeMismatch(subject, input);
   if (mismatch) return { ok: false, error: mismatch };
   const { scope, unknown } = resolveRunScope(db, projectId, input);

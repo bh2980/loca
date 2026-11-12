@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import { z } from 'zod';
 import {
   CONNECTION_KIND_INFO,
+  connectionCan,
   CONNECTION_KINDS,
   connectionInputSchema,
   type Capability,
@@ -54,7 +55,7 @@ import { dateTime } from '@/lib/datetime';
 import { changeConnection, useConnections } from '@/lib/app-data';
 import { useConnectionTests } from '@/lib/logs';
 
-const CAPABILITY_LABEL: Record<Capability, string> = { generate: '생성', judge: '판정', chat: '채팅', tool: '도구' };
+const CAPABILITY_LABEL: Record<Capability, string> = { generate: '생성', judge: '판정', chat: '채팅', complete: '자동완성', tool: '도구' };
 const LOGIN_LABEL: Record<string, string> = {
   'signed-in': '로그인됨',
   'signed-out': '로그인 필요',
@@ -74,8 +75,8 @@ export function ConnectionsSettings({ target, search, onSearch, description }: {
   const openKey = (key?: string) => onSearch({ key });
   const close = () => onSearch({});
 
-  const aiRows = connections.data?.filter((c) => c.kind !== 'http');
-  const keyRows = connections.data?.filter((c) => c.kind === 'http') as KeyRow[] | undefined;
+  const aiRows = connections.data?.filter((c) => !connectionCan(c.kind, 'tool'));
+  const keyRows = connections.data?.filter((c) => connectionCan(c.kind, 'tool')) as KeyRow[] | undefined;
 
   const selectedConn = search.conn && search.conn !== 'new' ? connections.data?.find((c) => c.id === search.conn) : undefined;
   const selectedKey = search.key && search.key !== 'new' ? keyRows?.find((k) => k.id === search.key) : undefined;
@@ -272,7 +273,7 @@ function ConnectionPane({ target, connection, onClose }: { target: SettingsTarge
   const api = connectionsApi(target);
   const info = CONNECTION_KIND_INFO[connection.kind];
   const isHttp = info.transport === 'http';
-  const isTool = connection.kind === 'http';
+  const isTool = connectionCan(connection.kind, 'tool');
   const [apiKey, setApiKey] = useState('');
   const [probeResult, setProbeResult] = useState<{ ok: boolean; detail: string } | null>(null);
   const [login, setLogin] = useState<string | null>(null);
@@ -300,7 +301,7 @@ function ConnectionPane({ target, connection, onClose }: { target: SettingsTarge
             name: values.name,
             baseUrl: isHttp ? values.baseUrl : undefined,
             executable: isHttp ? undefined : (values.executable ?? ''),
-            headerTemplate: connection.kind === 'http' ? (values.headerTemplate ?? '') : undefined,
+            headerTemplate: isTool ? (values.headerTemplate ?? '') : undefined,
           }),
         ),
       ),

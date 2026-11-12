@@ -5,7 +5,7 @@ import { errorKindOfCode, importFileSchema, MODEL_ERROR_CODES, MODEL_ERROR_KINDS
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
-import { snapshotWorkflowModels } from '../services/routes.ts';
+import { snapshotWorkflowModels } from '../services/model-target.ts';
 import { memoryStore } from '../services/secrets.ts';
 import { promptEntries } from './prompts.ts';
 import { Runner, type ModelPort } from './runner.ts';
@@ -77,7 +77,7 @@ function model(fail: (call: number) => Error | null = () => null): ModelPort & {
     ask: async () => {
       throw new Error('unused');
     },
-    generate: async (_route, request) => {
+    generate: async (_target, request) => {
       const input = { lines: promptEntries(request.prompt) as { id: string; source: string }[] };
       firsts.push(input.lines[0].source);
       calls.push(input.lines.map((line) => line.source));
@@ -279,7 +279,7 @@ describe('incomplete answers', () => {
       ask: async () => {
         throw new Error('unused');
       },
-      generate: async (_route, request) => {
+      generate: async (_target, request) => {
         call++;
         const input = { lines: promptEntries(request.prompt) as { id: string; source: string }[] };
         const review = request.system.includes('Review each');
@@ -304,7 +304,7 @@ describe('incomplete answers', () => {
       ask: async () => {
         throw new Error('unused');
       },
-      generate: async (_route, request) => {
+      generate: async (_target, request) => {
         const input = { lines: promptEntries(request.prompt) as { id: string; source: string }[] };
         // Any request that contains line 5 comes back malformed.
         if (input.lines.some((line) => line.source.endsWith('L5'))) throw new ai.ModelError('invalid-output', 'bad JSON', false, { inputTokens: 10 });
@@ -330,7 +330,7 @@ describe('incomplete answers', () => {
       ask: async () => {
         throw new Error('unused');
       },
-      generate: async (_route, request) => {
+      generate: async (_target, request) => {
         const lines = promptEntries(request.prompt) as { id: string; source: string }[];
         if (lines.length > 4) throw new ai.ModelError('too-long', 'maximum context length exceeded', false);
         if (request.system.includes('Review each')) return { object: { results: lines.map((line) => ({ id: line.id, passed: true, issues: [] })) }, usage: {} } as never;
@@ -353,9 +353,9 @@ describe('run plan', () => {
     const kinds: { review: boolean; sources: string[] }[] = [];
     const fake = model();
     const generate = fake.generate;
-    fake.generate = async (route, request) => {
+    fake.generate = async (target, request) => {
       kinds.push({ review: request.system.includes('Review each'), sources: promptEntries(request.prompt).map((line) => line.source) });
-      return generate(route, request);
+      return generate(target, request);
     };
     await new Runner(db, memoryStore(), fake).drain();
     const planOf = new Map(
@@ -393,9 +393,9 @@ describe('slots per node', () => {
       ask: async () => {
         throw new Error('unused');
       },
-      generate: async (route, request) => {
+      generate: async (target, request) => {
         const review = request.system.includes('Review each');
-        const account = (route as { baseUrl?: string }).baseUrl ?? '';
+        const account = (target as { baseUrl?: string }).baseUrl ?? '';
         now.set(account, (now.get(account) ?? 0) + 1);
         peak.set(account, Math.max(peak.get(account) ?? 0, now.get(account)!));
         order.push(review ? 'R' : 'T');
@@ -419,7 +419,7 @@ describe('slots per node', () => {
       ask: async () => {
         throw new Error('unused');
       },
-      generate: async (_route, request) => {
+      generate: async (_target, request) => {
         seen.push(runner.liveCalls(runId));
         await new Promise((resolve) => setTimeout(resolve, 5));
         const lines = promptEntries(request.prompt) as { id: string; source: string }[];
@@ -451,7 +451,7 @@ describe('slots per node', () => {
       ask: async () => {
         throw new Error('unused');
       },
-      generate: async (_route, request) => {
+      generate: async (_target, request) => {
         const kind = request.system.includes('Review each') ? 'R' : 'T';
         peak[kind] = Math.max(peak[kind], ++now[kind]);
         if (kind === 'T' && now.T >= 4) release();

@@ -156,7 +156,7 @@ export function EditorAiSection({ target }: { target: SettingsTarget }) {
           <Field.Group nested>
             <Field>
               <Field.Label>모델</Field.Label>
-              <ModelPicker target={target} value={complete.model} onChange={(model) => setComplete({ model })} kinds={['openai']} />
+              <ModelPicker target={target} value={complete.model} onChange={(model) => setComplete({ model })} need={['complete']} />
               <Field.Description>API 연결만 됩니다.</Field.Description>
             </Field>
             <Field>

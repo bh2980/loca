@@ -1,5 +1,5 @@
 import { and, eq, inArray, ne } from 'drizzle-orm';
-import { batchChangeSchema, type BatchChange, type RunCardPlan } from '@tw/shared';
+import { batchChangeSchema, type BatchChange, type RunCardPlan, INPUT_TYPES } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { DELETABLE, deletable, type DeletableKind } from './item-delete.ts';
@@ -152,4 +152,4 @@ export async function checkLineBatch(db: Db, projectId: string, input: Record<st
 /** What the agent is told about a proposal the check trimmed. */
 export const reportText = (report: s.ProposalReport | null) =>
   (report?.dropped.length ? ` 오류·충돌로 ${report.dropped.length}줄을 뺐습니다(예: ${report.dropped[0].key} ${report.dropped[0].reason}).` : '') +
-  (report?.run ? ` 대상은 ${report.run.plan.lines.total.toLocaleString()}${report.run.input === 'terms' ? '개' : '줄'}입니다.` : '');
+  (report?.run ? ` 대상은 ${report.run.plan.lines.total.toLocaleString()}${INPUT_TYPES[report.run.input].unit}입니다.` : '');

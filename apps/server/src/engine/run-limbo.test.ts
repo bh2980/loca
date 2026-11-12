@@ -5,7 +5,7 @@ import { importFileSchema, workflowDefinitionSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
-import { snapshotWorkflowModels } from '../services/routes.ts';
+import { snapshotWorkflowModels } from '../services/model-target.ts';
 import { continueRun } from '../services/run-continue.ts';
 import { memoryStore, storeFailure, type SecretStore } from '../services/secrets.ts';
 import { promptEntries } from './prompts.ts';
@@ -46,7 +46,7 @@ function model(fail: (n: number) => Error | null = () => null) {
     ask: async () => {
       throw new Error('unused');
     },
-    generate: async (_route, sent) => {
+    generate: async (_target, sent) => {
       const error = fail(++calls);
       if (error) throw error;
       return { object: { results: (promptEntries(sent.prompt) as { id: string }[]).map((line) => ({ id: line.id, text: `[ko] ${line.id}` })) }, usage: {} } as never;
@@ -148,9 +148,9 @@ describe('a failure the retry rules took back', () => {
     const first = model((n) => (n <= 2 ? CUT_OFF() : null));
     const before = new Runner(db, memoryStore(), {
       ...first.port,
-      generate: async (route, sent) => {
+      generate: async (target, sent) => {
         if (first.calls() === 1) db.update(s.runs).set({ status: 'paused' }).where(eq(s.runs.id, runId)).run();
-        return first.port.generate(route, sent);
+        return first.port.generate(target, sent);
       },
     });
     await before.drain();

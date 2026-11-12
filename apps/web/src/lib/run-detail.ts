@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { keepPreviousData, queryOptions, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { InferResponseType } from 'hono/client';
+import type { Subject } from '@tw/shared';
 import { client, unwrap } from './api';
 import { heldCollection, useHeld, useLines, type Held } from './units';
 import { useTaxonomy } from './knowledge';
@@ -82,7 +83,7 @@ const runItemIds = (runId: string, query: RunItemQuery) =>
     placeholderData: keepPreviousData,
   });
 
-type RunItemsPage = { total: number; subject: 'lines' | 'terms'; rows: RunItemRow[] };
+type RunItemsPage = { total: number; subject: Subject; rows: RunItemRow[] };
 
 /**
  * One page of a run's items: { total, subject, rows } once the page's items and their lines are held; each row with its

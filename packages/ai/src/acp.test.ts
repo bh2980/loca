@@ -6,7 +6,8 @@ import type * as acp from '@agentclientprotocol/sdk';
 import { afterEach, describe, expect, it } from 'vitest';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
-import { acpError, agentCommand, AcpAgent as Agent, agentFor, agentWith, checkCliLogin, closeSession, ourTool, readUsage, setAgentStarter, stopIdleAgents, type AcpAgent, type AcpKind } from './acp.ts';
+import { acpError, agentCommand, AcpAgent as Agent, agentFor, agentWith, checkCliLogin, closeSession, ourTool, readUsage, setAgentStarter, stopIdleAgents, type AcpAgent } from './acp.ts';
+import type { CliKind } from '@tw/shared';
 import { ModelError } from './errors.ts';
 import { inProcessStarter } from './fake-acp-starter.ts';
 import { hostTools } from './mcp-host.ts';
@@ -73,7 +74,7 @@ describe('chat sessions over ACP', () => {
 
   it('tells our MCP tools from anything that only mentions them', () => {
     const servers = [{ name: 'loca', tools: ['find_lines', 'save_character'] }];
-    const ours = (kind: AcpKind, call: Parameters<typeof ourTool>[1]) => ourTool(kind, call, servers);
+    const ours = (kind: CliKind, call: Parameters<typeof ourTool>[1]) => ourTool(kind, call, servers);
     // Each CLI's own way of naming the tool that runs.
     expect(ours('claude', { title: 'find_lines (MCP)', rawInput: { limit: 3 }, _meta: { claudeCode: { toolName: 'mcp__loca__find_lines', mcpServer: { name: 'loca', source: 'config' } } } })).toEqual({ server: 'loca', tool: 'find_lines' });
     expect(ours('claude', { title: 'mcp__loca__find_lines' })).toEqual({ server: 'loca', tool: 'find_lines' });

@@ -1,4 +1,5 @@
-import { APPLY_TARGETS, type ApplyFunctionName, type JsonField, type TagAction } from './functions.ts';
+import { APPLY_TARGETS, applyParams, formatCheckParams, type ApplyFunctionName, type JsonField, type TagAction } from './functions.ts';
+import type { Subject } from './subject.ts';
 import { ISSUE_KIND_IDS, REVIEW_KIND_IDS, type IssueKind } from './issues.ts';
 import { AI_PROMPTS, presetConfig, type AiPromptId } from './presets.ts';
 import type { DraftModelChoice } from './model-choice.ts';
@@ -87,7 +88,7 @@ const applyNode = (id: string, fn: ApplyFunctionName, row: number, options: Appl
   type: 'function',
   position: at(row, column),
   label: APPLY_TARGETS[fn].label,
-  config: { fn, params: { list: options.list ?? '', map: options.map, ...options.params }, concurrency: 2 },
+  config: { fn, params: applyParams.parse({ list: options.list ?? '', map: options.map, ...options.params }), concurrency: 2 },
 });
 /** An apply node for one list of a preset's JSON output, mapped by field name. */
 const saveList = (id: string, fn: ApplyFunctionName, preset: AiPromptId, list: string, row: number, column = 0, params?: Record<string, unknown>): WorkflowNode =>
@@ -132,7 +133,7 @@ const formatCheckNode = (row: number, column = 0): WorkflowNode => ({
   type: 'function',
   position: at(row, column),
   label: '형식 검사',
-  config: { fn: 'formatCheck', params: { placeholders: true, tags: true, newlines: true, emptyText: true }, concurrency: 2 },
+  config: { fn: 'formatCheck', params: formatCheckParams.parse({ placeholders: true, tags: true, newlines: true, emptyText: true }), concurrency: 2 },
 });
 /** Writes the translation into the line (a person's saved translation is kept). */
 const writeTranslation = (id: string, row: number, column = 0, label = '번역 저장') => ({ ...applyNode(id, 'saveCandidate', row, { map: { text: 'text' } }, column), label });
@@ -431,7 +432,7 @@ export interface TemplateIds {
 }
 
 /** The templates a person can start a workflow from, in the order they are offered. */
-export const WORKFLOW_TEMPLATES: { key: string; name: string; description: string; input: 'lines' | 'terms'; build: (ids: TemplateIds) => WorkflowDefinition }[] = [
+export const WORKFLOW_TEMPLATES: { key: string; name: string; description: string; input: Subject; build: (ids: TemplateIds) => WorkflowDefinition }[] = [
   {
     key: 'translation',
     name: '번역',

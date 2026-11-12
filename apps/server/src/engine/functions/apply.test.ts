@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { importFileSchema, ISSUE_KINDS, workflowDefinitionSchema, type ApplyFunctionName } from '@tw/shared';
+import { importFileSchema, ISSUE_KINDS, workflowDefinitionSchema, type ApplyFunctionName, applyParams, functionConfigSchema } from '@tw/shared';
 import { openDatabase } from '../../db/index.ts';
 import * as s from '../../db/schema.ts';
 import { importProject } from '../../services/importer.ts';
 import { issueTagIds } from '../../services/issue-tags.ts';
-import { snapshotWorkflowModels } from '../../services/routes.ts';
+import { snapshotWorkflowModels } from '../../services/model-target.ts';
 import { createRun } from '../run-create.ts';
 import { APPLY_TOPICS, applyFunctions, applyItems } from './apply.ts';
-import { HUMAN_OWNED_NOTE, syncFunctions, type FunctionInput } from './index.ts';
+import { HUMAN_OWNED_NOTE, FUNCTION_IMPLEMENTATIONS, runInstantFunction, type FunctionInput } from './index.ts';
 
 const at = { x: 0, y: 0 };
 
@@ -45,7 +45,7 @@ function apply(ctx: Ctx, fn: ApplyFunctionName, params: Record<string, unknown>,
   const data = { ...item.data, ...extra, path: [{ nodeId: 'entry', port: 'out', at: 0 }, { nodeId: 'ai', port: 'out', at: 0 }], outputs: output ? { ai: output } : ({} as Record<string, Record<string, unknown>>) };
   // The runner hands a function the previous step's result (here the AI node's) as `previous`.
   const input: FunctionInput = { subject: 'lines', unit, item: { ...item, nodeId: 'apply', data }, tagIds: [], projectId: ctx.projectId, runId: ctx.runId, previous: output };
-  return ctx.db.transaction((tx) => applyFunctions[fn](tx, params, input));
+  return ctx.db.transaction((tx) => applyFunctions[fn].instant(tx, applyParams.parse(params), input));
 }
 
 /** The project's tags besides the ones every project starts with (형식 오류 … AI 실패). */
@@ -202,7 +202,7 @@ describe('apply nodes', () => {
   });
 
   it('is registered as instant functions and names the topics it writes', () => {
-    expect(Object.keys(syncFunctions)).toEqual(expect.arrayContaining(Object.keys(APPLY_TOPICS)));
+    expect(Object.keys(FUNCTION_IMPLEMENTATIONS)).toEqual(expect.arrayContaining(Object.keys(APPLY_TOPICS)));
     expect(APPLY_TOPICS.saveTerms).toEqual(['terms']);
     expect(APPLY_TOPICS.saveEvents).toContain('knowledge');
   });
@@ -216,9 +216,9 @@ describe('checks only judge', () => {
     const unit = ctx.db.select().from(s.units).where(eq(s.units.key, 'a1')).get()!;
     const item = ctx.db.select().from(s.runItems).where(eq(s.runItems.subjectId, unit.id)).get()!;
     const input: FunctionInput = { subject: 'lines', unit, item: { ...item, data: { ...item.data, candidateText: '' } }, tagIds: [], projectId: ctx.projectId, runId: ctx.runId };
-    const format = ctx.db.transaction((tx) => syncFunctions.formatCheck!(tx, {}, input));
+    const format = ctx.db.transaction((tx) => runInstantFunction(tx, functionConfigSchema.parse({ fn: 'formatCheck' }), input));
     expect(format).toMatchObject({ port: 'fail', output: { passed: false, kind: 'format' } });
-    const glossary = ctx.db.transaction((tx) => syncFunctions.glossaryCheck!(tx, {}, { ...input, item: { ...item, data: { ...item.data, candidateText: '좋아' } } }));
+    const glossary = ctx.db.transaction((tx) => runInstantFunction(tx, functionConfigSchema.parse({ fn: 'glossaryCheck' }), { ...input, item: { ...item, data: { ...item.data, candidateText: '좋아' } } }));
     expect(glossary).toMatchObject({ port: 'pass', output: { kind: 'term' } });
     expect(format).not.toHaveProperty('issueTags');
     expect(glossary).not.toHaveProperty('issueTags');

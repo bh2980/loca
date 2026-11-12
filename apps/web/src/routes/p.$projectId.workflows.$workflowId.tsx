@@ -25,7 +25,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import { ArrowLeftRight, ArrowUpDown, ChevronRight, Copy, Focus, Frame, Group, LayoutGrid, LogOut, Maximize, Pencil, Plus, SlidersHorizontal, Tag, Trash2, Ungroup, Unlink } from 'lucide-react';
 import { toast } from 'sonner';
-import { AI_PRESETS, APPLY_PALETTE_ORDER, INPUT_TYPES, NODE_TYPES, type BatchConfig, functionGroup, APPLY_TARGETS, FUNCTIONS, FUNCTION_NAMES, functionTakes, presetTakes, workflowInput, PALETTE_FUNCTION_NAMES, nodeName, nodePorts, syncEntryEdges, workflowNodeSchema, exitActions, withExitActions, type ExitAction, type FunctionName, type WorkflowDefinition, type WorkflowGroup, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
+import { AI_PRESETS, INPUT_TYPES, NODE_TYPES, type BatchConfig, APPLY_TARGETS, FUNCTIONS, functionTakes, isFunctionName, paletteFunctions, presetTakes, workflowInput, nodeName, nodePorts, syncEntryEdges, workflowDefinitionSchema, workflowNodeSchema, exitActions, withExitActions, type ExitAction, type Subject, type WorkflowDefinition, type WorkflowGroup, type WorkflowIssue, type WorkflowNode, type WorkflowNodeType } from '@tw/shared';
 import { Page, StatusBarItem } from '@/components/page';
 import { autoLayout } from '@/components/workflow/auto-layout';
 import { shiftRoute } from '@/components/workflow/route-shift';
@@ -98,8 +98,21 @@ function NameField({ name, onRename }: { name: string; onRename: (name: string) 
   );
 }
 
+/**
+ * The node kinds the library adds as they are, with the config a new one starts from. The other kinds have their own
+ * way in: an AI node from a preset or free form, a function by its name, and the entry is never added. Keyed by every
+ * such kind, so a new kind does not compile until the library has it.
+ */
+const FLOW_NODES: Record<Exclude<WorkflowNodeType, 'entry' | 'ai' | 'function'>, { config: object; description?: string }> = {
+  condition: { config: { expression: true, description: '' } },
+  gather: { config: { fields: [] } },
+  call: { config: { workflowId: '' }, description: '다른 워크플로를 여기서 돌립니다.' },
+};
+const FLOW_NODE_TYPES = Object.keys(FLOW_NODES) as (keyof typeof FLOW_NODES)[];
+const isFlowNodeType = (id: string): id is keyof typeof FLOW_NODES => Object.hasOwn(FLOW_NODES, id);
+
 /** A preset as the palette reads it: label/description for the list, the rest is the AI node config it fills. */
-type PresetEntry = { label: string; description?: string; output: string; inputs?: readonly ('lines' | 'terms')[] } & Record<string, unknown>;
+type PresetEntry = { label: string; description?: string; output: string; inputs?: readonly Subject[] } & Record<string, unknown>;
 
 /** Nodes copied with ⌘/Ctrl+C or X, with the lines among them: pasted into this or another workflow. */
 interface GraphClipboard {
@@ -130,9 +143,12 @@ interface Draft {
 }
 
 const draftKey = (id: string) => `tw.workflow.draft.${id}`;
+/** The draft kept in this browser, read through the definition's schema: one that no longer fits it (an older shape) is dropped. */
 const readDraft = (id: string): Draft | null => {
   try {
-    return JSON.parse(sessionStorage.getItem(draftKey(id)) ?? 'null') as Draft | null;
+    const stored = JSON.parse(sessionStorage.getItem(draftKey(id)) ?? 'null') as Draft | null;
+    const definition = stored && workflowDefinitionSchema.safeParse(stored.definition);
+    return stored && definition?.success ? { ...stored, definition: definition.data } : null;
   } catch {
     return null;
   }
@@ -838,7 +854,7 @@ function WorkflowEditor() {
     {
       id: 'apply',
       label: '반영',
-      items: APPLY_PALETTE_ORDER.filter((fn) => functionTakes(fn, input)).map((fn) => ({ id: fn, label: FUNCTIONS[fn].label, kind: 'apply' as const, icon: null })),
+      items: paletteFunctions('apply').filter((fn) => functionTakes(fn, input)).map((fn) => ({ id: fn, label: FUNCTIONS[fn].label, kind: 'apply' as const, icon: null })),
     },
     {
       // Not nodes: dropped on a line (or picked, then a line clicked), they go on that line's exit.
@@ -849,16 +865,12 @@ function WorkflowEditor() {
     {
       id: 'function',
       label: '함수',
-      items: PALETTE_FUNCTION_NAMES.filter((fn) => functionGroup(fn) === 'function' && functionTakes(fn, input)).map((fn) => ({ id: fn, label: FUNCTIONS[fn].label, kind: 'function' as const, icon: null })),
+      items: paletteFunctions('function').filter((fn) => functionTakes(fn, input)).map((fn) => ({ id: fn, label: FUNCTIONS[fn].label, kind: 'function' as const, icon: null })),
     },
     {
       id: 'flow',
       label: '흐름',
-      items: [
-        { id: 'condition', label: '조건', kind: 'condition' as const, icon: null },
-        { id: 'gather', label: '모으기', kind: 'gather' as const, icon: null },
-        { id: 'call', label: '워크플로 호출', kind: 'call' as const, icon: null, description: '다른 워크플로를 여기서 돌립니다.' },
-      ],
+      items: FLOW_NODE_TYPES.map((type) => ({ id: type, label: NODE_TYPES[type].label, kind: type, icon: null, ...(FLOW_NODES[type].description && { description: FLOW_NODES[type].description }) })),
     },
   ];
   // A new AI node packs requests in a way the workflow's input has (용어 has no scenes: it starts 개수별).
@@ -874,11 +886,9 @@ function WorkflowEditor() {
       const { label, description: _description, ...config } = preset;
       addNode({ type: 'ai', label, config: { ...config, batch: batchFor(config.batch as { mode?: BatchConfig['mode'] } | undefined), model: newNodeModel(), preset: id } } as never, id, position);
     }
-    else if (FUNCTION_NAMES.includes(id as FunctionName)) addNode({ type: 'function', config: { fn: id, params: {}, concurrency: 2 } }, id, position);
+    else if (isFunctionName(id)) addNode({ type: 'function', config: { fn: id } }, id, position);
     else if (id === 'ai') addNode({ type: 'ai', config: { model: newNodeModel(), output: 'json', scope: 'line', batch: batchFor(), fields: [{ name: 'note', type: 'string', description: '' }] } } as never, id, position);
-    else if (id === 'gather') addNode({ type: 'gather', config: { fields: [] } }, id, position);
-    else if (id === 'call') addNode({ type: 'call', config: { workflowId: '' } }, id, position);
-    else if (id === 'condition') addNode({ type: 'condition', config: { expression: true, description: '' } }, id, position);
+    else if (isFlowNodeType(id)) addNode({ type: id, config: FLOW_NODES[id].config }, id, position);
   };
   const deleteNode = (nodeId: string) => {
     setDraft((value) => ({

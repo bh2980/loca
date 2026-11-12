@@ -15,7 +15,7 @@ import { continueAfterDecisions } from './chat-run.ts';
 import { turnStartedAt } from './chat-turns.ts';
 import { importProject } from './importer.ts';
 import { decideProposal, hasDecisionsToAnswer, hasUnreportedDecisions, propose, takeDecisions } from './proposals.ts';
-import { snapshotWorkflowModels } from './routes.ts';
+import { snapshotWorkflowModels } from './model-target.ts';
 import { memoryStore } from './secrets.ts';
 
 function setup() {
@@ -37,7 +37,7 @@ function model(fail: () => Error | null = () => null): ModelPort {
     ask: async () => {
       throw new Error('unused');
     },
-    generate: async (_route, request) => {
+    generate: async (_target, request) => {
       const error = fail();
       if (error) throw error;
       const lines = promptEntries(request.prompt) as { id: string; source: string }[];

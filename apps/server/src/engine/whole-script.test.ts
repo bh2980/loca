@@ -5,7 +5,7 @@ import { importFileSchema, workflowDefinitionSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
-import { snapshotWorkflowModels } from '../services/routes.ts';
+import { snapshotWorkflowModels } from '../services/model-target.ts';
 import { memoryStore } from '../services/secrets.ts';
 import { INPUT_SCRIPT } from './format-sentences.ts';
 import { Runner, type ModelPort } from './runner.ts';
@@ -50,7 +50,7 @@ const port = (reply: (request: Request) => unknown): ModelPort => ({
   ask: async () => {
     throw new Error('unused');
   },
-  generate: async (_route, request) => ({ object: reply(request), usage: { inputTokens: 10, outputTokens: 5 } }) as never,
+  generate: async (_target, request) => ({ object: reply(request), usage: { inputTokens: 10, outputTokens: 5 } }) as never,
 });
 
 function run(db: ReturnType<typeof setup>['db'], projectId: string, definition: ReturnType<typeof wholeFlow>, scope = {}) {
@@ -117,7 +117,7 @@ describe('a node reading the script whole', () => {
     const prompts: string[] = [];
     const runner = new Runner(db, memoryStore(), {
       ...port(() => answer),
-      generate: async (_route, request) => {
+      generate: async (_target, request) => {
         prompts.push(request.prompt);
         if ((request.prompt.match(/^## /gm) ?? []).length > 1) throw new ModelError('too-long', 'prompt is too long', false);
         return { object: { people: [{ name: 'Alice', evidence: ['L1'] }] }, usage: { inputTokens: 1, outputTokens: 1 } } as never;

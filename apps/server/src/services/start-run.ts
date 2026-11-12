@@ -3,10 +3,11 @@ import { runScopeInputSchema, withRunModels, workflowInput, type RunCaps, type R
 import { badRequest } from '../context.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { createRunInSteps, selectRunTerms, selectRunUnits } from '../engine/run-create.ts';
+import { createRunInSteps } from '../engine/run-create.ts';
+import { subjectOf } from '../engine/subjects.ts';
 import { preflight } from './preflight.ts';
 import { askedScope, resolveRunModels, scopeMismatch, type RunModelInput } from './run-plan.ts';
-import { snapshotWorkflowModels } from './routes.ts';
+import { snapshotWorkflowModels } from './model-target.ts';
 import { calledWorkflowErrors, workflowIssues } from './workflow-issues.ts';
 
 /** A scope that does not fit the workflow's input (line scenes for terms, the other input's marks…) is refused. */
@@ -82,7 +83,7 @@ export function resolveRunStart(db: Db, input: RunStart) {
   } catch (error) {
     return refuse(error instanceof Error ? error.message : String(error));
   }
-  if (subject === 'terms' ? !selectRunTerms(db, projectId, scope).length : !selectRunUnits(db, projectId, scope).length) return refuse(subject === 'terms' ? '조건에 맞는 용어가 없습니다.' : '조건에 맞는 대사가 없습니다.');
+  if (!subjectOf(subject).select(db, projectId, scope).length) return refuse(subjectOf(subject).nothingInScope);
   return { ok: true as const, workflow, subject, scope };
 }
 

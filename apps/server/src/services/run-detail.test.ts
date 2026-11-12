@@ -8,7 +8,7 @@ import { Runner, type ModelPort } from '../engine/runner.ts';
 import { promptEntries } from '../engine/prompts.ts';
 import { translateOnlyWorkflow } from '../engine/test-workflows.ts';
 import { importProject } from './importer.ts';
-import { snapshotWorkflowModels } from './routes.ts';
+import { snapshotWorkflowModels } from './model-target.ts';
 import { runItemIds, runNodeExits, runProgress } from './run-detail.ts';
 import { memoryStore } from './secrets.ts';
 
@@ -16,7 +16,7 @@ const model: ModelPort = {
   ask: async () => {
     throw new Error('unused');
   },
-  generate: async (_route, request) => {
+  generate: async (_target, request) => {
     const lines = promptEntries(request.prompt) as { id: string; source: string }[];
     return { object: { results: lines.map((line) => ({ id: line.id, text: `[ko] ${line.source}` })) }, usage: { inputTokens: 10, outputTokens: 5 } } as never;
   },

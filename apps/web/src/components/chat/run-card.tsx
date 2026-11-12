@@ -9,6 +9,7 @@ import { answerRunCard } from '@/lib/chat-run-api';
 import { keyLabel } from '@/lib/keys';
 import { AttachChip } from './attach-chip';
 import { useRuns } from '@/lib/runs';
+import { INPUT_TYPES } from '@tw/shared';
 
 const STATUS = { preparing: '준비 중', running: '진행 중', paused: '일시중지', cancelled: '취소됨', completed: '완료' } as const;
 
@@ -67,7 +68,7 @@ export function RunCardView({ projectId, sessionId, card, onChange, onAnswered, 
       </Stack>
       {card.runId ? <RunProgress projectId={projectId} runId={card.runId} /> : (
         <p>
-          {summary.empty ? <Text tone="muted">이 대상에는 실행할 {card.input === 'terms' ? '용어' : '대사'}가 없습니다.</Text> : (
+          {summary.empty ? <Text tone="muted">이 대상에는 실행할 {INPUT_TYPES[card.input].label}가 없습니다.</Text> : (
             <>
               대상 <Text as="b" weight="medium" tabular>{summary.targets}</Text> · AI 요청 <Text as="b" weight="medium" tabular>{summary.requests}</Text>
               {summary.time && ` · 약 ${summary.time}`}
@@ -115,7 +116,7 @@ const END_TITLE = { completed: '실행이 끝났습니다', paused: '실행이 �
 
 /** A run started here has stopped: what came of it and the way to it. Nothing else happens in the conversation until the person writes (the agent reads this then). */
 export function RunEndView({ projectId, end }: { projectId: string; end: RunEnd }) {
-  const unit = end.subject === 'terms' ? '개' : '줄';
+  const unit = INPUT_TYPES[end.subject].unit;
   const counts = [['done', '완료'], ['failed', '실패'], ['cancelled', '취소']].flatMap(([state, label]) => ((end.states[state!] ?? 0) > 0 ? [`${label} ${end.states[state!]!.toLocaleString()}${unit}`] : []));
   return (
     <Box spaceY="tight" radius="md" border="all" background="sunken" paddingX="normal" paddingY="condensed" variant="body" role="status">

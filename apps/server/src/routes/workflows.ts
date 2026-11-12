@@ -3,7 +3,7 @@ import { startRun } from '../services/start-run.ts';
 import { askedScope } from '../services/run-plan.ts';
 import { and, asc, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { AI_OUTPUT_IDS, type AiOutput, choiceKey, httpParams, FUNCTIONS, type FunctionName, workflowInput, scriptParams, workflowDefinitionSchema, type WorkflowDefinition, runCapsSchema, runModelsSchema, withRunModels, WORKFLOW_TEMPLATES, EMPTY_MODEL_CHOICE, runScopeInputSchema, type RunScopeInput } from '@tw/shared';
+import { AI_OUTPUT_IDS, type AiOutput, choiceKey, httpParams, FUNCTIONS, type FunctionName, workflowInput, scriptParams, workflowDefinitionSchema, type WorkflowDefinition, runCapsSchema, runModelsSchema, withRunModels, WORKFLOW_TEMPLATES, EMPTY_MODEL_CHOICE, runScopeInputSchema, type RunScopeInput, nodeCallsOut, nodeConcurrency } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
 import { inList } from '../db/chunk.ts';
@@ -12,9 +12,9 @@ import { workflowIssues } from '../services/workflow-issues.ts';
 import { events } from '../events.ts';
 import { callHttp, httpOutput, lineView, validateScriptData } from '../engine/functions/index.ts';
 import { runScript } from '../engine/functions/sandbox.ts';
-import { selectRunTerms, selectRunUnits } from '../engine/run-create.ts';
+import { subjectOf } from '../engine/subjects.ts';
 import { listBatches, preflight } from '../services/preflight.ts';
-import { choiceLabel } from '../services/routes.ts';
+import { choiceLabel } from '../services/model-target.ts';
 import { previewRequest } from '../services/request-preview.ts';
 import { continuePreflight, continueRun } from '../services/run-continue.ts';
 import { deleteWorkflow, saveWorkflow, workflowCallers, WorkflowMutationError } from '../services/workflow-mutations.ts';
@@ -148,8 +148,7 @@ export const workflowRoutes = new Hono<Env>()
   .post('/workflows/:id/preview', validate('json', runScopeInputSchema), (c) => {
     const { db } = c.var.deps;
     const workflow = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
-    const select = workflowInput(workflow.definition) === 'terms' ? selectRunTerms : selectRunUnits;
-    return c.json({ count: select(db, workflow.projectId, scopeOf(db, workflow, c.req.valid('json'))).length });
+    return c.json({ count: subjectOf(workflowInput(workflow.definition)).select(db, workflow.projectId, scopeOf(db, workflow, c.req.valid('json'))).length });
   })
   /** The run plan and its cost estimate, computed without calling a model (see services/preflight.ts). */
   .post('/workflows/:id/preflight', validate('json', runSchema), async (c) => {
@@ -273,15 +272,10 @@ export const workflowRoutes = new Hono<Env>()
     const run = found(db.select().from(s.runs).where(eq(s.runs.id, c.req.param('id'))).get(), '실행');
     const { models, ...rest } = run;
     // Requests a node can have at once: an AI node's 동시 처리 수, an HTTP or script node's own.
-    const callLimits = Object.fromEntries(
-      run.definition.nodes.flatMap((node) => {
-        if (node.type === 'ai') return [[node.id, node.config.concurrency]];
-        return node.type === 'function' && FUNCTIONS[node.config.fn as FunctionName]?.async ? [[node.id, node.config.concurrency]] : [];
-      }),
-    );
+    const callLimits = Object.fromEntries(run.definition.nodes.filter(nodeCallsOut).map((node) => [node.id, nodeConcurrency(node)]));
     const { id: _id, ...progress } = runProgress(db, runner, run.projectId, [run.id])[0]!;
     // What each model choice resolved to when the run started.
-    return c.json({ ...rest, ...progress, models: Object.values(models).map((model) => ({ label: model.label, connectionId: model.route.connectionId, name: model.route.name, model: model.route.model })), callLimits });
+    return c.json({ ...rest, ...progress, models: Object.values(models).map((model) => ({ label: model.label, connectionId: model.target.connectionId, name: model.target.name, model: model.target.model })), callLimits });
   })
   .get('/runs/:id/items', validate('query', runItemQuery), (c) => {
     const { db } = c.var.deps;

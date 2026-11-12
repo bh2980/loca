@@ -4,7 +4,7 @@ import { importFileSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
-import { snapshotWorkflowModels } from '../services/routes.ts';
+import { snapshotWorkflowModels } from '../services/model-target.ts';
 import { memoryStore } from '../services/secrets.ts';
 import { promptEntries } from './prompts.ts';
 import { Runner, type ModelPort } from './runner.ts';
@@ -27,7 +27,7 @@ async function run({ source = 'Hello', translate = (line: Entry) => `번역 ${li
     ask: async () => {
       throw new Error('unused');
     },
-    generate: async (_route, request) => {
+    generate: async (_target, request) => {
       if (request.system.includes('Find proper nouns')) {
         calls.terms++;
         return { object: { terms: [{ source: 'Hello', target: '안녕', kind: 'other', meaning: '인사', evidence: [] }] }, usage: {} } as never;
@@ -130,7 +130,7 @@ describe('the default 검수 workflow, end to end with a fake model', () => {
       ask: async () => {
         throw new Error('unused');
       },
-      generate: async (_route, request) => {
+      generate: async (_target, request) => {
         const lines = promptEntries<Entry>(request.prompt);
         if (request.system.includes('Which Korean speech level')) {
           judged.push(...lines.map((line) => line.source));

@@ -29,9 +29,26 @@ interface Common {
 /** What a function gets for one item: a line, or a term (the run's subject). */
 export type FunctionInput = (Common & { subject: 'lines'; unit: Unit; term?: undefined }) | (Common & { subject: 'terms'; term: Term; unit?: undefined });
 
-/** The line of a line-only function's input (the runner sends terms past these nodes through "error"). */
-export function lineOf(input: FunctionInput): Unit {
-  if (input.subject !== 'lines') throw new Error('이 노드는 대사 워크플로에서만 쓸 수 있습니다.');
-  return input.unit;
+/** One answer per kind of item, each given its own input. A kind left out does not compile. */
+export function byInput<R>(input: FunctionInput, cases: { [S in FunctionInput['subject']]: (input: Extract<FunctionInput, { subject: S }>) => R }): R {
+  return (cases[input.subject] as (input: FunctionInput) => R)(input);
 }
+
+/** The line of a line-only function's input (the runner sends other items past these nodes through "error"). */
+export const lineOf = (input: FunctionInput): Unit =>
+  byInput(input, {
+    lines: ({ unit }) => unit,
+    terms: () => {
+      throw new Error('이 노드는 대사 워크플로에서만 쓸 수 있습니다.');
+    },
+  });
+
+/** The term of a term-only function's input. */
+export const termOf = (input: FunctionInput): Term =>
+  byInput(input, {
+    lines: () => {
+      throw new Error('이 노드는 용어 워크플로에서만 쓸 수 있습니다.');
+    },
+    terms: ({ term }) => term,
+  });
 

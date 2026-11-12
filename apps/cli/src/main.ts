@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { Command, Option } from 'commander';
 import { hc } from 'hono/client';
 import type { AppType, ToolInputs, ToolResults } from '@tw/server/app';
-import { acceptedLabel, AUTO_MARKS, FEED_EVENT, CHECK_KINDS, EXCLUSION_REASON_LABELS, CONTEXT_ITEM_KINDS, importFileJsonSchema, importFileSchema, importWarnings, KNOWLEDGE_MARK_IDS, KNOWLEDGE_STATUS_LABELS, LINE_MARK_IDS, lineChangeSchema, summarizeImport, retryRuleSchema, retrySummary, TERM_MARK_IDS, termScopeLabel, type AutoMark, type KnowledgeStatus, type LineFilterInput, type RunScopeInput, type LineMark, personLabel, DECIDED_BY, type DecidedBy, EXCLUDED_FILTERS, type ExcludedFilter, RESULT_REST, type ResultRest } from '@tw/shared';
+import { acceptedLabel, AUTO_MARKS, FEED_EVENT, CHECK_KINDS, EXCLUSION_REASON_LABELS, CONTEXT_ITEM_KINDS, importFileJsonSchema, importFileSchema, importWarnings, KNOWLEDGE_MARK_IDS, KNOWLEDGE_STATUS_LABELS, LINE_MARK_IDS, lineChangeSchema, summarizeImport, retryRuleSchema, retrySummary, TERM_MARK_IDS, termScopeLabel, type AutoMark, type KnowledgeStatus, type LineFilterInput, type RunScopeInput, type LineMark, personLabel, DECIDED_BY, type DecidedBy, EXCLUDED_FILTERS, type ExcludedFilter, RESULT_REST, type ResultRest, INPUT_TYPES, bySubject, nodeSummary, nodeDetails, type Subject } from '@tw/shared';
 
 /**
  * loca — the workbench from a terminal, for people and for agents with a shell (codex, claude…).
@@ -858,24 +858,18 @@ workflows
   .description('노드(종류·이름·설정 요약)와 연결, 검증 결과. --json이면 save로 돌려보낼 수 있는 {id, name, description, definition}')
   .action(async (ref: string) => {
     const found = await resolveWorkflow(ref);
-    type Node = { id: string; type: string; label?: string; config: Record<string, any> };
     const data = await readTool('read_workflow', { workflowId: found.id });
     if (globals().json) return print({ id: data.id, name: data.name, description: data.description, definition: data.definition, issues: data.issues });
     const names = new Map((await unwrap(api().projects[':projectId'].workflows.$get({ param: { projectId: await projectId() } }))).map((item) => [item.id, item.name]));
     const rules = (list: unknown[]) => (list.length ? list.map((rule) => retrySummary(retryRuleSchema.parse(rule))).join(' / ') : '안 함');
-    const summary = (node: Node) =>
-      node.type === 'entry' ? `대상 ${node.config.input === 'terms' ? '용어' : '대사'} (실행 범위로 고름)`
-      : node.type === 'ai' ? `${node.config.output}·${node.config.scope ?? 'line'}${node.config.preset ? ` · 프리셋 ${node.config.preset}` : ''} · ${node.config.model?.model || '모델 없음'} · 동시 ${node.config.concurrency ?? 1}${node.config.fields?.length ? ` · 필드 ${node.config.fields.map((field: { name: string }) => field.name).join(', ')}` : ''} · 재시도 ${Array.isArray(node.config.retries) ? rules(node.config.retries) : '워크플로 기본'}`
-      : node.type === 'function' ? `${node.config.fn}${node.config.fn === 'http' || node.config.fn === 'script' ? ` · 동시 ${node.config.concurrency ?? 2}` : ''}`
-      : node.type === 'condition' ? JSON.stringify(node.config.expression)
-      : node.type === 'gather' ? `모으기 (앞 단계 결과)${node.config.fields?.length ? ` · 필드 ${node.config.fields.join(', ')}` : ''}`
-      : node.type === 'call' ? `호출: ${names.get(node.config.workflowId) ?? (node.config.workflowId ? `(없는 워크플로 ${node.config.workflowId})` : '고르지 않음')}`
-      : '';
+    // The line the app shows under a node's title, then what the app shows elsewhere (ids, model, calls at once, fields, retries, the condition itself).
+    const workflowNames = [...names].map(([id, name]) => ({ id, name }));
+    const summary = (node: (typeof data.definition.nodes)[number]) => [nodeSummary(node, data.definition, { workflows: workflowNames }), ...nodeDetails(node, data.definition)].join(' · ');
     console.log(`${data.name}  (${data.id})${data.description ? `\n${data.description}` : ''}\n재시도 규칙(워크플로 기본): ${rules(data.definition.settings?.retries ?? [])}${data.definition.groups?.length ? `\n프레임: ${data.definition.groups.map((group) => `${group.label || '이름 없음'} (${group.nodeIds.join(', ')})`).join(' / ')}` : ''}\n`);
     // An exit's actions (tags, status) as ids: `[+태그 id, −태그 id, 상태 → id]`.
     const actionText = (action: Record<string, any>) => action.type === 'status' ? `상태 → ${action.statusId}` : `${action.action === 'remove' ? '−' : '+'}${[...(action.tagIds ?? []), ...(action.fromField ? [`(결과의 ${action.fromField})`] : [])].join(' ')}`;
     for (const node of data.definition.nodes) {
-      const exits = (node as Node & { exits?: Record<string, Record<string, any>[]> }).exits ?? {};
+      const exits: Record<string, Record<string, any>[]> = node.exits ?? {};
       const ports = [...new Set([...data.definition.edges.filter((edge) => edge.source === node.id).map((edge) => edge.sourceHandle), ...Object.keys(exits)])];
       const out = ports.map((port) => {
         const targets = data.definition.edges.filter((edge) => edge.source === node.id && edge.sourceHandle === port).map((edge) => edge.target);
@@ -915,17 +909,18 @@ workflows
       : (await readTool('read_workflow', { workflowId: (await resolveWorkflow(ref)).id })).definition;
     const node = definition.nodes.find((candidate) => candidate.id === nodeId);
     if (!node) throw new CliError(`노드가 없습니다: ${nodeId} (${definition.nodes.map((candidate) => candidate.id).join(', ')})`);
-    const fn = node.type === 'function' ? node.config.fn : undefined;
-    const params: Record<string, any> = node.type === 'function' ? (node.config.params ?? {}) : {};
     const id = await projectId();
+    const config = node.type === 'function' ? node.config : undefined;
     let result: { ok: boolean; error?: string; ms: number } & Record<string, unknown>;
-    if (fn === 'script') {
+    if (config?.fn === 'script') {
       const unitId = options.key ? (await unwrap(api().projects[':projectId'].lines.find.$post({ param: { projectId: id }, json: { keys: [options.key], limit: 1 } }))).rows[0]?.id : undefined;
       if (options.key && !unitId) throw new CliError(`대사를 찾을 수 없습니다: ${options.key}`);
-      result = await unwrap(api().projects[':projectId']['script-test'].$post({ param: { projectId: id }, json: { code: params.code ?? '', ports: params.ports ?? ['out'], fields: params.fields ?? [], unitId } }));
-    } else if (fn === 'http') {
-      result = await unwrap(api().projects[':projectId']['http-test'].$post({ param: { projectId: id }, json: { params: params as never } }));
-    } else throw new CliError(`${node.type}${fn ? `(${fn})` : ''} 노드는 시험할 수 없습니다. 스크립트·HTTP 노드만 됩니다${node.type === 'ai' ? '. AI 노드는 loca context <키> -n ' + node.id + ' --prompt' : ''}.`);
+      // A file's node may leave settings out (the server fills them when the workflow is saved).
+      const { code = '', ports = ['out'], fields = [] } = config.params ?? {};
+      result = await unwrap(api().projects[':projectId']['script-test'].$post({ param: { projectId: id }, json: { code, ports, fields, unitId } }));
+    } else if (config?.fn === 'http') {
+      result = await unwrap(api().projects[':projectId']['http-test'].$post({ param: { projectId: id }, json: { params: config.params ?? {} } }));
+    } else throw new CliError(`${node.type}${config ? `(${config.fn})` : ''} 노드는 시험할 수 없습니다. 스크립트·HTTP 노드만 됩니다${node.type === 'ai' ? '. AI 노드는 loca context <키> -n ' + node.id + ' --prompt' : ''}.`);
     if (!result.ok) process.exitCode = 1;
     if (globals().json) return print(result);
     if (!result.ok) return console.log(`실패 (${result.ms}ms): ${result.error}`);
@@ -941,16 +936,16 @@ runs
   .option('--since <시간>', '몇 시간 전부터', '24')
   .action(async (options: { since: string }) => {
     const data = (await unwrap(api().projects[':projectId'].stats[':of{groups|sections|runs}'].$get({ param: { projectId: await projectId(), of: 'runs' }, query: { sinceHours: options.since } }))) as {
-      runs: { id: string; workflow: string; status: string; subject?: 'lines' | 'terms'; lines: number; calls: number; failedCalls: number; inputTokens: number; outputTokens: number; createdAt: string }[];
+      runs: { id: string; workflow: string; status: string; subject?: Subject; lines: number; calls: number; failedCalls: number; inputTokens: number; outputTokens: number; createdAt: string }[];
       failingNodes: { workflow: string; node: string; failedLines: number }[];
     };
     if (globals().json) return print({ total: data.runs.length, rows: data.runs, failingNodes: data.failingNodes });
     for (const run of data.runs)
-      console.log(`${new Date(run.createdAt).toLocaleString()}  ${run.workflow} [${run.status}] ${run.subject === 'terms' ? `용어 ${run.lines}개` : `대사 ${run.lines}`}, 호출 ${run.calls}(실패 ${run.failedCalls}), 토큰 ${(run.inputTokens + run.outputTokens).toLocaleString()}  (${run.id})`);
+      console.log(`${new Date(run.createdAt).toLocaleString()}  ${run.workflow} [${run.status}] ${INPUT_TYPES[run.subject ?? 'lines'].label} ${run.lines}${INPUT_TYPES[run.subject ?? 'lines'].unit}, 호출 ${run.calls}(실패 ${run.failedCalls}), 토큰 ${(run.inputTokens + run.outputTokens).toLocaleString()}  (${run.id})`);
     if (data.failingNodes.length) console.log(`\n실패가 많은 노드:\n${data.failingNodes.map((node) => `  ${node.workflow} › ${node.node}: ${node.failedLines}줄`).join('\n')}`);
   });
 
-type RunView = { id: string; workflow: string; status: 'preparing' | 'running' | 'paused' | 'cancelled' | 'completed'; notice: string | null; subject?: 'lines' | 'terms'; total: number; states: Partial<Record<'queued' | 'running' | 'done' | 'failed' | 'cancelled', number>>; nodes: { nodeId: string; state: string; count: number }[]; ends: { nodeId: string; node: string; count: number }[]; errors: { kind: string; nodeId: string; node: string; message: string; count: number }[]; failures: { key?: string | null; unitId?: string; nodeId?: string; error?: string | null }[]; errored?: { unitId: string; key: string | null }[] };
+type RunView = { id: string; workflow: string; status: 'preparing' | 'running' | 'paused' | 'cancelled' | 'completed'; notice: string | null; subject?: Subject; total: number; states: Partial<Record<'queued' | 'running' | 'done' | 'failed' | 'cancelled', number>>; nodes: { nodeId: string; state: string; count: number }[]; ends: { nodeId: string; node: string; count: number }[]; errors: { kind: string; nodeId: string; node: string; message: string; count: number }[]; failures: { key?: string | null; unitId?: string; nodeId?: string; error?: string | null }[]; errored?: { unitId: string; key: string | null }[] };
 const RUN_STATUS: Record<RunView['status'], string> = { preparing: '준비 중', running: '진행 중', paused: '일시정지', cancelled: '취소됨', completed: '끝남' };
 const readRun = (id: string) => readTool('read_run', { runId: id });
 /** A run that stopped by itself or was finished; a run paused by a cap or failures counts as stopped too, one whose lines are still being stored (preparing) does not. */
@@ -961,21 +956,23 @@ async function printRun(run: RunView, options: { nodes?: boolean } = {}) {
   const errored = run.errors.reduce((sum, error) => sum + error.count, 0);
   if (run.status !== 'completed' || run.states.failed || errored) process.exitCode = 1;
   if (globals().json) return print(run);
-  const unit = run.subject === 'terms' ? '개' : '줄';
+  const input = INPUT_TYPES[run.subject ?? 'lines'];
+  const unit = input.unit;
   const count = (state: keyof RunView['states']) => (run.states[state] ?? 0).toLocaleString();
-  console.log(`${run.workflow} [${RUN_STATUS[run.status]}] ${run.subject === 'terms' ? '용어' : '대사'} ${run.total.toLocaleString()}${unit}  (${run.id})`);
+  console.log(`${run.workflow} [${RUN_STATUS[run.status]}] ${input.label} ${run.total.toLocaleString()}${unit}  (${run.id})`);
   console.log(`  끝남 ${count('done')} · 실패 ${count('failed')} · 남음 ${((run.states.queued ?? 0) + (run.states.running ?? 0)).toLocaleString()} · 취소 ${count('cancelled')}`);
   if (run.notice) console.log(`  멈춘 이유: ${run.notice}`);
   if (run.ends.length) console.log(`  끝난 곳: ${run.ends.map((end) => `${end.node} ${end.count.toLocaleString()}`).join(' · ')}`);
-  if (errored) console.log(`  실패했거나 오류로 빠진 ${run.subject === 'terms' ? '용어' : '줄'} ${errored.toLocaleString()}:\n${run.errors.map((error) => `    ${error.node} · ${error.kind} ${error.count.toLocaleString()} — ${short(error.message, 100)}`).join('\n')}`);
+  if (errored) console.log(`  실패했거나 오류로 빠진 ${input.label} ${errored.toLocaleString()}${unit}:\n${run.errors.map((error) => `    ${error.node} · ${error.kind} ${error.count.toLocaleString()} — ${short(error.message, 100)}`).join('\n')}`);
   if (options.nodes) for (const node of run.nodes) console.log(`  ${node.nodeId.padEnd(16)} ${node.state.padEnd(9)} ${node.count.toLocaleString()}`);
   if (run.failures.length) console.log(`\n실패${(run.states.failed ?? 0) > run.failures.length ? ` (${run.failures.length}개만)` : ''}:\n${run.failures.map((failure) => `  ${failure.key ?? failure.unitId ?? ''} ${failure.nodeId ? `[${failure.nodeId}] ` : ''}${short(failure.error ?? '', 120)}`).join('\n')}`);
   const next = [
-    run.states.failed && run.status !== 'cancelled' && `실패한 ${run.subject === 'terms' ? '용어' : '줄'} 다시: loca runs continue ${run.id} --retry-failed --wait`,
+    run.states.failed && run.status !== 'cancelled' && `실패한 ${input.label} 다시: loca runs continue ${run.id} --retry-failed --wait`,
     errored && runSettled(run) && `실패했거나 오류로 빠진 것만 새로 실행: loca runs start "${run.workflow}" --rerun-errors ${run.id} --wait (모델을 바꾸려면 --model)`,
     run.status === 'paused' && `이어서: loca runs resume ${run.id} --wait`,
     !runSettled(run) && `끝날 때까지: loca runs wait ${run.id}`,
-    run.status === 'completed' && run.subject !== 'terms' && '결과 점검: loca check terms · loca check format (범위는 -g/--key로)',
+    // Translations are what the checks read: a lines run's result.
+    run.status === 'completed' && bySubject(run.subject ?? 'lines', { lines: '결과 점검: loca check terms · loca check format (범위는 -g/--key로)', terms: null }),
   ].filter(Boolean);
   if (next.length) console.log(`\n다음:\n${next.map((line) => `  ${line}`).join('\n')}`);
   console.log(`앱에서 보기: ${appLink(`/p/${await projectId()}/runs/${run.id}`)}`);
@@ -1100,13 +1097,17 @@ function withRunScope(command: Command) {
  * A lines workflow: the line filter. A terms workflow: --status, --tag, --mark and --by are about the terms; any other
  * filter flag goes along as a line filter, which the server refuses for a terms workflow.
  */
-function runScopeFrom(subject: 'lines' | 'terms', options: RunScopeOptions): Pick<RunScopeInput, 'filter' | 'terms'> {
+function runScopeFrom(subject: Subject, options: RunScopeOptions): Pick<RunScopeInput, 'filter' | 'terms'> {
   const { limit: _limit, offset: _offset, ...filter } = filterFrom(options);
   const given = <T extends object>(value: T) => (Object.values(value).some((item) => item !== undefined) ? value : undefined);
   const own = { terms: options.term, emptyTarget: options.emptyTarget ? true : options.hasTarget ? false : undefined };
-  if (subject === 'lines') return { filter: given(filter), terms: given(own) };
-  const { statuses, tags, marks, decidedBy, ...rest } = filter;
-  return { filter: given(rest), terms: given({ ...own, statuses, tags, marks: marks as AutoMark[] | undefined, decidedBy }) };
+  return bySubject<() => Pick<RunScopeInput, 'filter' | 'terms'>>(subject, {
+    lines: () => ({ filter: given(filter), terms: given(own) }),
+    terms: () => {
+      const { statuses, tags, marks, decidedBy, ...rest } = filter;
+      return { filter: given(rest), terms: given({ ...own, statuses, tags, marks: marks as AutoMark[] | undefined, decidedBy }) };
+    },
+  })();
 }
 
 const RUN_SCOPE_HELP = '범위는 대사 필터(loca lines와 같은 플래그)이고 조건은 모두 만족해야 합니다. 용어 입력 워크플로(진입 input이 terms)는 --term·--status(후보·확정·버림)·--mark(용어 표시)·--tag·--by·--empty-target·--has-target만 받습니다. 없는 상태·태그·묶음·구역·대사 키·보기·용어 이름은 오류입니다';
@@ -1120,16 +1121,17 @@ withRunScope(runs.command('plan <워크플로>'))
     if (globals().json) return print(data);
     const range = (value: { min: number; expected: number | null; max: number }) => (value.expected !== null ? `약 ${value.expected.toLocaleString()} (${value.min.toLocaleString()}~${value.max.toLocaleString()})` : `${value.min.toLocaleString()}~${value.max.toLocaleString()}`);
     console.log(`${data.workflow.name} 실행 미리보기`);
-    const terms = data.subject === 'terms';
-    console.log(`  ${terms ? '용어' : '대사'} ${data.lines.total.toLocaleString()}개 (번역${terms ? '어' : ''} 있음 ${data.lines.translated.toLocaleString()} · 없음 ${data.lines.untranslated.toLocaleString()})`);
+    // What the preview shows of each input: lines travel in planned batches and have listeners and speech rules to get ready; terms have neither.
+    const shown = bySubject(data.subject, { lines: { translated: '번역', batches: true, readiness: true }, terms: { translated: '번역어', batches: false, readiness: false } });
+    console.log(`  ${INPUT_TYPES[data.subject].label} ${data.lines.total.toLocaleString()}개 (${shown.translated} 있음 ${data.lines.translated.toLocaleString()} · 없음 ${data.lines.untranslated.toLocaleString()})`);
     const per = data.plan.linesPerBatch;
-    if (!terms) console.log(`  묶음 ${data.plan.batches.toLocaleString()}개${per ? ` (묶음당 ${per.min}~${per.max}줄, 중간 ${per.median})` : ''}`);
+    if (shown.batches) console.log(`  묶음 ${data.plan.batches.toLocaleString()}개${per ? ` (묶음당 ${per.min}~${per.max}줄, 중간 ${per.median})` : ''}`);
     console.log(`  AI 요청 ${range(data.totals.calls)} · 입력 토큰 ${range(data.totals.inputTokens)}${data.pace.seconds !== null ? ` · 약 ${Math.round(data.pace.seconds / 60)}분` : ''}${data.pace.subscription ? ' · 구독' : data.pace.costUsd !== null ? ` · 약 $${data.pace.costUsd.toFixed(2)}` : ''}`);
     for (const node of data.nodes) console.log(`    ${node.name}  ${node.model ?? '(모델 없음)'}  요청 ${range(node.requests)} · 동시 ${node.concurrency} · 프롬프트 약 ${node.promptTokens.toLocaleString()}토큰`);
     if (data.load.runs) console.log(`  주의: 다른 실행 ${data.load.runs}개가 AI 요청을 최대 ${data.load.max}개까지 동시에 보내는 중입니다. 이 실행을 시작하면 최대 ${data.load.max + data.load.added}개가 됩니다.   → loca runs list`);
     const caps = [data.suggestedLimits?.maxCalls && `호출 ${data.suggestedLimits.maxCalls.toLocaleString()}회`, data.suggestedLimits?.maxInputTokens && `입력 토큰 ${data.suggestedLimits.maxInputTokens.toLocaleString()}`].filter(Boolean);
     if (caps.length) console.log(`  상한 ${caps.join(' · ')}에서 일시정지 (실행 창과 같은 권장값, runs start가 그대로 씀)   → 바꾸려면 --max-calls·--max-input-tokens`);
-    if (terms) return console.log('\n용어 입력 워크플로는 청자·말투 규칙 준비 상태를 보지 않습니다. 시작 전 loca terms로 대상 용어를 확인하세요.');
+    if (!shown.readiness) return console.log('\n용어 입력 워크플로는 청자·말투 규칙 준비 상태를 보지 않습니다. 시작 전 loca terms로 대상 용어를 확인하세요.');
     const ready = data.readiness;
     console.log('\n준비 상태');
     console.log(`  청자 모름 대사 ${ready.unknownListenerLines.toLocaleString()} / 청자가 필요한 대사 ${ready.dialogueLines.toLocaleString()}${ready.unknownListenerLines ? '   → loca lines --mark unknownListener' : ''}`);
@@ -1152,16 +1154,21 @@ withRunScope(runs.command('start <워크플로>'))
     const scope = runScopeFrom(workflow.input, options);
     if (options.rerunErrors) {
       const earlier = await unwrap(api().projects[':projectId'].runs[':runId'].errors.$get({ param: { projectId: await projectId(), runId: options.rerunErrors } }));
-      const what = earlier.subject === 'terms' ? '용어' : '대사';
+      const what = INPUT_TYPES[earlier.subject].label;
       if (!earlier.items.length) throw new CliError(`그 실행에는 실패했거나 오류로 빠진 ${what}가 없습니다.`);
       log(`${earlier.workflow} 실행에서 다시 할 ${what} ${earlier.items.length.toLocaleString()}개`);
       // Like every other scope option, it narrows what the rest picked: lines by id beside the filter, terms among those named.
-      if (earlier.subject === 'terms') {
-        const named = scope.terms?.terms;
-        const terms = earlier.items.filter((item) => !named || named.includes(item.unitId) || named.includes(item.key ?? '')).map((item) => item.unitId);
-        if (!terms.length) throw new CliError('고른 용어 중 그 실행에서 실패한 것이 없습니다.');
-        scope.terms = { ...scope.terms, terms };
-      } else scope.filter = { ...scope.filter, ids: earlier.items.map((item) => item.unitId) };
+      bySubject(earlier.subject, {
+        terms: () => {
+          const named = scope.terms?.terms;
+          const terms = earlier.items.filter((item) => !named || named.includes(item.unitId) || named.includes(item.key ?? '')).map((item) => item.unitId);
+          if (!terms.length) throw new CliError('고른 용어 중 그 실행에서 실패한 것이 없습니다.');
+          scope.terms = { ...scope.terms, terms };
+        },
+        lines: () => {
+          scope.filter = { ...scope.filter, ids: earlier.items.map((item) => item.unitId) };
+        },
+      })();
     }
     const outcome = await proposeTool('start_run', { workflowId: workflow.id, ...scope, changeHuman: options.changeHuman || undefined, models: runModels(options.model), limits: capsFrom(options) });
     await followRun(outcome, options, '실행 시작');

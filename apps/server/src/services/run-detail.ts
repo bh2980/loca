@@ -1,9 +1,10 @@
 import { and, asc, count, desc, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
-import { CONNECTION_KIND_INFO, nodeRetries, type WorkflowDefinition } from '@tw/shared';
+import { CONNECTION_KIND_INFO, nodeRetries, type WorkflowDefinition, type Subject } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import { inChunks } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import type { Runner } from '../engine/runner.ts';
+import { subjectOf } from '../engine/subjects.ts';
 
 /**
  * A run's detail in two parts. Its items (lines or terms, each where it is in the workflow) are rows
@@ -73,13 +74,8 @@ export function runNodeExits(db: Db, runId: string, nodeId: string) {
 export function runItemIds(db: Db, runId: string, query: RunItemQuery) {
   const where = itemsWhere(runId, query);
   const total = db.select({ count: count() }).from(s.runItems).where(where).get()!.count;
-  const run = db.select({ subject: s.runs.subject }).from(s.runs).where(eq(s.runs.id, runId)).get();
-  const subject = run?.subject === 'terms' ? ('terms' as const) : ('lines' as const);
-  const ids =
-    subject === 'terms'
-      ? db.select({ id: s.runItems.id }).from(s.runItems).innerJoin(s.terms, eq(s.terms.id, s.runItems.subjectId)).where(where).orderBy(desc(sql`coalesce(${s.terms.lines}, 0)`), asc(s.terms.source)).limit(query.limit).offset(query.offset).all()
-      : db.select({ id: s.runItems.id }).from(s.runItems).innerJoin(s.units, eq(s.units.id, s.runItems.subjectId)).where(where).orderBy(asc(s.units.seq)).limit(query.limit).offset(query.offset).all();
-  return { total, subject, ids: ids.map((row) => row.id) };
+  const subject: Subject = db.select({ subject: s.runs.subject }).from(s.runs).where(eq(s.runs.id, runId)).get()?.subject ?? 'lines';
+  return { total, subject, ids: subjectOf(subject).itemIds(db, where, query.limit, query.offset) };
 }
 
 /**
@@ -97,10 +93,8 @@ export function runItemRows(db: Db, projectId: string, ids: readonly string[]) {
       .where(and(eq(s.runs.projectId, projectId), inArray(s.runItems.id, slice)))
       .all(),
   );
-  const lines = new Set(inChunks(items.filter((item) => item.subject !== 'terms').map((item) => item.unitId), (slice) => db.select({ id: s.units.id }).from(s.units).where(inArray(s.units.id, slice)).all()).map((unit) => unit.id));
-  const terms = new Map(
-    inChunks(items.filter((item) => item.subject === 'terms').map((item) => item.unitId), (slice) => db.select({ id: s.terms.id, source: s.terms.source, target: s.terms.target }).from(s.terms).where(inArray(s.terms.id, slice)).all()).map((term) => [term.id, term]),
-  );
+  // The row behind each item, read per kind of item (a page can hold items of several runs).
+  const rows = new Map([...Map.groupBy(items, (item) => item.subject)].map(([subject, own]) => [subject, subjectOf(subject).itemRows(db, own.map((item) => item.unitId))]));
   const runs = new Map(
     inChunks([...new Set(items.map((item) => item.runId))], (slice) => db.select({ id: s.runs.id, definition: s.runs.definition, models: s.runs.models }).from(s.runs).where(inArray(s.runs.id, slice)).all()).map((run) => [run.id, run]),
   );
@@ -108,11 +102,8 @@ export function runItemRows(db: Db, projectId: string, ids: readonly string[]) {
     items.flatMap(({ subject, runId, ...item }) => {
       const run = runs.get(runId);
       const retry = run ? retryOf(item, run) : null;
-      if (subject === 'terms') {
-        const term = terms.get(item.unitId);
-        return term ? [[item.id, { ...item, runId, term: { source: term.source, target: term.target as string | null } as { source: string; target: string | null } | null, retry }] as const] : [];
-      }
-      return lines.has(item.unitId) ? [[item.id, { ...item, runId, term: null as { source: string; target: string | null } | null, retry }] as const] : [];
+      const row = rows.get(subject)?.get(item.unitId);
+      return row ? [[item.id, { ...item, runId, term: row.term, retry }] as const] : [];
     }),
   );
   return ids.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : []));

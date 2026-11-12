@@ -1,4 +1,4 @@
-import { TOOL_SPECS, APP_DEFAULT_SECTION_LABELS, TAG_SCOPES, TAG_SCOPE_LABELS, TERM_LINE_KIND_LABELS, type AppDefaultSection, type AgeBand, type AutoMark, type Gender, personLabel, CHARACTER_ROLE_LABELS, type CharacterRole, type RunCardPlan, type TermLineKind } from '@tw/shared';
+import { TOOL_SPECS, APP_DEFAULT_SECTION_LABELS, TAG_SCOPES, TAG_SCOPE_LABELS, TERM_LINE_KIND_LABELS, type AppDefaultSection, type AgeBand, type AutoMark, type Gender, personLabel, CHARACTER_ROLE_LABELS, type CharacterRole, type RunCardPlan, type TermLineKind, type Subject, bySubject } from '@tw/shared';
 import { MarkChip } from '@/components/status';
 import { cardSummary } from '@/lib/chat-run';
 import { GROUP_KIND } from '@/lib/labels';
@@ -45,7 +45,7 @@ function KnowledgeChanges({ items }: { items: ProposalDetails['items'] }) {
 }
 
 /** A readable preview of what a change tool would change. */
-export function ChangePreview({ name, input, pending = true, details, run }: { name: string; input: Record<string, unknown>; /** Still waiting for a decision: only then does it say what accepting will do. */ pending?: boolean; details?: ProposalDetails | null; /** A proposed run: what it would take in and cost when it was proposed (the proposal's report). */ run?: { input: 'lines' | 'terms'; plan: RunCardPlan } }) {
+export function ChangePreview({ name, input, pending = true, details, run }: { name: string; input: Record<string, unknown>; /** Still waiting for a decision: only then does it say what accepting will do. */ pending?: boolean; details?: ProposalDetails | null; /** A proposed run: what it would take in and cost when it was proposed (the proposal's report). */ run?: { input: Subject; plan: RunCardPlan } }) {
   // An id the project can name is shown as its name.
   const named = (value: unknown) => (typeof value === 'string' ? (details?.refs[value] ?? value) : value);
   const field = (label: string, value: unknown) =>
@@ -247,7 +247,8 @@ export function ChangePreview({ name, input, pending = true, details, run }: { n
       };
       const count = (from: Record<string, unknown>, key: string) => (list(from, key).length ? `${list(from, key).length.toLocaleString()}개` : undefined);
       const people = (key: string) => list(filter, key).map((name) => (name === '-' ? '청자 모름' : name)).join(', ');
-      const terms = run?.input === 'terms';
+      // A run on glossary terms is scoped within the glossary and has no person-set statuses to keep.
+      const terms = bySubject(run?.input ?? 'lines', { lines: false, terms: true });
       const marks = [...list(filter, 'marks'), ...list(asked, 'marks')] as AutoMark[];
       const hiddenMarks = list(filter, 'hideMarks') as AutoMark[];
       const chips = (label: string, shown: AutoMark[]) =>

@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import { Check, Play, X } from 'lucide-react';
+import { connectionCan } from '@tw/shared';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { Box, Button, Icon, Inline, SectionHeading, Stack, StepMarker, Text } from '@loca/ui';
 import { HeaderActions } from '@/components/page';
@@ -42,7 +43,7 @@ export function GettingStarted({ projectId }: { projectId: string }) {
   };
   if (!connections.data || !characters.data || !rules.data || !terms.data || !runs.data || !project.data) return null;
 
-  const aiConnections = connections.data.filter((connection) => connection.kind !== 'http');
+  const aiConnections = connections.data.filter((connection) => !connectionCan(connection.kind, 'tool'));
   // Story knowledge exists (whichever workflow, chat or person made it): AI nodes have context to read.
   const known = characters.data.length > 0 || rules.data.length > 0;
   const ran = runs.data.length > 0;

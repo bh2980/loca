@@ -1,4 +1,4 @@
-import { ATTACH_KIND_ALIASES, ATTACH_KINDS, PROMPT_TARGET, type AttachKind, type SavedPrompt } from '@tw/shared';
+import { ATTACH_KIND_ALIASES, ATTACH_KINDS, PROMPT_TARGET, type AttachKind, type SavedPrompt, type Subject } from '@tw/shared';
 
 /** An `@query` being typed: where it starts in the box and everything between the @ and the caret. */
 export interface AtTrigger {
@@ -80,7 +80,7 @@ export interface WorkflowCommand {
   name: string;
   description: string;
   /** What it takes in: decides which things can be picked as its target. */
-  input: 'lines' | 'terms';
+  input: Subject;
   /** Why it cannot run now (the run dialog does not offer workflows with errors). */
   blocked?: string;
 }
@@ -106,7 +106,7 @@ export type Command = WorkflowCommand | PromptCommand | AppCommand;
 
 /** The list for `/`: the project's workflows, its saved prompts, then the app's own commands for the conversation. */
 export function allCommands(
-  workflows: readonly { id: string; name: string; description: string; input: 'lines' | 'terms'; errorCount?: number }[],
+  workflows: readonly { id: string; name: string; description: string; input: Subject; errorCount?: number }[],
   prompts: readonly SavedPrompt[],
 ): Command[] {
   return [

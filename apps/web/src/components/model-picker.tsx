@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useParams } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, ChevronsUpDown } from 'lucide-react';
-import { CONNECTION_KIND_INFO, isFreeModel, type Capability, type ConnectionKind } from '@tw/shared';
+import { CONNECTION_KIND_INFO, connectionCan, isFreeModel, type Capability } from '@tw/shared';
 import { Chip, Box, Button, Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, Field, Icon, Inline, Popover, PopoverContent, PopoverTrigger, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Stack, Text } from '@loca/ui';
 import { unwrap } from '@/lib/api';
 import { connectionsApi, targetScope, type SettingsTarget } from '@/lib/settings-target';
@@ -49,7 +49,6 @@ export function ModelPicker({
   value,
   onChange,
   need = ['generate'],
-  kinds,
   lockConnection,
   compact,
   id,
@@ -65,8 +64,6 @@ export function ModelPicker({
   onChange: (value: ModelValue) => void;
   /** The connection must offer one of these. */
   need?: Capability[];
-  /** Only connections of these kinds (the editor's continuation: API connections). */
-  kinds?: ConnectionKind[];
   /** Only the model and effort of `value.connectionId` (a connection's model test). */
   lockConnection?: boolean;
   compact?: boolean;
@@ -79,7 +76,7 @@ export function ModelPicker({
   const params = useParams({ strict: false });
   const target: SettingsTarget = targetProp ?? { kind: 'project', projectId: params.projectId! };
   const connections = useConnections(target);
-  const usable = (connections.data ?? []).filter((item) => (!kinds || kinds.includes(item.kind)) && CONNECTION_KIND_INFO[item.kind].capabilities.some((capability) => need.includes(capability)));
+  const usable = (connections.data ?? []).filter((item) => need.some((capability) => connectionCan(item.kind, capability)));
   const connection = usable.find((item) => item.id === value?.connectionId);
   const efforts = connection ? CONNECTION_KIND_INFO[connection.kind].efforts : [];
   const fullLabel = useModelLabel(target, value);

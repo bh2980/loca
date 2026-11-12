@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { Subject } from './subject.ts';
 
 /**
  * What the chat's @ can point at (docs/CHAT-INPUT-DESIGN.md 2-1). The kind is the label people read,
@@ -34,7 +35,7 @@ export interface AttachSearchResult {
  * What a /workflow run can be pointed at (the run dialog's scopes): scenes, lines, tags, statuses and
  * people (their lines) for a lines workflow, terms for a terms workflow.
  */
-export const RUN_SCOPE_KINDS: Record<'lines' | 'terms', readonly AttachKind[]> = {
+export const RUN_SCOPE_KINDS: Record<Subject, readonly AttachKind[]> = {
   lines: ['장면', '대사', '태그', '상태', '인물'],
   terms: ['용어'],
 };
@@ -42,7 +43,7 @@ export const RUN_SCOPE_KINDS: Record<'lines' | 'terms', readonly AttachKind[]> =
 export const RUN_TARGET_KINDS: readonly AttachKind[] = ['장면', '대사', '인물'];
 
 /** The kinds still on offer once some are picked for a run: one target family at a time, tags and statuses as filters. */
-export function runKindsLeft(input: 'lines' | 'terms', picked: readonly { kind: string }[]): readonly AttachKind[] {
+export function runKindsLeft(input: Subject, picked: readonly { kind: string }[]): readonly AttachKind[] {
   const all = RUN_SCOPE_KINDS[input];
   const target = picked.find((item) => (RUN_TARGET_KINDS as readonly string[]).includes(item.kind))?.kind;
   if (!target) return all;

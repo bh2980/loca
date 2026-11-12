@@ -4,7 +4,7 @@ import { importFileSchema, messageChips } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from './importer.ts';
-import { selectRunUnits } from '../engine/run-create.ts';
+import { selectRunUnits } from '../engine/subjects.ts';
 import { chatRunScope } from './chat-run-scope.ts';
 import { mergeIncoming } from './chat-context.ts';
 

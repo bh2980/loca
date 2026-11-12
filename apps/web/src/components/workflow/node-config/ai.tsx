@@ -1,6 +1,6 @@
 /** AI node settings, grouped by the user's task: model, instruction, output, advanced. */
 import { useEffect, useState } from 'react';
-import { AI_OUTPUTS, AI_SCOPES, CONTEXT_FIELDS, CHOICE_SOURCES, CONNECTION_KIND_INFO, BATCH_MODE_LABELS, autoBudgets, contextConfigSchema, DEFAULT_RETRY_RULES, INPUT_TYPES, limitsFor, nodeName, previousSteps, retrySummary, type WorkflowSubject, type AiOutput, type AiScope, type BatchConfig, type Capability, type ChoiceSource, type WorkflowNode } from '@tw/shared';
+import { AI_OUTPUTS, AI_SCOPES, CONTEXT_FIELDS, CHOICE_SOURCES, CONNECTION_KIND_INFO, BATCH_MODE_LABELS, autoBudgets, contextConfigSchema, DEFAULT_RETRY_RULES, INPUT_TYPES, limitsFor, nodeName, previousSteps, retrySummary, type Subject, type AiOutput, type AiScope, type BatchConfig, type Capability, type ChoiceSource, type WorkflowNode, bySubject, type ContextConfig } from '@tw/shared';
 import { Box, Button, Dialog, DialogContent, DialogHeader, DialogTitle, HelpTip, Inline, Input, NumberInput, SelectField, SelectItem, Stack, Text, Textarea, Section, Group, Field } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
 import { ModelPicker } from '@/components/model-picker';
@@ -43,7 +43,7 @@ export function AiConfig({ part, node, refs, onChange }: { part: 'model' | 'rest
   const connection = refs.connections.find((item) => item.id === config.model.connectionId);
   // What auto would pick for this node's own model, shown while the field is empty.
   const autoLines = autoBudgets(limitsFor(connection && { modelLimits: connection.modelLimits ?? {} }, config.model.model), config.output, config.batch.mode).lines;
-  const takesTemperature = connection ? CONNECTION_KIND_INFO[connection.kind].transport !== 'cli' && connection.kind !== 'systemone' : false;
+  const takesTemperature = Boolean(connection && CONNECTION_KIND_INFO[connection.kind].temperature);
   const contextOn = [config.include.candidate, context.glossary, context.speech, context.precedingLines > 0, context.previousScenes > 0, context.pairs, context.cast, context.characters, context.relationships, context.documents].filter(Boolean).length;
 
   if (part === 'model') {
@@ -209,30 +209,28 @@ function AiRetrySection({ node, refs, set }: { node: AiNode; refs: NodeRefs; set
 }
 
 /** What an AI node sends besides the items: the core context switches and those of the workflow's input (INPUT_TYPES). */
-export function AiContextFields({ config, set, input }: { config: Pick<AiNode['config'], 'context' | 'include'>; set: (patch: Partial<AiNode['config']>) => void; input: WorkflowSubject }) {
+export function AiContextFields({ config, set, input }: { config: Pick<AiNode['config'], 'context' | 'include'>; set: (patch: Partial<AiNode['config']>) => void; input: Subject }) {
   const context = contextConfigSchema.parse(config.context ?? {});
-  const lines = input === 'lines';
+  // The settings only this input has (INPUT_TYPES): the rest every input has.
+  const has = (field: keyof ContextConfig) => (INPUT_TYPES[input].contextFields as readonly (keyof ContextConfig)[]).includes(field);
   const setContext = (patch: Partial<typeof context>) => set({ context: { ...context, ...patch } });
   return (
     <>
-      <Group title={lines ? '대사 범위' : '예시'} spaceY="normal">
-        {lines ? <>
-            <CountRow label={CONTEXT_FIELDS.precedingLines.label} help={CONTEXT_FIELDS.precedingLines.help} unit="줄" value={context.precedingLines} fallback={8} max={50} onChange={(value) => setContext({ precedingLines: value })} />
-            {context.precedingLines > 0 && (
-              <Box paddingLeft="comfortable">
-                <ToggleRow label={CONTEXT_FIELDS.precedingTranslations.label} help={CONTEXT_FIELDS.precedingTranslations.help} checked={context.precedingTranslations} onChange={(value) => setContext({ precedingTranslations: value })} />
-              </Box>
-            )}
-            <CountRow label={CONTEXT_FIELDS.previousScenes.label} help={CONTEXT_FIELDS.previousScenes.help} unit="개" value={context.previousScenes} fallback={1} max={10} onChange={(value) => setContext({ previousScenes: value })} />
-        </> : (
-            <CountRow label={CONTEXT_FIELDS.examples.label} help={CONTEXT_FIELDS.examples.help} unit="줄" value={context.examples} fallback={2} max={5} onChange={(value) => setContext({ examples: value })} />
+      <Group title={bySubject(input, { lines: '대사 범위', terms: '예시' })} spaceY="normal">
+        {has('precedingLines') && <CountRow label={CONTEXT_FIELDS.precedingLines.label} help={CONTEXT_FIELDS.precedingLines.help} unit="줄" value={context.precedingLines} fallback={8} max={50} onChange={(value) => setContext({ precedingLines: value })} />}
+        {has('precedingTranslations') && context.precedingLines > 0 && (
+          <Box paddingLeft="comfortable">
+            <ToggleRow label={CONTEXT_FIELDS.precedingTranslations.label} help={CONTEXT_FIELDS.precedingTranslations.help} checked={context.precedingTranslations} onChange={(value) => setContext({ precedingTranslations: value })} />
+          </Box>
         )}
+        {has('previousScenes') && <CountRow label={CONTEXT_FIELDS.previousScenes.label} help={CONTEXT_FIELDS.previousScenes.help} unit="개" value={context.previousScenes} fallback={1} max={10} onChange={(value) => setContext({ previousScenes: value })} />}
+        {has('examples') && <CountRow label={CONTEXT_FIELDS.examples.label} help={CONTEXT_FIELDS.examples.help} unit="줄" value={context.examples} fallback={2} max={5} onChange={(value) => setContext({ examples: value })} />}
       </Group>
       <Group title="함께 보낼 자료" spaceY="normal">
         <ToggleRow label={CONTEXT_FIELDS.candidate.label} help={CONTEXT_FIELDS.candidate.help} checked={config.include.candidate} onChange={(value) => set({ include: { ...config.include, candidate: value } })} />
         <ToggleRow label={CONTEXT_FIELDS.glossary.label} help={CONTEXT_FIELDS.glossary.help} checked={context.glossary} onChange={(value) => setContext({ glossary: value })} />
-        {lines && <ToggleRow label={CONTEXT_FIELDS.speech.label} help={CONTEXT_FIELDS.speech.help} checked={context.speech} onChange={(value) => setContext({ speech: value })} />}
-        {lines && <CountRow label={CONTEXT_FIELDS.pairs.label} help={CONTEXT_FIELDS.pairs.help} unit="번 이상" value={context.pairs ? context.pairMinTurns : 0} fallback={context.pairMinTurns} max={20} onChange={(value) => setContext(value > 0 ? { pairs: true, pairMinTurns: value } : { pairs: false })} />}
+        {has('speech') && <ToggleRow label={CONTEXT_FIELDS.speech.label} help={CONTEXT_FIELDS.speech.help} checked={context.speech} onChange={(value) => setContext({ speech: value })} />}
+        {has('pairs') && <CountRow label={CONTEXT_FIELDS.pairs.label} help={CONTEXT_FIELDS.pairs.help} unit="번 이상" value={context.pairs ? context.pairMinTurns : 0} fallback={context.pairMinTurns} max={20} onChange={(value) => setContext(value > 0 ? { pairs: true, pairMinTurns: value } : { pairs: false })} />}
         <ToggleRow label={CONTEXT_FIELDS.cast.label} help={CONTEXT_FIELDS.cast.help} checked={context.cast} onChange={(value) => setContext({ cast: value })} />
         <ToggleRow label={CONTEXT_FIELDS.characters.label} help={CONTEXT_FIELDS.characters.help} checked={context.characters} onChange={(value) => setContext({ characters: value })} />
         <ToggleRow label={CONTEXT_FIELDS.relationships.label} help={CONTEXT_FIELDS.relationships.help} checked={context.relationships} onChange={(value) => setContext({ relationships: value })} />

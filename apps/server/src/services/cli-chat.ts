@@ -110,7 +110,7 @@ function chatFolder() {
 export async function cliChatResponse(input: {
   db: Db;
   chat: typeof s.chatSessions.$inferSelect;
-  route: ai.ResolvedRoute;
+  target: ai.ModelTarget;
   system: string;
   view: string | null;
   /** The conversation record with the new user message last (the server's, not the browser's). */
@@ -121,10 +121,11 @@ export async function cliChatResponse(input: {
   /** The conversation's running turn (chat-turns startTurn): its signal, end and closing mark. */
   turn: Pick<ChatTurn, 'signal' | 'end' | 'record' | 'markClosing'>;
 }): Promise<Response> {
-  const { db, chat, route, messages } = input;
-  const kind = route.kind as ai.AcpKind;
-  const tools = new Map(agentCatalog(db, chat.projectId, { model: route.model }).map((tool) => [tool.name, tool]));
-  const saved = chat.agentSession && chat.agentSession.kind === route.kind && chat.agentSession.model === route.model ? chat.agentSession : null;
+  const { db, chat, target, messages } = input;
+  const transport = ai.providerOf(target.kind).chat;
+  if (transport?.via !== 'agent') throw new Error('이 연결은 CLI 에이전트로 채팅하지 않습니다.');
+  const tools = new Map(agentCatalog(db, chat.projectId, { model: target.model }).map((tool) => [tool.name, tool]));
+  const saved = chat.agentSession && chat.agentSession.kind === target.kind && chat.agentSession.model === target.model ? chat.agentSession : null;
   // The new message is the newest that is not a run card (a regenerate can leave cards after it; they go with the message).
   const last = lastExchange(messages);
   const lastAt = last ? messages.lastIndexOf(last) : messages.length;
@@ -145,11 +146,11 @@ export async function cliChatResponse(input: {
       const cwd = chatFolder();
       const server = await chatServer(db, chat);
       // The session: still open in a running process, reopened from the CLI's store, or new.
-      let agent = saved ? await ai.agentWith(kind, route.executable, saved.id) : null;
+      let agent = saved ? await transport.resume(target.executable, saved.id) : null;
       let lead: string | null = null;
       if (agent) sessionId = saved!.id;
       else {
-        agent = await ai.agentFor(kind, route.executable);
+        agent = await transport.start(target.executable);
         const reopened = saved ? await agent.reopen({ sessionId: saved.id, cwd, mcpServers: [server], system: input.system }) : null;
         if (reopened && saved) sessionId = saved.id;
         else {
@@ -162,27 +163,27 @@ export async function cliChatResponse(input: {
         await ai.closeSession(sessionId);
         input.turn.signal.throwIfAborted();
       }
-      await agent.use(sessionId, route.model, route.effort);
+      await agent.use(sessionId, target.model, target.effort);
       // The CLI's session is told what it missed (another model answered in between); a new one gets the record.
       const known = sessionId === saved?.id;
       // A new session gets the whole record, its start summarized only when it would not fit the model.
       const context = known
         ? catchUp(earlier, saved?.seen ?? earlier.length)
-        : handover((await fitRecord({ db, chat, route, record: messages, overhead: estimateTokens(input.system) + estimateTokens([...tools.values()].map((tool) => ({ name: tool.name, description: tool.description, input: jsonSchemaOf(tool.schema) }))) + CLI_OVERHEAD, signal: input.turn.signal })).filter((message) => message !== last));
+        : handover((await fitRecord({ db, chat, target, record: messages, overhead: estimateTokens(input.system) + estimateTokens([...tools.values()].map((tool) => ({ name: tool.name, description: tool.description, input: jsonSchemaOf(tool.schema) }))) + CLI_OVERHEAD, signal: input.turn.signal })).filter((message) => message !== last));
       // Images go as prompt blocks when the agent says it takes them; the capability is kept so the composer can warn before sending.
-      learnImages(db, route.connectionId, route.model, agent.takesImages());
+      learnImages(db, target.connectionId, target.model, agent.takesImages());
       const wanted = acpImages(last);
       const decision = imageDecision(agent.takesImages(), wanted.length);
       const images = decision.send ? wanted : [];
       let prompt = [lead, turnPrompt({ context, view: input.view, text: [last ? textOf(last) : '', cardsAfter, decision.dropped ? `(이미지 ${decision.dropped}장은 ${IMAGE_UNSUPPORTED_NOTE}: 보내지 않았습니다)` : ''].filter(Boolean).join('\n'), leftover })].filter(Boolean).join('\n\n---\n\n');
-      db.update(s.chatSessions).set({ agentSession: { kind: route.kind, model: route.model, id: sessionId, lastTurnAt: Date.now(), seen: known ? saved?.seen : 0 } }).where(eq(s.chatSessions.id, chat.id)).run();
+      db.update(s.chatSessions).set({ agentSession: { kind: target.kind, model: target.model, id: sessionId, lastTurnAt: Date.now(), seen: known ? saved?.seen : 0 } }).where(eq(s.chatSessions.id, chat.id)).run();
 
       let textId: string | null = null;
       const breakText = () => {
         if (textId) writer.write({ type: 'text-end', id: textId });
         textId = null;
       };
-      const current: LiveTurn = { writer, tools, model: route.model, breakText, toolRan: false };
+      const current: LiveTurn = { writer, tools, model: target.model, breakText, toolRan: false };
       const newStep = () => {
         writer.write({ type: 'finish-step' });
         writer.write({ type: 'start-step' });
@@ -192,7 +193,7 @@ export async function cliChatResponse(input: {
       try {
         for (let pass = 0; ; pass++) {
           writer.write({ type: 'start-step' });
-          await logged(db, { projectId: chat.projectId, kind: 'chat', refId: chat.id, label: `채팅 (CLI${pass ? ' · 끼어든 메시지 후' : ''})` }, route, () =>
+          await logged(db, { projectId: chat.projectId, kind: 'chat', refId: chat.id, label: `채팅 (CLI${pass ? ' · 끼어든 메시지 후' : ''})` }, target, () =>
             agent.prompt(
               sessionId!,
               prompt,

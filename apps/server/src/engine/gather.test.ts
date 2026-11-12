@@ -4,7 +4,7 @@ import { analysisTemplate, importFileSchema, validateWorkflow, workflowDefinitio
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
-import { snapshotWorkflowModels } from '../services/routes.ts';
+import { snapshotWorkflowModels } from '../services/model-target.ts';
 import { memoryStore } from '../services/secrets.ts';
 import { Runner, type ModelPort } from './runner.ts';
 import { createRun } from './run-create.ts';
@@ -53,7 +53,7 @@ describe('모으기', () => {
       ask: async () => {
         throw new Error('unused');
       },
-      generate: async (_route, request) => {
+      generate: async (_target, request) => {
         seen.push(request);
         if (request.system.includes('Combine.')) return { object: { people: [{ name: 'Mira', profile: 'all of her' }] }, usage: {} } as never;
         const scene = /S(\d)/.exec(request.prompt)![1];
@@ -107,7 +107,7 @@ describe('모으기', () => {
       ask: async () => {
         throw new Error('unused');
       },
-      generate: async (_route, request) => {
+      generate: async (_target, request) => {
         requests += 1;
         const scene = /\[g(\d)\]/.exec(request.prompt)![1];
         return {

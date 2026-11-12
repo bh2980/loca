@@ -18,6 +18,7 @@ import { shownAfterClear, useRecentRunsCleared } from '@/lib/recent-runs';
 import { dateTime } from '@/lib/datetime';
 import { loadProject } from '@/lib/project';
 import { useProposals } from '@/lib/proposals';
+import { INPUT_TYPES } from '@tw/shared';
 
 export const Route = createFileRoute('/p/$projectId')({
   // The project row, or the not-found page.
@@ -300,7 +301,7 @@ function ProjectLayout() {
                                 <Text truncate>{run.workflowName}</Text>
                               </Inline>
                               <Text minWidth={0} variant="caption" tabular tone="muted" truncate title={run.notice ?? undefined}>
-                                {run.status === 'paused' ? (run.notice ?? '일시정지') : `${run.total.toLocaleString()}${run.subject === 'terms' ? '개' : '줄'} 끝남`}
+                                {run.status === 'paused' ? (run.notice ?? '일시정지') : `${run.total.toLocaleString()}${INPUT_TYPES[run.subject].unit} 끝남`}
                               </Text>
                             </Link>
                           </ListRow>

@@ -1,5 +1,5 @@
 import type { UIMessage } from 'ai';
-import { isRunRecord, RUN_CARD_PART, RUN_END_PART, runCardOf, runEndOf, type RunCard, type RunEnd } from '@tw/shared';
+import { isRunRecord, RUN_CARD_PART, RUN_END_PART, runCardOf, runEndOf, type RunCard, type RunEnd, INPUT_TYPES } from '@tw/shared';
 
 export { isRunRecord };
 
@@ -46,7 +46,7 @@ function toolLine(part: ToolPart) {
  * takes). Pending and cancelled cards are told too, so "방금 돌린 거"/"안 돌린 거" can be answered.
  */
 export function runCardLine(card: RunCard) {
-  const unit = card.input === 'terms' ? '개' : '줄';
+  const unit = INPUT_TYPES[card.input].unit;
   const target = `${card.chips.map((chip) => `${chip.kind} ${chip.label}`).join(', ')}(${card.plan.lines.total.toLocaleString()}${unit})`;
   const state = card.state === 'started' ? '실행 시작함, 끝나면 이 대화에 결과가 기록됨' : card.state === 'cancelled' ? '확인 카드에서 취소함, 실행하지 않음' : '확인 대기 중, 아직 실행하지 않음';
   return `사용자가 이 대화에서 워크플로 '${card.workflowName}'을 ${target}에 실행함 · ${card.runId ? `run ${card.runId}` : 'run 없음'} · ${state}`;
@@ -57,7 +57,7 @@ const END_STATE: Record<string, string> = { done: '완료', failed: '실패', ca
 
 /** What the agent is told when a run this conversation started stops: the numbers and the id read_run takes for the rest. */
 export function runEndLine(end: RunEnd) {
-  const unit = end.subject === 'terms' ? '개' : '줄';
+  const unit = INPUT_TYPES[end.subject].unit;
   const counts = Object.entries(end.states).filter(([, count]) => count > 0).map(([state, count]) => `${END_STATE[state] ?? state} ${count.toLocaleString()}${unit}`).join(', ');
   return `이 대화에서 시작한 워크플로 실행 '${end.workflowName}'이 ${END_STATUS[end.status]} · run ${end.runId} · 전체 ${end.total.toLocaleString()}${unit}${counts && ` (${counts})`}${end.notice ? ` · 이유: ${end.notice}` : ''}`;
 }

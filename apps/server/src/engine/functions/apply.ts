@@ -1,6 +1,6 @@
 import { and, eq } from 'drizzle-orm';
 import { get } from 'es-toolkit/compat';
-import { AGE_BANDS, APPLY_FUNCTION_NAMES, APPLY_TARGETS, applyParams, DOCUMENT_KINDS, aiStatus, sameTranslation, TERM_KIND_LABELS, TERM_KINDS, UNKNOWN_LISTENER, withMainTarget, withSourceWhitespace, withTargetCandidate, type ApplyField, type ApplyFunctionName, type ApplyParams } from '@tw/shared';
+import { AGE_BANDS, APPLY_FUNCTION_NAMES, APPLY_TARGETS, DOCUMENT_KINDS, INPUT_TYPES, aiStatus, sameTranslation, TERM_KIND_LABELS, TERM_KINDS, UNKNOWN_LISTENER, withMainTarget, withSourceWhitespace, withTargetCandidate, type ApplyField, type ApplyFunctionName, type ApplyParams, type Subject } from '@tw/shared';
 import type { Db } from '../../db/index.ts';
 import * as s from '../../db/schema.ts';
 import type { Topic } from '../../events.ts';
@@ -11,7 +11,7 @@ import { setKnowledgeTag } from '../../services/knowledge-tags.ts';
 import { attachUnitTags } from '../../services/tag-scope.ts';
 import { knowledgeOf } from '../../services/speech.ts';
 import { applyRunCandidate, HUMAN_OWNED_NOTE } from '../apply-candidate.ts';
-import { lineOf, type FunctionInput, type FunctionResult } from './types.ts';
+import { lineOf, termOf, type FunctionInput, type FunctionResult } from './types.ts';
 
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 type Item = Record<string, unknown>;
@@ -132,8 +132,9 @@ interface Handler {
 }
 
 /** Targets that write the item itself (shape `line`): one item per visit. */
-type ItemTarget = 'saveCandidate' | 'setListener';
-const HANDLERS: Record<Exclude<ApplyFunctionName, ItemTarget>, Handler> = {
+/** The targets that write the item itself (APPLY_TARGETS shape `line`). */
+type ItemWriterName = { [F in ApplyFunctionName]: (typeof APPLY_TARGETS)[F]['shape'] extends 'line' ? F : never }[ApplyFunctionName];
+const HANDLERS: Record<Exclude<ApplyFunctionName, ItemWriterName>, Handler> = {
   saveTerms: {
     write: (items, { tx, write }) => aiSaveTerms(tx, write, items as never),
   },
@@ -181,8 +182,7 @@ export const APPLY_TOPICS: Record<ApplyFunctionName, Topic[]> = {
   saveDocument: ['knowledge'],
 };
 
-function run(fn: ApplyFunctionName, tx: Tx, raw: unknown, input: FunctionInput): FunctionResult {
-  const params = applyParams.parse(raw);
+function run(fn: ApplyFunctionName, tx: Tx, params: ApplyParams, input: FunctionInput): FunctionResult {
   const target = APPLY_TARGETS[fn];
   const missing = (target.fields as readonly ApplyField[]).filter((field) => field.required && !params.map[field.name]);
   if (missing.length || (target.shape === 'list' && !params.list)) throw new Error(`'${target.label}' 노드의 필드 연결이 비어 있습니다.`);
@@ -203,40 +203,42 @@ function run(fn: ApplyFunctionName, tx: Tx, raw: unknown, input: FunctionInput):
     write: { projectId: input.projectId, runId: input.runId, autoConfirm: aiAutoConfirmOf(tx as unknown as Db, input.projectId) },
     output,
   };
-  const nodeId = input.item.nodeId;
-  const base = { projectId: input.projectId, runId: input.runId, nodeId };
-
-  if (input.subject === 'terms' && fn === 'saveCandidate') return runTerm(context, items[0]);
-  if (fn === 'saveCandidate' || fn === 'setListener') return runLine(fn, context, items[0], base);
-
+  if (isItemWriter(fn)) {
+    const write = ITEM_WRITERS[fn][input.subject];
+    if (!write) throw new Error(`'${target.label}' 노드는 ${INPUT_TYPES[input.subject].label}에 쓸 수 없습니다.`);
+    return write(context, items[0]);
+  }
   return { port: 'out', output: { applied: true, items: items.length, ...(skipped ? { skipped } : {}), ...HANDLERS[fn].write(items, context) } };
 }
 
-/** The line targets: one line per visit. */
-function runLine(fn: 'saveCandidate' | 'setListener', context: Context, item: Item, base: { projectId: string; runId: string; nodeId: string }): FunctionResult {
+/** 번역 저장 on a line: its translation, through the run's candidate (a person's saved translation is kept). */
+function saveLineTranslation(context: Context, item: Item): FunctionResult {
   const { tx, input, run: runRow } = context;
   const unit = lineOf(input);
-  if (fn === 'saveCandidate') {
-    // The model's text with the source's edges and line breaks: a lost trailing newline or \r is not a format error.
-    const text = withSourceWhitespace(unit.source, item.text as string);
-    // The text the AI node was given (the item's working text before its answer, else the line's translation): a revision that changed nothing.
-    // Not the stored translation: on a line a person translated, the run's text is a candidate the line never took.
-    const before = input.item.data.textBefore ?? unit.translation;
-    const unchanged = before != null && withSourceWhitespace(unit.source, before) === text;
-    const candidateId = addCandidate(tx, { unitId: unit.id, text, origin: 'ai', runId: input.runId, nodeId: base.nodeId });
-    if (!runRow) return { port: 'out', candidate: text, output: { applied: false, candidateId, unchanged } };
-    const { applied } = applyRunCandidate(tx, runRow, unit.id, candidateId, text);
-    // A person's line kept its text: the run's translation waits for them as an AI 제안, the run's last text only
-    // (a later step of the same run supersedes its earlier one) and not when it is the text the line already has.
-    // A run that wrote new text into the line left nothing waiting there: no extra writes on that common path.
-    const kept = sameTranslation(text, unit.translation);
-    if (!applied || kept) {
-      tx.update(s.candidates).set({ state: 'history' }).where(and(eq(s.candidates.unitId, unit.id), eq(s.candidates.runId, input.runId), eq(s.candidates.state, 'pending'))).run();
-      if (!applied && !kept) tx.update(s.candidates).set({ state: 'pending' }).where(eq(s.candidates.id, candidateId)).run();
-    }
-    return { port: 'out', candidate: text, output: { applied, candidateId, unchanged }, ...(!applied ? { issues: [HUMAN_OWNED_NOTE] } : {}) };
+  // The model's text with the source's edges and line breaks: a lost trailing newline or \r is not a format error.
+  const text = withSourceWhitespace(unit.source, item.text as string);
+  // The text the AI node was given (the item's working text before its answer, else the line's translation): a revision that changed nothing.
+  // Not the stored translation: on a line a person translated, the run's text is a candidate the line never took.
+  const before = input.item.data.textBefore ?? unit.translation;
+  const unchanged = before != null && withSourceWhitespace(unit.source, before) === text;
+  const candidateId = addCandidate(tx, { unitId: unit.id, text, origin: 'ai', runId: input.runId, nodeId: input.item.nodeId });
+  if (!runRow) return { port: 'out', candidate: text, output: { applied: false, candidateId, unchanged } };
+  const { applied } = applyRunCandidate(tx, runRow, unit.id, candidateId, text);
+  // A person's line kept its text: the run's translation waits for them as an AI 제안, the run's last text only
+  // (a later step of the same run supersedes its earlier one) and not when it is the text the line already has.
+  // A run that wrote new text into the line left nothing waiting there: no extra writes on that common path.
+  const kept = sameTranslation(text, unit.translation);
+  if (!applied || kept) {
+    tx.update(s.candidates).set({ state: 'history' }).where(and(eq(s.candidates.unitId, unit.id), eq(s.candidates.runId, input.runId), eq(s.candidates.state, 'pending'))).run();
+    if (!applied && !kept) tx.update(s.candidates).set({ state: 'pending' }).where(eq(s.candidates.id, candidateId)).run();
   }
-  // setListener: "unknown" (or nothing) is the AI saying it cannot tell: the line stays 청자 미상.
+  return { port: 'out', candidate: text, output: { applied, candidateId, unchanged }, ...(!applied ? { issues: [HUMAN_OWNED_NOTE] } : {}) };
+}
+
+/** 청자 저장: "unknown" (or nothing) is the AI saying it cannot tell: the line stays 청자 미상. */
+function saveLineListener(context: Context, item: Item): FunctionResult {
+  const { tx, input } = context;
+  const unit = lineOf(input);
   const listener = typeof item.listener === 'string' ? item.listener.trim() : '';
   if (!listener || listener === UNKNOWN_LISTENER) return { port: 'out', output: { recorded: false, reason: '청자 미상' } };
   const entry = { key: unit.key, listener, confidence: (item.confidence as number | undefined) ?? 1 };
@@ -246,10 +248,9 @@ function runLine(fn: 'saveCandidate' | 'setListener', context: Context, item: It
 
 
 /** 번역 저장 on a term: its Korean form and note (a form a person saved is kept). */
-function runTerm(context: Context, item: Item): FunctionResult {
+function saveTermForm(context: Context, item: Item): FunctionResult {
   const { tx, input } = context;
-  if (input.subject !== 'terms') throw new Error('용어 워크플로가 아닙니다.');
-  const current = tx.select().from(s.terms).where(eq(s.terms.id, input.term.id)).get();
+  const current = tx.select().from(s.terms).where(eq(s.terms.id, termOf(input).id)).get();
   if (!current) return { port: 'out', output: { applied: false, reason: '용어가 없습니다.' } };
   const target = typeof item.text === 'string' ? item.text.trim() : '';
   if (!target) return { port: 'out', output: { applied: false, reason: '번역이 비어 있습니다.' } };
@@ -265,4 +266,12 @@ function runTerm(context: Context, item: Item): FunctionResult {
   return { port: 'out', candidate: target, output: { applied: true } };
 }
 
-export const applyFunctions = Object.fromEntries(APPLY_FUNCTION_NAMES.map((fn) => [fn, (tx: Tx, raw: unknown, input: FunctionInput) => run(fn, tx, raw, input)])) as Record<ApplyFunctionName, (tx: Tx, raw: unknown, input: FunctionInput) => FunctionResult>;
+/** How each item-writing target writes each kind of item; null where the item has no such thing (functionTakes keeps those nodes out of the workflow). */
+const ITEM_WRITERS: Record<ItemWriterName, Record<Subject, ((context: Context, item: Item) => FunctionResult) | null>> = {
+  saveCandidate: { lines: saveLineTranslation, terms: saveTermForm },
+  setListener: { lines: saveLineListener, terms: null },
+};
+const isItemWriter = (fn: ApplyFunctionName): fn is ItemWriterName => fn in ITEM_WRITERS;
+
+/** The save nodes as instant functions, one per apply target. */
+export const applyFunctions = Object.fromEntries(APPLY_FUNCTION_NAMES.map((fn) => [fn, { instant: (tx: Tx, params: ApplyParams, input: FunctionInput) => run(fn, tx, params, input) }])) as Record<ApplyFunctionName, { instant: (tx: Tx, params: ApplyParams, input: FunctionInput) => FunctionResult }>;

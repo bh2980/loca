@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { and, desc, eq, isNull, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import * as ai from '@tw/ai';
-import { CALL_TIMEOUT_MS, CONNECTION_KIND_INFO, connectionInputSchema, patchOf } from '@tw/shared';
+import { CALL_TIMEOUT_MS, CONNECTION_KIND_INFO, connectionCan, connectionInputSchema, isConnectionKind, patchOf } from '@tw/shared';
 import type { Context } from 'hono';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
@@ -12,10 +12,8 @@ import { connectionRows } from '../services/connection-rows.ts';
 import { aiCallRows } from '../services/log-rows.ts';
 import { rowChangesOf } from '../db/row-changes.ts';
 import type { Db } from '../db/index.ts';
-import { choiceLabel, connectionRoute, liveChoice } from '../services/routes.ts';
+import { choiceLabel, connectionTarget, liveChoice } from '../services/model-target.ts';
 
-type CliKind = 'codex' | 'claude' | 'grok' | 'antigravity' | 'opencode';
-const isCli = (kind: string): kind is CliKind => CONNECTION_KIND_INFO[kind as keyof typeof CONNECTION_KIND_INFO]?.transport === 'cli';
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 /**
@@ -45,8 +43,9 @@ export const connectionRoutes = new Hono<Env>()
   // Where a CLI connection's executable resolves (for the form: found path and version, or not found).
   .post('/locate', validate('json', z.object({ kind: z.string(), executable: z.string().optional() })), async (c) => {
     const { kind, executable } = c.req.valid('json');
-    if (CONNECTION_KIND_INFO[kind as keyof typeof CONNECTION_KIND_INFO]?.transport !== 'cli') badRequest('CLI 연결이 아닙니다.');
-    return c.json(await ai.locateCli(kind as Parameters<typeof ai.locateCli>[0], executable));
+    const cli = isConnectionKind(kind) ? ai.providerOf(kind).cli : undefined;
+    if (!cli) return badRequest('CLI 연결이 아닙니다.');
+    return c.json(await cli.locate(executable));
   })
   .get('/', (c) => {
     const { db, secrets } = c.var.deps;
@@ -103,9 +102,9 @@ export const connectionRoutes = new Hono<Env>()
   })
   .post('/:id/probe', async (c) => {
     const { db, secrets } = c.var.deps;
-    const route = found(connectionRoute(db, scoped(c, c.req.param('id')).id, secrets), '연결');
+    const target = found(connectionTarget(db, scoped(c, c.req.param('id')).id, secrets), '연결');
     try {
-      return c.json({ ok: true as const, detail: await ai.probe(route) });
+      return c.json({ ok: true as const, detail: await ai.probe(target) });
     } catch (error) {
       return c.json({ ok: false as const, detail: message(error) });
     }
@@ -113,9 +112,9 @@ export const connectionRoutes = new Hono<Env>()
   .get('/:id/models', async (c) => {
     const { db, secrets } = c.var.deps;
     const id = scoped(c, c.req.param('id')).id;
-    const route = found(connectionRoute(db, id, secrets), '연결');
+    const target = found(connectionTarget(db, id, secrets), '연결');
     try {
-      const { models, limits: listed } = await ai.listModelCatalog(route);
+      const { models, limits: listed } = await ai.listModelCatalog(target);
       // What the list says about each model's limits is kept for "auto" budgets; a person's numbers stay.
       if (Object.keys(listed).length) {
         const current = db.select({ limits: s.connections.modelLimits }).from(s.connections).where(eq(s.connections.id, id)).get()?.limits ?? {};
@@ -133,22 +132,23 @@ export const connectionRoutes = new Hono<Env>()
   })
   .get('/:id/login', async (c) => {
     const { db, secrets } = c.var.deps;
-    const route = found(connectionRoute(db, scoped(c, c.req.param('id')).id, secrets), '연결');
-    if (!isCli(route.kind)) return c.json({ status: 'not-applicable' as const });
+    const target = found(connectionTarget(db, scoped(c, c.req.param('id')).id, secrets), '연결');
+    const cli = ai.providerOf(target.kind).cli;
+    if (!cli) return c.json({ status: 'not-applicable' as const });
     // The chat's own path: start the agent and open a session (no prompt, no model call), then stop it.
     try {
-      return c.json({ status: await ai.checkCliLogin(route.kind as ai.AcpKind, route.executable) });
+      return c.json({ status: await cli.loginStatus(target.executable) });
     } catch (error) {
       return c.json({ status: 'error' as const, detail: message(error) });
     }
   })
   .post('/:id/login', async (c) => {
     const { db, secrets } = c.var.deps;
-    const route = found(connectionRoute(db, scoped(c, c.req.param('id')).id, secrets), '연결');
-    if (!isCli(route.kind)) badRequest('CLI 연결만 로그인 창을 열 수 있습니다.');
+    const target = found(connectionTarget(db, scoped(c, c.req.param('id')).id, secrets), '연결');
+    const cli = ai.providerOf(target.kind).cli;
+    if (!cli) return badRequest('CLI 연결만 로그인 창을 열 수 있습니다.');
     try {
-      await ai.openLoginTerminal(route.kind as CliKind, route.executable);
-      return c.json({ ok: true as const, command: [route.executable || route.kind, ...ai.LOGIN_COMMANDS[route.kind as CliKind]].join(' ') });
+      return c.json({ ok: true as const, command: await cli.openLogin(target.executable) });
     } catch (error) {
       return c.json({ ok: false as const, detail: message(error) });
     }
@@ -173,15 +173,18 @@ export const modelTestRoutes = new Hono<Env>()
     const connection = found(db.select().from(s.connections).where(eq(s.connections.id, choice.connectionId)).get(), '연결');
     const started = Date.now();
     try {
-      const judge = connection.kind === 'systemone';
-      const live = liveChoice(db, choice, secrets, judge ? 'judge' : 'generate');
+      // A connection that does not write is tested with what it does: one judgment.
+      const writes = connectionCan(connection.kind, 'generate');
+      const live = liveChoice(db, choice, secrets, writes ? 'generate' : 'judge');
       const call = { projectId: null, kind: 'test' as const, refId: connection.id, label: `모델 시험 · ${choiceLabel(connection.name, choice)}` };
-      const { route } = live;
+      const { target } = live;
       const result = await ai.callOnce(() =>
-        logged(db, call, route, () => route.kind === 'systemone'
-          ? ai.judge(route, { state: { source }, instructions: 'Is this text well-formed?', timeoutMs: CALL_TIMEOUT_MS.connectionTest }).then((judged) => ({ text: judged.passed ? 'pass' : 'fail', usage: judged.usage }))
+        logged(db, call, target, () => !writes
+          ? ai
+              .ask(target, { state: { source }, questions: { verdict: { type: 'choice', instructions: 'Is this text well-formed?', criteria: { pass: 'The text is well-formed.', fail: 'The text has a problem.' } } }, timeoutMs: CALL_TIMEOUT_MS.connectionTest })
+              .then((judged) => ({ text: judged.answers.verdict?.type === 'choice' ? judged.answers.verdict.choice : '', usage: judged.usage }))
           : ai
-              .generate(route, {
+              .generate(target, {
                 // `count` makes the answer a few hundred tokens long, so the call tells the model's output speed (the run estimate's time, request-speed.ts).
                 system: `Translate the text into ${targetLanguage}. Also put the numbers from 1 to 150, separated by spaces, in "count".`,
                 prompt: source,
@@ -192,7 +195,7 @@ export const modelTestRoutes = new Hono<Env>()
               .then((generated) => ({ text: generated.object.text, usage: generated.usage })),
         ),
       );
-      return c.json({ ok: true as const, text: result.text, model: route.model, ms: Date.now() - started });
+      return c.json({ ok: true as const, text: result.text, model: target.model, ms: Date.now() - started });
     } catch (error) {
       return c.json({ ok: false as const, detail: message(error), ms: Date.now() - started });
     }

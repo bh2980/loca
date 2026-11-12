@@ -6,7 +6,7 @@ import { Link, useNavigate } from '@tanstack/react-router';
 import { Play } from 'lucide-react';
 import { Box, ExpandableRow, Heading, Inline, ReadinessDot, Button, Checkbox, Label, RadioGroup, RadioGroupItem, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Skeleton, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue, Spinner, StatusIcon, SectionHeading, Text, Bleed, KeyValue, KeyValueRow } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
-import { INPUT_TYPES, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, TERM_MARK_IDS, WORKFLOW_SUBJECT_IDS, LINE_MARK_IDS, type AutoMark, type LineMark, type RunScopeInput, AUTO_MARK_IDS } from '@tw/shared';
+import { INPUT_TYPES, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, TERM_MARK_IDS, SUBJECTS, LINE_MARK_IDS, type AutoMark, type LineMark, type RunScopeInput, AUTO_MARK_IDS, type Subject, bySubject, type TagScope } from '@tw/shared';
 import { MarkChip } from '@/components/status';
 import { lineScopeSections, ScopePicker, toggled, type PickSection } from '@/components/scope-picker';
 import type { ModelValue } from '@/components/model-picker';
@@ -44,7 +44,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   groupIds?: string[];
   unitIds?: string[];
   /** What the page holds: a workflow of this input is picked first, and the page's lines or `termIds` are its scope. The picked workflow's input decides the scope fields. */
-  subject?: 'lines' | 'terms';
+  subject?: Subject;
   termIds?: string[];
   /** What the named lines are, when they are not simply picked ('이번 길 번역 안 한 줄'); the scope button reads it with the count. */
   unitsLabel?: string;
@@ -118,9 +118,10 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   const workflow = workflows.data?.find((item) => item.id === workflowId);
   // What the run takes is the workflow's input (its entry node); the scope fields below follow it.
   const subject = workflow?.input ?? givenSubject;
-  const terms = subject === 'terms';
-  const tags = tagsIn(taxonomy.tags, terms ? 'terms' : 'lines');
-  const unit = terms ? '개' : '줄';
+  // The dialog has two forms, by what the input's scope picks with (INPUT_TYPES[subject].scope): the line filter, or the terms pick.
+  const terms = bySubject(subject, { lines: false, terms: true });
+  const tags = tagsIn(taxonomy.tags, bySubject<TagScope>(subject, { lines: 'lines', terms: 'terms' }));
+  const unit = INPUT_TYPES[subject].unit;
   const groups = useGroups(projectId, { enabled: open });
   const here = groupIds?.length ? groups.data?.filter((group) => groupIds.includes(group.id)) : undefined;
 
@@ -337,7 +338,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
                 <SelectValue placeholder="워크플로 선택" />
               </SelectTrigger></Box>
               <SelectContent>
-                {WORKFLOW_SUBJECT_IDS.map((input) => {
+                {SUBJECTS.map((input) => {
                   const rows = pickable?.filter((item) => item.input === input) ?? [];
                   return rows.length ? (
                     <SelectGroup key={input}>

@@ -10,7 +10,7 @@ import { Runner, type ModelPort } from '../engine/runner.ts';
 import { createRun } from '../engine/run-create.ts';
 import { importProject } from './importer.ts';
 import { preflight } from './preflight.ts';
-import { snapshotWorkflowModels } from './routes.ts';
+import { snapshotWorkflowModels } from './model-target.ts';
 import { memoryStore } from './secrets.ts';
 
 /** Translates everything; review passes all but every tenth line once. */
@@ -20,7 +20,7 @@ function model(): ModelPort {
     ask: async () => {
       throw new Error('unused');
     },
-    generate: async (_route, request) => {
+    generate: async (_target, request) => {
       const lines = promptEntries(request.prompt);
       if (request.system.includes('Review each'))
         return {

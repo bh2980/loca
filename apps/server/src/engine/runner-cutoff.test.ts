@@ -5,7 +5,7 @@ import { importFileSchema, translationTemplate, type BatchConfig } from '@tw/sha
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
-import { snapshotWorkflowModels } from '../services/routes.ts';
+import { snapshotWorkflowModels } from '../services/model-target.ts';
 import { memoryStore } from '../services/secrets.ts';
 import { promptEntries } from './prompts.ts';
 import { Runner, type ModelPort } from './runner.ts';
@@ -56,7 +56,7 @@ function model(fail: (n: number, size: number) => Error | null) {
     ask: async () => {
       throw new Error('unused');
     },
-    generate: async (_route, request) => {
+    generate: async (_target, request) => {
       const lines = promptEntries(request.prompt) as { id: string; source: string }[];
       if (request.system.includes('Review each')) return { object: { results: lines.map((line) => ({ id: line.id, passed: true, issues: [] })) }, usage: {} } as never;
       requests.push(lines.map((line) => line.source));

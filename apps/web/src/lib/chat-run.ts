@@ -1,10 +1,10 @@
 import type { UIMessage } from 'ai';
-import { isRunRecord, runCardMessage, type RunCard, type RunCardPlan } from '@tw/shared';
+import { isRunRecord, runCardMessage, type RunCard, type RunCardPlan, type Subject, INPUT_TYPES } from '@tw/shared';
 import { paceParts } from './run-summary';
 
 /** The card's numbers in words: how many lines (or terms), requests, time and cost, as they were when the card was made. */
-export function cardSummary(input: 'lines' | 'terms', plan: RunCardPlan) {
-  const unit = input === 'terms' ? '개' : '줄';
+export function cardSummary(input: Subject, plan: RunCardPlan) {
+  const unit = INPUT_TYPES[input].unit;
   const { callText, time, money } = paceParts(plan);
   return { targets: `${plan.lines.total.toLocaleString()}${unit}`, empty: plan.lines.total === 0, excluded: plan.lines.excluded, requests: callText, time, money };
 }

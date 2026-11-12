@@ -5,6 +5,7 @@ import * as s from '../db/schema.ts';
 import type { ItemData, ItemState } from '../db/schema.ts';
 import type { Outcome } from './ai-output.ts';
 import { applyExitActions } from './exit-actions.ts';
+import { subjectOf } from './subjects.ts';
 
 export type Run = typeof s.runs.$inferSelect;
 export type Item = typeof s.runItems.$inferSelect;
@@ -111,7 +112,7 @@ export function route(tx: Tx, run: Run, item: Item, port: string, error?: string
   const actions = exitActions(nodeOf(run, item.nodeId), port);
   if (actions.length) {
     try {
-      const notes = applyExitActions(tx, run, item, item.nodeId, port, actions);
+      const notes = applyExitActions(tx, run, item, item.nodeId, port, actions, subjectOf(run.subject).exitActions);
       if (notes.length) item = { ...item, data: { ...item.data, exitNotes: [...(item.data.exitNotes ?? []), ...notes.map((note) => ({ at: `${item.nodeId}:${port}`, note }))].slice(-50) } };
     } catch (cause) {
       const node = nodeOf(run, item.nodeId);

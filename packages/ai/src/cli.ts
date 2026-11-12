@@ -3,12 +3,10 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { execa, ExecaError, type Options } from 'execa';
 import { z } from 'zod';
-import type { ConnectionKind } from '@tw/shared';
+import type { CliKind } from '@tw/shared';
 import { cliSpawn, resolveCli } from './spawn.ts';
 import { failureInText, keepOutput, ModelError, withOutput } from './errors.ts';
-import { addUsage, readUsage, type GenerateRequest, type GenerateResult, type ModelLimitsInfo, type ResolvedRoute, type Usage } from './types.ts';
-
-type CliKind = Extract<ConnectionKind, 'codex' | 'claude' | 'grok' | 'antigravity' | 'opencode'>;
+import { addUsage, readUsage, type GenerateRequest, type GenerateResult, type ModelLimitsInfo, type ModelTarget, type Usage } from './types.ts';
 
 const COMMAND: Record<CliKind, string> = { codex: 'codex', claude: 'claude', grok: 'grok', antigravity: 'agy', opencode: 'opencode' };
 
@@ -63,12 +61,12 @@ export function codexIsolationArgs(instructionsFile: string): string[] {
   ];
 }
 
-function args(kind: CliKind, route: ResolvedRoute, schema: object, files: Files, timeoutMs: number): string[] {
-  const effort = route.effort;
+function args(kind: CliKind, target: ModelTarget, schema: object, files: Files, timeoutMs: number): string[] {
+  const effort = target.effort;
   switch (kind) {
     case 'codex':
       return [
-        'exec', '--model', route.model, '--sandbox', 'read-only', '--skip-git-repo-check', '--ephemeral',
+        'exec', '--model', target.model, '--sandbox', 'read-only', '--skip-git-repo-check', '--ephemeral',
         '--ignore-user-config', '--color', 'never', '--json', '--cd', files.dir,
         '--output-schema', files.schema, '--output-last-message', files.result,
         ...codexIsolationArgs(files.instructions),
@@ -77,7 +75,7 @@ function args(kind: CliKind, route: ResolvedRoute, schema: object, files: Files,
       ];
     case 'claude':
       return [
-        '--print', '--safe-mode', '--model', route.model, '--json-schema', JSON.stringify(schema),
+        '--print', '--safe-mode', '--model', target.model, '--json-schema', JSON.stringify(schema),
         // --tools '' removes the built-in tools; a blanket --disallowedTools would also block the
         // structured-output tool that --json-schema answers through.
         '--output-format', 'json', '--input-format', 'text', '--no-session-persistence', '--max-turns', '1',
@@ -87,7 +85,7 @@ function args(kind: CliKind, route: ResolvedRoute, schema: object, files: Files,
       ];
     case 'grok':
       return [
-        '--prompt-file', files.prompt, '--model', route.model, '--json-schema', JSON.stringify(schema),
+        '--prompt-file', files.prompt, '--model', target.model, '--json-schema', JSON.stringify(schema),
         '--output-format', 'json', '--cwd', files.dir, '--max-turns', '1', '--no-subagents',
         '--disable-web-search', '--tools', '', '--deny', '*', '--permission-mode', 'dontAsk',
         ...(effort ? ['--reasoning-effort', effort] : []),
@@ -96,14 +94,14 @@ function args(kind: CliKind, route: ResolvedRoute, schema: object, files: Files,
       // agy 1.3: --print takes the prompt as its value, so the prompt goes in on stdin as one
       // stream-json message instead (no command-line length limit on Windows).
       return [
-        '--print=', '--input-format', 'stream-json', '--output-format', 'stream-json', '--model', route.model,
+        '--print=', '--input-format', 'stream-json', '--output-format', 'stream-json', '--model', target.model,
         '--json-schema', files.schema, '--sandbox', '--disable-slash-commands', '--print-timeout', `${Math.ceil(timeoutMs / 1000)}s`,
         ...(effort ? ['--effort', effort] : []),
       ];
     case 'opencode':
       // One non-interactive turn with the read-only plan agent in an empty folder; the prompt
       // comes on stdin. opencode has no schema flag, so the schema is in the prompt (cliGenerate).
-      return ['run', '--format', 'json', '--model', route.model, '--agent', 'plan'];
+      return ['run', '--format', 'json', '--model', target.model, '--agent', 'plan'];
   }
 }
 
@@ -254,8 +252,8 @@ const hasFinalEvent = (kind: CliKind, stdout: string) => {
   });
 };
 
-export async function cliGenerate<T>(route: ResolvedRoute, request: GenerateRequest<T>, tempRoot = tmpdir()): Promise<GenerateResult<T>> {
-  const kind = route.kind as CliKind;
+export async function cliGenerate<T>(target: ModelTarget, request: GenerateRequest<T>, tempRoot = tmpdir()): Promise<GenerateResult<T>> {
+  const kind = target.kind as CliKind;
   const schema = z.toJSONSchema(request.schema, { target: 'draft-7' });
   const dir = await mkdtemp(path.join(tempRoot, 'tw-call-'));
   const files: Files = { dir, schema: path.join(dir, 'schema.json'), prompt: path.join(dir, 'prompt.txt'), result: path.join(dir, 'result.json'), instructions: path.join(dir, 'instructions.md') };
@@ -268,7 +266,7 @@ export async function cliGenerate<T>(route: ResolvedRoute, request: GenerateRequ
   let ending: NodeJS.Timeout | undefined;
   try {
     await Promise.all([writeFile(files.schema, JSON.stringify(schema)), writeFile(files.prompt, prompt), ...(kind === 'codex' ? [writeFile(files.instructions, instructions)] : [])]);
-    const subprocess = execaCli(cliCommand(kind, route.executable), args(kind, route, schema, files, request.timeoutMs), {
+    const subprocess = execaCli(cliCommand(kind, target.executable), args(kind, target, schema, files, request.timeoutMs), {
       cwd: dir,
       input: kind === 'grok' ? undefined : kind === 'antigravity' ? `${JSON.stringify({ event: 'user', message: { role: 'user', content: prompt } })}\n` : prompt,
       timeout: request.timeoutMs,
@@ -306,7 +304,7 @@ export async function cliGenerate<T>(route: ResolvedRoute, request: GenerateRequ
         }
       }
       if (error.timedOut) throw new ModelError('timeout', 'CLI 호출이 제한 시간을 초과했습니다.');
-      if (error.code === 'ENOENT') throw new ModelError('config', cliMissing(cliCommand(kind, route.executable)), false);
+      if (error.code === 'ENOENT') throw new ModelError('config', cliMissing(cliCommand(kind, target.executable)), false);
       // A CLI that exits non-zero often still printed its envelope on stdout: its own error, and usage.
       const stdout = (error.stdout ?? '').toString();
       const stderr = (error.stderr ?? '').toString();
@@ -367,8 +365,6 @@ const MODEL_LIST: Partial<Record<CliKind, (stdout: string) => string[]>> = {
       .map((line) => line.split('\t')[0].trim())
       .filter(Boolean),
 };
-
-export const cliListsModels = (kind: CliKind) => kind in MODEL_LIST || kind === 'claude';
 
 const positive = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined);
 const limitsOrNone = (contextWindow: unknown, maxOutput?: unknown): ModelLimitsInfo | undefined => {

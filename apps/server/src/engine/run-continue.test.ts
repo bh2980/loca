@@ -4,7 +4,7 @@ import { importFileSchema, type AiNode } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
-import { snapshotWorkflowModels } from '../services/routes.ts';
+import { snapshotWorkflowModels } from '../services/model-target.ts';
 import { continuePreflight, continueRun, switchedRun } from '../services/run-continue.ts';
 import { memoryStore } from '../services/secrets.ts';
 import { promptEntries } from './prompts.ts';
@@ -35,8 +35,8 @@ const port: ModelPort = {
   ask: async () => {
     throw new Error('unused');
   },
-  generate: async (route, request) => {
-    if ((route as { model: string }).model === 'bad') throw Object.assign(new Error('bad model'), { statusCode: 400 });
+  generate: async (target, request) => {
+    if ((target as { model: string }).model === 'bad') throw Object.assign(new Error('bad model'), { statusCode: 400 });
     const lines = promptEntries(request.prompt) as { id: string }[];
     const usage = { inputTokens: 10, outputTokens: 5 };
     if (request.system.includes('Review each')) return { object: { results: lines.map((line) => ({ id: line.id, passed: true, issues: [] })) }, usage } as never;

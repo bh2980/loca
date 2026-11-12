@@ -5,7 +5,7 @@ import { importFileSchema, translationTemplate, DEFAULT_RETRY_RULES, type BatchC
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
-import { snapshotWorkflowModels } from '../services/routes.ts';
+import { snapshotWorkflowModels } from '../services/model-target.ts';
 import { memoryStore } from '../services/secrets.ts';
 import { promptEntries } from './prompts.ts';
 import { Runner, type ModelPort } from './runner.ts';
@@ -77,10 +77,10 @@ function model(fail: (n: number, lines: string[]) => Error | null) {
     ask: async () => {
       throw new Error('unused');
     },
-    generate: async (route, request) => {
+    generate: async (target, request) => {
       const lines = promptEntries(request.prompt) as { id: string; source: string }[];
       if (request.system.includes('Review each')) return { object: { results: lines.map((line) => ({ id: line.id, passed: true, issues: [] })) }, usage: {} } as never;
-      requests.push({ lines: lines.map((line) => line.source), model: route.model });
+      requests.push({ lines: lines.map((line) => line.source), model: target.model });
       const error = fail(requests.length, lines.map((line) => line.source));
       if (error) throw error;
       return { object: { results: lines.map((line) => ({ id: line.id, text: `[ko] ${line.source}` })) }, usage: {} } as never;
@@ -291,7 +291,7 @@ describe('a retry rule with another model', () => {
     const run = runOf(db, runId);
     const definition = { ...run.definition, settings: { ...run.definition.settings, retries: run.definition.settings.retries.map((rule, index) => (index === 1 ? { ...rule, wait: 0, model: { connectionId: choice.connectionId, model: 'm2', effort: 'low' } } : rule)) } };
     db.update(s.runs).set({ definition, models: snapshotWorkflowModels(db, definition) }).where(eq(s.runs.id, runId)).run();
-    expect(Object.values(runOf(db, runId).models).map((snapshot) => snapshot.route.model).sort()).toEqual(['m', 'm2']);
+    expect(Object.values(runOf(db, runId).models).map((snapshot) => snapshot.target.model).sort()).toEqual(['m', 'm2']);
 
     // L0-L3 are rate-limited (→ m2, as they were), L4-L7 are cut off (→ halved, on m).
     const fake = model((n, lines) => (n === 1 ? RATE_LIMIT() : lines.length === 4 && lines[0] === 'S0 L4' ? CUT_OFF() : null));

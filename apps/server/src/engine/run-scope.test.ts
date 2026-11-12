@@ -7,7 +7,7 @@ import { translateOnlyWorkflow } from './test-workflows.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
 import { translatableSql } from '../services/line-marks.ts';
-import { selectRunUnits } from './run-create.ts';
+import { selectRunUnits } from './subjects.ts';
 
 /** The project's lines for translation (not 번역 제외). */
 const translatable = (db: ReturnType<typeof openDatabase>, projectId: string) =>

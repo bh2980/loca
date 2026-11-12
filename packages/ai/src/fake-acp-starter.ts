@@ -1,11 +1,12 @@
 import { EventEmitter } from 'node:events';
 import type * as acp from '@agentclientprotocol/sdk';
-import { AcpAgent, type AcpKind } from './acp.ts';
+import type { CliKind } from '@tw/shared';
+import { AcpAgent } from './acp.ts';
 import { fakeAgent } from './fake-acp.ts';
 
 /** Starts fake agents in this process (two message pipes instead of stdio), for setAgentStarter in tests. */
 export function inProcessStarter(env: Record<string, string | undefined> = {}) {
-  return async (kind: AcpKind, _executable?: string) => {
+  return async (kind: CliKind, _executable?: string) => {
     const toAgent = new TransformStream<acp.AnyMessage, acp.AnyMessage>();
     const toClient = new TransformStream<acp.AnyMessage, acp.AnyMessage>();
     fakeAgent({ writable: toClient.writable, readable: toAgent.readable }, env);

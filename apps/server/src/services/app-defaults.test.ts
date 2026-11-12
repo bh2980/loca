@@ -153,7 +153,7 @@ describe('credential copies', () => {
   });
 
   it('keeps a failed copy pending and refuses the old key until the keyring recovers', async () => {
-    const { connectionRoute } = await import('./routes.ts');
+    const { connectionTarget } = await import('./model-target.ts');
     const { db, secrets, home } = setup();
     const { projectId } = importProject(db, file(), undefined, secrets);
     const [copy] = connectionsOf(db, projectId);
@@ -162,8 +162,8 @@ describe('credential copies', () => {
     const broken = { ...secrets, delete: () => { throw new Error('keyring locked'); } };
     expect(() => pullDefaults(db, projectId, ['connections'], broken)).toThrow('keyring locked');
     expect(db.select().from(s.connectionKeyCopies).all()).toEqual([{ sourceId: home.id, targetId: copy.id }]);
-    expect(() => connectionRoute(db, copy.id, broken)).toThrow('keyring locked');
-    expect(connectionRoute(db, copy.id, secrets)).toMatchObject({ baseUrl: 'https://new.invalid/v1', apiKey: undefined });
+    expect(() => connectionTarget(db, copy.id, broken)).toThrow('keyring locked');
+    expect(connectionTarget(db, copy.id, secrets)).toMatchObject({ baseUrl: 'https://new.invalid/v1', apiKey: undefined });
     expect(db.select().from(s.connectionKeyCopies).all()).toEqual([]);
     db.$client.close();
   });

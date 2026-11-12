@@ -10,6 +10,7 @@ import { useReportView } from '@/lib/view-context';
 import { dateTime, clock } from '@/lib/datetime';
 import { useRuns } from '@/lib/runs';
 import { useJobCalls } from '@/lib/logs';
+import { INPUT_TYPES } from '@tw/shared';
 
 interface RunsSearch {
   /** The run or job whose AI requests the right-hand pane shows. */
@@ -124,7 +125,7 @@ function Runs() {
             status: run.status,
             // Why it paused, or why it was closed before it could start.
             error: run.status === 'paused' || run.status === 'cancelled' ? run.notice : null,
-            progress: { done: (run.states.done ?? 0) + (run.states.failed ?? 0) + (run.states.cancelled ?? 0), total: run.total, unit: run.subject === 'terms' ? '개' : '줄' },
+            progress: { done: (run.states.done ?? 0) + (run.states.failed ?? 0) + (run.states.cancelled ?? 0), total: run.total, unit: INPUT_TYPES[run.subject].unit },
             stats: run.calls,
             at: new Date(run.createdAt),
             workflowId: run.workflowId,

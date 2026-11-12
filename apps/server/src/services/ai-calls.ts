@@ -43,11 +43,11 @@ export function learnImages(db: Db, connectionId: string | undefined, model: str
   events.changed(undefined, 'connections');
 }
 
-/** Starts a log row for a request going out to `route`; finish it with the returned function. */
-export function startCall(db: Db, meta: CallMeta, route: Pick<ai.ResolvedRoute, 'kind' | 'model' | 'connectionId'>) {
+/** Starts a log row for a request going out to `target`; finish it with the returned function. */
+export function startCall(db: Db, meta: CallMeta, target: Pick<ai.ModelTarget, 'kind' | 'model' | 'connectionId'>) {
   const id = crypto.randomUUID();
   db.insert(s.aiCalls)
-    .values({ id, projectId: meta.projectId, kind: meta.kind, refId: meta.refId ?? null, label: meta.label, connectionId: route.connectionId ?? null, connectionKind: route.kind, model: route.model, request: meta.request ?? null, startedAt: new Date() })
+    .values({ id, projectId: meta.projectId, kind: meta.kind, refId: meta.refId ?? null, label: meta.label, connectionId: target.connectionId ?? null, connectionKind: target.kind, model: target.model, request: meta.request ?? null, startedAt: new Date() })
     .run();
   // A chat's panel shows its turn's current step (see GET /chat/:sessionId).
   const topics = meta.kind === 'chat' ? (['calls', 'chat'] as const) : (['calls'] as const);
@@ -63,13 +63,13 @@ export function startCall(db: Db, meta: CallMeta, route: Pick<ai.ResolvedRoute, 
       .where(eq(s.aiCalls.id, id))
       .run();
     events.changed(meta.projectId ?? undefined, ...topics);
-    learnLimits(db, route.connectionId, route.model, outcome.usage?.limits);
+    learnLimits(db, target.connectionId, target.model, outcome.usage?.limits);
   };
 }
 
-/** One logged model request: `call` is the request itself (one attempt on one route). */
-export async function logged<T extends { usage?: ai.Usage }>(db: Db, meta: CallMeta, route: Pick<ai.ResolvedRoute, 'kind' | 'model' | 'connectionId'>, call: () => Promise<T>): Promise<T> {
-  const finish = startCall(db, meta, route);
+/** One logged model request: `call` is the request itself (one attempt on one target). */
+export async function logged<T extends { usage?: ai.Usage }>(db: Db, meta: CallMeta, target: Pick<ai.ModelTarget, 'kind' | 'model' | 'connectionId'>, call: () => Promise<T>): Promise<T> {
+  const finish = startCall(db, meta, target);
   try {
     const result = await call();
     finish({ usage: result.usage });

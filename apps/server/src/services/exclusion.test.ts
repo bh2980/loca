@@ -3,7 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import { DEFAULT_FORMAT_RULES, exclusionReason, importFileSchema, lineExclusion, workflowDefinitionSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { excludedInScope, selectRunUnits } from '../engine/run-create.ts';
+import { excludedInScope, selectRunUnits } from '../engine/subjects.ts';
 import { importProject } from './importer.ts';
 import { excludedSql, lineFactConditions } from './line-marks.ts';
 import { findLines } from './script-query.ts';

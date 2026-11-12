@@ -5,11 +5,12 @@ import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
 import { issueTagIds } from '../services/issue-tags.ts';
-import { snapshotWorkflowModels } from '../services/routes.ts';
+import { snapshotWorkflowModels } from '../services/model-target.ts';
 import { runProgress } from '../services/run-detail.ts';
 import { memoryStore } from '../services/secrets.ts';
 import { HUMAN_OWNED_NOTE } from './apply-candidate.ts';
 import { applyExitActions, HUMAN_STATUS_NOTE } from './exit-actions.ts';
+import { subjectOf } from './subjects.ts';
 import { createRun } from './run-create.ts';
 import { Runner, type ModelPort } from './runner.ts';
 
@@ -258,9 +259,9 @@ describe('exit actions in a run', () => {
 /** applyExitActions on one line, as the runner calls it: the result of the AI node `ai` before the exit `ai:out`. */
 function applyTo(ctx: Ctx, actions: ExitAction[], output: Record<string, unknown> | undefined, key = 'a1') {
   const definition = flow({ ai: { type: 'ai', position: at, config: { model: ctx.choice, instructions: 'x' } } }, ['entry -> ai', 'ai -> end']);
-  const run = { id: 'r', projectId: ctx.projectId, subject: 'lines' as const, scope: {}, tags: [], definition };
+  const run = { id: 'r', projectId: ctx.projectId, scope: {}, tags: [], definition };
   const item = { subjectId: unitOf(ctx, key).id, data: { path: [{ nodeId: 'entry', port: 'out', at: 0 }], outputs: (output ? { ai: output } : {}) as Record<string, Record<string, unknown>> } };
-  return ctx.db.transaction((tx) => applyExitActions(tx, run, item, 'ai', 'out', actions));
+  return ctx.db.transaction((tx) => applyExitActions(tx, run, item, 'ai', 'out', actions, subjectOf('lines').exitActions));
 }
 const customTags = (ctx: Ctx) => ctx.db.select().from(s.tags).all().filter((entry) => !Object.values(ISSUE_KINDS).some((kind) => kind.name === entry.name));
 

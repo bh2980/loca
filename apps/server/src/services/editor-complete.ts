@@ -4,7 +4,7 @@ import { compileFormatRules, editorAiSchema, glossaryMatcher, SPEECH_LEVEL_LABEL
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { logged } from './ai-calls.ts';
-import { liveChoice } from './routes.ts';
+import { liveChoice } from './model-target.ts';
 import type { SecretStore } from './secrets.ts';
 import { speechRuleIndex } from './speech.ts';
 
@@ -45,10 +45,13 @@ export async function completeLine(db: Db, secrets: SecretStore, unitId: string,
     midnight.setHours(24, 0, 0, 0);
     throw new CompleteRefused(`오늘 자동완성 한도(${settings.dailyCap}회)를 다 썼습니다.`, 429, Math.ceil((midnight.getTime() - Date.now()) / 1000));
   }
-  const { route: chosen } = liveChoice(db, settings.model, secrets, 'generate');
-  // The effort is the person's choice: "모델 기본값" sends none (a slow thinking model: pick low).
-  const route: ai.ResolvedRoute = chosen;
-  if (route.kind !== 'openai') throw new CompleteRefused('편집기 자동완성은 API 연결(OpenAI 호환)만 쓸 수 있습니다.', 400);
+  let target: ai.ModelTarget;
+  try {
+    ({ target } = liveChoice(db, settings.model, secrets, 'complete'));
+  } catch (error) {
+    // A connection that is gone, or one too slow to follow typing (a CLI, a judgment connection).
+    throw new CompleteRefused(error instanceof Error ? error.message : String(error), 400);
+  }
 
   const before = db
     .select({ speaker: s.units.speaker, source: s.units.source, translation: s.units.translation })
@@ -80,11 +83,11 @@ export async function completeLine(db: Db, secrets: SecretStore, unitId: string,
     prefix ? `Started by the translator:\n<started>${prefix}</started>` : 'The translator has not started this line.',
   ].join('\n');
 
-  const call = (target: ai.ResolvedRoute) =>
+  const call = (target: ai.ModelTarget) =>
     logged(db, { projectId: unit.projectId, kind: 'editor', refId: unitId, label: COMPLETE_LABEL, request: prompt }, target, () =>
       ai.complete(target, { system: settings.instructions, prompt, maxOutputTokens: 400, timeoutMs: settings.timeoutSeconds * 1000, signal }),
     );
-  const result = await call(route).catch((error: unknown) => {
+  const result = await call(target).catch((error: unknown) => {
     if (error instanceof ai.ModelError && error.code === 'rate-limit') throw new CompleteRefused('모델 요청 한도에 걸렸습니다. 잠시 뒤 다시.', 429, 60);
     if (error instanceof ai.ModelError && error.code === 'timeout') throw new CompleteRefused(`응답이 ${settings.timeoutSeconds}초 안에 오지 않아 그만뒀습니다. 더 빠른 모델을 고르거나 설정 › 에디터에서 제한 시간을 늘리세요.`, 400);
     throw error;

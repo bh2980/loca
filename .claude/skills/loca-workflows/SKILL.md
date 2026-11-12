@@ -72,6 +72,7 @@ loca workflows reference <프리셋 id>       # 그 프리셋의 지시문·출�
    loca workflows save "$W/wf.json"         # id가 있으면 그 워크플로를 바꾸고, 없으면 새로 만드는 제안
    ```
    실행 중이거나 멈춘 실행이 있는 워크플로는 바꿀 수 없습니다. 수락 뒤 `loca workflows show <워크플로>`로 검증 결과(오류 0)를 확인합니다.
+   함수 노드의 `config`는 `{fn, params}`이고 `params`는 그 함수의 설정 스키마(`loca workflows reference`의 functionNode.functions)를 따릅니다. 없는 함수 이름이나 형이 다른 값(예: `method: "DELETE"`, 숫자 칸에 글자)은 save가 입력 오류로 거절합니다. 빠진 칸은 기본값으로 채워지고, 아직 덜 채운 값(HTTP 주소 없음, 정규식 규칙의 패턴 없음·잘못된 정규식, 이름이 없거나 영문·숫자·_ 가 아닌 필드)은 저장은 되지만 검증 오류로 나와 실행할 수 없습니다.
 
 ## 시험해 보기 (저장 전에)
 ```

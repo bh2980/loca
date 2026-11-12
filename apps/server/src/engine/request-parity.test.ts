@@ -6,7 +6,7 @@ import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
 import { preflight } from '../services/preflight.ts';
 import { previewContext, previewRequest } from '../services/request-preview.ts';
-import { snapshotWorkflowModels } from '../services/routes.ts';
+import { snapshotWorkflowModels } from '../services/model-target.ts';
 import { memoryStore } from '../services/secrets.ts';
 import { createRun } from './run-create.ts';
 import { Runner, type ModelPort } from './runner.ts';
@@ -76,7 +76,7 @@ async function sentBy(db: Db, projectId: string, definition: ReturnType<typeof f
     ask: async () => {
       throw new Error('unused');
     },
-    generate: async (_route, request) => {
+    generate: async (_target, request) => {
       sent.push(`${request.system}\n\n${request.prompt}`);
       return { object: answer, usage: {} } as never;
     },

@@ -1,8 +1,8 @@
 /** Config of a function node: the function picked and its parameters (checks, saves, HTTP call, script). */
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Play, Plus, Trash2 } from 'lucide-react';
-import { APPLY_FUNCTION_NAMES, APPLY_TARGETS, fieldsFromSample, httpParams, nodeOutputFields, applyIssues, DEFAULT_PARTICLE_PATTERN, formatPatternError, FUNCTIONS, functionTakes, JSON_FIELD_TYPE_LABELS, nodeName, PALETTE_FUNCTION_NAMES, previousSteps, type ApplyField, type ApplyFunctionName, type ApplyParams, type CustomFormatRule, type JsonFieldType, type WorkflowDefinition, type FunctionName, type JsonField, type WorkflowNode } from '@tw/shared';
+import { APPLY_FUNCTION_NAMES, APPLY_TARGETS, FUNCTION_CONCURRENCY, FUNCTIONS, INPUT_TYPES, JSON_FIELD_TYPE_LABELS, DEFAULT_PARTICLE_PATTERN, applyIssues, connectionCan, customRuleIssue, fieldsFromSample, functionConfigSchema, functionTakes, nodeOutputFields, paletteFunctions, previousSteps, type ApplyField, type ApplyFunctionName, type FunctionConfig as FunctionConfigOf, type FunctionName, type FunctionParams, type JsonFieldType, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
 import { Box, Button, Inline, Input, NumberInput, InspectorActionRow, InspectorList, InspectorResult, InspectorToggle, Select, SelectContent, SelectField, SelectItem, SelectTrigger, SelectValue, Stack, Textarea, Text, ListItem, Field } from '@loca/ui';
 import { AiButton } from '@/components/ai-button';
 import { AiConfirmNote } from '@/components/settings/ai-confirm';
@@ -13,33 +13,23 @@ import { StepChips, ToggleRow, refsInput, type FunctionNode, type NodeRefs } fro
 
 // ── function node ─────────────────────────────────────────────────────
 
-export function FunctionConfig({ node, refs, readOnly, onChange }: { node: FunctionNode; refs: NodeRefs; readOnly?: boolean; onChange: (node: WorkflowNode) => void }) {
-  const fn = node.config.fn as FunctionName;
-  const info = FUNCTIONS[fn];
-  if (!info) return <Text as="p" variant="body" tone="danger">알 수 없는 함수입니다: {node.config.fn}</Text>;
-  // Show defaults for anything not set yet; only what the user touches is written back.
-  const parsed = info.params.safeParse(node.config.params);
-  const params = (parsed.success ? parsed.data : info.params.parse({})) as Record<string, unknown>;
-  const setMany = (patch: Record<string, unknown>) => onChange({ ...node, config: { ...node.config, params: { ...params, ...patch } } });
-  const set = (key: string, value: unknown) => setMany({ [key]: value });
-  const availableFns = PALETTE_FUNCTION_NAMES.includes(fn) ? PALETTE_FUNCTION_NAMES : [fn, ...PALETTE_FUNCTION_NAMES];
-  const input = refsInput(refs);
-  const switchable = (fn in APPLY_TARGETS ? APPLY_FUNCTION_NAMES : availableFns).filter((name) => name === fn || functionTakes(name, input));
+/** What a function's settings form gets: its own settings, typed by the function, and a setter that merges a change into them. */
+interface FormProps<F extends FunctionName> {
+  node: FunctionNode;
+  params: FunctionParams<F>;
+  set: (patch: Partial<FunctionParams<F>>) => void;
+  refs: NodeRefs;
+  readOnly?: boolean;
+}
 
-  const renderBody = () => {
-    switch (fn) {
-      case 'formatCheck':
-        return <FormatCheckConfig params={params} refs={refs} set={set} />;
-      case 'glossaryCheck':
-        return <InspectorResult tone="info">설정 항목이 없습니다.</InspectorResult>;
-      case 'http':
-        return <HttpConfig params={params} refs={refs} set={set} />;
-      case 'script':
-        return <ScriptConfig params={params} projectId={refs.projectId} readOnly={readOnly} set={set} />;
-      default:
-        return fn in APPLY_TARGETS ? <ApplyConfig node={node} fn={fn as ApplyFunctionName} params={params as ApplyParams} refs={refs} setMany={setMany} /> : null;
-    }
-  };
+export function FunctionConfig({ node, refs, readOnly, onChange }: { node: FunctionNode; refs: NodeRefs; readOnly?: boolean; onChange: (node: WorkflowNode) => void }) {
+  const { fn } = node.config;
+  const info = FUNCTIONS[fn];
+  const set = (patch: Partial<FunctionParams>) => onChange({ ...node, config: { ...node.config, params: { ...node.config.params, ...patch } } as FunctionConfigOf });
+  // A node can become another function of its own group that the workflow's input takes.
+  const input = refsInput(refs);
+  const switchable = paletteFunctions(info.group).filter((name) => name === fn || functionTakes(name, input));
+  const Form = FUNCTION_FORMS[fn] as (props: FormProps<FunctionName>) => ReactNode;
 
   return (
     <Box spaceY="normal">
@@ -47,28 +37,30 @@ export function FunctionConfig({ node, refs, readOnly, onChange }: { node: Funct
         <SelectField
           value={fn}
           onValueChange={(nextFn) => {
-            const keepLabel = node.label && node.label !== FUNCTIONS[fn]?.label ? node.label : undefined;
-            onChange({ ...node, label: keepLabel, config: { ...node.config, fn: nextFn, params: {} } });
+            const keepLabel = node.label && node.label !== info.label ? node.label : undefined;
+            // The new function starts from its own defaults: another function's settings mean nothing to it.
+            onChange({ ...node, label: keepLabel, config: functionConfigSchema.parse({ fn: nextFn, concurrency: node.config.concurrency }) });
           }}
         >
           {switchable.map((name) => (
             <SelectItem key={name} value={name}>
-              {FUNCTIONS[name]?.label ?? name}
+              {FUNCTIONS[name].label}
             </SelectItem>
           ))}
         </SelectField>
       </Field>
-      {renderBody()}
-      {info.async && (
-        <Field label="동시 처리 수" description="1~8개." help="이 노드가 동시에 보내는 호출 수입니다. 늘리면 빨라지지만, 받는 쪽이 요청 한도에 걸리기 쉽습니다.">
-          <Box asChild width="field"><NumberInput min={1} max={8} value={node.config.concurrency} onValueChange={(concurrency) => concurrency !== undefined && onChange({ ...node, config: { ...node.config, concurrency } })} /></Box>
+      <Form node={node} params={node.config.params} set={set} refs={refs} readOnly={readOnly} />
+      {info.callsOut && (
+        <Field label="동시 처리 수" description={`${FUNCTION_CONCURRENCY.min}~${FUNCTION_CONCURRENCY.max}개.`} help="이 노드가 동시에 보내는 호출 수입니다. 늘리면 빨라지지만, 받는 쪽이 요청 한도에 걸리기 쉽습니다.">
+          <Box asChild width="field"><NumberInput min={FUNCTION_CONCURRENCY.min} max={FUNCTION_CONCURRENCY.max} value={node.config.concurrency} onValueChange={(concurrency) => concurrency !== undefined && onChange({ ...node, config: { ...node.config, concurrency } })} /></Box>
         </Field>
       )}
     </Box>
   );
 }
 
-const CUSTOM_RULE_KIND_LABELS: Record<CustomFormatRule['kind'], string> = {
+type CustomRule = FunctionParams<'formatCheck'>['customRules'][number];
+const CUSTOM_RULE_KIND_LABELS: Record<CustomRule['kind'], string> = {
   forbidden: '금지',
   preserve: '보존',
   targetRequired: '필수',
@@ -82,36 +74,36 @@ const LENGTH_LIMITS = [
   { key: 'maxLengthRatio', label: '최대 길이 비율', step: 0.1 },
 ] as const;
 
-function FormatCheckConfig({ params, refs, set }: { params: Record<string, unknown>; refs: NodeRefs; set: (key: string, value: unknown) => void }) {
-  const customRules = (params.customRules as CustomFormatRule[] | undefined) ?? [];
-  const updateRule = (index: number, patch: Partial<CustomFormatRule>) => {
-    set('customRules', customRules.map((rule, i) => (i === index ? { ...rule, ...patch } : rule)));
+function FormatCheckConfig({ params, refs, set }: FormProps<'formatCheck'>) {
+  const { customRules } = params;
+  const updateRule = (index: number, patch: Partial<CustomRule>) => {
+    set({ customRules: customRules.map((rule, i) => (i === index ? { ...rule, ...patch } : rule)) });
   };
   const removeRule = (index: number) => {
-    set('customRules', customRules.filter((_, i) => i !== index));
+    set({ customRules: customRules.filter((_, i) => i !== index) });
   };
   const addRule = () => {
-    set('customRules', [...customRules, { label: '', kind: 'forbidden' as const, pattern: '[A-Za-z]{4,}' }]);
+    set({ customRules: [...customRules, { label: '', kind: 'forbidden' as const, pattern: '[A-Za-z]{4,}' }] });
   };
 
   return (
     <>
-      <InspectorToggle label="치환자 보존" help="원문의 {이름} 같은 치환자가 번역에 그대로 있어야 합니다." checked={params.placeholders as boolean} onChange={(value) => set('placeholders', value)} />
-      <InspectorToggle label="서식 태그 보존" help="원문의 서식 태그가 번역에 그대로 있어야 합니다." checked={params.tags as boolean} onChange={(value) => set('tags', value)} />
-      <InspectorToggle label="줄바꿈 수 일치" help="원문과 번역의 줄바꿈 수가 같아야 합니다." checked={params.newlines as boolean} onChange={(value) => set('newlines', value)} />
-      <InspectorToggle label="빈 번역 금지" help="번역이 비어 있으면 통과하지 못합니다." checked={params.emptyText as boolean} onChange={(value) => set('emptyText', value)} />
-      <InspectorToggle label="숫자 누락" help="원문의 숫자가 번역에 빠졌는지 봅니다." checked={Boolean(params.numbers)} onChange={(value) => set('numbers', value)} />
-      <InspectorToggle label="공백 불일치" help="앞뒤 공백이 원문과 다른지 봅니다." checked={Boolean(params.spaces)} onChange={(value) => set('spaces', value)} />
-      <InspectorToggle label="변수 뒤 조사" help="치환자 바로 뒤의 조사(이/가, 을/를 등)가 맞는지 봅니다." checked={Boolean(params.particles)} onChange={(value) => set('particles', value)} />
+      <InspectorToggle label="치환자 보존" help="원문의 {이름} 같은 치환자가 번역에 그대로 있어야 합니다." checked={params.placeholders} onChange={(value) => set({ placeholders: value })} />
+      <InspectorToggle label="서식 태그 보존" help="원문의 서식 태그가 번역에 그대로 있어야 합니다." checked={params.tags} onChange={(value) => set({ tags: value })} />
+      <InspectorToggle label="줄바꿈 수 일치" help="원문과 번역의 줄바꿈 수가 같아야 합니다." checked={params.newlines} onChange={(value) => set({ newlines: value })} />
+      <InspectorToggle label="빈 번역 금지" help="번역이 비어 있으면 통과하지 못합니다." checked={params.emptyText} onChange={(value) => set({ emptyText: value })} />
+      <InspectorToggle label="숫자 누락" help="원문의 숫자가 번역에 빠졌는지 봅니다." checked={params.numbers} onChange={(value) => set({ numbers: value })} />
+      <InspectorToggle label="공백 불일치" help="앞뒤 공백이 원문과 다른지 봅니다." checked={params.spaces} onChange={(value) => set({ spaces: value })} />
+      <InspectorToggle label="변수 뒤 조사" help="치환자 바로 뒤의 조사(이/가, 을/를 등)가 맞는지 봅니다." checked={params.particles} onChange={(value) => set({ particles: value })} />
 
-      {Boolean(params.particles) && (
+      {params.particles && (
         <Field label="조사 정규식" description="비우면 기본 패턴을 씁니다.">
           <Box asChild mono variant="caption">
             <Input
               placeholder={DEFAULT_PARTICLE_PATTERN}
-              value={(params.particlesPattern as string) ?? ''}
+              value={params.particlesPattern}
               spellCheck={false}
-              onChange={(event) => set('particlesPattern', event.target.value)}
+              onChange={(event) => set({ particlesPattern: event.target.value })}
             />
           </Box>
         </Field>
@@ -119,12 +111,12 @@ function FormatCheckConfig({ params, refs, set }: { params: Record<string, unkno
 
       {LENGTH_LIMITS.map(({ key, label, step }) => (
         <Field key={key} label={label} description="비우면 확인하지 않습니다.">
-          <NumberInput min={0} step={step} integer={step >= 1} optional placeholder="끔" value={(params[key] as number) || undefined} onValueChange={(next) => set(key, next ?? 0)} />
+          <NumberInput min={0} step={step} integer={step >= 1} optional placeholder="끔" value={params[key] || undefined} onValueChange={(next) => set({ [key]: next ?? 0 })} />
         </Field>
       ))}
 
       <Field label="금칙어" description="쉼표로 구분합니다." help="번역에 이 말이 들어 있으면 검사에 걸립니다.">
-        <Input value={(params.forbiddenWords as string) ?? ''} placeholder="예: 암튼, 대충" onChange={(event) => set('forbiddenWords', event.target.value)} />
+        <Input value={params.forbiddenWords} placeholder="예: 암튼, 대충" onChange={(event) => set({ forbiddenWords: event.target.value })} />
       </Field>
 
       <Field label="정규식 규칙" help="금지: 번역에 나오면 안 되는 패턴 · 보존: 원문에 있으면 번역에도 있어야 하는 패턴 · 필수: 번역에 꼭 있어야 하는 패턴">
@@ -134,7 +126,7 @@ function FormatCheckConfig({ params, refs, set }: { params: Record<string, unkno
             target="check"
             onRule={(rule) => {
               if (rule.kind === 'placeholder' || rule.kind === 'tag') return;
-              set('customRules', [...customRules, { label: rule.label, kind: rule.kind, pattern: rule.pattern }]);
+              set({ customRules: [...customRules, { label: rule.label, kind: rule.kind, pattern: rule.pattern }] });
             }}
           />
           {customRules.length === 0 ? (
@@ -142,17 +134,17 @@ function FormatCheckConfig({ params, refs, set }: { params: Record<string, unkno
           ) : (
             <InspectorList>
               {customRules.map((rule, index) => {
-                const err = rule.pattern.trim() ? formatPatternError(rule.pattern) : '패턴을 입력하세요.';
+                const err = customRuleIssue(rule);
                 return (
                   <ListItem key={index} spaceY="condensed" paddingY="condensed">
                     <Inline gap="condensed">
                       <Box asChild grow><Input aria-label="규칙 이름" placeholder="예: 영어 잔존 금지" value={rule.label} onChange={(event) => updateRule(index, { label: event.target.value })} /></Box>
-                      <Select value={rule.kind} onValueChange={(value) => updateRule(index, { kind: value as CustomFormatRule['kind'] })}>
+                      <Select value={rule.kind} onValueChange={(value) => updateRule(index, { kind: value as CustomRule['kind'] })}>
                         <Box asChild width="field-sm" shrink={false}><SelectTrigger aria-label="규칙 종류">
                           <SelectValue />
                         </SelectTrigger></Box>
                         <SelectContent>
-                          {(Object.keys(CUSTOM_RULE_KIND_LABELS) as CustomFormatRule['kind'][]).map((kind) => (
+                          {(Object.keys(CUSTOM_RULE_KIND_LABELS) as CustomRule['kind'][]).map((kind) => (
                             <SelectItem key={kind} value={kind}>
                               {CUSTOM_RULE_KIND_LABELS[kind]}
                             </SelectItem>
@@ -181,21 +173,21 @@ function FormatCheckConfig({ params, refs, set }: { params: Record<string, unkno
 
 const PLACEHOLDERS = '{{candidate}}, {{unit.source}}, {{unit.speaker}}, {{unit.key}}, {{previous.<필드>}}, {{outputs.<노드ID>.<필드>}}';
 
-function HttpConfig({ params, refs, set }: { params: Record<string, unknown>; refs: NodeRefs; set: (key: string, value: unknown) => void }) {
-  const tools = refs.connections.filter((connection) => connection.kind === 'http');
+function HttpConfig({ params, refs, set }: FormProps<'http'>) {
+  const tools = refs.connections.filter((connection) => connectionCan(connection.kind, 'tool'));
   return (
     <>
       <Field label="메서드">
-        <SelectField value={params.method as string} onValueChange={(value) => set('method', value)}>
+        <SelectField value={params.method} onValueChange={(value) => set({ method: value as typeof params.method })}>
           <SelectItem value="POST">POST</SelectItem>
           <SelectItem value="GET">GET</SelectItem>
         </SelectField>
       </Field>
       <Field label="주소" help="대사마다 바뀌는 값을 주소에 넣을 수도 있습니다.">
-        <Box asChild mono variant="caption"><Input value={params.url as string} placeholder="https://api.example.com/spell" onChange={(event) => set('url', event.target.value)} /></Box>
+        <Box asChild mono variant="caption"><Input value={params.url} placeholder="https://api.example.com/spell" onChange={(event) => set({ url: event.target.value })} /></Box>
       </Field>
       <Field label="API 키" help={tools.length ? '요청에 붙일 인증 정보입니다.' : undefined} description={tools.length ? undefined : '등록된 API 키가 없습니다. 워크플로 › API 키에서 추가하세요.'}>
-        <SelectField value={(params.connectionId as string) || 'none'} onValueChange={(value) => set('connectionId', value === 'none' ? '' : value)}>
+        <SelectField value={params.connectionId || 'none'} onValueChange={(value) => set({ connectionId: value === 'none' ? '' : value })}>
           <SelectItem value="none">키 없음</SelectItem>
           {tools.map((tool) => (
             <SelectItem key={tool.id} value={tool.id}>
@@ -206,12 +198,12 @@ function HttpConfig({ params, refs, set }: { params: Record<string, unknown>; re
       </Field>
       {params.method === 'POST' && (
         <Field label="본문" description={`대사마다 바뀌는 값: ${PLACEHOLDERS}`}>
-          <Box asChild minHeight="textarea" mono variant="caption"><Textarea spellCheck={false} value={params.body as string} onChange={(event) => set('body', event.target.value)} /></Box>
+          <Box asChild minHeight="textarea" mono variant="caption"><Textarea spellCheck={false} value={params.body} onChange={(event) => set({ body: event.target.value })} /></Box>
         </Field>
       )}
       <HttpFields params={params} projectId={refs.projectId} set={set} />
       <Field label="제한 시간" description="초 단위, 1–300.">
-        <NumberInput min={1} max={300} value={params.timeoutSeconds as number} onValueChange={(next) => next !== undefined && set('timeoutSeconds', next)} />
+        <NumberInput min={1} max={300} value={params.timeoutSeconds} onValueChange={(next) => next !== undefined && set({ timeoutSeconds: next })} />
       </Field>
     </>
   );
@@ -221,23 +213,22 @@ function HttpConfig({ params, refs, set }: { params: Record<string, unknown>; re
  * What an HTTP call returns: declared fields (like a script's), each read from the response at its path
  * (default: its own name). A test call shows the response and can fill the fields from it.
  */
-function HttpFields({ params, projectId, set }: { params: Record<string, unknown>; projectId: string; set: (key: string, value: unknown) => void }) {
-  const fields = (params.fields as JsonField[] | undefined) ?? [];
-  const paths = (params.paths as Record<string, string> | undefined) ?? {};
+function HttpFields({ params, projectId, set }: Pick<FormProps<'http'>, 'params' | 'set'> & { projectId: string }) {
+  const { fields, paths } = params;
   const test = useMutation({
-    mutationFn: () => unwrap(client.projects[':projectId']['http-test'].$post({ param: { projectId }, json: { params: httpParams.parse(params) } })),
+    mutationFn: () => unwrap(client.projects[':projectId']['http-test'].$post({ param: { projectId }, json: { params } })),
   });
   const sampled = test.data?.ok ? fieldsFromSample(test.data.raw) : [];
   return (
     <>
-      <JsonFieldsEditor label="결과 칸" fields={fields} descriptionPlaceholder="설명" onChange={(next) => set('fields', next)} />
+      <JsonFieldsEditor label="결과 칸" fields={fields} descriptionPlaceholder="설명" onChange={(next) => set({ fields: next })} />
       {fields.length > 0 && (
         <Field label="응답에서 가져올 곳" description="비우면 칸 이름과 같은 키를 씁니다. 예: result.text">
           <Box spaceY="condensed">
             {fields.map((field) => (
               <Inline key={field.name} gap="condensed" variant="caption">
                 <Text width="field-sm" shrink={false} truncate mono>{field.name}</Text>
-                <Box asChild mono variant="caption"><Input placeholder={field.name} value={paths[field.name] ?? ''} onChange={(event) => set('paths', { ...paths, [field.name]: event.target.value })} /></Box>
+                <Box asChild mono variant="caption"><Input placeholder={field.name} value={paths[field.name] ?? ''} onChange={(event) => set({ paths: { ...paths, [field.name]: event.target.value } })} /></Box>
               </Inline>
             ))}
           </Box>
@@ -246,7 +237,7 @@ function HttpFields({ params, projectId, set }: { params: Record<string, unknown
       <InspectorActionRow
         label="시험 호출"
         description="첫 대사로 주소를 한 번 호출해 봅니다."
-        action={<Button variant="outline" disabled={test.isPending || !(params.url as string)?.trim()} onClick={() => test.mutate()}><Play /> 호출</Button>}
+        action={<Button variant="outline" disabled={test.isPending || !params.url.trim()} onClick={() => test.mutate()}><Play /> 호출</Button>}
         result={
           test.isPending ? <InspectorResult tone="pending">호출 중</InspectorResult> : test.data ? (
             <InspectorResult
@@ -255,7 +246,7 @@ function HttpFields({ params, projectId, set }: { params: Record<string, unknown
               {test.data.ok ? (
                 <Inline as="span" gap="condensed">
                   {test.data.ms}ms
-                  {sampled.length > 0 && <Button variant="ghost" onClick={() => set('fields', sampled)}>이 결과로 칸 채우기</Button>}
+                  {sampled.length > 0 && <Button variant="ghost" onClick={() => set({ fields: sampled })}>이 결과로 칸 채우기</Button>}
                 </Inline>
               ) : '오류'}
             </InspectorResult>
@@ -266,12 +257,11 @@ function HttpFields({ params, projectId, set }: { params: Record<string, unknown
   );
 }
 
-function ScriptConfig({ params, projectId, readOnly, set }: { params: Record<string, unknown>; projectId: string; readOnly?: boolean; set: (key: string, value: unknown) => void }) {
-  const ports = params.ports as string[];
-  const fields = (params.fields as JsonField[] | undefined) ?? [];
+function ScriptConfig({ params, refs: { projectId }, readOnly, set }: FormProps<'script'>) {
+  const { ports, fields } = params;
   const [portsText, setPortsText] = useState(ports.join(', '));
   const test = useMutation({
-    mutationFn: () => unwrap(client.projects[':projectId']['script-test'].$post({ param: { projectId }, json: { code: params.code as string, ports, fields } })),
+    mutationFn: () => unwrap(client.projects[':projectId']['script-test'].$post({ param: { projectId }, json: { code: params.code, ports, fields } })),
   });
   const sampledScript = test.data?.ok ? fieldsFromSample(test.data.raw) : [];
   return (
@@ -283,7 +273,7 @@ function ScriptConfig({ params, projectId, readOnly, set }: { params: Record<str
             onChange={(event) => setPortsText(event.target.value)}
             onBlur={() => {
               const next = portsText.split(',').map((port) => port.trim()).filter(Boolean);
-              if (next.length) set('ports', [...new Set(next)]);
+              if (next.length) set({ ports: [...new Set(next)] });
               else setPortsText(ports.join(', '));
             }}
           />
@@ -297,9 +287,9 @@ function ScriptConfig({ params, projectId, readOnly, set }: { params: Record<str
           </AiButton>
         }
         help="격리된 곳에서 돌아갑니다. 네트워크·파일에 접근할 수 없고, 한 번에 2초·32MB까지 씁니다.">
-        <Box asChild minHeight="textarea-lg" mono variant="caption" leading="relaxed"><Textarea spellCheck={false} value={params.code as string} onChange={(event) => set('code', event.target.value)} /></Box>
+        <Box asChild minHeight="textarea-lg" mono variant="caption" leading="relaxed"><Textarea spellCheck={false} value={params.code} onChange={(event) => set({ code: event.target.value })} /></Box>
       </Field>
-      <JsonFieldsEditor label="출력 필드" fields={fields} descriptionPlaceholder="설명" onChange={(next) => set('fields', next)} />
+      <JsonFieldsEditor label="출력 필드" fields={fields} descriptionPlaceholder="설명" onChange={(next) => set({ fields: next })} />
       {!readOnly && (
         <InspectorActionRow
           label="시험 실행"
@@ -325,7 +315,7 @@ function ScriptConfig({ params, projectId, readOnly, set }: { params: Record<str
                 {test.data.ok ? (
                   <Inline as="span" gap="condensed">
                     {`출구: ${test.data.port}${test.data.validPort ? '' : ' (선언하지 않은 출구!)'} · ${test.data.ms}ms`}
-                    {sampledScript.length > 0 && <Button variant="ghost" onClick={() => set('fields', sampledScript)}>이 결과로 칸 채우기</Button>}
+                    {sampledScript.length > 0 && <Button variant="ghost" onClick={() => set({ fields: sampledScript })}>이 결과로 칸 채우기</Button>}
                   </Inline>
                 ) : '오류'}
               </InspectorResult>
@@ -364,7 +354,7 @@ function autoMap(targets: ApplyField[], sources: SourceField[]) {
   return map;
 }
 
-function ApplyConfig({ node, fn, params, refs, setMany }: { node: FunctionNode; fn: ApplyFunctionName; params: ApplyParams; refs: NodeRefs; setMany: (patch: Record<string, unknown>) => void }) {
+function ApplyConfig({ node, fn, params, refs, set: setMany }: FormProps<ApplyFunctionName> & { fn: ApplyFunctionName }) {
   const target = APPLY_TARGETS[fn];
   const targetFields: ApplyField[] = target.fields;
   const definition = { nodes: refs.nodes, edges: refs.edges ?? [] } as unknown as WorkflowDefinition;
@@ -466,7 +456,8 @@ function ApplyConfig({ node, fn, params, refs, setMany }: { node: FunctionNode; 
         </Field>
       )}
 
-      {(target.shape !== 'line' || (fn === 'saveCandidate' && refsInput(refs) === 'terms')) && <AiConfirmNote projectId={refs.projectId} />}
+      {/* What it writes is project knowledge (a term's form too): it lands as the project's AI 확정 setting says. */}
+      {(target.shape !== 'line' || INPUT_TYPES[refsInput(refs)].aiConfirm) && <AiConfirmNote projectId={refs.projectId} />}
 
 
       {issues.map((message) => (
@@ -477,3 +468,12 @@ function ApplyConfig({ node, fn, params, refs, setMany }: { node: FunctionNode; 
     </>
   );
 }
+
+/** Every function's settings form, by its name in FUNCTIONS: a function without a form does not compile. */
+export const FUNCTION_FORMS: { [F in FunctionName]: (props: FormProps<F>) => ReactNode } = {
+  formatCheck: FormatCheckConfig,
+  glossaryCheck: () => <InspectorResult tone="info">설정 항목이 없습니다.</InspectorResult>,
+  script: ScriptConfig,
+  http: HttpConfig,
+  ...(Object.fromEntries(APPLY_FUNCTION_NAMES.map((fn) => [fn, (props: FormProps<ApplyFunctionName>) => <ApplyConfig {...props} fn={fn} />])) as Record<ApplyFunctionName, (props: FormProps<ApplyFunctionName>) => ReactNode>),
+};

@@ -5,6 +5,7 @@ import * as s from '../db/schema.ts';
 import { events, type Topic } from '../events.ts';
 import { recordRunEnd } from '../services/chat-run-end.ts';
 import { overheadOf } from '../services/preflight.ts';
+import { subjectOf } from './subjects.ts';
 
 /*
  * What stops a run before more is spent: a failure the next request would meet too, too many failed
@@ -22,7 +23,7 @@ const STOPPING_CODES: Partial<Record<ModelErrorCode, string>> = { auth: '인증 
 /** Run progress always changes lines (or terms); nodes that write terms or story data add their topic. */
 export function notifyRun(db: Db, runId: string, ...topics: Topic[]) {
   const run = db.select({ projectId: s.runs.projectId, subject: s.runs.subject }).from(s.runs).where(eq(s.runs.id, runId)).get();
-  events.changed(run?.projectId, 'runs', run?.subject === 'terms' ? 'terms' : 'units', ...topics);
+  events.changed(run?.projectId, 'runs', ...(run ? [subjectOf(run.subject).topic] : []), ...topics);
 }
 
 /** Pauses a run on the runner's own decision, saying why. Calls already sent finish and are recorded. */

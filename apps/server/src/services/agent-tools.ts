@@ -1,4 +1,4 @@
-import { agentToolAvailable, glossaryMatcher, LISTENER_MIN_CONFIDENCE, CHECK_KINDS, runCapsSchema, runScopeInputSchema, TERM_MARK_IDS, type CheckKind, type ToolName } from '@tw/shared';
+import { agentToolAvailable, glossaryMatcher, LISTENER_MIN_CONFIDENCE, CHECK_KINDS, runCapsSchema, runScopeInputSchema, TERM_MARK_IDS, type CheckKind, type ToolName, SUBJECTS, FUNCTION_NAMES } from '@tw/shared';
 import { checkAgentPermission, projectAgentSettings } from './agent-permission-check.ts';
 import { HTTPException } from 'hono/http-exception';
 import { and, asc, count, desc, eq, inArray, isNull, like, ne, or, sql } from 'drizzle-orm';
@@ -47,6 +47,7 @@ import { saveLine } from './line-save.ts';
 import { findReadingRoute } from './reading-route-tool.ts';
 import { checkDeleteItems, checkLineBatch, checkSaveTerms, checkStartRun, checkTagItems, needsRow, unchecked, type Prepared, type ToolCheck } from './proposal-check.ts';
 import { deleteItemsUndo, isRecord, knowledgeBatchUndo, knowledgeUndo, lineChangesUndo, noUndo, sentValues, tagItemsUndo, termsUndo, undoCall, type Inverse } from './proposal-undo.ts';
+import { subjectOf } from '../engine/subjects.ts';
 
 /** Lines of a batch proposal checked and applied per step when it is accepted. */
 const APPLY_CHUNK = 500;
@@ -457,7 +458,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         inputs: {
           what: 'A workflow declares what it takes in on its entry node: config.input "lines" (script lines, default) or "terms" (glossary terms). Its runs carry that kind (items, batches, counts). A node is core plus the extension of that input (below); values of the other input\'s extension are kept but unused.',
           entry: 'Entry config { input }: what the workflow takes in. Which items a run takes is its scope (the run dialog / start_run: statuses, marks, scenes, lines, terms), not the workflow.',
-          table: Object.fromEntries(Object.entries(INPUT_TYPES).map(([input, type]) => [input, { batchModes: type.batchModes, contextFields: type.contextFields, conditionRows: type.conditionRows, nodes: Object.keys(FUNCTIONS).filter((name) => functionTakes(name, input as 'lines' | 'terms') && !functionTakes(name, input === 'lines' ? 'terms' : 'lines')) }])),
+          table: Object.fromEntries(SUBJECTS.map((input) => [input, { batchModes: INPUT_TYPES[input].batchModes, contextFields: INPUT_TYPES[input].contextFields, conditionRows: INPUT_TYPES[input].conditionRows, nodes: FUNCTION_NAMES.filter((name) => functionTakes(name, input) && !SUBJECTS.every((other) => functionTakes(name, other))) }])),
           rules: 'A node of the other input, or a batch mode the input does not have, is a validation error (the table above is the only source). Conditions read unit.* for lines and term.* for terms.',
           scope: 'start_run / plan_run: a lines workflow takes filter (the line filter of find_lines); a terms workflow takes terms { terms (ids or sources), statuses, marks, tags, decidedBy, emptyTarget }. A scope of the other kind is refused.',
           usage: 'Typical terms workflow: entry input terms → AI node (json: target, note) → 용어 표기 저장.',
@@ -474,7 +475,8 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         },
         functionNode: {
           config: '{fn, params}',
-          functions: Object.fromEntries(Object.entries(FUNCTIONS).map(([name, info]) => [name, { label: info.label, description: info.description, params: zod.toJSONSchema(info.params) }])),
+          // From the registry itself, so a new function reaches the agent without editing this text.
+          functions: Object.fromEntries(FUNCTION_NAMES.map((name) => [name, { label: FUNCTIONS[name].label, description: FUNCTIONS[name].description, group: FUNCTIONS[name].group, callsOut: FUNCTIONS[name].callsOut, changes: FUNCTIONS[name].changes, params: zod.toJSONSchema(FUNCTIONS[name].params) }])),
           applyNodes: {
             what: 'Apply nodes (反映) put the result of the step before them (the AI/script node they are drawn after; conditions and other save nodes in between pass it on) into the project: they are the workflow form of the write tools below and go through the same services. AI nodes only produce answers (text / verdict / choice / json); saving them is an apply node\'s job.',
             config: 'params = { list (shape "list": the list field in its json output), map (target field → field of the source; nested list fields use "<list>.<sub>" or the same name), unresolved (saveRelationships only: a list field of { between: [A, B], reason } pairs the AI could not give a relationship, saved as candidate relationships of kind "관계 미확인" marked 확인 권장 when both are stored characters, counted and dropped otherwise) }; written now, and knowledge and terms land confirmed or as candidates as the project setting aiAutoConfirm says',
@@ -553,9 +555,8 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         const erroredItems = errored ? failedOrErrored.map(({ unitId, key }) => ({ unitId, key })) : undefined;
         const { definition: _definition, ...shown } = run;
         const failed = and(eq(s.runItems.runId, runId), eq(s.runItems.state, 'failed'));
-        const failures = run.subject === 'terms'
-          ? db.select({ unitId: s.runItems.subjectId, key: s.terms.source, nodeId: s.runItems.nodeId, error: s.runItems.error }).from(s.runItems).leftJoin(s.terms, eq(s.terms.id, s.runItems.subjectId)).where(failed).limit(20).all()
-          : db.select({ unitId: s.runItems.subjectId, key: s.units.key, nodeId: s.runItems.nodeId, error: s.runItems.error }).from(s.runItems).leftJoin(s.units, eq(s.units.id, s.runItems.subjectId)).where(failed).orderBy(asc(s.units.seq)).limit(20).all();
+        const subject = subjectOf(run.subject);
+        const failures = db.select({ unitId: s.runItems.subjectId, key: subject.itemKey, nodeId: s.runItems.nodeId, error: s.runItems.error }).from(s.runItems).where(failed).orderBy(...subject.itemOrder).limit(20).all();
         return {
           ...shown,
           ends,

@@ -9,7 +9,7 @@
  */
 import { and, desc, eq, or } from 'drizzle-orm';
 import { get } from 'es-toolkit/compat';
-import { filtersByStatus, KNOWLEDGE_STATUSES, previousStepId, type ExitAction, type KnowledgeStatus, type TagExitAction, type WorkflowDefinition } from '@tw/shared';
+import { filtersByStatus, KNOWLEDGE_STATUSES, previousStepId, type ExitAction, type KnowledgeStatus, type TagExitAction, type TagScope, type WorkflowDefinition } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { setKnowledgeTag } from '../services/knowledge-tags.ts';
@@ -17,7 +17,7 @@ import { attachUnitTags } from '../services/tag-scope.ts';
 import { HUMAN_OWNED_NOTE, personOwns } from './apply-candidate.ts';
 
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
-type Run = Pick<typeof s.runs.$inferSelect, 'id' | 'projectId' | 'subject' | 'scope' | 'tags'> & { definition: WorkflowDefinition };
+type Run = Pick<typeof s.runs.$inferSelect, 'id' | 'projectId' | 'scope' | 'tags'> & { definition: WorkflowDefinition };
 type Item = Pick<typeof s.runItems.$inferSelect, 'subjectId'> & { data: Pick<typeof s.runItems.$inferSelect['data'], 'path' | 'outputs' | 'candidateText'> };
 
 const lower = (value: unknown) => String(value ?? '').trim().toLowerCase();
@@ -28,8 +28,7 @@ const namesIn = (value: unknown): string[] => (Array.isArray(value) ? value : va
  * result, as the tag `categoryTags` connects it to or the tag of that name. `unmatched` are the values no tag answers
  * (an AI naming a kind the project has no tag for): they are not made, only counted.
  */
-function tagsOf(tx: Tx, run: Run, action: TagExitAction, result: Record<string, unknown> | undefined) {
-  const scope = run.subject === 'terms' ? 'terms' : 'lines';
+function tagsOf(tx: Tx, run: Run, scope: TagScope, action: TagExitAction, result: Record<string, unknown> | undefined) {
   const tags = tx.select({ id: s.tags.id, name: s.tags.name, scope: s.tags.scope }).from(s.tags).where(eq(s.tags.projectId, run.projectId)).all();
   const ids = new Set(action.tagIds);
   const unmatched: string[] = [];
@@ -60,44 +59,52 @@ function restoreTags(tx: Tx, run: Run, ids: readonly string[]) {
 export const HUMAN_STATUS_NOTE = '사람이 정한 상태라 바꾸지 않았습니다.';
 
 /**
- * Applies an exit's actions to the item; returns the notes for the run's detail (a person's status kept, a tag not
- * found…). The line's history knows the tags it changed came from this run (event_actor, read by the line_events
- * triggers).
+ * How one kind of item takes an exit's actions (a run's subject adapter has one): the notes for the run's detail.
+ * `result`: what a `fromField` reads.
  */
-export function applyExitActions(tx: Tx, run: Run, item: Item, nodeId: string, port: string, actions: readonly ExitAction[]): string[] {
+export type ExitApplier = (tx: Tx, run: Run, item: Item, actions: readonly ExitAction[], result: Record<string, unknown> | undefined) => string[];
+
+/**
+ * Applies an exit's actions to the item, as `apply` does for the run's kind of item; returns the notes for the run's
+ * detail (a person's status kept, a tag not found…). The line's history knows the tags it changed came from this run
+ * (event_actor, read by the line_events triggers).
+ */
+export function applyExitActions(tx: Tx, run: Run, item: Item, nodeId: string, port: string, actions: readonly ExitAction[], apply: ExitApplier): string[] {
   if (!actions.length) return [];
+  // What a `fromField` reads: the result of this node, or of the step before it (previousStepId skips 오류 exits and nodes without a result).
+  const step = previousStepId(run.definition, [...item.data.path, { nodeId, port }]);
+  const result = step ? (item.data.outputs?.[step] as Record<string, unknown> | undefined) : undefined;
   tx.insert(s.eventActor).values({ one: 1, runId: run.id }).onConflictDoUpdate({ target: s.eventActor.one, set: { runId: run.id } }).run();
   try {
-    return applyActions(tx, run, item, nodeId, port, actions);
+    return apply(tx, run, item, actions, result);
   } finally {
     tx.delete(s.eventActor).run();
   }
 }
 
-function applyActions(tx: Tx, run: Run, item: Item, nodeId: string, port: string, actions: readonly ExitAction[]): string[] {
+/** A term takes a status of knowledge (후보·확정·버림) and the tags that may go on terms. */
+export const termExitActions: ExitApplier = (tx, run, item, actions, result) => {
   const notes: string[] = [];
-  // What a `fromField` reads: the result of this node, or of the step before it (previousStepId skips 오류 exits and nodes without a result).
-  const step = previousStepId(run.definition, [...item.data.path, { nodeId, port }]);
-  const result = step ? (item.data.outputs?.[step] as Record<string, unknown> | undefined) : undefined;
-
-  if (run.subject === 'terms') {
-    for (const action of actions) {
-      if (action.type === 'status') {
-        if (!(KNOWLEDGE_STATUSES as readonly string[]).includes(action.statusId)) throw new Error('용어의 상태는 후보·확정·버림 중 하나입니다.');
-        tx.update(s.terms).set({ status: action.statusId as KnowledgeStatus, statusBy: 'ai', runId: run.id }).where(eq(s.terms.id, item.subjectId)).run();
-        continue;
-      }
-      const { ids, unmatched } = tagsOf(tx, run, action, result);
-      for (const name of unmatched) notes.push(`없는 태그 이름: ${name}`);
-      if (action.action === 'add') restoreTags(tx, run, ids);
-      for (const id of ids) {
-        const refused = setKnowledgeTag(tx, run.projectId, 'terms', [item.subjectId], id, action.action === 'add');
-        if (refused) notes.push(refused);
-      }
+  for (const action of actions) {
+    if (action.type === 'status') {
+      if (!(KNOWLEDGE_STATUSES as readonly string[]).includes(action.statusId)) throw new Error('용어의 상태는 후보·확정·버림 중 하나입니다.');
+      tx.update(s.terms).set({ status: action.statusId as KnowledgeStatus, statusBy: 'ai', runId: run.id }).where(eq(s.terms.id, item.subjectId)).run();
+      continue;
     }
-    return notes;
+    const { ids, unmatched } = tagsOf(tx, run, 'terms', action, result);
+    for (const name of unmatched) notes.push(`없는 태그 이름: ${name}`);
+    if (action.action === 'add') restoreTags(tx, run, ids);
+    for (const id of ids) {
+      const refused = setKnowledgeTag(tx, run.projectId, 'terms', [item.subjectId], id, action.action === 'add');
+      if (refused) notes.push(refused);
+    }
   }
+  return notes;
+};
 
+/** A line takes one of the project's statuses and line tags; what a person decided stays unless the run was asked to change it. */
+export const lineExitActions: ExitApplier = (tx, run, item, actions, result) => {
+  const notes: string[] = [];
   // What a person decided stays unless the run was asked to change it too (scope.changeHuman): a status a person set,
   // a tag a person put on, by the line's history (the last change of it was not a run's).
   const keepHuman = !run.scope.changeHuman;
@@ -121,7 +128,7 @@ function applyActions(tx: Tx, run: Run, item: Item, nodeId: string, port: string
       tx.update(s.units).set({ statusId: action.statusId, statusBy: 'ai', statusRunId: run.id }).where(eq(s.units.id, item.subjectId)).run();
       continue;
     }
-    const { ids, unmatched } = tagsOf(tx, run, action, result);
+    const { ids, unmatched } = tagsOf(tx, run, 'lines', action, result);
     for (const name of unmatched) notes.push(`없는 태그 이름: ${name}`);
     if (!ids.length) continue;
     if (action.action === 'add') restoreTags(tx, run, ids);
@@ -134,4 +141,4 @@ function applyActions(tx: Tx, run: Run, item: Item, nodeId: string, port: string
     for (const tag of skipped) notes.push(`‘${tag.name}’ 태그는 대사에 붙일 수 없어 붙이지 않았습니다.`);
   }
   return notes;
-}
+};

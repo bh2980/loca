@@ -1,10 +1,11 @@
 import { and, asc, eq, inArray } from 'drizzle-orm';
-import { estimateTokens, nodeName, workflowInput, type AiNode } from '@tw/shared';
+import { estimateTokens, nodeName, workflowInput, type AiNode, bySubject, type Subject } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { expandedDefinition } from '../engine/expand-calls.ts';
 import { buildRequest, readsPrevious, type BuiltRequest } from '../engine/request.ts';
-import { batchOf, selectRunTerms } from '../engine/run-create.ts';
+import { batchOf } from '../engine/run-create.ts';
+import { subjectOf } from '../engine/subjects.ts';
 import { resolveBudgets } from './budgets.ts';
 import { translatableSql } from './line-marks.ts';
 
@@ -41,7 +42,7 @@ function nodeRequest(db: Db, workflow: Workflow, nodeId: string, subjectId: stri
   if (readsPrevious(node)) return { unavailable: UNAVAILABLE.previous };
   const subject = workflowInput(definition);
   const ids = batchOf(db, workflow.projectId, definition, node, subjectId);
-  if (!ids) return { unavailable: subject === 'terms' ? UNAVAILABLE.excludedTerm : UNAVAILABLE.excludedLine };
+  if (!ids) return { unavailable: bySubject(subject, { terms: UNAVAILABLE.excludedTerm, lines: UNAVAILABLE.excludedLine }) };
   return { node, ids, built: buildRequest(db, workflow.projectId, node, subject, ids.map((id) => ({ id }))) };
 }
 
@@ -58,41 +59,44 @@ export function previewRequest(db: Db, workflow: Workflow, nodeId: string, sampl
   const base = { subject, instructions: own.config.instructions, output: own.config.output, fields: own.config.fields };
   const nothing = { ...base, sample: null, total: 0, items: [], context: [], system: '', prompt: '', promptTokens: 0, unavailable: null as string | null };
 
-  if (subject === 'lines') {
-    const unit = sample
-      ? db.select({ id: s.units.id, key: s.units.key }).from(s.units).where(and(eq(s.units.projectId, projectId), eq(s.units.key, sample))).get()
-      : db.select({ id: s.units.id, key: s.units.key }).from(s.units).where(and(eq(s.units.projectId, projectId), translatableSql(projectId))).orderBy(asc(s.units.seq)).limit(1).get();
-    if (!unit) return nothing;
-    const chosen = { value: unit.key, label: unit.key };
-    const request = nodeRequest(db, workflow, nodeId, unit.id);
-    if (!request) return null;
-    if ('unavailable' in request) return { ...nothing, sample: chosen, unavailable: request.unavailable };
-    const rows = new Map(db.select({ id: s.units.id, key: s.units.key, speaker: s.units.speaker, source: s.units.source }).from(s.units).where(inArray(s.units.id, request.ids.slice(0, SHOWN))).all().map((row) => [row.id, row]));
-    return {
-      ...base,
-      sample: chosen,
-      total: request.ids.length,
-      items: request.ids.slice(0, SHOWN).map((id) => ({ label: rows.get(id)?.key ?? id, text: `${rows.get(id)?.speaker ? `${rows.get(id)!.speaker}: ` : ''}${rows.get(id)?.source ?? ''}` })),
-      ...shown(request.built),
-    };
-  }
-
-  const termId = sample ?? selectRunTerms(db, projectId, {})[0];
-  const term = termId ? db.select({ id: s.terms.id, source: s.terms.source }).from(s.terms).where(and(eq(s.terms.projectId, projectId), eq(s.terms.id, termId))).get() : undefined;
-  if (!term) return nothing;
-  const chosen = { value: term.id, label: term.source };
-  const request = nodeRequest(db, workflow, nodeId, term.id);
+  const picked = SAMPLES[subject].find(db, projectId, sample);
+  if (!picked) return nothing;
+  const chosen = { value: picked.value, label: picked.label };
+  const request = nodeRequest(db, workflow, nodeId, picked.id);
   if (!request) return null;
   if ('unavailable' in request) return { ...nothing, sample: chosen, unavailable: request.unavailable };
-  const terms = new Map(db.select({ id: s.terms.id, source: s.terms.source, target: s.terms.target }).from(s.terms).where(inArray(s.terms.id, request.ids.slice(0, SHOWN))).all().map((row) => [row.id, row]));
-  return {
-    ...base,
-    sample: chosen,
-    total: request.ids.length,
-    items: request.ids.slice(0, SHOWN).map((id) => ({ label: terms.get(id)?.source ?? id, text: terms.get(id)?.target || '—' })),
-    ...shown(request.built),
-  };
+  return { ...base, sample: chosen, total: request.ids.length, items: SAMPLES[subject].items(db, request.ids.slice(0, SHOWN)), ...shown(request.built) };
 }
+
+/**
+ * How a preview finds its sample item (the one asked for, else the first a run would take) and lists a request's
+ * first items, per input: a line by its key, shown as "speaker: source"; a term by its id, shown with its Korean form.
+ */
+const SAMPLES: Record<Subject, { find: (db: Db, projectId: string, sample?: string) => { id: string; value: string; label: string } | undefined; items: (db: Db, ids: string[]) => { label: string; text: string }[] }> = {
+  lines: {
+    find(db, projectId, sample) {
+      const unit = sample
+        ? db.select({ id: s.units.id, key: s.units.key }).from(s.units).where(and(eq(s.units.projectId, projectId), eq(s.units.key, sample))).get()
+        : db.select({ id: s.units.id, key: s.units.key }).from(s.units).where(and(eq(s.units.projectId, projectId), translatableSql(projectId))).orderBy(asc(s.units.seq)).limit(1).get();
+      return unit && { id: unit.id, value: unit.key, label: unit.key };
+    },
+    items(db, ids) {
+      const rows = new Map(db.select({ id: s.units.id, key: s.units.key, speaker: s.units.speaker, source: s.units.source }).from(s.units).where(inArray(s.units.id, ids)).all().map((row) => [row.id, row]));
+      return ids.map((id) => ({ label: rows.get(id)?.key ?? id, text: `${rows.get(id)?.speaker ? `${rows.get(id)!.speaker}: ` : ''}${rows.get(id)?.source ?? ''}` }));
+    },
+  },
+  terms: {
+    find(db, projectId, sample) {
+      const termId = sample ?? subjectOf('terms').select(db, projectId, {})[0];
+      const term = termId ? db.select({ id: s.terms.id, source: s.terms.source }).from(s.terms).where(and(eq(s.terms.projectId, projectId), eq(s.terms.id, termId))).get() : undefined;
+      return term && { id: term.id, value: term.id, label: term.source };
+    },
+    items(db, ids) {
+      const terms = new Map(db.select({ id: s.terms.id, source: s.terms.source, target: s.terms.target }).from(s.terms).where(inArray(s.terms.id, ids)).all().map((row) => [row.id, row]));
+      return ids.map((id) => ({ label: terms.get(id)?.source ?? id, text: terms.get(id)?.target || '—' }));
+    },
+  },
+};
 
 const shown = (built: BuiltRequest) => ({ context: built.context.items, system: built.system, prompt: built.prompt, promptTokens: estimateTokens(`${built.system}\n\n${built.prompt}`), unavailable: null as string | null });
 

@@ -26,7 +26,7 @@ function setup(assistModel = true) {
 }
 
 const fake = (text: string, seen: { system?: string; prompt?: string } = {}, changes?: { kind: string; why: string }[]) =>
-  (async (_route: unknown, request: { system: string; prompt: string }) => {
+  (async (_target: unknown, request: { system: string; prompt: string }) => {
     seen.system = request.system;
     seen.prompt = request.prompt;
     return { object: { results: [{ id: 'L1', text, ...(changes && { changes }) }] }, usage: { inputTokens: 1, outputTokens: 1 } };
@@ -63,7 +63,7 @@ describe('the editor AI assist', () => {
     const project = db.select().from(s.projects).where(eq(s.projects.id, unit.projectId)).get()!;
     db.update(s.projects).set({ editorAi: { ...(project.editorAi as object), timeoutSeconds: 30, translate: { instructions: 'Translate like a pirate.' } } as never }).where(eq(s.projects.id, unit.projectId)).run();
     const seen: { system?: string; timeoutMs?: number } = {};
-    const generate = (async (_route: unknown, request: { system: string; timeoutMs: number }) => {
+    const generate = (async (_target: unknown, request: { system: string; timeoutMs: number }) => {
       Object.assign(seen, { system: request.system, timeoutMs: request.timeoutMs });
       return { object: { results: [{ id: 'L1', text: '해적처럼' }] }, usage: {} };
     }) as unknown as typeof ai.generate;
