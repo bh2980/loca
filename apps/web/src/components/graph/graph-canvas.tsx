@@ -14,7 +14,9 @@ import { drawShape } from './shapes';
 import { getCanvasColors } from './canvas-colors';
 import { useTheme } from '@/lib/theme';
 import { wrapTextLines } from './canvas-text-wrap';
+import { canvasKeyAction } from './canvas-keys';
 import { STORED, useStored } from '@/lib/storage';
+import type { Viewport } from '@/lib/viewport';
 
 /** Below this zoom node labels are unreadable, so they are not drawn. */
 const DETAIL_K = 0.22;
@@ -114,11 +116,8 @@ const foldBadge = (node: LayoutNode, folded: boolean) => {
   const width = folded ? FOLD_BUTTON.unfoldWidth : FOLD_BUTTON.foldWidth;
   return { x: node.x + node.width - width - FOLD_BUTTON.margin, y: node.y + FOLD_BUTTON.margin, width, height: FOLD_BUTTON.height };
 };
-export interface Viewport {
-  x: number;
-  y: number;
-  k: number;
-}
+/** Where the view is: the pan and zoom every graph remembers the same way (lib/viewport.ts). */
+export type { Viewport };
 export interface GraphCanvasHandle {
   fit(): void;
   zoomBy(factor: number): void;
@@ -688,7 +687,7 @@ export function GraphCanvas({ onToggleFold, nodes, regions = [], edges: laidOut,
       })
       .on('end', (event: { transform: ZoomTransform }) => {
         setZoomK(event.transform.k);
-        props.current.onViewportChange?.({ x: event.transform.x, y: event.transform.y, k: event.transform.k });
+        props.current.onViewportChange?.({ x: event.transform.x, y: event.transform.y, zoom: event.transform.k });
       });
     behavior.current = zoom;
     const selection = select(element).call(zoom).on('dblclick.zoom', null);
@@ -715,7 +714,7 @@ export function GraphCanvas({ onToggleFold, nodes, regions = [], edges: laidOut,
           ? zoomIdentity.translate(PAD - target.x * DEFAULT_START_K, height / 2 - (target.y + target.height / 2) * DEFAULT_START_K).scale(DEFAULT_START_K)
           : centredOn(target, DEFAULT_START_K)
       : initialViewport
-        ? zoomIdentity.translate(initialViewport.x, initialViewport.y).scale(initialViewport.k)
+        ? zoomIdentity.translate(initialViewport.x, initialViewport.y).scale(initialViewport.zoom)
         : focusedBox
           ? fitTransform(focusedBox)
           : startTransform();
@@ -991,16 +990,17 @@ export function GraphCanvas({ onToggleFold, nodes, regions = [], edges: laidOut,
           props.current.onContextMenu(nodeId, { clientX: event.clientX, clientY: event.clientY });
         }}
         onKeyDown={(event) => {
-          const step = 80;
-          const moves: Record<string, [number, number]> = { ArrowUp: [0, step], ArrowDown: [0, -step], ArrowLeft: [step, 0], ArrowRight: [-step, 0] };
-          if (moves[event.key] && behavior.current) {
+          const action = canvasKeyAction(event);
+          if (!action) return;
+          if (typeof action === 'object') {
+            if (!behavior.current) return;
             event.preventDefault();
-            select(canvas.current!).call(behavior.current.translateBy, moves[event.key][0] / transform.current.k, moves[event.key][1] / transform.current.k);
-          } else if (event.key === '+' || event.key === '=') behavior.current && select(canvas.current!).call(behavior.current.scaleBy, 1.25);
-          else if (event.key === '-') behavior.current && select(canvas.current!).call(behavior.current.scaleBy, 0.8);
-          else if (event.key === 'f') animateTo(fitTransform());
-          else if (event.key === 'Enter' && props.current.selectedId) props.current.onOpen?.();
-          else if (event.key === 'Escape') props.current.onSelect(undefined);
+            select(canvas.current!).call(behavior.current.translateBy, action.pan[0] / transform.current.k, action.pan[1] / transform.current.k);
+          } else if (action === 'zoom-in') behavior.current && select(canvas.current!).call(behavior.current.scaleBy, 1.25);
+          else if (action === 'zoom-out') behavior.current && select(canvas.current!).call(behavior.current.scaleBy, 0.8);
+          else if (action === 'fit') animateTo(fitTransform());
+          else if (action === 'open') props.current.selectedId && props.current.onOpen?.();
+          else props.current.onSelect(undefined);
         }}
       />
       {box && <SelectionRect style={box} />}

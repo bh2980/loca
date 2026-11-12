@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createdStep, tokenStep, undoHistory } from './undo-history';
+import { snapshotHistory, createdStep, tokenStep, undoHistory } from './undo-history';
 
 /** A fake server: a list of things, edits that answer with a token, and undo by token. */
 function fakeServer() {
@@ -107,5 +107,93 @@ describe('undoHistory', () => {
     expect(server.things()).toEqual(['made']);
     await history.undo();
     expect(server.things()).toEqual([]);
+  });
+});
+
+describe('snapshot history (edits a screen holds itself)', () => {
+  /** A screen: its content, told to the history after every change, as a component's effect does. */
+  function screen(start: string) {
+    let content = start;
+    let clock = 0;
+    const history = snapshotHistory<string>({ apply: (snapshot) => set(snapshot, true), now: () => clock });
+    function set(next: string, replay = false) {
+      content = next;
+      if (!replay) clock += 1000;
+      history.seen(content);
+    }
+    history.seen(content);
+    return { history, content: () => content, edit: (next: string) => set(next), quickly: (next: string) => { content = next; clock += 100; history.seen(content); } };
+  }
+
+  it('opening the screen is not an edit', async () => {
+    const { history } = screen('a');
+    expect(history.canUndo()).toBe(false);
+    expect(await history.undo()).toBe(false);
+  });
+
+  it('undo goes back a step, redo forward again', async () => {
+    const editor = screen('a');
+    editor.edit('b');
+    editor.edit('c');
+    await editor.history.undo();
+    expect(editor.content()).toBe('b');
+    await editor.history.undo();
+    expect(editor.content()).toBe('a');
+    expect(editor.history.canUndo()).toBe(false);
+    await editor.history.redo();
+    await editor.history.redo();
+    expect(editor.content()).toBe('c');
+    expect(editor.history.canRedo()).toBe(false);
+  });
+
+  it('changes that follow one another quickly are one step', async () => {
+    const editor = screen('a');
+    editor.edit('ab');
+    editor.quickly('abc');
+    editor.quickly('abcd');
+    await editor.history.undo();
+    expect(editor.content()).toBe('a');
+    await editor.history.redo();
+    expect(editor.content()).toBe('abcd');
+  });
+
+  it('a new edit forgets what was undone', async () => {
+    const editor = screen('a');
+    editor.edit('b');
+    await editor.history.undo();
+    editor.edit('c');
+    expect(editor.history.canRedo()).toBe(false);
+    await editor.history.undo();
+    expect(editor.content()).toBe('a');
+  });
+
+  it('an edit right after an undo is its own step, not part of the undone burst', async () => {
+    const editor = screen('a');
+    editor.edit('b');
+    editor.edit('c');
+    await editor.history.undo();
+    editor.quickly('d');
+    await editor.history.undo();
+    expect(editor.content()).toBe('b');
+  });
+
+  it('what a replay puts back is not a new edit, even written another way', async () => {
+    let content = '{"x":1}';
+    // Putting a snapshot back gives the same content with another spelling (a draft equal to the saved row).
+    const history = snapshotHistory<string>({ apply: (snapshot) => { content = snapshot.replace('{"x":1}', '{ "x": 1 }'); history.seen(content); }, now: () => 0 });
+    history.seen(content);
+    content = '{"x":2}';
+    history.seen(content);
+    await history.undo();
+    expect(content).toBe('{ "x": 1 }');
+    expect(history.canRedo()).toBe(true);
+    await history.redo();
+    expect(content).toBe('{"x":2}');
+  });
+
+  it('the same content again is no step', () => {
+    const editor = screen('a');
+    editor.edit('a');
+    expect(editor.history.canUndo()).toBe(false);
   });
 });

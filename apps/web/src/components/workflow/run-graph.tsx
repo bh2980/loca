@@ -4,33 +4,25 @@
  * waiting, failed) and how many lines went through it. Clicking a node opens the lines at it.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Background, Panel, ReactFlow, ReactFlowProvider, useNodesInitialized, useReactFlow, useViewport, type NodeChange, type Viewport } from '@xyflow/react';
+import { Background, Panel, ReactFlow, ReactFlowProvider, useNodesInitialized, useReactFlow, useViewport, type NodeChange } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { nodePorts, type WorkflowDefinition } from '@tw/shared';
+import type { WorkflowDefinition } from '@tw/shared';
 import { Box, Button, CanvasToolbar, EdgeLegend, Inline, Text, type CanvasDirection, useCanvasDismiss } from '@loca/ui';
 import { X } from 'lucide-react';
 import { ITEM_STATE } from '@/lib/labels';
 import { callMembers, callOf, collapseCalls, liveCounts, topCallIds } from '@/components/workflow/run-calls';
-import { FrameNodeView, FrameTintView, frameNodes, frameTints, isFrameId, type FrameNode } from '@/components/workflow/frames';
+import { frameNodes, frameTints, isFrameId, type FrameNode } from '@/components/workflow/frames';
 import { allFoldsOpen, computeFolds, foldedDefinition, foldLiveText, foldPlacements, foldText, isFoldOpen, openFoldContaining, setAllFolds, toggleFold, type Fold } from '@/components/workflow/fold';
 import { useFoldState } from '@/components/workflow/use-fold-state';
-import { WorkflowNodeView, type FlowNode } from '@/components/workflow/node-view';
-import { WorkflowEdgeView } from '@/components/workflow/workflow-edge';
-import { entryStarts, flowEdges, nodeBadge, nodeSummary, openPorts } from '@/components/workflow/flow-graph';
-import { exitKey, exitTagItems, tagRoomOf } from '@/components/workflow/exit-marks';
+import type { FlowNode } from '@/components/workflow/node-view';
+import { arrangeFlow, FIT_WHOLE as FIT, FLOW_EDGE_TYPES, FLOW_NODE_TYPES, useFlowNames, useMeasuredSizes } from '@/components/workflow/flow-canvas';
+import { entryStarts, exitEdges, flowNodeCard } from '@/components/workflow/flow-graph';
 import { retryBadge, retryLiveText } from '@/lib/retry-info';
 import { useIsDark } from '@/lib/theme';
-import { useTaxonomy } from '@/lib/knowledge';
-import { useConnections } from '@/lib/app-data';
-import { autoLayout } from '@/components/workflow/auto-layout';
 import { shiftRoute } from '@/components/workflow/route-shift';
 import { toast } from 'sonner';
 import { stored, STORED } from '@/lib/storage';
-
-const nodeTypes = { workflow: WorkflowNodeView, frame: FrameNodeView, frameTint: FrameTintView };
-/** The whole graph, never larger than 100%. */
-const FIT = { padding: 0.2, maxZoom: 1, minZoom: 0.05 };
-const edgeTypes = { workflow: WorkflowEdgeView };
+import { useStoredViewport } from '@/lib/viewport';
 
 export interface RunGraphData {
   id: string;
@@ -49,7 +41,6 @@ export interface RunGraphData {
 type RunLayout = { positions: Record<string, { x: number; y: number }>; routes: Record<string, unknown> | null };
 const readLayout = (runId: string): RunLayout | undefined => stored(STORED.runGraphLayout, runId).read() ?? undefined;
 const writeLayout = (runId: string, layout: RunLayout) => stored(STORED.runGraphLayout, runId).write(layout);
-const readViewport = (runId: string): Viewport | undefined => stored(STORED.runViewport, runId).read() ?? undefined;
 
 export function RunGraph(props: { projectId: string; run: RunGraphData; selected?: string; onOpenNode: (nodeId: string) => void }) {
   return (
@@ -64,8 +55,7 @@ function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; ru
   const dark = useIsDark();
   const flow = useReactFlow();
   const { zoom } = useViewport();
-  const taxonomy = useTaxonomy(projectId);
-  const connections = useConnections({ kind: 'project', projectId });
+  const { names } = useFlowNames(projectId);
   // Each call is one card (its nodes are listed when it is opened); the run's own definition has them expanded.
   const [layout, setLayout] = useState<RunLayout | undefined>(() => readLayout(run.id));
   const keepLayout = (next: RunLayout) => {
@@ -85,19 +75,18 @@ function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; ru
   }, [run.definition, layout]);
   const [openCall, setOpenCall] = useState<string>();
   const direction: CanvasDirection = definition.direction ?? 'vertical';
-  const saved = useMemo(() => readViewport(run.id), [run.id]);
+  const { initial: saved, save: saveViewport } = useStoredViewport(projectId, 'run', run.id);
 
   const live = useMemo(() => liveCounts(run.definition, run), [run]);
 
   // Nodes are rebuilt on every refresh; the sizes React Flow measured go back on them (as in the editor),
   // or a rebuilt node is unmeasured again and the view cannot fit it.
-  const [sizes, setSizes] = useState<Record<string, { width: number; height: number }>>({});
+  const [sizes, recordSizes] = useMeasuredSizes();
   // While a node is dragged it follows the pointer here; where it is dropped is kept (and the lines go straight).
   const [dragging, setDragging] = useState<Record<string, { x: number; y: number }>>({});
   const onNodesChange = (allChanges: NodeChange<FlowNode | FrameNode>[]) => {
     const changes = allChanges.filter((change) => !('id' in change) || !isFrameId(change.id)) as NodeChange<FlowNode>[];
-    const sized = changes.flatMap((change) => (change.type === 'dimensions' && change.dimensions ? [[change.id, change.dimensions] as const] : []));
-    if (sized.length) setSizes((previous) => ({ ...previous, ...Object.fromEntries(sized) }));
+    recordSizes(changes);
     // React Flow reports a position on a plain click too (the node did not move): only a real move counts.
     // Where the node is drawn now (a fold's placement first, as `nodes` draws it).
     const at = (id: string) => placements.get(id) ?? definition.nodes.find((node) => node.id === id)?.position;
@@ -119,9 +108,8 @@ function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; ru
     });
   };
   const arrange = async () => {
-    const measuredSizes = new Map(flow.getNodes().map((node) => [node.id, { width: node.measured?.width ?? 224, height: node.measured?.height ?? 66 }]));
     try {
-      const next = await autoLayout(view.definition, measuredSizes, direction, tagRoomOf(view.definition, { tags: new Map(taxonomy.tags?.map((tag) => [tag.id, tag])), statuses: new Map(taxonomy.statuses?.map((status) => [status.id, status])) }));
+      const { next } = await arrangeFlow(flow, view.definition, direction, names.marks);
       keepLayout({ positions: { ...layout?.positions, ...Object.fromEntries(next.nodes.map((node) => [node.id, node.position])) }, routes: Object.fromEntries(next.edges.map((edge) => [edge.id, edge.layout])) });
       requestAnimationFrame(() => void flow.fitView({ ...FIT, duration: 300 }));
     } catch (error) {
@@ -136,9 +124,7 @@ function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; ru
   const placements = useMemo(() => foldPlacements(definition, folds, openFolds, new Map(Object.entries(sizes)), direction), [definition, folds, openFolds, sizes, direction]);
   useEffect(() => setFoldState((state) => openFoldContaining(state, folds, selected)), [selected, folds, setFoldState]);
   const nodes: FlowNode[] = useMemo(() => {
-    const names = { status: new Map(taxonomy.statuses?.map((status) => [status.id, status.name])), connection: new Map(connections.data?.map((connection) => [connection.id, connection.name])), connectionsLoaded: Boolean(connections.data) };
-    const { entry, starts, label } = entryStarts(definition, names);
-    const markNames = { tags: new Map(taxonomy.tags?.map((tag) => [tag.id, tag])), statuses: new Map(taxonomy.statuses?.map((status) => [status.id, status])) };
+    const { entry, starts, label } = entryStarts(definition, names.summary);
     const chip = (fold: Fold) => ({ text: foldText(definition, fold), open: isFoldOpen(foldState, fold.id), live: foldLiveText(fold, live), onToggle: () => setFoldState((state) => toggleFold(state, fold.id)) });
     return view.definition.nodes
       .filter((node) => node.type !== 'entry')
@@ -152,34 +138,24 @@ function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; ru
         connectable: false,
         deletable: false,
         data: {
-          node,
-          direction,
-          summary: node.type === 'call' ? `노드 ${run.definition.nodes.filter((inner) => inner.id.startsWith(`${node.id}/`)).length}개` : nodeSummary(node, definition, names),
+          ...flowNodeCard(node, definition, direction, names),
+          // A call is one card here: it says how many nodes it holds.
+          ...(node.type === 'call' && { summary: `노드 ${run.definition.nodes.filter((inner) => inner.id.startsWith(`${node.id}/`)).length}개` }),
           retry: retryBadge(run.definition, node),
-          badge: nodeBadge(node, names),
           errors: [],
           warnings: [],
           live: live.get(node.id) && { ...live.get(node.id)!, retry: retryLiveText(live.get(node.id)!.retrying) || undefined },
           start: starts.has(node.id) && entry ? { label } : undefined,
-          open: openPorts(node, definition),
           folds: Object.fromEntries(folds.filter((fold) => fold.owner === node.id).map((fold) => [fold.port, chip(fold)])),
-          exitMarks: Object.fromEntries(openPorts(node, definition).map((port) => [port, exitTagItems(node, port, markNames, definition)])),
           onOpenExit: () => onOpenNode(node.id),
         },
       }));
-  }, [definition, view, folds, foldState, placements, run.definition, direction, live, selected, sizes, dragging, taxonomy.statuses, taxonomy.tags, connections.data, setFoldState]); // eslint-disable-line react-hooks/exhaustive-deps
-  const edges = useMemo(() => {
-    const markNames = { tags: new Map(taxonomy.tags?.map((tag) => [tag.id, tag])), statuses: new Map(taxonomy.statuses?.map((status) => [status.id, status])) };
-    // An exit's actions on its first line, each with how many lines left by it.
-    const first = new Map<string, string>();
-    for (const edge of view.definition.edges) if (!first.has(exitKey(edge.source, edge.sourceHandle))) first.set(exitKey(edge.source, edge.sourceHandle), edge.id);
-    return flowEdges(view.definition).map((edge) => {
-      const source = view.definition.nodes.find((node) => node.id === edge.source);
-      const port = (edge as { sourceHandle?: string | null }).sourceHandle ?? 'out';
-      const items = source && first.get(exitKey(source.id, port)) === edge.id ? exitTagItems(source, port, markNames, definition) : [];
-      return items.length ? { ...edge, data: { ...edge.data, tag: { items, exit: nodePorts(source!).find((item) => item.id === port)?.label ?? port, onOpen: () => onOpenNode(source!.id) } } } : edge;
-    });
-  }, [view, definition, taxonomy.statuses, taxonomy.tags, onOpenNode]);
+  }, [definition, view, folds, foldState, placements, run.definition, direction, live, selected, sizes, dragging, names, setFoldState]); // eslint-disable-line react-hooks/exhaustive-deps
+  // An exit's actions on its first line.
+  const edges = useMemo(
+    () => exitEdges(view.definition, definition, names.marks).map(({ edge, source, exit, items }) => (items.length ? { ...edge, data: { ...edge.data, tag: { items, exit, onOpen: () => onOpenNode(source!.id) } } } : edge)),
+    [view, definition, names, onOpenNode],
+  );
 
   // The run's steps, drawn around their nodes with how their lines are doing (what every node in the frame holds now).
   // A run's graph keeps a layout of its own, so a frame is as large as its nodes here, not where the editor stood it.
@@ -206,15 +182,15 @@ function Graph({ projectId, run, selected, onOpenNode }: { projectId: string; ru
       colorMode={dark ? 'dark' : 'light'}
       nodes={[...frameTints(frames), ...frames, ...nodes] as FlowNode[]}
       edges={edges}
-      nodeTypes={nodeTypes}
-      edgeTypes={edgeTypes}
+      nodeTypes={FLOW_NODE_TYPES}
+      edgeTypes={FLOW_EDGE_TYPES}
       onNodesChange={onNodesChange}
       nodesDraggable
       nodesConnectable={false}
       edgesFocusable={false}
       minZoom={0.05}
       onNodeClick={(_event, node) => isFrameId(node.id) ? undefined : (topCallIds(run.definition).includes(node.id) ? setOpenCall((open) => (open === node.id ? undefined : node.id)) : onOpenNode(node.id))}
-      onMoveEnd={(_event, viewport) => stored(STORED.runViewport, run.id).write(viewport)}
+      onMoveEnd={(_event, viewport) => saveViewport(viewport)}
       proOptions={{ hideAttribution: true }}
     >
       <Background gap={20} size={1} />

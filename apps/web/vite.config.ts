@@ -12,7 +12,7 @@ export default defineConfig(async ({ command, isPreview }) => {
     console.info(`[dev] Waiting for API ${api}`);
     try {
       await pRetry(async () => {
-        const response = await fetch(`${api}/api/projects`, { signal: AbortSignal.timeout(1000) });
+        const response = await fetch(`${api}/api/app/sync/projects`, { signal: AbortSignal.timeout(1000) });
         await response.body?.cancel();
         if (!response.ok) throw new Error(`API returned HTTP ${response.status}`);
       }, { retries: Infinity, minTimeout: 250, maxTimeout: 1000, maxRetryTime: 30_000 });

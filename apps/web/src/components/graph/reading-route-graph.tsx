@@ -6,13 +6,11 @@ import { useQuery } from '@tanstack/react-query';
 import { GRAPH_SHOW_ITEMS, shownText, useGraphShow, type GraphShow } from '@/lib/graph-show';
 import { useLines } from '@/lib/units';
 import { readingStageLayout } from './reading-stage-layout';
-import { GraphCanvas, type GraphCanvasHandle, type NodeInfo, type Viewport } from './graph-canvas';
-import { stored, STORED } from '@/lib/storage';
+import { GraphCanvas, type GraphCanvasHandle, type NodeInfo } from './graph-canvas';
+import { useStoredViewport, viewportScope } from '@/lib/viewport';
 
 type RouteNode = { id: string; firstUnitId: string; unitIds: string[]; info: NodeInfo };
 type RouteStage = { id: string; nodeIds: string[]; unitIds: string[]; parallel: boolean };
-
-const readViewport = (key: string): Viewport | undefined => stored(STORED.graphViewport, key).read() ?? undefined;
 
 /** The selected single route, grouped into source nodes and simultaneous stages. */
 export function ReadingRouteGraph({ projectId, stages, routeKey, direction, onDirectionChange, edit, onEdit }: {
@@ -27,8 +25,9 @@ export function ReadingRouteGraph({ projectId, stages, routeKey, direction, onDi
   const graph = useQuery(q.graph(projectId, 'dialogue'));
   const [container, size] = useSize<HTMLDivElement>();
   const canvas = useRef<GraphCanvasHandle>(null);
-  const viewportKey = `route.${projectId}.${routeKey}.${direction}`;
-  const initialViewport = readViewport(viewportKey);
+  // The view is remembered per route and direction (lib/viewport.ts); the canvas is mounted again when either changes.
+  const viewportKey = viewportScope(routeKey, direction);
+  const { initial: initialViewport, save: saveViewport } = useStoredViewport(projectId, 'route', viewportKey);
   const previousEdit = useRef({ routeKey, edit });
   // What the cards show of each line, the same setting as the main graph's cards.
   const [show, setShow] = useGraphShow();
@@ -131,7 +130,7 @@ export function ReadingRouteGraph({ projectId, stages, routeKey, direction, onDi
             initialViewport={initialViewport}
             initialFocusAlign={selectedNodeId ? 'center' : direction === 'horizontal' ? 'left' : 'top'}
             initialFocus={initialViewport ? undefined : selectedNodeId ?? routeNodes[0]?.id}
-            onViewportChange={(viewport) => stored(STORED.graphViewport, viewportKey).write(viewport)}
+            onViewportChange={saveViewport}
             onSelect={(id) => onEdit(routeNodes.find((node) => node.id === id)?.firstUnitId || undefined)}
           />
           <CanvasOverlay tools={<SegmentedControl ariaLabel="카드에 보여 줄 것" value={show} onChange={(next) => setShow(next as GraphShow)} items={GRAPH_SHOW_ITEMS} />} />

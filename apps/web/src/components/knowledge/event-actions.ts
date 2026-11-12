@@ -1,4 +1,5 @@
 import type { EventLine, EventLinkKind, StoryEvent } from '@/lib/knowledge';
+import type { EditableFlowActions } from './editable-flow';
 import { freeName, useGraphHistory } from './graph-history';
 
 /** A line of the 사건 흐름, by its two ends. */
@@ -18,7 +19,7 @@ export const parseLineKey = (key: string | undefined): FlowLine | null => {
  * events ("제목 (복사)"). Every one is a step ⌘/Ctrl+Z and ⌘/Ctrl+Shift+Z replay, the same keys as
  * the other graphs.
  */
-export function useEventFlowActions({ projectId, events, open }: { projectId: string; events: StoryEvent[]; open: (item: string) => void }) {
+export function useEventFlowActions({ projectId, events, open }: { projectId: string; events: StoryEvent[]; open: (item: string) => void }): EditableFlowActions<FlowLine> {
   const { writes, remove, restore, run, record, created, undo, redo } = useGraphHistory(projectId);
   const { link, setLink } = writes.events;
   /** Takes the lines away, then the events (whose own lines go with them); returns how to put it all back. */
@@ -36,12 +37,12 @@ export function useEventFlowActions({ projectId, events, open }: { projectId: st
   };
 
   return {
-    /** Deletes events and lines at once. */
-    remove: (target: { eventIds: string[]; lines: FlowLine[] }) =>
+    /** Deletes events (`ids`) and lines at once. */
+    remove: (target: { ids: string[]; lines: FlowLine[] }) =>
       run(async () => {
-        if (!target.eventIds.length && !target.lines.length) return;
-        let putBack = await removeAll(target.eventIds, target.lines);
-        record({ undo: () => putBack(), redo: async () => (putBack = await removeAll(target.eventIds, target.lines)) });
+        if (!target.ids.length && !target.lines.length) return;
+        let putBack = await removeAll(target.ids, target.lines);
+        record({ undo: () => putBack(), redo: async () => (putBack = await removeAll(target.ids, target.lines)) });
       }),
     /** A line drawn from one event to another (or a dropped derived one brought back); the line opens. */
     connect: (fromId: string, toId: string) =>
@@ -53,7 +54,7 @@ export function useEventFlowActions({ projectId, events, open }: { projectId: st
         open(lineKey(line));
       }),
     /** 빈 곳 › 사건 추가: a new event; returns its id so the flow can put it where the menu opened. */
-    addEvent: async () => {
+    add: async () => {
       let id: string | undefined;
       await run(async () => {
         const row = await writes.events.create({ title: freeName('새 사건', new Set(events.map((event) => event.title.toLowerCase()))) });
@@ -83,5 +84,3 @@ export function useEventFlowActions({ projectId, events, open }: { projectId: st
     redo,
   };
 }
-
-export type EventFlowActions = ReturnType<typeof useEventFlowActions>;

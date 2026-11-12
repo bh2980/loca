@@ -494,7 +494,7 @@ function Knowledge() {
               to={lineEnds.to}
               onOpen={(id) => set({ item: id })}
               onRemove={() => {
-                void eventActions.remove({ eventIds: [], lines: [line] });
+                void eventActions.remove({ ids: [], lines: [line] });
                 set({ item: undefined });
               }}
               onClose={() => set({ item: undefined })}
@@ -530,7 +530,7 @@ function Knowledge() {
               <EmptyState noun="인물" hint="대본에서 인물·관계를 뽑아 오거나 직접 추가합니다." action={emptyActions} />
             ) : (
               <RelationshipGraph
-                storageKey={projectId}
+                projectId={projectId}
                 characters={characters}
                 relationships={edges}
                 selectedCharacterId={selected?.id}

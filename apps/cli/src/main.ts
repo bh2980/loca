@@ -140,7 +140,7 @@ const logDropped = (report: Report) => {
 };
 
 /** Where waiting proposals are decided. */
-const ACCEPT_HINT = 'loca 앱 채팅 패널의 ‘제안’에서 수락하면 반영됩니다';
+const ACCEPT_HINT = 'loca 앱 아래 상태 표시줄의 ‘알림’에서 수락하면 반영됩니다';
 const failure = (result: unknown) => (result && typeof result === 'object' && typeof (result as { error?: unknown }).error === 'string' ? (result as { error: string }).error : JSON.stringify(result));
 
 /** Says what became of a change; a change that failed while applying fails the command. */

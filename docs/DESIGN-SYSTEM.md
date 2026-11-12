@@ -105,7 +105,7 @@
 |---|---|---|---|
 | ① 토큰 | `tokens/` | 위 1장 | |
 | ② 기초 | `primitives/` | `Box` `Stack` `Inline` `Grid` `Text` `Heading` `Icon` | 토큰 이름만 받는다. 한 화면만 쓰는 옵션을 두지 않는다 |
-| ③ 조작 | `controls/` | `Button` `Input` `Textarea` `Select` `Combobox` `Checkbox` `Switch` `RadioGroup` `Toggle` `Tabs` `DropdownMenu` `ContextMenu` `Popover` `Dialog` `AlertDialog` `Sheet` `Tooltip` … (shadcn 기반) | 너비·고정폭 글꼴·크기는 속성으로 받는다 (`<Select width="field">`, `<Input mono>`). 화면별 사본을 만들지 않는다 |
+| ③ 조작 | `controls/` | `Button` `Input` `Textarea` `Select` `Combobox` `Checkbox` `Switch` `RadioGroup` `Toggle` `Tabs` `DropdownMenu` `ContextMenu`(화면이 연 자리를 들고 있으면 `PointMenu`) `Popover`(자리에 세우면 `PointPopover`) `Dialog` `AlertDialog` `Sheet` `Tooltip` … (shadcn 기반) | 너비·고정폭 글꼴·크기는 속성으로 받는다 (`<Select width="field">`, `<Input mono>`). 화면별 사본을 만들지 않는다 |
 | ④ 패턴 | `patterns/` | 여러 화면이 같은 모양으로 쓰는 것: `Field`·`FieldRow` `Section` `PaneHeader` `SplitPane` `DataTable` `ListRow` `Chip` `Badge` `Count` `StatusIcon` `Meter` `Progress` `EmptyState` `Skeleton` `Notice` `Toolbar` `ActionBar` `SelectionBar` `Inspector` `KeyValue` `Markdown` `MenuLabel` … | 이름은 역할로 짓고 화면 이름(Script·Knowledge…)을 붙이지 않는다 |
 | ⑤ 업무 | `domains/<업무>/` | 업무 뜻이 있는 것: `chat` `graph` `workflow` `script`(대사 목록·번역 편집) `knowledge` `app`(셸·사이드바·상태 표시줄) | ②~④를 조합한다. 패턴과 같은 모양을 새로 만들지 않는다. 이름은 업무 이름으로 시작해도 된다 |
 
@@ -156,7 +156,7 @@
 | `Swatch` · `SwatchPicker` | `color` |
 | `DataTable` | `compact` `rowState` 열 `tone` `variant` `weight` `tabular` `mono` `dense` |
 | `StatusIcon` · `TagChip` · `AiMark` | `small` |
-| 그 밖 | `Toolbar`류 `FilterBar` `Pager` `FilterChips` · `ActionBar` · `SelectionBar` (`grow`) · `Inspector` `InspectorHeader` `InspectorTabs` `InspectorList` `InspectorResult` `InspectorActionRow` `InspectorToggle` `DirtyBar` · `Disclosure` · `ExpandableRow`(두 번째 접기 패턴: 목록의 한 항목이 아래로 펼쳐짐. 닫힌 채 시작, 열 때 내용을 만든다. `toggle` row/chevron, `size` row/inline, `meta`, `ruled`. 창의 구역은 `Section`/`Group collapsible`) · `PaneHeader` · `Page` `PageBody` `PageHeader` `HeaderActions` `HeaderViews` `PageHeading` · 오른쪽 도크 부품(`DockProvider` `DockContent` `DockLevel` `DockInspector` `DockHeader` `DockHeaderSlot` `WorkspaceShell`) · `Card` · `Markdown` · `TagMenu` `TagListEditor` · `HistoryDay` `HistoryEntry` `HistoryFolded`(접힌 이력 한 줄, 열면 전문·바뀐 곳, 되돌리기는 hover·열림 때 날짜 자리에) · `FilePickButton`(파일 선택 창을 여는 버튼) · `PermissionMatrix` · `ViewSwitch` · `FilterHeaderButton` `FilterCheck` |
+| 그 밖 | `Toolbar`류 `FilterBar` `Pager` `FilterChips` · `ActionBar` · `SelectionBar` (`grow`, 캔버스 위에서는 `floating`) · `Inspector` `InspectorHeader` `InspectorTabs` `InspectorList` `InspectorResult` `InspectorActionRow` `InspectorToggle` `DirtyBar` · `Disclosure` · `ExpandableRow`(두 번째 접기 패턴: 목록의 한 항목이 아래로 펼쳐짐. 닫힌 채 시작, 열 때 내용을 만든다. `toggle` row/chevron, `size` row/inline, `meta`, `ruled`. 창의 구역은 `Section`/`Group collapsible`) · `PaneHeader` · `Page` `PageBody` `PageHeader` `HeaderActions` `HeaderViews` `PageHeading` · 오른쪽 도크 부품(`DockProvider` `DockContent` `DockLevel` `DockInspector` `DockHeader` `DockHeaderSlot` `WorkspaceShell`) · `Card` · `Markdown` · `TagMenu` `TagListEditor` · `HistoryDay` `HistoryEntry` `HistoryFolded`(접힌 이력 한 줄, 열면 전문·바뀐 곳, 되돌리기는 hover·열림 때 날짜 자리에) · `FilePickButton`(파일 선택 창을 여는 버튼) · `PermissionMatrix` · `ViewSwitch` · `FilterHeaderButton` `FilterCheck` |
 
 **⑤ 업무 `domains/` ** 업무 뜻이 있거나 클래스를 ②로 말할 수 없는 부품만 남는다. 모두 ②~④로 짜고 `className`을 받지 않는다.
 

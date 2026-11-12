@@ -1,3 +1,4 @@
+import type { EditableFlowActions } from './editable-flow';
 import { freeName, useGraphHistory, type DeleteItem } from './graph-history';
 import { pairKey } from '@tw/shared';
 import type { Pair } from './pairs';
@@ -8,19 +9,19 @@ import type { Character, Relationship } from '@/lib/knowledge';
  * person, delete people or lines (a line takes its pair's relationship and speech rules), copy
  * people with the relationships among them. Every one is a step ⌘/Ctrl+Z and ⌘/Ctrl+Shift+Z replay.
  */
-export function useRelationshipGraphActions({ projectId, characters, relationships, pairs, open }: { projectId: string; characters: Character[]; relationships: Relationship[]; pairs: { current: Pair[] }; open: (item: string) => void }) {
+export function useRelationshipGraphActions({ projectId, characters, relationships, pairs, open }: { projectId: string; characters: Character[]; relationships: Relationship[]; pairs: { current: Pair[] }; open: (item: string) => void }): EditableFlowActions<string> {
   // People, relationships and rules are collections the row feed keeps current: nothing to refetch.
   const { writes, remove, restore, run, record, created, undo, redo } = useGraphHistory(projectId);
   /** Every name and alias in use: a new person takes one nobody has (the server refuses a second of the same). */
   const taken = () => new Set(characters.flatMap((character) => [character.name, ...character.aliases]).map((name) => name.toLowerCase()));
 
   return {
-    /** Deletes people and lines (pair keys) at once. */
-    remove: (target: { characterIds: string[]; pairIds: string[] }) =>
+    /** Deletes people (`ids`) and lines (pair keys) at once. */
+    remove: (target: { ids: string[]; lines: string[] }) =>
       run(async () => {
-        const lines = pairs.current.filter((pair) => target.pairIds.includes(pair.key));
+        const lines = pairs.current.filter((pair) => target.lines.includes(pair.key));
         const items: DeleteItem[] = [
-          { kind: 'characters' as const, ids: target.characterIds },
+          { kind: 'characters' as const, ids: target.ids },
           { kind: 'relationships' as const, ids: lines.flatMap((pair) => (pair.relationship ? [pair.relationship.id] : [])) },
           { kind: 'speechRules' as const, ids: lines.flatMap((pair) => pair.rules.map((rule) => rule.id)) },
         ].filter((item) => item.ids.length);
@@ -41,7 +42,7 @@ export function useRelationshipGraphActions({ projectId, characters, relationshi
         open(key);
       }),
     /** 빈 곳 › 인물 추가: a new person; returns its id so the graph can put it where the menu opened. */
-    addPerson: async () => {
+    add: async () => {
       let id: string | undefined;
       await run(async () => {
         const row = await writes.characters.create({ name: freeName('새 인물', taken()) });
@@ -77,5 +78,3 @@ export function useRelationshipGraphActions({ projectId, characters, relationshi
     redo,
   };
 }
-
-export type RelationshipGraphActions = ReturnType<typeof useRelationshipGraphActions>;

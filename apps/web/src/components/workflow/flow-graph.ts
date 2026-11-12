@@ -1,7 +1,9 @@
 /** What the editor and a run's graph share: a node's one-line summary and the edges as React Flow draws them. */
 import { MarkerType } from '@xyflow/react';
 import { nodePorts, nodeSummary as sharedNodeSummary, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+import type { CanvasDirection } from '@loca/ui';
 import type { FlowEdge } from '@/components/workflow/workflow-edge';
+import { exitKey, exitTagItems, type MarkNames } from '@/components/workflow/exit-marks';
 
 export interface SummaryNames {
   status: Map<string, string>;
@@ -68,6 +70,66 @@ export function flowEdges(definition: WorkflowDefinition, { selected, hovered }:
       // The colour says the main way, 실패 or 오류; a label only where it cannot: a condition's 예 / 아니요, an exit sent down several lines.
       data: { points: edge.layout?.points, label: port && (branches > 1 ? `${port.label} · 모두 보냄` : source?.type === 'condition' ? port.label : undefined), labelPosition: edge.layout?.labelPosition },
       style: { stroke: edge.id === selected ? 'var(--stroke-accent)' : tone, strokeWidth: edge.id === selected || edge.id === hovered ? 3 : 2, ...(back && { strokeDasharray: '6 4' }) },
+    };
+  });
+}
+
+/** The names a workflow graph shows: statuses, connections and workflows in a node's summary, tags and statuses on an exit's marks. */
+export interface FlowNames {
+  summary: SummaryNames;
+  marks: MarkNames;
+}
+
+export function flowNames({ statuses, tags, connections, workflows }: {
+  statuses?: readonly { id: string; name: string; color: string; kind?: 'initial' | 'normal' | 'final'; inReview?: boolean }[];
+  tags?: readonly { id: string; name: string; color: string }[];
+  /** Absent until loaded. */
+  connections?: readonly { id: string; name: string }[];
+  workflows?: { id: string; name: string }[];
+}): FlowNames {
+  return {
+    summary: { status: new Map(statuses?.map((status) => [status.id, status.name])), connection: new Map(connections?.map((connection) => [connection.id, connection.name])), connectionsLoaded: Boolean(connections), workflows },
+    marks: { tags: new Map(tags?.map((tag) => [tag.id, tag])), statuses: new Map(statuses?.map((status) => [status.id, status])) },
+  };
+}
+
+/**
+ * What a node's card says in the editor and in a run's graph alike: the node, its one-line summary, an AI node's
+ * model, and its exits no line leaves, each with what it does at its end (the layout keeps that room). `whole` is
+ * the definition the node belongs to; the node itself may come from a folded view of it.
+ */
+export function flowNodeCard(node: WorkflowNode, whole: WorkflowDefinition, direction: CanvasDirection, names: FlowNames) {
+  const open = openPorts(node, whole);
+  return {
+    node,
+    direction,
+    summary: nodeSummary(node, whole, names.summary),
+    badge: nodeBadge(node, names.summary),
+    open,
+    exitMarks: Object.fromEntries(open.map((port) => [port, exitTagItems(node, port, names.marks, whole)])),
+  };
+}
+
+/**
+ * The drawn edges with what each exit does: an exit's actions are drawn on its first line (they apply once, before
+ * its lines split), so every edge comes with its exit's key and label and, on that first line, the exit's marks.
+ * `drawn` is the definition as drawn (folded), `whole` the one its nodes belong to.
+ */
+export function exitEdges(drawn: WorkflowDefinition, whole: Pick<WorkflowDefinition, 'nodes' | 'edges'>, marks: MarkNames, highlight?: { selected?: string; hovered?: string }) {
+  const first = new Map<string, string>();
+  for (const edge of drawn.edges) if (!first.has(exitKey(edge.source, edge.sourceHandle))) first.set(exitKey(edge.source, edge.sourceHandle), edge.id);
+  return flowEdges(drawn, highlight).map((edge) => {
+    const source = drawn.nodes.find((node) => node.id === edge.source);
+    const port = edge.sourceHandle ?? 'out';
+    const key = exitKey(edge.source, port);
+    return {
+      edge,
+      source,
+      port,
+      key,
+      /** The exit's name as its node's ports give it. */
+      exit: source ? (nodePorts(source).find((item) => item.id === port)?.label ?? port) : port,
+      items: source && first.get(key) === edge.id ? exitTagItems(source, port, marks, whole) : [],
     };
   });
 }

@@ -123,11 +123,21 @@ batchOf(db, definition, node, unitId) → unitId[]
 - "넣는 중"은 `notice` 문자열 비교가 아니라 실행 상태값으로 둔다. 서버를 켤 때 그 상태로 남은 실행은 실패로 닫는다.
 - 재시도로 되돌린 스텝 표시(`retriedSteps`)를 `run_steps`에 저장한다. 재시작 뒤 연속 실패 수가 달라지지 않는다.
 
+### 3.8 그래프 화면: 한 가지 일은 한 가지 방법으로
+
+그래프가 넷이다(대사·장면 그래프는 Canvas, 관계 그래프·사건 흐름·워크플로 편집기는 React Flow). 그리는 라이브러리는 그대로 두고, 그 위의 상호작용을 하나씩으로 줄인다.
+
+- **고른 묶음**은 `lib/graph-selection.ts`. 규칙(상자·⌘/Ctrl+클릭은 고르고, 그냥 클릭은 URL의 선택이다. 키와 메뉴는 고른 묶음에, 없으면 열린 항목에 듣는다)은 순수 함수이고 `useGraphSelection`이 묶음을 든다.
+- **복사·붙여넣기**는 `lib/graph-clipboard.ts`(종류별로 탭이 든다), **키**는 `lib/graph-shortcuts.ts`, **되돌리기**는 `lib/undo-history.ts`. 서버가 되돌리는 화면은 토큰 스텝을, 워크플로 편집기처럼 저장 전 편집을 스스로 드는 화면은 `snapshotHistory`를 쓴다(스텝·순서·한도는 같은 `undoHistory`).
+- **뷰포트**는 `lib/viewport.ts`의 `useStoredViewport(projectId, graph, scope)` 하나, 저장소 키도 `viewport` 하나다. scope는 그 그래프가 보여 주던 것(구역·방향, 워크플로, 실행, 사람·사건 묶음의 짧은 이름)이라 같은 것을 다시 열면 보던 자리에서 열린다.
+- **메뉴**는 `ContextMenu` 하나. 캔버스가 우클릭한 자리와 대상을 알려 주는 화면은 `PointMenu`(같은 메뉴, 자리를 화면이 든다)를 쓴다. 고른 묶음의 막대는 `SelectionBar floating`.
+- 관계 그래프와 사건 흐름은 편집 방식이 같다: `EditableFlow`가 고르기·끌기·키·메뉴·복사·뷰포트를 맡고, 각 파일에는 노드와 선의 모양, 배치, 쓰기 함수만 남는다. 두 화면의 동작(`remove`·`connect`·`add`·`duplicate`·`undo`·`redo`)도 `EditableFlowActions` 한 모양이다.
+- 화면 컴포넌트는 조립만 한다. 대사 그래프는 URL(`graph-search.ts`: 읽기와 모든 변경), 순회(`flow-model.ts`), 카드 글(`node-cards.ts`)을 React 없는 모듈로 빼고 테스트한다. 워크플로 편집기는 초안·저장, 선택, 그린 모양, 편집, 배치, React Flow 연결을 훅 하나씩으로 나누고, 정의를 바꾸는 일은 순수 함수(`definition-edits.ts`)다. 편집기와 실행 그래프가 함께 그리는 것(카드의 글, 출구 표식이 붙는 선, 이름, 측정한 크기, 자동 정렬)은 `flow-graph.ts`·`flow-canvas.ts`에 한 번만 있다.
+
 ## 4. 이번에 하지 않는 것
 
 각각 따로 설계한다. 위 결정과 얽히지 않는다.
 
-- 그래프 화면들의 상호작용 공통화(클립보드·선택·메뉴·뷰포트 저장), `p.$projectId.graph.tsx` 분해
 - `packages/ui/domains` 재배치와 일회용 부품 정리
 - `services/`와 `engine/`의 계층, "route" 이름 정리, `@tw/*`·`@loca/ui`·저장소 키 접두사 통일
 - `@tw/ai`의 연결 종류별 provider 객체

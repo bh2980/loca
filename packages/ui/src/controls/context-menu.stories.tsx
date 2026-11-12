@@ -1,7 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { Box } from "../primitives/box"
 import { Text } from "../primitives/text"
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger } from "./context-menu"
+import { useState } from "react"
+import { Button } from "./button"
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger, PointMenu } from "./context-menu"
 
 const meta = { title: "Controls/ContextMenu" } satisfies Meta
 export default meta
@@ -35,3 +37,22 @@ export const DisabledTrigger: Story = {
     </ContextMenu>
   ),
 }
+
+function AtPoint() {
+  const [at, setAt] = useState<{ x: number; y: number } | null>(null)
+  return (
+    <>
+      <Button variant="outline" onClick={(event) => setAt({ x: event.clientX, y: event.clientY })}>누른 자리에 메뉴 열기</Button>
+      <PointMenu at={at} onClose={() => setAt(null)}>
+        <ContextMenuContent width="menu">
+          <ContextMenuItem>상세 열기</ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem variant="destructive">삭제</ContextMenuItem>
+        </ContextMenuContent>
+      </PointMenu>
+    </>
+  )
+}
+
+/** `PointMenu`: the screen holds where the menu opens (a canvas reports the right-click). */
+export const AtAPoint: Story = { render: () => <AtPoint /> }

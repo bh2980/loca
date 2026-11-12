@@ -80,10 +80,11 @@ export const STORED = {
   groupsExpanded: define<string[], Project>('script.expanded', 'session', ids, []),
   /** Open folds of a workflow's or a run's graph (components/workflow/fold.ts). */
   folds: define<{ open: string[] } | null, [graph: string]>('workflow.folds', 'session', z.object({ open: ids }).nullable(), null),
-  workflowViewport: define<Viewport | null, [workflowId: string, direction: string]>('workflow.viewport', 'session', viewport.nullable(), null),
-  runViewport: define<Viewport | null, [runId: string]>('run.viewport', 'session', viewport.nullable(), null),
-  /** Where a graph canvas was left (the dialogue and scene graphs, a reading route's graph): the view names itself. */
-  graphViewport: define<{ x: number; y: number; k: number } | null, [view: string]>('graph.viewport', 'session', z.object({ x: z.number().finite(), y: z.number().finite(), k: z.number().finite().positive() }).nullable(), null),
+  /**
+   * Where a graph was left (pan and zoom): one key for every graph, told apart by project, graph and what it showed
+   * (lib/viewport.ts is the only reader and writer).
+   */
+  viewport: define<Viewport | null, [projectId: string, graph: string, scope: string]>('viewport', 'session', viewport.nullable(), null),
   /** How far the reading route's list was scrolled. */
   routeScroll: define<number, [route: string]>('route.scroll', 'session', z.number().nonnegative(), 0),
   /** The scene a reading route is asked to pass through. */

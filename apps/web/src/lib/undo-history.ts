@@ -101,3 +101,58 @@ export function createdStep(remove: () => Promise<string | null>, restore: (toke
     },
   };
 }
+
+/**
+ * The undo history of a screen whose edits are its own unsaved state (the workflow editor's draft): no server keeps
+ * them, so a step is the content before and after. The screen says what the content is after every change (`seen`);
+ * changes that follow one another within `pause` are one step (a drag, typing in a field), so undo goes back to
+ * before the burst. Undo and redo put a snapshot back through `apply`; the content that comes back from it is taken
+ * as it is, not as a new edit (it may be the same content written another way). The steps, their order and the
+ * limit are `undoHistory`'s, the same as every other screen's.
+ */
+interface SnapshotHistory<T> {
+  seen: (snapshot: T) => void;
+  /** False when there is nothing to undo. The snapshot is put back at once; the promise is `undoHistory`'s. */
+  undo: () => Promise<boolean>;
+  redo: () => Promise<boolean>;
+  canUndo: () => boolean;
+  canRedo: () => boolean;
+}
+
+export function snapshotHistory<T>({ apply, pause = 400, limit = 100, now = Date.now }: { apply: (snapshot: T) => void; pause?: number; limit?: number; now?: () => number }): SnapshotHistory<T> {
+  const history = undoHistory({ limit });
+  let last: { snapshot: T } | undefined;
+  let replaying = false;
+  let at = 0;
+  /** The step still taking changes (the burst going on). */
+  let open: { before: T; after: T } | undefined;
+  const replay = (snapshot: T) => {
+    replaying = true;
+    // What follows a replay is a step of its own, however soon it comes.
+    at = 0;
+    open = undefined;
+    apply(snapshot);
+  };
+  return {
+    seen(snapshot) {
+      if (last && snapshot === last.snapshot) return;
+      if (!last || replaying) {
+        replaying = false;
+        last = { snapshot };
+        return;
+      }
+      const time = now();
+      if (time - at > pause || !open) {
+        const step = { before: last.snapshot, after: snapshot };
+        open = step;
+        history.record({ undo: async () => replay(step.before), redo: async () => replay(step.after) });
+      } else open.after = snapshot;
+      at = time;
+      last = { snapshot };
+    },
+    undo: history.undo,
+    redo: history.redo,
+    canUndo: history.canUndo,
+    canRedo: history.canRedo,
+  };
+}

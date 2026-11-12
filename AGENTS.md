@@ -45,6 +45,7 @@ Enforced by `pnpm ui-rules` unless marked "review". Details, token tiers and the
 - Buttons: no raw `<button>`; text buttons take no `size` (`size="sm"` is the default, `"xs"` is refused); icon-only buttons use `icon`/`icon-xs`/`icon-sm`, a button inside a sentence uses `inline`. One primary button per screen/pane (review).
 - Collections are tables; details open in a right-hand pane, not modals (AlertDialog only for destructive confirmation; the dialogue graph's translation card is a non-modal card anchored beside its node, not a detail view).
 - The project chat is a global right-docked panel and every page reports its selection via `useReportView`.
+- Graph screens share one way to do each thing (`apps/web/src/lib`): the picked set is `useGraphSelection`, copy and paste `graph-clipboard.ts`, the keys `useGraphShortcuts`, the remembered viewport `useStoredViewport` (`viewport.ts`), undo `undo-history.ts`; a menu opened where a canvas was right-clicked is `PointMenu`, the picked set's bar is `SelectionBar floating`. The relationship graph and the 사건 흐름 are built on `EditableFlow` (`components/knowledge/editable-flow.tsx`). A new graph uses these; do not give one its own clipboard, key handler or viewport key.
 - The app runs on Windows too: shortcut hints go through `keyLabel` (`lib/keys.ts`), never a hard-coded ⌘/⌥, and handlers accept Ctrl as well as ⌘.
 - After `shadcn add`, replace any `from "cn"` import with `@/lib/utils` and remove the `cn` package it adds.
 
