@@ -2,7 +2,7 @@ import { queryOptions } from '@tanstack/react-query';
 import { useLiveQuery } from '@tanstack/react-db';
 import type { InferRequestType } from 'hono/client';
 import { client, unwrap } from './api';
-import { liveRows, projectCollection, sent, type FeedRow } from './collections';
+import { liveRows, projectCollection, sent } from './collections';
 import { key } from './query-keys';
 
 /**
@@ -10,7 +10,7 @@ import { key } from './query-keys';
  * (its nodes laid out) is the graph's own question, asked again when the graph topic changes (a view's nodes are
  * graph rows: adding to, taking from or deleting a view changes that topic).
  */
-export type GraphViewRow = FeedRow['graphViews'];
+
 type ViewsApi = (typeof client.projects)[':projectId']['graph']['views'];
 
 /** Saved views, last changed first. */

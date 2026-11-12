@@ -329,7 +329,6 @@ export const presetTakes = (preset: { inputs?: readonly Subject[] }, input: Subj
  * are refused, and an AI node right after it reads the parts with input { previous: true, lines: false }.
  */
 export const gatherConfigSchema = z.object({ fields: z.array(z.string().trim().min(1)).default([]) }).prefault({});
-export type GatherConfig = z.infer<typeof gatherConfigSchema>;
 
 /** An AI node's call time limit when it does not set one, in minutes. */
 export const DEFAULT_CALL_MINUTES = 10;
@@ -624,7 +623,6 @@ export const NODE_TYPES: Record<WorkflowNodeType, NodeTypeInfo> = {
   call: { label: '워크플로 호출', description: '다른 워크플로를 이 대사들에 실행합니다. 끝까지 가면 완료로, 실패로 끝나게 되면 오류로 나옵니다.', hasInput: true },
   gather: { label: '모으기', description: '앞 노드의 결과를 모든 요청이 끝날 때까지 모았다가, 합친 결과 하나를 다음 노드로 넘깁니다.', hasInput: true },
 };
-export const NODE_TYPE_IDS = Object.keys(NODE_TYPES) as WorkflowNodeType[];
 
 /** A node of one kind. */
 export type NodeOf<T extends WorkflowNodeType> = Extract<WorkflowNode, { type: T }>;

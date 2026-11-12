@@ -117,7 +117,6 @@ const foldBadge = (node: LayoutNode, folded: boolean) => {
   return { x: node.x + node.width - width - FOLD_BUTTON.margin, y: node.y + FOLD_BUTTON.margin, width, height: FOLD_BUTTON.height };
 };
 /** Where the view is: the pan and zoom every graph remembers the same way (lib/viewport.ts). */
-export type { Viewport };
 export interface GraphCanvasHandle {
   fit(): void;
   zoomBy(factor: number): void;

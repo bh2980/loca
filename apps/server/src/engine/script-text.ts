@@ -56,17 +56,3 @@ export function scriptText(db: Db, projectId: string, only?: Set<string>) {
   return { blocks, keyOf, idOf };
 }
 
-/** Consecutive blocks packed into parts of at most `limit` estimated tokens (a single large block stays whole). */
-export function packBlocks(blocks: ScriptBlock[], limit: number): string[] {
-  const parts: string[][] = [[]];
-  let used = 0;
-  for (const block of blocks) {
-    if (used + block.tokens > limit && parts.at(-1)!.length) {
-      parts.push([]);
-      used = 0;
-    }
-    parts.at(-1)!.push(block.text);
-    used += block.tokens;
-  }
-  return parts.map((part) => part.join('\n\n'));
-}

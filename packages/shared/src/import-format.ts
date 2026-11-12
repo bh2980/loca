@@ -273,7 +273,6 @@ export function importWarnings(file: ImportFile): { message: string; examples: s
   return warnings;
 }
 export type NodeType = z.infer<typeof nodeTypeSchema>;
-export type GraphNodeKind = (typeof GRAPH_NODE_KINDS)[number];
 export type ImportFileInput = z.input<typeof importFileSchema>;
 
 /**

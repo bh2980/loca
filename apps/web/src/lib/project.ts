@@ -4,7 +4,7 @@ import { createOptimisticAction, useLiveQuery } from '@tanstack/react-db';
 import type { InferRequestType } from 'hono/client';
 import { agentSettingsSchema, APP_FEED, type AppDefaultSection, type DetectedCustomFormatRule, type DetectedFormatPreset, type FormatPreset, type SavedPrompt } from '@loca/shared';
 import { ApiError, client, unwrap } from './api';
-import { liveRows, projectCollection, sent, type FeedRow } from './collections';
+import { liveRows, projectCollection, sent } from './collections';
 import { key } from './query-keys';
 import { useGroups } from './groups';
 import { useTaxonomy } from './knowledge';
@@ -16,7 +16,6 @@ import { useTaxonomy } from './knowledge';
  * changes status does not redraw what only reads a setting (format rules, languages).
  */
 type Api = (typeof client.projects)[':projectId'];
-export type Project = FeedRow['project'];
 export type ProjectPatch = InferRequestType<Api['$patch']>['json'];
 
 export const projectRow = (projectId: string) => projectCollection('project', projectId);

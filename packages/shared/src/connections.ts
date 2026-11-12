@@ -4,7 +4,6 @@ import { modelLimitsSchema } from './budgets.ts';
 /** The agent CLIs a connection can run: the kinds whose transport is `cli` (CONNECTION_KIND_INFO is typed by this list). */
 export const CLI_KINDS = ['codex', 'claude', 'grok', 'antigravity', 'opencode'] as const;
 export type CliKind = (typeof CLI_KINDS)[number];
-export const isCliKind = (kind: string): kind is CliKind => (CLI_KINDS as readonly string[]).includes(kind);
 
 export const CONNECTION_KINDS = ['openai', 'systemone', ...CLI_KINDS, 'http'] as const;
 export type ConnectionKind = (typeof CONNECTION_KINDS)[number];
@@ -90,7 +89,6 @@ export const connectionInputSchema = z.object({
   /** What each model of this connection takes and gives in one call (model id → limits): from its model list, or a person's numbers. */
   modelLimits: z.record(z.string(), modelLimitsSchema).optional(),
 });
-export type ConnectionInput = z.infer<typeof connectionInputSchema>;
 
 /**
  * Time limits of calls that have no settings of their own (a workflow node and the editor's AI set

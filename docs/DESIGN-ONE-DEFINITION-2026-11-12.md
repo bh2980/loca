@@ -1,6 +1,6 @@
-# 정의는 한 곳에: 필터·도구·AI 요청·변경 알림 설계 (초안) — 2026-11-12
+# 정의는 한 곳에: 필터·도구·AI 요청·변경 알림 설계 — 2026-11-12
 
-초안이다. 구현 전이고, §6의 결정이 남아 있다. origin/main `908bb98`을 읽고 쓴 것이며, 아래 코드 조각은 모양을 보이는 스케치다(이름·시그니처는 구현하면서 정한다).
+구현했다(§7). §1은 고치기 전 origin/main `908bb98`의 모습이라, 거기 나오는 이름 가운데 지금은 없는 것이 많다. §3의 코드 조각은 설계할 때의 스케치이고 실제 이름은 §7에 적었다. §6은 모두 권장대로 정했다.
 
 ## 1. 문제
 
@@ -160,3 +160,22 @@ batchOf(db, definition, node, unitId) → unitId[]
 3. **앱과 터미널의 구분을 서버가 강제할 것인가.** 지금은 어떤 로컬 프로세스든 `POST /proposals/:id/accept`나 `agentSettings` 변경을 부를 수 있어서, "매번 묻기"는 에이전트가 `loca` CLI만 쓴다는 전제 위에 있다. 권장: 강제하지 않고 그 전제를 AGENTS.md와 skill에 적는다. 브라우저에 심는 토큰은 같은 컴퓨터의 프로세스가 읽을 수 있어 실수는 막아도 경계가 되지는 않는다.
 4. **`end` 노드.** 편집기가 편집할 때마다 지우고 템플릿도 만들지 않는데 스키마·실행기·CLI·skill에는 남아 있다. 권장: 마이그레이션으로 지우고 종류에서 뺀다.
 5. **옛 "길 따라" 서버.** `/route`, `/route/next`, `/route/remaining`, `/seam-checks`와 라운드·이음새 점검은 브라우저와 CLI에서 부르는 곳을 찾지 못했다(`route-slice.ts`는 경로 대본이 아직 쓴다). 경로로 만든 보기가 이것을 대신한 것이 맞으면 같이 지운다.
+
+## 7. 구현 결과
+
+§6은 다섯 가지 모두 권장대로 정했다. §4에 "이번에 하지 않는 것"으로 적었던 것도 사용자가 없는 지금 같이 했다. 호환 코드와 값을 옮기는 마이그레이션은 두지 않았다.
+
+| 결정 | 지금의 한 곳 | 어긋나면 잡는 것 |
+|---|---|---|
+| §3.1 필터 | `lineFilterSchema`(`@loca/shared`), `domain/line-filter.ts`의 `resolveLineFilter` → `lineConditions`. 실행 범위는 `{ filter?, terms?, changeHuman? }` | `services/cli-parity.test.ts` |
+| §3.2 도구 | `TOOL_SPECS`(`@loca/shared`) + `services/agent-tools.ts`의 같은 이름 정의(`check`·`undo`·`preview`·`permit`), 호출은 `callTool` | `services/tool-specs.test.ts`, `routes/tool-routes.test.ts` |
+| §3.3 요청 | `engine/request.ts` `buildRequest`, `engine/run-create.ts` `batchOf` | `engine/request-parity.test.ts` |
+| §3.4 토픽 | `db/topics.ts` `TABLE_TOPICS` → 트리거(`topic_changed`). 손으로 부르는 `changed`는 행이 아닌 것만 | `db/topics.test.ts`, `events.test.ts`, `feed-readers.test.ts` |
+| §3.5 행 타입·키 | 서버 `feed.ts` `READERS` → `FeedRow`, 웹 `lib/query-keys.ts` `key(topic, …)` | `pnpm ui-rules`(손으로 쓴 `queryKey`, 화면의 API 쓰기, 저장소 직접 접근을 막는다) |
+| §3.6 쓰기 | `domain/line-save.ts`(`setLineStatus`, `rev`), `services/graph-edit.ts`(대사 만들기·지우기), `domain/knowledge-save.ts`, 되돌리기는 `undo_records` 하나. 거절은 `refusal.ts`의 `Refusal` 하나 | `routes/one-write-path.test.ts`, `architecture.test.ts` |
+| §3.7 실행기 | 상태 `preparing`, `run_steps.retried`, 오류 종류는 `MODEL_ERROR_KINDS` | `engine/run-limbo.test.ts`, `engine/run-parts.test.ts` |
+| §3.8 그래프 화면 | `lib/graph-selection.ts`·`graph-clipboard.ts`·`viewport.ts`·`undo-history.ts`, `EditableFlow` | 각 모듈의 단위 테스트 |
+| 계층 | `routes → services → engine → domain → db` | `architecture.test.ts` |
+| 죽은 코드 | — | `pnpm unused`(knip), `noUnusedLocals`·`noUnusedParameters` |
+
+남긴 것: `WORKBENCH_*` 환경 변수와 `.workbench/` 폴더 이름(지금 쓰는 로컬 설정이 깨진다), 마이그레이션 130여 개를 하나로 합치기(로컬 DB가 열리지 않게 된다). 둘 다 정하면 바로 할 수 있다.

@@ -15,8 +15,6 @@ import { resolvedNode } from '../engine/node-budgets.ts';
 
 export type AssistMode = 'translate' | 'refine';
 
-/** Why 다듬기 changed something, by the order its preset checks. */
-export const REFINE_KINDS = ['meaning', 'rule', 'language'] as const;
 const KIND_LABELS: Record<string, string> = { meaning: '의미', rule: '규칙', language: '표현' };
 
 /**

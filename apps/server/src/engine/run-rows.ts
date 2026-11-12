@@ -45,4 +45,3 @@ export function runRows(db: Db, projectId: string, ids?: readonly string[]) {
   return runs.map((run) => ({ ...run, states: Object.fromEntries((byRun.get(run.id) ?? []).map((row) => [row.state, row.count])), calls: calls.get(run.id) ?? null }));
 }
 
-export type RunRow = ReturnType<typeof runRows>[number];

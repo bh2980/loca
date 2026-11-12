@@ -3,7 +3,7 @@ import { createOptimisticAction, useLiveQuery } from '@tanstack/react-db';
 import type { InferRequestType } from 'hono/client';
 import { APP_FEED, CONNECTION_KIND_INFO } from '@loca/shared';
 import { client } from './api';
-import { appCollection, liveRows, projectCollection, sent, type FeedRow } from './collections';
+import { appCollection, liveRows, projectCollection, sent } from './collections';
 import { targetScope, type SettingsTarget } from './settings-target';
 
 /**
@@ -11,8 +11,7 @@ import { targetScope, type SettingsTarget } from './settings-target';
  * app scope (0118): the projects list, the home's defaults (one row) and connections (the home's, or a
  * project's own in that project's scope).
  */
-export type ProjectListRow = FeedRow['projects'];
-export type AppDefaults = FeedRow['appDefaults'];
+
 export type AppDefaultsPatch = InferRequestType<typeof client.app.defaults.$patch>['json'];
 
 const projectsList = () => appCollection('projects');

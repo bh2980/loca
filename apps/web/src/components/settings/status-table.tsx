@@ -135,7 +135,7 @@ export function StatusDeleteDialog({ statuses, all, pending, onClose, onConfirm 
       {moves && (
         <Select value={target} onValueChange={(moveTo) => setChoice({ asked, moveTo })}>
           <SelectTrigger width="full" aria-label="옮길 상태">
-            <SelectValue />
+            <SelectValue placeholder="옮길 상태 고르기" />
           </SelectTrigger>
           <SelectContent>
             {others.map((status) => (

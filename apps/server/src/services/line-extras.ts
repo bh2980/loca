@@ -58,4 +58,3 @@ export function lineExtras(db: Db, projectId: string, ids: readonly string[]) {
   }));
 }
 
-export type LineExtras = ReturnType<typeof lineExtras>[number];

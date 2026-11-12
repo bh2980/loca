@@ -31,4 +31,3 @@ export function groupRows(db: Db, projectId: string, ids?: readonly string[]) {
   });
 }
 
-export type GroupRow = ReturnType<typeof groupRows>[number];

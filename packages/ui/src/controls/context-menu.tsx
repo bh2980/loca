@@ -2,14 +2,9 @@ import * as React from "react"
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu"
 import { Slot } from "@radix-ui/react-slot"
 import {
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
-  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuPortal,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuShortcut,
   DropdownMenuSub,
@@ -139,12 +134,7 @@ function ContextMenuContent({
   )
 }
 
-const ContextMenuGroup = DropdownMenuGroup
-const ContextMenuPortal = DropdownMenuPortal
 const ContextMenuItem = DropdownMenuItem
-const ContextMenuCheckboxItem = DropdownMenuCheckboxItem
-const ContextMenuRadioGroup = DropdownMenuRadioGroup
-const ContextMenuRadioItem = DropdownMenuRadioItem
 const ContextMenuLabel = DropdownMenuLabel
 const ContextMenuSeparator = DropdownMenuSeparator
 const ContextMenuShortcut = DropdownMenuShortcut
@@ -158,15 +148,10 @@ export {
   ContextMenuTrigger,
   ContextMenuContent,
   ContextMenuItem,
-  ContextMenuCheckboxItem,
-  ContextMenuRadioItem,
   ContextMenuLabel,
   ContextMenuSeparator,
   ContextMenuShortcut,
-  ContextMenuGroup,
-  ContextMenuPortal,
   ContextMenuSub,
   ContextMenuSubContent,
   ContextMenuSubTrigger,
-  ContextMenuRadioGroup,
 }

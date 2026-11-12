@@ -3,15 +3,9 @@ import { useLiveQuery } from '@tanstack/react-db';
 import { keepPreviousData, queryOptions } from '@tanstack/react-query';
 import type { InferRequestType } from 'hono/client';
 import { client, unwrap } from './api';
-import { liveRows, projectCollection, sent, type FeedRow } from './collections';
+import { liveRows, projectCollection, sent } from './collections';
 import { key } from './query-keys';
 
-/**
- * The project's workflows, each whole (definition, what it takes in, its AI nodes, what its checks find,
- * who calls it): the list and the editor read one collection the server computes again when a workflow, a status, a tag or a connection
- * changes, sending only the workflows whose row differs.
- */
-export type WorkflowRow = FeedRow['workflows'];
 
 export const workflowsCollection = (projectId: string) => projectCollection('workflows', projectId);
 

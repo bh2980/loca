@@ -5,11 +5,11 @@ import { PROVIDERS, type ModelCatalog, type Provider } from './providers.ts';
 import type { AskRequest, AskResult, CompleteRequest, CompleteResult, ConnectionTarget, GenerateRequest, GenerateResult, ModelTarget } from './types.ts';
 
 export * from './types.ts';
-export { ModelError, type ModelErrorCode } from './errors.ts';
-export { AcpAgent, acpError, closeSession, setAgentStarter, stopIdleAgents, type SessionListener } from './acp.ts';
-export { hostTools, type HostedServer, type HostedTool } from './mcp-host.ts';
+export { ModelError } from './errors.ts';
+export { closeSession, setAgentStarter, stopIdleAgents } from './acp.ts';
+export { hostTools, type HostedServer } from './mcp-host.ts';
 export { limitsOf } from './openai.ts';
-export { PROVIDERS, type ChatTransport, type ModelCatalog, type Provider } from './providers.ts';
+export { PROVIDERS, type ModelCatalog, type Provider } from './providers.ts';
 
 /** The provider of a connection kind: what it can do, and how (providers.ts). */
 export const providerOf = (kind: ConnectionKind): Provider => PROVIDERS[kind];

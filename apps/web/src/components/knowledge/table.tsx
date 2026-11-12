@@ -41,11 +41,7 @@ export interface TagInfo {
 /** A knowledge row as the shared table and editor see it: the common fields, the rest by name. */
 export type Row = Draft & Record<string, unknown>;
 
-/** Each kind's rows as its collection holds them. */
-export type DocumentRow = FeedRow['documents'];
-export type CharacterRow = FeedRow['characters'];
 export type RelationshipRow = FeedRow['relationships'];
-export type EventRow = FeedRow['events'];
 export type SpeechRuleRow = FeedRow['speechRules'];
 
 /** The value each field type edits: what its input shows and what it writes back. */

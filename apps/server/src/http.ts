@@ -22,7 +22,7 @@ export interface Deps {
 export type Env = { Variables: { deps: Deps } };
 
 // Refusals live in a leaf module that knows nothing of HTTP (refusal.ts); routes reach them here.
-export { badRequest, conflict, found, notFound } from './refusal.ts';
+export { badRequest, found, notFound } from './refusal.ts';
 
 /**
  * zod validation that fails with a readable 400 instead of returning the raw parse error,

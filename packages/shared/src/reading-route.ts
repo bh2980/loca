@@ -43,7 +43,6 @@ export const readingRouteQuerySchema = z.object({
   end: z.string().min(1).optional(),
   via: z.string().optional(),
 });
-export type ReadingRouteQuery = z.infer<typeof readingRouteQuerySchema>;
 
 export const readingRouteForkOptionSchema = z.object({
   targetId: z.string().min(1),
@@ -66,7 +65,6 @@ export const viewRouteSchema = z.object({
   end: z.string().min(1),
   via: z.string().max(20_000).optional(),
 });
-export type ViewRouteInput = z.infer<typeof viewRouteSchema>;
 
 /** A route's `via` (`fork:target,…`) with `target` taken at `fork`, in place of the branch it took there. */
 export function viaWith(via: string | undefined, fork: string, target: string): string {

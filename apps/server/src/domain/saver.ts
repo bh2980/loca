@@ -43,8 +43,6 @@ export function bySaver(db: Pick<Db, 'select' | 'update'>, table: DecidedTable, 
   return { statusBy: saver.statusBy, ...(rewrote ? { origin: saver.origin } : {}) };
 }
 
-/** A person's save in the app. */
-export const byPerson = (db: Pick<Db, 'select' | 'update'>, table: DecidedTable, projectId: string, id: string, body: Record<string, unknown>) => bySaver(db, table, projectId, id, body, PERSON);
 
 /** The project's AI 문맥 switch (설정 › 프로젝트): whether AI results that are knowledge or terms are confirmed right away. Read when they are saved. */
 export const aiAutoConfirmOf = (db: Db, projectId: string): boolean => knowledgeOf(db, projectId).settings()?.aiAutoConfirm ?? true;

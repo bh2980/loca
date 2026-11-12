@@ -119,11 +119,6 @@ export function useLineDetail(projectId: string, unitId: string, options: { enab
   return { data, isPending: enabled && !data, isError: around.isError, error: around.error, refetch: around.refetch, contextReady: Boolean(known), extrasReady: Boolean(more) };
 }
 
-/** One line from the collection (undefined until held). */
-export function useLineRow(projectId: string, unitId: string | undefined) {
-  const ids = useMemo(() => (unitId ? [unitId] : []), [unitId]);
-  return useLines(projectId, ids).rows?.[0];
-}
 
 /** A page of a line filter as ids, its total and lines per scene (units topic: a change may move lines in or out). `focus`: open the page holding this line. */
 export const lineIds = (projectId: string, filter: LineFilterInput, focus?: string) =>

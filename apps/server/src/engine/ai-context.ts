@@ -7,7 +7,6 @@ import { describeRule, knownListener, speechRuleIndex } from '../domain/speech.t
 import { cachedKnowledge, graphOrder, knowledgeOf, scriptOrder } from '../domain/knowledge-cache.ts';
 import { deriveSceneEdges } from '../domain/scene-graph.ts';
 
-export { mentions } from '@loca/shared';
 
 export interface PrecedingLine {
   key: string;

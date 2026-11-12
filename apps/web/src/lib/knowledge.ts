@@ -13,12 +13,6 @@ import { termsCollection } from './terms';
 type Api = (typeof client.projects)[':projectId'];
 export type Character = FeedRow['characters'];
 export type Relationship = FeedRow['relationships'];
-export type SpeechRule = FeedRow['speechRules'];
-export type KnowledgeDocument = FeedRow['documents'];
-/** A status; how many lines it has is useTaxonomyCounts. */
-export type Status = FeedRow['statuses'];
-/** A tag; how many lines and items carry it is useTaxonomyCounts. */
-export type Tag = FeedRow['tags'];
 
 type Options = { enabled?: boolean };
 type DraftKind = InferRequestType<Api['drafts']['$post']>['json']['kind'];

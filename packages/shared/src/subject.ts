@@ -6,4 +6,3 @@
  */
 export const SUBJECTS = ['lines', 'terms'] as const;
 export type Subject = (typeof SUBJECTS)[number];
-export const isSubject = (value: unknown): value is Subject => (SUBJECTS as readonly unknown[]).includes(value);

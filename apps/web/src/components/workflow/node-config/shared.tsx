@@ -1,6 +1,6 @@
 /** Pieces shared by the node-kind configs: shared field primitives and the node/ref types. */
 import { Box, Button, Checkbox, HelpTip, Inline, NodeKindIcon, NumberInput, InspectorToggle, Switch, Text } from '@loca/ui';
-import { CONNECTION_KIND_INFO, nodeGroup, leavesResult, nodeName, nodeOutputFields, workflowInput, type ModelLimits, type RetryRule, type WorkflowEdge, type WorkflowNode, type Subject } from '@loca/shared';
+import { CONNECTION_KIND_INFO, nodeGroup,  nodeName, nodeOutputFields, workflowInput, type ModelLimits, type RetryRule, type WorkflowEdge, type WorkflowNode, type Subject } from '@loca/shared';
 import { nodeIcon } from '@/components/workflow/node-view';
 
 export type AiNode = Extract<WorkflowNode, { type: 'ai' }>;
@@ -88,16 +88,3 @@ export const refsInput = (refs: Pick<NodeRefs, 'nodes'>): Subject => workflowInp
 /** Fields of a node's output an input can keep (top level; a list keeps its items whole): what it declares (nodeOutputFields). */
 export const outputFieldNames = (node: WorkflowNode): string[] => (nodeOutputFields(node) ?? []).map((field) => field.name);
 
-/** Nodes before this one that leave an output (leavesResult: AI, checks, script, HTTP, gather). */
-export function upstreamSources(node: WorkflowNode, refs: Pick<NodeRefs, 'nodes' | 'edges'>): WorkflowNode[] {
-  const into = Map.groupBy(refs.edges ?? [], (edge) => edge.target);
-  const before = new Set<string>();
-  const stack = [node.id];
-  while (stack.length)
-    for (const edge of into.get(stack.pop()!) ?? [])
-      if (!before.has(edge.source)) {
-        before.add(edge.source);
-        stack.push(edge.source);
-      }
-  return refs.nodes.filter((other) => other.id !== node.id && before.has(other.id) && leavesResult(other));
-}

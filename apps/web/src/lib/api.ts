@@ -1,4 +1,4 @@
-import { hc, type InferResponseType } from 'hono/client';
+import { hc } from 'hono/client';
 import type { AppType } from '@loca/server/app';
 import type { Topic } from '@loca/shared';
 import { useSyncExternalStore } from 'react';
@@ -86,4 +86,3 @@ export async function unwrapSeq<T extends Response & { json(): Promise<unknown> 
   return { body, seq: seq === null ? undefined : Number(seq) };
 }
 
-export type { InferResponseType };

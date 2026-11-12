@@ -156,4 +156,3 @@ export function runProgress(db: Db, runner: Runner, projectId: string, ids: read
   });
 }
 
-export type RunProgress = ReturnType<typeof runProgress>[number];

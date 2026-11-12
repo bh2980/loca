@@ -82,4 +82,3 @@ export function useDialogueGraphEdits(projectId: string, drawn: { current: Drawn
   };
 }
 
-export type DialogueGraphEdits = ReturnType<typeof useDialogueGraphEdits>;
