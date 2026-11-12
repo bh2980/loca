@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import { analysisTemplate, importFileSchema } from '@tw/shared';
-import type { Env } from '../context.ts';
+import { onError, type Env } from '../context.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { createRun } from '../engine/run-create.ts';
@@ -23,7 +23,7 @@ function setup() {
   const setStatus = (id: string, status: 'running' | 'paused' | 'completed') => db.update(s.runs).set({ status, notice: null }).where(eq(s.runs.id, id)).run();
   const runOf = (id: string) => db.select().from(s.runs).where(eq(s.runs.id, id)).get()!;
   // The routes go on with a run through the service (services/run-continue.ts); the runner only pauses and cancels.
-  const app = new Hono<Env>()
+  const app = new Hono<Env>().onError(onError)
     .use(async (c, next) => {
       c.set('deps', { db, runner: {} } as never);
       await next();

@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import { importFileSchema } from '@tw/shared';
-import type { Env } from '../context.ts';
+import { onError, type Env } from '../context.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { characterRows } from '../feed.ts';
@@ -17,7 +17,7 @@ describe('tags and automatic tags', () => {
     const file = importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'u', group: 'g', source: 'Line' }] });
     const { projectId } = importProject(db, file, null as never);
     const tag = db.select().from(s.tags).where(eq(s.tags.name, 'AI 실패')).get()!;
-    const app = new Hono<Env>()
+    const app = new Hono<Env>().onError(onError)
       .use(async (c, next) => {
         c.set('deps', { db } as never);
         await next();
@@ -45,7 +45,7 @@ describe('tag scope (붙는 곳)', () => {
     const file = importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'u', group: 'g', source: 'Line' }] });
     const { projectId } = importProject(db, file, null as never);
     const unit = db.select().from(s.units).get()!;
-    const app = new Hono<Env>()
+    const app = new Hono<Env>().onError(onError)
       .use(async (c, next) => {
         c.set('deps', { db } as never);
         await next();

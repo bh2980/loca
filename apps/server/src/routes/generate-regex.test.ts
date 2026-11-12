@@ -1,9 +1,8 @@
 import { Hono } from 'hono';
-import { HTTPException } from 'hono/http-exception';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { editorAiSchema, importFileSchema } from '@tw/shared';
-import type { Env } from '../context.ts';
+import { onError, type Env } from '../context.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
@@ -24,13 +23,12 @@ function setup(withModel = true) {
   });
   const { projectId } = importProject(db, file, null as never);
   if (withModel) db.update(s.projects).set({ editorAi: editorAiSchema.parse({ model: { connectionId: connection.id, model: 'm' } }) }).where(eq(s.projects.id, projectId)).run();
-  const app = new Hono<Env>()
+  const app = new Hono<Env>().onError(onError)
     .use(async (c, next) => {
       c.set('deps', { db, secrets: memoryStore() } as never);
       await next();
     })
-    .route('/projects', projectRoutes)
-    .onError((error, c) => (error instanceof HTTPException ? c.json({ error: error.message }, error.status) : c.json({ error: String(error) }, 500)));
+    .route('/projects', projectRoutes);
   const post = (body: unknown, id = projectId) => app.request(`/projects/${id}/generate-regex`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   return { post, projectId };
 }

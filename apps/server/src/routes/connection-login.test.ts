@@ -1,22 +1,20 @@
 import { Hono } from 'hono';
-import { HTTPException } from 'hono/http-exception';
 import { afterEach, describe, expect, it } from 'vitest';
 import { setAgentStarter } from '@tw/ai';
 import { inProcessStarter } from '@tw/ai/fake-acp';
-import type { Env } from '../context.ts';
+import { onError, type Env } from '../context.ts';
 import { openDatabase } from '../db/index.ts';
 import { memoryStore } from '../services/secrets.ts';
 import { connectionRoutes } from './ai-settings.ts';
 
 function setup() {
   const db = openDatabase(':memory:');
-  const app = new Hono<Env>()
+  const app = new Hono<Env>().onError(onError)
     .use(async (c, next) => {
       c.set('deps', { db, secrets: memoryStore() } as never);
       await next();
     })
-    .route('/connections', connectionRoutes)
-    .onError((error, c) => (error instanceof HTTPException ? c.json({ error: error.message }, error.status) : c.json({ error: String(error) }, 500)));
+    .route('/connections', connectionRoutes);
   const send = (method: string, path: string, body?: unknown) => app.request(`/connections${path}`, { method, headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
   const create = async (kind: string) => ((await (await send('POST', '', { kind, name: kind })).json()) as { id: string }).id;
   return { send, create };

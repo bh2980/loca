@@ -1,13 +1,16 @@
 import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
-import { importFileSchema, workflowDefinitionSchema } from '@tw/shared';
+import { importFileSchema, workflowDefinitionSchema, type ProposalDetail } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { proposeChange } from './change-gate.ts';
 import { importProject } from './importer.ts';
 import { agentCatalog, prepareProposal } from './agent-catalog.ts';
 import { proposalDetails } from './proposal-details.ts';
-import { decideProposal, listedProposal } from './proposals.ts';
+import { decideProposal, listedProposal, propose } from './proposals.ts';
+
+/** A card's label → value rows. */
+const said = (details: ProposalDetail[]): Record<string, string> => Object.fromEntries(details.flatMap((detail) => (detail.kind === 'fields' ? detail.rows.map((row) => [row.label, row.value]) : [])));
 
 function setup() {
   const db = openDatabase(':memory:');
@@ -98,7 +101,31 @@ describe('a proposed run', () => {
     if (!gate.ok) throw new Error(gate.error);
     const proposal = db.select().from(s.proposals).where(eq(s.proposals.id, gate.proposalId)).get()!;
     expect(listedProposal(proposal).report?.run?.plan.lines.total).toBe(2);
-    expect(proposalDetails(db, proposal)?.refs).toMatchObject({ [workflow.id]: '번역', [group.id]: '부두', [status.id]: status.name, [translate.id]: 'AI 번역', [connection.id]: '내 연결' });
+    const shown = said(proposalDetails(db, proposal));
+    expect(shown).toMatchObject({ 워크플로: '번역', 장면: '부두', 상태: status.name, 모델: 'AI 번역 → 내 연결 · m' });
+    // What it takes in and costs, as planned when it was proposed.
+    expect(shown.대상).toMatch(/^2줄 · AI 요청 /);
+    expect(shown.상한).toContain('에서 멈춤');
+    expect(shown).not.toHaveProperty('범위');
+  });
+
+  it('says the whole project only when nothing narrows it, what narrows it otherwise, and asks about cost only while it waits', async () => {
+    const { db, projectId, workflow, chat } = setup();
+    const card = async (input: Record<string, unknown>) => {
+      const gate = await proposeChange(db, { projectId, sessionId: chat.id, source: 'api', tool: 'start_run', input: { workflowId: workflow.id, ...input } });
+      if (!gate.ok) throw new Error(gate.error);
+      return proposalDetails(db, db.select().from(s.proposals).where(eq(s.proposals.id, gate.proposalId)).get()!);
+    };
+    const whole = await card({});
+    expect(said(whole)).toMatchObject({ 범위: '프로젝트 전체', '사람이 정한 것': '그대로 두고 실행 상세에 남김' });
+    expect(whole.at(-1)).toEqual({ kind: 'note', tone: 'muted', text: '수락하면 바로 실행이 시작되고 AI 호출 비용이 듭니다.', whilePending: true });
+    // (Stored without the check: only what the card says of the conditions is read here.)
+    const narrowed = proposalDetails(db, propose(db, { projectId, sessionId: null, source: 'cli', tool: 'start_run', input: { workflowId: workflow.id, filter: { kind: 'dialogue', speakers: ['MIRA'], listeners: ['-'], q: 'one', marks: ['aiSuggestion'], unfinished: true }, changeHuman: true } }));
+    expect(said(narrowed)).toMatchObject({ 종류: '대사', 화자: 'MIRA', 청자: '청자 모름', 검색: 'one', 진행: '최종 아님', '사람이 정한 것': '상태·태그도 바꿈' });
+    expect(said(narrowed)).not.toHaveProperty('범위');
+    expect(narrowed).toContainEqual({ kind: 'marks', label: '표시', marks: ['aiSuggestion'] });
+    // A long list reads as its first names and how many more (names it cannot find are shown as written).
+    expect(said(proposalDetails(db, propose(db, { projectId, sessionId: null, source: 'cli', tool: 'start_run', input: { workflowId: workflow.id, filter: { sections: ['a', 'b', 'c', 'd'] } } }))).구역).toBe('a, b, c 외 1개');
   });
 
   it('a terms workflow counts terms', async () => {
@@ -113,6 +140,12 @@ describe('a proposed run', () => {
     });
     const terms = db.insert(s.workflows).values({ projectId, name: '용어 번역', description: '', definition }).returning().get();
     expect(await prepareProposal(db, projectId, 'start_run', { workflowId: terms.id, terms: { terms: ['Relay'] } })).toMatchObject({ ok: true, report: { run: { input: 'terms', plan: { lines: { total: 1 } } } } });
+    // Its card speaks of the glossary, with nothing about what a person decided on lines.
+    const gate = await proposeChange(db, { projectId, sessionId: null, source: 'cli', tool: 'start_run', input: { workflowId: terms.id } });
+    if (!gate.ok) throw new Error(gate.error);
+    const card = said(proposalDetails(db, db.select().from(s.proposals).where(eq(s.proposals.id, gate.proposalId)).get()!));
+    expect(card).toMatchObject({ 범위: '용어집 전체', 대상: expect.stringMatching(/^1개 · /) });
+    expect(card).not.toHaveProperty('사람이 정한 것');
     // Line scopes do not fit it: said when it is proposed.
     expect(await prepareProposal(db, projectId, 'start_run', { workflowId: terms.id, filter: { kind: 'ui' } })).toMatchObject({ ok: false, error: expect.stringContaining('용어 입력 워크플로') });
   });

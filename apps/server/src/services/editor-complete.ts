@@ -7,18 +7,10 @@ import { logged } from './ai-calls.ts';
 import { liveChoice } from './model-target.ts';
 import type { SecretStore } from './secrets.ts';
 import { speechRuleIndex } from './speech.ts';
+import { badRequest, refuse } from '../refusal.ts';
 
-
-/** Why a continuation was not made, for the editor to show quietly. */
-export class CompleteRefused extends Error {
-  constructor(
-    message: string,
-    readonly status: 400 | 429,
-    readonly retryAfterSeconds?: number,
-  ) {
-    super(message);
-  }
-}
+/** Over a quota (the project's daily cap, the model's own rate limit): the editor says when to try again. */
+export const limited = (message: string, retryAfterSeconds: number) => refuse('limited', message, { retryAfterSeconds });
 
 /** Autocomplete calls made today (local midnight on) in a project, against its daily cap: they go out as the person types, AI 번역·다듬기 only on a click. */
 const COMPLETE_LABEL = '편집기 자동완성';
@@ -36,21 +28,21 @@ export function editorCallsToday(db: Db, projectId: string) {
  */
 export async function completeLine(db: Db, secrets: SecretStore, unitId: string, prefix: string, signal?: AbortSignal) {
   const unit = db.select().from(s.units).where(eq(s.units.id, unitId)).get();
-  if (!unit) throw new CompleteRefused('대사가 없습니다.', 400);
+  if (!unit) badRequest('대사가 없습니다.');
   const project = db.select({ editorAi: s.projects.editorAi, formatRules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, unit.projectId)).get()!;
   const settings = editorAiSchema.parse(project.editorAi ?? {}).complete;
-  if (!settings.enabled || !settings.model) throw new CompleteRefused('편집기 자동완성이 꺼져 있습니다.', 400);
+  if (!settings.enabled || !settings.model) badRequest('편집기 자동완성이 꺼져 있습니다.');
   if (editorCallsToday(db, unit.projectId) >= settings.dailyCap) {
     const midnight = new Date();
     midnight.setHours(24, 0, 0, 0);
-    throw new CompleteRefused(`오늘 자동완성 한도(${settings.dailyCap}회)를 다 썼습니다.`, 429, Math.ceil((midnight.getTime() - Date.now()) / 1000));
+    limited(`오늘 자동완성 한도(${settings.dailyCap}회)를 다 썼습니다.`, Math.ceil((midnight.getTime() - Date.now()) / 1000));
   }
   let target: ai.ModelTarget;
   try {
     ({ target } = liveChoice(db, settings.model, secrets, 'complete'));
   } catch (error) {
     // A connection that is gone, or one too slow to follow typing (a CLI, a judgment connection).
-    throw new CompleteRefused(error instanceof Error ? error.message : String(error), 400);
+    badRequest(error instanceof Error ? error.message : String(error));
   }
 
   const before = db
@@ -88,8 +80,8 @@ export async function completeLine(db: Db, secrets: SecretStore, unitId: string,
       ai.complete(target, { system: settings.instructions, prompt, maxOutputTokens: 400, timeoutMs: settings.timeoutSeconds * 1000, signal }),
     );
   const result = await call(target).catch((error: unknown) => {
-    if (error instanceof ai.ModelError && error.code === 'rate-limit') throw new CompleteRefused('모델 요청 한도에 걸렸습니다. 잠시 뒤 다시.', 429, 60);
-    if (error instanceof ai.ModelError && error.code === 'timeout') throw new CompleteRefused(`응답이 ${settings.timeoutSeconds}초 안에 오지 않아 그만뒀습니다. 더 빠른 모델을 고르거나 설정 › 에디터에서 제한 시간을 늘리세요.`, 400);
+    if (error instanceof ai.ModelError && error.code === 'rate-limit') limited('모델 요청 한도에 걸렸습니다. 잠시 뒤 다시.', 60);
+    if (error instanceof ai.ModelError && error.code === 'timeout') badRequest(`응답이 ${settings.timeoutSeconds}초 안에 오지 않아 그만뒀습니다. 더 빠른 모델을 고르거나 설정 › 에디터에서 제한 시간을 늘리세요.`);
     throw error;
   });
   // The line as a whole; models sometimes wrap it in quotes or add the prefix twice.

@@ -842,7 +842,7 @@ statusesCommand
   .description('상태 순서 바꾸기 (앞에 둘 것부터, 빠진 것은 지금 순서대로 뒤에). 터미널 권한 모드를 따름')
   .action(async (names: string[]) => printOutcome(await proposeTool('order_settings', { type: 'status', names }), '상태 순서'));
 
-const workflows = program.command('workflows').description('워크플로: 목록, 노드·연결·검증 보기, 파일로 고쳐 제안하기');
+const workflows = program.command('workflows').description('워크플로: 목록, 노드·연결·검증 보기, 파일로 고쳐 제안하기, 복제');
 
 workflows
   .command('list')
@@ -888,6 +888,15 @@ workflows
     const input = readJsonArg(file === '-' ? '-' : `@${file}`) as Record<string, unknown>;
     const { issues: _issues, ...workflow } = input;
     printOutcome(await proposeTool('save_workflow', workflow as ToolInputs['save_workflow']), '워크플로 저장');
+  });
+
+workflows
+  .command('duplicate <워크플로>')
+  .description('워크플로 복제를 제안으로 올리기: 설명·정의가 같은 새 워크플로("<이름> (복사본)"). 원본은 바뀌지 않습니다. 고쳐 보기 전에 복사본을 만들 때')
+  .option('--name <이름>', '복사본의 이름')
+  .action(async (ref: string, options: { name?: string }) => {
+    const found = await resolveWorkflow(ref);
+    printOutcome(await proposeTool('duplicate_workflow', { id: found.id, name: options.name }), '워크플로 복제');
   });
 
 workflows
@@ -1066,13 +1075,15 @@ runs
 
 runs
   .command('continue <id>')
-  .description('멈췄거나 끝난 실행을 이어서: --retry-failed면 실패한 줄을 실패한 단계부터 다시, --model이면 이 실행의 AI 단계만 다른 모델로. 터미널 권한 모드를 따름')
+  .description('멈췄거나 끝난 실행을 이어서: --retry-failed면 실패한 줄을 실패한 단계부터 다시, --model이면 이 실행의 AI 단계만 다른 모델로, --max-calls·--max-input-tokens면 상한을 바꿔서. 터미널 권한 모드를 따름')
   .option('--retry-failed', '실패한 줄 다시')
   .option('--model <specs...>', 'plan과 같은 "연결:모델" 또는 "노드=연결:모델"')
+  .option('--max-calls <n>', '호출 상한을 이만큼으로 (none이면 없앰; 지금까지 쓴 호출도 셉니다)')
+  .option('--max-input-tokens <n>', '입력 토큰 상한을 이만큼으로 (none이면 없앰)')
   .option('--wait', '실행이 끝날 때까지 기다린 뒤 요약')
   .option('--timeout <분>', '--wait을 이만큼만')
-  .action(async (id: string, options: { retryFailed?: boolean; model?: string[]; wait?: boolean; timeout?: string }) => {
-    await followRun(await proposeTool('continue_run', { runId: id, retryFailed: Boolean(options.retryFailed), models: runModels(options.model) }), options, '실행 이어 하기');
+  .action(async (id: string, options: { retryFailed?: boolean; model?: string[]; maxCalls?: string; maxInputTokens?: string; wait?: boolean; timeout?: string }) => {
+    await followRun(await proposeTool('continue_run', { runId: id, retryFailed: Boolean(options.retryFailed), models: runModels(options.model), limits: capsFrom(options) }), options, '실행 이어 하기');
   });
 
 /** What `runs plan` and `runs start` take as a run's scope: the line filter's flags, and the two a terms workflow adds. */

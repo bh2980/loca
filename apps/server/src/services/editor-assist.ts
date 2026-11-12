@@ -6,7 +6,8 @@ import * as s from '../db/schema.ts';
 import { promptLineId } from '../engine/prompts.ts';
 import { buildRequest } from '../engine/request.ts';
 import { logged } from './ai-calls.ts';
-import { CompleteRefused } from './editor-complete.ts';
+import { limited } from './editor-complete.ts';
+import { badRequest } from '../refusal.ts';
 import { liveChoice } from './model-target.ts';
 import type { SecretStore } from './secrets.ts';
 import { addCandidate } from './candidates.ts';
@@ -27,13 +28,13 @@ const KIND_LABELS: Record<string, string> = { meaning: '의미', rule: '규칙',
  */
 export async function assistLine(db: Db, secrets: SecretStore, unitId: string, request: { mode: AssistMode; draft: string; suggest?: boolean }, signal?: AbortSignal, generate: typeof ai.generate = ai.generate) {
   const unit = db.select().from(s.units).where(eq(s.units.id, unitId)).get();
-  if (!unit) throw new CompleteRefused('대사가 없습니다.', 400);
+  if (!unit) badRequest('대사가 없습니다.');
   const project = db.select().from(s.projects).where(eq(s.projects.id, unit.projectId)).get()!;
   const settings = editorAiSchema.parse(project.editorAi ?? {});
   const refine = request.mode === 'refine';
   const config = editorNodeConfig(settings, request.mode);
-  if (!config.model.model) throw new CompleteRefused('설정 › 에디터에서 AI 번역·다듬기 모델을 고르세요.', 400);
-  if (refine && !request.draft.trim()) throw new CompleteRefused('다듬을 번역이 없습니다.', 400);
+  if (!config.model.model) badRequest('설정 › 에디터에서 AI 번역·다듬기 모델을 고르세요.');
+  if (refine && !request.draft.trim()) badRequest('다듬을 번역이 없습니다.');
   const { snapshot, target } = liveChoice(db, config.model, secrets, 'generate');
 
   // The context cap follows the button's model window (auto), like an AI node's. The draft in the editor is the line's working text.
@@ -44,13 +45,13 @@ export async function assistLine(db: Db, secrets: SecretStore, unitId: string, r
   const result = await ai
     .callOnce(() => logged(db, call, target, () => generate(target, { system, prompt, schema, maxOutputTokens: snapshot.maxOutputTokens, timeoutMs: settings.timeoutSeconds * 1000, signal })), signal)
     .catch((error: unknown) => {
-      if (error instanceof ai.ModelError && error.code === 'rate-limit') throw new CompleteRefused('모델 요청 한도에 걸렸습니다. 잠시 뒤 다시.', 429, 60);
+      if (error instanceof ai.ModelError && error.code === 'rate-limit') limited('모델 요청 한도에 걸렸습니다. 잠시 뒤 다시.', 60);
       throw error;
     });
   // A text answer or a json one with a "text" field (AI 다듬기's), its "changes" if it has them.
   const entry = (result.object as { results?: ({ id: string; text?: unknown; changes?: unknown } & Record<string, unknown>)[] }).results?.find((item) => item.id === promptLineId(0));
   const text = typeof entry?.text === 'string' ? entry.text.trim() : '';
-  if (!text) throw new CompleteRefused('모델이 번역을 돌려주지 않았습니다. 다시 해 보세요.', 400);
+  if (!text) badRequest('모델이 번역을 돌려주지 않았습니다. 다시 해 보세요.');
   // Whitespace alone is not a change worth a candidate.
   if (refine && text.replace(/\s+/g, ' ') === request.draft.trim().replace(/\s+/g, ' ')) return { unchanged: true as const };
   // An AI 제안 the same as the line's translation would only be a mark with nothing to decide.

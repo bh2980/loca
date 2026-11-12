@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import { importFileSchema, workflowDefinitionSchema } from '@tw/shared';
-import type { Env } from '../context.ts';
+import { onError, type Env } from '../context.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { workflowRoutes } from '../routes/workflows.ts';
@@ -34,7 +34,7 @@ function setup() {
       edges: [{ id: '1', source: 'entry', sourceHandle: 'out', target: 'translate' }],
     });
   const save = (name: string, model: unknown = choice) => db.insert(s.workflows).values({ projectId, name, definition: flow(model) }).returning().get();
-  const app = new Hono<Env>()
+  const app = new Hono<Env>().onError(onError)
     .use(async (c, next) => {
       c.set('deps', { db, runner: {} } as never);
       await next();

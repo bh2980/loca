@@ -1,6 +1,6 @@
 import { and, eq } from 'drizzle-orm';
 import { runScopeInputSchema, withRunModels, workflowInput, type RunCaps, type RunLimits, type RunModels, type RunScope, type WorkflowDefinition } from '@tw/shared';
-import { badRequest } from '../context.ts';
+import { badRequest } from '../refusal.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { createRunInSteps } from '../engine/run-create.ts';

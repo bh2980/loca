@@ -1,4 +1,5 @@
 import { mkdirSync } from 'node:fs';
+import { badRequest } from '../refusal.ts';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { UIMessage, UIMessageStreamWriter } from 'ai';
@@ -123,7 +124,7 @@ export async function cliChatResponse(input: {
 }): Promise<Response> {
   const { db, chat, target, messages } = input;
   const transport = ai.providerOf(target.kind).chat;
-  if (transport?.via !== 'agent') throw new Error('이 연결은 CLI 에이전트로 채팅하지 않습니다.');
+  if (transport?.via !== 'agent') badRequest('이 연결은 CLI 에이전트로 채팅하지 않습니다.');
   const tools = new Map(agentCatalog(db, chat.projectId, { model: target.model }).map((tool) => [tool.name, tool]));
   const saved = chat.agentSession && chat.agentSession.kind === target.kind && chat.agentSession.model === target.model ? chat.agentSession : null;
   // The new message is the newest that is not a run card (a regenerate can leave cards after it; they go with the message).

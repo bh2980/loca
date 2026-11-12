@@ -1,13 +1,7 @@
 import type { UIMessage } from 'ai';
-import { isRunRecord, runCardMessage, type RunCard, type RunCardPlan, type Subject, INPUT_TYPES } from '@tw/shared';
-import { paceParts } from './run-summary';
+import { isRunRecord, runCardMessage, type RunCard } from '@tw/shared';
 
-/** The card's numbers in words: how many lines (or terms), requests, time and cost, as they were when the card was made. */
-export function cardSummary(input: Subject, plan: RunCardPlan) {
-  const unit = INPUT_TYPES[input].unit;
-  const { callText, time, money } = paceParts(plan);
-  return { targets: `${plan.lines.total.toLocaleString()}${unit}`, empty: plan.lines.total === 0, excluded: plan.lines.excluded, requests: callText, time, money };
-}
+export { cardSummary } from '@tw/shared';
 
 /** A card put into a stored conversation: replaces its message when it is there, else goes to the end. */
 export function withCard<T extends { messages: unknown[] }>(session: T, card: RunCard): T {

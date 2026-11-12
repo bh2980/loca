@@ -15,7 +15,7 @@ import { subjectOf } from '../engine/subjects.ts';
 import { listBatches, preflight } from '../services/preflight.ts';
 import { previewRequest } from '../services/request-preview.ts';
 import { continuePreflight, continueRun } from '../services/run-continue.ts';
-import { deleteWorkflow, saveWorkflow, workflowCallers, WorkflowMutationError } from '../services/workflow-mutations.ts';
+import { deleteWorkflow, duplicateWorkflow, freeWorkflowName, saveWorkflow, workflowCallers } from '../services/workflow-mutations.ts';
 import { issueTagIds } from '../services/issue-tags.ts';
 import { workflowRows } from '../services/workflow-rows.ts';
 import { runItemIds, runNodeExits, runProgress } from '../services/run-detail.ts';
@@ -46,21 +46,7 @@ function blankWorkflow(): WorkflowDefinition {
 
 const NEW_WORKFLOW_NAME = '새 워크플로';
 
-/** "새 워크플로", then "새 워크플로 2", "3"… for the first name the project has not used. */
-function freeWorkflowName(db: Db, projectId: string): string {
-  const taken = new Set(db.select({ name: s.workflows.name }).from(s.workflows).where(eq(s.workflows.projectId, projectId)).all().map((row) => row.name));
-  if (!taken.has(NEW_WORKFLOW_NAME)) return NEW_WORKFLOW_NAME;
-  for (let n = 2; ; n++) if (!taken.has(`${NEW_WORKFLOW_NAME} ${n}`)) return `${NEW_WORKFLOW_NAME} ${n}`;
-}
-
 const TEMPLATE_KEYS = WORKFLOW_TEMPLATES.map((template) => template.key) as [string, ...string[]];
-
-/** A workflow name not taken in the project: `base`, then `base 2`, `3`… */
-function freeNameFor(db: Db, projectId: string, base: string): string {
-  const taken = new Set(db.select({ name: s.workflows.name }).from(s.workflows).where(eq(s.workflows.projectId, projectId)).all().map((row) => row.name));
-  if (!taken.has(base)) return base;
-  for (let n = 2; ; n++) if (!taken.has(`${base} ${n}`)) return `${base} ${n}`;
-}
 
 /** A template's definition with this project's statuses (by kind and review flag, never by name), and failure tag. The model is left empty: validation asks the person to pick one. */
 function templateDefinition(db: Db, projectId: string, key: string): { name: string; definition: WorkflowDefinition } {
@@ -93,7 +79,7 @@ export const workflowRoutes = new Hono<Env>()
       const projectId = c.req.param('projectId');
       const body = c.req.valid('json');
       const fromTemplate = body.template ? templateDefinition(db, projectId, body.template) : null;
-      const name = body.name ?? (fromTemplate ? freeNameFor(db, projectId, fromTemplate.name) : freeWorkflowName(db, projectId));
+      const name = body.name ?? freeWorkflowName(db, projectId, fromTemplate?.name ?? NEW_WORKFLOW_NAME);
       const definition = fromTemplate?.definition ?? blankWorkflow();
       const row = saveWorkflow(db, projectId, { name, description: '', definition });
       return c.json(row, 201);
@@ -109,16 +95,14 @@ export const workflowRoutes = new Hono<Env>()
     const { db } = c.var.deps;
     const body = c.req.valid('json');
     const current = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
-    try {
-      const row = saveWorkflow(db, current.projectId, { id: current.id, ...body });
-      return c.json({ ...row, calledBy: workflowCallers(db, current.projectId, current.id), issues: workflowIssues(db, current.projectId, row.definition, current.id) });
-    } catch (error) {
-      if (error instanceof WorkflowMutationError) {
-        if (error.status === 404) found(undefined, '워크플로');
-        badRequest(error.message);
-      }
-      throw error;
-    }
+    const row = saveWorkflow(db, current.projectId, { id: current.id, ...body });
+    return c.json({ ...row, calledBy: workflowCallers(db, current.projectId, current.id), issues: workflowIssues(db, current.projectId, row.definition, current.id) });
+  })
+  /** 복제: a copy with the same description and definition under a name of its own (services/workflow-mutations.ts). */
+  .post('/workflows/:id/duplicate', validate('json', z.object({ name: z.string().trim().min(1).optional() })), (c) => {
+    const { db } = c.var.deps;
+    const workflow = found(db.select({ id: s.workflows.id, projectId: s.workflows.projectId }).from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
+    return c.json(duplicateWorkflow(db, workflow.projectId, workflow.id, c.req.valid('json').name), 201);
   })
   .post('/workflows/:id/validate', validate('json', z.object({ definition: workflowDefinitionSchema })), (c) => {
     const { db } = c.var.deps;
@@ -128,12 +112,7 @@ export const workflowRoutes = new Hono<Env>()
   .delete('/workflows/:id', (c) => {
     const { db } = c.var.deps;
     const workflow = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
-    try {
-      deleteWorkflow(db, workflow.projectId, workflow.id);
-    } catch (error) {
-      if (error instanceof WorkflowMutationError) badRequest(error.message);
-      throw error;
-    }
+    deleteWorkflow(db, workflow.projectId, workflow.id);
     return c.json({ ok: true });
   })
   /** 보낼 내용: one request of a saved AI node for a sample item (no model call). */
@@ -152,11 +131,7 @@ export const workflowRoutes = new Hono<Env>()
     const workflow = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
     const { models, ...asked } = c.req.valid('json');
     const scope = scopeOf(db, workflow, asked);
-    try {
-      return c.json(await preflight(db, { ...workflow, definition: withRunModels(workflow.definition, models) }, scope));
-    } catch (error) {
-      badRequest(error instanceof Error ? error.message : String(error));
-    }
+    return c.json(await preflight(db, { ...workflow, definition: withRunModels(workflow.definition, models) }, scope));
   })
   /** Starts a run (services/start-run.ts): the caps are the suggested ones unless given (a number sets one, null runs without it). */
   .post('/workflows/:id/runs', validate('json', runSchema.extend({ limits: runCapsSchema.optional() })), async (c) => {

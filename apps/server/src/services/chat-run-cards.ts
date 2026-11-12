@@ -1,7 +1,7 @@
 import type { UIMessage } from 'ai';
 import { eq } from 'drizzle-orm';
 import { runCardMessage, runCardOf, type ChatChip, type RunCard, type RunCardPlan } from '@tw/shared';
-import { badRequest, found, notFound } from '../context.ts';
+import { badRequest, found, notFound } from '../refusal.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { chatRunScope } from './chat-run-scope.ts';

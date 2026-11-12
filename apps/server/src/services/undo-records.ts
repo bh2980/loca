@@ -2,7 +2,7 @@ import { and, desc, eq, lt, notInArray, sql, type SQL } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import type { UndoData, UndoRow } from '../db/schema.ts';
-import { badRequest } from '../http-errors.ts';
+import { badRequest } from '../refusal.ts';
 import { changed, invalidate, refreshNodeGroups, resequence } from './source-mutations.ts';
 
 /**

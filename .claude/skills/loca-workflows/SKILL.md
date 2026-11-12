@@ -72,6 +72,10 @@ loca workflows reference <프리셋 id>       # 그 프리셋의 지시문·출�
    loca workflows save "$W/wf.json"         # id가 있으면 그 워크플로를 바꾸고, 없으면 새로 만드는 제안
    ```
    실행 중이거나 멈춘 실행이 있는 워크플로는 바꿀 수 없습니다. 수락 뒤 `loca workflows show <워크플로>`로 검증 결과(오류 0)를 확인합니다.
+   잘 돌아가는 워크플로를 고쳐 보려면 먼저 복사본을 만듭니다(설명·정의가 같은 새 워크플로, 원본은 그대로):
+   ```
+   loca workflows duplicate <워크플로> [--name "<이름>"]   # 이름이 없으면 "<이름> (복사본)"
+   ```
    함수 노드의 `config`는 `{fn, params}`이고 `params`는 그 함수의 설정 스키마(`loca workflows reference`의 functionNode.functions)를 따릅니다. 없는 함수 이름이나 형이 다른 값(예: `method: "DELETE"`, 숫자 칸에 글자)은 save가 입력 오류로 거절합니다. 빠진 칸은 기본값으로 채워지고, 아직 덜 채운 값(HTTP 주소 없음, 정규식 규칙의 패턴 없음·잘못된 정규식, 이름이 없거나 영문·숫자·_ 가 아닌 필드)은 저장은 되지만 검증 오류로 나와 실행할 수 없습니다.
 
 ## 시험해 보기 (저장 전에)
@@ -115,7 +119,7 @@ loca runs start <워크플로> -g <장면> --wait       # 시작(제안이면 �
 loca runs wait <id>                               # 이미 시작한 실행을 끝날 때까지 기다린 뒤 요약
 loca runs pause <id> · loca runs cancel <id>      # 비용이 들지 않아 바로 됨. 취소한 실행은 이어서 할 수 없음
 loca runs resume <id> --wait                      # 일시정지한 실행 이어 하기 (--max-calls/--max-input-tokens로 상한을 올리거나 none으로 없앰)
-loca runs continue <id> --retry-failed --wait     # 실패한 줄을 실패한 단계부터 다시 (--model로 이 실행의 AI 단계만 다른 모델로)
+loca runs continue <id> --retry-failed --wait     # 실패한 줄을 실패한 단계부터 다시 (--model로 이 실행의 AI 단계만 다른 모델로, --max-calls/--max-input-tokens로 상한을 올리거나 none으로 없앰)
 loca runs start <워크플로> --rerun-errors <id> --wait   # 그 실행에서 실패했거나 오류 출구로 빠진 줄만 새로 실행
 loca runs start <워크플로> --change-human --wait          # 사람이 정한 상태·붙인 태그도 바꾸게
 ```

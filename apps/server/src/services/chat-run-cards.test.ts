@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import type { UIMessage } from 'ai';
 import { importFileSchema, linesById, runCardMessage, runCardOf, type RunCard } from '@tw/shared';
-import type { Env } from '../context.ts';
+import { onError, type Env } from '../context.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { chatRoutes } from '../routes/chat.ts';
@@ -19,7 +19,7 @@ const setup = () => {
   const workflow = db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).all().find((item) => item.name === '번역')!;
   const group = db.select().from(s.groups).get()!;
   const sessionId = db.insert(s.chatSessions).values({ projectId, title: '새 대화' }).returning().get().id;
-  const app = new Hono<Env>().use(async (c, next) => { c.set('deps', { db } as never); await next(); }).route('/', chatRoutes);
+  const app = new Hono<Env>().onError(onError).use(async (c, next) => { c.set('deps', { db } as never); await next(); }).route('/', chatRoutes);
   const post = (path: string, body?: unknown) => app.request(`/chat/${sessionId}/${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
   const stored = () => db.select().from(s.chatSessions).where(eq(s.chatSessions.id, sessionId)).get()!.messages as UIMessage[];
   const make = async () => (await (await post('run-cards', { workflowId: workflow.id, chips: [{ kind: '장면', id: group.id, label: 'Ferry' }] })).json()) as RunCard;

@@ -2,10 +2,10 @@ import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { itemCount, PERMISSION_MODE_INFO, toolClass, toolRoute, toolSpec, type PermissionMode } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { agentCatalog, prepareProposal } from './agent-catalog.ts';
-import { checkAgentPermission, projectAgentSettings } from './agent-permission-check.ts';
+import { agentCatalog, checkAgentPermission, prepareProposal } from './agent-catalog.ts';
+import { projectAgentSettings } from './agent-permission-check.ts';
 import { reportText, type BatchCheck } from './proposal-check.ts';
-import { dropConflicts, isRecord, orderedCalls, rebaseLineCall, rememberLineRevisions } from './proposal-undo.ts';
+import { dropConflicts, isRecord, orderedCalls, type Inverse } from './proposal-undo.ts';
 import { decideProposal, propose, proposedText } from './proposals.ts';
 import { fitText } from './tool-output.ts';
 
@@ -110,7 +110,16 @@ export async function undoChanges(db: Db, owner: string | { terminal: string; by
     .where(and(ownedBy, inArray(s.proposals.id, ids))).all()
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   const results: { id: string; ok: boolean; error?: string; skipped?: string[] }[] = [];
-  const rebasedLines = new Map<string, { before: number; now: number }>();
+  // How each tool behaves as a restoring call (its `undo`): looked up by the call's tool, never written here by name.
+  const inverses = new Map<string, Map<string, Inverse | undefined>>();
+  const inverseOf = (projectId: string) => {
+    if (!inverses.has(projectId)) inverses.set(projectId, new Map(agentCatalog(db, projectId, undefined, { unrestricted: true }).map((tool) => [tool.name as string, tool.undo])));
+    const known = inverses.get(projectId)!;
+    return (tool: string) => known.get(tool);
+  };
+  // What the restoring calls of one tool left for the later ones of this request (a tool's `chain`).
+  const seen = new Map<string, Map<string, unknown>>();
+  const seenBy = (tool: string) => seen.get(tool) ?? seen.set(tool, new Map()).get(tool)!;
   for (const original of rows) {
     if (terminal && original.decidedBy === 'person') {
       results.push({ id: original.id, ok: false, error: '사람이 수락한 제안이라 앱에서 되돌립니다' });
@@ -126,21 +135,22 @@ export async function undoChanges(db: Db, owner: string | { terminal: string; by
         error: original.undo && 'none' in original.undo ? original.undo.none : '되돌리기 정보를 찾을 수 없습니다' });
       continue;
     }
-    const calls = orderedCalls(original.undo.calls);
+    const hooksOf = inverseOf(original.projectId);
+    const calls = orderedCalls(original.undo.calls, hooksOf);
     const verdict = undoVerdict(db, original.projectId, terminal, calls);
     if ('held' in verdict) {
       results.push({ id: original.id, ok: false, error: verdict.held });
       continue;
     }
-    // Each tool's own way to leave out what a person changed since (its `undo.trim`).
-    const trims = new Map(agentCatalog(db, original.projectId, undefined, { unrestricted: true }).map((tool) => [tool.name as string, tool.undo?.trim]));
     const skipped: string[] = [];
     let failedTool: string | null = null;
     let completedCalls = 0;
     try {
       for (const inverseCall of calls) {
-        const rebased = rebaseLineCall(inverseCall, rebasedLines);
-        const filtered = dropConflicts(db, original.projectId, rebased, trims.get(rebased.tool));
+        const how = hooksOf(inverseCall.tool);
+        const rebased = how?.chain ? { ...inverseCall, input: how.chain.rebase(inverseCall.input, seenBy(inverseCall.tool)) } : inverseCall;
+        // Each tool's own way to leave out what a person changed since (its `undo.trim`).
+        const filtered = dropConflicts(db, original.projectId, rebased, how?.trim);
         skipped.push(...filtered.dropped);
         if (!filtered.call) continue;
         failedTool = filtered.call.tool;
@@ -163,7 +173,7 @@ export async function undoChanges(db: Db, owner: string | { terminal: string; by
             else if (isRecord(item) && typeof item.id === 'string') skipped.push(item.id);
           }
         }
-        rememberLineRevisions(db, original, filtered.call, applied.result, rebasedLines);
+        how?.chain?.remember(db, original, filtered.call.input, applied.result, seenBy(filtered.call.tool));
         completedCalls++;
       }
       db.update(s.proposals).set({ undoneAt: new Date(), reportedAt: null })

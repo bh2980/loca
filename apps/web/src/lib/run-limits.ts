@@ -25,11 +25,4 @@ export function resumeLimits(current: Caps | undefined, next: { maxCalls?: numbe
   };
 }
 
-/** A new run's caps in words, as starting it would set them: what it asks for over the suggestion; 없음 when it has none. */
-export function startCaps(asked: CapEdits | undefined, suggested: Caps | undefined) {
-  const pick = (key: keyof Caps) => (asked?.[key] === undefined ? suggested?.[key] : asked[key] ?? undefined);
-  const calls = pick('maxCalls');
-  const input = pick('maxInputTokens');
-  const parts = [calls && `호출 ${calls.toLocaleString()}회`, input && `입력 토큰 ${input.toLocaleString()}`].filter(Boolean);
-  return parts.length ? `${parts.join(' · ')}에서 멈춤` : '없음';
-}
+export { startCaps } from '@tw/shared';

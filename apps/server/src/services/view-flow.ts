@@ -2,7 +2,7 @@ import { eq, inArray } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
 import { inChunks } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
-import { badRequest } from '../http-errors.ts';
+import { refuse } from '../refusal.ts';
 
 /**
  * Reading a saved view of the dialogue graph (graph-views.ts stores them) as a part of the script:
@@ -21,7 +21,8 @@ export function findView(db: Db, projectId: string, ref: string) {
   const partial = views.filter((view) => view.label.toLowerCase().includes(lower));
   if (partial.length === 1) return stored(db, partial[0].id);
   const named = (partial.length ? partial : views).slice(0, 10).map((view) => view.label);
-  return badRequest(`${partial.length ? '여러 보기가 맞습니다' : '보기를 찾지 못했습니다'}: ${ref}${named.length ? ` (${named.join(', ')})` : ''}`);
+  // Several matches name nothing either: both are a view that was not found.
+  return refuse('missing', `${partial.length ? '여러 보기가 맞습니다' : '보기를 찾지 못했습니다'}: ${ref}${named.length ? ` (${named.join(', ')})` : ''}`);
 }
 
 export interface FlowNode {

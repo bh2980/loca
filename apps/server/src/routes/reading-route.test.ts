@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { and, eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import { importFileSchema } from '@tw/shared';
-import type { Env } from '../context.ts';
+import { onError, type Env } from '../context.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
@@ -40,7 +40,7 @@ function setup() {
   const db = openDatabase(':memory:');
   const first = importProject(db, fixture, null as never).projectId;
   const second = importProject(db, fixture, null as never).projectId;
-  const app = new Hono<Env>()
+  const app = new Hono<Env>().onError(onError)
     .use(async (c, next) => {
       c.set('deps', { db } as never);
       await next();
@@ -216,7 +216,7 @@ describe('reading route API', () => {
   it('finds dialogue when end is a container node whose text is in an attached leaf child node', async () => {
     const db = openDatabase(':memory:');
     const projectId = importProject(db, containerFixture, null as never).projectId;
-    const app = new Hono<Env>()
+    const app = new Hono<Env>().onError(onError)
       .use(async (c, next) => {
         c.set('deps', { db } as never);
         await next();
@@ -243,7 +243,7 @@ describe('reading route API', () => {
   it('finds linear path through wait loops with repeat and decoded edges without failing as unreachable', async () => {
     const db = openDatabase(':memory:');
     const projectId = importProject(db, waitLoopFixture, null as never).projectId;
-    const app = new Hono<Env>()
+    const app = new Hono<Env>().onError(onError)
       .use(async (c, next) => {
         c.set('deps', { db } as never);
         await next();
@@ -276,7 +276,7 @@ describe('reading route API', () => {
   it('finds the full story script between commentary lines across container states', async () => {
     const db = openDatabase(':memory:');
     const projectId = importProject(db, containerFixture, null as never).projectId;
-    const app = new Hono<Env>()
+    const app = new Hono<Env>().onError(onError)
       .use(async (c, next) => {
         c.set('deps', { db } as never);
         await next();
@@ -304,7 +304,7 @@ describe('reading route API', () => {
   it('switches between alternative branches when via is passed', async () => {
     const db = openDatabase(':memory:');
     const projectId = importProject(db, branchFixture, null as never).projectId;
-    const app = new Hono<Env>()
+    const app = new Hono<Env>().onError(onError)
       .use(async (c, next) => {
         c.set('deps', { db } as never);
         await next();

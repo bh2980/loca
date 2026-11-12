@@ -5,19 +5,22 @@ import { Play, RotateCcw } from 'lucide-react';
 import { Box, Button, Checkbox, Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Inline, Skeleton, Text } from '@loca/ui';
 import type { ModelValue } from '@/components/model-picker';
 import { client, unwrap } from '@/lib/api';
-import { Pace, RunModels, UntestedModels } from './run-estimate';
+import { startLimits, type CapEdits, type Caps } from '@/lib/run-limits';
+import { Pace, RunCaps, RunModels, UntestedModels } from './run-estimate';
 
 /**
  * Continue a paused or finished run (#41): pick another model for any AI step, send the failed
- * lines again, see the estimate for what is left, then go on. Only this run changes; the
- * workflow keeps its own models.
+ * lines again, see the estimate for what is left, raise or clear its caps, then go on. Only this
+ * run changes; the workflow keeps its own models.
  */
-export function ContinueRun({ runId, failed, paused, open: controlledOpen, onOpenChange, hideTrigger = false }: { runId: string; failed: number; paused: boolean; open?: boolean; onOpenChange?: (open: boolean) => void; hideTrigger?: boolean }) {
+export function ContinueRun({ runId, failed, paused, limits, open: controlledOpen, onOpenChange, hideTrigger = false }: { runId: string; failed: number; paused: boolean; /** The caps the run has now: the fields start from them. */ limits?: Caps; open?: boolean; onOpenChange?: (open: boolean) => void; hideTrigger?: boolean }) {
   const [localOpen, setLocalOpen] = useState(false);
   const open = controlledOpen ?? localOpen;
   const setOpen = (next: boolean) => { setLocalOpen(next); onOpenChange?.(next); };
   const [picked, setPicked] = useState<Record<string, ModelValue>>({});
   const [retryFailed, setRetryFailed] = useState(failed > 0);
+  // Only the caps the person changed are sent (a number sets one, null clears it); one left alone stays as the run has it.
+  const [capEdits, setCapEdits] = useState<CapEdits>({});
   const queryClient = useQueryClient();
   const { projectId } = useParams({ strict: false }) as { projectId?: string };
   const models = Object.fromEntries(Object.entries(picked).filter(([, value]) => value.connectionId && value.model)) as Record<string, { connectionId: string; model: string; effort?: string }>;
@@ -29,10 +32,11 @@ export function ContinueRun({ runId, failed, paused, open: controlledOpen, onOpe
     placeholderData: keepPreviousData,
   });
   const go = useMutation({
-    mutationFn: () => unwrap(client.runs[':id'].continue.$post({ param: { id: runId }, json: request })),
+    mutationFn: () => unwrap(client.runs[':id'].continue.$post({ param: { id: runId }, json: { ...request, ...(Object.keys(startLimits(capEdits)).length && { limits: startLimits(capEdits) }) } })),
     onSuccess: () => {
       setOpen(false);
       setPicked({});
+      setCapEdits({});
       void queryClient.invalidateQueries({ queryKey: ['runs'] });
     },
   });
@@ -71,6 +75,7 @@ export function ContinueRun({ runId, failed, paused, open: controlledOpen, onOpe
               changedNote="남은 줄부터"
             />
           )}
+          {data && !nothing && <RunCaps underWay suggested={limits} edits={capEdits} onChange={setCapEdits} />}
           {plan.isPending && <Skeleton height="placeholder-sm" width="full" />}
           {plan.isError && <Text as="p" variant="body" tone="danger">{plan.error.message}</Text>}
         </Box>

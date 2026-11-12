@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { APP_FEED, FEED_UNITS_LIMIT, importFileSchema, type ChangeEvent, type FeedSnapshot } from '@tw/shared';
-import type { Env } from './context.ts';
+import { onError, type Env } from './context.ts';
 import { openDatabase } from './db/index.ts';
 import { rowChangesOf } from './db/row-changes.ts';
 import * as s from './db/schema.ts';
@@ -130,7 +130,7 @@ describe('the row feed', () => {
     // The usage count it filled is a change like any other, at or below the snapshot's count.
     const after = feedRows(db, NO_KEYS, projectId)!;
     expect(after.seq).toBeLessThanOrEqual(snapshot.seq);
-    const app = new Hono<Env>().use(async (c, next) => (c.set('deps', { db } as never), next())).route('/projects/:projectId', knowledgeRoutes);
+    const app = new Hono<Env>().onError(onError).use(async (c, next) => (c.set('deps', { db } as never), next())).route('/projects/:projectId', knowledgeRoutes);
     const res = await app.request(`/projects/${projectId}/sync/terms`);
     expect(res.status).toBe(200);
     expect(((await res.json()) as FeedSnapshot).rows).toHaveLength(1);
@@ -197,7 +197,7 @@ describe('lines in the row feed', () => {
 
   it('has no snapshot of lines: the browser holds the ones it shows', async () => {
     const { db, projectId } = setup();
-    const app = new Hono<Env>().use(async (c, next) => (c.set('deps', { db } as never), next())).route('/projects/:projectId', knowledgeRoutes);
+    const app = new Hono<Env>().onError(onError).use(async (c, next) => (c.set('deps', { db } as never), next())).route('/projects/:projectId', knowledgeRoutes);
     expect((await app.request(`/projects/${projectId}/sync/units`)).status).toBe(400);
     // ...read by id through the same readers as every collection, with the feed's count when read.
     const unit = db.select().from(s.units).where(eq(s.units.projectId, projectId)).get()!;

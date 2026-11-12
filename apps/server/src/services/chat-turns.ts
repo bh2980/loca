@@ -1,4 +1,5 @@
 import { consumeStream, type UIMessage } from 'ai';
+import { badRequest } from '../refusal.ts';
 import { events } from '../events.ts';
 
 /**
@@ -27,7 +28,7 @@ export const deletingChats = new Set<string>();
 export const SUPERSEDED = 'superseded';
 
 export function startTurn(projectId: string, sessionId: string) {
-  if (deletingChats.has(sessionId)) throw new Error('삭제 중인 대화입니다.');
+  if (deletingChats.has(sessionId)) badRequest('삭제 중인 대화입니다.');
   // Callers wait for a running turn first (turnEnded); one still going after that is cut off here.
   turns.get(sessionId)?.controller.abort(SUPERSEDED);
   const controller = new AbortController();

@@ -1,4 +1,5 @@
 import { and, eq } from 'drizzle-orm';
+import { badRequest } from '../refusal.ts';
 import { expandCalls, type WorkflowDefinition } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -16,7 +17,7 @@ export function expandedDefinition(db: Db, projectId: string, definition: Workfl
     (id) => {
       const called = db.select({ name: s.workflows.name, definition: s.workflows.definition }).from(s.workflows).where(and(eq(s.workflows.id, id), eq(s.workflows.projectId, projectId))).get();
       const unreadable = called && s.definitionProblem(called.definition);
-      if (unreadable) throw new Error(`부르는 워크플로 '${called.name}'의 저장된 정의를 읽을 수 없습니다: ${unreadable}`);
+      if (unreadable) badRequest(`부르는 워크플로 '${called.name}'의 저장된 정의를 읽을 수 없습니다: ${unreadable}`);
       return called;
     },
     { workflowId: workflowId ?? undefined },

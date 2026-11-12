@@ -7,7 +7,7 @@ import { WORKFLOW_TEMPLATES } from '@tw/shared';
 import { EmptyState, DataTable, type ColumnDef, RunStatusBadge, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Chip, Box, Button, Inline, Skeleton, Stack, Text, ContextMenuItem, ContextMenuSeparator, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@loca/ui';
 import { HeaderActions, Page } from '@/components/page';
 import { RunDialog } from '@/components/workflow/run-dialog';
-import { client, unwrap } from '@/lib/api';
+import { client } from '@/lib/api';
 import { dateTime } from '@/lib/datetime';
 import { useRuns } from '@/lib/runs';
 import { useWorkflows } from '@/lib/workflows';
@@ -37,27 +37,7 @@ function Workflows() {
     onError: (error) => toast.error(error.message),
   });
   const duplicate = useMutation({
-    mutationFn: async (workflow: Workflow) => {
-      const created = await unwrap(
-        client.projects[':projectId'].workflows.$post({
-          param: { projectId },
-          json: { name: `${workflow.name} (복사본)` },
-        })
-      );
-      await sent(
-        projectId,
-        client.workflows[':id'].$put({
-          param: { id: created.id },
-          json: {
-            name: created.name,
-            description: workflow.description,
-            definition: workflow.definition,
-            version: created.version,
-          },
-        })
-      );
-      return created;
-    },
+    mutationFn: (workflow: Workflow) => sent(projectId, client.workflows[':id'].duplicate.$post({ param: { id: workflow.id }, json: {} })),
     onSuccess: () => {
       toast.success('워크플로를 복제했습니다.');
     },

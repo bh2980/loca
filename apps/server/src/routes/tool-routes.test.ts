@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { and, eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import { importFileSchema } from '@tw/shared';
-import type { Env } from '../context.ts';
+import { onError, type Env } from '../context.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
@@ -17,7 +17,7 @@ function setup(mode: 'ask' | 'auto' | 'bypass' = 'ask') {
     db.update(s.projects).set({ agentSettings: { ...project.agentSettings, ...patch } }).where(eq(s.projects.id, projectId)).run();
   };
   settings({ terminalPermissionMode: mode });
-  const app = new Hono<Env>()
+  const app = new Hono<Env>().onError(onError)
     .use(async (c, next) => {
       c.set('deps', { db } as never);
       await next();

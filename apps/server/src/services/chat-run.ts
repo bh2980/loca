@@ -1,4 +1,5 @@
 import { convertToModelMessages, stepCountIs, streamText, type ModelMessage, type StopCondition, type ToolSet, type UIMessage } from 'ai';
+import { badRequest } from '../refusal.ts';
 import { eq } from 'drizzle-orm';
 import { CALL_TIMEOUT_MS, chatTitle, estimateTokens } from '@tw/shared';
 import * as ai from '@tw/ai';
@@ -42,15 +43,15 @@ export async function runChatTurn(deps: Pick<Deps, 'db' | 'secrets'>, given: typ
   // A /compact still writing its summary: this turn starts from it.
   await compactionSettled(session.id);
   const current = db.select().from(s.chatSessions).where(eq(s.chatSessions.id, session.id)).get();
-  if (!current || deletingChats.has(session.id)) throw new Error('삭제되었거나 삭제 중인 대화입니다.');
+  if (!current || deletingChats.has(session.id)) badRequest('삭제되었거나 삭제 중인 대화입니다.');
   session = current;
-  if (!session.connectionId || !session.model) throw new Error('입력창 아래에서 채팅할 AI 연결과 모델을 고르세요.');
+  if (!session.connectionId || !session.model) badRequest('입력창 아래에서 채팅할 AI 연결과 모델을 고르세요.');
   const imageProblem = incomingImageProblem(request.incoming);
-  if (imageProblem) throw new Error(imageProblem);
+  if (imageProblem) badRequest(imageProblem);
   const live = liveChoice(db, { connectionId: session.connectionId, model: session.model, ...(session.effort && { effort: session.effort }) }, secrets, 'chat');
   const target = live.target;
   const messages = mergeIncoming(session.messages as UIMessage[], request.incoming, request.trigger);
-  if (!messages.length) throw new Error('보낼 메시지가 없습니다.');
+  if (!messages.length) badRequest('보낼 메시지가 없습니다.');
   const answeredBy: AnsweredBy = { kind: target.kind, connectionId: session.connectionId, model: target.model };
 
   const firstUser = messages.find((message) => message.role === 'user' && !isRunRecord(message));
@@ -81,9 +82,9 @@ export async function runChatTurn(deps: Pick<Deps, 'db' | 'secrets'>, given: typ
 export async function compactChat(deps: Pick<Deps, 'db' | 'secrets'>, sessionId: string, signal?: AbortSignal) {
   const { db, secrets } = deps;
   const session = db.select().from(s.chatSessions).where(eq(s.chatSessions.id, sessionId)).get();
-  if (!session || deletingChats.has(sessionId)) throw new Error('삭제되었거나 삭제 중인 대화입니다.');
-  if (turnStartedAt(sessionId) !== null) throw new Error('답변이 끝난 뒤에 압축할 수 있습니다.');
-  if (!session.connectionId || !session.model) throw new Error('입력창 아래에서 채팅할 AI 연결과 모델을 고르세요.');
+  if (!session || deletingChats.has(sessionId)) badRequest('삭제되었거나 삭제 중인 대화입니다.');
+  if (turnStartedAt(sessionId) !== null) badRequest('답변이 끝난 뒤에 압축할 수 있습니다.');
+  if (!session.connectionId || !session.model) badRequest('입력창 아래에서 채팅할 AI 연결과 모델을 고르세요.');
   const { target } = liveChoice(db, { connectionId: session.connectionId, model: session.model, ...(session.effort && { effort: session.effort }) }, secrets, 'chat');
   return compactNow({ db, sessionId, target, signal });
 }

@@ -25,7 +25,13 @@ export const asNew = <T extends z.ZodType>(schema: T, input: unknown): { ok: tru
   return parsed.success ? { ok: true, data: parsed.data } : { ok: false, error: `새로 만들려면 빠진 값이 있습니다: ${parsed.error.issues.map((issue) => issue.path.join('.')).join(', ')}` };
 };
 
-export const characterByName = (db: Db, projectId: string, name: string) =>
+type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
+/** The database, or a transaction a caller already opened (a run's apply step saves many items in one). */
+type Writer = Db | Tx;
+/** `write` in a transaction: the caller's when there is one, else one of its own. */
+const inTransaction = <T>(db: Writer, write: (tx: Tx) => T): T => ('rollback' in db ? write(db) : db.transaction(write));
+
+export const characterByName = (db: Pick<Db, 'select'>, projectId: string, name: string) =>
   db
     .select()
     .from(s.characters)
@@ -63,9 +69,10 @@ export function confirmEnds(db: Pick<Db, 'select' | 'update'>, projectId: string
 /**
  * A relationship between two people of the project. Its ends are named (`from`, `to`: a name or alias, as the agent
  * knows them) or given by id (`fromId`, `toId`, as the app holds them); either way each must be a character of this
- * project. Saved confirmed, it confirms its people (confirmEnds).
+ * project. Saved confirmed, it confirms its people (confirmEnds). A run's AI results make their new relationships here
+ * too (ai-knowledge.ts), inside the run's own transaction.
  */
-export function saveRelationshipItem(db: Db, projectId: string, { id, from, to, fromId, toId, ...input }: Record<string, unknown> & { id?: string; from?: string; to?: string; fromId?: string; toId?: string }, saver: Saver = PERSON): SaveResult {
+export function saveRelationshipItem(db: Writer, projectId: string, { id, from, to, fromId, toId, ...input }: Record<string, unknown> & { id?: string; from?: string; to?: string; fromId?: string; toId?: string }, saver: Saver = PERSON): SaveResult {
   const end = (name: string | undefined, endId: string | undefined): { id?: string; error?: string } => {
     if (name !== undefined) return characterByName(db, projectId, name) ?? { error: `인물을 먼저 만들어야 합니다: ${name}` };
     if (endId !== undefined) return characterById(db, projectId, endId) ?? { error: '이 프로젝트에 없는 인물입니다.' };
@@ -75,7 +82,7 @@ export function saveRelationshipItem(db: Db, projectId: string, { id, from, to, 
   const unknown = a.error ?? b.error;
   if (unknown) return { ok: false, error: unknown };
   const ends = { ...(a.id && { fromId: a.id }), ...(b.id && { toId: b.id }) };
-  return db.transaction((tx): SaveResult => {
+  return inTransaction(db, (tx): SaveResult => {
     if (id) {
       const values = { ...sent(input), ...ends };
       if (!tx.update(s.relationships).set({ ...values, ...bySaver(tx, s.relationships, projectId, id, values, saver) }).where(and(eq(s.relationships.id, id), eq(s.relationships.projectId, projectId))).run().changes) return { ok: false, error: '없는 관계입니다.', missing: true };
@@ -91,10 +98,11 @@ export function saveRelationshipItem(db: Db, projectId: string, { id, from, to, 
 
 /**
  * A relationship's changes alone (관계 변화: one confirmed, fixed, dropped or added): its own status and content stay, so
- * deciding a change is not deciding the relationship. False when the project has no such relationship.
+ * deciding a change is not deciding the relationship. `evidence`: the lines that show it, when the changes brought new
+ * ones (an AI result's). False when the project has no such relationship.
  */
-export function setRelationshipChanges(db: Db, projectId: string, id: string, changes: (typeof s.relationships.$inferSelect)['changes']) {
-  return db.update(s.relationships).set({ changes }).where(and(eq(s.relationships.id, id), eq(s.relationships.projectId, projectId))).run().changes > 0;
+export function setRelationshipChanges(db: Pick<Db, 'update'>, projectId: string, id: string, changes: (typeof s.relationships.$inferSelect)['changes'], evidence?: string[]) {
+  return db.update(s.relationships).set({ changes, ...(evidence && { evidence }) }).where(and(eq(s.relationships.id, id), eq(s.relationships.projectId, projectId))).run().changes > 0;
 }
 
 const SAVES = {

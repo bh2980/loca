@@ -4,7 +4,7 @@ import { createGroupSchema, updateGroupSchema, updateUnitSchema } from '@tw/shar
 import type { z } from 'zod';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { badRequest, found } from '../http-errors.ts';
+import { badRequest, found } from '../refusal.ts';
 import { computeLayouts, cancelViewLayouts } from './layout.ts';
 import { forgetProjectContext } from './context.ts';
 import { namedListener } from './listeners.ts';

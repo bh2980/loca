@@ -1,13 +1,13 @@
 import { and, asc, count, eq, inArray, like, lt, or, sql, type SQL } from 'drizzle-orm';
-import { HTTPException } from 'hono/http-exception';
 import { someOf, type LineFilter, type ResolvedLineFilter, type UnpagedLineFilter } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import { inChunks, inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
-import { badRequest } from '../http-errors.ts';
+import { badRequest, isRefusal } from '../refusal.ts';
 import { hiddenMarkConditions, knownListenerSql, lineFactConditions, markConditions, translatableSql, unknownListenerSql } from './line-marks.ts';
 import { lineTextFilter } from './line-text.ts';
 import { viewUnitIds } from './view-flow.ts';
+import { revOf } from './line-save.ts';
 
 /**
  * The line filter, from what is asked to SQL, for every surface: the script list, `loca lines` / export / check, the
@@ -124,7 +124,7 @@ export function resolveLineFilter(db: Db, projectId: string, filter: UnpagedLine
     try {
       named.push(viewUnitIds(db, projectId, filter.view));
     } catch (error) {
-      if (!(error instanceof HTTPException)) throw error;
+      if (!isRefusal(error, 'missing')) throw error;
       unknown.push(`보기 ${filter.view}`);
     }
   }
@@ -205,12 +205,13 @@ export function linePage(db: Db, projectId: string, filter: LineFilter, focus?: 
 }
 
 /**
- * Every line a filter matches, in script order, with its scene, who decided it and its tags: the translation screen
- * walks them one by one inside their scenes (찾아가기), and a scene's checkbox picks its whole filtered result.
+ * Every line a filter matches, in script order, with its scene, who decided it, its tags and its rev: the translation
+ * screen walks them one by one inside their scenes (찾아가기), and a scene's checkbox picks its whole filtered result
+ * (a bulk change made from those picks sends the revs back).
  */
 export function lineMatchRows(db: Db, projectId: string, filter: UnpagedLineFilter) {
-  const rows = db.select({ id: s.units.id, groupId: s.units.groupId, statusBy: s.units.statusBy }).from(s.units).where(and(...lineConditions(projectId, requireLineFilter(db, projectId, filter)))).orderBy(asc(s.units.seq)).all();
+  const rows = db.select({ id: s.units.id, groupId: s.units.groupId, statusBy: s.units.statusBy, updatedAt: s.units.updatedAt }).from(s.units).where(and(...lineConditions(projectId, requireLineFilter(db, projectId, filter)))).orderBy(asc(s.units.seq)).all();
   const tagsByUnit = new Map<string, string[]>();
   for (const tag of inChunks(rows.map((row) => row.id), (ids) => db.select({ unitId: s.unitTags.unitId, tagId: s.unitTags.tagId }).from(s.unitTags).where(inArray(s.unitTags.unitId, ids)).all())) tagsByUnit.set(tag.unitId, [...(tagsByUnit.get(tag.unitId) ?? []), tag.tagId]);
-  return rows.map((row) => ({ ...row, tagIds: tagsByUnit.get(row.id) ?? [] }));
+  return rows.map(({ updatedAt, ...row }) => ({ ...row, rev: revOf({ updatedAt }), tagIds: tagsByUnit.get(row.id) ?? [] }));
 }

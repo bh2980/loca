@@ -7,7 +7,7 @@ import { createGroupSchema, updateGroupSchema, createUnitSchema, updateUnitSchem
 import { createGroup, updateGroup, updateUnit } from '../services/source-mutations.ts';
 import { createLine, deleteGroup, deleteLines, deleteNodes, duplicateNodes, edgeDetail, linkInOrder, linkNodes, unlinkEdges } from '../services/graph-edit.ts';
 import { undoRecorded } from '../services/undo-records.ts';
-import { LineConflict, patchLineById, patchLines, sameSourceLines, saveLineById, saveSameSource } from '../services/line-save.ts';
+import { patchLineById, patchLines, revOf, sameSourceLines, saveLineById, saveSameSource } from '../services/line-save.ts';
 import { declineSuggestion } from '../services/candidates.ts';
 import { found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
@@ -18,7 +18,7 @@ import type { LayoutDirection } from '../services/layout-types.ts';
 import { changeView, createView, deleteView, listViews, missingNodes, readView, sectionWithMost, viewSection } from '../services/graph-views.ts';
 import { lineMatches } from '../services/line-matches.ts';
 import { lineMatchRows, linePage } from '../services/line-filter.ts';
-import { CompleteRefused, completeLine } from '../services/editor-complete.ts';
+import { completeLine } from '../services/editor-complete.ts';
 import { assistLine } from '../services/editor-assist.ts';
 import { knownListener as knownListenerOf, speechRuleIndex } from '../services/speech.ts';
 import { lineContexts } from '../services/line-context.ts';
@@ -107,14 +107,15 @@ export const sourceRoutes = new Hono<Env>()
     const ids = keys.length ? c.var.deps.db.select({ id: s.units.id }).from(s.units).where(and(eq(s.units.projectId, c.req.param('projectId')), inArray(s.units.key, keys))).orderBy(asc(s.units.seq)).all().map((row) => row.id) : [];
     return c.json({ ids });
   })
-  /** What the bulk bar shows of picked lines (their tags, who decided them), by id: picks outlive the page they were made on. */
+  /** What the bulk bar holds of picked lines (their tags, who decided them, their rev), by id: picks outlive the page they were made on. */
   .post('/projects/:projectId/units/meta', validate('json', z.object({ ids: z.array(z.string()).max(20_000) })), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     const ids = c.req.valid('json').ids;
-    const rows = inChunks(ids, (slice) => db.select({ id: s.units.id, statusBy: s.units.statusBy }).from(s.units).where(and(eq(s.units.projectId, projectId), inArray(s.units.id, slice))).all());
+    const rows = inChunks(ids, (slice) => db.select({ id: s.units.id, statusBy: s.units.statusBy, updatedAt: s.units.updatedAt }).from(s.units).where(and(eq(s.units.projectId, projectId), inArray(s.units.id, slice))).all());
     const tags = Map.groupBy(inChunks(ids, (slice) => db.select().from(s.unitTags).where(inArray(s.unitTags.unitId, slice)).all()), (row) => row.unitId);
-    return c.json({ rows: rows.map((row) => ({ ...row, tagIds: (tags.get(row.id) ?? []).map((tag) => tag.tagId) })) });
+    // rev: the line as it is now, which a bulk change made from these picks sends back.
+    return c.json({ rows: rows.map(({ updatedAt, ...row }) => ({ ...row, rev: revOf({ updatedAt }), tagIds: (tags.get(row.id) ?? []).map((tag) => tag.tagId) })) });
   })
   .patch(
     '/projects/:projectId/units',
@@ -127,13 +128,15 @@ export const sourceRoutes = new Hono<Env>()
         checked: z.literal(true).optional(),
         addTagIds: z.array(z.string()).default([]),
         removeTagIds: z.array(z.string()).default([]),
+        /** Each picked line's rev as the browser last saw it (line id → rev): a line changed since is skipped and counted, not written over. */
+        revs: z.record(z.string(), z.number().int()).optional(),
         ...linePatch,
       }),
     ),
     (c) => {
-      const { unitIds, ...patch } = c.req.valid('json');
-      patchLines(c.var.deps.db, c.req.param('projectId'), unitIds, patch);
-      return c.json({ ok: true });
+      const { unitIds, revs, ...patch } = c.req.valid('json');
+      // changed / skipped: how many lines took the change, and how many had changed since they were seen.
+      return c.json({ ok: true, ...patchLines(c.var.deps.db, c.req.param('projectId'), unitIds, patch, revs) });
     },
   )
   .get('/units/:unitId', (c) => c.json(found(lineContexts(c.var.deps.db, undefined, [c.req.param('unitId')])[0], '대사')))
@@ -142,22 +145,12 @@ export const sourceRoutes = new Hono<Env>()
   /** The editor's AI continuation of a line: the whole line, starting with `prefix`. Cancelled with the request. */
   .post('/units/:unitId/complete', validate('json', z.object({ prefix: z.string().max(4000).default('') })), async (c) => {
     const { db, secrets } = c.var.deps;
-    try {
-      return c.json(await completeLine(db, secrets, c.req.param('unitId'), c.req.valid('json').prefix, c.req.raw.signal));
-    } catch (error) {
-      if (error instanceof CompleteRefused) return c.json({ error: error.message, retryAfterSeconds: error.retryAfterSeconds }, error.status);
-      throw error;
-    }
+    return c.json(await completeLine(db, secrets, c.req.param('unitId'), c.req.valid('json').prefix, c.req.raw.signal));
   })
   /** The editor's 'AI 번역' / '다듬기' of a line: a new AI candidate. Cancelled with the request. */
   .post('/units/:unitId/assist', validate('json', z.object({ mode: z.enum(['translate', 'refine']), draft: z.string().max(8000).default(''), suggest: z.boolean().default(false) })), async (c) => {
     const { db, secrets } = c.var.deps;
-    try {
-      return c.json(await assistLine(db, secrets, c.req.param('unitId'), c.req.valid('json'), c.req.raw.signal));
-    } catch (error) {
-      if (error instanceof CompleteRefused) return c.json({ error: error.message, retryAfterSeconds: error.retryAfterSeconds }, error.status);
-      throw error;
-    }
+    return c.json(await assistLine(db, secrets, c.req.param('unitId'), c.req.valid('json'), c.req.raw.signal));
   })
   /** Other lines with the same source (case and end punctuation aside), translated or not: what a confirmed translation may be applied to. */
   .get('/units/:unitId/same', (c) => c.json(sameSourceLines(c.var.deps.db, c.req.param('unitId'))))
@@ -178,14 +171,7 @@ export const sourceRoutes = new Hono<Env>()
     return c.json(lineMatches(db, unit, rules));
   })
   /** A line's text, candidate and status, written together (services/line-save.ts). */
-  .post('/units/:unitId/save', validate('json', lineSave), (c) => {
-    try {
-      return c.json({ ok: true, ...saveLineById(c.var.deps.db, c.req.param('unitId'), c.req.valid('json')) });
-    } catch (error) {
-      if (error instanceof LineConflict) return c.json({ error: error.message }, 409);
-      throw error;
-    }
-  })
+  .post('/units/:unitId/save', validate('json', lineSave), (c) => c.json({ ok: true, ...saveLineById(c.var.deps.db, c.req.param('unitId'), c.req.valid('json')) }))
   /** 거절: a person turns down a waiting AI 제안; it stays in the line's history. Taking one is a save with its candidateId. */
   .post('/units/:unitId/candidates/:candidateId/decline', (c) => {
     if (!declineSuggestion(c.var.deps.db, c.req.param('unitId'), c.req.param('candidateId'))) return c.json({ error: '기다리는 AI 제안이 아닙니다.' }, 409);

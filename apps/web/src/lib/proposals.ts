@@ -38,7 +38,13 @@ function proposalsOf(projectId: string) {
       staleBy: (rows) => {
         const ids = namedIds(rows);
         if (!ids.size) return undefined;
-        return (proposal) => proposal.status !== 'accepted' && proposal.details !== null && [...Object.keys(proposal.details.refs), JSON.stringify(proposal.input)].some((text) => [...ids].some((id) => text.includes(id)));
+        // The ids a card names are the ones its input names (the server shows them by name in the details).
+        const named = [...ids];
+        return (proposal) => {
+          if (proposal.status === 'accepted') return false;
+          const input = JSON.stringify(proposal.input);
+          return named.some((id) => input.includes(id));
+        };
       },
     });
     held.set(projectId, rows);

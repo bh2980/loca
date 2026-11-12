@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import type { z } from 'zod';
@@ -115,6 +118,7 @@ const DERIVED: Record<ToolName, [ToolClass, ToolRoute]> = {
   read_run: ['read', 'now'],
   plan_run: ['read', 'now'],
   save_workflow: ['change', 'gate'],
+  duplicate_workflow: ['change', 'gate'],
   delete_workflow: ['delete', 'gate'],
   edit_workflow_node: ['change', 'editor'],
   start_run: ['run', 'gate'],
@@ -210,6 +214,17 @@ describe('one definition per agent tool', () => {
     const { db, propose } = setup('bypass');
     for (const tool of ['find_lines', 'show_graph', 'update_view', 'edit_workflow_node', 'no_such_tool']) expect(await propose(tool, {})).toMatchObject({ ok: false });
     expect(db.select().from(s.proposals).all()).toEqual([]);
+  });
+
+  // What is particular to a tool is a member of its definition (check, undo with its trim / order / chain, preview,
+  // permit): the code every tool goes through asks the definition and never compares a tool's name.
+  it('the gate, the undo, the checks and the cards branch on no tool name', () => {
+    const shared = ['change-gate.ts', 'proposals.ts', 'proposal-undo.ts', 'proposal-check.ts', 'proposal-details.ts', 'proposal-preview.ts', 'agent-permission-check.ts', 'agent-catalog.ts', 'tool-run.ts'];
+    const names = TOOL_NAMES.join('|');
+    const compared = new RegExp(`[!=]==\\s*['"](${names})['"]|case\\s+['"](${names})['"]\\s*:`);
+    const dir = path.dirname(fileURLToPath(import.meta.url));
+    expect(shared.filter((file) => compared.test(fs.readFileSync(path.join(dir, file), 'utf8')))).toEqual([]);
+    expect(compared.test("if (call.tool === 'propose_changes') return call;")).toBe(true);
   });
 
   it('decide_suggestion is offered and permission-checked like the other line changes', async () => {

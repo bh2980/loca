@@ -1,4 +1,5 @@
 import { eq, inArray } from 'drizzle-orm';
+import { badRequest } from '../refusal.ts';
 import type { ConnectionTarget, ModelTarget } from '@tw/ai';
 import { choiceKey, CONNECTION_KIND_INFO, connectionCan, definitionModels, type Capability, type ConnectionKind, type ModelChoice, type WorkflowDefinition } from '@tw/shared';
 import type { Db } from '../db/index.ts';
@@ -72,9 +73,9 @@ const CANNOT: Record<Capability, (label: string) => string> = {
  */
 export function liveChoice(db: Db, choice: ModelChoice, secrets: SecretStore, need: Capability) {
   const snapshot = snapshotChoice(db, choice);
-  if (!snapshot) throw new Error('고른 AI 연결이 없습니다. 다시 고르세요.');
+  if (!snapshot) badRequest('고른 AI 연결이 없습니다. 다시 고르세요.');
   const kind = snapshot.target.kind as ConnectionKind;
-  if (!connectionCan(kind, need)) throw new Error(CANNOT[need](CONNECTION_KIND_INFO[kind].label));
+  if (!connectionCan(kind, need)) badRequest(CANNOT[need](CONNECTION_KIND_INFO[kind].label));
   return { snapshot, target: resolveTarget(db, snapshot, secrets) };
 }
 

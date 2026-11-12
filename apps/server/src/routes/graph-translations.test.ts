@@ -5,7 +5,7 @@ import { importFileSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
 import { importProject } from '../services/importer.ts';
 import * as s from '../db/schema.ts';
-import type { Env } from '../context.ts';
+import { onError, type Env } from '../context.ts';
 import { sourceRoutes } from './source.ts';
 
 describe('the translations of a graph\'s cards', () => {
@@ -25,7 +25,7 @@ describe('the translations of a graph\'s cards', () => {
     ]).run();
     // The section's layout draws n1 and n2 (n3 belongs to another section).
     db.insert(s.graphLayouts).values({ projectId: project.id, scope: 'dialogue', section: 'S', direction: 'vertical', status: 'ready', data: { version: 9, width: 300, height: 200, nodes: [{ id: 'n1', x: 0, y: 0, width: 260, height: 76 }, { id: 'n2', x: 0, y: 140, width: 260, height: 76 }], edges: [] } }).run();
-    const app = new Hono<Env>().use(async (c, next) => {
+    const app = new Hono<Env>().onError(onError).use(async (c, next) => {
       c.set('deps', { db } as never);
       await next();
     }).route('/', sourceRoutes);

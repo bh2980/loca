@@ -2,7 +2,6 @@ import { and, eq, inArray, or } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import type { KnowledgeKind } from '../db/schema.ts';
-import { toolClass } from '@tw/shared';
 import { revOf } from './line-save.ts';
 
 type Proposal = typeof s.proposals.$inferSelect;
@@ -13,13 +12,24 @@ type KnowledgeRow = typeof s.characters.$inferSelect | typeof s.relationships.$i
 /**
  * How an accepted change of one tool is put back (a tool definition's `undo` member, agent-tools.ts):
  * `before` reads what the change is about to overwrite, `after` turns that and the tool's result into
- * the calls that restore it. `trim`: when the tool is itself called as such a restoring call, its input
- * without the items a person changed since (`conflicts`, by id), or null when nothing is left.
+ * the calls that restore it.
+ *
+ * The rest says how the tool behaves when it is itself called as such a restoring call, so the undo
+ * (change-gate.ts, undoChanges) knows no tool by name. `trim`: its input without the items a person changed
+ * since (`conflicts`, by id), or null when nothing is left. `order`: where its call goes among the calls
+ * that undo one change (lowest first; 0 when unset). `chain`: for a tool whose restoring calls depend on
+ * each other across the changes undone in one request: `rebase` rewrites a call's input from what the
+ * earlier ones left in `seen`, `remember` notes what this one left.
  */
 export type Inverse = {
   before?: (db: Db, proposal: Proposal) => Capture;
   after: (db: Db, proposal: Proposal, before: Capture, result: unknown) => s.ProposalUndo;
   trim?: (db: Db, projectId: string, input: Record<string, unknown>, conflicts: Set<string>) => { input: Record<string, unknown> | null; dropped: string[] };
+  order?: (input: Record<string, unknown>) => number;
+  chain?: {
+    rebase: (input: Record<string, unknown>, seen: Map<string, unknown>) => Record<string, unknown>;
+    remember: (db: Db, original: Proposal, input: Record<string, unknown>, result: unknown, seen: Map<string, unknown>) => void;
+  };
 };
 
 const NONE = '이 변경은 되돌릴 수 없습니다';
@@ -345,8 +355,39 @@ function afterTags(_db: Db, proposal: Proposal, before: Capture): s.ProposalUndo
   return { calls: inverse };
 }
 
-/** A batch of line changes: the lines it changed get their former text, status, tags, listener, memo and 번역 제외 back. */
-export const lineChangesUndo: Inverse = { before: captureLines, after: undoLines };
+/** A line's rev as an undone change left it (`before`) and as the undo made it (`now`), by key. */
+type MovedRev = { before: number; now: number };
+
+/**
+ * A batch of line changes: the lines it changed get their former text, status, tags, listener, memo and 번역 제외 back.
+ * Undoing several changes of one line in one request, each restoring call was written against the rev its own change
+ * left: an older one is checked against the rev the newer undo has since moved the line to (chain).
+ */
+export const lineChangesUndo: Inverse = {
+  before: captureLines,
+  after: undoLines,
+  chain: {
+    rebase: (input, seen) => {
+      if (!Array.isArray(input.changes)) return input;
+      const changes = input.changes.map((value) => {
+        if (!isRecord(value) || typeof value.key !== 'string' || typeof value.rev !== 'number') return value;
+        const known = seen.get(value.key) as MovedRev | undefined;
+        return known && value.rev === known.before ? { ...value, rev: known.now } : value;
+      });
+      return { ...input, changes };
+    },
+    remember: (db, original, input, result, seen) => {
+      if (!original.undo || !('calls' in original.undo)) return;
+      const skipped = new Set(isRecord(result) && Array.isArray(result.skipped) ? result.skipped.flatMap((item) => (isRecord(item) && typeof item.key === 'string' ? [item.key] : [])) : []);
+      const before = original.undo.lineRevs ?? {};
+      for (const value of Array.isArray(input.changes) ? input.changes : []) {
+        if (!isRecord(value) || typeof value.key !== 'string' || skipped.has(value.key) || typeof before[value.key] !== 'number') continue;
+        const unit = db.select().from(s.units).where(and(eq(s.units.projectId, original.projectId), eq(s.units.key, value.key))).get();
+        if (unit) seen.set(value.key, { before: before[value.key]!, now: revOf(unit) } satisfies MovedRev);
+      }
+    },
+  },
+};
 
 /** Saved terms: edited ones get their sent fields back, new ones are deleted. */
 export const termsUndo: Inverse = {
@@ -362,19 +403,26 @@ export const termsUndo: Inverse = {
 export const tagItemsUndo: Inverse = { before: beforeTags, after: afterTags };
 
 /**
- * A delete is put back whole by its undo record (undo-records.ts): the tool answered with the record's id (undoId),
- * and restore_deleted takes it. `kind`: what the delete removed, as restore_deleted names it.
+ * A change that recorded what it did as it ran (undo-records.ts: a delete, an edit of the dialogue graph) is put back
+ * whole by that record: the tool answered with the record's id (undoId), and restore_deleted takes it. `kind`: what
+ * was changed, as restore_deleted names it.
  */
-export const restoresDeleted = (kind: (input: Record<string, unknown>) => string): Inverse => ({
+export const undoesRecord = (kind: (input: Record<string, unknown>) => string): Inverse => ({
   after: (_db, proposal, _before, result) =>
-    isRecord(result) && typeof result.undoId === 'string' ? { calls: [undoCall('restore_deleted', { kind: kind(proposal.input), id: result.undoId })] } : none('지워진 것이 없어 되살릴 것이 없습니다'),
+    isRecord(result) && typeof result.undoId === 'string' ? { calls: [undoCall('restore_deleted', { kind: kind(proposal.input), id: result.undoId })] } : none('바뀐 것이 없어 되돌릴 것이 없습니다'),
 });
 
-/** delete_items called to undo a creation leaves what a person changed since, and characters a kept relationship points to. */
+/**
+ * A delete of items by kind, called to undo a creation: it goes after the calls that restore (0), relationships before
+ * the rest and characters last, so no delete cascades into a row being kept.
+ */
+export const deleteItemsOrder: NonNullable<Inverse['order']> = (input) => (input.kind === 'relationships' ? 1 : input.kind === 'characters' ? 3 : 2);
+
+/** The same delete leaves what a person changed since, and characters a kept relationship points to. */
 export const deleteItemsTrim: NonNullable<Inverse['trim']> = (db, projectId, input, conflicts) => {
   const ids = Array.isArray(input.ids) ? input.ids.filter((id): id is string => typeof id === 'string' && !conflicts.has(id)) : [];
   const dropped = [...conflicts];
-  // Relationship deletes run first (orderedCalls), so any relationship still here is one being kept
+  // Relationship deletes run first (deleteItemsOrder), so any relationship still here is one being kept
   // (a person's, or one whose delete was skipped): deleting its character would cascade into it.
   if (input.kind === 'characters') {
     for (const id of [...ids]) {
@@ -429,11 +477,10 @@ function matchesExpectation(db: Db, projectId: string, item: NonNullable<s.UndoC
     JSON.stringify(stableValue(values[key])) === JSON.stringify(stableValue(expected)));
 }
 
-/** Restores first, then deletes: relationships before characters, so no delete cascades into a row being kept. */
-export function orderedCalls(calls: s.UndoCall[]) {
-  const deleteRank = (call: s.UndoCall) => toolClass(call.tool, call.input) !== 'delete' ? 0
-    : call.input.kind === 'relationships' ? 1 : call.input.kind === 'characters' ? 3 : 2;
-  return [...calls].sort((left, right) => deleteRank(left) - deleteRank(right));
+/** The calls that undo one change, in the order their tools ask for (`order`; a stable sort, so the rest stay as written). */
+export function orderedCalls(calls: s.UndoCall[], inverseOf: (tool: string) => Inverse | undefined) {
+  const rank = (call: s.UndoCall) => inverseOf(call.tool)?.order?.(call.input) ?? 0;
+  return [...calls].sort((left, right) => rank(left) - rank(right));
 }
 
 /**
@@ -446,33 +493,4 @@ export function dropConflicts(db: Db, projectId: string, call: s.UndoCall, trim:
   if (!trim) return conflicts.size ? { call: null, dropped: [...conflicts] } : { call, dropped: [] as string[] };
   const trimmed = trim(db, projectId, call.input, conflicts);
   return { call: trimmed.input ? { ...call, input: trimmed.input } : null, dropped: trimmed.dropped };
-}
-
-/** An older inverse checked against a line revision that a newer undo has since moved on. */
-export function rebaseLineCall(call: s.UndoCall, rebased: Map<string, { before: number; now: number }>): s.UndoCall {
-  if (call.tool !== 'propose_changes' || !Array.isArray(call.input.changes)) return call;
-  const changes = call.input.changes.map((value) => {
-    if (!isRecord(value) || typeof value.key !== 'string' || typeof value.rev !== 'number') return value;
-    const known = rebased.get(value.key);
-    return known && value.rev === known.before ? { ...value, rev: known.now } : value;
-  });
-  return { ...call, input: { ...call.input, changes } };
-}
-
-export function rememberLineRevisions(
-  db: Db, original: typeof s.proposals.$inferSelect, call: s.UndoCall,
-  result: unknown, rebased: Map<string, { before: number; now: number }>,
-) {
-  if (call.tool !== 'propose_changes' || !original.undo || !('calls' in original.undo)) return;
-  const skipped = new Set(isRecord(result) && Array.isArray(result.skipped)
-    ? result.skipped.flatMap((item) => isRecord(item) && typeof item.key === 'string' ? [item.key] : []) : []);
-  const before = original.undo.lineRevs ?? {};
-  const changes = Array.isArray(call.input.changes) ? call.input.changes : [];
-  for (const value of changes) {
-    if (!isRecord(value) || typeof value.key !== 'string' || skipped.has(value.key) ||
-        typeof before[value.key] !== 'number') continue;
-    const unit = db.select().from(s.units).where(and(eq(s.units.projectId, original.projectId),
-      eq(s.units.key, value.key))).get();
-    if (unit) rebased.set(value.key, { before: before[value.key], now: revOf(unit) });
-  }
 }

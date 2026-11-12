@@ -4,6 +4,7 @@ import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { agentCatalog } from './agent-catalog.ts';
 import { captureUndo } from './proposal-undo.ts';
+import { found } from '../refusal.ts';
 import { proposalSaver } from './status-by.ts';
 
 /** Stores a proposal; the change gate checks it first (change-gate.ts). */
@@ -12,15 +13,12 @@ export function propose(db: Pick<Db, 'insert'>, input: { projectId: string; sess
   return row;
 }
 
-/** Lines of a batch proposal sent with the list; the panel previews these and shows the counts. */
+/** Lines of a batch proposal (and entries of its check's report) sent with the list; the card says the counts (its details) and accepting still runs the stored input. */
 const PREVIEW_CHANGES = 50;
-type PreviewChange = { translation?: string; status?: string; addTags?: string[]; removeTags?: string[] };
-const isPreviewChange = (value: unknown): value is PreviewChange =>
-  value !== null && typeof value === 'object' && !Array.isArray(value);
 
 /**
- * A batch proposal can carry a whole game (50k lines, several MB): the list sends its counts and
- * the first lines, and accepting still runs the stored input.
+ * A batch proposal can carry a whole game (50k lines, several MB): the list sends the first lines
+ * of its input, and accepting still runs the stored input.
  */
 export function listedProposal(proposal: typeof s.proposals.$inferSelect) {
   const { undo, ...rest } = proposal;
@@ -38,15 +36,8 @@ export function listedProposal(proposal: typeof s.proposals.$inferSelect) {
     }
     : report;
   const listed = { ...rest, undo: summary, report: listedReport };
-  const changes = Array.isArray(listed.input.changes) ? listed.input.changes.filter(isPreviewChange) : null;
-  if (!changes || changes.length <= PREVIEW_CHANGES) return listed;
-  const counts = {
-    lines: changes.length,
-    translations: changes.filter((change) => change.translation !== undefined).length,
-    statuses: changes.filter((change) => change.status).length,
-    tagged: changes.filter((change) => change.addTags?.length || change.removeTags?.length).length,
-  };
-  return { ...listed, input: { ...listed.input, changes: changes.slice(0, PREVIEW_CHANGES), counts } };
+  const changes = Array.isArray(listed.input.changes) ? listed.input.changes : null;
+  return changes && changes.length > PREVIEW_CHANGES ? { ...listed, input: { ...listed.input, changes: changes.slice(0, PREVIEW_CHANGES) } } : listed;
 }
 
 /** What an agent is told when it proposes a change instead of making it. */
@@ -61,8 +52,7 @@ export const proposedText = (id: string) =>
  */
 /** `unrestricted`: a person's own act (undoing an accepted change in the app), so the agent's tool permissions do not apply to it. */
 export async function decideProposal(db: Db, id: string, accept: boolean, by: 'person' | 'auto' | 'bypass' = 'person', reason: string | null = null, options: { unrestricted?: boolean } = {}) {
-  const proposal = db.select().from(s.proposals).where(eq(s.proposals.id, id)).get();
-  if (!proposal) throw new Error('제안을 찾을 수 없습니다.');
+  const proposal = found(db.select().from(s.proposals).where(eq(s.proposals.id, id)).get(), '제안');
   const claimed = db
     .update(s.proposals)
     .set(accept ? { status: 'running', decidedBy: by } : { status: 'rejected', decidedAt: new Date(), decidedBy: by, reason })

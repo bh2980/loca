@@ -4,7 +4,7 @@ import * as ai from '@tw/ai';
 import { editorAiSchema, formatPatternError } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { badRequest } from '../http-errors.ts';
+import { badRequest } from '../refusal.ts';
 import { logged } from './ai-calls.ts';
 import { liveChoice } from './model-target.ts';
 import type { SecretStore } from './secrets.ts';

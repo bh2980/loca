@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { importFileSchema, type LineFilterInput } from '@tw/shared';
-import type { Env } from '../context.ts';
+import { onError, type Env } from '../context.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
@@ -22,7 +22,7 @@ async function responseJson<T>(response: Response): Promise<T> {
 
 it('supports source document CRUD from an empty kind and applies chapter scope to lists, counts, focus, and matches', async () => {
   const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Scoped source' }, groups: [{ key: 'a', title: 'A', section: 'Chapter 1' }, { key: 'b', title: 'B', section: 'Chapter 2' }], units: [{ key: 'one', group: 'a', source: 'One' }, { key: 'two', group: 'b', source: 'Two' }] }), null as never);
-  const app = new Hono<Env>().use(async (c, next) => { c.set('deps', { db } as never); await next(); }).route('/', sourceRoutes);
+  const app = new Hono<Env>().onError(onError).use(async (c, next) => { c.set('deps', { db } as never); await next(); }).route('/', sourceRoutes);
   const base = `/projects/${projectId}`;
   const send = (method: string, url: string, body?: unknown) => app.request(url, { method, headers: { 'content-type': 'application/json' }, ...(body !== undefined && { body: JSON.stringify(body) }) });
   // The list endpoints take the one line filter as JSON.

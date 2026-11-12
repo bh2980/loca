@@ -3,7 +3,7 @@ import { Hono } from 'hono';
 import { describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { importFileSchema, lineFilterSchema, linesById, resolvedLineFilterSchema, runScopeSchema, type UnpagedLineFilter } from '@tw/shared';
-import type { Env } from '../context.ts';
+import { onError, type Env } from '../context.ts';
 import { openDatabase } from '../db/index.ts';
 import { sourceRoutes } from '../routes/source.ts';
 import * as s from '../db/schema.ts';
@@ -75,7 +75,7 @@ function filterFixture() {
   const node = db.select().from(s.graphNodes).where(and(eq(s.graphNodes.projectId, projectId), eq(s.graphNodes.key, 'n1'))).get()!;
   db.insert(s.graphViews).values({ id: 'view-opening', projectId, label: 'Opening', nodeIds: [node.id] }).run();
   db.insert(s.graphViews).values({ id: 'view-empty', projectId, label: 'Nothing', nodeIds: [] }).run();
-  const app = new Hono<Env>()
+  const app = new Hono<Env>().onError(onError)
     .use(async (c, next) => {
       c.set('deps', { db } as never);
       await next();
@@ -89,7 +89,7 @@ function filterFixture() {
     const listed = await post('units/ids', { filter: { ...filter, limit: 500 } });
     const matched = await post('units/matches', { filter });
     // A refusal's message is the response's text here (the app's error handler turns it into { error }).
-    if (listed.status !== 200) return { error: await listed.text(), matchesStatus: matched.status };
+    if (listed.status !== 200) return { error: ((await listed.json()) as { error: string }).error, matchesStatus: matched.status };
     const list = (await listed.json()) as { total: number; ids: string[] };
     const matches = ((await matched.json()) as { rows: { id: string }[] }).rows.map((row) => keyOf.get(row.id)!);
     const found = findLines(db, projectId, lineFilterSchema.parse({ ...filter, limit: 1000 }));
@@ -227,7 +227,7 @@ describe('one line filter on every surface', () => {
     const db = openDatabase(':memory:');
     const sources = ['50% done', 'Hello world', 'a_b', 'axb', 'C:\\dir', 'Cdir', 'say "hi"', '100%% sure'];
     const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'g', title: 'G' }], units: sources.map((source, n) => ({ key: `u${n}`, group: 'g', source })) }));
-    const app = new Hono<Env>()
+    const app = new Hono<Env>().onError(onError)
       .use(async (c, next) => {
         c.set('deps', { db } as never);
         await next();

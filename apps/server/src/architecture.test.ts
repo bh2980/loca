@@ -5,8 +5,9 @@ import { describe, expect, it } from 'vitest';
 
 /*
  * Layer rules for the server (#49), checked on every `pnpm test` so they do not drift back:
- * no import cycles (type-only imports count, as they do for madge), and services/engine never
- * import routes (request schemas live in schemas/, shared helpers in services/).
+ * no import cycles (type-only imports count, as they do for madge), services/engine never
+ * import routes (request schemas live in schemas/, shared helpers in services/), and neither
+ * they nor the database layer import the web framework (a refusal is a Refusal, refusal.ts).
  */
 const root = path.dirname(fileURLToPath(import.meta.url));
 
@@ -80,6 +81,22 @@ describe('server architecture', () => {
       return targets.filter((target) => path.relative(root, target).startsWith('routes/')).map((target) => `${from} → ${path.relative(root, target)}`);
     });
     expect(offenders).toEqual([]);
+  });
+
+  // A service says no with a Refusal (refusal.ts) and knows nothing of HTTP; only app.ts, context.ts, feed.ts and routes/ speak Hono.
+  it('keeps the web framework out of services, the engine and the database layer', () => {
+    const HONO = /^\s*(?:import|export)\b[^'"]*?['"](hono(?:\/[^'"]*)?|@hono\/[^'"]+)['"]/gm;
+    const offenders = sourceFiles(root).flatMap((file) => {
+      const from = path.relative(root, file);
+      if (!/^(services|engine|db)\//.test(from) && from !== 'refusal.ts') return [];
+      return [...fs.readFileSync(file, 'utf8').matchAll(HONO)].map((match) => `${from} → ${match[1]}`);
+    });
+    expect(offenders).toEqual([]);
+  });
+
+  it('translates a refusal to an HTTP status in one place', () => {
+    const translators = sourceFiles(root).filter((file) => /REFUSAL_STATUS|HTTPException/.test(fs.readFileSync(file, 'utf8'))).map((file) => path.relative(root, file));
+    expect(translators).toEqual(['context.ts']);
   });
 
   it('finds a cycle when there is one (the check itself works)', () => {

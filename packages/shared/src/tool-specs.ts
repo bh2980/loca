@@ -46,7 +46,7 @@ const byKind = (kinds: readonly AgentResource[], action: AgentAction): NeedsByIn
 const KNOWLEDGE_KEYS = ['characters', 'relationships', 'speechRules', 'events', 'documents'] as const;
 const DELETABLE = [...KNOWLEDGE_KEYS, 'terms', 'tags'] as const;
 const TAGGABLE = [...KNOWLEDGE_KEYS, 'terms'] as const;
-/** What a delete can be put back for (restore_deleted): lines, a group, or a kind delete_items takes. */
+/** What a recorded change can be taken back for (restore_deleted): lines and the dialogue graph, a group, or a kind delete_items takes. */
 export const RESTORABLE_KINDS = ['script', 'scenes', ...DELETABLE] as const;
 const taxonomy = (action: AgentAction): NeedsByInput => ({
   of: (input) => (input.type === 'status' || input.type === 'tag' ? [p(input.type === 'status' ? 'statuses' : 'tags', action)] : null),
@@ -108,7 +108,7 @@ export const TOOL_SPECS = {
     batch: KNOWLEDGE_KEYS,
   },
   delete_items: { label: '항목 삭제', needs: byKind(DELETABLE, 'delete'), batch: ['ids'] },
-  restore_deleted: { label: '지운 것 되살리기', needs: byKind(RESTORABLE_KINDS, 'create') },
+  restore_deleted: { label: '지운 것 되살리기·그래프 편집 되돌리기', needs: byKind(RESTORABLE_KINDS, 'create') },
   // ── glossary ──
   list_terms: { label: '용어집 조회', needs: read('terms', 'script') },
   term_usage: { label: '용어 사용 위치 조회', needs: read('terms', 'script') },
@@ -134,6 +134,7 @@ export const TOOL_SPECS = {
   read_run: { label: '실행 기록 읽기', needs: read('workflows') },
   plan_run: { label: '워크플로 실행 계획 조회', needs: read('workflows', 'script', 'characters', 'speechRules', 'terms', 'tags', 'statuses') },
   save_workflow: { label: '워크플로 저장', needs: upsert('workflows') },
+  duplicate_workflow: { label: '워크플로 복제', needs: [p('workflows', 'create')] },
   delete_workflow: { label: '워크플로 삭제', needs: [p('workflows', 'delete')] },
   edit_workflow_node: { label: '편집기 노드 수정', needs: [p('workflows', 'update')], via: 'editor' },
   start_run: { label: '워크플로 실행', needs: [p('workflows', 'run')] },

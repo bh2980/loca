@@ -1,4 +1,5 @@
 import { and, eq, inArray } from 'drizzle-orm';
+import { badRequest } from '../refusal.ts';
 import { isWholeScriptWorkflow, workflowInput, type AiNode, type RunLimits, type RunScope, type WorkflowDefinition } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -43,11 +44,11 @@ function runRows(db: Db, input: RunInput) {
   // "Auto" budgets are fixed here for the models this run calls: the plan and the runner use the same numbers.
   const definition = resolveBudgets(db, expandedDefinition(db, input.projectId, input.workflow.definition, input.workflow.id));
   const entry = definition.nodes.find((node) => node.type === 'entry');
-  if (!entry) throw new Error('진입 노드가 없습니다.');
+  if (!entry) badRequest('진입 노드가 없습니다.');
   const subject = workflowInput(definition);
   const adapter = subjectOf(subject);
   const unitIds = adapter.select(db, input.projectId, input.scope);
-  if (!unitIds.length) throw new Error(adapter.nothingInScope);
+  if (!unitIds.length) badRequest(adapter.nothingInScope);
   const runId = crypto.randomUUID();
   const plan = adapter.plan(db, definition, unitIds);
   const run = {
@@ -93,7 +94,7 @@ export const ACTIVE_RUN_STATUSES = ['preparing', 'running'] as const satisfies r
  */
 export function refuseSecondWholeScript(db: Db, projectId: string, exceptRunId?: string) {
   const runs = db.select({ id: s.runs.id, definition: s.runs.definition }).from(s.runs).where(and(eq(s.runs.projectId, projectId), inArray(s.runs.status, ACTIVE_RUN_STATUSES))).all();
-  if (runs.some((run) => run.id !== exceptRunId && isWholeScriptWorkflow(run.definition))) throw new Error(WHOLE_SCRIPT_BUSY);
+  if (runs.some((run) => run.id !== exceptRunId && isWholeScriptWorkflow(run.definition))) badRequest(WHOLE_SCRIPT_BUSY);
 }
 
 /** Lines stored per step when a run is created from the app or a chat. */

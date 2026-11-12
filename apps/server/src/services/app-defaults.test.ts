@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { describe, expect, it } from 'vitest';
-import type { Env } from '../context.ts';
+import { onError, type Env } from '../context.ts';
 import { appSettingsRoutes } from '../routes/app-settings.ts';
 import { DEFAULT_STATUSES, importFileSchema } from '@tw/shared';
 import { openDatabase } from '../db/index.ts';
@@ -75,7 +75,7 @@ describe('a new project starts from the 홈 설정', () => {
   it('a change to one section leaves the others as they were', async () => {
     const { db } = setup();
     writeAppDefaults(db, { statuses: [...readAppDefaults(db).statuses, { id: 'r', name: '재검토', color: '#d24c49', kind: 'normal', inReview: false }] });
-    const app = new Hono<Env>().use(async (c, next) => (c.set('deps', { db, secrets: memoryStore() } as never), next())).route('/', appSettingsRoutes);
+    const app = new Hono<Env>().onError(onError).use(async (c, next) => (c.set('deps', { db, secrets: memoryStore() } as never), next())).route('/', appSettingsRoutes);
     const response = await app.request('/app/defaults', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ aiAutoConfirm: false }) });
     expect(response.status).toBe(200);
     expect(readAppDefaults(db)).toMatchObject({ aiAutoConfirm: false, statuses: expect.arrayContaining([expect.objectContaining({ name: '재검토' })]) });

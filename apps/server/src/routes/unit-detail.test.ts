@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import { importFileSchema } from '@tw/shared';
-import type { Env } from '../context.ts';
+import { onError, type Env } from '../context.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
@@ -26,7 +26,7 @@ describe('unit detail neighbors', () => {
     });
     const { projectId } = importProject(db, file, null as never);
     const target = db.select().from(s.units).where(eq(s.units.key, 'u9')).get()!;
-    const app = new Hono<Env>()
+    const app = new Hono<Env>().onError(onError)
       .use(async (context, next) => {
         context.set('deps', { db } as never);
         await next();

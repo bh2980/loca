@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { toolRoute } from '@tw/shared';
 import { badRequest, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
-import { checkAgentPermission } from '../services/agent-permission-check.ts';
+import { checkAgentPermission } from '../services/agent-catalog.ts';
 import { agentTools, type ToolDef } from '../services/agent-tools.ts';
 import { undoChanges } from '../services/change-gate.ts';
 import { decideProposal } from '../services/proposals.ts';
@@ -75,14 +75,10 @@ export const proposalRoutes = new Hono<Env>()
   )
   // A rejection may say why; the agent hears it with the decision (takeDecisions).
   .post('/proposals/:id/:action{accept|reject}', validate('json', z.object({ reason: z.string().trim().max(1000).optional() })), async (c) => {
-    try {
-      const row = await decideProposal(c.var.deps.db, c.req.param('id'), c.req.param('action') === 'accept', 'person', c.req.valid('json').reason || null);
-      // The agent hears the results and carries on once the conversation has nothing left to decide (#43).
-      if (row.sessionId && row.status !== 'pending' && row.status !== 'running') continueAfterDecisions(c.var.deps, row.sessionId);
-      return c.json(row);
-    } catch (error) {
-      badRequest(error instanceof Error ? error.message : String(error));
-    }
+    const row = await decideProposal(c.var.deps.db, c.req.param('id'), c.req.param('action') === 'accept', 'person', c.req.valid('json').reason || null);
+    // The agent hears the results and carries on once the conversation has nothing left to decide (#43).
+    if (row.sessionId && row.status !== 'pending' && row.status !== 'running') continueAfterDecisions(c.var.deps, row.sessionId);
+    return c.json(row);
   })
   /**
    * A tool the open workflow editor carries out (spec `via: 'editor'`) has no server side to check it, so the

@@ -1,4 +1,5 @@
 import { and, eq, inArray, ne } from 'drizzle-orm';
+import { badRequest } from '../refusal.ts';
 import type { EventLinkKind, KNOWLEDGE_ORIGINS } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import { inChunks } from '../db/chunk.ts';
@@ -164,10 +165,10 @@ export function setEventLink(db: Db, projectId: string, link: { fromId: string; 
 export function linkEvents(db: Db, projectId: string, { fromId, toId, action, origin }: { fromId: string; toId: string; action: 'link' | 'unlink'; origin: (typeof KNOWLEDGE_ORIGINS)[number] }) {
   const previous: PairLink = pairLink(db, projectId, fromId, toId)?.kind ?? null;
   const done = (now: PairLink, result: string) => {
-    if (now !== previous && !setEventLink(db, projectId, { fromId, toId, kind: now, origin })) throw new Error('같은 프로젝트의 서로 다른 두 사건만 이을 수 있습니다 (list_events의 id).');
+    if (now !== previous && !setEventLink(db, projectId, { fromId, toId, kind: now, origin })) badRequest('같은 프로젝트의 서로 다른 두 사건만 이을 수 있습니다 (list_events의 id).');
     return { ok: true as const, result, previous, now };
   };
-  if (fromId === toId) throw new Error('같은 프로젝트의 서로 다른 두 사건만 이을 수 있습니다 (list_events의 id).');
+  if (fromId === toId) badRequest('같은 프로젝트의 서로 다른 두 사건만 이을 수 있습니다 (list_events의 id).');
   if (action === 'link' && previous === 'hidden') return done(null, '대사 그래프의 선을 다시 보입니다.');
   if (action === 'unlink' && previous === 'added') return done(null, '직접 이은 선을 지웠습니다.');
   const derived = projectEventFlow(db, projectId).find((event) => event.id === fromId)?.next.some((step) => step.id === toId && step.source === 'graph');

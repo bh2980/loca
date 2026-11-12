@@ -8,7 +8,7 @@ import { nodeSetLayout, cancelViewLayouts } from './layout.ts';
 import type { LayoutDirection } from './layout-types.ts';
 import { allLines } from './script-query.ts';
 import { projectReadingRoute } from './reading-route.ts';
-import { badRequest, found } from '../http-errors.ts';
+import { badRequest, found } from '../refusal.ts';
 import { nodeByKey } from './graph-edit.ts';
 
 /** What an agent can pick graph nodes by; every part is optional and they add up. */
@@ -266,8 +266,7 @@ export function sectionWithMost(db: Db, projectId: string, nodeIds: string[]) {
 
 /** Lays out a stored view on its own (once) and returns the section key the graph route serves it under. */
 export async function viewSection(db: Db, projectId: string, id: string, direction: LayoutDirection = 'vertical') {
-  const view = readView(db, projectId, id);
-  if (!view) throw new Error('없는 보기입니다.');
+  const view = found(readView(db, projectId, id), '보기');
   const key = `view:${id}`;
   await nodeSetLayout(db, projectId, key, view.nodeIds, view.label, direction, !view.route);
   return key;

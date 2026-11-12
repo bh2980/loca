@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { acceptedLabel, findReadingRouteOutputSchema, toolRoute, toolSpec } from '@tw/shared';
 import { client, unwrap } from '@/lib/api';
 import { workflowEdits, type WorkflowNodeEdit } from '@/lib/workflow-edits';
-import { ChangePreview, LABEL } from './change-preview';
+import { LABEL } from './change-preview';
 import { ProposalCard, type Proposal } from './proposal-card';
 import { Box, Button, Grid, Icon, Inline, SourceExcerpt, Stack, Text, ToolCallRow, ToolCard, ToolCardHeader, ToolErrorCard } from '@loca/ui';
 
@@ -46,7 +46,7 @@ export function ToolPart({ part, stale, onOutput, proposal }: {
           {!output && stale && <Text tone="muted">응답하지 않음</Text>}
         </ToolCardHeader>
         <Box paddingX="normal" paddingY="condensed" variant="body">
-          <ChangePreview name={name} input={part.input} />
+          <NodeEditPreview input={part.input} />
         </Box>
         {part.state === 'input-available' && !stale && (
           <Stack direction="row" justify="end" gap="condensed" border="top" paddingX="normal" paddingY="condensed">
@@ -106,20 +106,15 @@ export function ToolPart({ part, stale, onOutput, proposal }: {
           {waiting && <Text tone="muted">결정 기다리는 중</Text>}
           {failed && <Text tone="danger">{output?.status === 'rejected' ? '거절함' : String(output?.error ?? '실패')}</Text>}
         </ToolCardHeader>
-        <Box paddingX="normal" paddingY="condensed" variant="body">
-          {part.input &&
-            (refused ? (
-              // Nothing was proposed (the check refused it): what the agent asked for, folded, not as items to add.
-              <details>
-                <Text as="summary" cursor="pointer" tone="muted">요청한 내용 보기</Text>
-                <Box marginTop="condensed">
-                  <ChangePreview name={name} input={part.input} pending={false} />
-                </Box>
-              </details>
-            ) : (
-              <ChangePreview name={name} input={part.input} pending={false} />
-            ))}
-        </Box>
+        {/* The proposal's card says what it changes (its details, from the server); without one (the check refused it, or its row is not here yet) only what the agent asked for is left. */}
+        {part.input && (
+          <Box paddingX="normal" paddingY="condensed" variant="body">
+            <details>
+              <Text as="summary" cursor="pointer" tone="muted">{refused ? '요청한 내용 보기' : '보낸 내용 보기'}</Text>
+              <Text as="pre" marginTop="condensed" maxHeight="scroll-sm" overflow="auto" variant="caption" preserveLines>{JSON.stringify(part.input, null, 2).slice(0, 4000)}</Text>
+            </details>
+          </Box>
+        )}
       </ToolCard>
     );
   }
@@ -138,6 +133,23 @@ export function ToolPart({ part, stale, onOutput, proposal }: {
       detail={part.input && 'sceneId' in part.input && part.input.offset ? <span>· {String(part.input.offset)}번째부터</span> : null}
       output={part.state === 'output-error' ? part.errorText : JSON.stringify(part.output ?? part.input, null, 1)?.slice(0, 4000)}
     />
+  );
+}
+
+/** edit_workflow_node as the editor shows it before applying: this tool is the browser's own (the open editor carries it out), so its card is drawn here. */
+function NodeEditPreview({ input }: { input: Record<string, unknown> }) {
+  const value = input.field === 'expression' ? JSON.stringify(input.value, null, 2) : String(input.value ?? '');
+  const rows = [['노드', input.nodeId], ['항목', { instructions: '지시문', expression: '조건식', code: '스크립트 코드' }[String(input.field)]], ['설명', input.description]].filter(([, shown]) => shown !== undefined && shown !== '');
+  return (
+    <Box as="dl" spaceY="tight">
+      {rows.map(([label, shown]) => (
+        <Grid key={String(label)} columns="field" gap="condensed">
+          <Text as="dt" variant="caption" tone="muted">{String(label)}</Text>
+          <Text as="dd" minWidth={0} breakWords>{String(shown)}</Text>
+        </Grid>
+      ))}
+      <Text as="pre" maxHeight="scroll" overflow="auto" radius="md" border="all" background="sunken" padding="condensed" variant="caption" preserveLines>{value}</Text>
+    </Box>
   );
 }
 

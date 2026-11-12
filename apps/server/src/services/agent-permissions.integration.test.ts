@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { agentSettingsSchema, agentToolAvailable, agentToolPermissionOptions, importFileSchema } from '@tw/shared';
-import type { Env } from '../context.ts';
+import { onError, type Env } from '../context.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { scriptRoutes } from '../routes/script.ts';
@@ -188,7 +188,7 @@ describe('agent resource permissions', () => {
     const tool = cliTool(db, projectId, 'create_unit');
     expect(tool.changes).toBe(true);
 
-    const app = new Hono<Env>()
+    const app = new Hono<Env>().onError(onError)
       .use(async (c, next) => { c.set('deps', { db } as never); await next(); })
       .route('/', scriptRoutes);
     const response = await app.request(`/projects/${projectId}/tools/create_unit`, {
@@ -201,7 +201,8 @@ describe('agent resource permissions', () => {
     expect(db.select().from(s.units).where(and(eq(s.units.projectId, projectId), eq(s.units.source, 'New source line'))).get()).toBeUndefined();
 
     expect((await decideProposal(db, proposed.proposalId, true)).status).toBe('accepted');
-    expect(db.select({ undo: s.proposals.undo }).from(s.proposals).where(eq(s.proposals.id, proposed.proposalId)).get()?.undo).toEqual({ none: '이 변경은 되돌릴 수 없습니다' });
+    // The new line is taken back by the record its creation left (undo-records.ts), like a delete.
+    expect(db.select({ undo: s.proposals.undo }).from(s.proposals).where(eq(s.proposals.id, proposed.proposalId)).get()?.undo).toEqual({ calls: [{ tool: 'restore_deleted', input: { kind: 'script', id: expect.any(String) } }] });
     expect(db.select().from(s.units).where(and(eq(s.units.projectId, projectId), eq(s.units.source, 'New source line'))).get()).toBeDefined();
   });
 

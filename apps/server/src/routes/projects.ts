@@ -4,10 +4,10 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { ACTIVE_RUN_STATUSES } from '../engine/run-create.ts';
 import { z } from 'zod';
 import { agentSettingsSchema, detectFormatRules, importFileSchema, importWarnings, patchOf, summarizeImport } from '@tw/shared';
-import { badRequest, found, validate, type Env } from '../context.ts';
+import { found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { forgetProjectContext } from '../services/context.ts';
-import { createStatus, createTag, deleteStatuses, deleteTags, orderStatuses, orderTags, TaxonomyMutationError, updateStatus, updateTag } from '../services/project-taxonomy.ts';
+import { createStatus, createTag, deleteStatuses, deleteTags, orderStatuses, orderTags, updateStatus, updateTag } from '../services/project-taxonomy.ts';
 import { projectSettingsInput, updateProjectSettings } from '../services/project-settings.ts';
 import { importProject } from '../services/importer.ts';
 import { cancelLayout, computeLayouts } from '../services/layout.ts';
@@ -60,26 +60,14 @@ export const projectRoutes = new Hono<Env>()
     return c.json(row, 201);
   })
   .patch('/:projectId/statuses/:id', validate('json', patchOf(statusInput)), (c) => {
-    try {
-      updateStatus(c.var.deps.db, c.req.param('projectId'), c.req.param('id'), c.req.valid('json'));
-    } catch (error) {
-      if (error instanceof TaxonomyMutationError && error.status === 404) found(undefined, '상태');
-      if (error instanceof TaxonomyMutationError) badRequest(error.message);
-      throw error;
-    }
+    updateStatus(c.var.deps.db, c.req.param('projectId'), c.req.param('id'), c.req.valid('json'));
     return c.json({ ok: true });
   })
   .put('/:projectId/statuses/order', validate('json', z.object({ ids: z.array(z.string()) })), (c) => c.json(orderStatuses(c.var.deps.db, c.req.param('projectId'), c.req.valid('json').ids)))
   /** Lines in the deleted statuses move to `moveTo`; workflows that still reference them fail validation. */
   .post('/:projectId/statuses/delete', validate('json', z.object({ ids: z.array(z.string()).min(1), moveTo: z.string() })), (c) => {
     const { ids, moveTo } = c.req.valid('json');
-    try {
-      return c.json(deleteStatuses(c.var.deps.db, c.req.param('projectId'), ids, moveTo));
-    } catch (error) {
-      if (error instanceof TaxonomyMutationError && error.status === 404) found(undefined, error.message.includes('옮길') ? '옮길 상태' : '상태');
-      if (error instanceof TaxonomyMutationError) badRequest(error.message);
-      throw error;
-    }
+    return c.json(deleteStatuses(c.var.deps.db, c.req.param('projectId'), ids, moveTo));
   })
   .post('/:projectId/tags', validate('json', tagInput), (c) => {
     const projectId = c.req.param('projectId');
@@ -87,25 +75,11 @@ export const projectRoutes = new Hono<Env>()
     return c.json(row, 201);
   })
   .patch('/:projectId/tags/:id', validate('json', patchOf(tagInput)), (c) => {
-    try {
-      updateTag(c.var.deps.db, c.req.param('projectId'), c.req.param('id'), c.req.valid('json'));
-    } catch (error) {
-      if (error instanceof TaxonomyMutationError && error.status === 404) found(undefined, '태그');
-      if (error instanceof TaxonomyMutationError) badRequest(error.message);
-      throw error;
-    }
+    updateTag(c.var.deps.db, c.req.param('projectId'), c.req.param('id'), c.req.valid('json'));
     return c.json({ ok: true });
   })
   .put('/:projectId/tags/order', validate('json', z.object({ ids: z.array(z.string()) })), (c) => c.json(orderTags(c.var.deps.db, c.req.param('projectId'), c.req.valid('json').ids)))
-  .post('/:projectId/tags/delete', validate('json', z.object({ ids: z.array(z.string()).min(1) })), (c) => {
-    try {
-      return c.json(deleteTags(c.var.deps.db, c.req.param('projectId'), c.req.valid('json').ids));
-    } catch (error) {
-      if (error instanceof TaxonomyMutationError && error.status === 404) found(undefined, '태그');
-      if (error instanceof TaxonomyMutationError) badRequest(error.message);
-      throw error;
-    }
-  })
+  .post('/:projectId/tags/delete', validate('json', z.object({ ids: z.array(z.string()).min(1) })), (c) => c.json(deleteTags(c.var.deps.db, c.req.param('projectId'), c.req.valid('json').ids)))
   /** 자연어로 정규식 만들기: one format rule from a description, checked with the settings' own pattern rule. Nothing is saved. */
   .post('/:projectId/generate-regex', validate('json', z.object({ prompt: z.string().trim().min(1).max(500), target: z.enum(REGEX_TARGETS) })), async (c) => {
     const { db, secrets } = c.var.deps;

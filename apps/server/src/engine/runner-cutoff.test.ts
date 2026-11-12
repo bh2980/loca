@@ -13,7 +13,7 @@ import { Runner, type ModelPort } from './runner.ts';
 import { withoutTerms } from './test-workflows.ts';
 import { createRun } from './run-create.ts';
 import { Hono } from 'hono';
-import type { Env } from '../context.ts';
+import { onError, type Env } from '../context.ts';
 import { workflowRoutes } from '../routes/workflows.ts';
 import { issueTagIds } from '../services/issue-tags.ts';
 
@@ -203,7 +203,7 @@ describe('lines being resent, as the run page reads them', () => {
     db.update(s.runs).set({ definition: { ...run.definition, settings: { ...run.definition.settings, retries: run.definition.settings.retries.map((rule, index) => (index === 0 ? { ...rule, wait: 60 } : rule)) } } }).where(eq(s.runs.id, runId)).run();
     const runner = new Runner(db, memoryStore(), model((n) => (n === 1 ? CUT_OFF() : null)).port);
     await runner.drain();
-    const app = new Hono<Env>()
+    const app = new Hono<Env>().onError(onError)
       .use(async (context, next) => {
         context.set('deps', { db, runner } as never);
         await next();
@@ -233,7 +233,7 @@ describe('lines being resent, as the run page reads them', () => {
     const { db, runId } = setup(8, { mode: 'count', size: 8 });
     const runner = new Runner(db, memoryStore(), model((n) => (n === 1 ? CUT_OFF() : null)).port);
     await runner.drain();
-    const app = new Hono<Env>()
+    const app = new Hono<Env>().onError(onError)
       .use(async (context, next) => {
         context.set('deps', { db, runner } as never);
         await next();

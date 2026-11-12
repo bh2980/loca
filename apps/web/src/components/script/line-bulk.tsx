@@ -6,29 +6,35 @@ import { toast } from 'sonner';
 import { listenerLabel, SPECIAL_LISTENERS } from '@tw/shared';
 import { TagMenu, Checkbox, EditorAction, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue, StatusIcon, Text, TranslationColumnHeader, Input, SelectionBar } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
-import { changeLines, patchedLine } from '@/lib/units';
+import { changeLines, lineRev, patchedLine } from '@/lib/units';
 import { lineTags, q } from '@/lib/queries';
 import { usePicked } from '@/lib/use-picked';
 import { useCharacters } from '@/lib/knowledge';
 import { useProject } from '@/lib/project';
 
 /** Lines picked by their checkboxes, and the bulk changes the head row makes to them (each shown at once, undone if the server refuses). */
-type SelectionRow = { id: string; tagIds: string[]; statusBy: string };
+type SelectionRow = { id: string; tagIds: string[]; statusBy: string; /** The line's rev when it was picked: for picks past this page, which the browser does not hold. */ rev?: number };
+type Known = { tags: Map<string, string[]>; statusBy: Map<string, string>; revs: Map<string, number> };
 
-const learn = (known: { tags: Map<string, string[]>; statusBy: Map<string, string> }, rows: readonly SelectionRow[]) => {
+const learn = (known: Known, rows: readonly SelectionRow[]): Known => {
   const tags = new Map(known.tags);
   const statusBy = new Map(known.statusBy);
+  const revs = new Map(known.revs);
   for (const row of rows) {
     tags.set(row.id, row.tagIds);
     statusBy.set(row.id, row.statusBy);
+    if (row.rev !== undefined) revs.set(row.id, row.rev);
   }
-  return { tags, statusBy };
+  return { tags, statusBy, revs };
 };
+
+/** What a bulk change that carries revs came to, for the toast: lines changed since they were picked are left as they are. */
+const skippedNote = (skipped: number) => (skipped ? ` 그사이 바뀐 ${skipped.toLocaleString()}개는 그대로 두었습니다.` : '');
 
 export function useLineBulk({ projectId, pickKey, rows, tagName, aiOnly }: { projectId: string; /** Names the list the picks belong to (scene or review box). */ pickKey: string; rows: SelectionRow[] | undefined; tagName: (tagId: string) => string | undefined; /** The list shows only lines the AI decided (정한 쪽 AI): 확인함 empties it. */ aiOnly: boolean }) {
   const { picked, pick, clear: stopPicking } = usePicked(`script.${projectId}.${pickKey}`);
   // Tags and who decided each line, from every list it has been in and every scene picked whole (remember): picks can outlive the page they were made on.
-  const [known, setKnown] = useState<{ from: unknown; tags: Map<string, string[]>; statusBy: Map<string, string> }>(() => ({ from: undefined, tags: new Map(), statusBy: new Map() }));
+  const [known, setKnown] = useState<Known & { from: unknown }>(() => ({ from: undefined, tags: new Map(), statusBy: new Map(), revs: new Map() }));
   if (known.from !== rows) setKnown({ from: rows, ...learn(known, rows ?? []) });
   const remember = (more: readonly SelectionRow[]) => setKnown((now) => ({ ...now, ...learn(now, more) }));
   // Picks kept from before (a reload, another page): what the bar needs of them is asked for once.
@@ -40,9 +46,22 @@ export function useLineBulk({ projectId, pickKey, rows, tagName, aiOnly }: { pro
     for (const id of ids) asked.current.add(id);
     unwrap(client.projects[':projectId'].units.meta.$post({ param: { projectId }, json: { ids } })).then(({ rows: meta }) => remember(meta), () => undefined);
   }, [unknown]); // eslint-disable-line react-hooks/exhaustive-deps
-  // A bulk change the server took, on what is known of the picked lines (those past this page are not read again).
-  const changed = (ids: readonly string[], change: (row: Omit<SelectionRow, 'id'>) => Omit<SelectionRow, 'id'>) =>
+  // A bulk change the server took, on what is known of the picked lines, at once.
+  const changed = (ids: readonly string[], change: (row: Omit<SelectionRow, 'id' | 'rev'>) => Omit<SelectionRow, 'id' | 'rev'>) =>
     setKnown((now) => ({ ...now, ...learn(now, ids.flatMap((id) => (now.tags.has(id) ? [{ id, ...change({ tagIds: now.tags.get(id)!, statusBy: now.statusBy.get(id)! }) }] : []))) }));
+  /**
+   * Each picked line's rev as this browser last saw it: the held line's own, else the one it had when it was picked.
+   * A change that decides a status (상태, 확인함) sends them, so a line a run or another window changed since is skipped.
+   */
+  const revsOf = (ids: readonly string[]) => Object.fromEntries(ids.flatMap((id) => {
+    const rev = lineRev(projectId, id) ?? known.revs.get(id);
+    return rev === undefined ? [] : [[id, rev] as const];
+  }));
+  /** After a change, the picks past this page are read again: their revs moved with it, and a skipped one is as it was. */
+  const reread = async (ids: readonly string[]) => {
+    const away = ids.filter((id) => lineRev(projectId, id) === undefined);
+    for (let at = 0; at < away.length; at += 20_000) await unwrap(client.projects[':projectId'].units.meta.$post({ param: { projectId }, json: { ids: away.slice(at, at + 20_000) } })).then(({ rows: meta }) => remember(meta), () => undefined);
+  };
   const byPerson = (row: Omit<SelectionRow, 'id'>) => ({ ...row, statusBy: 'human' });
   const tagState = (tagId: string): 'all' | 'some' | 'none' => {
     const flags = [...picked].map((id) => known.tags.get(id)?.includes(tagId) ?? false);
@@ -53,27 +72,32 @@ export function useLineBulk({ projectId, pickKey, rows, tagName, aiOnly }: { pro
   const setStatus = useMutation({
     mutationFn: (statusId: string) => {
       const unitIds = [...picked];
-      return changeLines(projectId, unitIds, patchedLine({ statusId }), () => client.projects[':projectId'].units.$patch({ param: { projectId }, json: { unitIds, statusId } })).then(() => unitIds);
+      return changeLines(projectId, unitIds, patchedLine({ statusId }), () => client.projects[':projectId'].units.$patch({ param: { projectId }, json: { unitIds, statusId, revs: revsOf(unitIds) } })).then((answer) => ({ unitIds, ...answer }));
     },
-    onSuccess: (unitIds) => {
+    onSuccess: ({ unitIds, changed: count, skipped }) => {
       changed(unitIds, byPerson);
-      toast.success(`${unitIds.length}개 대사의 상태를 바꿨습니다.`);
+      toast.success(`${count.toLocaleString()}개 대사의 상태를 바꿨습니다.${skippedNote(skipped)}`);
+      return reread(unitIds);
     },
     onError: fail,
   });
   const setListener = useMutation({
     mutationFn: (listener: string | null) => changeLines(projectId, picked, patchedLine({ listener }), () => client.projects[':projectId'].units.$patch({ param: { projectId }, json: { unitIds: [...picked], listener } })),
-    onSuccess: (_data, listener) => toast.success(`${picked.size}개 대사의 청자를 ${listener ? listenerLabel(listener) : '미상'}(으)로 바꿨습니다.`),
+    onSuccess: (_data, listener) => {
+      toast.success(`${picked.size}개 대사의 청자를 ${listener ? listenerLabel(listener) : '미상'}(으)로 바꿨습니다.`);
+      return reread([...picked]);
+    },
     onError: fail,
   });
   // 확인함: the statuses stay; a person now holds them, so the ✦ goes.
   const check = useMutation({
-    mutationFn: (unitIds: string[]) => changeLines(projectId, unitIds, patchedLine({ checked: true }), () => client.projects[':projectId'].units.$patch({ param: { projectId }, json: { unitIds, checked: true } })),
+    mutationFn: (unitIds: string[]) => changeLines(projectId, unitIds, patchedLine({ checked: true }), () => client.projects[':projectId'].units.$patch({ param: { projectId }, json: { unitIds, checked: true, revs: revsOf(unitIds) } })),
     onError: fail,
-    onSuccess: (_data, unitIds) => {
+    onSuccess: ({ changed: count, skipped }, unitIds) => {
       changed(unitIds, byPerson);
-      toast.success(`${unitIds.length}개 대사를 확인했습니다.`);
+      toast.success(`${count.toLocaleString()}개 대사를 확인했습니다.${skippedNote(skipped)}`);
       if (aiOnly) stopPicking();
+      return reread(unitIds);
     },
   });
   const pickedByAi = [...picked].filter((id) => known.statusBy.get(id) === 'ai');
@@ -92,7 +116,10 @@ export function useLineBulk({ projectId, pickKey, rows, tagName, aiOnly }: { pro
   const setTranslate = useMutation({
     mutationFn: (translate: 'include' | 'exclude') => changeLines(projectId, picked, patchedLine({ translate }), () => client.projects[':projectId'].units.$patch({ param: { projectId }, json: { unitIds: [...picked], translate } })),
     onError: fail,
-    onSuccess: (_data, translate) => toast.success(`${picked.size}개 대사를 ${translate === 'exclude' ? '번역에서 뺐습니다' : '번역 대상으로 정했습니다'}.`),
+    onSuccess: (_data, translate) => {
+      toast.success(`${picked.size}개 대사를 ${translate === 'exclude' ? '번역에서 뺐습니다' : '번역 대상으로 정했습니다'}.`);
+      return reread([...picked]);
+    },
   });
   return { picked, pick, remember, stopPicking, pickedByAi, tagState, setStatus, setListener, check, setTag, setTranslate };
 }

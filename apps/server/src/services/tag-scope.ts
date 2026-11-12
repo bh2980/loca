@@ -1,6 +1,6 @@
 import { and, asc, count, eq, inArray, ne, sql } from 'drizzle-orm';
 import { TAG_SCOPE_LABELS, type TagScope } from '@tw/shared';
-import { badRequest } from '../http-errors.ts';
+import { badRequest } from '../refusal.ts';
 import { eachChunk } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';

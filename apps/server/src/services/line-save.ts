@@ -4,7 +4,7 @@ import { eachChunk, inChunks } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import { addCandidate } from './candidates.ts';
 import { assertProjectRefs } from './project-refs.ts';
-import { badRequest, found } from '../http-errors.ts';
+import { badRequest, conflict, found, isRefusal, notFound } from '../refusal.ts';
 import { sameTranslation, withSourceWhitespace, type LineTranslate } from '@tw/shared';
 import { cleanListener, setHumanListener } from './listeners.ts';
 import { attachUnitTags } from './tag-scope.ts';
@@ -26,12 +26,6 @@ export const revOf = (unit: { updatedAt: Date }) => unit.updatedAt.getTime();
 export const isStale = (unit: { updatedAt: Date }, rev: number | undefined) => rev !== undefined && rev !== revOf(unit);
 /** What every surface says when it refuses to write over a line changed since it was read. */
 export const LINE_CHANGED = '읽은 뒤에 다른 곳에서 바뀐 줄입니다. 바뀐 내용을 확인하고 다시 저장하세요.';
-/** The line changed after the writer read it; the write would overwrite that change. */
-export class LineConflict extends Error {
-  constructor() {
-    super(LINE_CHANGED);
-  }
-}
 
 // ── status: the one writer ──────────────────────────────────────────────────────
 
@@ -56,8 +50,8 @@ export function statusRefusal(db: Reader, projectId: string, statusId: string, t
 }
 
 /**
- * The one writer of a line's status: a person's save, a bulk change, an accepted proposal and a run's exit action all
- * set it here, so the rules (statusRefusal) hold whoever asks. Refused (400) for all the lines when one of them may
+ * The one writer of a line's status: a person's save, a bulk change, an accepted proposal, a run's exit action and the
+ * move out of a deleted status all set it here, so the rules (statusRefusal) hold whoever asks. Refused (400) for all the lines when one of them may
  * not be in the status; nothing is written then. `writing`: the translation the same save gives the line (one line),
  * which the rule reads instead of the stored one.
  */
@@ -70,6 +64,14 @@ export function setLineStatus(tx: Tx, projectId: string, unitIds: readonly strin
   }
   // Chunked: a selection can be a whole project, and SQLite caps bound variables per statement.
   eachChunk(unitIds, (slice) => tx.update(s.units).set({ statusId, statusBy: by.statusBy, statusRunId: by.runId ?? null }).where(and(eq(s.units.projectId, projectId), inArray(s.units.id, slice))).run());
+}
+
+/**
+ * The same rule from the status's side: how many lines now in these statuses have no translation. A status with any
+ * cannot become final (a status's kind is changed in the settings), by the test setLineStatus applies to a line.
+ */
+export function blankLinesIn(db: Reader, projectId: string, statusIds: readonly string[]): number {
+  return db.select({ translation: s.units.translation }).from(s.units).where(and(eq(s.units.projectId, projectId), inArray(s.units.statusId, [...statusIds]))).all().filter((line) => blank(line.translation)).length;
 }
 
 /** 확인함: a person looked at the lines; their statuses stay, and are theirs now. */
@@ -93,7 +95,7 @@ export interface LineSave {
   /** Use this candidate of the line as the text. */
   candidateId?: string;
   statusId?: string;
-  /** The line's rev when the change was made from it (revOf). A save that would change a line changed since is refused (LineConflict). */
+  /** The line's rev when the change was made from it (revOf). A save that would change a line changed since is refused (a conflict). */
   rev?: number;
   /** The person chose their own text over a change made meanwhile (내 수정 유지): the saved text's note says what it was kept over. */
   keepMine?: boolean;
@@ -119,7 +121,7 @@ export function saveLine(tx: Tx, unit: Unit, save: LineSave): void {
   let candidateId: string | undefined;
   if (save.candidateId) {
     const candidate = tx.select().from(s.candidates).where(and(eq(s.candidates.id, save.candidateId), eq(s.candidates.unitId, unit.id))).get();
-    if (!candidate) throw new Error('후보를 찾을 수 없습니다.');
+    if (!candidate) notFound('후보');
     text = candidate.text;
     candidateId = candidate.id;
   }
@@ -133,7 +135,7 @@ export function saveLine(tx: Tx, unit: Unit, save: LineSave): void {
   // A new text is decided by whoever saved it, so the status it stands in is theirs too, set or not.
   const setsStatus = Boolean(statusId) || textChanged;
   if (!writesText && !setsStatus) return;
-  if (isStale(unit, save.rev)) throw new LineConflict();
+  if (isStale(unit, save.rev)) conflict(LINE_CHANGED);
   const by: StatusSetter = { statusBy: save.statusBy ?? 'human' };
   // The status first: its rule is checked against the text this save gives the line, before anything is written.
   if (setsStatus) setLineStatus(tx, unit.projectId, [unit.id], statusId ?? unit.statusId, by, { text: text ?? current });
@@ -179,7 +181,7 @@ export function saveSameText(tx: Tx, lines: { unit: Unit; rev: number | undefine
       saveLine(tx, unit, { text, rev });
       applied++;
     } catch (error) {
-      if (!(error instanceof LineConflict)) throw error;
+      if (!isRefusal(error, 'conflict')) throw error;
       skipped++;
     }
   }
@@ -249,9 +251,16 @@ export interface LinePatch {
 /**
  * A person's change to lines of one project, all of it or none: status (setLineStatus), 확인함, tags (only where
  * their scope allows), listener, memo and 번역 제외. Every id it takes must be the project's.
+ *
+ * `revs`: each line's rev as the person's view of it had it (line id → rev). A change picked over many lines is made
+ * from a view of them all, most not on screen: a line changed since (a run finished it, another window edited it) is
+ * left as it is and counted in `skipped`, the rest change. A line without a rev is changed as it is.
  */
-export function patchLines(db: Db, projectId: string, unitIds: readonly string[], patch: LinePatch) {
-  assertProjectRefs(db, projectId, { unitIds, statusId: patch.statusId, tagIds: [...(patch.addTagIds ?? []), ...(patch.removeTagIds ?? []), ...(patch.tagIds ?? [])] });
+export function patchLines(db: Db, projectId: string, picked: readonly string[], patch: LinePatch, revs?: Readonly<Record<string, number>>): { changed: number; skipped: number } {
+  assertProjectRefs(db, projectId, { unitIds: picked, statusId: patch.statusId, tagIds: [...(patch.addTagIds ?? []), ...(patch.removeTagIds ?? []), ...(patch.tagIds ?? [])] });
+  const stale = new Set(revs ? inChunks(picked, (slice) => db.select({ id: s.units.id, updatedAt: s.units.updatedAt }).from(s.units).where(and(eq(s.units.projectId, projectId), inArray(s.units.id, slice))).all()).filter((line) => isStale(line, revs[line.id])).map((line) => line.id) : []);
+  const unitIds = stale.size ? picked.filter((id) => !stale.has(id)) : picked;
+  if (!unitIds.length) return { changed: 0, skipped: stale.size };
   // Only dialogue has a listener: naming one where no picked line can take it is a mistake, not a no-op.
   if (cleanListener(patch.listener) !== null && !inChunks(unitIds, (slice) => db.select({ id: s.units.id }).from(s.units).where(and(eq(s.units.kind, 'dialogue'), inArray(s.units.id, slice))).limit(1).all()).length) badRequest('나레이션에는 청자가 없습니다.');
   const person: StatusSetter = { statusBy: 'human' };
@@ -269,6 +278,7 @@ export function patchLines(db: Db, projectId: string, unitIds: readonly string[]
     if (patch.note !== undefined) setLineMemo(tx, projectId, unitIds, patch.note);
     if (patch.translate !== undefined) setLineTranslate(tx, projectId, unitIds, patch.translate);
   });
+  return { changed: unitIds.length, skipped: stale.size };
 }
 
 /** patchLines for one line of any project, by id (a line's pane and menu). */

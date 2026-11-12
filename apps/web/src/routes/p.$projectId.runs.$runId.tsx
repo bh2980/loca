@@ -368,13 +368,13 @@ function RunDetail() {
         <HeaderActions>
           {data.status === 'running' && <Button onClick={() => control.mutate('pause')}><Pause /> 일시정지</Button>}
           {data.status === 'paused' && <Button variant={data.limits?.hit ? 'outline' : 'default'} onClick={() => control.mutate('resume')}><Play /> 재개</Button>}
-          {data.status === 'completed' && (totals.failed ?? 0) > 0 && <ContinueRun runId={runId} failed={totals.failed ?? 0} paused={false} />}
+          {data.status === 'completed' && (totals.failed ?? 0) > 0 && <ContinueRun runId={runId} failed={totals.failed ?? 0} paused={false} limits={data.limits ?? undefined} />}
           {(active || data.status === 'paused') && <ActionBar aria-label="실행 동작" items={[
             ...(active ? [{ id: 'cancel', label: '실행 취소', icon: <CircleStop />, destructive: true, onSelect: () => setCancelOpen(true) }] : []),
             ...(data.status === 'paused' ? [{ id: 'continue', label: '모델 바꿔 재개', icon: <Play />, onSelect: () => setContinueOpen(true) }] : []),
           ]} />}
         </HeaderActions>
-        {data.status === 'paused' && <ContinueRun runId={runId} failed={totals.failed ?? 0} paused hideTrigger open={continueOpen} onOpenChange={setContinueOpen} />}
+        {data.status === 'paused' && <ContinueRun runId={runId} failed={totals.failed ?? 0} paused limits={data.limits ?? undefined} hideTrigger open={continueOpen} onOpenChange={setContinueOpen} />}
         {active && stop}
         <StatusBarItem><RunStatusBadge status={data.status} /></StatusBarItem>
         {/* Only a filter (a state or node picked elsewhere) earns a bar: it says how many it left and takes it off. The run's count is on the tab. */}

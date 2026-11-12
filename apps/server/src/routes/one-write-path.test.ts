@@ -5,7 +5,7 @@ import { Hono } from 'hono';
 import { and, eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import { importFileSchema, lineChangeSchema, workflowDefinitionSchema, type ExitAction } from '@tw/shared';
-import type { Env } from '../context.ts';
+import { onError, type Env } from '../context.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { createRun } from '../engine/run-create.ts';
@@ -42,7 +42,7 @@ function setup(mode: 'ask' | 'bypass' = 'bypass', db = openDatabase(':memory:'))
   // Deleting is off for the agent until a person switches it on; here the write paths are under test.
   db.update(s.projects).set({ agentSettings: { ...project.agentSettings, permissions: { script: { delete: true }, scenes: { delete: true }, characters: { delete: true }, relationships: { delete: true } } } }).where(eq(s.projects.id, projectId)).run();
   const chat = db.insert(s.chatSessions).values({ projectId, title: 't', permissionMode: mode }).returning().get();
-  const app = new Hono<Env>()
+  const app = new Hono<Env>().onError(onError)
     .use(async (c, next) => {
       c.set('deps', { db } as never);
       await next();
@@ -52,7 +52,8 @@ function setup(mode: 'ask' | 'bypass' = 'bypass', db = openDatabase(':memory:'))
   const request = async (method: string, url: string, body?: unknown) => {
     const response = await app.request(url, { method, headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
     const text = await response.text();
-    return { status: response.status, text, body: (response.ok ? JSON.parse(text) : {}) as Record<string, any> };
+    // A refusal answers `{ error }` (context.ts, onError): `text` is what it says.
+    return { status: response.status, text: response.ok ? text : String((JSON.parse(text) as { error?: unknown }).error ?? text), body: (response.ok ? JSON.parse(text) : {}) as Record<string, any> };
   };
   /** The app: a request to one of the project's routes. */
   const send = (method: string, url: string, body?: unknown) => request(method, `/projects/${projectId}${url}`, body);
@@ -222,6 +223,44 @@ describe('a delete is undone by one persisted record', () => {
     }
   });
 
+  it('an edit of the dialogue graph an agent made is taken back by its proposal\'s 되돌리기, through the same record', async () => {
+    const ctx = setup();
+    const { db, tool, unit, projectId, chat } = ctx;
+    const ways = () => db.select().from(s.graphEdges).where(eq(s.graphEdges.projectId, projectId)).all().map((edge) => `${edge.fromId}>${edge.toId}:${edge.label ?? ''}:${edge.origin}`).sort();
+    const nodes = () => db.select({ id: s.graphNodes.id }).from(s.graphNodes).where(eq(s.graphNodes.projectId, projectId)).all().map((node) => node.id).sort();
+    const lines = () => db.select({ key: s.units.key }).from(s.units).where(eq(s.units.projectId, projectId)).all().map((line) => line.key).sort();
+    const before = { ways: ways(), nodes: nodes(), lines: lines() };
+    const undone = async (change: Awaited<ReturnType<typeof tool>>) => {
+      expect(db.select().from(s.proposals).where(eq(s.proposals.id, change.proposalId!)).get()!.undo).toEqual({ calls: [{ tool: 'restore_deleted', input: { kind: 'script', id: change.result!.undoId } }] });
+      expect(await undoChanges(db, chat.id, [change.proposalId!])).toEqual([{ id: change.proposalId, ok: true }]);
+      expect({ ways: ways(), nodes: nodes(), lines: lines() }).toEqual(before);
+    };
+
+    // A line drawn, and one taken away.
+    const linked = await tool('link_lines', { from: 'c', to: 'd', action: 'link', label: '이어서' });
+    expect(ways()).toHaveLength(before.ways.length + 1);
+    await undone(linked);
+    const unlinked = await tool('link_lines', { from: 'b', to: 'c', action: 'unlink' });
+    expect(ways()).toHaveLength(before.ways.length - 1);
+    await undone(unlinked);
+
+    // A line added after another: the new line, its node and the rewired way all go back.
+    const created = await tool('create_unit', { after: 'c', key: 'c2', source: 'A new line.' });
+    expect(unit('c2')).toBeDefined();
+    expect(nodes()).toHaveLength(before.nodes.length + 1);
+    await undone(created);
+
+    // Nodes linked in script order.
+    const ordered = await tool('link_in_order', { lines: ['c', 'd'] });
+    expect(ordered.result).toMatchObject({ ok: true, linked: 1 });
+    await undone(ordered);
+
+    // Nothing changed (the line is already there): nothing to take back, and the proposal says so.
+    const again = await tool('link_lines', { from: 'a', to: 'b', action: 'link' });
+    expect(db.select().from(s.proposals).where(eq(s.proposals.id, again.proposalId!)).get()!.undo).toEqual({ none: '바뀐 것이 없어 되돌릴 것이 없습니다' });
+    expect(db.select().from(s.undoRecords).all()).toEqual([]);
+  });
+
   it('keeps the record across a restart of the server', async () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'loca-undo-'));
     try {
@@ -347,8 +386,7 @@ describe('a write made from a view of a line carries its rev', () => {
 
     // The editor, from the old view.
     const editor = await line('POST', `${unit('a').id}/save`, { text: '다른 번역', rev: read });
-    expect(editor.status).toBe(409);
-    expect(JSON.parse(editor.text)).toEqual({ error: LINE_CHANGED });
+    expect([editor.status, editor.text]).toEqual([409, LINE_CHANGED]);
     // A batch, from the old view: the line is left out as a conflict, with the same words.
     expect(await tool('propose_changes', { changes: [{ key: 'a', rev: read, translation: '다른 번역' }] })).toMatchObject({ ok: false, error: expect.stringContaining(LINE_CHANGED), batch: { conflicts: [{ key: 'a', reason: LINE_CHANGED }] } });
     // The suggestion, accepted after the change: refused, the person's text stays.
@@ -359,6 +397,34 @@ describe('a write made from a view of a line carries its rev', () => {
     const again = await tool('decide_suggestion', { unitId: unit('a').id, candidateId, decision: 'apply' });
     expect(await decideProposal(db, again.proposalId!, true, 'person')).toMatchObject({ status: 'accepted' });
     expect(unit('a').translation).toBe('AI 번역');
+  });
+
+  it('a bulk change made from picks skips the lines changed since they were picked, and says how many', async () => {
+    const { db, send, line, unit, projectId } = setup();
+    const status = (kind: 'normal' | 'final') => db.select().from(s.statuses).where(and(eq(s.statuses.projectId, projectId), eq(s.statuses.kind, kind))).all()[0]!;
+    for (const key of ['a', 'b', 'c']) await line('POST', `${unit(key).id}/save`, { text: `${key} 번역` });
+    // The picks, as the bulk bar holds them: lines past the page come with their rev (the bar's own question, and a scene picked whole).
+    const meta = (await send('POST', '/units/meta', { ids: ['a', 'b', 'c'].map((key) => unit(key).id) })).body.rows as { id: string; rev: number }[];
+    const revs = Object.fromEntries(meta.map((row) => [row.id, row.rev]));
+    expect(revs).toEqual(Object.fromEntries(['a', 'b', 'c'].map((key) => [unit(key).id, unit(key).updatedAt.getTime()])));
+    const matched = (await send('POST', '/units/matches', { filter: { keys: ['a'] } })).body.rows as { id: string; rev: number }[];
+    expect(matched).toMatchObject([{ id: unit('a').id, rev: revs[unit('a').id] }]);
+
+    // Meanwhile line b changes (a run finished it, another window saved it).
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    await line('POST', `${unit('b').id}/save`, { text: '그사이 바뀐 번역', statusId: status('normal').id });
+    const before = unit('b');
+
+    const bulk = await send('PATCH', '/units', { unitIds: Object.keys(revs), statusId: status('final').id, revs });
+    expect([bulk.status, bulk.body]).toEqual([200, { ok: true, changed: 2, skipped: 1 }]);
+    expect([unit('a').statusId, unit('c').statusId]).toEqual([status('final').id, status('final').id]);
+    expect(unit('b')).toMatchObject({ statusId: before.statusId, translation: '그사이 바뀐 번역', updatedAt: before.updatedAt });
+
+    // 확인함 is a decision about the line as it was seen, too: with every pick changed since, nothing is written.
+    const checked = await send('PATCH', '/units', { unitIds: Object.keys(revs), checked: true, revs });
+    expect(checked.body).toEqual({ ok: true, changed: 0, skipped: 3 });
+    // Without revs (not made from a view of the lines) every line changes, as before.
+    expect((await send('PATCH', '/units', { unitIds: Object.keys(revs), statusId: status('normal').id })).body).toEqual({ ok: true, changed: 3, skipped: 0 });
   });
 });
 

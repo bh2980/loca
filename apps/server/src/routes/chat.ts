@@ -4,7 +4,7 @@ import { UI_MESSAGE_STREAM_HEADERS, type UIMessage } from 'ai';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { agentSettingsSchema, chatChipSchema, ATTACH_KINDS, ATTACH_PAGE, modelChoiceSchema, savedPromptsSchema, PERMISSION_MODES, type ModelChoice } from '@tw/shared';
-import { badRequest, found, validate, type Env } from '../context.ts';
+import { found, validate, type Env } from '../context.ts';
 import * as s from '../db/schema.ts';
 import { attachTurn, steerable, turnStartedAt } from '../services/chat-turns.ts';
 import { dequeueSteer, enqueueSteer, stopWithQueued } from '../services/chat-interject.ts';
@@ -206,20 +206,10 @@ export const chatRoutes = new Hono<Env>()
     const { db } = c.var.deps;
     const session = found(db.select().from(s.chatSessions).where(eq(s.chatSessions.id, c.req.param('sessionId'))).get(), '대화');
     const body = c.req.valid('json');
-    try {
-      return await runChatTurn(c.var.deps, session, { incoming: body.message as UIMessage | undefined, trigger: body.trigger, view: body.view ? describeView(body.view) : null });
-    } catch (error) {
-      badRequest(error instanceof Error ? error.message : String(error));
-    }
+    return runChatTurn(c.var.deps, session, { incoming: body.message as UIMessage | undefined, trigger: body.trigger, view: body.view ? describeView(body.view) : null });
   })
   // /compact: answers once the summary is stored; closing the request (취소) stops the model call and stores nothing.
-  .post('/chat/:sessionId/compact', async (c) => {
-    try {
-      return c.json(await compactChat(c.var.deps, c.req.param('sessionId'), c.req.raw.signal));
-    } catch (error) {
-      badRequest(error instanceof Error ? error.message : String(error));
-    }
-  })
+  .post('/chat/:sessionId/compact', async (c) => c.json(await compactChat(c.var.deps, c.req.param('sessionId'), c.req.raw.signal)))
   // The running turn's reply from its start, for a window that is not streaming it (a reload, another
   // window, a turn the server started after the last proposal was decided). 204 when none is running.
   .get('/chat/:sessionId/stream', (c) => {

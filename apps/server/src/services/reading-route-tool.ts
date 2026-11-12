@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { findReadingRouteOutputSchema, type FindReadingRouteInput, type FindReadingRouteOutput } from '@tw/shared';
-import { HTTPException } from 'hono/http-exception';
+import { isRefusal } from '../refusal.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { projectReadingRoute } from './reading-route.ts';
@@ -129,7 +129,7 @@ export function findReadingRoute(db: Db, projectId: string, input: FindReadingRo
   try {
     route = projectReadingRoute(db, projectId, { start: start.nodeId, end: end.nodeId });
   } catch (error) {
-    if (error instanceof HTTPException) return { ok: false, error: error.message };
+    if (isRefusal(error)) return { ok: false, error: error.message };
     throw error;
   }
   if (route.status !== 'found') return { ok: false, error: '선택한 구간을 하나의 이야기로 연결할 수 없습니다. 연결이 없거나 함께 실행되는 갈래가 끝 대사에 합류하지 않습니다.' };

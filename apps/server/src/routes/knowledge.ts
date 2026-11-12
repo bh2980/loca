@@ -112,13 +112,7 @@ export const knowledgeRoutes = new Hono<Env>()
   )
   .delete('/relationships/:id', (c) => c.json(deleteItems(c.var.deps.db, c.req.param('projectId')!, 'relationships', [c.req.param('id')])))
   /** Draws a line between two events or takes one away, as link_events does (by a person); says what the pair had before, for ⌘/Ctrl+Z. */
-  .post('/event-links', validate('json', z.object({ fromId: z.string().min(1), toId: z.string().min(1), action: z.enum(['link', 'unlink']) })), (c) => {
-    try {
-      return c.json(linkEvents(c.var.deps.db, c.req.param('projectId')!, { ...c.req.valid('json'), origin: 'human' }));
-    } catch (error) {
-      return badRequest((error as Error).message);
-    }
-  })
+  .post('/event-links', validate('json', z.object({ fromId: z.string().min(1), toId: z.string().min(1), action: z.enum(['link', 'unlink']) })), (c) => c.json(linkEvents(c.var.deps.db, c.req.param('projectId')!, { ...c.req.valid('json'), origin: 'human' })))
   /** Puts a pair's correction back as it was (⌘/Ctrl+Z, ⌘/Ctrl+Shift+Z). */
   .put('/event-links', validate('json', z.object({ fromId: z.string().min(1), toId: z.string().min(1), kind: z.enum(EVENT_LINK_KINDS).nullable() })), (c) => {
     if (!setEventLink(c.var.deps.db, c.req.param('projectId')!, { ...c.req.valid('json'), origin: 'human' })) badRequest('같은 프로젝트의 서로 다른 두 사건만 이을 수 있습니다.');

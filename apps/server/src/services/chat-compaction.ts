@@ -1,4 +1,5 @@
 import type { UIMessage } from 'ai';
+import { badRequest } from '../refusal.ts';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { estimateTokens, limitsFor, runCardOf, runEndOf } from '@tw/shared';
@@ -126,14 +127,14 @@ export const compactionSettled = (sessionId: string): Promise<void> => compactin
  */
 export function compactNow(input: { db: Db; sessionId: string; target: ai.ModelTarget; signal?: AbortSignal }): Promise<Compaction> {
   const { db, sessionId, target } = input;
-  if (compacting.has(sessionId)) throw new Error('이 대화는 이미 압축하는 중입니다.');
+  if (compacting.has(sessionId)) badRequest('이 대화는 이미 압축하는 중입니다.');
   const work = (async () => {
     const chat = db.select().from(s.chatSessions).where(eq(s.chatSessions.id, sessionId)).get();
-    if (!chat) throw new Error('대화가 없습니다.');
+    if (!chat) badRequest('대화가 없습니다.');
     const record = chat.messages as UIMessage[];
     const stored = chat.compaction && chat.compaction.upTo <= record.length ? chat.compaction : null;
     const from = stored?.upTo ?? 0;
-    if (record.length <= from) throw new Error(record.length ? '마지막 압축 뒤로 나눈 대화가 없습니다.' : '압축할 대화가 없습니다.');
+    if (record.length <= from) badRequest(record.length ? '마지막 압축 뒤로 나눈 대화가 없습니다.' : '압축할 대화가 없습니다.');
     const summary = await summarize(db, chat, target, chatWindow(db, target.connectionId, target.model), stored?.summary ?? null, record.slice(from), input.signal);
     // Messages that came in meanwhile (a run card) stay after the summary: it covers what was read above.
     const compaction = { upTo: record.length, summary, at: Date.now() };

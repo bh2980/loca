@@ -105,4 +105,5 @@ loca graph order --scene <장면...> --line <키...>   # 대본 순서로 잇기
 - 게임 데이터가 가진 분기(선택지·조건)는 지어내지 않습니다. 게임 데이터에서 다시 가져와야 하면 `loca-import-format`.
 - 대사를 지우는 도구는 `delete_lines` 하나입니다(대본 목록의 줄이든 그래프의 줄이든 키로). 지운 대사는 자료의 근거에서도 빠집니다. 삭제라서 자동 검토 모드에서도 항상 묻습니다.
 - 지운 것은 되살릴 수 있습니다. `delete_lines`·`delete_group`·`delete_items`의 결과에 `undoId`가 오고, 그 제안을 되돌리면(`loca proposals undo <id>`, 또는 사람이 앱에서 되돌리기) 대사와 거기 딸린 번역·후보·태그·이력·그래프 노드와 선, 근거까지 그대로 돌아옵니다. 직접 부를 때는 `loca call restore_deleted '{"kind":"script","id":"<undoId>"}'`(`kind`: 대사는 `script`, 묶음은 `scenes`, `delete_items`는 지울 때의 kind). 한 번만 되고 30일 동안 보관하며, 그사이 프로젝트가 바뀌어(묶음·상태 삭제, 같은 키 재사용) 그대로 되살릴 수 없으면 통째로 거절됩니다.
+- 그래프 편집도 같은 방식으로 되돌립니다. 대사 추가(`create_unit`)와 선 잇기·끊기(`loca graph link`·`unlink`·`order`)의 결과에도 `undoId`가 오고, 그 제안을 되돌리면(`loca proposals undo <id>`) 만든 대사·노드·선은 사라지고 바뀐 연결은 전과 같아집니다. 바뀐 것이 없었으면(이미 이어진 선) 되돌릴 것도 없습니다.
 - 장면 설명(AI 번역 노드가 장면 문맥으로 받음)은 `update_group`의 `description`으로 씁니다(쓰는 법은 `loca-knowledge`).

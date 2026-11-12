@@ -117,3 +117,11 @@ it('JSON examples for `loca call` fit the tool\'s input schema', () => {
   // The pattern still finds the examples (a rewrite of the skills' style would silently check nothing).
   expect(checked).toBeGreaterThan(10);
 });
+
+it('every command that starts or goes on with a run takes the run\'s caps by the same flags', () => {
+  const runs = program.commands.find((command) => command.name() === 'runs')!;
+  for (const name of ['start', 'resume', 'continue']) {
+    const flags = flagsOf(runs.commands.find((command) => command.name() === name)!);
+    expect([name, flags.has('--max-calls'), flags.has('--max-input-tokens')]).toEqual([name, true, true]);
+  }
+});

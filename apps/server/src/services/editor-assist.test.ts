@@ -4,7 +4,7 @@ import { importFileSchema } from '@tw/shared';
 import type * as ai from '@tw/ai';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { CompleteRefused } from './editor-complete.ts';
+import { Refusal } from '../refusal.ts';
 import { assistLine } from './editor-assist.ts';
 import { importProject } from './importer.ts';
 import { memoryStore } from './secrets.ts';
@@ -35,7 +35,7 @@ const fake = (text: string, seen: { system?: string; prompt?: string } = {}, cha
 describe('the editor AI assist', () => {
   it('is refused without a model, and refining needs a draft', async () => {
     const none = setup(false);
-    await expect(assistLine(none.db, memoryStore(), none.unit.id, { mode: 'translate', draft: '' }, undefined, fake('x'))).rejects.toBeInstanceOf(CompleteRefused);
+    await expect(assistLine(none.db, memoryStore(), none.unit.id, { mode: 'translate', draft: '' }, undefined, fake('x'))).rejects.toBeInstanceOf(Refusal);
     const { db, unit } = setup();
     await expect(assistLine(db, memoryStore(), unit.id, { mode: 'refine', draft: '  ' }, undefined, fake('x'))).rejects.toThrow('다듬을 번역이 없습니다');
   });

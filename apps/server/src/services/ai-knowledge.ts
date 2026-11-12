@@ -3,7 +3,8 @@ import { AGE_BANDS, aiStatus, CHARACTER_ROLES, DOCUMENT_KINDS, GENDERS, isSpecia
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { markForReview } from './knowledge-tags.ts';
-import { confirmEnds } from './knowledge-save.ts';
+import { saveRelationshipItem, setRelationshipChanges } from './knowledge-save.ts';
+import type { Saver } from './status-by.ts';
 import { clampConfidence, cleanListener, setAiListener } from './listeners.ts';
 import { knownListener } from './speech.ts';
 import { upsertAiTerm } from './terms.ts';
@@ -15,6 +16,12 @@ import { upsertAiTerm } from './terms.ts';
  * candidates), stored text is never rewritten, and what an AI result adds to a stored item (new facts
  * of a person, new changes of a relationship) is appended whatever its origin. Everything runs in the
  * caller's transaction.
+ *
+ * New relationships and a relationship's new changes are written by the saves every surface uses
+ * (knowledge-save.ts). The rest writes its own rows because an AI result's rules are not a save's: a new
+ * person is matched to the cast by canonicalNames (a save refuses a name in use) and adds no glossary
+ * candidates for its names, and what is added to a stored item leaves who decided it and who wrote it as
+ * they are (a save makes both the saver's).
  */
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 export interface AiWrite {
@@ -30,6 +37,8 @@ const same = (a: string, b: string) => lower(a) === lower(b);
 const namesOf = (c: { name: string; aliases: string[] }) => [c.name, ...c.aliases];
 const pick = <T extends string>(values: readonly T[], value: unknown, fallback: T): T => (values.includes(value as T) ? (value as T) : fallback);
 const draft = (write: AiWrite) => ({ status: aiStatus(write.autoConfirm), statusBy: 'ai' as const, origin: 'ai' as const });
+/** An AI result's saver: AI wrote it and AI set its status. */
+const AI: Saver = { origin: 'ai', statusBy: 'ai' };
 const strings = (value: unknown) => (Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string' && entry.trim() !== '').map((entry) => entry.trim()) : []);
 
 /** Speaker → listener pairs covering this share of dialogue lines are "main pairs": their rules wait for a person's look. */
@@ -327,10 +336,13 @@ export function aiSaveRelationships(tx: Tx, write: AiWrite, items: AiRelationshi
     }
     const pair = rels.filter((rel) => rel.fromId === fromId && rel.toId === toId);
     if (!pair.length) {
-      const made = tx.insert(s.relationships).values({ projectId: write.projectId, fromId, toId, kind: item.kind.trim(), description: item.description ?? '', mutual: item.mutual === true, changes, evidence, ...draft(write) }).returning().get();
-      rels.push(made);
-      // The rule of every relationship save: one that lands confirmed confirms its people (an AI's, decided by AI).
-      confirmEnds(tx, write.projectId, [made.id], { origin: 'ai', statusBy: 'ai' });
+      // A new relationship is made by the one relationship save, whose rules hold for an AI's too (its ends are this project's people; landing confirmed, it confirms them).
+      const made = saveRelationshipItem(tx, write.projectId, { fromId, toId, kind: item.kind.trim(), description: item.description ?? '', mutual: item.mutual === true, changes, evidence, status: draft(write).status }, AI);
+      if (!made.ok) {
+        counts.unresolved.push(`${item.from} → ${item.to}: ${made.error}`);
+        continue;
+      }
+      rels.push(tx.select().from(s.relationships).where(eq(s.relationships.id, made.id)).get()!);
       counts.added++;
       continue;
     }
@@ -338,7 +350,7 @@ export function aiSaveRelationships(tx: Tx, write: AiWrite, items: AiRelationshi
     const target = pair.find((rel) => rel.status !== 'rejected');
     const fresh = changes.filter((change, index) => changes.findIndex((other) => other.at === change.at) === index && !pair.some((rel) => rel.changes.some((known) => known.at === change.at)));
     if (!target || !fresh.length) continue;
-    tx.update(s.relationships).set({ changes: [...target.changes, ...fresh], evidence: union(target.evidence, fresh.map((change) => change.at)) }).where(eq(s.relationships.id, target.id)).run();
+    setRelationshipChanges(tx, write.projectId, target.id, [...target.changes, ...fresh], union(target.evidence, fresh.map((change) => change.at)));
     target.changes = [...target.changes, ...fresh];
     counts.changed++;
   }
@@ -381,7 +393,11 @@ export function aiSaveUnresolvedPairs(tx: Tx, write: AiWrite, items: AiUnresolve
     }
     seen.add(key);
     const reason = item.reason?.trim() || '이유를 적지 않았습니다';
-    const row = tx.insert(s.relationships).values({ projectId: write.projectId, fromId: a, toId: b, kind: UNRESOLVED_RELATIONSHIP_KIND, description: reason, mutual: true, status: 'candidate', statusBy: 'ai', origin: 'ai' }).returning({ id: s.relationships.id }).get();
+    const row = saveRelationshipItem(tx, write.projectId, { fromId: a, toId: b, kind: UNRESOLVED_RELATIONSHIP_KIND, description: reason, mutual: true, status: 'candidate' }, AI);
+    if (!row.ok) {
+      counts.dropped.push(`${label} (${row.error})`);
+      continue;
+    }
     markForReview(tx, write.projectId, 'relationships', row.id, [`${UNRESOLVED_RELATIONSHIP_KIND}: ${reason}`]);
     counts.added++;
   }
